@@ -319,7 +319,7 @@ async def patch_agent(
     return _to_agent_out(updated)
 
 
-@agent_router.delete("/{agent_id}", status_code=status.HTTP_204_NO_CONTENT, response_class=Response)
+@agent_router.delete("/{agent_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_agent(
     agent_id: uuid.UUID = Path(...),
     if_match: str = Header(..., alias="If-Match"),
@@ -442,7 +442,6 @@ async def patch_mcp_binding(
 @agent_router.delete(
     "/{agent_id}/mcp/{binding_id}",
     status_code=status.HTTP_204_NO_CONTENT,
-response_class=Response,
 )
 async def delete_mcp_binding(
     agent_id: uuid.UUID = Path(...),

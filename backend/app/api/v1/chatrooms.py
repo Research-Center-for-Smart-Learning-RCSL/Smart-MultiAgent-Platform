@@ -249,7 +249,6 @@ async def patch_chatroom(
 
 @chatroom_router.delete(
     "/{chatroom_id}", status_code=status.HTTP_204_NO_CONTENT,
-response_class=Response,
 )
 async def delete_chatroom(
     chatroom_id: uuid.UUID = Path(...),
@@ -295,7 +294,6 @@ async def list_chatroom_agents(
 
 @chatroom_router.post(
     "/{chatroom_id}/agents", status_code=status.HTTP_204_NO_CONTENT,
-response_class=Response,
 )
 async def add_chatroom_agent(
     body: AgentRef,
@@ -321,7 +319,6 @@ async def add_chatroom_agent(
 @chatroom_router.delete(
     "/{chatroom_id}/agents/{agent_id}",
     status_code=status.HTTP_204_NO_CONTENT,
-response_class=Response,
 )
 async def remove_chatroom_agent(
     chatroom_id: uuid.UUID = Path(...),

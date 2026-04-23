@@ -240,7 +240,7 @@ async def read_group(
     )
 
 
-@group_router.patch("/{group_id}", status_code=status.HTTP_204_NO_CONTENT, response_class=Response)
+@group_router.patch("/{group_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def rename_group(
     group_id: uuid.UUID,
     payload: GroupPatchIn,
@@ -255,7 +255,7 @@ async def rename_group(
     )
 
 
-@group_router.delete("/{group_id}", status_code=status.HTTP_204_NO_CONTENT, response_class=Response)
+@group_router.delete("/{group_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_group(
     group_id: uuid.UUID,
     _: None = Depends(_require_group_configure),
@@ -295,7 +295,6 @@ async def add_member(
 @group_router.patch(
     "/{group_id}/keys/{key_id}",
     status_code=status.HTTP_204_NO_CONTENT,
-response_class=Response,
 )
 async def patch_member(
     group_id: uuid.UUID,
@@ -334,7 +333,6 @@ async def patch_member(
 @group_router.delete(
     "/{group_id}/keys/{key_id}",
     status_code=status.HTTP_204_NO_CONTENT,
-response_class=Response,
 )
 async def remove_member(
     group_id: uuid.UUID,
@@ -355,7 +353,6 @@ async def remove_member(
 @group_router.post(
     "/{group_id}/reorder",
     status_code=status.HTTP_204_NO_CONTENT,
-response_class=Response,
 )
 async def reorder_members(
     group_id: uuid.UUID,
