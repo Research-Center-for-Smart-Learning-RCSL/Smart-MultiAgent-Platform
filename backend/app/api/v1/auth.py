@@ -192,7 +192,7 @@ async def refresh(
     return TokenPairOut(**pair.__dict__)
 
 
-@router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
+@router.post("/logout", status_code=status.HTTP_204_NO_CONTENT, response_class=Response)
 async def logout(
     body: LogoutIn,
     ctx: RequestContext = Depends(current_context),
@@ -222,7 +222,7 @@ async def request_password_reset(
     )
 
 
-@router.post("/reset-password", status_code=status.HTTP_204_NO_CONTENT)
+@router.post("/reset-password", status_code=status.HTTP_204_NO_CONTENT, response_class=Response)
 async def reset_password(
     body: PasswordResetIn,
     ctx: RequestContext = Depends(current_context),
@@ -237,7 +237,7 @@ async def reset_password(
     )
 
 
-@router.post("/change-password", status_code=status.HTTP_204_NO_CONTENT)
+@router.post("/change-password", status_code=status.HTTP_204_NO_CONTENT, response_class=Response)
 async def change_password(
     body: ChangePasswordIn,
     ctx: RequestContext = Depends(current_context),
@@ -254,7 +254,7 @@ async def change_password(
     )
 
 
-@router.post("/change-email", status_code=status.HTTP_204_NO_CONTENT)
+@router.post("/change-email", status_code=status.HTTP_204_NO_CONTENT, response_class=Response)
 async def change_email(
     body: ChangeEmailIn,
     ctx: RequestContext = Depends(current_context),
@@ -309,7 +309,7 @@ async def list_sessions(
     ]
 
 
-@router.delete("/sessions/{session_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/sessions/{session_id}", status_code=status.HTTP_204_NO_CONTENT, response_class=Response)
 async def revoke_session(
     session_id: uuid.UUID,
     ctx: RequestContext = Depends(current_context),

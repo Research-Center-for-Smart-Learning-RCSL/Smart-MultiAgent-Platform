@@ -13,7 +13,7 @@ from loguru import logger
 router = APIRouter(prefix="/api", tags=["csp"])
 
 
-@router.post("/csp-report", status_code=status.HTTP_204_NO_CONTENT)
+@router.post("/csp-report", status_code=status.HTTP_204_NO_CONTENT, response_class=Response)
 async def csp_report(request: Request) -> None:
     # Do not enforce JSON schema — browsers send slightly different shapes.
     try:

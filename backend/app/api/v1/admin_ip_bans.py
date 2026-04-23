@@ -89,7 +89,7 @@ async def add_ban(
     )
 
 
-@router.delete("/{ban_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{ban_id}", status_code=status.HTTP_204_NO_CONTENT, response_class=Response)
 async def remove_ban(
     ban_id: uuid.UUID = Path(...),
     admin: Principal = Depends(_require_admin),
