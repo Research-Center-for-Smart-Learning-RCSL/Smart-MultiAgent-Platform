@@ -1,0 +1,49 @@
+{
+  "tenancy": {
+    "orgs": {
+      "listTitle": "組織",
+      "createLabel": "新組織",
+      "namePlaceholder": "組織名稱",
+      "create": "建立",
+      "originalCreator": "原始建立者",
+      "delete": "刪除",
+      "members": "成員",
+      "transferOwnership": "轉移原始建立者"
+    },
+    "projects": {
+      "listTitle": "專案",
+      "createLabel": "新專案",
+      "namePlaceholder": "專案名稱",
+      "create": "建立",
+      "scope": "範圍",
+      "user": "個人",
+      "org": "組織",
+      "members": "成員"
+    },
+    "members": {
+      "title": "成員",
+      "inviteLabel": "以 Email 邀請",
+      "invite": "送出邀請",
+      "role": "角色",
+      "remove": "移除",
+      "promote": "升為擁有者",
+      "demote": "降為成員"
+    },
+    "invites": {
+      "inboxTitle": "邀請",
+      "accept": "接受",
+      "reject": "拒絕",
+      "empty": "沒有待處理的邀請。",
+      "unverifiedBlock": "接受邀請前請先驗證信箱。"
+    },
+    "transfer": {
+      "title": "轉移原始建立者",
+      "targetLabel": "目標擁有者 Email",
+      "initiate": "發起轉移",
+      "pending": "待確認的轉移",
+      "accept": "接受",
+      "cancel": "取消",
+      "none": "目前沒有待確認的轉移。"
+    }
+  }
+}

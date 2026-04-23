@@ -1,0 +1,67 @@
+{
+  "workflow": {
+    "list": {
+      "title": "Workflows",
+      "namePlaceholder": "Workflow name",
+      "create": "Create",
+      "name": "Name",
+      "version": "Version",
+      "created": "Created",
+      "runs": "Runs",
+      "delete": "Delete",
+      "empty": "No workflows yet.",
+      "loadError": "Failed to load workflows."
+    },
+    "editor": {
+      "backToList": "Workflows",
+      "unsaved": "Unsaved changes",
+      "undo": "Undo",
+      "redo": "Redo",
+      "validate": "Validate",
+      "save": "Save",
+      "dryRun": "Dry Run",
+      "errors": "error(s)",
+      "warnings": "warning(s)",
+      "nodeType": "Type",
+      "nodeConfig": "Config"
+    },
+    "runs": {
+      "title": "Workflow Runs",
+      "backToList": "Workflows",
+      "triggerManual": "Trigger Run",
+      "includeArchive": "Include archived",
+      "state": "State",
+      "trigger": "Trigger",
+      "started": "Started",
+      "ended": "Ended",
+      "inspect": "Inspect",
+      "archived": "archived",
+      "empty": "No runs yet."
+    },
+    "run": {
+      "title": "Run Inspector",
+      "backToRuns": "Runs",
+      "liveConnected": "Live connected",
+      "cancel": "Cancel Run",
+      "triggerType": "Trigger",
+      "started": "Started",
+      "ended": "Ended",
+      "steps": "Steps",
+      "nodeId": "Node",
+      "state": "State",
+      "error": "Error",
+      "noSteps": "No steps recorded."
+    },
+    "backstage": {
+      "title": "Backstage Panel",
+      "subtitle": "Trace, sub-agent tree, instruction chains, approval histories — Admin & Project Owner only.",
+      "selectRun": "Select a run",
+      "trace": "Execution Trace",
+      "noSteps": "No steps for this run.",
+      "subagentTree": "Sub-agent Tree",
+      "instructChains": "Instruction Chains",
+      "approvalHistory": "Approval History",
+      "noApprovals": "No approvals for this run."
+    }
+  }
+}

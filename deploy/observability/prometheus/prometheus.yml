@@ -1,0 +1,45 @@
+# Prometheus scrape configuration for SMAP.
+# Scrapes the /metrics endpoint exposed by backend-web (Nginx restricts
+# external access; Prometheus reaches it on the backend_net).
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: smap-backend
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["backend-web:8080"]
+        labels:
+          service: backend-web
+
+  - job_name: smap-worker
+    metrics_path: /healthz
+    static_configs:
+      - targets: ["backend-worker:8001"]
+        labels:
+          service: backend-worker
+
+  - job_name: postgres
+    static_configs:
+      - targets: ["postgres-exporter:9187"]
+
+  - job_name: redis
+    static_configs:
+      - targets: ["redis-exporter:9121"]
+
+  - job_name: minio
+    metrics_path: /minio/v2/metrics/cluster
+    static_configs:
+      - targets: ["minio:9000"]
+
+  - job_name: qdrant
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["qdrant:6333"]
+
+  - job_name: neo4j
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["neo4j:2004"]

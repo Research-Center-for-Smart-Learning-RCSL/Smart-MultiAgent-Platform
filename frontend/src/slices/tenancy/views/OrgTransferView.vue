@@ -1,0 +1,57 @@
+<script setup lang="ts">
+import { onMounted, ref } from 'vue'
+import { useRoute } from 'vue-router'
+import { orgsApi, type OriginalCreatorTransfer } from '../api/orgs'
+
+const route = useRoute()
+const pending = ref<OriginalCreatorTransfer | null>(null)
+const targetUserId = ref('')
+const error = ref<string | null>(null)
+
+function orgId(): string {
+  return route.params.id as string
+}
+
+async function load(): Promise<void> {
+  const { data } = await orgsApi.listTransfers(orgId())
+  pending.value = data.find((t) => t.state === 'pending') ?? null
+}
+
+async function initiate(): Promise<void> {
+  error.value = null
+  try {
+    await orgsApi.initiateTransfer(orgId(), targetUserId.value.trim())
+    targetUserId.value = ''
+    await load()
+  } catch {
+    error.value = 'generic'
+  }
+}
+
+async function cancel(): Promise<void> {
+  if (!pending.value) return
+  await orgsApi.cancelTransfer(orgId(), pending.value.id)
+  await load()
+}
+
+onMounted(load)
+</script>
+
+<template>
+  <main>
+    <h1>{{ $t('tenancy.transfer.title') }}</h1>
+    <div v-if="pending">
+      <p>{{ $t('tenancy.transfer.pending') }}: {{ pending.target_user_id }} ({{ pending.expires_at }})</p>
+      <button @click="cancel">{{ $t('tenancy.transfer.cancel') }}</button>
+    </div>
+    <template v-else>
+      <p>{{ $t('tenancy.transfer.none') }}</p>
+      <form @submit.prevent="initiate">
+        <label>{{ $t('tenancy.transfer.targetLabel') }}</label>
+        <input v-model="targetUserId" placeholder="target user id (uuid)" required />
+        <button type="submit">{{ $t('tenancy.transfer.initiate') }}</button>
+      </form>
+      <p v-if="error" class="error">{{ error }}</p>
+    </template>
+  </main>
+</template>

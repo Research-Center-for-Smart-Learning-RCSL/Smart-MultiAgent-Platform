@@ -1,0 +1,53 @@
+{
+  "identity": {
+    "register": {
+      "title": "Create account",
+      "email": "Email",
+      "password": "Password",
+      "submit": "Register",
+      "captcha": "Complete CAPTCHA",
+      "loginLink": "Already have an account? Log in"
+    },
+    "login": {
+      "title": "Log in",
+      "email": "Email",
+      "password": "Password",
+      "submit": "Log in",
+      "registerLink": "Create account",
+      "forgot": "Forgot password?"
+    },
+    "verifyEmail": {
+      "title": "Verify email",
+      "verifying": "Verifying…",
+      "success": "Email verified. You can now create organisations.",
+      "failure": "Verification failed. The link may have expired."
+    },
+    "passwordReset": {
+      "requestTitle": "Reset password",
+      "requestSubmit": "Send reset link",
+      "confirmTitle": "Choose new password",
+      "newPassword": "New password",
+      "confirmSubmit": "Update password"
+    },
+    "changePassword": {
+      "title": "Change password",
+      "current": "Current password",
+      "new": "New password",
+      "submit": "Change password"
+    },
+    "changeEmail": {
+      "title": "Change email",
+      "newEmail": "New email",
+      "password": "Current password",
+      "submit": "Change email"
+    },
+    "sessions": {
+      "title": "Active sessions",
+      "currentBadge": "(this device)",
+      "revoke": "Revoke"
+    },
+    "errors": {
+      "generic": "Something went wrong. Please try again."
+    }
+  }
+}

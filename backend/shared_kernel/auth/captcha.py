@@ -1,0 +1,78 @@
+"""CAPTCHA verification — pluggable provider (R19a.12).
+
+Supported providers:
+  * `hcaptcha`  — POSTs to https://api.hcaptcha.com/siteverify
+  * `turnstile` — POSTs to https://challenges.cloudflare.com/turnstile/v0/siteverify
+  * `off`       — bypass (dev/test only); never set in prod.
+
+Keys live in Vault KV `secret/smap/config/captcha`:
+  { provider: "hcaptcha", secret: "…", sitekey: "…", mode: "on" }
+
+SoC: this module has no knowledge of FastAPI. Handlers call `verify(token,
+remote_ip)` and handle the raised `CaptchaError`.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Final
+
+import httpx
+
+from shared_kernel.auth.clients import get_vault_client
+
+_KV_PATH: Final = "smap/config/captcha"
+_HCAPTCHA_URL: Final = "https://api.hcaptcha.com/siteverify"
+_TURNSTILE_URL: Final = "https://challenges.cloudflare.com/turnstile/v0/siteverify"
+
+
+class CaptchaError(ValueError):
+    """Raised when the CAPTCHA token is absent, malformed, or rejected."""
+
+
+@dataclass(frozen=True, slots=True)
+class _Config:
+    provider: str
+    secret: str
+    mode: str  # "on" | "off"
+
+
+def _load_config() -> _Config:
+    raw = get_vault_client().kv_get(_KV_PATH)
+    return _Config(
+        provider=str(raw.get("provider", "off")).lower(),
+        secret=str(raw.get("secret", "")),
+        mode=str(raw.get("mode", "on")).lower(),
+    )
+
+
+async def verify(token: str | None, *, remote_ip: str | None) -> None:
+    """Raise `CaptchaError` unless the token is valid.
+
+    In `mode=off` this returns immediately — intended for the Playwright test
+    stack and dev mode only.
+    """
+    cfg = _load_config()
+    if cfg.mode == "off":
+        return
+    if not token:
+        raise CaptchaError("missing CAPTCHA token")
+
+    url = _HCAPTCHA_URL if cfg.provider == "hcaptcha" else _TURNSTILE_URL
+    payload = {"secret": cfg.secret, "response": token}
+    if remote_ip:
+        payload["remoteip"] = remote_ip
+
+    async with httpx.AsyncClient(timeout=5.0) as client:
+        try:
+            resp = await client.post(url, data=payload)
+        except httpx.HTTPError as exc:
+            raise CaptchaError(f"CAPTCHA provider unreachable: {exc}") from exc
+    if resp.status_code != 200:
+        raise CaptchaError(f"CAPTCHA HTTP {resp.status_code}")
+    body = resp.json()
+    if not body.get("success"):
+        raise CaptchaError(f"CAPTCHA rejected: {body.get('error-codes') or 'unknown'}")
+
+
+__all__ = ["CaptchaError", "verify"]

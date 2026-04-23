@@ -1,0 +1,296 @@
+"""Unified invite flow (§22.2a, R6.09, R6.10, R6.11 guest-wrapping).
+
+The invite state machine:
+
+    pending ──accept──► accepted  (membership row inserted)
+            ──reject──► rejected
+            ──revoke──► revoked   (inviter or admin)
+            ──expire──► expired   (nightly worker)
+
+Invite token is hashed in `invites.token_hash`; the plaintext is emailed and
+never persisted. Acceptance requires the caller be logged in AND verified
+(R6.11 — unverified accounts cannot accept Guest/Org/Project invites).
+"""
+
+from __future__ import annotations
+
+import hashlib
+import uuid
+from collections.abc import Sequence
+from dataclasses import dataclass
+from datetime import timedelta
+
+import sqlalchemy as sa
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from contexts.notification.application.notification_service import NotificationService
+from contexts.notification.domain.models import NotificationKind
+from contexts.tenancy.domain.errors import (
+    InviteExpired,
+    InviteNotFound,
+    InviteNotForCaller,
+)
+from contexts.tenancy.domain.models import (
+    Invite,
+    InviteScope,
+    InviteState,
+    OrgMemberRole,
+    ProjectMemberRole,
+)
+from contexts.tenancy.infrastructure import tables as _t
+from contexts.tenancy.infrastructure.repositories import (
+    InviteRepository,
+    OrgMemberRepository,
+    ProjectMemberRepository,
+)
+from shared_kernel import audit
+from shared_kernel.auth.clients import now
+
+
+@dataclass(frozen=True, slots=True)
+class InviteCreated:
+    invite: Invite
+    plaintext_token: str
+
+
+class InviteService:
+    def __init__(self, db: AsyncSession) -> None:
+        self._db = db
+        self._invites = InviteRepository(db)
+        self._org_members = OrgMemberRepository(db)
+        self._project_members = ProjectMemberRepository(db)
+
+    async def create_org_invite(
+        self,
+        *,
+        org_id: uuid.UUID,
+        inviter_user_id: uuid.UUID,
+        invitee_email: str,
+        role: OrgMemberRole = OrgMemberRole.MEMBER,
+        actor_ip: str | None,
+        request_id: uuid.UUID | None = None,
+    ) -> InviteCreated:
+        token, invite = await self._invites.create(
+            scope_type=InviteScope.ORG,
+            scope_id=org_id,
+            role=role.value,
+            inviter_user_id=inviter_user_id,
+            invitee_email=invitee_email,
+            invitee_user_id=None,
+        )
+        await audit.emit(
+            self._db,
+            audit.AuditEvent(
+                action="org.member_invited",
+                actor_user_id=inviter_user_id,
+                actor_ip=actor_ip,
+                resource_type="org",
+                resource_id=org_id,
+                metadata={"invitee_email": invitee_email, "role": role.value},
+                request_id=request_id,
+            ),
+        )
+        await self._notify_invitee(invitee_email, invite.id, InviteScope.ORG, org_id)
+        return InviteCreated(invite=invite, plaintext_token=token)
+
+    async def create_project_invite(
+        self,
+        *,
+        project_id: uuid.UUID,
+        inviter_user_id: uuid.UUID,
+        invitee_email: str,
+        role: ProjectMemberRole = ProjectMemberRole.MEMBER,
+        actor_ip: str | None,
+        request_id: uuid.UUID | None = None,
+    ) -> InviteCreated:
+        token, invite = await self._invites.create(
+            scope_type=InviteScope.PROJECT,
+            scope_id=project_id,
+            role=role.value,
+            inviter_user_id=inviter_user_id,
+            invitee_email=invitee_email,
+            invitee_user_id=None,
+        )
+        await audit.emit(
+            self._db,
+            audit.AuditEvent(
+                action="project.member_invited",
+                actor_user_id=inviter_user_id,
+                actor_ip=actor_ip,
+                resource_type="project",
+                resource_id=project_id,
+                metadata={"invitee_email": invitee_email, "role": role.value},
+                request_id=request_id,
+            ),
+        )
+        await self._notify_invitee(invitee_email, invite.id, InviteScope.PROJECT, project_id)
+        return InviteCreated(invite=invite, plaintext_token=token)
+
+    async def _notify_invitee(
+        self,
+        invitee_email: str,
+        invite_id: uuid.UUID,
+        scope: InviteScope,
+        scope_id: uuid.UUID,
+    ) -> None:
+        # Look up invitee by email without crossing into the identity context's
+        # repository layer — raw query is intentional here.
+        row = (
+            await self._db.execute(
+                sa.text(
+                    "SELECT id FROM users WHERE email = :email AND deleted_at IS NULL"
+                ).bindparams(email=invitee_email)
+            )
+        ).first()
+        if row is None:
+            return
+        scope_label = "org" if scope is InviteScope.ORG else "project"
+        await NotificationService(self._db).send(
+            user_id=row[0],
+            kind=NotificationKind.INVITE_RECEIVED,
+            title=f"You have been invited to a {scope_label}",
+            metadata={"invite_id": str(invite_id), "scope": scope_label, "scope_id": str(scope_id)},
+        )
+
+    async def list_inbound(
+        self,
+        *,
+        caller_email: str,
+        caller_user_id: uuid.UUID,
+        states: Sequence[InviteState] | None = None,
+    ) -> Sequence[Invite]:
+        return await self._invites.list_for_user(
+            email=caller_email, user_id=caller_user_id, states=states,
+        )
+
+    async def scope_names(
+        self, invites: Sequence[Invite]
+    ) -> dict[tuple[str, uuid.UUID], str]:
+        """Batch-fetch org/project display names for a list of invites."""
+        import sqlalchemy as sa  # noqa: PLC0415 — kept local to avoid circular at module load
+
+        names: dict[tuple[str, uuid.UUID], str] = {}
+        org_ids = [i.scope_id for i in invites if i.scope_type is InviteScope.ORG]
+        proj_ids = [i.scope_id for i in invites if i.scope_type is InviteScope.PROJECT]
+        if org_ids:
+            rows = (
+                await self._db.execute(
+                    sa.select(_t.orgs.c.id, _t.orgs.c.name).where(
+                        _t.orgs.c.id.in_(org_ids)
+                    )
+                )
+            ).all()
+            for row in rows:
+                names[("org", row.id)] = row.name
+        if proj_ids:
+            rows = (
+                await self._db.execute(
+                    sa.select(_t.projects.c.id, _t.projects.c.name).where(
+                        _t.projects.c.id.in_(proj_ids)
+                    )
+                )
+            ).all()
+            for row in rows:
+                names[("project", row.id)] = row.name
+        return names
+
+    async def accept(
+        self,
+        *,
+        invite_id: uuid.UUID,
+        caller_email: str,
+        caller_user_id: uuid.UUID,
+        actor_ip: str | None,
+        request_id: uuid.UUID | None = None,
+    ) -> Invite:
+        invite = await self._invites.get(invite_id)
+        if invite is None:
+            raise InviteNotFound(str(invite_id))
+        if invite.invitee_email.lower() != caller_email.lower():
+            raise InviteNotForCaller(str(invite_id))
+        if invite.state is not InviteState.PENDING:
+            raise InviteNotFound(str(invite_id))
+        if invite.expires_at < now():
+            await self._invites.transition(
+                invite_id=invite_id, new_state=InviteState.EXPIRED,
+            )
+            raise InviteExpired(str(invite_id))
+
+        updated = await self._invites.transition(
+            invite_id=invite_id,
+            new_state=InviteState.ACCEPTED,
+            invitee_user_id=caller_user_id,
+        )
+        if updated is None:
+            raise InviteNotFound(str(invite_id))
+        # Create the actual membership row in the correct scope.
+        if invite.scope_type is InviteScope.ORG:
+            await self._org_members.add(
+                org_id=invite.scope_id,
+                user_id=caller_user_id,
+                role=OrgMemberRole(invite.role),
+                is_original_creator=False,
+            )
+            action = "org.member_added"
+        else:
+            await self._project_members.add(
+                project_id=invite.scope_id,
+                user_id=caller_user_id,
+                role=ProjectMemberRole(invite.role),
+            )
+            action = "project.member_added"
+        await audit.emit(
+            self._db,
+            audit.AuditEvent(
+                action=action,
+                actor_user_id=caller_user_id,
+                actor_ip=actor_ip,
+                resource_type=invite.scope_type.value,
+                resource_id=invite.scope_id,
+                metadata={"via_invite": str(invite_id)},
+                request_id=request_id,
+            ),
+        )
+        return updated
+
+    async def reject(
+        self,
+        *,
+        invite_id: uuid.UUID,
+        caller_email: str,
+        caller_user_id: uuid.UUID,
+        actor_ip: str | None,
+        request_id: uuid.UUID | None = None,
+    ) -> Invite:
+        invite = await self._invites.get(invite_id)
+        if invite is None:
+            raise InviteNotFound(str(invite_id))
+        if invite.invitee_email.lower() != caller_email.lower():
+            raise InviteNotForCaller(str(invite_id))
+        if invite.state is not InviteState.PENDING:
+            raise InviteNotFound(str(invite_id))
+        updated = await self._invites.transition(
+            invite_id=invite_id, new_state=InviteState.REJECTED,
+        )
+        if updated is None:
+            raise InviteNotFound(str(invite_id))
+        await audit.emit(
+            self._db,
+            audit.AuditEvent(
+                action=(
+                    "org.member_invite_rejected"
+                    if invite.scope_type is InviteScope.ORG
+                    else "project.member_invite_rejected"
+                ),
+                actor_user_id=caller_user_id,
+                actor_ip=actor_ip,
+                resource_type=invite.scope_type.value,
+                resource_id=invite.scope_id,
+                metadata={"invite_id": str(invite_id)},
+                request_id=request_id,
+            ),
+        )
+        return updated
+
+
+__all__ = ["InviteCreated", "InviteService"]

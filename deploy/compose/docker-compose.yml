@@ -1,0 +1,245 @@
+# Authoritative compose file per REQUIREMENTS.md §25.
+# Phase A: every §25 service is present with healthchecks, networks, volumes.
+# Phase B bootstraps Vault/DB/MinIO/Neo4j content inside this stack.
+# Phase J adds a parallel compose.test.yml for E2E.
+
+name: smap
+
+x-log-rotation: &log-rotation
+  driver: json-file
+  options:
+    max-size: "50m"
+    max-file: "5"
+
+networks:
+  frontend_net:
+    name: smap_frontend_net
+  backend_net:
+    name: smap_backend_net
+    internal: false
+  egress_net:
+    name: smap_egress_net
+    internal: false
+
+volumes:
+  postgres_data:
+  redis_data:
+  qdrant_data:
+  neo4j_data:
+  minio_data:
+  vault_data:
+  nginx_certs:
+
+services:
+  # ---------- Edge ----------
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: smap_nginx
+    depends_on:
+      backend-web:
+        condition: service_healthy
+      frontend:
+        condition: service_started
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      - nginx_certs:/etc/nginx/certs
+    # Dev bootstrap: generate a self-signed cert on first boot if none mounted.
+    # Operators replace the `nginx_certs` volume contents with real certs in
+    # prod (see deploy/compose/nginx/README.md).
+    command: >
+      sh -c "if [ ! -f /etc/nginx/certs/smap.crt ]; then
+               apk add --no-cache openssl >/dev/null &&
+               openssl req -x509 -newkey rsa:2048 -nodes -days 365
+                 -keyout /etc/nginx/certs/smap.key
+                 -out    /etc/nginx/certs/smap.crt
+                 -subj   '/CN=smap.local' &&
+               chmod 600 /etc/nginx/certs/smap.key;
+             fi &&
+             exec nginx -g 'daemon off;'"
+    networks: [frontend_net, backend_net]
+    logging: *log-rotation
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1/healthz"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+  # ---------- Frontend (dev server; prod bakes static assets into nginx) ----------
+  frontend:
+    image: node:20-alpine
+    container_name: smap_frontend
+    working_dir: /app
+    command: sh -c "corepack enable && pnpm install && pnpm --filter @smap/frontend run dev -- --host 0.0.0.0"
+    volumes:
+      - ../../:/app
+    networks: [frontend_net]
+    logging: *log-rotation
+
+  # ---------- Backend web ----------
+  backend-web:
+    build:
+      context: ../../backend
+      dockerfile: Dockerfile
+    container_name: smap_backend_web
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+    env_file:
+      - path: ../../.env
+        required: false
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      vault: { condition: service_started }
+    networks: [frontend_net, backend_net]
+    logging: *log-rotation
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys;sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/healthz').status==200 else 1)"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  # ---------- Backend worker (Arq) ----------
+  backend-worker:
+    build:
+      context: ../../backend
+      dockerfile: Dockerfile
+    container_name: smap_backend_worker
+    command: arq app.workers.main.WorkerSettings
+    env_file:
+      - path: ../../.env
+        required: false
+    depends_on:
+      redis: { condition: service_healthy }
+      postgres: { condition: service_healthy }
+    networks: [backend_net]
+    logging: *log-rotation
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys;sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8001/healthz').status==200 else 1)"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 20s
+
+  # ---------- Data services ----------
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: smap_postgres
+    environment:
+      POSTGRES_USER: smap
+      POSTGRES_PASSWORD: smap
+      POSTGRES_DB: smap
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./postgres/init:/docker-entrypoint-initdb.d:ro
+    networks: [backend_net]
+    logging: *log-rotation
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U smap -d smap"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: smap_redis
+    command:
+      - redis-server
+      - --appendonly
+      - "yes"
+      - --maxmemory
+      - "1800mb"
+      - --maxmemory-policy
+      - "allkeys-lru"
+    volumes:
+      - redis_data:/data
+    networks: [backend_net]
+    logging: *log-rotation
+    healthcheck:
+      test: ["CMD", "redis-cli", "PING"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  qdrant:
+    image: qdrant/qdrant:v1.12.4
+    container_name: smap_qdrant
+    volumes:
+      - qdrant_data:/qdrant/storage
+    networks: [backend_net]
+    logging: *log-rotation
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:6333/readyz"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  neo4j:
+    image: neo4j:5.24-community
+    container_name: smap_neo4j
+    environment:
+      NEO4J_AUTH: neo4j/neo4jneo4j
+      NEO4J_server_memory_heap_initial__size: "1G"
+      NEO4J_server_memory_heap_max__size: "2G"
+    volumes:
+      - neo4j_data:/data
+    networks: [backend_net]
+    logging: *log-rotation
+    healthcheck:
+      test: ["CMD-SHELL", "cypher-shell -u neo4j -p neo4jneo4j 'RETURN 1' || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+
+  minio:
+    image: minio/minio:RELEASE.2024-11-07T00-52-20Z
+    container_name: smap_minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    volumes:
+      - minio_data:/data
+    networks: [backend_net]
+    logging: *log-rotation
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  vault:
+    image: hashicorp/vault:1.18
+    container_name: smap_vault
+    cap_add: [IPC_LOCK]
+    environment:
+      VAULT_DEV_ROOT_TOKEN_ID: root
+      VAULT_DEV_LISTEN_ADDRESS: "0.0.0.0:8200"
+      VAULT_ADDR: http://0.0.0.0:8200
+    command: server -dev
+    volumes:
+      - vault_data:/vault/file
+    networks: [backend_net]
+    logging: *log-rotation
+
+  # ---------- MCP sandbox plane (Phase E populates policies) ----------
+  egress-proxy:
+    image: python:3.12-alpine
+    container_name: smap_egress_proxy
+    working_dir: /app
+    # Phase E replaces this with the real FastAPI egress proxy image.
+    command: python -c "import http.server; http.server.HTTPServer(('0.0.0.0',8080), http.server.BaseHTTPRequestHandler).serve_forever()"
+    networks: [backend_net, egress_net]
+    logging: *log-rotation
+
+  mcp-sandbox-supervisor:
+    image: docker:27-cli
+    container_name: smap_mcp_sandbox
+    # Phase E replaces with the real supervisor that spawns gVisor/runsc containers.
+    command: sh -c "echo 'mcp-sandbox-supervisor placeholder — replaced in Phase E'; sleep infinity"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks: [backend_net]
+    logging: *log-rotation

@@ -1,0 +1,95 @@
+"""Agents domain errors → RFC 7807 slugs."""
+
+from __future__ import annotations
+
+
+class AgentsError(Exception):
+    code: str = "agents/generic"
+
+
+class AgentNotFound(AgentsError):
+    code = "agents/not-found"
+
+
+class AgentNameTaken(AgentsError):
+    code = "agents/name-taken"
+
+
+class AgentVersionMismatch(AgentsError):
+    code = "agents/version-mismatch"
+
+
+class AgentCapExceeded(AgentsError):
+    """R9.01 — 1 000 agents per project."""
+
+    code = "agents/agent-cap-exceeded"
+
+
+class KeyGroupOutOfProject(AgentsError):
+    """Attached Key Group does not belong to the agent's project."""
+
+    code = "agents/key-group-out-of-project"
+
+
+class A2AForbidden(AgentsError):
+    """R9.17 — scope check failed."""
+
+    code = "agents/a2a-forbidden"
+
+
+class McpBindingNotFound(AgentsError):
+    code = "agents/mcp-binding-not-found"
+
+
+class McpTestFailed(AgentsError):
+    """Sandbox probe of an MCP server did not complete cleanly."""
+
+    code = "agents/mcp-test-failed"
+
+
+class McpEgressDenied(AgentsError):
+    """Egress Proxy rejected the outbound call (R12.04)."""
+
+    code = "mcp-egress-denied"
+
+
+class McpTimeout(AgentsError):
+    """Sandbox probe exceeded the per-call wall-clock budget."""
+
+    code = "mcp-timeout"
+
+
+class CapabilityMismatch(AgentsError):
+    """Tool invocation asked for a capability the key/group cannot serve."""
+
+    code = "capability-mismatch"
+
+
+class SearchKeyNotConfigured(AgentsError):
+    """R12.10 — no active search key attached to the project."""
+
+    code = "tool_unavailable/search_key_not_configured"
+
+
+class SearchQuotaExceeded(AgentsError):
+    """R12.14 — per-project token bucket exhausted."""
+
+    code = "tool_quota_exceeded/search"
+
+
+__all__ = [
+    "A2AForbidden",
+    "AgentCapExceeded",
+    "AgentNameTaken",
+    "AgentNotFound",
+    "AgentVersionMismatch",
+    "AgentsError",
+    "CapabilityMismatch",
+    "KeyGroupOutOfProject",
+    "McpBindingNotFound",
+    "McpEgressDenied",
+    "McpTestFailed",
+    "McpTimeout",
+    "SearchKeyNotConfigured",
+    "SearchQuotaExceeded",
+]

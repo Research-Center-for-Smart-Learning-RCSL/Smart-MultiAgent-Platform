@@ -1,0 +1,43 @@
+# Local-dev overrides: source-mount + reload, non-prod log level.
+services:
+  backend-web:
+    command: uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+    environment:
+      SMAP_APP_ENV: dev
+      SMAP_LOG_LEVEL: info
+    volumes:
+      - ../../backend:/app
+    ports:
+      - "8000:8000"
+
+  backend-worker:
+    environment:
+      SMAP_APP_ENV: dev
+    volumes:
+      - ../../backend:/app
+
+  minio:
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+
+  postgres:
+    ports:
+      - "5432:5432"
+
+  redis:
+    ports:
+      - "6379:6379"
+
+  vault:
+    ports:
+      - "8200:8200"
+
+  qdrant:
+    ports:
+      - "6333:6333"
+
+  neo4j:
+    ports:
+      - "7474:7474"
+      - "7687:7687"

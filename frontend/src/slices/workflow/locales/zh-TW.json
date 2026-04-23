@@ -1,0 +1,67 @@
+{
+  "workflow": {
+    "list": {
+      "title": "工作流程",
+      "namePlaceholder": "工作流程名稱",
+      "create": "建立",
+      "name": "名稱",
+      "version": "版本",
+      "created": "建立時間",
+      "runs": "執行紀錄",
+      "delete": "刪除",
+      "empty": "尚無工作流程。",
+      "loadError": "載入工作流程失敗。"
+    },
+    "editor": {
+      "backToList": "工作流程",
+      "unsaved": "未儲存的變更",
+      "undo": "復原",
+      "redo": "重做",
+      "validate": "驗證",
+      "save": "儲存",
+      "dryRun": "模擬執行",
+      "errors": "個錯誤",
+      "warnings": "個警告",
+      "nodeType": "類型",
+      "nodeConfig": "設定"
+    },
+    "runs": {
+      "title": "執行紀錄",
+      "backToList": "工作流程",
+      "triggerManual": "觸發執行",
+      "includeArchive": "包含已封存",
+      "state": "狀態",
+      "trigger": "觸發方式",
+      "started": "開始時間",
+      "ended": "結束時間",
+      "inspect": "檢視",
+      "archived": "已封存",
+      "empty": "尚無執行紀錄。"
+    },
+    "run": {
+      "title": "執行檢視器",
+      "backToRuns": "執行紀錄",
+      "liveConnected": "即時連線中",
+      "cancel": "取消執行",
+      "triggerType": "觸發方式",
+      "started": "開始時間",
+      "ended": "結束時間",
+      "steps": "步驟",
+      "nodeId": "節點",
+      "state": "狀態",
+      "error": "錯誤",
+      "noSteps": "尚無步驟紀錄。"
+    },
+    "backstage": {
+      "title": "後台面板",
+      "subtitle": "執行追蹤、子代理樹狀圖、指令鏈、核准紀錄 — 僅限管理員及專案擁有者。",
+      "selectRun": "選擇執行紀錄",
+      "trace": "執行追蹤",
+      "noSteps": "此次執行無步驟紀錄。",
+      "subagentTree": "子代理樹狀圖",
+      "instructChains": "指令鏈",
+      "approvalHistory": "核准紀錄",
+      "noApprovals": "此次執行無核准紀錄。"
+    }
+  }
+}

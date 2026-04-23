@@ -1,0 +1,117 @@
+{
+  "admin": {
+    "home": {
+      "title": "Admin Console"
+    },
+    "nav": {
+      "users": "Users",
+      "admins": "Admins",
+      "ipBans": "IP Bans",
+      "orgs": "Organisations",
+      "projects": "Projects",
+      "audit": "Audit Log",
+      "ops": "Operations",
+      "rateLimits": "Rate Limits",
+      "metrics": "Metrics"
+    },
+    "users": {
+      "title": "Users",
+      "searchPlaceholder": "Search by email...",
+      "allStatuses": "All statuses",
+      "search": "Search",
+      "email": "Email",
+      "status": "Status",
+      "verified": "Verified",
+      "created": "Created",
+      "actions": "Actions",
+      "ban": "Ban",
+      "unban": "Unban"
+    },
+    "userDetail": {
+      "isAdmin": "Is Admin",
+      "bannedReason": "Ban Reason",
+      "bannedAt": "Banned At",
+      "deletedAt": "Deleted At",
+      "lastLogin": "Last Login",
+      "orgs": "Organisations",
+      "projects": "Projects",
+      "softDelete": "Soft Delete",
+      "hardDelete": "Hard Delete",
+      "impersonate": "Impersonate"
+    },
+    "admins": {
+      "title": "Admins",
+      "userId": "User ID",
+      "promotedBy": "Promoted By",
+      "promotedAt": "Promoted At",
+      "userIdPlaceholder": "User ID to promote",
+      "promote": "Promote",
+      "demote": "Demote"
+    },
+    "ipBans": {
+      "title": "IP Bans",
+      "reason": "Reason",
+      "add": "Add Ban",
+      "remove": "Remove"
+    },
+    "orgs": {
+      "title": "Organisations",
+      "name": "Name",
+      "creator": "Creator",
+      "deleted": "Deleted",
+      "forceDelete": "Force Delete",
+      "restore": "Restore",
+      "forceTransfer": "Force Transfer OC"
+    },
+    "projects": {
+      "title": "Projects",
+      "name": "Name",
+      "ownerUser": "Owner User",
+      "ownerOrg": "Owner Org"
+    },
+    "audit": {
+      "title": "Audit Log",
+      "action": "Action",
+      "actorUserId": "Actor User ID",
+      "resourceType": "Resource Type",
+      "resourceId": "Resource ID",
+      "ipPrefix": "IP Prefix",
+      "sessionId": "Session ID",
+      "export": "Export CSV",
+      "loadMore": "Load More"
+    },
+    "ops": {
+      "title": "Operations",
+      "graphragReset": "GraphRAG Reset",
+      "configIdPlaceholder": "GraphRAG config ID",
+      "reset": "Reset",
+      "restore": "Restore Soft-Deleted Resource",
+      "restoreAction": "Restore"
+    },
+    "rateLimits": {
+      "title": "Rate Limits",
+      "key": "Key",
+      "window": "Window (sec)",
+      "maxCount": "Max Count",
+      "scope": "Scope",
+      "updated": "Updated",
+      "save": "Save"
+    },
+    "metrics": {
+      "title": "Platform Metrics",
+      "totalUsers": "Total Users",
+      "totalOrgs": "Total Organisations",
+      "totalProjects": "Total Projects",
+      "totalAuditEntries": "Total Audit Entries"
+    },
+    "impersonation": {
+      "title": "Impersonation",
+      "description": "Start a read-only session as another user. All actions are audit-logged.",
+      "start": "Start Session",
+      "end": "End Session",
+      "activeSession": "Impersonation session is active. All write operations are blocked.",
+      "banner": "You are viewing as another user (admin: {adminId})",
+      "readOnly": "Read-only mode — all write operations are blocked."
+    }
+  }
+}

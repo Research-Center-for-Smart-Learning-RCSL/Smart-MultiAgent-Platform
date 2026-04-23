@@ -1,0 +1,53 @@
+{
+  "identity": {
+    "register": {
+      "title": "建立帳號",
+      "email": "電子郵件",
+      "password": "密碼",
+      "submit": "註冊",
+      "captcha": "完成 CAPTCHA",
+      "loginLink": "已有帳號？前往登入"
+    },
+    "login": {
+      "title": "登入",
+      "email": "電子郵件",
+      "password": "密碼",
+      "submit": "登入",
+      "registerLink": "建立帳號",
+      "forgot": "忘記密碼？"
+    },
+    "verifyEmail": {
+      "title": "驗證電子郵件",
+      "verifying": "驗證中…",
+      "success": "信箱已驗證。可以建立組織了。",
+      "failure": "驗證失敗，連結可能已過期。"
+    },
+    "passwordReset": {
+      "requestTitle": "重設密碼",
+      "requestSubmit": "寄送重設連結",
+      "confirmTitle": "設定新密碼",
+      "newPassword": "新密碼",
+      "confirmSubmit": "更新密碼"
+    },
+    "changePassword": {
+      "title": "變更密碼",
+      "current": "目前密碼",
+      "new": "新密碼",
+      "submit": "變更密碼"
+    },
+    "changeEmail": {
+      "title": "變更信箱",
+      "newEmail": "新信箱",
+      "password": "目前密碼",
+      "submit": "變更信箱"
+    },
+    "sessions": {
+      "title": "作用中連線",
+      "currentBadge": "（目前裝置）",
+      "revoke": "撤銷"
+    },
+    "errors": {
+      "generic": "發生錯誤，請再試一次。"
+    }
+  }
+}

@@ -1,0 +1,128 @@
+# Production overlay. Per §25 the **authoritative** topology is
+# `docker-compose.yml`; this file adjoins it with per-service resource limits
+# (R20.03 / `docs/operations.md` §3) and tuning for Postgres / Redis, and
+# disables the dev bind-mount + reload.
+#
+# Usage:
+#   docker compose \
+#     -f deploy/compose/docker-compose.yml \
+#     -f deploy/compose/docker-compose.prod.yml up -d
+#
+# CI matrices the `dev` overlay (docker-compose.override.yml) and the `prod`
+# overlay separately — they MUST NOT be mixed (risk: §25 §23 drift).
+
+services:
+  nginx:
+    deploy:
+      resources:
+        limits: { cpus: "1.0", memory: 256M }
+        reservations: { cpus: "0.25", memory: 128M }
+
+  backend-web:
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 2
+    environment:
+      SMAP_APP_ENV: prod
+      SMAP_APP_DOCS_ENABLED: "false"
+      SMAP_LOG_LEVEL: info
+    deploy:
+      replicas: 2
+      resources:
+        limits: { cpus: "2.0", memory: 4G }
+        reservations: { cpus: "1.0", memory: 1G }
+
+  backend-worker:
+    # healthz sidecar starts inside the arq process via WorkerSettings.on_startup
+    # (see app/workers/main.py) — no separate PID to manage.
+    environment:
+      SMAP_APP_ENV: prod
+    deploy:
+      replicas: 2
+      resources:
+        limits: { cpus: "2.0", memory: 2G }
+        reservations: { cpus: "1.0", memory: 1G }
+
+  # Backend-ws is served in-process by backend-web for the single-host
+  # deployment (docs/operations.md §3 note); keep as an optional profile.
+
+  postgres:
+    command:
+      - postgres
+      - -c
+      - shared_buffers=1GB
+      - -c
+      - effective_cache_size=3GB
+      - -c
+      - work_mem=32MB
+      - -c
+      - maintenance_work_mem=256MB
+      - -c
+      - max_connections=200
+      - -c
+      - wal_compression=on
+      - -c
+      - shared_preload_libraries=pg_cron
+      - -c
+      - cron.database_name=smap
+    deploy:
+      resources:
+        limits: { cpus: "4.0", memory: 4G }
+        reservations: { cpus: "2.0", memory: 2G }
+
+  redis:
+    command:
+      - redis-server
+      - --appendonly
+      - "yes"
+      - --maxmemory
+      - "1800mb"
+      - --maxmemory-policy
+      - "allkeys-lru"
+    deploy:
+      resources:
+        limits: { cpus: "1.0", memory: 2G }
+        reservations: { cpus: "0.25", memory: 512M }
+
+  qdrant:
+    deploy:
+      resources:
+        limits: { cpus: "2.0", memory: 4G }
+        reservations: { cpus: "1.0", memory: 2G }
+
+  neo4j:
+    environment:
+      NEO4J_server_memory_heap_initial__size: "2G"
+      NEO4J_server_memory_heap_max__size: "3G"
+      NEO4J_server_memory_pagecache_size: "1G"
+    deploy:
+      resources:
+        limits: { cpus: "2.0", memory: 4G }
+        reservations: { cpus: "1.0", memory: 2G }
+
+  minio:
+    deploy:
+      resources:
+        limits: { cpus: "2.0", memory: 4G }
+        reservations: { cpus: "0.5", memory: 1G }
+
+  vault:
+    deploy:
+      resources:
+        limits: { cpus: "0.5", memory: 1G }
+        reservations: { cpus: "0.25", memory: 256M }
+
+  egress-proxy:
+    deploy:
+      resources:
+        limits: { cpus: "1.0", memory: 512M }
+        reservations: { cpus: "0.25", memory: 256M }
+
+  mcp-sandbox-supervisor:
+    deploy:
+      resources:
+        limits: { cpus: "2.0", memory: 2G }
+        reservations: { cpus: "0.5", memory: 512M }
+
+  frontend:
+    deploy:
+      resources:
+        limits: { cpus: "0.5", memory: 256M }

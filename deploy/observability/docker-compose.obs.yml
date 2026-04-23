@@ -1,0 +1,154 @@
+# Optional observability overlay for local metrics / tracing / log shipping.
+#
+# Usage:
+#   docker compose -f deploy/compose/docker-compose.yml \
+#                  -f deploy/observability/docker-compose.obs.yml up -d
+#
+# Adds: Prometheus, Grafana, Loki, Tempo, Promtail, OTel Collector.
+# Does NOT replace the core stack — it extends it.
+
+name: smap
+
+services:
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.100.0
+    container_name: smap_otel_collector
+    volumes:
+      - ./otel-collector/otel-collector.yml:/etc/otelcol-contrib/config.yaml:ro
+    ports:
+      - "4317:4317"
+      - "4318:4318"
+    networks:
+      - backend_net
+    logging:
+      driver: json-file
+      options:
+        max-size: "25m"
+        max-file: "3"
+
+  prometheus:
+    image: prom/prometheus:v2.53.0
+    container_name: smap_prometheus
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.retention.time=15d"
+      - "--web.enable-remote-write-receiver"
+    ports:
+      - "9090:9090"
+    networks:
+      - backend_net
+    logging:
+      driver: json-file
+      options:
+        max-size: "25m"
+        max-file: "3"
+
+  loki:
+    image: grafana/loki:3.1.0
+    container_name: smap_loki
+    volumes:
+      - ./loki/loki.yml:/etc/loki/local-config.yaml:ro
+      - loki_data:/loki
+    command: -config.file=/etc/loki/local-config.yaml
+    ports:
+      - "3100:3100"
+    networks:
+      - backend_net
+    logging:
+      driver: json-file
+      options:
+        max-size: "25m"
+        max-file: "3"
+
+  tempo:
+    image: grafana/tempo:2.5.0
+    container_name: smap_tempo
+    command: -config.file=/etc/tempo.yaml
+    volumes:
+      - tempo_data:/var/tempo
+    configs:
+      - source: tempo_config
+        target: /etc/tempo.yaml
+    ports:
+      - "3200:3200"
+    networks:
+      - backend_net
+    logging:
+      driver: json-file
+      options:
+        max-size: "25m"
+        max-file: "3"
+
+  promtail:
+    image: grafana/promtail:3.1.0
+    container_name: smap_promtail
+    volumes:
+      - ./promtail/promtail.yml:/etc/promtail/config.yml:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    command: -config.file=/etc/promtail/config.yml
+    networks:
+      - backend_net
+    logging:
+      driver: json-file
+      options:
+        max-size: "25m"
+        max-file: "3"
+
+  grafana:
+    image: grafana/grafana:11.1.0
+    container_name: smap_grafana
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana_data:/var/lib/grafana
+    ports:
+      - "3000:3000"
+    networks:
+      - backend_net
+    depends_on:
+      - prometheus
+      - loki
+      - tempo
+    logging:
+      driver: json-file
+      options:
+        max-size: "25m"
+        max-file: "3"
+
+configs:
+  tempo_config:
+    content: |
+      stream_over_http_enabled: true
+      server:
+        http_listen_port: 3200
+      distributor:
+        receivers:
+          otlp:
+            protocols:
+              grpc:
+                endpoint: 0.0.0.0:4317
+      storage:
+        trace:
+          backend: local
+          local:
+            path: /var/tempo/traces
+          wal:
+            path: /var/tempo/wal
+
+volumes:
+  prometheus_data:
+  loki_data:
+  tempo_data:
+  grafana_data:
+
+networks:
+  backend_net:
+    external: true
+    name: smap_backend_net

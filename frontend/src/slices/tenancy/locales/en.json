@@ -1,0 +1,49 @@
+{
+  "tenancy": {
+    "orgs": {
+      "listTitle": "Organisations",
+      "createLabel": "New organisation",
+      "namePlaceholder": "Organisation name",
+      "create": "Create",
+      "originalCreator": "Original Creator",
+      "delete": "Delete",
+      "members": "Members",
+      "transferOwnership": "Transfer original-creator"
+    },
+    "projects": {
+      "listTitle": "Projects",
+      "createLabel": "New project",
+      "namePlaceholder": "Project name",
+      "create": "Create",
+      "scope": "Scope",
+      "user": "Personal",
+      "org": "Organisation",
+      "members": "Members"
+    },
+    "members": {
+      "title": "Members",
+      "inviteLabel": "Invite by email",
+      "invite": "Send invite",
+      "role": "Role",
+      "remove": "Remove",
+      "promote": "Promote to owner",
+      "demote": "Demote to member"
+    },
+    "invites": {
+      "inboxTitle": "Invitations",
+      "accept": "Accept",
+      "reject": "Reject",
+      "empty": "No pending invitations.",
+      "unverifiedBlock": "Please verify your email before accepting invitations."
+    },
+    "transfer": {
+      "title": "Transfer original-creator",
+      "targetLabel": "Target owner email",
+      "initiate": "Initiate transfer",
+      "pending": "Pending transfer",
+      "accept": "Accept",
+      "cancel": "Cancel",
+      "none": "No pending transfer."
+    }
+  }
+}

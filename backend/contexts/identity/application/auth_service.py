@@ -1,0 +1,577 @@
+"""Auth orchestration (register → verify → login → refresh → logout …).
+
+This is where the individual infrastructure pieces are stitched into the
+use-cases §22.1 exposes. Routers (app.api) call these methods; nothing else
+crosses the HTTP boundary.
+"""
+
+from __future__ import annotations
+
+import uuid
+from dataclasses import dataclass
+from datetime import timedelta
+
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.config.settings import get_settings
+from contexts.identity.domain.errors import (
+    AccountBanned,
+    AccountDeleted,
+    AccountNotVerified,
+    CaptchaRequired,
+    EmailAlreadyRegistered,
+    EmailDomainDenied,
+    InvalidCredentials,
+    Lockout,
+    PasswordPolicyViolation,
+    TokenExpired,
+    TokenInvalid,
+)
+from contexts.identity.domain.models import User, UserStatus
+from contexts.identity.infrastructure import email_domain_policy, lockouts
+from contexts.identity.infrastructure.email import EmailMessage, EmailSender
+from contexts.identity.infrastructure.repositories import (
+    AdminRepository,
+    EmailVerifyTokenRepository,
+    PasswordResetTokenRepository,
+    SessionRepository,
+    UserRepository,
+)
+from shared_kernel import audit
+from shared_kernel.auth import captcha, jwt, tokens
+from shared_kernel.auth.clients import now
+from shared_kernel.auth.password import (
+    PasswordHasher,
+    PasswordPolicyError,
+    validate_password,
+)
+
+_VERIFY_TTL = timedelta(hours=24)
+_RESET_TTL = timedelta(minutes=30)   # R6.05
+
+
+# ---------------------------------------------------------------------------
+# Result DTOs — crossed back to the router layer.
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class TokenPair:
+    access_token: str
+    refresh_token: str
+    token_type: str
+    expires_in: int
+
+
+@dataclass(frozen=True, slots=True)
+class AuthenticatedUser:
+    user: User
+    is_admin: bool
+
+
+@dataclass(frozen=True, slots=True)
+class LoginOutcome:
+    user: User
+    tokens: TokenPair
+    session_id: uuid.UUID
+
+
+# ---------------------------------------------------------------------------
+# Service
+# ---------------------------------------------------------------------------
+
+
+class AuthService:
+    """Primary use-case entry point for `/api/auth/*`."""
+
+    def __init__(
+        self,
+        *,
+        db: AsyncSession,
+        hasher: PasswordHasher,
+        email_sender: EmailSender,
+        public_origin: str,
+    ) -> None:
+        self._db = db
+        self._hasher = hasher
+        self._emailer = email_sender
+        self._users = UserRepository(db)
+        self._sessions = SessionRepository(db)
+        self._verify = EmailVerifyTokenRepository(db)
+        self._reset = PasswordResetTokenRepository(db)
+        self._admins = AdminRepository(db)
+        self._public_origin = public_origin.rstrip("/")
+
+    # ----- register / verify -----------------------------------------------
+
+    async def register(
+        self,
+        *,
+        email: str,
+        password: str,
+        captcha_token: str | None,
+        remote_ip: str | None,
+        request_id: uuid.UUID | None = None,
+    ) -> User:
+        email = _normalise_email(email)
+        try:
+            await captcha.verify(captcha_token, remote_ip=remote_ip)
+        except captcha.CaptchaError as exc:
+            raise CaptchaRequired(str(exc)) from exc
+
+        if not await email_domain_policy.is_allowed(email):
+            raise EmailDomainDenied(f"domain not allowed: {email!r}")
+
+        try:
+            validate_password(password)
+        except PasswordPolicyError as exc:
+            raise PasswordPolicyViolation(exc.detail) from exc
+
+        existing = await self._users.get_active_by_email(email)
+        if existing is not None:
+            raise EmailAlreadyRegistered(email)
+
+        user = await self._users.insert(
+            email=email,
+            password_hash=self._hasher.hash(password),
+            status=UserStatus.PENDING,
+        )
+        token, _ = await self._verify.issue(user.id, _VERIFY_TTL)
+        await self._send_email_verification(email, token, user_id=user.id)
+
+        await audit.emit(
+            self._db,
+            audit.AuditEvent(
+                action="user.created",
+                actor_user_id=user.id,
+                actor_ip=remote_ip,
+                resource_type="user",
+                resource_id=user.id,
+                metadata={"email": email},
+                request_id=request_id,
+            ),
+        )
+        return user
+
+    async def verify_email(self, token: str, *, remote_ip: str | None,
+                           request_id: uuid.UUID | None = None) -> User:
+        consumed = await self._verify.consume(token)
+        if consumed is None:
+            raise TokenInvalid("email verification token invalid or expired")
+        _, user_id = consumed
+        await self._users.mark_verified(user_id)
+        user = await self._users.get_by_id(user_id)
+        assert user is not None  # just updated, can't be missing
+        await audit.emit(
+            self._db,
+            audit.AuditEvent(
+                action="auth.email_verified",
+                actor_user_id=user_id,
+                actor_ip=remote_ip,
+                resource_type="user",
+                resource_id=user_id,
+                request_id=request_id,
+            ),
+        )
+        return user
+
+    # ----- login / refresh / logout ---------------------------------------
+
+    async def login(
+        self,
+        *,
+        email: str,
+        password: str,
+        remote_ip: str,
+        user_agent: str | None,
+        request_id: uuid.UUID | None = None,
+    ) -> LoginOutcome:
+        email = _normalise_email(email)
+
+        pre = await lockouts.check_only(email, remote_ip)
+        if pre.locked:
+            raise Lockout(pre.retry_after_seconds)
+
+        user = await self._users.get_active_by_email(email)
+        fail = False
+        if user is None:
+            fail = True
+        elif user.status is UserStatus.DELETED:
+            raise AccountDeleted()
+        elif user.status is UserStatus.BANNED:
+            raise AccountBanned(user.banned_reason or "banned")
+        else:
+            verification = self._hasher.verify(user.password_hash, password)
+            if not verification.ok:
+                fail = True
+            elif verification.rehashed:
+                await self._users.set_password(user.id, verification.rehashed)
+
+        if fail:
+            state = await lockouts.check_and_record_failure(email, remote_ip)
+            await audit.emit(
+                self._db,
+                audit.AuditEvent(
+                    action="auth.login.failed",
+                    actor_user_id=user.id if user else None,
+                    actor_ip=remote_ip,
+                    resource_type="user",
+                    resource_id=user.id if user else None,
+                    metadata={"email": email},
+                    request_id=request_id,
+                ),
+            )
+            if state.locked:
+                raise Lockout(state.retry_after_seconds)
+            raise InvalidCredentials()
+
+        assert user is not None
+        await lockouts.clear_account(email)
+
+        if not user.email_verified:
+            raise AccountNotVerified()
+
+        is_admin = await self._admins.is_admin(user.id)
+        session_id = uuid.uuid4()
+        access_token, claims = jwt.sign_access_token(
+            user_id=user.id, session_id=session_id, is_admin=is_admin,
+            role="admin" if is_admin else "user",
+        )
+        refresh_token, record = await tokens.create_session(
+            user_id=user.id, session_id=session_id, last_jti=claims.jti,
+        )
+        await self._sessions.insert(
+            user_id=user.id,
+            session_id=session_id,
+            family_id=record.family_id,
+            refresh_token_hash=tokens.hash_refresh(refresh_token),
+            user_agent=user_agent,
+            ip_inet=remote_ip,
+            last_jti=claims.jti,
+            expires_at=record.expires_at,
+        )
+        await self._users.mark_logged_in(user.id)
+
+        await audit.emit(
+            self._db,
+            audit.AuditEvent(
+                action="auth.login.success",
+                actor_user_id=user.id,
+                actor_ip=remote_ip,
+                resource_type="user",
+                resource_id=user.id,
+                session_id=session_id,
+                request_id=request_id,
+            ),
+        )
+        return LoginOutcome(
+            user=user,
+            tokens=TokenPair(
+                access_token=access_token,
+                refresh_token=refresh_token,
+                token_type="Bearer",
+                expires_in=int(claims.remaining_ttl().total_seconds()),
+            ),
+            session_id=session_id,
+        )
+
+    async def refresh(
+        self, *, refresh_token: str, remote_ip: str, request_id: uuid.UUID | None = None
+    ) -> TokenPair:
+        # Peek at the session to sign the new JWT *before* rotating — so the
+        # jti embedded in the JWT equals the jti the refresh record points at.
+        peek = await tokens.get_record(refresh_token)
+        if peek is None:
+            raise TokenInvalid("refresh token not recognised")
+
+        user = await self._users.get_by_id(peek.user_id)
+        if user is None or user.status is not UserStatus.ACTIVE:
+            # Kill every Redis session family + DB row so no further refresh
+            # succeeds, regardless of whether the user was banned, deleted, or
+            # simply never verified. Also denylist any outstanding access jti
+            # so the 15-minute TTL window closes immediately.
+            await self._invalidate_user_sessions(peek.user_id, reason="inactive")
+            raise TokenExpired("session user no longer active")
+
+        is_admin = await self._admins.is_admin(user.id)
+        access_token, claims = jwt.sign_access_token(
+            user_id=user.id,
+            session_id=peek.session_id,
+            is_admin=is_admin,
+            role="admin" if is_admin else "user",
+        )
+        try:
+            new_token, new_record, old_hash = await tokens.rotate_session(
+                refresh_token, new_jti=claims.jti,
+            )
+        except tokens.TokenReuseError as exc:
+            # The access token we just signed is technically valid — it was
+            # signed by Vault Transit before we knew the refresh was bad.
+            # Denylist its jti so even if the client does get hold of it they
+            # can't use it.
+            await tokens.deny_jti(claims.jti, ttl=claims.remaining_ttl())
+            raise TokenInvalid(str(exc)) from exc
+
+        await self._sessions.update_on_rotation(
+            old_hash=old_hash,
+            new_hash=tokens.hash_refresh(new_token),
+            new_jti=claims.jti,
+        )
+
+        await audit.emit(
+            self._db,
+            audit.AuditEvent(
+                action="auth.refresh",
+                actor_user_id=user.id,
+                actor_ip=remote_ip,
+                resource_type="user",
+                resource_id=user.id,
+                session_id=new_record.session_id,
+                request_id=request_id,
+            ),
+        )
+        return TokenPair(
+            access_token=access_token,
+            refresh_token=new_token,
+            token_type="Bearer",
+            expires_in=int(claims.remaining_ttl().total_seconds()),
+        )
+
+    async def logout(
+        self,
+        *,
+        refresh_token: str,
+        access_jti: uuid.UUID,
+        access_ttl: timedelta,
+        remote_ip: str | None,
+        request_id: uuid.UUID | None = None,
+    ) -> None:
+        record = await tokens.revoke_session(refresh_token)
+        if record is not None:
+            await self._sessions.revoke(session_id=record.session_id)
+            await tokens.deny_jti(access_jti, ttl=access_ttl)
+            await audit.emit(
+                self._db,
+                audit.AuditEvent(
+                    action="auth.logout",
+                    actor_user_id=record.user_id,
+                    actor_ip=remote_ip,
+                    resource_type="user",
+                    resource_id=record.user_id,
+                    session_id=record.session_id,
+                    request_id=request_id,
+                ),
+            )
+
+    # ----- password reset -------------------------------------------------
+
+    async def request_password_reset(
+        self, *, email: str, remote_ip: str | None,
+        request_id: uuid.UUID | None = None,
+    ) -> None:
+        email = _normalise_email(email)
+        user = await self._users.get_active_by_email(email)
+        if user is None:
+            # Do not leak existence — quietly succeed.
+            return
+        token, _ = await self._reset.issue(user.id, _RESET_TTL)
+        await self._send_password_reset(email, token, user_id=user.id)
+        await audit.emit(
+            self._db,
+            audit.AuditEvent(
+                action="auth.password_reset_requested",
+                actor_user_id=user.id,
+                actor_ip=remote_ip,
+                resource_type="user",
+                resource_id=user.id,
+                request_id=request_id,
+            ),
+        )
+
+    async def reset_password(
+        self,
+        *,
+        token: str,
+        new_password: str,
+        remote_ip: str | None,
+        request_id: uuid.UUID | None = None,
+    ) -> None:
+        try:
+            validate_password(new_password)
+        except PasswordPolicyError as exc:
+            raise PasswordPolicyViolation(exc.detail) from exc
+        consumed = await self._reset.consume(token)
+        if consumed is None:
+            raise TokenInvalid("password reset token invalid or expired")
+        _, user_id = consumed
+        await self._users.set_password(user_id, self._hasher.hash(new_password))
+        await self._invalidate_user_sessions(user_id, reason="password_reset")
+        await audit.emit(
+            self._db,
+            audit.AuditEvent(
+                action="auth.password_changed",
+                actor_user_id=user_id,
+                actor_ip=remote_ip,
+                resource_type="user",
+                resource_id=user_id,
+                metadata={"via": "reset"},
+                request_id=request_id,
+            ),
+        )
+
+    async def change_password(
+        self,
+        *,
+        user_id: uuid.UUID,
+        current_password: str,
+        new_password: str,
+        remote_ip: str | None,
+        request_id: uuid.UUID | None = None,
+    ) -> None:
+        try:
+            validate_password(new_password)
+        except PasswordPolicyError as exc:
+            raise PasswordPolicyViolation(exc.detail) from exc
+
+        user = await self._users.get_by_id(user_id)
+        if user is None:
+            raise InvalidCredentials()
+        verification = self._hasher.verify(user.password_hash, current_password)
+        if not verification.ok:
+            raise InvalidCredentials()
+        await self._users.set_password(user_id, self._hasher.hash(new_password))
+        await self._invalidate_user_sessions(user_id, reason="password_change")
+        await audit.emit(
+            self._db,
+            audit.AuditEvent(
+                action="auth.password_changed",
+                actor_user_id=user_id,
+                actor_ip=remote_ip,
+                resource_type="user",
+                resource_id=user_id,
+                metadata={"via": "change"},
+                request_id=request_id,
+            ),
+        )
+
+    async def change_email(
+        self,
+        *,
+        user_id: uuid.UUID,
+        new_email: str,
+        password: str,
+        remote_ip: str | None,
+        request_id: uuid.UUID | None = None,
+    ) -> None:
+        new_email = _normalise_email(new_email)
+        if not await email_domain_policy.is_allowed(new_email):
+            raise EmailDomainDenied(f"domain not allowed: {new_email!r}")
+        user = await self._users.get_by_id(user_id)
+        if user is None or not self._hasher.verify(user.password_hash, password).ok:
+            raise InvalidCredentials()
+        if await self._users.get_active_by_email(new_email) is not None:
+            raise EmailAlreadyRegistered(new_email)
+        await self._users.set_email(user_id, new_email)
+        token, _ = await self._verify.issue(user_id, _VERIFY_TTL)
+        await self._send_email_verification(new_email, token, user_id=user_id)
+        await self._invalidate_user_sessions(user_id, reason="email_change")
+        await audit.emit(
+            self._db,
+            audit.AuditEvent(
+                action="auth.email_changed",
+                actor_user_id=user_id,
+                actor_ip=remote_ip,
+                resource_type="user",
+                resource_id=user_id,
+                metadata={"new_email": new_email},
+                request_id=request_id,
+            ),
+        )
+
+    # ----- session management (R6.08) -------------------------------------
+
+    async def list_sessions(self, *, user_id: uuid.UUID):
+        return await self._sessions.list_for_user(user_id)
+
+    async def revoke_session(
+        self,
+        *,
+        user_id: uuid.UUID,
+        session_id: uuid.UUID,
+        access_ttl: timedelta,
+        remote_ip: str | None,
+        request_id: uuid.UUID | None = None,
+    ) -> None:
+        session = await self._sessions.get_by_id(session_id)
+        if session is None or session.user_id != user_id:
+            # 404 semantics handled by the router; here we just exit.
+            return
+        await self._sessions.revoke(session_id=session_id)
+        if session.last_jti is not None:
+            await tokens.deny_jti(session.last_jti, ttl=access_ttl)
+        # Kill the family so any outstanding refresh can't roll forward.
+        await tokens.kill_family(session.family_id)
+        await audit.emit(
+            self._db,
+            audit.AuditEvent(
+                action="auth.session_revoked",
+                actor_user_id=user_id,
+                actor_ip=remote_ip,
+                resource_type="session",
+                resource_id=session_id,
+                session_id=session_id,
+                request_id=request_id,
+            ),
+        )
+
+    # ----- helpers --------------------------------------------------------
+
+    async def _invalidate_user_sessions(self, user_id: uuid.UUID, *, reason: str) -> None:
+        # DB mirror is the index we need to find every Redis family this user
+        # owns — kill families first, then mark rows revoked.
+        sessions = await self._sessions.list_for_user(user_id)
+        for s in sessions:
+            await tokens.kill_family(s.family_id)
+            if s.last_jti is not None:
+                await tokens.deny_jti(s.last_jti, ttl=timedelta(
+                    seconds=get_settings().jwt.access_ttl_seconds,
+                ))
+        await self._sessions.revoke_all_for_user(user_id)
+
+    async def _send_email_verification(
+        self, email: str, token: str, *, user_id: uuid.UUID
+    ) -> None:
+        link = f"{self._public_origin}/api/auth/verify-email?token={token}"
+        await self._emailer.send(EmailMessage(
+            to=email,
+            subject="Verify your email",
+            text_body=f"Click to verify: {link}",
+            correlation_id=user_id,
+        ))
+
+    async def _send_password_reset(
+        self, email: str, token: str, *, user_id: uuid.UUID
+    ) -> None:
+        link = f"{self._public_origin}/reset-password?token={token}"
+        await self._emailer.send(EmailMessage(
+            to=email,
+            subject="Reset your password",
+            text_body=f"Reset link (valid 30 min): {link}",
+            correlation_id=user_id,
+        ))
+
+
+def _normalise_email(raw: str) -> str:
+    e = raw.strip().lower()
+    if "@" not in e or len(e) > 320:
+        raise PasswordPolicyViolation("invalid email address")
+    return e
+
+
+__all__ = [
+    "AuthService",
+    "AuthenticatedUser",
+    "LoginOutcome",
+    "TokenPair",
+    "now",
+]

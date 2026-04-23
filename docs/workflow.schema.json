@@ -1,0 +1,425 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://smap.local/schemas/workflow.schema.json",
+  "title": "SMAP Workflow Definition",
+  "description": "Canonical JSON schema for the `workflows.definition` JSONB column. Every workflow document MUST validate against this schema before being persisted. The backend exposes a /api/workflows/validate endpoint that runs this schema plus semantic linters (see lint rules in workflow.schema.md).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "name", "entry_node_id", "nodes", "edges"],
+  "properties": {
+    "schema_version": { "const": "1.0" },
+    "name":           { "type": "string", "minLength": 1, "maxLength": 200 },
+    "description":    { "type": "string", "maxLength": 2000 },
+    "tags":           { "type": "array", "items": { "type": "string", "maxLength": 40 }, "maxItems": 20 },
+
+    "variables": {
+      "description": "Workflow-scoped variables. Each has a type and optional default. Values are mutated by agent_invocation.output_variable, subagent_spawn.output_variable, etc.",
+      "type": "object",
+      "additionalProperties": { "$ref": "#/$defs/variable" }
+    },
+
+    "timeouts": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "run_max_seconds":  { "type": "integer", "minimum": 1, "maximum": 86400, "default": 3600 },
+        "idle_max_seconds": { "type": "integer", "minimum": 1, "maximum": 86400, "default": 1800 }
+      }
+    },
+
+    "concurrency": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "max_parallel_nodes": { "type": "integer", "minimum": 1, "maximum": 50, "default": 10 }
+      }
+    },
+
+    "loop_guard": {
+      "description": "Global loop safety. Any node that is re-entered more than `max_visits_per_node` times within a single run aborts the run with status=failed.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "max_visits_per_node": { "type": "integer", "minimum": 1, "maximum": 10000, "default": 200 }
+      }
+    },
+
+    "entry_node_id": { "$ref": "#/$defs/node_id" },
+
+    "nodes": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 500,
+      "items": { "$ref": "#/$defs/node" }
+    },
+
+    "edges": {
+      "type": "array",
+      "maxItems": 2000,
+      "items": { "$ref": "#/$defs/edge" }
+    }
+  },
+
+  "$defs": {
+    "node_id": {
+      "type": "string",
+      "pattern": "^[a-zA-Z][a-zA-Z0-9_-]{0,63}$"
+    },
+
+    "variable": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type"],
+      "properties": {
+        "type":        { "enum": ["string", "number", "boolean", "object", "array"] },
+        "default":     {},
+        "description": { "type": "string", "maxLength": 500 }
+      }
+    },
+
+    "expression": {
+      "description": "SMAP Expression Language (SEL) v1. Pure, side-effect-free. Supports variable refs `{{name}}`, comparison, boolean, arithmetic, and a whitelisted function set. See workflow.schema.md §Expression Language.",
+      "type": "string",
+      "maxLength": 1000
+    },
+
+    "template_string": {
+      "description": "String with `{{ var.path }}` interpolation. Interpolation is HTML-unescaped (templates are not rendered to HTML by the engine).",
+      "type": "string",
+      "maxLength": 20000
+    },
+
+    "on_error": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "strategy":         { "enum": ["fail", "continue", "retry", "fallback"], "default": "fail" },
+        "retry_max":        { "type": "integer", "minimum": 0, "maximum": 10, "default": 0 },
+        "retry_backoff_ms": { "type": "integer", "minimum": 0, "maximum": 60000, "default": 500 },
+        "fallback_node_id": { "$ref": "#/$defs/node_id" }
+      },
+      "allOf": [
+        {
+          "if":   { "properties": { "strategy": { "const": "retry" } } },
+          "then": { "required": ["retry_max"] }
+        },
+        {
+          "if":   { "properties": { "strategy": { "const": "fallback" } } },
+          "then": { "required": ["fallback_node_id"] }
+        }
+      ]
+    },
+
+    "node": {
+      "type": "object",
+      "required": ["id", "type", "position"],
+      "properties": {
+        "id":       { "$ref": "#/$defs/node_id" },
+        "type":     { "enum": [
+                        "trigger", "agent_invocation", "approval_gate", "condition",
+                        "instruct", "subagent_spawn", "wait_for_event",
+                        "parallel", "join", "set_variable", "end"
+                     ] },
+        "label":    { "type": "string", "maxLength": 100 },
+        "position": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["x", "y"],
+          "properties": {
+            "x": { "type": "number" },
+            "y": { "type": "number" }
+          }
+        },
+        "config":   {}
+      },
+      "allOf": [
+        { "if": { "properties": { "type": { "const": "trigger"           } }, "required": ["type"] },
+          "then": { "properties": { "config": { "$ref": "#/$defs/trigger_config"           } }, "required": ["config"] } },
+        { "if": { "properties": { "type": { "const": "agent_invocation"  } }, "required": ["type"] },
+          "then": { "properties": { "config": { "$ref": "#/$defs/agent_invocation_config"  } }, "required": ["config"] } },
+        { "if": { "properties": { "type": { "const": "approval_gate"     } }, "required": ["type"] },
+          "then": { "properties": { "config": { "$ref": "#/$defs/approval_gate_config"     } }, "required": ["config"] } },
+        { "if": { "properties": { "type": { "const": "condition"         } }, "required": ["type"] },
+          "then": { "properties": { "config": { "$ref": "#/$defs/condition_config"         } }, "required": ["config"] } },
+        { "if": { "properties": { "type": { "const": "instruct"          } }, "required": ["type"] },
+          "then": { "properties": { "config": { "$ref": "#/$defs/instruct_config"          } }, "required": ["config"] } },
+        { "if": { "properties": { "type": { "const": "subagent_spawn"    } }, "required": ["type"] },
+          "then": { "properties": { "config": { "$ref": "#/$defs/subagent_spawn_config"    } }, "required": ["config"] } },
+        { "if": { "properties": { "type": { "const": "wait_for_event"    } }, "required": ["type"] },
+          "then": { "properties": { "config": { "$ref": "#/$defs/wait_for_event_config"    } }, "required": ["config"] } },
+        { "if": { "properties": { "type": { "const": "parallel"          } }, "required": ["type"] },
+          "then": { "properties": { "config": { "$ref": "#/$defs/parallel_config"          } } } },
+        { "if": { "properties": { "type": { "const": "join"              } }, "required": ["type"] },
+          "then": { "properties": { "config": { "$ref": "#/$defs/join_config"              } }, "required": ["config"] } },
+        { "if": { "properties": { "type": { "const": "set_variable"      } }, "required": ["type"] },
+          "then": { "properties": { "config": { "$ref": "#/$defs/set_variable_config"      } }, "required": ["config"] } },
+        { "if": { "properties": { "type": { "const": "end"               } }, "required": ["type"] },
+          "then": { "properties": { "config": { "$ref": "#/$defs/end_config"               } } } }
+      ]
+    },
+
+    "edge": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "from", "to"],
+      "properties": {
+        "id":        { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_-]{0,63}$" },
+        "from":      { "$ref": "#/$defs/node_id" },
+        "to":        { "$ref": "#/$defs/node_id" },
+        "label":     { "type": "string", "maxLength": 100 },
+        "guard":     { "$ref": "#/$defs/expression", "description": "Optional boolean expression. Edge fires only when guard evaluates truthy." },
+        "from_port": {
+          "description": "Logical output port on the source node. Condition nodes use user-defined ports; other nodes use the well-known set.",
+          "type": "string",
+          "pattern": "^[a-zA-Z][a-zA-Z0-9_]{0,31}$"
+        }
+      }
+    },
+
+    "trigger_config": {
+      "type": "object",
+      "required": ["trigger_type"],
+      "properties": {
+        "trigger_type": { "enum": ["manual", "cron", "message_received", "a2a_event", "wakeup_signal"] }
+      },
+      "allOf": [
+        { "if": { "properties": { "trigger_type": { "const": "manual" } }, "required": ["trigger_type"] },
+          "then": {
+            "properties": {
+              "allowed_roles": {
+                "type": "array",
+                "items": { "enum": ["Admin", "OrgOwner", "OrgMember", "ProjectOwner", "ProjectMember"] },
+                "minItems": 1
+              }
+            },
+            "required": ["allowed_roles"]
+          } },
+        { "if": { "properties": { "trigger_type": { "const": "cron" } }, "required": ["trigger_type"] },
+          "then": {
+            "properties": {
+              "cron_expression": { "type": "string", "pattern": "^([^\\s]+\\s+){4,5}[^\\s]+$" },
+              "timezone":        { "type": "string", "default": "UTC" }
+            },
+            "required": ["cron_expression"]
+          } },
+        { "if": { "properties": { "trigger_type": { "const": "message_received" } }, "required": ["trigger_type"] },
+          "then": {
+            "properties": {
+              "chatroom_id":    { "type": "string", "format": "uuid" },
+              "sender_filter":  { "enum": ["any", "user", "agent", "guest"], "default": "any" },
+              "content_regex":  { "type": "string", "maxLength": 500 }
+            },
+            "required": ["chatroom_id"]
+          } },
+        { "if": { "properties": { "trigger_type": { "const": "a2a_event" } }, "required": ["trigger_type"] },
+          "then": {
+            "properties": {
+              "agent_id":    { "type": "string", "format": "uuid" },
+              "event_types": {
+                "type": "array",
+                "items": { "enum": ["call", "reply", "notify", "instruct"] },
+                "minItems": 1
+              }
+            },
+            "required": ["agent_id", "event_types"]
+          } },
+        { "if": { "properties": { "trigger_type": { "const": "wakeup_signal" } }, "required": ["trigger_type"] },
+          "then": {
+            "properties": { "agent_id": { "type": "string", "format": "uuid" } },
+            "required": ["agent_id"]
+          } }
+      ]
+    },
+
+    "agent_invocation_config": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["agent_id", "input_template"],
+      "properties": {
+        "agent_id":            { "type": "string", "format": "uuid" },
+        "input_template":      { "$ref": "#/$defs/template_string" },
+        "output_variable":     { "type": "string", "pattern": "^[a-zA-Z_][a-zA-Z0-9_]*$" },
+        "target_chatroom_id":  { "type": "string", "format": "uuid",
+                                 "description": "Override the chatroom the agent writes to. Defaults to the workflow's chatroom context." },
+        "stream_to_chatroom":  { "type": "boolean", "default": true },
+        "timeout_seconds":     { "type": "integer", "minimum": 1, "maximum": 600, "default": 120 },
+        "on_error":            { "$ref": "#/$defs/on_error" }
+      }
+    },
+
+    "approval_gate_config": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode", "leader_agent_id", "approvers", "timeout_seconds", "question_template"],
+      "properties": {
+        "mode":              { "enum": ["single", "majority", "consensus"] },
+        "leader_agent_id":   { "type": "string", "format": "uuid" },
+        "approvers":         {
+          "type": "array",
+          "items":    { "type": "string", "format": "uuid" },
+          "minItems": 1,
+          "maxItems": 20,
+          "uniqueItems": true
+        },
+        "timeout_seconds":   { "type": "integer", "minimum": 1, "maximum": 86400 },
+        "question_template": { "$ref": "#/$defs/template_string" },
+        "on_error":          { "$ref": "#/$defs/on_error" }
+      },
+      "allOf": [
+        {
+          "if":   { "properties": { "mode": { "const": "single" } } },
+          "then": { "description": "In single mode, `approvers` is still required (for display) but only the leader's vote is consulted." }
+        }
+      ]
+    },
+
+    "condition_config": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["branches"],
+      "properties": {
+        "branches": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 20,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["when", "port"],
+            "properties": {
+              "when": { "$ref": "#/$defs/expression" },
+              "port": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_]{0,31}$",
+                        "description": "Logical output port used by edges' `from_port`." }
+            }
+          }
+        },
+        "default_port": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_]{0,31}$", "default": "default" }
+      }
+    },
+
+    "instruct_config": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["issuer_agent_id", "target_agent_id", "instruction_template"],
+      "properties": {
+        "issuer_agent_id":          { "type": "string", "format": "uuid" },
+        "target_agent_id":          { "type": "string", "format": "uuid" },
+        "instruction_template":     { "$ref": "#/$defs/template_string" },
+        "wait_for_completion":      { "type": "boolean", "default": true },
+        "completion_timeout_seconds": { "type": "integer", "minimum": 1, "maximum": 600, "default": 120 },
+        "output_variable":          { "type": "string", "pattern": "^[a-zA-Z_][a-zA-Z0-9_]*$" },
+        "on_error":                 { "$ref": "#/$defs/on_error" }
+      }
+    },
+
+    "subagent_spawn_config": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["parent_agent_id", "task_template"],
+      "properties": {
+        "parent_agent_id":            { "type": "string", "format": "uuid" },
+        "task_template":              { "$ref": "#/$defs/template_string" },
+        "max_alive_simultaneously":   { "type": "integer", "minimum": 1, "maximum": 20, "default": 3 },
+        "wait_for_all":               { "type": "boolean", "default": true },
+        "output_variable":            { "type": "string", "pattern": "^[a-zA-Z_][a-zA-Z0-9_]*$" },
+        "timeout_seconds":            { "type": "integer", "minimum": 1, "maximum": 600, "default": 180 },
+        "on_error":                   { "$ref": "#/$defs/on_error" }
+      }
+    },
+
+    "wait_for_event_config": {
+      "type": "object",
+      "required": ["event_type", "timeout_seconds"],
+      "properties": {
+        "event_type":      { "enum": ["message_in_room", "a2a_message", "timer", "variable_matches"] },
+        "timeout_seconds": { "type": "integer", "minimum": 1, "maximum": 86400 }
+      },
+      "allOf": [
+        { "if": { "properties": { "event_type": { "const": "message_in_room" } }, "required": ["event_type"] },
+          "then": {
+            "properties": {
+              "chatroom_id":   { "type": "string", "format": "uuid" },
+              "sender_filter": { "enum": ["any", "user", "agent", "guest"], "default": "any" },
+              "content_regex": { "type": "string", "maxLength": 500 }
+            },
+            "required": ["chatroom_id"]
+          } },
+        { "if": { "properties": { "event_type": { "const": "a2a_message" } }, "required": ["event_type"] },
+          "then": {
+            "properties": {
+              "target_agent_id": { "type": "string", "format": "uuid" },
+              "types":           { "type": "array", "items": { "enum": ["call", "reply", "notify", "instruct"] } }
+            },
+            "required": ["target_agent_id"]
+          } },
+        { "if": { "properties": { "event_type": { "const": "timer" } }, "required": ["event_type"] },
+          "then": {
+            "properties": { "delay_seconds": { "type": "integer", "minimum": 1, "maximum": 86400 } },
+            "required": ["delay_seconds"]
+          } },
+        { "if": { "properties": { "event_type": { "const": "variable_matches" } }, "required": ["event_type"] },
+          "then": {
+            "properties": { "expression": { "$ref": "#/$defs/expression" } },
+            "required": ["expression"]
+          } }
+      ]
+    },
+
+    "parallel_config": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "description": { "type": "string", "maxLength": 500 }
+      }
+    },
+
+    "join_config": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode"],
+      "properties": {
+        "mode":             { "enum": ["all", "any", "count"] },
+        "count":            { "type": "integer", "minimum": 1, "maximum": 50 },
+        "timeout_seconds":  { "type": "integer", "minimum": 1, "maximum": 86400, "default": 600 }
+      },
+      "allOf": [
+        {
+          "if":   { "properties": { "mode": { "const": "count" } } },
+          "then": { "required": ["count"] }
+        }
+      ]
+    },
+
+    "set_variable_config": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["assignments"],
+      "properties": {
+        "assignments": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 20,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["variable", "expression"],
+            "properties": {
+              "variable":   { "type": "string", "pattern": "^[a-zA-Z_][a-zA-Z0-9_]*$" },
+              "expression": { "$ref": "#/$defs/expression" }
+            }
+          }
+        }
+      }
+    },
+
+    "end_config": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "status":           { "enum": ["success", "failure"], "default": "success" },
+        "return_variables": { "type": "array", "items": { "type": "string", "pattern": "^[a-zA-Z_][a-zA-Z0-9_]*$" }, "maxItems": 20 },
+        "failure_reason":   { "type": "string", "maxLength": 500 }
+      }
+    }
+  }
+}

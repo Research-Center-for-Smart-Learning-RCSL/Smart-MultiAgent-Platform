@@ -1,0 +1,242 @@
+"""`/api/chatrooms/{id}/messages` + `/api/messages/*` — F.3 / F.4 / §22.10.
+
+The room-scope ACL for send / read lives in
+`contexts.conversation.application.access`. Moderator capability for edit /
+delete comes from `Capability.MESSAGE_DELETE` + room/project role detection,
+resolved here so the service stays free of AuthZ primitives.
+"""
+
+from __future__ import annotations
+
+import uuid
+from typing import Any
+
+from fastapi import APIRouter, Depends, Header, HTTPException, Path, Query, status
+from pydantic import BaseModel, Field
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from contexts.conversation.application.access import (
+    RoomAccess,
+    ensure_can_read,
+    ensure_can_send,
+    resolve_room_access,
+)
+from contexts.conversation.application.message_service import (
+    EditAuthority,
+    MessageService,
+)
+from contexts.conversation.domain.models import Message
+from shared_kernel.auth.context import RequestContext
+from shared_kernel.auth.dependencies import (
+    _raise_forbidden,
+    current_context,
+    current_principal,
+)
+from shared_kernel.auth.permissions import Principal
+from shared_kernel.db.session import db_session
+
+chatroom_router = APIRouter(prefix="/api/chatrooms", tags=["messages"])
+message_router = APIRouter(prefix="/api/messages", tags=["messages"])
+
+
+# --------------------------------------------------------------------------- #
+# Schemas
+# --------------------------------------------------------------------------- #
+
+
+class MessageSendIn(BaseModel):
+    content_md: str = Field(min_length=1)
+    attachment_ids: list[uuid.UUID] = Field(default_factory=list)
+    # `metadata` is system-populated (rag_chunks, tool_calls, compact_summary,
+    # etc. — §21.1) and deliberately not accepted from clients.
+
+
+class MessagePatchIn(BaseModel):
+    content_md: str = Field(min_length=1)
+
+
+class MessageOut(BaseModel):
+    id: uuid.UUID
+    chatroom_id: uuid.UUID
+    sender_type: str
+    sender_id: uuid.UUID | None
+    content_md: str
+    metadata: dict[str, Any]
+    version: int
+    created_at: str
+    edited_at: str | None
+    deleted_at: str | None
+
+
+def _to_out(m: Message) -> MessageOut:
+    return MessageOut(
+        id=m.id,
+        chatroom_id=m.chatroom_id,
+        sender_type=m.sender_type.value,
+        sender_id=m.sender_id,
+        content_md=m.content_md,
+        metadata=m.metadata,
+        version=m.version,
+        created_at=m.created_at.isoformat() if m.created_at else "",
+        edited_at=m.edited_at.isoformat() if m.edited_at else None,
+        deleted_at=m.deleted_at.isoformat() if m.deleted_at else None,
+    )
+
+
+def _parse_if_match(header: str) -> int:
+    try:
+        return int(header.strip().strip('"'))
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=412, detail=f"invalid If-Match: {header!r}",
+        ) from exc
+
+
+def _authority_from(
+    access: RoomAccess, principal: Principal,
+) -> EditAuthority:
+    return EditAuthority(
+        actor_user_id=principal.user_id,
+        is_admin=principal.is_admin,
+        is_moderator=access.is_moderator,
+    )
+
+
+# --------------------------------------------------------------------------- #
+# Room-scoped: list + send
+# --------------------------------------------------------------------------- #
+
+
+@chatroom_router.get("/{chatroom_id}/messages")
+async def list_messages(
+    chatroom_id: uuid.UUID = Path(...),
+    before: uuid.UUID | None = Query(default=None),
+    since: uuid.UUID | None = Query(default=None),
+    limit: int = Query(default=50, ge=1, le=200),
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(db_session),
+) -> list[MessageOut]:
+    access = await resolve_room_access(
+        db, principal=principal, chatroom_id=chatroom_id,
+    )
+    ensure_can_read(access, is_admin=principal.is_admin)
+    service = MessageService(db)
+    rows = await service.list(
+        chatroom_id=chatroom_id, before=before, since=since, limit=limit,
+    )
+    return [_to_out(m) for m in rows]
+
+
+@chatroom_router.post(
+    "/{chatroom_id}/messages", status_code=status.HTTP_201_CREATED,
+)
+async def send_message(
+    body: MessageSendIn,
+    chatroom_id: uuid.UUID = Path(...),
+    ctx: RequestContext = Depends(current_context),
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(db_session),
+) -> MessageOut:
+    access = await resolve_room_access(
+        db, principal=principal, chatroom_id=chatroom_id,
+    )
+    ensure_can_send(access, is_admin=principal.is_admin)
+    service = MessageService(db)
+    msg = await service.send(
+        chatroom_id=chatroom_id,
+        sender_user_id=principal.user_id,
+        content_md=body.content_md,
+        metadata=None,
+        attachment_ids=list(body.attachment_ids) if body.attachment_ids else None,
+        actor_ip=ctx.actor_ip,
+        request_id=ctx.request_id,
+    )
+    return _to_out(msg)
+
+
+# --------------------------------------------------------------------------- #
+# Message-scoped: permalink / edit / delete
+# --------------------------------------------------------------------------- #
+
+
+async def _load_message_with_access(
+    db: AsyncSession,
+    principal: Principal,
+    message_id: uuid.UUID,
+) -> tuple[Message, RoomAccess]:
+    service = MessageService(db)
+    msg = await service.get(message_id)  # raises MessageNotFound → 404
+    access = await resolve_room_access(
+        db, principal=principal, chatroom_id=msg.chatroom_id,
+    )
+    return msg, access
+
+
+@message_router.get("/{message_id}")
+async def read_message(
+    message_id: uuid.UUID = Path(...),
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(db_session),
+) -> MessageOut:
+    msg, access = await _load_message_with_access(db, principal, message_id)
+    ensure_can_read(access, is_admin=principal.is_admin)
+    return _to_out(msg)
+
+
+@message_router.patch("/{message_id}")
+async def edit_message(
+    body: MessagePatchIn,
+    message_id: uuid.UUID = Path(...),
+    if_match: str = Header(..., alias="If-Match"),
+    ctx: RequestContext = Depends(current_context),
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(db_session),
+) -> MessageOut:
+    msg, access = await _load_message_with_access(db, principal, message_id)
+    ensure_can_read(access, is_admin=principal.is_admin)
+    expected = _parse_if_match(if_match)
+    service = MessageService(db)
+    updated = await service.edit(
+        message_id=message_id,
+        expected_version=expected,
+        new_content_md=body.content_md,
+        authority=_authority_from(access, principal),
+        actor_ip=ctx.actor_ip,
+        request_id=ctx.request_id,
+    )
+    _ = msg  # preserved for clarity; service re-reads before updating
+    return _to_out(updated)
+
+
+@message_router.delete(
+    "/{message_id}", status_code=status.HTTP_204_NO_CONTENT,
+)
+async def delete_message(
+    message_id: uuid.UUID = Path(...),
+    ctx: RequestContext = Depends(current_context),
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(db_session),
+) -> None:
+    msg, access = await _load_message_with_access(db, principal, message_id)
+    ensure_can_read(access, is_admin=principal.is_admin)
+
+    # Matrix row 20 MESSAGE_DELETE: own-only for members/guests, ALLOW for
+    # project owners and org owners, plus Admin bypass. Evaluated inline so
+    # the service stays AuthZ-agnostic (it only hard-deletes + audits).
+    is_author = (
+        msg.sender_id == principal.user_id
+        and msg.sender_type.value == "user"
+    )
+    if not (principal.is_admin or access.is_moderator or is_author):
+        _raise_forbidden("cannot delete a message you do not own")
+
+    service = MessageService(db)
+    await service.delete(
+        message_id=message_id,
+        authority=_authority_from(access, principal),
+        actor_ip=ctx.actor_ip,
+        request_id=ctx.request_id,
+    )
+
+
+__all__ = ["chatroom_router", "message_router"]
