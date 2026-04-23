@@ -213,7 +213,7 @@ async def rename_org(
     )
 
 
-@router.delete("/{org_id}", status_code=status.HTTP_204_NO_CONTENT, response_class=Response)
+@router.delete("/{org_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_org(
     org_id: uuid.UUID = Path(...),
     ctx: RequestContext = Depends(current_context),
@@ -228,7 +228,7 @@ async def delete_org(
     )
 
 
-@router.post("/{org_id}/restore", status_code=status.HTTP_204_NO_CONTENT, response_class=Response)
+@router.post("/{org_id}/restore", status_code=status.HTTP_204_NO_CONTENT)
 async def restore_org(
     org_id: uuid.UUID = Path(...),
     ctx: RequestContext = Depends(current_context),

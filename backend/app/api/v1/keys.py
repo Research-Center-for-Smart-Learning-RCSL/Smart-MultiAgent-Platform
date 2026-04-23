@@ -126,7 +126,7 @@ async def retest_key(
     return KeyOut.from_domain(refreshed)
 
 
-@router.delete("/{key_id}", status_code=status.HTTP_204_NO_CONTENT, response_class=Response)
+@router.delete("/{key_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_key(
     key_id: uuid.UUID,
     principal: Principal = Depends(current_principal),

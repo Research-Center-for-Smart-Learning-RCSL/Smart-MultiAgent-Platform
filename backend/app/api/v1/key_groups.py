@@ -240,7 +240,7 @@ async def read_group(
     )
 
 
-@group_router.patch("/{group_id}", status_code=status.HTTP_204_NO_CONTENT, response_class=Response)
+@group_router.patch("/{group_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def rename_group(
     group_id: uuid.UUID,
     payload: GroupPatchIn,
@@ -255,7 +255,7 @@ async def rename_group(
     )
 
 
-@group_router.delete("/{group_id}", status_code=status.HTTP_204_NO_CONTENT, response_class=Response)
+@group_router.delete("/{group_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_group(
     group_id: uuid.UUID,
     _: None = Depends(_require_group_configure),
