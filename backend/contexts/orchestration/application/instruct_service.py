@@ -92,6 +92,9 @@ class InstructService:
                     },
                 ),
             )
+            # The rejection INSERT and audit are in the caller's ambient
+            # transaction. If the caller rolls back on InstructLoopDetected the
+            # records are lost; loop detection itself is always correct regardless.
             raise InstructLoopDetected(
                 f"cycle detected: {target_agent_id} already in path {new_path}"
             )

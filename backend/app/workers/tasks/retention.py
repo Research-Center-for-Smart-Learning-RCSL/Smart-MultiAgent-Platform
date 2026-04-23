@@ -27,14 +27,13 @@ from shared_kernel.storage import get_minio_client
 async def _emit_summary(
     session: AsyncSession, action: str, rows_affected: int
 ) -> None:
-    if rows_affected > 0:
-        await audit.emit(
-            session,
-            audit.AuditEvent(
-                action=action,
-                metadata={"rows_affected": rows_affected},
-            ),
-        )
+    await audit.emit(
+        session,
+        audit.AuditEvent(
+            action=action,
+            metadata={"rows_affected": rows_affected},
+        ),
+    )
 
 
 async def _purge_messages(session: AsyncSession) -> int:
@@ -84,6 +83,7 @@ async def _purge_audit_logs(session: AsyncSession) -> int:
         count = result.rowcount or 0
     finally:
         await session.execute(sa.text("RESET ROLE"))
+    await _emit_summary(session, "retention.audit_logs.swept", count)
     return count
 
 
@@ -101,21 +101,24 @@ async def _archive_workflow_runs(session: AsyncSession) -> int:
     )
     archived = result.rowcount or 0
     if archived > 0:
+        # Delete steps and source rows only for the runs that were just
+        # archived (joined against workflow_runs_archive), not a fresh LIMIT
+        # subquery that could select different rows than the archive batch.
         await session.execute(
             sa.text(
-                "DELETE FROM workflow_steps WHERE run_id IN "
-                "(SELECT id FROM workflow_runs WHERE ended_at IS NOT NULL "
-                "AND ended_at < :cutoff LIMIT 500)"
+                "DELETE FROM workflow_steps WHERE run_id IN ("
+                "  SELECT wr.id FROM workflow_runs wr"
+                "  JOIN workflow_runs_archive wra ON wra.id = wr.id"
+                "  WHERE wr.ended_at IS NOT NULL AND wr.ended_at < :cutoff"
+                ")"
             ).bindparams(cutoff=cutoff)
         )
-        # PostgreSQL does not support DELETE...LIMIT; use a subquery join.
         await session.execute(
             sa.text(
                 "DELETE FROM workflow_runs WHERE id IN ("
                 "  SELECT wr.id FROM workflow_runs wr"
                 "  JOIN workflow_runs_archive wra ON wra.id = wr.id"
                 "  WHERE wr.ended_at IS NOT NULL AND wr.ended_at < :cutoff"
-                "  LIMIT 500"
                 ")"
             ).bindparams(cutoff=cutoff)
         )
@@ -272,13 +275,13 @@ async def _purge_exports_bucket(session: AsyncSession) -> int:
     def _sweep() -> int:
         removed = 0
         try:
-            for obj in mc._client.list_objects(mc.exports_bucket, recursive=True):
+            for obj in mc.list_objects_sync(mc.exports_bucket):
                 lm = obj.last_modified
                 if lm is None:
                     continue
                 if lm.timestamp() < cutoff_ts:
                     try:
-                        mc._client.remove_object(mc.exports_bucket, obj.object_name)
+                        mc.remove_object_sync(mc.exports_bucket, obj.object_name)
                         removed += 1
                     except Exception:  # noqa: BLE001 — best-effort per object
                         pass

@@ -421,31 +421,54 @@ class MessageRepository:
             t.messages.c.chatroom_id == chatroom_id,
             t.messages.c.deleted_at.is_(None),
         )
-        order = t.messages.c.created_at.desc()
+        # Default: newest-first (before-cursor direction).
+        order_cols: list[Any] = [
+            t.messages.c.created_at.desc(), t.messages.c.id.desc()
+        ]
         if before is not None:
             anchor = (
                 await self._db.execute(
-                    sa.select(t.messages.c.created_at).where(
+                    sa.select(t.messages.c.created_at, t.messages.c.id).where(
                         t.messages.c.id == before,
                     )
                 )
             ).first()
-            if anchor is not None:
-                predicate = sa.and_(predicate, t.messages.c.created_at < anchor.created_at)
+            if anchor is None:
+                raise ValueError(f"cursor 'before' message {before} not found")
+            predicate = sa.and_(
+                predicate,
+                sa.or_(
+                    t.messages.c.created_at < anchor.created_at,
+                    sa.and_(
+                        t.messages.c.created_at == anchor.created_at,
+                        t.messages.c.id < anchor.id,
+                    ),
+                ),
+            )
         if since is not None:
             anchor = (
                 await self._db.execute(
-                    sa.select(t.messages.c.created_at).where(
+                    sa.select(t.messages.c.created_at, t.messages.c.id).where(
                         t.messages.c.id == since,
                     )
                 )
             ).first()
-            if anchor is not None:
-                predicate = sa.and_(predicate, t.messages.c.created_at > anchor.created_at)
-                order = t.messages.c.created_at.asc()
+            if anchor is None:
+                raise ValueError(f"cursor 'since' message {since} not found")
+            predicate = sa.and_(
+                predicate,
+                sa.or_(
+                    t.messages.c.created_at > anchor.created_at,
+                    sa.and_(
+                        t.messages.c.created_at == anchor.created_at,
+                        t.messages.c.id > anchor.id,
+                    ),
+                ),
+            )
+            order_cols = [t.messages.c.created_at.asc(), t.messages.c.id.asc()]
         rows = (
             await self._db.execute(
-                t.messages.select().where(predicate).order_by(order).limit(limit)
+                t.messages.select().where(predicate).order_by(*order_cols).limit(limit)
             )
         ).all()
         return [_row_to_message(r) for r in rows]

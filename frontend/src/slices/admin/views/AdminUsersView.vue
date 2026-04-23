@@ -38,7 +38,7 @@
           <td>
             <button
               v-if="user.status === 'active'"
-              @click="actions.banUser.mutate({ userId: user.id, reason: 'Admin action' })"
+              @click="onBan(user.id)"
             >
               {{ $t('admin.users.ban') }}
             </button>
@@ -56,8 +56,9 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import { useQuery } from '@tanstack/vue-query'
+import { ElMessageBox } from 'element-plus'
 import { adminApi } from '../api/admin'
 import { adminKeys } from '../queries'
 import { useAdminActions } from '../composables/useAdminActions'
@@ -73,7 +74,7 @@ function applySearch(): void {
 }
 
 const query = useQuery({
-  queryKey: adminKeys.users({ q: appliedQ.value, status: appliedStatus.value }),
+  queryKey: computed(() => adminKeys.users({ q: appliedQ.value, status: appliedStatus.value })),
   queryFn: () =>
     adminApi.listUsers({
       q: appliedQ.value || undefined,
@@ -82,6 +83,19 @@ const query = useQuery({
 })
 
 const actions = useAdminActions()
+
+async function onBan(userId: string): Promise<void> {
+  try {
+    const { value: reason } = await ElMessageBox.prompt(
+      'Provide a reason for banning this user:',
+      'Ban User',
+      { confirmButtonText: 'Ban', cancelButtonText: 'Cancel', inputPattern: /\S+/, inputErrorMessage: 'Reason is required' },
+    )
+    if (reason) actions.banUser.mutate({ userId, reason })
+  } catch {
+    // cancelled
+  }
+}
 </script>
 
 <style scoped>

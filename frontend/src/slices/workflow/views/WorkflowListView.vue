@@ -76,6 +76,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/vue-query'
 import { ref } from 'vue'
 import { useRoute } from 'vue-router'
 
+import { ElMessage } from 'element-plus'
 import { createWorkflow, deleteWorkflow, listWorkflows } from '../api'
 import { wfKeys } from '../queries'
 
@@ -105,6 +106,7 @@ const createMutation = useMutation({
   onSuccess: () => {
     qc.invalidateQueries({ queryKey: wfKeys.workflows(workspaceId) })
   },
+  onError: () => ElMessage.error('Failed to create workflow.'),
 })
 
 async function onCreate(): Promise<void> {
@@ -115,7 +117,11 @@ async function onCreate(): Promise<void> {
 }
 
 async function onDelete(id: string): Promise<void> {
-  await deleteWorkflow(id)
-  qc.invalidateQueries({ queryKey: wfKeys.workflows(workspaceId) })
+  try {
+    await deleteWorkflow(id)
+    qc.invalidateQueries({ queryKey: wfKeys.workflows(workspaceId) })
+  } catch {
+    ElMessage.error('Failed to delete workflow.')
+  }
 }
 </script>

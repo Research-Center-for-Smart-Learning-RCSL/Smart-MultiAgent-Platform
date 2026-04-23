@@ -10,7 +10,7 @@ from __future__ import annotations
 import uuid
 from datetime import timedelta
 
-from fastapi import Response, APIRouter, Depends, Query, Request, status
+from fastapi import HTTPException, Response, APIRouter, Depends, Query, Request, status
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -278,7 +278,8 @@ async def me(
 ) -> UserOut:
     facade = IdentityFacade(db)
     profile = await facade.get_profile(principal.user_id)
-    assert profile is not None
+    if profile is None:
+        raise HTTPException(status_code=404, detail="User profile not found")
     return UserOut(
         id=profile.id,
         email=profile.email,

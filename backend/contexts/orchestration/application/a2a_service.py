@@ -68,7 +68,10 @@ class A2AService:
                 caller_invocation_context_id=caller_invocation_context_id,
             )
 
-        to_agent_id = uuid.UUID(envelope.to_agent)
+        try:
+            to_agent_id = uuid.UUID(envelope.to_agent)
+        except ValueError:
+            raise A2AForbidden(f"to_agent is not a valid agent id: {envelope.to_agent!r}")
         caller = await self._require_agent(envelope.from_agent)
         callee = await self._require_agent(to_agent_id)
 
@@ -187,6 +190,10 @@ class A2AService:
         workflow_run_id: uuid.UUID | None = None,
     ) -> str:
         """Send a reply to a previous call (completes sync call handshake)."""
+        # Validate from_agent exists and is not deleted; scope check is skipped
+        # because the original CALL already passed it, but we still must confirm
+        # the sender is a real, live agent to prevent reply spoofing.
+        await self._require_agent(from_agent_id)
         envelope = A2AEnvelope(
             id=uuid.uuid4(),
             from_agent=from_agent_id,

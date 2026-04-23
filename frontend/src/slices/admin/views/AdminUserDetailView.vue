@@ -22,13 +22,13 @@
       <button v-if="query.data.value.status === 'banned'" @click="actions.unbanUser.mutate(userId)">
         {{ $t('admin.users.unban') }}
       </button>
-      <button v-if="query.data.value.status === 'active'" @click="actions.softDeleteUser.mutate(userId)">
+      <button v-if="query.data.value.status === 'active'" @click="onSoftDelete">
         {{ $t('admin.userDetail.softDelete') }}
       </button>
       <button
         v-if="query.data.value.deleted_at"
         class="admin-user-detail__danger"
-        @click="actions.hardDeleteUser.mutate(userId)"
+        @click="onHardDelete"
       >
         {{ $t('admin.userDetail.hardDelete') }}
       </button>
@@ -42,6 +42,7 @@
 <script setup lang="ts">
 import { useQuery } from '@tanstack/vue-query'
 import { useRoute } from 'vue-router'
+import { ElMessageBox } from 'element-plus'
 import { adminApi } from '../api/admin'
 import { adminKeys } from '../queries'
 import { useAdminActions } from '../composables/useAdminActions'
@@ -58,14 +59,55 @@ const query = useQuery({
 const actions = useAdminActions()
 const { startImpersonation } = useImpersonation()
 
-function onBan(): void {
-  const reason = window.prompt('Ban reason:')
-  if (reason) actions.banUser.mutate({ userId, reason })
+async function onBan(): Promise<void> {
+  try {
+    const { value: reason } = await ElMessageBox.prompt(
+      'Provide a reason for banning this user:',
+      'Ban User',
+      { confirmButtonText: 'Ban', cancelButtonText: 'Cancel', inputPattern: /\S+/, inputErrorMessage: 'Reason is required' },
+    )
+    if (reason) actions.banUser.mutate({ userId, reason })
+  } catch {
+    // cancelled
+  }
 }
 
-function onImpersonate(): void {
-  if (window.confirm('Start read-only impersonation session?')) {
+async function onSoftDelete(): Promise<void> {
+  try {
+    await ElMessageBox.confirm(
+      'This will deactivate the account. The user will not be able to log in.',
+      'Delete User',
+      { confirmButtonText: 'Delete', cancelButtonText: 'Cancel', type: 'warning' },
+    )
+    actions.softDeleteUser.mutate(userId)
+  } catch {
+    // cancelled
+  }
+}
+
+async function onHardDelete(): Promise<void> {
+  try {
+    await ElMessageBox.confirm(
+      'This will permanently destroy all user data. This action cannot be undone.',
+      'Permanently Delete User',
+      { confirmButtonText: 'Delete Forever', cancelButtonText: 'Cancel', type: 'error' },
+    )
+    actions.hardDeleteUser.mutate(userId)
+  } catch {
+    // cancelled
+  }
+}
+
+async function onImpersonate(): Promise<void> {
+  try {
+    await ElMessageBox.confirm(
+      'Start a read-only impersonation session for this user?',
+      'Impersonate User',
+      { confirmButtonText: 'Start', cancelButtonText: 'Cancel', type: 'warning' },
+    )
     startImpersonation.mutate(userId)
+  } catch {
+    // cancelled
   }
 }
 </script>

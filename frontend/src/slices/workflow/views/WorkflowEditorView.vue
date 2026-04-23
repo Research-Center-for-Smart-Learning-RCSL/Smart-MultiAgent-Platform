@@ -130,6 +130,7 @@ import { useMutation, useQueryClient } from '@tanstack/vue-query'
 import { computed, ref } from 'vue'
 import { useRoute } from 'vue-router'
 
+import { ElMessage } from 'element-plus'
 import {
   listWorkflows,
   patchWorkflow,
@@ -300,6 +301,7 @@ const saveMutation = useMutation({
     store.markSaved(wf.version)
     qc.invalidateQueries({ queryKey: wfKeys.workflow(workflowId) })
   },
+  onError: () => ElMessage.error('Failed to save workflow.'),
 })
 
 function onSave(): void {
@@ -314,8 +316,11 @@ async function onValidate(): Promise<void> {
   try {
     const result = await validateWorkflow(workspaceId.value, def)
     store.setLintResult(result.errors, result.warnings)
+    if (!result.errors.length && !result.warnings.length) {
+      ElMessage.success('Workflow is valid.')
+    }
   } catch {
-    // handled by lint status bar
+    ElMessage.error('Validation request failed.')
   }
 }
 
@@ -325,6 +330,9 @@ async function onDryRun(): Promise<void> {
   dryRunning.value = true
   try {
     await triggerRun(workflowId, { __dry_run: true })
+    ElMessage.success('Dry run queued.')
+  } catch {
+    ElMessage.error('Failed to start dry run.')
   } finally {
     dryRunning.value = false
   }

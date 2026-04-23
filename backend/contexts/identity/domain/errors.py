@@ -20,6 +20,10 @@ class EmailDomainDenied(IdentityError):
     code = "auth/domain-denied"
 
 
+class InvalidEmailFormat(IdentityError):
+    code = "auth/email-invalid"
+
+
 class PasswordPolicyViolation(IdentityError):
     code = "auth/password-weak"
 
@@ -77,6 +81,7 @@ __all__ = [
     "EmailDomainDenied",
     "IdentityError",
     "InvalidCredentials",
+    "InvalidEmailFormat",
     "Lockout",
     "OriginalCreatorSelfDeleteBlocked",
     "PasswordPolicyViolation",

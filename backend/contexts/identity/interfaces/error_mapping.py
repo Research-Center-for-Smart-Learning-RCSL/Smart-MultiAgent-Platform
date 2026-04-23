@@ -21,6 +21,7 @@ _MEDIA = "application/problem+json"
 _MAP: dict[type[errors.IdentityError], tuple[str, int, str]] = {
     errors.EmailAlreadyRegistered: ("auth/email-taken", 409, "Email already registered"),
     errors.EmailDomainDenied: ("auth/domain-denied", 422, "Email domain rejected"),
+    errors.InvalidEmailFormat: ("auth/email-invalid", 422, "Invalid email address"),
     errors.PasswordPolicyViolation: ("auth/password-weak", 422, "Password policy violation"),
     errors.InvalidCredentials: ("auth/invalid-credentials", 401, "Invalid credentials"),
     errors.AccountNotVerified: ("auth/email-unverified", 403, "Email not verified"),

@@ -29,6 +29,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/vue-query'
 import { ref } from 'vue'
 import { useRoute } from 'vue-router'
 
+import { ElMessage } from 'element-plus'
 import { createChatroom, listChatrooms } from '../api'
 import { convKeys } from '../queries'
 
@@ -45,6 +46,7 @@ const query = useQuery({
 const createMutation = useMutation({
   mutationFn: (name: string) => createChatroom(workspaceId, { name }),
   onSuccess: () => qc.invalidateQueries({ queryKey: convKeys.chatrooms(workspaceId) }),
+  onError: () => ElMessage.error('Failed to create chatroom.'),
 })
 
 async function onCreate(): Promise<void> {

@@ -216,11 +216,14 @@ async def ban_user(
     db: AsyncSession = Depends(db_session),
 ) -> None:
     service = AdminService(db)
-    await service.ban_user(
-        target_user_id=user_id, reason=body.reason,
-        admin_user_id=admin.user_id, actor_ip=ctx.actor_ip,
-        request_id=ctx.request_id,
-    )
+    try:
+        await service.ban_user(
+            target_user_id=user_id, reason=body.reason,
+            admin_user_id=admin.user_id, actor_ip=ctx.actor_ip,
+            request_id=ctx.request_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @router.post("/users/{user_id}/unban", status_code=status.HTTP_204_NO_CONTENT)
@@ -231,10 +234,13 @@ async def unban_user(
     db: AsyncSession = Depends(db_session),
 ) -> None:
     service = AdminService(db)
-    await service.unban_user(
-        target_user_id=user_id, admin_user_id=admin.user_id,
-        actor_ip=ctx.actor_ip, request_id=ctx.request_id,
-    )
+    try:
+        await service.unban_user(
+            target_user_id=user_id, admin_user_id=admin.user_id,
+            actor_ip=ctx.actor_ip, request_id=ctx.request_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @router.post("/users/{user_id}/delete", status_code=status.HTTP_204_NO_CONTENT)
@@ -245,10 +251,13 @@ async def soft_delete_user(
     db: AsyncSession = Depends(db_session),
 ) -> None:
     service = AdminService(db)
-    await service.soft_delete_user(
-        target_user_id=user_id, admin_user_id=admin.user_id,
-        actor_ip=ctx.actor_ip, request_id=ctx.request_id,
-    )
+    try:
+        await service.soft_delete_user(
+            target_user_id=user_id, admin_user_id=admin.user_id,
+            actor_ip=ctx.actor_ip, request_id=ctx.request_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @router.post("/users/{user_id}/hard-delete", status_code=status.HTTP_204_NO_CONTENT)
@@ -265,7 +274,9 @@ async def hard_delete_user(
             actor_ip=ctx.actor_ip, request_id=ctx.request_id,
         )
     except ValueError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
+        msg = str(exc)
+        code = 404 if "not found" in msg else 409
+        raise HTTPException(status_code=code, detail=msg) from exc
 
 
 # ---------------------------------------------------------------------------
@@ -338,12 +349,13 @@ async def promote_admin(
     db: AsyncSession = Depends(db_session),
 ) -> AdminEntryOut:
     service = AdminService(db)
-    await service.promote_admin(
-        target_user_id=body.user_id, admin_user_id=admin.user_id,
-        actor_ip=ctx.actor_ip, request_id=ctx.request_id,
-    )
-    admins = await service.list_admins()
-    entry = next(a for a in admins if a.user_id == body.user_id)
+    try:
+        entry = await service.promote_admin(
+            target_user_id=body.user_id, admin_user_id=admin.user_id,
+            actor_ip=ctx.actor_ip, request_id=ctx.request_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
     return AdminEntryOut(
         user_id=entry.user_id,
         promoted_by_user_id=entry.promoted_by_user_id,

@@ -91,11 +91,13 @@ class ApprovalRepository:
         state: ApprovalState,
     ) -> None:
         ended = datetime.now(UTC) if state != ApprovalState.PENDING else None
-        await self._db.execute(
+        result = await self._db.execute(
             approvals.update()
             .where(approvals.c.id == approval_id)
             .values(state=state.value, ended_at=ended),
         )
+        if (result.rowcount or 0) == 0:
+            raise ValueError(f"approval {approval_id} not found")
 
     async def list_for_workflow_run(
         self, workflow_run_id: uuid.UUID,
@@ -254,11 +256,13 @@ class InstructionRepository:
             if state not in (InstructionState.ISSUED, InstructionState.DELIVERED)
             else None
         )
-        await self._db.execute(
+        result = await self._db.execute(
             instructions.update()
             .where(instructions.c.id == instruction_id)
             .values(state=state.value, resolved_at=resolved),
         )
+        if (result.rowcount or 0) == 0:
+            raise ValueError(f"instruction {instruction_id} not found")
 
     async def count_issued_by_agent_since(
         self,

@@ -352,16 +352,25 @@ class AdminRepository:
         ).all()
         return {r.user_id for r in rows}
 
-    async def promote(self, *, user_id: uuid.UUID, promoted_by: uuid.UUID | None) -> None:
+    async def promote(
+        self, *, user_id: uuid.UUID, promoted_by: uuid.UUID | None
+    ) -> tuple[uuid.UUID, uuid.UUID | None, datetime]:
         stmt = (
             pg_insert(t.admins)
             .values(user_id=user_id, promoted_by_user_id=promoted_by)
             .on_conflict_do_update(
                 index_elements=[t.admins.c.user_id],
-                set_={"revoked_at": None, "promoted_by_user_id": promoted_by},
+                set_={"revoked_at": None, "promoted_by_user_id": promoted_by,
+                      "promoted_at": sa.func.now()},
+            )
+            .returning(
+                t.admins.c.user_id,
+                t.admins.c.promoted_by_user_id,
+                t.admins.c.promoted_at,
             )
         )
-        await self._db.execute(stmt)
+        row = (await self._db.execute(stmt)).one()
+        return row.user_id, row.promoted_by_user_id, row.promoted_at
 
     async def demote(self, user_id: uuid.UUID) -> None:
         await self._db.execute(

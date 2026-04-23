@@ -12,7 +12,7 @@
 
     <div v-if="isImpersonating" class="admin-impersonate__active">
       <p>{{ $t('admin.impersonation.activeSession') }}</p>
-      <button @click="onEnd">{{ $t('admin.impersonation.end') }}</button>
+      <button :disabled="endImpersonation.isPending.value" @click="onEnd">{{ $t('admin.impersonation.end') }}</button>
     </div>
 
     <p v-if="error" class="admin-impersonate__error">{{ error }}</p>
@@ -26,7 +26,7 @@ import { useImpersonation } from '../composables/useImpersonation'
 const targetUserId = ref('')
 const error = ref<string | null>(null)
 
-const { isImpersonating, startImpersonation, endImpersonation } = useImpersonation()
+const { isImpersonating, activeSessionTarget, startImpersonation, endImpersonation } = useImpersonation()
 
 async function onStart(): Promise<void> {
   error.value = null
@@ -40,7 +40,7 @@ async function onStart(): Promise<void> {
 async function onEnd(): Promise<void> {
   error.value = null
   try {
-    await endImpersonation.mutateAsync(targetUserId.value.trim())
+    await endImpersonation.mutateAsync(activeSessionTarget.value ?? '')
   } catch {
     error.value = 'Failed to end impersonation session.'
   }

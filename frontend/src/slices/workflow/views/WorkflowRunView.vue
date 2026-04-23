@@ -77,6 +77,7 @@ import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import { computed } from 'vue'
 import { useRoute } from 'vue-router'
 
+import { ElMessage } from 'element-plus'
 import { cancelRun, getRun, listSteps } from '../api'
 import { useWorkflowRunSocket } from '../composables/useWorkflowRunSocket'
 import { wfKeys } from '../queries'
@@ -124,8 +125,12 @@ function stateClass(state: RunState | StepState | string): string {
 }
 
 async function onCancel(): Promise<void> {
-  await cancelRun(runId)
-  qc.invalidateQueries({ queryKey: wfKeys.run(runId) })
-  qc.invalidateQueries({ queryKey: wfKeys.steps(runId) })
+  try {
+    await cancelRun(runId)
+    qc.invalidateQueries({ queryKey: wfKeys.run(runId) })
+    qc.invalidateQueries({ queryKey: wfKeys.steps(runId) })
+  } catch {
+    ElMessage.error('Failed to cancel run.')
+  }
 }
 </script>

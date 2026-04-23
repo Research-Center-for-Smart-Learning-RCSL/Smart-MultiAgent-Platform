@@ -28,6 +28,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/vue-query'
 import { ref } from 'vue'
 import { useRoute } from 'vue-router'
 
+import { ElMessage } from 'element-plus'
 import {
   createWorkspace,
   deleteWorkspace,
@@ -48,6 +49,7 @@ const query = useQuery({
 const createMutation = useMutation({
   mutationFn: (name: string) => createWorkspace(projectId, { name }),
   onSuccess: () => qc.invalidateQueries({ queryKey: convKeys.workspaces(projectId) }),
+  onError: () => ElMessage.error('Failed to create workspace.'),
 })
 
 async function onCreate(): Promise<void> {

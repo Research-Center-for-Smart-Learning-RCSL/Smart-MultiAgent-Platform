@@ -20,7 +20,7 @@
           <td>
             <button
               v-if="!org.deleted_at"
-              @click="actions.forceDeleteOrg.mutate(org.id)"
+              @click="onForceDelete(org.id, org.name)"
             >
               {{ $t('admin.orgs.forceDelete') }}
             </button>
@@ -42,6 +42,8 @@
 
 <script setup lang="ts">
 import { useQuery, useMutation, useQueryClient } from '@tanstack/vue-query'
+import { ElMessage, ElMessageBox } from 'element-plus'
+
 import { adminApi } from '../api/admin'
 import { adminKeys } from '../queries'
 import { useAdminActions } from '../composables/useAdminActions'
@@ -59,12 +61,32 @@ const transferMutation = useMutation({
   mutationFn: ({ orgId, targetUserId }: { orgId: string; targetUserId: string }) =>
     adminApi.forceTransferOC(orgId, targetUserId),
   onSuccess: () => qc.invalidateQueries({ queryKey: adminKeys.orgs() }),
+  onError: () => ElMessage.error('OC transfer failed.'),
 })
 
-function onTransfer(orgId: string): void {
-  const targetUserId = window.prompt('Target user ID for OC transfer:')
-  if (targetUserId) {
-    transferMutation.mutate({ orgId, targetUserId })
+async function onForceDelete(orgId: string, orgName: string): Promise<void> {
+  try {
+    await ElMessageBox.confirm(
+      `Permanently delete "${orgName}" and all its projects? This cannot be undone.`,
+      'Force Delete Organisation',
+      { confirmButtonText: 'Delete', cancelButtonText: 'Cancel', type: 'error' },
+    )
+    actions.forceDeleteOrg.mutate(orgId)
+  } catch {
+    // cancelled
+  }
+}
+
+async function onTransfer(orgId: string): Promise<void> {
+  try {
+    const { value: targetUserId } = await ElMessageBox.prompt(
+      'Enter the target user ID for OC transfer:',
+      'Force Transfer OC',
+      { confirmButtonText: 'Transfer', cancelButtonText: 'Cancel', inputPattern: /\S+/, inputErrorMessage: 'User ID is required' },
+    )
+    if (targetUserId) transferMutation.mutate({ orgId, targetUserId })
+  } catch {
+    // cancelled
   }
 }
 </script>

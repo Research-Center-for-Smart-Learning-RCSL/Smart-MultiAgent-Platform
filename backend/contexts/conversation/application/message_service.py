@@ -31,9 +31,13 @@ from contexts.conversation.infrastructure.repositories import (
     MessageEditRepository,
     MessageRepository,
 )
+import logging
+
 from shared_kernel import audit
 from shared_kernel.auth.clients import now
 from shared_kernel.realtime.pubsub import Publisher, room_channel
+
+_log = logging.getLogger(__name__)
 
 
 # R13.21 — 5-minute user self-edit window.
@@ -142,15 +146,18 @@ class MessageService:
                 request_id=request_id,
             ),
         )
-        await Publisher(room_channel(chatroom_id)).emit(
-            "message.created",
-            {
-                "message_id": str(msg.id),
-                "sender_type": msg.sender_type.value,
-                "sender_id": str(msg.sender_id) if msg.sender_id else None,
-                "created_at": msg.created_at.isoformat() if msg.created_at else None,
-            },
-        )
+        try:
+            await Publisher(room_channel(chatroom_id)).emit(
+                "message.created",
+                {
+                    "message_id": str(msg.id),
+                    "sender_type": msg.sender_type.value,
+                    "sender_id": str(msg.sender_id) if msg.sender_id else None,
+                    "created_at": msg.created_at.isoformat() if msg.created_at else None,
+                },
+            )
+        except Exception:
+            _log.warning("realtime publish failed for message.created %s", msg.id, exc_info=True)
         return msg
 
     async def edit(
@@ -190,31 +197,35 @@ class MessageService:
                     "5-minute self-edit window exceeded",
                 )
 
-        # Preserve the prior text BEFORE overwriting (R13.21).
-        await self._edits.record(
-            message_id=message_id,
-            old_content_md=existing.content_md,
-            edited_by_user_id=authority.actor_user_id,
-        )
+        # Validate the version lock first — only record history if the update
+        # will actually succeed. VersionMismatch here leaves no orphaned rows.
         updated = await self._messages.update_content(
             message_id=message_id,
             expected_version=expected_version,
             new_content_md=new_content_md,
         )
-
-        await Publisher(room_channel(existing.chatroom_id)).emit(
-            "message.updated",
-            {
-                "message_id": str(message_id),
-                "version": updated.version,
-                "edited_at": updated.edited_at.isoformat()
-                    if updated.edited_at else None,
-                "by_moderator": (
-                    moderator_path
-                    and authority.actor_user_id != existing.sender_id
-                ),
-            },
+        await self._edits.record(
+            message_id=message_id,
+            old_content_md=existing.content_md,
+            edited_by_user_id=authority.actor_user_id,
         )
+
+        try:
+            await Publisher(room_channel(existing.chatroom_id)).emit(
+                "message.updated",
+                {
+                    "message_id": str(message_id),
+                    "version": updated.version,
+                    "edited_at": updated.edited_at.isoformat()
+                        if updated.edited_at else None,
+                    "by_moderator": (
+                        moderator_path
+                        and authority.actor_user_id != existing.sender_id
+                    ),
+                },
+            )
+        except Exception:
+            _log.warning("realtime publish failed for message.updated %s", message_id, exc_info=True)
         if moderator_path and authority.actor_user_id != existing.sender_id:
             # R13.23 — moderator-on-other-user edit gets its own audit slug.
             await audit.emit(
@@ -286,9 +297,12 @@ class MessageService:
                 request_id=request_id,
             ),
         )
-        await Publisher(room_channel(existing.chatroom_id)).emit(
-            "message.deleted", {"message_id": str(message_id)},
-        )
+        try:
+            await Publisher(room_channel(existing.chatroom_id)).emit(
+                "message.deleted", {"message_id": str(message_id)},
+            )
+        except Exception:
+            _log.warning("realtime publish failed for message.deleted %s", message_id, exc_info=True)
 
 
 __all__ = ["EditAuthority", "MessageService", "SELF_EDIT_WINDOW"]

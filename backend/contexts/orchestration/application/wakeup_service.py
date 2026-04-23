@@ -25,6 +25,7 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.agents.application.agent_service import AgentService
+from contexts.agents.domain.errors import AgentVersionMismatch
 from contexts.agents.domain.models import Agent, AgentDraft
 from contexts.agents.interfaces.facade import AgentsFacade
 from contexts.orchestration.domain.errors import WakeupClampApplied, WakeupFieldReadonly
@@ -212,40 +213,66 @@ class WakeupService:
         if agent is None:
             raise ValueError(f"agent {agent_id} not found")
 
-        cfg = WakeupConfig.from_dict(agent.wakeup_config)
         soft_bounds = self._parse_soft_bounds(agent)
-        new_dict = cfg.to_dict()
         clamped_fields: dict[str, dict[str, Any]] = {}
 
+        # Keep originals so the retry closure re-clamps from the user's
+        # actual request against fresh bounds, not from an already-clamped value.
+        requested_n = every_n_messages
+        requested_t = silence_minutes
+
         if every_n_messages is not None:
-            original = every_n_messages
-            every_n_messages = self._clamp_n(every_n_messages, soft_bounds)
-            new_dict["triggers"]["every_n_messages"]["n"] = every_n_messages
-            if every_n_messages != original:
+            clamped = self._clamp_n(every_n_messages, soft_bounds)
+            if clamped != every_n_messages:
                 clamped_fields["every_n_messages"] = {
-                    "requested": original,
-                    "clamped_to": every_n_messages,
+                    "requested": every_n_messages,
+                    "clamped_to": clamped,
                 }
 
         if silence_minutes is not None:
-            original = silence_minutes
-            silence_minutes = self._clamp_t(silence_minutes, soft_bounds)
-            new_dict["triggers"]["silence_minutes"]["t_minutes"] = silence_minutes
-            if silence_minutes != original:
+            clamped = self._clamp_t(silence_minutes, soft_bounds)
+            if clamped != silence_minutes:
                 clamped_fields["silence_minutes"] = {
-                    "requested": original,
-                    "clamped_to": silence_minutes,
+                    "requested": silence_minutes,
+                    "clamped_to": clamped,
                 }
 
-        # Persist via agent service (bumps version).
-        draft = AgentDraft(wakeup_config=new_dict)
-        updated = await self._agent_svc.patch(
-            agent_id=agent_id,
-            draft=draft,
-            expected_version=agent.version,
-            actor_user_id=uuid.UUID(int=0),  # system actor
-            actor_ip=None,
-        )
+        # Persist via agent service (bumps version). Retry once on version
+        # conflicts: wakeup workers and the periodic G.5 refresh can race to
+        # write wakeup_config on the same agent. On retry, recompute the config
+        # from the fresh agent state so we apply the requested deltas on top
+        # of whatever the concurrent writer committed, not on top of stale data.
+        def _build_new_dict(base_agent: Agent) -> dict[str, Any]:
+            fresh_cfg = WakeupConfig.from_dict(base_agent.wakeup_config)
+            d = fresh_cfg.to_dict()
+            fresh_bounds = self._parse_soft_bounds(base_agent)
+            if requested_n is not None:
+                d["triggers"]["every_n_messages"]["n"] = self._clamp_n(
+                    requested_n, fresh_bounds
+                )
+            if requested_t is not None:
+                d["triggers"]["silence_minutes"]["t_minutes"] = self._clamp_t(
+                    requested_t, fresh_bounds
+                )
+            return d
+
+        for _attempt in range(2):
+            draft = AgentDraft(wakeup_config=_build_new_dict(agent))
+            try:
+                updated = await self._agent_svc.patch(
+                    agent_id=agent_id,
+                    draft=draft,
+                    expected_version=agent.version,
+                    actor_user_id=uuid.UUID(int=0),  # system actor
+                    actor_ip=None,
+                )
+                break
+            except AgentVersionMismatch:
+                if _attempt == 1:
+                    raise
+                agent = await self._agents_facade.get_agent(agent_id)
+                if agent is None:
+                    raise ValueError(f"agent {agent_id} not found")
 
         if clamped_fields:
             await audit.emit(
@@ -285,13 +312,26 @@ class WakeupService:
             return False
 
         draft = AgentDraft(wakeup_config=authored)
-        await self._agent_svc.patch(
-            agent_id=agent_id,
-            draft=draft,
-            expected_version=agent.version,
-            actor_user_id=uuid.UUID(int=0),  # system actor
-            actor_ip=None,
-        )
+        for _attempt in range(2):
+            try:
+                await self._agent_svc.patch(
+                    agent_id=agent_id,
+                    draft=draft,
+                    expected_version=agent.version,
+                    actor_user_id=uuid.UUID(int=0),  # system actor
+                    actor_ip=None,
+                )
+                break
+            except AgentVersionMismatch:
+                if _attempt == 1:
+                    raise
+                agent = await self._agents_facade.get_agent(agent_id)
+                if agent is None or agent.deleted_at is not None:
+                    return False
+                authored = agent.wakeup_authored_snapshot
+                if not authored or agent.wakeup_config == authored:
+                    return False
+                draft = AgentDraft(wakeup_config=authored)
 
         await audit.emit(
             self._db,

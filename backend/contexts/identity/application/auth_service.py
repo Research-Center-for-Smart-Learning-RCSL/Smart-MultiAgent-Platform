@@ -22,6 +22,7 @@ from contexts.identity.domain.errors import (
     EmailAlreadyRegistered,
     EmailDomainDenied,
     InvalidCredentials,
+    InvalidEmailFormat,
     Lockout,
     PasswordPolicyViolation,
     TokenExpired,
@@ -347,9 +348,12 @@ class AuthService:
         request_id: uuid.UUID | None = None,
     ) -> None:
         record = await tokens.revoke_session(refresh_token)
+        # Always denylist the access JTI regardless of refresh-token validity —
+        # the caller may still hold a live access token even after the refresh
+        # token has been revoked or already used.
+        await tokens.deny_jti(access_jti, ttl=access_ttl)
         if record is not None:
             await self._sessions.revoke(session_id=record.session_id)
-            await tokens.deny_jti(access_jti, ttl=access_ttl)
             await audit.emit(
                 self._db,
                 audit.AuditEvent(
@@ -563,8 +567,9 @@ class AuthService:
 
 def _normalise_email(raw: str) -> str:
     e = raw.strip().lower()
-    if "@" not in e or len(e) > 320:
-        raise PasswordPolicyViolation("invalid email address")
+    at = e.rfind("@")
+    if at <= 0 or at >= len(e) - 1 or len(e) > 320:
+        raise InvalidEmailFormat("invalid email address")
     return e
 
 

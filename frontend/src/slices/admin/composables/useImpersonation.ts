@@ -4,15 +4,25 @@ import { getAccessToken, setAccessToken } from '@shared/transport'
 import { adminApi } from '../api/admin'
 
 export function useImpersonation() {
-  const impersonatedBy = computed<string | null>(() => {
+  function decodePayload(): Record<string, unknown> | null {
     const token = getAccessToken()
     if (!token) return null
     try {
-      const payload = JSON.parse(atob(token.split('.')[1]))
-      return payload.impersonated_by ?? null
+      return JSON.parse(atob(token.split('.')[1]))
     } catch {
       return null
     }
+  }
+
+  const impersonatedBy = computed<string | null>(() => {
+    const p = decodePayload()
+    return (p?.impersonated_by as string) ?? null
+  })
+
+  const activeSessionTarget = computed<string | null>(() => {
+    if (!impersonatedBy.value) return null
+    const p = decodePayload()
+    return (p?.sub as string) ?? null
   })
 
   const isImpersonating = computed(() => impersonatedBy.value !== null)
@@ -37,6 +47,7 @@ export function useImpersonation() {
 
   return {
     impersonatedBy,
+    activeSessionTarget,
     isImpersonating,
     startImpersonation,
     endImpersonation,

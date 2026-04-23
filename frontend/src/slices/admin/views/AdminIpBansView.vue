@@ -5,7 +5,7 @@
     <form class="admin-ip-bans__create" @submit.prevent="onCreate">
       <input v-model="cidr" placeholder="192.168.1.0/24" required />
       <input v-model="reason" :placeholder="$t('admin.ipBans.reason')" required />
-      <button type="submit">{{ $t('admin.ipBans.add') }}</button>
+      <button type="submit" :disabled="actions.createIpBan.isPending.value">{{ $t('admin.ipBans.add') }}</button>
     </form>
 
     <table v-if="query.data.value">
@@ -51,9 +51,13 @@ const query = useQuery({
 const actions = useAdminActions()
 
 async function onCreate(): Promise<void> {
-  await actions.createIpBan.mutateAsync({ cidr: cidr.value, reason: reason.value })
-  cidr.value = ''
-  reason.value = ''
+  try {
+    await actions.createIpBan.mutateAsync({ cidr: cidr.value, reason: reason.value })
+    cidr.value = ''
+    reason.value = ''
+  } catch {
+    // error toast handled by useAdminActions onError
+  }
 }
 </script>
 

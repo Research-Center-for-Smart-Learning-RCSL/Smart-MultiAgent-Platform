@@ -9,12 +9,13 @@ from __future__ import annotations
 import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config.settings import get_settings
 from contexts.identity.domain.models import User, UserStatus
 from contexts.identity.infrastructure import tables as t
 from contexts.identity.infrastructure.repositories import (
@@ -99,6 +100,10 @@ class AdminService:
             project_ids=[r[0] for r in proj_rows],
         )
 
+    async def _require_user(self, user_id: uuid.UUID) -> None:
+        if await self._users.get_by_id(user_id) is None:
+            raise ValueError(f"user {user_id} not found")
+
     async def ban_user(
         self,
         *,
@@ -108,6 +113,7 @@ class AdminService:
         actor_ip: str | None,
         request_id: uuid.UUID | None = None,
     ) -> None:
+        await self._require_user(target_user_id)
         await self._users.ban(target_user_id, reason)
         await self._invalidate_user_sessions(target_user_id)
         await audit.emit(
@@ -138,6 +144,7 @@ class AdminService:
         actor_ip: str | None,
         request_id: uuid.UUID | None = None,
     ) -> None:
+        await self._require_user(target_user_id)
         await self._users.unban(target_user_id)
         await audit.emit(
             self._db,
@@ -159,6 +166,7 @@ class AdminService:
         actor_ip: str | None,
         request_id: uuid.UUID | None = None,
     ) -> None:
+        await self._require_user(target_user_id)
         await self._users.soft_delete(target_user_id)
         await self._invalidate_user_sessions(target_user_id)
         await audit.emit(
@@ -183,7 +191,7 @@ class AdminService:
     ) -> None:
         user = await self._users.get_by_id(target_user_id)
         if user is None:
-            return
+            raise ValueError(f"user {target_user_id} not found")
         if user.deleted_at is None:
             raise ValueError("user must be soft-deleted first")
         grace_days = (now() - user.deleted_at).days
@@ -226,8 +234,11 @@ class AdminService:
         admin_user_id: uuid.UUID,
         actor_ip: str | None,
         request_id: uuid.UUID | None = None,
-    ) -> None:
-        await self._admins.promote(user_id=target_user_id, promoted_by=admin_user_id)
+    ) -> AdminEntry:
+        await self._require_user(target_user_id)
+        uid, promoted_by, promoted_at = await self._admins.promote(
+            user_id=target_user_id, promoted_by=admin_user_id
+        )
         await audit.emit(
             self._db,
             audit.AuditEvent(
@@ -238,6 +249,11 @@ class AdminService:
                 resource_id=target_user_id,
                 request_id=request_id,
             ),
+        )
+        return AdminEntry(
+            user_id=uid,
+            promoted_by_user_id=promoted_by,
+            promoted_at=promoted_at,
         )
 
     async def demote_admin(
@@ -308,7 +324,11 @@ class AdminService:
             await self._db.execute(
                 t.users.update()
                 .where(t.users.c.id == resource_id)
-                .values(status=UserStatus.ACTIVE.value)
+                .values(
+                    status=UserStatus.ACTIVE.value,
+                    banned_reason=None,
+                    banned_at=None,
+                )
             )
         await audit.emit(
             self._db,
@@ -328,8 +348,9 @@ class AdminService:
         for s in sessions:
             await tokens.kill_family(s.family_id)
             if s.last_jti is not None:
-                from datetime import timedelta
-                await tokens.deny_jti(s.last_jti, ttl=timedelta(minutes=15))
+                await tokens.deny_jti(s.last_jti, ttl=timedelta(
+                    seconds=get_settings().jwt.access_ttl_seconds,
+                ))
         await self._sessions.revoke_all_for_user(user_id)
 
 

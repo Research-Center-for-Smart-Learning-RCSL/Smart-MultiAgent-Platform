@@ -15,7 +15,7 @@ import threading
 import uuid
 from dataclasses import dataclass
 from datetime import timedelta
-from typing import Final
+from typing import Any, Final
 
 from minio import Minio
 from minio.error import S3Error
@@ -130,6 +130,21 @@ class MinioClient:
                     raise StorageError(f"remove_object failed: {exc}") from exc
 
         await asyncio.to_thread(_rm)
+
+    def list_objects_sync(self, bucket: str) -> list[Any]:
+        """Return all objects in *bucket* (recursive). Caller runs in a thread."""
+        try:
+            return list(self._client.list_objects(bucket, recursive=True))
+        except S3Error as exc:
+            raise StorageError(f"list_objects failed: {exc}") from exc
+
+    def remove_object_sync(self, bucket: str, key: str) -> None:
+        """Remove one object; idempotent on NoSuchKey. Caller runs in a thread."""
+        try:
+            self._client.remove_object(bucket, key)
+        except S3Error as exc:
+            if exc.code not in ("NoSuchKey",):
+                raise StorageError(f"remove_object failed: {exc}") from exc
 
     async def presigned_get(
         self,

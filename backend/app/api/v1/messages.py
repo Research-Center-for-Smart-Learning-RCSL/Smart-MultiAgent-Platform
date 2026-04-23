@@ -63,7 +63,7 @@ class MessageOut(BaseModel):
     content_md: str
     metadata: dict[str, Any]
     version: int
-    created_at: str
+    created_at: str | None
     edited_at: str | None
     deleted_at: str | None
 
@@ -77,7 +77,7 @@ def _to_out(m: Message) -> MessageOut:
         content_md=m.content_md,
         metadata=m.metadata,
         version=m.version,
-        created_at=m.created_at.isoformat() if m.created_at else "",
+        created_at=m.created_at.isoformat() if m.created_at else None,
         edited_at=m.edited_at.isoformat() if m.edited_at else None,
         deleted_at=m.deleted_at.isoformat() if m.deleted_at else None,
     )
@@ -121,9 +121,12 @@ async def list_messages(
     )
     ensure_can_read(access, is_admin=principal.is_admin)
     service = MessageService(db)
-    rows = await service.list(
-        chatroom_id=chatroom_id, before=before, since=since, limit=limit,
-    )
+    try:
+        rows = await service.list(
+            chatroom_id=chatroom_id, before=before, since=since, limit=limit,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     return [_to_out(m) for m in rows]
 
 

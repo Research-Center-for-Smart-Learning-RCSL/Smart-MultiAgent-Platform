@@ -171,3 +171,12 @@ export async function listDlq(agentId: string): Promise<DlqEntry[]> {
   )
   return data
 }
+
+// ---- Agent wakeup config (Phase H) -----------------------------------------
+
+export async function patchAgentWakeupConfig(
+  agentId: string,
+  wakeupConfig: import('../types').WakeupConfig,
+): Promise<void> {
+  await http.patch(`/agents/${agentId}`, { wakeup_config: wakeupConfig })
+}

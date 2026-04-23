@@ -65,9 +65,10 @@ import { useQueryClient } from '@tanstack/vue-query'
 import { reactive, ref, watchEffect } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
+import { ElMessage } from 'element-plus'
 import { deleteChatroom, getGuestLink, listChatrooms, patchChatroom } from '../api'
 import { convKeys } from '../queries'
-import { DlqViewer, WakeupConfigEditor } from '@slices/workflow'
+import { DlqViewer, WakeupConfigEditor, patchAgentWakeupConfig } from '@slices/workflow'
 import type { WakeupConfig } from '@slices/workflow'
 
 const route = useRoute()
@@ -93,8 +94,13 @@ interface BoundAgent {
 }
 const boundAgents = ref<BoundAgent[]>([])
 
-async function saveWakeupConfig(_agentId: string, _config: WakeupConfig): Promise<void> {
-  // Wired by Phase H via PATCH /agents/{id} wakeup_config field.
+async function saveWakeupConfig(agentId: string, config: WakeupConfig): Promise<void> {
+  try {
+    await patchAgentWakeupConfig(agentId, config)
+    ElMessage.success('Wakeup config saved.')
+  } catch {
+    ElMessage.error('Failed to save wakeup config.')
+  }
 }
 
 watchEffect(async () => {

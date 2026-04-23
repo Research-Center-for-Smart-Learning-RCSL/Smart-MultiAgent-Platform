@@ -6,6 +6,7 @@ import en from './locales/en.json'
 import zhTW from './locales/zh-TW.json'
 
 export { workflowRoutes } from './routes'
+export { patchAgentWakeupConfig } from './api'
 export { useOrchestrationStore } from './stores/orchestration'
 export { useWorkflowStore } from './stores/workflow'
 export { useWorkflowRunSocket } from './composables/useWorkflowRunSocket'

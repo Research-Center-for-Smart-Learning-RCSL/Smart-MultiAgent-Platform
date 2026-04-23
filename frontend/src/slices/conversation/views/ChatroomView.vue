@@ -86,6 +86,7 @@ import {
 } from 'vue'
 import { useRoute } from 'vue-router'
 
+import { ElMessage } from 'element-plus'
 import {
   createExport,
   listMessages,
@@ -197,15 +198,19 @@ async function onSend(): Promise<void> {
   const attachmentIds = pendingUploads.value
     .map((p) => p.attachmentId)
     .filter((x): x is string => !!x)
-  await sendMessage(chatroomId, {
-    content_md: text,
-    attachment_ids: attachmentIds,
-  })
-  draft.value = ''
-  pendingUploads.value = []
-  await qc.invalidateQueries({ queryKey: convKeys.messages(chatroomId) })
-  await nextTick()
-  listRef.value?.scrollTo({ top: listRef.value.scrollHeight })
+  try {
+    await sendMessage(chatroomId, {
+      content_md: text,
+      attachment_ids: attachmentIds,
+    })
+    draft.value = ''
+    pendingUploads.value = []
+    await qc.invalidateQueries({ queryKey: convKeys.messages(chatroomId) })
+    await nextTick()
+    listRef.value?.scrollTo({ top: listRef.value.scrollHeight })
+  } catch {
+    ElMessage.error('Failed to send message.')
+  }
 }
 
 async function runSearch(): Promise<void> {
@@ -213,13 +218,21 @@ async function runSearch(): Promise<void> {
     searchHits.value = []
     return
   }
-  const res = await searchMessages(chatroomId, searchQuery.value.trim())
-  searchHits.value = res.hits
+  try {
+    const res = await searchMessages(chatroomId, searchQuery.value.trim())
+    searchHits.value = res.hits
+  } catch {
+    ElMessage.error('Search failed.')
+  }
 }
 
 async function runExport(): Promise<void> {
-  const { job_id } = await createExport(chatroomId)
-  window.alert(`Export queued: ${job_id}. Check /api/exports/${job_id}.`)
+  try {
+    const { job_id } = await createExport(chatroomId)
+    ElMessage.success(`Export queued (${job_id.slice(0, 8)}…). Download will be ready shortly.`)
+  } catch {
+    ElMessage.error('Failed to start export.')
+  }
 }
 
 async function runEnhance(): Promise<void> {
