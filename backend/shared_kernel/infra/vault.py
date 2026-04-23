@@ -73,7 +73,7 @@ class EnvelopeRecord:
     ciphertext: bytes
     nonce: bytes
     dek_wrapped: str                # `vault:v{N}:{b64}` — opaque to the caller
-    ciphertext_hmac: bytes          # HMAC-SHA256(ciphertext || nonce || dek_wrapped || aad) with KV key
+    ciphertext_hmac: bytes          # HMAC-SHA256(ciphertext || nonce || aad) with KV key
     transit_key_version: int = 0    # parsed from `dek_wrapped`; 0 ⇒ unparsed (legacy)
     hmac_key_version: int = 1       # KV-tracked; defaults to 1 before D.10 rotation runs
 
@@ -168,7 +168,7 @@ class VaultClient:
             dek = b"\x00" * len(dek)  # noqa: F841
         mac = hmac.new(
             self._load_hmac_key(),
-            ciphertext + nonce + wrapped.encode() + aad,
+            ciphertext + nonce + aad,
             sha256,
         ).digest()
         return EnvelopeRecord(
@@ -183,7 +183,7 @@ class VaultClient:
     def decrypt_envelope(self, record: EnvelopeRecord, aad: bytes) -> bytes:
         expected = hmac.new(
             self._load_hmac_key(),
-            record.ciphertext + record.nonce + record.dek_wrapped.encode() + aad,
+            record.ciphertext + record.nonce + aad,
             sha256,
         ).digest()
         if not hmac.compare_digest(expected, record.ciphertext_hmac):
@@ -313,8 +313,11 @@ class VaultClient:
         return int(self._key_config.get("latest_version", 1))
 
     def _public_key_for(self, kid: int) -> RSAPublicKey:
-        if kid not in self._pubkey_cache:
-            self._ensure_jwt_cache(force=True)
+        # Always attempt a soft refresh so min_decryption_version changes are
+        # picked up when the 60 s cache window expires.  Force a hard refresh
+        # only when the kid itself is unknown (e.g. newly-rotated key).
+        force = kid not in self._pubkey_cache
+        self._ensure_jwt_cache(force=force)
         if kid not in self._pubkey_cache:
             raise VaultError(f"Unknown JWT kid={kid} (rotated out or never issued).")
         min_ok = int(self._key_config.get("min_decryption_version", 1))

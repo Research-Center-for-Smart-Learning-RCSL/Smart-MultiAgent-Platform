@@ -29,6 +29,7 @@ def _agent(project_id: uuid.UUID, *, enabled: bool, wakeup: dict | None = None) 
         context_token_cap=None,
         a2a_enabled=enabled,
         wakeup_config=wakeup or {},
+        wakeup_authored_snapshot=None,
         workflow_capabilities={},
         version=1,
         deleted_at=None,

@@ -30,11 +30,13 @@ workflows = sa.Table(
     sa.Column("created_at", sa.TIMESTAMP(timezone=True), nullable=False,
               server_default=sa.text("now()")),
     sa.Column("deleted_at", sa.TIMESTAMP(timezone=True), nullable=True),
-    sa.UniqueConstraint(
-        "workspace_id", "name",
-        name="uq_workflows_workspace_id_name",
-        postgresql_where=sa.text("deleted_at IS NULL"),
-    ),
+)
+sa.Index(
+    "uq_workflows_workspace_id_name",
+    workflows.c.workspace_id,
+    workflows.c.name,
+    unique=True,
+    postgresql_where=sa.text("deleted_at IS NULL"),
 )
 
 # ---------------------------------------------------------------------------
