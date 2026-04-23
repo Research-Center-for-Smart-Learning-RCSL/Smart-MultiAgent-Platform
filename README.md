@@ -2,7 +2,7 @@
 
 SMAP is a self-hosted web application for composing and conversing with groups of LLM-powered agents. Users supply their own API keys from third-party model providers (Anthropic Claude, OpenAI, Google Gemini). SMAP does not charge usage fees; model costs are billed directly by the providers to the key owner.
 
-Deployment target: single-host Docker Compose (16-core / 32 GB). There is no cloud-managed option or SaaS tier.
+Deployment target: single-host Docker Compose (16-core / 64 GB). There is no cloud-managed option or SaaS tier.
 
 ![SMAP Architecture](assets/SMAP.jpg)
 
