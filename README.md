@@ -213,10 +213,10 @@ See `.env.example` for the full list with defaults.
 | B | Infrastructure Bootstrap and Operations | CODE complete | 2026-04-21 |
 | C | Identity, Tenancy, Access, and Web Security | CODE complete | 2026-04-21 |
 | D | API Key Management | CODE complete | 2026-04-21 |
-| E | Agents, RAG, Graph RAG, MCP | not started | — |
+| E | Agents, RAG, Graph RAG, MCP | CODE complete | 2026-04-22 |
 | F | Chat and Real-time | CODE complete | 2026-04-23 |
-| G | Multi-Agent Orchestration | not started | — |
-| H | Workflow Engine | not started | — |
+| G | Multi-Agent Orchestration | CODE complete | 2026-04-23 |
+| H | Workflow Engine | CODE complete | 2026-04-23 |
 | I | Admin, Audit, Notifications, Retention | CODE complete | 2026-04-23 |
 | J | Frontend Integration, E2E, and Release | not started | — |
 
