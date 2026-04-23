@@ -16,7 +16,7 @@ from __future__ import annotations
 import uuid
 from typing import Any, Literal
 
-from fastapi import (
+from fastapi import Response, (
     APIRouter,
     Depends,
     File,
@@ -232,7 +232,7 @@ async def read_rag_config(
     return _to_config_out(cfg)
 
 
-@config_router.delete("/{config_id}", status_code=status.HTTP_204_NO_CONTENT)
+@config_router.delete("/{config_id}", status_code=status.HTTP_204_NO_CONTENT, response_class=Response)
 async def delete_rag_config(
     config_id: uuid.UUID = Path(...),
     ctx: RequestContext = Depends(current_context),

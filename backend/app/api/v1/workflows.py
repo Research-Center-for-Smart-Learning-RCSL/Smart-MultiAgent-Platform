@@ -9,7 +9,7 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Path, Query, status
+from fastapi import Response, APIRouter, Depends, Header, HTTPException, Path, Query, status
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -265,6 +265,7 @@ async def patch_workflow(
 @workflow_router.delete(
     "/{workflow_id}",
     status_code=status.HTTP_204_NO_CONTENT,
+response_class=Response,
 )
 async def delete_workflow(
     workflow_id: uuid.UUID = Path(...),

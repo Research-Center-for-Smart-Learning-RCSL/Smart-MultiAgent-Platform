@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import APIRouter, Depends, status
+from fastapi import Response, APIRouter, Depends, status
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -126,7 +126,7 @@ async def retest_key(
     return KeyOut.from_domain(refreshed)
 
 
-@router.delete("/{key_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{key_id}", status_code=status.HTTP_204_NO_CONTENT, response_class=Response)
 async def delete_key(
     key_id: uuid.UUID,
     principal: Principal = Depends(current_principal),

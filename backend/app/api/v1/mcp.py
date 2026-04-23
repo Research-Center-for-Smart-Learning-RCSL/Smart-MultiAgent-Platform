@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import APIRouter, Depends, Path, status
+from fastapi import Response, APIRouter, Depends, Path, status
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -235,6 +235,7 @@ async def add_allowlist_entry(
 
 @project_router.delete(
     "/{hostname}", status_code=status.HTTP_204_NO_CONTENT,
+response_class=Response,
 )
 async def remove_allowlist_entry(
     project_id: uuid.UUID = Path(...),

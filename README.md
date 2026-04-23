@@ -1,30 +1,30 @@
 # SMAP — Smart Multi-Agent Platform
 
-SMAP is a self-hosted web application for composing, orchestrating, and conversing with groups of LLM-powered agents. Users bring their own API keys from third-party model providers (Anthropic Claude, OpenAI, Google Gemini). SMAP does not charge usage fees; all model costs are billed directly by the providers to the key owner.
+SMAP is a self-hosted web application for composing and conversing with groups of LLM-powered agents. Users supply their own API keys from third-party model providers (Anthropic Claude, OpenAI, Google Gemini). SMAP does not charge usage fees; model costs are billed directly by the providers to the key owner.
 
-The platform targets a single-host Docker Compose deployment (16-core / 32 GB). There is no cloud-managed option, no SaaS tier, and no MVP scope reduction — the full v1 feature set is in scope from the start.
+Deployment target: single-host Docker Compose (16-core / 32 GB). There is no cloud-managed option or SaaS tier.
 
 ---
 
 ## What SMAP does
 
-**Key and credential management.** Users upload provider API keys, which are stored with envelope encryption (Vault Transit backend). Keys are organized into ordered Key Groups that support automatic rotation, per-key sliding-window quota tracking, and failover. Individual keys can be carried into organization projects. A threshold worker emits notifications when 80% of a key's quota is consumed.
+**Key and credential management.** Users upload provider API keys stored with envelope encryption (Vault Transit backend). Keys are organized into ordered Key Groups with automatic rotation, per-key sliding-window quota tracking, and failover. A background worker emits notifications when 80% of a key's quota is consumed.
 
-**Agent configuration.** An Agent is a named LLM persona with a system prompt, a Key Group, an optional RAG configuration, an optional Graph RAG configuration, and an optional set of MCP tool servers. Agents can send and receive messages via the Agent-to-Agent (A2A) protocol and can be composed into multi-agent workflows.
+**Agent configuration.** An Agent is a named LLM persona with a system prompt, a Key Group, an optional RAG configuration, an optional Graph RAG configuration, and an optional set of MCP tool servers. Agents can exchange messages via the Agent-to-Agent (A2A) protocol and be composed into multi-agent workflows.
 
-**Retrieval-augmented generation.** Each agent can be bound to a RAG configuration backed by Qdrant (dense vector search). A separate Graph RAG configuration binds a Neo4j knowledge graph to the same agent, enabling graph-enhanced retrieval. Both are populated by background ingestion workers.
+**Retrieval-augmented generation.** Each agent can be bound to a RAG configuration backed by Qdrant (dense vector search) and a Graph RAG configuration backed by Neo4j (graph-enhanced retrieval). Both are populated by background ingestion workers.
 
-**MCP tool servers.** Agents can call built-in tool servers (file access, web search via Tavily, code execution) and user-provided external MCP servers. External servers run inside a gVisor-isolated Docker-in-Docker sandbox with an egress proxy, limiting what they can reach on the network.
+**MCP tool servers.** Agents can call built-in tool servers (file access, web search via Tavily, code execution) and user-provided external MCP servers. External servers run inside a gVisor-isolated Docker-in-Docker sandbox with an egress proxy.
 
-**Chat rooms and workspaces.** Projects contain Workspaces; Workspaces contain Chat Rooms. Chat Rooms support real-time messaging over WebSocket, file attachments (resumable upload via the TUS protocol), full-text search (PostgreSQL GIN index), and export to CSV in MinIO. Permanent guest links allow external users to participate in a specific room without a platform account.
+**Chat rooms and workspaces.** Projects contain Workspaces; Workspaces contain Chat Rooms. Chat Rooms support real-time messaging over WebSocket, file attachments (resumable upload via TUS), full-text search (PostgreSQL GIN index), and export to CSV in MinIO. Permanent guest links allow external users to join a room without a platform account.
 
-**Workflow engine.** Workflows are visual directed graphs of agent steps. They support 11 executor types, 5 trigger kinds, and the SMAP Expression Language (SEL v1) for dynamic routing. Execution is tracked in a `workflow_runs` finite-state machine (running / waiting / succeeded / failed / cancelled) with a 90-day archive policy.
+**Workflow engine.** Workflows are directed graphs of agent steps supporting 11 executor types, 5 trigger kinds, and the SMAP Expression Language (SEL v1) for dynamic routing. Execution is tracked in a `workflow_runs` finite-state machine (running / waiting / succeeded / failed / cancelled) with a 90-day archive policy.
 
 **Multi-tenant access control.** Accounts belong to Organizations; Organizations contain Projects. Each scope has a role hierarchy (Original Creator, Org Owner, Org Member, Project Owner, Project Member, Guest). Authorization is enforced through a 24-capability permission matrix evaluated per request.
 
-**Admin and observability.** Admins can manage users (ban, unban, soft-delete, hard-delete), promote or demote admins with a last-admin guard, manage IP ban lists (CIDR), adjust per-bucket rate-limit policies, force-transfer Original Creator status, impersonate users in read-only mode, and query or export the append-only audit log. Prometheus metrics, OpenTelemetry tracing, and structured JSON logging are built in.
+**Admin and observability.** Admins can manage users (ban, unban, soft-delete, hard-delete), promote or demote admins with a last-admin guard, manage IP ban lists (CIDR), adjust per-bucket rate-limit policies, force-transfer Original Creator status, impersonate users in read-only mode, and query or export the append-only audit log. Prometheus metrics, OpenTelemetry tracing, and structured JSON logging are included.
 
-**Retention.** A background worker runs 16 retention policies on a configurable schedule: messages (5 years), file attachments (24 hours after deletion), exports (24 hours), audit logs (365 days), workflow run archives (90 days), key usage events (13-month rolling rollup), soft-deleted tenancy entities (60 days), expired tokens and sessions, and more.
+**Retention.** A background worker runs 16 retention policies on a configurable schedule covering messages, file attachments, exports, audit logs, workflow run archives, key usage events, soft-deleted tenancy entities, expired tokens, sessions, and more.
 
 ---
 
@@ -130,7 +130,7 @@ alembic/             Database migrations (versions 0000 through 0025+)
 REQUIREMENTS.md      Software Requirements Specification (authoritative)
 ```
 
-Each bounded context follows a strict four-layer structure enforced by import-linter: `domain` (pure Python, no framework imports), `infrastructure` (SQLAlchemy tables and external adapters), `application` (service classes), and `interfaces` (public facade and error mapping). Routers may only import from `interfaces`; they never reach into `domain` or `infrastructure` directly.
+Each bounded context follows a four-layer structure enforced by import-linter: `domain` (pure Python, no framework imports), `infrastructure` (SQLAlchemy tables and external adapters), `application` (service classes), and `interfaces` (public facade and error mapping). Routers may only import from `interfaces`.
 
 ---
 
@@ -202,8 +202,6 @@ See `.env.example` for the full list with defaults.
 **Requirement traceability.** Commits, pull requests, and test docstrings cite at least one `[Rxx.yy]` requirement ID. When a new requirement must be added, it goes into `REQUIREMENTS.md` before any code is written.
 
 **Specifications are English.** All files under `docs/`, `deploy/`, and the root SRS are English-only. Pull request descriptions may use zh-TW.
-
-**No MVP.** No feature listed in `REQUIREMENTS.md` is deferred. All ten phases (A through J) deliver the full v1.
 
 ---
 
