@@ -213,6 +213,7 @@ async def edit_message(
 
 @message_router.delete(
     "/{message_id}", status_code=status.HTTP_204_NO_CONTENT,
+    response_class=Response,
 )
 async def delete_message(
     message_id: uuid.UUID = Path(...),

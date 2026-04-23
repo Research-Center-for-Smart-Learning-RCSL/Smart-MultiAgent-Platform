@@ -213,7 +213,7 @@ async def rename_org(
     )
 
 
-@router.delete("/{org_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{org_id}", status_code=status.HTTP_204_NO_CONTENT, response_class=Response)
 async def delete_org(
     org_id: uuid.UUID = Path(...),
     ctx: RequestContext = Depends(current_context),
@@ -228,7 +228,7 @@ async def delete_org(
     )
 
 
-@router.post("/{org_id}/restore", status_code=status.HTTP_204_NO_CONTENT)
+@router.post("/{org_id}/restore", status_code=status.HTTP_204_NO_CONTENT, response_class=Response)
 async def restore_org(
     org_id: uuid.UUID = Path(...),
     ctx: RequestContext = Depends(current_context),
@@ -263,6 +263,7 @@ async def list_members(
 
 @router.delete(
     "/{org_id}/members/{user_id}", status_code=status.HTTP_204_NO_CONTENT,
+    response_class=Response,
 )
 async def remove_member(
     org_id: uuid.UUID = Path(...),
@@ -386,6 +387,7 @@ async def transfer_accept(
 @router.delete(
     "/{org_id}/original-creator-transfers/{transfer_id}",
     status_code=status.HTTP_204_NO_CONTENT,
+    response_class=Response,
 )
 async def transfer_cancel(
     org_id: uuid.UUID = Path(...),

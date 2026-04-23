@@ -127,6 +127,7 @@ async def retest_search_key(
 @router.post(
     "/{project_id}/search-keys/{key_id}/activate",
     status_code=status.HTTP_204_NO_CONTENT,
+    response_class=Response,
     dependencies=[
         Depends(require(Capability.KEY_CONFIGURE, scope_from_path(project_param="project_id"))),
     ],
@@ -149,6 +150,7 @@ async def activate_search_key(
 @router.delete(
     "/{project_id}/search-keys/{key_id}",
     status_code=status.HTTP_204_NO_CONTENT,
+    response_class=Response,
     dependencies=[
         Depends(require(Capability.KEY_CONFIGURE, scope_from_path(project_param="project_id"))),
     ],

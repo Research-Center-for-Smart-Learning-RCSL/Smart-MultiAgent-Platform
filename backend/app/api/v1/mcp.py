@@ -235,6 +235,7 @@ async def add_allowlist_entry(
 
 @project_router.delete(
     "/{hostname}", status_code=status.HTTP_204_NO_CONTENT,
+    response_class=Response,
 )
 async def remove_allowlist_entry(
     project_id: uuid.UUID = Path(...),

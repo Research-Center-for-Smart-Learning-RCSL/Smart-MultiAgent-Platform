@@ -222,6 +222,7 @@ async def read_status(
 
 @config_router.delete(
     "/{config_id}", status_code=status.HTTP_204_NO_CONTENT,
+    response_class=Response,
 )
 async def delete_config(
     config_id: uuid.UUID = Path(...),

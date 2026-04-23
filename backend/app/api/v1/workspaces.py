@@ -96,6 +96,7 @@ async def create_workspace(
 
 @workspace_router.delete(
     "/{workspace_id}", status_code=status.HTTP_204_NO_CONTENT,
+    response_class=Response,
 )
 async def delete_workspace(
     workspace_id: uuid.UUID = Path(...),

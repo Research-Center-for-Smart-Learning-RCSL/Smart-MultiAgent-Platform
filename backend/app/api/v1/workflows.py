@@ -265,6 +265,7 @@ async def patch_workflow(
 @workflow_router.delete(
     "/{workflow_id}",
     status_code=status.HTTP_204_NO_CONTENT,
+    response_class=Response,
 )
 async def delete_workflow(
     workflow_id: uuid.UUID = Path(...),
