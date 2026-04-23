@@ -8,14 +8,15 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config.settings import get_settings
 from contexts.identity.infrastructure import tables as t
 from shared_kernel import audit
-from shared_kernel.auth import jwt
+from shared_kernel.auth import jwt, tokens
 from shared_kernel.auth.clients import now
 
 
@@ -40,6 +41,14 @@ class ImpersonationService:
         actor_ip: str | None,
         request_id: uuid.UUID | None = None,
     ) -> tuple[ImpersonationSession, str]:
+        target_exists = (
+            await self._db.execute(
+                t.users.select().where(t.users.c.id == target_user_id)
+            )
+        ).first()
+        if target_exists is None:
+            raise ValueError(f"user {target_user_id} not found")
+
         active = (
             await self._db.execute(
                 t.admin_impersonation_sessions.select().where(
@@ -57,6 +66,15 @@ class ImpersonationService:
                 .values(ended_at=now())
             )
 
+        session_id = uuid.uuid4()
+        access_token, claims = jwt.sign_access_token(
+            user_id=target_user_id,
+            session_id=session_id,
+            is_admin=False,
+            role="impersonation",
+            extra={"impersonated_by": str(admin_user_id)},
+        )
+
         row = (
             await self._db.execute(
                 t.admin_impersonation_sessions.insert()
@@ -64,19 +82,11 @@ class ImpersonationService:
                     admin_user_id=admin_user_id,
                     target_user_id=target_user_id,
                     started_request_id=request_id,
+                    access_jti=claims.jti,
                 )
                 .returning(t.admin_impersonation_sessions)
             )
         ).one()
-
-        session_id = uuid.uuid4()
-        access_token, _ = jwt.sign_access_token(
-            user_id=target_user_id,
-            session_id=session_id,
-            is_admin=False,
-            role="impersonation",
-            extra={"impersonated_by": str(admin_user_id)},
-        )
 
         await audit.emit(
             self._db,
@@ -108,19 +118,25 @@ class ImpersonationService:
         actor_ip: str | None,
         request_id: uuid.UUID | None = None,
     ) -> bool:
-        result = await self._db.execute(
-            t.admin_impersonation_sessions.update()
-            .where(
-                sa.and_(
-                    t.admin_impersonation_sessions.c.admin_user_id == admin_user_id,
-                    t.admin_impersonation_sessions.c.target_user_id == target_user_id,
-                    t.admin_impersonation_sessions.c.ended_at.is_(None),
+        row = (
+            await self._db.execute(
+                t.admin_impersonation_sessions.update()
+                .where(
+                    sa.and_(
+                        t.admin_impersonation_sessions.c.admin_user_id == admin_user_id,
+                        t.admin_impersonation_sessions.c.target_user_id == target_user_id,
+                        t.admin_impersonation_sessions.c.ended_at.is_(None),
+                    )
                 )
+                .values(ended_at=now())
+                .returning(t.admin_impersonation_sessions.c.access_jti)
             )
-            .values(ended_at=now())
-        )
-        if result.rowcount == 0:  # type: ignore[union-attr]
+        ).one_or_none()
+        if row is None:
             return False
+        if row.access_jti is not None:
+            ttl = timedelta(seconds=get_settings().jwt.access_ttl_seconds)
+            await tokens.deny_jti(row.access_jti, ttl=ttl)
         await audit.emit(
             self._db,
             audit.AuditEvent(

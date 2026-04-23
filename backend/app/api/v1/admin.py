@@ -292,10 +292,13 @@ async def impersonate(
     db: AsyncSession = Depends(db_session),
 ) -> ImpersonateOut:
     service = ImpersonationService(db)
-    session, access_token = await service.start(
-        admin_user_id=admin.user_id, target_user_id=user_id,
-        actor_ip=ctx.actor_ip, request_id=ctx.request_id,
-    )
+    try:
+        session, access_token = await service.start(
+            admin_user_id=admin.user_id, target_user_id=user_id,
+            actor_ip=ctx.actor_ip, request_id=ctx.request_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
     return ImpersonateOut(session_id=session.id, access_token=access_token)
 
 

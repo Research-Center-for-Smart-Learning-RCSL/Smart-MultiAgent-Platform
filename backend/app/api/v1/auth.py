@@ -201,9 +201,12 @@ async def logout(
 ) -> None:
     service = _service(db)
     ttl_seconds = get_settings().jwt.access_ttl_seconds
+    if ctx.access_jti is None:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                            detail="Missing access JTI in authenticated context")
     await service.logout(
         refresh_token=body.refresh_token,
-        access_jti=ctx.access_jti or uuid.uuid4(),
+        access_jti=ctx.access_jti,
         access_ttl=timedelta(seconds=ttl_seconds),
         remote_ip=ctx.actor_ip,
         request_id=ctx.request_id,
@@ -279,7 +282,7 @@ async def me(
     facade = IdentityFacade(db)
     profile = await facade.get_profile(principal.user_id)
     if profile is None:
-        raise HTTPException(status_code=404, detail="User profile not found")
+        raise HTTPException(status_code=500, detail="User profile not found for authenticated token")
     return UserOut(
         id=profile.id,
         email=profile.email,

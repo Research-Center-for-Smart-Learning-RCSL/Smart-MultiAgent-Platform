@@ -107,6 +107,7 @@ admin_impersonation_sessions = sa.Table(
               server_default=sa.text("now()")),
     sa.Column("ended_at", sa.TIMESTAMP(timezone=True), nullable=True),
     sa.Column("started_request_id", pg.UUID(as_uuid=True), nullable=True),
+    sa.Column("access_jti", pg.UUID(as_uuid=True), nullable=True),
 )
 
 ip_bans = sa.Table(

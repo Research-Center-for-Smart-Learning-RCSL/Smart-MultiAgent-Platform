@@ -127,8 +127,8 @@ def verify_access_token(token: str) -> AccessClaims:
     if imp_raw:
         try:
             impersonated_by = uuid.UUID(str(imp_raw))
-        except (ValueError, TypeError):
-            pass
+        except (ValueError, TypeError) as exc:
+            raise JwtError(f"malformed impersonated_by claim: {imp_raw!r}") from exc
 
     return AccessClaims(
         sub=sub,
