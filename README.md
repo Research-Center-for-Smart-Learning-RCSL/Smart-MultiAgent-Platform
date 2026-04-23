@@ -4,6 +4,8 @@ SMAP is a self-hosted web application for composing and conversing with groups o
 
 Deployment target: single-host Docker Compose (16-core / 32 GB). There is no cloud-managed option or SaaS tier.
 
+![SMAP Architecture](assets/SMAP.jpg)
+
 ---
 
 ## What SMAP does
