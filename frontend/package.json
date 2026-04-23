@@ -18,7 +18,7 @@
     "vue-router": "4.4.5",
     "pinia": "2.2.6",
     "@tanstack/vue-query": "5.59.20",
-    "axios": "1.7.9",
+    "axios": "1.15.0",
     "element-plus": "2.8.8",
     "@element-plus/icons-vue": "2.3.1",
     "vee-validate": "4.14.6",
