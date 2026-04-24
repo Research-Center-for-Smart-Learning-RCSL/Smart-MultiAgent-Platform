@@ -221,33 +221,32 @@ class OrgMemberRepository:
         from_user_id: uuid.UUID,
         to_user_id: uuid.UUID,
     ) -> None:
-        """Atomically move the OC bit from one row to another.
+        """Atomically move the OC bit from one row to another within a transaction.
 
-        The EXCLUDE constraint means we MUST clear the old row before setting
-        the new one. A single SQL statement `UPDATE ... FROM` would violate
-        the constraint mid-statement; a two-step UPDATE inside the same tx
-        is compatible because the constraint is checked at row update time
-        but with `DEFERRABLE` behaviour we rely on the default `IMMEDIATE`.
-        So we issue statements as CASE-based single update.
+        Two separate UPDATE statements: clear first, then set. This avoids any
+        reliance on when the EXCLUDE constraint is evaluated for a multi-row
+        UPDATE — the constraint is satisfied after step 1 completes, before
+        step 2 runs.
         """
-        # Use a single UPDATE with CASE to keep it one statement → if the old
-        # clear wins first, the new set still violates until commit.  Postgres
-        # EXCLUDE constraints run at end of statement, so this is safe.
         await self._db.execute(
             t.org_members.update()
             .where(
                 sa.and_(
                     t.org_members.c.org_id == org_id,
-                    t.org_members.c.user_id.in_([from_user_id, to_user_id]),
+                    t.org_members.c.user_id == from_user_id,
                 )
             )
-            .values(
-                is_original_creator=sa.case(
-                    (t.org_members.c.user_id == to_user_id, True),
-                    else_=False,
-                ),
-                role=OrgMemberRole.OWNER.value,  # target MUST remain Owner
+            .values(is_original_creator=False)
+        )
+        await self._db.execute(
+            t.org_members.update()
+            .where(
+                sa.and_(
+                    t.org_members.c.org_id == org_id,
+                    t.org_members.c.user_id == to_user_id,
+                )
             )
+            .values(is_original_creator=True, role=OrgMemberRole.OWNER.value)
         )
 
     async def original_creator(self, org_id: uuid.UUID) -> OrgMember | None:

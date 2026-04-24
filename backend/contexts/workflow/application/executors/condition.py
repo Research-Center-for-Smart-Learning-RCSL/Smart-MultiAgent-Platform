@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import time
 from typing import Any
 
@@ -16,6 +17,8 @@ from contexts.workflow.domain.models import (
 )
 from contexts.workflow.sel.evaluator import evaluate
 from contexts.workflow.application.executors.registry import register
+
+logger = logging.getLogger(__name__)
 
 
 @register(NodeType.CONDITION)
@@ -46,6 +49,14 @@ async def execute(ctx: RunContext, node: NodeSpec, db: AsyncSession) -> StepOutc
                     port=port,
                 )
         except Exception:
+            # W7: log the error so it is visible in observability rather than being
+            # silently swallowed. Continue to the next branch — a broken expression
+            # must not prevent other branches from matching.
+            logger.warning(
+                "run %s: condition branch eval failed (expr=%r)",
+                ctx.run_id, expr,
+                exc_info=True,
+            )
             continue
 
     return StepOutcome(

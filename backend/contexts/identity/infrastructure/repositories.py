@@ -82,12 +82,17 @@ class UserRepository:
         ).first()
         return _row_to_user(row) if row else None
 
-    async def set_password(self, user_id: uuid.UUID, password_hash: str) -> None:
-        await self._db.execute(
-            t.users.update()
-            .where(t.users.c.id == user_id)
-            .values(password_hash=password_hash)
-        )
+    async def set_password(
+        self,
+        user_id: uuid.UUID,
+        password_hash: str,
+        *,
+        only_if_hash: str | None = None,
+    ) -> None:
+        stmt = t.users.update().where(t.users.c.id == user_id)
+        if only_if_hash is not None:
+            stmt = stmt.where(t.users.c.password_hash == only_if_hash)
+        await self._db.execute(stmt.values(password_hash=password_hash))
 
     async def set_email(self, user_id: uuid.UUID, new_email: str) -> None:
         # Only demote active/pending users to pending on email change. If the
@@ -110,10 +115,13 @@ class UserRepository:
             )
         )
 
-    async def mark_verified(self, user_id: uuid.UUID) -> None:
-        # Only promote pending → active. A banned / deleted account must NOT
-        # be reactivated by a late-arriving verification token.
-        await self._db.execute(
+    async def mark_verified(self, user_id: uuid.UUID) -> bool:
+        """Promote PENDING → ACTIVE. Returns True only if the row was updated.
+
+        Returns False for banned/deleted users so callers can surface the right
+        error instead of silently succeeding on a no-op.
+        """
+        result = await self._db.execute(
             t.users.update()
             .where(
                 sa.and_(
@@ -122,7 +130,9 @@ class UserRepository:
                 )
             )
             .values(email_verified=True, status=UserStatus.ACTIVE.value)
+            .returning(t.users.c.id)
         )
+        return result.first() is not None
 
     async def mark_logged_in(self, user_id: uuid.UUID) -> None:
         await self._db.execute(

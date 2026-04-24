@@ -7,6 +7,7 @@ crosses the HTTP boundary.
 
 from __future__ import annotations
 
+import hashlib
 import uuid
 from dataclasses import dataclass
 from datetime import timedelta
@@ -39,7 +40,7 @@ from contexts.identity.infrastructure.repositories import (
     UserRepository,
 )
 from shared_kernel import audit
-from shared_kernel.auth import captcha, jwt, tokens
+from shared_kernel.auth import captcha, jwt, ratelimit, tokens
 from shared_kernel.auth.clients import now
 from shared_kernel.auth.password import (
     PasswordHasher,
@@ -160,9 +161,15 @@ class AuthService:
         if consumed is None:
             raise TokenInvalid("email verification token invalid or expired")
         _, user_id = consumed
-        await self._users.mark_verified(user_id)
+        promoted = await self._users.mark_verified(user_id)
         user = await self._users.get_by_id(user_id)
-        assert user is not None  # just updated, can't be missing
+        if user is None:
+            raise RuntimeError(f"user {user_id} vanished after mark_verified")
+        if not promoted:
+            # User was banned or deleted between token issue and consumption.
+            if user.status is UserStatus.BANNED:
+                raise AccountBanned(user.banned_reason or "banned")
+            raise TokenInvalid("verification token no longer applicable")
         await audit.emit(
             self._db,
             audit.AuditEvent(
@@ -206,7 +213,11 @@ class AuthService:
             if not verification.ok:
                 fail = True
             elif verification.rehashed:
-                await self._users.set_password(user.id, verification.rehashed)
+                # Only write if the hash hasn't changed since we read it —
+                # guards against two concurrent logins both attempting the rehash.
+                await self._users.set_password(
+                    user.id, verification.rehashed, only_if_hash=user.password_hash
+                )
 
         if fail:
             state = await lockouts.check_and_record_failure(email, remote_ip)
@@ -226,7 +237,8 @@ class AuthService:
                 raise Lockout(state.retry_after_seconds)
             raise InvalidCredentials()
 
-        assert user is not None
+        if user is None:
+            raise RuntimeError("invariant violated: user is None after credential check passed")
         await lockouts.clear_account(email)
 
         if not user.email_verified:
@@ -374,6 +386,13 @@ class AuthService:
         request_id: uuid.UUID | None = None,
     ) -> None:
         email = _normalise_email(email)
+        # Per-email rate limit: 5 resets per 10 minutes to prevent inbox flooding.
+        # Silently drop (don't 429) so the response never reveals whether the
+        # address exists or whether this limit was hit.
+        email_key = "rl:reset:e:" + hashlib.sha256(email.encode()).hexdigest()[:24]
+        rl = await ratelimit.check_raw(key=email_key, window_sec=600, max_count=5)
+        if not rl.allowed:
+            return
         user = await self._users.get_active_by_email(email)
         if user is None:
             # Do not leak existence — quietly succeed.

@@ -12,7 +12,9 @@
       "empty": "尚無工作流程。",
       "loadError": "載入工作流程失敗。",
       "createFailed": "建立工作流程失敗。",
-      "deleteFailed": "刪除工作流程失敗。"
+      "deleteFailed": "刪除工作流程失敗。",
+      "deleteConfirmTitle": "刪除工作流程",
+      "deleteConfirm": "刪除此工作流程及所有執行紀錄？此操作無法復原。"
     },
     "editor": {
       "backToList": "工作流程",

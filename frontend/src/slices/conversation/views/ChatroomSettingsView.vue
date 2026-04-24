@@ -108,7 +108,7 @@ import { useQueryClient } from '@tanstack/vue-query'
 import { reactive, ref, watchEffect } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { useI18n } from 'vue-i18n'
 import { deleteChatroom, getGuestLink, listChatrooms, patchChatroom } from '../api'
 import { convKeys } from '../queries'
@@ -190,6 +190,15 @@ async function onSave(): Promise<void> {
 }
 
 async function onDelete(): Promise<void> {
+  try {
+    await ElMessageBox.confirm(
+      t('conversation.settings.deleteConfirm'),
+      t('conversation.settings.deleteConfirmTitle'),
+      { confirmButtonText: t('conversation.settings.delete'), cancelButtonText: t('app.cancel'), type: 'warning' },
+    )
+  } catch {
+    return
+  }
   await deleteChatroom(chatroomId)
   await qc.invalidateQueries({ queryKey: ['conversation', 'chatrooms'] })
   router.back()

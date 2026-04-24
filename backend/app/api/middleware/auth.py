@@ -30,6 +30,12 @@ _STATUS_ACTIVE = "active"
 _STATUS_BANNED = "banned"
 _STATUS_DELETED = "deleted"
 
+# Paths that return presigned download URLs — blocked even on GET when impersonating,
+# to prevent an admin from exfiltrating another user's files via an impersonation JWT.
+_IMPERSONATION_DOWNLOAD_PREFIXES = (
+    "/api/exports/",
+    "/api/attachments/",
+)
 
 _PROBLEM_MEDIA = "application/problem+json"
 
@@ -76,12 +82,19 @@ class AuthMiddleware(BaseHTTPMiddleware):
         ctx.access_exp = claims.exp
         ctx.impersonated_by = claims.impersonated_by
 
-        if claims.impersonated_by is not None and request.method not in ("GET", "HEAD", "OPTIONS"):
-            return _deny(
-                "admin/impersonation-read-only",
-                "Impersonation sessions are read-only",
-                403, request, "non-GET request via impersonation JWT",
-            )
+        if claims.impersonated_by is not None:
+            if request.method not in ("GET", "HEAD", "OPTIONS"):
+                return _deny(
+                    "admin/impersonation-read-only",
+                    "Impersonation sessions are read-only",
+                    403, request, "non-GET request via impersonation JWT",
+                )
+            if any(request.url.path.startswith(p) for p in _IMPERSONATION_DOWNLOAD_PREFIXES):
+                return _deny(
+                    "admin/impersonation-read-only",
+                    "Impersonation sessions cannot access download endpoints",
+                    403, request, "data-export path accessed via impersonation JWT",
+                )
 
         return await call_next(request)
 

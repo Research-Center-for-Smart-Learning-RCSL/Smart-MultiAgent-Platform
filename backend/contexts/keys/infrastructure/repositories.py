@@ -66,6 +66,12 @@ class ApiKeyRepository:
         test_error: str | None,
         last_test_at: Any,
     ) -> ApiKey:
+        if not envelope.ciphertext or not envelope.nonce or not envelope.ciphertext_hmac:
+            raise ValueError("envelope has empty ciphertext/nonce/hmac; refusing to persist corrupted key material")
+        if not envelope.dek_wrapped:
+            raise ValueError("envelope has empty dek_wrapped; refusing to persist corrupted key material")
+        if envelope.transit_key_version < 1 or envelope.hmac_key_version < 1:
+            raise ValueError("envelope has invalid key version; refusing to persist corrupted key material")
         stmt = (
             t.api_keys.insert()
             .values(

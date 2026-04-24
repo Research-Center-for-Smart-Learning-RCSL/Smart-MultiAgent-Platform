@@ -95,7 +95,7 @@ class VaultSection(BaseSettings):
     addr: str = "http://vault:8200"
     role_id: str | None = None  # required in prod; dev uses root token below
     secret_id: str | None = None
-    dev_token: str | None = "root"  # dev-only fallback for `vault -dev`
+    dev_token: str | None = None  # dev-only fallback for `vault -dev`; must be unset in prod
     transit_key_provider: str = "smap-provider-secret"
     transit_key_guest: str = "smap-guest-link"
     transit_key_jwt: str = "smap-jwt-sign"
@@ -205,13 +205,32 @@ class Settings(BaseSettings):
     limits: LimitsSection = Field(default_factory=LimitsSection)
 
 
+def _check_prod_secrets(s: Settings) -> None:
+    """Raise ConfigError if insecure dev defaults are active in production."""
+    if s.app.env != "prod":
+        return
+    problems: list[str] = []
+    if s.neo4j.password == "neo4j":
+        problems.append("SMAP_NEO4J_PASSWORD is the insecure default 'neo4j'")
+    if s.minio.root_access_key == "minioadmin":
+        problems.append("SMAP_MINIO_ROOT_ACCESS_KEY is the insecure default 'minioadmin'")
+    if s.vault.dev_token is not None:
+        problems.append("SMAP_VAULT_DEV_TOKEN must not be set in production")
+    if problems:
+        raise ConfigError(
+            "Insecure defaults active in production:\n  - " + "\n  - ".join(problems)
+        )
+
+
 def _load() -> Settings:
     try:
-        return Settings()
+        settings = Settings()
     except ValidationError as exc:
         missing = [".".join(str(p) for p in e["loc"]) for e in exc.errors()]
         msg = "Configuration errors:\n  - " + "\n  - ".join(missing)
         raise ConfigError(msg) from exc
+    _check_prod_secrets(settings)
+    return settings
 
 
 @lru_cache(maxsize=1)

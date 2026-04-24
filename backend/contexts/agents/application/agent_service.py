@@ -17,10 +17,12 @@ SoC:
 
 from __future__ import annotations
 
+import struct
 import uuid
 from collections.abc import Sequence
 from typing import Any
 
+import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.agents.domain.errors import (
@@ -44,6 +46,9 @@ from contexts.keys.interfaces.facade import KeysFacade
 from shared_kernel import audit
 
 _AGENT_CAP_PER_PROJECT = 1000
+# Sentinel for system-initiated wakeup patches (§22.6). Never maps to a real
+# user row — authored-snapshot overwrites are skipped when the actor is the system.
+_SYSTEM_ACTOR_ID = uuid.UUID(int=0)
 
 
 class AgentService:
@@ -71,7 +76,13 @@ class AgentService:
         actor_ip: str | None,
         request_id: uuid.UUID | None = None,
     ) -> Agent:
-        # R9.01 cap.
+        # R9.01 cap — serialise concurrent creates for the same project so
+        # the count check and INSERT are atomic. The advisory lock is released
+        # automatically when this transaction commits or rolls back.
+        lock_id = struct.unpack(">q", project_id.bytes[:8])[0]
+        await self._db.execute(
+            sa.text("SELECT pg_advisory_xact_lock(:id)").bindparams(id=lock_id)
+        )
         count = await self._agents.count_active(project_id)
         if count >= _AGENT_CAP_PER_PROJECT:
             raise AgentCapExceeded(
@@ -186,7 +197,7 @@ class AgentService:
             # Human edit → update the authored snapshot (G.5).
             # System actor (uuid(int=0)) updates are self-modifications
             # and should NOT overwrite the authored snapshot.
-            if actor_user_id != uuid.UUID(int=0):
+            if actor_user_id != _SYSTEM_ACTOR_ID:
                 values["wakeup_authored_snapshot"] = draft.wakeup_config
         if draft.workflow_capabilities is not None:
             values["workflow_capabilities"] = draft.workflow_capabilities

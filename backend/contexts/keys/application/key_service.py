@@ -159,11 +159,11 @@ class KeyService:
             # therefore cannot reprove it. Revocation happens via DELETE.
             raise KeyNotOwnedByCaller(str(key_id))
 
-        plaintext = env.decrypt_envelope(record, env.api_key_aad(key_id))
+        plaintext = bytearray(env.decrypt_envelope(record, env.api_key_aad(key_id)))
         try:
             result = await probe(key.provider, plaintext.decode("utf-8"))
         finally:
-            plaintext = b"\x00" * len(plaintext)  # best-effort scrub
+            plaintext[:] = b"\x00" * len(plaintext)  # zero the mutable buffer in-place
 
         now = datetime.now(tz=UTC)
         await self._repo.update_probe_result(

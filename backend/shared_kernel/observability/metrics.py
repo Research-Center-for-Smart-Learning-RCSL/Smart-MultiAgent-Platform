@@ -112,6 +112,30 @@ USAGE_THRESHOLD_EVENTS_TOTAL = Counter(
     registry=REGISTRY,
 )
 
+# ---- Phase I: Workflow execution metrics (W22) -------------------------------
+
+WORKFLOW_RUNS_TOTAL = Counter(
+    "workflow_runs_total",
+    "Workflow runs that reached a terminal state, labelled by final state.",
+    labelnames=("state",),
+    registry=REGISTRY,
+)
+
+WORKFLOW_STEP_DURATION_SECONDS = Histogram(
+    "workflow_step_duration_seconds",
+    "Wall-clock time from step creation to terminal state, labelled by node type.",
+    labelnames=("node_type",),
+    buckets=(0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0),
+    registry=REGISTRY,
+)
+
+WORKFLOW_STEPS_TOTAL = Counter(
+    "workflow_steps_total",
+    "Workflow steps that reached a terminal state, labelled by node type and state.",
+    labelnames=("node_type", "state"),
+    registry=REGISTRY,
+)
+
 
 class _MetricsMiddleware(BaseHTTPMiddleware):
     """Records `http_requests_total` with the route template, not the raw URL.
@@ -165,6 +189,9 @@ __all__ = [
     "REGISTRY",
     "TUS_UPLOAD_BYTES",
     "USAGE_THRESHOLD_EVENTS_TOTAL",
+    "WORKFLOW_RUNS_TOTAL",
+    "WORKFLOW_STEP_DURATION_SECONDS",
+    "WORKFLOW_STEPS_TOTAL",
     "WS_CONNECTIONS_ACTIVE",
     "WS_PER_USER_REJECTIONS",
     "mount_metrics_middleware",

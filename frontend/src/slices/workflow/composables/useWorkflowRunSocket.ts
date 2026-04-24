@@ -5,7 +5,7 @@
 //   - TanStack Query invalidation (steps, run, approvals)
 
 import { useQueryClient } from '@tanstack/vue-query'
-import { onBeforeUnmount, onMounted, ref } from 'vue'
+import { onActivated, onBeforeUnmount, onDeactivated, onMounted, ref } from 'vue'
 
 import { wsManager, type ChannelEvent } from '@shared/transport'
 import { useWorkflowStore } from '../stores/workflow'
@@ -70,6 +70,14 @@ export function useWorkflowRunSocket(runId: string) {
   onMounted(() => {
     wfStore.clearRunState()
     channel.connect()
+  })
+
+  onActivated(() => {
+    channel.connect()
+  })
+
+  onDeactivated(() => {
+    channel.disconnect()
   })
 
   onBeforeUnmount(() => {

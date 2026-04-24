@@ -161,6 +161,12 @@ class StepOutcome:
     port: str = "default"
     error: str | None = None
     park: bool = False
+    # W2/W4: step succeeded but engine must NOT follow outgoing edges (e.g. join fan-in
+    # arrival that is not the final one, or fallback path already followed internally).
+    skip_edges: bool = False
+    # W6/W10: when park=True and timeout_ms > 0, engine enqueues a delayed timeout task.
+    timeout_ms: int = 0
+    timeout_task: str = ""
 
 
 @dataclass(slots=True)
@@ -185,7 +191,9 @@ class RunContext:
 
     @property
     def max_visits_per_node(self) -> int:
-        return self.workflow_def.get("loop_guard", {}).get("max_visits_per_node", 200)
+        # W9: clamp to 1-1000; prevents runaway loops and unreasonably tight guards.
+        raw = self.workflow_def.get("loop_guard", {}).get("max_visits_per_node", 200)
+        return max(1, min(int(raw), 1000))
 
 
 # ---------------------------------------------------------------------------

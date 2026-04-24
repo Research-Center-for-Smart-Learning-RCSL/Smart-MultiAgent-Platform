@@ -1,7 +1,10 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
+import { ElMessage } from 'element-plus'
 import { authApi, type Session } from '../api/auth'
 
+const { t } = useI18n()
 const sessions = ref<Session[]>([])
 const loading = ref(true)
 
@@ -16,8 +19,12 @@ async function load(): Promise<void> {
 }
 
 async function revoke(id: string): Promise<void> {
-  await authApi.revokeSession(id)
-  await load()
+  try {
+    await authApi.revokeSession(id)
+    await load()
+  } catch {
+    ElMessage.error(t('identity.sessions.revokeError'))
+  }
 }
 
 onMounted(load)

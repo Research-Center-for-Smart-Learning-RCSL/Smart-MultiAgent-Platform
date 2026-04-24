@@ -43,6 +43,12 @@ export const useConversationStore = defineStore('conversation', () => {
     agentThinking.value = restAgent
   }
 
+  function clearAll(): void {
+    presence.value = {}
+    agentThinking.value = {}
+    activeChatroomId.value = null
+  }
+
   return {
     activeChatroomId,
     presence,
@@ -52,5 +58,6 @@ export const useConversationStore = defineStore('conversation', () => {
     setAgentThinking,
     setActive,
     resetRoom,
+    clearAll,
   }
 })

@@ -109,7 +109,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/vue-query'
 import { ref } from 'vue'
 import { useRoute } from 'vue-router'
 
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { useI18n } from 'vue-i18n'
 import { createWorkflow, deleteWorkflow, listWorkflows } from '../api'
 import { wfKeys } from '../queries'
@@ -152,6 +152,15 @@ async function onCreate(): Promise<void> {
 }
 
 async function onDelete(id: string): Promise<void> {
+  try {
+    await ElMessageBox.confirm(
+      t('workflow.list.deleteConfirm'),
+      t('workflow.list.deleteConfirmTitle'),
+      { confirmButtonText: t('workflow.list.delete'), cancelButtonText: t('app.cancel'), type: 'warning' },
+    )
+  } catch {
+    return
+  }
   try {
     await deleteWorkflow(id)
     qc.invalidateQueries({ queryKey: wfKeys.workflows(workspaceId) })

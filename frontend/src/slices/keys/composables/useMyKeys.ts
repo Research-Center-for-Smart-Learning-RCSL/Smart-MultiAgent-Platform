@@ -38,19 +38,19 @@ export function useMyKeys() {
   async function retest(id: string): Promise<void> {
     try {
       await keysApi.retest(id)
+      await reload()
     } catch (e) {
       error.value = extractDetail(e)
     }
-    await reload()
   }
 
   async function remove(id: string): Promise<void> {
     try {
       await keysApi.remove(id)
+      await reload()
     } catch (e) {
       error.value = extractDetail(e)
     }
-    await reload()
   }
 
   return { keys, loading, error, reload, upload, retest, remove }

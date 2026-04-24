@@ -92,6 +92,10 @@ def upgrade() -> None:
         "ix_workflow_steps_run_id_started_at",
         "workflow_steps", ["run_id", "started_at"],
     )
+    op.create_index(
+        "ix_workflow_steps_node_id",
+        "workflow_steps", ["node_id"],
+    )
 
     # -- workflow_runs_archive (H.6) --
     op.create_table(
@@ -123,6 +127,7 @@ def downgrade() -> None:
                   table_name="workflow_runs_archive")
     op.drop_table("workflow_runs_archive")
 
+    op.drop_index("ix_workflow_steps_node_id", table_name="workflow_steps")
     op.drop_index("ix_workflow_steps_run_id_started_at",
                   table_name="workflow_steps")
     op.drop_table("workflow_steps")

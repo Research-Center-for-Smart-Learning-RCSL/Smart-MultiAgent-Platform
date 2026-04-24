@@ -31,11 +31,11 @@
     <table v-if="query.data.value">
       <thead>
         <tr>
-          <th>{{ $t('admin.users.email') }}</th>
-          <th>{{ $t('admin.users.status') }}</th>
-          <th>{{ $t('admin.users.verified') }}</th>
-          <th>{{ $t('admin.users.created') }}</th>
-          <th>{{ $t('admin.users.actions') }}</th>
+          <th scope="col">{{ $t('admin.users.email') }}</th>
+          <th scope="col">{{ $t('admin.users.status') }}</th>
+          <th scope="col">{{ $t('admin.users.verified') }}</th>
+          <th scope="col">{{ $t('admin.users.created') }}</th>
+          <th scope="col">{{ $t('admin.users.actions') }}</th>
         </tr>
       </thead>
       <tbody>
@@ -91,11 +91,13 @@ function applySearch(): void {
 
 const query = useQuery({
   queryKey: computed(() => adminKeys.users({ q: appliedQ.value, status: appliedStatus.value })),
-  queryFn: () =>
-    adminApi.listUsers({
-      q: appliedQ.value || undefined,
-      status: appliedStatus.value || undefined,
-    }).then(r => r.data),
+  queryFn: ({ queryKey }) => {
+    const params = queryKey[2] as { q?: string; status?: string } | undefined
+    return adminApi.listUsers({
+      q: params?.q || undefined,
+      status: params?.status || undefined,
+    }).then(r => r.data)
+  },
 })
 
 const actions = useAdminActions()

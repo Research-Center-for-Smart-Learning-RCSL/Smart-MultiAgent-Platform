@@ -6,6 +6,7 @@
       "password": "密碼",
       "submit": "註冊",
       "captcha": "完成 CAPTCHA",
+      "captchaPlaceholder": "在此貼上 CAPTCHA token",
       "loginLink": "已有帳號？前往登入"
     },
     "login": {
@@ -44,10 +45,17 @@
     "sessions": {
       "title": "作用中連線",
       "currentBadge": "（目前裝置）",
-      "revoke": "撤銷"
+      "revoke": "撤銷",
+      "revokeError": "撤銷連線失敗。"
     },
     "errors": {
-      "generic": "發生錯誤，請再試一次。"
+      "generic": "發生錯誤，請再試一次。",
+      "invalid": "電子郵件或密碼不正確。",
+      "lockout": "帳號已暫時鎖定，請稍後再試。",
+      "unverified": "請先驗證您的電子郵件後再登入。",
+      "captcha": "請完成 CAPTCHA 驗證。",
+      "weakPassword": "密碼不符合最低安全要求。",
+      "domain": "此電子郵件網域不允許註冊。"
     }
   }
 }

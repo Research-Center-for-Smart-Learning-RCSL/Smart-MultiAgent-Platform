@@ -8,14 +8,20 @@ const scope = ref<ProjectOwnerType>((route.query.scope as ProjectOwnerType) || '
 const ownerId = ref<string>((route.query.id as string) || '')
 const projects = ref<Project[]>([])
 const name = ref('')
+const loading = ref(false)
 
 async function load(): Promise<void> {
   if (!ownerId.value) {
     projects.value = []
     return
   }
-  const { data } = await projectsApi.list(scope.value, ownerId.value)
-  projects.value = data
+  loading.value = true
+  try {
+    const { data } = await projectsApi.list(scope.value, ownerId.value)
+    projects.value = data
+  } finally {
+    loading.value = false
+  }
 }
 
 async function create(): Promise<void> {
@@ -52,7 +58,10 @@ onMounted(load)
         {{ $t('tenancy.projects.create') }}
       </button>
     </form>
-    <ul>
+    <p v-if="loading">
+      {{ $t('tenancy.projects.loading') }}
+    </p>
+    <ul v-else-if="projects.length">
       <li
         v-for="p in projects"
         :key="p.id"
@@ -62,5 +71,8 @@ onMounted(load)
         </router-link>
       </li>
     </ul>
+    <p v-else>
+      {{ $t('tenancy.projects.empty') }}
+    </p>
   </main>
 </template>

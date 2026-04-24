@@ -20,6 +20,7 @@ from contexts.tenancy.domain.models import (
 )
 from contexts.tenancy.infrastructure.repositories import (
     OrgMemberRepository,
+    OrgRepository,
     ProjectMemberRepository,
     ProjectRepository,
 )
@@ -95,10 +96,15 @@ class ProjectService:
     async def list_visible_for_user(self, user_id: uuid.UUID) -> Sequence[Project]:
         """Own projects + all projects whose orgs the user belongs to."""
         own = await self._projects.list_by_user(user_id)
-        # Membership in orgs is computed via a separate query; avoid joins
-        # across contexts by round-tripping through the OrgMember repo.
-        # (Caller normally uses `?scope=user|org&id=…` which routes explicitly.)
-        return own
+        orgs = await OrgRepository(self._db).list_for_user(user_id)
+        seen = {p.id for p in own}
+        result = list(own)
+        for org in orgs:
+            for project in await self._projects.list_by_org(org.id):
+                if project.id not in seen:
+                    seen.add(project.id)
+                    result.append(project)
+        return result
 
     async def rename(
         self,

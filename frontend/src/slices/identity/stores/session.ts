@@ -3,8 +3,11 @@ import { ref, computed } from 'vue'
 import {
   setAccessToken,
   setRefreshToken,
-  getRefreshToken,
+  wsManager,
 } from '@shared/transport'
+import { queryClient } from '@shared/query-client'
+import { useOrchestrationStore, useWorkflowStore } from '@slices/workflow'
+import { useConversationStore } from '@slices/conversation'
 import { authApi, type Me, type TokenPair } from '../api/auth'
 
 export const useSessionStore = defineStore('identity/session', () => {
@@ -15,7 +18,7 @@ export const useSessionStore = defineStore('identity/session', () => {
 
   function applyTokens(pair: TokenPair): void {
     setAccessToken(pair.access_token)
-    setRefreshToken(pair.refresh_token)
+    setRefreshToken(pair.refresh_token ?? null)
     accessTokenExpiresAt.value = Date.now() + pair.expires_in * 1000
   }
 
@@ -46,18 +49,19 @@ export const useSessionStore = defineStore('identity/session', () => {
     accessTokenExpiresAt.value = null
     setAccessToken(null)
     setRefreshToken(null)
+    wsManager.closeAll()
+    queryClient.clear()
+    useOrchestrationStore().clearAll()
+    useConversationStore().clearAll()
+    useWorkflowStore().clearAll()
   }
 
   async function hydrate(): Promise<void> {
-    // Called at app boot: if a refresh token was persisted, exchange it for
-    // a fresh access token up front so `/auth/me` has a bearer to present.
-    // Relying on the 401-then-refresh interceptor would only work when the
-    // server signals `type=.../auth/token-expired`, which isn't guaranteed
-    // for a flat-out missing Authorization header.
-    const refresh = getRefreshToken()
-    if (!refresh) return
+    // Called at app boot: attempt a silent refresh using the httpOnly
+    // smap_refresh cookie set by the server. If there is no valid cookie the
+    // server returns 401 and we start unauthenticated.
     try {
-      const { data } = await authApi.refresh(refresh)
+      const { data } = await authApi.refresh()
       applyTokens(data)
       await refreshMe()
     } catch {

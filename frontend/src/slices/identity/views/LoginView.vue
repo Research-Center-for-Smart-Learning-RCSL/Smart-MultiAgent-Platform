@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import { useSessionStore } from '../stores/session'
 import { isProblemWithType } from '@shared/transport'
 
+const { t } = useI18n()
 const email = ref('')
 const password = ref('')
 const error = ref<string | null>(null)
@@ -17,13 +19,14 @@ async function submit(): Promise<void> {
   submitting.value = true
   try {
     await session.login(email.value, password.value)
-    const redirect = (route.query.redirect as string) || '/orgs'
+    const raw = (route.query.redirect as string) || ''
+    const redirect = raw.startsWith('/') && !raw.startsWith('//') ? raw : '/orgs'
     router.push(redirect)
   } catch (e: unknown) {
-    if (isProblemWithType(e, '/auth/invalid-credentials')) error.value = 'invalid'
-    else if (isProblemWithType(e, '/auth/lockout')) error.value = 'lockout'
-    else if (isProblemWithType(e, '/auth/email-unverified')) error.value = 'unverified'
-    else error.value = 'generic'
+    if (isProblemWithType(e, '/auth/invalid-credentials')) error.value = t('identity.errors.invalid')
+    else if (isProblemWithType(e, '/auth/lockout')) error.value = t('identity.errors.lockout')
+    else if (isProblemWithType(e, '/auth/email-unverified')) error.value = t('identity.errors.unverified')
+    else error.value = t('identity.errors.generic')
   } finally {
     submitting.value = false
   }

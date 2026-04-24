@@ -1,8 +1,11 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
+import { useI18n } from 'vue-i18n'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { orgsApi, type OrgMember } from '../api/orgs'
 
+const { t } = useI18n()
 const route = useRoute()
 const members = ref<OrgMember[]>([])
 const inviteEmail = ref('')
@@ -19,18 +22,39 @@ async function load(): Promise<void> {
 
 async function invite(): Promise<void> {
   if (!inviteEmail.value.trim()) return
-  await orgsApi.invite(orgId(), inviteEmail.value.trim(), inviteRole.value)
-  inviteEmail.value = ''
+  try {
+    await orgsApi.invite(orgId(), inviteEmail.value.trim(), inviteRole.value)
+    inviteEmail.value = ''
+  } catch {
+    ElMessage.error(t('tenancy.members.inviteError'))
+  }
 }
 
 async function setRole(uid: string, role: 'owner' | 'member'): Promise<void> {
-  await orgsApi.setRole(orgId(), uid, role)
-  await load()
+  try {
+    await orgsApi.setRole(orgId(), uid, role)
+    await load()
+  } catch {
+    ElMessage.error(t('tenancy.members.roleError'))
+  }
 }
 
 async function remove(uid: string): Promise<void> {
-  await orgsApi.removeMember(orgId(), uid)
-  await load()
+  try {
+    await ElMessageBox.confirm(
+      t('tenancy.members.removeConfirm'),
+      t('tenancy.members.removeConfirmTitle'),
+      { confirmButtonText: t('tenancy.members.remove'), cancelButtonText: t('app.cancel'), type: 'warning' },
+    )
+  } catch {
+    return
+  }
+  try {
+    await orgsApi.removeMember(orgId(), uid)
+    await load()
+  } catch {
+    ElMessage.error(t('identity.errors.generic'))
+  }
 }
 
 onMounted(load)

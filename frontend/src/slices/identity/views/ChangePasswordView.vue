@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import { authApi } from '../api/auth'
 import { useSessionStore } from '../stores/session'
 
+const { t } = useI18n()
 const current = ref('')
 const next = ref('')
 const error = ref<string | null>(null)
@@ -20,7 +22,7 @@ async function submit(): Promise<void> {
     session.clear()
     router.push({ name: 'identity.login' })
   } catch {
-    error.value = 'generic'
+    error.value = t('identity.errors.generic')
   } finally {
     submitting.value = false
   }

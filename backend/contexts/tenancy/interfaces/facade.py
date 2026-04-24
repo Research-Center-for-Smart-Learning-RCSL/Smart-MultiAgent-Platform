@@ -38,6 +38,10 @@ class TenancyFacade:
     async def project_members(self, project_id: uuid.UUID) -> Sequence[ProjectMember]:
         return await self._project_members.list(project_id)
 
+    async def is_project_member(self, user_id: uuid.UUID, project_id: uuid.UUID) -> bool:
+        member = await self._project_members.get(project_id=project_id, user_id=user_id)
+        return member is not None
+
     async def get_project(
         self, project_id: uuid.UUID, *, include_deleted: bool = False
     ) -> Project | None:

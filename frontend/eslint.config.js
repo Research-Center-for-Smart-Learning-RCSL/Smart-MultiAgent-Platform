@@ -188,7 +188,10 @@ export default [
     },
   },
 
-  // Gate #4 override: v-html allowed only in conversation views that use renderMarkdown
+  // Gate #4 override: v-html is allowed ONLY in ChatroomView.vue, which passes
+  // all markup through renderMarkdown() → DOMPurify before binding. Any other
+  // file that needs v-html must be explicitly added here with the same sanitisation
+  // guarantee — do not expand this list without a security review.
   {
     files: [
       'src/slices/conversation/views/ChatroomView.vue',

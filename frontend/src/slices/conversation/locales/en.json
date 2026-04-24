@@ -10,7 +10,9 @@
     "chatrooms": {
       "title": "Chatrooms",
       "create": "Create",
-      "createFailed": "Failed to create chatroom."
+      "createFailed": "Failed to create chatroom.",
+      "empty": "No chatrooms yet.",
+      "settingsLabel": "Chatroom settings"
     },
     "chatroom": {
       "searchPlaceholder": "Search messages…",
@@ -40,6 +42,8 @@
       "copy": "Copy",
       "save": "Save",
       "delete": "Delete",
+      "deleteConfirmTitle": "Delete Chatroom",
+      "deleteConfirm": "Delete this chatroom and all its messages? This cannot be undone.",
       "agentBindings": "Agent Bindings",
       "wakeupConfigSaved": "Wakeup config saved.",
       "wakeupConfigFailed": "Failed to save wakeup config."

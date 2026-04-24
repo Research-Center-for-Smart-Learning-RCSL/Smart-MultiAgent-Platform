@@ -1,8 +1,11 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
+import { useI18n } from 'vue-i18n'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { projectsApi, type ProjectMember } from '../api/projects'
 
+const { t } = useI18n()
 const route = useRoute()
 const members = ref<ProjectMember[]>([])
 const inviteEmail = ref('')
@@ -19,13 +22,30 @@ async function load(): Promise<void> {
 
 async function invite(): Promise<void> {
   if (!inviteEmail.value.trim()) return
-  await projectsApi.invite(projectId(), inviteEmail.value.trim(), inviteRole.value)
-  inviteEmail.value = ''
+  try {
+    await projectsApi.invite(projectId(), inviteEmail.value.trim(), inviteRole.value)
+    inviteEmail.value = ''
+  } catch {
+    ElMessage.error(t('tenancy.members.inviteError'))
+  }
 }
 
 async function remove(uid: string): Promise<void> {
-  await projectsApi.removeMember(projectId(), uid)
-  await load()
+  try {
+    await ElMessageBox.confirm(
+      t('tenancy.members.removeConfirm'),
+      t('tenancy.members.removeConfirmTitle'),
+      { confirmButtonText: t('tenancy.members.remove'), cancelButtonText: t('app.cancel'), type: 'warning' },
+    )
+  } catch {
+    return
+  }
+  try {
+    await projectsApi.removeMember(projectId(), uid)
+    await load()
+  } catch {
+    ElMessage.error(t('identity.errors.generic'))
+  }
 }
 
 onMounted(load)

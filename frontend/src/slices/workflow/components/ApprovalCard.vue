@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onActivated, onBeforeUnmount, onDeactivated, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { ApprovalWithVotes } from '../types'
 
@@ -13,12 +13,18 @@ const props = defineProps<{
 const now = ref(Date.now())
 let ticker: number | null = null
 
-onMounted(() => {
-  ticker = window.setInterval(() => { now.value = Date.now() }, 1000)
-})
-onBeforeUnmount(() => {
-  if (ticker !== null) clearInterval(ticker)
-})
+function startTicker(): void {
+  if (ticker === null) ticker = window.setInterval(() => { now.value = Date.now() }, 1000)
+}
+
+function stopTicker(): void {
+  if (ticker !== null) { clearInterval(ticker); ticker = null }
+}
+
+onMounted(startTicker)
+onActivated(startTicker)
+onBeforeUnmount(stopTicker)
+onDeactivated(stopTicker)
 
 const isPending = computed(() => props.approval.state === 'pending')
 

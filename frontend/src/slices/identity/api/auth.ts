@@ -8,7 +8,7 @@ export interface LoginRequest {
 
 export interface TokenPair {
   access_token: string
-  refresh_token: string
+  refresh_token?: string  // server now sets this via httpOnly cookie; field kept for compatibility
   token_type: 'Bearer'
   expires_in: number
 }
@@ -39,8 +39,8 @@ export const authApi = {
 
   login: (body: LoginRequest) => http.post<TokenPair>('/auth/login', body),
 
-  refresh: (refresh_token: string) =>
-    http.post<TokenPair>('/auth/refresh', { refresh_token }),
+  refresh: () =>
+    http.post<TokenPair>('/auth/refresh', {}),
 
   logout: () => http.post('/auth/logout'),
 

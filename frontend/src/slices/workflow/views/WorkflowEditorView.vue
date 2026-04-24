@@ -24,22 +24,24 @@
       </span>
 
       <div class="ml-auto flex items-center gap-2">
-        <button
-          class="btn btn-sm"
-          :disabled="!store.canUndo || !isDesktop"
-          :title="$t('workflow.editor.undo')"
-          @click="onUndo"
-        >
-          ↶
-        </button>
-        <button
-          class="btn btn-sm"
-          :disabled="!store.canRedo || !isDesktop"
-          :title="$t('workflow.editor.redo')"
-          @click="onRedo"
-        >
-          ↷
-        </button>
+        <template v-if="isDesktop">
+          <button
+            class="btn btn-sm"
+            :disabled="!store.canUndo"
+            :title="$t('workflow.editor.undo')"
+            @click="onUndo"
+          >
+            ↶
+          </button>
+          <button
+            class="btn btn-sm"
+            :disabled="!store.canRedo"
+            :title="$t('workflow.editor.redo')"
+            @click="onRedo"
+          >
+            ↷
+          </button>
+        </template>
 
         <button
           class="btn btn-sm"
@@ -48,21 +50,23 @@
           {{ $t('workflow.editor.validate') }}
         </button>
 
-        <button
-          class="btn btn-primary btn-sm"
-          :disabled="saveMutation.isPending.value || !store.dirty || !isDesktop"
-          @click="onSave"
-        >
-          {{ $t('workflow.editor.save') }}
-        </button>
+        <template v-if="isDesktop">
+          <button
+            class="btn btn-primary btn-sm"
+            :disabled="saveMutation.isPending.value || !store.dirty"
+            @click="onSave"
+          >
+            {{ $t('workflow.editor.save') }}
+          </button>
 
-        <button
-          class="btn btn-sm"
-          :disabled="store.hasErrors || dryRunning || !isDesktop"
-          @click="onDryRun"
-        >
-          {{ $t('workflow.editor.dryRun') }}
-        </button>
+          <button
+            class="btn btn-sm"
+            :disabled="store.hasErrors || dryRunning"
+            @click="onDryRun"
+          >
+            {{ $t('workflow.editor.dryRun') }}
+          </button>
+        </template>
       </div>
     </header>
 
