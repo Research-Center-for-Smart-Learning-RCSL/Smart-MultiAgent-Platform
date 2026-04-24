@@ -42,16 +42,29 @@ onMounted(load)
     <h1>{{ $t('tenancy.transfer.title') }}</h1>
     <div v-if="pending">
       <p>{{ $t('tenancy.transfer.pending') }}: {{ pending.target_user_id }} ({{ pending.expires_at }})</p>
-      <button @click="cancel">{{ $t('tenancy.transfer.cancel') }}</button>
+      <button @click="cancel">
+        {{ $t('tenancy.transfer.cancel') }}
+      </button>
     </div>
     <template v-else>
       <p>{{ $t('tenancy.transfer.none') }}</p>
       <form @submit.prevent="initiate">
         <label>{{ $t('tenancy.transfer.targetLabel') }}</label>
-        <input v-model="targetUserId" placeholder="target user id (uuid)" required />
-        <button type="submit">{{ $t('tenancy.transfer.initiate') }}</button>
+        <input
+          v-model="targetUserId"
+          :placeholder="$t('tenancy.transfer.targetPlaceholder')"
+          required
+        >
+        <button type="submit">
+          {{ $t('tenancy.transfer.initiate') }}
+        </button>
       </form>
-      <p v-if="error" class="error">{{ error }}</p>
+      <p
+        v-if="error"
+        class="error"
+      >
+        {{ error }}
+      </p>
     </template>
   </main>
 </template>

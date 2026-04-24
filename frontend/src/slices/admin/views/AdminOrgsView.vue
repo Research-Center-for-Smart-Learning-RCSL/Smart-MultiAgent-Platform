@@ -12,7 +12,10 @@
         </tr>
       </thead>
       <tbody>
-        <tr v-for="org in query.data.value" :key="org.id">
+        <tr
+          v-for="org in query.data.value"
+          :key="org.id"
+        >
           <td>{{ org.name }}</td>
           <td>{{ org.creator_user_id }}</td>
           <td>{{ new Date(org.created_at).toLocaleDateString() }}</td>
@@ -30,7 +33,10 @@
             >
               {{ $t('admin.orgs.restore') }}
             </button>
-            <button v-if="!org.deleted_at" @click="onTransfer(org.id)">
+            <button
+              v-if="!org.deleted_at"
+              @click="onTransfer(org.id)"
+            >
               {{ $t('admin.orgs.forceTransfer') }}
             </button>
           </td>

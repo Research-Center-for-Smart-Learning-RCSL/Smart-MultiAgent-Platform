@@ -33,14 +33,31 @@ async function submit(): Promise<void> {
     <form @submit.prevent="submit">
       <label>
         {{ $t('identity.changePassword.current') }}
-        <input v-model="current" type="password" required />
+        <input
+          v-model="current"
+          type="password"
+          required
+        >
       </label>
       <label>
         {{ $t('identity.changePassword.new') }}
-        <input v-model="next" type="password" required minlength="10" />
+        <input
+          v-model="next"
+          type="password"
+          required
+          minlength="10"
+        >
       </label>
-      <p v-if="error" class="error">{{ error }}</p>
-      <button type="submit" :disabled="submitting">
+      <p
+        v-if="error"
+        class="error"
+      >
+        {{ error }}
+      </p>
+      <button
+        type="submit"
+        :disabled="submitting"
+      >
         {{ $t('identity.changePassword.submit') }}
       </button>
     </form>

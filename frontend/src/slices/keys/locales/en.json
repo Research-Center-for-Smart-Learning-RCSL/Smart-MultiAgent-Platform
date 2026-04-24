@@ -1,1 +1,66 @@
-{}
+{
+  "keys": {
+    "list": {
+      "title": "API Keys",
+      "provider": "Provider",
+      "name": "Name",
+      "preview": "Preview",
+      "status": "Status",
+      "loading": "Loading keys…",
+      "empty": "No keys uploaded yet.",
+      "retest": "Retest",
+      "delete": "Delete"
+    },
+    "detail": {
+      "title": "Key Detail",
+      "provider": "Provider",
+      "name": "Name",
+      "preview": "Preview",
+      "status": "Status",
+      "lastTest": "Last Tested",
+      "notFound": "Key not found.",
+      "retest": "Retest",
+      "delete": "Delete"
+    },
+    "project": {
+      "title": "Project Keys",
+      "carried": "Carried Keys",
+      "withdraw": "Withdraw",
+      "noneCarried": "No keys carried into this project.",
+      "carryNew": "Carry a Key",
+      "carry": "Carry",
+      "noneCarriable": "All your keys are already carried."
+    },
+    "groups": {
+      "listTitle": "Key Groups",
+      "namePlaceholder": "Group name",
+      "create": "Create",
+      "delete": "Delete",
+      "empty": "No key groups yet.",
+      "members": "Members",
+      "remove": "Remove",
+      "limits": "Limits",
+      "maxInputPerHour": "Max input tokens/h",
+      "maxOutputPerHour": "Max output tokens/h",
+      "maxReqPerHour": "Max requests/h",
+      "noMembers": "No members in this group.",
+      "selectKey": "Select a key…",
+      "add": "Add"
+    },
+    "search": {
+      "title": "Search Keys",
+      "provider": "Provider",
+      "secret": "API Secret",
+      "upload": "Upload",
+      "preview": "Preview",
+      "status": "Status",
+      "active": "Active",
+      "retest": "Retest",
+      "delete": "Delete",
+      "cx": "CX (Custom Search ID)",
+      "searchDepth": "Search Depth",
+      "depthBasic": "Basic",
+      "depthAdvanced": "Advanced"
+    }
+  }
+}

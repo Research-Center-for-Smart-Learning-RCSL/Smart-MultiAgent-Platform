@@ -31,16 +31,24 @@ watch(projectId, reload)
 <template>
   <main class="search-key-view">
     <h1>{{ $t('keys.search.title') }}</h1>
-    <p v-if="error" class="error">{{ error }}</p>
+    <p
+      v-if="error"
+      class="error"
+    >
+      {{ error }}
+    </p>
 
     <form @submit.prevent="onUpload">
       <label>
         {{ $t('keys.search.provider') }}
-        <select v-model="provider" data-testid="search-provider">
-          <option value="brave">brave</option>
-          <option value="serper">serper</option>
-          <option value="tavily">tavily</option>
-          <option value="google_cse">google_cse</option>
+        <select
+          v-model="provider"
+          data-testid="search-provider"
+        >
+          <option value="brave">Brave</option>
+          <option value="serper">Serper</option>
+          <option value="tavily">Tavily</option>
+          <option value="google_cse">Google CSE</option>
         </select>
       </label>
       <label>
@@ -50,20 +58,26 @@ watch(projectId, reload)
           type="password"
           autocomplete="off"
           data-testid="search-secret"
-        />
+        >
       </label>
       <label v-if="provider === 'google_cse'">
-        cx
-        <input v-model="cx" data-testid="search-cx" />
+        {{ $t('keys.search.cx') }}
+        <input
+          v-model="cx"
+          data-testid="search-cx"
+        >
       </label>
       <label v-if="provider === 'tavily'">
-        search_depth
+        {{ $t('keys.search.searchDepth') }}
         <select v-model="depth">
-          <option value="basic">basic</option>
-          <option value="advanced">advanced</option>
+          <option value="basic">{{ $t('keys.search.depthBasic') }}</option>
+          <option value="advanced">{{ $t('keys.search.depthAdvanced') }}</option>
         </select>
       </label>
-      <button type="submit" data-testid="search-upload">
+      <button
+        type="submit"
+        data-testid="search-upload"
+      >
         {{ $t('keys.search.upload') }}
       </button>
     </form>
@@ -75,14 +89,19 @@ watch(projectId, reload)
           <th>{{ $t('keys.search.preview') }}</th>
           <th>{{ $t('keys.search.status') }}</th>
           <th>{{ $t('keys.search.active') }}</th>
-          <th></th>
+          <th />
         </tr>
       </thead>
       <tbody>
-        <tr v-for="k in keys" :key="k.id">
+        <tr
+          v-for="k in keys"
+          :key="k.id"
+        >
           <td>{{ k.provider }}</td>
           <td><code>{{ k.masked_preview }}</code></td>
-          <td :class="`status-${k.test_status}`">{{ k.test_status }}</td>
+          <td :class="`status-${k.test_status}`">
+            {{ k.test_status }}
+          </td>
           <td>
             <input
               type="radio"
@@ -90,11 +109,15 @@ watch(projectId, reload)
               name="active"
               :data-testid="`activate-${k.id}`"
               @change="activate(k.id)"
-            />
+            >
           </td>
           <td>
-            <button @click="retest(k.id)">{{ $t('keys.search.retest') }}</button>
-            <button @click="remove(k.id)">{{ $t('keys.search.delete') }}</button>
+            <button @click="retest(k.id)">
+              {{ $t('keys.search.retest') }}
+            </button>
+            <button @click="remove(k.id)">
+              {{ $t('keys.search.delete') }}
+            </button>
           </td>
         </tr>
       </tbody>

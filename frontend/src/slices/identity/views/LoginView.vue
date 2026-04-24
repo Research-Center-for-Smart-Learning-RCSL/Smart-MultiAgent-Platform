@@ -39,18 +39,42 @@ async function submit(): Promise<void> {
     <form @submit.prevent="submit">
       <label>
         {{ $t('identity.login.email') }}
-        <input v-model="email" type="email" required autocomplete="email" />
+        <input
+          v-model="email"
+          type="email"
+          required
+          autocomplete="email"
+        >
       </label>
       <label>
         {{ $t('identity.login.password') }}
-        <input v-model="password" type="password" required autocomplete="current-password" />
+        <input
+          v-model="password"
+          type="password"
+          required
+          autocomplete="current-password"
+        >
       </label>
-      <p v-if="error" class="error">{{ error }}</p>
-      <button type="submit" :disabled="submitting">{{ $t('identity.login.submit') }}</button>
+      <p
+        v-if="error"
+        class="error"
+      >
+        {{ error }}
+      </p>
+      <button
+        type="submit"
+        :disabled="submitting"
+      >
+        {{ $t('identity.login.submit') }}
+      </button>
     </form>
     <div class="links">
-      <router-link :to="{ name: 'identity.register' }">{{ $t('identity.login.registerLink') }}</router-link>
-      <router-link :to="{ name: 'identity.passwordResetRequest' }">{{ $t('identity.login.forgot') }}</router-link>
+      <router-link :to="{ name: 'identity.register' }">
+        {{ $t('identity.login.registerLink') }}
+      </router-link>
+      <router-link :to="{ name: 'identity.passwordResetRequest' }">
+        {{ $t('identity.login.forgot') }}
+      </router-link>
     </div>
   </main>
 </template>

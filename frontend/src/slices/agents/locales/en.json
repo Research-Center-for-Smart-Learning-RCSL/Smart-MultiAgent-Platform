@@ -1,1 +1,31 @@
-{}
+{
+  "agents": {
+    "list": {
+      "title": "Agents",
+      "create": "New Agent",
+      "cancel": "Cancel",
+      "empty": "No agents configured yet.",
+      "loading": "Loading agents…",
+      "created": "Agent created.",
+      "createFailed": "Failed to create agent."
+    },
+    "detail": {
+      "title": "Agent Detail",
+      "loading": "Loading…",
+      "save": "Save",
+      "saved": "Agent saved.",
+      "saveFailed": "Failed to save agent.",
+      "delete": "Delete",
+      "deleteFailed": "Failed to delete agent."
+    },
+    "form": {
+      "name": "Name",
+      "provider": "Model Provider",
+      "model": "Model Name",
+      "systemPrompt": "System Prompt",
+      "temperature": "Temperature",
+      "maxTokens": "Max Tokens",
+      "submit": "Create Agent"
+    }
+  }
+}

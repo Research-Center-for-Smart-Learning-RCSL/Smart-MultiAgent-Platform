@@ -1,7 +1,10 @@
 <template>
   <section class="admin-metrics">
     <h1>{{ $t('admin.metrics.title') }}</h1>
-    <div v-if="query.data.value" class="admin-metrics__grid">
+    <div
+      v-if="query.data.value"
+      class="admin-metrics__grid"
+    >
       <div class="admin-metrics__card">
         <span class="admin-metrics__value">{{ query.data.value.total_users }}</span>
         <span class="admin-metrics__label">{{ $t('admin.metrics.totalUsers') }}</span>

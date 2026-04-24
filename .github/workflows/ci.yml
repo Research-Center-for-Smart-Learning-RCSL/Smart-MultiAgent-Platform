@@ -15,6 +15,9 @@ env:
   PNPM_VERSION: "9.12.3"
 
 jobs:
+  # ──────────────────────────────────────────────
+  # Backend
+  # ──────────────────────────────────────────────
   backend-lint:
     runs-on: ubuntu-latest
     defaults: { run: { working-directory: backend } }
@@ -57,6 +60,11 @@ jobs:
       - run: pip install -e '.[dev]'
       - run: pytest -q --cov=app --cov=contexts --cov=shared_kernel -m "not integration and not e2e"
 
+  # ──────────────────────────────────────────────
+  # Frontend — shared setup via reusable steps
+  # ──────────────────────────────────────────────
+
+  # Gates 1–5, 7, 11, 12: ESLint-based SoC gates
   frontend-lint:
     runs-on: ubuntu-latest
     defaults: { run: { working-directory: frontend } }
@@ -76,8 +84,99 @@ jobs:
           key: ${{ runner.os }}-pnpm-${{ hashFiles('frontend/pnpm-lock.yaml') }}
           restore-keys: ${{ runner.os }}-pnpm-
       - run: pnpm install --frozen-lockfile
-      - run: pnpm run lint
+      - name: "ESLint (gates #1-5, #7, #11, #12)"
+        run: pnpm run lint
 
+  # Gate 6: No global CSS outside shared/styles/
+  frontend-gate-global-css:
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: frontend } }
+    steps:
+      - uses: actions/checkout@v4
+      - name: "Gate #6: Global CSS check"
+        run: bash scripts/check-global-css.sh
+
+  # Gate 8: Every view has >= 1 integration test
+  frontend-gate-view-tests:
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: frontend } }
+    steps:
+      - uses: actions/checkout@v4
+      - name: "Gate #8: View test coverage check"
+        run: bash scripts/check-view-tests.sh
+
+  # Gate 9: Bundle budget
+  frontend-gate-bundle:
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: frontend } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with: { version: "${{ env.PNPM_VERSION }}" }
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - name: Get pnpm store path
+        id: pnpm-cache
+        run: echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_OUTPUT
+      - uses: actions/cache@v4
+        with:
+          path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-${{ hashFiles('frontend/pnpm-lock.yaml') }}
+          restore-keys: ${{ runner.os }}-pnpm-
+      - run: pnpm install --frozen-lockfile
+      - name: Build
+        run: pnpm run build
+      - name: "Gate #9: Bundle budget"
+        run: pnpm run check:bundle-size
+
+  # Gate 10: Type coverage >= 95%
+  frontend-gate-type-coverage:
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: frontend } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with: { version: "${{ env.PNPM_VERSION }}" }
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - name: Get pnpm store path
+        id: pnpm-cache
+        run: echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_OUTPUT
+      - uses: actions/cache@v4
+        with:
+          path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-${{ hashFiles('frontend/pnpm-lock.yaml') }}
+          restore-keys: ${{ runner.os }}-pnpm-
+      - run: pnpm install --frozen-lockfile
+      - name: "Gate #10: Type coverage >= 95%"
+        run: pnpm run check:type-coverage
+
+  # OpenAPI drift check
+  frontend-gate-openapi-drift:
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: frontend } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with: { version: "${{ env.PNPM_VERSION }}" }
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - name: Get pnpm store path
+        id: pnpm-cache
+        run: echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_OUTPUT
+      - uses: actions/cache@v4
+        with:
+          path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-${{ hashFiles('frontend/pnpm-lock.yaml') }}
+          restore-keys: ${{ runner.os }}-pnpm-
+      - run: pnpm install --frozen-lockfile
+      - name: OpenAPI drift check
+        run: pnpm run check:openapi-drift
+
+  # Typecheck
   frontend-typecheck:
     runs-on: ubuntu-latest
     defaults: { run: { working-directory: frontend } }
@@ -99,6 +198,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm run typecheck
 
+  # Unit + integration tests (Vitest)
   frontend-test:
     runs-on: ubuntu-latest
     defaults: { run: { working-directory: frontend } }
@@ -119,3 +219,35 @@ jobs:
           restore-keys: ${{ runner.os }}-pnpm-
       - run: pnpm install --frozen-lockfile
       - run: pnpm run test
+
+  # E2E tests (Playwright) — runs against compose.test.yml
+  frontend-e2e:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    defaults: { run: { working-directory: frontend } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with: { version: "${{ env.PNPM_VERSION }}" }
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - name: Get pnpm store path
+        id: pnpm-cache
+        run: echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_OUTPUT
+      - uses: actions/cache@v4
+        with:
+          path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-${{ hashFiles('frontend/pnpm-lock.yaml') }}
+          restore-keys: ${{ runner.os }}-pnpm-
+      - run: pnpm install --frozen-lockfile
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+      - name: Run E2E tests
+        run: pnpm run test:e2e
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: frontend/playwright-report/
+          retention-days: 7

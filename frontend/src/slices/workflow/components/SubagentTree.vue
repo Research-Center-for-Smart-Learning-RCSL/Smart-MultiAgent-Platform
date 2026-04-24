@@ -1,11 +1,10 @@
 <script setup lang="ts">
-// Sub-agent tree — nested message thread under parent invocation (G.10).
-// Renders a parent agent instance and its sub-agent children as a tree
-// with task descriptions and state indicators.
-
 import { ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { listSubagents } from '../api'
 import type { AgentInstance } from '../types'
+
+const { t } = useI18n()
 
 const props = defineProps<{
   parentInstanceId: string
@@ -53,11 +52,21 @@ function agentName(id: string): string {
 
 <template>
   <div class="subagent-tree ml-4 border-l-2 border-gray-200 pl-3 my-2">
-    <div class="text-xs text-gray-500 mb-1 font-medium">Sub-agents</div>
+    <div class="text-xs text-gray-500 mb-1 font-medium">
+      {{ t('workflow.subagent.title') }}
+    </div>
 
-    <div v-if="loading" class="text-xs text-gray-400">Loading...</div>
-    <div v-else-if="children.length === 0" class="text-xs text-gray-400">
-      No sub-agents spawned.
+    <div
+      v-if="loading"
+      class="text-xs text-gray-400"
+    >
+      {{ t('workflow.subagent.loading') }}
+    </div>
+    <div
+      v-else-if="children.length === 0"
+      class="text-xs text-gray-400"
+    >
+      {{ t('workflow.subagent.empty') }}
     </div>
 
     <div
@@ -65,7 +74,10 @@ function agentName(id: string): string {
       :key="child.id"
       class="flex items-start gap-2 py-1 text-sm"
     >
-      <span :class="stateClass(child.state)" class="text-xs font-mono mt-0.5">
+      <span
+        :class="stateClass(child.state)"
+        class="text-xs font-mono mt-0.5"
+      >
         [{{ stateIcon(child.state) }}]
       </span>
       <div class="flex-1 min-w-0">
@@ -80,9 +92,9 @@ function agentName(id: string): string {
           {{ child.task_description }}
         </div>
         <div class="text-xs text-gray-400">
-          Spawned {{ child.spawned_at }}
+          {{ t('workflow.subagent.spawned', { time: child.spawned_at }) }}
           <template v-if="child.destroyed_at">
-            &middot; Destroyed {{ child.destroyed_at }}
+            &middot; {{ t('workflow.subagent.destroyed', { time: child.destroyed_at }) }}
           </template>
         </div>
       </div>

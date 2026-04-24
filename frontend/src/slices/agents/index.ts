@@ -1,3 +1,15 @@
-// Public surface of the agents slice. Only exports listed here are
-// importable from other slices (enforced in Phase J).
-export {}
+import { registerMessages } from '@shared/i18n'
+import en from './locales/en.json'
+import zhTW from './locales/zh-TW.json'
+
+export { agentsRoutes } from './routes'
+export { agentKeys } from './queries'
+export type { Agent, RagConfig } from './api'
+export { useRagConfigSocket, type RagIngestionProgress } from './composables/useRagConfigSocket'
+export { agentCreateSchema, ragConfigCreateSchema } from './types/schemas'
+export type { AgentCreateInput, RagConfigCreateInput } from './types/schemas'
+
+export function installAgentsSlice(): void {
+  registerMessages('en', en)
+  registerMessages('zh-TW', zhTW)
+}

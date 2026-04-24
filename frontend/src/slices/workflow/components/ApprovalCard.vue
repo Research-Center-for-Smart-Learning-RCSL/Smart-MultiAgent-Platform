@@ -1,10 +1,9 @@
 <script setup lang="ts">
-// Inline approval card — renders in the chatroom message list when an
-// approval.requested WS event arrives. Shows approver votes in real-time
-// and the leader marker. Timeout countdown driven by started_at + timeout_seconds.
-
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import type { ApprovalWithVotes } from '../types'
+
+const { t } = useI18n()
 
 const props = defineProps<{
   approval: ApprovalWithVotes
@@ -42,10 +41,10 @@ const remainingFormatted = computed(() => {
 
 const stateLabel = computed(() => {
   const map: Record<string, string> = {
-    pending: 'Pending',
-    approved: 'Approved',
-    rejected: 'Rejected',
-    timeout_leader: 'Timeout (Leader)',
+    pending: t('workflow.approval.pending'),
+    approved: t('workflow.approval.approved'),
+    rejected: t('workflow.approval.rejected'),
+    timeout_leader: t('workflow.approval.timeoutLeader'),
   }
   return map[props.approval.state] ?? props.approval.state
 })
@@ -72,16 +71,22 @@ function voteForAgent(agentId: string) {
   <div class="approval-card rounded border p-3 my-2 bg-gray-50">
     <div class="flex items-center justify-between mb-2">
       <span class="font-semibold text-sm">
-        Approval Gate
+        {{ t('workflow.approval.gate') }}
         <span class="text-xs text-gray-500 ml-1">({{ approval.mode }})</span>
       </span>
-      <span :class="stateClass" class="text-sm font-medium">
+      <span
+        :class="stateClass"
+        class="text-sm font-medium"
+      >
         {{ stateLabel }}
       </span>
     </div>
 
-    <div v-if="isPending" class="text-xs text-gray-500 mb-2">
-      Timeout in {{ remainingFormatted }}
+    <div
+      v-if="isPending"
+      class="text-xs text-gray-500 mb-2"
+    >
+      {{ t('workflow.approval.timeoutIn', { time: remainingFormatted }) }}
     </div>
 
     <ul class="space-y-1">
@@ -94,7 +99,7 @@ function voteForAgent(agentId: string) {
           v-if="aid === approval.leader_agent_id"
           class="text-xs bg-blue-100 text-blue-700 px-1 rounded"
         >
-          Leader
+          {{ t('workflow.approval.leader') }}
         </span>
         <span class="font-mono text-xs">{{ agentName(aid) }}</span>
         <template v-if="voteForAgent(aid)">
@@ -102,7 +107,7 @@ function voteForAgent(agentId: string) {
             :class="voteForAgent(aid)!.vote ? 'text-green-600' : 'text-red-600'"
             class="text-xs font-medium"
           >
-            {{ voteForAgent(aid)!.vote ? 'Approve' : 'Reject' }}
+            {{ voteForAgent(aid)!.vote ? t('workflow.approval.approve') : t('workflow.approval.reject') }}
           </span>
           <span
             v-if="voteForAgent(aid)!.rationale"
@@ -111,7 +116,10 @@ function voteForAgent(agentId: string) {
             {{ voteForAgent(aid)!.rationale }}
           </span>
         </template>
-        <span v-else class="text-xs text-gray-400">Pending</span>
+        <span
+          v-else
+          class="text-xs text-gray-400"
+        >{{ t('workflow.approval.pending') }}</span>
       </li>
     </ul>
   </div>

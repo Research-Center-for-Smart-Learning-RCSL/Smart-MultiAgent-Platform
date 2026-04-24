@@ -2,7 +2,7 @@
 
 SMAP is a self-hosted web application for composing and conversing with groups of LLM-powered agents. Users supply their own API keys from third-party model providers (Anthropic Claude, OpenAI, Google Gemini). SMAP does not charge usage fees; model costs are billed directly by the providers to the key owner.
 
-Deployment target: single-host Docker Compose (16-core / 64 GB). There is no cloud-managed option or SaaS tier.
+Deployment target: single-host Docker Compose (16-core / 32 GB). There is no cloud-managed option or SaaS tier.
 
 ![SMAP Architecture](assets/SMAP.jpg)
 
@@ -116,16 +116,25 @@ backend/
 frontend/
   src/
     app/             Root component, router, entry point
-    shared/          API client (generated from OpenAPI), composables, transport, i18n, UI
-    slices/          Feature modules: admin, auth, agents, keys, tenancy, conversation, workflow
+    shared/          API client (generated from OpenAPI), composables, transport, i18n, UI, errors
+    slices/          Seven feature slices: identity, tenancy, keys, agents, conversation, workflow, admin
+  tests/             Vitest setup, MSW mocks, render helpers, factories
+  e2e/               Playwright E2E specs (8 golden paths)
+  scripts/           CI gate scripts (global CSS, view tests, type coverage, bundle size)
+  Dockerfile         Multi-stage production build (node → nginx)
 
 deploy/
-  compose/           Docker Compose files
+  compose/           Docker Compose files (base, prod overlay, test overlay, dev override)
+  compose/nginx/     Nginx config (TLS, HSTS, CSP, WS upgrade, banner suppression)
   vault/             Vault policies (HCL) and bootstrap SOP
+  observability/     Optional OTel + Prometheus + Loki + Grafana stack
+  README.md          Operator walk-through (< 60 min bring-up)
 
 docs/
   implement/         Per-phase construction plans (A through J)
   operations.md      Operator manual
+  release-checklist.md  Pre-release verification checklist
+  frontend-exceptions.md  CI gate exception registry
   workflow.schema.json + workflow.schema.md   Normative workflow schema and SEL v1
 
 alembic/             Database migrations (versions 0000 through 0025+)
@@ -145,6 +154,9 @@ Each bounded context follows a four-layer structure enforced by import-linter: `
 | `docs/workflow.schema.json` + `docs/workflow.schema.md` | Normative workflow JSON Schema and SMAP Expression Language (SEL v1) specification. |
 | `docs/operations.md` | Operator manual: structured logging fields, health check behavior, resource limits, Alembic migration policy, bootstrap CLI, RFC 7807 error catalog, runbooks. |
 | `deploy/vault/README.md` | Vault bootstrap procedure, key rotation SOP, disaster recovery scenarios. |
+| `deploy/README.md` | Operator deployment walk-through. |
+| `docs/release-checklist.md` | Pre-release verification checklist (Vault, backend, frontend, E2E, data, docs). |
+| `docs/frontend-exceptions.md` | CI gate exception registry with rationale. |
 
 All other documents in this repository are derived from these files. Do not treat them as independent sources of truth.
 
@@ -163,9 +175,26 @@ make dev-backend              # start uvicorn with hot reload on :8000
 make dev-frontend             # start Vite dev server on :5173
 ```
 
-After the stack is running, `http://localhost/healthz` (via Nginx to the backend) confirms liveness. `http://localhost/readyz` confirms that all downstream dependencies (Postgres, Redis, Qdrant, Neo4j, MinIO, Vault) are reachable.
+After the stack is running, `https://localhost/healthz` (via Nginx to the backend) confirms liveness. `https://localhost/readyz` confirms that all downstream dependencies (Postgres, Redis, Qdrant, Neo4j, MinIO, Vault) are reachable.
 
-The OpenAPI documentation is available at `http://localhost/api/docs` when `SMAP_APP_DOCS_ENABLED=true` (default in dev).
+The OpenAPI documentation is available at `https://localhost/api/docs` when `SMAP_APP_DOCS_ENABLED=true` (default in dev).
+
+### Production deployment
+
+See `deploy/README.md` for a full operator walk-through. Summary:
+
+```bash
+docker compose -f deploy/compose/docker-compose.yml \
+  -f deploy/compose/docker-compose.prod.yml up -d
+```
+
+### E2E test stack
+
+```bash
+make docker-up-test           # build frontend + start full stack with seeded fixtures
+cd frontend && pnpm run test:e2e
+make docker-down-test         # tear down (removes volumes)
+```
 
 ---
 
@@ -220,7 +249,7 @@ See `.env.example` for the full list with defaults.
 | G | Multi-Agent Orchestration | CODE complete | 2026-04-23 |
 | H | Workflow Engine | CODE complete | 2026-04-23 |
 | I | Admin, Audit, Notifications, Retention | CODE complete | 2026-04-23 |
-| J | Frontend Integration, E2E, and Release | not started | — |
+| J | Frontend Integration, E2E, and Release | CODE complete | 2026-04-24 |
 
 Full gate notes for each closed phase are in `docs/implement/00-overview.md`.
 

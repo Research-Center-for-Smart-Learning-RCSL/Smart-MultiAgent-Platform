@@ -1,1 +1,53 @@
-{}
+{
+  "conversation": {
+    "workspaces": {
+      "title": "工作區",
+      "create": "建立",
+      "delete": "刪除",
+      "loading": "載入中…",
+      "createFailed": "建立工作區失敗。"
+    },
+    "chatrooms": {
+      "title": "聊天室",
+      "create": "建立",
+      "createFailed": "建立聊天室失敗。"
+    },
+    "chatroom": {
+      "searchPlaceholder": "搜尋訊息…",
+      "export": "匯出",
+      "online": "線上",
+      "agentThinking": "代理人思考中…",
+      "composerPlaceholder": "輸入訊息…",
+      "send": "傳送",
+      "searchResults": "搜尋結果",
+      "live": "即時",
+      "offline": "離線",
+      "uploadFailed": "（失敗）{filename}",
+      "sendFailed": "傳送訊息失敗。",
+      "searchFailed": "搜尋失敗。",
+      "exportQueued": "匯出已排入佇列（{jobId}）。下載即將備妥。",
+      "exportFailed": "匯出啟動失敗。"
+    },
+    "settings": {
+      "title": "聊天室設定",
+      "name": "名稱",
+      "access": "存取控制",
+      "allowOrgMembers": "允許組織成員",
+      "allowProjectMembers": "允許專案成員",
+      "allowProjectOwnersOnly": "僅允許專案擁有者",
+      "allowGuestLinks": "允許訪客連結",
+      "guestLinkLabel": "訪客連結",
+      "copy": "複製",
+      "save": "儲存",
+      "delete": "刪除",
+      "agentBindings": "代理人繫結",
+      "wakeupConfigSaved": "喚醒設定已儲存。",
+      "wakeupConfigFailed": "儲存喚醒設定失敗。"
+    },
+    "guest": {
+      "enrolling": "加入聊天室中…",
+      "done": "已加入聊天室。",
+      "error": "加入失敗。連結可能無效或已過期。"
+    }
+  }
+}

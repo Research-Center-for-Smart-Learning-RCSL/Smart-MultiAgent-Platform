@@ -21,16 +21,19 @@ export default defineConfig({
     },
   },
   build: {
-    sourcemap: false,
+    sourcemap: 'hidden',
     rollupOptions: {
       output: {
-        // Initial bundle ≤250 KB gzip; per-view ≤200 KB gzip (R24.48).
-        // Hot-split heavy libs so they never land in the initial chunk.
         manualChunks: (id) => {
           if (id.includes('@vue-flow/core')) return 'vue-flow'
           if (id.includes('mermaid')) return 'mermaid'
           if (id.includes('katex')) return 'katex'
           if (id.includes('highlight.js')) return 'hljs'
+          if (id.includes('node_modules/vue-i18n')) return 'vue-i18n'
+          if (id.includes('/locales/') && id.endsWith('.json')) {
+            const match = id.match(/(?:slices|app)\/([^/]+)\/locales/)
+            if (match) return `locale-${match[1]}`
+          }
         },
       },
     },
@@ -38,8 +41,23 @@ export default defineConfig({
   test: {
     environment: 'jsdom',
     globals: true,
+    setupFiles: ['./tests/setup.ts'],
+    include: ['src/**/*.{test,spec}.ts', 'src/**/__tests__/**/*.{test,spec}.ts'],
     coverage: {
-      reporter: ['text', 'lcov'],
+      provider: 'v8',
+      reporter: ['text', 'lcov', 'json-summary'],
+      include: ['src/**/*.ts', 'src/**/*.vue'],
+      exclude: [
+        'src/shared/api-client/**',
+        'src/**/__tests__/**',
+        'src/**/*.d.ts',
+      ],
+      thresholds: {
+        lines: 80,
+        functions: 80,
+        branches: 75,
+        statements: 80,
+      },
     },
   },
 })

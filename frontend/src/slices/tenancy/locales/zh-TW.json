@@ -18,13 +18,16 @@
       "scope": "範圍",
       "user": "個人",
       "org": "組織",
-      "members": "成員"
+      "members": "成員",
+      "ownerIdPlaceholder": "擁有者 ID（UUID）"
     },
     "members": {
       "title": "成員",
       "inviteLabel": "以 Email 邀請",
       "invite": "送出邀請",
       "role": "角色",
+      "roleMember": "成員",
+      "roleOwner": "擁有者",
       "remove": "移除",
       "promote": "升為擁有者",
       "demote": "降為成員"
@@ -39,6 +42,7 @@
     "transfer": {
       "title": "轉移原始建立者",
       "targetLabel": "目標擁有者 Email",
+      "targetPlaceholder": "目標使用者 ID（UUID）",
       "initiate": "發起轉移",
       "pending": "待確認的轉移",
       "accept": "接受",

@@ -27,8 +27,17 @@ onMounted(async () => {
 <template>
   <main class="form-page">
     <h1>{{ $t('identity.verifyEmail.title') }}</h1>
-    <p v-if="state === 'verifying'">{{ $t('identity.verifyEmail.verifying') }}</p>
-    <p v-else-if="state === 'success'">{{ $t('identity.verifyEmail.success') }}</p>
-    <p v-else class="error">{{ $t('identity.verifyEmail.failure') }}</p>
+    <p v-if="state === 'verifying'">
+      {{ $t('identity.verifyEmail.verifying') }}
+    </p>
+    <p v-else-if="state === 'success'">
+      {{ $t('identity.verifyEmail.success') }}
+    </p>
+    <p
+      v-else
+      class="error"
+    >
+      {{ $t('identity.verifyEmail.failure') }}
+    </p>
   </main>
 </template>

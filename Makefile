@@ -65,6 +65,17 @@ docker-down: ## Tear down stack (keeps volumes).
 docker-logs:
 	$(COMPOSE) logs -f --tail=200
 
+COMPOSE_PROD := docker compose -f $(COMPOSE_DIR)/docker-compose.yml -f $(COMPOSE_DIR)/docker-compose.prod.yml
+COMPOSE_TEST := docker compose -f $(COMPOSE_DIR)/docker-compose.yml -f $(COMPOSE_DIR)/compose.test.yml
+
+.PHONY: docker-up-prod docker-up-test docker-down-test
+docker-up-prod: ## Bring up production stack (resource limits, replicas).
+	$(COMPOSE_PROD) up -d
+docker-up-test: ## Bring up E2E test stack (Vault dev, seeded fixtures).
+	$(COMPOSE_TEST) up -d --build
+docker-down-test: ## Tear down E2E test stack.
+	$(COMPOSE_TEST) down -v
+
 # ---------- Bootstrap (Phase B) ----------
 .PHONY: bootstrap bootstrap-vault bootstrap-db migrations-check
 bootstrap: ## Run Vault/DB/MinIO/Neo4j bootstrap.

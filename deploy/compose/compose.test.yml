@@ -1,0 +1,91 @@
+# E2E test compose — mirrors the authoritative docker-compose.yml topology
+# with Vault dev mode, deterministic credentials, and a seeded fixture project.
+#
+# Usage (from repo root):
+#   docker compose \
+#     -f deploy/compose/docker-compose.yml \
+#     -f deploy/compose/compose.test.yml up -d
+#
+# Playwright E2E specs (frontend/e2e/) run against this stack.
+
+services:
+  # ---------- Edge ----------
+  nginx:
+    depends_on:
+      backend-web:
+        condition: service_healthy
+      frontend:
+        condition: service_started
+
+  # ---------- Frontend — use production build ----------
+  frontend:
+    build:
+      context: ../../
+      dockerfile: frontend/Dockerfile
+    image: smap-frontend:test
+
+  # ---------- Backend web ----------
+  backend-web:
+    environment:
+      SMAP_APP_ENV: test
+      SMAP_LOG_LEVEL: warning
+      SMAP_DB_URL: postgresql+asyncpg://smap:smap@postgres:5432/smap_test
+      SMAP_REDIS_URL: redis://redis:6379/1
+      VAULT_ADDR: http://vault:8200
+      VAULT_TOKEN: root
+      SMAP_SEED_ON_STARTUP: "true"
+      SMAP_SEED_ADMIN_EMAIL: admin@smap.test
+      SMAP_SEED_ADMIN_PASSWORD: Admin1234!
+      SMAP_SEED_USER_EMAIL: user@smap.test
+      SMAP_SEED_USER_PASSWORD: User1234!
+
+  # ---------- Backend worker ----------
+  backend-worker:
+    environment:
+      SMAP_APP_ENV: test
+      SMAP_LOG_LEVEL: warning
+      SMAP_DB_URL: postgresql+asyncpg://smap:smap@postgres:5432/smap_test
+      SMAP_REDIS_URL: redis://redis:6379/1
+      VAULT_ADDR: http://vault:8200
+      VAULT_TOKEN: root
+
+  # ---------- Data services ----------
+  postgres:
+    environment:
+      POSTGRES_DB: smap_test
+
+  redis:
+    command:
+      - redis-server
+      - --appendonly
+      - "no"
+      - --maxmemory
+      - "256mb"
+      - --maxmemory-policy
+      - "allkeys-lru"
+
+  # ---------- Vault — dev mode with fixed root token ----------
+  vault:
+    environment:
+      VAULT_DEV_ROOT_TOKEN_ID: root
+      VAULT_DEV_LISTEN_ADDRESS: "0.0.0.0:8200"
+      VAULT_ADDR: http://0.0.0.0:8200
+    command: server -dev
+
+  # ---------- Neo4j — test credentials ----------
+  neo4j:
+    environment:
+      NEO4J_AUTH: neo4j/testpassword
+      NEO4J_server_memory_heap_initial__size: "256M"
+      NEO4J_server_memory_heap_max__size: "512M"
+
+  # ---------- Qdrant — minimal resources ----------
+  qdrant:
+    environment:
+      QDRANT__SERVICE__HTTP_PORT: 6333
+
+  # ---------- MinIO — test credentials ----------
+  minio:
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin

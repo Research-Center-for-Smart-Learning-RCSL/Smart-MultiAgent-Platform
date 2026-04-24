@@ -39,26 +39,50 @@ const onSubmit = handleSubmit((values) => {
 </script>
 
 <template>
-  <form class="key-upload-form" @submit.prevent="onSubmit">
+  <form
+    class="key-upload-form"
+    @submit.prevent="onSubmit"
+  >
     <label>
       {{ $t('keys.form.provider') }}
-      <select v-model="provider" data-testid="key-provider">
-        <option v-for="opt in providerOptions" :key="opt.value" :value="opt.value">
+      <select
+        v-model="provider"
+        data-testid="key-provider"
+      >
+        <option
+          v-for="opt in providerOptions"
+          :key="opt.value"
+          :value="opt.value"
+        >
           {{ opt.value }} ({{ opt.caps }})
         </option>
       </select>
     </label>
     <label>
       {{ $t('keys.form.name') }}
-      <input v-model="name" data-testid="key-name" :placeholder="$t('keys.form.namePlaceholder')" />
+      <input
+        v-model="name"
+        data-testid="key-name"
+        :placeholder="$t('keys.form.namePlaceholder')"
+      >
       <small v-if="errors.name">{{ errors.name }}</small>
     </label>
     <label>
       {{ $t('keys.form.secret') }}
       <!-- type=password keeps autofill scoped and the input masked. -->
-      <input v-model="secret" type="password" autocomplete="off" data-testid="key-secret" />
+      <input
+        v-model="secret"
+        type="password"
+        autocomplete="off"
+        data-testid="key-secret"
+      >
       <small v-if="errors.secret">{{ errors.secret }}</small>
     </label>
-    <button type="submit" data-testid="key-upload-submit">{{ $t('keys.form.submit') }}</button>
+    <button
+      type="submit"
+      data-testid="key-upload-submit"
+    >
+      {{ $t('keys.form.submit') }}
+    </button>
   </form>
 </template>

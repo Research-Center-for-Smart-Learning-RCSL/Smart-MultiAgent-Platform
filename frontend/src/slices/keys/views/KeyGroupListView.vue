@@ -22,25 +22,45 @@ watch(projectId, reload)
 <template>
   <main class="key-group-list-view">
     <h1>{{ $t('keys.groups.listTitle') }}</h1>
-    <p v-if="error" class="error">{{ error }}</p>
+    <p
+      v-if="error"
+      class="error"
+    >
+      {{ error }}
+    </p>
     <form @submit.prevent="onCreate">
       <input
         v-model="newName"
         :placeholder="$t('keys.groups.namePlaceholder')"
         data-testid="group-name"
-      />
-      <button type="submit" data-testid="group-create">{{ $t('keys.groups.create') }}</button>
+      >
+      <button
+        type="submit"
+        data-testid="group-create"
+      >
+        {{ $t('keys.groups.create') }}
+      </button>
     </form>
     <ul data-testid="group-list">
-      <li v-for="g in groups" :key="g.id">
+      <li
+        v-for="g in groups"
+        :key="g.id"
+      >
         <router-link
           :to="{ name: 'keys.groupDetail', params: { projectId, id: g.id } }"
         >
           {{ g.name }}
         </router-link>
-        <button @click="remove(g.id)">{{ $t('keys.groups.delete') }}</button>
+        <button @click="remove(g.id)">
+          {{ $t('keys.groups.delete') }}
+        </button>
       </li>
-      <li v-if="groups.length === 0" class="empty">{{ $t('keys.groups.empty') }}</li>
+      <li
+        v-if="groups.length === 0"
+        class="empty"
+      >
+        {{ $t('keys.groups.empty') }}
+      </li>
     </ul>
   </main>
 </template>

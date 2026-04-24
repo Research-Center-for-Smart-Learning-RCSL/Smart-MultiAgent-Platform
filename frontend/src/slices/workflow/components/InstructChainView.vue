@@ -1,10 +1,10 @@
 <script setup lang="ts">
-// Instruct chain backstage — Admin-only per R14.10 (not surfaced in chat UI).
-// Renders in slices/workflow/WorkflowRunView.
-
 import { ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { listInstructionsForChain } from '../api'
 import type { Instruction } from '../types'
+
+const { t } = useI18n()
 
 const props = defineProps<{
   chainId: string
@@ -45,12 +45,20 @@ function stateClass(state: string): string {
 <template>
   <div class="instruct-chain-view space-y-1">
     <div class="text-xs font-medium text-gray-500 mb-1">
-      Instruct Chain {{ chainId.slice(0, 8) }}
+      {{ t('workflow.instructChain.title', { id: chainId.slice(0, 8) }) }}
     </div>
 
-    <div v-if="loading" class="text-xs text-gray-400">Loading...</div>
-    <div v-else-if="steps.length === 0" class="text-xs text-gray-400">
-      No instructions in chain.
+    <div
+      v-if="loading"
+      class="text-xs text-gray-400"
+    >
+      {{ t('workflow.instructChain.loading') }}
+    </div>
+    <div
+      v-else-if="steps.length === 0"
+      class="text-xs text-gray-400"
+    >
+      {{ t('workflow.instructChain.empty') }}
     </div>
 
     <div
@@ -65,12 +73,15 @@ function stateClass(state: string): string {
           <span class="font-mono">{{ agentName(step.issuer_agent_id) }}</span>
           <span class="text-gray-400">&rarr;</span>
           <span class="font-mono">{{ agentName(step.target_agent_id) }}</span>
-          <span :class="stateClass(step.state)" class="font-medium ml-1">
+          <span
+            :class="stateClass(step.state)"
+            class="font-medium ml-1"
+          >
             {{ step.state }}
           </span>
         </div>
         <div class="text-gray-400">
-          depth {{ step.depth }} &middot; {{ step.issued_at }}
+          {{ t('workflow.instructChain.depth', { n: step.depth }) }} &middot; {{ step.issued_at }}
         </div>
       </div>
     </div>

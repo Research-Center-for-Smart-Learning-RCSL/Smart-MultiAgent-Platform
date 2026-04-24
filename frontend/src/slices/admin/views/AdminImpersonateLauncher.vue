@@ -4,25 +4,47 @@
     <p>{{ $t('admin.impersonation.description') }}</p>
 
     <form @submit.prevent="onStart">
-      <input v-model="targetUserId" placeholder="Target user UUID" required />
-      <button type="submit" :disabled="startImpersonation.isPending.value">
+      <input
+        v-model="targetUserId"
+        :placeholder="$t('admin.impersonation.targetPlaceholder')"
+        required
+      >
+      <button
+        type="submit"
+        :disabled="startImpersonation.isPending.value"
+      >
         {{ $t('admin.impersonation.start') }}
       </button>
     </form>
 
-    <div v-if="isImpersonating" class="admin-impersonate__active">
+    <div
+      v-if="isImpersonating"
+      class="admin-impersonate__active"
+    >
       <p>{{ $t('admin.impersonation.activeSession') }}</p>
-      <button :disabled="endImpersonation.isPending.value" @click="onEnd">{{ $t('admin.impersonation.end') }}</button>
+      <button
+        :disabled="endImpersonation.isPending.value"
+        @click="onEnd"
+      >
+        {{ $t('admin.impersonation.end') }}
+      </button>
     </div>
 
-    <p v-if="error" class="admin-impersonate__error">{{ error }}</p>
+    <p
+      v-if="error"
+      class="admin-impersonate__error"
+    >
+      {{ error }}
+    </p>
   </section>
 </template>
 
 <script setup lang="ts">
 import { ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useImpersonation } from '../composables/useImpersonation'
 
+const { t } = useI18n()
 const targetUserId = ref('')
 const error = ref<string | null>(null)
 
@@ -33,7 +55,7 @@ async function onStart(): Promise<void> {
   try {
     await startImpersonation.mutateAsync(targetUserId.value.trim())
   } catch {
-    error.value = 'Failed to start impersonation session.'
+    error.value = t('admin.impersonation.startFailed')
   }
 }
 
@@ -42,7 +64,7 @@ async function onEnd(): Promise<void> {
   try {
     await endImpersonation.mutateAsync(activeSessionTarget.value ?? '')
   } catch {
-    error.value = 'Failed to end impersonation session.'
+    error.value = t('admin.impersonation.endFailed')
   }
 }
 </script>

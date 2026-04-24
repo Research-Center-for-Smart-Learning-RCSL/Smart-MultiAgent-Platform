@@ -38,19 +38,45 @@ async function submit(): Promise<void> {
     <form @submit.prevent="submit">
       <label>
         {{ $t('identity.register.email') }}
-        <input v-model="email" type="email" required autocomplete="email" />
+        <input
+          v-model="email"
+          type="email"
+          required
+          autocomplete="email"
+        >
       </label>
       <label>
         {{ $t('identity.register.password') }}
-        <input v-model="password" type="password" required autocomplete="new-password" minlength="10" />
+        <input
+          v-model="password"
+          type="password"
+          required
+          autocomplete="new-password"
+          minlength="10"
+        >
       </label>
       <label>
         {{ $t('identity.register.captcha') }}
-        <input v-model="captchaToken" required />
+        <input
+          v-model="captchaToken"
+          required
+        >
       </label>
-      <p v-if="error" class="error">{{ error }}</p>
-      <button type="submit" :disabled="submitting">{{ $t('identity.register.submit') }}</button>
+      <p
+        v-if="error"
+        class="error"
+      >
+        {{ error }}
+      </p>
+      <button
+        type="submit"
+        :disabled="submitting"
+      >
+        {{ $t('identity.register.submit') }}
+      </button>
     </form>
-    <router-link :to="{ name: 'identity.login' }">{{ $t('identity.register.loginLink') }}</router-link>
+    <router-link :to="{ name: 'identity.login' }">
+      {{ $t('identity.register.loginLink') }}
+    </router-link>
   </main>
 </template>

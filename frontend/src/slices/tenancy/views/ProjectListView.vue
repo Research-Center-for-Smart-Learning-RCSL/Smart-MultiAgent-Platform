@@ -39,13 +39,24 @@ onMounted(load)
         <option value="org">{{ $t('tenancy.projects.org') }}</option>
       </select>
     </label>
-    <input v-model="ownerId" placeholder="owner id (uuid)" />
+    <input
+      v-model="ownerId"
+      :placeholder="$t('tenancy.projects.ownerIdPlaceholder')"
+    >
     <form @submit.prevent="create">
-      <input v-model="name" :placeholder="$t('tenancy.projects.namePlaceholder')" />
-      <button type="submit">{{ $t('tenancy.projects.create') }}</button>
+      <input
+        v-model="name"
+        :placeholder="$t('tenancy.projects.namePlaceholder')"
+      >
+      <button type="submit">
+        {{ $t('tenancy.projects.create') }}
+      </button>
     </form>
     <ul>
-      <li v-for="p in projects" :key="p.id">
+      <li
+        v-for="p in projects"
+        :key="p.id"
+      >
         <router-link :to="{ name: 'tenancy.projectDetail', params: { id: p.id } }">
           {{ p.name }}
         </router-link>

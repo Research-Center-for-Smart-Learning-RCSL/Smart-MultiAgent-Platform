@@ -3,23 +3,38 @@
     <header>
       <h1>{{ $t('conversation.workspaces.title') }}</h1>
       <form @submit.prevent="onCreate">
-        <input v-model="newName" required minlength="1" maxlength="80" />
-        <button type="submit" :disabled="createMutation.isPending.value">
+        <input
+          v-model="newName"
+          required
+          minlength="1"
+          maxlength="80"
+        >
+        <button
+          type="submit"
+          :disabled="createMutation.isPending.value"
+        >
           {{ $t('conversation.workspaces.create') }}
         </button>
       </form>
     </header>
     <ul v-if="query.data.value">
-      <li v-for="ws in query.data.value" :key="ws.id">
+      <li
+        v-for="ws in query.data.value"
+        :key="ws.id"
+      >
         <router-link
           :to="{ name: 'conversation.chatrooms', params: { workspaceId: ws.id } }"
         >
           {{ ws.name }}
         </router-link>
-        <button @click="onDelete(ws.id)">{{ $t('conversation.workspaces.delete') }}</button>
+        <button @click="onDelete(ws.id)">
+          {{ $t('conversation.workspaces.delete') }}
+        </button>
       </li>
     </ul>
-    <p v-if="query.isLoading.value">…</p>
+    <p v-if="query.isLoading.value">
+      {{ $t('conversation.workspaces.loading') }}
+    </p>
   </section>
 </template>
 
@@ -29,6 +44,7 @@ import { ref } from 'vue'
 import { useRoute } from 'vue-router'
 
 import { ElMessage } from 'element-plus'
+import { useI18n } from 'vue-i18n'
 import {
   createWorkspace,
   deleteWorkspace,
@@ -36,6 +52,7 @@ import {
 } from '../api'
 import { convKeys } from '../queries'
 
+const { t } = useI18n()
 const route = useRoute()
 const qc = useQueryClient()
 const projectId = route.params.projectId as string
@@ -49,7 +66,7 @@ const query = useQuery({
 const createMutation = useMutation({
   mutationFn: (name: string) => createWorkspace(projectId, { name }),
   onSuccess: () => qc.invalidateQueries({ queryKey: convKeys.workspaces(projectId) }),
-  onError: () => ElMessage.error('Failed to create workspace.'),
+  onError: () => ElMessage.error(t('conversation.workspaces.createFailed')),
 })
 
 async function onCreate(): Promise<void> {

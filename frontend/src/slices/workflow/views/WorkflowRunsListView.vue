@@ -7,32 +7,60 @@
       >
         &larr; {{ $t('workflow.runs.backToList') }}
       </router-link>
-      <h1 class="text-xl font-semibold">{{ $t('workflow.runs.title') }}</h1>
-      <button class="btn btn-primary btn-sm ml-auto" @click="onTrigger">
+      <h1 class="text-xl font-semibold">
+        {{ $t('workflow.runs.title') }}
+      </h1>
+      <button
+        class="btn btn-primary btn-sm ml-auto"
+        @click="onTrigger"
+      >
         {{ $t('workflow.runs.triggerManual') }}
       </button>
     </header>
 
     <div class="mb-3">
       <label class="text-xs text-gray-500 flex items-center gap-1">
-        <input v-model="showArchive" type="checkbox" />
+        <input
+          v-model="showArchive"
+          type="checkbox"
+        >
         {{ $t('workflow.runs.includeArchive') }}
       </label>
     </div>
 
-    <p v-if="query.isLoading.value" class="text-gray-500">…</p>
-    <table v-else-if="runsList.length" class="w-full text-sm">
+    <p
+      v-if="query.isLoading.value"
+      class="text-gray-500"
+    >
+      …
+    </p>
+    <table
+      v-else-if="runsList.length"
+      class="w-full text-sm"
+    >
       <thead>
         <tr class="border-b text-left">
-          <th class="py-1">{{ $t('workflow.runs.state') }}</th>
-          <th class="py-1">{{ $t('workflow.runs.trigger') }}</th>
-          <th class="py-1">{{ $t('workflow.runs.started') }}</th>
-          <th class="py-1">{{ $t('workflow.runs.ended') }}</th>
+          <th class="py-1">
+            {{ $t('workflow.runs.state') }}
+          </th>
+          <th class="py-1">
+            {{ $t('workflow.runs.trigger') }}
+          </th>
+          <th class="py-1">
+            {{ $t('workflow.runs.started') }}
+          </th>
+          <th class="py-1">
+            {{ $t('workflow.runs.ended') }}
+          </th>
           <th class="py-1" />
         </tr>
       </thead>
       <tbody>
-        <tr v-for="r in runsList" :key="r.id" class="border-b">
+        <tr
+          v-for="r in runsList"
+          :key="r.id"
+          class="border-b"
+        >
           <td class="py-1">
             <span
               class="px-1.5 py-0.5 text-xs rounded"
@@ -40,13 +68,22 @@
             >
               {{ r.state }}
             </span>
-            <span v-if="r.archived" class="ml-1 text-[10px] text-gray-400">
+            <span
+              v-if="r.archived"
+              class="ml-1 text-[10px] text-gray-400"
+            >
               ({{ $t('workflow.runs.archived') }})
             </span>
           </td>
-          <td class="py-1">{{ r.trigger_type }}</td>
-          <td class="py-1 text-gray-500">{{ new Date(r.started_at).toLocaleString() }}</td>
-          <td class="py-1 text-gray-500">{{ r.ended_at ? new Date(r.ended_at).toLocaleString() : '—' }}</td>
+          <td class="py-1">
+            {{ r.trigger_type }}
+          </td>
+          <td class="py-1 text-gray-500">
+            {{ new Date(r.started_at).toLocaleString() }}
+          </td>
+          <td class="py-1 text-gray-500">
+            {{ r.ended_at ? new Date(r.ended_at).toLocaleString() : '—' }}
+          </td>
           <td class="py-1">
             <router-link
               :to="{ name: 'workflow.run', params: { runId: r.id } }"
@@ -58,7 +95,12 @@
         </tr>
       </tbody>
     </table>
-    <p v-else class="text-gray-400">{{ $t('workflow.runs.empty') }}</p>
+    <p
+      v-else
+      class="text-gray-400"
+    >
+      {{ $t('workflow.runs.empty') }}
+    </p>
   </section>
 </template>
 

@@ -7,32 +7,41 @@
 import { useQueryClient } from '@tanstack/vue-query'
 import { onBeforeUnmount, onMounted, ref } from 'vue'
 
-import { getAccessToken } from '@shared/transport'
+import { wsManager, type ChannelEvent } from '@shared/transport'
 import { useWorkflowStore } from '../stores/workflow'
 import { wfKeys } from '../queries'
+import { listSteps } from '../api'
 import type { WorkflowRunEvent } from '../types'
-
-const RECONNECT_DELAY_MS = 1500
 
 export function useWorkflowRunSocket(runId: string) {
   const qc = useQueryClient()
   const wfStore = useWorkflowStore()
   const connected = ref(false)
-  let socket: WebSocket | null = null
-  let reconnectTimer: number | null = null
 
-  function wsUrl(): string {
-    const proto = window.location.protocol === 'https:' ? 'wss' : 'ws'
-    return `${proto}://${window.location.host}/ws/workflow-runs/${runId}`
+  const path = `/workflow-runs/${runId}`
+  const channel = wsManager.channel(path)
+
+  async function syncOnReconnect(): Promise<void> {
+    try {
+      const steps = await listSteps(runId)
+      for (const s of steps) {
+        wfStore.applyRunEvent({
+          type: s.state === 'running' ? 'workflow.step_started'
+            : s.state === 'failed' ? 'workflow.step_failed'
+            : 'workflow.step_finished',
+          node_id: s.node_id,
+          state: s.state,
+        } as unknown as WorkflowRunEvent)
+      }
+      qc.invalidateQueries({ queryKey: wfKeys.steps(runId) })
+      qc.invalidateQueries({ queryKey: wfKeys.run(runId) })
+    } catch {
+      // Non-fatal — next WS event will catch up.
+    }
   }
 
-  function subprotocols(): string[] {
-    const token = getAccessToken()
-    if (!token) return []
-    return [`bearer.${token}`]
-  }
-
-  function handleEvent(event: WorkflowRunEvent): void {
+  function handleEvent(ev: ChannelEvent): void {
+    const event = ev as unknown as WorkflowRunEvent
     wfStore.applyRunEvent(event)
 
     switch (event.type) {
@@ -52,67 +61,19 @@ export function useWorkflowRunSocket(runId: string) {
     }
   }
 
-  function connect(): void {
-    if (socket) return
-    try {
-      socket = new WebSocket(wsUrl(), subprotocols())
-    } catch {
-      scheduleReconnect()
-      return
-    }
-
-    socket.onopen = () => {
-      connected.value = true
-    }
-
-    socket.onclose = () => {
-      connected.value = false
-      socket = null
-      scheduleReconnect()
-    }
-
-    socket.onerror = () => {
-      socket?.close()
-    }
-
-    socket.onmessage = (msg) => {
-      try {
-        const event = JSON.parse(msg.data) as WorkflowRunEvent
-        handleEvent(event)
-      } catch {
-        // Malformed message — skip.
-      }
-    }
-  }
-
-  function scheduleReconnect(): void {
-    if (reconnectTimer != null) return
-    reconnectTimer = window.setTimeout(() => {
-      reconnectTimer = null
-      connect()
-    }, RECONNECT_DELAY_MS)
-  }
-
-  function disconnect(): void {
-    if (reconnectTimer != null) {
-      clearTimeout(reconnectTimer)
-      reconnectTimer = null
-    }
-    if (socket) {
-      socket.onclose = null
-      socket.close()
-      socket = null
-    }
-    connected.value = false
-  }
+  channel.subscribe('*', handleEvent)
+  channel.onStatus((isConnected) => {
+    connected.value = isConnected
+    if (isConnected) void syncOnReconnect()
+  })
 
   onMounted(() => {
     wfStore.clearRunState()
-    connect()
+    channel.connect()
   })
 
   onBeforeUnmount(() => {
-    disconnect()
+    wsManager.close(path)
   })
 
   return { connected }
