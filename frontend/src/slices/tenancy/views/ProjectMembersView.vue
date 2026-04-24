@@ -35,17 +35,32 @@ onMounted(load)
   <main>
     <h1>{{ $t('tenancy.members.title') }}</h1>
     <form @submit.prevent="invite">
-      <input v-model="inviteEmail" type="email" required />
+      <input
+        v-model="inviteEmail"
+        type="email"
+        required
+      >
       <select v-model="inviteRole">
-        <option value="member">member</option>
-        <option value="owner">owner</option>
+        <option value="member">
+          {{ $t('tenancy.members.roleMember') }}
+        </option>
+        <option value="owner">
+          {{ $t('tenancy.members.roleOwner') }}
+        </option>
       </select>
-      <button type="submit">{{ $t('tenancy.members.invite') }}</button>
+      <button type="submit">
+        {{ $t('tenancy.members.invite') }}
+      </button>
     </form>
     <ul>
-      <li v-for="m in members" :key="m.user_id">
+      <li
+        v-for="m in members"
+        :key="m.user_id"
+      >
         {{ m.email }} — {{ m.role }}
-        <button @click="remove(m.user_id)">{{ $t('tenancy.members.remove') }}</button>
+        <button @click="remove(m.user_id)">
+          {{ $t('tenancy.members.remove') }}
+        </button>
       </li>
     </ul>
   </main>

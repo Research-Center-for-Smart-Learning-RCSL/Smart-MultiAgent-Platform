@@ -18,6 +18,9 @@
       "title": "使用者",
       "searchPlaceholder": "以 email 搜尋...",
       "allStatuses": "所有狀態",
+      "statusActive": "啟用",
+      "statusBanned": "已封鎖",
+      "statusDeleted": "已刪除",
       "search": "搜尋",
       "email": "Email",
       "status": "狀態",
@@ -25,7 +28,10 @@
       "created": "建立日期",
       "actions": "操作",
       "ban": "封鎖",
-      "unban": "解除封鎖"
+      "unban": "解除封鎖",
+      "promotionFailed": "提升失敗。",
+      "lastAdminDemote": "無法降級最後一位管理員。",
+      "demotionFailed": "降級失敗。"
     },
     "userDetail": {
       "isAdmin": "管理員",
@@ -50,6 +56,7 @@
     },
     "ipBans": {
       "title": "IP 封鎖",
+      "cidrPlaceholder": "192.168.1.0/24",
       "reason": "原因",
       "add": "新增封鎖",
       "remove": "移除"
@@ -85,8 +92,19 @@
       "graphragReset": "GraphRAG 重設",
       "configIdPlaceholder": "GraphRAG 設定 ID",
       "reset": "重設",
+      "graphragResetSuccess": "GraphRAG 設定已重設為閒置。",
+      "resetFailed": "重設失敗。",
       "restore": "還原軟刪除資源",
-      "restoreAction": "還原"
+      "restoreAction": "還原",
+      "resourceIdPlaceholder": "資源 UUID",
+      "restoreSuccess": "資源已還原。",
+      "restoreFailed": "還原失敗。",
+      "typeOrg": "組織",
+      "typeProject": "專案",
+      "typeAgent": "代理人",
+      "typeWorkflow": "工作流程",
+      "typeChatroom": "聊天室",
+      "typeUser": "使用者"
     },
     "rateLimits": {
       "title": "速率限制",
@@ -107,11 +125,14 @@
     "impersonation": {
       "title": "模擬登入",
       "description": "以另一個使用者的身份進行唯讀瀏覽。所有操作皆會記錄於稽核日誌。",
+      "targetPlaceholder": "目標使用者 UUID",
       "start": "開始工作階段",
       "end": "結束工作階段",
       "activeSession": "模擬登入工作階段進行中，所有寫入操作已被封鎖。",
       "banner": "您正在以其他使用者身份瀏覽（管理員：{adminId}）",
-      "readOnly": "唯讀模式 — 所有寫入操作已被封鎖。"
+      "readOnly": "唯讀模式 — 所有寫入操作已被封鎖。",
+      "startFailed": "無法啟動模擬登入工作階段。",
+      "endFailed": "無法結束模擬登入工作階段。"
     }
   }
 }

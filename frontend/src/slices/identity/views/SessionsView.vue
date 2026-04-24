@@ -26,12 +26,22 @@ onMounted(load)
 <template>
   <main>
     <h1>{{ $t('identity.sessions.title') }}</h1>
-    <p v-if="loading">…</p>
+    <p v-if="loading">
+      …
+    </p>
     <ul v-else>
-      <li v-for="s in sessions" :key="s.id">
+      <li
+        v-for="s in sessions"
+        :key="s.id"
+      >
         <span>{{ s.user_agent || 'Unknown device' }} — {{ s.ip_inet }} — {{ s.last_used_at }}</span>
         <span v-if="s.is_current"> {{ $t('identity.sessions.currentBadge') }}</span>
-        <button v-else @click="revoke(s.id)">{{ $t('identity.sessions.revoke') }}</button>
+        <button
+          v-else
+          @click="revoke(s.id)"
+        >
+          {{ $t('identity.sessions.revoke') }}
+        </button>
       </li>
     </ul>
   </main>

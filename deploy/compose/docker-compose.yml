@@ -68,7 +68,7 @@ services:
       timeout: 3s
       retries: 3
 
-  # ---------- Frontend (dev server; prod bakes static assets into nginx) ----------
+  # ---------- Frontend (dev: node + vite HMR; prod/test: multi-stage Dockerfile → nginx) ----------
   frontend:
     image: node:20-alpine
     container_name: smap_frontend

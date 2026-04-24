@@ -10,15 +10,12 @@
 import { useQueryClient } from '@tanstack/vue-query'
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 
-import { getAccessToken } from '@shared/transport'
+import { wsManager, type ChannelEvent } from '@shared/transport'
 import { useOrchestrationStore } from '@slices/workflow'
 import type { ApprovalWithVotes } from '@slices/workflow'
 import { listMessages } from '../api'
 import { useConversationStore } from '../stores/conversation'
-import type { ChatroomEvent, Message } from '../types'
-
-const RECONNECT_DELAY_MS = 1500
-const REFRESH_MARGIN_MS = 60_000 // re-auth the socket 1 min before JWT exp
+import type { Message } from '../types'
 
 export function useChatroomSocket(roomId: string) {
   const qc = useQueryClient()
@@ -26,22 +23,8 @@ export function useChatroomSocket(roomId: string) {
   const orchStore = useOrchestrationStore()
   const connected = ref(false)
   const lastSeenMessageId = ref<string | null>(null)
-  let socket: WebSocket | null = null
-  let reconnectTimer: number | null = null
-  let refreshTimer: number | null = null
 
-  function wsUrl(): string {
-    // Vite proxies /ws in dev; prod goes through Nginx. Relative URL
-    // ensures cookies / origin checks line up.
-    const proto = window.location.protocol === 'https:' ? 'wss' : 'ws'
-    return `${proto}://${window.location.host}/ws/chatroom/${roomId}`
-  }
-
-  function subprotocols(): string[] {
-    const token = getAccessToken()
-    if (!token) return []
-    return [`bearer.${token}`]
-  }
+  const channel = wsManager.channel(`/chatroom/${roomId}`)
 
   async function replayDelta(): Promise<void> {
     if (!lastSeenMessageId.value) return
@@ -63,11 +46,10 @@ export function useChatroomSocket(roomId: string) {
     lastSeenMessageId.value = m.id
   }
 
-  function handleEvent(ev: ChatroomEvent): void {
+  function handleEvent(ev: ChannelEvent): void {
     switch (ev.type) {
       case 'message.created': {
         const mid = ev.message_id as string
-        // We have IDs only — refetch to hydrate content/metadata.
         qc.invalidateQueries({ queryKey: ['conversation', 'messages', roomId] })
         lastSeenMessageId.value = mid
         break
@@ -117,79 +99,26 @@ export function useChatroomSocket(roomId: string) {
     }
   }
 
-  function scheduleTokenRefresh(): void {
-    if (refreshTimer !== null) clearTimeout(refreshTimer)
-    refreshTimer = window.setTimeout(() => {
-      const token = getAccessToken()
-      if (!token || socket?.readyState !== WebSocket.OPEN) return
-      socket.send(JSON.stringify({ type: 'refresh', access_token: token }))
-      scheduleTokenRefresh()
-    }, Math.max(30_000, REFRESH_MARGIN_MS))
-  }
-
-  function connect(): void {
-    const protos = subprotocols()
-    if (protos.length === 0) return // not authenticated yet
-    try {
-      socket = new WebSocket(wsUrl(), protos)
-    } catch {
-      scheduleReconnect()
-      return
-    }
-    socket.onopen = () => {
-      connected.value = true
-      scheduleTokenRefresh()
-      void replayDelta()
-    }
-    socket.onmessage = (event) => {
-      try {
-        const payload = JSON.parse(event.data as string) as ChatroomEvent
-        handleEvent(payload)
-      } catch {
-        /* swallow malformed frames */
-      }
-    }
-    socket.onclose = () => {
-      connected.value = false
-      if (refreshTimer !== null) {
-        clearTimeout(refreshTimer)
-        refreshTimer = null
-      }
-      scheduleReconnect()
-    }
-    socket.onerror = () => {
-      // Let onclose drive reconnection — error fires just before close.
-    }
-  }
-
-  function scheduleReconnect(): void {
-    if (reconnectTimer !== null) return
-    reconnectTimer = window.setTimeout(() => {
-      reconnectTimer = null
-      connect()
-    }, RECONNECT_DELAY_MS)
-  }
+  channel.subscribe('*', handleEvent)
+  channel.onStatus((isConnected) => {
+    connected.value = isConnected
+    if (isConnected) void replayDelta()
+  })
 
   onMounted(() => {
-    connect()
+    channel.connect()
   })
 
   onBeforeUnmount(() => {
-    if (reconnectTimer !== null) clearTimeout(reconnectTimer)
-    if (refreshTimer !== null) clearTimeout(refreshTimer)
-    if (socket && socket.readyState <= WebSocket.OPEN) {
-      socket.close(1000, 'unmount')
-    }
+    wsManager.close(`/chatroom/${roomId}`)
     store.resetRoom(roomId)
   })
 
-  // If the list query finished loading, capture the newest id so we have a
-  // meaningful anchor for reconnect-delta replay.
   watch(
     () => qc.getQueryData<Message[]>(['conversation', 'messages', roomId]),
     (messages) => {
       if (messages && messages.length > 0) {
-        lastSeenMessageId.value = messages[messages.length - 1].id
+        lastSeenMessageId.value = messages[messages.length - 1]!.id
       }
     },
     { immediate: true },

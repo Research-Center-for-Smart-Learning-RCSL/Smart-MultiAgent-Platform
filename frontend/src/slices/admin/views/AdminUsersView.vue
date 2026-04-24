@@ -1,19 +1,32 @@
 <template>
   <section class="admin-users">
     <h1>{{ $t('admin.users.title') }}</h1>
-    <form class="admin-users__filters" @submit.prevent="applySearch">
+    <form
+      class="admin-users__filters"
+      @submit.prevent="applySearch"
+    >
       <input
         v-model="searchQuery"
         type="text"
         :placeholder="$t('admin.users.searchPlaceholder')"
-      />
+      >
       <select v-model="statusFilter">
-        <option value="">{{ $t('admin.users.allStatuses') }}</option>
-        <option value="active">active</option>
-        <option value="banned">banned</option>
-        <option value="deleted">deleted</option>
+        <option value="">
+          {{ $t('admin.users.allStatuses') }}
+        </option>
+        <option value="active">
+          {{ $t('admin.users.statusActive') }}
+        </option>
+        <option value="banned">
+          {{ $t('admin.users.statusBanned') }}
+        </option>
+        <option value="deleted">
+          {{ $t('admin.users.statusDeleted') }}
+        </option>
       </select>
-      <button type="submit">{{ $t('admin.users.search') }}</button>
+      <button type="submit">
+        {{ $t('admin.users.search') }}
+      </button>
     </form>
     <table v-if="query.data.value">
       <thead>
@@ -26,7 +39,10 @@
         </tr>
       </thead>
       <tbody>
-        <tr v-for="user in query.data.value" :key="user.id">
+        <tr
+          v-for="user in query.data.value"
+          :key="user.id"
+        >
           <td>
             <router-link :to="{ name: 'admin.userDetail', params: { userId: user.id } }">
               {{ user.email }}

@@ -1,5 +1,8 @@
 <template>
-  <section v-if="query.data.value" class="admin-user-detail">
+  <section
+    v-if="query.data.value"
+    class="admin-user-detail"
+  >
     <h1>{{ query.data.value.email }}</h1>
     <dl>
       <dt>ID</dt><dd>{{ query.data.value.id }}</dd>
@@ -16,13 +19,22 @@
     </dl>
 
     <div class="admin-user-detail__actions">
-      <button v-if="query.data.value.status === 'active'" @click="onBan">
+      <button
+        v-if="query.data.value.status === 'active'"
+        @click="onBan"
+      >
         {{ $t('admin.users.ban') }}
       </button>
-      <button v-if="query.data.value.status === 'banned'" @click="actions.unbanUser.mutate(userId)">
+      <button
+        v-if="query.data.value.status === 'banned'"
+        @click="actions.unbanUser.mutate(userId)"
+      >
         {{ $t('admin.users.unban') }}
       </button>
-      <button v-if="query.data.value.status === 'active'" @click="onSoftDelete">
+      <button
+        v-if="query.data.value.status === 'active'"
+        @click="onSoftDelete"
+      >
         {{ $t('admin.userDetail.softDelete') }}
       </button>
       <button
@@ -32,7 +44,10 @@
       >
         {{ $t('admin.userDetail.hardDelete') }}
       </button>
-      <button v-if="query.data.value.status === 'active'" @click="onImpersonate">
+      <button
+        v-if="query.data.value.status === 'active'"
+        @click="onImpersonate"
+      >
         {{ $t('admin.userDetail.impersonate') }}
       </button>
     </div>

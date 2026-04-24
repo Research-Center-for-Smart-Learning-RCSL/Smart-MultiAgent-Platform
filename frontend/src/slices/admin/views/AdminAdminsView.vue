@@ -2,12 +2,26 @@
   <section class="admin-admins">
     <h1>{{ $t('admin.admins.title') }}</h1>
 
-    <form class="admin-admins__promote" @submit.prevent="onPromote">
-      <input v-model="promoteUserId" :placeholder="$t('admin.admins.userIdPlaceholder')" required />
-      <button type="submit">{{ $t('admin.admins.promote') }}</button>
+    <form
+      class="admin-admins__promote"
+      @submit.prevent="onPromote"
+    >
+      <input
+        v-model="promoteUserId"
+        :placeholder="$t('admin.admins.userIdPlaceholder')"
+        required
+      >
+      <button type="submit">
+        {{ $t('admin.admins.promote') }}
+      </button>
     </form>
 
-    <p v-if="promoteError" class="admin-admins__error">{{ promoteError }}</p>
+    <p
+      v-if="promoteError"
+      class="admin-admins__error"
+    >
+      {{ promoteError }}
+    </p>
 
     <table v-if="query.data.value">
       <thead>
@@ -19,12 +33,17 @@
         </tr>
       </thead>
       <tbody>
-        <tr v-for="admin in query.data.value" :key="admin.user_id">
+        <tr
+          v-for="admin in query.data.value"
+          :key="admin.user_id"
+        >
           <td>{{ admin.user_id }}</td>
           <td>{{ admin.promoted_by_user_id ?? '-' }}</td>
           <td>{{ new Date(admin.promoted_at).toLocaleDateString() }}</td>
           <td>
-            <button @click="onDemote(admin.user_id)">{{ $t('admin.admins.demote') }}</button>
+            <button @click="onDemote(admin.user_id)">
+              {{ $t('admin.admins.demote') }}
+            </button>
           </td>
         </tr>
       </tbody>
@@ -34,12 +53,14 @@
 
 <script setup lang="ts">
 import { ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useQuery } from '@tanstack/vue-query'
 import { adminApi } from '../api/admin'
 import { adminKeys } from '../queries'
 import { useAdminActions } from '../composables/useAdminActions'
 import { isProblemWithType } from '@shared/transport'
 
+const { t } = useI18n()
 const promoteUserId = ref('')
 const promoteError = ref<string | null>(null)
 
@@ -56,7 +77,7 @@ async function onPromote(): Promise<void> {
     await actions.promoteAdmin.mutateAsync(promoteUserId.value.trim())
     promoteUserId.value = ''
   } catch (e) {
-    promoteError.value = 'Promotion failed'
+    promoteError.value = t('admin.users.promotionFailed')
   }
 }
 
@@ -66,9 +87,9 @@ async function onDemote(userId: string): Promise<void> {
     await actions.demoteAdmin.mutateAsync(userId)
   } catch (e) {
     if (isProblemWithType(e, 'admin/last-admin')) {
-      promoteError.value = 'Cannot demote the last admin'
+      promoteError.value = t('admin.users.lastAdminDemote')
     } else {
-      promoteError.value = 'Demotion failed'
+      promoteError.value = t('admin.users.demotionFailed')
     }
   }
 }

@@ -9,18 +9,24 @@
         &larr; {{ $t('workflow.editor.backToList') }}
       </router-link>
 
-      <h2 v-if="workflow" class="font-semibold truncate max-w-[300px]">
+      <h2
+        v-if="workflow"
+        class="font-semibold truncate max-w-[300px]"
+      >
         {{ workflow.name }}
       </h2>
 
-      <span v-if="store.dirty" class="text-xs text-orange-500">
+      <span
+        v-if="store.dirty"
+        class="text-xs text-orange-500"
+      >
         {{ $t('workflow.editor.unsaved') }}
       </span>
 
       <div class="ml-auto flex items-center gap-2">
         <button
           class="btn btn-sm"
-          :disabled="!store.canUndo"
+          :disabled="!store.canUndo || !isDesktop"
           :title="$t('workflow.editor.undo')"
           @click="onUndo"
         >
@@ -28,20 +34,23 @@
         </button>
         <button
           class="btn btn-sm"
-          :disabled="!store.canRedo"
+          :disabled="!store.canRedo || !isDesktop"
           :title="$t('workflow.editor.redo')"
           @click="onRedo"
         >
           ↷
         </button>
 
-        <button class="btn btn-sm" @click="onValidate">
+        <button
+          class="btn btn-sm"
+          @click="onValidate"
+        >
           {{ $t('workflow.editor.validate') }}
         </button>
 
         <button
           class="btn btn-primary btn-sm"
-          :disabled="saveMutation.isPending.value || !store.dirty"
+          :disabled="saveMutation.isPending.value || !store.dirty || !isDesktop"
           @click="onSave"
         >
           {{ $t('workflow.editor.save') }}
@@ -49,7 +58,7 @@
 
         <button
           class="btn btn-sm"
-          :disabled="store.hasErrors || dryRunning"
+          :disabled="store.hasErrors || dryRunning || !isDesktop"
           @click="onDryRun"
         >
           {{ $t('workflow.editor.dryRun') }}
@@ -72,10 +81,21 @@
       </span>
     </div>
 
+    <!-- Read-only notice on small screens (R24.33) -->
+    <div
+      v-if="!isDesktop"
+      class="px-4 py-3 bg-blue-50 text-blue-700 text-sm border-b"
+    >
+      {{ $t('workflow.editor.readOnlyNotice') }}
+    </div>
+
     <!-- Canvas + node inspector sidebar -->
     <div class="flex flex-1 min-h-0">
       <!-- Vue Flow canvas -->
-      <div ref="canvasEl" class="flex-1 relative">
+      <div
+        ref="canvasEl"
+        class="flex-1 relative"
+      >
         <VueFlow
           v-if="flowNodes.length"
           v-model:nodes="flowNodes"
@@ -92,8 +112,12 @@
               class="node-box rounded border px-3 py-2 text-xs min-w-[120px]"
               :class="nodeClass(data.nodeType, id)"
             >
-              <div class="font-semibold">{{ data.label || id }}</div>
-              <div class="text-gray-400">{{ data.nodeType }}</div>
+              <div class="font-semibold">
+                {{ data.label || id }}
+              </div>
+              <div class="text-gray-400">
+                {{ data.nodeType }}
+              </div>
             </div>
           </template>
         </VueFlow>
@@ -104,14 +128,20 @@
         v-if="selectedNode"
         class="w-80 border-l bg-gray-50 p-4 overflow-y-auto shrink-0"
       >
-        <h3 class="font-semibold mb-2">{{ selectedNode.id }}</h3>
+        <h3 class="font-semibold mb-2">
+          {{ selectedNode.id }}
+        </h3>
         <dl class="text-xs space-y-2">
           <div>
-            <dt class="text-gray-500">{{ $t('workflow.editor.nodeType') }}</dt>
+            <dt class="text-gray-500">
+              {{ $t('workflow.editor.nodeType') }}
+            </dt>
             <dd>{{ selectedNode.type }}</dd>
           </div>
           <div>
-            <dt class="text-gray-500">{{ $t('workflow.editor.nodeConfig') }}</dt>
+            <dt class="text-gray-500">
+              {{ $t('workflow.editor.nodeConfig') }}
+            </dt>
             <dd>
               <pre class="bg-white border rounded p-2 overflow-x-auto text-[11px]">{{
                 JSON.stringify(selectedNode.config, null, 2)
@@ -125,12 +155,14 @@
 </template>
 
 <script setup lang="ts">
-import { VueFlow } from '@vue-flow/core'
+import { VueFlow, type Node as FlowNode, type Edge as FlowEdge, type GraphNode } from '@vue-flow/core'
 import { useMutation, useQueryClient } from '@tanstack/vue-query'
 import { computed, ref } from 'vue'
 import { useRoute } from 'vue-router'
 
 import { ElMessage } from 'element-plus'
+import { useI18n } from 'vue-i18n'
+import { useBreakpoint } from '@shared/composables'
 import {
   listWorkflows,
   patchWorkflow,
@@ -144,10 +176,12 @@ import type { Workflow, WorkflowDefinition, WorkflowNode } from '../types'
 import '@vue-flow/core/dist/style.css'
 import '@vue-flow/core/dist/theme-default.css'
 
+const { t } = useI18n()
 const route = useRoute()
 const qc = useQueryClient()
 const store = useWorkflowStore()
 
+const { isDesktop } = useBreakpoint()
 const workflowId = route.params.workflowId as string
 const workspaceId = ref('')
 const dryRunning = ref(false)
@@ -160,8 +194,8 @@ const definition = ref<WorkflowDefinition>({
 })
 
 // Vue Flow reactive models
-const flowNodes = ref<any[]>([])
-const flowEdges = ref<any[]>([])
+const flowNodes = ref<FlowNode[]>([])
+const flowEdges = ref<FlowEdge[]>([])
 
 function defToFlow(def: WorkflowDefinition): void {
   flowNodes.value = def.nodes.map((n, i) => ({
@@ -188,7 +222,7 @@ function flowToDef(): WorkflowDefinition {
     config: fn.data.config ?? {},
     position: fn.position,
   }))
-  const edges = flowEdges.value.map((fe: any) => ({
+  const edges = flowEdges.value.map((fe: FlowEdge) => ({
     id: fe.id,
     from: fe.source,
     to: fe.target,
@@ -264,7 +298,7 @@ function onEdgesChange(): void {
   scheduleLint()
 }
 
-function onNodeClick({ node }: { node: any }): void {
+function onNodeClick({ node }: { node: GraphNode }): void {
   store.selectNode(node.id)
 }
 
@@ -301,7 +335,7 @@ const saveMutation = useMutation({
     store.markSaved(wf.version)
     qc.invalidateQueries({ queryKey: wfKeys.workflow(workflowId) })
   },
-  onError: () => ElMessage.error('Failed to save workflow.'),
+  onError: () => ElMessage.error(t('workflow.editor.saveFailed')),
 })
 
 function onSave(): void {
@@ -317,10 +351,10 @@ async function onValidate(): Promise<void> {
     const result = await validateWorkflow(workspaceId.value, def)
     store.setLintResult(result.errors, result.warnings)
     if (!result.errors.length && !result.warnings.length) {
-      ElMessage.success('Workflow is valid.')
+      ElMessage.success(t('workflow.editor.valid'))
     }
   } catch {
-    ElMessage.error('Validation request failed.')
+    ElMessage.error(t('workflow.editor.validateFailed'))
   }
 }
 
@@ -330,9 +364,9 @@ async function onDryRun(): Promise<void> {
   dryRunning.value = true
   try {
     await triggerRun(workflowId, { __dry_run: true })
-    ElMessage.success('Dry run queued.')
+    ElMessage.success(t('workflow.editor.dryRunQueued'))
   } catch {
-    ElMessage.error('Failed to start dry run.')
+    ElMessage.error(t('workflow.editor.dryRunFailed'))
   } finally {
     dryRunning.value = false
   }

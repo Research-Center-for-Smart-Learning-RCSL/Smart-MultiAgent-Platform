@@ -15,7 +15,9 @@ onMounted(reload)
 <template>
   <main class="key-detail-view">
     <h1>{{ $t('keys.detail.title') }}</h1>
-    <p v-if="!current">{{ $t('keys.detail.notFound') }}</p>
+    <p v-if="!current">
+      {{ $t('keys.detail.notFound') }}
+    </p>
     <section v-else>
       <dl>
         <dt>{{ $t('keys.detail.provider') }}</dt>
@@ -25,12 +27,18 @@ onMounted(reload)
         <dt>{{ $t('keys.detail.preview') }}</dt>
         <dd><code>{{ current.masked_preview }}</code></dd>
         <dt>{{ $t('keys.detail.status') }}</dt>
-        <dd :class="`status-${current.test_status}`">{{ current.test_status }}</dd>
+        <dd :class="`status-${current.test_status}`">
+          {{ current.test_status }}
+        </dd>
         <dt>{{ $t('keys.detail.lastTest') }}</dt>
         <dd>{{ current.last_test_at ?? '—' }}</dd>
       </dl>
-      <button @click="retest(current.id)">{{ $t('keys.detail.retest') }}</button>
-      <button @click="remove(current.id)">{{ $t('keys.detail.delete') }}</button>
+      <button @click="retest(current.id)">
+        {{ $t('keys.detail.retest') }}
+      </button>
+      <button @click="remove(current.id)">
+        {{ $t('keys.detail.delete') }}
+      </button>
     </section>
   </main>
 </template>

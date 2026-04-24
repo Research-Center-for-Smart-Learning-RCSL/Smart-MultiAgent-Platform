@@ -6,12 +6,15 @@ import {
 } from 'vue-router'
 
 import { adminRoutes } from '@slices/admin'
+import { agentsRoutes } from '@slices/agents'
 import { conversationRoutes } from '@slices/conversation'
 import { identityRoutes, useSessionStore } from '@slices/identity'
 import { keysRoutes } from '@slices/keys'
 import { tenancyRoutes } from '@slices/tenancy'
 import { workflowRoutes } from '@slices/workflow'
 import { onUnauthorizedRedirect } from '@shared/transport'
+
+import { runGuards, type GuardContext, type RouteMeta } from './guards'
 
 const routes: RouteRecordRaw[] = [
   {
@@ -22,9 +25,15 @@ const routes: RouteRecordRaw[] = [
   ...identityRoutes,
   ...tenancyRoutes,
   ...keysRoutes,
+  ...agentsRoutes,
   ...conversationRoutes,
   ...workflowRoutes,
   ...adminRoutes,
+  {
+    path: '/:pathMatch(.*)*',
+    name: 'not-found',
+    component: () => import('@app/views/NotFound.vue'),
+  },
 ]
 
 export const router = createRouter({
@@ -34,20 +43,17 @@ export const router = createRouter({
 
 router.beforeEach((to: RouteLocationNormalized) => {
   const session = useSessionStore()
-  if (to.meta.requiresAuth && !session.isAuthenticated) {
-    return {
-      name: 'identity.login',
-      query: { redirect: to.fullPath },
-    }
+  const ctx: GuardContext = {
+    isAuthenticated: session.isAuthenticated,
+    isVerified: session.isVerified,
+    isAdmin: session.me?.is_admin ?? false,
   }
-  if (to.meta.requiresVerifiedEmail && !session.isVerified) {
-    return { name: 'identity.verifyEmail' }
+  const meta: RouteMeta = {
+    requiresAuth: to.meta.requiresAuth as boolean | undefined,
+    requiresVerifiedEmail: to.meta.requiresVerifiedEmail as boolean | undefined,
+    requiredRoles: to.meta.requiredRoles as string[] | undefined,
   }
-  const requiredRoles = to.meta.requiredRoles as string[] | undefined
-  if (requiredRoles?.includes('admin') && !session.me?.is_admin) {
-    return { name: 'root' }
-  }
-  return true
+  return runGuards(meta, ctx, to.fullPath)
 })
 
 onUnauthorizedRedirect(() => {

@@ -1,9 +1,9 @@
 <script setup lang="ts">
-// Wake-up config editor in agent binding panel (G.10).
-// Renders the live wakeup_config and allows editing designer-level fields.
-
 import { computed, reactive, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import type { WakeupConfig } from '../types'
+
+const { t } = useI18n()
 
 const props = defineProps<{
   modelValue: WakeupConfig
@@ -33,24 +33,29 @@ const isInert = computed(() =>
 
 <template>
   <div class="wakeup-editor space-y-3 text-sm">
-    <div v-if="isInert" class="text-xs text-yellow-600 bg-yellow-50 px-2 py-1 rounded">
-      All triggers disabled — agent is inert.
+    <div
+      v-if="isInert"
+      class="text-xs text-yellow-600 bg-yellow-50 px-2 py-1 rounded"
+    >
+      {{ t('workflow.wakeup.inert') }}
     </div>
 
     <!-- every_n_messages -->
     <fieldset class="border rounded p-2">
-      <legend class="text-xs font-medium px-1">every_n_messages</legend>
+      <legend class="text-xs font-medium px-1">
+        {{ t('workflow.wakeup.everyNMessages') }}
+      </legend>
       <label class="flex items-center gap-2 mb-1">
         <input
           v-model="local.triggers.every_n_messages.enabled"
           type="checkbox"
           :disabled="readonly"
           @change="emitUpdate"
-        />
-        <span class="text-xs">Enabled</span>
+        >
+        <span class="text-xs">{{ t('workflow.wakeup.enabled') }}</span>
       </label>
       <label class="flex items-center gap-2">
-        <span class="text-xs w-8">n:</span>
+        <span class="text-xs w-8">{{ t('workflow.wakeup.n') }}</span>
         <input
           v-model.number="local.triggers.every_n_messages.n"
           type="number"
@@ -59,24 +64,26 @@ const isInert = computed(() =>
           class="border rounded px-1 py-0.5 w-20 text-xs"
           :disabled="readonly || !local.triggers.every_n_messages.enabled"
           @change="emitUpdate"
-        />
+        >
       </label>
     </fieldset>
 
     <!-- silence_minutes -->
     <fieldset class="border rounded p-2">
-      <legend class="text-xs font-medium px-1">silence_minutes</legend>
+      <legend class="text-xs font-medium px-1">
+        {{ t('workflow.wakeup.silenceMinutes') }}
+      </legend>
       <label class="flex items-center gap-2 mb-1">
         <input
           v-model="local.triggers.silence_minutes.enabled"
           type="checkbox"
           :disabled="readonly"
           @change="emitUpdate"
-        />
-        <span class="text-xs">Enabled</span>
+        >
+        <span class="text-xs">{{ t('workflow.wakeup.enabled') }}</span>
       </label>
       <label class="flex items-center gap-2 mb-1">
-        <span class="text-xs w-20">t_minutes:</span>
+        <span class="text-xs w-20">{{ t('workflow.wakeup.tMinutes') }}</span>
         <input
           v-model.number="local.triggers.silence_minutes.t_minutes"
           type="number"
@@ -85,10 +92,10 @@ const isInert = computed(() =>
           class="border rounded px-1 py-0.5 w-20 text-xs"
           :disabled="readonly || !local.triggers.silence_minutes.enabled"
           @change="emitUpdate"
-        />
+        >
       </label>
       <label class="flex items-center gap-2 mb-1">
-        <span class="text-xs w-20">autostop:</span>
+        <span class="text-xs w-20">{{ t('workflow.wakeup.autostop') }}</span>
         <input
           v-model.number="local.triggers.silence_minutes.autostop_rounds"
           type="number"
@@ -97,10 +104,10 @@ const isInert = computed(() =>
           class="border rounded px-1 py-0.5 w-20 text-xs"
           :disabled="readonly || !local.triggers.silence_minutes.enabled"
           @change="emitUpdate"
-        />
+        >
       </label>
       <label class="flex items-center gap-2">
-        <span class="text-xs w-20">max cap:</span>
+        <span class="text-xs w-20">{{ t('workflow.wakeup.maxCap') }}</span>
         <input
           v-model.number="local.triggers.silence_minutes.autostop_max_default"
           type="number"
@@ -109,21 +116,23 @@ const isInert = computed(() =>
           class="border rounded px-1 py-0.5 w-20 text-xs"
           :disabled="readonly || !local.triggers.silence_minutes.enabled"
           @change="emitUpdate"
-        />
+        >
       </label>
     </fieldset>
 
     <!-- call_only -->
     <fieldset class="border rounded p-2">
-      <legend class="text-xs font-medium px-1">call_only</legend>
+      <legend class="text-xs font-medium px-1">
+        {{ t('workflow.wakeup.callOnly') }}
+      </legend>
       <label class="flex items-center gap-2">
         <input
           v-model="local.triggers.call_only.enabled"
           type="checkbox"
           :disabled="readonly"
           @change="emitUpdate"
-        />
-        <span class="text-xs">Enabled (ignores other triggers)</span>
+        >
+        <span class="text-xs">{{ t('workflow.wakeup.callOnlyEnabled') }}</span>
       </label>
     </fieldset>
 
@@ -135,11 +144,11 @@ const isInert = computed(() =>
           type="checkbox"
           :disabled="readonly"
           @change="emitUpdate"
-        />
-        <span class="text-xs">allow_self_open</span>
+        >
+        <span class="text-xs">{{ t('workflow.wakeup.allowSelfOpen') }}</span>
       </label>
       <label class="flex items-center gap-2">
-        <span class="text-xs w-32">refresh_every_hours:</span>
+        <span class="text-xs w-32">{{ t('workflow.wakeup.refreshEveryHours') }}</span>
         <input
           v-model.number="local.refresh_every_hours"
           type="number"
@@ -148,7 +157,7 @@ const isInert = computed(() =>
           class="border rounded px-1 py-0.5 w-20 text-xs"
           :disabled="readonly"
           @change="emitUpdate"
-        />
+        >
       </label>
     </div>
   </div>

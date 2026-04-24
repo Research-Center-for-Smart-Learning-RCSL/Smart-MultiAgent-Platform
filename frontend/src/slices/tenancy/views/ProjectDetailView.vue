@@ -28,6 +28,8 @@ onMounted(load)
     <router-link :to="{ name: 'tenancy.projectMembers', params: { id: project.id } }">
       {{ $t('tenancy.projects.members') }}
     </router-link>
-    <button @click="remove">{{ $t('tenancy.orgs.delete') }}</button>
+    <button @click="remove">
+      {{ $t('tenancy.orgs.delete') }}
+    </button>
   </main>
 </template>

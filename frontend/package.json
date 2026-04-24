@@ -11,7 +11,14 @@
     "fmt": "prettier --write .",
     "typecheck": "vue-tsc --noEmit",
     "test": "vitest run",
-    "gen:api": "openapi --input ../backend/openapi.json --output src/shared/api-client --client axios --useOptions --useUnionTypes"
+    "gen:api": "openapi --input ../backend/openapi.json --output src/shared/api-client --client axios --useOptions --useUnionTypes",
+    "check:openapi-drift": "bash scripts/check-openapi-drift.sh",
+    "check:bundle-size": "bash scripts/check-bundle-size.sh",
+    "check:global-css": "bash scripts/check-global-css.sh",
+    "check:view-tests": "bash scripts/check-view-tests.sh",
+    "check:type-coverage": "bash scripts/check-type-coverage.sh",
+    "test:e2e": "playwright test",
+    "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
     "vue": "3.5.13",
@@ -53,6 +60,11 @@
     "vite": "6.4.2",
     "vite-plugin-checker": "0.8.0",
     "vitest": "2.1.9",
-    "vue-tsc": "2.1.10"
+    "vue-tsc": "2.1.10",
+    "eslint-plugin-vuejs-accessibility": "2.4.1",
+    "type-coverage": "2.29.7",
+    "msw": "2.7.3",
+    "@playwright/test": "1.52.0",
+    "@vitest/coverage-v8": "2.1.9"
   }
 }

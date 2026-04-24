@@ -26,14 +26,23 @@
     </header>
 
     <!-- Cancel -->
-    <div v-if="run && (run.state === 'running' || run.state === 'waiting')" class="mb-4">
-      <button class="btn btn-sm text-red-600" @click="onCancel">
+    <div
+      v-if="run && (run.state === 'running' || run.state === 'waiting')"
+      class="mb-4"
+    >
+      <button
+        class="btn btn-sm text-red-600"
+        @click="onCancel"
+      >
         {{ $t('workflow.run.cancel') }}
       </button>
     </div>
 
     <!-- Run details -->
-    <div v-if="run" class="mb-6 text-sm space-y-1">
+    <div
+      v-if="run"
+      class="mb-6 text-sm space-y-1"
+    >
       <p><strong>{{ $t('workflow.run.triggerType') }}:</strong> {{ run.trigger_type }}</p>
       <p><strong>{{ $t('workflow.run.started') }}:</strong> {{ new Date(run.started_at).toLocaleString() }}</p>
       <p v-if="run.ended_at">
@@ -42,33 +51,73 @@
     </div>
 
     <!-- Step timeline -->
-    <h2 class="font-semibold mb-2">{{ $t('workflow.run.steps') }}</h2>
-    <p v-if="stepsQuery.isLoading.value" class="text-gray-500">…</p>
-    <table v-else-if="steps.length" class="w-full text-sm">
+    <h2 class="font-semibold mb-2">
+      {{ $t('workflow.run.steps') }}
+    </h2>
+    <p
+      v-if="stepsQuery.isLoading.value"
+      class="text-gray-500"
+    >
+      …
+    </p>
+    <table
+      v-else-if="steps.length"
+      class="w-full text-sm"
+    >
       <thead>
         <tr class="border-b text-left">
-          <th class="py-1">{{ $t('workflow.run.nodeId') }}</th>
-          <th class="py-1">{{ $t('workflow.run.state') }}</th>
-          <th class="py-1">{{ $t('workflow.run.started') }}</th>
-          <th class="py-1">{{ $t('workflow.run.ended') }}</th>
-          <th class="py-1">{{ $t('workflow.run.error') }}</th>
+          <th class="py-1">
+            {{ $t('workflow.run.nodeId') }}
+          </th>
+          <th class="py-1">
+            {{ $t('workflow.run.state') }}
+          </th>
+          <th class="py-1">
+            {{ $t('workflow.run.started') }}
+          </th>
+          <th class="py-1">
+            {{ $t('workflow.run.ended') }}
+          </th>
+          <th class="py-1">
+            {{ $t('workflow.run.error') }}
+          </th>
         </tr>
       </thead>
       <tbody>
-        <tr v-for="step in steps" :key="step.id" class="border-b">
-          <td class="py-1 font-mono text-xs">{{ step.node_id }}</td>
+        <tr
+          v-for="step in steps"
+          :key="step.id"
+          class="border-b"
+        >
+          <td class="py-1 font-mono text-xs">
+            {{ step.node_id }}
+          </td>
           <td class="py-1">
-            <span class="px-1.5 py-0.5 text-xs rounded" :class="stateClass(step.state)">
+            <span
+              class="px-1.5 py-0.5 text-xs rounded"
+              :class="stateClass(step.state)"
+            >
               {{ step.state }}
             </span>
           </td>
-          <td class="py-1 text-gray-500">{{ new Date(step.started_at).toLocaleTimeString() }}</td>
-          <td class="py-1 text-gray-500">{{ step.ended_at ? new Date(step.ended_at).toLocaleTimeString() : '—' }}</td>
-          <td class="py-1 text-red-600 text-xs truncate max-w-[200px]">{{ step.error ?? '' }}</td>
+          <td class="py-1 text-gray-500">
+            {{ new Date(step.started_at).toLocaleTimeString() }}
+          </td>
+          <td class="py-1 text-gray-500">
+            {{ step.ended_at ? new Date(step.ended_at).toLocaleTimeString() : '—' }}
+          </td>
+          <td class="py-1 text-red-600 text-xs truncate max-w-[200px]">
+            {{ step.error ?? '' }}
+          </td>
         </tr>
       </tbody>
     </table>
-    <p v-else class="text-gray-400">{{ $t('workflow.run.noSteps') }}</p>
+    <p
+      v-else
+      class="text-gray-400"
+    >
+      {{ $t('workflow.run.noSteps') }}
+    </p>
   </section>
 </template>
 
@@ -78,11 +127,13 @@ import { computed } from 'vue'
 import { useRoute } from 'vue-router'
 
 import { ElMessage } from 'element-plus'
+import { useI18n } from 'vue-i18n'
 import { cancelRun, getRun, listSteps } from '../api'
 import { useWorkflowRunSocket } from '../composables/useWorkflowRunSocket'
 import { wfKeys } from '../queries'
 import type { RunState, StepState } from '../types'
 
+const { t } = useI18n()
 const route = useRoute()
 const qc = useQueryClient()
 const runId = route.params.runId as string
@@ -130,7 +181,7 @@ async function onCancel(): Promise<void> {
     qc.invalidateQueries({ queryKey: wfKeys.run(runId) })
     qc.invalidateQueries({ queryKey: wfKeys.steps(runId) })
   } catch {
-    ElMessage.error('Failed to cancel run.')
+    ElMessage.error(t('workflow.run.cancelFailed'))
   }
 }
 </script>

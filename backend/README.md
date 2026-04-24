@@ -4,7 +4,7 @@ The backend is built with Python 3.12, FastAPI, Pydantic v2, SQLAlchemy 2 (async
 
 ## Project Layout
 
-The codebase follows DDD principles (see `REQUIREMENTS.md` §23) with clear separation of concerns across nine bounded contexts:
+The codebase follows DDD principles (see `REQUIREMENTS.md` §23) with clear separation of concerns across ten bounded contexts:
 
 ```
 app/                 # Application entry point: FastAPI app, worker processes, request routing
@@ -12,14 +12,15 @@ app/                 # Application entry point: FastAPI app, worker processes, r
   config/            # Configuration via pydantic-settings
   workers/           # Background job entrypoints (Arq)
   main.py            # FastAPI ASGI application
-contexts/            # Nine bounded contexts (independent business domains)
+contexts/            # Ten bounded contexts (independent business domains)
   identity/          # User accounts, admin roles, sessions, JWT, password management
-  tenancy/           # Organizations, projects, team invites, permissions
+  tenancy/           # Organizations, projects, membership, invites, OC transfers
   keys/              # Bring-your-own-key support for LLM/embedding/search services
-  agents/            # Agent definitions, MCP tools, execution, approvals, instructions
-  knowledge/         # Retrieval-Augmented Generation (RAG) and GraphRAG
-  conversation/      # Workspaces, chatrooms, messages, WebSockets, file uploads
-  workflow/          # Workflow definitions, execution engines, runs and steps
+  agents/            # Agent definitions, MCP tools, built-in tools (file, web_search, code_exec)
+  knowledge/         # Retrieval-Augmented Generation (RAG) and GraphRAG (Neo4j + Qdrant)
+  conversation/      # Workspaces, chatrooms, messages, WebSockets, tus uploads, guests, exports
+  orchestration/     # A2A streams, wakeup configs, instructions, sub-agent inheritance
+  workflow/          # Workflow definitions, SEL v1, 11 executors, 5 triggers, runs FSM
   audit/             # Append-only audit logs, redaction, admin access
   notification/      # In-app notifications and notification rules
   {X}/               # Each context follows this structure:
@@ -28,13 +29,16 @@ contexts/            # Nine bounded contexts (independent business domains)
     infrastructure/  # External adapters: database, cache, external APIs
     interfaces/      # Facades for use by app-level routers
 shared_kernel/       # Shared primitives across all contexts
-  auth/              # Authentication and authorization (JWT, password hashing, ACL)
-  db/                # Database base classes and session management
+  auth/              # Authentication and authorization (JWT, RBAC matrix, rate limiter, IP ban cache)
+  db/                # SQLAlchemy engine, session factory, table registry
+  security/          # Envelope encryption (DEK + Vault Transit)
+  storage/           # MinIO client wrapper
+  audit/             # Audit event emitter (shared across contexts)
   events/            # In-process event bus for inter-context communication
   errors/            # Error handling (RFC 7807 Problem Details, custom error base)
   i18n/              # Internationalization helpers
-  logging/           # Structured logging via loguru with redaction
-  infra/             # Shared external service clients (e.g., Vault)
+  logging/           # Structured logging via loguru with JSON + redaction
+  infra/             # Shared external service clients (Vault, Redis buckets)
 tests/               # Test suites (unit, integration, end-to-end)
 ```
 

@@ -1,1 +1,66 @@
-{}
+{
+  "keys": {
+    "list": {
+      "title": "API 金鑰",
+      "provider": "提供者",
+      "name": "名稱",
+      "preview": "預覽",
+      "status": "狀態",
+      "loading": "載入金鑰中…",
+      "empty": "尚未上傳任何金鑰。",
+      "retest": "重新測試",
+      "delete": "刪除"
+    },
+    "detail": {
+      "title": "金鑰詳情",
+      "provider": "提供者",
+      "name": "名稱",
+      "preview": "預覽",
+      "status": "狀態",
+      "lastTest": "最後測試",
+      "notFound": "找不到金鑰。",
+      "retest": "重新測試",
+      "delete": "刪除"
+    },
+    "project": {
+      "title": "專案金鑰",
+      "carried": "已攜入金鑰",
+      "withdraw": "撤回",
+      "noneCarried": "此專案尚未攜入任何金鑰。",
+      "carryNew": "攜入金鑰",
+      "carry": "攜入",
+      "noneCarriable": "所有金鑰皆已攜入。"
+    },
+    "groups": {
+      "listTitle": "金鑰群組",
+      "namePlaceholder": "群組名稱",
+      "create": "建立",
+      "delete": "刪除",
+      "empty": "尚無金鑰群組。",
+      "members": "成員",
+      "remove": "移除",
+      "limits": "限制",
+      "maxInputPerHour": "每小時最大輸入 Token 數",
+      "maxOutputPerHour": "每小時最大輸出 Token 數",
+      "maxReqPerHour": "每小時最大請求數",
+      "noMembers": "此群組尚無成員。",
+      "selectKey": "選擇金鑰…",
+      "add": "新增"
+    },
+    "search": {
+      "title": "搜尋金鑰",
+      "provider": "提供者",
+      "secret": "API 密鑰",
+      "upload": "上傳",
+      "preview": "預覽",
+      "status": "狀態",
+      "active": "啟用",
+      "retest": "重新測試",
+      "delete": "刪除",
+      "cx": "CX（自訂搜尋 ID）",
+      "searchDepth": "搜尋深度",
+      "depthBasic": "基本",
+      "depthAdvanced": "進階"
+    }
+  }
+}

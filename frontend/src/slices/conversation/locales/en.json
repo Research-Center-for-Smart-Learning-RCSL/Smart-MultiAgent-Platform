@@ -1,1 +1,53 @@
-{}
+{
+  "conversation": {
+    "workspaces": {
+      "title": "Workspaces",
+      "create": "Create",
+      "delete": "Delete",
+      "loading": "Loading…",
+      "createFailed": "Failed to create workspace."
+    },
+    "chatrooms": {
+      "title": "Chatrooms",
+      "create": "Create",
+      "createFailed": "Failed to create chatroom."
+    },
+    "chatroom": {
+      "searchPlaceholder": "Search messages…",
+      "export": "Export",
+      "online": "Online",
+      "agentThinking": "Agent is thinking…",
+      "composerPlaceholder": "Type a message…",
+      "send": "Send",
+      "searchResults": "Search Results",
+      "live": "live",
+      "offline": "offline",
+      "uploadFailed": "(failed) {filename}",
+      "sendFailed": "Failed to send message.",
+      "searchFailed": "Search failed.",
+      "exportQueued": "Export queued ({jobId}). Download will be ready shortly.",
+      "exportFailed": "Failed to start export."
+    },
+    "settings": {
+      "title": "Chatroom Settings",
+      "name": "Name",
+      "access": "Access Control",
+      "allowOrgMembers": "Allow organisation members",
+      "allowProjectMembers": "Allow project members",
+      "allowProjectOwnersOnly": "Allow project owners only",
+      "allowGuestLinks": "Allow guest links",
+      "guestLinkLabel": "Guest link",
+      "copy": "Copy",
+      "save": "Save",
+      "delete": "Delete",
+      "agentBindings": "Agent Bindings",
+      "wakeupConfigSaved": "Wakeup config saved.",
+      "wakeupConfigFailed": "Failed to save wakeup config."
+    },
+    "guest": {
+      "enrolling": "Joining chatroom…",
+      "done": "You have joined the chatroom.",
+      "error": "Failed to join. The link may be invalid or expired."
+    }
+  }
+}

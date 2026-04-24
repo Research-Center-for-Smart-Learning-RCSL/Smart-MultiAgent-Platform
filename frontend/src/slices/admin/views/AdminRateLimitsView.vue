@@ -13,7 +13,10 @@
         </tr>
       </thead>
       <tbody>
-        <tr v-for="policy in query.data.value" :key="policy.key">
+        <tr
+          v-for="policy in query.data.value"
+          :key="policy.key"
+        >
           <td><code>{{ policy.key }}</code></td>
           <td>
             <input
@@ -21,7 +24,7 @@
               type="number"
               min="1"
               class="admin-rate-limits__input"
-            />
+            >
           </td>
           <td>
             <input
@@ -29,12 +32,14 @@
               type="number"
               min="1"
               class="admin-rate-limits__input"
-            />
+            >
           </td>
           <td>{{ policy.scope }}</td>
           <td>{{ new Date(policy.updated_at).toLocaleString() }}</td>
           <td>
-            <button @click="onPatch(policy.key)">{{ $t('admin.rateLimits.save') }}</button>
+            <button @click="onPatch(policy.key)">
+              {{ $t('admin.rateLimits.save') }}
+            </button>
           </td>
         </tr>
       </tbody>

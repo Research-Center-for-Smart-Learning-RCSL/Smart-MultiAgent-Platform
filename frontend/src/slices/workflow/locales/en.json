@@ -10,7 +10,9 @@
       "runs": "Runs",
       "delete": "Delete",
       "empty": "No workflows yet.",
-      "loadError": "Failed to load workflows."
+      "loadError": "Failed to load workflows.",
+      "createFailed": "Failed to create workflow.",
+      "deleteFailed": "Failed to delete workflow."
     },
     "editor": {
       "backToList": "Workflows",
@@ -23,7 +25,13 @@
       "errors": "error(s)",
       "warnings": "warning(s)",
       "nodeType": "Type",
-      "nodeConfig": "Config"
+      "nodeConfig": "Config",
+      "readOnlyNotice": "Workflow editing requires a desktop browser (≥ 1024px). You can view the graph but changes are disabled.",
+      "saveFailed": "Failed to save workflow.",
+      "valid": "Workflow is valid.",
+      "validateFailed": "Validation request failed.",
+      "dryRunQueued": "Dry run queued.",
+      "dryRunFailed": "Failed to start dry run."
     },
     "runs": {
       "title": "Workflow Runs",
@@ -50,7 +58,8 @@
       "nodeId": "Node",
       "state": "State",
       "error": "Error",
-      "noSteps": "No steps recorded."
+      "noSteps": "No steps recorded.",
+      "cancelFailed": "Failed to cancel run."
     },
     "backstage": {
       "title": "Backstage Panel",
@@ -62,6 +71,54 @@
       "instructChains": "Instruction Chains",
       "approvalHistory": "Approval History",
       "noApprovals": "No approvals for this run."
+    },
+    "approval": {
+      "gate": "Approval Gate",
+      "timeoutIn": "Timeout in {time}",
+      "leader": "Leader",
+      "approve": "Approve",
+      "reject": "Reject",
+      "pending": "Pending",
+      "approved": "Approved",
+      "rejected": "Rejected",
+      "timeoutLeader": "Timeout (Leader)"
+    },
+    "dlq": {
+      "title": "Dead Letter Queue",
+      "loading": "Loading…",
+      "empty": "No failed messages.",
+      "streamId": "Stream ID",
+      "attempts": "Attempts",
+      "error": "Error",
+      "movedAt": "Moved At",
+      "refresh": "Refresh"
+    },
+    "instructChain": {
+      "title": "Instruct Chain {id}",
+      "loading": "Loading…",
+      "empty": "No instructions in chain.",
+      "depth": "depth {n}"
+    },
+    "subagent": {
+      "title": "Sub-agents",
+      "loading": "Loading…",
+      "empty": "No sub-agents spawned.",
+      "spawned": "Spawned {time}",
+      "destroyed": "Destroyed {time}"
+    },
+    "wakeup": {
+      "inert": "All triggers disabled — agent is inert.",
+      "everyNMessages": "every_n_messages",
+      "silenceMinutes": "silence_minutes",
+      "callOnly": "call_only",
+      "enabled": "Enabled",
+      "n": "n:",
+      "tMinutes": "t_minutes:",
+      "autostop": "autostop:",
+      "maxCap": "max cap:",
+      "callOnlyEnabled": "Enabled (ignores other triggers)",
+      "allowSelfOpen": "allow_self_open",
+      "refreshEveryHours": "refresh_every_hours:"
     }
   }
 }

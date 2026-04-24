@@ -1,20 +1,28 @@
 <template>
-  <section class="chatroom">
+  <section
+    class="chatroom"
+    :class="{ 'chatroom--mobile': isMobile }"
+  >
     <header>
       <h1>#{{ chatroomId.slice(0, 8) }}</h1>
       <span :class="['pill', connected ? 'on' : 'off']">
-        {{ connected ? 'live' : 'offline' }}
+        {{ connected ? $t('conversation.chatroom.live') : $t('conversation.chatroom.offline') }}
       </span>
       <input
         v-model="searchQuery"
         :placeholder="$t('conversation.chatroom.searchPlaceholder')"
         @keyup.enter="runSearch"
-      />
-      <button @click="runExport">{{ $t('conversation.chatroom.export') }}</button>
+      >
+      <button @click="runExport">
+        {{ $t('conversation.chatroom.export') }}
+      </button>
     </header>
 
     <!-- Live approval cards (G.10) — rendered above messages when present. -->
-    <div v-if="liveApprovals.length" class="approvals">
+    <div
+      v-if="liveApprovals.length"
+      class="approvals"
+    >
       <ApprovalCard
         v-for="a in liveApprovals"
         :key="a.id"
@@ -23,50 +31,81 @@
       />
     </div>
 
-    <ol class="messages" ref="listRef">
-      <li v-for="m in messages" :key="m.id">
+    <ol
+      ref="listRef"
+      class="messages"
+    >
+      <li
+        v-for="m in messages"
+        :key="m.id"
+      >
         <div class="meta">
           <span>{{ m.sender_type }}</span>
           <time>{{ m.created_at }}</time>
         </div>
         <!-- Single v-html site per R24.41. -->
-        <div class="md" v-html="rendered[m.id]"></div>
+        <div
+          class="md"
+          v-html="rendered[m.id]"
+        />
       </li>
     </ol>
 
-    <aside class="presence">
+    <aside
+      v-if="!isMobile"
+      class="presence"
+    >
       <h4>{{ $t('conversation.chatroom.online') }}</h4>
       <ul>
-        <li v-for="uid in presenceList" :key="uid">{{ uid.slice(0, 8) }}</li>
+        <li
+          v-for="uid in presenceList"
+          :key="uid"
+        >
+          {{ uid.slice(0, 8) }}
+        </li>
       </ul>
       <p v-if="store.agentThinking[chatroomId]">
         {{ $t('conversation.chatroom.agentThinking') }}
       </p>
     </aside>
 
-    <form class="composer" @submit.prevent="onSend">
+    <form
+      class="composer"
+      @submit.prevent="onSend"
+    >
       <textarea
         v-model="draft"
         :placeholder="$t('conversation.chatroom.composerPlaceholder')"
         @dragover.prevent
         @drop.prevent="onDrop"
-      ></textarea>
-      <ul class="attachments" v-if="pendingUploads.length">
-        <li v-for="a in pendingUploads" :key="a.id">
+      />
+      <ul
+        v-if="pendingUploads.length"
+        class="attachments"
+      >
+        <li
+          v-for="a in pendingUploads"
+          :key="a.id"
+        >
           {{ a.filename }} ({{ Math.round(a.progress * 100) }}%)
         </li>
       </ul>
-      <button type="submit">{{ $t('conversation.chatroom.send') }}</button>
+      <button type="submit">
+        {{ $t('conversation.chatroom.send') }}
+      </button>
     </form>
 
-    <section class="search-results" v-if="searchHits.length">
+    <section
+      v-if="searchHits.length"
+      class="search-results"
+    >
       <h4>{{ $t('conversation.chatroom.searchResults') }}</h4>
       <ul>
         <li
           v-for="h in searchHits"
           :key="h.message_id"
           v-html="renderedSnippets[h.message_id]"
-        ></li>
+        />
       </ul>
     </section>
   </section>
@@ -87,6 +126,8 @@ import {
 import { useRoute } from 'vue-router'
 
 import { ElMessage } from 'element-plus'
+import { useI18n } from 'vue-i18n'
+import { useBreakpoint } from '@shared/composables'
 import {
   createExport,
   listMessages,
@@ -102,12 +143,14 @@ import { useConversationStore } from '../stores/conversation'
 import type { Message, SearchHit } from '../types'
 import { ApprovalCard, useOrchestrationStore } from '@slices/workflow'
 
+const { t } = useI18n()
 const route = useRoute()
 const qc = useQueryClient()
 const store = useConversationStore()
 const chatroomId = route.params.chatroomId as string
 const projectId = (route.params.projectId as string) || ''
 
+const { isMobile } = useBreakpoint()
 store.setActive(chatroomId)
 
 const listRef = useTemplateRef<HTMLElement>('listRef')
@@ -179,7 +222,7 @@ async function onDrop(ev: DragEvent): Promise<void> {
       })
       record.attachmentId = resourceToAttachmentId(result.resourceHeader)
     } catch {
-      record.filename = `(failed) ${record.filename}`
+      record.filename = t('conversation.chatroom.uploadFailed', { filename: record.filename })
     }
   }
 }
@@ -209,7 +252,7 @@ async function onSend(): Promise<void> {
     await nextTick()
     listRef.value?.scrollTo({ top: listRef.value.scrollHeight })
   } catch {
-    ElMessage.error('Failed to send message.')
+    ElMessage.error(t('conversation.chatroom.sendFailed'))
   }
 }
 
@@ -222,16 +265,16 @@ async function runSearch(): Promise<void> {
     const res = await searchMessages(chatroomId, searchQuery.value.trim())
     searchHits.value = res.hits
   } catch {
-    ElMessage.error('Search failed.')
+    ElMessage.error(t('conversation.chatroom.searchFailed'))
   }
 }
 
 async function runExport(): Promise<void> {
   try {
     const { job_id } = await createExport(chatroomId)
-    ElMessage.success(`Export queued (${job_id.slice(0, 8)}…). Download will be ready shortly.`)
+    ElMessage.success(t('conversation.chatroom.exportQueued', { jobId: job_id.slice(0, 8) }))
   } catch {
-    ElMessage.error('Failed to start export.')
+    ElMessage.error(t('conversation.chatroom.exportFailed'))
   }
 }
 
@@ -275,5 +318,11 @@ onUpdated(runEnhance)
 }
 .pill.off {
   color: #a00;
+}
+.chatroom--mobile {
+  grid-template-columns: 1fr;
+}
+.chatroom--mobile .presence {
+  display: none;
 }
 </style>

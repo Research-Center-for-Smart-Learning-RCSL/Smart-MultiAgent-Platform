@@ -10,7 +10,9 @@
       "runs": "執行紀錄",
       "delete": "刪除",
       "empty": "尚無工作流程。",
-      "loadError": "載入工作流程失敗。"
+      "loadError": "載入工作流程失敗。",
+      "createFailed": "建立工作流程失敗。",
+      "deleteFailed": "刪除工作流程失敗。"
     },
     "editor": {
       "backToList": "工作流程",
@@ -23,7 +25,13 @@
       "errors": "個錯誤",
       "warnings": "個警告",
       "nodeType": "類型",
-      "nodeConfig": "設定"
+      "nodeConfig": "設定",
+      "readOnlyNotice": "工作流程編輯需使用桌機瀏覽器（≥ 1024px）。目前僅供檢視，無法編輯。",
+      "saveFailed": "儲存工作流程失敗。",
+      "valid": "工作流程驗證通過。",
+      "validateFailed": "驗證請求失敗。",
+      "dryRunQueued": "模擬執行已排入佇列。",
+      "dryRunFailed": "無法啟動模擬執行。"
     },
     "runs": {
       "title": "執行紀錄",
@@ -50,7 +58,8 @@
       "nodeId": "節點",
       "state": "狀態",
       "error": "錯誤",
-      "noSteps": "尚無步驟紀錄。"
+      "noSteps": "尚無步驟紀錄。",
+      "cancelFailed": "取消執行失敗。"
     },
     "backstage": {
       "title": "後台面板",
@@ -62,6 +71,54 @@
       "instructChains": "指令鏈",
       "approvalHistory": "核准紀錄",
       "noApprovals": "此次執行無核准紀錄。"
+    },
+    "approval": {
+      "gate": "核准閘門",
+      "timeoutIn": "將於 {time} 後逾時",
+      "leader": "領導者",
+      "approve": "核准",
+      "reject": "拒絕",
+      "pending": "待處理",
+      "approved": "已核准",
+      "rejected": "已拒絕",
+      "timeoutLeader": "逾時（領導者）"
+    },
+    "dlq": {
+      "title": "死信佇列",
+      "loading": "載入中…",
+      "empty": "沒有失敗訊息。",
+      "streamId": "串流 ID",
+      "attempts": "嘗試次數",
+      "error": "錯誤",
+      "movedAt": "移入時間",
+      "refresh": "重新整理"
+    },
+    "instructChain": {
+      "title": "指令鏈 {id}",
+      "loading": "載入中…",
+      "empty": "此鏈無任何指令。",
+      "depth": "深度 {n}"
+    },
+    "subagent": {
+      "title": "子代理",
+      "loading": "載入中…",
+      "empty": "未產生子代理。",
+      "spawned": "生成於 {time}",
+      "destroyed": "銷毀於 {time}"
+    },
+    "wakeup": {
+      "inert": "所有觸發器皆已停用 — 代理處於惰性狀態。",
+      "everyNMessages": "every_n_messages",
+      "silenceMinutes": "silence_minutes",
+      "callOnly": "call_only",
+      "enabled": "啟用",
+      "n": "n:",
+      "tMinutes": "t_minutes:",
+      "autostop": "自動停止:",
+      "maxCap": "上限:",
+      "callOnlyEnabled": "啟用（忽略其他觸發器）",
+      "allowSelfOpen": "allow_self_open",
+      "refreshEveryHours": "refresh_every_hours:"
     }
   }
 }

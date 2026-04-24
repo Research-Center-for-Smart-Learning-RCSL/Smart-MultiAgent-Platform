@@ -1,0 +1,8 @@
+{
+  "app": {
+    "title": "SMAP",
+    "landingMessage": "Welcome to SMAP.",
+    "notFound": "Page not found.",
+    "backToHome": "Back to home"
+  }
+}

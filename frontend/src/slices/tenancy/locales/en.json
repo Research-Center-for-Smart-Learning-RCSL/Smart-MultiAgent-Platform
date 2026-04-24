@@ -18,13 +18,16 @@
       "scope": "Scope",
       "user": "Personal",
       "org": "Organisation",
-      "members": "Members"
+      "members": "Members",
+      "ownerIdPlaceholder": "Owner ID (UUID)"
     },
     "members": {
       "title": "Members",
       "inviteLabel": "Invite by email",
       "invite": "Send invite",
       "role": "Role",
+      "roleMember": "Member",
+      "roleOwner": "Owner",
       "remove": "Remove",
       "promote": "Promote to owner",
       "demote": "Demote to member"
@@ -39,6 +42,7 @@
     "transfer": {
       "title": "Transfer original-creator",
       "targetLabel": "Target owner email",
+      "targetPlaceholder": "Target user ID (UUID)",
       "initiate": "Initiate transfer",
       "pending": "Pending transfer",
       "accept": "Accept",

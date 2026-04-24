@@ -36,18 +36,33 @@ onMounted(load)
 <template>
   <main>
     <h1>{{ $t('tenancy.invites.inboxTitle') }}</h1>
-    <p v-if="!session.isVerified" class="warning">
+    <p
+      v-if="!session.isVerified"
+      class="warning"
+    >
       {{ $t('tenancy.invites.unverifiedBlock') }}
     </p>
-    <p v-if="error === 'unverified'" class="error">
+    <p
+      v-if="error === 'unverified'"
+      class="error"
+    >
       {{ $t('tenancy.invites.unverifiedBlock') }}
     </p>
-    <p v-if="invites.length === 0">{{ $t('tenancy.invites.empty') }}</p>
+    <p v-if="invites.length === 0">
+      {{ $t('tenancy.invites.empty') }}
+    </p>
     <ul v-else>
-      <li v-for="i in invites" :key="i.id">
+      <li
+        v-for="i in invites"
+        :key="i.id"
+      >
         [{{ i.scope_type }}] {{ i.scope_name }} — {{ i.role }}
-        <button @click="accept(i.id)">{{ $t('tenancy.invites.accept') }}</button>
-        <button @click="reject(i.id)">{{ $t('tenancy.invites.reject') }}</button>
+        <button @click="accept(i.id)">
+          {{ $t('tenancy.invites.accept') }}
+        </button>
+        <button @click="reject(i.id)">
+          {{ $t('tenancy.invites.reject') }}
+        </button>
       </li>
     </ul>
   </main>

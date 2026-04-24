@@ -1,1 +1,31 @@
-{}
+{
+  "agents": {
+    "list": {
+      "title": "代理人",
+      "create": "新增代理人",
+      "cancel": "取消",
+      "empty": "尚未設定任何代理人。",
+      "loading": "載入代理人中…",
+      "created": "代理人已建立。",
+      "createFailed": "建立代理人失敗。"
+    },
+    "detail": {
+      "title": "代理人詳情",
+      "loading": "載入中…",
+      "save": "儲存",
+      "saved": "代理人已儲存。",
+      "saveFailed": "儲存代理人失敗。",
+      "delete": "刪除",
+      "deleteFailed": "刪除代理人失敗。"
+    },
+    "form": {
+      "name": "名稱",
+      "provider": "模型提供者",
+      "model": "模型名稱",
+      "systemPrompt": "系統提示詞",
+      "temperature": "溫度",
+      "maxTokens": "最大 Token 數",
+      "submit": "建立代理人"
+    }
+  }
+}

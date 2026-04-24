@@ -25,20 +25,41 @@ async function submit(): Promise<void> {
 <template>
   <main class="form-page">
     <h1>{{ $t('identity.changeEmail.title') }}</h1>
-    <form v-if="!done" @submit.prevent="submit">
+    <form
+      v-if="!done"
+      @submit.prevent="submit"
+    >
       <label>
         {{ $t('identity.changeEmail.newEmail') }}
-        <input v-model="newEmail" type="email" required />
+        <input
+          v-model="newEmail"
+          type="email"
+          required
+        >
       </label>
       <label>
         {{ $t('identity.changeEmail.password') }}
-        <input v-model="password" type="password" required />
+        <input
+          v-model="password"
+          type="password"
+          required
+        >
       </label>
-      <p v-if="error" class="error">{{ error }}</p>
-      <button type="submit" :disabled="submitting">
+      <p
+        v-if="error"
+        class="error"
+      >
+        {{ error }}
+      </p>
+      <button
+        type="submit"
+        :disabled="submitting"
+      >
         {{ $t('identity.changeEmail.submit') }}
       </button>
     </form>
-    <p v-else>{{ $t('identity.verifyEmail.verifying') }}</p>
+    <p v-else>
+      {{ $t('identity.verifyEmail.verifying') }}
+    </p>
   </main>
 </template>

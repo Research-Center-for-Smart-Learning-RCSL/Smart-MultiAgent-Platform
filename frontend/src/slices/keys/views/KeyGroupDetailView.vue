@@ -59,7 +59,12 @@ watch([groupId, projectId], async () => {
 <template>
   <main class="key-group-detail-view">
     <h1>{{ detail?.group.name ?? '—' }}</h1>
-    <p v-if="error" class="error">{{ error }}</p>
+    <p
+      v-if="error"
+      class="error"
+    >
+      {{ error }}
+    </p>
 
     <section v-if="detail">
       <h2>{{ $t('keys.groups.members') }}</h2>
@@ -75,13 +80,16 @@ watch([groupId, projectId], async () => {
         >
           <span class="priority">#{{ m.priority }}</span>
           <code>{{ maskedFor(m.key_id) }}</code>
-          <button @click="removeMember(m.key_id)" data-testid="member-remove">
+          <button
+            data-testid="member-remove"
+            @click="removeMember(m.key_id)"
+          >
             {{ $t('keys.groups.remove') }}
           </button>
           <details>
             <summary>{{ $t('keys.groups.limits') }}</summary>
             <label>
-              max_input/h
+              {{ $t('keys.groups.maxInputPerHour') }}
               <input
                 type="number"
                 :value="m.limits.max_input_tokens_per_hour ?? ''"
@@ -90,10 +98,10 @@ watch([groupId, projectId], async () => {
                     max_input_tokens_per_hour: Number(($event.target as HTMLInputElement).value) || null,
                   })
                 "
-              />
+              >
             </label>
             <label>
-              max_output/h
+              {{ $t('keys.groups.maxOutputPerHour') }}
               <input
                 type="number"
                 :value="m.limits.max_output_tokens_per_hour ?? ''"
@@ -102,10 +110,10 @@ watch([groupId, projectId], async () => {
                     max_output_tokens_per_hour: Number(($event.target as HTMLInputElement).value) || null,
                   })
                 "
-              />
+              >
             </label>
             <label>
-              max_req/h
+              {{ $t('keys.groups.maxReqPerHour') }}
               <input
                 type="number"
                 :value="m.limits.max_requests_per_hour ?? ''"
@@ -114,18 +122,29 @@ watch([groupId, projectId], async () => {
                     max_requests_per_hour: Number(($event.target as HTMLInputElement).value) || null,
                   })
                 "
-              />
+              >
             </label>
           </details>
         </li>
-        <li v-if="detail.members.length === 0" class="empty">
+        <li
+          v-if="detail.members.length === 0"
+          class="empty"
+        >
           {{ $t('keys.groups.noMembers') }}
         </li>
       </ul>
 
       <form @submit.prevent="onAdd">
-        <select v-model="selectedKeyId" data-testid="add-member-select">
-          <option value="" disabled>{{ $t('keys.groups.selectKey') }}</option>
+        <select
+          v-model="selectedKeyId"
+          data-testid="add-member-select"
+        >
+          <option
+            value=""
+            disabled
+          >
+            {{ $t('keys.groups.selectKey') }}
+          </option>
           <option
             v-for="k in carried"
             :key="k.id"
@@ -135,7 +154,12 @@ watch([groupId, projectId], async () => {
             {{ k.name }} ({{ k.provider }})
           </option>
         </select>
-        <button type="submit" data-testid="add-member">{{ $t('keys.groups.add') }}</button>
+        <button
+          type="submit"
+          data-testid="add-member"
+        >
+          {{ $t('keys.groups.add') }}
+        </button>
       </form>
     </section>
   </main>

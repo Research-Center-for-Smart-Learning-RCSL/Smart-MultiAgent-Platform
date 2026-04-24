@@ -5,9 +5,10 @@ import enMessages from './locales/en.json'
 import zhMessages from './locales/zh-TW.json'
 
 export { keysRoutes } from './routes'
-export type { ApiKey, ApiKeyProvider, ProviderCapability } from './api/keys'
-export type { SearchKey, SearchProvider } from './api/search-keys'
-export type { KeyGroup, KeyGroupMember } from './api/key-groups'
+export { keysKeys } from './queries'
+export type { ApiKey, ApiKeyProvider, ProviderCapability } from './api'
+export type { SearchKey, SearchProvider } from './api'
+export type { KeyGroup, KeyGroupMember } from './api'
 
 export function installKeysSlice(): void {
   registerMessages('en', enMessages)

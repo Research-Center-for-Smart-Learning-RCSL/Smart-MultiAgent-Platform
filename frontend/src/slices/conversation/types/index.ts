@@ -91,3 +91,10 @@ export interface ChatroomEvent {
   type: ChatroomEventType | string
   [k: string]: unknown
 }
+
+export {
+  chatroomCreateSchema,
+  type ChatroomCreateInput,
+  workspaceCreateSchema,
+  type WorkspaceCreateInput,
+} from './schemas'

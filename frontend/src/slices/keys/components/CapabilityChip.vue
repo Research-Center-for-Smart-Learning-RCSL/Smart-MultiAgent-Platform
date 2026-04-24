@@ -9,6 +9,10 @@ const caps = computed(() => CAPABILITIES[props.provider])
 <template>
   <span class="capability-chip">
     <span class="provider">{{ provider }}</span>
-    <span v-for="c in caps" :key="c" :class="['cap', c]">{{ c }}</span>
+    <span
+      v-for="c in caps"
+      :key="c"
+      :class="['cap', c]"
+    >{{ c }}</span>
   </span>
 </template>

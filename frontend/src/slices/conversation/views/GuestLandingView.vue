@@ -1,8 +1,15 @@
 <template>
   <section class="guest-landing">
-    <p v-if="state === 'enrolling'">{{ $t('conversation.guest.enrolling') }}</p>
-    <p v-if="state === 'done'">{{ $t('conversation.guest.done') }}</p>
-    <p v-if="state === 'error'" class="error">
+    <p v-if="state === 'enrolling'">
+      {{ $t('conversation.guest.enrolling') }}
+    </p>
+    <p v-if="state === 'done'">
+      {{ $t('conversation.guest.done') }}
+    </p>
+    <p
+      v-if="state === 'error'"
+      class="error"
+    >
       {{ $t('conversation.guest.error') }}
     </p>
   </section>

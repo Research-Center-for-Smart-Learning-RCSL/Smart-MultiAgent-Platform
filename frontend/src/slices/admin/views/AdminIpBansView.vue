@@ -2,10 +2,26 @@
   <section class="admin-ip-bans">
     <h1>{{ $t('admin.ipBans.title') }}</h1>
 
-    <form class="admin-ip-bans__create" @submit.prevent="onCreate">
-      <input v-model="cidr" placeholder="192.168.1.0/24" required />
-      <input v-model="reason" :placeholder="$t('admin.ipBans.reason')" required />
-      <button type="submit" :disabled="actions.createIpBan.isPending.value">{{ $t('admin.ipBans.add') }}</button>
+    <form
+      class="admin-ip-bans__create"
+      @submit.prevent="onCreate"
+    >
+      <input
+        v-model="cidr"
+        :placeholder="$t('admin.ipBans.cidrPlaceholder')"
+        required
+      >
+      <input
+        v-model="reason"
+        :placeholder="$t('admin.ipBans.reason')"
+        required
+      >
+      <button
+        type="submit"
+        :disabled="actions.createIpBan.isPending.value"
+      >
+        {{ $t('admin.ipBans.add') }}
+      </button>
     </form>
 
     <table v-if="query.data.value">
@@ -18,7 +34,10 @@
         </tr>
       </thead>
       <tbody>
-        <tr v-for="ban in query.data.value" :key="ban.id">
+        <tr
+          v-for="ban in query.data.value"
+          :key="ban.id"
+        >
           <td><code>{{ ban.cidr }}</code></td>
           <td>{{ ban.reason }}</td>
           <td>{{ new Date(ban.created_at).toLocaleDateString() }}</td>

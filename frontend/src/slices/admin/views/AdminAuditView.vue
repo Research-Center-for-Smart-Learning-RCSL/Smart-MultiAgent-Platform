@@ -2,17 +2,51 @@
   <section class="admin-audit">
     <h1>{{ $t('admin.audit.title') }}</h1>
 
-    <form class="admin-audit__filters" @submit.prevent="applyFilters">
-      <input v-model="filters.action" :placeholder="$t('admin.audit.action')" />
-      <input v-model="filters.actor_user_id" :placeholder="$t('admin.audit.actorUserId')" />
-      <input v-model="filters.resource_type" :placeholder="$t('admin.audit.resourceType')" />
-      <input v-model="filters.resource_id" :placeholder="$t('admin.audit.resourceId')" />
-      <input v-model="filters.ip_prefix" :placeholder="$t('admin.audit.ipPrefix')" />
-      <input v-model="filters.session_id" :placeholder="$t('admin.audit.sessionId')" />
-      <input v-model="filters.from" type="datetime-local" />
-      <input v-model="filters.to" type="datetime-local" />
-      <button type="submit">{{ $t('admin.users.search') }}</button>
-      <button type="button" @click="onExport">{{ $t('admin.audit.export') }}</button>
+    <form
+      class="admin-audit__filters"
+      @submit.prevent="applyFilters"
+    >
+      <input
+        v-model="filters.action"
+        :placeholder="$t('admin.audit.action')"
+      >
+      <input
+        v-model="filters.actor_user_id"
+        :placeholder="$t('admin.audit.actorUserId')"
+      >
+      <input
+        v-model="filters.resource_type"
+        :placeholder="$t('admin.audit.resourceType')"
+      >
+      <input
+        v-model="filters.resource_id"
+        :placeholder="$t('admin.audit.resourceId')"
+      >
+      <input
+        v-model="filters.ip_prefix"
+        :placeholder="$t('admin.audit.ipPrefix')"
+      >
+      <input
+        v-model="filters.session_id"
+        :placeholder="$t('admin.audit.sessionId')"
+      >
+      <input
+        v-model="filters.from"
+        type="datetime-local"
+      >
+      <input
+        v-model="filters.to"
+        type="datetime-local"
+      >
+      <button type="submit">
+        {{ $t('admin.users.search') }}
+      </button>
+      <button
+        type="button"
+        @click="onExport"
+      >
+        {{ $t('admin.audit.export') }}
+      </button>
     </form>
 
     <table v-if="query.data.value">
@@ -28,7 +62,10 @@
         </tr>
       </thead>
       <tbody>
-        <tr v-for="entry in query.data.value.items" :key="entry.id">
+        <tr
+          v-for="entry in query.data.value.items"
+          :key="entry.id"
+        >
           <td>{{ entry.id }}</td>
           <td>{{ entry.action }}</td>
           <td>{{ entry.actor_user_id ?? '-' }}</td>
@@ -40,8 +77,13 @@
       </tbody>
     </table>
 
-    <div v-if="query.data.value?.next_cursor" class="admin-audit__pagination">
-      <button @click="loadMore">{{ $t('admin.audit.loadMore') }}</button>
+    <div
+      v-if="query.data.value?.next_cursor"
+      class="admin-audit__pagination"
+    >
+      <button @click="loadMore">
+        {{ $t('admin.audit.loadMore') }}
+      </button>
     </div>
   </section>
 </template>

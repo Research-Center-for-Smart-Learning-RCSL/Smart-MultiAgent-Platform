@@ -38,7 +38,14 @@ onMounted(load)
       </router-link>
     </nav>
     <p>v{{ org.version }} — {{ org.created_at }}</p>
-    <p v-if="error" class="error">{{ error }}</p>
-    <button @click="remove">{{ $t('tenancy.orgs.delete') }}</button>
+    <p
+      v-if="error"
+      class="error"
+    >
+      {{ error }}
+    </p>
+    <button @click="remove">
+      {{ $t('tenancy.orgs.delete') }}
+    </button>
   </main>
 </template>

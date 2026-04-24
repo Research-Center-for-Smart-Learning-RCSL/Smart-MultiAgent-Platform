@@ -1,8 +1,13 @@
 <template>
   <section class="workflow-list">
     <header class="flex items-center justify-between mb-4">
-      <h1 class="text-xl font-semibold">{{ $t('workflow.list.title') }}</h1>
-      <form class="flex gap-2" @submit.prevent="onCreate">
+      <h1 class="text-xl font-semibold">
+        {{ $t('workflow.list.title') }}
+      </h1>
+      <form
+        class="flex gap-2"
+        @submit.prevent="onCreate"
+      >
         <input
           v-model="newName"
           required
@@ -10,7 +15,7 @@
           maxlength="200"
           class="border rounded px-2 py-1"
           :placeholder="$t('workflow.list.namePlaceholder')"
-        />
+        >
         <button
           type="submit"
           class="btn btn-primary"
@@ -21,22 +26,43 @@
       </form>
     </header>
 
-    <p v-if="query.isLoading.value" class="text-gray-500">…</p>
-    <p v-else-if="query.isError.value" class="text-red-600">
+    <p
+      v-if="query.isLoading.value"
+      class="text-gray-500"
+    >
+      …
+    </p>
+    <p
+      v-else-if="query.isError.value"
+      class="text-red-600"
+    >
       {{ $t('workflow.list.loadError') }}
     </p>
 
-    <table v-else-if="query.data.value?.length" class="w-full text-sm">
+    <table
+      v-else-if="query.data.value?.length"
+      class="w-full text-sm"
+    >
       <thead>
         <tr class="border-b text-left">
-          <th class="py-2">{{ $t('workflow.list.name') }}</th>
-          <th class="py-2">{{ $t('workflow.list.version') }}</th>
-          <th class="py-2">{{ $t('workflow.list.created') }}</th>
+          <th class="py-2">
+            {{ $t('workflow.list.name') }}
+          </th>
+          <th class="py-2">
+            {{ $t('workflow.list.version') }}
+          </th>
+          <th class="py-2">
+            {{ $t('workflow.list.created') }}
+          </th>
           <th class="py-2" />
         </tr>
       </thead>
       <tbody>
-        <tr v-for="wf in query.data.value" :key="wf.id" class="border-b">
+        <tr
+          v-for="wf in query.data.value"
+          :key="wf.id"
+          class="border-b"
+        >
           <td class="py-2">
             <router-link
               :to="{ name: 'workflow.editor', params: { workflowId: wf.id } }"
@@ -45,7 +71,9 @@
               {{ wf.name }}
             </router-link>
           </td>
-          <td class="py-2 text-gray-500">v{{ wf.version }}</td>
+          <td class="py-2 text-gray-500">
+            v{{ wf.version }}
+          </td>
           <td class="py-2 text-gray-500">
             {{ new Date(wf.created_at).toLocaleDateString() }}
           </td>
@@ -67,7 +95,12 @@
       </tbody>
     </table>
 
-    <p v-else class="text-gray-400">{{ $t('workflow.list.empty') }}</p>
+    <p
+      v-else
+      class="text-gray-400"
+    >
+      {{ $t('workflow.list.empty') }}
+    </p>
   </section>
 </template>
 
@@ -77,9 +110,11 @@ import { ref } from 'vue'
 import { useRoute } from 'vue-router'
 
 import { ElMessage } from 'element-plus'
+import { useI18n } from 'vue-i18n'
 import { createWorkflow, deleteWorkflow, listWorkflows } from '../api'
 import { wfKeys } from '../queries'
 
+const { t } = useI18n()
 const route = useRoute()
 const qc = useQueryClient()
 const workspaceId = route.params.workspaceId as string
@@ -106,7 +141,7 @@ const createMutation = useMutation({
   onSuccess: () => {
     qc.invalidateQueries({ queryKey: wfKeys.workflows(workspaceId) })
   },
-  onError: () => ElMessage.error('Failed to create workflow.'),
+  onError: () => ElMessage.error(t('workflow.list.createFailed')),
 })
 
 async function onCreate(): Promise<void> {
@@ -121,7 +156,7 @@ async function onDelete(id: string): Promise<void> {
     await deleteWorkflow(id)
     qc.invalidateQueries({ queryKey: wfKeys.workflows(workspaceId) })
   } catch {
-    ElMessage.error('Failed to delete workflow.')
+    ElMessage.error(t('workflow.list.deleteFailed'))
   }
 }
 </script>

@@ -18,6 +18,9 @@
       "title": "Users",
       "searchPlaceholder": "Search by email...",
       "allStatuses": "All statuses",
+      "statusActive": "Active",
+      "statusBanned": "Banned",
+      "statusDeleted": "Deleted",
       "search": "Search",
       "email": "Email",
       "status": "Status",
@@ -25,7 +28,10 @@
       "created": "Created",
       "actions": "Actions",
       "ban": "Ban",
-      "unban": "Unban"
+      "unban": "Unban",
+      "promotionFailed": "Promotion failed.",
+      "lastAdminDemote": "Cannot demote the last admin.",
+      "demotionFailed": "Demotion failed."
     },
     "userDetail": {
       "isAdmin": "Is Admin",
@@ -50,6 +56,7 @@
     },
     "ipBans": {
       "title": "IP Bans",
+      "cidrPlaceholder": "192.168.1.0/24",
       "reason": "Reason",
       "add": "Add Ban",
       "remove": "Remove"
@@ -85,8 +92,19 @@
       "graphragReset": "GraphRAG Reset",
       "configIdPlaceholder": "GraphRAG config ID",
       "reset": "Reset",
+      "graphragResetSuccess": "GraphRAG config reset to idle.",
+      "resetFailed": "Reset failed.",
       "restore": "Restore Soft-Deleted Resource",
-      "restoreAction": "Restore"
+      "restoreAction": "Restore",
+      "resourceIdPlaceholder": "Resource UUID",
+      "restoreSuccess": "Resource restored.",
+      "restoreFailed": "Restore failed.",
+      "typeOrg": "Organisation",
+      "typeProject": "Project",
+      "typeAgent": "Agent",
+      "typeWorkflow": "Workflow",
+      "typeChatroom": "Chatroom",
+      "typeUser": "User"
     },
     "rateLimits": {
       "title": "Rate Limits",
@@ -107,11 +125,14 @@
     "impersonation": {
       "title": "Impersonation",
       "description": "Start a read-only session as another user. All actions are audit-logged.",
+      "targetPlaceholder": "Target user UUID",
       "start": "Start Session",
       "end": "End Session",
       "activeSession": "Impersonation session is active. All write operations are blocked.",
       "banner": "You are viewing as another user (admin: {adminId})",
-      "readOnly": "Read-only mode — all write operations are blocked."
+      "readOnly": "Read-only mode — all write operations are blocked.",
+      "startFailed": "Failed to start impersonation session.",
+      "endFailed": "Failed to end impersonation session."
     }
   }
 }

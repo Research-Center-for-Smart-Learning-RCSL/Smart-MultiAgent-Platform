@@ -12,7 +12,10 @@
         </tr>
       </thead>
       <tbody>
-        <tr v-for="proj in query.data.value" :key="proj.id">
+        <tr
+          v-for="proj in query.data.value"
+          :key="proj.id"
+        >
           <td>{{ proj.name }}</td>
           <td>{{ proj.owner_user_id ?? '-' }}</td>
           <td>{{ proj.owner_org_id ?? '-' }}</td>

@@ -1,5 +1,8 @@
 <template>
-  <div v-if="isImpersonating" class="impersonation-banner">
+  <div
+    v-if="isImpersonating"
+    class="impersonation-banner"
+  >
     <span>{{ $t('admin.impersonation.banner', { adminId: impersonatedBy }) }}</span>
     <span class="impersonation-banner__warning">{{ $t('admin.impersonation.readOnly') }}</span>
   </div>

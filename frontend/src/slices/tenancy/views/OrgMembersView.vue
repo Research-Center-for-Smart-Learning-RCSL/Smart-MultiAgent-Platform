@@ -41,25 +41,46 @@ onMounted(load)
     <h1>{{ $t('tenancy.members.title') }}</h1>
     <form @submit.prevent="invite">
       <label>{{ $t('tenancy.members.inviteLabel') }}</label>
-      <input v-model="inviteEmail" type="email" required />
+      <input
+        v-model="inviteEmail"
+        type="email"
+        required
+      >
       <select v-model="inviteRole">
-        <option value="member">member</option>
-        <option value="owner">owner</option>
+        <option value="member">
+          {{ $t('tenancy.members.roleMember') }}
+        </option>
+        <option value="owner">
+          {{ $t('tenancy.members.roleOwner') }}
+        </option>
       </select>
-      <button type="submit">{{ $t('tenancy.members.invite') }}</button>
+      <button type="submit">
+        {{ $t('tenancy.members.invite') }}
+      </button>
     </form>
     <ul>
-      <li v-for="m in members" :key="m.user_id">
+      <li
+        v-for="m in members"
+        :key="m.user_id"
+      >
         {{ m.email }} — {{ m.role }}
         <span v-if="m.is_original_creator">★ {{ $t('tenancy.orgs.originalCreator') }}</span>
         <template v-if="!m.is_original_creator">
-          <button v-if="m.role === 'member'" @click="setRole(m.user_id, 'owner')">
+          <button
+            v-if="m.role === 'member'"
+            @click="setRole(m.user_id, 'owner')"
+          >
             {{ $t('tenancy.members.promote') }}
           </button>
-          <button v-else @click="setRole(m.user_id, 'member')">
+          <button
+            v-else
+            @click="setRole(m.user_id, 'member')"
+          >
             {{ $t('tenancy.members.demote') }}
           </button>
-          <button @click="remove(m.user_id)">{{ $t('tenancy.members.remove') }}</button>
+          <button @click="remove(m.user_id)">
+            {{ $t('tenancy.members.remove') }}
+          </button>
         </template>
       </li>
     </ul>

@@ -1,0 +1,8 @@
+{
+  "app": {
+    "title": "SMAP",
+    "landingMessage": "歡迎使用 SMAP。",
+    "notFound": "找不到頁面。",
+    "backToHome": "返回首頁"
+  }
+}

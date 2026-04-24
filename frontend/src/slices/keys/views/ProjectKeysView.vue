@@ -28,20 +28,34 @@ watch(projectId, async () => {
 <template>
   <main class="project-keys-view">
     <h1>{{ $t('keys.project.title') }}</h1>
-    <p v-if="error" class="error">{{ error }}</p>
+    <p
+      v-if="error"
+      class="error"
+    >
+      {{ error }}
+    </p>
 
     <section>
       <h2>{{ $t('keys.project.carried') }}</h2>
       <ul data-testid="carried-list">
-        <li v-for="k in carried" :key="k.id">
+        <li
+          v-for="k in carried"
+          :key="k.id"
+        >
           <CapabilityChip :provider="k.provider" />
           {{ k.name }}
           <code>{{ k.masked_preview }}</code>
-          <button @click="withdraw(k.id)" data-testid="withdraw">
+          <button
+            data-testid="withdraw"
+            @click="withdraw(k.id)"
+          >
             {{ $t('keys.project.withdraw') }}
           </button>
         </li>
-        <li v-if="carried.length === 0" class="empty">
+        <li
+          v-if="carried.length === 0"
+          class="empty"
+        >
           {{ $t('keys.project.noneCarried') }}
         </li>
       </ul>
@@ -50,14 +64,23 @@ watch(projectId, async () => {
     <section>
       <h2>{{ $t('keys.project.carryNew') }}</h2>
       <ul data-testid="carriable-list">
-        <li v-for="k in carriable" :key="k.id">
+        <li
+          v-for="k in carriable"
+          :key="k.id"
+        >
           <CapabilityChip :provider="k.provider" />
           {{ k.name }}
-          <button @click="carry(k.id)" data-testid="carry">
+          <button
+            data-testid="carry"
+            @click="carry(k.id)"
+          >
             {{ $t('keys.project.carry') }}
           </button>
         </li>
-        <li v-if="carriable.length === 0" class="empty">
+        <li
+          v-if="carriable.length === 0"
+          class="empty"
+        >
           {{ $t('keys.project.noneCarriable') }}
         </li>
       </ul>

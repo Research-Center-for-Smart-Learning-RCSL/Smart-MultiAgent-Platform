@@ -1,28 +1,47 @@
 <template>
-  <section class="chatroom-settings" v-if="room">
+  <section
+    v-if="room"
+    class="chatroom-settings"
+  >
     <h1>{{ $t('conversation.settings.title') }}</h1>
     <form @submit.prevent="onSave">
       <label>
         {{ $t('conversation.settings.name') }}
-        <input v-model="name" required maxlength="80" />
+        <input
+          v-model="name"
+          required
+          maxlength="80"
+        >
       </label>
       <fieldset>
         <legend>{{ $t('conversation.settings.access') }}</legend>
         <label>
-          <input type="checkbox" v-model="flags.allow_org_members" />
-          allow_org_members
+          <input
+            v-model="flags.allow_org_members"
+            type="checkbox"
+          >
+          {{ $t('conversation.settings.allowOrgMembers') }}
         </label>
         <label>
-          <input type="checkbox" v-model="flags.allow_project_members" />
-          allow_project_members
+          <input
+            v-model="flags.allow_project_members"
+            type="checkbox"
+          >
+          {{ $t('conversation.settings.allowProjectMembers') }}
         </label>
         <label>
-          <input type="checkbox" v-model="flags.allow_project_owners_only" />
-          allow_project_owners_only
+          <input
+            v-model="flags.allow_project_owners_only"
+            type="checkbox"
+          >
+          {{ $t('conversation.settings.allowProjectOwnersOnly') }}
         </label>
         <label>
-          <input type="checkbox" v-model="flags.allow_guest_links" />
-          allow_guest_links
+          <input
+            v-model="flags.allow_guest_links"
+            type="checkbox"
+          >
+          {{ $t('conversation.settings.allowGuestLinks') }}
         </label>
         <!--
           UI-side auto-correct per R13.04: `allow_project_owners_only`
@@ -32,11 +51,24 @@
       </fieldset>
       <section v-if="flags.allow_guest_links">
         <p>{{ $t('conversation.settings.guestLinkLabel') }}</p>
-        <input readonly :value="guestUrl" />
-        <button type="button" @click="copyGuest">copy</button>
+        <input
+          readonly
+          :value="guestUrl"
+        >
+        <button
+          type="button"
+          @click="copyGuest"
+        >
+          {{ $t('conversation.settings.copy') }}
+        </button>
       </section>
-      <button type="submit">{{ $t('conversation.settings.save') }}</button>
-      <button type="button" @click="onDelete">
+      <button type="submit">
+        {{ $t('conversation.settings.save') }}
+      </button>
+      <button
+        type="button"
+        @click="onDelete"
+      >
         {{ $t('conversation.settings.delete') }}
       </button>
     </form>
@@ -44,10 +76,21 @@
     <!-- Agent binding panel — wake-up config editor + DLQ viewer (G.10).
          Agents are bound via Phase H workspace_agents; this panel renders
          once binding data is available. Until then it stays hidden. -->
-    <section v-if="boundAgents.length" class="agent-bindings mt-4">
-      <h2 class="font-semibold mb-2">{{ $t('conversation.settings.agentBindings') }}</h2>
-      <div v-for="agent in boundAgents" :key="agent.id" class="mb-4">
-        <p class="font-medium text-sm mb-1">{{ agent.name ?? agent.id.slice(0, 8) }}</p>
+    <section
+      v-if="boundAgents.length"
+      class="agent-bindings mt-4"
+    >
+      <h2 class="font-semibold mb-2">
+        {{ $t('conversation.settings.agentBindings') }}
+      </h2>
+      <div
+        v-for="agent in boundAgents"
+        :key="agent.id"
+        class="mb-4"
+      >
+        <p class="font-medium text-sm mb-1">
+          {{ agent.name ?? agent.id.slice(0, 8) }}
+        </p>
         <WakeupConfigEditor
           v-if="agent.wakeup_config"
           :model-value="agent.wakeup_config"
@@ -66,11 +109,13 @@ import { reactive, ref, watchEffect } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 import { ElMessage } from 'element-plus'
+import { useI18n } from 'vue-i18n'
 import { deleteChatroom, getGuestLink, listChatrooms, patchChatroom } from '../api'
 import { convKeys } from '../queries'
 import { DlqViewer, WakeupConfigEditor, patchAgentWakeupConfig } from '@slices/workflow'
 import type { WakeupConfig } from '@slices/workflow'
 
+const { t } = useI18n()
 const route = useRoute()
 const router = useRouter()
 const qc = useQueryClient()
@@ -97,9 +142,9 @@ const boundAgents = ref<BoundAgent[]>([])
 async function saveWakeupConfig(agentId: string, config: WakeupConfig): Promise<void> {
   try {
     await patchAgentWakeupConfig(agentId, config)
-    ElMessage.success('Wakeup config saved.')
+    ElMessage.success(t('conversation.settings.wakeupConfigSaved'))
   } catch {
-    ElMessage.error('Failed to save wakeup config.')
+    ElMessage.error(t('conversation.settings.wakeupConfigFailed'))
   }
 }
 

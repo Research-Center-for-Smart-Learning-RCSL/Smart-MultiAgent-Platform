@@ -27,12 +27,22 @@ onMounted(load)
     <h1>{{ $t('tenancy.orgs.listTitle') }}</h1>
     <form @submit.prevent="create">
       <label>{{ $t('tenancy.orgs.createLabel') }}</label>
-      <input v-model="name" :placeholder="$t('tenancy.orgs.namePlaceholder')" />
-      <button type="submit">{{ $t('tenancy.orgs.create') }}</button>
+      <input
+        v-model="name"
+        :placeholder="$t('tenancy.orgs.namePlaceholder')"
+      >
+      <button type="submit">
+        {{ $t('tenancy.orgs.create') }}
+      </button>
     </form>
-    <p v-if="loading">…</p>
+    <p v-if="loading">
+      …
+    </p>
     <ul v-else>
-      <li v-for="o in orgs" :key="o.id">
+      <li
+        v-for="o in orgs"
+        :key="o.id"
+      >
         <router-link :to="{ name: 'tenancy.orgDetail', params: { id: o.id } }">
           {{ o.name }}
         </router-link>

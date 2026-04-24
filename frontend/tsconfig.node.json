@@ -7,5 +7,5 @@
     "strict": true,
     "types": ["node"]
   },
-  "include": ["vite.config.ts", ".eslintrc.cjs"]
+  "include": ["vite.config.ts", "eslint.config.js", "playwright.config.ts"]
 }
