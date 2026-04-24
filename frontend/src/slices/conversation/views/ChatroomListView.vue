@@ -14,7 +14,7 @@
         </button>
       </form>
     </header>
-    <ul v-if="query.data.value">
+    <ul v-if="query.data.value?.length">
       <li
         v-for="room in query.data.value"
         :key="room.id"
@@ -26,11 +26,15 @@
         </router-link>
         <router-link
           :to="{ name: 'conversation.chatroom.settings', params: { chatroomId: room.id } }"
+          :aria-label="$t('conversation.chatrooms.settingsLabel')"
         >
           ⚙
         </router-link>
       </li>
     </ul>
+    <p v-else-if="query.data.value">
+      {{ $t('conversation.chatrooms.empty') }}
+    </p>
   </section>
 </template>
 

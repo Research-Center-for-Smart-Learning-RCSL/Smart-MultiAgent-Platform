@@ -156,4 +156,36 @@ async def check(
     )
 
 
-__all__ = ["Bucket", "Decision", "Policy", "Scope", "check", "default_policies"]
+async def check_raw(*, key: str, window_sec: int, max_count: int) -> Decision:
+    """Rate-check against an arbitrary Redis key with an inline fixed policy.
+
+    Bypasses the Postgres-mirrored config lookup; intended for application-layer
+    rate limits (e.g., per-email password-reset) that sit outside the four global
+    middleware buckets.
+    """
+    r: Redis = get_redis()
+    now_ms = int(time.time() * 1000)
+    window_ms = window_sec * 1000
+    try:
+        raw = await r.eval(
+            _SCRIPT, 1, key,
+            str(now_ms), str(window_ms), str(max_count),
+        )
+    except Exception:
+        REDIS_COMMAND_ERRORS.labels(command="eval").inc()
+        raise
+    allowed = bool(int(raw[0]))
+    count = int(raw[1])
+    reset_ms = int(raw[2])
+    remaining = max(0, max_count - count)
+    retry_after = 0 if allowed else max(1, (reset_ms - now_ms) // 1000 + 1)
+    return Decision(
+        allowed=allowed,
+        remaining=remaining,
+        limit=max_count,
+        reset_ms=reset_ms,
+        retry_after_seconds=retry_after,
+    )
+
+
+__all__ = ["Bucket", "Decision", "Policy", "Scope", "check", "check_raw", "default_policies"]

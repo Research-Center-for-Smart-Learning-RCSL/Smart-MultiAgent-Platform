@@ -18,8 +18,6 @@ import { i18n } from '@shared/i18n'
 import type { ProblemJson } from './problem-json'
 import { parseProblem } from './problem-json'
 
-const REFRESH_STORAGE_KEY = 'smap:refresh_token'
-
 let accessToken: string | null = null
 let onUnauthorized: (() => void) | null = null
 let refreshInFlight: Promise<boolean> | null = null
@@ -32,13 +30,12 @@ export function getAccessToken(): string | null {
   return accessToken
 }
 
-export function setRefreshToken(token: string | null): void {
-  if (token) sessionStorage.setItem(REFRESH_STORAGE_KEY, token)
-  else sessionStorage.removeItem(REFRESH_STORAGE_KEY)
-}
+// Refresh token is managed exclusively via the httpOnly `smap_refresh` cookie
+// set by the server. These stubs exist so callers need no changes.
+export function setRefreshToken(_token: string | null): void {}
 
 export function getRefreshToken(): string | null {
-  return sessionStorage.getItem(REFRESH_STORAGE_KEY)
+  return null
 }
 
 export function onUnauthorizedRedirect(cb: () => void): void {
@@ -128,21 +125,15 @@ http.interceptors.response.use(
 
 async function attemptRefresh(): Promise<boolean> {
   if (refreshInFlight) return refreshInFlight
-  const refresh = getRefreshToken()
-  if (!refresh) return false
 
   refreshInFlight = (async () => {
     try {
-      const res = await axios.post<{
-        access_token: string
-        refresh_token: string
-      }>('/api/auth/refresh', { refresh_token: refresh })
+      // No token in body — the browser sends the httpOnly smap_refresh cookie automatically.
+      const res = await axios.post<{ access_token: string }>('/api/auth/refresh', {})
       setAccessToken(res.data.access_token)
-      setRefreshToken(res.data.refresh_token)
       return true
     } catch {
       setAccessToken(null)
-      setRefreshToken(null)
       return false
     } finally {
       refreshInFlight = null

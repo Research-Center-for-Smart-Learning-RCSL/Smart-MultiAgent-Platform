@@ -8,7 +8,11 @@
       "originalCreator": "原始建立者",
       "delete": "刪除",
       "members": "成員",
-      "transferOwnership": "轉移原始建立者"
+      "transferOwnership": "轉移原始建立者",
+      "loading": "載入中…",
+      "deleteConfirmTitle": "刪除組織",
+      "deleteConfirm": "刪除此組織及其所有專案？此操作無法復原。",
+      "empty": "尚無組織。"
     },
     "projects": {
       "listTitle": "專案",
@@ -19,7 +23,11 @@
       "user": "個人",
       "org": "組織",
       "members": "成員",
-      "ownerIdPlaceholder": "擁有者 ID（UUID）"
+      "ownerIdPlaceholder": "擁有者 ID（UUID）",
+      "loading": "載入中…",
+      "deleteConfirmTitle": "刪除專案",
+      "deleteConfirm": "刪除此專案？此操作無法復原。",
+      "empty": "尚無專案。"
     },
     "members": {
       "title": "成員",
@@ -30,7 +38,11 @@
       "roleOwner": "擁有者",
       "remove": "移除",
       "promote": "升為擁有者",
-      "demote": "降為成員"
+      "demote": "降為成員",
+      "removeConfirmTitle": "移除成員",
+      "removeConfirm": "移除此成員？",
+      "inviteError": "邀請發送失敗。",
+      "roleError": "角色更新失敗。"
     },
     "invites": {
       "inboxTitle": "邀請",

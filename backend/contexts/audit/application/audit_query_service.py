@@ -5,6 +5,7 @@ from __future__ import annotations
 import csv
 import io
 
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.audit.domain.models import AuditFilter, AuditPage
@@ -33,6 +34,13 @@ class AuditQueryService:
             "resource_type", "resource_id", "metadata",
             "session_id", "request_id", "created_at",
         ])
+        # REPEATABLE READ snapshot — must be the first statement in the transaction.
+        # PostgreSQL rejects this if prior queries have already run in the same
+        # transaction (error: "must be called before any query"), so this endpoint
+        # must not share a session that was already used for e.g. auth lookups.
+        # The export route satisfies this: JWT auth is stateless and no other
+        # DB operation precedes this call in the request handler.
+        await self._db.execute(text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ"))
         cursor: int | None = None
         while True:
             page = await self._repo.query(filters, cursor=cursor, limit=500)

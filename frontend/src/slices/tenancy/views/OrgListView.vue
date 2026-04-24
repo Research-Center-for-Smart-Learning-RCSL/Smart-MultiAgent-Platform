@@ -38,7 +38,7 @@ onMounted(load)
     <p v-if="loading">
       …
     </p>
-    <ul v-else>
+    <ul v-else-if="orgs.length">
       <li
         v-for="o in orgs"
         :key="o.id"
@@ -48,5 +48,8 @@ onMounted(load)
         </router-link>
       </li>
     </ul>
+    <p v-else>
+      {{ $t('tenancy.orgs.empty') }}
+    </p>
   </main>
 </template>

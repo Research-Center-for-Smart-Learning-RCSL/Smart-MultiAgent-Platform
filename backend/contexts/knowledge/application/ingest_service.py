@@ -6,7 +6,7 @@ Steps:
   3. Persist bytes to MinIO bucket `rag-sources` under
      ``{project_id}/{config_id}/{sha256}.{ext}``.
   4. Insert `rag_documents` with ``status='ingesting'``.
-  5. Parse → chunk → embed → upsert Qdrant → insert `rag_chunks`.
+  5. Parse → chunk → embed → insert `rag_chunks` → upsert Qdrant.
   6. Flip `rag_documents.status` to `ready` on success.
 
 Failure semantics:
@@ -166,6 +166,21 @@ class IngestService:
                     cfg.project_id, vector_size=self._embedder.vector_size,
                 )
                 point_ids: list[uuid.UUID] = [uuid.uuid4() for _ in pieces]
+                # Insert DB rows before upserting Qdrant vectors: if insert_many
+                # fails the transaction rolls back cleanly before Qdrant is touched.
+                # If upsert_chunks fails after a successful insert_many, the
+                # transaction rolls back the DB rows so no orphaned records remain.
+                await self._chunks.insert_many(
+                    [
+                        {
+                            "document_id": doc.id,
+                            "chunk_idx": idx,
+                            "text": pieces[idx],
+                            "qdrant_point_id": point_ids[idx],
+                        }
+                        for idx in range(len(pieces))
+                    ]
+                )
                 await self._qdrant.upsert_chunks(
                     project_id=cfg.project_id,
                     points=[
@@ -180,17 +195,6 @@ class IngestService:
                         )
                         for idx, (pid, vec) in enumerate(zip(point_ids, vectors))
                     ],
-                )
-                await self._chunks.insert_many(
-                    [
-                        {
-                            "document_id": doc.id,
-                            "chunk_idx": idx,
-                            "text": pieces[idx],
-                            "qdrant_point_id": point_ids[idx],
-                        }
-                        for idx in range(len(pieces))
-                    ]
                 )
             await self._docs.set_status(
                 document_id=doc.id, status=DocumentStatus.READY,
@@ -208,9 +212,12 @@ class IngestService:
                 ),
             )
         except Exception as exc:  # noqa: BLE001 — any failure → mark + surface
-            await self._docs.set_status(
-                document_id=doc.id, status=DocumentStatus.FAILED,
-            )
+            try:
+                await self._docs.set_status(
+                    document_id=doc.id, status=DocumentStatus.FAILED,
+                )
+            except Exception:
+                pass  # best-effort; if this fails the transaction rolls back anyway
             raise IngestFailed(f"{type(exc).__name__}: {exc}") from exc
 
         # Re-read to return the committed status.

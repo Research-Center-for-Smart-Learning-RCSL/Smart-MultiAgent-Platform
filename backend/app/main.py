@@ -103,14 +103,15 @@ def create_app() -> FastAPI:
         openapi_url="/api/openapi.json" if settings.app.docs_enabled else None,
     )
 
-    # Middleware is executed in LIFO for requests: the LAST `add_middleware`
-    # runs *first* on the way in. Add them in REVERSE of the desired order.
-    app.add_middleware(SecurityHeadersMiddleware)
-    app.add_middleware(RateLimitMiddleware)
-    app.add_middleware(AuthMiddleware)
-    app.add_middleware(IpBanMiddleware)
-    app.add_middleware(TrustedProxyMiddleware)
-    app.add_middleware(RequestIdMiddleware)
+    # Starlette executes middleware in LIFO order (last added → first executed on
+    # the way *in*). To match the numbered sequence in the module docstring above
+    # (step 1 = RequestId runs first), add them here in reverse (step 6 → step 1).
+    app.add_middleware(SecurityHeadersMiddleware)   # [6] last on request-in
+    app.add_middleware(RateLimitMiddleware)         # [5]
+    app.add_middleware(AuthMiddleware)              # [4]
+    app.add_middleware(IpBanMiddleware)             # [3]
+    app.add_middleware(TrustedProxyMiddleware)      # [2]
+    app.add_middleware(RequestIdMiddleware)         # [1] first on request-in
 
     register_exception_handlers(app)
     # Per-context domain → HTTP mapping. Each context owns its own slugs.

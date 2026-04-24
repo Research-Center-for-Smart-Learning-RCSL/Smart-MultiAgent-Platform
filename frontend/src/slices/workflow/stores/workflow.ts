@@ -91,6 +91,17 @@ export const useWorkflowStore = defineStore('workflow', () => {
     runEvents.value = []
   }
 
+  function clearAll(): void {
+    clearRunState()
+    dirty.value = false
+    currentVersion.value = 0
+    lintErrors.value = []
+    lintWarnings.value = []
+    selectedNodeId.value = null
+    undoStack.value = []
+    redoStack.value = []
+  }
+
   return {
     dirty,
     currentVersion,
@@ -112,5 +123,6 @@ export const useWorkflowStore = defineStore('workflow', () => {
     popRedo,
     applyRunEvent,
     clearRunState,
+    clearAll,
   }
 })

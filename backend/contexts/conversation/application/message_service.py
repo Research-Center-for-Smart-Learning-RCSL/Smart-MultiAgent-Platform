@@ -157,7 +157,7 @@ class MessageService:
                 },
             )
         except Exception:
-            _log.warning("realtime publish failed for message.created %s", msg.id, exc_info=True)
+            _log.error("realtime publish failed for message.created %s", msg.id, exc_info=True)
         return msg
 
     async def edit(
@@ -225,7 +225,7 @@ class MessageService:
                 },
             )
         except Exception:
-            _log.warning("realtime publish failed for message.updated %s", message_id, exc_info=True)
+            _log.error("realtime publish failed for message.updated %s", message_id, exc_info=True)
         if moderator_path and authority.actor_user_id != existing.sender_id:
             # R13.23 — moderator-on-other-user edit gets its own audit slug.
             await audit.emit(
@@ -302,7 +302,7 @@ class MessageService:
                 "message.deleted", {"message_id": str(message_id)},
             )
         except Exception:
-            _log.warning("realtime publish failed for message.deleted %s", message_id, exc_info=True)
+            _log.error("realtime publish failed for message.deleted %s", message_id, exc_info=True)
 
 
 __all__ = ["EditAuthority", "MessageService", "SELF_EDIT_WINDOW"]

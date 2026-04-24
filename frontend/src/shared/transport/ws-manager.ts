@@ -29,6 +29,7 @@ export class Channel {
   private refreshTimer: ReturnType<typeof setTimeout> | null = null
   private backoff = INITIAL_BACKOFF_MS
   private closed = false
+  private paused = false
 
   constructor(private readonly path: string) {}
 
@@ -54,7 +55,14 @@ export class Channel {
   }
 
   connect(): void {
+    this.paused = false
     if (this.closed) return
+    if (
+      this.socket &&
+      (this.socket.readyState === WebSocket.CONNECTING ||
+        this.socket.readyState === WebSocket.OPEN)
+    )
+      return
     const token = getAccessToken()
     if (!token) {
       this.scheduleReconnect()
@@ -89,12 +97,24 @@ export class Channel {
     this.socket.onclose = () => {
       this.emitStatus(false)
       this.clearRefreshTimer()
-      if (!this.closed) this.scheduleReconnect()
+      if (!this.closed && !this.paused) this.scheduleReconnect()
     }
 
     this.socket.onerror = () => {
       // onclose fires immediately after
     }
+  }
+
+  // Soft-disconnect: closes the socket but keeps handlers and does not mark
+  // the channel closed, so connect() can be called again (used by KeepAlive).
+  disconnect(): void {
+    this.paused = true
+    this.clearReconnectTimer()
+    this.clearRefreshTimer()
+    if (this.socket && this.socket.readyState <= WebSocket.OPEN) {
+      this.socket.close(1000, 'channel deactivated')
+    }
+    this.socket = null
   }
 
   close(): void {
@@ -139,12 +159,19 @@ export class Channel {
 
   private scheduleTokenRefresh(): void {
     this.clearRefreshTimer()
+    if (this.closed || this.paused) return
     this.refreshTimer = setTimeout(() => {
+      this.refreshTimer = null
+      if (this.closed || this.paused) return
       const token = getAccessToken()
       if (token && this.socket?.readyState === WebSocket.OPEN) {
-        this.socket.send(
-          JSON.stringify({ type: 'refresh', access_token: token }),
-        )
+        try {
+          this.socket.send(JSON.stringify({ type: 'refresh', access_token: token }))
+        } catch {
+          // Socket became unwritable; let reconnect re-authenticate.
+          this.scheduleReconnect()
+          return
+        }
       }
       this.scheduleTokenRefresh()
     }, REFRESH_MARGIN_MS)
@@ -158,12 +185,17 @@ export class Channel {
   }
 }
 
+const MAX_CHANNELS = 20
+
 class WsManager {
   private channels = new Map<string, Channel>()
 
   channel(path: string): Channel {
     let ch = this.channels.get(path)
     if (!ch) {
+      if (this.channels.size >= MAX_CHANNELS) {
+        console.warn(`[WsManager] ${this.channels.size} open channels — possible leak. Check that all channels are closed on unmount.`)
+      }
       ch = new Channel(path)
       this.channels.set(path, ch)
     }

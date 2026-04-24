@@ -16,6 +16,7 @@ slugs remain identical regardless of how the bytes arrived.
 
 from __future__ import annotations
 
+import logging
 import uuid
 from dataclasses import dataclass
 from datetime import timedelta
@@ -43,6 +44,8 @@ from shared_kernel.storage import (
     chat_upload_key,
     get_minio_client,
 )
+
+_log = logging.getLogger(__name__)
 
 SINGLE_SHOT_MAX_BYTES = 32 * 1024 * 1024     # R22.15 switch-to-tus threshold
 TUS_MAX_BYTES = 1024 * 1024 * 1024            # 1 GiB (R22.15.02)
@@ -282,9 +285,13 @@ async def _enqueue_scan(*, attachment_id: uuid.UUID) -> None:
         finally:
             await pool.close()
     except Exception:  # pragma: no cover — best-effort
-        # We deliberately swallow: the worker may be down, and the upload
-        # must not fail because of it. Operators can rescan via a CLI later.
-        return
+        # The upload must not fail because of this, but we must alert so operators
+        # know the file will not be scanned until a manual rescan is triggered.
+        _log.warning(
+            "scan enqueue failed for attachment %s; file will not be scanned automatically",
+            attachment_id,
+            exc_info=True,
+        )
 
 
 __all__ = [

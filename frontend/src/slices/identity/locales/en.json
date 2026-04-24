@@ -6,6 +6,7 @@
       "password": "Password",
       "submit": "Register",
       "captcha": "Complete CAPTCHA",
+      "captchaPlaceholder": "Paste CAPTCHA token here",
       "loginLink": "Already have an account? Log in"
     },
     "login": {
@@ -44,10 +45,17 @@
     "sessions": {
       "title": "Active sessions",
       "currentBadge": "(this device)",
-      "revoke": "Revoke"
+      "revoke": "Revoke",
+      "revokeError": "Failed to revoke session."
     },
     "errors": {
-      "generic": "Something went wrong. Please try again."
+      "generic": "Something went wrong. Please try again.",
+      "invalid": "Invalid email or password.",
+      "lockout": "Account is temporarily locked. Please try again later.",
+      "unverified": "Please verify your email before logging in.",
+      "captcha": "Please complete the CAPTCHA.",
+      "weakPassword": "Password does not meet the minimum security requirements.",
+      "domain": "Registration from this email domain is not allowed."
     }
   }
 }

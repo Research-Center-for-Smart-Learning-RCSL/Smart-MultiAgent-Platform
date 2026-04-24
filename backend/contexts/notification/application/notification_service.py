@@ -30,6 +30,9 @@ class NotificationService:
         body: str | None = None,
         metadata: dict | None = None,
     ) -> Notification:
+        existing = await self._repo.find_recent(user_id=user_id, kind=kind, title=title)
+        if existing:
+            return existing
         notif = await self._repo.insert(
             user_id=user_id, kind=kind, title=title, body=body, metadata=metadata,
         )

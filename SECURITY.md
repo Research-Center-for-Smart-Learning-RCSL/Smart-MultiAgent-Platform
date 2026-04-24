@@ -54,8 +54,8 @@ SMAP is a self-hosted product. Security fixes are delivered as commits on `main`
 
 ### JWT tokens (RS256)
 
-- **Access tokens** — RS256-signed, 15-minute TTL (configurable via `SMAP_JWT_ACCESS_TTL_SECONDS`).
-- **Refresh tokens** — 30-day rotating tokens; each use issues a new token and invalidates the old one.
+- **Access tokens** — RS256-signed, 15-minute TTL (configurable via `SMAP_JWT_ACCESS_TTL_SECONDS`). Stored in JavaScript memory only (never `localStorage` or `sessionStorage`), so they are not reachable by persistent XSS. A tab-level XSS can use an in-memory token for up to 15 minutes, but cannot obtain the refresh token (stored in an `HttpOnly` cookie unreachable by script).
+- **Refresh tokens** — 30-day rotating tokens stored in an `HttpOnly; Secure; SameSite` cookie. Each use issues a new token and invalidates the old one. The browser sends the cookie automatically on same-origin requests; JavaScript cannot read it.
 - **Signing key** — Stored in HashiCorp Vault Transit engine. The private key never touches the filesystem or application memory beyond a single signing operation.
 - **JTI denylist** — Every token carries a unique `jti`. On logout, password change, or user ban, the `jti` is added to a Redis denylist with a TTL equal to the remaining token lifetime. Every request checks this list.
 
@@ -266,6 +266,7 @@ Audit records are append-only from the application's perspective. Retention poli
 Before going to production, verify:
 
 - [ ] `SMAP_VAULT_DEV_TOKEN` is **not set**; AppRole credentials are configured instead.
+- [ ] PostgreSQL password is changed from the compose default (`smap`); update `SMAP_DB_DSN` accordingly.
 - [ ] `SMAP_NEO4J_PASSWORD` is changed from the default (`neo4jneo4j`).
 - [ ] Redis is running with `requirepass` authentication.
 - [ ] Qdrant is behind the internal Docker network or configured with TLS + API key (`SMAP_QDRANT_API_KEY`).
@@ -288,7 +289,6 @@ Before going to production, verify:
 | Multi-factor authentication (MFA/TOTP) | Not in v1 scope |
 | SSO / SAML / OIDC | Not in v1 scope |
 | Guest link revocation without room deletion | Not supported; mitigate by deleting the room or banning the guest user |
-| CSP `unsafe-inline` for styles | Present; tightening requires nonce injection refactor |
 | CSP `wasm-unsafe-eval` | Required for WASM dependencies; not removable without changing dependencies |
 | Cross-origin (multi-domain) deployments | Not supported in v1 |
 | MFA on admin operations | Not in v1 scope |

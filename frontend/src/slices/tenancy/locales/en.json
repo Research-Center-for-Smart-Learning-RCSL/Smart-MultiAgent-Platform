@@ -8,7 +8,11 @@
       "originalCreator": "Original Creator",
       "delete": "Delete",
       "members": "Members",
-      "transferOwnership": "Transfer original-creator"
+      "transferOwnership": "Transfer original-creator",
+      "loading": "Loading…",
+      "deleteConfirmTitle": "Delete Organisation",
+      "deleteConfirm": "Delete this organisation and all its projects? This cannot be undone.",
+      "empty": "No organisations yet."
     },
     "projects": {
       "listTitle": "Projects",
@@ -19,7 +23,11 @@
       "user": "Personal",
       "org": "Organisation",
       "members": "Members",
-      "ownerIdPlaceholder": "Owner ID (UUID)"
+      "ownerIdPlaceholder": "Owner ID (UUID)",
+      "loading": "Loading…",
+      "deleteConfirmTitle": "Delete Project",
+      "deleteConfirm": "Delete this project? This cannot be undone.",
+      "empty": "No projects yet."
     },
     "members": {
       "title": "Members",
@@ -30,7 +38,11 @@
       "roleOwner": "Owner",
       "remove": "Remove",
       "promote": "Promote to owner",
-      "demote": "Demote to member"
+      "demote": "Demote to member",
+      "removeConfirmTitle": "Remove Member",
+      "removeConfirm": "Remove this member?",
+      "inviteError": "Failed to send invite.",
+      "roleError": "Failed to update role."
     },
     "invites": {
       "inboxTitle": "Invitations",

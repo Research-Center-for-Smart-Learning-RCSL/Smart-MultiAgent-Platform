@@ -1,14 +1,30 @@
 <script setup lang="ts">
 import { onMounted } from 'vue'
+import { useI18n } from 'vue-i18n'
+import { ElMessageBox } from 'element-plus'
 import { useMyKeys } from '../composables/useMyKeys'
 import KeyUploadForm from '../components/KeyUploadForm.vue'
 import CapabilityChip from '../components/CapabilityChip.vue'
 import type { ApiKeyProvider } from '../api/keys'
 
+const { t } = useI18n()
 const { keys, loading, error, reload, upload, retest, remove } = useMyKeys()
 
 async function onUpload(p: { provider: ApiKeyProvider; name: string; secret: string }) {
   await upload(p.provider, p.name, p.secret)
+}
+
+async function onRemove(id: string): Promise<void> {
+  try {
+    await ElMessageBox.confirm(
+      t('keys.list.deleteConfirm'),
+      t('keys.list.deleteConfirmTitle'),
+      { confirmButtonText: t('keys.list.delete'), cancelButtonText: t('app.cancel'), type: 'warning' },
+    )
+  } catch {
+    return
+  }
+  await remove(id)
 }
 
 onMounted(reload)
@@ -67,7 +83,7 @@ onMounted(reload)
             </button>
             <button
               data-testid="delete"
-              @click="remove(k.id)"
+              @click="onRemove(k.id)"
             >
               {{ $t('keys.list.delete') }}
             </button>

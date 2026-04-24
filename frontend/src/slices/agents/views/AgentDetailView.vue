@@ -6,7 +6,7 @@ import { useForm } from 'vee-validate'
 import { toTypedSchema } from '@vee-validate/zod'
 import { watch } from 'vue'
 
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { FormField } from '@shared/ui'
 import { useServerErrors } from '@shared/composables'
 import { agentsApi } from '../api'
@@ -86,6 +86,19 @@ const deleteMutation = useMutation({
   },
   onError: () => ElMessage.error(t('agents.detail.deleteFailed')),
 })
+
+async function onDelete(): Promise<void> {
+  try {
+    await ElMessageBox.confirm(
+      t('agents.detail.deleteConfirm'),
+      t('agents.detail.deleteConfirmTitle'),
+      { confirmButtonText: t('agents.detail.delete'), cancelButtonText: t('app.cancel'), type: 'warning' },
+    )
+  } catch {
+    return
+  }
+  deleteMutation.mutate()
+}
 
 const onSubmit = handleSubmit((values) => {
   patchMutation.mutate(values)
@@ -211,7 +224,7 @@ const onSubmit = handleSubmit((values) => {
           type="button"
           class="btn btn-danger"
           :disabled="deleteMutation.isPending.value"
-          @click="deleteMutation.mutate()"
+          @click="onDelete()"
         >
           {{ t('agents.detail.delete') }}
         </button>

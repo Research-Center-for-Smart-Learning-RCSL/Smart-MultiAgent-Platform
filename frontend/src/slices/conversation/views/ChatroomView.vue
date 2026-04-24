@@ -279,7 +279,12 @@ async function runExport(): Promise<void> {
 }
 
 async function runEnhance(): Promise<void> {
-  if (listRef.value) await enhanceRenderedMarkdown(listRef.value)
+  if (!listRef.value) return
+  try {
+    await enhanceRenderedMarkdown(listRef.value)
+  } catch {
+    // Best-effort; rendering errors must not crash the chatroom.
+  }
 }
 
 onMounted(runEnhance)

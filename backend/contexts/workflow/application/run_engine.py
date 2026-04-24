@@ -10,7 +10,7 @@ Key responsibilities:
 - Apply on-error strategy (fail/continue/retry/fallback).
 - Record workflow_steps.
 - Honour run_max_seconds, idle_max_seconds, loop_guard.
-- Parallel fan-out: enqueue one task per outgoing edge.
+- Parallel fan-out: enqueue one Arq task per outgoing edge (W1).
 - Publish step events to WebSocket channel.
 """
 
@@ -20,7 +20,7 @@ import logging
 import time
 import uuid
 from collections import defaultdict
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -47,6 +47,11 @@ from contexts.workflow.infrastructure.repositories import (
     WorkflowStepRepository,
 )
 from shared_kernel import audit
+from shared_kernel.observability.metrics import (
+    WORKFLOW_RUNS_TOTAL,
+    WORKFLOW_STEP_DURATION_SECONDS,
+    WORKFLOW_STEPS_TOTAL,
+)
 from shared_kernel.realtime.pubsub import Publisher, workflow_channel
 
 logger = logging.getLogger(__name__)
@@ -99,12 +104,19 @@ def _build_outgoing(edges: list[EdgeSpec]) -> dict[str, list[EdgeSpec]]:
 # Engine
 # ---------------------------------------------------------------------------
 
+# Each entry: (arq_task_name, run_id_str, node_id, delay_ms)
+_PendingEnqueue = tuple[str, str, str, int]
+
 
 class RunEngine:
     def __init__(self, db: AsyncSession) -> None:
         self._db = db
         self._runs = WorkflowRunRepository(db)
         self._steps = WorkflowStepRepository(db)
+        # W1/W3/W6/W10: collected during execution, dispatched after commit.
+        self._pending_enqueues: list[_PendingEnqueue] = []
+
+    # -- public API --
 
     async def start_run(
         self,
@@ -153,9 +165,24 @@ class RunEngine:
         )
 
         entry_node_id = definition.get("entry_node_id", "")
-        await self._execute_node(ctx, entry_node_id)
-        await self._db.commit()
+        # W11: catch unexpected exceptions so we can mark the run FAILED instead of
+        # leaving it in a limbo state.
+        try:
+            await self._execute_node(ctx, entry_node_id)
+            await self._db.commit()
+        except Exception as exc:
+            logger.exception("run %s failed unexpectedly during start: %s", run.id, exc)
+            try:
+                await self._db.rollback()
+                if not ctx.cancelled:
+                    now = datetime.now(timezone.utc)
+                    await self._runs.update_state(run.id, state=RunState.FAILED, ended_at=now)
+                    await self._db.commit()
+            except Exception:
+                logger.exception("could not persist FAILED state for run %s", run.id)
+            raise
 
+        await self._dispatch_enqueues()
         return run.id
 
     async def resume_step(
@@ -172,6 +199,20 @@ class RunEngine:
         wf_repo = WorkflowRepository(self._db)
         workflow = await wf_repo.get(run.workflow_id)
         if not workflow:
+            # W8: log and fail the run instead of silently returning.
+            logger.warning(
+                "run %s cannot resume: workflow %s has been deleted",
+                run_id, run.workflow_id,
+            )
+            now = datetime.now(timezone.utc)
+            await self._runs.update_state(run_id, state=RunState.FAILED, ended_at=now)
+            await audit.emit(self._db, audit.AuditEvent(
+                action="workflow.run_finished",
+                resource_type="workflow_run",
+                resource_id=run_id,
+                metadata={"final_state": "failed", "reason": "workflow deleted"},
+            ))
+            await self._db.commit()
             return
 
         ctx = RunContext(
@@ -182,8 +223,112 @@ class RunEngine:
             trigger_payload=run.context.get("trigger_payload", {}),
         )
 
-        await self._advance_from(ctx, node_id)
-        await self._db.commit()
+        # W11: catch unexpected exceptions to prevent the run from being stuck WAITING.
+        try:
+            await self._advance_from(ctx, node_id)
+            await self._db.commit()
+        except Exception as exc:
+            logger.exception(
+                "run %s failed unexpectedly while resuming at node %s: %s",
+                run_id, node_id, exc,
+            )
+            try:
+                await self._db.rollback()
+                if not ctx.cancelled:
+                    now = datetime.now(timezone.utc)
+                    await self._runs.update_state(run_id, state=RunState.FAILED, ended_at=now)
+                    await self._db.commit()
+            except Exception:
+                logger.exception("could not persist FAILED state for run %s", run_id)
+            raise
+
+        await self._dispatch_enqueues()
+
+    async def retry_node(self, run_id: uuid.UUID, node_id: str) -> None:
+        """Re-execute a failed node as part of the retry strategy (W3)."""
+        import sqlalchemy as sa
+        from contexts.workflow.infrastructure.tables import workflow_steps
+        from contexts.workflow.infrastructure.repositories import WorkflowRepository
+
+        run = await self._runs.get(run_id)
+        if not run or run.state not in (RunState.RUNNING, RunState.WAITING):
+            return
+
+        workflow = await WorkflowRepository(self._db).get(run.workflow_id)
+        if not workflow:
+            return
+
+        # Cancel the "awaiting retry" placeholder step.
+        await self._db.execute(
+            workflow_steps.update().where(
+                sa.and_(
+                    workflow_steps.c.run_id == run_id,
+                    workflow_steps.c.node_id == node_id,
+                    workflow_steps.c.state == "running",
+                    workflow_steps.c.ended_at.is_(None),
+                )
+            ).values(state="cancelled", ended_at=sa.text("now()"))
+        )
+
+        # Restore run to RUNNING (it was parked WAITING during the backoff delay).
+        await self._runs.update_state(run_id, state=RunState.RUNNING)
+
+        ctx = RunContext(
+            run_id=run_id,
+            workflow_id=run.workflow_id,
+            workflow_def=workflow.definition,
+            variables=dict(run.variables),
+            trigger_payload=run.context.get("trigger_payload", {}),
+        )
+
+        await self._execute_node(ctx, node_id)
+
+    async def resume_at_port(
+        self, run_id: uuid.UUID, node_id: str, port: str,
+    ) -> None:
+        """Resume a WAITING run at an explicit output port (W6/W10 — event/timeout)."""
+        from contexts.workflow.infrastructure.repositories import WorkflowRepository
+
+        run = await self._runs.get(run_id)
+        if not run or run.state != RunState.WAITING:
+            return
+
+        workflow = await WorkflowRepository(self._db).get(run.workflow_id)
+        if not workflow:
+            logger.warning("resume_at_port: workflow %s deleted; failing run %s", run.workflow_id, run_id)
+            now = datetime.now(timezone.utc)
+            await self._runs.update_state(run_id, state=RunState.FAILED, ended_at=now)
+            return
+
+        ctx = RunContext(
+            run_id=run_id,
+            workflow_id=run.workflow_id,
+            workflow_def=workflow.definition,
+            variables=dict(run.variables),
+            trigger_payload=run.context.get("trigger_payload", {}),
+        )
+
+        await self._runs.update_state(run_id, state=RunState.RUNNING)
+
+        # Close the parked step so it doesn't remain RUNNING indefinitely.
+        # Parked executors (wait_for_event, subagent_spawn) leave their step in
+        # RUNNING/no-ended_at; the resume path must seal it before advancing.
+        import sqlalchemy as sa
+        from contexts.workflow.infrastructure.tables import workflow_steps
+        await self._db.execute(
+            workflow_steps.update()
+            .where(
+                sa.and_(
+                    workflow_steps.c.run_id == run_id,
+                    workflow_steps.c.node_id == node_id,
+                    workflow_steps.c.state == "running",
+                    workflow_steps.c.ended_at.is_(None),
+                )
+            )
+            .values(state="succeeded", ended_at=sa.text("now()"))
+        )
+
+        await self._advance_from(ctx, node_id, port=port)
 
     async def cancel_run(self, run_id: uuid.UUID) -> None:
         """Cancel a running/waiting workflow run."""
@@ -198,6 +343,7 @@ class RunEngine:
             run_id, state=RunState.CANCELLED, ended_at=now,
         )
         await self._steps.cancel_pending_for_run(run_id)
+        WORKFLOW_RUNS_TOTAL.labels(state="cancelled").inc()
 
         await audit.emit(self._db, audit.AuditEvent(
             action="workflow.run_cancelled",
@@ -209,6 +355,23 @@ class RunEngine:
         await pub.emit("workflow.run_cancelled", {"run_id": str(run_id)})
 
     # -- internal --
+
+    async def _dispatch_enqueues(self) -> None:
+        """Enqueue pending Arq tasks after the DB transaction is committed (W1/W3/W6/W10)."""
+        if not self._pending_enqueues:
+            return
+        pending = list(self._pending_enqueues)
+        self._pending_enqueues.clear()
+
+        from arq.connections import RedisSettings, create_pool
+        from app.config.settings import get_settings
+
+        pool = await create_pool(RedisSettings.from_dsn(get_settings().redis.dsn))
+        for task_name, run_id_str, node_id, delay_ms in pending:
+            kwargs: dict[str, Any] = {}
+            if delay_ms > 0:
+                kwargs["defer_by"] = timedelta(milliseconds=delay_ms)
+            await pool.enqueue_job(task_name, run_id_str, node_id, **kwargs)
 
     async def _execute_node(self, ctx: RunContext, node_id: str) -> None:
         """Execute one node and follow edges."""
@@ -254,6 +417,7 @@ class RunEngine:
         ))
 
         # Execute
+        step_start = time.monotonic()
         try:
             outcome = await executor(ctx, node, self._db)
         except Exception as exc:
@@ -262,11 +426,15 @@ class RunEngine:
                 error=str(exc),
             )
 
-        # Apply on-error strategy if failed
+        # Apply on-error strategy if failed (W21: log the failure first)
         if outcome.state == StepState.FAILED:
+            logger.warning(
+                "run %s: node %s failed (strategy=%s): %s",
+                ctx.run_id, node_id, node.on_error.strategy.value, outcome.error,
+            )
             outcome = await self._apply_on_error(ctx, node, outcome, step.id)
 
-        # Update step
+        # Update step record
         now = datetime.now(timezone.utc)
         await self._steps.update(
             step.id,
@@ -275,6 +443,16 @@ class RunEngine:
             output=outcome.output,
             error=outcome.error,
         )
+        _step_elapsed = time.monotonic() - step_start
+        WORKFLOW_STEP_DURATION_SECONDS.labels(node_type=node.type.value).observe(_step_elapsed)
+        if outcome.state not in (StepState.RUNNING, StepState.PENDING):
+            WORKFLOW_STEPS_TOTAL.labels(
+                node_type=node.type.value, state=outcome.state.value,
+            ).inc()
+
+        # W12: flush step outcome durably before following edges so that if
+        # _advance_from raises, the step result is preserved in the eventual commit.
+        await self._db.flush()
 
         event_action = (
             "workflow.step_failed" if outcome.state == StepState.FAILED
@@ -289,9 +467,17 @@ class RunEngine:
         # Update run variables
         await self._runs.update_variables(ctx.run_id, ctx.variables)
 
-        # Parked — set run to waiting, return without following edges
+        # Parked — set run to WAITING, schedule any timeout task, then stop.
         if outcome.park:
             await self._runs.update_state(ctx.run_id, state=RunState.WAITING)
+            if outcome.timeout_ms > 0 and outcome.timeout_task:
+                self._pending_enqueues.append(
+                    (outcome.timeout_task, str(ctx.run_id), node_id, outcome.timeout_ms),
+                )
+            return
+
+        # W2: step succeeded but edges should not be followed (e.g. non-final join arrival).
+        if outcome.skip_edges:
             return
 
         # Failed with no recovery — fail the run
@@ -306,6 +492,7 @@ class RunEngine:
             await self._runs.update_state(
                 ctx.run_id, state=final_state, ended_at=now,
             )
+            WORKFLOW_RUNS_TOTAL.labels(state=final_state.value).inc()
             action = "workflow.run_finished"
             await audit.emit(self._db, audit.AuditEvent(
                 action=action,
@@ -346,9 +533,14 @@ class RunEngine:
         if len(matching) == 1:
             await self._execute_node(ctx, matching[0].to_node)
         else:
-            # Multiple outgoing edges → parallel execution
+            # W1: multiple outgoing edges → parallel branches.
+            # Enqueue each as an independent Arq task so branches truly run in parallel
+            # with their own DB sessions; avoids sequential execution and session contention.
+            ctx.active_branches = len(matching)
             for edge in matching:
-                await self._execute_node(ctx, edge.to_node)
+                self._pending_enqueues.append(
+                    ("run_workflow_step", str(ctx.run_id), edge.to_node, 0),
+                )
 
     async def _apply_on_error(
         self,
@@ -368,41 +560,54 @@ class RunEngine:
             )
 
         if strategy == OnErrorStrategy.RETRY:
-            # Retry tracking via step output
-            retry_count = outcome.output.get("__retry_count", 0)
+            # W3: use a Redis counter + Arq delayed re-enqueue instead of asyncio.sleep,
+            # which held the DB connection and Arq job slot for up to 60 s per retry.
+            from shared_kernel.auth.clients import get_redis
+            redis = get_redis()
+            redis_key = f"wf:retry:{ctx.run_id}:{node.id}"
+            raw = await redis.get(redis_key)
+            retry_count = int(raw.decode()) if raw else 0
+
             if retry_count < node.on_error.retry_max:
-                import asyncio
-                backoff_s = node.on_error.retry_backoff_ms / 1000.0 * (retry_count + 1)
-                await asyncio.sleep(min(backoff_s, 60.0))
-                executor = get_executor(node.type)
-                try:
-                    new_outcome = await executor(ctx, node, self._db)
-                    if new_outcome.state != StepState.FAILED:
-                        return new_outcome
-                    new_outcome_output = {**new_outcome.output, "__retry_count": retry_count + 1}
-                    return StepOutcome(
-                        state=new_outcome.state,
-                        output=new_outcome_output,
-                        port=new_outcome.port,
-                        error=new_outcome.error,
-                    )
-                except Exception as exc:
-                    return StepOutcome(
-                        state=StepState.FAILED,
-                        output={"__retry_count": retry_count + 1},
-                        error=str(exc),
-                    )
+                new_count = retry_count + 1
+                backoff_ms = min(node.on_error.retry_backoff_ms * new_count, 60_000)
+                await redis.set(redis_key, str(new_count), ex=3600)
+                self._pending_enqueues.append(
+                    ("retry_workflow_node", str(ctx.run_id), node.id, backoff_ms),
+                )
+                logger.info(
+                    "run %s: node %s retry %d/%d scheduled in %d ms",
+                    ctx.run_id, node.id, new_count, node.on_error.retry_max, backoff_ms,
+                )
+                return StepOutcome(
+                    state=StepState.RUNNING,
+                    output={"__retry_count": new_count},
+                    park=True,
+                )
+            logger.warning(
+                "run %s: node %s exhausted all %d retries; failing",
+                ctx.run_id, node.id, node.on_error.retry_max,
+            )
 
         if strategy == OnErrorStrategy.FALLBACK:
+            # W4: execute fallback node then use skip_edges so we don't double-advance.
+            # The fallback's own _execute_node call already follows its outgoing edges.
             fallback_id = node.on_error.fallback_node_id
             if fallback_id:
+                logger.info(
+                    "run %s: applying fallback node %s for failed node %s",
+                    ctx.run_id, fallback_id, node.id,
+                )
                 await self._execute_node(ctx, fallback_id)
                 return StepOutcome(
                     state=StepState.SUCCEEDED,
-                    output={"fallback": fallback_id},
-                    port="default",
-                    park=True,  # We already followed the fallback path
+                    output={"fallback_node": fallback_id},
+                    skip_edges=True,
                 )
+            logger.warning(
+                "run %s: node %s has fallback strategy but no fallback_node_id configured; failing",
+                ctx.run_id, node.id,
+            )
 
         # Default: FAIL — return the original failed outcome
         return outcome
@@ -415,6 +620,7 @@ class RunEngine:
             ctx.run_id, state=RunState.FAILED, ended_at=now,
         )
         await self._steps.cancel_pending_for_run(ctx.run_id)
+        WORKFLOW_RUNS_TOTAL.labels(state="failed").inc()
 
         await audit.emit(self._db, audit.AuditEvent(
             action="workflow.run_finished",

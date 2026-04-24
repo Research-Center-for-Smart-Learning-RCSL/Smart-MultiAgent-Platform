@@ -34,8 +34,11 @@ from app.workers.tasks.retention import retention_sweep
 from app.workers.tasks.graphrag import graphrag_build
 from app.workers.tasks.workflow import (
     archive_workflow_runs,
+    retry_workflow_node,
     run_workflow_step,
     workflow_cron_scheduler,
+    workflow_event_timeout,
+    workflow_subagent_timeout,
 )
 from contexts.keys.application.threshold_worker import sample_once as _threshold_sample_once
 from shared_kernel.db import registry as _db_registry  # noqa: F401 — table imports
@@ -83,7 +86,9 @@ class WorkerSettings:
     functions = [
         noop, file_scan_requested, retention_purge, chat_export,
         wakeup_agent, evaluate_silence, wakeup_refresh,
-        run_workflow_step, archive_workflow_runs, workflow_cron_scheduler,
+        run_workflow_step, retry_workflow_node,
+        workflow_event_timeout, workflow_subagent_timeout,
+        archive_workflow_runs, workflow_cron_scheduler,
         retention_sweep,
         daily_org_advisory_snapshot,
         key_usage_threshold_sample,

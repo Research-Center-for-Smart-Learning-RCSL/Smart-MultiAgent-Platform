@@ -66,19 +66,34 @@
     >
       <thead>
         <tr class="border-b text-left">
-          <th class="py-1">
+          <th
+            scope="col"
+            class="py-1"
+          >
             {{ $t('workflow.run.nodeId') }}
           </th>
-          <th class="py-1">
+          <th
+            scope="col"
+            class="py-1"
+          >
             {{ $t('workflow.run.state') }}
           </th>
-          <th class="py-1">
+          <th
+            scope="col"
+            class="py-1"
+          >
             {{ $t('workflow.run.started') }}
           </th>
-          <th class="py-1">
+          <th
+            scope="col"
+            class="py-1"
+          >
             {{ $t('workflow.run.ended') }}
           </th>
-          <th class="py-1">
+          <th
+            scope="col"
+            class="py-1"
+          >
             {{ $t('workflow.run.error') }}
           </th>
         </tr>
@@ -140,16 +155,22 @@ const runId = route.params.runId as string
 
 const { connected } = useWorkflowRunSocket(runId)
 
+const TERMINAL_STATES = new Set<string>(['succeeded', 'failed', 'cancelled'])
+
 const runQuery = useQuery({
   queryKey: wfKeys.run(runId),
   queryFn: () => getRun(runId),
-  refetchInterval: 10_000,
+  refetchInterval: (q) =>
+    TERMINAL_STATES.has((q.state.data as { state?: string } | undefined)?.state ?? '')
+      ? false
+      : 10_000,
 })
 
 const stepsQuery = useQuery({
   queryKey: wfKeys.steps(runId),
   queryFn: () => listSteps(runId),
-  refetchInterval: 5_000,
+  refetchInterval: () =>
+    TERMINAL_STATES.has(runQuery.data.value?.state ?? '') ? false : 5_000,
 })
 
 const run = computed(() => runQuery.data.value ?? null)

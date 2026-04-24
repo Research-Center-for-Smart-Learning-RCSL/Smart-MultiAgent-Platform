@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Sequence
+from datetime import timedelta
 from typing import Any
 
 import sqlalchemy as sa
@@ -54,6 +55,32 @@ class NotificationRepository:
             )
         ).one()
         return _row_to_notification(row)
+
+    async def find_recent(
+        self,
+        user_id: uuid.UUID,
+        kind: NotificationKind,
+        title: str,
+        *,
+        window_seconds: int = 60,
+    ) -> Notification | None:
+        cutoff = now() - timedelta(seconds=window_seconds)
+        row = (
+            await self._db.execute(
+                t.notifications.select()
+                .where(
+                    sa.and_(
+                        t.notifications.c.user_id == user_id,
+                        t.notifications.c.kind == kind.value,
+                        t.notifications.c.title == title,
+                        t.notifications.c.created_at >= cutoff,
+                    )
+                )
+                .order_by(t.notifications.c.created_at.desc())
+                .limit(1)
+            )
+        ).one_or_none()
+        return _row_to_notification(row) if row else None
 
     async def list_for_user(
         self,

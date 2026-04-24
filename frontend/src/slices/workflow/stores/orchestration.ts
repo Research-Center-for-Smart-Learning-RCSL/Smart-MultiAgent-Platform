@@ -44,6 +44,11 @@ export const useOrchestrationStore = defineStore('orchestration', () => {
     expandedChainId.value = chainId
   }
 
+  function clearAll(): void {
+    Object.keys(liveApprovals).forEach((k) => delete liveApprovals[k])
+    expandedChainId.value = null
+  }
+
   return {
     liveApprovals,
     expandedChainId,
@@ -52,5 +57,6 @@ export const useOrchestrationStore = defineStore('orchestration', () => {
     removeApproval,
     getApprovalsForRoom,
     setExpandedChain,
+    clearAll,
   }
 })

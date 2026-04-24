@@ -28,6 +28,32 @@ from shared_kernel.db.session import db_session
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
+_REFRESH_COOKIE = "smap_refresh"
+_REFRESH_COOKIE_PATH = "/api/auth"
+
+
+def _set_refresh_cookie(response: Response, token: str) -> None:
+    s = get_settings()
+    response.set_cookie(
+        key=_REFRESH_COOKIE,
+        value=token,
+        max_age=s.jwt.refresh_ttl_seconds,
+        path=_REFRESH_COOKIE_PATH,
+        httponly=True,
+        secure=s.security.session_cookie_secure,
+        samesite=s.security.session_cookie_samesite,
+    )
+
+
+def _clear_refresh_cookie(response: Response) -> None:
+    s = get_settings()
+    response.delete_cookie(
+        key=_REFRESH_COOKIE,
+        path=_REFRESH_COOKIE_PATH,
+        secure=s.security.session_cookie_secure,
+        samesite=s.security.session_cookie_samesite,
+    )
+
 
 def _service(db: AsyncSession) -> AuthService:
     return create_auth_service(db, public_origin=_public_origin())
@@ -60,11 +86,11 @@ class LoginIn(BaseModel):
 
 
 class RefreshIn(BaseModel):
-    refresh_token: str
+    refresh_token: str | None = None
 
 
 class LogoutIn(BaseModel):
-    refresh_token: str
+    refresh_token: str | None = None
 
 
 class PasswordResetRequestIn(BaseModel):
@@ -163,6 +189,7 @@ async def verify_email_via_link(
 async def login(
     body: LoginIn,
     request: Request,
+    response: Response,
     ctx: RequestContext = Depends(current_context),
     db: AsyncSession = Depends(db_session),
 ) -> TokenPairOut:
@@ -174,38 +201,51 @@ async def login(
         user_agent=request.headers.get("User-Agent"),
         request_id=ctx.request_id,
     )
+    _set_refresh_cookie(response, outcome.tokens.refresh_token)
     return TokenPairOut(**outcome.tokens.__dict__)
 
 
 @router.post("/refresh")
 async def refresh(
     body: RefreshIn,
+    request: Request,
+    response: Response,
     ctx: RequestContext = Depends(current_context),
     db: AsyncSession = Depends(db_session),
 ) -> TokenPairOut:
+    refresh_token = request.cookies.get(_REFRESH_COOKIE) or body.refresh_token
+    if not refresh_token:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Refresh token missing")
     service = _service(db)
     pair = await service.refresh(
-        refresh_token=body.refresh_token,
+        refresh_token=refresh_token,
         remote_ip=ctx.actor_ip or "0.0.0.0",
         request_id=ctx.request_id,
     )
+    _set_refresh_cookie(response, pair.refresh_token)
     return TokenPairOut(**pair.__dict__)
 
 
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT, response_class=Response)
 async def logout(
     body: LogoutIn,
+    request: Request,
+    response: Response,
     ctx: RequestContext = Depends(current_context),
     principal: Principal = Depends(current_principal),
     db: AsyncSession = Depends(db_session),
 ) -> None:
+    refresh_token = request.cookies.get(_REFRESH_COOKIE) or body.refresh_token
+    _clear_refresh_cookie(response)
+    if refresh_token is None:
+        return
     service = _service(db)
     ttl_seconds = get_settings().jwt.access_ttl_seconds
     if ctx.access_jti is None:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                             detail="Missing access JTI in authenticated context")
     await service.logout(
-        refresh_token=body.refresh_token,
+        refresh_token=refresh_token,
         access_jti=ctx.access_jti,
         access_ttl=timedelta(seconds=ttl_seconds),
         remote_ip=ctx.actor_ip,

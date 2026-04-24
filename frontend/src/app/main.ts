@@ -1,6 +1,7 @@
 import { createApp } from 'vue'
 import { createPinia } from 'pinia'
 import { VueQueryPlugin } from '@tanstack/vue-query'
+import { queryClient } from '@shared/query-client'
 
 import App from '@app/App.vue'
 import { installErrorHandler } from '@app/errorHandler'
@@ -32,7 +33,7 @@ installErrorHandler(app)
 app.use(createPinia())
 app.use(router)
 app.use(i18n)
-app.use(VueQueryPlugin)
+app.use(VueQueryPlugin, { queryClient })
 
 syncHtmlLang()
 
@@ -40,3 +41,8 @@ syncHtmlLang()
 // first route decision sees the right auth state (R24.12 #4).
 const session = useSessionStore()
 session.hydrate().finally(() => app.mount('#app'))
+
+// Re-hydrate when the user returns to the tab so auth state stays fresh.
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') session.hydrate()
+})

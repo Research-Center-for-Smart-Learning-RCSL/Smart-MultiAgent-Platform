@@ -1,8 +1,11 @@
 """Arq tasks for the workflow engine (H.4).
 
-- run_workflow_step: Resume a workflow run at a specific node.
-- archive_workflow_runs: Nightly 90-day archive sweep (H.6).
-- workflow_cron_scheduler: Compute next cron fire times and enqueue runs.
+- run_workflow_step:          Resume a workflow run at a specific node.
+- retry_workflow_node:        Re-execute a failed node after its retry backoff (W3).
+- workflow_event_timeout:     Resume a wait_for_event run at the timeout port (W6).
+- workflow_subagent_timeout:  Fail a run that waited too long for a subagent (W10).
+- archive_workflow_runs:      Nightly 90-day archive sweep (H.6).
+- workflow_cron_scheduler:    Compute next cron fire times and enqueue runs.
 """
 
 from __future__ import annotations
@@ -28,10 +31,111 @@ async def run_workflow_step(
 
         engine = RunEngine(db)
         await engine.resume_step(uuid.UUID(run_id), node_id)
-        await db.commit()
 
     logger.info("workflow step resumed: run=%s node=%s", run_id, node_id)
     return "ok"
+
+
+async def retry_workflow_node(
+    ctx: dict[str, Any],
+    run_id: str,
+    node_id: str,
+) -> str:
+    """W3: Re-execute a failed node after its Arq-delayed backoff period.
+
+    Called instead of asyncio.sleep to avoid holding the DB connection / Arq
+    job slot during the retry backoff interval.
+    """
+    from shared_kernel.db.session import async_session
+    from shared_kernel.auth.clients import get_redis
+
+    async with async_session() as db:
+        from contexts.workflow.application.run_engine import RunEngine
+
+        engine = RunEngine(db)
+        await engine.retry_node(uuid.UUID(run_id), node_id)
+        await db.commit()
+        await engine._dispatch_enqueues()
+
+    # Clean up the retry counter after the final retry attempt completes.
+    redis = get_redis()
+    await redis.delete(f"wf:retry:{run_id}:{node_id}")
+
+    logger.info("workflow node retried: run=%s node=%s", run_id, node_id)
+    return "ok"
+
+
+async def workflow_event_timeout(
+    ctx: dict[str, Any],
+    run_id: str,
+    node_id: str,
+) -> str:
+    """W6: Fire when a wait_for_event node times out without receiving its event.
+
+    Checks whether the event arrived (Redis key still present → not yet).
+    If timed out, resumes the run at the 'timeout' output port.
+    """
+    from shared_kernel.auth.clients import get_redis
+    from shared_kernel.db.session import async_session
+
+    redis = get_redis()
+    wait_key = f"wf:wait:{run_id}:{node_id}"
+
+    if not await redis.exists(wait_key):
+        # Event already handled by a dispatcher — nothing to do.
+        logger.debug("workflow_event_timeout: event already received run=%s node=%s", run_id, node_id)
+        return "already_received"
+
+    async with async_session() as db:
+        from contexts.workflow.application.run_engine import RunEngine
+
+        engine = RunEngine(db)
+        await engine.resume_at_port(uuid.UUID(run_id), node_id, "timeout")
+        await db.commit()
+        await engine._dispatch_enqueues()
+
+    # Clean up wait keys.
+    info_raw = await redis.get(wait_key)
+    if info_raw:
+        import json
+        try:
+            info = json.loads(info_raw)
+            event_type = info.get("event_type", "")
+            index_key = f"wf:wait:by_event:{event_type}"
+            await redis.srem(index_key, f"{run_id}:{node_id}")
+        except Exception:
+            pass
+    await redis.delete(wait_key)
+
+    logger.info("workflow event timed out: run=%s node=%s", run_id, node_id)
+    return "timed_out"
+
+
+async def workflow_subagent_timeout(
+    ctx: dict[str, Any],
+    run_id: str,
+    node_id: str,
+) -> str:
+    """W10: Fail the run if a spawned subagent never completes within its timeout."""
+    from shared_kernel.db.session import async_session
+
+    async with async_session() as db:
+        from contexts.workflow.application.run_engine import RunEngine
+        from contexts.workflow.domain.models import RunState
+
+        engine = RunEngine(db)
+        run = await engine._runs.get(uuid.UUID(run_id))
+        if run and run.state == RunState.WAITING:
+            from datetime import datetime, timezone
+            logger.warning("subagent timeout: failing run=%s node=%s", run_id, node_id)
+            await engine._runs.update_state(
+                uuid.UUID(run_id),
+                state=RunState.FAILED,
+                ended_at=datetime.now(timezone.utc),
+            )
+            await db.commit()
+
+    return "timed_out"
 
 
 async def archive_workflow_runs(

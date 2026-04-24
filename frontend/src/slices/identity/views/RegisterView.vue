@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import { authApi } from '../api/auth'
 import { isProblemWithType } from '@shared/transport'
 
+const { t } = useI18n()
 const email = ref('')
 const password = ref('')
 const captchaToken = ref('')
@@ -22,10 +24,10 @@ async function submit(): Promise<void> {
     })
     router.push({ name: 'identity.login', query: { pendingVerify: '1' } })
   } catch (e: unknown) {
-    if (isProblemWithType(e, '/auth/captcha-required')) error.value = 'captcha'
-    else if (isProblemWithType(e, '/auth/password-weak')) error.value = 'weakPassword'
-    else if (isProblemWithType(e, '/auth/domain-denied')) error.value = 'domain'
-    else error.value = 'generic'
+    if (isProblemWithType(e, '/auth/captcha-required')) error.value = t('identity.errors.captcha')
+    else if (isProblemWithType(e, '/auth/password-weak')) error.value = t('identity.errors.weakPassword')
+    else if (isProblemWithType(e, '/auth/domain-denied')) error.value = t('identity.errors.domain')
+    else error.value = t('identity.errors.generic')
   } finally {
     submitting.value = false
   }
@@ -59,6 +61,7 @@ async function submit(): Promise<void> {
         {{ $t('identity.register.captcha') }}
         <input
           v-model="captchaToken"
+          :placeholder="$t('identity.register.captchaPlaceholder')"
           required
         >
       </label>

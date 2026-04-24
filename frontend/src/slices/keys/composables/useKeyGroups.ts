@@ -113,7 +113,8 @@ export function useKeyGroupDetail(groupId: () => string) {
       await keyGroupsApi.reorder(id, priorities)
     } catch (e) {
       error.value = detail(e)
-      await reload() // server rejects → roll back to authoritative order
+      detailData.value = snapshot // immediate visual rollback
+      await reload()              // then sync authoritative order from server
     }
   }
 

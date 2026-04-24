@@ -16,7 +16,9 @@
       "saved": "Agent saved.",
       "saveFailed": "Failed to save agent.",
       "delete": "Delete",
-      "deleteFailed": "Failed to delete agent."
+      "deleteFailed": "Failed to delete agent.",
+      "deleteConfirmTitle": "Delete Agent",
+      "deleteConfirm": "Delete this agent? This cannot be undone."
     },
     "form": {
       "name": "Name",

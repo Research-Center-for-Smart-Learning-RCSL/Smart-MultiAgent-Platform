@@ -3,7 +3,7 @@
 // On reconnect, fetches current status to recover any missed updates.
 
 import { useQueryClient } from '@tanstack/vue-query'
-import { onBeforeUnmount, onMounted, ref } from 'vue'
+import { onActivated, onBeforeUnmount, onDeactivated, onMounted, ref } from 'vue'
 
 import { wsManager, type ChannelEvent } from '@shared/transport'
 import { agentKeys } from '../queries'
@@ -78,6 +78,14 @@ export function useRagConfigSocket(configId: string, projectId: string) {
 
   onMounted(() => {
     channel.connect()
+  })
+
+  onActivated(() => {
+    channel.connect()
+  })
+
+  onDeactivated(() => {
+    channel.disconnect()
   })
 
   onBeforeUnmount(() => {

@@ -146,7 +146,7 @@ class InviteService:
             return
         scope_label = "org" if scope is InviteScope.ORG else "project"
         await NotificationService(self._db).send(
-            user_id=row[0],
+            user_id=row.id,
             kind=NotificationKind.INVITE_RECEIVED,
             title=f"You have been invited to a {scope_label}",
             metadata={"invite_id": str(invite_id), "scope": scope_label, "scope_id": str(scope_id)},

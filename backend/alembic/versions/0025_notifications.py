@@ -45,6 +45,11 @@ def upgrade() -> None:
         ["user_id"],
         postgresql_where=sa.text("read_at IS NULL"),
     )
+    op.create_index(
+        "ix_notifications_user_id_kind_created_at",
+        "notifications",
+        ["user_id", "kind", sa.text("created_at DESC")],
+    )
     # Additional audit_logs index for action-based queries.
     op.create_index(
         "ix_audit_logs_action",
@@ -55,6 +60,7 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     op.drop_index("ix_audit_logs_action", table_name="audit_logs")
+    op.drop_index("ix_notifications_user_id_kind_created_at", table_name="notifications")
     op.drop_index("ix_notifications_user_id_unread", table_name="notifications")
     op.drop_index("ix_notifications_user_id_created_at", table_name="notifications")
     op.drop_table("notifications")

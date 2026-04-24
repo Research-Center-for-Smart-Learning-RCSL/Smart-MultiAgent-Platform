@@ -17,7 +17,7 @@ from app.config.settings import get_settings
 _CSP = (
     "default-src 'self'; "
     "script-src 'self' 'wasm-unsafe-eval'; "
-    "style-src 'self' 'unsafe-inline'; "
+    "style-src 'self'; "
     "img-src 'self' data: https:; "
     "font-src 'self' data:; "
     "connect-src 'self' wss:; "

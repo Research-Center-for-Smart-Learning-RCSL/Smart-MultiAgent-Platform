@@ -9,7 +9,9 @@
       "loading": "Loading keys…",
       "empty": "No keys uploaded yet.",
       "retest": "Retest",
-      "delete": "Delete"
+      "delete": "Delete",
+      "deleteConfirmTitle": "Delete Key",
+      "deleteConfirm": "Delete this API key? This cannot be undone."
     },
     "detail": {
       "title": "Key Detail",

@@ -8,7 +8,7 @@
 // so the client recovers the delta the server did not replay.
 
 import { useQueryClient } from '@tanstack/vue-query'
-import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { onActivated, onBeforeUnmount, onDeactivated, onMounted, ref, watch } from 'vue'
 
 import { wsManager, type ChannelEvent } from '@shared/transport'
 import { useOrchestrationStore } from '@slices/workflow'
@@ -107,6 +107,14 @@ export function useChatroomSocket(roomId: string) {
 
   onMounted(() => {
     channel.connect()
+  })
+
+  onActivated(() => {
+    channel.connect()
+  })
+
+  onDeactivated(() => {
+    channel.disconnect()
   })
 
   onBeforeUnmount(() => {

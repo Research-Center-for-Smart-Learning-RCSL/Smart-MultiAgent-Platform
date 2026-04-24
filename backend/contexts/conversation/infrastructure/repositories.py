@@ -121,7 +121,9 @@ def _row_to_chatroom(row: Any) -> Chatroom:
 
 
 def _new_guest_token() -> str:
-    """R13.05 — CSPRNG 32-byte base64url = 256 bits entropy."""
+    # R13.05 — 32 CSPRNG bytes = 256 bits of entropy. base64url encodes to 43
+    # chars after stripping the single trailing '=' padding character. The '='
+    # carries no entropy and is omitted so the token is URL-safe without escaping.
     return base64.urlsafe_b64encode(secrets.token_bytes(32)).rstrip(b"=").decode(
         "ascii",
     )

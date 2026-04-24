@@ -12,7 +12,9 @@
       "empty": "No workflows yet.",
       "loadError": "Failed to load workflows.",
       "createFailed": "Failed to create workflow.",
-      "deleteFailed": "Failed to delete workflow."
+      "deleteFailed": "Failed to delete workflow.",
+      "deleteConfirmTitle": "Delete Workflow",
+      "deleteConfirm": "Delete this workflow and all its run history? This cannot be undone."
     },
     "editor": {
       "backToList": "Workflows",
