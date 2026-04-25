@@ -12,13 +12,13 @@ const mockSessions = [
 
 describe('SessionsView', () => {
   it('renders without errors', async () => {
-    server.use(http.get('/api/auth/sessions', () => HttpResponse.json({ data: [] })))
+    server.use(http.get('/api/auth/sessions', () => HttpResponse.json([])))
     const wrapper = await renderView(SessionsView)
     expect(wrapper.exists()).toBe(true)
   })
 
   it('lists sessions and shows revoke button for non-current', async () => {
-    server.use(http.get('/api/auth/sessions', () => HttpResponse.json({ data: mockSessions })))
+    server.use(http.get('/api/auth/sessions', () => HttpResponse.json(mockSessions)))
     const wrapper = await renderView(SessionsView)
     await flushPromises()
     const items = wrapper.findAll('li')

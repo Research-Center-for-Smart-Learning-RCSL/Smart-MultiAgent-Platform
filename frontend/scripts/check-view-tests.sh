@@ -14,11 +14,9 @@ while IFS= read -r -d '' view; do
   test_dir="$slice_dir/__tests__"
 
   # Look for a test file matching the view name
-  if [ -d "$test_dir" ]; then
-    if ls "$test_dir"/"$basename"*.test.ts "$test_dir"/"$basename"*.spec.ts 2>/dev/null | grep -q .; then
-      COVERED=$((COVERED + 1))
-      continue
-    fi
+  if [ -d "$test_dir" ] && { test -f "$test_dir"/"$basename".test.ts || test -f "$test_dir"/"$basename".spec.ts; }; then
+    COVERED=$((COVERED + 1))
+    continue
   fi
 
   echo "FAIL: $view has no integration test in $test_dir/"

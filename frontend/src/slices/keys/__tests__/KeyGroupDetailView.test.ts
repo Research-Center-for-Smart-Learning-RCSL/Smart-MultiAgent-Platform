@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest'
+import { flushPromises } from '@vue/test-utils'
 import { renderView } from '../../../../tests/utils'
 import KeyGroupDetailView from '../views/KeyGroupDetailView.vue'
 
@@ -24,8 +25,8 @@ describe('KeyGroupDetailView', () => {
       routes,
       initialRoute: '/projects/proj_1/key-groups/kg_1',
     })
-    await new Promise((r) => setTimeout(r, 50))
-    await wrapper.vm.$nextTick()
+    await flushPromises()
+    await new Promise(r => setTimeout(r, 100))
     expect(wrapper.find('[data-testid="add-member-select"]').exists()).toBe(true)
     expect(wrapper.find('[data-testid="add-member"]').exists()).toBe(true)
   })
