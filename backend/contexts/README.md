@@ -24,6 +24,7 @@ Each sub-directory is an **independent** bounded context per `REQUIREMENTS.md` Â
 | `agents` | E, G | agents (versionless), MCP tools, wake-up, A2A, approvals (agent-only), instruct, sub-agents |
 | `knowledge` | E | RAG (Qdrant), GraphRAG (Neo4j+Qdrant 2PC 1:1 with agent) |
 | `conversation` | F | workspaces, chatrooms, messages, WS, tus uploads, guest links (permanent) |
+| `orchestration` | G | per-agent A2A streams (Redis), wakeup/self-modify/refresh, instruct chain depth=5, sub-agent inheritance |
 | `workflow` | H | versionless workflows, SEL v1, 11 executors, workflow_runs/steps |
 | `audit` | C, I | append-only audit_logs, redaction, admin queries |
 | `notification` | I | in-app notifications (R18.01/R18.02 five kinds only) |

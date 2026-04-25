@@ -94,6 +94,9 @@ services:
       postgres: { condition: service_healthy }
       redis: { condition: service_healthy }
       vault: { condition: service_started }
+    volumes:
+      # Docker socket required for DockerRunscSandbox (MCP probe/test endpoints).
+      - /var/run/docker.sock:/var/run/docker.sock
     networks: [frontend_net, backend_net]
     logging: *log-rotation
     healthcheck:
@@ -120,6 +123,9 @@ services:
     depends_on:
       redis: { condition: service_healthy }
       postgres: { condition: service_healthy }
+    volumes:
+      # Docker socket required for agent_fs_gc (E.10): removes per-agent volumes.
+      - /var/run/docker.sock:/var/run/docker.sock
     networks: [backend_net]
     logging: *log-rotation
     healthcheck:
@@ -230,22 +236,45 @@ services:
     networks: [backend_net]
     logging: *log-rotation
 
-  # ---------- MCP sandbox plane (Phase E populates policies) ----------
+  # ---------- MCP sandbox plane ----------
   egress-proxy:
-    image: python:3.12-alpine
+    build:
+      context: ../../backend
+      dockerfile: services/egress_proxy/Dockerfile
     container_name: smap_egress_proxy
-    working_dir: /app
-    # Phase E replaces this with the real FastAPI egress proxy image.
-    command: python -c "import http.server; http.server.HTTPServer(('0.0.0.0',8080), http.server.BaseHTTPRequestHandler).serve_forever()"
+    command: ["uvicorn", "services.egress_proxy.main:app", "--host", "0.0.0.0", "--port", "8080"]
+    env_file:
+      - path: ../../.env
+        required: false
+    environment:
+      # Required: 64 hex chars (32 bytes). Generate with: openssl rand -hex 32
+      EGRESS_PROXY_SHARED_SECRET: ${EGRESS_PROXY_SHARED_SECRET}
+    depends_on:
+      postgres: { condition: service_healthy }
     networks: [backend_net, egress_net]
     logging: *log-rotation
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys;sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8080/healthz',timeout=3).status==200 else 1)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
 
   mcp-sandbox-supervisor:
-    image: docker:27-cli
+    build:
+      context: ../../backend
+      dockerfile: services/mcp_supervisor/Dockerfile
     container_name: smap_mcp_sandbox
-    # Phase E replaces with the real supervisor that spawns gVisor/runsc containers.
-    command: sh -c "echo 'mcp-sandbox-supervisor placeholder — replaced in Phase E'; sleep infinity"
     volumes:
+      # Docker socket required for gVisor container spawning (R12.05).
+      # gVisor (runsc) must be installed on the Docker host before starting.
+      # Install guide: https://gvisor.dev/docs/user_guide/install/
       - /var/run/docker.sock:/var/run/docker.sock
     networks: [backend_net]
     logging: *log-rotation
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9090/healthz', timeout=4)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s

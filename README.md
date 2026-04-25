@@ -76,9 +76,9 @@ Five WebSocket endpoints provide real-time push: per-user notifications, per-cha
 | Logging | Loguru 0.7 (structured JSON) |
 | Metrics | Prometheus-client 0.21 |
 | Tracing | OpenTelemetry SDK 1.27 |
-| Frontend | Vue 3.5, TypeScript 5.6, Vite 5.4 |
+| Frontend | Vue 3.5, TypeScript 5.6, Vite 6.4 |
 | State | Pinia 2.2, TanStack Vue Query 5.59 |
-| UI | Element Plus 2.8 |
+| UI | Element Plus 2.11 |
 | Forms | vee-validate 4.14, Zod 3.23 |
 | Linting | Ruff 0.7, MyPy 1.13, ESLint 9.16 |
 | Testing | Pytest 8.3, pytest-asyncio 0.24, Vitest 2.1, Playwright (Phase J) |
@@ -112,6 +112,8 @@ backend/
     security/        Envelope encryption (DEK + Vault Transit)
     storage/         MinIO client wrapper
     audit/           Audit event emitter (shared across contexts)
+  alembic/           Database migrations (versions 0000 through 0026)
+  alembic.ini
 
 frontend/
   src/
@@ -137,7 +139,6 @@ docs/
   frontend-exceptions.md  CI gate exception registry
   workflow.schema.json + workflow.schema.md   Normative workflow schema and SEL v1
 
-alembic/             Database migrations (versions 0000 through 0025+)
 REQUIREMENTS.md      Software Requirements Specification (authoritative)
 ```
 

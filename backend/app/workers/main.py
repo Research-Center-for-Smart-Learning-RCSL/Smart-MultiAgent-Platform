@@ -6,6 +6,7 @@ Task registry:
   - `retention_purge`             — F.8 nightly 5-year sweep (cron)
   - `chat_export`                 — F.10 chat export → JSON manifest in MinIO
   - `key_usage_threshold_sample`  — D.8 80% hourly-limit sampler (every 30 s)
+  - `agent_fs_gc`                 — E.10 nightly Docker volume GC (60-day retention)
 """
 
 from __future__ import annotations
@@ -40,6 +41,7 @@ from app.workers.tasks.workflow import (
     workflow_event_timeout,
     workflow_subagent_timeout,
 )
+from app.workers.agent_fs_gc import run_once as _agent_fs_gc_run_once
 from contexts.keys.application.threshold_worker import sample_once as _threshold_sample_once
 from shared_kernel.db import registry as _db_registry  # noqa: F401 — table imports
 from shared_kernel.db.session import get_sessionmaker
@@ -48,6 +50,13 @@ from shared_kernel.logging.setup import configure_logging
 
 async def noop(ctx: dict[str, Any]) -> str:
     return "ok"
+
+
+async def agent_fs_gc(ctx: dict[str, Any]) -> dict[str, int]:
+    """E.10 — nightly GC of per-agent Docker volumes (60-day retention)."""
+    _ = ctx
+    removed = await _agent_fs_gc_run_once()
+    return {"removed": removed}
 
 
 async def key_usage_threshold_sample(ctx: dict[str, Any]) -> int:
@@ -116,6 +125,7 @@ class WorkerSettings:
         daily_org_advisory_snapshot,
         key_usage_threshold_sample,
         graphrag_build,
+        agent_fs_gc,
     ]
     on_startup = _startup
     redis_settings = RedisSettings.from_dsn(get_settings().redis.dsn)
@@ -139,4 +149,6 @@ class WorkerSettings:
         cron(workflow_cron_scheduler, minute=set(range(60)), run_at_startup=False),
         # Every 30 seconds — D.8 80% hourly-limit sampler (R7.11).
         cron(key_usage_threshold_sample, second={0, 30}, run_at_startup=False),
+        # 05:00 UTC daily — per-agent Docker volume GC (E.10 / R12.03, 60-day retention).
+        cron(agent_fs_gc, hour=5, minute=0, run_at_startup=False),
     ]
