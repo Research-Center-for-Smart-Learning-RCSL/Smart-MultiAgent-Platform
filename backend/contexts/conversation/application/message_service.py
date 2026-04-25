@@ -199,10 +199,14 @@ class MessageService:
 
         # Validate the version lock first — only record history if the update
         # will actually succeed. VersionMismatch here leaves no orphaned rows.
+        # For self-edit, also pass max_age so the DB re-checks the window with
+        # its own clock — guards against a transaction delayed past 5 minutes
+        # between the application-side check above and this UPDATE.
         updated = await self._messages.update_content(
             message_id=message_id,
             expected_version=expected_version,
             new_content_md=new_content_md,
+            max_age=None if moderator_path else SELF_EDIT_WINDOW,
         )
         await self._edits.record(
             message_id=message_id,

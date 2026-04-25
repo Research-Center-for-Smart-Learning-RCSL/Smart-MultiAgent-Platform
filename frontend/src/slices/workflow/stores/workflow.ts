@@ -3,7 +3,6 @@ import { computed, reactive, ref, shallowRef } from 'vue'
 import type {
   LintIssue,
   WorkflowDefinition,
-  WorkflowNode,
   WorkflowRunEvent,
   WorkflowStep,
 } from '../types'

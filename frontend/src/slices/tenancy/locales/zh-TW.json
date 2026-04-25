@@ -12,7 +12,15 @@
       "loading": "載入中…",
       "deleteConfirmTitle": "刪除組織",
       "deleteConfirm": "刪除此組織及其所有專案？此操作無法復原。",
-      "empty": "尚無組織。"
+      "empty": "尚無組織。",
+      "loadError": "載入組織失敗。",
+      "createError": "建立組織失敗。",
+      "createConfirmTitle": "建立組織",
+      "createConfirm": "確定要建立組織「{name}」嗎？",
+      "creating": "建立中…",
+      "cancel": "取消",
+      "nameHelp": "1–60 個字元，建立後仍可重新命名。",
+      "retry": "重試"
     },
     "projects": {
       "listTitle": "專案",

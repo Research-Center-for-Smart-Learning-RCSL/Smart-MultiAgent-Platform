@@ -31,7 +31,12 @@
       "unban": "Unban",
       "promotionFailed": "Promotion failed.",
       "lastAdminDemote": "Cannot demote the last admin.",
-      "demotionFailed": "Demotion failed."
+      "demotionFailed": "Demotion failed.",
+      "loading": "Loading users…",
+      "loadError": "Failed to load users.",
+      "retry": "Retry",
+      "empty": "No users yet.",
+      "emptyFiltered": "No users match your filters."
     },
     "userDetail": {
       "isAdmin": "Is Admin",
@@ -84,6 +89,8 @@
       "resourceId": "Resource ID",
       "ipPrefix": "IP Prefix",
       "sessionId": "Session ID",
+      "from": "From",
+      "to": "To",
       "export": "Export CSV",
       "loadMore": "Load More"
     },
@@ -91,6 +98,9 @@
       "title": "Operations",
       "graphragReset": "GraphRAG Reset",
       "configIdPlaceholder": "GraphRAG config ID",
+      "configId": "GraphRAG config ID",
+      "resourceType": "Resource type",
+      "resourceId": "Resource ID",
       "reset": "Reset",
       "graphragResetSuccess": "GraphRAG config reset to idle.",
       "resetFailed": "Reset failed.",

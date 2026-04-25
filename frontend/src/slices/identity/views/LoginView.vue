@@ -14,14 +14,24 @@ const session = useSessionStore()
 const router = useRouter()
 const route = useRoute()
 
+function safeRedirect(raw: string): string {
+  if (!raw) return '/orgs'
+  try {
+    const url = new URL(raw, window.location.origin)
+    if (url.origin !== window.location.origin) return '/orgs'
+    return url.pathname + url.search + url.hash
+  } catch {
+    return '/orgs'
+  }
+}
+
 async function submit(): Promise<void> {
   error.value = null
   submitting.value = true
   try {
     await session.login(email.value, password.value)
     const raw = (route.query.redirect as string) || ''
-    const redirect = raw.startsWith('/') && !raw.startsWith('//') ? raw : '/orgs'
-    router.push(redirect)
+    router.push(safeRedirect(raw))
   } catch (e: unknown) {
     if (isProblemWithType(e, '/auth/invalid-credentials')) error.value = t('identity.errors.invalid')
     else if (isProblemWithType(e, '/auth/lockout')) error.value = t('identity.errors.lockout')

@@ -52,15 +52,23 @@ async def _compute_org_snapshot(session, org_id) -> dict[str, int]:  # type: ign
 
 
 async def daily_org_advisory_snapshot(ctx: dict[str, Any]) -> dict[str, int]:
-    """Master cron — iterates all active orgs, computes + caches snapshots."""
+    """Master cron — iterates all active orgs, computes + caches snapshots.
+
+    Tracks per-org failures and raises ``RuntimeError`` if EVERY eligible org
+    failed (so Arq retries / alerts), instead of silently reporting success
+    with `orgs_processed=0`.
+    """
     sm = get_sessionmaker()
     redis = get_redis()
     total_orgs = 0
+    failed_orgs: list[str] = []
 
     async with sm() as session:
         org_rows = (await session.execute(
             sa.text("SELECT id FROM orgs WHERE deleted_at IS NULL")
         )).all()
+
+    eligible = len(org_rows)
 
     for (org_id,) in org_rows:
         try:
@@ -78,12 +86,31 @@ async def daily_org_advisory_snapshot(ctx: dict[str, Any]) -> dict[str, int]:
             logger.bind(event="advisory_snapshot_error", org_id=str(org_id)).exception(
                 f"advisory snapshot failed for org {org_id}"
             )
+            failed_orgs.append(str(org_id))
 
-    logger.bind(event="advisory_snapshot_done", orgs_processed=total_orgs).info(
-        f"advisory snapshots computed for {total_orgs} orgs"
+    logger.bind(
+        event="advisory_snapshot_done",
+        orgs_processed=total_orgs,
+        eligible=eligible,
+        failed=len(failed_orgs),
+    ).info(
+        f"advisory snapshots computed for {total_orgs}/{eligible} orgs "
+        f"({len(failed_orgs)} failed)"
     )
     _ = ctx
-    return {"orgs_processed": total_orgs}
+
+    # If every eligible org blew up, surface to Arq instead of returning quietly.
+    if eligible > 0 and len(failed_orgs) == eligible:
+        raise RuntimeError(
+            f"advisory snapshot: all {eligible} orgs failed "
+            f"(first 5: {', '.join(failed_orgs[:5])})"
+        )
+
+    return {
+        "orgs_processed": total_orgs,
+        "eligible": eligible,
+        "failed": len(failed_orgs),
+    }
 
 
 async def get_org_advisory(org_id) -> dict[str, Any] | None:  # type: ignore[no-untyped-def]

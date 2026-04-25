@@ -200,7 +200,10 @@ class KeyService:
                 metadata={"key_id": str(key_id), "provider": key.provider.value},
             )
         refreshed = await self._repo.get_active(key_id)
-        assert refreshed is not None  # row was active a moment ago
+        if refreshed is None:
+            # Row was active immediately before the probe; a concurrent delete
+            # is the only way it disappears. Surface as not-found, not crash.
+            raise KeyNotFound(f"key {key_id} was deleted during retest")
         return refreshed
 
     async def delete(

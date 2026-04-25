@@ -32,10 +32,23 @@ _STATUS_DELETED = "deleted"
 
 # Paths that return presigned download URLs — blocked even on GET when impersonating,
 # to prevent an admin from exfiltrating another user's files via an impersonation JWT.
-_IMPERSONATION_DOWNLOAD_PREFIXES = (
-    "/api/exports/",
-    "/api/attachments/",
+# Deny-list patterns: any GET whose path matches one of these segments is blocked,
+# so a newly-added /download or /export endpoint is gated by default and an
+# operator must explicitly route it differently to bypass.
+_IMPERSONATION_DOWNLOAD_SEGMENTS = (
+    "/download",
+    "/export",
+    "/exports",
+    "/presigned",
+    "/attachments",
 )
+
+
+def _is_impersonation_blocked(path: str) -> bool:
+    # Match path segments only — `/api/orgs/{id}/exports`, `/api/exports/{id}`,
+    # `/api/.../files/download`, etc. all match; `/api/exporters` does NOT.
+    parts = path.split("/")
+    return any(seg.lstrip("/") in parts for seg in _IMPERSONATION_DOWNLOAD_SEGMENTS)
 
 _PROBLEM_MEDIA = "application/problem+json"
 
@@ -89,7 +102,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
                     "Impersonation sessions are read-only",
                     403, request, "non-GET request via impersonation JWT",
                 )
-            if any(request.url.path.startswith(p) for p in _IMPERSONATION_DOWNLOAD_PREFIXES):
+            if _is_impersonation_blocked(request.url.path):
                 return _deny(
                     "admin/impersonation-read-only",
                     "Impersonation sessions cannot access download endpoints",

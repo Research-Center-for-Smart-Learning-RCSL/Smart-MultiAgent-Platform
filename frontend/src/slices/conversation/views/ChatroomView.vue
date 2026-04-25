@@ -76,6 +76,7 @@
       <textarea
         v-model="draft"
         :placeholder="$t('conversation.chatroom.composerPlaceholder')"
+        :aria-label="$t('conversation.chatroom.composerPlaceholder')"
         @dragover.prevent
         @drop.prevent="onDrop"
       />
@@ -174,10 +175,23 @@ const messages = computed<Message[]>(() =>
 )
 
 const rendered = reactive<Record<string, string>>({})
+const renderedSources = new Map<string, string>()
 watch(
   messages,
   (list) => {
-    for (const m of list) rendered[m.id] = renderMarkdown(m.content_md)
+    const seen = new Set<string>()
+    for (const m of list) {
+      seen.add(m.id)
+      if (renderedSources.get(m.id) === m.content_md) continue
+      rendered[m.id] = renderMarkdown(m.content_md)
+      renderedSources.set(m.id, m.content_md)
+    }
+    for (const id of Object.keys(rendered)) {
+      if (!seen.has(id)) {
+        delete rendered[id]
+        renderedSources.delete(id)
+      }
+    }
   },
   { immediate: true },
 )

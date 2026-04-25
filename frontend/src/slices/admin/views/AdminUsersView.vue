@@ -9,8 +9,12 @@
         v-model="searchQuery"
         type="text"
         :placeholder="$t('admin.users.searchPlaceholder')"
+        :aria-label="$t('admin.users.search')"
       >
-      <select v-model="statusFilter">
+      <select
+        v-model="statusFilter"
+        :aria-label="$t('admin.users.status')"
+      >
         <option value="">
           {{ $t('admin.users.allStatuses') }}
         </option>
@@ -28,14 +32,44 @@
         {{ $t('admin.users.search') }}
       </button>
     </form>
-    <table v-if="query.data.value">
+    <p
+      v-if="query.isPending.value"
+      class="admin-users__status"
+      role="status"
+    >
+      {{ $t('admin.users.loading') }}
+    </p>
+    <p
+      v-else-if="query.isError.value"
+      class="admin-users__status admin-users__status--error"
+      role="alert"
+    >
+      {{ $t('admin.users.loadError') }}
+      <button
+        type="button"
+        @click="query.refetch()"
+      >
+        {{ $t('admin.users.retry') }}
+      </button>
+    </p>
+    <table v-else-if="query.data.value && query.data.value.length">
       <thead>
         <tr>
-          <th scope="col">{{ $t('admin.users.email') }}</th>
-          <th scope="col">{{ $t('admin.users.status') }}</th>
-          <th scope="col">{{ $t('admin.users.verified') }}</th>
-          <th scope="col">{{ $t('admin.users.created') }}</th>
-          <th scope="col">{{ $t('admin.users.actions') }}</th>
+          <th scope="col">
+            {{ $t('admin.users.email') }}
+          </th>
+          <th scope="col">
+            {{ $t('admin.users.status') }}
+          </th>
+          <th scope="col">
+            {{ $t('admin.users.verified') }}
+          </th>
+          <th scope="col">
+            {{ $t('admin.users.created') }}
+          </th>
+          <th scope="col">
+            {{ $t('admin.users.actions') }}
+          </th>
         </tr>
       </thead>
       <tbody>
@@ -68,6 +102,12 @@
         </tr>
       </tbody>
     </table>
+    <p
+      v-else
+      class="admin-users__status"
+    >
+      {{ appliedQ || appliedStatus ? $t('admin.users.emptyFiltered') : $t('admin.users.empty') }}
+    </p>
   </section>
 </template>
 

@@ -31,7 +31,12 @@
       "unban": "解除封鎖",
       "promotionFailed": "提升失敗。",
       "lastAdminDemote": "無法降級最後一位管理員。",
-      "demotionFailed": "降級失敗。"
+      "demotionFailed": "降級失敗。",
+      "loading": "正在載入使用者…",
+      "loadError": "載入使用者失敗。",
+      "retry": "重試",
+      "empty": "尚無使用者。",
+      "emptyFiltered": "沒有符合篩選條件的使用者。"
     },
     "userDetail": {
       "isAdmin": "管理員",
@@ -84,6 +89,8 @@
       "resourceId": "資源 ID",
       "ipPrefix": "IP 前綴",
       "sessionId": "工作階段 ID",
+      "from": "起始時間",
+      "to": "結束時間",
       "export": "匯出 CSV",
       "loadMore": "載入更多"
     },
@@ -91,6 +98,9 @@
       "title": "營運操作",
       "graphragReset": "GraphRAG 重設",
       "configIdPlaceholder": "GraphRAG 設定 ID",
+      "configId": "GraphRAG 設定 ID",
+      "resourceType": "資源類型",
+      "resourceId": "資源 ID",
       "reset": "重設",
       "graphragResetSuccess": "GraphRAG 設定已重設為閒置。",
       "resetFailed": "重設失敗。",

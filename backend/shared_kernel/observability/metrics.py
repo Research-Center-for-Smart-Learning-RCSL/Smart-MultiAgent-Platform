@@ -45,6 +45,19 @@ DB_POOL_IN_USE = Gauge(
     registry=REGISTRY,
 )
 
+DB_POOL_SIZE = Gauge(
+    "db_pool_size",
+    "Configured maximum size of the SQLAlchemy pool (pool_size + max_overflow).",
+    registry=REGISTRY,
+)
+
+DB_POOL_AVAILABLE = Gauge(
+    "db_pool_available",
+    "Slots remaining before the SQLAlchemy pool is exhausted "
+    "(db_pool_size - db_pool_in_use). Alert when this hits zero.",
+    registry=REGISTRY,
+)
+
 REDIS_COMMAND_ERRORS = Counter(
     "redis_command_errors_total",
     "Redis commands that raised — bucketed by command name.",
@@ -177,7 +190,9 @@ def mount_metrics_middleware(app: FastAPI, cfg: ObservabilitySection) -> None:
 
 
 __all__ = [
+    "DB_POOL_AVAILABLE",
     "DB_POOL_IN_USE",
+    "DB_POOL_SIZE",
     "ENVELOPE_DECRYPT_FAILURES_TOTAL",
     "EXPORT_JOBS",
     "HTTP_REQUEST_DURATION",

@@ -22,7 +22,10 @@
     <div class="admin-ops__section">
       <h2>{{ $t('admin.ops.restore') }}</h2>
       <form @submit.prevent="onRestore">
-        <select v-model="restoreType">
+        <select
+          v-model="restoreType"
+          :aria-label="$t('admin.ops.resourceType')"
+        >
           <option value="org">
             {{ $t('admin.ops.typeOrg') }}
           </option>

@@ -58,10 +58,33 @@ async def key_usage_threshold_sample(ctx: dict[str, Any]) -> int:
         return await _threshold_sample_once(session)
 
 
+def _redis_alive() -> bool:
+    """Sync Redis PING — fails fast if Arq's broker is unreachable.
+
+    Arq jobs cannot be dequeued without Redis, so a process that's running
+    but disconnected from Redis is *not* healthy. The previous healthcheck
+    only verified the sidecar HTTP server, which masked broker outages.
+    """
+    try:
+        import redis as _redis_sync  # type: ignore[import-not-found]
+        client = _redis_sync.Redis.from_url(
+            get_settings().redis.dsn, socket_timeout=2,
+        )
+        return bool(client.ping())
+    except Exception:
+        return False
+
+
 class _HealthzHandler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:  # noqa: N802 — stdlib signature
         if self.path != "/healthz":
             self.send_response(404); self.end_headers(); return
+        if not _redis_alive():
+            self.send_response(503)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(b'{"status":"redis-unreachable"}')
+            return
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
         self.end_headers()

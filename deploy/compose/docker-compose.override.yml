@@ -2,6 +2,12 @@
 services:
   backend-web:
     container_name: smap_backend_web
+    # Build the dev stage so pytest/mypy/ruff are available for in-container
+    # test runs; the base compose.yml builds the slim `runtime` stage.
+    build:
+      context: ../../backend
+      dockerfile: Dockerfile
+      target: dev
     command: uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
     environment:
       SMAP_APP_ENV: dev
@@ -13,6 +19,10 @@ services:
 
   backend-worker:
     container_name: smap_backend_worker
+    build:
+      context: ../../backend
+      dockerfile: Dockerfile
+      target: dev
     environment:
       SMAP_APP_ENV: dev
     volumes:

@@ -33,10 +33,12 @@
       <input
         v-model="filters.from"
         type="datetime-local"
+        :aria-label="$t('admin.audit.from')"
       >
       <input
         v-model="filters.to"
         type="datetime-local"
+        :aria-label="$t('admin.audit.to')"
       >
       <button type="submit">
         {{ $t('admin.users.search') }}

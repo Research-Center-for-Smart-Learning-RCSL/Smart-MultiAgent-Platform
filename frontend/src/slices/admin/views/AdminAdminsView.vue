@@ -76,7 +76,7 @@ async function onPromote(): Promise<void> {
   try {
     await actions.promoteAdmin.mutateAsync(promoteUserId.value.trim())
     promoteUserId.value = ''
-  } catch (e) {
+  } catch {
     promoteError.value = t('admin.users.promotionFailed')
   }
 }

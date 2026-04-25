@@ -1,4 +1,4 @@
-import { createI18n, type I18n } from 'vue-i18n'
+import { createI18n } from 'vue-i18n'
 import { watch } from 'vue'
 
 type Locale = 'en' | 'zh-TW'

@@ -68,11 +68,18 @@ watch([groupId, projectId], async () => {
 
     <section v-if="detail">
       <h2>{{ $t('keys.groups.members') }}</h2>
-      <ul data-testid="member-list">
+      <ul
+        data-testid="member-list"
+        role="listbox"
+        :aria-label="$t('keys.groups.members')"
+      >
         <li
           v-for="m in detail.members"
           :key="m.key_id"
           draggable="true"
+          role="option"
+          tabindex="0"
+          aria-selected="false"
           :data-testid="`member-${m.key_id}`"
           @dragstart="onDragStart(m.key_id)"
           @dragover.prevent
@@ -138,6 +145,7 @@ watch([groupId, projectId], async () => {
         <select
           v-model="selectedKeyId"
           data-testid="add-member-select"
+          :aria-label="$t('keys.groups.selectKey')"
         >
           <option
             value=""

@@ -12,7 +12,15 @@
       "loading": "Loading…",
       "deleteConfirmTitle": "Delete Organisation",
       "deleteConfirm": "Delete this organisation and all its projects? This cannot be undone.",
-      "empty": "No organisations yet."
+      "empty": "No organisations yet.",
+      "loadError": "Failed to load organisations.",
+      "createError": "Failed to create organisation.",
+      "createConfirmTitle": "Create Organisation",
+      "createConfirm": "Create organisation \"{name}\"?",
+      "creating": "Creating…",
+      "cancel": "Cancel",
+      "nameHelp": "1–60 characters. You can rename later.",
+      "retry": "Retry"
     },
     "projects": {
       "listTitle": "Projects",

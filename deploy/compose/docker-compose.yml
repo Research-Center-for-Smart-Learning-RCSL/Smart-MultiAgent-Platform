@@ -97,10 +97,15 @@ services:
     networks: [frontend_net, backend_net]
     logging: *log-rotation
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request,sys;sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/healthz').status==200 else 1)"]
+      # /readyz, not /healthz: nginx and dependents must wait until the backend
+      # can actually answer DB/Redis/Vault calls, not just bind a socket.
+      # 5 s timeout + 12 retries gives the readyz probe its 2 s budget plus
+      # cushion for cold-start dependency probes.
+      test: ["CMD", "python", "-c", "import urllib.request,sys;sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/readyz', timeout=5).status==200 else 1)"]
       interval: 10s
-      timeout: 3s
-      retries: 5
+      timeout: 5s
+      retries: 12
+      start_period: 30s
 
   # ---------- Backend worker (Arq) ----------
   backend-worker:
@@ -181,7 +186,7 @@ services:
     image: neo4j:5.24-community
     container_name: smap_neo4j
     environment:
-      NEO4J_AUTH: neo4j/neo4jneo4j   # DEV ONLY — set SMAP_NEO4J_PASSWORD in prod
+      NEO4J_AUTH: neo4j/${SMAP_NEO4J_PASSWORD:-neo4jneo4j}   # DEV ONLY — set SMAP_NEO4J_PASSWORD in prod
       NEO4J_server_memory_heap_initial__size: "1G"
       NEO4J_server_memory_heap_max__size: "2G"
     volumes:
@@ -189,7 +194,7 @@ services:
     networks: [backend_net]
     logging: *log-rotation
     healthcheck:
-      test: ["CMD-SHELL", "cypher-shell -u neo4j -p neo4jneo4j 'RETURN 1' || exit 1"]
+      test: ["CMD-SHELL", "cypher-shell -u neo4j -p \"${SMAP_NEO4J_PASSWORD:-neo4jneo4j}\" 'RETURN 1' || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 10
