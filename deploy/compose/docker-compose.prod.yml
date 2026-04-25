@@ -10,53 +10,58 @@
 #
 # CI matrices the `dev` overlay (docker-compose.override.yml) and the `prod`
 # overlay separately — they MUST NOT be mixed (risk: §25 §23 drift).
+#
+# Tuning target: ≥16-core / 64 GB single host.
+# Total hard-limit sum ≈ 56 GB; remaining ~8 GB reserved for OS + Docker daemon.
+# If your host has only 32 GB, halve every memory value and drop replicas by 1.
 
 services:
   nginx:
     deploy:
       resources:
-        limits: { cpus: "1.0", memory: 256M }
-        reservations: { cpus: "0.25", memory: 128M }
+        limits: { cpus: "1.0", memory: 512M }
+        reservations: { cpus: "0.25", memory: 256M }
 
   backend-web:
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 2
+    # 4 uvicorn workers per process; 3 replicas → 12 workers total.
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4
     environment:
       SMAP_APP_ENV: prod
       SMAP_APP_DOCS_ENABLED: "false"
       SMAP_LOG_LEVEL: info
     deploy:
-      replicas: 2
+      replicas: 3
       resources:
-        limits: { cpus: "2.0", memory: 4G }
-        reservations: { cpus: "1.0", memory: 1G }
+        limits: { cpus: "4.0", memory: 4G }
+        reservations: { cpus: "2.0", memory: 2G }
 
   backend-worker:
-    # healthz sidecar starts inside the arq process via WorkerSettings.on_startup
-    # (see app/workers/main.py) — no separate PID to manage.
     environment:
       SMAP_APP_ENV: prod
     deploy:
-      replicas: 2
+      replicas: 3
       resources:
-        limits: { cpus: "2.0", memory: 2G }
+        limits: { cpus: "3.0", memory: 2G }
         reservations: { cpus: "1.0", memory: 1G }
-
-  # Backend-ws is served in-process by backend-web for the single-host
-  # deployment (docs/operations.md §3 note); keep as an optional profile.
 
   postgres:
     command:
       - postgres
+      # shared_buffers = 25 % of postgres container limit (8 GB → 2 GB).
       - -c
-      - shared_buffers=1GB
+      - shared_buffers=2GB
+      # effective_cache_size ≈ 75 % of container limit.
       - -c
-      - effective_cache_size=3GB
+      - effective_cache_size=6GB
+      # work_mem raised for heavier sort / hash workloads.
       - -c
-      - work_mem=32MB
+      - work_mem=64MB
       - -c
-      - maintenance_work_mem=256MB
+      - maintenance_work_mem=512MB
+      # 3 web replicas × 4 workers × 30 pool + 3 worker replicas × 30 = 450 peak.
+      # 512 provides headroom for admin tools and healthcheck probes.
       - -c
-      - max_connections=200
+      - max_connections=512
       - -c
       - wal_compression=on
       - -c
@@ -65,50 +70,53 @@ services:
       - cron.database_name=smap
     deploy:
       resources:
-        limits: { cpus: "4.0", memory: 4G }
-        reservations: { cpus: "2.0", memory: 2G }
+        limits: { cpus: "6.0", memory: 8G }
+        reservations: { cpus: "3.0", memory: 4G }
 
   redis:
     command:
       - redis-server
       - --appendonly
       - "yes"
+      # maxmemory = container limit minus ~500 MB overhead for AOF rewrite buffer.
       - --maxmemory
-      - "1800mb"
+      - "3500mb"
       - --maxmemory-policy
       - "allkeys-lru"
     deploy:
       resources:
-        limits: { cpus: "1.0", memory: 2G }
-        reservations: { cpus: "0.25", memory: 512M }
+        limits: { cpus: "1.0", memory: 4G }
+        reservations: { cpus: "0.25", memory: 1G }
 
   qdrant:
     deploy:
       resources:
-        limits: { cpus: "2.0", memory: 4G }
-        reservations: { cpus: "1.0", memory: 2G }
+        # Qdrant is mmap-based; more RAM → more vectors stay in page cache.
+        limits: { cpus: "4.0", memory: 8G }
+        reservations: { cpus: "2.0", memory: 4G }
 
   neo4j:
     environment:
-      NEO4J_server_memory_heap_initial__size: "2G"
-      NEO4J_server_memory_heap_max__size: "3G"
-      NEO4J_server_memory_pagecache_size: "1G"
+      NEO4J_server_memory_heap_initial__size: "3G"
+      NEO4J_server_memory_heap_max__size: "5G"
+      # pagecache holds the graph on-disk pages; larger = fewer disk reads.
+      NEO4J_server_memory_pagecache_size: "2G"
     deploy:
       resources:
-        limits: { cpus: "2.0", memory: 4G }
-        reservations: { cpus: "1.0", memory: 2G }
+        limits: { cpus: "4.0", memory: 8G }
+        reservations: { cpus: "2.0", memory: 4G }
 
   minio:
     deploy:
       resources:
-        limits: { cpus: "2.0", memory: 4G }
-        reservations: { cpus: "0.5", memory: 1G }
+        limits: { cpus: "2.0", memory: 5G }
+        reservations: { cpus: "0.5", memory: 2G }
 
   vault:
     deploy:
       resources:
-        limits: { cpus: "0.5", memory: 1G }
-        reservations: { cpus: "0.25", memory: 256M }
+        limits: { cpus: "1.0", memory: 2G }
+        reservations: { cpus: "0.25", memory: 512M }
 
   egress-proxy:
     deploy:
@@ -119,8 +127,9 @@ services:
   mcp-sandbox-supervisor:
     deploy:
       resources:
-        limits: { cpus: "2.0", memory: 2G }
-        reservations: { cpus: "0.5", memory: 512M }
+        # Each spawned gVisor container consumes memory here; 4 G gives ~4 concurrent tool calls.
+        limits: { cpus: "4.0", memory: 4G }
+        reservations: { cpus: "1.0", memory: 1G }
 
   frontend:
     deploy:
