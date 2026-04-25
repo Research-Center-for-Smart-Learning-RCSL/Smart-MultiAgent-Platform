@@ -83,7 +83,10 @@ async def run_once(*, now: datetime | None = None) -> int:
     if not ids:
         _log.info("agent_fs_gc: no volumes past retention")
         return 0
-    return _purge_volumes(_volume_name(aid) for aid in ids)
+    names = list(_volume_name(aid) for aid in ids)
+    # _purge_volumes calls the sync Docker SDK; offload to a thread so it
+    # does not block the async event loop during Docker API calls.
+    return await asyncio.to_thread(_purge_volumes, names)
 
 
 async def _main() -> None:

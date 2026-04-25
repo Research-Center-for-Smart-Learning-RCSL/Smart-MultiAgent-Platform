@@ -33,6 +33,7 @@ dependencies = [
   "qdrant-client==1.12.*",
   "prometheus-client==0.21.*",
   "typer==0.12.*",
+  "docker==7.1.*",
 ]
 
 [project.optional-dependencies]

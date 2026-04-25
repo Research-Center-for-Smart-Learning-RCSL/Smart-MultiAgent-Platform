@@ -1,13 +1,14 @@
 <template>
   <section class="workflow-run p-4">
     <header class="flex items-center gap-3 mb-4">
-      <router-link
+      <button
         v-if="run"
-        :to="{ name: 'workflow.runs', params: { workflowId: run.workflow_id } }"
+        type="button"
         class="text-sm text-gray-500 hover:underline"
+        @click="onBackToRuns"
       >
         &larr; {{ $t('workflow.run.backToRuns') }}
-      </router-link>
+      </button>
       <h1 class="text-xl font-semibold">
         {{ $t('workflow.run.title') }}
       </h1>
@@ -139,7 +140,7 @@
 <script setup lang="ts">
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import { computed } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 
 import { ElMessage } from 'element-plus'
 import { useI18n } from 'vue-i18n'
@@ -150,6 +151,7 @@ import type { RunState, StepState } from '../types'
 
 const { t } = useI18n()
 const route = useRoute()
+const router = useRouter()
 const qc = useQueryClient()
 const runId = route.params.runId as string
 
@@ -194,6 +196,13 @@ function stateClass(state: RunState | StepState | string): string {
     default:
       return ''
   }
+}
+
+function onBackToRuns(): void {
+  // The runs-list route is workspace+workflow scoped, but `WorkflowRun` does
+  // not carry workspace_id. Step back through history instead so the user
+  // returns to whichever list (runs / backstage / dashboard) brought them in.
+  router.back()
 }
 
 async function onCancel(): Promise<void> {

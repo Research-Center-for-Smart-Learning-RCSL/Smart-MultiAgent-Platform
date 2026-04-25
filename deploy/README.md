@@ -20,8 +20,8 @@ Key `.env` variables:
 | Variable | Purpose |
 |---|---|
 | `SMAP_DOMAIN` | Public hostname (used in HSTS, CSP, CORS) |
-| `SMAP_DB_URL` | Postgres connection string (default: compose-internal) |
-| `SMAP_REDIS_URL` | Redis URL (default: compose-internal) |
+| `SMAP_DB_DSN` | Postgres async DSN (default: compose-internal) |
+| `SMAP_REDIS_DSN` | Redis DSN (default: compose-internal) |
 | `VAULT_ADDR` | Vault address (default: `http://vault:8200`) |
 | `SMAP_SMTP_*` | SMTP relay for email verification |
 
@@ -104,7 +104,7 @@ This runs `python -m smap.bootstrap all`, which is idempotent:
 2. Creates AppRoles and provisions `secret_id` files
 3. Creates MinIO buckets (`chat-uploads`, `rag-sources`, `exports`) with lifecycle rules
 4. Initializes Qdrant collections
-5. Runs `alembic upgrade head` (24 migrations, A–I)
+5. Runs `alembic upgrade head` (26 migrations, A–I)
 6. Creates the first admin account (prints credentials once — save them)
 
 ---

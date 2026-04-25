@@ -114,6 +114,10 @@ def _problem(status_code: int, slug: str, detail: str) -> Response:
 def create_app(settings: EgressProxySettings) -> FastAPI:
     app = FastAPI(title="SMAP Egress Proxy", docs_url=None, redoc_url=None)
 
+    @app.get("/healthz")
+    async def healthz() -> Response:
+        return Response(content='{"status":"ok"}', media_type="application/json")
+
     @app.api_route(
         "/{full_path:path}",
         methods=["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"],

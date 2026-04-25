@@ -64,7 +64,7 @@
     "eslint-plugin-vuejs-accessibility": "2.4.1",
     "type-coverage": "2.29.7",
     "msw": "2.7.3",
-    "@playwright/test": "1.52.0",
+    "@playwright/test": "1.56.0",
     "@vitest/coverage-v8": "2.1.9"
   }
 }

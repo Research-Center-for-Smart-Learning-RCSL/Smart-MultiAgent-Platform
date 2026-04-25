@@ -58,6 +58,12 @@ vault write    transit/keys/smap-guest-link/config \
                                                         deletion_allowed=false \
                                                         exportable=false
 
+vault write -f transit/keys/smap-jwt-sign               type=rsa-2048
+vault write    transit/keys/smap-jwt-sign/config \
+                                                        deletion_allowed=false \
+                                                        exportable=false \
+                                                        allow_plaintext_backup=false
+
 # 6. Write policies.
 vault policy write smap-backend  policies/smap-backend.hcl
 vault policy write smap-rotation policies/smap-rotation.hcl
@@ -195,6 +201,7 @@ vault write transit/keys/smap-provider-secret/config \
 |---|---|---|
 | Master Transit key (`smap-provider-secret`) | Quarterly | Scheduled |
 | Master Transit key | Immediately | On confirmed Vault compromise, backend compromise, or personnel change with access |
+| JWT signing key (`smap-jwt-sign`) | Quarterly | Scheduled; old key version kept valid for 7-day verify overlap |
 | Guest-link signing key (`smap-guest-link`) | Annually | Scheduled |
 | AppRole `secret_id` for backend | Monthly | Scheduled; backend is rolling-restarted after each change |
 | AppRole `secret_id` for rotation | After every use | Manual |

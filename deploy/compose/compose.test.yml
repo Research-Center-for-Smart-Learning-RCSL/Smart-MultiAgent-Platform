@@ -29,8 +29,8 @@ services:
     environment:
       SMAP_APP_ENV: test
       SMAP_LOG_LEVEL: warning
-      SMAP_DB_URL: postgresql+asyncpg://smap:smap@postgres:5432/smap_test
-      SMAP_REDIS_URL: redis://redis:6379/1
+      SMAP_DB_DSN: postgresql+asyncpg://smap:smap@postgres:5432/smap_test
+      SMAP_REDIS_DSN: redis://redis:6379/1
       VAULT_ADDR: http://vault:8200
       VAULT_TOKEN: root
       SMAP_SEED_ON_STARTUP: "true"
@@ -44,8 +44,8 @@ services:
     environment:
       SMAP_APP_ENV: test
       SMAP_LOG_LEVEL: warning
-      SMAP_DB_URL: postgresql+asyncpg://smap:smap@postgres:5432/smap_test
-      SMAP_REDIS_URL: redis://redis:6379/1
+      SMAP_DB_DSN: postgresql+asyncpg://smap:smap@postgres:5432/smap_test
+      SMAP_REDIS_DSN: redis://redis:6379/1
       VAULT_ADDR: http://vault:8200
       VAULT_TOKEN: root
 
@@ -89,3 +89,31 @@ services:
     environment:
       MINIO_ROOT_USER: minioadmin
       MINIO_ROOT_PASSWORD: minioadmin
+
+  # ---------- Egress proxy — test credentials ----------
+  egress-proxy:
+    environment:
+      # Well-known 32-byte all-zeros-plus-one test secret — never use in prod.
+      EGRESS_PROXY_SHARED_SECRET: "0000000000000000000000000000000000000000000000000000000000000001"
+      SMAP_DB_DSN: postgresql+asyncpg://smap:smap@postgres:5432/smap_test
+
+  # ---------- Egress proxy smoke test (R12.04) ----------
+  # Runs after the proxy is healthy; verifies both the unauthenticated-rejection
+  # and the RFC 1918 IP-block paths.  Exits 0 on pass, non-zero on fail.
+  #
+  # Usage:
+  #   docker compose -f docker-compose.yml -f compose.test.yml \
+  #     --profile smoke run --rm egress-proxy-smoke
+  egress-proxy-smoke:
+    image: python:3.12-alpine
+    profiles: [smoke]
+    depends_on:
+      egress-proxy:
+        condition: service_healthy
+    networks: [backend_net]
+    volumes:
+      - ./scripts/egress_proxy_smoke_test.py:/smoke_test.py:ro
+    environment:
+      EGRESS_PROXY_SHARED_SECRET: "0000000000000000000000000000000000000000000000000000000000000001"
+    command: ["python3", "/smoke_test.py"]
+    restart: "no"

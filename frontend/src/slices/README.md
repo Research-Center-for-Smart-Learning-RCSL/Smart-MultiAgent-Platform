@@ -3,13 +3,14 @@
 Seven slices, dependency direction flows **only one way**:
 
 ```
-conversation → agents → keys → tenancy → identity → shared
-                                                      ▲
-                                                      │
-                                                    admin
+conversation ─┐
+              ├─► agents → keys → tenancy → identity → shared
+workflow ─────┘                                         ▲
+                                                        │
+                                                      admin
 ```
 
-`admin` is a leaf slice (consumes `shared` only; orthogonal to the operational flow).
+`admin` and `workflow` are leaf-adjacent slices: `admin` consumes `shared` only; `workflow` consumes `agents` (for agent-invoke executors) and may consume `conversation` (for send-message executors), but nothing depends on `workflow`.
 
 ## Canonical shape
 

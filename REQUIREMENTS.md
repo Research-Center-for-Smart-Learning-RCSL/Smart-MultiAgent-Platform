@@ -1917,7 +1917,7 @@ These are points the current spec intentionally leaves to the implementation tea
 
 ## 27. Traceability
 
-Every requirement `[Rxx.yy]` corresponds to a Q&A decision or a design recommendation. The mapping is maintained in `docs/traceability.csv` (to be generated from this document by an author pass). In particular:
+Every requirement `[Rxx.yy]` corresponds to a Q&A decision or a design recommendation. The mapping is maintained in `docs/traceability.csv`, generated from this document by an author pass on 2026-04-25 (245 entries; columns: `requirement_id, section, summary`). Re-run the extraction whenever new `[Rxx.yy]` IDs are added. In particular:
 
 - Stakeholder Q&A items Q1–Q66 are each addressed; decisions marked "SKIP" (Q33) are deliberately absent.
 - Items marked **Recommendation applied** in this document are: Q9 (Qdrant), Q22 (Vault + envelope), Q23 (permission matrix), Q36 (prompt strategies), Q47 (WS+SSE), Q38 (sandbox), Q53 (loop detection), Q56 (audit scope).

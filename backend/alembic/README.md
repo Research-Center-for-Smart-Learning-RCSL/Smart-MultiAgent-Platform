@@ -15,8 +15,19 @@ backend/
     env.py            ← imports only shared_kernel.db + settings
     script.py.mako    ← revision scaffold
     versions/
-      0000_baseline.py ← empty; Phase C lands the first real DDL
+      0000_baseline.py          ← empty stamp; Phase C lands the first real DDL
+      0001–0004                 ← Phase C: identity, tenancy, invites, audit
+      0005–0010                 ← Phase D: api_keys, key_projects, key_groups,
+                                            key_usage_events, search_keys, rewrap_progress
+      0011–0014                 ← Phase E: agents, rag, graphrag, mcp
+      0015–0018                 ← Phase F: workspaces, chatrooms, messages, attachments
+      0019–0022                 ← Phase G: wakeup_authored_snapshot, approvals,
+                                            instructions, agent_instances
+      0023–0024                 ← Phase H: workflows, workflow_runs_steps
+      0025–0026                 ← Phase I: notifications, impersonation_access_jti
 ```
+
+27 migration files total (0000–0026) after all phases A–I are applied.
 
 ## Commands
 
