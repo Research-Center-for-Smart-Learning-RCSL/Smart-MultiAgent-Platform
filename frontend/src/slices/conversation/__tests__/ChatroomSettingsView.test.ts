@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest'
+import { flushPromises } from '@vue/test-utils'
 import { renderView } from '../../../../tests/utils'
 import ChatroomSettingsView from '../views/ChatroomSettingsView.vue'
 
@@ -34,9 +35,8 @@ describe('ChatroomSettingsView', () => {
       routes,
       initialRoute: '/chatrooms/cr_1/settings',
     })
-    // The section renders conditionally (v-if="room"), so it may or may
-    // not be present depending on fetch timing. Verify the wrapper at least
-    // contains the root element.
+    await flushPromises()
+    await new Promise(r => setTimeout(r, 100))
     expect(wrapper.find('section').exists()).toBe(true)
   })
 })

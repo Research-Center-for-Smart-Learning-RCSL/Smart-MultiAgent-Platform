@@ -19,7 +19,7 @@ describe('PasswordResetRequestView', () => {
 
   it('shows success message after submit', async () => {
     server.use(
-      http.post('/api/auth/password-reset/request', () => new HttpResponse(null, { status: 204 })),
+      http.post('/api/auth/request-password-reset', () => new HttpResponse(null, { status: 204 })),
     )
     const wrapper = await renderView(PasswordResetRequestView)
     await wrapper.find('input[type="email"]').setValue('user@example.com')

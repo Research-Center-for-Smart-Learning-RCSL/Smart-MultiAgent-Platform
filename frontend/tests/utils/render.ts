@@ -4,13 +4,7 @@ import { createRouter, createMemoryHistory, type RouteRecordRaw } from 'vue-rout
 import { VueQueryPlugin, QueryClient } from '@tanstack/vue-query'
 import { i18n } from '@shared/i18n'
 import type { Component } from 'vue'
-
-const defaultRoutes: RouteRecordRaw[] = [
-  { path: '/', name: 'root', component: { template: '<div />' } },
-  { path: '/login', name: 'identity.login', component: { template: '<div />' } },
-  { path: '/verify-email', name: 'identity.verifyEmail', component: { template: '<div />' } },
-  { path: '/:pathMatch(.*)*', name: 'notFound', component: { template: '<div />' } },
-]
+import { appRoutes } from './routes'
 
 export interface RenderOptions extends Omit<ComponentMountingOptions<unknown>, 'global'> {
   routes?: RouteRecordRaw[]
@@ -29,7 +23,7 @@ export async function renderView(
 
   const router = createRouter({
     history: createMemoryHistory(),
-    routes: [...defaultRoutes, ...routes],
+    routes: [...appRoutes, ...routes],
   })
   router.push(initialRoute)
   await router.isReady()
