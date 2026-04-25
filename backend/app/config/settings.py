@@ -214,8 +214,21 @@ def _check_prod_secrets(s: Settings) -> None:
         problems.append("SMAP_NEO4J_PASSWORD is the insecure default 'neo4j'")
     if s.minio.root_access_key == "minioadmin":
         problems.append("SMAP_MINIO_ROOT_ACCESS_KEY is the insecure default 'minioadmin'")
-    if s.vault.dev_token is not None:
+    if s.minio.root_secret_key == "minioadmin":
+        problems.append("SMAP_MINIO_ROOT_SECRET_KEY is the insecure default 'minioadmin'")
+    # 2.9: treat empty-string and unset as equivalent — both must be falsy in prod.
+    if s.vault.dev_token is not None and s.vault.dev_token != "":
         problems.append("SMAP_VAULT_DEV_TOKEN must not be set in production")
+    if not (s.vault.role_id and s.vault.secret_id):
+        problems.append(
+            "SMAP_VAULT_ROLE_ID and SMAP_VAULT_SECRET_ID must be set in production"
+        )
+    # 2.10: empty CORS in prod silently lets the auth handler fall back to
+    # http://localhost:8080 — refuse to start instead of shipping a broken origin.
+    if not s.security.cors_origins:
+        problems.append(
+            "SMAP_SEC_CORS_ORIGINS must contain at least one origin in production"
+        )
     if problems:
         raise ConfigError(
             "Insecure defaults active in production:\n  - " + "\n  - ".join(problems)

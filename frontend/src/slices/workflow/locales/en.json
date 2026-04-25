@@ -30,10 +30,15 @@
       "nodeConfig": "Config",
       "readOnlyNotice": "Workflow editing requires a desktop browser (≥ 1024px). You can view the graph but changes are disabled.",
       "saveFailed": "Failed to save workflow.",
+      "loadFailed": "Failed to load workflow.",
+      "notFound": "Workflow not found.",
+      "retry": "Retry",
       "valid": "Workflow is valid.",
       "validateFailed": "Validation request failed.",
       "dryRunQueued": "Dry run queued.",
-      "dryRunFailed": "Failed to start dry run."
+      "dryRunFailed": "Failed to start dry run.",
+      "loading": "Loading workflow…",
+      "emptyCanvas": "This workflow has no nodes yet."
     },
     "runs": {
       "title": "Workflow Runs",

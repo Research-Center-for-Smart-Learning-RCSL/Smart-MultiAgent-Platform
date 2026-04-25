@@ -11,14 +11,13 @@ to emit ``a2a.dlq`` audit events whenever a message is moved to the DLQ.
 
 from __future__ import annotations
 
-import logging
 import uuid
 from collections.abc import Awaitable, Callable
 from typing import Any
 
-from shared_kernel.db.session import async_session
+from loguru import logger
 
-logger = logging.getLogger(__name__)
+from shared_kernel.db.session import async_session
 
 
 async def wakeup_agent(
@@ -48,7 +47,12 @@ async def wakeup_agent(
         )
         await db.commit()
 
-    logger.info("wakeup fired: agent=%s room=%s trigger=%s", agent_id, room_id, trigger)
+    logger.bind(
+        event="wakeup_fired",
+        agent_id=agent_id,
+        room_id=room_id,
+        trigger=trigger,
+    ).info("wakeup fired")
     return "ok"
 
 
@@ -69,7 +73,9 @@ async def evaluate_silence(ctx: dict[str, Any]) -> str:
     # In production, this would iterate over rooms with bound agents.
     # For now, the task structure is in place; the room-agent binding
     # query will be added when the workspace_agents join table lands (Phase H).
-    logger.debug("silence trigger sweep: no-op until room-agent bindings exist")
+    logger.bind(event="silence_sweep_noop").debug(
+        "silence trigger sweep: no-op until room-agent bindings exist"
+    )
     return "ok"
 
 
@@ -92,10 +98,14 @@ async def wakeup_refresh(ctx: dict[str, Any]) -> str:
                 if await svc.refresh_wakeup_config(agent.id):
                     refreshed += 1
             except Exception:
-                logger.exception("wakeup refresh failed for agent %s", agent.id)
+                logger.bind(agent_id=str(agent.id)).exception(
+                    "wakeup refresh failed"
+                )
         await db.commit()
 
-    logger.info("wakeup refresh sweep: %d agents refreshed", refreshed)
+    logger.bind(event="wakeup_refresh_done", refreshed=refreshed).info(
+        f"wakeup refresh sweep: {refreshed} agents refreshed"
+    )
     return "ok"
 
 
@@ -129,7 +139,9 @@ def make_dlq_audit_callback() -> Callable[[uuid.UUID, str, str, int], Awaitable[
                 )
                 await db.commit()
         except Exception:
-            logger.exception("a2a.dlq audit failed for agent %s", agent_id)
+            logger.bind(agent_id=str(agent_id)).exception(
+                "a2a.dlq audit failed"
+            )
 
     return _on_dlq
 

@@ -1,4 +1,5 @@
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
+import axios from 'axios'
 import { projectKeysApi } from '../api/project-keys'
 import type { ApiKey } from '../api/keys'
 
@@ -6,6 +7,7 @@ export function useProjectKeys(projectId: () => string) {
   const carried = ref<ApiKey[]>([])
   const loading = ref(false)
   const error = ref<string | null>(null)
+  const isError = computed(() => error.value !== null)
 
   async function reload(): Promise<void> {
     const pid = projectId()
@@ -47,10 +49,18 @@ export function useProjectKeys(projectId: () => string) {
     await reload()
   }
 
-  return { carried, loading, error, reload, carry, withdraw }
+  return { carried, loading, error, isError, reload, carry, withdraw }
+}
+
+interface ProblemDetails {
+  detail?: string
+  title?: string
 }
 
 function detail(e: unknown): string {
-  const any_ = e as { response?: { data?: { detail?: string; title?: string } } }
-  return any_.response?.data?.detail ?? any_.response?.data?.title ?? 'request failed'
+  if (axios.isAxiosError<ProblemDetails>(e)) {
+    return e.response?.data?.detail ?? e.response?.data?.title ?? e.message ?? 'request failed'
+  }
+  if (e instanceof Error) return e.message
+  return 'request failed'
 }

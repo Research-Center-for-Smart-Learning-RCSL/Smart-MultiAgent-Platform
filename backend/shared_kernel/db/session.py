@@ -23,7 +23,11 @@ from sqlalchemy.ext.asyncio import (
 )
 
 from app.config.settings import get_settings
-from shared_kernel.observability.metrics import DB_POOL_IN_USE
+from shared_kernel.observability.metrics import (
+    DB_POOL_AVAILABLE,
+    DB_POOL_IN_USE,
+    DB_POOL_SIZE,
+)
 
 _engine: AsyncEngine | None = None
 _sessionmaker: async_sessionmaker[AsyncSession] | None = None
@@ -46,13 +50,19 @@ def _build() -> tuple[AsyncEngine, async_sessionmaker[AsyncSession]]:
     )
     sm = async_sessionmaker(engine, expire_on_commit=False)
 
+    capacity = settings.pool_size + settings.max_overflow
+    DB_POOL_SIZE.set(capacity)
+    DB_POOL_AVAILABLE.set(capacity)
+
     @event.listens_for(engine.sync_engine, "checkout")
     def _on_checkout(dbapi_conn, conn_record, conn_proxy):  # noqa: ARG001
         DB_POOL_IN_USE.inc()
+        DB_POOL_AVAILABLE.dec()
 
     @event.listens_for(engine.sync_engine, "checkin")
     def _on_checkin(dbapi_conn, conn_record):  # noqa: ARG001
         DB_POOL_IN_USE.dec()
+        DB_POOL_AVAILABLE.inc()
 
     return engine, sm
 

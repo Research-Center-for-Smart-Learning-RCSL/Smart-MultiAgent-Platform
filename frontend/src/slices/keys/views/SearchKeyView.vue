@@ -108,6 +108,7 @@ watch(projectId, reload)
               :checked="k.is_active"
               name="active"
               :data-testid="`activate-${k.id}`"
+              :aria-label="$t('keys.search.active')"
               @change="activate(k.id)"
             >
           </td>

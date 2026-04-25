@@ -12,6 +12,7 @@ import time
 
 from fastapi import APIRouter, Response
 from fastapi.responses import JSONResponse
+from loguru import logger
 
 from app.config.settings import get_settings
 from shared_kernel.errors.problem import Problem
@@ -51,6 +52,19 @@ async def readyz() -> Response:
                 "dependencies": {r.name: "ok" for r in results},
             },
         )
+    # Operators chasing a 503 page need the probe-by-probe breakdown in their
+    # logs without having to curl /readyz themselves — every failed dep is
+    # logged with its detail string at WARNING.
+    logger.bind(
+        event="readyz_dependency_unavailable",
+        failed=[r.name for r in failed],
+        dependencies={
+            r.name: ("ok" if r.ok else (r.detail or "unavailable"))
+            for r in results
+        },
+    ).warning(
+        f"/readyz returning 503 — failed: {', '.join(f.name for f in failed)}"
+    )
     problem = Problem(
         type=DEPENDENCY_UNAVAILABLE,
         title="One or more upstream dependencies are unavailable.",

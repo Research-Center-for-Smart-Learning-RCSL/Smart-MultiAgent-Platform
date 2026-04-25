@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import APIRouter, Depends, Path
+from fastapi import APIRouter, Depends, Path, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.conversation.application.guest_service import GuestService
@@ -28,7 +28,7 @@ router = APIRouter(prefix="/api/guest", tags=["guests"])
 
 @router.post(
     "/{chatroom_id}/{guest_token}/enroll",
-    status_code=204,
+    status_code=status.HTTP_204_NO_CONTENT,
 )
 async def enroll_guest(
     chatroom_id: uuid.UUID = Path(...),

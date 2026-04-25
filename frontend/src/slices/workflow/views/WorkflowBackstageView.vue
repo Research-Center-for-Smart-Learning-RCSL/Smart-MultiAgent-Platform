@@ -11,23 +11,25 @@
 
     <!-- Run selector -->
     <div class="mb-4">
-      <label class="text-sm font-medium block mb-1">{{ $t('workflow.backstage.selectRun') }}</label>
-      <select
-        v-model="selectedRunId"
-        class="border rounded px-2 py-1 text-sm w-full max-w-xs"
-        @change="onRunSelected"
-      >
-        <option value="">
-          —
-        </option>
-        <option
-          v-for="r in runs"
-          :key="r.id"
-          :value="r.id"
+      <label class="text-sm font-medium block mb-1">
+        {{ $t('workflow.backstage.selectRun') }}
+        <select
+          v-model="selectedRunId"
+          class="border rounded px-2 py-1 text-sm w-full max-w-xs"
+          @change="onRunSelected"
         >
-          {{ r.trigger_type }} · {{ r.state }} · {{ new Date(r.started_at).toLocaleString() }}
-        </option>
-      </select>
+          <option value="">
+            —
+          </option>
+          <option
+            v-for="r in runs"
+            :key="r.id"
+            :value="r.id"
+          >
+            {{ r.trigger_type }} · {{ r.state }} · {{ new Date(r.started_at).toLocaleString() }}
+          </option>
+        </select>
+      </label>
     </div>
 
     <template v-if="selectedRunId">

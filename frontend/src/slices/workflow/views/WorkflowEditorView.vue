@@ -29,17 +29,19 @@
             class="btn btn-sm"
             :disabled="!store.canUndo"
             :title="$t('workflow.editor.undo')"
+            :aria-label="$t('workflow.editor.undo')"
             @click="onUndo"
           >
-            ↶
+            <span aria-hidden="true">↶</span>
           </button>
           <button
             class="btn btn-sm"
             :disabled="!store.canRedo"
             :title="$t('workflow.editor.redo')"
+            :aria-label="$t('workflow.editor.redo')"
             @click="onRedo"
           >
-            ↷
+            <span aria-hidden="true">↷</span>
           </button>
         </template>
 
@@ -69,6 +71,21 @@
         </template>
       </div>
     </header>
+
+    <!-- Load error banner -->
+    <div
+      v-if="loadError"
+      role="alert"
+      class="px-4 py-2 bg-red-50 text-red-700 text-sm border-b"
+    >
+      {{ loadError }}
+      <button
+        class="ml-2 underline"
+        @click="loadWorkflow()"
+      >
+        {{ $t('workflow.editor.retry') }}
+      </button>
+    </div>
 
     <!-- Lint status bar -->
     <div
@@ -100,6 +117,19 @@
         ref="canvasEl"
         class="flex-1 relative"
       >
+        <div
+          v-if="!workflow && !loadError"
+          class="absolute inset-0 flex items-center justify-center text-sm text-gray-500"
+          role="status"
+        >
+          {{ $t('workflow.editor.loading') }}
+        </div>
+        <div
+          v-else-if="workflow && !flowNodes.length"
+          class="absolute inset-0 flex items-center justify-center text-sm text-gray-500"
+        >
+          {{ $t('workflow.editor.emptyCanvas') }}
+        </div>
         <VueFlow
           v-if="flowNodes.length"
           v-model:nodes="flowNodes"
@@ -191,6 +221,7 @@ const workspaceId = ref('')
 const dryRunning = ref(false)
 
 const workflow = ref<Workflow | null>(null)
+const loadError = ref<string | null>(null)
 const definition = ref<WorkflowDefinition>({
   entry_node_id: '',
   nodes: [],
@@ -243,19 +274,30 @@ function flowToDef(): WorkflowDefinition {
 async function loadWorkflow(): Promise<void> {
   const wsId = (route.params.workspaceId as string) || ''
   workspaceId.value = wsId
-  if (!wsId) return
+  if (!wsId) {
+    loadError.value = t('workflow.editor.loadFailed')
+    return
+  }
 
-  const all = await listWorkflows(wsId)
-  const found = all.find((w) => w.id === workflowId)
-  if (!found) return
+  try {
+    const all = await listWorkflows(wsId)
+    const found = all.find((w) => w.id === workflowId)
+    if (!found) {
+      loadError.value = t('workflow.editor.notFound')
+      return
+    }
 
-  workflow.value = found
-  definition.value = found.definition
-  store.markSaved(found.version)
-  defToFlow(found.definition)
+    workflow.value = found
+    definition.value = found.definition
+    store.markSaved(found.version)
+    defToFlow(found.definition)
+    loadError.value = null
+  } catch {
+    loadError.value = t('workflow.editor.loadFailed')
+  }
 }
 
-loadWorkflow()
+void loadWorkflow()
 
 // Selected node from inspector
 const selectedNode = computed(() => {

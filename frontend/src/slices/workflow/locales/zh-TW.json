@@ -30,10 +30,15 @@
       "nodeConfig": "設定",
       "readOnlyNotice": "工作流程編輯需使用桌機瀏覽器（≥ 1024px）。目前僅供檢視，無法編輯。",
       "saveFailed": "儲存工作流程失敗。",
+      "loadFailed": "載入工作流程失敗。",
+      "notFound": "找不到工作流程。",
+      "retry": "重試",
       "valid": "工作流程驗證通過。",
       "validateFailed": "驗證請求失敗。",
       "dryRunQueued": "模擬執行已排入佇列。",
-      "dryRunFailed": "無法啟動模擬執行。"
+      "dryRunFailed": "無法啟動模擬執行。",
+      "loading": "正在載入工作流程…",
+      "emptyCanvas": "此工作流程目前沒有節點。"
     },
     "runs": {
       "title": "執行紀錄",

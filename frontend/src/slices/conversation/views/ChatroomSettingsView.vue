@@ -111,9 +111,9 @@ import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useI18n } from 'vue-i18n'
 import { deleteChatroom, getGuestLink, listChatrooms, patchChatroom } from '../api'
-import { convKeys } from '../queries'
 import { DlqViewer, WakeupConfigEditor, patchAgentWakeupConfig } from '@slices/workflow'
 import type { WakeupConfig } from '@slices/workflow'
+import type { Chatroom } from '../types'
 
 const { t } = useI18n()
 const route = useRoute()
@@ -128,7 +128,7 @@ const flags = reactive({
   allow_project_owners_only: false,
   allow_guest_links: false,
 })
-const room = ref<import('../types').Chatroom | null>(null)
+const room = ref<Chatroom | null>(null)
 const guestUrl = ref('')
 
 // Agent bindings (populated by Phase H workspace_agents; empty until then).
@@ -153,7 +153,7 @@ watchEffect(async () => {
   // the parent list is cached; otherwise call the list endpoint by
   // workspace. We don't have workspace id in the URL here, so rely on
   // cache lookup by id across every cached list.
-  const caches = qc.getQueriesData<import('../types').Chatroom[]>({
+  const caches = qc.getQueriesData<Chatroom[]>({
     queryKey: ['conversation', 'chatrooms'],
   })
   for (const [, data] of caches) {

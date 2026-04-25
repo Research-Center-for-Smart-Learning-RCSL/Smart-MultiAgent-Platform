@@ -209,7 +209,7 @@ async def rename_org(
     return OrgOut(
         id=org.id, name=org.name, creator_user_id=org.creator_user_id,
         version=org.version, created_at=org.created_at.isoformat(),
-        deleted_at=None,
+        deleted_at=org.deleted_at.isoformat() if org.deleted_at else None,
     )
 
 

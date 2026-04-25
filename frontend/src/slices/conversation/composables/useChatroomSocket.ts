@@ -99,8 +99,8 @@ export function useChatroomSocket(roomId: string) {
     }
   }
 
-  channel.subscribe('*', handleEvent)
-  channel.onStatus((isConnected) => {
+  const unsubscribeEvent = channel.subscribe('*', handleEvent)
+  const unsubscribeStatus = channel.onStatus((isConnected) => {
     connected.value = isConnected
     if (isConnected) void replayDelta()
   })
@@ -118,6 +118,8 @@ export function useChatroomSocket(roomId: string) {
   })
 
   onBeforeUnmount(() => {
+    unsubscribeEvent()
+    unsubscribeStatus()
     wsManager.close(`/chatroom/${roomId}`)
     store.resetRoom(roomId)
   })

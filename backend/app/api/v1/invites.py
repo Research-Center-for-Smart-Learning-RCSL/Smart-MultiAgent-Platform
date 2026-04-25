@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 from typing import Literal
 
-from fastapi import APIRouter, Depends, Path, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -44,14 +44,29 @@ def _to_out(inv, scope_name: str = "") -> InviteOut:  # type: ignore[no-untyped-
     )
 
 
+async def _resolve_profile(db: AsyncSession, user_id: uuid.UUID):  # type: ignore[no-untyped-def]
+    """Fetch caller profile or raise 401 if the JWT principal has no row.
+
+    Replaces `assert profile is not None` (BUG 2) and covers the corrupted-JWT
+    case (BUG 3): a token signed for a user that no longer exists yields 401
+    rather than crashing on `profile.email`.
+    """
+    profile = await IdentityFacade(db).get_profile(user_id)
+    if profile is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="authenticated principal has no user profile",
+        )
+    return profile
+
+
 @router.get("")
 async def list_inbox(
     state: Literal["pending", "accepted", "rejected"] = Query(default="pending"),
     principal: Principal = Depends(current_principal),
     db: AsyncSession = Depends(db_session),
 ) -> list[InviteOut]:
-    profile = await IdentityFacade(db).get_profile(principal.user_id)
-    assert profile is not None
+    profile = await _resolve_profile(db, principal.user_id)
     service = InviteService(db)
     invites = await service.list_inbound(
         caller_email=profile.email,
@@ -62,7 +77,7 @@ async def list_inbox(
     return [_to_out(i, names.get((i.scope_type.value, i.scope_id), str(i.scope_id))) for i in invites]
 
 
-@router.post("/{invite_id}/accept")
+@router.post("/{invite_id}/accept", status_code=status.HTTP_200_OK)
 async def accept(
     invite_id: uuid.UUID = Path(...),
     ctx: RequestContext = Depends(current_context),
@@ -72,8 +87,7 @@ async def accept(
     if not principal.email_verified:
         from shared_kernel.auth.dependencies import _raise_forbidden  # noqa: PLC0415
         _raise_forbidden("email verification required (R6.11)")
-    profile = await IdentityFacade(db).get_profile(principal.user_id)
-    assert profile is not None
+    profile = await _resolve_profile(db, principal.user_id)
     service = InviteService(db)
     updated = await service.accept(
         invite_id=invite_id,
@@ -85,15 +99,14 @@ async def accept(
     return _to_out(updated)
 
 
-@router.post("/{invite_id}/reject")
+@router.post("/{invite_id}/reject", status_code=status.HTTP_200_OK)
 async def reject(
     invite_id: uuid.UUID = Path(...),
     ctx: RequestContext = Depends(current_context),
     principal: Principal = Depends(current_principal),
     db: AsyncSession = Depends(db_session),
 ) -> InviteOut:
-    profile = await IdentityFacade(db).get_profile(principal.user_id)
-    assert profile is not None
+    profile = await _resolve_profile(db, principal.user_id)
     service = InviteService(db)
     updated = await service.reject(
         invite_id=invite_id,

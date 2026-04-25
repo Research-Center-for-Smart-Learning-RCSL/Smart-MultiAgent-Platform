@@ -7,15 +7,26 @@ other contexts' worker tasks.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import uuid
 from datetime import timedelta
 from io import BytesIO
 from typing import Any
 
+# Manifest writes to MinIO are bounded so a hung S3 connection cannot pin
+# an Arq worker indefinitely (R22.15 / I.4 — every worker call must be
+# bounded). 60 s is comfortably above the typical 50 MiB manifest at LAN
+# rates and far below the Arq job_timeout default.
+_EXPORT_PUT_TIMEOUT_SECONDS = 60
+
 from loguru import logger
 
 from contexts.conversation.application import export_service
+from contexts.conversation.application.access import (
+    ensure_can_read,
+    resolve_room_access,
+)
 from contexts.conversation.application.attachment_service import AttachmentService
 from contexts.conversation.application.retention_service import RetentionService
 from contexts.conversation.domain.models import ScanStatus
@@ -25,6 +36,8 @@ from contexts.conversation.infrastructure.repositories import (
     MessageEditRepository,
     MessageRepository,
 )
+from contexts.identity.interfaces.facade import IdentityFacade
+from shared_kernel.auth.permissions import Principal
 from shared_kernel.db.session import get_sessionmaker
 from shared_kernel.markdown import render_safe_html
 from shared_kernel.storage import export_key, get_minio_client
@@ -91,14 +104,42 @@ async def chat_export(
     """Write the manifest + sanitised HTML to the `exports` bucket."""
     jid = uuid.UUID(job_id)
     rid = uuid.UUID(chatroom_id)
-    _ = uuid.UUID(owner_user_id)
+    oid = uuid.UUID(owner_user_id)
     _ = timedelta  # noqa: F841 — hint for callers reading this module
+
+    # Defence-in-depth: don't trust the enqueued args. Verify the job state
+    # in Redis matches what the API stored, then re-run the room ACL for the
+    # claimed owner. A malicious enqueue (bypassing the HTTP gate in
+    # exports.py) would otherwise let one user export another user's room.
+    state = await export_service.get(jid)
+    if state is None:
+        raise PermissionError(f"export job {jid} has no state record")
+    if state.chatroom_id != rid or state.owner_user_id != oid:
+        await export_service.mark_failed(
+            job_id=jid, error="job parameters do not match stored state",
+        )
+        raise PermissionError(
+            f"export job {jid} args mismatch stored state",
+        )
 
     await export_service.mark_running(jid)
     try:
         sm = get_sessionmaker()
         async with sm() as session:
             async with session.begin():
+                # Re-fetch admin status from DB so legitimate admin exports of
+                # rooms they aren't a member of still succeed; impersonated
+                # admins never reach this path because the export endpoint is
+                # in the impersonation deny-list (auth middleware).
+                is_admin = await IdentityFacade(session).is_admin(oid)
+                principal = Principal(
+                    user_id=oid, is_admin=is_admin, email_verified=True,
+                )
+                access = await resolve_room_access(
+                    session, principal=principal, chatroom_id=rid,
+                )
+                ensure_can_read(access, is_admin=is_admin)
+
                 rooms = ChatroomRepository(session)
                 messages = MessageRepository(session)
                 edits = MessageEditRepository(session)
@@ -162,12 +203,21 @@ async def chat_export(
 
         client = get_minio_client()
         key = export_key(job_id=jid, filename="manifest.json")
-        await client.put_object(
-            bucket=client.exports_bucket,
-            key=key,
-            data=payload,
-            content_type="application/json",
-        )
+        try:
+            await asyncio.wait_for(
+                client.put_object(
+                    bucket=client.exports_bucket,
+                    key=key,
+                    data=payload,
+                    content_type="application/json",
+                ),
+                timeout=_EXPORT_PUT_TIMEOUT_SECONDS,
+            )
+        except asyncio.TimeoutError as exc:
+            raise TimeoutError(
+                f"chat export MinIO put timed out after "
+                f"{_EXPORT_PUT_TIMEOUT_SECONDS}s (job {jid})"
+            ) from exc
         await export_service.mark_ready(
             job_id=jid, bucket=client.exports_bucket, object_key=key,
         )

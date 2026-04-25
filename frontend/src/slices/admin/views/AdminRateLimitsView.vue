@@ -24,6 +24,7 @@
               type="number"
               min="1"
               class="admin-rate-limits__input"
+              :aria-label="$t('admin.rateLimits.window')"
             >
           </td>
           <td>
@@ -32,6 +33,7 @@
               type="number"
               min="1"
               class="admin-rate-limits__input"
+              :aria-label="$t('admin.rateLimits.maxCount')"
             >
           </td>
           <td>{{ policy.scope }}</td>

@@ -3,7 +3,6 @@
 import { http } from '@shared/transport'
 import type {
   Approval,
-  ApprovalVote,
   ApprovalWithVotes,
   DlqEntry,
   Instruction,
@@ -13,6 +12,7 @@ import type {
   WorkflowRun,
   WorkflowStep,
   WorkflowDefinition,
+  WakeupConfig,
 } from '../types'
 
 // ---- Workflow CRUD (H.1 / §22.11) -----------------------------------------
@@ -176,7 +176,7 @@ export async function listDlq(agentId: string): Promise<DlqEntry[]> {
 
 export async function patchAgentWakeupConfig(
   agentId: string,
-  wakeupConfig: import('../types').WakeupConfig,
+  wakeupConfig: WakeupConfig,
 ): Promise<void> {
   await http.patch(`/agents/${agentId}`, { wakeup_config: wakeupConfig })
 }

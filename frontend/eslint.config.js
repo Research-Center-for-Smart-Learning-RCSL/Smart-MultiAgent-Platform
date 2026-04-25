@@ -67,6 +67,21 @@ export default [
     ignores: ['dist/**', 'node_modules/**', '.vite/**', 'src/shared/api-client/**'],
   },
 
+  // Playwright e2e tests — needs the TS parser for non-null assertions etc.
+  {
+    files: ['e2e/**/*.ts'],
+    languageOptions: {
+      parser: tsParser,
+      parserOptions: {
+        ecmaVersion: 'latest',
+        sourceType: 'module',
+      },
+    },
+    rules: {
+      '@typescript-eslint/no-explicit-any': 'off',
+    },
+  },
+
   // Base Vue recommended (flat config)
   ...pluginVue.configs['flat/recommended'],
 
@@ -151,7 +166,12 @@ export default [
       }],
 
       // ---- Gate #11: Accessibility ----
-      'vuejs-accessibility/no-role-button-on-non-buttons': 'error',
+      // Spec (REQUIREMENTS §24.15) calls for "no role=button on non-buttons" —
+      // eslint-plugin-vuejs-accessibility has no such rule. no-static-element-interactions
+      // covers the same intent: it flags click/key handlers on non-interactive elements,
+      // which is the underlying anti-pattern that role="button" on a <div> exemplifies.
+      'vuejs-accessibility/no-static-element-interactions': 'error',
+      'vuejs-accessibility/interactive-supports-focus': 'error',
       'vuejs-accessibility/label-has-for': ['error', { required: { some: ['nesting', 'id'] } }],
       'vuejs-accessibility/form-control-has-label': 'error',
       'vuejs-accessibility/anchor-has-content': 'error',
@@ -164,7 +184,11 @@ export default [
       // ---- General TS ----
       'vue/multi-word-component-names': 'off',
       '@typescript-eslint/consistent-type-imports': ['warn', { prefer: 'type-imports' }],
-      '@typescript-eslint/no-unused-vars': ['warn', { argsIgnorePattern: '^_' }],
+      '@typescript-eslint/no-unused-vars': ['warn', {
+        argsIgnorePattern: '^_',
+        varsIgnorePattern: '^_',
+        caughtErrorsIgnorePattern: '^_',
+      }],
     },
   },
 

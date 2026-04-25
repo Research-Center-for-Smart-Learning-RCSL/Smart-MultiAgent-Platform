@@ -43,6 +43,15 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         # Operator tooling + browser-driven reports are exempt: rate-limiting
         # them would either break monitoring (healthz/readyz/metrics) or make
         # anon CSP violation reports DoS the whole 'anon' OTHER bucket.
+        #
+        # /readyz stays exempt despite the audit's 2.18 advisory. Rationale:
+        # 1) The 2-second result cache in readyz._load_results already bounds
+        #    fan-out to <=1/sec/process — DoS amplification is already mitigated.
+        # 2) Bucketing /readyz forces a Redis hop in the middleware. If Redis
+        #    is the down dependency, rate-limit-check would fail FIRST and
+        #    return 500 instead of letting /readyz return a clean 503 with
+        #    `dependencies.redis == "down"` — that's a regression for the
+        #    operator dashboard, not a fix.
         path = request.url.path
         if path in ("/healthz", "/readyz", "/metrics", "/api/csp-report"):
             return await call_next(request)

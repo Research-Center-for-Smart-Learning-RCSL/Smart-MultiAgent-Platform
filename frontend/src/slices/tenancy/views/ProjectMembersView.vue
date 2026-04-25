@@ -55,12 +55,18 @@ onMounted(load)
   <main>
     <h1>{{ $t('tenancy.members.title') }}</h1>
     <form @submit.prevent="invite">
-      <input
-        v-model="inviteEmail"
-        type="email"
-        required
+      <label>
+        {{ $t('tenancy.members.inviteLabel') }}
+        <input
+          v-model="inviteEmail"
+          type="email"
+          required
+        >
+      </label>
+      <select
+        v-model="inviteRole"
+        :aria-label="$t('tenancy.members.role')"
       >
-      <select v-model="inviteRole">
         <option value="member">
           {{ $t('tenancy.members.roleMember') }}
         </option>

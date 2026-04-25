@@ -18,10 +18,33 @@ import sqlalchemy as sa
 from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from contexts.agents.infrastructure.tables import agents as agents_tbl
+from contexts.conversation.infrastructure.tables import chatrooms as chatrooms_tbl
+from contexts.identity.infrastructure.tables import (
+    email_verify_tokens as email_verify_tokens_tbl,
+    password_reset_tokens as password_reset_tokens_tbl,
+)
+from contexts.tenancy.infrastructure.tables import (
+    orgs as orgs_tbl,
+    projects as projects_tbl,
+)
+from contexts.workflow.infrastructure.tables import workflows as workflows_tbl
 from shared_kernel import audit
 from shared_kernel.auth.clients import now
 from shared_kernel.db.session import get_sessionmaker
 from shared_kernel.storage import get_minio_client
+
+_SOFT_DELETE_TABLES: tuple[sa.Table, ...] = (
+    orgs_tbl,
+    projects_tbl,
+    agents_tbl,
+    workflows_tbl,
+    chatrooms_tbl,
+)
+_TOKEN_TABLES: tuple[sa.Table, ...] = (
+    email_verify_tokens_tbl,
+    password_reset_tokens_tbl,
+)
 
 
 async def _emit_summary(
@@ -161,14 +184,18 @@ async def _rollup_key_usage_events(session: AsyncSession) -> int:
 async def _purge_soft_deleted_tenancy(session: AsyncSession) -> int:
     cutoff = now() - timedelta(days=60)
     total = 0
-    for tbl in ("orgs", "projects", "agents", "workflows", "chatrooms"):
+    for tbl in _SOFT_DELETE_TABLES:
+        batch = (
+            sa.select(tbl.c.id)
+            .where(tbl.c.deleted_at.is_not(None))
+            .where(tbl.c.deleted_at < cutoff)
+            .limit(200)
+        )
         result = await session.execute(
-            sa.text(
-                f"DELETE FROM {tbl} WHERE deleted_at IS NOT NULL "
-                f"AND deleted_at < :cutoff "
-                f"AND id IN (SELECT id FROM {tbl} WHERE deleted_at IS NOT NULL "
-                f"AND deleted_at < :cutoff LIMIT 200)"
-            ).bindparams(cutoff=cutoff)
+            sa.delete(tbl)
+            .where(tbl.c.deleted_at.is_not(None))
+            .where(tbl.c.deleted_at < cutoff)
+            .where(tbl.c.id.in_(batch))
         )
         total += result.rowcount or 0
     await _emit_summary(session, "retention.soft_deleted.swept", total)
@@ -214,9 +241,9 @@ async def _expire_approvals(session: AsyncSession) -> int:
 
 async def _purge_expired_tokens(session: AsyncSession) -> int:
     total = 0
-    for tbl in ("email_verify_tokens", "password_reset_tokens"):
+    for tbl in _TOKEN_TABLES:
         result = await session.execute(
-            sa.text(f"DELETE FROM {tbl} WHERE expires_at < now()")
+            sa.delete(tbl).where(tbl.c.expires_at < sa.func.now())
         )
         total += result.rowcount or 0
     await _emit_summary(session, "retention.tokens.swept", total)
@@ -267,31 +294,59 @@ async def _close_idle_impersonations(session: AsyncSession) -> int:
 
 
 async def _purge_exports_bucket(session: AsyncSession) -> int:
-    """Delete MinIO export objects older than 24 h (§21.5)."""
+    """Delete MinIO export objects older than 24 h (§21.5).
+
+    Per-object delete is retried with exponential backoff (3 attempts, base 0.5 s)
+    so a transient network blip doesn't strand objects until the next sweep.
+    """
+    import time as _time
+
     mc = get_minio_client()
     cutoff = now()
     cutoff_ts = (cutoff - timedelta(hours=24)).timestamp()
 
-    def _sweep() -> int:
+    def _sweep() -> tuple[int, int]:
         removed = 0
+        failed = 0
         try:
-            for obj in mc.list_objects_sync(mc.exports_bucket):
-                lm = obj.last_modified
-                if lm is None:
-                    continue
-                if lm.timestamp() < cutoff_ts:
-                    try:
-                        mc.remove_object_sync(mc.exports_bucket, obj.object_name)
-                        removed += 1
-                    except Exception:  # noqa: BLE001 — best-effort per object
-                        pass
-        except Exception:  # noqa: BLE001 — bucket may not exist yet
-            pass
-        return removed
+            objects = mc.list_objects_sync(mc.exports_bucket)
+        except Exception:
+            logger.bind(bucket=mc.exports_bucket).exception(
+                "exports_bucket sweep: list_objects failed"
+            )
+            return (0, 0)
 
-    count = await asyncio.to_thread(_sweep)
-    await _emit_summary(session, "retention.exports_bucket.swept", count)
-    return count
+        for obj in objects:
+            lm = obj.last_modified
+            if lm is None:
+                continue
+            if lm.timestamp() >= cutoff_ts:
+                continue
+
+            for attempt in range(3):
+                try:
+                    mc.remove_object_sync(mc.exports_bucket, obj.object_name)
+                    removed += 1
+                    break
+                except Exception as exc:  # noqa: BLE001
+                    if attempt == 2:
+                        failed += 1
+                        logger.bind(
+                            bucket=mc.exports_bucket,
+                            object_name=obj.object_name,
+                            error=str(exc),
+                        ).warning("exports_bucket sweep: remove failed after 3 attempts")
+                    else:
+                        _time.sleep(0.5 * (2 ** attempt))
+        return (removed, failed)
+
+    removed, failed = await asyncio.to_thread(_sweep)
+    if failed:
+        logger.bind(removed=removed, failed=failed).warning(
+            f"exports_bucket sweep: {failed} objects could not be removed"
+        )
+    await _emit_summary(session, "retention.exports_bucket.swept", removed)
+    return removed
 
 
 async def _sweep_instructions_chains(session: AsyncSession) -> int:
@@ -366,6 +421,7 @@ async def retention_sweep(ctx: dict[str, Any]) -> dict[str, int]:
     """Master retention cron — runs all policies in sequence."""
     sm = get_sessionmaker()
     report: dict[str, int] = {}
+    failed: list[str] = []
     for name, func in _POLICIES:
         try:
             async with sm() as session:
@@ -377,9 +433,18 @@ async def retention_sweep(ctx: dict[str, Any]) -> dict[str, int]:
                 f"retention policy {name} failed"
             )
             report[name] = -1
+            failed.append(name)
     total = sum(v for v in report.values() if v > 0)
-    logger.bind(event="retention_sweep_done", report=report).info(
-        f"retention sweep complete — {total} total rows affected"
+    logger.bind(
+        event="retention_sweep_done",
+        report=report,
+        succeeded=len(_POLICIES) - len(failed),
+        failed_count=len(failed),
+        failed_policies=failed,
+    ).info(
+        f"retention sweep complete — {total} rows affected, "
+        f"{len(failed)}/{len(_POLICIES)} policies failed"
+        + (f" ({', '.join(failed)})" if failed else "")
     )
     _ = ctx
     return report

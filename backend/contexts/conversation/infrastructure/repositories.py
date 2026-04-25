@@ -6,7 +6,7 @@ import base64
 import secrets
 import uuid
 from collections.abc import Sequence
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 import sqlalchemy as sa
@@ -481,16 +481,23 @@ class MessageRepository:
         message_id: uuid.UUID,
         expected_version: int,
         new_content_md: str,
+        max_age: timedelta | None = None,
     ) -> Message:
+        conditions = [
+            t.messages.c.id == message_id,
+            t.messages.c.version == expected_version,
+            t.messages.c.deleted_at.is_(None),
+        ]
+        if max_age is not None:
+            # Atomic guard against the self-edit-window race: re-check the
+            # window using DB clock inside the same UPDATE so a transaction
+            # delayed past the deadline cannot succeed.
+            conditions.append(
+                t.messages.c.created_at >= sa.func.now() - max_age,
+            )
         stmt = (
             t.messages.update()
-            .where(
-                sa.and_(
-                    t.messages.c.id == message_id,
-                    t.messages.c.version == expected_version,
-                    t.messages.c.deleted_at.is_(None),
-                )
-            )
+            .where(sa.and_(*conditions))
             .values(
                 content_md=new_content_md,
                 edited_at=now(),

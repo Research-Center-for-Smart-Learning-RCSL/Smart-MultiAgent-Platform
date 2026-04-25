@@ -49,12 +49,14 @@ onMounted(load)
     <template v-else>
       <p>{{ $t('tenancy.transfer.none') }}</p>
       <form @submit.prevent="initiate">
-        <label>{{ $t('tenancy.transfer.targetLabel') }}</label>
-        <input
-          v-model="targetUserId"
-          :placeholder="$t('tenancy.transfer.targetPlaceholder')"
-          required
-        >
+        <label>
+          {{ $t('tenancy.transfer.targetLabel') }}
+          <input
+            v-model="targetUserId"
+            :placeholder="$t('tenancy.transfer.targetPlaceholder')"
+            required
+          >
+        </label>
         <button type="submit">
           {{ $t('tenancy.transfer.initiate') }}
         </button>

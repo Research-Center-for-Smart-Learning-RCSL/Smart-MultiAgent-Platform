@@ -66,3 +66,49 @@ def test_readyz_problem_json_on_failure(fake_probes_one_down: TestClient) -> Non
     assert "redis" in body["detail"]
     assert body["dependencies"]["redis"].startswith("down:")
     assert body["dependencies"]["postgres"] == "ok"
+
+
+def test_readyz_caches_results_within_window(client: TestClient) -> None:
+    """Two consecutive /readyz hits within 2 s share one fan-out (O2.02)."""
+    import app.api.v1.readyz as readyz_module
+    from shared_kernel.infra.probes.base import ProbeResult
+
+    readyz_module._cached = None
+    call_count = {"n": 0}
+
+    async def _counting_probe_all(_settings):
+        call_count["n"] += 1
+        return [ProbeResult(n, True) for n in (
+            "postgres", "redis", "qdrant", "neo4j", "minio", "vault",
+        )]
+
+    with patch("app.api.v1.readyz.probe_all", new=_counting_probe_all):
+        client.get("/readyz")
+        client.get("/readyz")
+        client.get("/readyz")
+
+    readyz_module._cached = None
+    # Three HTTP requests, but probe_all is fanned out only on the first one.
+    assert call_count["n"] == 1
+
+
+def test_readyz_logs_failed_dependencies(
+    fake_probes_one_down: TestClient, caplog: pytest.LogCaptureFixture,
+) -> None:
+    """2.22: /readyz failures should be logged so operators see them
+    without having to curl /readyz themselves."""
+    import logging
+
+    # loguru → caplog bridge (loguru does not ship with caplog by default).
+    from loguru import logger
+    handler_id = logger.add(caplog.handler, format="{message}", level="WARNING")
+    try:
+        with caplog.at_level(logging.WARNING):
+            r = fake_probes_one_down.get("/readyz")
+        assert r.status_code == 503
+        assert any(
+            "redis" in record.message and "503" in record.message
+            for record in caplog.records
+        )
+    finally:
+        logger.remove(handler_id)
