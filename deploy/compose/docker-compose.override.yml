@@ -1,6 +1,7 @@
 # Local-dev overrides: source-mount + reload, non-prod log level.
 services:
   backend-web:
+    container_name: smap_backend_web
     command: uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
     environment:
       SMAP_APP_ENV: dev
@@ -11,6 +12,7 @@ services:
       - "8000:8000"
 
   backend-worker:
+    container_name: smap_backend_worker
     environment:
       SMAP_APP_ENV: dev
     volumes:
