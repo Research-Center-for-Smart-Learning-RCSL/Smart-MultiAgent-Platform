@@ -102,8 +102,8 @@ backend/
     agents/          Agent configs, MCP tools
     knowledge/       RAG configs, Graph RAG configs
     conversation/    Workspaces, chat rooms, messages, attachments, guests, exports
-    workflow/        Workflows, workflow runs, approvals
-    orchestration/   A2A streams, wakeup snapshots
+    workflow/        Workflows, workflow runs, SEL v1 execution
+    orchestration/   A2A streams, wakeup configs, instruct chains, approvals, sub-agent inheritance
     audit/           Append-only audit log
     notification/    In-app user notifications
   shared_kernel/

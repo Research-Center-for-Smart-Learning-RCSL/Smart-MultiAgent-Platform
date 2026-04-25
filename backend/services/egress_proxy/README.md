@@ -31,8 +31,8 @@ endpoint sandbox containers can reach.
 
 ## Running
 
-Production launches with `uvicorn services.egress_proxy.app:create_app(...)`
-under the same supervisor as the API workers. See `operations.md §2.1` for
+Production runs as the `egress-proxy` Docker service via
+`uvicorn services.egress_proxy.main:app`. See `operations.md §2.1` for
 deployment topology.
 
 ## Failure modes

@@ -102,10 +102,12 @@ This runs `python -m smap.bootstrap all`, which is idempotent:
 
 1. Loads Vault policies (`smap-backend`, `smap-rotation`)
 2. Creates AppRoles and provisions `secret_id` files
-3. Creates MinIO buckets (`chat-uploads`, `rag-sources`, `exports`) with lifecycle rules
-4. Initializes Qdrant collections
-5. Runs `alembic upgrade head` (26 migrations, A–I)
-6. Creates the first admin account (prints credentials once — save them)
+3. Creates Postgres extensions (`pgvector`, `pg_cron`) via superuser init SQL
+4. Creates MinIO buckets (`chat-uploads`, `rag-sources`, `exports`) with lifecycle rules
+5. Creates Neo4j constraints and indexes
+6. Initializes Qdrant collections
+7. Runs `alembic upgrade head` (27 migration files, 0000–0026, phases A–I)
+8. Creates the first admin account (prints credentials once — save them)
 
 ---
 
