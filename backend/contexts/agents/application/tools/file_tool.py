@@ -14,10 +14,11 @@ import uuid
 from dataclasses import dataclass
 from typing import Literal
 
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from contexts.agents.application.mcp_ports import SandboxRunner
 from contexts.agents.domain.mcp import ToolCallResult
 from shared_kernel import audit
-from sqlalchemy.ext.asyncio import AsyncSession
 
 _ROOT = "/workspace"
 _MAX_WRITE_BYTES = 10 * 1024 * 1024  # 10 MB per op — volume quota still wins.
@@ -55,7 +56,9 @@ class FileTool:
     async def list_(self, path: str = "/") -> ToolCallResult:
         safe = _safe_relpath(path)
         result = await self.runner.run_file_op(
-            agent_id=self.agent_id, op="list", path=safe,
+            agent_id=self.agent_id,
+            op="list",
+            path=safe,
         )
         await self._audit("list", safe, result.ok)
         return result
@@ -63,21 +66,24 @@ class FileTool:
     async def read(self, path: str) -> ToolCallResult:
         safe = _safe_relpath(path)
         result = await self.runner.run_file_op(
-            agent_id=self.agent_id, op="read", path=safe,
+            agent_id=self.agent_id,
+            op="read",
+            path=safe,
         )
         await self._audit("read", safe, result.ok)
         return result
 
     async def write(self, path: str, data: bytes) -> ToolCallResult:
-        if not isinstance(data, (bytes, bytearray)):
+        if not isinstance(data, bytes | bytearray):
             raise TypeError("data must be bytes")
         if len(data) > _MAX_WRITE_BYTES:
-            raise ValueError(
-                f"write exceeds {_MAX_WRITE_BYTES} bytes ({len(data)} bytes)"
-            )
+            raise ValueError(f"write exceeds {_MAX_WRITE_BYTES} bytes ({len(data)} bytes)")
         safe = _safe_relpath(path)
         result = await self.runner.run_file_op(
-            agent_id=self.agent_id, op="write", path=safe, data=bytes(data),
+            agent_id=self.agent_id,
+            op="write",
+            path=safe,
+            data=bytes(data),
         )
         await self._audit("write", safe, result.ok)
         return result

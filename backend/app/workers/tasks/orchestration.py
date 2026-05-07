@@ -21,7 +21,10 @@ from shared_kernel.db.session import async_session
 
 
 async def wakeup_agent(
-    ctx: dict[str, Any], agent_id: str, room_id: str, trigger: str = "every_n_messages",
+    ctx: dict[str, Any],
+    agent_id: str,
+    room_id: str,
+    trigger: str = "every_n_messages",
 ) -> str:
     """Fire a wake-up for a single agent in a single room.
 
@@ -62,13 +65,6 @@ async def evaluate_silence(ctx: dict[str, Any]) -> str:
     Runs every 30 seconds via Arq cron. For each agent+room pair where
     the silence trigger fires, enqueues a ``wakeup_agent`` job.
     """
-    from arq import ArqRedis
-
-    from contexts.agents.interfaces.facade import AgentsFacade
-    from contexts.orchestration.application.wakeup_service import WakeupService
-    from contexts.orchestration.domain.models import WakeupConfig
-    from shared_kernel import audit
-    from shared_kernel.auth.clients import get_redis
 
     # In production, this would iterate over rooms with bound agents.
     # For now, the task structure is in place; the room-agent binding
@@ -98,9 +94,7 @@ async def wakeup_refresh(ctx: dict[str, Any]) -> str:
                 if await svc.refresh_wakeup_config(agent.id):
                     refreshed += 1
             except Exception:
-                logger.bind(agent_id=str(agent.id)).exception(
-                    "wakeup refresh failed"
-                )
+                logger.bind(agent_id=str(agent.id)).exception("wakeup refresh failed")
         await db.commit()
 
     logger.bind(event="wakeup_refresh_done", refreshed=refreshed).info(
@@ -139,9 +133,7 @@ def make_dlq_audit_callback() -> Callable[[uuid.UUID, str, str, int], Awaitable[
                 )
                 await db.commit()
         except Exception:
-            logger.bind(agent_id=str(agent_id)).exception(
-                "a2a.dlq audit failed"
-            )
+            logger.bind(agent_id=str(agent_id)).exception("a2a.dlq audit failed")
 
     return _on_dlq
 

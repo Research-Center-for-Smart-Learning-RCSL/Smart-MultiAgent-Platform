@@ -54,7 +54,9 @@ async def list_bans(
     bans = await facade.list_ip_bans()
     return [
         IpBanOut(
-            id=b.id, cidr=b.cidr, reason=b.reason,
+            id=b.id,
+            cidr=b.cidr,
+            reason=b.reason,
             banned_at=b.banned_at.isoformat(),
             created_by_user_id=b.created_by_user_id,
         )
@@ -73,17 +75,23 @@ async def add_ban(
         ipaddress.ip_network(body.cidr, strict=False)
     except ValueError as exc:
         raise HTTPException(
-            status_code=422, detail=f"invalid CIDR: {body.cidr!r}",
+            status_code=422,
+            detail=f"invalid CIDR: {body.cidr!r}",
         ) from exc
     service = IpBanService(db)
     created = await service.add(
-        cidr=body.cidr, reason=body.reason, admin_user_id=admin.user_id,
-        actor_ip=ctx.actor_ip, request_id=ctx.request_id,
+        cidr=body.cidr,
+        reason=body.reason,
+        admin_user_id=admin.user_id,
+        actor_ip=ctx.actor_ip,
+        request_id=ctx.request_id,
     )
     # Invalidate the middleware cache so the next request sees the new CIDR.
     ip_ban_cache.invalidate()
     return IpBanOut(
-        id=created.id, cidr=created.cidr, reason=created.reason,
+        id=created.id,
+        cidr=created.cidr,
+        reason=created.reason,
         banned_at=created.banned_at.isoformat(),
         created_by_user_id=created.created_by_user_id,
     )
@@ -98,8 +106,10 @@ async def remove_ban(
 ) -> None:
     service = IpBanService(db)
     await service.remove(
-        ban_id=ban_id, admin_user_id=admin.user_id,
-        actor_ip=ctx.actor_ip, request_id=ctx.request_id,
+        ban_id=ban_id,
+        admin_user_id=admin.user_id,
+        actor_ip=ctx.actor_ip,
+        request_id=ctx.request_id,
     )
     ip_ban_cache.invalidate()
 

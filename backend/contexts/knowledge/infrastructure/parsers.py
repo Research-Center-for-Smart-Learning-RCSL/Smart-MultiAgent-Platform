@@ -15,10 +15,10 @@ from __future__ import annotations
 
 import io
 import shutil
-import subprocess  # noqa: S404 — invocation is fully controlled below
+import subprocess  # — invocation is fully controlled below
 import tempfile
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable
 
 __all__ = [
     "MIME_TO_PARSER",
@@ -62,14 +62,14 @@ def parse_pdf(data: bytes) -> str:
 
     try:
         reader = pypdf.PdfReader(io.BytesIO(data))
-    except Exception as exc:  # noqa: BLE001 — pypdf raises many error types
+    except Exception as exc:  # — pypdf raises many error types
         raise ParserError(f"pdf parse failed: {exc}") from exc
 
     pages: list[str] = []
     for page in reader.pages:
         try:
             pages.append(page.extract_text() or "")
-        except Exception:  # noqa: BLE001
+        except Exception:
             pages.append("")
     text = "\n\n".join(p.strip() for p in pages if p.strip())
     if text:
@@ -96,18 +96,22 @@ def _tesseract_ocr(pdf_bytes: bytes) -> str:
         pdf_path = base / "src.pdf"
         pdf_path.write_bytes(pdf_bytes)
         try:
-            subprocess.run(  # noqa: S603 — fully-fixed argv
-                ["pdftoppm", "-r", "200", "-png", str(pdf_path), str(base / "page")],
-                check=True, capture_output=True, timeout=120,
+            subprocess.run(
+                ["pdftoppm", "-r", "200", "-png", str(pdf_path), str(base / "page")],  # noqa: S603, S607
+                check=True,
+                capture_output=True,
+                timeout=120,
             )
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
             return ""
         pages_text: list[str] = []
         for img in sorted(base.glob("page-*.png")):
             try:
-                r = subprocess.run(  # noqa: S603
-                    ["tesseract", str(img), "-"],
-                    check=True, capture_output=True, timeout=120,
+                r = subprocess.run(
+                    ["tesseract", str(img), "-"],  # noqa: S603, S607
+                    check=True,
+                    capture_output=True,
+                    timeout=120,
                 )
                 pages_text.append(r.stdout.decode("utf-8", errors="replace"))
             except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
@@ -117,13 +121,13 @@ def _tesseract_ocr(pdf_bytes: bytes) -> str:
 
 def parse_docx(data: bytes) -> str:
     try:
-        import docx  # type: ignore[import-not-found]
+        import docx
     except ImportError as exc:
         raise ParserError("python-docx not installed") from exc
 
     try:
         doc = docx.Document(io.BytesIO(data))
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         raise ParserError(f"docx parse failed: {exc}") from exc
 
     parts: list[str] = []

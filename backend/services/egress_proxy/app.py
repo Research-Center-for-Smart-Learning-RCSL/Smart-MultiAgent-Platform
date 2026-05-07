@@ -39,13 +39,15 @@ _log = logging.getLogger("smap.egress_proxy")
 _MAX_BODY_LOG_BYTES = 2048
 _PROJECT_ID_HEADER = "x-smap-project-id"
 _HMAC_HEADER = "x-smap-egress-hmac"
-_STRIPPED_INBOUND_HEADERS: frozenset[str] = frozenset({
-    "authorization",
-    "proxy-authorization",
-    "cookie",
-    _HMAC_HEADER,
-    _PROJECT_ID_HEADER,
-})
+_STRIPPED_INBOUND_HEADERS: frozenset[str] = frozenset(
+    {
+        "authorization",
+        "proxy-authorization",
+        "cookie",
+        _HMAC_HEADER,
+        _PROJECT_ID_HEADER,
+    }
+)
 
 
 _DEFAULT_RESPONSE_CAP_BYTES = 16 * 1024 * 1024  # 16 MiB; see EgressProxySettings.
@@ -54,7 +56,7 @@ _DEFAULT_RESPONSE_CAP_BYTES = 16 * 1024 * 1024  # 16 MiB; see EgressProxySetting
 @dataclass(frozen=True, slots=True)
 class EgressProxySettings:
     shared_secret: bytes
-    allowlist_checker: "AllowlistChecker"
+    allowlist_checker: AllowlistChecker
     upstream_timeout_s: float = 20.0
     # Hard cap on bytes streamed back per upstream response. Sandboxed agents
     # otherwise OOM the proxy by hitting an unbounded endpoint. 16 MiB is high
@@ -85,7 +87,9 @@ def _truncate(raw: bytes) -> str:
 
 def _verify_hmac(*, secret: bytes, project_id: str, signature: str) -> bool:
     expected = hmac.new(
-        secret, project_id.encode("ascii"), sha256,
+        secret,
+        project_id.encode("ascii"),
+        sha256,
     ).hexdigest()
     return hmac.compare_digest(expected, signature)
 
@@ -110,7 +114,7 @@ def _problem(status_code: int, slug: str, detail: str) -> Response:
         "status": status_code,
         "detail": detail,
     }
-    import json as _json  # noqa: PLC0415
+    import json as _json
 
     return Response(
         content=_json.dumps(body),
@@ -130,7 +134,7 @@ def create_app(settings: EgressProxySettings) -> FastAPI:
         "/{full_path:path}",
         methods=["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"],
     )
-    async def forward(full_path: str, request: Request) -> Response:  # noqa: ARG001
+    async def forward(full_path: str, request: Request) -> Response:
         # 1. Authenticate the inbound sandbox request.
         raw_pid = request.headers.get(_PROJECT_ID_HEADER, "")
         signature = request.headers.get(_HMAC_HEADER, "")
@@ -138,7 +142,8 @@ def create_app(settings: EgressProxySettings) -> FastAPI:
             return _problem(401, "mcp-egress-denied", "missing project id / hmac")
         if not _verify_hmac(
             secret=settings.shared_secret,
-            project_id=raw_pid, signature=signature,
+            project_id=raw_pid,
+            signature=signature,
         ):
             return _problem(401, "mcp-egress-denied", "hmac mismatch")
         try:
@@ -166,25 +171,31 @@ def create_app(settings: EgressProxySettings) -> FastAPI:
         if any(is_blocked_ip(ip) for ip in ips):
             _log.warning(
                 "egress_blocked project=%s host=%s ips=%s",
-                project_id, host, ips,
+                project_id,
+                host,
+                ips,
             )
             return _problem(
-                403, "mcp-egress-denied",
+                403,
+                "mcp-egress-denied",
                 f"blocked host {host} resolved to disallowed IP",
             )
         screened_ips = frozenset(ips)
 
         # 4. Allowlist check (R12.02).
         allowed = await settings.allowlist_checker.is_allowed(
-            project_id=project_id, hostname=host.lower(),
+            project_id=project_id,
+            hostname=host.lower(),
         )
         if not allowed:
             _log.warning(
                 "egress_blocked_allowlist project=%s host=%s",
-                project_id, host,
+                project_id,
+                host,
             )
             return _problem(
-                403, "mcp-egress-denied",
+                403,
+                "mcp-egress-denied",
                 f"host {host} not on project allowlist",
             )
 
@@ -207,37 +218,48 @@ def create_app(settings: EgressProxySettings) -> FastAPI:
             return _problem(502, "mcp-egress-denied", f"dns failure for {host}")
         if not set(recheck_ips).issubset(screened_ips):
             _log.warning(
-                "egress_blocked_rebind project=%s host=%s "
-                "first=%s second=%s",
-                project_id, host, list(screened_ips), recheck_ips,
+                "egress_blocked_rebind project=%s host=%s " "first=%s second=%s",
+                project_id,
+                host,
+                list(screened_ips),
+                recheck_ips,
             )
             return _problem(
-                403, "mcp-egress-denied",
+                403,
+                "mcp-egress-denied",
                 f"dns rebinding detected for {host}",
             )
         if any(is_blocked_ip(ip) for ip in recheck_ips):
             return _problem(
-                403, "mcp-egress-denied",
+                403,
+                "mcp-egress-denied",
                 f"blocked host {host} resolved to disallowed IP (rebind)",
             )
 
         # 7. Forward via httpx with a streaming response body and per-call
         #    byte cap (see EgressProxySettings.response_max_bytes).
-        import httpx  # noqa: PLC0415
+        import httpx
 
         body = await request.body()
         max_bytes = settings.response_max_bytes
         hop_by_hop = {
-            "connection", "keep-alive", "proxy-authenticate",
-            "proxy-authorization", "te", "trailer",
-            "transfer-encoding", "upgrade",
+            "connection",
+            "keep-alive",
+            "proxy-authenticate",
+            "proxy-authorization",
+            "te",
+            "trailer",
+            "transfer-encoding",
+            "upgrade",
             # We always re-encode as a buffered Response, so drop the upstream
             # length and let starlette set Content-Length from the buffer.
-            "content-length", "content-encoding",
+            "content-length",
+            "content-encoding",
         }
         try:
             async with httpx.AsyncClient(
-                timeout=settings.upstream_timeout_s, follow_redirects=False,
+                timeout=settings.upstream_timeout_s,
+                follow_redirects=False,
             ) as client:
                 req = client.build_request(
                     method=request.method,
@@ -252,9 +274,9 @@ def create_app(settings: EgressProxySettings) -> FastAPI:
                         try:
                             if int(declared) > max_bytes:
                                 return _problem(
-                                    502, "mcp-egress-denied",
-                                    f"upstream response too large "
-                                    f"({declared} > {max_bytes})",
+                                    502,
+                                    "mcp-egress-denied",
+                                    f"upstream response too large " f"({declared} > {max_bytes})",
                                 )
                         except ValueError:
                             pass
@@ -275,7 +297,8 @@ def create_app(settings: EgressProxySettings) -> FastAPI:
                         chunks.append(chunk)
                     if truncated:
                         return _problem(
-                            502, "mcp-egress-denied",
+                            502,
+                            "mcp-egress-denied",
                             f"upstream response exceeded cap of {max_bytes} bytes",
                         )
                     upstream_body = b"".join(chunks)
@@ -284,9 +307,7 @@ def create_app(settings: EgressProxySettings) -> FastAPI:
                     # filter out hop-by-hop entries below before handing
                     # them to Starlette. Multi-valued headers (Set-Cookie)
                     # are preserved via Response.raw_headers below.
-                    upstream_multi_headers: list[tuple[str, str]] = list(
-                        upstream.headers.multi_items()
-                    )
+                    upstream_multi_headers: list[tuple[str, str]] = list(upstream.headers.multi_items())
                     upstream_content_type = upstream.headers.get("content-type")
                 finally:
                     await upstream.aclose()
@@ -294,8 +315,7 @@ def create_app(settings: EgressProxySettings) -> FastAPI:
             return _problem(502, "mcp-egress-denied", f"upstream error: {exc}")
 
         _log.info(
-            "egress_forward project=%s host=%s method=%s path=%s status=%s "
-            "req_body=%r resp_body=%r",
+            "egress_forward project=%s host=%s method=%s path=%s status=%s " "req_body=%r resp_body=%r",
             project_id,
             host,
             request.method,

@@ -75,9 +75,7 @@ class WorkflowFacade:
     async def get_run_project_id(self, run_id: uuid.UUID) -> uuid.UUID | None:
         row = (
             await self._db.execute(
-                sa.select(_workflow_runs_table.c.project_id).where(
-                    _workflow_runs_table.c.id == run_id
-                )
+                sa.select(_workflow_runs_table.c.project_id).where(_workflow_runs_table.c.id == run_id)
             )
         ).first()
         return row.project_id if row else None

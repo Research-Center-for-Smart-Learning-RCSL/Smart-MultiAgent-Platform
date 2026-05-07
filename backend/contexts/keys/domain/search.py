@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
-from contexts.keys.infrastructure.probes.base import ProbeStatus
+from contexts.keys.domain.probe_status import ProbeStatus
 
 
 class SearchProvider(str, enum.Enum):

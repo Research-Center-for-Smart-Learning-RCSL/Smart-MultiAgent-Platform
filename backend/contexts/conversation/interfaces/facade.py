@@ -29,17 +29,20 @@ class ConversationFacade:
         self._guests = ChatroomGuestRepository(db)
 
     async def get_workspace(
-        self, workspace_id: uuid.UUID,
+        self,
+        workspace_id: uuid.UUID,
     ) -> Workspace | None:
         return await self._workspaces.get(workspace_id)
 
     async def list_workspaces(
-        self, project_id: uuid.UUID,
+        self,
+        project_id: uuid.UUID,
     ) -> Sequence[Workspace]:
         return await self._workspaces.list_for_project(project_id)
 
     async def get_chatroom(
-        self, chatroom_id: uuid.UUID,
+        self,
+        chatroom_id: uuid.UUID,
     ) -> Chatroom | None:
         return await self._rooms.get(chatroom_id)
 
@@ -47,10 +50,14 @@ class ConversationFacade:
         return await self._rooms.get_by_guest_token(token)
 
     async def is_chatroom_guest(
-        self, *, chatroom_id: uuid.UUID, user_id: uuid.UUID,
+        self,
+        *,
+        chatroom_id: uuid.UUID,
+        user_id: uuid.UUID,
     ) -> bool:
         return await self._guests.is_guest(
-            chatroom_id=chatroom_id, user_id=user_id,
+            chatroom_id=chatroom_id,
+            user_id=user_id,
         )
 
     async def get_message(self, message_id: uuid.UUID) -> Message | None:

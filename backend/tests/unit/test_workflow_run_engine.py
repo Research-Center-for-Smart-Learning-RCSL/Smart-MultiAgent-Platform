@@ -21,7 +21,6 @@ from contexts.workflow.domain.models import (
     StepState,
 )
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -178,9 +177,11 @@ async def test_on_error_retry_exhausted_emits_warning() -> None:
     mock_redis = AsyncMock()
     mock_redis.get.return_value = b"1"  # at the limit
 
-    with patch("shared_kernel.auth.clients.get_redis", return_value=mock_redis):
-        with patch("contexts.workflow.application.run_engine.logger") as mock_log:
-            await engine._apply_on_error(ctx, node, _failed_outcome(), uuid.uuid4())
+    with (
+        patch("shared_kernel.auth.clients.get_redis", return_value=mock_redis),
+        patch("contexts.workflow.application.run_engine.logger") as mock_log,
+    ):
+        await engine._apply_on_error(ctx, node, _failed_outcome(), uuid.uuid4())
 
     mock_log.warning.assert_called()
     first_arg = mock_log.warning.call_args.args[0]
@@ -194,7 +195,7 @@ async def test_on_error_retry_exhausted_emits_warning() -> None:
 
 async def test_on_error_fallback_executes_fallback_node() -> None:
     engine = _engine()
-    engine._execute_node = AsyncMock()
+    engine._execute_node = AsyncMock()  # type: ignore[method-assign]
     ctx = _make_ctx()
     node = _make_node(strategy=OnErrorStrategy.FALLBACK, fallback_node_id="fb_node")
 
@@ -237,10 +238,14 @@ async def test_on_error_fallback_no_node_id_emits_warning() -> None:
 
 async def test_advance_from_single_edge_calls_execute_node() -> None:
     engine = _engine()
-    engine._execute_node = AsyncMock()
-    ctx = _make_ctx(_def_with_edges([
-        {"id": "e1", "from": "n1", "to": "n2", "from_port": "default"},
-    ]))
+    engine._execute_node = AsyncMock()  # type: ignore[method-assign]
+    ctx = _make_ctx(
+        _def_with_edges(
+            [
+                {"id": "e1", "from": "n1", "to": "n2", "from_port": "default"},
+            ]
+        )
+    )
 
     await engine._advance_from(ctx, "n1")
 
@@ -250,11 +255,15 @@ async def test_advance_from_single_edge_calls_execute_node() -> None:
 
 async def test_advance_from_multiple_edges_enqueues_parallel_tasks() -> None:
     engine = _engine()
-    engine._execute_node = AsyncMock()
-    ctx = _make_ctx(_def_with_edges([
-        {"id": "e1", "from": "n1", "to": "n2", "from_port": "default"},
-        {"id": "e2", "from": "n1", "to": "n3", "from_port": "default"},
-    ]))
+    engine._execute_node = AsyncMock()  # type: ignore[method-assign]
+    ctx = _make_ctx(
+        _def_with_edges(
+            [
+                {"id": "e1", "from": "n1", "to": "n2", "from_port": "default"},
+                {"id": "e2", "from": "n1", "to": "n3", "from_port": "default"},
+            ]
+        )
+    )
 
     await engine._advance_from(ctx, "n1")
 
@@ -270,7 +279,7 @@ async def test_advance_from_multiple_edges_enqueues_parallel_tasks() -> None:
 
 async def test_advance_from_no_edges_is_noop() -> None:
     engine = _engine()
-    engine._execute_node = AsyncMock()
+    engine._execute_node = AsyncMock()  # type: ignore[method-assign]
     ctx = _make_ctx(_def_with_edges([]))
 
     await engine._advance_from(ctx, "n1")
@@ -281,11 +290,15 @@ async def test_advance_from_no_edges_is_noop() -> None:
 
 async def test_advance_from_port_filters_non_matching_edges() -> None:
     engine = _engine()
-    engine._execute_node = AsyncMock()
-    ctx = _make_ctx(_def_with_edges([
-        {"id": "e1", "from": "n1", "to": "n2", "from_port": "true"},
-        {"id": "e2", "from": "n1", "to": "n3", "from_port": "false"},
-    ]))
+    engine._execute_node = AsyncMock()  # type: ignore[method-assign]
+    ctx = _make_ctx(
+        _def_with_edges(
+            [
+                {"id": "e1", "from": "n1", "to": "n2", "from_port": "true"},
+                {"id": "e2", "from": "n1", "to": "n3", "from_port": "false"},
+            ]
+        )
+    )
 
     await engine._advance_from(ctx, "n1", port="true")
 
@@ -294,10 +307,14 @@ async def test_advance_from_port_filters_non_matching_edges() -> None:
 
 async def test_advance_from_unrelated_node_edges_ignored() -> None:
     engine = _engine()
-    engine._execute_node = AsyncMock()
-    ctx = _make_ctx(_def_with_edges([
-        {"id": "e1", "from": "other", "to": "n2", "from_port": "default"},
-    ]))
+    engine._execute_node = AsyncMock()  # type: ignore[method-assign]
+    ctx = _make_ctx(
+        _def_with_edges(
+            [
+                {"id": "e1", "from": "other", "to": "n2", "from_port": "default"},
+            ]
+        )
+    )
 
     await engine._advance_from(ctx, "n1")
 
@@ -307,12 +324,16 @@ async def test_advance_from_unrelated_node_edges_ignored() -> None:
 
 async def test_advance_from_three_branches_sets_active_branches() -> None:
     engine = _engine()
-    engine._execute_node = AsyncMock()
-    ctx = _make_ctx(_def_with_edges([
-        {"id": "e1", "from": "n1", "to": "a", "from_port": "default"},
-        {"id": "e2", "from": "n1", "to": "b", "from_port": "default"},
-        {"id": "e3", "from": "n1", "to": "c", "from_port": "default"},
-    ]))
+    engine._execute_node = AsyncMock()  # type: ignore[method-assign]
+    ctx = _make_ctx(
+        _def_with_edges(
+            [
+                {"id": "e1", "from": "n1", "to": "a", "from_port": "default"},
+                {"id": "e2", "from": "n1", "to": "b", "from_port": "default"},
+                {"id": "e3", "from": "n1", "to": "c", "from_port": "default"},
+            ]
+        )
+    )
 
     await engine._advance_from(ctx, "n1")
 

@@ -18,8 +18,7 @@ from shared_kernel import audit
 
 # RFC 1123 hostname form (case-insensitive); caller normalises to lower-case.
 _HOSTNAME_RE = re.compile(
-    r"^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)*"
-    r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
+    r"^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)*" r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
 )
 
 
@@ -35,9 +34,7 @@ class EgressAllowlistService:
         self._db = db
         self._repo = EgressAllowlistRepository(db)
 
-    async def list_for_project(
-        self, project_id: uuid.UUID
-    ) -> Sequence[EgressAllowlistEntry]:
+    async def list_for_project(self, project_id: uuid.UUID) -> Sequence[EgressAllowlistEntry]:
         return await self._repo.list_for_project(project_id)
 
     async def replace(
@@ -111,7 +108,8 @@ class EgressAllowlistService:
     ) -> bool:
         normalised = _normalise(hostname)
         removed = await self._repo.delete(
-            project_id=project_id, hostname=normalised,
+            project_id=project_id,
+            hostname=normalised,
         )
         if removed:
             await audit.emit(

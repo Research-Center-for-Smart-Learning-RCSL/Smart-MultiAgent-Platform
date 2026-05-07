@@ -84,8 +84,8 @@ class MinioSection(BaseSettings):
     # TTLs encoded here so both the bootstrap CLI and tests reference a single
     # source of truth; changing them is a config + Alembic change, never a
     # one-off mutation of the bucket lifecycle via the console.
-    chat_uploads_expiry_days: int = 3       # R13.10
-    exports_expiry_hours: int = 24          # §21.5
+    chat_uploads_expiry_days: int = 3  # R13.10
+    exports_expiry_hours: int = 24  # §21.5
     service_account_name: str = "smap-backend"
 
 
@@ -112,7 +112,7 @@ class JwtSection(BaseSettings):
 
     model_config = SettingsConfigDict(env_prefix="SMAP_JWT_", extra="ignore")
 
-    access_ttl_seconds: int = 15 * 60       # R6.03
+    access_ttl_seconds: int = 15 * 60  # R6.03
     refresh_ttl_seconds: int = 30 * 24 * 3600
     issuer: str = "smap.local"
     audience: str = "smap.api"
@@ -147,7 +147,8 @@ class SecuritySection(BaseSettings):
     csp_report_only: bool = Field(
         default=False,
         validation_alias=AliasChoices(
-            "SMAP_CSP_REPORT_ONLY", "SMAP_SEC_CSP_REPORT_ONLY",
+            "SMAP_CSP_REPORT_ONLY",
+            "SMAP_SEC_CSP_REPORT_ONLY",
         ),
     )
     cors_origins: list[str] = Field(default_factory=list)
@@ -165,7 +166,7 @@ class LoggingSection(BaseSettings):
 
     level: Literal["debug", "info", "warning", "error"] = "info"
     service_name: str = "smap-backend"
-    json: bool = True
+    json: bool = True  # type: ignore[assignment]
 
 
 class LimitsSection(BaseSettings):
@@ -214,29 +215,23 @@ def _check_prod_secrets(s: Settings) -> None:
     if s.app.env != "prod":
         return
     problems: list[str] = []
-    if s.neo4j.password == "neo4j":
+    if s.neo4j.password == "neo4j":  # noqa: S105 — comparing against the dev default
         problems.append("SMAP_NEO4J_PASSWORD is the insecure default 'neo4j'")
     if s.minio.root_access_key == "minioadmin":
         problems.append("SMAP_MINIO_ROOT_ACCESS_KEY is the insecure default 'minioadmin'")
-    if s.minio.root_secret_key == "minioadmin":
+    if s.minio.root_secret_key == "minioadmin":  # noqa: S105 — comparing against the dev default
         problems.append("SMAP_MINIO_ROOT_SECRET_KEY is the insecure default 'minioadmin'")
     # 2.9: treat empty-string and unset as equivalent — both must be falsy in prod.
     if s.vault.dev_token is not None and s.vault.dev_token != "":
         problems.append("SMAP_VAULT_DEV_TOKEN must not be set in production")
     if not (s.vault.role_id and s.vault.secret_id):
-        problems.append(
-            "SMAP_VAULT_ROLE_ID and SMAP_VAULT_SECRET_ID must be set in production"
-        )
+        problems.append("SMAP_VAULT_ROLE_ID and SMAP_VAULT_SECRET_ID must be set in production")
     # 2.10: empty CORS in prod silently lets the auth handler fall back to
     # http://localhost:8080 — refuse to start instead of shipping a broken origin.
     if not s.security.cors_origins:
-        problems.append(
-            "SMAP_SEC_CORS_ORIGINS must contain at least one origin in production"
-        )
+        problems.append("SMAP_SEC_CORS_ORIGINS must contain at least one origin in production")
     if problems:
-        raise ConfigError(
-            "Insecure defaults active in production:\n  - " + "\n  - ".join(problems)
-        )
+        raise ConfigError("Insecure defaults active in production:\n  - " + "\n  - ".join(problems))
 
 
 def _load() -> Settings:

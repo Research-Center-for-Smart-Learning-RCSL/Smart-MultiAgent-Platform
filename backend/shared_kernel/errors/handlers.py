@@ -31,9 +31,7 @@ def _respond(problem: Problem, request: Request) -> JSONResponse:
 
 
 async def _smap_error_handler(request: Request, exc: SmapError) -> JSONResponse:
-    logger.bind(event="smap_error", route=str(request.url.path)).info(
-        "handled SmapError", exc_info=False
-    )
+    logger.bind(event="smap_error", route=str(request.url.path)).info("handled SmapError", exc_info=False)
     return _respond(exc.problem, request)
 
 
@@ -49,17 +47,15 @@ async def _validation_handler(request: Request, exc: RequestValidationError) -> 
     return _respond(problem, request)
 
 
-async def _http_exception_handler(
-    request: Request, exc: StarletteHTTPException
-) -> JSONResponse:
+async def _http_exception_handler(request: Request, exc: StarletteHTTPException) -> JSONResponse:
     """FastAPI/Starlette HTTPException → RFC 7807 problem+json.
 
     Detail may already be a Problem dict (from `_raise_forbidden`), in which
     case we serve it directly. Otherwise we wrap the raw detail string.
     """
     detail = exc.detail
-    if isinstance(detail, dict) and "type" in detail and "status" in detail:
-        body: dict[str, Any] = dict(detail)
+    if isinstance(detail, dict) and "type" in detail and "status" in detail:  # type: ignore[unreachable]
+        body: dict[str, Any] = dict(detail)  # type: ignore[unreachable]
         body.setdefault("instance", str(request.url.path))
         return JSONResponse(
             status_code=exc.status_code,
@@ -109,9 +105,7 @@ def _status_title(code: int) -> str:
 
 async def _unhandled_handler(request: Request, exc: Exception) -> JSONResponse:
     # Never leak exception details — bug was already logged by middleware.
-    logger.bind(event="unhandled_exception", route=str(request.url.path)).exception(
-        "unhandled exception"
-    )
+    logger.bind(event="unhandled_exception", route=str(request.url.path)).exception("unhandled exception")
     problem = Problem(
         type=problem_type("internal"),
         title="Internal Server Error",

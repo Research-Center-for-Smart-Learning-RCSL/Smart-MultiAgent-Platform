@@ -4,6 +4,7 @@ Used by the frontend codegen pipeline (`make openapi-types` and the
 `check:openapi-drift` CI gate). Writes a compact-but-deterministic JSON so
 diffs stay reviewable.
 """
+
 from __future__ import annotations
 
 import json

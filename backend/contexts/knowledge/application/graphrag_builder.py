@@ -55,8 +55,8 @@ from shared_kernel import audit
 
 _log = logging.getLogger(__name__)
 
-LOCK_TTL_S = 10 * 60              # R11a.01
-SNAPSHOT_TTL_S = 24 * 60 * 60     # 24h — reconciler runs at 60s period
+LOCK_TTL_S = 10 * 60  # R11a.01
+SNAPSHOT_TTL_S = 24 * 60 * 60  # 24h — reconciler runs at 60s period
 
 
 @dataclass(frozen=True, slots=True)
@@ -81,8 +81,8 @@ class GraphRagBuilder:
         extractor: TripleExtractor,
         lock_store: BuildLockStore,
         snapshot_store: SnapshotStore,
-        delta_loader: "DeltaLoader",
-        embedder_factory: "EmbedderFactory",
+        delta_loader: DeltaLoader,
+        embedder_factory: EmbedderFactory,
     ) -> None:
         self._db = db
         self._neo4j = neo4j
@@ -110,8 +110,10 @@ class GraphRagBuilder:
         build_id = uuid.uuid4()
         try:
             return await self._run_locked(
-                cfg=cfg, build_id=build_id,
-                mode=mode, triggered_by=triggered_by,
+                cfg=cfg,
+                build_id=build_id,
+                mode=mode,
+                triggered_by=triggered_by,
             )
         finally:
             await self._locks.release(config_id)
@@ -126,15 +128,17 @@ class GraphRagBuilder:
     ) -> BuildResult:
         # idle/failed → running. Anything else is a refusal.
         if cfg.last_build_state not in {
-            BuildState.IDLE, BuildState.FAILED,
+            BuildState.IDLE,
+            BuildState.FAILED,
         }:
             raise GraphRagBuildBusy(
-                f"config {cfg.id} in non-resumable state "
-                f"{cfg.last_build_state.value}"
+                f"config {cfg.id} in non-resumable state " f"{cfg.last_build_state.value}"
             )
 
         await self._configs.set_state(
-            config_id=cfg.id, state=BuildState.RUNNING, error=None,
+            config_id=cfg.id,
+            state=BuildState.RUNNING,
+            error=None,
         )
         await audit.emit(
             self._db,
@@ -154,23 +158,32 @@ class GraphRagBuilder:
         # failure has something to roll back to.
         try:
             prior = await self._neo4j.snapshot_subgraph(
-                config_id=cfg.id, build_id=None,
+                config_id=cfg.id,
+                build_id=None,
             )
             await self._snapshots.put(
-                config_id=cfg.id, build_id=build_id,
-                snapshot=prior, ttl_s=SNAPSHOT_TTL_S,
+                config_id=cfg.id,
+                build_id=build_id,
+                snapshot=prior,
+                ttl_s=SNAPSHOT_TTL_S,
             )
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             await self._fail_phase1(cfg.id, build_id, f"snapshot: {exc}")
             return BuildResult(
-                config_id=cfg.id, build_id=build_id, state=BuildState.FAILED,
-                triples_written=0, entities_written=0, error=str(exc),
+                config_id=cfg.id,
+                build_id=build_id,
+                state=BuildState.FAILED,
+                triples_written=0,
+                entities_written=0,
+                error=str(exc),
             )
 
         # ------------ Phase 1: extract triples + upsert Neo4j -----------
         try:
             delta = await self._delta_loader.load(
-                config_id=cfg.id, since=cfg.last_build_at, mode=mode,
+                config_id=cfg.id,
+                since=cfg.last_build_at,
+                mode=mode,
             )
             triples = await self._extractor.extract(
                 config_id=cfg.id,
@@ -178,23 +191,32 @@ class GraphRagBuilder:
                 messages=delta,
             )
             n_triples = await self._neo4j.apply_triples(
-                config_id=cfg.id, build_id=build_id, triples=triples,
+                config_id=cfg.id,
+                build_id=build_id,
+                triples=triples,
             )
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             await self._fail_phase1(cfg.id, build_id, str(exc))
             return BuildResult(
-                config_id=cfg.id, build_id=build_id, state=BuildState.FAILED,
-                triples_written=0, entities_written=0, error=str(exc),
+                config_id=cfg.id,
+                build_id=build_id,
+                state=BuildState.FAILED,
+                triples_written=0,
+                entities_written=0,
+                error=str(exc),
             )
 
         await self._configs.set_state(
-            config_id=cfg.id, state=BuildState.NEO4J_COMMITTED, error=None,
+            config_id=cfg.id,
+            state=BuildState.NEO4J_COMMITTED,
+            error=None,
         )
 
         # ------------ Phase 2: embed + upsert Qdrant ---------------------
         try:
             embeddings = await self._embed_entities(
-                cfg=cfg, triples=triples,
+                cfg=cfg,
+                triples=triples,
             )
             if embeddings:
                 await self._vectors.ensure_graphrag_collection(
@@ -202,13 +224,11 @@ class GraphRagBuilder:
                     vector_size=len(embeddings[0].vector),
                 )
                 await self._vectors.upsert_entities(
-                    project_id=cfg.project_id, build_id=build_id,
-                    points=[
-                        (e.point_id, e.vector, e.entity, e.description)
-                        for e in embeddings
-                    ],
+                    project_id=cfg.project_id,
+                    build_id=build_id,
+                    points=[(e.point_id, e.vector, e.entity, e.description) for e in embeddings],
                 )
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             # Phase-2 failure: go to failed_compensating; reconciler takes it.
             await self._configs.set_state(
                 config_id=cfg.id,
@@ -229,21 +249,26 @@ class GraphRagBuilder:
                 ),
             )
             return BuildResult(
-                config_id=cfg.id, build_id=build_id,
+                config_id=cfg.id,
+                build_id=build_id,
                 state=BuildState.FAILED_COMPENSATING,
-                triples_written=n_triples, entities_written=0,
+                triples_written=n_triples,
+                entities_written=0,
                 error=str(exc),
             )
 
         # Both phases committed → sweep old builds + finalise.
         await self._configs.set_state(
-            config_id=cfg.id, state=BuildState.QDRANT_COMMITTED,
+            config_id=cfg.id,
+            state=BuildState.QDRANT_COMMITTED,
             error=None,
         )
         # Final idle state + stamp last_build_at.
         await self._configs.set_state(
-            config_id=cfg.id, state=BuildState.IDLE,
-            error=None, stamp_built_at=True,
+            config_id=cfg.id,
+            state=BuildState.IDLE,
+            error=None,
+            stamp_built_at=True,
         )
         await self._snapshots.delete(config_id=cfg.id, build_id=build_id)
         await audit.emit(
@@ -260,19 +285,28 @@ class GraphRagBuilder:
             ),
         )
         return BuildResult(
-            config_id=cfg.id, build_id=build_id, state=BuildState.IDLE,
-            triples_written=n_triples, entities_written=len(embeddings),
+            config_id=cfg.id,
+            build_id=build_id,
+            state=BuildState.IDLE,
+            triples_written=n_triples,
+            entities_written=len(embeddings),
             error=None,
         )
 
     async def _fail_phase1(
-        self, config_id: uuid.UUID, build_id: uuid.UUID, error: str,
+        self,
+        config_id: uuid.UUID,
+        build_id: uuid.UUID,
+        error: str,
     ) -> None:
         await self._configs.set_state(
-            config_id=config_id, state=BuildState.FAILED, error=error,
+            config_id=config_id,
+            state=BuildState.FAILED,
+            error=error,
         )
         await self._snapshots.delete(
-            config_id=config_id, build_id=build_id,
+            config_id=config_id,
+            build_id=build_id,
         )
         await audit.emit(
             self._db,
@@ -289,17 +323,16 @@ class GraphRagBuilder:
         )
 
     async def _embed_entities(
-        self, *, cfg: GraphRagConfig, triples: Sequence[Triple],
+        self,
+        *,
+        cfg: GraphRagConfig,
+        triples: Sequence[Triple],
     ) -> list[EntityEmbedding]:
         """Build a description per unique entity and embed them in a batch."""
         entities: dict[str, list[str]] = {}
         for tr in triples:
-            entities.setdefault(tr.subject, []).append(
-                f"{tr.subject} {tr.relation} {tr.object}"
-            )
-            entities.setdefault(tr.object, []).append(
-                f"{tr.subject} {tr.relation} {tr.object}"
-            )
+            entities.setdefault(tr.subject, []).append(f"{tr.subject} {tr.relation} {tr.object}")
+            entities.setdefault(tr.object, []).append(f"{tr.subject} {tr.relation} {tr.object}")
         if not entities:
             return []
         ordered = sorted(entities.items())
@@ -313,7 +346,7 @@ class GraphRagBuilder:
                 description=desc,
                 vector=vec,
             )
-            for (entity, _), desc, vec in zip(ordered, descriptions, vectors)
+            for (entity, _), desc, vec in zip(ordered, descriptions, vectors, strict=False)
         ]
 
 
@@ -322,7 +355,8 @@ class GraphRagBuilder:
 # self-contained without dragging concrete clients into the app layer.
 # ---------------------------------------------------------------------------
 
-from typing import Awaitable, Callable, Protocol  # noqa: E402
+from collections.abc import Awaitable, Callable  # noqa: E402
+from typing import Protocol  # noqa: E402
 
 
 class DeltaLoader(Protocol):

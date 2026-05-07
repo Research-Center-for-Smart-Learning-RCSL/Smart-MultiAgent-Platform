@@ -32,7 +32,11 @@ class CohereReranker(Reranker):
         self._http = http or httpx.AsyncClient(timeout=15.0)
 
     async def rerank(
-        self, *, query: str, candidates: list[str], top_k: int,
+        self,
+        *,
+        query: str,
+        candidates: list[str],
+        top_k: int,
     ) -> list[RerankResult]:
         if not candidates:
             return []
@@ -48,10 +52,7 @@ class CohereReranker(Reranker):
         )
         r.raise_for_status()
         payload = r.json().get("results", [])
-        return [
-            RerankResult(index=int(e["index"]), score=float(e["relevance_score"]))
-            for e in payload
-        ]
+        return [RerankResult(index=int(e["index"]), score=float(e["relevance_score"])) for e in payload]
 
 
 class LocalBgeReranker(Reranker):
@@ -66,7 +67,11 @@ class LocalBgeReranker(Reranker):
         self._http = http or httpx.AsyncClient(timeout=15.0)
 
     async def rerank(
-        self, *, query: str, candidates: list[str], top_k: int,
+        self,
+        *,
+        query: str,
+        candidates: list[str],
+        top_k: int,
     ) -> list[RerankResult]:
         if not candidates:
             return []
@@ -76,7 +81,4 @@ class LocalBgeReranker(Reranker):
         )
         r.raise_for_status()
         payload = r.json().get("results", [])
-        return [
-            RerankResult(index=int(e["index"]), score=float(e["score"]))
-            for e in payload
-        ]
+        return [RerankResult(index=int(e["index"]), score=float(e["score"])) for e in payload]

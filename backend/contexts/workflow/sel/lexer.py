@@ -135,7 +135,7 @@ def tokenize(source: str) -> list[Token]:
                 i += 1
             text = source[start:i]
             tt = _KEYWORDS.get(text, TokenType.IDENT)
-            val = text if tt == TokenType.IDENT else text
+            val = text if tt == TokenType.IDENT else text  # type: ignore[assignment]
             if tt == TokenType.TRUE:
                 tokens.append(Token(tt, True, start))
             elif tt == TokenType.FALSE:

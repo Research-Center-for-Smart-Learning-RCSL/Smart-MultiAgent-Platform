@@ -23,7 +23,6 @@ from shared_kernel.auth.dependencies import (
     current_context,
     current_principal,
     get_role_resolver,
-    require_membership,
 )
 from shared_kernel.auth.permissions import (
     Capability,
@@ -81,7 +80,7 @@ class AgentRef(BaseModel):
     agent_id: uuid.UUID
 
 
-def _to_out(r) -> ChatroomOut:  # type: ignore[no-untyped-def]
+def _to_out(r) -> ChatroomOut:
     return ChatroomOut(
         id=r.id,
         workspace_id=r.workspace_id,
@@ -101,12 +100,14 @@ def _parse_if_match(header: str) -> int:
         return int(header.strip().strip('"'))
     except ValueError as exc:
         raise HTTPException(
-            status_code=412, detail=f"invalid If-Match: {header!r}",
+            status_code=412,
+            detail=f"invalid If-Match: {header!r}",
         ) from exc
 
 
 async def _project_id_for_workspace(
-    db: AsyncSession, workspace_id: uuid.UUID,
+    db: AsyncSession,
+    workspace_id: uuid.UUID,
 ) -> uuid.UUID:
     ws = await ConversationFacade(db).get_workspace(workspace_id)
     if ws is None:
@@ -115,7 +116,8 @@ async def _project_id_for_workspace(
 
 
 async def _project_id_for_chatroom(
-    db: AsyncSession, chatroom_id: uuid.UUID,
+    db: AsyncSession,
+    chatroom_id: uuid.UUID,
 ) -> uuid.UUID:
     facade = ConversationFacade(db)
     room = await facade.get_chatroom(chatroom_id)
@@ -135,7 +137,10 @@ async def _require_project_cap(
 ) -> None:
     resolver = await get_role_resolver(db)
     decision = await decide(
-        principal, capability, Scope(project_id=project_id), resolver,
+        principal,
+        capability,
+        Scope(project_id=project_id),
+        resolver,
     )
     if not decision.allowed:
         _raise_forbidden(decision.reason)
@@ -158,7 +163,8 @@ async def list_chatrooms(
     if not principal.is_admin:
         resolver = await get_role_resolver(db)
         roles = await resolver.roles_for(
-            principal, Scope(project_id=project_id),
+            principal,
+            Scope(project_id=project_id),
         )
         if not roles:
             _raise_forbidden("caller is not a member of the project")
@@ -168,7 +174,8 @@ async def list_chatrooms(
 
 
 @workspace_router.post(
-    "/{workspace_id}/chatrooms", status_code=status.HTTP_201_CREATED,
+    "/{workspace_id}/chatrooms",
+    status_code=status.HTTP_201_CREATED,
 )
 async def create_chatroom(
     body: ChatroomCreateIn,
@@ -209,10 +216,12 @@ async def read_chatroom(
     if not principal.is_admin:
         resolver = await get_role_resolver(db)
         roles = await resolver.roles_for(
-            principal, Scope(project_id=project_id, chatroom_id=chatroom_id),
+            principal,
+            Scope(project_id=project_id, chatroom_id=chatroom_id),
         )
         is_guest = await ConversationFacade(db).is_chatroom_guest(
-            chatroom_id=chatroom_id, user_id=principal.user_id,
+            chatroom_id=chatroom_id,
+            user_id=principal.user_id,
         )
         if not roles and not is_guest:
             _raise_forbidden("not a participant of this room")
@@ -232,7 +241,10 @@ async def patch_chatroom(
 ) -> ChatroomOut:
     project_id = await _project_id_for_chatroom(db, chatroom_id)
     await _require_project_cap(
-        db, principal, project_id, Capability.RESOURCE_CREATE_EDIT,
+        db,
+        principal,
+        project_id,
+        Capability.RESOURCE_CREATE_EDIT,
     )
     expected = _parse_if_match(if_match)
     service = ChatroomService(db)
@@ -248,7 +260,8 @@ async def patch_chatroom(
 
 
 @chatroom_router.delete(
-    "/{chatroom_id}", status_code=status.HTTP_204_NO_CONTENT,
+    "/{chatroom_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
     response_model=None,
 )
 async def delete_chatroom(
@@ -259,7 +272,10 @@ async def delete_chatroom(
 ) -> None:
     project_id = await _project_id_for_chatroom(db, chatroom_id)
     await _require_project_cap(
-        db, principal, project_id, Capability.RESOURCE_CREATE_EDIT,
+        db,
+        principal,
+        project_id,
+        Capability.RESOURCE_CREATE_EDIT,
     )
     service = ChatroomService(db)
     await service.soft_delete(
@@ -285,7 +301,8 @@ async def list_chatroom_agents(
     if not principal.is_admin:
         resolver = await get_role_resolver(db)
         if not await resolver.roles_for(
-            principal, Scope(project_id=project_id),
+            principal,
+            Scope(project_id=project_id),
         ):
             _raise_forbidden("not a member of the project")
     service = ChatroomService(db)
@@ -294,7 +311,8 @@ async def list_chatroom_agents(
 
 
 @chatroom_router.post(
-    "/{chatroom_id}/agents", status_code=status.HTTP_204_NO_CONTENT,
+    "/{chatroom_id}/agents",
+    status_code=status.HTTP_204_NO_CONTENT,
     response_model=None,
 )
 async def add_chatroom_agent(
@@ -306,7 +324,10 @@ async def add_chatroom_agent(
 ) -> None:
     project_id = await _project_id_for_chatroom(db, chatroom_id)
     await _require_project_cap(
-        db, principal, project_id, Capability.RESOURCE_CREATE_EDIT,
+        db,
+        principal,
+        project_id,
+        Capability.RESOURCE_CREATE_EDIT,
     )
     service = ChatroomService(db)
     await service.add_agent(
@@ -332,7 +353,10 @@ async def remove_chatroom_agent(
 ) -> None:
     project_id = await _project_id_for_chatroom(db, chatroom_id)
     await _require_project_cap(
-        db, principal, project_id, Capability.RESOURCE_CREATE_EDIT,
+        db,
+        principal,
+        project_id,
+        Capability.RESOURCE_CREATE_EDIT,
     )
     service = ChatroomService(db)
     await service.remove_agent(
@@ -358,7 +382,10 @@ async def read_guest_link(
 ) -> GuestLinkOut:
     project_id = await _project_id_for_chatroom(db, chatroom_id)
     await _require_project_cap(
-        db, principal, project_id, Capability.GUEST_LINK_MANAGE,
+        db,
+        principal,
+        project_id,
+        Capability.GUEST_LINK_MANAGE,
     )
     service = ChatroomService(db)
     room = await service.get(chatroom_id)

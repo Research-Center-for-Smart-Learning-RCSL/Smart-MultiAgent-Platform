@@ -11,12 +11,9 @@ from fastapi.testclient import TestClient
 from shared_kernel.infra.probes.base import ProbeResult
 
 
-@pytest.fixture
+@pytest.fixture()
 def fake_probes_all_ok(client: TestClient) -> Iterator[TestClient]:
-    results = [
-        ProbeResult(n, True)
-        for n in ("postgres", "redis", "qdrant", "neo4j", "minio", "vault")
-    ]
+    results = [ProbeResult(n, True) for n in ("postgres", "redis", "qdrant", "neo4j", "minio", "vault")]
     import app.api.v1.readyz as readyz_module
 
     # Bust the tiny per-process cache so the patch is observed.
@@ -26,7 +23,7 @@ def fake_probes_all_ok(client: TestClient) -> Iterator[TestClient]:
     readyz_module._cached = None
 
 
-@pytest.fixture
+@pytest.fixture()
 def fake_probes_one_down(client: TestClient) -> Iterator[TestClient]:
     results = [
         ProbeResult("postgres", True),
@@ -78,9 +75,17 @@ def test_readyz_caches_results_within_window(client: TestClient) -> None:
 
     async def _counting_probe_all(_settings):
         call_count["n"] += 1
-        return [ProbeResult(n, True) for n in (
-            "postgres", "redis", "qdrant", "neo4j", "minio", "vault",
-        )]
+        return [
+            ProbeResult(n, True)
+            for n in (
+                "postgres",
+                "redis",
+                "qdrant",
+                "neo4j",
+                "minio",
+                "vault",
+            )
+        ]
 
     with patch("app.api.v1.readyz.probe_all", new=_counting_probe_all):
         client.get("/readyz")
@@ -93,7 +98,8 @@ def test_readyz_caches_results_within_window(client: TestClient) -> None:
 
 
 def test_readyz_logs_failed_dependencies(
-    fake_probes_one_down: TestClient, caplog: pytest.LogCaptureFixture,
+    fake_probes_one_down: TestClient,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     """2.22: /readyz failures should be logged so operators see them
     without having to curl /readyz themselves."""
@@ -101,14 +107,12 @@ def test_readyz_logs_failed_dependencies(
 
     # loguru → caplog bridge (loguru does not ship with caplog by default).
     from loguru import logger
+
     handler_id = logger.add(caplog.handler, format="{message}", level="WARNING")
     try:
         with caplog.at_level(logging.WARNING):
             r = fake_probes_one_down.get("/readyz")
         assert r.status_code == 503
-        assert any(
-            "redis" in record.message and "503" in record.message
-            for record in caplog.records
-        )
+        assert any("redis" in record.message and "503" in record.message for record in caplog.records)
     finally:
         logger.remove(handler_id)

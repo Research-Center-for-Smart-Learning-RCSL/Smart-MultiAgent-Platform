@@ -41,11 +41,9 @@ class SearchKeyService:
         probe = await probe_search(provider, secret, config)
 
         key_id = uuid.uuid4()
-        envelope = env.encrypt_envelope(
-            secret.encode("utf-8"), env.search_key_aad(key_id)
-        )
+        envelope = env.encrypt_envelope(secret.encode("utf-8"), env.search_key_aad(key_id))
         preview = mask_preview(secret)
-        secret = ""  # noqa: F841
+        secret = ""
 
         now = datetime.now(tz=UTC)
         sk = await self._repo.insert(
@@ -77,8 +75,7 @@ class SearchKeyService:
             self._db,
             audit.AuditEvent(
                 action=(
-                    "search_key.test_success" if probe.status is ProbeStatus.OK
-                    else "search_key.test_failed"
+                    "search_key.test_success" if probe.status is ProbeStatus.OK else "search_key.test_failed"
                 ),
                 actor_user_id=actor_user_id,
                 resource_type="search_key",
@@ -90,7 +87,10 @@ class SearchKeyService:
         return sk
 
     async def retest(
-        self, *, project_id: uuid.UUID, key_id: uuid.UUID,
+        self,
+        *,
+        project_id: uuid.UUID,
+        key_id: uuid.UUID,
         actor_user_id: uuid.UUID,
         request_id: uuid.UUID | None = None,
     ) -> SearchKey:
@@ -108,15 +108,16 @@ class SearchKeyService:
         finally:
             plaintext = b"\x00" * len(plaintext)
         await self._repo.update_probe(
-            key_id=key_id, test_status=result.status,
-            test_error=result.error, last_test_at=datetime.now(tz=UTC),
+            key_id=key_id,
+            test_status=result.status,
+            test_error=result.error,
+            last_test_at=datetime.now(tz=UTC),
         )
         await audit.emit(
             self._db,
             audit.AuditEvent(
                 action=(
-                    "search_key.test_success" if result.status is ProbeStatus.OK
-                    else "search_key.test_failed"
+                    "search_key.test_success" if result.status is ProbeStatus.OK else "search_key.test_failed"
                 ),
                 actor_user_id=actor_user_id,
                 resource_type="search_key",
@@ -130,8 +131,12 @@ class SearchKeyService:
         return updated
 
     async def activate(
-        self, *, project_id: uuid.UUID, key_id: uuid.UUID,
-        actor_user_id: uuid.UUID, request_id: uuid.UUID | None = None,
+        self,
+        *,
+        project_id: uuid.UUID,
+        key_id: uuid.UUID,
+        actor_user_id: uuid.UUID,
+        request_id: uuid.UUID | None = None,
     ) -> None:
         sk = await self._repo.get_active(key_id)
         if sk is None or sk.project_id != project_id:
@@ -156,12 +161,13 @@ class SearchKeyService:
         # §12.4: activation flip invalidates the Redis `search:{hash}` cache
         # for this project. The cache-key layout lives with Phase E; we
         # publish a plain message so the cache owner can choose the strategy.
-        await get_redis().publish(
-            "search_key.activated", f"{project_id}:{key_id}"
-        )
+        await get_redis().publish("search_key.activated", f"{project_id}:{key_id}")
 
     async def delete(
-        self, *, project_id: uuid.UUID, key_id: uuid.UUID,
+        self,
+        *,
+        project_id: uuid.UUID,
+        key_id: uuid.UUID,
         actor_user_id: uuid.UUID,
         request_id: uuid.UUID | None = None,
     ) -> None:

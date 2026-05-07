@@ -14,11 +14,9 @@ never persisted. Acceptance requires the caller be logged in AND verified
 
 from __future__ import annotations
 
-import hashlib
 import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import timedelta
 
 import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -27,15 +25,17 @@ from contexts.notification.application.notification_service import NotificationS
 from contexts.notification.domain.models import NotificationKind
 from contexts.tenancy.domain.errors import (
     InviteExpired,
-    InviteNotFound,
     InviteNotForCaller,
+    InviteNotFound,
 )
 from contexts.tenancy.domain.models import (
     Invite,
     InviteScope,
-    InviteState,
     OrgMemberRole,
     ProjectMemberRole,
+)
+from contexts.tenancy.domain.models import (
+    InviteState as InviteState,
 )
 from contexts.tenancy.infrastructure import tables as _t
 from contexts.tenancy.infrastructure.repositories import (
@@ -137,9 +137,9 @@ class InviteService:
         # repository layer — raw query is intentional here.
         row = (
             await self._db.execute(
-                sa.text(
-                    "SELECT id FROM users WHERE email = :email AND deleted_at IS NULL"
-                ).bindparams(email=invitee_email)
+                sa.text("SELECT id FROM users WHERE email = :email AND deleted_at IS NULL").bindparams(
+                    email=invitee_email
+                )
             )
         ).first()
         if row is None:
@@ -160,14 +160,14 @@ class InviteService:
         states: Sequence[InviteState] | None = None,
     ) -> Sequence[Invite]:
         return await self._invites.list_for_user(
-            email=caller_email, user_id=caller_user_id, states=states,
+            email=caller_email,
+            user_id=caller_user_id,
+            states=states,
         )
 
-    async def scope_names(
-        self, invites: Sequence[Invite]
-    ) -> dict[tuple[str, uuid.UUID], str]:
+    async def scope_names(self, invites: Sequence[Invite]) -> dict[tuple[str, uuid.UUID], str]:
         """Batch-fetch org/project display names for a list of invites."""
-        import sqlalchemy as sa  # noqa: PLC0415 — kept local to avoid circular at module load
+        import sqlalchemy as sa  # — kept local to avoid circular at module load
 
         names: dict[tuple[str, uuid.UUID], str] = {}
         org_ids = [i.scope_id for i in invites if i.scope_type is InviteScope.ORG]
@@ -175,9 +175,7 @@ class InviteService:
         if org_ids:
             rows = (
                 await self._db.execute(
-                    sa.select(_t.orgs.c.id, _t.orgs.c.name).where(
-                        _t.orgs.c.id.in_(org_ids)
-                    )
+                    sa.select(_t.orgs.c.id, _t.orgs.c.name).where(_t.orgs.c.id.in_(org_ids))
                 )
             ).all()
             for row in rows:
@@ -185,9 +183,7 @@ class InviteService:
         if proj_ids:
             rows = (
                 await self._db.execute(
-                    sa.select(_t.projects.c.id, _t.projects.c.name).where(
-                        _t.projects.c.id.in_(proj_ids)
-                    )
+                    sa.select(_t.projects.c.id, _t.projects.c.name).where(_t.projects.c.id.in_(proj_ids))
                 )
             ).all()
             for row in rows:
@@ -212,7 +208,8 @@ class InviteService:
             raise InviteNotFound(str(invite_id))
         if invite.expires_at < now():
             await self._invites.transition(
-                invite_id=invite_id, new_state=InviteState.EXPIRED,
+                invite_id=invite_id,
+                new_state=InviteState.EXPIRED,
             )
             raise InviteExpired(str(invite_id))
 
@@ -270,7 +267,8 @@ class InviteService:
         if invite.state is not InviteState.PENDING:
             raise InviteNotFound(str(invite_id))
         updated = await self._invites.transition(
-            invite_id=invite_id, new_state=InviteState.REJECTED,
+            invite_id=invite_id,
+            new_state=InviteState.REJECTED,
         )
         if updated is None:
             raise InviteNotFound(str(invite_id))

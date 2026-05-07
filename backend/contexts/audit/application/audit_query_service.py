@@ -29,11 +29,20 @@ class AuditQueryService:
     async def export_csv(self, filters: AuditFilter) -> bytes:
         buf = io.StringIO()
         writer = csv.writer(buf)
-        writer.writerow([
-            "id", "actor_user_id", "actor_ip", "action",
-            "resource_type", "resource_id", "metadata",
-            "session_id", "request_id", "created_at",
-        ])
+        writer.writerow(
+            [
+                "id",
+                "actor_user_id",
+                "actor_ip",
+                "action",
+                "resource_type",
+                "resource_id",
+                "metadata",
+                "session_id",
+                "request_id",
+                "created_at",
+            ]
+        )
         # REPEATABLE READ snapshot — must be the first statement in the transaction.
         # PostgreSQL rejects this if prior queries have already run in the same
         # transaction (error: "must be called before any query"), so this endpoint
@@ -45,18 +54,20 @@ class AuditQueryService:
         while True:
             page = await self._repo.query(filters, cursor=cursor, limit=500)
             for entry in page.items:
-                writer.writerow([
-                    entry.id,
-                    str(entry.actor_user_id) if entry.actor_user_id else "",
-                    entry.actor_ip or "",
-                    entry.action,
-                    entry.resource_type or "",
-                    str(entry.resource_id) if entry.resource_id else "",
-                    str(entry.metadata),
-                    str(entry.session_id) if entry.session_id else "",
-                    str(entry.request_id) if entry.request_id else "",
-                    entry.created_at.isoformat(),
-                ])
+                writer.writerow(
+                    [
+                        entry.id,
+                        str(entry.actor_user_id) if entry.actor_user_id else "",
+                        entry.actor_ip or "",
+                        entry.action,
+                        entry.resource_type or "",
+                        str(entry.resource_id) if entry.resource_id else "",
+                        str(entry.metadata),
+                        str(entry.session_id) if entry.session_id else "",
+                        str(entry.request_id) if entry.request_id else "",
+                        entry.created_at.isoformat(),
+                    ]
+                )
             if page.next_cursor is None:
                 break
             cursor = page.next_cursor

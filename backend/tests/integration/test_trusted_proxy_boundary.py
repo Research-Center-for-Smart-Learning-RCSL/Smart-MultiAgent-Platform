@@ -13,7 +13,6 @@ from __future__ import annotations
 
 from shared_kernel.auth.trusted_proxy import resolve_actor_ip
 
-
 TRUSTED = ["127.0.0.0/8", "10.0.0.0/8"]
 
 

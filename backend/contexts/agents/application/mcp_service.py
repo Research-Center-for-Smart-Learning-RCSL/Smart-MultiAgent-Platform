@@ -66,7 +66,7 @@ def unseal_auth(binding_id: uuid.UUID, sealed: dict[str, Any]) -> dict[str, Any]
         hmac_key_version=int(sealed["hmac_key_version"]),
     )
     plaintext = env.decrypt_envelope(record, _auth_aad(binding_id))
-    return json.loads(plaintext.decode("utf-8"))
+    return json.loads(plaintext.decode("utf-8"))  # type: ignore[no-any-return]
 
 
 class McpBindingService:
@@ -104,7 +104,7 @@ class McpBindingService:
             config_with_auth = {**config, "auth": sealed}
             # Re-insert via a second round-trip — use raw SA because the repo
             # does not expose update; cheapest correct move is a targeted UPDATE.
-            from contexts.agents.infrastructure import tables as t  # noqa: PLC0415
+            from contexts.agents.infrastructure import tables as t
 
             await self._db.execute(
                 t.agent_mcp_servers.update()
@@ -200,29 +200,53 @@ class McpBindingService:
         except McpEgressDenied:
             duration = int((time.monotonic() - start) * 1000)
             await self._emit_test_audit(
-                binding, project_id, actor_user_id, actor_ip, request_id,
-                ok=False, error="egress-denied", duration_ms=duration,
+                binding,
+                project_id,
+                actor_user_id,
+                actor_ip,
+                request_id,
+                ok=False,
+                error="egress-denied",
+                duration_ms=duration,
             )
             raise
         except McpTimeout:
             duration = int((time.monotonic() - start) * 1000)
             await self._emit_test_audit(
-                binding, project_id, actor_user_id, actor_ip, request_id,
-                ok=False, error="timeout", duration_ms=duration,
+                binding,
+                project_id,
+                actor_user_id,
+                actor_ip,
+                request_id,
+                ok=False,
+                error="timeout",
+                duration_ms=duration,
             )
             raise
-        except Exception as exc:  # noqa: BLE001 — surface as McpTestFailed
+        except Exception as exc:  # — surface as McpTestFailed
             duration = int((time.monotonic() - start) * 1000)
             err = str(exc) or exc.__class__.__name__
             await self._emit_test_audit(
-                binding, project_id, actor_user_id, actor_ip, request_id,
-                ok=False, error=err, duration_ms=duration,
+                binding,
+                project_id,
+                actor_user_id,
+                actor_ip,
+                request_id,
+                ok=False,
+                error=err,
+                duration_ms=duration,
             )
             raise McpTestFailed(err) from exc
 
         await self._emit_test_audit(
-            binding, project_id, actor_user_id, actor_ip, request_id,
-            ok=result.ok, error=result.error, duration_ms=result.duration_ms,
+            binding,
+            project_id,
+            actor_user_id,
+            actor_ip,
+            request_id,
+            ok=result.ok,
+            error=result.error,
+            duration_ms=result.duration_ms,
         )
         return result
 

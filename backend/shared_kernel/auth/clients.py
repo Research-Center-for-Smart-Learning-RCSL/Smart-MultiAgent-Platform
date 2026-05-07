@@ -26,8 +26,10 @@ _redis_instance: Redis | None = None
 _vault_lock: Final = threading.Lock()
 _vault_instance: VaultClient | None = None
 
+
 # Time source — pytest fixtures can override via `set_clock`.
-_clock: Callable[[], datetime] = lambda: datetime.now(UTC)
+def _clock() -> datetime:
+    return datetime.now(UTC)
 
 
 def get_redis() -> Redis:

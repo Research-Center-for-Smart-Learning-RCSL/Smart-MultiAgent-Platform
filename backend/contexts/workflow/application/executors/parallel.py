@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from contexts.workflow.application.executors.registry import register
 from contexts.workflow.domain.models import (
     NodeSpec,
     NodeType,
@@ -11,7 +12,6 @@ from contexts.workflow.domain.models import (
     StepOutcome,
     StepState,
 )
-from contexts.workflow.application.executors.registry import register
 
 
 @register(NodeType.PARALLEL)

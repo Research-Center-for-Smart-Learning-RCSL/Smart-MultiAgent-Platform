@@ -14,7 +14,7 @@ does not try to enforce that at the app layer.
 from __future__ import annotations
 
 import time
-from typing import Awaitable, Callable
+from collections.abc import Awaitable, Callable
 
 from fastapi import FastAPI, Request, Response
 from prometheus_client import CollectorRegistry, Counter, Gauge, Histogram

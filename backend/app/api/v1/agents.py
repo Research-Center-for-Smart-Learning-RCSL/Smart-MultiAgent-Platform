@@ -38,7 +38,6 @@ from shared_kernel.auth.dependencies import (
 from shared_kernel.auth.permissions import Capability, Principal
 from shared_kernel.db.session import db_session
 
-
 # ---------------------------------------------------------------------------
 # Pydantic schemas
 # ---------------------------------------------------------------------------
@@ -122,7 +121,7 @@ class McpBindingOut(BaseModel):
     created_at: str
 
 
-def _to_agent_out(a) -> AgentOut:  # type: ignore[no-untyped-def]
+def _to_agent_out(a) -> AgentOut:
     return AgentOut(
         id=a.id,
         project_id=a.project_id,
@@ -144,7 +143,7 @@ def _to_agent_out(a) -> AgentOut:  # type: ignore[no-untyped-def]
     )
 
 
-def _to_binding_out(b) -> McpBindingOut:  # type: ignore[no-untyped-def]
+def _to_binding_out(b) -> McpBindingOut:
     return McpBindingOut(
         id=b.id,
         agent_id=b.agent_id,
@@ -161,7 +160,8 @@ def _parse_if_match(raw: str) -> int:
         return int(raw.strip().strip('"'))
     except (ValueError, AttributeError) as exc:
         raise HTTPException(
-            status_code=412, detail=f"invalid If-Match: {raw!r}",
+            status_code=412,
+            detail=f"invalid If-Match: {raw!r}",
         ) from exc
 
 
@@ -189,10 +189,12 @@ async def create_agent(
     project_id: uuid.UUID = Path(...),
     ctx: RequestContext = Depends(current_context),
     principal: Principal = Depends(current_principal),
-    _=Depends(require(
-        Capability.RESOURCE_CREATE_EDIT,
-        scope_from_path(project_param="project_id"),
-    )),
+    _=Depends(
+        require(
+            Capability.RESOURCE_CREATE_EDIT,
+            scope_from_path(project_param="project_id"),
+        )
+    ),
     db: AsyncSession = Depends(db_session),
 ) -> AgentOut:
     service = AgentService(db)
@@ -211,8 +213,10 @@ async def create_agent(
         workflow_capabilities=body.workflow_capabilities,
     )
     agent = await service.create(
-        project_id=project_id, draft=draft,
-        actor_user_id=principal.user_id, actor_ip=ctx.actor_ip,
+        project_id=project_id,
+        draft=draft,
+        actor_user_id=principal.user_id,
+        actor_ip=ctx.actor_ip,
         request_id=ctx.request_id,
     )
     return _to_agent_out(agent)
@@ -236,8 +240,7 @@ async def _agent_scope_dep(
     `{project_id}` in the path.
     """
     service = AgentService(db)
-    agent = await service.get(agent_id)
-    return agent
+    return await service.get(agent_id)
 
 
 @agent_router.get("/{agent_id}")
@@ -246,8 +249,9 @@ async def read_agent(
     principal: Principal = Depends(current_principal),
     db: AsyncSession = Depends(db_session),
 ) -> AgentOut:
-    from shared_kernel.auth.dependencies import get_role_resolver, _raise_forbidden  # noqa: PLC0415
-    from shared_kernel.auth.permissions import Scope  # noqa: PLC0415
+    from shared_kernel.auth.dependencies import _raise_forbidden, get_role_resolver
+    from shared_kernel.auth.permissions import Scope
+
     service = AgentService(db)
     agent = await service.get(agent_id)
     # Membership check against the agent's project.
@@ -273,12 +277,15 @@ async def patch_agent(
     agent = await service.get(agent_id)
 
     # AuthZ at the agent's project scope.
-    from shared_kernel.auth.dependencies import get_role_resolver, _raise_forbidden  # noqa: PLC0415
-    from shared_kernel.auth.permissions import Scope, decide  # noqa: PLC0415
+    from shared_kernel.auth.dependencies import _raise_forbidden, get_role_resolver
+    from shared_kernel.auth.permissions import Scope, decide
+
     resolver = await get_role_resolver(db)
     decision = await decide(
-        principal, Capability.RESOURCE_CREATE_EDIT,
-        Scope(project_id=agent.project_id), resolver,
+        principal,
+        Capability.RESOURCE_CREATE_EDIT,
+        Scope(project_id=agent.project_id),
+        resolver,
     )
     if not decision.allowed:
         _raise_forbidden(decision.reason)
@@ -289,31 +296,25 @@ async def patch_agent(
         model_hint=AgentModelHint(fields["model_hint"]) if "model_hint" in fields else None,
         key_group_id=fields.get("key_group_id"),
         system_prompt=fields.get("system_prompt"),
-        prompt_strategy=(
-            PromptStrategy(fields["prompt_strategy"])
-            if "prompt_strategy" in fields else None
-        ),
+        prompt_strategy=(PromptStrategy(fields["prompt_strategy"]) if "prompt_strategy" in fields else None),
         rag_config_id=fields.get("rag_config_id"),
         graphrag_config_id=fields.get("graphrag_config_id"),
-        context_mode=(
-            ContextMode(fields["context_mode"]) if "context_mode" in fields else None
-        ),
+        context_mode=(ContextMode(fields["context_mode"]) if "context_mode" in fields else None),
         context_token_cap=fields.get("context_token_cap"),
         a2a_enabled=fields.get("a2a_enabled"),
         wakeup_config=fields.get("wakeup_config"),
         workflow_capabilities=fields.get("workflow_capabilities"),
         # Distinguish "explicit null" from "omitted".
         clear_rag_config="rag_config_id" in fields and fields["rag_config_id"] is None,
-        clear_graphrag_config=(
-            "graphrag_config_id" in fields and fields["graphrag_config_id"] is None
-        ),
-        clear_context_token_cap=(
-            "context_token_cap" in fields and fields["context_token_cap"] is None
-        ),
+        clear_graphrag_config=("graphrag_config_id" in fields and fields["graphrag_config_id"] is None),
+        clear_context_token_cap=("context_token_cap" in fields and fields["context_token_cap"] is None),
     )
     updated = await service.patch(
-        agent_id=agent_id, draft=draft, expected_version=expected,
-        actor_user_id=principal.user_id, actor_ip=ctx.actor_ip,
+        agent_id=agent_id,
+        draft=draft,
+        expected_version=expected,
+        actor_user_id=principal.user_id,
+        actor_ip=ctx.actor_ip,
         request_id=ctx.request_id,
     )
     return _to_agent_out(updated)
@@ -331,19 +332,24 @@ async def delete_agent(
     service = AgentService(db)
     agent = await service.get(agent_id)
 
-    from shared_kernel.auth.dependencies import get_role_resolver, _raise_forbidden  # noqa: PLC0415
-    from shared_kernel.auth.permissions import Scope, decide  # noqa: PLC0415
+    from shared_kernel.auth.dependencies import _raise_forbidden, get_role_resolver
+    from shared_kernel.auth.permissions import Scope, decide
+
     resolver = await get_role_resolver(db)
     decision = await decide(
-        principal, Capability.RESOURCE_CREATE_EDIT,
-        Scope(project_id=agent.project_id), resolver,
+        principal,
+        Capability.RESOURCE_CREATE_EDIT,
+        Scope(project_id=agent.project_id),
+        resolver,
     )
     if not decision.allowed:
         _raise_forbidden(decision.reason)
 
     await service.soft_delete(
-        agent_id=agent_id, expected_version=expected,
-        actor_user_id=principal.user_id, actor_ip=ctx.actor_ip,
+        agent_id=agent_id,
+        expected_version=expected,
+        actor_user_id=principal.user_id,
+        actor_ip=ctx.actor_ip,
         request_id=ctx.request_id,
     )
 
@@ -361,8 +367,9 @@ async def list_mcp_bindings(
 ) -> list[McpBindingOut]:
     service = AgentService(db)
     agent = await service.get(agent_id)
-    from shared_kernel.auth.dependencies import get_role_resolver, _raise_forbidden  # noqa: PLC0415
-    from shared_kernel.auth.permissions import Scope  # noqa: PLC0415
+    from shared_kernel.auth.dependencies import _raise_forbidden, get_role_resolver
+    from shared_kernel.auth.permissions import Scope
+
     if not principal.is_admin:
         resolver = await get_role_resolver(db)
         roles = await resolver.roles_for(principal, Scope(project_id=agent.project_id))
@@ -382,12 +389,15 @@ async def add_mcp_binding(
     service = AgentService(db)
     agent = await service.get(agent_id)
 
-    from shared_kernel.auth.dependencies import get_role_resolver, _raise_forbidden  # noqa: PLC0415
-    from shared_kernel.auth.permissions import Scope, decide  # noqa: PLC0415
+    from shared_kernel.auth.dependencies import _raise_forbidden, get_role_resolver
+    from shared_kernel.auth.permissions import Scope, decide
+
     resolver = await get_role_resolver(db)
     decision = await decide(
-        principal, Capability.RESOURCE_CREATE_EDIT,
-        Scope(project_id=agent.project_id), resolver,
+        principal,
+        Capability.RESOURCE_CREATE_EDIT,
+        Scope(project_id=agent.project_id),
+        resolver,
     )
     if not decision.allowed:
         _raise_forbidden(decision.reason)
@@ -417,12 +427,15 @@ async def patch_mcp_binding(
     service = AgentService(db)
     agent = await service.get(agent_id)
 
-    from shared_kernel.auth.dependencies import get_role_resolver, _raise_forbidden  # noqa: PLC0415
-    from shared_kernel.auth.permissions import Scope, decide  # noqa: PLC0415
+    from shared_kernel.auth.dependencies import _raise_forbidden, get_role_resolver
+    from shared_kernel.auth.permissions import Scope, decide
+
     resolver = await get_role_resolver(db)
     decision = await decide(
-        principal, Capability.RESOURCE_CREATE_EDIT,
-        Scope(project_id=agent.project_id), resolver,
+        principal,
+        Capability.RESOURCE_CREATE_EDIT,
+        Scope(project_id=agent.project_id),
+        resolver,
     )
     if not decision.allowed:
         _raise_forbidden(decision.reason)
@@ -454,18 +467,22 @@ async def delete_mcp_binding(
     service = AgentService(db)
     agent = await service.get(agent_id)
 
-    from shared_kernel.auth.dependencies import get_role_resolver, _raise_forbidden  # noqa: PLC0415
-    from shared_kernel.auth.permissions import Scope, decide  # noqa: PLC0415
+    from shared_kernel.auth.dependencies import _raise_forbidden, get_role_resolver
+    from shared_kernel.auth.permissions import Scope, decide
+
     resolver = await get_role_resolver(db)
     decision = await decide(
-        principal, Capability.RESOURCE_CREATE_EDIT,
-        Scope(project_id=agent.project_id), resolver,
+        principal,
+        Capability.RESOURCE_CREATE_EDIT,
+        Scope(project_id=agent.project_id),
+        resolver,
     )
     if not decision.allowed:
         _raise_forbidden(decision.reason)
 
     await service.remove_mcp_binding(
-        agent_id=agent_id, binding_id=binding_id,
+        agent_id=agent_id,
+        binding_id=binding_id,
         actor_user_id=principal.user_id,
         actor_ip=ctx.actor_ip,
         request_id=ctx.request_id,

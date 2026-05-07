@@ -13,7 +13,6 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
-
 # ---------------------------------------------------------------------------
 # Enums
 # ---------------------------------------------------------------------------
@@ -136,6 +135,7 @@ class OnErrorConfig:
 @dataclass(frozen=True, slots=True)
 class NodeSpec:
     """Parsed view of one node from the definition JSONB."""
+
     id: str
     type: NodeType
     config: dict[str, Any]
@@ -146,6 +146,7 @@ class NodeSpec:
 @dataclass(frozen=True, slots=True)
 class EdgeSpec:
     """Parsed view of one edge from the definition JSONB."""
+
     id: str
     from_node: str
     to_node: str
@@ -156,6 +157,7 @@ class EdgeSpec:
 @dataclass(frozen=True, slots=True)
 class StepOutcome:
     """Return value of every node executor."""
+
     state: StepState
     output: dict[str, Any] = field(default_factory=dict)
     port: str = "default"
@@ -172,6 +174,7 @@ class StepOutcome:
 @dataclass(slots=True)
 class RunContext:
     """Mutable context threaded through a single run execution."""
+
     run_id: uuid.UUID
     workflow_id: uuid.UUID
     workflow_def: dict[str, Any]
@@ -183,11 +186,11 @@ class RunContext:
 
     @property
     def run_max_seconds(self) -> int:
-        return self.workflow_def.get("timeouts", {}).get("run_max_seconds", 3600)
+        return self.workflow_def.get("timeouts", {}).get("run_max_seconds", 3600)  # type: ignore[no-any-return]
 
     @property
     def idle_max_seconds(self) -> int:
-        return self.workflow_def.get("timeouts", {}).get("idle_max_seconds", 1800)
+        return self.workflow_def.get("timeouts", {}).get("idle_max_seconds", 1800)  # type: ignore[no-any-return]
 
     @property
     def max_visits_per_node(self) -> int:

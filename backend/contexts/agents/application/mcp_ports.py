@@ -111,15 +111,11 @@ class SearchAdapter(Protocol):
 
 class SearchCache(Protocol):
     async def get(self, cache_key: str) -> list[SearchResult] | None: ...
-    async def set(
-        self, cache_key: str, results: list[SearchResult], *, ttl_s: int
-    ) -> None: ...
+    async def set(self, cache_key: str, results: list[SearchResult], *, ttl_s: int) -> None: ...
 
 
 class SearchRateLimiter(Protocol):
-    async def try_acquire(
-        self, *, project_id: uuid.UUID, limit_per_minute: int
-    ) -> bool: ...
+    async def try_acquire(self, *, project_id: uuid.UUID, limit_per_minute: int) -> bool: ...
 
 
 __all__ = [

@@ -18,8 +18,9 @@ import sys
 from logging.config import fileConfig
 from pathlib import Path
 
-from alembic import context
 from sqlalchemy import engine_from_config, pool
+
+from alembic import context
 
 # Ensure `app` + `shared_kernel` import from the backend package root when
 # alembic is invoked via `python -m alembic ...` or `smap.bootstrap db-init`.

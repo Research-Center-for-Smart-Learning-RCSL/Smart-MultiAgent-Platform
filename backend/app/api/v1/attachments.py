@@ -53,7 +53,8 @@ class AttachmentDownloadOut(AttachmentOut):
 
 
 @chatroom_router.post(
-    "/{chatroom_id}/attachments", status_code=201,
+    "/{chatroom_id}/attachments",
+    status_code=201,
 )
 async def create_single_shot(
     chatroom_id: uuid.UUID = Path(...),
@@ -65,7 +66,9 @@ async def create_single_shot(
 ) -> AttachmentOut:
     # ACL: must be able to send in the room (same gate as creating a message).
     access = await resolve_room_access(
-        db, principal=principal, chatroom_id=chatroom_id,
+        db,
+        principal=principal,
+        chatroom_id=chatroom_id,
     )
     ensure_can_send(access, is_admin=principal.is_admin)
 
@@ -98,7 +101,7 @@ async def read_attachment(
     db: AsyncSession = Depends(db_session),
 ) -> AttachmentDownloadOut:
     service = AttachmentService(db)
-    row = await service._repo.get(attachment_id)  # noqa: SLF001 — intended
+    row = await service._repo.get(attachment_id)  # — intended
     if row is None:
         raise AttachmentNotFound(str(attachment_id))
     if row.status.value == "quarantined":
@@ -111,9 +114,12 @@ async def read_attachment(
             raise HTTPException(status_code=403, detail="forbidden")
     else:
         access = await resolve_room_access(
-            db, principal=principal, chatroom_id=row.chatroom_id,
+            db,
+            principal=principal,
+            chatroom_id=row.chatroom_id,
         )
         from contexts.conversation.application.access import ensure_can_read
+
         ensure_can_read(access, is_admin=principal.is_admin)
 
     ptr = await service.get_for_download(attachment_id=attachment_id)

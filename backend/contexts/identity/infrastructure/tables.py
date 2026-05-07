@@ -19,8 +19,7 @@ from shared_kernel.db import metadata
 users = sa.Table(
     "users",
     metadata,
-    sa.Column("id", pg.UUID(as_uuid=True), primary_key=True,
-              server_default=sa.text("gen_random_uuid()")),
+    sa.Column("id", pg.UUID(as_uuid=True), primary_key=True, server_default=sa.text("gen_random_uuid()")),
     sa.Column("email", sa.Text, nullable=False),
     sa.Column("password_hash", sa.Text, nullable=False),
     sa.Column("email_verified", sa.Boolean, nullable=False, server_default=sa.text("false")),
@@ -30,26 +29,23 @@ users = sa.Table(
     sa.Column("deleted_at", sa.TIMESTAMP(timezone=True), nullable=True),
     sa.Column("last_login_at", sa.TIMESTAMP(timezone=True), nullable=True),
     sa.Column("version", sa.Integer, nullable=False, server_default=sa.text("1")),
-    sa.Column("created_at", sa.TIMESTAMP(timezone=True), nullable=False,
-              server_default=sa.text("now()")),
+    sa.Column("created_at", sa.TIMESTAMP(timezone=True), nullable=False, server_default=sa.text("now()")),
 )
 
 sessions = sa.Table(
     "sessions",
     metadata,
-    sa.Column("id", pg.UUID(as_uuid=True), primary_key=True,
-              server_default=sa.text("gen_random_uuid()")),
-    sa.Column("user_id", pg.UUID(as_uuid=True), sa.ForeignKey("users.id", ondelete="CASCADE"),
-              nullable=False),
+    sa.Column("id", pg.UUID(as_uuid=True), primary_key=True, server_default=sa.text("gen_random_uuid()")),
+    sa.Column(
+        "user_id", pg.UUID(as_uuid=True), sa.ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    ),
     sa.Column("family_id", pg.UUID(as_uuid=True), nullable=False),
     sa.Column("refresh_token_hash", sa.Text, nullable=False, unique=True),
     sa.Column("user_agent", sa.Text, nullable=True),
     sa.Column("ip_inet", pg.INET(), nullable=True),
     sa.Column("last_jti", pg.UUID(as_uuid=True), nullable=True),
-    sa.Column("created_at", sa.TIMESTAMP(timezone=True), nullable=False,
-              server_default=sa.text("now()")),
-    sa.Column("last_used_at", sa.TIMESTAMP(timezone=True), nullable=False,
-              server_default=sa.text("now()")),
+    sa.Column("created_at", sa.TIMESTAMP(timezone=True), nullable=False, server_default=sa.text("now()")),
+    sa.Column("last_used_at", sa.TIMESTAMP(timezone=True), nullable=False, server_default=sa.text("now()")),
     sa.Column("expires_at", sa.TIMESTAMP(timezone=True), nullable=False),
     sa.Column("revoked_at", sa.TIMESTAMP(timezone=True), nullable=True),
 )
@@ -57,54 +53,56 @@ sessions = sa.Table(
 password_reset_tokens = sa.Table(
     "password_reset_tokens",
     metadata,
-    sa.Column("id", pg.UUID(as_uuid=True), primary_key=True,
-              server_default=sa.text("gen_random_uuid()")),
-    sa.Column("user_id", pg.UUID(as_uuid=True), sa.ForeignKey("users.id", ondelete="CASCADE"),
-              nullable=False),
+    sa.Column("id", pg.UUID(as_uuid=True), primary_key=True, server_default=sa.text("gen_random_uuid()")),
+    sa.Column(
+        "user_id", pg.UUID(as_uuid=True), sa.ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    ),
     sa.Column("token_hash", sa.Text, nullable=False, unique=True),
     sa.Column("expires_at", sa.TIMESTAMP(timezone=True), nullable=False),
     sa.Column("used_at", sa.TIMESTAMP(timezone=True), nullable=True),
-    sa.Column("created_at", sa.TIMESTAMP(timezone=True), nullable=False,
-              server_default=sa.text("now()")),
+    sa.Column("created_at", sa.TIMESTAMP(timezone=True), nullable=False, server_default=sa.text("now()")),
 )
 
 email_verify_tokens = sa.Table(
     "email_verify_tokens",
     metadata,
-    sa.Column("id", pg.UUID(as_uuid=True), primary_key=True,
-              server_default=sa.text("gen_random_uuid()")),
-    sa.Column("user_id", pg.UUID(as_uuid=True), sa.ForeignKey("users.id", ondelete="CASCADE"),
-              nullable=False),
+    sa.Column("id", pg.UUID(as_uuid=True), primary_key=True, server_default=sa.text("gen_random_uuid()")),
+    sa.Column(
+        "user_id", pg.UUID(as_uuid=True), sa.ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    ),
     sa.Column("token_hash", sa.Text, nullable=False, unique=True),
     sa.Column("expires_at", sa.TIMESTAMP(timezone=True), nullable=False),
     sa.Column("used_at", sa.TIMESTAMP(timezone=True), nullable=True),
-    sa.Column("created_at", sa.TIMESTAMP(timezone=True), nullable=False,
-              server_default=sa.text("now()")),
+    sa.Column("created_at", sa.TIMESTAMP(timezone=True), nullable=False, server_default=sa.text("now()")),
 )
 
 admins = sa.Table(
     "admins",
     metadata,
-    sa.Column("user_id", pg.UUID(as_uuid=True), sa.ForeignKey("users.id", ondelete="CASCADE"),
-              primary_key=True),
-    sa.Column("promoted_by_user_id", pg.UUID(as_uuid=True),
-              sa.ForeignKey("users.id", ondelete="SET NULL"), nullable=True),
-    sa.Column("promoted_at", sa.TIMESTAMP(timezone=True), nullable=False,
-              server_default=sa.text("now()")),
+    sa.Column(
+        "user_id", pg.UUID(as_uuid=True), sa.ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    ),
+    sa.Column(
+        "promoted_by_user_id",
+        pg.UUID(as_uuid=True),
+        sa.ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    ),
+    sa.Column("promoted_at", sa.TIMESTAMP(timezone=True), nullable=False, server_default=sa.text("now()")),
     sa.Column("revoked_at", sa.TIMESTAMP(timezone=True), nullable=True),
 )
 
 admin_impersonation_sessions = sa.Table(
     "admin_impersonation_sessions",
     metadata,
-    sa.Column("id", pg.UUID(as_uuid=True), primary_key=True,
-              server_default=sa.text("gen_random_uuid()")),
-    sa.Column("admin_user_id", pg.UUID(as_uuid=True),
-              sa.ForeignKey("users.id", ondelete="CASCADE"), nullable=False),
-    sa.Column("target_user_id", pg.UUID(as_uuid=True),
-              sa.ForeignKey("users.id", ondelete="CASCADE"), nullable=False),
-    sa.Column("started_at", sa.TIMESTAMP(timezone=True), nullable=False,
-              server_default=sa.text("now()")),
+    sa.Column("id", pg.UUID(as_uuid=True), primary_key=True, server_default=sa.text("gen_random_uuid()")),
+    sa.Column(
+        "admin_user_id", pg.UUID(as_uuid=True), sa.ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    ),
+    sa.Column(
+        "target_user_id", pg.UUID(as_uuid=True), sa.ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    ),
+    sa.Column("started_at", sa.TIMESTAMP(timezone=True), nullable=False, server_default=sa.text("now()")),
     sa.Column("ended_at", sa.TIMESTAMP(timezone=True), nullable=True),
     sa.Column("started_request_id", pg.UUID(as_uuid=True), nullable=True),
     sa.Column("access_jti", pg.UUID(as_uuid=True), nullable=True),
@@ -113,14 +111,16 @@ admin_impersonation_sessions = sa.Table(
 ip_bans = sa.Table(
     "ip_bans",
     metadata,
-    sa.Column("id", pg.UUID(as_uuid=True), primary_key=True,
-              server_default=sa.text("gen_random_uuid()")),
+    sa.Column("id", pg.UUID(as_uuid=True), primary_key=True, server_default=sa.text("gen_random_uuid()")),
     sa.Column("cidr", pg.CIDR(), nullable=False, unique=True),
     sa.Column("reason", sa.Text, nullable=False),
-    sa.Column("banned_at", sa.TIMESTAMP(timezone=True), nullable=False,
-              server_default=sa.text("now()")),
-    sa.Column("created_by_user_id", pg.UUID(as_uuid=True),
-              sa.ForeignKey("users.id", ondelete="SET NULL"), nullable=True),
+    sa.Column("banned_at", sa.TIMESTAMP(timezone=True), nullable=False, server_default=sa.text("now()")),
+    sa.Column(
+        "created_by_user_id",
+        pg.UUID(as_uuid=True),
+        sa.ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    ),
 )
 
 

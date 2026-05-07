@@ -15,8 +15,8 @@ what Phase A scaffolded. Middleware order (earliest first) matters:
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import AsyncIterator
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -30,40 +30,100 @@ from app.api.middleware.security_headers import SecurityHeadersMiddleware
 from app.api.middleware.trusted_proxy import TrustedProxyMiddleware
 from app.api.v1 import (
     admin as admin_routes,
+)
+from app.api.v1 import (
     admin_ip_bans as admin_ip_ban_routes,
+)
+from app.api.v1 import (
     agents as agent_routes,
+)
+from app.api.v1 import (
     attachments as attachment_routes,
+)
+from app.api.v1 import (
     auth as auth_routes,
+)
+from app.api.v1 import (
     chatrooms as chatroom_routes,
+)
+from app.api.v1 import (
     csp_report as csp_routes,
+)
+from app.api.v1 import (
     exports as export_routes,
-    guests as guest_routes,
-    healthz,
-    invites as invite_routes,
-    key_groups as key_group_routes,
-    keys as key_routes,
-    mcp as mcp_routes,
-    messages as message_routes,
-    notifications as notification_routes,
-    orchestration as orchestration_routes,
-    project_keys as project_key_routes,
+)
+from app.api.v1 import (
     graphrag as graphrag_routes,
-    rag as rag_routes,
-    search as search_routes,
-    search_keys as search_key_routes,
-    tus as tus_routes,
+)
+from app.api.v1 import (
+    guests as guest_routes,
+)
+from app.api.v1 import (
+    healthz,
     metrics,
-    orgs as org_routes,
-    projects as project_routes,
     readyz,
+)
+from app.api.v1 import (
+    invites as invite_routes,
+)
+from app.api.v1 import (
+    key_groups as key_group_routes,
+)
+from app.api.v1 import (
+    keys as key_routes,
+)
+from app.api.v1 import (
+    mcp as mcp_routes,
+)
+from app.api.v1 import (
+    messages as message_routes,
+)
+from app.api.v1 import (
+    notifications as notification_routes,
+)
+from app.api.v1 import (
+    orchestration as orchestration_routes,
+)
+from app.api.v1 import (
+    orgs as org_routes,
+)
+from app.api.v1 import (
+    project_keys as project_key_routes,
+)
+from app.api.v1 import (
+    projects as project_routes,
+)
+from app.api.v1 import (
+    rag as rag_routes,
+)
+from app.api.v1 import (
+    search as search_routes,
+)
+from app.api.v1 import (
+    search_keys as search_key_routes,
+)
+from app.api.v1 import (
+    tus as tus_routes,
+)
+from app.api.v1 import (
     workflows as workflow_routes,
+)
+from app.api.v1 import (
     workspaces as workspace_routes,
 )
 from app.api.ws import (
     admin_tail as ws_admin_tail,
+)
+from app.api.ws import (
     chatroom as ws_chatroom,
+)
+from app.api.ws import (
     rag_configs as ws_rag_configs,
+)
+from app.api.ws import (
     user as ws_user,
+)
+from app.api.ws import (
     workflow_runs as ws_workflow_runs,
 )
 from app.bootstrap.seed import seed_test_users
@@ -112,12 +172,12 @@ def create_app() -> FastAPI:
     # Starlette executes middleware in LIFO order (last added → first executed on
     # the way *in*). To match the numbered sequence in the module docstring above
     # (step 1 = RequestId runs first), add them here in reverse (step 6 → step 1).
-    app.add_middleware(SecurityHeadersMiddleware)   # [6] last on request-in
-    app.add_middleware(RateLimitMiddleware)         # [5]
-    app.add_middleware(AuthMiddleware)              # [4]
-    app.add_middleware(IpBanMiddleware)             # [3]
-    app.add_middleware(TrustedProxyMiddleware)      # [2]
-    app.add_middleware(RequestIdMiddleware)         # [1] first on request-in
+    app.add_middleware(SecurityHeadersMiddleware)  # [6] last on request-in
+    app.add_middleware(RateLimitMiddleware)  # [5]
+    app.add_middleware(AuthMiddleware)  # [4]
+    app.add_middleware(IpBanMiddleware)  # [3]
+    app.add_middleware(TrustedProxyMiddleware)  # [2]
+    app.add_middleware(RequestIdMiddleware)  # [1] first on request-in
     # CORS is opt-in: v1 deploys are same-origin behind nginx and ship no
     # CORS layer. If an operator splits origins, they configure
     # `SMAP_SEC_CORS_ORIGINS`; we then mount Starlette's CORSMiddleware

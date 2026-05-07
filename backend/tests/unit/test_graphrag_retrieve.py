@@ -60,7 +60,7 @@ class FakeEmbedder:
         return [[0.1] * 3 for _ in texts]
 
 
-async def _factory(cfg):  # noqa: ANN001
+async def _factory(cfg):
     return FakeEmbedder()
 
 
@@ -79,7 +79,7 @@ def _cfg() -> GraphRagConfig:
     )
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_hybrid_query_returns_bundle() -> None:
     cfg = _cfg()
     msg_id = uuid.uuid4()
@@ -112,14 +112,15 @@ async def test_hybrid_query_returns_bundle() -> None:
         evidence_fetcher=lambda ids: _ev_fetcher(ids),
     )
     # Patch the config repo.
-    service._configs = FakeRepo(cfg)  # type: ignore[attr-defined]
+    service._configs = FakeRepo(cfg)  # type: ignore[assignment, attr-defined]
 
     bundle = await service.query(config_id=cfg.id, text="who knows bob?", top_k=5, hops=2)
 
     assert bundle.entities == ("alice", "bob")
     assert len(bundle.relations) == 1
     rel = bundle.relations[0]
-    assert rel.subject == "alice" and rel.object == "bob"
+    assert rel.subject == "alice"
+    assert rel.object == "bob"
     assert rel.evidence_msg_ids == (msg_id,)
     assert bundle.evidence_excerpts == ("excerpt-0",)
     assert neo4j.traverse_calls == [(["alice", "bob"], 2)]
@@ -129,7 +130,7 @@ async def _ev_fetcher(ids: list[uuid.UUID]) -> list[str]:
     return [f"excerpt-{i}" for i in range(len(ids))]
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_empty_vector_hits_returns_empty_bundle() -> None:
     cfg = _cfg()
     service = GraphRagRetrieveService(
@@ -138,7 +139,7 @@ async def test_empty_vector_hits_returns_empty_bundle() -> None:
         vector_store=FakeVectors([]),  # type: ignore[arg-type]
         embedder_factory=_factory,
     )
-    service._configs = FakeRepo(cfg)  # type: ignore[attr-defined]
+    service._configs = FakeRepo(cfg)  # type: ignore[assignment, attr-defined]
 
     bundle = await service.query(config_id=cfg.id, text="empty")
     assert bundle.entities == ()
@@ -147,20 +148,26 @@ async def test_empty_vector_hits_returns_empty_bundle() -> None:
 
 def test_bundle_serialises_under_2kb_cap() -> None:
     from contexts.knowledge.domain.graphrag import (
-        GraphRagBundle, RelationEdge,
+        GraphRagBundle,
+        RelationEdge,
     )
+
     huge = "x" * 4000
     bundle = GraphRagBundle(
         entities=("a", "b"),
         relations=(
             RelationEdge(
-                subject="a", relation="r", object="b",
-                confidence=1.0, evidence_msg_ids=(),
+                subject="a",
+                relation="r",
+                object="b",
+                confidence=1.0,
+                evidence_msg_ids=(),
             ),
         ),
         evidence_excerpts=(huge,),
     )
     payload = bundle.as_system_message()
     import json
+
     assert len(json.dumps(payload, ensure_ascii=False).encode("utf-8")) <= 2048
     assert payload["metadata"]["type"] == "graphrag"

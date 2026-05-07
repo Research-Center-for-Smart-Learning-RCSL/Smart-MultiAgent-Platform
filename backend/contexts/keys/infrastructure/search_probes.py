@@ -8,6 +8,8 @@ tool call will authenticate. Configurable fields (``google_cse.cx``,
 
 from __future__ import annotations
 
+from typing import Any
+
 import httpx
 
 from contexts.keys.domain.search import SearchProvider
@@ -18,7 +20,7 @@ from contexts.keys.infrastructure.probes.base import (
 )
 
 
-async def _probe_brave(secret: str, _config: dict) -> ProbeResult:
+async def _probe_brave(secret: str, _config: dict[str, Any]) -> ProbeResult:
     url = "https://api.search.brave.com/res/v1/web/search"
     try:
         async with new_http_client() as c:
@@ -36,7 +38,7 @@ async def _probe_brave(secret: str, _config: dict) -> ProbeResult:
     return ProbeResult.failed(summarise_http_failure(resp))
 
 
-async def _probe_serper(secret: str, _config: dict) -> ProbeResult:
+async def _probe_serper(secret: str, _config: dict[str, Any]) -> ProbeResult:
     url = "https://google.serper.dev/search"
     try:
         async with new_http_client() as c:
@@ -54,7 +56,7 @@ async def _probe_serper(secret: str, _config: dict) -> ProbeResult:
     return ProbeResult.failed(summarise_http_failure(resp))
 
 
-async def _probe_tavily(secret: str, config: dict) -> ProbeResult:
+async def _probe_tavily(secret: str, config: dict[str, Any]) -> ProbeResult:
     url = "https://api.tavily.com/search"
     depth = config.get("search_depth", "basic")
     try:
@@ -62,8 +64,7 @@ async def _probe_tavily(secret: str, config: dict) -> ProbeResult:
             resp = await c.post(
                 url,
                 headers={"content-type": "application/json"},
-                json={"api_key": secret, "query": "ping", "max_results": 1,
-                      "search_depth": depth},
+                json={"api_key": secret, "query": "ping", "max_results": 1, "search_depth": depth},
             )
     except httpx.HTTPError as exc:
         return ProbeResult.failed(f"network: {exc.__class__.__name__}")
@@ -74,7 +75,7 @@ async def _probe_tavily(secret: str, config: dict) -> ProbeResult:
     return ProbeResult.failed(summarise_http_failure(resp))
 
 
-async def _probe_google_cse(secret: str, config: dict) -> ProbeResult:
+async def _probe_google_cse(secret: str, config: dict[str, Any]) -> ProbeResult:
     cx = config.get("cx")
     if not cx:
         return ProbeResult.failed("missing_cx")
@@ -99,9 +100,7 @@ SEARCH_PROBES = {
 }
 
 
-async def probe_search(
-    provider: SearchProvider, secret: str, config: dict
-) -> ProbeResult:
+async def probe_search(provider: SearchProvider, secret: str, config: dict[str, Any]) -> ProbeResult:
     return await SEARCH_PROBES[provider](secret, config)
 
 

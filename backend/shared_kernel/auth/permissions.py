@@ -42,34 +42,34 @@ class Role(str, enum.Enum):
 
 class Capability(str, enum.Enum):
     # Keys
-    KEY_VIEW_PLAINTEXT = "key.view_plaintext"                 # 1  (universal deny)
-    KEY_UPLOAD = "key.upload"                                 # 2
-    KEY_DELETE_OWN = "key.delete_own"                         # 3
-    KEY_DELETE_OTHER_IN_PROJECT = "key.delete_other"          # 4
-    KEY_VIEW_USAGE_PROJECT = "key.view_usage"                 # 5
-    KEY_CONFIGURE = "key.configure"                           # 6
+    KEY_VIEW_PLAINTEXT = "key.view_plaintext"  # 1  (universal deny)
+    KEY_UPLOAD = "key.upload"  # 2
+    KEY_DELETE_OWN = "key.delete_own"  # 3
+    KEY_DELETE_OTHER_IN_PROJECT = "key.delete_other"  # 4
+    KEY_VIEW_USAGE_PROJECT = "key.view_usage"  # 5
+    KEY_CONFIGURE = "key.configure"  # 6
     # Orgs
-    ORG_CREATE = "org.create"                                 # 7
-    ORG_DELETE = "org.delete"                                 # 8  (OC or Admin)
-    ORG_OWNER_MANAGE = "org.owner.manage"                     # 9
-    ORG_MEMBER_MANAGE = "org.member.manage"                   # 10
+    ORG_CREATE = "org.create"  # 7
+    ORG_DELETE = "org.delete"  # 8  (OC or Admin)
+    ORG_OWNER_MANAGE = "org.owner.manage"  # 9
+    ORG_MEMBER_MANAGE = "org.member.manage"  # 10
     # Projects
-    PROJECT_CREATE_UNDER_ORG = "project.create_under_org"     # 11
-    PROJECT_CREATE_UNDER_USER = "project.create_under_user"   # 12
-    PROJECT_DELETE = "project.delete"                         # 13
-    PROJECT_MEMBER_MANAGE = "project.member.manage"           # 14
+    PROJECT_CREATE_UNDER_ORG = "project.create_under_org"  # 11
+    PROJECT_CREATE_UNDER_USER = "project.create_under_user"  # 12
+    PROJECT_DELETE = "project.delete"  # 13
+    PROJECT_MEMBER_MANAGE = "project.member.manage"  # 14
     # Resources
-    RESOURCE_CREATE_EDIT = "resource.create_edit"             # 15  (Agent/KG/RAG)
-    CHAT_CREATE = "chat.create"                               # 16  (WS/Chatroom/Workflow)
-    CHAT_SEND = "chat.send"                                   # 17  (room ACL)
-    GUEST_LINK_MANAGE = "guest_link.manage"                   # 18
-    CHAT_EXPORT = "chat.export"                               # 19
-    MESSAGE_DELETE = "message.delete"                         # 20
+    RESOURCE_CREATE_EDIT = "resource.create_edit"  # 15  (Agent/KG/RAG)
+    CHAT_CREATE = "chat.create"  # 16  (WS/Chatroom/Workflow)
+    CHAT_SEND = "chat.send"  # 17  (room ACL)
+    GUEST_LINK_MANAGE = "guest_link.manage"  # 18
+    CHAT_EXPORT = "chat.export"  # 19
+    MESSAGE_DELETE = "message.delete"  # 20
     # Admin-only
-    AUDIT_VIEW = "audit.view"                                 # 21
-    USER_BAN = "user.ban"                                     # 22
-    USER_DELETE_ANY = "user.delete_any"                       # 23
-    USER_READ_ANY = "user.read_any"                           # 24
+    AUDIT_VIEW = "audit.view"  # 21
+    USER_BAN = "user.ban"  # 22
+    USER_DELETE_ANY = "user.delete_any"  # 23
+    USER_READ_ANY = "user.read_any"  # 24
 
 
 # ---------------------------------------------------------------------------
@@ -115,17 +115,11 @@ class RoleResolver(Protocol):
     here, not stored — R5.03).
     """
 
-    async def roles_for(
-        self, principal: Principal, scope: Scope
-    ) -> frozenset[Role]: ...
+    async def roles_for(self, principal: Principal, scope: Scope) -> frozenset[Role]: ...
 
-    async def is_original_creator(
-        self, *, user_id: uuid.UUID, org_id: uuid.UUID
-    ) -> bool: ...
+    async def is_original_creator(self, *, user_id: uuid.UUID, org_id: uuid.UUID) -> bool: ...
 
-    async def is_chatroom_participant(
-        self, *, user_id: uuid.UUID, chatroom_id: uuid.UUID
-    ) -> bool: ...
+    async def is_chatroom_participant(self, *, user_id: uuid.UUID, chatroom_id: uuid.UUID) -> bool: ...
 
 
 # ---------------------------------------------------------------------------
@@ -136,9 +130,9 @@ class RoleResolver(Protocol):
 class Outcome(str, enum.Enum):
     ALLOW = "allow"
     DENY = "deny"
-    OWN_ONLY = "own_only"           # ∘ — caller must own the resource
-    ROOM_ACL = "room_acl"            # chat send/export permitted per room ACL
-    ORIGINAL_CREATOR_ONLY = "oc"     # #8 — OC (or Admin) only
+    OWN_ONLY = "own_only"  # ∘ — caller must own the resource
+    ROOM_ACL = "room_acl"  # chat send/export permitted per room ACL
+    ORIGINAL_CREATOR_ONLY = "oc"  # #8 — OC (or Admin) only
     NOT_ORIGINAL_CREATOR = "not_oc"  # #9 — target cannot be OC
     ADMIN_ONLY_IF_NOT_OWN = "admin_not_own"  # unused today; future-proof
 
@@ -265,11 +259,11 @@ class Decision:
     outcome: Outcome | None = None
 
     @classmethod
-    def allow(cls, reason: str, outcome: Outcome = Outcome.ALLOW) -> "Decision":
+    def allow(cls, reason: str, outcome: Outcome = Outcome.ALLOW) -> Decision:
         return cls(True, reason, outcome)
 
     @classmethod
-    def deny(cls, reason: str, outcome: Outcome = Outcome.DENY) -> "Decision":
+    def deny(cls, reason: str, outcome: Outcome = Outcome.DENY) -> Decision:
         return cls(False, reason, outcome)
 
 
@@ -310,10 +304,7 @@ async def decide(
         if outcome is Outcome.DENY:
             continue
         if outcome is Outcome.OWN_ONLY:
-            if (
-                scope.resource_owner_user_id is not None
-                and scope.resource_owner_user_id == principal.user_id
-            ):
+            if scope.resource_owner_user_id is not None and scope.resource_owner_user_id == principal.user_id:
                 return Decision.allow(f"{role.value}→OWN", outcome)
             continue
         if outcome is Outcome.ORIGINAL_CREATOR_ONLY:
@@ -338,11 +329,13 @@ async def decide(
 
 
 # Capabilities the caller must have email_verified=True to use (R6.02).
-_EMAIL_VERIFICATION_REQUIRED: frozenset[Capability] = frozenset({
-    Capability.ORG_CREATE,
-    Capability.PROJECT_CREATE_UNDER_ORG,
-    Capability.PROJECT_CREATE_UNDER_USER,
-})
+_EMAIL_VERIFICATION_REQUIRED: frozenset[Capability] = frozenset(
+    {
+        Capability.ORG_CREATE,
+        Capability.PROJECT_CREATE_UNDER_ORG,
+        Capability.PROJECT_CREATE_UNDER_USER,
+    }
+)
 
 
 __all__ = [

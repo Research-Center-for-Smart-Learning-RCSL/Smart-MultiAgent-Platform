@@ -33,6 +33,7 @@ SoC:
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import mimetypes
 import uuid
@@ -98,9 +99,7 @@ class IngestService:
         request_id: uuid.UUID | None = None,
     ) -> RagDocument:
         if len(ipt.data) > MAX_MULTIPART_BYTES:
-            raise DocumentTooLarge(
-                f"multipart upload exceeds {MAX_MULTIPART_BYTES} bytes; use tus"
-            )
+            raise DocumentTooLarge(f"multipart upload exceeds {MAX_MULTIPART_BYTES} bytes; use tus")
 
         mime = _normalise_mime(ipt.mime, ipt.filename)
         if mime not in MIME_TO_PARSER:
@@ -115,7 +114,8 @@ class IngestService:
         # Dedup per R10.02: same sha in same config → return the existing row
         # without re-embedding.
         existing = await self._docs.find_by_sha(
-            rag_config_id=cfg.id, sha256=sha,
+            rag_config_id=cfg.id,
+            sha256=sha,
         )
         if existing is not None:
             return existing
@@ -124,7 +124,10 @@ class IngestService:
         # pointing at a missing blob.
         key = f"{cfg.project_id}/{cfg.id}/{sha}"
         minio_path = await self._blob.put(
-            bucket=self._bucket, key=key, data=ipt.data, content_type=mime,
+            bucket=self._bucket,
+            key=key,
+            data=ipt.data,
+            content_type=mime,
         )
 
         doc = await self._docs.create(
@@ -158,12 +161,15 @@ class IngestService:
         try:
             text = MIME_TO_PARSER[mime](ipt.data)
             pieces = chunk_text(
-                text, strategy=cfg.chunk_strategy, params=cfg.chunk_params,
+                text,
+                strategy=cfg.chunk_strategy,
+                params=cfg.chunk_params,
             )
             if pieces:
                 vectors = await self._embedder.embed_batch(pieces)
                 await self._qdrant.ensure_collection(
-                    cfg.project_id, vector_size=self._embedder.vector_size,
+                    cfg.project_id,
+                    vector_size=self._embedder.vector_size,
                 )
                 point_ids: list[uuid.UUID] = [uuid.uuid4() for _ in pieces]
                 # Insert DB rows before upserting Qdrant vectors: if insert_many
@@ -193,11 +199,12 @@ class IngestService:
                                 "agent_ids": [],
                             },
                         )
-                        for idx, (pid, vec) in enumerate(zip(point_ids, vectors))
+                        for idx, (pid, vec) in enumerate(zip(point_ids, vectors, strict=False))
                     ],
                 )
             await self._docs.set_status(
-                document_id=doc.id, status=DocumentStatus.READY,
+                document_id=doc.id,
+                status=DocumentStatus.READY,
             )
             await audit.emit(
                 self._db,
@@ -211,13 +218,14 @@ class IngestService:
                     request_id=request_id,
                 ),
             )
-        except Exception as exc:  # noqa: BLE001 — any failure → mark + surface
-            try:
+        except Exception as exc:  # — any failure → mark + surface
+            # Best-effort status flip; if this fails the enclosing transaction
+            # rolls back anyway, dropping the row in the same unit of work.
+            with contextlib.suppress(Exception):
                 await self._docs.set_status(
-                    document_id=doc.id, status=DocumentStatus.FAILED,
+                    document_id=doc.id,
+                    status=DocumentStatus.FAILED,
                 )
-            except Exception:
-                pass  # best-effort; if this fails the transaction rolls back anyway
             raise IngestFailed(f"{type(exc).__name__}: {exc}") from exc
 
         # Re-read to return the committed status.

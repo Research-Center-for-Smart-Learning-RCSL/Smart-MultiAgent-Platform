@@ -28,15 +28,17 @@ import http.server
 import json
 import subprocess
 import sys
+from typing import Any
 
 
 def _check() -> tuple[bool, str]:
     try:
         result = subprocess.run(
-            ["docker", "info", "--format", "{{json .Runtimes}}"],
+            ["docker", "info", "--format", "{{json .Runtimes}}"],  # noqa: S603, S607
             capture_output=True,
             text=True,
             timeout=5,
+            check=False,
         )
     except FileNotFoundError:
         return False, "docker CLI not found in PATH"
@@ -49,7 +51,7 @@ def _check() -> tuple[bool, str]:
 
     raw = result.stdout.strip()
     try:
-        runtimes: dict = json.loads(raw or "{}")
+        runtimes: dict[str, Any] = json.loads(raw or "{}")
     except ValueError:
         return False, f"unexpected docker info output: {raw[:100]}"
 
@@ -63,7 +65,7 @@ def _check() -> tuple[bool, str]:
 
 
 class _Handler(http.server.BaseHTTPRequestHandler):
-    def do_GET(self) -> None:
+    def do_GET(self) -> None:  # noqa: N802 — stdlib BaseHTTPRequestHandler signature
         if self.path != "/healthz":
             self.send_response(404)
             self.end_headers()
@@ -82,5 +84,5 @@ class _Handler(http.server.BaseHTTPRequestHandler):
 
 if __name__ == "__main__":
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 9090
-    server = http.server.HTTPServer(("0.0.0.0", port), _Handler)
+    server = http.server.HTTPServer(("0.0.0.0", port), _Handler)  # noqa: S104 — supervisor binds in-container only
     server.serve_forever()

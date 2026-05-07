@@ -21,11 +21,13 @@ class MemberNotFound(TenancyError):
 
 class OriginalCreatorConflict(TenancyError):
     """Attempt to demote/kick the OC, or self-delete-blocked scenarios."""
+
     code = "tenancy/original-creator-conflict"
 
 
 class TransferConflict(TenancyError):
     """409 — another pending transfer exists, or target is not an Owner."""
+
     code = "tenancy/transfer-conflict"
 
 

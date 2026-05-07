@@ -22,6 +22,7 @@ import os
 import uuid
 
 import sqlalchemy as sa
+from fastapi import FastAPI
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from contexts.agents.infrastructure.mcp_tables import mcp_egress_allowlist
@@ -49,14 +50,13 @@ class _DbAllowlistChecker(AllowlistChecker):
             return row is not None
 
 
-def _build_app():
+def _build_app() -> FastAPI:
     secret_hex = os.environ.get("EGRESS_PROXY_SHARED_SECRET", "")
     try:
         shared_secret = bytes.fromhex(secret_hex)
     except ValueError as exc:
         raise ValueError(
-            "EGRESS_PROXY_SHARED_SECRET must be a hex string"
-            " (e.g. 64 hex chars = 32 bytes)"
+            "EGRESS_PROXY_SHARED_SECRET must be a hex string" " (e.g. 64 hex chars = 32 bytes)"
         ) from exc
     if len(shared_secret) < 32:
         raise ValueError(

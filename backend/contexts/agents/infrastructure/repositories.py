@@ -75,7 +75,9 @@ class AgentRepository:
     async def count_active(self, project_id: uuid.UUID) -> int:
         row = (
             await self._db.execute(
-                sa.select(sa.func.count()).select_from(t.agents).where(
+                sa.select(sa.func.count())
+                .select_from(t.agents)
+                .where(
                     sa.and_(
                         t.agents.c.project_id == project_id,
                         t.agents.c.deleted_at.is_(None),
@@ -106,7 +108,8 @@ class AgentRepository:
         try:
             row = (
                 await self._db.execute(
-                    t.agents.insert().values(
+                    t.agents.insert()
+                    .values(
                         project_id=project_id,
                         name=name,
                         model_hint=model_hint.value,
@@ -121,7 +124,8 @@ class AgentRepository:
                         wakeup_config=wakeup_config,
                         wakeup_authored_snapshot=wakeup_authored_snapshot,
                         workflow_capabilities=workflow_capabilities,
-                    ).returning(t.agents)
+                    )
+                    .returning(t.agents)
                 )
             ).one()
         except IntegrityError as exc:
@@ -131,9 +135,7 @@ class AgentRepository:
             raise
         return _row_to_agent(row)
 
-    async def get(
-        self, agent_id: uuid.UUID, *, include_deleted: bool = False
-    ) -> Agent | None:
+    async def get(self, agent_id: uuid.UUID, *, include_deleted: bool = False) -> Agent | None:
         predicate: sa.ColumnElement[bool] = t.agents.c.id == agent_id
         if not include_deleted:
             predicate = sa.and_(predicate, t.agents.c.deleted_at.is_(None))
@@ -203,8 +205,7 @@ class AgentRepository:
         """Active agents that have a non-null wakeup_authored_snapshot (G.5)."""
         rows = (
             await self._db.execute(
-                t.agents.select()
-                .where(
+                t.agents.select().where(
                     sa.and_(
                         t.agents.c.deleted_at.is_(None),
                         t.agents.c.wakeup_authored_snapshot.isnot(None),
@@ -214,9 +215,7 @@ class AgentRepository:
         ).all()
         return [_row_to_agent(r) for r in rows]
 
-    async def soft_delete(
-        self, *, agent_id: uuid.UUID, expected_version: int
-    ) -> Agent:
+    async def soft_delete(self, *, agent_id: uuid.UUID, expected_version: int) -> Agent:
         stmt = (
             t.agents.update()
             .where(
@@ -263,13 +262,15 @@ class AgentMcpBindingRepository:
     ) -> McpBinding:
         row = (
             await self._db.execute(
-                t.agent_mcp_servers.insert().values(
+                t.agent_mcp_servers.insert()
+                .values(
                     agent_id=agent_id,
                     source=source.value,
                     reference=reference,
                     allowed_tools=list(allowed_tools),
                     config=config,
-                ).returning(t.agent_mcp_servers)
+                )
+                .returning(t.agent_mcp_servers)
             )
         ).one()
         return _row_to_binding(row)

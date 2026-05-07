@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 
@@ -32,6 +32,7 @@ class NullLit:
 @dataclass(frozen=True, slots=True)
 class VarRef:
     """Variable reference: path segments like ["answer"] or ["trigger", "message", "content"]."""
+
     segments: tuple[str | int, ...]
     depth: int = 1
 

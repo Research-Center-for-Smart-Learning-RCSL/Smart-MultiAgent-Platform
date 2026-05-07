@@ -42,9 +42,7 @@ class ImpersonationService:
         request_id: uuid.UUID | None = None,
     ) -> tuple[ImpersonationSession, str]:
         target_exists = (
-            await self._db.execute(
-                t.users.select().where(t.users.c.id == target_user_id)
-            )
+            await self._db.execute(t.users.select().where(t.users.c.id == target_user_id))
         ).first()
         if target_exists is None:
             raise ValueError(f"user {target_user_id} not found")
@@ -152,6 +150,7 @@ class ImpersonationService:
 
     async def close_idle_sessions(self, idle_minutes: int = 30) -> int:
         from datetime import timedelta
+
         cutoff = now() - timedelta(minutes=idle_minutes)
         result = await self._db.execute(
             t.admin_impersonation_sessions.update()
@@ -163,7 +162,7 @@ class ImpersonationService:
             )
             .values(ended_at=now())
         )
-        return result.rowcount  # type: ignore[return-value]
+        return result.rowcount
 
     async def list_active(self) -> list[ImpersonationSession]:
         rows = (

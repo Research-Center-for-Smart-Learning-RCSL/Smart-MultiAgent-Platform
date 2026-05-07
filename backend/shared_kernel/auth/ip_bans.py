@@ -27,7 +27,7 @@ SessionFactory = Callable[[], Awaitable[AsyncSession]]
 
 @dataclass(slots=True)
 class _Cache:
-    networks: list[ipaddress._BaseNetwork] = field(default_factory=list)
+    networks: list[ipaddress.IPv4Network | ipaddress.IPv6Network] = field(default_factory=list)
     loaded_at: float = 0.0
 
 
@@ -39,7 +39,7 @@ async def reload(db: AsyncSession) -> None:
     # Query the ip_bans table directly with a raw SQL expression so this
     # module does not depend on any bounded context.
     rows = (await db.execute(sa.text("SELECT cidr FROM ip_bans"))).all()
-    nets: list[ipaddress._BaseNetwork] = []
+    nets: list[ipaddress.IPv4Network | ipaddress.IPv6Network] = []
     for row in rows:
         raw = row[0]
         try:

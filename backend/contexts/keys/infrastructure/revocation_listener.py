@@ -40,7 +40,7 @@ async def run() -> None:
             _handle(channel, data)
     except asyncio.CancelledError:
         await pubsub.unsubscribe()
-        await pubsub.aclose()
+        await pubsub.aclose()  # type: ignore[no-untyped-call]
         raise
 
 

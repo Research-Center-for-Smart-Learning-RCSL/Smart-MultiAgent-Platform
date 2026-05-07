@@ -7,6 +7,7 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from contexts.workflow.application.executors.registry import register
 from contexts.workflow.domain.models import (
     NodeSpec,
     NodeType,
@@ -15,7 +16,6 @@ from contexts.workflow.domain.models import (
     StepState,
 )
 from contexts.workflow.sel.template import interpolate
-from contexts.workflow.application.executors.registry import register
 from shared_kernel import audit
 
 
@@ -35,6 +35,7 @@ async def execute(ctx: RunContext, node: NodeSpec, db: AsyncSession) -> StepOutc
 
     try:
         from contexts.orchestration.interfaces.facade import OrchestrationFacade
+
         facade = OrchestrationFacade(db)
 
         result = await facade.a2a_call(
@@ -49,12 +50,15 @@ async def execute(ctx: RunContext, node: NodeSpec, db: AsyncSession) -> StepOutc
         if output_variable:
             ctx.variables[output_variable] = reply
 
-        await audit.emit(db, audit.AuditEvent(
-            action="workflow.step_finished",
-            resource_type="workflow_step",
-            resource_id=ctx.run_id,
-            metadata={"node_id": node.id, "agent_id": agent_id, "origin": "workflow"},
-        ))
+        await audit.emit(
+            db,
+            audit.AuditEvent(
+                action="workflow.step_finished",
+                resource_type="workflow_step",
+                resource_id=ctx.run_id,
+                metadata={"node_id": node.id, "agent_id": agent_id, "origin": "workflow"},
+            ),
+        )
 
         return StepOutcome(
             state=StepState.SUCCEEDED,

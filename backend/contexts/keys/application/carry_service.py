@@ -29,7 +29,6 @@ from shared_kernel import audit
 from shared_kernel.events.key_revocation import publish_carry_revoked
 from shared_kernel.infra import redis_buckets
 
-
 _WINDOWS: dict[str, timedelta | None] = {
     "1h": None,  # served from Redis (sliding bucket, accurate to the minute).
     "24h": timedelta(hours=24),
@@ -110,9 +109,7 @@ class CarryService:
         withdraw anyone's via the `key.delete_other` capability — that check
         is done at the HTTP layer; here we only validate the row exists.
         """
-        if not await self._carries.withdraw(
-            key_id=key_id, project_id=project_id, at=datetime.now(tz=UTC)
-        ):
+        if not await self._carries.withdraw(key_id=key_id, project_id=project_id, at=datetime.now(tz=UTC)):
             # Row missing or already withdrawn — surface as not-found so the
             # caller gets a stable 404 path instead of a silent 204.
             raise KeyNotFound(f"carry {key_id}→{project_id}")
@@ -132,7 +129,11 @@ class CarryService:
         await publish_carry_revoked(key_id=key_id, project_id=project_id)
 
     async def usage(
-        self, *, key_id: uuid.UUID, project_id: uuid.UUID, window: str,
+        self,
+        *,
+        key_id: uuid.UUID,
+        project_id: uuid.UUID,
+        window: str,
     ) -> UsageSummary:
         """§22.4 `GET /api/projects/{pid}/keys/{key_id}/usage?window=…`.
 
@@ -163,22 +164,24 @@ class CarryService:
             # to the minute). Redis does not track errors, so fall back to a
             # targeted DB query for the error count only.
             since_1h = datetime.now(tz=UTC) - timedelta(hours=1)
-            err_count = (await self._db.execute(
-                sa.select(
-                    sa.func.count(t.key_usage_events.c.id).filter(
-                        sa.or_(
-                            t.key_usage_events.c.http_status.is_(None),
-                            t.key_usage_events.c.http_status < 200,
-                            t.key_usage_events.c.http_status >= 300,
+            err_count = (
+                await self._db.execute(
+                    sa.select(
+                        sa.func.count(t.key_usage_events.c.id).filter(
+                            sa.or_(
+                                t.key_usage_events.c.http_status.is_(None),
+                                t.key_usage_events.c.http_status < 200,
+                                t.key_usage_events.c.http_status >= 300,
+                            )
+                        )
+                    ).where(
+                        sa.and_(
+                            t.key_usage_events.c.key_id == key_id,
+                            t.key_usage_events.c.at >= since_1h,
                         )
                     )
-                ).where(
-                    sa.and_(
-                        t.key_usage_events.c.key_id == key_id,
-                        t.key_usage_events.c.at >= since_1h,
-                    )
                 )
-            )).scalar_one()
+            ).scalar_one()
             return UsageSummary(
                 window=window,
                 input_tokens=used.input_tokens,
@@ -231,13 +234,9 @@ class CarryService:
         """
         now = datetime.now(tz=UTC)
         revoked: list[uuid.UUID] = []
-        key_ids = await self._carries.list_active_carries_for_user(
-            user_id=user_id, project_id=project_id
-        )
+        key_ids = await self._carries.list_active_carries_for_user(user_id=user_id, project_id=project_id)
         for key_id in key_ids:
-            if await self._carries.withdraw(
-                key_id=key_id, project_id=project_id, at=now
-            ):
+            if await self._carries.withdraw(key_id=key_id, project_id=project_id, at=now):
                 revoked.append(key_id)
                 await audit.emit(
                     self._db,

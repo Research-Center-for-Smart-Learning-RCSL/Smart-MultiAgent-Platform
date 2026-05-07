@@ -6,6 +6,7 @@ import uuid
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from contexts.workflow.application.executors.registry import register
 from contexts.workflow.domain.models import (
     NodeSpec,
     NodeType,
@@ -14,7 +15,6 @@ from contexts.workflow.domain.models import (
     StepState,
 )
 from contexts.workflow.sel.template import interpolate
-from contexts.workflow.application.executors.registry import register
 from shared_kernel.realtime.pubsub import Publisher, workflow_channel
 
 
@@ -30,11 +30,11 @@ async def execute(ctx: RunContext, node: NodeSpec, db: AsyncSession) -> StepOutc
     question = interpolate(config.get("question_template", ""), variables)
 
     try:
-        from contexts.orchestration.interfaces.facade import OrchestrationFacade
         from contexts.orchestration.domain.models import ApprovalGateConfig
+        from contexts.orchestration.interfaces.facade import OrchestrationFacade
 
         facade = OrchestrationFacade(db)
-        gate_config = ApprovalGateConfig(
+        gate_config = ApprovalGateConfig(  # type: ignore[call-arg]
             mode=config["mode"],
             leader_agent_id=uuid.UUID(config["leader_agent_id"]),
             approver_agent_ids=[uuid.UUID(a) for a in config.get("approvers", [])],
@@ -47,11 +47,14 @@ async def execute(ctx: RunContext, node: NodeSpec, db: AsyncSession) -> StepOutc
         )
 
         pub = Publisher(workflow_channel(ctx.run_id))
-        await pub.emit("approval.requested", {
-            "approval_id": str(approval.id),
-            "node_id": node.id,
-            "question": question,
-        })
+        await pub.emit(
+            "approval.requested",
+            {
+                "approval_id": str(approval.id),
+                "node_id": node.id,
+                "question": question,
+            },
+        )
 
         # Park — the dispatcher will resume this node when the approval resolves,
         # setting the actual port (approved/rejected/timeout) at that time.

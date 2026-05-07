@@ -6,6 +6,7 @@ import uuid
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from contexts.workflow.application.executors.registry import register
 from contexts.workflow.domain.models import (
     NodeSpec,
     NodeType,
@@ -14,7 +15,6 @@ from contexts.workflow.domain.models import (
     StepState,
 )
 from contexts.workflow.sel.template import interpolate
-from contexts.workflow.application.executors.registry import register
 
 
 @register(NodeType.INSTRUCT)

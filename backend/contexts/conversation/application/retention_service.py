@@ -24,7 +24,7 @@ from shared_kernel import audit
 from shared_kernel.auth.clients import now
 from shared_kernel.storage import MinioClient, get_minio_client
 
-RETENTION = timedelta(days=5 * 365 + 1)        # 5 yrs, incl. leap day
+RETENTION = timedelta(days=5 * 365 + 1)  # 5 yrs, incl. leap day
 PURGE_CHUNK = 500
 
 
@@ -32,12 +32,15 @@ PURGE_CHUNK = 500
 class PurgeReport:
     messages_deleted: int
     attachments_objects_removed: int
-    oldest_kept_at: object                       # datetime | None
+    oldest_kept_at: object  # datetime | None
 
 
 class RetentionService:
     def __init__(
-        self, db: AsyncSession, *, minio: MinioClient | None = None,
+        self,
+        db: AsyncSession,
+        *,
+        minio: MinioClient | None = None,
     ) -> None:
         self._db = db
         self._minio = minio or get_minio_client()
@@ -57,11 +60,7 @@ class RetentionService:
             )
         ).all()
         if not rows:
-            kept = (
-                await self._db.execute(
-                    sa.select(sa.func.min(t.messages.c.created_at))
-                )
-            ).scalar()
+            kept = (await self._db.execute(sa.select(sa.func.min(t.messages.c.created_at)))).scalar()
             return PurgeReport(0, 0, kept)
 
         victim_ids = [r.id for r in rows]
@@ -80,9 +79,7 @@ class RetentionService:
             try:
                 await self._minio.remove(bucket=bucket, key=key)
                 removed_objects += 1
-            except Exception:  # pragma: no cover
-                # Object may already be gone via bucket lifecycle. Continue;
-                # the row deletion still proceeds.
+            except Exception:  # pragma: no cover  # noqa: S112 — lifecycle may already have removed it
                 continue
 
         # Group victims by chatroom so the audit slug carries one summary

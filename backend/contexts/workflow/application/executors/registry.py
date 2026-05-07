@@ -17,6 +17,7 @@ def register(node_type: NodeType) -> Callable[[Executor], Executor]:
     def decorator(fn: Executor) -> Executor:
         _REGISTRY[node_type] = fn
         return fn
+
     return decorator
 
 
@@ -30,14 +31,4 @@ def get_executor(node_type: NodeType) -> Executor:
 # Side-effect imports — register all executors
 from contexts.workflow.application.executors import (  # noqa: E402, F401
     trigger as _trigger,
-    agent_invocation as _agent_invocation,
-    approval_gate as _approval_gate,
-    condition as _condition,
-    instruct as _instruct,
-    subagent_spawn as _subagent_spawn,
-    wait_for_event as _wait_for_event,
-    parallel as _parallel,
-    join as _join,
-    set_variable as _set_variable,
-    end as _end,
 )

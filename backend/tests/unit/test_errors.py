@@ -44,7 +44,9 @@ def test_unhandled_becomes_500() -> None:
 
 def test_custom_extras_do_not_overwrite_reserved() -> None:
     err = SmapError(
-        type_=problem_type("x"), title="X", status=400,
+        type_=problem_type("x"),
+        title="X",
+        status=400,
         extras={"type": "malicious", "hint": "ok"},
     )
     body = err.problem.dump()

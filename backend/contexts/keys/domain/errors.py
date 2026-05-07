@@ -26,12 +26,8 @@ class CapabilityMismatch(KeysError):
 
     code = "keys/capability-mismatch"
 
-    def __init__(
-        self, *, provider: ApiKeyProvider, required: ProviderCapability
-    ) -> None:
-        super().__init__(
-            f"provider {provider.value!r} does not support capability {required.value!r}"
-        )
+    def __init__(self, *, provider: ApiKeyProvider, required: ProviderCapability) -> None:
+        super().__init__(f"provider {provider.value!r} does not support capability {required.value!r}")
         self.provider = provider
         self.required = required
 

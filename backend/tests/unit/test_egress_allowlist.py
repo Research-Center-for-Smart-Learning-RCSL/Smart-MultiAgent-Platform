@@ -18,17 +18,17 @@ class _FakeSession:
     def __init__(self) -> None:
         self.executed: list[Any] = []
 
-    async def execute(self, stmt: Any) -> Any:  # noqa: ARG002
+    async def execute(self, stmt: Any) -> Any:
         self.executed.append(stmt)
 
         class _R:
-            def first(self_inner: Any) -> None:
+            def first(self: Any) -> None:
                 return None
 
-            def all(self_inner: Any) -> list[Any]:
+            def all(self: Any) -> list[Any]:
                 return []
 
-            def one(self_inner: Any) -> None:
+            def one(self: Any) -> None:
                 return None
 
         return _R()
@@ -88,13 +88,15 @@ class _FakeRepo:
             del self.entries[key]
         for h in names:
             await self.upsert(
-                project_id=project_id, hostname=h,
-                added_by_user_id=added_by_user_id, note=None,
+                project_id=project_id,
+                hostname=h,
+                added_by_user_id=added_by_user_id,
+                note=None,
             )
         return await self.list_for_project(project_id)
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_add_normalises_and_audits() -> None:
     session = _FakeSession()
     svc = EgressAllowlistService(session)  # type: ignore[arg-type]
@@ -102,26 +104,32 @@ async def test_add_normalises_and_audits() -> None:
     svc._repo = repo  # type: ignore[assignment]
 
     entry = await svc.add(
-        project_id=uuid.uuid4(), hostname="API.EXAMPLE.com",
-        note="n", actor_user_id=uuid.uuid4(), actor_ip=None,
+        project_id=uuid.uuid4(),
+        hostname="API.EXAMPLE.com",
+        note="n",
+        actor_user_id=uuid.uuid4(),
+        actor_ip=None,
     )
     assert entry.hostname == "api.example.com"
     # audit.emit produced exactly one insert
     assert session.executed
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_add_rejects_invalid_hostname() -> None:
     svc = EgressAllowlistService(_FakeSession())  # type: ignore[arg-type]
     svc._repo = _FakeRepo()  # type: ignore[assignment]
     with pytest.raises(ValueError):
         await svc.add(
-            project_id=uuid.uuid4(), hostname="not a host!!",
-            note=None, actor_user_id=uuid.uuid4(), actor_ip=None,
+            project_id=uuid.uuid4(),
+            hostname="not a host!!",
+            note=None,
+            actor_user_id=uuid.uuid4(),
+            actor_ip=None,
         )
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_replace_normalises_and_deduplicates() -> None:
     svc = EgressAllowlistService(_FakeSession())  # type: ignore[arg-type]
     repo = _FakeRepo()
@@ -130,25 +138,28 @@ async def test_replace_normalises_and_deduplicates() -> None:
     entries = await svc.replace(
         project_id=project_id,
         hostnames=["Foo.example.com", "bar.example.com", "foo.example.com"],
-        actor_user_id=uuid.uuid4(), actor_ip=None,
+        actor_user_id=uuid.uuid4(),
+        actor_ip=None,
     )
     # Deduped and normalised.
     hosts = sorted(e.hostname for e in entries)
     assert hosts == ["bar.example.com", "foo.example.com"]
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_remove_returns_false_when_missing() -> None:
     svc = EgressAllowlistService(_FakeSession())  # type: ignore[arg-type]
     svc._repo = _FakeRepo()  # type: ignore[assignment]
     removed = await svc.remove(
-        project_id=uuid.uuid4(), hostname="api.example.com",
-        actor_user_id=uuid.uuid4(), actor_ip=None,
+        project_id=uuid.uuid4(),
+        hostname="api.example.com",
+        actor_user_id=uuid.uuid4(),
+        actor_ip=None,
     )
     assert removed is False
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_non_owner_guard_is_router_concern_not_service() -> None:
     """The service trusts the caller; the guard lives in the router.
 
@@ -159,7 +170,10 @@ async def test_non_owner_guard_is_router_concern_not_service() -> None:
     svc._repo = _FakeRepo()  # type: ignore[assignment]
     # Any caller can call the service — it is the router's job to gate owners.
     entry = await svc.add(
-        project_id=uuid.uuid4(), hostname="api.example.com",
-        note=None, actor_user_id=uuid.uuid4(), actor_ip=None,
+        project_id=uuid.uuid4(),
+        hostname="api.example.com",
+        note=None,
+        actor_user_id=uuid.uuid4(),
+        actor_ip=None,
     )
     assert entry.hostname == "api.example.com"

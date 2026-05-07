@@ -10,7 +10,6 @@ concrete clients (OpenAI, Cohere, MinIO) lets us:
 
 from __future__ import annotations
 
-import uuid
 from dataclasses import dataclass
 from typing import Protocol
 

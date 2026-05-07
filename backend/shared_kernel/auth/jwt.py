@@ -35,12 +35,12 @@ class JwtError(ValueError):
 
 @dataclass(frozen=True, slots=True)
 class AccessClaims:
-    sub: uuid.UUID                # user id
+    sub: uuid.UUID  # user id
     session_id: uuid.UUID
     jti: uuid.UUID
     exp: datetime
     iat: datetime
-    role: str                     # quick AuthN role; authoritative check = permissions.py
+    role: str  # quick AuthN role; authoritative check = permissions.py
     is_admin: bool
     impersonated_by: uuid.UUID | None = None
 

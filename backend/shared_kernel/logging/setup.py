@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import logging
 import sys
+from collections.abc import Callable
 from typing import Any
 
 import orjson
@@ -20,12 +21,21 @@ from shared_kernel.logging.context import request_id_var, session_id_var, user_i
 from shared_kernel.logging.redaction import redact
 
 _REQUIRED_FIELDS = (
-    "ts", "level", "service", "request_id", "session_id", "user_id",
-    "route", "latency_ms", "event", "msg", "error",
+    "ts",
+    "level",
+    "service",
+    "request_id",
+    "session_id",
+    "user_id",
+    "route",
+    "latency_ms",
+    "event",
+    "msg",
+    "error",
 )
 
 
-def _sink_factory(service_name: str):  # noqa: ANN202 - loguru sink signature
+def _sink_factory(service_name: str) -> Callable[[Any], None]:  # - loguru sink signature
     def _sink(message: Any) -> None:
         record = message.record
         payload: dict[str, Any] = {
@@ -61,6 +71,7 @@ class _StdlibInterceptHandler(logging.Handler):
     """Bridge stdlib logging (uvicorn, sqlalchemy, arq) into loguru."""
 
     def emit(self, record: logging.LogRecord) -> None:
+        level: str | int
         try:
             level = logger.level(record.levelname).name
         except ValueError:

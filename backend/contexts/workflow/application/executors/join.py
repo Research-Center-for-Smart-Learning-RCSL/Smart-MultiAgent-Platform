@@ -10,6 +10,7 @@ import logging
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from contexts.workflow.application.executors.registry import register
 from contexts.workflow.domain.models import (
     JoinMode,
     NodeSpec,
@@ -18,7 +19,6 @@ from contexts.workflow.domain.models import (
     StepOutcome,
     StepState,
 )
-from contexts.workflow.application.executors.registry import register
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +52,11 @@ async def execute(ctx: RunContext, node: NodeSpec, db: AsyncSession) -> StepOutc
 
     logger.debug(
         "run %s: join node %s arrival %d/%d (mode=%s)",
-        ctx.run_id, node.id, arrivals, required, mode.value,
+        ctx.run_id,
+        node.id,
+        arrivals,
+        required,
+        mode.value,
     )
 
     if arrivals < required:

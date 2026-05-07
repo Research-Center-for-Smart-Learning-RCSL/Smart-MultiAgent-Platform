@@ -50,6 +50,7 @@ def _is_impersonation_blocked(path: str) -> bool:
     parts = path.split("/")
     return any(seg.lstrip("/") in parts for seg in _IMPERSONATION_DOWNLOAD_SEGMENTS)
 
+
 _PROBLEM_MEDIA = "application/problem+json"
 
 
@@ -68,22 +69,18 @@ class AuthMiddleware(BaseHTTPMiddleware):
         try:
             claims = jwt.verify_access_token(token)
         except jwt.JwtError as exc:
-            return _deny("auth/token-expired", "Access token invalid or expired",
-                         401, request, str(exc))
+            return _deny("auth/token-expired", "Access token invalid or expired", 401, request, str(exc))
 
         if await tokens.is_denied(claims.jti):
-            return _deny("auth/token-revoked", "Access token revoked", 401, request,
-                         "jti is denylisted")
+            return _deny("auth/token-revoked", "Access token revoked", 401, request, "jti is denylisted")
 
         sm = get_sessionmaker()
         async with sm() as session:
             profile = await IdentityFacade(session).get_profile(claims.sub)
             if profile is None or profile.status.value == _STATUS_DELETED:
-                return _deny("auth/invalid-credentials", "Account not found", 401,
-                             request, "user missing")
+                return _deny("auth/invalid-credentials", "Account not found", 401, request, "user missing")
             if profile.status.value == _STATUS_BANNED:
-                return _deny("auth/banned", "Account banned", 403, request,
-                             "banned")
+                return _deny("auth/banned", "Account banned", 403, request, "banned")
 
         ctx.principal = Principal(
             user_id=profile.id,
@@ -100,13 +97,17 @@ class AuthMiddleware(BaseHTTPMiddleware):
                 return _deny(
                     "admin/impersonation-read-only",
                     "Impersonation sessions are read-only",
-                    403, request, "non-GET request via impersonation JWT",
+                    403,
+                    request,
+                    "non-GET request via impersonation JWT",
                 )
             if _is_impersonation_blocked(request.url.path):
                 return _deny(
                     "admin/impersonation-read-only",
                     "Impersonation sessions cannot access download endpoints",
-                    403, request, "data-export path accessed via impersonation JWT",
+                    403,
+                    request,
+                    "data-export path accessed via impersonation JWT",
                 )
 
         return await call_next(request)

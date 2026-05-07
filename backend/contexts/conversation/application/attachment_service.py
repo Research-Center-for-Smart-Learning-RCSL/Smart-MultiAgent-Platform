@@ -20,7 +20,6 @@ import logging
 import uuid
 from dataclasses import dataclass
 from datetime import timedelta
-from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -47,9 +46,9 @@ from shared_kernel.storage import (
 
 _log = logging.getLogger(__name__)
 
-SINGLE_SHOT_MAX_BYTES = 32 * 1024 * 1024     # R22.15 switch-to-tus threshold
-TUS_MAX_BYTES = 1024 * 1024 * 1024            # 1 GiB (R22.15.02)
-ATTACHMENT_TTL = timedelta(days=3)            # §21.5 chat-uploads lifecycle
+SINGLE_SHOT_MAX_BYTES = 32 * 1024 * 1024  # R22.15 switch-to-tus threshold
+TUS_MAX_BYTES = 1024 * 1024 * 1024  # 1 GiB (R22.15.02)
+ATTACHMENT_TTL = timedelta(days=3)  # §21.5 chat-uploads lifecycle
 
 
 @dataclass(frozen=True, slots=True)
@@ -214,7 +213,9 @@ class AttachmentService:
     # ---- reads ------------------------------------------------------------
 
     async def get_for_download(
-        self, *, attachment_id: uuid.UUID,
+        self,
+        *,
+        attachment_id: uuid.UUID,
     ) -> AttachmentPointer:
         row = await self._repo.get(attachment_id)
         if row is None:
@@ -223,7 +224,9 @@ class AttachmentService:
             raise AttachmentQuarantined(str(attachment_id))
         bucket, _, key = row.minio_path.partition("/")
         url = await self._minio.presigned_get(
-            bucket=bucket, key=key, expires=timedelta(minutes=15),
+            bucket=bucket,
+            key=key,
+            expires=timedelta(minutes=15),
         )
         return AttachmentPointer(attachment=row, url=url)
 
@@ -275,11 +278,14 @@ async def _enqueue_scan(*, attachment_id: uuid.UUID) -> None:
     scanning is best-effort (R22.15.07 explicitly allows unconfigured)."""
     try:
         from arq.connections import RedisSettings, create_pool
+
         from app.config.settings import get_settings
+
         pool = await create_pool(RedisSettings.from_dsn(get_settings().redis.dsn))
         try:
             await pool.enqueue_job(
-                "file_scan_requested", str(attachment_id),
+                "file_scan_requested",
+                str(attachment_id),
                 _job_id=f"scan:{attachment_id}",
             )
         finally:

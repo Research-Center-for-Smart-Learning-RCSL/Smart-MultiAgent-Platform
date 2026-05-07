@@ -55,14 +55,8 @@ class KeyGroupRepository:
     def __init__(self, db: AsyncSession) -> None:
         self._db = db
 
-    async def create(
-        self, *, project_id: uuid.UUID, name: str
-    ) -> KeyGroup:
-        stmt = (
-            t.key_groups.insert()
-            .values(project_id=project_id, name=name)
-            .returning(t.key_groups)
-        )
+    async def create(self, *, project_id: uuid.UUID, name: str) -> KeyGroup:
+        stmt = t.key_groups.insert().values(project_id=project_id, name=name).returning(t.key_groups)
         row = (await self._db.execute(stmt)).one()
         return _row_to_group(row)
 
@@ -95,17 +89,11 @@ class KeyGroupRepository:
         return [_row_to_group(r) for r in rows]
 
     async def rename(self, group_id: uuid.UUID, name: str) -> None:
-        await self._db.execute(
-            t.key_groups.update()
-            .where(t.key_groups.c.id == group_id)
-            .values(name=name)
-        )
+        await self._db.execute(t.key_groups.update().where(t.key_groups.c.id == group_id).values(name=name))
 
     async def soft_delete(self, group_id: uuid.UUID, *, at: Any) -> None:
         await self._db.execute(
-            t.key_groups.update()
-            .where(t.key_groups.c.id == group_id)
-            .values(deleted_at=at)
+            t.key_groups.update().where(t.key_groups.c.id == group_id).values(deleted_at=at)
         )
 
 
@@ -141,8 +129,9 @@ class KeyGroupMemberRepository:
     async def next_priority(self, group_id: uuid.UUID) -> int:
         row = (
             await self._db.execute(
-                sa.select(sa.func.coalesce(sa.func.max(t.key_group_members.c.priority), 0))
-                .where(t.key_group_members.c.group_id == group_id)
+                sa.select(sa.func.coalesce(sa.func.max(t.key_group_members.c.priority), 0)).where(
+                    t.key_group_members.c.group_id == group_id
+                )
             )
         ).scalar_one()
         return int(row) + 1
@@ -178,9 +167,7 @@ class KeyGroupMemberRepository:
         )
         return bool(result.rowcount)
 
-    async def reorder_atomic(
-        self, *, group_id: uuid.UUID, priorities: dict[uuid.UUID, int]
-    ) -> None:
+    async def reorder_atomic(self, *, group_id: uuid.UUID, priorities: dict[uuid.UUID, int]) -> None:
         """Bulk-update priorities inside a deferred-constraint transaction.
 
         The UNIQUE (group_id, priority) constraint is DEFERRABLE; we switch

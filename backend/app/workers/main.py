@@ -14,25 +14,26 @@ from __future__ import annotations
 import os
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from threading import Thread
-from typing import Any
+from typing import Any, ClassVar
 
 from arq import cron
 from arq.connections import RedisSettings
 
 from app.config.settings import get_settings
+from app.workers.agent_fs_gc import run_once as _agent_fs_gc_run_once
+from app.workers.tasks.advisory import daily_org_advisory_snapshot
 from app.workers.tasks.conversation import (
     chat_export,
     file_scan_requested,
     retention_purge,
 )
+from app.workers.tasks.graphrag import graphrag_build
 from app.workers.tasks.orchestration import (
     evaluate_silence,
     wakeup_agent,
     wakeup_refresh,
 )
-from app.workers.tasks.advisory import daily_org_advisory_snapshot
 from app.workers.tasks.retention import retention_sweep
-from app.workers.tasks.graphrag import graphrag_build
 from app.workers.tasks.workflow import (
     archive_workflow_runs,
     retry_workflow_node,
@@ -41,7 +42,6 @@ from app.workers.tasks.workflow import (
     workflow_event_timeout,
     workflow_subagent_timeout,
 )
-from app.workers.agent_fs_gc import run_once as _agent_fs_gc_run_once
 from contexts.keys.application.threshold_worker import sample_once as _threshold_sample_once
 from shared_kernel.db import registry as _db_registry  # noqa: F401 — table imports
 from shared_kernel.db.session import get_sessionmaker
@@ -75,9 +75,11 @@ def _redis_alive() -> bool:
     only verified the sidecar HTTP server, which masked broker outages.
     """
     try:
-        import redis as _redis_sync  # type: ignore[import-not-found]
+        import redis as _redis_sync
+
         client = _redis_sync.Redis.from_url(
-            get_settings().redis.dsn, socket_timeout=2,
+            get_settings().redis.dsn,
+            socket_timeout=2,
         )
         return bool(client.ping())
     except Exception:
@@ -87,7 +89,9 @@ def _redis_alive() -> bool:
 class _HealthzHandler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:  # noqa: N802 — stdlib signature
         if self.path != "/healthz":
-            self.send_response(404); self.end_headers(); return
+            self.send_response(404)
+            self.end_headers()
+            return
         if not _redis_alive():
             self.send_response(503)
             self.send_header("Content-Type", "application/json")
@@ -105,7 +109,7 @@ class _HealthzHandler(BaseHTTPRequestHandler):
 
 def _start_healthz_sidecar() -> None:
     port = int(os.environ.get("SMAP_WORKER_HEALTHZ_PORT", "8001"))
-    server = ThreadingHTTPServer(("0.0.0.0", port), _HealthzHandler)
+    server = ThreadingHTTPServer(("0.0.0.0", port), _HealthzHandler)  # noqa: S104 — sidecar binds in-container only
     Thread(target=server.serve_forever, daemon=True, name="worker-healthz").start()
 
 
@@ -115,12 +119,20 @@ async def _startup(ctx: dict[str, Any]) -> None:
 
 
 class WorkerSettings:
-    functions = [
-        noop, file_scan_requested, retention_purge, chat_export,
-        wakeup_agent, evaluate_silence, wakeup_refresh,
-        run_workflow_step, retry_workflow_node,
-        workflow_event_timeout, workflow_subagent_timeout,
-        archive_workflow_runs, workflow_cron_scheduler,
+    functions: ClassVar[list[Any]] = [
+        noop,
+        file_scan_requested,
+        retention_purge,
+        chat_export,
+        wakeup_agent,
+        evaluate_silence,
+        wakeup_refresh,
+        run_workflow_step,
+        retry_workflow_node,
+        workflow_event_timeout,
+        workflow_subagent_timeout,
+        archive_workflow_runs,
+        workflow_cron_scheduler,
         retention_sweep,
         daily_org_advisory_snapshot,
         key_usage_threshold_sample,
@@ -132,7 +144,7 @@ class WorkerSettings:
     job_timeout = 600
     max_jobs = 50
     keep_result = 3600
-    cron_jobs = [
+    cron_jobs: ClassVar[list[Any]] = [
         # 03:10 UTC daily — retention sweep (R13.15).
         cron(retention_purge, hour=3, minute=10, run_at_startup=False),
         # 03:30 UTC daily — comprehensive retention sweep (I.4).

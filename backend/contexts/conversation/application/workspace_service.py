@@ -34,7 +34,8 @@ class WorkspaceService:
         self._chatrooms = ChatroomRepository(db)
 
     async def list_for_project(
-        self, project_id: uuid.UUID,
+        self,
+        project_id: uuid.UUID,
     ) -> Sequence[Workspace]:
         return await self._workspaces.list_for_project(project_id)
 
@@ -49,10 +50,12 @@ class WorkspaceService:
         request_id: uuid.UUID | None = None,
     ) -> WorkspaceWithDefaultRoom:
         workspace = await self._workspaces.create(
-            project_id=project_id, name=name,
+            project_id=project_id,
+            name=name,
         )
         default_room = await self._chatrooms.create(
-            workspace_id=workspace.id, name=default_room_name,
+            workspace_id=workspace.id,
+            name=default_room_name,
         )
         await audit.emit(
             self._db,
@@ -86,7 +89,8 @@ class WorkspaceService:
             ),
         )
         return WorkspaceWithDefaultRoom(
-            workspace=workspace, default_chatroom=default_room,
+            workspace=workspace,
+            default_chatroom=default_room,
         )
 
     async def soft_delete(

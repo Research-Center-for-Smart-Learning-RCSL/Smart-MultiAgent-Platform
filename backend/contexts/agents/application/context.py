@@ -57,9 +57,7 @@ class MessageLike(Protocol):
 
 
 class Summariser(Protocol):
-    async def summarise(
-        self, messages: list[MessageLike], *, max_tokens: int = 2000
-    ) -> str:
+    async def summarise(self, messages: list[MessageLike], *, max_tokens: int = 2000) -> str:
         """Return a summary preserving decisions, file paths, open questions."""
 
 
@@ -104,9 +102,7 @@ def should_compact(
     if mode != "compact":
         return False
     cap = (
-        context_token_cap
-        if context_token_cap is not None
-        else default_cap_from_limit(provider_context_limit)
+        context_token_cap if context_token_cap is not None else default_cap_from_limit(provider_context_limit)
     )
     return projected_tokens > cap
 
@@ -144,10 +140,7 @@ def choose_range_to_compact(
     started = False
 
     for msg in messages:
-        is_compact = (
-            isinstance(msg.metadata, dict)
-            and msg.metadata.get("type") == "compact_summary"
-        )
+        is_compact = isinstance(msg.metadata, dict) and msg.metadata.get("type") == "compact_summary"
         if is_compact and not started:
             # Skip over earlier summaries until we find fresh material.
             continue
@@ -210,9 +203,7 @@ async def run_compact(
         return False
 
     cap = (
-        context_token_cap
-        if context_token_cap is not None
-        else default_cap_from_limit(provider_context_limit)
+        context_token_cap if context_token_cap is not None else default_cap_from_limit(provider_context_limit)
     )
     target = max(projected_tokens - cap, 1)
     plan = choose_range_to_compact(messages, target_tokens_to_shed=target)
@@ -221,13 +212,12 @@ async def run_compact(
 
     range_messages = [m for m in messages if m.id in set(plan.message_ids)]
     try:
-        summary = await summariser.summarise(
-            range_messages, max_tokens=max_summary_tokens
-        )
-    except Exception as exc:  # noqa: BLE001 — summariser surface is open-ended
+        summary = await summariser.summarise(range_messages, max_tokens=max_summary_tokens)
+    except Exception as exc:  # — summariser surface is open-ended
         raise CompactFailed(str(exc)) from exc
 
     await store.replace_range_with_summary(
-        message_ids=plan.message_ids, summary_text=summary,
+        message_ids=plan.message_ids,
+        summary_text=summary,
     )
     return True

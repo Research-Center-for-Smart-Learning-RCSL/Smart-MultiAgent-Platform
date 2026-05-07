@@ -36,9 +36,9 @@ class ExportJobState:
     job_id: uuid.UUID
     chatroom_id: uuid.UUID
     owner_user_id: uuid.UUID
-    status: str              # "queued" | "running" | "ready" | "failed"
+    status: str  # "queued" | "running" | "ready" | "failed"
     created_at: datetime
-    object_key: str | None   # exports/{job_id}/manifest.json once ready
+    object_key: str | None  # exports/{job_id}/manifest.json once ready
     bucket: str | None
     error: str | None = None
 
@@ -70,7 +70,10 @@ async def mark_running(job_id: uuid.UUID) -> None:
 
 
 async def mark_ready(
-    *, job_id: uuid.UUID, bucket: str, object_key: str,
+    *,
+    job_id: uuid.UUID,
+    bucket: str,
+    object_key: str,
 ) -> None:
     state = await get(job_id)
     if state is None:
@@ -114,7 +117,9 @@ async def _store(state: ExportJobState) -> None:
         "error": state.error,
     }
     await get_redis().set(
-        _job_key(state.job_id), json.dumps(payload), ex=_JOB_TTL_SECONDS,
+        _job_key(state.job_id),
+        json.dumps(payload),
+        ex=_JOB_TTL_SECONDS,
     )
 
 
@@ -123,11 +128,11 @@ def _replace(state: ExportJobState, **kwargs: object) -> ExportJobState:
         job_id=state.job_id,
         chatroom_id=state.chatroom_id,
         owner_user_id=state.owner_user_id,
-        status=kwargs.get("status", state.status),        # type: ignore[arg-type]
+        status=kwargs.get("status", state.status),  # type: ignore[arg-type]
         created_at=state.created_at,
         object_key=kwargs.get("object_key", state.object_key),  # type: ignore[arg-type]
-        bucket=kwargs.get("bucket", state.bucket),        # type: ignore[arg-type]
-        error=kwargs.get("error", state.error),           # type: ignore[arg-type]
+        bucket=kwargs.get("bucket", state.bucket),  # type: ignore[arg-type]
+        error=kwargs.get("error", state.error),  # type: ignore[arg-type]
     )
 
 

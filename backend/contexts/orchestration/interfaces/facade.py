@@ -199,7 +199,8 @@ class OrchestrationFacade:
         chatroom_id: uuid.UUID | None = None,
     ) -> ApprovalState:
         return await self._approval.handle_timeout(
-            approval_id, chatroom_id=chatroom_id,
+            approval_id,
+            chatroom_id=chatroom_id,
         )
 
     async def get_approval(self, approval_id: uuid.UUID) -> Approval | None:
@@ -209,7 +210,8 @@ class OrchestrationFacade:
         return await self._approval.get_votes(approval_id)
 
     async def list_approvals_for_run(
-        self, workflow_run_id: uuid.UUID,
+        self,
+        workflow_run_id: uuid.UUID,
     ) -> list[Approval]:
         return await self._approval.list_for_run(workflow_run_id)
 
@@ -253,7 +255,8 @@ class OrchestrationFacade:
         return await self._instruct.get_instruction(instruction_id)
 
     async def list_instructions_for_chain(
-        self, chain_id: uuid.UUID,
+        self,
+        chain_id: uuid.UUID,
     ) -> list[Instruction]:
         return await self._instruct.list_for_chain(chain_id)
 
@@ -285,7 +288,8 @@ class OrchestrationFacade:
         await self._subagent.destroy(instance_id, state=state)
 
     async def list_subagent_children(
-        self, parent_id: uuid.UUID,
+        self,
+        parent_id: uuid.UUID,
     ) -> list[AgentInstance]:
         return await self._subagent.list_children(parent_id)
 

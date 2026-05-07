@@ -13,8 +13,6 @@ prints only `already-present` entries.
 
 from __future__ import annotations
 
-from typing import Optional
-
 import typer
 from loguru import logger
 
@@ -22,11 +20,23 @@ from app.config.settings import get_settings
 
 from . import (
     create_admin as _create_admin,
+)
+from . import (
     db_init as _db_init,
+)
+from . import (
     minio_init as _minio_init,
+)
+from . import (
     neo4j_init as _neo4j_init,
+)
+from . import (
     qdrant_init as _qdrant_init,
+)
+from . import (
     vault_approle as _vault_approle,
+)
+from . import (
     vault_init as _vault_init,
 )
 
@@ -35,14 +45,14 @@ app = typer.Typer(help="SMAP bootstrap CLI (Phase B).", no_args_is_help=True)
 
 @app.command("vault-init")
 def vault_init(
-    root_token: Optional[str] = typer.Option(None, "--root-token", help="Operator root/dev token."),
+    root_token: str | None = typer.Option(None, "--root-token", help="Operator root/dev token."),
 ) -> None:
     _vault_init.run(get_settings(), root_token=root_token).print_human()
 
 
 @app.command("vault-approle")
 def vault_approle(
-    root_token: Optional[str] = typer.Option(None, "--root-token"),
+    root_token: str | None = typer.Option(None, "--root-token"),
     rotate_secret_id: bool = typer.Option(
         False,
         "--rotate-secret-id",
@@ -56,10 +66,7 @@ def vault_approle(
     # Secret_id only lands on stdout once (O5.01-style); operator must capture.
     for c in creds:
         if c.secret_id is not None:
-            typer.echo(
-                f"[vault-approle] role={c.name} role_id={c.role_id} "
-                f"secret_id={c.secret_id}"
-            )
+            typer.echo(f"[vault-approle] role={c.name} role_id={c.role_id} " f"secret_id={c.secret_id}")
 
 
 @app.command("db-init")
@@ -69,7 +76,7 @@ def db_init() -> None:
 
 @app.command("minio-init")
 def minio_init(
-    root_token: Optional[str] = typer.Option(None, "--root-token"),
+    root_token: str | None = typer.Option(None, "--root-token"),
 ) -> None:
     _minio_init.run(get_settings(), root_token=root_token).print_human()
 
@@ -87,7 +94,7 @@ def neo4j_init() -> None:
 @app.command("create-admin")
 def create_admin(
     email: str = typer.Option(..., "--email"),
-    password: Optional[str] = typer.Option(None, "--password"),
+    password: str | None = typer.Option(None, "--password"),
     force: bool = typer.Option(False, "--force"),
     rescue: bool = typer.Option(False, "--rescue"),
 ) -> None:
@@ -102,8 +109,8 @@ def create_admin(
 
 @app.command("all")
 def run_all(
-    root_token: Optional[str] = typer.Option(None, "--root-token"),
-    admin_email: Optional[str] = typer.Option(None, "--admin-email"),
+    root_token: str | None = typer.Option(None, "--root-token"),
+    admin_email: str | None = typer.Option(None, "--admin-email"),
 ) -> None:
     settings = get_settings()
     steps = (
@@ -119,7 +126,7 @@ def run_all(
     )
     for name, fn in steps:
         try:
-            fn().print_human()
+            fn().print_human()  # type: ignore[no-untyped-call]
         except Exception:
             logger.exception("bootstrap step {} failed", name)
             raise typer.Exit(code=1) from None

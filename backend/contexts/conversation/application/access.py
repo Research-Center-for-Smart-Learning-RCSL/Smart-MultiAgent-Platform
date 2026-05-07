@@ -77,10 +77,12 @@ async def resolve_room_access(
 
     resolver = TenancyRoleResolver(db)
     roles = await resolver.roles_for(
-        principal, Scope(project_id=project.id, chatroom_id=chatroom_id),
+        principal,
+        Scope(project_id=project.id, chatroom_id=chatroom_id),
     )
     is_guest = await guests.is_guest(
-        chatroom_id=chatroom_id, user_id=principal.user_id,
+        chatroom_id=chatroom_id,
+        user_id=principal.user_id,
     )
     return RoomAccess(
         chatroom=chatroom,
@@ -124,9 +126,7 @@ def ensure_can_send(access: RoomAccess, *, is_admin: bool) -> None:
         Role.PROJECT_MEMBER in access.roles or Role.PROJECT_OWNER in access.roles
     ):
         return
-    if room.allow_org_members and (
-        Role.ORG_MEMBER in access.roles or Role.ORG_OWNER in access.roles
-    ):
+    if room.allow_org_members and (Role.ORG_MEMBER in access.roles or Role.ORG_OWNER in access.roles):
         return
     if room.allow_guest_links and access.is_guest:
         return

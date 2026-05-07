@@ -22,9 +22,7 @@ class KeysFacade:
     def __init__(self, db: AsyncSession) -> None:
         self._db = db
 
-    async def list_keys_carried_in_project(
-        self, project_id: uuid.UUID
-    ) -> list[ApiKey]:
+    async def list_keys_carried_in_project(self, project_id: uuid.UUID) -> list[ApiKey]:
         return await CarryService(self._db).list_in_project(project_id)
 
     async def get_key_group(self, group_id: uuid.UUID) -> KeyGroup | None:
@@ -44,11 +42,11 @@ class KeysFacade:
         the envelope unwrap. Caller is responsible for *zeroising* the
         returned bytes after use.
         """
-        from contexts.keys.domain.errors import KeyNotFound  # noqa: PLC0415
-        from contexts.keys.infrastructure.repositories import (  # noqa: PLC0415
+        from contexts.keys.domain.errors import KeyNotFound
+        from contexts.keys.infrastructure.repositories import (
             ApiKeyRepository,
         )
-        from shared_kernel.security import envelope as env  # noqa: PLC0415
+        from shared_kernel.security import envelope as env
 
         repo = ApiKeyRepository(self._db)
         loaded = await repo.get_active_with_envelope(key_id)

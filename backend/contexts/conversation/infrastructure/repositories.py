@@ -30,7 +30,6 @@ from contexts.conversation.domain.models import (
 from contexts.conversation.infrastructure import tables as t
 from shared_kernel.auth.clients import now
 
-
 # --------------------------------------------------------------------------- #
 # Workspace
 # --------------------------------------------------------------------------- #
@@ -54,9 +53,7 @@ class WorkspaceRepository:
         try:
             row = (
                 await self._db.execute(
-                    t.workspaces.insert()
-                    .values(project_id=project_id, name=name)
-                    .returning(t.workspaces)
+                    t.workspaces.insert().values(project_id=project_id, name=name).returning(t.workspaces)
                 )
             ).one()
         except IntegrityError as exc:  # pragma: no cover — no unique index today
@@ -64,18 +61,20 @@ class WorkspaceRepository:
         return _row_to_workspace(row)
 
     async def get(
-        self, workspace_id: uuid.UUID, *, include_deleted: bool = False,
+        self,
+        workspace_id: uuid.UUID,
+        *,
+        include_deleted: bool = False,
     ) -> Workspace | None:
         predicate = t.workspaces.c.id == workspace_id
         if not include_deleted:
             predicate = sa.and_(predicate, t.workspaces.c.deleted_at.is_(None))
-        row = (
-            await self._db.execute(t.workspaces.select().where(predicate))
-        ).first()
+        row = (await self._db.execute(t.workspaces.select().where(predicate))).first()
         return _row_to_workspace(row) if row else None
 
     async def list_for_project(
-        self, project_id: uuid.UUID,
+        self,
+        project_id: uuid.UUID,
     ) -> Sequence[Workspace]:
         rows = (
             await self._db.execute(
@@ -93,9 +92,7 @@ class WorkspaceRepository:
 
     async def soft_delete(self, workspace_id: uuid.UUID) -> None:
         await self._db.execute(
-            t.workspaces.update()
-            .where(t.workspaces.c.id == workspace_id)
-            .values(deleted_at=now())
+            t.workspaces.update().where(t.workspaces.c.id == workspace_id).values(deleted_at=now())
         )
 
 
@@ -124,8 +121,12 @@ def _new_guest_token() -> str:
     # R13.05 — 32 CSPRNG bytes = 256 bits of entropy. base64url encodes to 43
     # chars after stripping the single trailing '=' padding character. The '='
     # carries no entropy and is omitted so the token is URL-safe without escaping.
-    return base64.urlsafe_b64encode(secrets.token_bytes(32)).rstrip(b"=").decode(
-        "ascii",
+    return (
+        base64.urlsafe_b64encode(secrets.token_bytes(32))
+        .rstrip(b"=")
+        .decode(
+            "ascii",
+        )
     )
 
 
@@ -162,14 +163,15 @@ class ChatroomRepository:
         return _row_to_chatroom(row)
 
     async def get(
-        self, chatroom_id: uuid.UUID, *, include_deleted: bool = False,
+        self,
+        chatroom_id: uuid.UUID,
+        *,
+        include_deleted: bool = False,
     ) -> Chatroom | None:
         predicate = t.chatrooms.c.id == chatroom_id
         if not include_deleted:
             predicate = sa.and_(predicate, t.chatrooms.c.deleted_at.is_(None))
-        row = (
-            await self._db.execute(t.chatrooms.select().where(predicate))
-        ).first()
+        row = (await self._db.execute(t.chatrooms.select().where(predicate))).first()
         return _row_to_chatroom(row) if row else None
 
     async def get_by_guest_token(self, token: str) -> Chatroom | None:
@@ -186,7 +188,8 @@ class ChatroomRepository:
         return _row_to_chatroom(row) if row else None
 
     async def list_for_workspace(
-        self, workspace_id: uuid.UUID,
+        self,
+        workspace_id: uuid.UUID,
     ) -> Sequence[Chatroom]:
         rows = (
             await self._db.execute(
@@ -243,9 +246,7 @@ class ChatroomRepository:
 
     async def soft_delete(self, chatroom_id: uuid.UUID) -> None:
         await self._db.execute(
-            t.chatrooms.update()
-            .where(t.chatrooms.c.id == chatroom_id)
-            .values(deleted_at=now())
+            t.chatrooms.update().where(t.chatrooms.c.id == chatroom_id).values(deleted_at=now())
         )
 
 
@@ -254,9 +255,14 @@ class ChatroomAgentRepository:
         self._db = db
 
     async def add(self, *, chatroom_id: uuid.UUID, agent_id: uuid.UUID) -> None:
-        stmt = pg.insert(t.chatroom_agents).values(
-            chatroom_id=chatroom_id, agent_id=agent_id,
-        ).on_conflict_do_nothing()
+        stmt = (
+            pg.insert(t.chatroom_agents)
+            .values(
+                chatroom_id=chatroom_id,
+                agent_id=agent_id,
+            )
+            .on_conflict_do_nothing()
+        )
         await self._db.execute(stmt)
 
     async def remove(self, *, chatroom_id: uuid.UUID, agent_id: uuid.UUID) -> None:
@@ -277,17 +283,19 @@ class ChatroomAgentRepository:
                 )
             )
         ).all()
-        return [
-            ChatroomAgent(chatroom_id=r.chatroom_id, agent_id=r.agent_id)
-            for r in rows
-        ]
+        return [ChatroomAgent(chatroom_id=r.chatroom_id, agent_id=r.agent_id) for r in rows]
 
     async def is_registered(
-        self, *, chatroom_id: uuid.UUID, agent_id: uuid.UUID,
+        self,
+        *,
+        chatroom_id: uuid.UUID,
+        agent_id: uuid.UUID,
     ) -> bool:
         row = (
             await self._db.execute(
-                sa.select(sa.literal(1)).select_from(t.chatroom_agents).where(
+                sa.select(sa.literal(1))
+                .select_from(t.chatroom_agents)
+                .where(
                     sa.and_(
                         t.chatroom_agents.c.chatroom_id == chatroom_id,
                         t.chatroom_agents.c.agent_id == agent_id,
@@ -309,19 +317,28 @@ class ChatroomGuestRepository:
         user_id: uuid.UUID,
         joined_via_token: str,
     ) -> None:
-        stmt = pg.insert(t.chatroom_guests).values(
-            chatroom_id=chatroom_id,
-            user_id=user_id,
-            joined_via_token=joined_via_token,
-        ).on_conflict_do_nothing()
+        stmt = (
+            pg.insert(t.chatroom_guests)
+            .values(
+                chatroom_id=chatroom_id,
+                user_id=user_id,
+                joined_via_token=joined_via_token,
+            )
+            .on_conflict_do_nothing()
+        )
         await self._db.execute(stmt)
 
     async def is_guest(
-        self, *, chatroom_id: uuid.UUID, user_id: uuid.UUID,
+        self,
+        *,
+        chatroom_id: uuid.UUID,
+        user_id: uuid.UUID,
     ) -> bool:
         row = (
             await self._db.execute(
-                sa.select(sa.literal(1)).select_from(t.chatroom_guests).where(
+                sa.select(sa.literal(1))
+                .select_from(t.chatroom_guests)
+                .where(
                     sa.and_(
                         t.chatroom_guests.c.chatroom_id == chatroom_id,
                         t.chatroom_guests.c.user_id == user_id,
@@ -424,9 +441,7 @@ class MessageRepository:
             t.messages.c.deleted_at.is_(None),
         )
         # Default: newest-first (before-cursor direction).
-        order_cols: list[Any] = [
-            t.messages.c.created_at.desc(), t.messages.c.id.desc()
-        ]
+        order_cols: list[Any] = [t.messages.c.created_at.desc(), t.messages.c.id.desc()]
         if before is not None:
             anchor = (
                 await self._db.execute(
@@ -469,9 +484,7 @@ class MessageRepository:
             )
             order_cols = [t.messages.c.created_at.asc(), t.messages.c.id.asc()]
         rows = (
-            await self._db.execute(
-                t.messages.select().where(predicate).order_by(*order_cols).limit(limit)
-            )
+            await self._db.execute(t.messages.select().where(predicate).order_by(*order_cols).limit(limit))
         ).all()
         return [_row_to_message(r) for r in rows]
 
@@ -566,7 +579,8 @@ class MessageRepository:
         return out
 
     async def all_for_chatroom(
-        self, chatroom_id: uuid.UUID,
+        self,
+        chatroom_id: uuid.UUID,
     ) -> Sequence[Message]:
         """Full dump of a room's live messages, ordered chronologically —
         used by the export worker. Always streams from the primary index so
@@ -617,7 +631,8 @@ class MessageEditRepository:
         )
 
     async def list_for_message(
-        self, message_id: uuid.UUID,
+        self,
+        message_id: uuid.UUID,
     ) -> Sequence[MessageEdit]:
         rows = (
             await self._db.execute(
@@ -705,7 +720,8 @@ class MessageAttachmentRepository:
         return _row_to_attachment(row) if row else None
 
     async def list_for_message(
-        self, message_id: uuid.UUID,
+        self,
+        message_id: uuid.UUID,
     ) -> Sequence[MessageAttachment]:
         rows = (
             await self._db.execute(
@@ -719,7 +735,7 @@ class MessageAttachmentRepository:
     async def bind_to_message(
         self,
         *,
-        attachment_ids: "Sequence[uuid.UUID] | list[uuid.UUID]",
+        attachment_ids: Sequence[uuid.UUID] | list[uuid.UUID],
         message_id: uuid.UUID,
         chatroom_id: uuid.UUID,
         uploaded_by_user_id: uuid.UUID,
@@ -776,7 +792,10 @@ class MessageAttachmentRepository:
         )
 
     async def list_expired(
-        self, *, horizon: datetime, limit: int = 500,
+        self,
+        *,
+        horizon: datetime,
+        limit: int = 500,
     ) -> Sequence[MessageAttachment]:
         rows = (
             await self._db.execute(
@@ -785,8 +804,7 @@ class MessageAttachmentRepository:
                     sa.and_(
                         t.message_attachments.c.expires_at.is_not(None),
                         t.message_attachments.c.expires_at < horizon,
-                        t.message_attachments.c.status
-                            != AttachmentStatus.EXPIRED.value,
+                        t.message_attachments.c.status != AttachmentStatus.EXPIRED.value,
                     )
                 )
                 .limit(limit)
@@ -795,7 +813,10 @@ class MessageAttachmentRepository:
         return [_row_to_attachment(r) for r in rows]
 
     async def list_for_chatroom_older_than(
-        self, *, chatroom_id: uuid.UUID, horizon: datetime,
+        self,
+        *,
+        chatroom_id: uuid.UUID,
+        horizon: datetime,
     ) -> Sequence[MessageAttachment]:
         """Used by the retention sweep: find attachments belonging to messages
         older than the retention horizon. Joins via message_id so orphan rows

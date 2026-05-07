@@ -45,9 +45,7 @@ _CACHE_TTL_S = 600
 _DEFAULT_QUERY_TRUNC = 256
 
 
-def _cache_key(
-    provider: str, query: str, top_k: int, locale: str, freshness: str
-) -> str:
+def _cache_key(provider: str, query: str, top_k: int, locale: str, freshness: str) -> str:
     payload = f"{provider}|{query.strip().lower()}|{top_k}|{locale}|{freshness}"
     digest = hashlib.sha256(payload.encode("utf-8")).hexdigest()
     return f"search:{digest}"
@@ -163,10 +161,10 @@ class WebSearchTool:
         """Fallback unwrap path — mirrors ``KeysFacade.unwrap_api_key_plaintext``
         but for the ``search_keys`` table's AAD namespace.
         """
-        from contexts.keys.infrastructure.search_repository import (  # noqa: PLC0415
+        from contexts.keys.infrastructure.search_repository import (
             SearchKeyRepository,
         )
-        from shared_kernel.security import envelope as env  # noqa: PLC0415
+        from shared_kernel.security import envelope as env
 
         repo = SearchKeyRepository(self.db)
         loaded = await repo.get_active_with_envelope(key_id)

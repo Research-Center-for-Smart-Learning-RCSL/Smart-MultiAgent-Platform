@@ -75,9 +75,7 @@ def chunk_semantic(
     if max_tokens_per_chunk <= 0:
         raise ChunkParamsInvalid("max_tokens_per_chunk must be positive")
     if not 0.0 < similarity_threshold <= 1.0:
-        raise ChunkParamsInvalid(
-            "similarity_threshold must be in (0, 1]"
-        )
+        raise ChunkParamsInvalid("similarity_threshold must be in (0, 1]")
     try:
         # Naming: the package installs as `semantic-text-splitter` and
         # imports as `semantic_text_splitter`. Lazy-import so missing
@@ -98,6 +96,7 @@ def _sentence_aware_fallback(text: str, max_tokens: int) -> list[str]:
     # Break on sentence-ending punctuation, then pack back up to the
     # token budget. Not as good as the real lib but deterministic.
     import re as _re
+
     sentences = [s.strip() for s in _re.split(r"(?<=[.!?。！？])\s+", text) if s.strip()]
     out: list[str] = []
     buf: list[str] = []

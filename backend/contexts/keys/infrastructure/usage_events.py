@@ -48,7 +48,7 @@ async def record_usage_event(
                 error_code=error_code,
             )
         )
-    except Exception:  # noqa: BLE001
+    except Exception:
         # Non-blocking by contract. Swallow + log so router retries / returns
         # the provider response rather than surfacing "failed to account".
         _log.exception("record_usage_event failed key_id=%s", key_id)

@@ -44,9 +44,10 @@ class SearchKeyOut(BaseModel):
     created_at: str
 
     @classmethod
-    def from_domain(cls, sk: SearchKey) -> "SearchKeyOut":
+    def from_domain(cls, sk: SearchKey) -> SearchKeyOut:
         return cls(
-            id=sk.id, project_id=sk.project_id,
+            id=sk.id,
+            project_id=sk.project_id,
             provider=sk.provider.value,
             masked_preview=sk.masked_preview,
             test_status=sk.test_status.value,
@@ -68,10 +69,7 @@ async def list_search_keys(
     db: AsyncSession = Depends(db_session),
 ) -> list[SearchKeyOut]:
     svc = SearchKeyService(db)
-    return [
-        SearchKeyOut.from_domain(sk)
-        for sk in await svc.list_for_project(project_id)
-    ]
+    return [SearchKeyOut.from_domain(sk) for sk in await svc.list_for_project(project_id)]
 
 
 @router.post(
@@ -118,8 +116,10 @@ async def retest_search_key(
     svc = SearchKeyService(db)
     return SearchKeyOut.from_domain(
         await svc.retest(
-            project_id=project_id, key_id=key_id,
-            actor_user_id=principal.user_id, request_id=ctx.request_id,
+            project_id=project_id,
+            key_id=key_id,
+            actor_user_id=principal.user_id,
+            request_id=ctx.request_id,
         )
     )
 

@@ -18,6 +18,7 @@ this class.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import time
 import uuid
@@ -53,7 +54,7 @@ class DockerRunscSandbox:
 
     def _client(self) -> Any:
         """Lazy-import the docker SDK so unit tests don't need it installed."""
-        import docker  # noqa: PLC0415
+        import docker
 
         return docker.from_env()
 
@@ -145,7 +146,8 @@ class DockerRunscSandbox:
         exit_status = container.wait(timeout=timeout_s)
         status_code = int(exit_status.get("StatusCode", 1))
         logs = container.logs(stdout=True, stderr=False).decode(
-            "utf-8", errors="replace",
+            "utf-8",
+            errors="replace",
         )
         if status_code == 42:
             raise McpEgressDenied("egress proxy denied MCP probe")
@@ -191,10 +193,12 @@ class DockerRunscSandbox:
         duration_ms = int((time.monotonic() - start) * 1000)
         status_code = int(exit_status.get("StatusCode", 1))
         stdout = container.logs(stdout=True, stderr=False).decode(
-            "utf-8", errors="replace",
+            "utf-8",
+            errors="replace",
         )
         stderr = container.logs(stdout=False, stderr=True).decode(
-            "utf-8", errors="replace",
+            "utf-8",
+            errors="replace",
         )
         if status_code == 42:
             raise McpEgressDenied("egress proxy denied MCP tool invocation")
@@ -235,7 +239,7 @@ class DockerRunscSandbox:
             # handles this via exec + stdin; simplest route is to pass data as
             # an environment variable when small, else via the container's
             # own stdin. Base64 to keep it JSON-safe.
-            import base64 as _b64  # noqa: PLC0415
+            import base64 as _b64
 
             env["SMAP_FILE_DATA_B64"] = _b64.b64encode(data).decode("ascii")
         container = client.containers.run(
@@ -250,10 +254,12 @@ class DockerRunscSandbox:
         duration_ms = int((time.monotonic() - start) * 1000)
         status_code = int(exit_status.get("StatusCode", 1))
         stdout = container.logs(stdout=True, stderr=False).decode(
-            "utf-8", errors="replace",
+            "utf-8",
+            errors="replace",
         )
         stderr = container.logs(stdout=False, stderr=True).decode(
-            "utf-8", errors="replace",
+            "utf-8",
+            errors="replace",
         )
         return ToolCallResult(
             ok=status_code == 0,
@@ -288,24 +294,26 @@ class DockerRunscSandbox:
         )
         try:
             exit_status = container.wait(timeout=min(timeout_s, 30.0))
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             # Force-kill and surface as timeout result rather than raising.
-            try:
+            with contextlib.suppress(Exception):
                 container.kill()
-            except Exception:  # noqa: BLE001
-                pass
             return ToolCallResult(
-                ok=False, stdout="", stderr=f"timeout: {exc}",
+                ok=False,
+                stdout="",
+                stderr=f"timeout: {exc}",
                 exit_code=124,
                 duration_ms=int((time.monotonic() - start) * 1000),
             )
         duration_ms = int((time.monotonic() - start) * 1000)
         status_code = int(exit_status.get("StatusCode", 1))
         stdout = container.logs(stdout=True, stderr=False).decode(
-            "utf-8", errors="replace",
+            "utf-8",
+            errors="replace",
         )
         stderr = container.logs(stdout=False, stderr=True).decode(
-            "utf-8", errors="replace",
+            "utf-8",
+            errors="replace",
         )
         return ToolCallResult(
             ok=status_code == 0,

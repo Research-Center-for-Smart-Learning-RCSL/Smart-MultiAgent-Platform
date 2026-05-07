@@ -30,7 +30,9 @@ class IpBanService:
         request_id: uuid.UUID | None = None,
     ) -> IpBan:
         ban = await self._repo.insert(
-            cidr=cidr, reason=reason, created_by=admin_user_id,
+            cidr=cidr,
+            reason=reason,
+            created_by=admin_user_id,
         )
         await audit.emit(
             self._db,

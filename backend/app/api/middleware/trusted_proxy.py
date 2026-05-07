@@ -37,7 +37,8 @@ class TrustedProxyMiddleware(BaseHTTPMiddleware):
             body = problem.dump()
             body["instance"] = str(request.url.path)
             return JSONResponse(
-                status_code=400, content=body,
+                status_code=400,
+                content=body,
                 media_type="application/problem+json",
             )
         peer = request.client.host

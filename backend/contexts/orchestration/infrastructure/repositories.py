@@ -30,7 +30,6 @@ from contexts.orchestration.infrastructure.tables import (
     instructions,
 )
 
-
 # ---------------------------------------------------------------------------
 # Approval repository
 # ---------------------------------------------------------------------------
@@ -43,7 +42,7 @@ class ApprovalRepository:
     async def insert(
         self,
         *,
-        id: uuid.UUID,
+        id: uuid.UUID,  # noqa: A002 — mirrors the `id` column name
         workflow_run_id: uuid.UUID,
         mode: ApprovalMode,
         leader_agent_id: uuid.UUID,
@@ -77,10 +76,14 @@ class ApprovalRepository:
 
     async def get(self, approval_id: uuid.UUID) -> Approval | None:
         row = (
-            await self._db.execute(
-                approvals.select().where(approvals.c.id == approval_id),
+            (
+                await self._db.execute(
+                    approvals.select().where(approvals.c.id == approval_id),
+                )
             )
-        ).mappings().first()
+            .mappings()
+            .first()
+        )
         if row is None:
             return None
         return _row_to_approval(row)
@@ -92,23 +95,26 @@ class ApprovalRepository:
     ) -> None:
         ended = datetime.now(UTC) if state != ApprovalState.PENDING else None
         result = await self._db.execute(
-            approvals.update()
-            .where(approvals.c.id == approval_id)
-            .values(state=state.value, ended_at=ended),
+            approvals.update().where(approvals.c.id == approval_id).values(state=state.value, ended_at=ended),
         )
         if (result.rowcount or 0) == 0:
             raise ValueError(f"approval {approval_id} not found")
 
     async def list_for_workflow_run(
-        self, workflow_run_id: uuid.UUID,
+        self,
+        workflow_run_id: uuid.UUID,
     ) -> list[Approval]:
         rows = (
-            await self._db.execute(
-                approvals.select()
-                .where(approvals.c.workflow_run_id == workflow_run_id)
-                .order_by(approvals.c.started_at),
+            (
+                await self._db.execute(
+                    approvals.select()
+                    .where(approvals.c.workflow_run_id == workflow_run_id)
+                    .order_by(approvals.c.started_at),
+                )
             )
-        ).mappings().all()
+            .mappings()
+            .all()
+        )
         return [_row_to_approval(r) for r in rows]
 
 
@@ -167,15 +173,20 @@ class ApprovalVoteRepository:
         )
 
     async def list_for_approval(
-        self, approval_id: uuid.UUID,
+        self,
+        approval_id: uuid.UUID,
     ) -> list[ApprovalVote]:
         rows = (
-            await self._db.execute(
-                approval_votes.select()
-                .where(approval_votes.c.approval_id == approval_id)
-                .order_by(approval_votes.c.cast_at),
+            (
+                await self._db.execute(
+                    approval_votes.select()
+                    .where(approval_votes.c.approval_id == approval_id)
+                    .order_by(approval_votes.c.cast_at),
+                )
             )
-        ).mappings().all()
+            .mappings()
+            .all()
+        )
         return [
             ApprovalVote(
                 approval_id=r["approval_id"],
@@ -200,7 +211,7 @@ class InstructionRepository:
     async def insert(
         self,
         *,
-        id: uuid.UUID,
+        id: uuid.UUID,  # noqa: A002 — mirrors the `id` column name
         chain_id: uuid.UUID,
         path: list[uuid.UUID],
         depth: int,
@@ -238,10 +249,14 @@ class InstructionRepository:
 
     async def get(self, instruction_id: uuid.UUID) -> Instruction | None:
         row = (
-            await self._db.execute(
-                instructions.select().where(instructions.c.id == instruction_id),
+            (
+                await self._db.execute(
+                    instructions.select().where(instructions.c.id == instruction_id),
+                )
             )
-        ).mappings().first()
+            .mappings()
+            .first()
+        )
         if row is None:
             return None
         return _row_to_instruction(row)
@@ -252,9 +267,7 @@ class InstructionRepository:
         state: InstructionState,
     ) -> None:
         resolved = (
-            datetime.now(UTC)
-            if state not in (InstructionState.ISSUED, InstructionState.DELIVERED)
-            else None
+            datetime.now(UTC) if state not in (InstructionState.ISSUED, InstructionState.DELIVERED) else None
         )
         result = await self._db.execute(
             instructions.update()
@@ -281,20 +294,23 @@ class InstructionRepository:
 
     async def list_for_chain(self, chain_id: uuid.UUID) -> list[Instruction]:
         rows = (
-            await self._db.execute(
-                instructions.select()
-                .where(instructions.c.chain_id == chain_id)
-                .order_by(instructions.c.issued_at),
+            (
+                await self._db.execute(
+                    instructions.select()
+                    .where(instructions.c.chain_id == chain_id)
+                    .order_by(instructions.c.issued_at),
+                )
             )
-        ).mappings().all()
+            .mappings()
+            .all()
+        )
         return [_row_to_instruction(r) for r in rows]
 
     async def get_chain_start_time(self, chain_id: uuid.UUID) -> datetime | None:
         result = await self._db.execute(
-            sa.select(sa.func.min(instructions.c.issued_at))
-            .where(instructions.c.chain_id == chain_id),
+            sa.select(sa.func.min(instructions.c.issued_at)).where(instructions.c.chain_id == chain_id),
         )
-        return result.scalar_one()
+        return result.scalar_one()  # type: ignore[no-any-return]
 
 
 def _row_to_instruction(row: Any) -> Instruction:
@@ -324,7 +340,7 @@ class AgentInstanceRepository:
     async def insert(
         self,
         *,
-        id: uuid.UUID,
+        id: uuid.UUID,  # noqa: A002 — mirrors the `id` column name
         agent_id: uuid.UUID,
         parent_id: uuid.UUID | None,
         chatroom_id: uuid.UUID | None,
@@ -358,11 +374,14 @@ class AgentInstanceRepository:
 
     async def get(self, instance_id: uuid.UUID) -> AgentInstance | None:
         row = (
-            await self._db.execute(
-                agent_instances.select()
-                .where(agent_instances.c.id == instance_id),
+            (
+                await self._db.execute(
+                    agent_instances.select().where(agent_instances.c.id == instance_id),
+                )
             )
-        ).mappings().first()
+            .mappings()
+            .first()
+        )
         if row is None:
             return None
         return _row_to_instance(row)
@@ -386,18 +405,23 @@ class AgentInstanceRepository:
         return int(result.scalar_one())
 
     async def list_alive_children(
-        self, parent_id: uuid.UUID,
+        self,
+        parent_id: uuid.UUID,
     ) -> list[AgentInstance]:
         rows = (
-            await self._db.execute(
-                agent_instances.select()
-                .where(
-                    agent_instances.c.parent_id == parent_id,
-                    agent_instances.c.destroyed_at.is_(None),
+            (
+                await self._db.execute(
+                    agent_instances.select()
+                    .where(
+                        agent_instances.c.parent_id == parent_id,
+                        agent_instances.c.destroyed_at.is_(None),
+                    )
+                    .order_by(agent_instances.c.spawned_at),
                 )
-                .order_by(agent_instances.c.spawned_at),
             )
-        ).mappings().all()
+            .mappings()
+            .all()
+        )
         return [_row_to_instance(r) for r in rows]
 
     async def delete_older_than_days(self, days: int) -> int:
@@ -409,7 +433,7 @@ class AgentInstanceRepository:
                 agent_instances.c.destroyed_at < cutoff,
             ),
         )
-        return result.rowcount  # type: ignore[return-value]
+        return result.rowcount
 
 
 def _row_to_instance(row: Any) -> AgentInstance:

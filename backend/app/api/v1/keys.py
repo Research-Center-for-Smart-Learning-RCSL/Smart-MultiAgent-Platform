@@ -49,7 +49,7 @@ class KeyOut(BaseModel):
     created_at: str
 
     @classmethod
-    def from_domain(cls, key: ApiKey) -> "KeyOut":
+    def from_domain(cls, key: ApiKey) -> KeyOut:
         return cls(
             id=key.id,
             provider=key.provider.value,
@@ -57,9 +57,7 @@ class KeyOut(BaseModel):
             masked_preview=key.masked_preview,
             test_status=key.test_status.value,
             test_error=key.test_error,
-            last_test_at=(
-                key.last_test_at.isoformat() if key.last_test_at else None
-            ),
+            last_test_at=(key.last_test_at.isoformat() if key.last_test_at else None),
             created_at=key.created_at.isoformat(),
         )
 

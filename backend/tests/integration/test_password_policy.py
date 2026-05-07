@@ -13,7 +13,7 @@ from shared_kernel.auth.password import (
 
 # Accepts.
 def test_policy_accepts_minimal_valid() -> None:
-    validate_password("Abcdef1!gh")   # exactly 10 chars, letter+digit+symbol
+    validate_password("Abcdef1!gh")  # exactly 10 chars, letter+digit+symbol
 
 
 def test_policy_accepts_unicode_after_nfkc() -> None:
@@ -23,7 +23,7 @@ def test_policy_accepts_unicode_after_nfkc() -> None:
 
 # Rejects.
 @pytest.mark.parametrize(
-    "bad, code",
+    ("bad", "code"),
     [
         ("Short1!", "too_short"),
         ("nodigitsnow!", "no_digit"),

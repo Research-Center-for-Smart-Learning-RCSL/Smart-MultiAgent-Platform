@@ -33,14 +33,18 @@ def _generate_password(length: int = 24) -> str:
     return "".join(secrets.choice(_PASSWORD_ALPHABET) for _ in range(length))
 
 
-def _tables_exist(conn: "object") -> bool:
+def _tables_exist(conn: object) -> bool:
     # Duck-typed on SQLAlchemy Connection to keep imports shallow.
-    rows = conn.execute(  # type: ignore[attr-defined]
-        text(
-            "SELECT to_regclass('public.users') AS users, "
-            "       to_regclass('public.admins') AS admins"
+    rows = (
+        conn.execute(  # type: ignore[attr-defined]
+            text(
+                "SELECT to_regclass('public.users') AS users, "
+                "       to_regclass('public.admins') AS admins"
+            )
         )
-    ).mappings().first()
+        .mappings()
+        .first()
+    )
     return bool(rows and rows["users"] and rows["admins"])
 
 
@@ -75,13 +79,9 @@ def run(
                 )
                 return report
 
-            existing = conn.execute(
-                text("SELECT COUNT(*)::int AS n FROM admins")
-            ).scalar_one()
+            existing = conn.execute(text("SELECT COUNT(*)::int AS n FROM admins")).scalar_one()
             if existing > 0 and not (force or rescue):
-                raise RuntimeError(
-                    "admins table already contains rows; pass --force or --rescue."
-                )
+                raise RuntimeError("admins table already contains rows; pass --force or --rescue.")
             if rescue and existing > 0:
                 raise RuntimeError("--rescue only permitted when zero admins exist.")
 

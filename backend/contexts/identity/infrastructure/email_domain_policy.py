@@ -52,7 +52,7 @@ async def _refresh_if_stale() -> None:
         allow, deny, mode = await pipe.execute()
     _cache.allow = {d.lower() for d in allow}
     _cache.deny = {d.lower() for d in deny}
-    _cache.mode = (mode or "off").lower() if isinstance(mode, (str, bytes)) else "off"
+    _cache.mode = (mode or "off").lower() if isinstance(mode, str | bytes) else "off"  # type: ignore[assignment]
     _cache.loaded_at = time.monotonic()
 
 

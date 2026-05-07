@@ -10,7 +10,7 @@ import hashlib
 import secrets
 import uuid
 from collections.abc import Sequence
-from datetime import datetime, timedelta
+from datetime import timedelta
 from typing import Any
 
 import sqlalchemy as sa
@@ -40,7 +40,6 @@ from contexts.tenancy.domain.models import (
 from contexts.tenancy.infrastructure import tables as t
 from shared_kernel.auth.clients import now
 
-
 # ---------- Org ------------------------------------------------------------
 
 
@@ -63,9 +62,7 @@ class OrgRepository:
         try:
             row = (
                 await self._db.execute(
-                    t.orgs.insert()
-                    .values(name=name, creator_user_id=creator_user_id)
-                    .returning(t.orgs)
+                    t.orgs.insert().values(name=name, creator_user_id=creator_user_id).returning(t.orgs)
                 )
             ).one()
         except IntegrityError as exc:
@@ -117,18 +114,10 @@ class OrgRepository:
         return _row_to_org(row)
 
     async def soft_delete(self, org_id: uuid.UUID) -> None:
-        await self._db.execute(
-            t.orgs.update()
-            .where(t.orgs.c.id == org_id)
-            .values(deleted_at=now())
-        )
+        await self._db.execute(t.orgs.update().where(t.orgs.c.id == org_id).values(deleted_at=now()))
 
     async def restore(self, org_id: uuid.UUID) -> None:
-        await self._db.execute(
-            t.orgs.update()
-            .where(t.orgs.c.id == org_id)
-            .values(deleted_at=None)
-        )
+        await self._db.execute(t.orgs.update().where(t.orgs.c.id == org_id).values(deleted_at=None))
 
 
 # ---------- OrgMember ------------------------------------------------------
@@ -162,9 +151,7 @@ class OrgMemberRepository:
                 raise OriginalCreatorConflict("another OC already exists") from exc
             raise
 
-    async def get(
-        self, *, org_id: uuid.UUID, user_id: uuid.UUID
-    ) -> OrgMember | None:
+    async def get(self, *, org_id: uuid.UUID, user_id: uuid.UUID) -> OrgMember | None:
         row = (
             await self._db.execute(
                 t.org_members.select().where(
@@ -198,9 +185,7 @@ class OrgMemberRepository:
             )
         )
 
-    async def change_role(
-        self, *, org_id: uuid.UUID, user_id: uuid.UUID, new_role: OrgMemberRole
-    ) -> int:
+    async def change_role(self, *, org_id: uuid.UUID, user_id: uuid.UUID, new_role: OrgMemberRole) -> int:
         result = await self._db.execute(
             t.org_members.update()
             .where(
@@ -265,8 +250,7 @@ class OrgMemberRepository:
     async def count_active_members(self, org_id: uuid.UUID) -> int:
         row = (
             await self._db.execute(
-                sa.select(sa.func.count()).select_from(t.org_members)
-                .where(t.org_members.c.org_id == org_id)
+                sa.select(sa.func.count()).select_from(t.org_members).where(t.org_members.c.org_id == org_id)
             )
         ).one()
         return int(row[0])
@@ -327,9 +311,7 @@ class ProjectRepository:
             raise NameTaken(name) from exc
         return _row_to_project(row)
 
-    async def get(
-        self, project_id: uuid.UUID, *, include_deleted: bool = False
-    ) -> Project | None:
+    async def get(self, project_id: uuid.UUID, *, include_deleted: bool = False) -> Project | None:
         predicate = t.projects.c.id == project_id
         if not include_deleted:
             predicate = sa.and_(predicate, t.projects.c.deleted_at.is_(None))
@@ -362,9 +344,7 @@ class ProjectRepository:
         ).all()
         return [_row_to_project(r) for r in rows]
 
-    async def rename(
-        self, *, project_id: uuid.UUID, new_name: str, expected_version: int
-    ) -> Project:
+    async def rename(self, *, project_id: uuid.UUID, new_name: str, expected_version: int) -> Project:
         stmt = (
             t.projects.update()
             .where(
@@ -409,7 +389,9 @@ class ProjectMemberRepository:
     ) -> None:
         await self._db.execute(
             t.project_members.insert().values(
-                project_id=project_id, user_id=user_id, role=role.value,
+                project_id=project_id,
+                user_id=user_id,
+                role=role.value,
             )
         )
 
@@ -425,12 +407,11 @@ class ProjectMemberRepository:
                 user_id=r.user_id,
                 role=ProjectMemberRole(r.role),
                 joined_at=r.joined_at,
-            ) for r in rows
+            )
+            for r in rows
         ]
 
-    async def get(
-        self, *, project_id: uuid.UUID, user_id: uuid.UUID
-    ) -> ProjectMember | None:
+    async def get(self, *, project_id: uuid.UUID, user_id: uuid.UUID) -> ProjectMember | None:
         row = (
             await self._db.execute(
                 t.project_members.select().where(
@@ -507,7 +488,8 @@ class InviteRepository:
         try:
             row = (
                 await self._db.execute(
-                    t.invites.insert().values(
+                    t.invites.insert()
+                    .values(
                         scope_type=scope_type.value,
                         scope_id=scope_id,
                         role=role,
@@ -516,7 +498,8 @@ class InviteRepository:
                         invitee_user_id=invitee_user_id,
                         token_hash=token_hash,
                         expires_at=now() + ttl,
-                    ).returning(t.invites)
+                    )
+                    .returning(t.invites)
                 )
             ).one()
         except IntegrityError as exc:
@@ -537,24 +520,16 @@ class InviteRepository:
             t.invites.c.invitee_user_id == user_id,
         )
         if states:
-            predicate = sa.and_(
-                predicate, t.invites.c.state.in_([s.value for s in states])
-            )
+            predicate = sa.and_(predicate, t.invites.c.state.in_([s.value for s in states]))
         rows = (
             await self._db.execute(
-                t.invites.select()
-                .where(predicate)
-                .order_by(t.invites.c.created_at.desc())
+                t.invites.select().where(predicate).order_by(t.invites.c.created_at.desc())
             )
         ).all()
         return [_row_to_invite(r) for r in rows]
 
     async def get(self, invite_id: uuid.UUID) -> Invite | None:
-        row = (
-            await self._db.execute(
-                t.invites.select().where(t.invites.c.id == invite_id)
-            )
-        ).first()
+        row = (await self._db.execute(t.invites.select().where(t.invites.c.id == invite_id))).first()
         return _row_to_invite(row) if row else None
 
     async def transition(
@@ -620,12 +595,14 @@ class OCTransferRepository:
         try:
             row = (
                 await self._db.execute(
-                    t.original_creator_transfers.insert().values(
+                    t.original_creator_transfers.insert()
+                    .values(
                         org_id=org_id,
                         initiator_user_id=initiator_user_id,
                         target_user_id=target_user_id,
                         expires_at=now() + ttl,
-                    ).returning(t.original_creator_transfers)
+                    )
+                    .returning(t.original_creator_transfers)
                 )
             ).one()
         except IntegrityError as exc:
@@ -635,8 +612,7 @@ class OCTransferRepository:
     async def get(self, transfer_id: uuid.UUID) -> OCTransfer | None:
         row = (
             await self._db.execute(
-                t.original_creator_transfers.select()
-                .where(t.original_creator_transfers.c.id == transfer_id)
+                t.original_creator_transfers.select().where(t.original_creator_transfers.c.id == transfer_id)
             )
         ).first()
         return _row_to_oc(row) if row else None
@@ -654,9 +630,7 @@ class OCTransferRepository:
         ).all()
         return [_row_to_oc(r) for r in rows]
 
-    async def resolve(
-        self, transfer_id: uuid.UUID, new_state: OCTransferState
-    ) -> OCTransfer | None:
+    async def resolve(self, transfer_id: uuid.UUID, new_state: OCTransferState) -> OCTransfer | None:
         stmt = (
             t.original_creator_transfers.update()
             .where(

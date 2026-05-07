@@ -23,7 +23,6 @@ from contexts.workflow.infrastructure.tables import (
     workflows,
 )
 
-
 # ---------------------------------------------------------------------------
 # Row → domain helpers
 # ---------------------------------------------------------------------------
@@ -168,7 +167,7 @@ class WorkflowRepository:
             )
             .values(deleted_at=sa.text("now()")),
         )
-        return result.rowcount > 0  # type: ignore[union-attr]
+        return result.rowcount > 0
 
 
 # ---------------------------------------------------------------------------
@@ -248,11 +247,9 @@ class WorkflowRunRepository:
         if variables is not None:
             values["variables"] = variables
         result = await self._db.execute(
-            workflow_runs.update()
-            .where(workflow_runs.c.id == run_id)
-            .values(**values),
+            workflow_runs.update().where(workflow_runs.c.id == run_id).values(**values),
         )
-        return result.rowcount > 0  # type: ignore[union-attr]
+        return result.rowcount > 0
 
     async def update_variables(
         self,
@@ -260,9 +257,7 @@ class WorkflowRunRepository:
         variables: dict[str, Any],
     ) -> None:
         await self._db.execute(
-            workflow_runs.update()
-            .where(workflow_runs.c.id == run_id)
-            .values(variables=variables),
+            workflow_runs.update().where(workflow_runs.c.id == run_id).values(variables=variables),
         )
 
 
@@ -319,11 +314,9 @@ class WorkflowStepRepository:
         if not values:
             return False
         result = await self._db.execute(
-            workflow_steps.update()
-            .where(workflow_steps.c.id == step_id)
-            .values(**values),
+            workflow_steps.update().where(workflow_steps.c.id == step_id).values(**values),
         )
-        return result.rowcount > 0  # type: ignore[union-attr]
+        return result.rowcount > 0
 
     async def list_for_run(self, run_id: uuid.UUID) -> list[WorkflowStep]:
         rows = (
@@ -346,7 +339,7 @@ class WorkflowStepRepository:
             )
             .values(state="cancelled", ended_at=sa.text("now()")),
         )
-        return result.rowcount  # type: ignore[union-attr]
+        return result.rowcount
 
 
 # ---------------------------------------------------------------------------
@@ -384,39 +377,30 @@ class WorkflowRunArchiveRepository:
         offset: int = 0,
     ) -> list[dict[str, Any]]:
         """Union current runs + archived runs, ordered by started_at desc."""
-        live = (
-            sa.select(
-                workflow_runs.c.id,
-                workflow_runs.c.workflow_id,
-                workflow_runs.c.trigger_type,
-                workflow_runs.c.started_by_user_id,
-                workflow_runs.c.state,
-                workflow_runs.c.started_at,
-                workflow_runs.c.ended_at,
-                sa.literal(False).label("archived"),
-            )
-            .where(workflow_runs.c.workflow_id == workflow_id)
-        )
-        archived = (
-            sa.select(
-                workflow_runs_archive.c.id,
-                workflow_runs_archive.c.workflow_id,
-                workflow_runs_archive.c.trigger_type,
-                workflow_runs_archive.c.started_by_user_id,
-                workflow_runs_archive.c.state,
-                workflow_runs_archive.c.started_at,
-                workflow_runs_archive.c.ended_at,
-                sa.literal(True).label("archived"),
-            )
-            .where(workflow_runs_archive.c.workflow_id == workflow_id)
-        )
+        live = sa.select(
+            workflow_runs.c.id,
+            workflow_runs.c.workflow_id,
+            workflow_runs.c.trigger_type,
+            workflow_runs.c.started_by_user_id,
+            workflow_runs.c.state,
+            workflow_runs.c.started_at,
+            workflow_runs.c.ended_at,
+            sa.literal(False).label("archived"),
+        ).where(workflow_runs.c.workflow_id == workflow_id)
+        archived = sa.select(
+            workflow_runs_archive.c.id,
+            workflow_runs_archive.c.workflow_id,
+            workflow_runs_archive.c.trigger_type,
+            workflow_runs_archive.c.started_by_user_id,
+            workflow_runs_archive.c.state,
+            workflow_runs_archive.c.started_at,
+            workflow_runs_archive.c.ended_at,
+            sa.literal(True).label("archived"),
+        ).where(workflow_runs_archive.c.workflow_id == workflow_id)
         union_q = sa.union_all(live, archived).subquery()
         rows = (
             await self._db.execute(
-                sa.select(union_q)
-                .order_by(union_q.c.started_at.desc())
-                .limit(limit)
-                .offset(offset),
+                sa.select(union_q).order_by(union_q.c.started_at.desc()).limit(limit).offset(offset),
             )
         ).all()
         return [dict(row._mapping) for row in rows]

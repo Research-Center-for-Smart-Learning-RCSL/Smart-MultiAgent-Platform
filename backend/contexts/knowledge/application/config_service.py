@@ -23,7 +23,6 @@ from contexts.knowledge.domain.errors import (
 )
 from contexts.knowledge.domain.models import (
     EMBED_MODEL_WHITELIST,
-    ChunkStrategy,
     RagConfig,
     RagConfigDraft,
 )
@@ -40,9 +39,7 @@ class RagConfigService:
         self._configs = RagConfigRepository(db)
         self._keys = ApiKeyRepository(db)
 
-    async def _validate_embed_key(
-        self, *, key_id: uuid.UUID, provider: str
-    ) -> ApiKey:
+    async def _validate_embed_key(self, *, key_id: uuid.UUID, provider: str) -> ApiKey:
         key = await self._keys.get_active(key_id)
         if key is None:
             raise CapabilityMismatch(f"embed_key {key_id} missing or deleted")
@@ -56,16 +53,12 @@ class RagConfigService:
             raise CapabilityMismatch(str(exc)) from exc
         return key
 
-    async def _validate_rerank_key(
-        self, *, key_id: uuid.UUID, provider: str
-    ) -> ApiKey:
+    async def _validate_rerank_key(self, *, key_id: uuid.UUID, provider: str) -> ApiKey:
         key = await self._keys.get_active(key_id)
         if key is None:
             raise CapabilityMismatch(f"rerank_key {key_id} missing or deleted")
         if key.provider.value != provider:
-            raise CapabilityMismatch(
-                f"rerank_key provider {key.provider.value!r} != {provider!r}"
-            )
+            raise CapabilityMismatch(f"rerank_key provider {key.provider.value!r} != {provider!r}")
         try:
             assert_capability(ApiKeyProvider(key.provider.value), _RERANK)
         except KeysCapabilityMismatch as exc:
@@ -83,21 +76,19 @@ class RagConfigService:
     ) -> RagConfig:
         # R10.05 whitelist.
         if (draft.embed_provider, draft.embed_model) not in EMBED_MODEL_WHITELIST:
-            raise EmbedModelNotWhitelisted(
-                f"{draft.embed_provider}:{draft.embed_model} not whitelisted"
-            )
+            raise EmbedModelNotWhitelisted(f"{draft.embed_provider}:{draft.embed_model} not whitelisted")
 
         if draft.embed_key_id is not None:
             await self._validate_embed_key(
-                key_id=draft.embed_key_id, provider=draft.embed_provider,
+                key_id=draft.embed_key_id,
+                provider=draft.embed_provider,
             )
         if draft.rerank_enabled:
             if draft.rerank_key_id is None or not draft.rerank_provider:
-                raise CapabilityMismatch(
-                    "rerank_enabled=true requires rerank_key_id + rerank_provider"
-                )
+                raise CapabilityMismatch("rerank_enabled=true requires rerank_key_id + rerank_provider")
             await self._validate_rerank_key(
-                key_id=draft.rerank_key_id, provider=draft.rerank_provider,
+                key_id=draft.rerank_key_id,
+                provider=draft.rerank_provider,
             )
 
         cfg = await self._configs.create(

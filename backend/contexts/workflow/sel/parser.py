@@ -104,9 +104,12 @@ class Parser:
         self._check_depth(depth)
         left = self._add_expr(depth + 1)
         cmp_ops = {
-            TokenType.EQ, TokenType.NEQ,
-            TokenType.LT, TokenType.LTE,
-            TokenType.GT, TokenType.GTE,
+            TokenType.EQ,
+            TokenType.NEQ,
+            TokenType.LT,
+            TokenType.LTE,
+            TokenType.GT,
+            TokenType.GTE,
         }
         if self._peek().type in cmp_ops:
             op_tok = self._advance()
@@ -165,10 +168,7 @@ class Parser:
         # Function call or bare identifier (treated as function with 0 args or error)
         if tok.type == TokenType.IDENT:
             # Look ahead for '(' → function call
-            if (
-                self._pos + 1 < len(self._tokens)
-                and self._tokens[self._pos + 1].type == TokenType.LPAREN
-            ):
+            if self._pos + 1 < len(self._tokens) and self._tokens[self._pos + 1].type == TokenType.LPAREN:
                 return self._func_call(depth)
             raise SELSyntaxError(
                 f"Bare identifier {tok.value!r} is not allowed; "
@@ -204,7 +204,7 @@ class Parser:
                 idx = self._peek()
                 if idx.type == TokenType.NUMBER:
                     self._advance()
-                    segments.append(int(idx.value))  # type: ignore[arg-type]
+                    segments.append(int(idx.value))  # type: ignore[call-overload]
                 elif idx.type == TokenType.STRING:
                     self._advance()
                     segments.append(str(idx.value))

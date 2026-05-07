@@ -38,12 +38,11 @@ async def ws_workflow_runs(ws: WebSocket, run_id: uuid.UUID) -> None:
         if project_id is None:
             await ws.close(code=4404)
             return
-        if not auth.principal.is_admin:
-            if not await TenancyFacade(session).is_project_member(
-                auth.principal.user_id, project_id
-            ):
-                await ws.close(code=4403)
-                return
+        if not auth.principal.is_admin and not await TenancyFacade(session).is_project_member(
+            auth.principal.user_id, project_id
+        ):
+            await ws.close(code=4403)
+            return
 
     await connection_loop(
         ws=ws,

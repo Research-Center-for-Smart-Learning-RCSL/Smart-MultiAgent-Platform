@@ -45,7 +45,8 @@ def _silence_active_key(agent_id: uuid.UUID, room_id: uuid.UUID) -> str:
 
 
 async def increment_message_count(
-    agent_id: uuid.UUID, room_id: uuid.UUID,
+    agent_id: uuid.UUID,
+    room_id: uuid.UUID,
 ) -> int:
     """Increment and return the message counter for this agent+room."""
     r = get_redis()
@@ -56,13 +57,15 @@ async def increment_message_count(
 
 
 async def reset_message_count(
-    agent_id: uuid.UUID, room_id: uuid.UUID,
+    agent_id: uuid.UUID,
+    room_id: uuid.UUID,
 ) -> None:
     await get_redis().delete(_msg_count_key(agent_id, room_id))
 
 
 async def get_message_count(
-    agent_id: uuid.UUID, room_id: uuid.UUID,
+    agent_id: uuid.UUID,
+    room_id: uuid.UUID,
 ) -> int:
     val = await get_redis().get(_msg_count_key(agent_id, room_id))
     return int(val) if val else 0
@@ -74,7 +77,8 @@ async def get_message_count(
 
 
 async def touch_silence_timestamp(
-    agent_id: uuid.UUID, room_id: uuid.UUID,
+    agent_id: uuid.UUID,
+    room_id: uuid.UUID,
 ) -> None:
     """Record 'now' as the last activity time for silence detection."""
     r = get_redis()
@@ -83,7 +87,8 @@ async def touch_silence_timestamp(
 
 
 async def get_silence_timestamp(
-    agent_id: uuid.UUID, room_id: uuid.UUID,
+    agent_id: uuid.UUID,
+    room_id: uuid.UUID,
 ) -> datetime | None:
     raw = await get_redis().get(_silence_ts_key(agent_id, room_id))
     if not raw:
@@ -92,7 +97,9 @@ async def get_silence_timestamp(
 
 
 async def set_silence_active(
-    agent_id: uuid.UUID, room_id: uuid.UUID, active: bool,
+    agent_id: uuid.UUID,
+    room_id: uuid.UUID,
+    active: bool,
 ) -> None:
     """Start or pause the silence timer based on presence (R15.05b)."""
     r = get_redis()
@@ -104,10 +111,11 @@ async def set_silence_active(
 
 
 async def is_silence_active(
-    agent_id: uuid.UUID, room_id: uuid.UUID,
+    agent_id: uuid.UUID,
+    room_id: uuid.UUID,
 ) -> bool:
     val = await get_redis().get(_silence_active_key(agent_id, room_id))
-    return val == "1"
+    return val == "1"  # type: ignore[no-any-return]
 
 
 # ---------------------------------------------------------------------------
@@ -116,7 +124,8 @@ async def is_silence_active(
 
 
 async def increment_autostop(
-    agent_id: uuid.UUID, room_id: uuid.UUID,
+    agent_id: uuid.UUID,
+    room_id: uuid.UUID,
 ) -> int:
     """Increment consecutive agent-only rounds. Returns new count."""
     r = get_redis()
@@ -127,14 +136,16 @@ async def increment_autostop(
 
 
 async def reset_autostop(
-    agent_id: uuid.UUID, room_id: uuid.UUID,
+    agent_id: uuid.UUID,
+    room_id: uuid.UUID,
 ) -> None:
     """User sent a message — reset autostop counter."""
     await get_redis().delete(_autostop_key(agent_id, room_id))
 
 
 async def get_autostop_count(
-    agent_id: uuid.UUID, room_id: uuid.UUID,
+    agent_id: uuid.UUID,
+    room_id: uuid.UUID,
 ) -> int:
     val = await get_redis().get(_autostop_key(agent_id, room_id))
     return int(val) if val else 0

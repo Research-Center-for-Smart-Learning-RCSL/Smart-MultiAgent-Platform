@@ -12,7 +12,8 @@ from contexts.knowledge.infrastructure.chunkers import chunk_fixed, chunk_text
 def test_fixed_simple_windowing() -> None:
     out = chunk_fixed(
         "a b c d e f g h",
-        chunk_size_tokens=4, chunk_overlap_tokens=1,
+        chunk_size_tokens=4,
+        chunk_overlap_tokens=1,
     )
     assert out == ["a b c d", "d e f g", "g h"]
 

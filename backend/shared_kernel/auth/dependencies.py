@@ -103,10 +103,10 @@ def scope_from_path(
             project_id=_uuid(params.get(project_param)) if project_param else None,
             chatroom_id=_uuid(params.get(chatroom_param)) if chatroom_param else None,
             resource_owner_user_id=(
-                _uuid(params.get(resource_owner_param))
-                if resource_owner_param else None
+                _uuid(params.get(resource_owner_param)) if resource_owner_param else None
             ),
         )
+
     return build
 
 
@@ -137,7 +137,7 @@ def require_membership(
     async def dep(
         request: Request,
         principal: Principal = Depends(current_principal),
-        resolver: "TenancyRoleResolver" = Depends(get_role_resolver),
+        resolver: TenancyRoleResolver = Depends(get_role_resolver),
     ) -> None:
         if principal.is_admin:
             return
@@ -147,6 +147,7 @@ def require_membership(
         roles = await resolver.roles_for(principal, scope)
         if not roles:
             _raise_forbidden("caller is not a member of the scope")
+
     return dep
 
 

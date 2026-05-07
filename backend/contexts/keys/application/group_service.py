@@ -102,9 +102,7 @@ class KeyGroupService:
         )
         return group
 
-    async def get_with_members(
-        self, group_id: uuid.UUID
-    ) -> tuple[KeyGroup, list[KeyGroupMember]] | None:
+    async def get_with_members(self, group_id: uuid.UUID) -> tuple[KeyGroup, list[KeyGroupMember]] | None:
         group = await self._groups.get_active(group_id)
         if group is None:
             return None
@@ -178,9 +176,7 @@ class KeyGroupService:
         # R7.04 — the key must already be carried into the group's project.
         carried = await self._carries.list_active_in_project(group.project_id)
         if not any(c.id == key_id for c in carried):
-            raise GroupWrongProject(
-                f"key {key_id} is not carried into project {group.project_id}"
-            )
+            raise GroupWrongProject(f"key {key_id} is not carried into project {group.project_id}")
 
         priority = await self._members.next_priority(group_id)
         await self._members.add(group_id=group_id, key_id=key_id, priority=priority)
@@ -239,9 +235,7 @@ class KeyGroupService:
         if updates.rotate_on_error_codes is not None:
             col_updates["rotate_on_error_codes"] = list(updates.rotate_on_error_codes)
 
-        await self._members.patch(
-            group_id=group_id, key_id=key_id, updates=col_updates
-        )
+        await self._members.patch(group_id=group_id, key_id=key_id, updates=col_updates)
         await audit.emit(
             self._db,
             audit.AuditEvent(

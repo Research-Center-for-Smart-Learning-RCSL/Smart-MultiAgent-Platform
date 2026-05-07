@@ -35,22 +35,28 @@ def test_default_cap_is_75_percent() -> None:
 
 def test_should_compact_respects_mode_and_cap() -> None:
     assert should_compact(
-        mode="compact", projected_tokens=160, context_token_cap=150,
+        mode="compact",
+        projected_tokens=160,
+        context_token_cap=150,
         provider_context_limit=200,
     )
     assert not should_compact(
-        mode="compact", projected_tokens=140, context_token_cap=150,
+        mode="compact",
+        projected_tokens=140,
+        context_token_cap=150,
         provider_context_limit=200,
     )
     assert not should_compact(
-        mode="general", projected_tokens=10_000, context_token_cap=1,
+        mode="general",
+        projected_tokens=10_000,
+        context_token_cap=1,
         provider_context_limit=100,
     )
 
 
 def test_choose_range_picks_oldest_and_stops_at_summary() -> None:
     msgs = [_m(1, 100), _m(2, 200, {"type": "compact_summary"}), _m(3, 50)]
-    plan = choose_range_to_compact(msgs, target_tokens_to_shed=50)
+    plan = choose_range_to_compact(msgs, target_tokens_to_shed=50)  # type: ignore[arg-type]
     assert plan is not None
     # id=1 is oldest un-compacted material.
     assert plan.message_ids == [1]
@@ -58,14 +64,14 @@ def test_choose_range_picks_oldest_and_stops_at_summary() -> None:
 
 def test_choose_range_skips_leading_summaries() -> None:
     msgs = [_m(10, 999, {"type": "compact_summary"}), _m(11, 100), _m(12, 200)]
-    plan = choose_range_to_compact(msgs, target_tokens_to_shed=150)
+    plan = choose_range_to_compact(msgs, target_tokens_to_shed=150)  # type: ignore[arg-type]
     assert plan is not None
     assert plan.message_ids == [11, 12]
 
 
 def test_choose_range_no_uncompacted_returns_none() -> None:
     msgs = [_m(1, 100, {"type": "compact_summary"})]
-    assert choose_range_to_compact(msgs, target_tokens_to_shed=10) is None
+    assert choose_range_to_compact(msgs, target_tokens_to_shed=10) is None  # type: ignore[arg-type]
 
 
 class _FakeSummariser:
@@ -87,12 +93,12 @@ class _FakeStore:
         return "new_id"
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_run_compact_success() -> None:
     msgs = [_m(1, 400), _m(2, 300), _m(3, 200)]
     store = _FakeStore()
     changed = await run_compact(
-        messages=msgs,
+        messages=msgs,  # type: ignore[arg-type]
         projected_tokens=1000,
         context_token_cap=500,
         provider_context_limit=1200,
@@ -104,13 +110,13 @@ async def test_run_compact_success() -> None:
     assert "summary of" in store.called_with["text"]
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_run_compact_raises_compact_failed_on_summariser_error() -> None:
     msgs = [_m(1, 900)]
     store = _FakeStore()
     with pytest.raises(CompactFailed):
         await run_compact(
-            messages=msgs,
+            messages=msgs,  # type: ignore[arg-type]
             projected_tokens=1000,
             context_token_cap=500,
             provider_context_limit=1200,

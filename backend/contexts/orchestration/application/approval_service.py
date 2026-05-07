@@ -16,11 +16,9 @@ SoC:
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from contexts.orchestration.domain.errors import ApprovalTimeoutLeader
 from contexts.orchestration.domain.models import (
     Approval,
     ApprovalGateConfig,
@@ -86,18 +84,24 @@ class ApprovalService:
 
         if chatroom_id:
             pub = Publisher(room_channel(chatroom_id))
-            await pub.emit("approval.requested", {
-                "approval_id": str(approval_id),
-                "mode": config.mode.value,
-                "leader_agent_id": str(config.leader_agent_id),
-                "approver_agent_ids": [str(a) for a in config.approvers],
-                "timeout_seconds": config.timeout_seconds,
-            })
+            await pub.emit(
+                "approval.requested",
+                {
+                    "approval_id": str(approval_id),
+                    "mode": config.mode.value,
+                    "leader_agent_id": str(config.leader_agent_id),
+                    "approver_agent_ids": [str(a) for a in config.approvers],
+                    "timeout_seconds": config.timeout_seconds,
+                },
+            )
 
         wf_pub = Publisher(workflow_channel(workflow_run_id))
-        await wf_pub.emit("approval.requested", {
-            "approval_id": str(approval_id),
-        })
+        await wf_pub.emit(
+            "approval.requested",
+            {
+                "approval_id": str(approval_id),
+            },
+        )
 
         return approval
 
@@ -145,7 +149,8 @@ class ApprovalService:
             return approval.state if approval else ApprovalState.PENDING
 
         leader_votes = [
-            v for v in await self._votes.list_for_approval(approval_id)
+            v
+            for v in await self._votes.list_for_approval(approval_id)
             if v.voter_agent_id == approval.leader_agent_id
         ]
         if leader_votes and leader_votes[-1].vote:
@@ -178,7 +183,9 @@ class ApprovalService:
         )
 
         await self._publish_resolved(
-            approval, resolved_state, chatroom_id=chatroom_id,
+            approval,
+            resolved_state,
+            chatroom_id=chatroom_id,
         )
         return resolved_state
 
@@ -220,7 +227,9 @@ class ApprovalService:
         )
 
         await self._publish_resolved(
-            approval, resolved_state, chatroom_id=chatroom_id,
+            approval,
+            resolved_state,
+            chatroom_id=chatroom_id,
         )
 
     @staticmethod
@@ -233,10 +242,7 @@ class ApprovalService:
         approver_votes = [v for v in votes if v.voter_agent_id in approver_set]
 
         if approval.mode == ApprovalMode.SINGLE:
-            leader_votes = [
-                v for v in approver_votes
-                if v.voter_agent_id == approval.leader_agent_id
-            ]
+            leader_votes = [v for v in approver_votes if v.voter_agent_id == approval.leader_agent_id]
             if not leader_votes:
                 return None
             return ApprovalState.APPROVED if leader_votes[-1].vote else ApprovalState.REJECTED
@@ -251,10 +257,7 @@ class ApprovalService:
             if rejects > approves:
                 return ApprovalState.REJECTED
             # Tie: leader breaks it.
-            leader_votes = [
-                v for v in approver_votes
-                if v.voter_agent_id == approval.leader_agent_id
-            ]
+            leader_votes = [v for v in approver_votes if v.voter_agent_id == approval.leader_agent_id]
             if leader_votes:
                 return ApprovalState.APPROVED if leader_votes[-1].vote else ApprovalState.REJECTED
             return None
@@ -270,7 +273,7 @@ class ApprovalService:
                 return ApprovalState.REJECTED
             return None
 
-        return None
+        return None  # type: ignore[unreachable]
 
     async def _publish_resolved(
         self,
@@ -286,10 +289,12 @@ class ApprovalService:
         }
         if chatroom_id:
             await Publisher(room_channel(chatroom_id)).emit(
-                "approval.resolved", payload,
+                "approval.resolved",
+                payload,
             )
         await Publisher(workflow_channel(approval.workflow_run_id)).emit(
-            "approval.resolved", payload,
+            "approval.resolved",
+            payload,
         )
 
     # ------------------------------------------------------------------

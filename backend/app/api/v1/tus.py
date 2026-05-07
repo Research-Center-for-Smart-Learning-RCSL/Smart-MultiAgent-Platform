@@ -79,7 +79,9 @@ async def tus_create(
         except ValueError as exc:
             raise TusMetadataInvalid("chatroom_id must be UUID") from exc
         access = await resolve_room_access(
-            db, principal=principal, chatroom_id=chatroom_id,
+            db,
+            principal=principal,
+            chatroom_id=chatroom_id,
         )
         ensure_can_send(access, is_admin=principal.is_admin)
     # rag_source ACL gate lives in the knowledge context; it will wrap this

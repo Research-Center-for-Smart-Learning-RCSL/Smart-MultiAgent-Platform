@@ -13,7 +13,6 @@ from starlette.responses import Response
 
 from app.config.settings import get_settings
 
-
 _CSP = (
     "default-src 'self'; "
     "script-src 'self' 'wasm-unsafe-eval'; "

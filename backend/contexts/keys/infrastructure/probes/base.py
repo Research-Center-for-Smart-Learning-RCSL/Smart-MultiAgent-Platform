@@ -2,19 +2,14 @@
 
 from __future__ import annotations
 
-import enum
 from dataclasses import dataclass
 from typing import Final
 
 import httpx
 
+from contexts.keys.domain.probe_status import ProbeStatus
+
 _PROBE_TIMEOUT_SECONDS: Final = 5.0
-
-
-class ProbeStatus(str, enum.Enum):
-    OK = "ok"
-    FAILED = "failed"
-    UNTESTED = "untested"
 
 
 @dataclass(frozen=True, slots=True)
@@ -29,11 +24,11 @@ class ProbeResult:
     error: str | None = None
 
     @classmethod
-    def ok(cls) -> "ProbeResult":
+    def ok(cls) -> ProbeResult:
         return cls(status=ProbeStatus.OK, error=None)
 
     @classmethod
-    def failed(cls, reason: str) -> "ProbeResult":
+    def failed(cls, reason: str) -> ProbeResult:
         # Trim to a sane length so we don't persist megabytes of provider HTML.
         return cls(status=ProbeStatus.FAILED, error=reason[:500])
 

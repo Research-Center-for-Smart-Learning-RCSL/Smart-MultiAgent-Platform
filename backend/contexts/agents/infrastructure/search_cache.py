@@ -58,7 +58,7 @@ class RedisSearchCache:
     """
 
     async def get(self, cache_key: str) -> list[SearchResult] | None:
-        from shared_kernel.auth.clients import get_redis  # noqa: PLC0415
+        from shared_kernel.auth.clients import get_redis
 
         raw: Any = await get_redis().get(cache_key)
         if raw is None:
@@ -70,10 +70,8 @@ class RedisSearchCache:
         except (ValueError, TypeError):
             return None
 
-    async def set(
-        self, cache_key: str, results: list[SearchResult], *, ttl_s: int
-    ) -> None:
-        from shared_kernel.auth.clients import get_redis  # noqa: PLC0415
+    async def set(self, cache_key: str, results: list[SearchResult], *, ttl_s: int) -> None:
+        from shared_kernel.auth.clients import get_redis
 
         await get_redis().set(cache_key, _encode(results), ex=max(1, int(ttl_s)))
 

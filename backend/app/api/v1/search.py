@@ -44,12 +44,17 @@ async def search_messages(
     db: AsyncSession = Depends(db_session),
 ) -> SearchResponse:
     access = await resolve_room_access(
-        db, principal=principal, chatroom_id=chatroom_id,
+        db,
+        principal=principal,
+        chatroom_id=chatroom_id,
     )
     ensure_can_read(access, is_admin=principal.is_admin)
     repo = MessageRepository(db)
     results = await repo.search(
-        chatroom_id=chatroom_id, query=q, limit=limit, offset=offset,
+        chatroom_id=chatroom_id,
+        query=q,
+        limit=limit,
+        offset=offset,
     )
     hits = [
         SearchHit(

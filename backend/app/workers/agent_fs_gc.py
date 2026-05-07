@@ -58,7 +58,7 @@ def _purge_volumes(names: Iterable[str]) -> int:
     Volumes that don't exist are silently skipped; we run this nightly so a
     transient Docker hiccup is fine.
     """
-    import docker  # noqa: PLC0415
+    import docker
 
     client = docker.from_env()
     removed = 0
@@ -83,7 +83,7 @@ async def run_once(*, now: datetime | None = None) -> int:
     if not ids:
         _log.info("agent_fs_gc: no volumes past retention")
         return 0
-    names = list(_volume_name(aid) for aid in ids)
+    names = [_volume_name(aid) for aid in ids]
     # _purge_volumes calls the sync Docker SDK; offload to a thread so it
     # does not block the async event loop during Docker API calls.
     return await asyncio.to_thread(_purge_volumes, names)

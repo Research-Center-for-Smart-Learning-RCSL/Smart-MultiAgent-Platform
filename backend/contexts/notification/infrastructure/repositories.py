@@ -39,7 +39,7 @@ class NotificationRepository:
         kind: NotificationKind,
         title: str,
         body: str | None = None,
-        metadata: dict | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> Notification:
         row = (
             await self._db.execute(
@@ -100,9 +100,7 @@ class NotificationRepository:
         rows = (await self._db.execute(q)).all()
         return [_row_to_notification(r) for r in rows]
 
-    async def mark_read(
-        self, user_id: uuid.UUID, ids: list[uuid.UUID]
-    ) -> int:
+    async def mark_read(self, user_id: uuid.UUID, ids: list[uuid.UUID]) -> int:
         result = await self._db.execute(
             t.notifications.update()
             .where(
@@ -114,7 +112,7 @@ class NotificationRepository:
             )
             .values(read_at=now())
         )
-        return result.rowcount  # type: ignore[return-value]
+        return result.rowcount
 
     async def unread_count(self, user_id: uuid.UUID) -> int:
         result = await self._db.execute(

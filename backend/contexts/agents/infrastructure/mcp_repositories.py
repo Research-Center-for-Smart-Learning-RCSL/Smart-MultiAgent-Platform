@@ -29,9 +29,7 @@ class EgressAllowlistRepository:
     def __init__(self, db: AsyncSession) -> None:
         self._db = db
 
-    async def list_for_project(
-        self, project_id: uuid.UUID
-    ) -> Sequence[EgressAllowlistEntry]:
+    async def list_for_project(self, project_id: uuid.UUID) -> Sequence[EgressAllowlistEntry]:
         rows = (
             await self._db.execute(
                 mcp_egress_allowlist.select()
@@ -56,12 +54,14 @@ class EgressAllowlistRepository:
         try:
             row = (
                 await self._db.execute(
-                    mcp_egress_allowlist.insert().values(
+                    mcp_egress_allowlist.insert()
+                    .values(
                         project_id=project_id,
                         hostname=hostname,
                         added_by_user_id=added_by_user_id,
                         note=note,
-                    ).returning(mcp_egress_allowlist)
+                    )
+                    .returning(mcp_egress_allowlist)
                 )
             ).one()
             return _row_to_entry(row)
@@ -80,9 +80,7 @@ class EgressAllowlistRepository:
                 raise
             return _row_to_entry(existing)
 
-    async def delete(
-        self, *, project_id: uuid.UUID, hostname: str
-    ) -> bool:
+    async def delete(self, *, project_id: uuid.UUID, hostname: str) -> bool:
         result = await self._db.execute(
             mcp_egress_allowlist.delete().where(
                 sa.and_(
@@ -122,9 +120,7 @@ class EgressAllowlistRepository:
             )
         return await self.list_for_project(project_id)
 
-    async def is_allowed(
-        self, *, project_id: uuid.UUID, hostname: str
-    ) -> bool:
+    async def is_allowed(self, *, project_id: uuid.UUID, hostname: str) -> bool:
         row = (
             await self._db.execute(
                 sa.select(mcp_egress_allowlist.c.id).where(

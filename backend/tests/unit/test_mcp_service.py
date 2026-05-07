@@ -27,13 +27,13 @@ class _FakeSession:
         self.executed.append(stmt)
 
         class _R:
-            def first(self_inner: Any) -> None:
+            def first(self: Any) -> None:
                 return None
 
-            def all(self_inner: Any) -> list[Any]:
+            def all(self: Any) -> list[Any]:
                 return []
 
-            def one(self_inner: Any) -> None:
+            def one(self: Any) -> None:
                 return None
 
         return _R()
@@ -78,8 +78,7 @@ class _FakeBindingRepo:
 
 
 class _FakeRunner:
-    def __init__(self, *, result: McpTestResult | None = None,
-                 raises: BaseException | None = None) -> None:
+    def __init__(self, *, result: McpTestResult | None = None, raises: BaseException | None = None) -> None:
         self.result = result
         self.raises = raises
         self.probe_calls: list[dict[str, Any]] = []
@@ -113,7 +112,7 @@ def _binding(agent_id: uuid.UUID, *, config: dict[str, Any] | None = None) -> Mc
     )
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_list_delegates_to_repo() -> None:
     agent_id = uuid.uuid4()
     b = _binding(agent_id)
@@ -123,7 +122,7 @@ async def test_list_delegates_to_repo() -> None:
     assert [x.id for x in rows] == [b.id]
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_remove_deletes_and_audits() -> None:
     agent_id = uuid.uuid4()
     b = _binding(agent_id)
@@ -132,15 +131,17 @@ async def test_remove_deletes_and_audits() -> None:
     repo = _FakeBindingRepo([b])
     svc._repo = repo  # type: ignore[assignment]
     await svc.remove(
-        agent_id=agent_id, binding_id=b.id,
-        actor_user_id=uuid.uuid4(), actor_ip="127.0.0.1",
+        agent_id=agent_id,
+        binding_id=b.id,
+        actor_user_id=uuid.uuid4(),
+        actor_ip="127.0.0.1",
     )
     assert repo.removed == [b.id]
     # One audit insert issued.
     assert session.executed, "expected audit row to be inserted"
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_test_endpoint_calls_runner_probe_ok() -> None:
     agent_id = uuid.uuid4()
     project_id = uuid.uuid4()
@@ -152,27 +153,34 @@ async def test_test_endpoint_calls_runner_probe_ok() -> None:
     svc._repo = _FakeBindingRepo([b])  # type: ignore[assignment]
 
     result = await svc.test(
-        agent_id=agent_id, binding_id=b.id, project_id=project_id,
-        actor_user_id=uuid.uuid4(), actor_ip=None,
+        agent_id=agent_id,
+        binding_id=b.id,
+        project_id=project_id,
+        actor_user_id=uuid.uuid4(),
+        actor_ip=None,
     )
     assert result.ok
     assert result.tool_names == ("list", "fetch")
-    assert runner.probe_calls and runner.probe_calls[0]["reference"] == b.reference
+    assert runner.probe_calls
+    assert runner.probe_calls[0]["reference"] == b.reference
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_test_endpoint_unknown_binding() -> None:
     agent_id = uuid.uuid4()
     svc = McpBindingService(_FakeSession(), runner=_FakeRunner())  # type: ignore[arg-type]
     svc._repo = _FakeBindingRepo([])  # type: ignore[assignment]
     with pytest.raises(McpBindingNotFound):
         await svc.test(
-            agent_id=agent_id, binding_id=uuid.uuid4(), project_id=uuid.uuid4(),
-            actor_user_id=uuid.uuid4(), actor_ip=None,
+            agent_id=agent_id,
+            binding_id=uuid.uuid4(),
+            project_id=uuid.uuid4(),
+            actor_user_id=uuid.uuid4(),
+            actor_ip=None,
         )
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_test_endpoint_surfaces_egress_denial() -> None:
     agent_id = uuid.uuid4()
     b = _binding(agent_id)
@@ -181,12 +189,15 @@ async def test_test_endpoint_surfaces_egress_denial() -> None:
     svc._repo = _FakeBindingRepo([b])  # type: ignore[assignment]
     with pytest.raises(McpEgressDenied):
         await svc.test(
-            agent_id=agent_id, binding_id=b.id, project_id=uuid.uuid4(),
-            actor_user_id=uuid.uuid4(), actor_ip=None,
+            agent_id=agent_id,
+            binding_id=b.id,
+            project_id=uuid.uuid4(),
+            actor_user_id=uuid.uuid4(),
+            actor_ip=None,
         )
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_test_endpoint_surfaces_timeout() -> None:
     agent_id = uuid.uuid4()
     b = _binding(agent_id)
@@ -195,12 +206,15 @@ async def test_test_endpoint_surfaces_timeout() -> None:
     svc._repo = _FakeBindingRepo([b])  # type: ignore[assignment]
     with pytest.raises(McpTimeout):
         await svc.test(
-            agent_id=agent_id, binding_id=b.id, project_id=uuid.uuid4(),
-            actor_user_id=uuid.uuid4(), actor_ip=None,
+            agent_id=agent_id,
+            binding_id=b.id,
+            project_id=uuid.uuid4(),
+            actor_user_id=uuid.uuid4(),
+            actor_ip=None,
         )
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_test_endpoint_wraps_unexpected_as_failed() -> None:
     agent_id = uuid.uuid4()
     b = _binding(agent_id)
@@ -209,6 +223,9 @@ async def test_test_endpoint_wraps_unexpected_as_failed() -> None:
     svc._repo = _FakeBindingRepo([b])  # type: ignore[assignment]
     with pytest.raises(McpTestFailed):
         await svc.test(
-            agent_id=agent_id, binding_id=b.id, project_id=uuid.uuid4(),
-            actor_user_id=uuid.uuid4(), actor_ip=None,
+            agent_id=agent_id,
+            binding_id=b.id,
+            project_id=uuid.uuid4(),
+            actor_user_id=uuid.uuid4(),
+            actor_ip=None,
         )

@@ -74,30 +74,37 @@ class RedisSnapshotStore:
         )
 
     async def get(
-        self, *, config_id: uuid.UUID, build_id: uuid.UUID,
+        self,
+        *,
+        config_id: uuid.UUID,
+        build_id: uuid.UUID,
     ) -> dict[str, Any] | None:
         raw = await self._r().get(_snap_key(config_id, build_id))
         if raw is None:
             return None
         if isinstance(raw, bytes):
             raw = raw.decode("utf-8")
-        return json.loads(raw)
+        return json.loads(raw)  # type: ignore[no-any-return]
 
     async def delete(
-        self, *, config_id: uuid.UUID, build_id: uuid.UUID,
+        self,
+        *,
+        config_id: uuid.UUID,
+        build_id: uuid.UUID,
     ) -> None:
         await self._r().delete(_snap_key(config_id, build_id))
 
     async def scan_current(
-        self, *, config_id: uuid.UUID,
+        self,
+        *,
+        config_id: uuid.UUID,
     ) -> uuid.UUID | None:
         """Return the most recent cached build_id for a config, if any."""
         prefix = _snap_prefix(config_id)
         found: str | None = None
-        async for key in self._r().scan_iter(match=prefix + "*", count=16):
-            if isinstance(key, bytes):
-                key = key.decode("utf-8")
-            found = key[len(prefix):]
+        async for raw in self._r().scan_iter(match=prefix + "*", count=16):
+            key = raw.decode("utf-8") if isinstance(raw, bytes) else raw
+            found = key[len(prefix) :]
             break
         if found is None:
             return None

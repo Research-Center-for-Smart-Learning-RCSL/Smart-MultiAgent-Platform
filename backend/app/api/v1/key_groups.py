@@ -32,7 +32,6 @@ from shared_kernel.auth.permissions import Capability, Principal, Scope, decide
 from shared_kernel.db.session import db_session
 from shared_kernel.errors.problem import Problem, problem_type
 
-
 project_router = APIRouter(prefix="/api/projects", tags=["key-groups"])
 group_router = APIRouter(prefix="/api/key-groups", tags=["key-groups"])
 
@@ -53,9 +52,11 @@ class GroupOut(BaseModel):
     created_at: str
 
     @classmethod
-    def from_domain(cls, g: KeyGroup) -> "GroupOut":
+    def from_domain(cls, g: KeyGroup) -> GroupOut:
         return cls(
-            id=g.id, project_id=g.project_id, name=g.name,
+            id=g.id,
+            project_id=g.project_id,
+            name=g.name,
             created_at=g.created_at.isoformat(),
         )
 
@@ -84,7 +85,7 @@ class MemberOut(BaseModel):
     limits: LimitsOut
 
     @classmethod
-    def from_domain(cls, m: KeyGroupMember) -> "MemberOut":
+    def from_domain(cls, m: KeyGroupMember) -> MemberOut:
         return cls(
             key_id=m.key_id,
             priority=m.priority,
@@ -152,10 +153,7 @@ async def list_groups(
     project_id: uuid.UUID,
     db: AsyncSession = Depends(db_session),
 ) -> list[GroupOut]:
-    return [
-        GroupOut.from_domain(g)
-        for g in await KeyGroupService(db).list_for_project(project_id)
-    ]
+    return [GroupOut.from_domain(g) for g in await KeyGroupService(db).list_for_project(project_id)]
 
 
 @project_router.post(
@@ -207,12 +205,16 @@ def _require_group_cap(capability: Capability):
             raise KeyNotFound(str(group_id))
         group, _ = loaded
         decision = await decide(
-            principal, capability,
-            Scope(project_id=group.project_id), resolver,
+            principal,
+            capability,
+            Scope(project_id=group.project_id),
+            resolver,
         )
         if not decision.allowed:
             p = Problem(
-                type=problem_type("forbidden"), title="Forbidden", status=403,
+                type=problem_type("forbidden"),
+                title="Forbidden",
+                status=403,
                 detail=decision.reason,
             )
             raise HTTPException(status_code=403, detail=p.dump())
@@ -250,8 +252,10 @@ async def rename_group(
     db: AsyncSession = Depends(db_session),
 ) -> None:
     await KeyGroupService(db).rename(
-        group_id=group_id, name=payload.name,
-        actor_user_id=principal.user_id, request_id=ctx.request_id,
+        group_id=group_id,
+        name=payload.name,
+        actor_user_id=principal.user_id,
+        request_id=ctx.request_id,
     )
 
 
@@ -312,8 +316,7 @@ async def patch_member(
         updates=MemberPatchInput(
             priority=payload.priority,
             rotate_on_error_codes=(
-                tuple(payload.rotate_on_error_codes)
-                if payload.rotate_on_error_codes is not None else None
+                tuple(payload.rotate_on_error_codes) if payload.rotate_on_error_codes is not None else None
             ),
             rotate_on_token_quota=payload.rotate_on_token_quota,
             retry_on_error=payload.retry_on_error,

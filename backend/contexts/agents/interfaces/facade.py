@@ -23,13 +23,12 @@ class AgentsFacade:
         self._agents = AgentRepository(db)
         self._bindings = AgentMcpBindingRepository(db)
 
-    async def get_agent(
-        self, agent_id: uuid.UUID, *, include_deleted: bool = False
-    ) -> Agent | None:
+    async def get_agent(self, agent_id: uuid.UUID, *, include_deleted: bool = False) -> Agent | None:
         return await self._agents.get(agent_id, include_deleted=include_deleted)
 
     async def list_agents_for_project(
-        self, project_id: uuid.UUID,
+        self,
+        project_id: uuid.UUID,
     ) -> list[Agent]:
         return list(await self._agents.list_for_project(project_id))
 

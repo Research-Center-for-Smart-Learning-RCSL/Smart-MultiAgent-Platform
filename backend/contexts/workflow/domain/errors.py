@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 
 class WorkflowError(Exception):
     code: str = "workflow/generic"
@@ -13,14 +15,16 @@ class WorkflowNotFound(WorkflowError):
 
 class WorkflowVersionConflict(WorkflowError):
     """If-Match optimistic lock mismatch (R14.06 / R9.02)."""
+
     code = "workflow-version-conflict"
 
 
 class WorkflowValidationFailed(WorkflowError):
     """JSON Schema or semantic linter rejected the definition."""
+
     code = "workflow-validation"
 
-    def __init__(self, errors: list[dict], warnings: list[dict] | None = None) -> None:
+    def __init__(self, errors: list[dict[str, Any]], warnings: list[dict[str, Any]] | None = None) -> None:
         self.lint_errors = errors
         self.lint_warnings = warnings or []
         super().__init__(f"{len(errors)} validation error(s)")
@@ -40,6 +44,7 @@ class WorkflowDeleted(WorkflowError):
 
 class SELBudgetExceeded(WorkflowError):
     """Expression evaluation exceeded CPU / depth / length budget."""
+
     code = "sel-budget-exceeded"
 
 

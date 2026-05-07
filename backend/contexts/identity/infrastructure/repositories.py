@@ -21,9 +21,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.identity.domain.models import (
-    EmailVerifyToken,
     IpBan,
-    PasswordResetToken,
     Session,
     User,
     UserStatus,
@@ -64,9 +62,7 @@ class UserRepository:
         return _row_to_user(row)
 
     async def get_by_id(self, user_id: uuid.UUID) -> User | None:
-        row = (
-            await self._db.execute(t.users.select().where(t.users.c.id == user_id))
-        ).first()
+        row = (await self._db.execute(t.users.select().where(t.users.c.id == user_id))).first()
         return _row_to_user(row) if row else None
 
     async def get_active_by_email(self, email: str) -> User | None:
@@ -103,9 +99,7 @@ class UserRepository:
             .where(
                 sa.and_(
                     t.users.c.id == user_id,
-                    t.users.c.status.in_(
-                        [UserStatus.ACTIVE.value, UserStatus.PENDING.value]
-                    ),
+                    t.users.c.status.in_([UserStatus.ACTIVE.value, UserStatus.PENDING.value]),
                 )
             )
             .values(
@@ -135,11 +129,7 @@ class UserRepository:
         return result.first() is not None
 
     async def mark_logged_in(self, user_id: uuid.UUID) -> None:
-        await self._db.execute(
-            t.users.update()
-            .where(t.users.c.id == user_id)
-            .values(last_login_at=now())
-        )
+        await self._db.execute(t.users.update().where(t.users.c.id == user_id).values(last_login_at=now()))
 
     async def soft_delete(self, user_id: uuid.UUID) -> None:
         await self._db.execute(
@@ -213,11 +203,7 @@ class SessionRepository:
         return [_row_to_session(r) for r in rows]
 
     async def get_by_id(self, session_id: uuid.UUID) -> Session | None:
-        row = (
-            await self._db.execute(
-                t.sessions.select().where(t.sessions.c.id == session_id)
-            )
-        ).first()
+        row = (await self._db.execute(t.sessions.select().where(t.sessions.c.id == session_id))).first()
         return _row_to_session(row) if row else None
 
     async def update_on_rotation(
@@ -239,9 +225,7 @@ class SessionRepository:
 
     async def revoke(self, *, session_id: uuid.UUID) -> None:
         await self._db.execute(
-            t.sessions.update()
-            .where(t.sessions.c.id == session_id)
-            .values(revoked_at=now())
+            t.sessions.update().where(t.sessions.c.id == session_id).values(revoked_at=now())
         )
 
     async def revoke_all_for_user(self, user_id: uuid.UUID) -> None:
@@ -356,9 +340,7 @@ class AdminRepository:
 
     async def list_admin_ids(self) -> set[uuid.UUID]:
         rows = (
-            await self._db.execute(
-                sa.select(t.admins.c.user_id).where(t.admins.c.revoked_at.is_(None))
-            )
+            await self._db.execute(sa.select(t.admins.c.user_id).where(t.admins.c.revoked_at.is_(None)))
         ).all()
         return {r.user_id for r in rows}
 
@@ -370,8 +352,7 @@ class AdminRepository:
             .values(user_id=user_id, promoted_by_user_id=promoted_by)
             .on_conflict_do_update(
                 index_elements=[t.admins.c.user_id],
-                set_={"revoked_at": None, "promoted_by_user_id": promoted_by,
-                      "promoted_at": sa.func.now()},
+                set_={"revoked_at": None, "promoted_by_user_id": promoted_by, "promoted_at": sa.func.now()},
             )
             .returning(
                 t.admins.c.user_id,
@@ -384,9 +365,7 @@ class AdminRepository:
 
     async def demote(self, user_id: uuid.UUID) -> None:
         await self._db.execute(
-            t.admins.update()
-            .where(t.admins.c.user_id == user_id)
-            .values(revoked_at=now())
+            t.admins.update().where(t.admins.c.user_id == user_id).values(revoked_at=now())
         )
 
 
@@ -407,9 +386,7 @@ class IpBanRepository:
             for r in rows
         ]
 
-    async def insert(
-        self, *, cidr: str, reason: str, created_by: uuid.UUID | None
-    ) -> IpBan:
+    async def insert(self, *, cidr: str, reason: str, created_by: uuid.UUID | None) -> IpBan:
         # Validate before we round-trip; Postgres cidr type would reject but we
         # want a stable Python-level error path.
         ipaddress.ip_network(cidr, strict=False)

@@ -9,12 +9,13 @@ independence — cross-context reads go through the `shared_kernel` bus).
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from contexts.identity.domain.models import User, UserStatus
+from contexts.identity.domain.models import IpBan, User, UserStatus
 from contexts.identity.infrastructure.repositories import (
     AdminRepository,
     IpBanRepository,
@@ -63,7 +64,7 @@ class IdentityFacade:
     async def admin_ids(self) -> set[uuid.UUID]:
         return await self._admins.list_admin_ids()
 
-    async def list_ip_bans(self):
+    async def list_ip_bans(self) -> Sequence[IpBan]:
         return await self._ip_bans.list_all()
 
 

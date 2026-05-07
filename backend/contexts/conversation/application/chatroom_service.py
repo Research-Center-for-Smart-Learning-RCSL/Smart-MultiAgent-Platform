@@ -49,17 +49,20 @@ class ChatroomService:
         return room
 
     async def list_for_workspace(
-        self, workspace_id: uuid.UUID,
+        self,
+        workspace_id: uuid.UUID,
     ) -> Sequence[Chatroom]:
         return await self._rooms.list_for_workspace(workspace_id)
 
     async def list_agents(
-        self, chatroom_id: uuid.UUID,
+        self,
+        chatroom_id: uuid.UUID,
     ) -> Sequence[ChatroomAgent]:
         return await self._agents.list(chatroom_id)
 
     async def list_guests(
-        self, chatroom_id: uuid.UUID,
+        self,
+        chatroom_id: uuid.UUID,
     ) -> Sequence[ChatroomGuest]:
         return await self._guests.list(chatroom_id)
 
@@ -181,7 +184,8 @@ class ChatroomService:
         remaining = await self._rooms.count_active_in_workspace(room.workspace_id)
         if remaining == 0:
             default_room = await self._rooms.create(
-                workspace_id=room.workspace_id, name="general",
+                workspace_id=room.workspace_id,
+                name="general",
             )
             await audit.emit(
                 self._db,

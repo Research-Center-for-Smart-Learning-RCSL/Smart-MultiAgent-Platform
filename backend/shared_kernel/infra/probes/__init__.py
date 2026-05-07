@@ -44,14 +44,12 @@ async def probe_all(settings: Settings) -> list[ProbeResult]:
     async def _bounded(name: str, fn: Probe) -> ProbeResult:
         try:
             return await asyncio.wait_for(fn(settings), timeout=_BUDGET_SECONDS)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             return ProbeResult(name=name, ok=False, detail="timeout")
-        except Exception as exc:  # noqa: BLE001 — probes MUST NOT propagate
+        except Exception as exc:  # — probes MUST NOT propagate
             return ProbeResult(name=name, ok=False, detail=f"{type(exc).__name__}: {exc}")
 
-    return list(
-        await asyncio.gather(*(_bounded(name, fn) for name, fn in _PROBES))
-    )
+    return list(await asyncio.gather(*(_bounded(name, fn) for name, fn in _PROBES)))
 
 
 __all__ = ["ProbeResult", "probe_all"]

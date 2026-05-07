@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from typing import Any
 
 from app.config.settings import get_settings
 from contexts.knowledge.application.graphrag_reconciler import (
@@ -28,25 +29,26 @@ _log = logging.getLogger(__name__)
 def _make_phase2_retry(
     neo4j: Neo4jAsyncDriver,
     vector_store: GraphRagVectorStore,
-):
+) -> Any:
     """Return a Phase2Retry that re-embeds Phase-1 entities and upserts Qdrant."""
     import uuid as _uuid
 
-    async def _retry(*, cfg, build_id) -> None:  # noqa: ANN001
-        from contexts.knowledge.infrastructure.embedders import (  # noqa: PLC0415
-            embedder_for,
-        )
-        from contexts.keys.infrastructure.group_repository import (  # noqa: PLC0415
+    async def _retry(*, cfg: Any, build_id: Any) -> None:
+        from contexts.keys.infrastructure.group_repository import (
             KeyGroupMemberRepository,
         )
-        from contexts.keys.infrastructure.repositories import (  # noqa: PLC0415
+        from contexts.keys.infrastructure.repositories import (
             ApiKeyRepository,
         )
-        from contexts.keys.interfaces.facade import KeysFacade  # noqa: PLC0415
+        from contexts.keys.interfaces.facade import KeysFacade
+        from contexts.knowledge.infrastructure.embedders import (
+            embedder_for,
+        )
 
         # Get the triples written in Phase-1 so we can reconstruct descriptions.
         rows = await neo4j.list_triples_for_build(
-            config_id=cfg.id, build_id=build_id,
+            config_id=cfg.id,
+            build_id=build_id,
         )
         if not rows:
             # Nothing was committed to Neo4j — Qdrant is already consistent.
@@ -62,7 +64,7 @@ def _make_phase2_retry(
         descriptions = [" | ".join(v) for _, v in ordered]
 
         # Resolve the first embedding key from the builder key group.
-        _EMBED_MODEL: dict[str, str] = {
+        embed_model: dict[str, str] = {
             "openai": "text-embedding-3-small",
             "gemini": "text-embedding-004",
             "voyage": "voyage-3",
@@ -79,33 +81,32 @@ def _make_phase2_retry(
                 if key is None:
                     continue
                 prov = key.provider.value
-                if prov not in _EMBED_MODEL:
+                if prov not in embed_model:
                     continue
                 plaintext = await KeysFacade(db).unwrap_api_key_plaintext(key.id)
                 try:
                     api_key_str = plaintext.decode("utf-8")
-                    provider, model = prov, _EMBED_MODEL[prov]
+                    provider, model = prov, embed_model[prov]
                 finally:
-                    plaintext = b"\x00" * len(plaintext)  # noqa: F841
+                    plaintext = b"\x00" * len(plaintext)
                 break
 
         if api_key_str is None:
-            raise RuntimeError(
-                f"no embedding key in builder group {cfg.builder_key_group_id}"
-            )
+            raise RuntimeError(f"no embedding key in builder group {cfg.builder_key_group_id}")
 
         embedder = embedder_for(provider=provider, model=model, api_key=api_key_str)
         vectors = await embedder.embed_batch(descriptions)
 
         await vector_store.ensure_graphrag_collection(
-            cfg.project_id, vector_size=len(vectors[0]),
+            cfg.project_id,
+            vector_size=len(vectors[0]),
         )
         await vector_store.upsert_entities(
             project_id=cfg.project_id,
             build_id=build_id,
             points=[
                 (_uuid.uuid4(), vec, entity, desc)
-                for (entity, _), desc, vec in zip(ordered, descriptions, vectors)
+                for (entity, _), desc, vec in zip(ordered, descriptions, vectors, strict=False)
             ],
         )
 
@@ -121,6 +122,7 @@ async def _main() -> None:
         auth=(neo4j_conf.user, neo4j_conf.password),
     )
     from qdrant_client import AsyncQdrantClient
+
     qclient = AsyncQdrantClient(url=settings.qdrant.url)
     vectors = GraphRagVectorStore(qclient)
     snapshots = RedisSnapshotStore()
