@@ -153,7 +153,11 @@ class SecuritySection(BaseSettings):
     cors_origins: list[str] = Field(default_factory=list)
     session_cookie_name: str = "smap_session"
     session_cookie_secure: bool = True
-    session_cookie_samesite: Literal["lax", "strict", "none"] = "lax"
+    # Intentionally restricted to "lax" / "strict": the v1 deploy is
+    # same-origin (SPA + API behind nginx) and we ship no CSRF middleware,
+    # so allowing "none" (cross-site cookies with `Secure`) would weaken
+    # the CSRF posture without compensating mitigations.
+    session_cookie_samesite: Literal["lax", "strict"] = "lax"
 
 
 class LoggingSection(BaseSettings):

@@ -70,7 +70,7 @@ Five WebSocket endpoints provide real-time push: per-user notifications, per-cha
 | Graph store | Neo4j 5.24 |
 | Object storage | MinIO 7.2 (S3-compatible) |
 | Secrets | HashiCorp Vault 2.3 (HVAC) |
-| Auth | Argon2-cffi (passwords), Authlib 1.3 (JWT), Vault Transit (key rotation) |
+| Auth | Argon2-cffi (passwords), python-jose (JWT, `shared_kernel/auth/jwt.py`), Vault Transit (key rotation) |
 | HTTP client | HTTPX 0.27 (async) |
 | Serialization | ORJSON 3.10, Pydantic 2.9 |
 | Logging | Loguru 0.7 (structured JSON) |

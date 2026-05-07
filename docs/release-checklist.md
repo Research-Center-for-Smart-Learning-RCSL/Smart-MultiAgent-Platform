@@ -26,7 +26,7 @@ Source: `deploy/vault/README.md` §7.
 - [ ] `python -m smap.bootstrap all` is idempotent — second run produces no errors or side effects.
 - [ ] First admin account created and can log in.
 - [ ] MFA enrollment prompt shown on first admin login.
-- [ ] All Alembic migrations applied cleanly (`alembic upgrade head` — 24 migrations, A through I).
+- [ ] All Alembic migrations applied cleanly (`alembic upgrade head` — 27 migrations, A through J).
 - [ ] `alembic downgrade base && alembic upgrade head` round-trip succeeds.
 
 ---
@@ -96,8 +96,11 @@ Verify each retention worker's last-run metric is within the expected window:
 | audit_purge | nightly | `retention_audit_last_run` |
 | workflow_runs_archive | nightly | `retention_workflow_runs_last_run` |
 | key_usage_rollup | hourly | `retention_key_usage_last_run` |
+| key_usage_partitions | nightly | `retention_key_usage_partitions_last_run` |
 | soft_deleted_tenancy | nightly | `retention_soft_deleted_last_run` |
 | invites_expiry | hourly | `retention_invites_last_run` |
+| oc_transfers_expiry | nightly | `retention_oc_transfers_last_run` |
+| approvals_timeout | nightly | `retention_approvals_last_run` |
 | token_cleanup | hourly | `retention_tokens_last_run` |
 | sessions_cleanup | nightly | `retention_sessions_last_run` |
 | instructions_sweep | nightly | `retention_instructions_last_run` |

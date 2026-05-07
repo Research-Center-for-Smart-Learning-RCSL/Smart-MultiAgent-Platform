@@ -3,6 +3,8 @@
 Phase-C scope adds the identity / tenancy / web-security surface on top of
 what Phase A scaffolded. Middleware order (earliest first) matters:
 
+  0. CORSMiddleware           — opt-in; mounted only when `cors_origins` is
+                                non-empty so preflight bypasses auth
   1. RequestIdMiddleware      — stamps `request_id` on every request
   2. TrustedProxyMiddleware   — resolves `actor_ip` under TRUSTED_PROXIES
   3. IpBanMiddleware          — short-circuits banned CIDRs with 403
@@ -17,6 +19,7 @@ from contextlib import asynccontextmanager
 from typing import AsyncIterator
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import ORJSONResponse
 
 from app.api.middleware.auth import AuthMiddleware
@@ -112,6 +115,29 @@ def create_app() -> FastAPI:
     app.add_middleware(IpBanMiddleware)             # [3]
     app.add_middleware(TrustedProxyMiddleware)      # [2]
     app.add_middleware(RequestIdMiddleware)         # [1] first on request-in
+    # CORS is opt-in: v1 deploys are same-origin behind nginx and ship no
+    # CORS layer. If an operator splits origins, they configure
+    # `SMAP_SEC_CORS_ORIGINS`; we then mount Starlette's CORSMiddleware
+    # outside (i.e. before, since LIFO) the security stack so preflight
+    # OPTIONS requests bypass auth + rate-limit. Empty list → no mount,
+    # preserving the same-origin posture that the rest of the stack
+    # assumes (see docs/operations.md §7).
+    if settings.security.cors_origins:
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=list(settings.security.cors_origins),
+            allow_credentials=True,
+            allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+            allow_headers=["*"],
+            expose_headers=[
+                "X-Request-ID",
+                "X-RateLimit-Limit",
+                "X-RateLimit-Remaining",
+                "X-RateLimit-Reset",
+                "Retry-After",
+            ],
+            max_age=600,
+        )
 
     register_exception_handlers(app)
     # Per-context domain → HTTP mapping. Each context owns its own slugs.
@@ -146,6 +172,7 @@ def create_app() -> FastAPI:
     app.include_router(agent_routes.agent_router)
     app.include_router(rag_routes.project_router)
     app.include_router(rag_routes.config_router)
+    app.include_router(rag_routes.document_router)
     app.include_router(graphrag_routes.project_router)
     app.include_router(graphrag_routes.config_router)
     app.include_router(graphrag_routes.admin_router)
