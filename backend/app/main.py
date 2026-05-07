@@ -66,6 +66,7 @@ from app.api.ws import (
     user as ws_user,
     workflow_runs as ws_workflow_runs,
 )
+from app.bootstrap.seed import seed_test_users
 from app.config.settings import get_settings
 from contexts.agents.interfaces import error_mapping as agents_errors
 from contexts.conversation.interfaces import error_mapping as conversation_errors
@@ -86,7 +87,9 @@ from shared_kernel.observability.otel import install_otel
 
 @asynccontextmanager
 async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
-    configure_logging(get_settings().logging)
+    settings = get_settings()
+    configure_logging(settings.logging)
+    await seed_test_users(app_env=settings.app.env)
     try:
         yield
     finally:

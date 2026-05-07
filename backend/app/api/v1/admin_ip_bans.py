@@ -9,7 +9,7 @@ from __future__ import annotations
 import ipaddress
 import uuid
 
-from fastapi import Response, APIRouter, Body, Depends, HTTPException, Path, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Path, status
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -89,7 +89,7 @@ async def add_ban(
     )
 
 
-@router.delete("/{ban_id}", status_code=status.HTTP_204_NO_CONTENT, response_class=Response)
+@router.delete("/{ban_id}", status_code=status.HTTP_204_NO_CONTENT, response_model=None)
 async def remove_ban(
     ban_id: uuid.UUID = Path(...),
     admin: Principal = Depends(_require_admin),

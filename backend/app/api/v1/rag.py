@@ -23,7 +23,6 @@ from fastapi import (
     Form,
     HTTPException,
     Path,
-    Response,
     UploadFile,
     status,
 )
@@ -233,7 +232,7 @@ async def read_rag_config(
     return _to_config_out(cfg)
 
 
-@config_router.delete("/{config_id}", status_code=status.HTTP_204_NO_CONTENT, response_class=Response)
+@config_router.delete("/{config_id}", status_code=status.HTTP_204_NO_CONTENT, response_model=None)
 async def delete_rag_config(
     config_id: uuid.UUID = Path(...),
     ctx: RequestContext = Depends(current_context),
@@ -364,7 +363,7 @@ document_router = APIRouter(prefix="/api/rag-documents", tags=["rag"])
 
 
 @document_router.delete(
-    "/{document_id}", status_code=status.HTTP_204_NO_CONTENT, response_class=Response,
+    "/{document_id}", status_code=status.HTTP_204_NO_CONTENT, response_model=None,
 )
 async def delete_rag_document(
     document_id: uuid.UUID = Path(...),

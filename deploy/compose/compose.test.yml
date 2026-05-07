@@ -17,7 +17,15 @@ services:
       frontend:
         condition: service_started
 
-  # ---------- Frontend — use production build ----------
+  # ---------- Frontend — production build for in-stack E2E ----------
+  # When the full stack is brought up (e.g. for an in-stack E2E run that
+  # exercises nginx + frontend together), build the Vue app for production
+  # rather than running Vite dev.
+  #
+  # CI does NOT bring this service up: Playwright runs Vite on the host and
+  # proxies to backend-web at localhost:8000 (see backend-web.ports below).
+  # The CI workflow only `docker compose up backend-web` (and its deps), so
+  # this build is skipped.
   frontend:
     build:
       context: ../../
@@ -26,6 +34,11 @@ services:
 
   # ---------- Backend web ----------
   backend-web:
+    # Expose to host so the host-side Vite dev proxy (used by Playwright in CI)
+    # can reach /api at localhost:8000. The base compose file leaves backend-web
+    # unexposed because production fronts it with nginx.
+    ports:
+      - "8000:8000"
     environment:
       SMAP_APP_ENV: test
       SMAP_LOG_LEVEL: warning
@@ -33,11 +46,14 @@ services:
       SMAP_REDIS_DSN: redis://redis:6379/1
       VAULT_ADDR: http://vault:8200
       VAULT_TOKEN: root
+      # Seeded users match frontend/e2e/fixtures/auth.ts. The seed routine
+      # (app/bootstrap/seed.py) is gated on SMAP_APP_ENV=test, so this only
+      # ever runs in the test stack.
       SMAP_SEED_ON_STARTUP: "true"
-      SMAP_SEED_ADMIN_EMAIL: admin@smap.test
-      SMAP_SEED_ADMIN_PASSWORD: Admin1234!
-      SMAP_SEED_USER_EMAIL: user@smap.test
-      SMAP_SEED_USER_PASSWORD: User1234!
+      SMAP_SEED_USER_EMAIL: e2e-user@smap.test
+      SMAP_SEED_USER_PASSWORD: E2eP@ssw0rd!Str0ng
+      SMAP_SEED_ADMIN_EMAIL: e2e-admin@smap.test
+      SMAP_SEED_ADMIN_PASSWORD: E2eAdm1n!Str0ng
 
   # ---------- Backend worker ----------
   backend-worker:
