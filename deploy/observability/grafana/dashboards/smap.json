@@ -141,13 +141,13 @@
       ]
     },
     {
-      "title": "Workflow Runs by State",
+      "title": "Workflow Runs (terminal, 24h) by State",
       "type": "piechart",
       "gridPos": { "h": 8, "w": 6, "x": 18, "y": 24 },
       "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
       "targets": [
         {
-          "expr": "sum(workflow_runs_active) by (state)",
+          "expr": "sum(increase(workflow_runs_total[24h])) by (state)",
           "legendFormat": "{{ state }}"
         }
       ]
@@ -165,14 +165,14 @@
       ]
     },
     {
-      "title": "A2A DLQ Size",
-      "type": "stat",
+      "title": "A2A DLQ — total moved to DLQ (rate / 5m)",
+      "type": "timeseries",
       "gridPos": { "h": 4, "w": 6, "x": 6, "y": 32 },
       "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
       "targets": [
         {
-          "expr": "a2a_dlq_size",
-          "legendFormat": "messages"
+          "expr": "rate(a2a_dlq_total[5m])",
+          "legendFormat": "msgs/s"
         }
       ]
     },
@@ -189,26 +189,27 @@
       ]
     },
     {
-      "title": "SEL Budget Overflows",
-      "type": "timeseries",
+      "title": "Retention Worker — Last Run (age in seconds)",
+      "type": "bargauge",
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 40 },
       "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
       "targets": [
         {
-          "expr": "sum(rate(sel_budget_overflows_total[5m]))",
-          "legendFormat": "overflows/s"
+          "expr": "time() - retention_last_run_timestamp_seconds",
+          "legendFormat": "{{ worker }}"
         }
-      ]
+      ],
+      "fieldConfig": { "defaults": { "unit": "s" } }
     },
     {
-      "title": "Linter Issues per Rule",
+      "title": "Retention Worker — Rows Affected (last run)",
       "type": "bargauge",
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 40 },
       "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
       "targets": [
         {
-          "expr": "sum(linter_issues_total) by (rule)",
-          "legendFormat": "{{ rule }}"
+          "expr": "retention_last_rows",
+          "legendFormat": "{{ worker }}"
         }
       ]
     },

@@ -360,4 +360,110 @@ async def upload_document(
     return _to_document_out(doc)
 
 
-__all__ = ["config_router", "project_router"]
+document_router = APIRouter(prefix="/api/rag-documents", tags=["rag"])
+
+
+@document_router.delete(
+    "/{document_id}", status_code=status.HTTP_204_NO_CONTENT, response_class=Response,
+)
+async def delete_rag_document(
+    document_id: uuid.UUID = Path(...),
+    ctx: RequestContext = Depends(current_context),
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(db_session),
+) -> None:
+    """§22.7 — hard-delete a RAG document.
+
+    Cleans up Qdrant points and the MinIO blob best-effort. The chunk rows
+    are removed by the FK cascade on ``rag_chunks.document_id``.
+
+    AuthZ matches upload: ``RESOURCE_CREATE_EDIT`` at the parent config's
+    project. We do NOT require Project Owner here — the R10.10 owner gate
+    covers ingestion (write) only; deletion follows the standard edit
+    capability so non-owner editors can clean up their own uploads.
+    """
+    from contexts.knowledge.infrastructure.repositories import (  # noqa: PLC0415
+        RagDocumentRepository, RagDocumentNotFound,
+    )
+    from shared_kernel.auth.dependencies import get_role_resolver, _raise_forbidden  # noqa: PLC0415
+    from shared_kernel.auth.permissions import Scope, decide  # noqa: PLC0415
+    from shared_kernel import audit as _audit  # noqa: PLC0415
+
+    docs_repo = RagDocumentRepository(db)
+    try:
+        doc = await docs_repo.require(document_id)
+    except RagDocumentNotFound:
+        # Idempotent: a 204 on a missing id is preferable to a 404 race
+        # against concurrent deletes; the audit trail records the attempt.
+        return
+
+    config_service = RagConfigService(db)
+    cfg = await config_service.get(doc.rag_config_id)
+
+    resolver = await get_role_resolver(db)
+    decision = await decide(
+        principal, Capability.RESOURCE_CREATE_EDIT,
+        Scope(project_id=cfg.project_id), resolver,
+    )
+    if not decision.allowed:
+        _raise_forbidden(decision.reason)
+
+    # Best-effort cleanup of Qdrant points first — if that fails we still
+    # delete the row so the user isn't stuck with a tombstone.
+    try:
+        settings = get_settings()
+        qclient = AsyncQdrantClient(
+            url=settings.qdrant.url,
+            api_key=settings.qdrant.api_key or None,
+        )
+        try:
+            await QdrantStore(qclient).delete_document(
+                project_id=cfg.project_id, document_id=document_id,
+            )
+        finally:
+            await qclient.close()
+    except Exception:  # noqa: BLE001
+        # Logged in audit metadata; not surfaced to the caller.
+        pass
+
+    # Best-effort MinIO blob removal.
+    blob_removed = True
+    try:
+        from minio import Minio  # noqa: PLC0415
+        settings = get_settings()
+        minio = Minio(
+            settings.minio.endpoint,
+            access_key=settings.minio.root_access_key,
+            secret_key=settings.minio.root_secret_key,
+            secure=settings.minio.use_tls,
+            region=settings.minio.region,
+        )
+        # minio_path is "<bucket>/<key>"; split on first slash.
+        bucket, _, key = doc.minio_path.partition("/")
+        if bucket and key:
+            import asyncio  # noqa: PLC0415
+            await asyncio.to_thread(minio.remove_object, bucket, key)
+    except Exception:  # noqa: BLE001
+        blob_removed = False
+
+    await docs_repo.delete(document_id)
+    await _audit.emit(
+        db,
+        _audit.AuditEvent(
+            action="rag.document_deleted",
+            actor_user_id=principal.user_id,
+            actor_ip=ctx.actor_ip,
+            resource_type="rag_document",
+            resource_id=document_id,
+            metadata={
+                "rag_config_id": str(doc.rag_config_id),
+                "project_id": str(cfg.project_id),
+                "filename": doc.filename,
+                "blob_removed": blob_removed,
+            },
+            request_id=ctx.request_id,
+        ),
+    )
+
+
+__all__ = ["config_router", "document_router", "project_router"]

@@ -137,6 +137,66 @@ class GraphRagConfigService:
         )
         return cfg
 
+    async def update(
+        self,
+        *,
+        config_id: uuid.UUID,
+        builder_key_group_id: uuid.UUID | None,
+        trigger_config: dict[str, Any] | None,
+        actor_user_id: uuid.UUID,
+        actor_ip: str | None,
+        request_id: uuid.UUID | None = None,
+    ) -> GraphRagConfig:
+        """R11.05 partial update — edit trigger config or builder key group.
+
+        Re-runs the same builder/agent invariant we enforce at create time so
+        a user can't pivot the builder onto the agent's own consumer keys.
+        """
+        cfg = await self.get(config_id)
+        if (
+            builder_key_group_id is not None
+            and builder_key_group_id != cfg.builder_key_group_id
+        ):
+            agent_row = (
+                await self._db.execute(
+                    sa.select(agents_t.agents.c.key_group_id).where(
+                        agents_t.agents.c.id == cfg.agent_id,
+                    )
+                )
+            ).first()
+            if agent_row is not None and agent_row.key_group_id == builder_key_group_id:
+                raise GraphRagBuilderKeyGroupConflict(
+                    "builder_key_group_id must differ from agent's key_group_id"
+                )
+
+        await self._configs.update(
+            config_id=config_id,
+            builder_key_group_id=builder_key_group_id,
+            trigger_config=trigger_config,
+        )
+        await audit.emit(
+            self._db,
+            audit.AuditEvent(
+                action="graphrag.config_updated",
+                actor_user_id=actor_user_id,
+                actor_ip=actor_ip,
+                resource_type="graphrag_config",
+                resource_id=config_id,
+                metadata={
+                    "project_id": str(cfg.project_id),
+                    "builder_key_group_id_changed": (
+                        builder_key_group_id is not None
+                        and builder_key_group_id != cfg.builder_key_group_id
+                    ),
+                    "trigger_config_changed": trigger_config is not None,
+                },
+                request_id=request_id,
+            ),
+        )
+        refreshed = await self._configs.get(config_id)
+        assert refreshed is not None
+        return refreshed
+
     async def admin_reset(
         self,
         *,

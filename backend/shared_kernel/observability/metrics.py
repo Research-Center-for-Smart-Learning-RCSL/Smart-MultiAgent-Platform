@@ -100,7 +100,7 @@ EXPORT_JOBS = Counter(
 # ---- Phase D: API Key Management metrics (D.7 / D.8 / D.1 cross-cutting) ---
 
 PROVIDER_CALL_TOTAL = Counter(
-    "provider_call_total",
+    "provider_calls_total",
     "Outbound provider calls dispatched by the key router.",
     labelnames=("provider", "status"),
     registry=REGISTRY,
@@ -120,7 +120,7 @@ ENVELOPE_DECRYPT_FAILURES_TOTAL = Counter(
 )
 
 USAGE_THRESHOLD_EVENTS_TOTAL = Counter(
-    "usage_threshold_events_total",
+    "key_usage_threshold_events_total",
     "80% hourly-limit threshold events emitted by the sampler worker.",
     registry=REGISTRY,
 )
@@ -146,6 +146,47 @@ WORKFLOW_STEPS_TOTAL = Counter(
     "workflow_steps_total",
     "Workflow steps that reached a terminal state, labelled by node type and state.",
     labelnames=("node_type", "state"),
+    registry=REGISTRY,
+)
+
+# ---- Phase I.4: Retention worker metrics -----------------------------------
+
+RETENTION_LAST_RUN_TIMESTAMP = Gauge(
+    "retention_last_run_timestamp_seconds",
+    "Unix timestamp of the most recent successful run for each retention worker.",
+    labelnames=("worker",),
+    registry=REGISTRY,
+)
+
+RETENTION_LAST_ROWS = Gauge(
+    "retention_last_rows",
+    "Rows affected by the most recent run of each retention worker.",
+    labelnames=("worker",),
+    registry=REGISTRY,
+)
+
+RETENTION_FAILURES = Counter(
+    "retention_failures_total",
+    "Retention worker exceptions, by worker name.",
+    labelnames=("worker",),
+    registry=REGISTRY,
+)
+
+# ---- Phase E.7/E.8: GraphRAG build state -----------------------------------
+
+GRAPHRAG_BUILD_STATE = Gauge(
+    "graphrag_build_state",
+    "Current build state per GraphRAG config (1 = in this state). "
+    "Labels: config_id, state ∈ {idle, building, ready, failed}.",
+    labelnames=("config_id", "state"),
+    registry=REGISTRY,
+)
+
+# ---- Phase I.6: Admin impersonation -----------------------------------------
+
+ADMIN_IMPERSONATION_SESSIONS_ACTIVE = Gauge(
+    "admin_impersonation_sessions_active",
+    "Currently active admin impersonation sessions (started_at set, ended_at null).",
     registry=REGISTRY,
 )
 
@@ -190,11 +231,13 @@ def mount_metrics_middleware(app: FastAPI, cfg: ObservabilitySection) -> None:
 
 
 __all__ = [
+    "ADMIN_IMPERSONATION_SESSIONS_ACTIVE",
     "DB_POOL_AVAILABLE",
     "DB_POOL_IN_USE",
     "DB_POOL_SIZE",
     "ENVELOPE_DECRYPT_FAILURES_TOTAL",
     "EXPORT_JOBS",
+    "GRAPHRAG_BUILD_STATE",
     "HTTP_REQUEST_DURATION",
     "HTTP_REQUESTS",
     "KEY_GROUP_EXHAUSTED_TOTAL",
@@ -202,6 +245,9 @@ __all__ = [
     "PROVIDER_CALL_TOTAL",
     "REDIS_COMMAND_ERRORS",
     "REGISTRY",
+    "RETENTION_FAILURES",
+    "RETENTION_LAST_ROWS",
+    "RETENTION_LAST_RUN_TIMESTAMP",
     "TUS_UPLOAD_BYTES",
     "USAGE_THRESHOLD_EVENTS_TOTAL",
     "WORKFLOW_RUNS_TOTAL",
