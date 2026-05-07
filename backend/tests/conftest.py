@@ -9,8 +9,8 @@ from unittest.mock import patch
 import pytest
 from fastapi.testclient import TestClient
 
-from app.main import create_app
 import shared_kernel.auth.ip_bans as _ip_bans
+from app.main import create_app
 
 
 async def _fake_ip_ban_reload(_session) -> None:  # type: ignore[no-untyped-def]
@@ -19,8 +19,10 @@ async def _fake_ip_ban_reload(_session) -> None:  # type: ignore[no-untyped-def]
     _ip_bans._cache.loaded_at = time.monotonic()
 
 
-@pytest.fixture
+@pytest.fixture()
 def client() -> Iterator[TestClient]:
-    with patch("shared_kernel.auth.ip_bans.reload", new=_fake_ip_ban_reload):
-        with TestClient(create_app()) as c:
-            yield c
+    with (
+        patch("shared_kernel.auth.ip_bans.reload", new=_fake_ip_ban_reload),
+        TestClient(create_app()) as c,
+    ):
+        yield c

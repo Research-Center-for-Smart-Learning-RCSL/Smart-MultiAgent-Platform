@@ -15,8 +15,9 @@ SoC:
 from __future__ import annotations
 
 import uuid
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Any, Iterable
+from typing import Any
 
 from qdrant_client import AsyncQdrantClient
 from qdrant_client.http.models import (
@@ -50,7 +51,10 @@ class QdrantStore:
         self._client = client
 
     async def ensure_collection(
-        self, project_id: uuid.UUID, *, vector_size: int,
+        self,
+        project_id: uuid.UUID,
+        *,
+        vector_size: int,
         distance: Distance = Distance.COSINE,
     ) -> None:
         name = collection_name(project_id)
@@ -68,10 +72,7 @@ class QdrantStore:
         project_id: uuid.UUID,
         points: Iterable[tuple[uuid.UUID, list[float], dict[str, Any]]],
     ) -> None:
-        structs = [
-            PointStruct(id=str(pid), vector=vec, payload=payload)
-            for (pid, vec, payload) in points
-        ]
+        structs = [PointStruct(id=str(pid), vector=vec, payload=payload) for (pid, vec, payload) in points]
         if not structs:
             return
         await self._client.upsert(
@@ -115,14 +116,14 @@ class QdrantStore:
         out: list[QdrantHit] = []
         for r in results:
             pid = r.id
-            if not isinstance(pid, uuid.UUID):
+            if not isinstance(pid, uuid.UUID):  # type: ignore[unreachable]
                 try:
-                    pid = uuid.UUID(str(pid))
+                    pid = uuid.UUID(str(pid))  # type: ignore[assignment]
                 except ValueError:
                     continue
             out.append(
                 QdrantHit(
-                    point_id=pid,
+                    point_id=pid,  # type: ignore[arg-type]
                     score=float(r.score or 0.0),
                     payload=dict(r.payload or {}),
                 )
@@ -130,14 +131,18 @@ class QdrantStore:
         return out
 
     async def delete_document(
-        self, *, project_id: uuid.UUID, document_id: uuid.UUID,
+        self,
+        *,
+        project_id: uuid.UUID,
+        document_id: uuid.UUID,
     ) -> None:
         await self._client.delete(
             collection_name=collection_name(project_id),
             points_selector=Filter(
                 must=[
                     FieldCondition(
-                        key="doc_id", match=MatchValue(value=str(document_id)),
+                        key="doc_id",
+                        match=MatchValue(value=str(document_id)),
                     )
                 ]
             ),

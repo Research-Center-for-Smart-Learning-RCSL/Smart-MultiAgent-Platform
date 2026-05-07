@@ -44,11 +44,17 @@ class SnapshotStore(Protocol):
     ) -> None: ...
 
     async def get(
-        self, *, config_id: uuid.UUID, build_id: uuid.UUID,
+        self,
+        *,
+        config_id: uuid.UUID,
+        build_id: uuid.UUID,
     ) -> dict[str, Any] | None: ...
 
     async def delete(
-        self, *, config_id: uuid.UUID, build_id: uuid.UUID,
+        self,
+        *,
+        config_id: uuid.UUID,
+        build_id: uuid.UUID,
     ) -> None: ...
 
 
@@ -56,7 +62,10 @@ class Neo4jDriver(Protocol):
     """Minimal surface for the GraphRAG subgraph operations."""
 
     async def snapshot_subgraph(
-        self, *, config_id: uuid.UUID, build_id: uuid.UUID | None,
+        self,
+        *,
+        config_id: uuid.UUID,
+        build_id: uuid.UUID | None,
     ) -> dict[str, Any]:
         """Read the current subgraph (tagged with the prior ``build_id``).
 
@@ -73,7 +82,10 @@ class Neo4jDriver(Protocol):
         """Upsert ``triples`` tagged with ``build_id``; returns count."""
 
     async def delete_by_build(
-        self, *, config_id: uuid.UUID, build_id: uuid.UUID,
+        self,
+        *,
+        config_id: uuid.UUID,
+        build_id: uuid.UUID,
     ) -> None:
         """Drop all entities/edges tagged with ``build_id``."""
 
@@ -81,7 +93,10 @@ class Neo4jDriver(Protocol):
         """Drop the entire subgraph for a config (delete cascade, §22.8)."""
 
     async def restore_from_snapshot(
-        self, *, config_id: uuid.UUID, snapshot: dict[str, Any],
+        self,
+        *,
+        config_id: uuid.UUID,
+        snapshot: dict[str, Any],
     ) -> None:
         """Re-hydrate a subgraph from a prior :meth:`snapshot_subgraph`."""
 

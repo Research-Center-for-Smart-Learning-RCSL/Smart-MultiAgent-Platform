@@ -10,9 +10,7 @@ from .base import ProbeResult
 
 
 async def probe_redis(settings: Settings) -> ProbeResult:
-    client: Redis = Redis.from_url(
-        settings.redis.dsn, socket_connect_timeout=1.5, socket_timeout=1.5
-    )
+    client: Redis = Redis.from_url(settings.redis.dsn, socket_connect_timeout=1.5, socket_timeout=1.5)
     try:
         pong = await client.ping()
     finally:

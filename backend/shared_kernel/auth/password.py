@@ -19,14 +19,14 @@ from typing import Final
 from argon2 import PasswordHasher as _Argon2
 from argon2.exceptions import InvalidHash, VerificationError, VerifyMismatchError
 
-_MEMORY_KIB: Final = 64 * 1024   # 64 MiB
+_MEMORY_KIB: Final = 64 * 1024  # 64 MiB
 _TIME_COST: Final = 3
 _PARALLELISM: Final = 2
 _HASH_LEN: Final = 32
 _SALT_LEN: Final = 16
 
 _MIN_LEN: Final = 10
-_MAX_LEN: Final = 1024            # bound argon2 cost on pathological inputs
+_MAX_LEN: Final = 1024  # bound argon2 cost on pathological inputs
 _LETTER_RE: Final = re.compile(r"[A-Za-z]")
 _DIGIT_RE: Final = re.compile(r"[0-9]")
 _SYMBOL_RE: Final = re.compile(r"[^A-Za-z0-9]")
@@ -44,7 +44,7 @@ class PasswordPolicyError(ValueError):
 @dataclass(frozen=True, slots=True)
 class PasswordVerification:
     ok: bool
-    rehashed: str | None   # new hash if params were upgraded, else None
+    rehashed: str | None  # new hash if params were upgraded, else None
 
 
 class PasswordHasher:

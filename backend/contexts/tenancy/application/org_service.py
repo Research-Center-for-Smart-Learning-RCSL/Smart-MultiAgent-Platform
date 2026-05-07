@@ -25,9 +25,11 @@ from contexts.tenancy.domain.errors import (
 from contexts.tenancy.domain.models import (
     Org,
     OrgMember,
-    OrgMemberRole,
     Project,
     ProjectMemberRole,
+)
+from contexts.tenancy.domain.models import (
+    OrgMemberRole as OrgMemberRole,
 )
 from contexts.tenancy.infrastructure.repositories import (
     OrgMemberRepository,
@@ -114,7 +116,9 @@ class OrgService:
         request_id: uuid.UUID | None = None,
     ) -> Org:
         org = await self._orgs.rename(
-            org_id=org_id, new_name=new_name, expected_version=expected_version,
+            org_id=org_id,
+            new_name=new_name,
+            expected_version=expected_version,
         )
         await audit.emit(
             self._db,
@@ -219,15 +223,14 @@ class OrgService:
         if member.is_original_creator:
             raise OriginalCreatorConflict("Original Creator role cannot be changed")
         rowcount = await self._members.change_role(
-            org_id=org_id, user_id=target_user_id, new_role=new_role,
+            org_id=org_id,
+            user_id=target_user_id,
+            new_role=new_role,
         )
         if rowcount == 0:
             raise OriginalCreatorConflict("role change blocked")
 
-        action = (
-            "org.owner_promoted" if new_role is OrgMemberRole.OWNER
-            else "org.owner_demoted"
-        )
+        action = "org.owner_promoted" if new_role is OrgMemberRole.OWNER else "org.owner_demoted"
         await audit.emit(
             self._db,
             audit.AuditEvent(

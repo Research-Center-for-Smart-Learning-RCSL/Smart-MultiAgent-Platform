@@ -28,9 +28,7 @@ class _FakeKv:
             raise hvac.exceptions.InvalidPath(f"{mount_point}/{path}")
         return {"data": {"data": self._store[path]}}
 
-    def create_or_update_secret(
-        self, *, mount_point: str, path: str, secret: dict[str, Any]
-    ) -> None:
+    def create_or_update_secret(self, *, mount_point: str, path: str, secret: dict[str, Any]) -> None:
         self._store[path] = secret
 
 
@@ -42,19 +40,15 @@ class _FakeTransit:
     def __init__(self) -> None:
         self.version = 1
 
-    def generate_data_key(
-        self, *, name: str, key_type: str, bits: int
-    ) -> dict[str, Any]:
+    def generate_data_key(self, *, name: str, key_type: str, bits: int) -> dict[str, Any]:
         dek = os.urandom(bits // 8)
-        wrapped = bytes(d ^ m for d, m in zip(dek, self.MASTER * 100))
+        wrapped = bytes(d ^ m for d, m in zip(dek, self.MASTER * 100, strict=False))
         ciphertext = f"vault:v{self.version}:" + base64.b64encode(wrapped).decode()
-        return {
-            "data": {"plaintext": base64.b64encode(dek).decode(), "ciphertext": ciphertext}
-        }
+        return {"data": {"plaintext": base64.b64encode(dek).decode(), "ciphertext": ciphertext}}
 
     def decrypt_data(self, *, name: str, ciphertext: str) -> dict[str, Any]:
         wrapped = base64.b64decode(ciphertext.split(":", 2)[2])
-        dek = bytes(w ^ m for w, m in zip(wrapped, self.MASTER * 100))
+        dek = bytes(w ^ m for w, m in zip(wrapped, self.MASTER * 100, strict=False))
         return {"data": {"plaintext": base64.b64encode(dek).decode()}}
 
     def rewrap_data(self, *, name: str, ciphertext: str) -> dict[str, Any]:
@@ -66,7 +60,7 @@ class _FakeTransit:
         self.version += 1
 
 
-@pytest.fixture
+@pytest.fixture()
 def vault_fixture(monkeypatch: pytest.MonkeyPatch) -> tuple[VaultClient, _FakeTransit]:
     kv = _FakeKv(
         {
@@ -91,9 +85,7 @@ def vault_fixture(monkeypatch: pytest.MonkeyPatch) -> tuple[VaultClient, _FakeTr
 
     monkeypatch.setattr("shared_kernel.infra.vault.hvac.Client", _FakeClient)
     client = VaultClient(VaultSection(dev_token="root"))
-    monkeypatch.setattr(
-        "shared_kernel.auth.clients.get_vault_client", lambda settings=None: client
-    )
+    monkeypatch.setattr("shared_kernel.auth.clients.get_vault_client", lambda settings=None: client)
     return client, transit
 
 
@@ -108,7 +100,7 @@ def test_search_key_aad_distinct_from_api_key_aad() -> None:
     assert env.api_key_aad(kid) != env.search_key_aad(kid)
 
 
-def test_seal_unseal_roundtrip(vault_fixture) -> None:  # noqa: ANN001
+def test_seal_unseal_roundtrip(vault_fixture) -> None:
     _client, _transit = vault_fixture
     kid = uuid.uuid4()
     aad = env.api_key_aad(kid)
@@ -116,14 +108,14 @@ def test_seal_unseal_roundtrip(vault_fixture) -> None:  # noqa: ANN001
     assert env.decrypt_envelope(record, aad) == b"sk-ant-abcdef"
 
 
-def test_seal_captures_transit_and_hmac_versions(vault_fixture) -> None:  # noqa: ANN001
+def test_seal_captures_transit_and_hmac_versions(vault_fixture) -> None:
     _client, _transit = vault_fixture
     record = env.encrypt_envelope(b"x", env.api_key_aad(uuid.uuid4()))
     assert record.transit_key_version == 1
     assert record.hmac_key_version == 1
 
 
-def test_aad_mismatch_rejects(vault_fixture) -> None:  # noqa: ANN001
+def test_aad_mismatch_rejects(vault_fixture) -> None:
     _client, _transit = vault_fixture
     a = uuid.uuid4()
     b = uuid.uuid4()
@@ -132,7 +124,7 @@ def test_aad_mismatch_rejects(vault_fixture) -> None:  # noqa: ANN001
         env.decrypt_envelope(record, env.api_key_aad(b))
 
 
-def test_cross_namespace_aad_rejects(vault_fixture) -> None:  # noqa: ANN001
+def test_cross_namespace_aad_rejects(vault_fixture) -> None:
     _client, _transit = vault_fixture
     kid = uuid.uuid4()
     record = env.encrypt_envelope(b"secret", env.api_key_aad(kid))
@@ -141,7 +133,7 @@ def test_cross_namespace_aad_rejects(vault_fixture) -> None:  # noqa: ANN001
         env.decrypt_envelope(record, env.search_key_aad(kid))
 
 
-def test_rewrap_bumps_transit_version_and_keeps_plaintext(vault_fixture) -> None:  # noqa: ANN001
+def test_rewrap_bumps_transit_version_and_keeps_plaintext(vault_fixture) -> None:
     _client, transit = vault_fixture
     aad = env.api_key_aad(uuid.uuid4())
     record = env.encrypt_envelope(b"secret-payload", aad)

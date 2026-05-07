@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import uuid
 from typing import Any
 
 import sqlalchemy as sa
@@ -55,23 +54,19 @@ class AuditRepository:
         if filters.to_ts is not None:
             q = q.where(audit_logs.c.created_at <= filters.to_ts)
         if filters.ip_prefix is not None:
-            q = q.where(
-                sa.cast(audit_logs.c.actor_ip, sa.Text).startswith(filters.ip_prefix)
-            )
+            q = q.where(sa.cast(audit_logs.c.actor_ip, sa.Text).startswith(filters.ip_prefix))
         if filters.session_id is not None:
             q = q.where(audit_logs.c.session_id == filters.session_id)
         if filters.request_id is not None:
             q = q.where(audit_logs.c.request_id == filters.request_id)
 
         rows = (await self._db.execute(q)).all()
-        entries = [_row_to_entry(r) for r in rows[: limit]]
+        entries = [_row_to_entry(r) for r in rows[:limit]]
         next_cursor = entries[-1].id if len(rows) > limit else None
         return AuditPage(items=entries, next_cursor=next_cursor)
 
     async def count(self) -> int:
-        result = await self._db.execute(
-            sa.select(sa.func.count()).select_from(audit_logs)
-        )
+        result = await self._db.execute(sa.select(sa.func.count()).select_from(audit_logs))
         return result.scalar_one()
 
 

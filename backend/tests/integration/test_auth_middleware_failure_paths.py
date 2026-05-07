@@ -10,6 +10,7 @@ middleware decides the token is *non-fatal* (no header / empty bearer).
 from __future__ import annotations
 
 from collections.abc import Iterator
+from datetime import UTC
 from unittest.mock import patch
 
 import pytest
@@ -17,13 +18,12 @@ from fastapi.testclient import TestClient
 
 from shared_kernel.auth import jwt as jwt_module
 
-
 # Pick an endpoint that requires an authenticated principal so the middleware
 # decision is observable through the response code. /api/orgs is suitable.
 _AUTHED_PATH = "/api/orgs"
 
 
-@pytest.fixture
+@pytest.fixture()
 def deny_jti_in_redis() -> Iterator[None]:
     async def _is_denied(_jti):
         return True
@@ -86,18 +86,20 @@ def test_jwt_with_bad_issuer_returns_401(client: TestClient) -> None:
 
 
 def test_revoked_jti_returns_401_token_revoked(
-    client: TestClient, deny_jti_in_redis: None,
+    client: TestClient,
+    deny_jti_in_redis: None,
 ) -> None:
-    from shared_kernel.auth.jwt import AccessClaims
-    from datetime import datetime, timedelta, timezone
     import uuid
+    from datetime import datetime, timedelta
+
+    from shared_kernel.auth.jwt import AccessClaims
 
     fake_claims = AccessClaims(
         sub=uuid.uuid4(),
         session_id=uuid.uuid4(),
         jti=uuid.uuid4(),
-        exp=datetime.now(timezone.utc) + timedelta(minutes=5),
-        iat=datetime.now(timezone.utc),
+        exp=datetime.now(UTC) + timedelta(minutes=5),
+        iat=datetime.now(UTC),
         role="user",
         is_admin=False,
     )

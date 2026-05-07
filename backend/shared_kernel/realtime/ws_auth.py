@@ -34,7 +34,7 @@ _SUBPROTO_PREFIX = "bearer."
 @dataclass(frozen=True, slots=True)
 class WsAuth:
     principal: Principal
-    subprotocol: str            # echoed on accept
+    subprotocol: str  # echoed on accept
     access_token: str
 
 
@@ -46,7 +46,7 @@ def _extract_token(ws: WebSocket) -> tuple[str, str]:
     protos = [p.strip() for p in header.split(",")]
     for proto in protos:
         if proto.startswith(_SUBPROTO_PREFIX):
-            token = proto[len(_SUBPROTO_PREFIX):]
+            token = proto[len(_SUBPROTO_PREFIX) :]
             if not token:
                 raise WsAuthError("empty bearer token in subprotocol")
             return proto, token

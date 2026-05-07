@@ -47,8 +47,7 @@ audit_logs = sa.Table(
     sa.Column("metadata", pg.JSONB, nullable=False, server_default=sa.text("'{}'::jsonb")),
     sa.Column("session_id", pg.UUID(as_uuid=True), nullable=True),
     sa.Column("request_id", pg.UUID(as_uuid=True), nullable=True),
-    sa.Column("created_at", sa.TIMESTAMP(timezone=True), nullable=False,
-              server_default=sa.text("now()")),
+    sa.Column("created_at", sa.TIMESTAMP(timezone=True), nullable=False, server_default=sa.text("now()")),
 )
 
 
@@ -57,16 +56,15 @@ audit_logs = sa.Table(
 # ---------------------------------------------------------------------------
 
 _SENSITIVE_KEY_RE: Final = re.compile(
-    r"^(authorization|api[_-]?key|secret|password|token|bearer|"
-    r"private[_-]?key|cookie|session)$",
+    r"^(authorization|api[_-]?key|secret|password|token|bearer|" r"private[_-]?key|cookie|session)$",
     re.IGNORECASE,
 )
 _SECRET_SHAPE_RES: Final[tuple[re.Pattern[str], ...]] = (
     re.compile(r"^sk-ant-[A-Za-z0-9_\-]{20,}$"),
     re.compile(r"^sk-[A-Za-z0-9_\-]{40,}$"),
     re.compile(r"-----BEGIN [A-Z ]+PRIVATE KEY-----"),
-    re.compile(r"^AKIA[0-9A-Z]{16}$"),           # AWS access key
-    re.compile(r"^AIza[0-9A-Za-z_\-]{35}$"),      # Google API key
+    re.compile(r"^AKIA[0-9A-Z]{16}$"),  # AWS access key
+    re.compile(r"^AIza[0-9A-Za-z_\-]{35}$"),  # Google API key
 )
 
 _REDACTED: Final = "<redacted>"
@@ -82,7 +80,7 @@ def redact(value: Any) -> Any:
             else:
                 out[k] = redact(v)
         return out
-    if isinstance(value, (list, tuple)):
+    if isinstance(value, list | tuple):
         return [redact(v) for v in value]
     if isinstance(value, str):
         for pat in _SECRET_SHAPE_RES:

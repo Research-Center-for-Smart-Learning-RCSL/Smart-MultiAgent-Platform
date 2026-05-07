@@ -1,4 +1,5 @@
 """HTTP-based multi-provider LLM chat completer for triple extraction (R11.03)."""
+
 from __future__ import annotations
 
 import httpx
@@ -34,7 +35,7 @@ class HttpChatCompleter:
                 },
             )
             resp.raise_for_status()
-            return resp.json()["content"][0]["text"]
+            return resp.json()["content"][0]["text"]  # type: ignore[no-any-return]
 
     async def _openai(self, prompt: str, api_key: str) -> str:
         async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
@@ -50,7 +51,7 @@ class HttpChatCompleter:
                 },
             )
             resp.raise_for_status()
-            return resp.json()["choices"][0]["message"]["content"]
+            return resp.json()["choices"][0]["message"]["content"]  # type: ignore[no-any-return]
 
     async def _gemini(self, prompt: str, api_key: str) -> str:
         url = (
@@ -66,4 +67,4 @@ class HttpChatCompleter:
             cands = resp.json().get("candidates") or []
             if not cands:
                 return ""
-            return cands[0]["content"]["parts"][0]["text"]
+            return cands[0]["content"]["parts"][0]["text"]  # type: ignore[no-any-return]

@@ -16,6 +16,7 @@ The module deliberately does not depend on FastAPI — routers in
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import os
 import tempfile
 import uuid
@@ -26,8 +27,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.conversation.application.attachment_service import (
     ATTACHMENT_TTL,
-    AttachmentService,
     TUS_MAX_BYTES,
+    AttachmentService,
 )
 from contexts.conversation.domain.errors import (
     AttachmentTooLarge,
@@ -44,7 +45,7 @@ from contexts.conversation.infrastructure.tus_store import (
 from shared_kernel.observability.metrics import TUS_UPLOAD_BYTES
 
 TUS_VERSION: Final = "1.0.0"
-TUS_MAX_CHUNK: Final = 16 * 1024 * 1024      # R22.15.04
+TUS_MAX_CHUNK: Final = 16 * 1024 * 1024  # R22.15.04
 TUS_EXTENSIONS: Final = "creation,termination"
 
 
@@ -64,7 +65,7 @@ def _staging_path(upload_id: uuid.UUID) -> str:
 @dataclass(frozen=True, slots=True)
 class TusCreateResult:
     upload_id: uuid.UUID
-    location: str                 # response Location header value
+    location: str  # response Location header value
 
 
 @dataclass(frozen=True, slots=True)
@@ -133,7 +134,7 @@ class TusService:
         upload_id = uuid.uuid4()
         path = _staging_path(upload_id)
         # Pre-allocate the file so subsequent PATCHes can open for append.
-        with open(path, "ab") as fh:  # noqa: PTH123 — local staging
+        with open(path, "ab") as fh:  # — local staging
             fh.truncate(0)
 
         upload = TusUpload(
@@ -152,13 +153,17 @@ class TusService:
         )
         await self._store.create(upload)
         return TusCreateResult(
-            upload_id=upload_id, location=f"/api/tus/{upload_id}",
+            upload_id=upload_id,
+            location=f"/api/tus/{upload_id}",
         )
 
     # ---- head -------------------------------------------------------------
 
     async def head(
-        self, *, upload_id: uuid.UUID, user_id: uuid.UUID,
+        self,
+        *,
+        upload_id: uuid.UUID,
+        user_id: uuid.UUID,
     ) -> TusHeadResult:
         upload = await self._store.get(upload_id)
         if upload is None:
@@ -201,12 +206,14 @@ class TusService:
             raise TusOffsetMismatch(
                 f"chunk would overflow declared length {upload.upload_length}",
             )
+
         # Append in a thread so the event loop is not blocked on fsync. We
         # deliberately do NOT use aiofiles — the codebase avoids extra deps
         # and the TUS hot-path is already bounded by 16 MB per call.
         def _append() -> None:
-            with open(upload.staging_path, "ab") as fh:  # noqa: PTH123
+            with open(upload.staging_path, "ab") as fh:
                 fh.write(chunk)
+
         await asyncio.to_thread(_append)
         TUS_UPLOAD_BYTES.inc(len(chunk))
 
@@ -214,7 +221,9 @@ class TusService:
 
         if new_offset < upload.upload_length:
             return TusPatchResult(
-                new_offset=new_offset, completed=False, attachment=None,
+                new_offset=new_offset,
+                completed=False,
+                attachment=None,
             )
 
         # Final PATCH — finalize + clean up.
@@ -241,28 +250,29 @@ class TusService:
 
         # Cleanup: staging + state. Best-effort on the file so a missing
         # inode after a crash doesn't wedge the API.
-        try:
+        with contextlib.suppress(OSError):  # pragma: no cover
             os.remove(upload.staging_path)
-        except OSError:  # pragma: no cover
-            pass
         await self._store.delete(upload_id)
         return TusPatchResult(
-            new_offset=new_offset, completed=True, attachment=attachment,
+            new_offset=new_offset,
+            completed=True,
+            attachment=attachment,
         )
 
     # ---- terminate --------------------------------------------------------
 
     async def terminate(
-        self, *, upload_id: uuid.UUID, user_id: uuid.UUID,
+        self,
+        *,
+        upload_id: uuid.UUID,
+        user_id: uuid.UUID,
     ) -> None:
         upload = await self._store.get(upload_id)
         if upload is None or upload.user_id != user_id:
             # Idempotent terminate — 204 either way.
             return
-        try:
+        with contextlib.suppress(OSError):  # pragma: no cover
             os.remove(upload.staging_path)
-        except OSError:  # pragma: no cover
-            pass
         await self._store.delete(upload_id)
 
 

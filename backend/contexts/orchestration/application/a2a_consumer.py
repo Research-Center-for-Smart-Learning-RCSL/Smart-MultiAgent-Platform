@@ -22,7 +22,7 @@ import json
 import logging
 import uuid
 from collections.abc import Awaitable, Callable
-from typing import Any, Final
+from typing import Final
 
 from contexts.orchestration.domain.models import A2AEnvelope
 from contexts.orchestration.infrastructure import a2a_streams
@@ -61,14 +61,24 @@ async def consume_once(
     for stream_id, fields in pending:
         attempt = delivery_counts.get(stream_id, 1)
         processed += await _process_entry(
-            agent_id, stream_id, fields, handler, attempt, on_dlq=on_dlq,
+            agent_id,
+            stream_id,
+            fields,
+            handler,
+            attempt,
+            on_dlq=on_dlq,
         )
 
     # 2. Read new messages (blocks up to 1s).
     new = await a2a_streams.xread_new(agent_id, count=10)
     for stream_id, fields in new:
         processed += await _process_entry(
-            agent_id, stream_id, fields, handler, 1, on_dlq=on_dlq,
+            agent_id,
+            stream_id,
+            fields,
+            handler,
+            1,
+            on_dlq=on_dlq,
         )
 
     return processed
@@ -118,7 +128,9 @@ async def _process_entry(
     except (json.JSONDecodeError, TypeError, KeyError, ValueError) as exc:
         logger.warning(
             "unparseable a2a message for agent %s (stream_id=%s): %s",
-            agent_id, stream_id, exc,
+            agent_id,
+            stream_id,
+            exc,
         )
         error_msg = f"parse error: {exc}"
         await a2a_streams.move_to_dlq(agent_id, stream_id, raw, error_msg, attempt)
@@ -134,7 +146,10 @@ async def _process_entry(
     except Exception as exc:
         logger.warning(
             "handler error for agent %s (stream_id=%s, attempt=%d): %s",
-            agent_id, stream_id, attempt, exc,
+            agent_id,
+            stream_id,
+            attempt,
+            exc,
         )
         if attempt >= _MAX_RETRIES:
             error_msg = str(exc)
@@ -144,7 +159,8 @@ async def _process_entry(
                 await on_dlq(agent_id, raw, error_msg, attempt)
             logger.error(
                 "a2a message moved to DLQ for agent %s after %d attempts",
-                agent_id, _MAX_RETRIES,
+                agent_id,
+                _MAX_RETRIES,
             )
             return 0
 

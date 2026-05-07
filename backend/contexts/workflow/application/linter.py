@@ -7,11 +7,10 @@ The aggregator collects all issues without stopping at the first error.
 from __future__ import annotations
 
 import re
-import uuid
 from collections import defaultdict
 from typing import Any
 
-from contexts.workflow.domain.models import LintIssue, NodeType, ValidationResult
+from contexts.workflow.domain.models import LintIssue, ValidationResult
 
 _VAR_REF_RE = re.compile(
     r"\{\{\s*"
@@ -44,10 +43,17 @@ _MULTI_PORT_NODES: dict[str, set[str]] = {
 }
 
 # Known ctx.* keys
-_KNOWN_CTX_KEYS = frozenset({
-    "run_id", "workflow_id", "chatroom_id", "workspace_id",
-    "project_id", "now_unix", "trigger_type",
-})
+_KNOWN_CTX_KEYS = frozenset(
+    {
+        "run_id",
+        "workflow_id",
+        "chatroom_id",
+        "workspace_id",
+        "project_id",
+        "now_unix",
+        "trigger_type",
+    }
+)
 
 
 # ---------------------------------------------------------------------------
@@ -61,10 +67,10 @@ def _nodes_by_id(defn: dict[str, Any]) -> dict[str, dict[str, Any]]:
 
 def _build_adjacency(
     defn: dict[str, Any],
-) -> tuple[dict[str, list[dict]], dict[str, list[dict]]]:
+) -> tuple[dict[str, list[dict[str, Any]]], dict[str, list[dict[str, Any]]]]:
     """Return (outgoing, incoming) edge maps keyed by node id."""
-    out: dict[str, list[dict]] = defaultdict(list)
-    inc: dict[str, list[dict]] = defaultdict(list)
+    out: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    inc: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for e in defn.get("edges", []):
         out[e["from"]].append(e)
         inc[e["to"]].append(e)
@@ -97,8 +103,11 @@ def _collect_agent_ids(node: dict[str, Any]) -> list[str]:
     ids: list[str] = []
     config = node.get("config", {})
     for key in (
-        "agent_id", "target_agent_id", "issuer_agent_id",
-        "leader_agent_id", "parent_agent_id",
+        "agent_id",
+        "target_agent_id",
+        "issuer_agent_id",
+        "leader_agent_id",
+        "parent_agent_id",
     ):
         if key in config:
             ids.append(config[key])
@@ -111,6 +120,7 @@ def _collect_agent_ids(node: dict[str, Any]) -> list[str]:
 # Rule 1: Exactly one trigger, entry_node_id equals it
 # ---------------------------------------------------------------------------
 
+
 def rule_01_single_trigger(defn: dict[str, Any]) -> list[LintIssue]:
     issues: list[LintIssue] = []
     triggers = [n for n in defn.get("nodes", []) if n.get("type") == "trigger"]
@@ -122,16 +132,20 @@ def rule_01_single_trigger(defn: dict[str, Any]) -> list[LintIssue]:
     if triggers:
         entry = defn.get("entry_node_id")
         if entry != triggers[0]["id"]:
-            issues.append(LintIssue(
-                1, "error",
-                f"entry_node_id '{entry}' does not match trigger node '{triggers[0]['id']}'",
-            ))
+            issues.append(
+                LintIssue(
+                    1,
+                    "error",
+                    f"entry_node_id '{entry}' does not match trigger node '{triggers[0]['id']}'",
+                )
+            )
     return issues
 
 
 # ---------------------------------------------------------------------------
 # Rule 2: Unique node ids and edge ids
 # ---------------------------------------------------------------------------
+
 
 def rule_02_unique_ids(defn: dict[str, Any]) -> list[LintIssue]:
     issues: list[LintIssue] = []
@@ -154,6 +168,7 @@ def rule_02_unique_ids(defn: dict[str, Any]) -> list[LintIssue]:
 # ---------------------------------------------------------------------------
 # Rule 3: Edges valid
 # ---------------------------------------------------------------------------
+
 
 def rule_03_edges_valid(defn: dict[str, Any]) -> list[LintIssue]:
     issues: list[LintIssue] = []
@@ -179,13 +194,18 @@ def rule_03_edges_valid(defn: dict[str, Any]) -> list[LintIssue]:
                 default_port = config.get("default_port", "default")
                 allowed = branch_ports | {default_port}
             if ntype == "end":
-                issues.append(LintIssue(3, "error", f"end node '{frm}' cannot have outgoing edges", edge_id=eid))
+                issues.append(
+                    LintIssue(3, "error", f"end node '{frm}' cannot have outgoing edges", edge_id=eid),
+                )
             elif allowed and port not in allowed:
-                issues.append(LintIssue(
-                    3, "error",
-                    f"Port '{port}' not valid for {ntype} node '{frm}'",
-                    edge_id=eid,
-                ))
+                issues.append(
+                    LintIssue(
+                        3,
+                        "error",
+                        f"Port '{port}' not valid for {ntype} node '{frm}'",
+                        edge_id=eid,
+                    )
+                )
 
         triple = (frm, port, to)
         if triple in seen_triples:
@@ -198,6 +218,7 @@ def rule_03_edges_valid(defn: dict[str, Any]) -> list[LintIssue]:
 # ---------------------------------------------------------------------------
 # Rule 4: Reachability from trigger
 # ---------------------------------------------------------------------------
+
 
 def rule_04_reachability(defn: dict[str, Any]) -> list[LintIssue]:
     issues: list[LintIssue] = []
@@ -227,6 +248,7 @@ def rule_04_reachability(defn: dict[str, Any]) -> list[LintIssue]:
 # ---------------------------------------------------------------------------
 # Rule 5: Termination — path to end
 # ---------------------------------------------------------------------------
+
 
 def rule_05_termination(defn: dict[str, Any]) -> list[LintIssue]:
     issues: list[LintIssue] = []
@@ -268,11 +290,14 @@ def rule_05_termination(defn: dict[str, Any]) -> list[LintIssue]:
         if nid not in can_reach_end:
             ntype = nodes[nid].get("type", "")
             if ntype == "wait_for_event" and not outgoing.get(nid):
-                issues.append(LintIssue(
-                    5, "warning",
-                    f"wait_for_event node '{nid}' has no path to end (permanent listener?)",
-                    node_id=nid,
-                ))
+                issues.append(
+                    LintIssue(
+                        5,
+                        "warning",
+                        f"wait_for_event node '{nid}' has no path to end (permanent listener?)",
+                        node_id=nid,
+                    )
+                )
             else:
                 issues.append(LintIssue(5, "error", f"Node '{nid}' has no path to any end node", node_id=nid))
     return issues
@@ -283,6 +308,7 @@ def rule_05_termination(defn: dict[str, Any]) -> list[LintIssue]:
 # (These require DB lookups — accept agent_ids_in_project as input)
 # ---------------------------------------------------------------------------
 
+
 def rule_06_agents_exist(
     defn: dict[str, Any],
     valid_agent_ids: frozenset[str],
@@ -291,11 +317,14 @@ def rule_06_agents_exist(
     for n in defn.get("nodes", []):
         for aid in _collect_agent_ids(n):
             if aid not in valid_agent_ids:
-                issues.append(LintIssue(
-                    6, "error",
-                    f"Referenced agent '{aid}' does not exist in the workflow's project",
-                    node_id=n["id"],
-                ))
+                issues.append(
+                    LintIssue(
+                        6,
+                        "error",
+                        f"Referenced agent '{aid}' does not exist in the workflow's project",
+                        node_id=n["id"],
+                    )
+                )
     return issues
 
 
@@ -311,6 +340,7 @@ def rule_07_agent_scope(
 # Rule 8: Chatroom scope
 # ---------------------------------------------------------------------------
 
+
 def rule_08_chatroom_scope(
     defn: dict[str, Any],
     valid_chatroom_ids: frozenset[str],
@@ -321,17 +351,21 @@ def rule_08_chatroom_scope(
         for key in ("chatroom_id", "target_chatroom_id"):
             cid = config.get(key)
             if cid and cid not in valid_chatroom_ids:
-                issues.append(LintIssue(
-                    8, "error",
-                    f"Chatroom '{cid}' not in workspace's project scope",
-                    node_id=n["id"],
-                ))
+                issues.append(
+                    LintIssue(
+                        8,
+                        "error",
+                        f"Chatroom '{cid}' not in workspace's project scope",
+                        node_id=n["id"],
+                    )
+                )
     return issues
 
 
 # ---------------------------------------------------------------------------
 # Rule 9: Sub-agent depth
 # ---------------------------------------------------------------------------
+
 
 def rule_09_subagent_depth(
     defn: dict[str, Any],
@@ -344,17 +378,21 @@ def rule_09_subagent_depth(
             continue
         parent = n.get("config", {}).get("parent_agent_id")
         if parent and parent in subagent_parent_ids:
-            issues.append(LintIssue(
-                9, "error",
-                f"parent_agent_id '{parent}' is itself a sub-agent (depth > 1 forbidden)",
-                node_id=n["id"],
-            ))
+            issues.append(
+                LintIssue(
+                    9,
+                    "error",
+                    f"parent_agent_id '{parent}' is itself a sub-agent (depth > 1 forbidden)",
+                    node_id=n["id"],
+                )
+            )
     return issues
 
 
 # ---------------------------------------------------------------------------
 # Rule 10: Instruct cycle pre-check
 # ---------------------------------------------------------------------------
+
 
 def rule_10_instruct_cycle(defn: dict[str, Any]) -> list[LintIssue]:
     issues: list[LintIssue] = []
@@ -370,7 +408,7 @@ def rule_10_instruct_cycle(defn: dict[str, Any]) -> list[LintIssue]:
             graph[issuer].add(target)
 
     # DFS cycle detection
-    WHITE, GRAY, BLACK = 0, 1, 2
+    WHITE, GRAY, BLACK = 0, 1, 2  # noqa: N806 — conventional DFS colour constants
     color: dict[str, int] = {aid: WHITE for aid in graph}
     for target_set in graph.values():
         for t in target_set:
@@ -389,10 +427,13 @@ def rule_10_instruct_cycle(defn: dict[str, Any]) -> list[LintIssue]:
 
     for start in list(color):
         if color[start] == WHITE and _dfs(start):
-            issues.append(LintIssue(
-                10, "error",
-                "Instruct edges form a cycle in the agent-instruction graph",
-            ))
+            issues.append(
+                LintIssue(
+                    10,
+                    "error",
+                    "Instruct edges form a cycle in the agent-instruction graph",
+                )
+            )
             break
 
     return issues
@@ -401,6 +442,7 @@ def rule_10_instruct_cycle(defn: dict[str, Any]) -> list[LintIssue]:
 # ---------------------------------------------------------------------------
 # Rule 11: Condition branch uniqueness
 # ---------------------------------------------------------------------------
+
 
 def rule_11_condition_branches(defn: dict[str, Any]) -> list[LintIssue]:
     issues: list[LintIssue] = []
@@ -413,15 +455,23 @@ def rule_11_condition_branches(defn: dict[str, Any]) -> list[LintIssue]:
         for b in config.get("branches", []):
             port = b.get("port", "")
             if port in seen:
-                issues.append(LintIssue(
-                    11, "error", f"Duplicate branch port '{port}'", node_id=n["id"],
-                ))
+                issues.append(
+                    LintIssue(
+                        11,
+                        "error",
+                        f"Duplicate branch port '{port}'",
+                        node_id=n["id"],
+                    )
+                )
             if port == default_port:
-                issues.append(LintIssue(
-                    11, "error",
-                    f"Branch port '{port}' conflicts with default_port",
-                    node_id=n["id"],
-                ))
+                issues.append(
+                    LintIssue(
+                        11,
+                        "error",
+                        f"Branch port '{port}' conflicts with default_port",
+                        node_id=n["id"],
+                    )
+                )
             seen.add(port)
     return issues
 
@@ -429,6 +479,7 @@ def rule_11_condition_branches(defn: dict[str, Any]) -> list[LintIssue]:
 # ---------------------------------------------------------------------------
 # Rule 12: Variable references resolve
 # ---------------------------------------------------------------------------
+
 
 def rule_12_variable_references(defn: dict[str, Any]) -> list[LintIssue]:
     issues: list[LintIssue] = []
@@ -447,17 +498,21 @@ def rule_12_variable_references(defn: dict[str, Any]) -> list[LintIssue]:
                     # Required fields in condition.when are errors; templates are warnings
                     is_condition_when = ntype == "condition"
                     level = "error" if is_condition_when else "warning"
-                    issues.append(LintIssue(
-                        12, level,
-                        f"Variable reference '{ref_name}' is not declared",
-                        node_id=n["id"],
-                    ))
+                    issues.append(
+                        LintIssue(
+                            12,
+                            level,
+                            f"Variable reference '{ref_name}' is not declared",
+                            node_id=n["id"],
+                        )
+                    )
     return issues
 
 
 # ---------------------------------------------------------------------------
 # Rule 13: Port coverage
 # ---------------------------------------------------------------------------
+
 
 def rule_13_port_coverage(defn: dict[str, Any]) -> list[LintIssue]:
     issues: list[LintIssue] = []
@@ -478,18 +533,22 @@ def rule_13_port_coverage(defn: dict[str, Any]) -> list[LintIssue]:
 
         for port in required_ports:
             if port not in connected_ports and strategy != "continue":
-                issues.append(LintIssue(
-                    13, "error",
-                    f"Port '{port}' of {ntype} node '{nid}' is not connected "
-                    f"and on_error.strategy is not 'continue'",
-                    node_id=nid,
-                ))
+                issues.append(
+                    LintIssue(
+                        13,
+                        "error",
+                        f"Port '{port}' of {ntype} node '{nid}' is not connected "
+                        f"and on_error.strategy is not 'continue'",
+                        node_id=nid,
+                    )
+                )
     return issues
 
 
 # ---------------------------------------------------------------------------
 # Rule 14: Parallel/join pairing
 # ---------------------------------------------------------------------------
+
 
 def rule_14_parallel_join(defn: dict[str, Any]) -> list[LintIssue]:
     issues: list[LintIssue] = []
@@ -501,25 +560,32 @@ def rule_14_parallel_join(defn: dict[str, Any]) -> list[LintIssue]:
         if ntype == "parallel":
             out_count = len(outgoing.get(nid, []))
             if out_count < 2:
-                issues.append(LintIssue(
-                    14, "error",
-                    f"parallel node '{nid}' needs ≥ 2 outgoing edges, has {out_count}",
-                    node_id=nid,
-                ))
+                issues.append(
+                    LintIssue(
+                        14,
+                        "error",
+                        f"parallel node '{nid}' needs ≥ 2 outgoing edges, has {out_count}",
+                        node_id=nid,
+                    )
+                )
         elif ntype == "join":
             in_count = len(incoming.get(nid, []))
             if in_count < 2:
-                issues.append(LintIssue(
-                    14, "error",
-                    f"join node '{nid}' needs ≥ 2 incoming edges, has {in_count}",
-                    node_id=nid,
-                ))
+                issues.append(
+                    LintIssue(
+                        14,
+                        "error",
+                        f"join node '{nid}' needs ≥ 2 incoming edges, has {in_count}",
+                        node_id=nid,
+                    )
+                )
     return issues
 
 
 # ---------------------------------------------------------------------------
 # Advisory warnings (§5.2)
 # ---------------------------------------------------------------------------
+
 
 def advisory_warnings(defn: dict[str, Any]) -> list[LintIssue]:
     issues: list[LintIssue] = []
@@ -566,7 +632,9 @@ def advisory_warnings(defn: dict[str, Any]) -> list[LintIssue]:
         if ntype == "approval_gate":
             ts = config.get("timeout_seconds", 0)
             if ts > 3600:
-                issues.append(LintIssue(0, "warning", f"approval timeout_seconds={ts} > 3600", node_id=n["id"]))
+                issues.append(
+                    LintIssue(0, "warning", f"approval timeout_seconds={ts} > 3600", node_id=n["id"]),
+                )
 
         # W5: Cron sub-minute frequency
         if ntype == "trigger" and config.get("trigger_type") == "cron":
@@ -575,7 +643,14 @@ def advisory_warnings(defn: dict[str, Any]) -> list[LintIssue]:
             if parts and parts[0] not in ("*", "0"):
                 pass  # Not sub-minute
             elif parts and parts[0] == "*":
-                issues.append(LintIssue(0, "warning", "Cron expression fires every minute or faster", node_id=n["id"]))
+                issues.append(
+                    LintIssue(
+                        0,
+                        "warning",
+                        "Cron expression fires every minute or faster",
+                        node_id=n["id"],
+                    ),
+                )
 
     # W6: loop_guard > 1000
     lg = defn.get("loop_guard", {}).get("max_visits_per_node", 200)

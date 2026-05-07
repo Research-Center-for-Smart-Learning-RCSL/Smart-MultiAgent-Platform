@@ -15,7 +15,7 @@ from contexts.agents.infrastructure.search_adapters.tavily import TavilyAdapter
 from contexts.keys.domain.search import SearchProvider
 
 _ADAPTER_FACTORIES: dict[SearchProvider, Callable[[], SearchAdapter]] = {
-    SearchProvider.TAVILY: TavilyAdapter,
+    SearchProvider.TAVILY: TavilyAdapter,  # type: ignore[dict-item]
 }
 
 

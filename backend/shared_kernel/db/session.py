@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import Final
+from typing import Any, Final
 
 from sqlalchemy import event
 from sqlalchemy.ext.asyncio import (
@@ -55,12 +55,12 @@ def _build() -> tuple[AsyncEngine, async_sessionmaker[AsyncSession]]:
     DB_POOL_AVAILABLE.set(capacity)
 
     @event.listens_for(engine.sync_engine, "checkout")
-    def _on_checkout(dbapi_conn, conn_record, conn_proxy):  # noqa: ARG001
+    def _on_checkout(dbapi_conn: Any, conn_record: Any, conn_proxy: Any) -> None:
         DB_POOL_IN_USE.inc()
         DB_POOL_AVAILABLE.dec()
 
     @event.listens_for(engine.sync_engine, "checkin")
-    def _on_checkin(dbapi_conn, conn_record):  # noqa: ARG001
+    def _on_checkin(dbapi_conn: Any, conn_record: Any) -> None:
         DB_POOL_IN_USE.dec()
         DB_POOL_AVAILABLE.inc()
 
@@ -92,9 +92,8 @@ async def dispose() -> None:
 async def db_session() -> AsyncIterator[AsyncSession]:
     """FastAPI dependency — yields a session inside a transaction."""
     sm = get_sessionmaker()
-    async with sm() as session:
-        async with session.begin():
-            yield session
+    async with sm() as session, session.begin():
+        yield session
 
 
 @asynccontextmanager

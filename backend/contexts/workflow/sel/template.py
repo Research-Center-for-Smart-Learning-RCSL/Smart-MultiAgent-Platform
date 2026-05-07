@@ -72,7 +72,7 @@ def _resolve(segments: list[str | int], variables: dict[str, Any]) -> Any:
         if obj is None:
             return _UNRESOLVED
         if isinstance(seg, int):
-            if isinstance(obj, (list, tuple)) and 0 <= seg < len(obj):
+            if isinstance(obj, list | tuple) and 0 <= seg < len(obj):
                 obj = obj[seg]
             else:
                 return _UNRESOLVED

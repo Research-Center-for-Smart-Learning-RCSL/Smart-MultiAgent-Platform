@@ -30,8 +30,7 @@ def _client(settings: Settings, root_token: str | None) -> hvac.Client:
     token = root_token or settings.vault.dev_token
     if not token:
         raise RuntimeError(
-            "vault-init needs a root or dev token. Pass --root-token or set "
-            "SMAP_VAULT_DEV_TOKEN."
+            "vault-init needs a root or dev token. Pass --root-token or set " "SMAP_VAULT_DEV_TOKEN."
         )
     client = hvac.Client(url=settings.vault.addr, token=token)
     if not client.is_authenticated():
@@ -106,16 +105,12 @@ def _ensure_kv(
     report: BootstrapReport,
 ) -> None:
     try:
-        client.secrets.kv.v2.read_secret_version(
-            mount_point=mount, path=path, raise_on_deleted_version=True
-        )
+        client.secrets.kv.v2.read_secret_version(mount_point=mount, path=path, raise_on_deleted_version=True)
         report.already(f"kv:{mount}/{path}")
         return
     except hvac.exceptions.InvalidPath:
         pass
-    client.secrets.kv.v2.create_or_update_secret(
-        mount_point=mount, path=path, secret=seed
-    )
+    client.secrets.kv.v2.create_or_update_secret(mount_point=mount, path=path, secret=seed)
     report.did(f"kv:{mount}/{path}")
 
 

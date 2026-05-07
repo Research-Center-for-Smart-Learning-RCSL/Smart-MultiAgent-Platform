@@ -13,7 +13,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from contexts.knowledge.domain.errors import (
     RagConfigNameTaken,
     RagConfigNotFound,
-    RagDocumentNotFound,
+)
+from contexts.knowledge.domain.errors import (
+    RagDocumentNotFound as RagDocumentNotFound,
 )
 from contexts.knowledge.domain.models import (
     ChunkStrategy,
@@ -97,7 +99,8 @@ class RagConfigRepository:
         try:
             row = (
                 await self._db.execute(
-                    t.rag_configs.insert().values(
+                    t.rag_configs.insert()
+                    .values(
                         project_id=project_id,
                         name=name,
                         chunk_strategy=chunk_strategy.value,
@@ -110,7 +113,8 @@ class RagConfigRepository:
                         rerank_provider=rerank_provider,
                         rerank_model=rerank_model,
                         top_k=top_k,
-                    ).returning(t.rag_configs)
+                    )
+                    .returning(t.rag_configs)
                 )
             ).one()
         except IntegrityError as exc:
@@ -120,9 +124,7 @@ class RagConfigRepository:
             raise
         return _row_to_config(row)
 
-    async def get(
-        self, config_id: uuid.UUID, *, include_deleted: bool = False
-    ) -> RagConfig | None:
+    async def get(self, config_id: uuid.UUID, *, include_deleted: bool = False) -> RagConfig | None:
         predicate: sa.ColumnElement[bool] = t.rag_configs.c.id == config_id
         if not include_deleted:
             predicate = sa.and_(predicate, t.rag_configs.c.deleted_at.is_(None))
@@ -152,9 +154,7 @@ class RagConfigRepository:
 
     async def soft_delete(self, config_id: uuid.UUID) -> None:
         await self._db.execute(
-            t.rag_configs.update()
-            .where(t.rag_configs.c.id == config_id)
-            .values(deleted_at=now())
+            t.rag_configs.update().where(t.rag_configs.c.id == config_id).values(deleted_at=now())
         )
 
 
@@ -162,9 +162,7 @@ class RagDocumentRepository:
     def __init__(self, db: AsyncSession) -> None:
         self._db = db
 
-    async def find_by_sha(
-        self, *, rag_config_id: uuid.UUID, sha256: str
-    ) -> RagDocument | None:
+    async def find_by_sha(self, *, rag_config_id: uuid.UUID, sha256: str) -> RagDocument | None:
         row = (
             await self._db.execute(
                 t.rag_documents.select().where(
@@ -190,7 +188,8 @@ class RagDocumentRepository:
     ) -> RagDocument:
         row = (
             await self._db.execute(
-                t.rag_documents.insert().values(
+                t.rag_documents.insert()
+                .values(
                     rag_config_id=rag_config_id,
                     filename=filename,
                     mime=mime,
@@ -198,7 +197,8 @@ class RagDocumentRepository:
                     sha256=sha256,
                     minio_path=minio_path,
                     uploaded_by=uploaded_by,
-                ).returning(t.rag_documents)
+                )
+                .returning(t.rag_documents)
             )
         ).one()
         return _row_to_document(row)
@@ -210,16 +210,12 @@ class RagDocumentRepository:
         status: DocumentStatus,
     ) -> None:
         await self._db.execute(
-            t.rag_documents.update()
-            .where(t.rag_documents.c.id == document_id)
-            .values(status=status.value)
+            t.rag_documents.update().where(t.rag_documents.c.id == document_id).values(status=status.value)
         )
 
     async def get(self, document_id: uuid.UUID) -> RagDocument | None:
         row = (
-            await self._db.execute(
-                t.rag_documents.select().where(t.rag_documents.c.id == document_id)
-            )
+            await self._db.execute(t.rag_documents.select().where(t.rag_documents.c.id == document_id))
         ).first()
         return _row_to_document(row) if row else None
 
@@ -237,9 +233,7 @@ class RagDocumentRepository:
         Qdrant points and MinIO blobs are NOT touched here — that's the
         endpoint layer's job since they need infra clients we don't inject.
         """
-        await self._db.execute(
-            t.rag_documents.delete().where(t.rag_documents.c.id == document_id)
-        )
+        await self._db.execute(t.rag_documents.delete().where(t.rag_documents.c.id == document_id))
 
     async def list_for_config(self, rag_config_id: uuid.UUID) -> Sequence[RagDocument]:
         rows = (
@@ -271,17 +265,13 @@ class RagChunkRepository:
         ).all()
         return [_row_to_chunk(r) for r in rows]
 
-    async def lookup_points(
-        self, qdrant_point_ids: Sequence[uuid.UUID]
-    ) -> Sequence[RagChunk]:
+    async def lookup_points(self, qdrant_point_ids: Sequence[uuid.UUID]) -> Sequence[RagChunk]:
         """Batch lookup — used by the retrieval path to hydrate Qdrant hits."""
         if not qdrant_point_ids:
             return []
         rows = (
             await self._db.execute(
-                t.rag_chunks.select().where(
-                    t.rag_chunks.c.qdrant_point_id.in_(list(qdrant_point_ids))
-                )
+                t.rag_chunks.select().where(t.rag_chunks.c.qdrant_point_id.in_(list(qdrant_point_ids)))
             )
         ).all()
         return [_row_to_chunk(r) for r in rows]

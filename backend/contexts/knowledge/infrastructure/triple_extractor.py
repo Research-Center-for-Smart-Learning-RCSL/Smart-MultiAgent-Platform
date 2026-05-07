@@ -14,7 +14,7 @@ import json
 import logging
 import re
 import uuid
-from typing import Any, Protocol
+from typing import Protocol
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -76,19 +76,22 @@ class LlmTripleExtractor:
                 messages=_render_messages(messages),
             )
             raw = await self._completer.complete(
-                prompt=prompt, api_key=plaintext.decode("utf-8"),
+                prompt=prompt,
+                api_key=plaintext.decode("utf-8"),
             )
         finally:
-            plaintext = b"\x00" * len(plaintext)  # noqa: F841
+            plaintext = b"\x00" * len(plaintext)
         return _parse_triples(raw)
 
     async def _resolve_key_id(
-        self, group_id: uuid.UUID,
+        self,
+        group_id: uuid.UUID,
     ) -> uuid.UUID | None:
         """Pick one active key from the builder Key Group."""
-        from contexts.keys.infrastructure.group_repository import (  # noqa: PLC0415
+        from contexts.keys.infrastructure.group_repository import (
             KeyGroupMemberRepository,
         )
+
         facade = KeysFacade(self._db)
         group = await facade.get_key_group(group_id)
         if group is None:

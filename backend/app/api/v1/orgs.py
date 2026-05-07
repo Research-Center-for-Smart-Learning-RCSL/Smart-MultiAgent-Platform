@@ -4,13 +4,13 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Path, Request, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Path, status
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from contexts.identity.interfaces.facade import IdentityFacade
 from contexts.tenancy.application.invite_service import InviteService
 from contexts.tenancy.application.oc_transfer_service import OCTransferService
+
 # `OrgMemberRole` is re-exported by org_service so routers can import role
 # enums without reaching into `contexts.tenancy.domain` (import-linter rule 3).
 from contexts.tenancy.application.org_service import OrgMemberRole, OrgService
@@ -110,10 +110,14 @@ async def list_orgs(
     orgs = await service.list_for_user(principal.user_id)
     return [
         OrgOut(
-            id=o.id, name=o.name, creator_user_id=o.creator_user_id,
-            version=o.version, created_at=o.created_at.isoformat(),
+            id=o.id,
+            name=o.name,
+            creator_user_id=o.creator_user_id,
+            version=o.version,
+            created_at=o.created_at.isoformat(),
             deleted_at=o.deleted_at.isoformat() if o.deleted_at else None,
-        ) for o in orgs
+        )
+        for o in orgs
     ]
 
 
@@ -123,12 +127,18 @@ async def get_org_quotas(
     _=Depends(require_membership(org_param="org_id")),
 ) -> OrgQuotasOut:
     from app.workers.tasks.advisory import get_advisory_targets, get_org_advisory
+
     snapshot = await get_org_advisory(org_id)
     targets = await get_advisory_targets()
     if snapshot is None:
         return OrgQuotasOut(
-            users=0, projects=0, chatrooms=0, agents=0, workflows=0,
-            computed_at=None, advisory_targets=targets,
+            users=0,
+            projects=0,
+            chatrooms=0,
+            agents=0,
+            workflows=0,
+            computed_at=None,
+            advisory_targets=targets,
         )
     return OrgQuotasOut(
         users=snapshot.get("users", 0),
@@ -176,8 +186,11 @@ async def read_org(
     service = OrgService(db)
     org = await service.get(org_id)
     return OrgOut(
-        id=org.id, name=org.name, creator_user_id=org.creator_user_id,
-        version=org.version, created_at=org.created_at.isoformat(),
+        id=org.id,
+        name=org.name,
+        creator_user_id=org.creator_user_id,
+        version=org.version,
+        created_at=org.created_at.isoformat(),
         deleted_at=org.deleted_at.isoformat() if org.deleted_at else None,
     )
 
@@ -198,17 +211,24 @@ async def rename_org(
         expected = int(if_match.strip().strip('"'))
     except ValueError as exc:
         raise HTTPException(
-            status_code=412, detail=f"invalid If-Match: {if_match!r}",
+            status_code=412,
+            detail=f"invalid If-Match: {if_match!r}",
         ) from exc
     service = OrgService(db)
     org = await service.rename(
-        org_id=org_id, new_name=body.name, expected_version=expected,
-        actor_user_id=principal.user_id, actor_ip=ctx.actor_ip,
+        org_id=org_id,
+        new_name=body.name,
+        expected_version=expected,
+        actor_user_id=principal.user_id,
+        actor_ip=ctx.actor_ip,
         request_id=ctx.request_id,
     )
     return OrgOut(
-        id=org.id, name=org.name, creator_user_id=org.creator_user_id,
-        version=org.version, created_at=org.created_at.isoformat(),
+        id=org.id,
+        name=org.name,
+        creator_user_id=org.creator_user_id,
+        version=org.version,
+        created_at=org.created_at.isoformat(),
         deleted_at=org.deleted_at.isoformat() if org.deleted_at else None,
     )
 
@@ -223,7 +243,9 @@ async def delete_org(
 ) -> None:
     service = OrgService(db)
     await service.soft_delete(
-        org_id=org_id, actor_user_id=principal.user_id, actor_ip=ctx.actor_ip,
+        org_id=org_id,
+        actor_user_id=principal.user_id,
+        actor_ip=ctx.actor_ip,
         request_id=ctx.request_id,
     )
 
@@ -239,7 +261,9 @@ async def restore_org(
         raise HTTPException(status_code=403, detail="Admin only")
     service = OrgService(db)
     await service.restore(
-        org_id=org_id, admin_user_id=principal.user_id, actor_ip=ctx.actor_ip,
+        org_id=org_id,
+        admin_user_id=principal.user_id,
+        actor_ip=ctx.actor_ip,
         request_id=ctx.request_id,
     )
 
@@ -254,15 +278,18 @@ async def list_members(
     members = await service.list_members(org_id)
     return [
         OrgMemberOut(
-            user_id=m.user_id, role=m.role.value,
+            user_id=m.user_id,
+            role=m.role.value,
             is_original_creator=m.is_original_creator,
             joined_at=m.joined_at.isoformat(),
-        ) for m in members
+        )
+        for m in members
     ]
 
 
 @router.delete(
-    "/{org_id}/members/{user_id}", status_code=status.HTTP_204_NO_CONTENT,
+    "/{org_id}/members/{user_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
     response_model=None,
 )
 async def remove_member(
@@ -275,8 +302,10 @@ async def remove_member(
 ) -> None:
     service = OrgService(db)
     await service.remove_member(
-        org_id=org_id, target_user_id=user_id,
-        actor_user_id=principal.user_id, actor_ip=ctx.actor_ip,
+        org_id=org_id,
+        target_user_id=user_id,
+        actor_user_id=principal.user_id,
+        actor_ip=ctx.actor_ip,
         request_id=ctx.request_id,
     )
 
@@ -293,9 +322,11 @@ async def patch_member(
 ) -> dict[str, str]:
     service = OrgService(db)
     await service.change_member_role(
-        org_id=org_id, target_user_id=user_id,
+        org_id=org_id,
+        target_user_id=user_id,
         new_role=OrgMemberRole(body.role),
-        actor_user_id=principal.user_id, actor_ip=ctx.actor_ip,
+        actor_user_id=principal.user_id,
+        actor_ip=ctx.actor_ip,
         request_id=ctx.request_id,
     )
     return {"ok": "true"}
@@ -334,7 +365,8 @@ async def create_invite(
 
 
 @router.post(
-    "/{org_id}/original-creator-transfers", status_code=status.HTTP_201_CREATED,
+    "/{org_id}/original-creator-transfers",
+    status_code=status.HTTP_201_CREATED,
 )
 async def transfer_initiate(
     body: TransferInitIn,
@@ -406,9 +438,10 @@ async def transfer_cancel(
     )
 
 
-def _transfer_out(t) -> TransferOut:  # type: ignore[no-untyped-def]
+def _transfer_out(t) -> TransferOut:
     return TransferOut(
-        id=t.id, org_id=t.org_id,
+        id=t.id,
+        org_id=t.org_id,
         initiator_user_id=t.initiator_user_id,
         target_user_id=t.target_user_id,
         state=t.state.value,

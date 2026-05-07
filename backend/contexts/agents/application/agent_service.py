@@ -58,14 +58,10 @@ class AgentService:
         self._bindings = AgentMcpBindingRepository(db)
         self._keys = KeysFacade(db)
 
-    async def _assert_key_group_in_project(
-        self, *, key_group_id: uuid.UUID, project_id: uuid.UUID
-    ) -> None:
+    async def _assert_key_group_in_project(self, *, key_group_id: uuid.UUID, project_id: uuid.UUID) -> None:
         group = await self._keys.get_key_group(key_group_id)
         if group is None or group.project_id != project_id:
-            raise KeyGroupOutOfProject(
-                f"key_group {key_group_id} is not in project {project_id}"
-            )
+            raise KeyGroupOutOfProject(f"key_group {key_group_id} is not in project {project_id}")
 
     async def create(
         self,
@@ -80,14 +76,10 @@ class AgentService:
         # the count check and INSERT are atomic. The advisory lock is released
         # automatically when this transaction commits or rolls back.
         lock_id = struct.unpack(">q", project_id.bytes[:8])[0]
-        await self._db.execute(
-            sa.text("SELECT pg_advisory_xact_lock(:id)").bindparams(id=lock_id)
-        )
+        await self._db.execute(sa.text("SELECT pg_advisory_xact_lock(:id)").bindparams(id=lock_id))
         count = await self._agents.count_active(project_id)
         if count >= _AGENT_CAP_PER_PROJECT:
-            raise AgentCapExceeded(
-                f"project {project_id} has {count} agents (cap={_AGENT_CAP_PER_PROJECT})"
-            )
+            raise AgentCapExceeded(f"project {project_id} has {count} agents (cap={_AGENT_CAP_PER_PROJECT})")
 
         if draft.name is None or not draft.name.strip():
             raise ValueError("name is required")
@@ -97,7 +89,8 @@ class AgentService:
             raise ValueError("key_group_id is required")
 
         await self._assert_key_group_in_project(
-            key_group_id=draft.key_group_id, project_id=project_id,
+            key_group_id=draft.key_group_id,
+            project_id=project_id,
         )
 
         wakeup = draft.wakeup_config or {}
@@ -162,7 +155,8 @@ class AgentService:
         new_kg = draft.key_group_id
         if new_kg is not None and new_kg != current.key_group_id:
             await self._assert_key_group_in_project(
-                key_group_id=new_kg, project_id=current.project_id,
+                key_group_id=new_kg,
+                project_id=current.project_id,
             )
 
         values: dict[str, Any] = {}
@@ -203,7 +197,9 @@ class AgentService:
             values["workflow_capabilities"] = draft.workflow_capabilities
 
         updated = await self._agents.patch(
-            agent_id=agent_id, expected_version=expected_version, values=values,
+            agent_id=agent_id,
+            expected_version=expected_version,
+            values=values,
         )
         await audit.emit(
             self._db,
@@ -229,7 +225,8 @@ class AgentService:
         request_id: uuid.UUID | None = None,
     ) -> None:
         await self._agents.soft_delete(
-            agent_id=agent_id, expected_version=expected_version,
+            agent_id=agent_id,
+            expected_version=expected_version,
         )
         await audit.emit(
             self._db,

@@ -55,9 +55,7 @@ async def _list_limited_members(db: AsyncSession) -> list[_LimitRow]:
             t.key_group_members.c.max_requests_per_hour,
         )
         .select_from(
-            t.key_group_members.join(
-                t.key_groups, t.key_group_members.c.group_id == t.key_groups.c.id
-            )
+            t.key_group_members.join(t.key_groups, t.key_group_members.c.group_id == t.key_groups.c.id)
         )
         .where(
             sa.and_(
@@ -164,7 +162,9 @@ async def sample_once(db: AsyncSession) -> int:
         USAGE_THRESHOLD_EVENTS_TOTAL.inc()
         _log.info(
             "key_usage_threshold_hit key=%s group=%s axes=%s",
-            row.key_id, row.group_id, ",".join(axes),
+            row.key_id,
+            row.group_id,
+            ",".join(axes),
         )
     return hits
 

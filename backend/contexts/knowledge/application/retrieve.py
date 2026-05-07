@@ -100,12 +100,9 @@ class RetrieveService:
             return []
 
         # Hydrate chunk text from Postgres.
-        rows = await self._chunks.lookup_points(
-            [h.point_id for h in hits]
-        )
+        rows = await self._chunks.lookup_points([h.point_id for h in hits])
         by_pt: dict[uuid.UUID, tuple[int, uuid.UUID, str]] = {
-            r.qdrant_point_id: (r.chunk_idx, r.document_id, r.text)
-            for r in rows
+            r.qdrant_point_id: (r.chunk_idx, r.document_id, r.text) for r in rows
         }
         candidates: list[RetrievedChunk] = []
         for h in hits:
@@ -140,9 +137,7 @@ class RetrieveService:
 
         return candidates[:effective_top_k]
 
-    def format_as_rag_message(
-        self, chunks: list[RetrievedChunk]
-    ) -> dict[str, object]:
+    def format_as_rag_message(self, chunks: list[RetrievedChunk]) -> dict[str, object]:
         """Build the {"type":"rag"} system message payload (R10.09).
 
         Callers attach this verbatim to `messages.metadata` right before
@@ -150,17 +145,12 @@ class RetrieveService:
         """
         body_lines: list[str] = ["Retrieved context:"]
         for c in chunks:
-            body_lines.append(
-                f"[doc={c.document_id} chunk={c.chunk_idx} score={c.score:.3f}]\n{c.text}"
-            )
+            body_lines.append(f"[doc={c.document_id} chunk={c.chunk_idx} score={c.score:.3f}]\n{c.text}")
         return {
             "role": "system",
             "content": "\n\n".join(body_lines),
             "metadata": {
                 "type": "rag",
-                "chunk_refs": [
-                    {"document_id": str(c.document_id), "chunk_idx": c.chunk_idx}
-                    for c in chunks
-                ],
+                "chunk_refs": [{"document_id": str(c.document_id), "chunk_idx": c.chunk_idx} for c in chunks],
             },
         }

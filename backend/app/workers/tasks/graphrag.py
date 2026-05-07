@@ -1,4 +1,5 @@
 """Arq task: graphrag_build — E.7 initial build dispatcher (R11.02–R11.04)."""
+
 from __future__ import annotations
 
 import logging
@@ -46,7 +47,11 @@ class _DbDeltaLoader:
         self._agent_id = agent_id
 
     async def load(
-        self, *, config_id: Any, since: Any, mode: Any,
+        self,
+        *,
+        config_id: Any,
+        since: Any,
+        mode: Any,
     ) -> list[DeltaMessage]:
         sm = get_sessionmaker()
         async with sm() as db:
@@ -72,11 +77,11 @@ async def _resolve_embed_key(
     builder_key_group_id: uuid.UUID,
 ) -> tuple[str, str, str] | None:
     """Return (provider, model, plaintext_api_key) for the first embedding key in the group."""
-    from contexts.keys.infrastructure.group_repository import (  # noqa: PLC0415
+    from contexts.keys.infrastructure.group_repository import (
         KeyGroupMemberRepository,
     )
-    from contexts.keys.infrastructure.repositories import ApiKeyRepository  # noqa: PLC0415
-    from contexts.keys.interfaces.facade import KeysFacade  # noqa: PLC0415
+    from contexts.keys.infrastructure.repositories import ApiKeyRepository
+    from contexts.keys.interfaces.facade import KeysFacade
 
     sm = get_sessionmaker()
     async with sm() as db:
@@ -92,18 +97,18 @@ async def _resolve_embed_key(
             try:
                 return provider, _EMBED_MODEL[provider], plaintext.decode("utf-8")
             finally:
-                plaintext = b"\x00" * len(plaintext)  # noqa: F841
+                plaintext = b"\x00" * len(plaintext)
     return None
 
 
-def _make_embedder_factory():
+def _make_embedder_factory() -> Any:
     """Return an EmbedderFactory that resolves from the builder key group."""
-    async def _factory(cfg: GraphRagConfig):
+
+    async def _factory(cfg: GraphRagConfig) -> Any:
         resolved = await _resolve_embed_key(cfg.builder_key_group_id)
         if resolved is None:
             raise RuntimeError(
-                f"builder key group {cfg.builder_key_group_id} has no embedding key "
-                "(openai/gemini/voyage)"
+                f"builder key group {cfg.builder_key_group_id} has no embedding key " "(openai/gemini/voyage)"
             )
         provider, model, api_key = resolved
         return embedder_for(provider=provider, model=model, api_key=api_key)
@@ -154,24 +159,27 @@ async def graphrag_build(
             embedder_factory=_make_embedder_factory(),
         )
         cfg_id_str = str(cfg_id)
+
         # One-hot per state — set the active label to 1 and zero the others so
         # `graphrag_build_state{config_id="...", state="..."} == 1` is unique
         # at any moment.
         def _set_state(active: str) -> None:
             for s in ("idle", "building", "ready", "failed"):
                 GRAPHRAG_BUILD_STATE.labels(
-                    config_id=cfg_id_str, state=s,
+                    config_id=cfg_id_str,
+                    state=s,
                 ).set(1.0 if s == active else 0.0)
 
         _set_state("building")
         try:
             result = await builder.run(config_id=cfg_id, triggered_by=triggered_by)
             await db.commit()
-            _set_state(result.state.value if result.state.value in
-                       ("ready", "failed") else "idle")
+            _set_state(result.state.value if result.state.value in ("ready", "failed") else "idle")
             _log.info(
                 "graphrag_build done config=%s state=%s triples=%d entities=%d",
-                config_id, result.state.value, result.triples_written,
+                config_id,
+                result.state.value,
+                result.triples_written,
                 result.entities_written,
             )
             return (

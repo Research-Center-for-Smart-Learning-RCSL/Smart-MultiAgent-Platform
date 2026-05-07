@@ -47,11 +47,16 @@ async def list_notifications(
 ) -> list[NotificationOut]:
     facade = NotificationFacade(db)
     items = await facade.list_for_user(
-        principal.user_id, cursor=cursor, limit=limit,
+        principal.user_id,
+        cursor=cursor,
+        limit=limit,
     )
     return [
         NotificationOut(
-            id=n.id, kind=n.kind.value, title=n.title, body=n.body,
+            id=n.id,
+            kind=n.kind.value,
+            title=n.title,
+            body=n.body,
             metadata=n.metadata,
             read_at=n.read_at.isoformat() if n.read_at else None,
             created_at=n.created_at.isoformat(),

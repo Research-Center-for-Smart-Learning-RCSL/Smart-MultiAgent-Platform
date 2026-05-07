@@ -58,13 +58,8 @@ async def readyz() -> Response:
     logger.bind(
         event="readyz_dependency_unavailable",
         failed=[r.name for r in failed],
-        dependencies={
-            r.name: ("ok" if r.ok else (r.detail or "unavailable"))
-            for r in results
-        },
-    ).warning(
-        f"/readyz returning 503 — failed: {', '.join(f.name for f in failed)}"
-    )
+        dependencies={r.name: ("ok" if r.ok else (r.detail or "unavailable")) for r in results},
+    ).warning(f"/readyz returning 503 — failed: {', '.join(f.name for f in failed)}")
     problem = Problem(
         type=DEPENDENCY_UNAVAILABLE,
         title="One or more upstream dependencies are unavailable.",
@@ -72,8 +67,7 @@ async def readyz() -> Response:
         detail="Failed: " + ", ".join(f.name for f in failed),
         extras={
             "dependencies": {
-                r.name: ("ok" if r.ok else f"down: {r.detail or 'unavailable'}")
-                for r in results
+                r.name: ("ok" if r.ok else f"down: {r.detail or 'unavailable'}") for r in results
             },
         },
     )

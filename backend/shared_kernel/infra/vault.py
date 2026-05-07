@@ -24,6 +24,7 @@ SoC: nothing in this file imports from `contexts.*` or `app.*`.
 from __future__ import annotations
 
 import base64
+import contextlib
 import hmac
 import os
 import secrets
@@ -35,11 +36,11 @@ from typing import Any, Final
 
 import hvac
 import orjson
+from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding
 from cryptography.hazmat.primitives.asymmetric.rsa import RSAPublicKey
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-from cryptography.exceptions import InvalidSignature
 
 from app.config.settings import VaultSection
 
@@ -72,10 +73,10 @@ class EnvelopeRecord:
 
     ciphertext: bytes
     nonce: bytes
-    dek_wrapped: str                # `vault:v{N}:{b64}` — opaque to the caller
-    ciphertext_hmac: bytes          # HMAC-SHA256(ciphertext || nonce || aad) with KV key
-    transit_key_version: int = 0    # parsed from `dek_wrapped`; 0 ⇒ unparsed (legacy)
-    hmac_key_version: int = 1       # KV-tracked; defaults to 1 before D.10 rotation runs
+    dek_wrapped: str  # `vault:v{N}:{b64}` — opaque to the caller
+    ciphertext_hmac: bytes  # HMAC-SHA256(ciphertext || nonce || aad) with KV key
+    transit_key_version: int = 0  # parsed from `dek_wrapped`; 0 ⇒ unparsed (legacy)
+    hmac_key_version: int = 1  # KV-tracked; defaults to 1 before D.10 rotation runs
 
 
 # ---------------------------------------------------------------------------
@@ -165,7 +166,7 @@ class VaultClient:
             ciphertext = AESGCM(dek).encrypt(nonce, plaintext, aad)
         finally:
             # Best-effort zeroization — Python does not guarantee it.
-            dek = b"\x00" * len(dek)  # noqa: F841
+            dek = b"\x00" * len(dek)
         mac = hmac.new(
             self._load_hmac_key(),
             ciphertext + nonce + aad,
@@ -187,17 +188,20 @@ class VaultClient:
             sha256,
         ).digest()
         if not hmac.compare_digest(expected, record.ciphertext_hmac):
-            try:
-                from shared_kernel.observability.metrics import ENVELOPE_DECRYPT_FAILURES_TOTAL
+            # Best-effort metric increment; envelope verification is the
+            # critical path and must not be wedged by an observability fault.
+            with contextlib.suppress(Exception):
+                from shared_kernel.observability.metrics import (
+                    ENVELOPE_DECRYPT_FAILURES_TOTAL,
+                )
+
                 ENVELOPE_DECRYPT_FAILURES_TOTAL.inc()
-            except Exception:  # noqa: BLE001
-                pass
             raise VaultError("Envelope HMAC mismatch — tampered or wrong key.")
         dek = self.unwrap_dek(record.dek_wrapped)
         try:
             return AESGCM(dek).decrypt(record.nonce, record.ciphertext, aad)
         finally:
-            dek = b"\x00" * len(dek)  # noqa: F841
+            dek = b"\x00" * len(dek)
 
     def _load_hmac_key(self) -> bytes:
         if self._hmac_key is not None:
@@ -205,9 +209,7 @@ class VaultClient:
         raw = self.kv_get(_KV_HMAC_PATH)
         encoded = raw.get("key")
         if not encoded:
-            raise VaultError(
-                f"KV {_KV_HMAC_PATH!r} missing key `key` — run `smap.bootstrap vault-init`."
-            )
+            raise VaultError(f"KV {_KV_HMAC_PATH!r} missing key `key` — run `smap.bootstrap vault-init`.")
         key = base64.b64decode(encoded)
         if len(key) != _HMAC_KEY_BYTES:
             raise VaultError(f"HMAC key must be {_HMAC_KEY_BYTES} bytes; got {len(key)}.")
@@ -329,9 +331,7 @@ class VaultClient:
         # Cache for 60 s to amortise rotation polls without hiding them forever.
         if not force and time.monotonic() - self._pubkey_fetched_at < 60.0:
             return
-        resp = self._call(
-            self._client.secrets.transit.read_key, name=self._cfg.transit_key_jwt
-        )
+        resp = self._call(self._client.secrets.transit.read_key, name=self._cfg.transit_key_jwt)
         data = resp["data"]
         self._key_config = data
         versions = data.get("keys", {})

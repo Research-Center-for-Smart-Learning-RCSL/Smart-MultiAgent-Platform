@@ -28,7 +28,8 @@ class Neo4jAsyncDriver:
 
     async def _ensure(self) -> Any:
         if self._driver is None:
-            from neo4j import AsyncGraphDatabase  # noqa: PLC0415
+            from neo4j import AsyncGraphDatabase
+
             self._driver = AsyncGraphDatabase.driver(self._uri, auth=self._auth)
         return self._driver
 
@@ -38,7 +39,10 @@ class Neo4jAsyncDriver:
             self._driver = None
 
     async def snapshot_subgraph(
-        self, *, config_id: uuid.UUID, build_id: uuid.UUID | None,
+        self,
+        *,
+        config_id: uuid.UUID,
+        build_id: uuid.UUID | None,
     ) -> dict[str, Any]:
         driver = await self._ensure()
         cypher = (
@@ -88,12 +92,18 @@ class Neo4jAsyncDriver:
         ]
         async with driver.session() as session:
             await session.run(
-                cypher, rows=rows, cid=str(config_id), bid=str(build_id),
+                cypher,
+                rows=rows,
+                cid=str(config_id),
+                bid=str(build_id),
             )
         return len(triples)
 
     async def delete_by_build(
-        self, *, config_id: uuid.UUID, build_id: uuid.UUID,
+        self,
+        *,
+        config_id: uuid.UUID,
+        build_id: uuid.UUID,
     ) -> None:
         driver = await self._ensure()
         cypher = (
@@ -108,7 +118,10 @@ class Neo4jAsyncDriver:
             await session.run(cypher, cid=str(config_id), bid=str(build_id))
 
     async def list_triples_for_build(
-        self, *, config_id: uuid.UUID, build_id: uuid.UUID,
+        self,
+        *,
+        config_id: uuid.UUID,
+        build_id: uuid.UUID,
     ) -> list[dict[str, Any]]:
         """Return all triples whose REL is tagged with build_id (for Phase-2 retry)."""
         driver = await self._ensure()
@@ -121,20 +134,23 @@ class Neo4jAsyncDriver:
         )
         async with driver.session() as session:
             result = await session.run(
-                cypher, cid=str(config_id), bid=str(build_id),
+                cypher,
+                cid=str(config_id),
+                bid=str(build_id),
             )
             return [dict(rec) async for rec in result]
 
     async def delete_all(self, *, config_id: uuid.UUID) -> None:
         driver = await self._ensure()
-        cypher = (
-            "MATCH (n:Entity {graphrag_config_id: $cid}) DETACH DELETE n"
-        )
+        cypher = "MATCH (n:Entity {graphrag_config_id: $cid}) DETACH DELETE n"
         async with driver.session() as session:
             await session.run(cypher, cid=str(config_id))
 
     async def restore_from_snapshot(
-        self, *, config_id: uuid.UUID, snapshot: dict[str, Any],
+        self,
+        *,
+        config_id: uuid.UUID,
+        snapshot: dict[str, Any],
     ) -> None:
         driver = await self._ensure()
         edges = list(snapshot.get("edges") or [])

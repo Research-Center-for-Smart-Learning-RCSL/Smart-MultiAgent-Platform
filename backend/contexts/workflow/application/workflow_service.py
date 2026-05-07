@@ -96,13 +96,16 @@ class WorkflowService:
             definition=definition,
         )
 
-        await audit.emit(self._db, audit.AuditEvent(
-            action="workflow.created",
-            resource_type="workflow",
-            resource_id=wf.id,
-            actor_user_id=actor_user_id,
-            metadata={"workspace_id": str(workspace_id), "name": name},
-        ))
+        await audit.emit(
+            self._db,
+            audit.AuditEvent(
+                action="workflow.created",
+                resource_type="workflow",
+                resource_id=wf.id,
+                actor_user_id=actor_user_id,
+                metadata={"workspace_id": str(workspace_id), "name": name},
+            ),
+        )
         return wf
 
     async def patch(
@@ -147,13 +150,16 @@ class WorkflowService:
                 f"Expected version {expected_version}, current is {existing.version}",
             )
 
-        await audit.emit(self._db, audit.AuditEvent(
-            action="workflow.edited",
-            resource_type="workflow",
-            resource_id=workflow_id,
-            actor_user_id=actor_user_id,
-            metadata={"version": wf.version},
-        ))
+        await audit.emit(
+            self._db,
+            audit.AuditEvent(
+                action="workflow.edited",
+                resource_type="workflow",
+                resource_id=workflow_id,
+                actor_user_id=actor_user_id,
+                metadata={"version": wf.version},
+            ),
+        )
         return wf
 
     async def soft_delete(
@@ -166,12 +172,15 @@ class WorkflowService:
         if not deleted:
             raise WorkflowNotFound(f"Workflow {workflow_id} not found")
 
-        await audit.emit(self._db, audit.AuditEvent(
-            action="workflow.deleted",
-            resource_type="workflow",
-            resource_id=workflow_id,
-            actor_user_id=actor_user_id,
-        ))
+        await audit.emit(
+            self._db,
+            audit.AuditEvent(
+                action="workflow.deleted",
+                resource_type="workflow",
+                resource_id=workflow_id,
+                actor_user_id=actor_user_id,
+            ),
+        )
 
     # -- Validation (no persist) --
 
@@ -187,10 +196,7 @@ class WorkflowService:
         if schema_errors:
             return ValidationResult(
                 valid=False,
-                errors=[
-                    LintIssue(0, "error", e.message)
-                    for e in schema_errors
-                ],
+                errors=[LintIssue(0, "error", e.message) for e in schema_errors],
                 warnings=[],
             )
         return validate_definition(
@@ -242,10 +248,12 @@ class WorkflowService:
         limit: int = 50,
         offset: int = 0,
         include_archive: bool = False,
-    ) -> list[WorkflowRun] | list[dict]:
+    ) -> list[WorkflowRun] | list[dict[str, Any]]:
         if include_archive:
             return await self._archive.list_union_for_workflow(
-                workflow_id, limit=limit, offset=offset,
+                workflow_id,
+                limit=limit,
+                offset=offset,
             )
         return await self._runs.list_for_workflow(workflow_id, limit=limit, offset=offset)
 
@@ -280,7 +288,8 @@ class WorkflowService:
             ) from exc
 
     def _validate_schema_collect(
-        self, definition: dict[str, Any],
+        self,
+        definition: dict[str, Any],
     ) -> list[jsonschema.ValidationError]:
         schema = _get_schema()
         validator = jsonschema.Draft202012Validator(schema)
@@ -295,4 +304,3 @@ def _issue_to_dict(issue: Any) -> dict[str, Any]:
         "node_id": issue.node_id,
         "edge_id": issue.edge_id,
     }
-

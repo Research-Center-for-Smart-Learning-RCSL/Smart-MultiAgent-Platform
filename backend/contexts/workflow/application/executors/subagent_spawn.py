@@ -19,6 +19,7 @@ import uuid
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from contexts.workflow.application.executors.registry import register
 from contexts.workflow.domain.models import (
     NodeSpec,
     NodeType,
@@ -27,7 +28,6 @@ from contexts.workflow.domain.models import (
     StepState,
 )
 from contexts.workflow.sel.template import interpolate
-from contexts.workflow.application.executors.registry import register
 
 logger = logging.getLogger(__name__)
 
@@ -74,16 +74,20 @@ async def execute(ctx: RunContext, node: NodeSpec, db: AsyncSession) -> StepOutc
             callback_key = f"wf:subagent_callback:{instance.id}"
             await redis.set(
                 callback_key,
-                json.dumps({
-                    "run_id": str(ctx.run_id),
-                    "node_id": node.id,
-                    "port": "success",
-                }),
+                json.dumps(
+                    {
+                        "run_id": str(ctx.run_id),
+                        "node_id": node.id,
+                        "port": "success",
+                    }
+                ),
                 ex=timeout_seconds + 60,
             )
             logger.info(
                 "run %s: spawned subagent %s, waiting for completion (timeout=%ds)",
-                ctx.run_id, instance.id, timeout_seconds,
+                ctx.run_id,
+                instance.id,
+                timeout_seconds,
             )
             return StepOutcome(
                 state=StepState.RUNNING,

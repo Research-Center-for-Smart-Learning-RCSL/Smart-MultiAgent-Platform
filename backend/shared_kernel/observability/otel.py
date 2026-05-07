@@ -18,7 +18,7 @@ if TYPE_CHECKING:  # type-only import — keeps FastAPI out of OTEL-disabled pat
     from fastapi import FastAPI
 
 
-def install_otel(app: "FastAPI", cfg: ObservabilitySection) -> None:
+def install_otel(app: FastAPI, cfg: ObservabilitySection) -> None:
     if not cfg.otel_exporter_otlp_endpoint:
         return
     try:
@@ -39,9 +39,7 @@ def install_otel(app: "FastAPI", cfg: ObservabilitySection) -> None:
     resource = Resource.create({"service.name": cfg.otel_service_name})
     provider = TracerProvider(resource=resource)
     provider.add_span_processor(
-        BatchSpanProcessor(
-            OTLPSpanExporter(endpoint=cfg.otel_exporter_otlp_endpoint)
-        )
+        BatchSpanProcessor(OTLPSpanExporter(endpoint=cfg.otel_exporter_otlp_endpoint))
     )
     trace.set_tracer_provider(provider)
     FastAPIInstrumentor.instrument_app(app)

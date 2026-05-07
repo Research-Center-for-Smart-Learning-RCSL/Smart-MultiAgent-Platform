@@ -10,7 +10,7 @@ from __future__ import annotations
 import uuid
 from datetime import timedelta
 
-from fastapi import HTTPException, Response, APIRouter, Depends, Query, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -167,7 +167,9 @@ async def verify_email(
 ) -> dict[str, str]:
     service = _service(db)
     user = await service.verify_email(
-        body.token, remote_ip=ctx.actor_ip, request_id=ctx.request_id,
+        body.token,
+        remote_ip=ctx.actor_ip,
+        request_id=ctx.request_id,
     )
     return {"id": str(user.id), "status": user.status.value}
 
@@ -180,7 +182,9 @@ async def verify_email_via_link(
 ) -> dict[str, str]:
     service = _service(db)
     user = await service.verify_email(
-        token, remote_ip=ctx.actor_ip, request_id=ctx.request_id,
+        token,
+        remote_ip=ctx.actor_ip,
+        request_id=ctx.request_id,
     )
     return {"id": str(user.id), "status": user.status.value}
 
@@ -197,7 +201,7 @@ async def login(
     outcome = await service.login(
         email=body.email,
         password=body.password,
-        remote_ip=ctx.actor_ip or (request.client.host if request.client else "0.0.0.0"),
+        remote_ip=ctx.actor_ip or (request.client.host if request.client else "0.0.0.0"),  # noqa: S104
         user_agent=request.headers.get("User-Agent"),
         request_id=ctx.request_id,
     )
@@ -219,7 +223,7 @@ async def refresh(
     service = _service(db)
     pair = await service.refresh(
         refresh_token=refresh_token,
-        remote_ip=ctx.actor_ip or "0.0.0.0",
+        remote_ip=ctx.actor_ip or "0.0.0.0",  # noqa: S104
         request_id=ctx.request_id,
     )
     _set_refresh_cookie(response, pair.refresh_token)
@@ -242,8 +246,10 @@ async def logout(
     service = _service(db)
     ttl_seconds = get_settings().jwt.access_ttl_seconds
     if ctx.access_jti is None:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                            detail="Missing access JTI in authenticated context")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Missing access JTI in authenticated context",
+        )
     await service.logout(
         refresh_token=refresh_token,
         access_jti=ctx.access_jti,
@@ -261,7 +267,9 @@ async def request_password_reset(
 ) -> None:
     service = _service(db)
     await service.request_password_reset(
-        email=body.email, remote_ip=ctx.actor_ip, request_id=ctx.request_id,
+        email=body.email,
+        remote_ip=ctx.actor_ip,
+        request_id=ctx.request_id,
     )
 
 

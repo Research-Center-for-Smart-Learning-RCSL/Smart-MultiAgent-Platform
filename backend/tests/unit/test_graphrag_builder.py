@@ -28,7 +28,6 @@ from contexts.knowledge.domain.graphrag import (
     Triple,
 )
 
-
 # ---------------------------------------------------------------------------
 # Fakes
 # ---------------------------------------------------------------------------
@@ -55,10 +54,13 @@ class FakeConfigStore:
         class _R:
             def one(_self) -> Any:  # noqa: N805
                 return None
+
             def first(_self) -> Any:  # noqa: N805
                 return None
+
             def all(_self) -> list[Any]:  # noqa: N805
                 return []
+
         return _R()
 
     async def get(self, _id: uuid.UUID, *, include_deleted: bool = False) -> GraphRagConfig:
@@ -82,9 +84,7 @@ class FakeConfigStore:
             agent_id=self.cfg.agent_id,
             builder_key_group_id=self.cfg.builder_key_group_id,
             trigger_config=self.cfg.trigger_config,
-            last_build_at=(
-                datetime.now(UTC) if stamp_built_at else self.cfg.last_build_at
-            ),
+            last_build_at=(datetime.now(UTC) if stamp_built_at else self.cfg.last_build_at),
             last_build_state=state,
             last_build_error=error,
             created_at=self.cfg.created_at,
@@ -106,10 +106,13 @@ class FakeDb:
         class _R:
             def one(_self) -> Any:  # noqa: N805
                 return None
+
             def first(_self) -> Any:  # noqa: N805
                 return None
+
             def all(_self) -> list[Any]:  # noqa: N805
                 return []
+
         return _R()
 
     async def commit(self) -> None:
@@ -139,8 +142,9 @@ class FakeSnapshots:
     def __init__(self) -> None:
         self.store: dict[tuple[uuid.UUID, uuid.UUID], dict[str, Any]] = {}
 
-    async def put(self, *, config_id: uuid.UUID, build_id: uuid.UUID,
-                  snapshot: dict[str, Any], ttl_s: int) -> None:
+    async def put(
+        self, *, config_id: uuid.UUID, build_id: uuid.UUID, snapshot: dict[str, Any], ttl_s: int
+    ) -> None:
         self.store[(config_id, build_id)] = snapshot
 
     async def get(self, *, config_id: uuid.UUID, build_id: uuid.UUID):
@@ -150,7 +154,7 @@ class FakeSnapshots:
         self.store.pop((config_id, build_id), None)
 
     async def scan_current(self, *, config_id: uuid.UUID) -> uuid.UUID | None:
-        for (cid, bid) in self.store:
+        for cid, bid in self.store:
             if cid == config_id:
                 return bid
         return None
@@ -231,7 +235,7 @@ class FakeEmbedder:
         return [[0.1, 0.2, 0.3] for _ in texts]
 
 
-async def _embedder_factory(cfg):  # noqa: ANN001
+async def _embedder_factory(cfg):
     return FakeEmbedder()
 
 
@@ -284,7 +288,7 @@ def _make_builder(
         embedder_factory=_embedder_factory,
     )
     # Swap the real repo out for the fake (same public surface).
-    builder._configs = store  # type: ignore[attr-defined]
+    builder._configs = store  # type: ignore[assignment, attr-defined]
     return builder, store, db
 
 
@@ -293,15 +297,19 @@ def _make_builder(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_happy_path_transitions_to_idle() -> None:
     cfg = _make_cfg()
     neo4j, vectors = FakeNeo4j(), FakeVectorStore()
     lock, snaps = FakeLock(), FakeSnapshots()
     extractor = FakeExtractor(_make_triples())
     builder, store, _db = _make_builder(
-        cfg=cfg, neo4j=neo4j, vectors=vectors,
-        lock=lock, snapshots=snaps, extractor=extractor,
+        cfg=cfg,
+        neo4j=neo4j,
+        vectors=vectors,
+        lock=lock,
+        snapshots=snaps,
+        extractor=extractor,
     )
 
     result = await builder.run(config_id=cfg.id, mode="delta", triggered_by="manual")
@@ -324,22 +332,26 @@ async def test_happy_path_transitions_to_idle() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_phase1_failure_marks_failed_and_cleans_snapshot() -> None:
     cfg = _make_cfg()
     neo4j = FakeNeo4j(raise_on_apply=RuntimeError("cypher boom"))
     vectors = FakeVectorStore()
     lock, snaps = FakeLock(), FakeSnapshots()
     builder, store, _db = _make_builder(
-        cfg=cfg, neo4j=neo4j, vectors=vectors,
-        lock=lock, snapshots=snaps,
+        cfg=cfg,
+        neo4j=neo4j,
+        vectors=vectors,
+        lock=lock,
+        snapshots=snaps,
         extractor=FakeExtractor(_make_triples()),
     )
 
     result = await builder.run(config_id=cfg.id)
 
     assert result.state is BuildState.FAILED
-    assert result.error is not None and "cypher boom" in result.error
+    assert result.error is not None
+    assert "cypher boom" in result.error
     assert store.cfg.last_build_state is BuildState.FAILED
     assert not snaps.store
     assert vectors.upserts == []
@@ -350,15 +362,18 @@ async def test_phase1_failure_marks_failed_and_cleans_snapshot() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_phase2_failure_enters_compensating_and_keeps_snapshot() -> None:
     cfg = _make_cfg()
     neo4j = FakeNeo4j()
     vectors = FakeVectorStore(raise_on_upsert=RuntimeError("qdrant down"))
     lock, snaps = FakeLock(), FakeSnapshots()
     builder, store, _db = _make_builder(
-        cfg=cfg, neo4j=neo4j, vectors=vectors,
-        lock=lock, snapshots=snaps,
+        cfg=cfg,
+        neo4j=neo4j,
+        vectors=vectors,
+        lock=lock,
+        snapshots=snaps,
         extractor=FakeExtractor(_make_triples()),
     )
 
@@ -375,15 +390,18 @@ async def test_phase2_failure_enters_compensating_and_keeps_snapshot() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_reconciler_retry_succeeds() -> None:
     cfg = _make_cfg()
     neo4j = FakeNeo4j()
     vectors = FakeVectorStore(raise_on_upsert=RuntimeError("qdrant down"))
     lock, snaps = FakeLock(), FakeSnapshots()
     builder, store, _db = _make_builder(
-        cfg=cfg, neo4j=neo4j, vectors=vectors,
-        lock=lock, snapshots=snaps,
+        cfg=cfg,
+        neo4j=neo4j,
+        vectors=vectors,
+        lock=lock,
+        snapshots=snaps,
         extractor=FakeExtractor(_make_triples()),
     )
     await builder.run(config_id=cfg.id)
@@ -392,7 +410,7 @@ async def test_reconciler_retry_succeeds() -> None:
     # Build the reconciler over the same fakes.
     attempts: list[int] = []
 
-    async def phase2(*, cfg, build_id) -> None:  # noqa: ANN001
+    async def phase2(*, cfg, build_id) -> None:
         attempts.append(1)
         # Succeed on the second retry.
         if len(attempts) < 2:
@@ -402,7 +420,7 @@ async def test_reconciler_retry_succeeds() -> None:
         return None
 
     recon = ReconciliationLoop(
-        session_factory=lambda: store,  # type: ignore[arg-type]
+        session_factory=lambda: store,  # type: ignore[arg-type, return-value]
         neo4j=neo4j,
         vector_store=vectors,  # type: ignore[arg-type]
         snapshot_store=snaps,
@@ -422,16 +440,19 @@ async def test_reconciler_retry_succeeds() -> None:
     class _RepoShim:
         def __init__(self, db: Any) -> None:
             self._store = db
+
         async def list_in_state(self, state):
             return await self._store.list_in_state(state)
+
         async def set_state(self, **kw):
             await self._store.set_state(**kw)
-    rmod.GraphRagConfigRepository = _RepoShim  # type: ignore[assignment]
+
+    rmod.GraphRagConfigRepository = _RepoShim  # type: ignore[assignment, misc]
 
     touched = await recon.run_once()
     assert touched == [cfg.id]
-    assert store.cfg.last_build_state is BuildState.IDLE
-    assert store.cfg.last_build_at is not None
+    assert store.cfg.last_build_state is BuildState.IDLE  # type: ignore[comparison-overlap]
+    assert store.cfg.last_build_at is not None  # type: ignore[unreachable]
 
 
 # ---------------------------------------------------------------------------
@@ -439,27 +460,30 @@ async def test_reconciler_retry_succeeds() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_reconciler_exhausted_rolls_back() -> None:
     cfg = _make_cfg()
     neo4j = FakeNeo4j()
     vectors = FakeVectorStore(raise_on_upsert=RuntimeError("qdrant down"))
     lock, snaps = FakeLock(), FakeSnapshots()
     builder, store, _db = _make_builder(
-        cfg=cfg, neo4j=neo4j, vectors=vectors,
-        lock=lock, snapshots=snaps,
+        cfg=cfg,
+        neo4j=neo4j,
+        vectors=vectors,
+        lock=lock,
+        snapshots=snaps,
         extractor=FakeExtractor(_make_triples()),
     )
     await builder.run(config_id=cfg.id)
 
-    async def always_fails(*, cfg, build_id) -> None:  # noqa: ANN001
+    async def always_fails(*, cfg, build_id) -> None:
         raise RuntimeError("still down")
 
     async def fake_sleep(_s: float) -> None:
         return None
 
     recon = ReconciliationLoop(
-        session_factory=lambda: store,  # type: ignore[arg-type]
+        session_factory=lambda: store,  # type: ignore[arg-type, return-value]
         neo4j=neo4j,
         vector_store=vectors,  # type: ignore[arg-type]
         snapshot_store=snaps,
@@ -473,11 +497,14 @@ async def test_reconciler_exhausted_rolls_back() -> None:
     class _RepoShim:
         def __init__(self, db: Any) -> None:
             self._store = db
+
         async def list_in_state(self, state):
             return await self._store.list_in_state(state)
+
         async def set_state(self, **kw):
             await self._store.set_state(**kw)
-    rmod.GraphRagConfigRepository = _RepoShim  # type: ignore[assignment]
+
+    rmod.GraphRagConfigRepository = _RepoShim  # type: ignore[assignment, misc]
 
     await recon.run_once()
     assert store.cfg.last_build_state is BuildState.FAILED

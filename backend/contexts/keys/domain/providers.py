@@ -74,9 +74,7 @@ class CapabilityRequirement:
     capability: ProviderCapability
 
 
-def assert_capability(
-    provider: ApiKeyProvider, requirement: CapabilityRequirement
-) -> None:
+def assert_capability(provider: ApiKeyProvider, requirement: CapabilityRequirement) -> None:
     """Raise `CapabilityMismatch` if `provider` cannot fulfil `requirement`.
 
     The caller catches this at the HTTP edge and maps it to

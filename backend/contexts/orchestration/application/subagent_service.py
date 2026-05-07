@@ -27,10 +27,9 @@ from contexts.orchestration.domain.errors import (
     SubagentDepthExceeded,
 )
 from contexts.orchestration.domain.models import (
-    AgentInstance,
-    SUBAGENT_INHERITANCE,
     SUBAGENT_MAX_CONCURRENT_DEFAULT,
     SUBAGENT_MAX_CONCURRENT_HARD,
+    AgentInstance,
 )
 from contexts.orchestration.infrastructure.metrics import SUBAGENT_CONCURRENCY
 from contexts.orchestration.infrastructure.repositories import AgentInstanceRepository
@@ -82,8 +81,7 @@ class SubagentService:
                 ),
             )
             raise SubagentDepthExceeded(
-                f"instance {parent_instance_id} is already a sub-agent; "
-                f"depth > 1 not allowed"
+                f"instance {parent_instance_id} is already a sub-agent; " f"depth > 1 not allowed"
             )
 
         # R15.20: concurrent cap.
@@ -91,8 +89,7 @@ class SubagentService:
         alive = await self._instances.count_alive_children(parent_instance_id)
         if alive >= effective_cap:
             raise SubagentConcurrencyExceeded(
-                f"parent {parent_instance_id} has {alive} alive sub-agents "
-                f"(max {effective_cap})"
+                f"parent {parent_instance_id} has {alive} alive sub-agents " f"(max {effective_cap})"
             )
 
         # Build inherited run_context per R15.22.

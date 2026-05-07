@@ -61,9 +61,7 @@ class KeyProjectRepository:
         )
         await self._db.execute(stmt)
 
-    async def withdraw(
-        self, *, key_id: uuid.UUID, project_id: uuid.UUID, at: datetime
-    ) -> bool:
+    async def withdraw(self, *, key_id: uuid.UUID, project_id: uuid.UUID, at: datetime) -> bool:
         """Soft-withdraw. Returns True if a row was actually flipped."""
         result = await self._db.execute(
             t.key_projects.update()
@@ -78,17 +76,11 @@ class KeyProjectRepository:
         )
         return bool(result.rowcount)
 
-    async def list_active_in_project(
-        self, project_id: uuid.UUID
-    ) -> list[ApiKey]:
+    async def list_active_in_project(self, project_id: uuid.UUID) -> list[ApiKey]:
         """Return the `ApiKey` projection for every key currently carried in."""
         stmt = (
             sa.select(t.api_keys)
-            .select_from(
-                t.api_keys.join(
-                    t.key_projects, t.api_keys.c.id == t.key_projects.c.key_id
-                )
-            )
+            .select_from(t.api_keys.join(t.key_projects, t.api_keys.c.id == t.key_projects.c.key_id))
             .where(
                 sa.and_(
                     t.key_projects.c.project_id == project_id,
@@ -112,11 +104,7 @@ class KeyProjectRepository:
         """
         stmt = (
             sa.select(t.key_projects.c.key_id)
-            .select_from(
-                t.key_projects.join(
-                    t.api_keys, t.api_keys.c.id == t.key_projects.c.key_id
-                )
-            )
+            .select_from(t.key_projects.join(t.api_keys, t.api_keys.c.id == t.key_projects.c.key_id))
             .where(
                 sa.and_(
                     t.key_projects.c.project_id == project_id,

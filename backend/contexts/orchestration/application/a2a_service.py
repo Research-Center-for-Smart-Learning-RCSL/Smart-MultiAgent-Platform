@@ -70,8 +70,8 @@ class A2AService:
 
         try:
             to_agent_id = uuid.UUID(envelope.to_agent)
-        except ValueError:
-            raise A2AForbidden(f"to_agent is not a valid agent id: {envelope.to_agent!r}")
+        except ValueError as exc:
+            raise A2AForbidden(f"to_agent is not a valid agent id: {envelope.to_agent!r}") from exc
         caller = await self._require_agent(envelope.from_agent)
         callee = await self._require_agent(to_agent_id)
 
@@ -246,9 +246,7 @@ class A2AService:
         caller = await self._require_agent(envelope.from_agent)
 
         # Guard: broadcast must not proceed from an agent in a soft-deleted project.
-        caller_project = await self._tenancy.get_project(
-            caller.project_id, include_deleted=True
-        )
+        caller_project = await self._tenancy.get_project(caller.project_id, include_deleted=True)
         if caller_project is None or caller_project.deleted_at is not None:
             await audit.emit(
                 self._db,
@@ -262,9 +260,7 @@ class A2AService:
                     },
                 ),
             )
-            raise A2AForbidden(
-                f"broadcast denied: caller project {caller.project_id} is soft-deleted"
-            )
+            raise A2AForbidden(f"broadcast denied: caller project {caller.project_id} is soft-deleted")
 
         agents = await self._agents.list_agents_for_project(caller.project_id)
 
@@ -338,12 +334,8 @@ class A2AService:
         # _require_agent already filters agent-level deletion; we still need
         # to enforce R9.17 rule 3 ("target project not soft-deleted") because
         # project.soft_delete does NOT cascade to agents.deleted_at.
-        callee_project = await self._tenancy.get_project(
-            callee.project_id, include_deleted=True
-        )
-        callee_project_deleted = (
-            callee_project is None or callee_project.deleted_at is not None
-        )
+        callee_project = await self._tenancy.get_project(callee.project_id, include_deleted=True)
+        callee_project_deleted = callee_project is None or callee_project.deleted_at is not None
         check = A2ACheckInput(
             caller=caller,
             callee=callee,
@@ -365,10 +357,7 @@ class A2AService:
                     },
                 ),
             )
-            raise A2AForbidden(
-                f"a2a denied: {verdict.reason} "
-                f"(caller={caller.id}, callee={callee.id})"
-            )
+            raise A2AForbidden(f"a2a denied: {verdict.reason} " f"(caller={caller.id}, callee={callee.id})")
 
     # ------------------------------------------------------------------
     # Helpers

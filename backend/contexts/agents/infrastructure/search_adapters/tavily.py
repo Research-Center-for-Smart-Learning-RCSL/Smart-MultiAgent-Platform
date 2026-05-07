@@ -51,7 +51,11 @@ class TavilyAdapter:
         }
         # Tavily's "topic"/"days" encode freshness — map our enum to days.
         days_map: dict[str, int | None] = {
-            "any": None, "day": 1, "week": 7, "month": 30, "year": 365,
+            "any": None,
+            "day": 1,
+            "week": 7,
+            "month": 30,
+            "year": 365,
         }
         days = days_map.get(freshness)
         if days is not None:

@@ -12,36 +12,53 @@ _MEDIA = "application/problem+json"
 
 _MAP: dict[type[errors.OrchestrationError], tuple[str, int, str]] = {
     errors.A2ATimeout: (
-        "a2a-timeout", 504, "A2A sync call timed out",
+        "a2a-timeout",
+        504,
+        "A2A sync call timed out",
     ),
     errors.A2AForbidden: (
-        "a2a-forbidden", 403, "A2A call forbidden by scope rules",
+        "a2a-forbidden",
+        403,
+        "A2A call forbidden by scope rules",
     ),
     errors.A2ADeliveryFailed: (
-        "a2a-delivery-failed", 502, "A2A message delivery exhausted retries",
+        "a2a-delivery-failed",
+        502,
+        "A2A message delivery exhausted retries",
     ),
     errors.WakeupClampApplied: (
-        "orchestration/wakeup-clamped", 200, "Wake-up value was clamped to bounds",
+        "orchestration/wakeup-clamped",
+        200,
+        "Wake-up value was clamped to bounds",
     ),
     errors.WakeupFieldReadonly: (
-        "orchestration/wakeup-field-readonly", 422,
+        "orchestration/wakeup-field-readonly",
+        422,
         "Only every_n_messages and silence_minutes are self-modifiable",
     ),
     errors.InstructLoopDetected: (
-        "instruct-loop-detected", 409, "Instruct chain contains a cycle",
+        "instruct-loop-detected",
+        409,
+        "Instruct chain contains a cycle",
     ),
     errors.InstructBudgetExceeded: (
-        "instruct-budget-exceeded", 429, "Instruct depth/count/time cap exceeded",
+        "instruct-budget-exceeded",
+        429,
+        "Instruct depth/count/time cap exceeded",
     ),
     errors.SubagentDepthExceeded: (
-        "subagent-depth-exceeded", 409, "Sub-agent recursion depth exceeded (max 1)",
+        "subagent-depth-exceeded",
+        409,
+        "Sub-agent recursion depth exceeded (max 1)",
     ),
     errors.SubagentConcurrencyExceeded: (
-        "subagent-concurrency-exceeded", 429,
+        "subagent-concurrency-exceeded",
+        429,
         "Max concurrent sub-agents exceeded",
     ),
     errors.ApprovalTimeoutLeader: (
-        "approval-timeout-leader", 200,
+        "approval-timeout-leader",
+        200,
         "Consensus timed out; leader verdict applied",
     ),
 }
@@ -49,10 +66,14 @@ _MAP: dict[type[errors.OrchestrationError], tuple[str, int, str]] = {
 
 async def _handler(request: Request, exc: errors.OrchestrationError) -> JSONResponse:
     slug, status, title = _MAP.get(
-        type(exc), ("orchestration/generic", 400, "Orchestration error"),
+        type(exc),
+        ("orchestration/generic", 400, "Orchestration error"),
     )
     problem = Problem(
-        type=problem_type(slug), title=title, status=status, detail=str(exc),
+        type=problem_type(slug),
+        title=title,
+        status=status,
+        detail=str(exc),
     )
     body = problem.dump()
     body["instance"] = str(request.url.path)

@@ -65,7 +65,7 @@ def run(
     creds: list[AppRoleCredentials] = []
     for name, params in _ROLE_SETTINGS.items():
         existed = _role_exists(client, name)
-        client.auth.approle.create_or_update_approle(role_name=name, **params)  # type: ignore[arg-type]
+        client.auth.approle.create_or_update_approle(role_name=name, **params)
         if existed:
             report.already(f"approle:{name}")
         else:

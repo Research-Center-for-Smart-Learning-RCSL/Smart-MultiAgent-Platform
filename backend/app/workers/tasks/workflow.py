@@ -11,7 +11,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from loguru import logger
@@ -31,9 +31,7 @@ async def run_workflow_step(
         engine = RunEngine(db)
         await engine.resume_step(uuid.UUID(run_id), node_id)
 
-    logger.bind(event="workflow_step_resumed", run_id=run_id, node_id=node_id).info(
-        "workflow step resumed"
-    )
+    logger.bind(event="workflow_step_resumed", run_id=run_id, node_id=node_id).info("workflow step resumed")
     return "ok"
 
 
@@ -47,8 +45,8 @@ async def retry_workflow_node(
     Called instead of asyncio.sleep to avoid holding the DB connection / Arq
     job slot during the retry backoff interval.
     """
-    from shared_kernel.db.session import async_session
     from shared_kernel.auth.clients import get_redis
+    from shared_kernel.db.session import async_session
 
     async with async_session() as db:
         from contexts.workflow.application.run_engine import RunEngine
@@ -62,9 +60,7 @@ async def retry_workflow_node(
     redis = get_redis()
     await redis.delete(f"wf:retry:{run_id}:{node_id}")
 
-    logger.bind(event="workflow_node_retried", run_id=run_id, node_id=node_id).info(
-        "workflow node retried"
-    )
+    logger.bind(event="workflow_node_retried", run_id=run_id, node_id=node_id).info("workflow node retried")
     return "ok"
 
 
@@ -86,9 +82,7 @@ async def workflow_event_timeout(
 
     if not await redis.exists(wait_key):
         # Event already handled by a dispatcher — nothing to do.
-        logger.bind(run_id=run_id, node_id=node_id).debug(
-            "workflow_event_timeout: event already received"
-        )
+        logger.bind(run_id=run_id, node_id=node_id).debug("workflow_event_timeout: event already received")
         return "already_received"
 
     async with async_session() as db:
@@ -103,6 +97,7 @@ async def workflow_event_timeout(
     info_raw = await redis.get(wait_key)
     if info_raw:
         import json
+
         try:
             info = json.loads(info_raw)
             event_type = info.get("event_type", "")
@@ -138,14 +133,13 @@ async def workflow_subagent_timeout(
         engine = RunEngine(db)
         run = await engine._runs.get(uuid.UUID(run_id))
         if run and run.state == RunState.WAITING:
-            from datetime import datetime, timezone
-            logger.bind(run_id=run_id, node_id=node_id).warning(
-                "subagent timeout: failing run"
-            )
+            from datetime import datetime
+
+            logger.bind(run_id=run_id, node_id=node_id).warning("subagent timeout: failing run")
             await engine._runs.update_state(
                 uuid.UUID(run_id),
                 state=RunState.FAILED,
-                ended_at=datetime.now(timezone.utc),
+                ended_at=datetime.now(UTC),
             )
             await db.commit()
 
@@ -163,13 +157,14 @@ async def archive_workflow_runs(
     runtime config pattern).
     """
     import sqlalchemy as sa
-    from shared_kernel.db.session import async_session
-    from shared_kernel.auth.clients import get_redis
+
     from contexts.orchestration.infrastructure.tables import workflow_runs
     from contexts.workflow.infrastructure.tables import (
         workflow_runs_archive,
         workflow_steps,
     )
+    from shared_kernel.auth.clients import get_redis
+    from shared_kernel.db.session import async_session
 
     redis = get_redis()
     override = await redis.get("config:archive:cutoff_days")
@@ -184,19 +179,21 @@ async def archive_workflow_runs(
                 f"falling back to default {cutoff_days}d"
             )
 
-    cutoff = datetime.now(timezone.utc) - timedelta(days=cutoff_days)
+    cutoff = datetime.now(UTC) - timedelta(days=cutoff_days)
     archived = 0
 
     async with async_session() as db:
         # Find ended runs older than cutoff
         rows = (
             await db.execute(
-                sa.select(workflow_runs).where(
+                sa.select(workflow_runs)
+                .where(
                     sa.and_(
                         workflow_runs.c.ended_at.isnot(None),
                         workflow_runs.c.ended_at < cutoff,
                     ),
-                ).limit(500),
+                )
+                .limit(500),
             )
         ).all()
 
@@ -265,11 +262,12 @@ async def archive_workflow_runs(
 async def workflow_cron_scheduler(ctx: dict[str, Any]) -> str:
     """Compute next cron fire times and enqueue runs for due workflows."""
     import sqlalchemy as sa
-    from shared_kernel.db.session import async_session
-    from shared_kernel.auth.clients import get_redis
-    from contexts.workflow.infrastructure.tables import workflows
 
-    now = datetime.now(timezone.utc)
+    from contexts.workflow.infrastructure.tables import workflows
+    from shared_kernel.auth.clients import get_redis
+    from shared_kernel.db.session import async_session
+
+    now = datetime.now(UTC)
     fired = 0
     eligible = 0
     errors: list[str] = []
@@ -308,8 +306,10 @@ async def workflow_cron_scheduler(ctx: dict[str, Any]) -> str:
                 eligible += 1
                 try:
                     from croniter import croniter  # type: ignore[import-untyped]
+
                     tz_str = config.get("timezone", "UTC")
                     import zoneinfo
+
                     tz = zoneinfo.ZoneInfo(tz_str)
                     base = (
                         datetime.fromisoformat(last_fire.decode())
@@ -321,6 +321,7 @@ async def workflow_cron_scheduler(ctx: dict[str, Any]) -> str:
 
                     if next_fire <= now.astimezone(tz):
                         from contexts.workflow.application.workflow_service import WorkflowService
+
                         svc = WorkflowService(db)
                         await svc.trigger_run(
                             row.id,
@@ -330,9 +331,7 @@ async def workflow_cron_scheduler(ctx: dict[str, Any]) -> str:
                         await redis.set(redis_key, now.isoformat(), ex=86400)
                         fired += 1
                 except Exception as exc:
-                    logger.bind(workflow_id=str(row.id)).exception(
-                        "cron eval failed"
-                    )
+                    logger.bind(workflow_id=str(row.id)).exception("cron eval failed")
                     errors.append(f"{row.id}: {exc}")
 
     logger.bind(event="cron_scheduler_done", fired=fired, errors=len(errors)).info(
@@ -342,7 +341,6 @@ async def workflow_cron_scheduler(ctx: dict[str, Any]) -> str:
     # job is retried / alerted on, instead of silently reporting success.
     if errors and eligible > 0 and len(errors) == eligible:
         raise RuntimeError(
-            f"cron scheduler: all {eligible} eligible workflows failed: "
-            + "; ".join(errors),
+            f"cron scheduler: all {eligible} eligible workflows failed: " + "; ".join(errors),
         )
     return f"fired={fired} errors={len(errors)}"

@@ -11,6 +11,7 @@ import logging
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from contexts.workflow.application.executors.registry import register
 from contexts.workflow.domain.models import (
     NodeSpec,
     NodeType,
@@ -18,7 +19,6 @@ from contexts.workflow.domain.models import (
     StepOutcome,
     StepState,
 )
-from contexts.workflow.application.executors.registry import register
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +37,7 @@ async def execute(ctx: RunContext, node: NodeSpec, db: AsyncSession) -> StepOutc
             )
         try:
             from croniter import croniter  # type: ignore[import-untyped]
+
             if not croniter.is_valid(cron_expr):
                 return StepOutcome(
                     state=StepState.FAILED,
@@ -48,7 +49,9 @@ async def execute(ctx: RunContext, node: NodeSpec, db: AsyncSession) -> StepOutc
         tz_str = config.get("timezone", "UTC")
         logger.info(
             "run %s: cron trigger fired (expr=%r tz=%s)",
-            ctx.run_id, cron_expr, tz_str,
+            ctx.run_id,
+            cron_expr,
+            tz_str,
         )
 
     return StepOutcome(

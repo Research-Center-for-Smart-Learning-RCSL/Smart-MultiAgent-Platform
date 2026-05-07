@@ -11,8 +11,8 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime
 
+from contexts.keys.domain.probe_status import ProbeStatus
 from contexts.keys.domain.providers import ApiKeyProvider
-from contexts.keys.infrastructure.probes.base import ProbeStatus
 
 
 @dataclass(frozen=True, slots=True)

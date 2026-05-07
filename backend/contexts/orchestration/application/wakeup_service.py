@@ -28,7 +28,6 @@ from contexts.agents.application.agent_service import AgentService
 from contexts.agents.domain.errors import AgentVersionMismatch
 from contexts.agents.domain.models import Agent, AgentDraft
 from contexts.agents.interfaces.facade import AgentsFacade
-from contexts.orchestration.domain.errors import WakeupClampApplied, WakeupFieldReadonly
 from contexts.orchestration.domain.models import (
     N_MAX,
     N_MIN,
@@ -247,13 +246,9 @@ class WakeupService:
             d = fresh_cfg.to_dict()
             fresh_bounds = self._parse_soft_bounds(base_agent)
             if requested_n is not None:
-                d["triggers"]["every_n_messages"]["n"] = self._clamp_n(
-                    requested_n, fresh_bounds
-                )
+                d["triggers"]["every_n_messages"]["n"] = self._clamp_n(requested_n, fresh_bounds)
             if requested_t is not None:
-                d["triggers"]["silence_minutes"]["t_minutes"] = self._clamp_t(
-                    requested_t, fresh_bounds
-                )
+                d["triggers"]["silence_minutes"]["t_minutes"] = self._clamp_t(requested_t, fresh_bounds)
             return d
 
         for _attempt in range(2):
@@ -272,7 +267,7 @@ class WakeupService:
                     raise
                 agent = await self._agents_facade.get_agent(agent_id)
                 if agent is None:
-                    raise ValueError(f"agent {agent_id} not found")
+                    raise ValueError(f"agent {agent_id} not found") from None
 
         if clamped_fields:
             await audit.emit(

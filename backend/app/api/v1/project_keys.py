@@ -8,6 +8,7 @@ built from the path `project_id` param via `scope_from_path`.
 from __future__ import annotations
 
 import uuid
+from typing import Literal
 
 from fastapi import APIRouter, Depends, Query, status
 from pydantic import BaseModel
@@ -25,7 +26,6 @@ from shared_kernel.auth.dependencies import (
 )
 from shared_kernel.auth.permissions import Capability, Principal
 from shared_kernel.db.session import db_session
-from typing import Literal
 
 
 class UsageOut(BaseModel):
@@ -36,11 +36,15 @@ class UsageOut(BaseModel):
     errors: int
 
     @classmethod
-    def from_domain(cls, u: UsageSummary) -> "UsageOut":
+    def from_domain(cls, u: UsageSummary) -> UsageOut:
         return cls(
-            window=u.window, input_tokens=u.input_tokens,
-            output_tokens=u.output_tokens, requests=u.requests, errors=u.errors,
+            window=u.window,
+            input_tokens=u.input_tokens,
+            output_tokens=u.output_tokens,
+            requests=u.requests,
+            errors=u.errors,
         )
+
 
 router = APIRouter(prefix="/api/projects", tags=["keys"])
 
@@ -95,9 +99,7 @@ async def carry_key(
     dependencies=[
         # KEY_DELETE_OWN (own carry) OR KEY_DELETE_OTHER (PO withdraw any).
         # The matrix accepts either; the service enforces ownership rules.
-        Depends(
-            require(Capability.KEY_DELETE_OWN, scope_from_path(project_param="project_id"))
-        ),
+        Depends(require(Capability.KEY_DELETE_OWN, scope_from_path(project_param="project_id"))),
     ],
 )
 async def withdraw_key(
@@ -138,6 +140,4 @@ async def read_usage(
     db: AsyncSession = Depends(db_session),
 ) -> UsageOut:
     svc = CarryService(db)
-    return UsageOut.from_domain(
-        await svc.usage(key_id=key_id, project_id=project_id, window=window)
-    )
+    return UsageOut.from_domain(await svc.usage(key_id=key_id, project_id=project_id, window=window))

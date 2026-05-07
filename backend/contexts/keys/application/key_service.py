@@ -80,7 +80,7 @@ class KeyService:
         # Zeroise the caller's plaintext binding. Python cannot enforce scrub
         # of the underlying string, but rebinding the name prevents accidental
         # downstream reuse.
-        secret = ""  # noqa: F841
+        secret = ""
 
         now = datetime.now(tz=UTC)
         key = await self._repo.insert(
@@ -115,10 +115,7 @@ class KeyService:
         await audit.emit(
             self._db,
             audit.AuditEvent(
-                action=(
-                    "key.test_success" if probe_result.status is ProbeStatus.OK
-                    else "key.test_failed"
-                ),
+                action=("key.test_success" if probe_result.status is ProbeStatus.OK else "key.test_failed"),
                 actor_user_id=owner_user_id,
                 actor_ip=actor_ip,
                 resource_type="api_key",
@@ -175,10 +172,7 @@ class KeyService:
         await audit.emit(
             self._db,
             audit.AuditEvent(
-                action=(
-                    "key.test_success" if result.status is ProbeStatus.OK
-                    else "key.test_failed"
-                ),
+                action=("key.test_success" if result.status is ProbeStatus.OK else "key.test_failed"),
                 actor_user_id=caller_user_id,
                 actor_ip=actor_ip,
                 resource_type="api_key",

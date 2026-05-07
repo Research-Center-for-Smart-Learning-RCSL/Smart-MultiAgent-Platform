@@ -24,12 +24,12 @@ from contexts.orchestration.domain.errors import (
     InstructLoopDetected,
 )
 from contexts.orchestration.domain.models import (
-    A2AEnvelope,
-    A2AMessageType,
     INSTRUCT_MAX_CHAIN_DEPTH,
     INSTRUCT_MAX_CHAIN_DEPTH_HARD,
     INSTRUCT_MAX_CHAIN_SECONDS,
     INSTRUCT_MAX_PER_WAKEUP,
+    A2AEnvelope,
+    A2AMessageType,
     Instruction,
     InstructionState,
 )
@@ -95,25 +95,21 @@ class InstructService:
             # The rejection INSERT and audit are in the caller's ambient
             # transaction. If the caller rolls back on InstructLoopDetected the
             # records are lost; loop detection itself is always correct regardless.
-            raise InstructLoopDetected(
-                f"cycle detected: {target_agent_id} already in path {new_path}"
-            )
+            raise InstructLoopDetected(f"cycle detected: {target_agent_id} already in path {new_path}")
 
         # R15.16 rule 2: depth cap.
         if depth >= effective_depth:
-            raise InstructBudgetExceeded(
-                f"chain depth {depth} >= max {effective_depth}"
-            )
+            raise InstructBudgetExceeded(f"chain depth {depth} >= max {effective_depth}")
 
         # R15.16 rule 3: per-wakeup count cap.
         if wakeup_started_at:
             count = await self._instructions.count_issued_by_agent_since(
-                issuer_agent_id, wakeup_started_at,
+                issuer_agent_id,
+                wakeup_started_at,
             )
             if count >= max_per_wakeup:
                 raise InstructBudgetExceeded(
-                    f"agent {issuer_agent_id} issued {count} instructs "
-                    f"this wakeup (max {max_per_wakeup})"
+                    f"agent {issuer_agent_id} issued {count} instructs " f"this wakeup (max {max_per_wakeup})"
                 )
 
         # R15.16 rule 4: wall-clock chain budget.
@@ -177,17 +173,20 @@ class InstructService:
 
     async def mark_delivered(self, instruction_id: uuid.UUID) -> None:
         await self._instructions.update_state(
-            instruction_id, InstructionState.DELIVERED,
+            instruction_id,
+            InstructionState.DELIVERED,
         )
 
     async def mark_completed(self, instruction_id: uuid.UUID) -> None:
         await self._instructions.update_state(
-            instruction_id, InstructionState.COMPLETED,
+            instruction_id,
+            InstructionState.COMPLETED,
         )
 
     async def mark_timeout(self, instruction_id: uuid.UUID) -> None:
         await self._instructions.update_state(
-            instruction_id, InstructionState.TIMEOUT,
+            instruction_id,
+            InstructionState.TIMEOUT,
         )
 
     async def get_instruction(self, instruction_id: uuid.UUID) -> Instruction | None:

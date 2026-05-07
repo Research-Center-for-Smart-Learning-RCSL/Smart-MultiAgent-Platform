@@ -37,10 +37,10 @@ from shared_kernel.observability.metrics import (
 from shared_kernel.realtime.pubsub import Subscriber
 from shared_kernel.realtime.ws_auth import WsAuthError, refresh_principal
 
-_OUTBOUND_QUEUE_MAX = 256          # bounded per connection
+_OUTBOUND_QUEUE_MAX = 256  # bounded per connection
 _CLOSE_POLICY_VIOLATION = 1008
 _CLOSE_TRY_AGAIN_LATER = 1013
-_CLOSE_AUTH_FAILED = 4401          # app-level code, see §22.14
+_CLOSE_AUTH_FAILED = 4401  # app-level code, see §22.14
 
 
 def _user_connections_key(user_id: uuid.UUID) -> str:
@@ -69,7 +69,8 @@ class ChannelConnection:
 
 
 async def _register_user_connection(
-    user_id: uuid.UUID, connection_id: uuid.UUID,
+    user_id: uuid.UUID,
+    connection_id: uuid.UUID,
 ) -> bool:
     """Enforce ws_concurrent_per_user (R19.03). Returns False if the cap
     is already reached (caller closes with `ws-per-user-limit` problem)."""
@@ -80,19 +81,20 @@ async def _register_user_connection(
     # then undo the add if we overflowed. Not perfectly race-free under
     # concurrent opens from the same user, but bounded by a small margin
     # (the extra N is O(parallel opens)) which is acceptable for a UX cap.
-    added = await r.sadd(key, str(connection_id))  # type: ignore[misc]
+    added = await r.sadd(key, str(connection_id))
     count = await r.scard(key)
     if count > cap:
-        await r.srem(key, str(connection_id))  # type: ignore[misc]
+        await r.srem(key, str(connection_id))
         return False
     _ = added
     return True
 
 
 async def _unregister_user_connection(
-    user_id: uuid.UUID, connection_id: uuid.UUID,
+    user_id: uuid.UUID,
+    connection_id: uuid.UUID,
 ) -> None:
-    await get_redis().srem(_user_connections_key(user_id), str(connection_id))  # type: ignore[misc]
+    await get_redis().srem(_user_connections_key(user_id), str(connection_id))
 
 
 async def connection_loop(
@@ -103,9 +105,7 @@ async def connection_loop(
     channels: Sequence[str],
     on_open: Callable[[ChannelConnection], Awaitable[None]] | None = None,
     on_close: Callable[[ChannelConnection], Awaitable[None]] | None = None,
-    on_client_message: (
-        Callable[[ChannelConnection, dict[str, Any]], Awaitable[None]] | None
-    ) = None,
+    on_client_message: (Callable[[ChannelConnection, dict[str, Any]], Awaitable[None]] | None) = None,
 ) -> None:
     """Drive a single WS connection until it closes.
 
@@ -179,7 +179,8 @@ async def connection_loop(
                     # Slow consumer — drop the connection rather than block
                     # the Redis pubsub reader for other subscribers.
                     await ws.close(
-                        code=_CLOSE_TRY_AGAIN_LATER, reason="slow consumer",
+                        code=_CLOSE_TRY_AGAIN_LATER,
+                        reason="slow consumer",
                     )
                     return
 
@@ -197,13 +198,15 @@ async def connection_loop(
     if channels:
         tasks.append(
             asyncio.create_task(
-                _pubsub_fanin(), name=f"ws-fanin-{conn.connection_id}",
+                _pubsub_fanin(),
+                name=f"ws-fanin-{conn.connection_id}",
             ),
         )
 
     try:
         done, pending = await asyncio.wait(
-            tasks, return_when=asyncio.FIRST_COMPLETED,
+            tasks,
+            return_when=asyncio.FIRST_COMPLETED,
         )
         for t in pending:
             t.cancel()
@@ -211,7 +214,8 @@ async def connection_loop(
             exc = t.exception()
             if exc and not isinstance(exc, WebSocketDisconnect):
                 logger.bind(event="ws_task_error").exception(
-                    "ws task failed", exc_info=exc,
+                    "ws task failed",
+                    exc_info=exc,
                 )
     finally:
         await _cleanup(conn, on_close)

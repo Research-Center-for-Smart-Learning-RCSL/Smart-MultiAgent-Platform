@@ -6,6 +6,7 @@ import enum
 import uuid
 from dataclasses import dataclass
 from datetime import datetime
+from typing import Any
 
 
 class NotificationKind(str, enum.Enum):
@@ -23,7 +24,7 @@ class Notification:
     kind: NotificationKind
     title: str
     body: str | None
-    metadata: dict
+    metadata: dict[str, Any]
     read_at: datetime | None
     created_at: datetime
 

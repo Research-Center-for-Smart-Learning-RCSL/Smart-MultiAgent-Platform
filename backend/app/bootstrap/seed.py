@@ -40,22 +40,21 @@ async def seed_test_users(*, app_env: str) -> None:
     ]
 
     hasher = PasswordHasher()
-    async with async_session() as db:
-        async with db.begin():
-            users = UserRepository(db)
-            for email, password in seeds:
-                if await users.get_active_by_email(email) is not None:
-                    logger.info("seed: user already present, skipping email=%s", email)
-                    continue
-                user = await users.insert(
-                    email=email,
-                    password_hash=hasher.hash(password),
-                    status=UserStatus.PENDING,
-                )
-                if not await users.mark_verified(user.id):
-                    logger.warning("seed: mark_verified no-op for %s", email)
-                else:
-                    logger.info("seed: created verified user %s", email)
+    async with async_session() as db, db.begin():
+        users = UserRepository(db)
+        for email, password in seeds:
+            if await users.get_active_by_email(email) is not None:
+                logger.info("seed: user already present, skipping email=%s", email)
+                continue
+            user = await users.insert(
+                email=email,
+                password_hash=hasher.hash(password),
+                status=UserStatus.PENDING,
+            )
+            if not await users.mark_verified(user.id):
+                logger.warning("seed: mark_verified no-op for %s", email)
+            else:
+                logger.info("seed: created verified user %s", email)
 
 
 __all__ = ["seed_test_users"]

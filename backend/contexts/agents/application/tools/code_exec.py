@@ -10,10 +10,11 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass
 
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from contexts.agents.application.mcp_ports import SandboxRunner
 from contexts.agents.domain.mcp import ToolCallResult
 from shared_kernel import audit
-from sqlalchemy.ext.asyncio import AsyncSession
 
 _MAX_WALL_S = 30.0
 

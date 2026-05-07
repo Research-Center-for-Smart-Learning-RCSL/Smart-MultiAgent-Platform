@@ -10,6 +10,7 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.identity.interfaces.facade import IdentityFacade
+
 # Re-export pattern: `invite_service` re-exports InviteState so routers may
 # reach it without touching `contexts.tenancy.domain.*`.
 from contexts.tenancy.application.invite_service import InviteService, InviteState
@@ -33,18 +34,21 @@ class InviteOut(BaseModel):
     created_at: str
 
 
-def _to_out(inv, scope_name: str = "") -> InviteOut:  # type: ignore[no-untyped-def]
+def _to_out(inv, scope_name: str = "") -> InviteOut:
     return InviteOut(
-        id=inv.id, scope_type=inv.scope_type.value, scope_id=inv.scope_id,
+        id=inv.id,
+        scope_type=inv.scope_type.value,
+        scope_id=inv.scope_id,
         scope_name=scope_name,
-        role=inv.role, invitee_email=inv.invitee_email,
+        role=inv.role,
+        invitee_email=inv.invitee_email,
         state=inv.state.value,
         expires_at=inv.expires_at.isoformat(),
         created_at=inv.created_at.isoformat(),
     )
 
 
-async def _resolve_profile(db: AsyncSession, user_id: uuid.UUID):  # type: ignore[no-untyped-def]
+async def _resolve_profile(db: AsyncSession, user_id: uuid.UUID):
     """Fetch caller profile or raise 401 if the JWT principal has no row.
 
     Replaces `assert profile is not None` (BUG 2) and covers the corrupted-JWT
@@ -85,7 +89,8 @@ async def accept(
     db: AsyncSession = Depends(db_session),
 ) -> InviteOut:
     if not principal.email_verified:
-        from shared_kernel.auth.dependencies import _raise_forbidden  # noqa: PLC0415
+        from shared_kernel.auth.dependencies import _raise_forbidden
+
         _raise_forbidden("email verification required (R6.11)")
     profile = await _resolve_profile(db, principal.user_id)
     service = InviteService(db)

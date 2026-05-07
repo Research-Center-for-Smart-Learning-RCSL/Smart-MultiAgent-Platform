@@ -10,11 +10,11 @@ from __future__ import annotations
 import pytest
 
 from app.api.middleware.rate_limit import _bucket_for
-from shared_kernel.auth.ratelimit import Bucket, default_policies, Scope
+from shared_kernel.auth.ratelimit import Bucket, Scope, default_policies
 
 
 @pytest.mark.parametrize(
-    "method, path, expected",
+    ("method", "path", "expected"),
     [
         # Auth bucket — IP-scoped, 10/min.
         ("POST", "/api/auth/login", Bucket.AUTH),
@@ -27,9 +27,9 @@ from shared_kernel.auth.ratelimit import Bucket, default_policies, Scope
         ("POST", "/api/chatrooms/abc/attachments", Bucket.UPLOAD),
         ("POST", "/api/rag/documents", Bucket.UPLOAD),
         # Other default — everything that isn't one of the above.
-        ("GET",  "/api/orgs", Bucket.OTHER),
+        ("GET", "/api/orgs", Bucket.OTHER),
         ("POST", "/api/orgs", Bucket.OTHER),
-        ("GET",  "/api/projects/123", Bucket.OTHER),
+        ("GET", "/api/projects/123", Bucket.OTHER),
         ("PATCH", "/api/invites/xyz/accept", Bucket.OTHER),
         # tus PATCH (chunk uploads) must NOT land in the UPLOAD bucket — F.5
         # carves them out to 300/min/user.

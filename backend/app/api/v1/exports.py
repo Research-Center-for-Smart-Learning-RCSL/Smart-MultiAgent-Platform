@@ -58,7 +58,9 @@ async def create_export(
     db: AsyncSession = Depends(db_session),
 ) -> ExportCreateOut:
     access = await resolve_room_access(
-        db, principal=principal, chatroom_id=chatroom_id,
+        db,
+        principal=principal,
+        chatroom_id=chatroom_id,
     )
     ensure_can_read(access, is_admin=principal.is_admin)
 

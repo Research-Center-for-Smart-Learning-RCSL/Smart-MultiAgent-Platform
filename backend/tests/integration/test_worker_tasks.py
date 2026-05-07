@@ -21,13 +21,12 @@ from uuid import uuid4
 
 import pytest
 
-
 # --------------------------------------------------------------------------- #
 #  workflow.archive_workflow_runs — invalid override falls back to default    #
 # --------------------------------------------------------------------------- #
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_archive_override_invalid_logs_and_uses_default() -> None:
     from app.workers.tasks import workflow as wf
 
@@ -40,9 +39,10 @@ async def test_archive_override_invalid_logs_and_uses_default() -> None:
     fake_session.commit = AsyncMock()
 
     class _SessionCM:
-        async def __aenter__(self_inner):  # noqa: ANN001
+        async def __aenter__(self):
             return fake_session
-        async def __aexit__(self_inner, *_a):  # noqa: ANN001
+
+        async def __aexit__(self, *_a):
             return None
 
     with (
@@ -60,7 +60,7 @@ async def test_archive_override_invalid_logs_and_uses_default() -> None:
 # --------------------------------------------------------------------------- #
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_advisory_snapshot_raises_when_every_org_fails() -> None:
     from app.workers.tasks import advisory as adv
 
@@ -71,15 +71,17 @@ async def test_advisory_snapshot_raises_when_every_org_fails() -> None:
     list_session.execute.return_value.all.return_value = org_ids
 
     class _ListCM:
-        async def __aenter__(self_inner):  # noqa: ANN001
+        async def __aenter__(self):
             return list_session
-        async def __aexit__(self_inner, *_a):  # noqa: ANN001
+
+        async def __aexit__(self, *_a):
             return None
 
     class _BoomCM:
-        async def __aenter__(self_inner):  # noqa: ANN001
+        async def __aenter__(self):
             raise RuntimeError("postgres down")
-        async def __aexit__(self_inner, *_a):  # noqa: ANN001
+
+        async def __aexit__(self, *_a):
             return None
 
     sm_calls = {"n": 0}
@@ -92,12 +94,12 @@ async def test_advisory_snapshot_raises_when_every_org_fails() -> None:
     with (
         patch.object(adv, "get_sessionmaker", return_value=_sm),
         patch.object(adv, "get_redis", return_value=fake_redis),
+        pytest.raises(RuntimeError, match="all 3 orgs failed"),
     ):
-        with pytest.raises(RuntimeError, match="all 3 orgs failed"):
-            await adv.daily_org_advisory_snapshot({})
+        await adv.daily_org_advisory_snapshot({})
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_advisory_snapshot_partial_failure_does_not_raise() -> None:
     from app.workers.tasks import advisory as adv
 
@@ -108,20 +110,22 @@ async def test_advisory_snapshot_partial_failure_does_not_raise() -> None:
     list_session.execute.return_value.all.return_value = [(ok_id,), (bad_id,)]
 
     class _ListCM:
-        async def __aenter__(self_inner):  # noqa: ANN001
+        async def __aenter__(self):
             return list_session
-        async def __aexit__(self_inner, *_a):  # noqa: ANN001
+
+        async def __aexit__(self, *_a):
             return None
 
     class _SnapCM:
-        def __init__(self_inner, ok: bool):  # noqa: ANN001
-            self_inner.ok = ok
-        async def __aenter__(self_inner):  # noqa: ANN001
-            if not self_inner.ok:
+        def __init__(self, ok: bool):
+            self.ok = ok
+
+        async def __aenter__(self):
+            if not self.ok:
                 raise RuntimeError("compute failed")
-            sess = AsyncMock()
-            return sess
-        async def __aexit__(self_inner, *_a):  # noqa: ANN001
+            return AsyncMock()
+
+        async def __aexit__(self, *_a):
             return None
 
     sm_calls = {"n": 0}
@@ -153,22 +157,23 @@ async def test_advisory_snapshot_partial_failure_does_not_raise() -> None:
 # --------------------------------------------------------------------------- #
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_retention_sweep_tracks_failed_policy() -> None:
     from app.workers.tasks import retention as ret
 
-    async def _ok(session):  # noqa: ARG001
+    async def _ok(session):
         return 7
 
-    async def _boom(session):  # noqa: ARG001
+    async def _boom(session):
         raise RuntimeError("simulated DB blip")
 
     fake_session = AsyncMock()
 
     class _BeginCM:
-        async def __aenter__(self_inner):  # noqa: ANN001
+        async def __aenter__(self):
             return None
-        async def __aexit__(self_inner, *_a):  # noqa: ANN001
+
+        async def __aexit__(self, *_a):
             return None
 
     # `session.begin()` must be a *sync* call returning an async CM —
@@ -176,9 +181,10 @@ async def test_retention_sweep_tracks_failed_policy() -> None:
     fake_session.begin = MagicMock(return_value=_BeginCM())
 
     class _SessionCM:
-        async def __aenter__(self_inner):  # noqa: ANN001
+        async def __aenter__(self):
             return fake_session
-        async def __aexit__(self_inner, *_a):  # noqa: ANN001
+
+        async def __aexit__(self, *_a):
             return None
 
     def _sm():

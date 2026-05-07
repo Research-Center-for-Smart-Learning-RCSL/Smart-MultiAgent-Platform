@@ -25,21 +25,25 @@ class NameTaken(ConversationError):
 
 class VersionMismatch(ConversationError):
     """If-Match header did not match current resource `version`."""
+
     code = "conversation/version-mismatch"
 
 
 class MessageEditWindowExceeded(ConversationError):
     """R13.21 — non-moderator tried to edit past the 5-minute window."""
+
     code = "conversation/message-edit-window"
 
 
 class MessageImmutable(ConversationError):
     """R13.22 — agents cannot edit their own past messages."""
+
     code = "conversation/message-immutable"
 
 
 class ForbiddenInRoom(ConversationError):
     """Caller has no send/view rights in this room (per §21.1 flags)."""
+
     code = "conversation/forbidden-in-room"
 
 
@@ -56,16 +60,19 @@ class AttachmentNotFound(ConversationError):
 
 class AttachmentTooLarge(ConversationError):
     """Single-shot attachment exceeded the 32 MB cap (§22.15 switch-to-tus)."""
+
     code = "conversation/attachment-too-large"
 
 
 class AttachmentQuarantined(ConversationError):
     """R22.15.07 — scan flagged the file, download is refused."""
+
     code = "conversation/attachment-quarantined"
 
 
 class TusOffsetMismatch(ConversationError):
     """PATCH Upload-Offset didn't match the server's record (TUS 409 case)."""
+
     code = "conversation/tus-offset-mismatch"
 
 

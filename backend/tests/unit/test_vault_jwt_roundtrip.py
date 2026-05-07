@@ -42,10 +42,7 @@ class _FakeTransit:
     # hvac surface ----------------------------------------------------------
 
     def read_key(self, *, name: str) -> dict[str, Any]:
-        keys = {
-            str(n): {"public_key": self.pem[n].decode()}
-            for n in self.versions
-        }
+        keys = {str(n): {"public_key": self.pem[n].decode()} for n in self.versions}
         return {
             "data": {
                 "type": "rsa-2048",
@@ -68,12 +65,10 @@ class _FakeTransit:
         data = base64.b64decode(hash_input)
         ver = key_version or max(self.versions)
         sig = self.versions[ver].sign(data, padding.PKCS1v15(), hashes.SHA256())
-        return {
-            "data": {"signature": f"vault:v{ver}:{base64.b64encode(sig).decode()}"}
-        }
+        return {"data": {"signature": f"vault:v{ver}:{base64.b64encode(sig).decode()}"}}
 
 
-@pytest.fixture
+@pytest.fixture()
 def vault_client(monkeypatch: pytest.MonkeyPatch) -> tuple[VaultClient, _FakeTransit]:
     transit = _FakeTransit()
     transit.add_version(1)
@@ -93,14 +88,14 @@ def vault_client(monkeypatch: pytest.MonkeyPatch) -> tuple[VaultClient, _FakeTra
     return client, transit
 
 
-def test_sign_and_verify_roundtrip(vault_client):  # noqa: ANN001
+def test_sign_and_verify_roundtrip(vault_client):
     client, _transit = vault_client
     claims = {"sub": "u-1", "iss": "smap.local"}
     token = client.sign_jwt(claims)
     assert client.verify_jwt(token) == claims
 
 
-def test_verify_survives_kid_rotation(vault_client):  # noqa: ANN001
+def test_verify_survives_kid_rotation(vault_client):
     client, transit = vault_client
     token_old = client.sign_jwt({"sub": "u-old"})
 

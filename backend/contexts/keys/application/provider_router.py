@@ -88,9 +88,7 @@ class ProviderCallResult:
 class ProviderAdapter(Protocol):
     provider: ApiKeyProvider
 
-    async def invoke(
-        self, *, secret: str, request: ProviderRequest
-    ) -> ProviderCallResult: ...
+    async def invoke(self, *, secret: str, request: ProviderRequest) -> ProviderCallResult: ...
 
 
 # ---------------------------------------------------------------------------
@@ -174,9 +172,7 @@ class ProviderRouter:
         self._members_repo = KeyGroupMemberRepository(db)
         self._keys_repo = ApiKeyRepository(db)
 
-    async def call(
-        self, *, group_id: uuid.UUID, request: ProviderRequest
-    ) -> ProviderCallResult:
+    async def call(self, *, group_id: uuid.UUID, request: ProviderRequest) -> ProviderCallResult:
         """Execute the request against `group_id` with full rotation policy.
 
         Per-member: exhaust the retry budget (`retry_max` retries after the
@@ -190,9 +186,7 @@ class ProviderRouter:
         if not members:
             raise KeyGroupExhausted(group_id=group_id, reason="no_members")
 
-        state: dict[uuid.UUID, _MemberState] = {
-            em.key.id: _MemberState() for em in members
-        }
+        state: dict[uuid.UUID, _MemberState] = {em.key.id: _MemberState() for em in members}
         quota_deadline = time.monotonic() + self._config.queue_wait_seconds
 
         while True:
@@ -208,7 +202,9 @@ class ProviderRouter:
                 adapter = self._adapters.get(em.key.provider)
                 if adapter is None:
                     st.last_outcome = ErrorOutcome(
-                        RotationReason.FATAL, None, "no_adapter",
+                        RotationReason.FATAL,
+                        None,
+                        "no_adapter",
                     )
                     st.exhausted = True
                     continue
@@ -238,7 +234,7 @@ class ProviderRouter:
         em: _EligibleMember,
         request: ProviderRequest,
         adapter: ProviderAdapter,
-        st: "_MemberState",
+        st: _MemberState,
     ) -> ProviderCallResult | None:
         """Exhaust one member's retry budget. Returns a successful result or
         None. Flips `st.exhausted` on any terminal non-OK outcome.
@@ -248,9 +244,7 @@ class ProviderRouter:
             try:
                 outcome, result = await self._call_member(em, request, adapter)
             except _KeyVanished:
-                st.last_outcome = ErrorOutcome(
-                    RotationReason.FATAL, None, "key_vanished"
-                )
+                st.last_outcome = ErrorOutcome(RotationReason.FATAL, None, "key_vanished")
                 st.exhausted = True
                 return None
             st.attempts += 1
@@ -308,16 +302,18 @@ class ProviderRouter:
         secret = await self._unwrap_secret(em.key.id)
         t0 = time.monotonic()
         try:
-            result = await adapter.invoke(
-                secret=secret.decode("utf-8"), request=request
-            )
-        except Exception as exc:  # noqa: BLE001
+            result = await adapter.invoke(secret=secret.decode("utf-8"), request=request)
+        except Exception as exc:
             elapsed_ms = int((time.monotonic() - t0) * 1000)
             _log.warning("adapter transport error key=%s err=%s", em.key.id, exc)
             await record_usage_event(
-                self._db, key_id=em.key.id,
-                input_tokens=0, output_tokens=0, request_ms=elapsed_ms,
-                http_status=None, error_code="transport_error",
+                self._db,
+                key_id=em.key.id,
+                input_tokens=0,
+                output_tokens=0,
+                request_ms=elapsed_ms,
+                http_status=None,
+                error_code="transport_error",
                 agent_id=request.agent_id,
                 parent_agent_id=request.parent_agent_id,
                 chatroom_id=request.chatroom_id,
@@ -335,7 +331,8 @@ class ProviderRouter:
             requests=1,
         )
         await record_usage_event(
-            self._db, key_id=em.key.id,
+            self._db,
+            key_id=em.key.id,
             input_tokens=result.input_tokens,
             output_tokens=result.output_tokens,
             request_ms=elapsed_ms,
@@ -376,12 +373,8 @@ class _KeyVanished(RuntimeError):
 # every call; the table is tiny and immutable.
 _CAPS: dict[ApiKeyProvider, frozenset[ProviderCapability]] = {
     ApiKeyProvider.CLAUDE: frozenset({ProviderCapability.LLM_CHAT}),
-    ApiKeyProvider.OPENAI: frozenset(
-        {ProviderCapability.LLM_CHAT, ProviderCapability.EMBEDDING}
-    ),
-    ApiKeyProvider.GEMINI: frozenset(
-        {ProviderCapability.LLM_CHAT, ProviderCapability.EMBEDDING}
-    ),
+    ApiKeyProvider.OPENAI: frozenset({ProviderCapability.LLM_CHAT, ProviderCapability.EMBEDDING}),
+    ApiKeyProvider.GEMINI: frozenset({ProviderCapability.LLM_CHAT, ProviderCapability.EMBEDDING}),
     ApiKeyProvider.VOYAGE: frozenset({ProviderCapability.EMBEDDING}),
     ApiKeyProvider.COHERE: frozenset({ProviderCapability.RERANK}),
 }

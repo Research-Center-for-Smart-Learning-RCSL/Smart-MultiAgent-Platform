@@ -41,7 +41,7 @@ async def ensure_consumer_group(agent_id: uuid.UUID) -> None:
     r = get_redis()
     key = _inbox_key(agent_id)
     try:
-        await r.xgroup_create(key, _CONSUMER_GROUP, id="0", mkstream=True)  # type: ignore[arg-type]
+        await r.xgroup_create(key, _CONSUMER_GROUP, id="0", mkstream=True)
     except Exception as exc:
         if "BUSYGROUP" in str(exc):
             return
@@ -68,7 +68,7 @@ async def xadd_dlq(agent_id: uuid.UUID, entry: dict[str, str]) -> str:
     r = get_redis()
     entry_id: Any = await r.xadd(
         _dlq_key(agent_id),
-        entry,
+        entry,  # type: ignore[arg-type]
         maxlen=_STREAM_MAXLEN,
         approximate=True,
     )
@@ -110,7 +110,7 @@ async def xread_new(
 
 
 async def xack(agent_id: uuid.UUID, stream_id: str) -> None:
-    await get_redis().xack(_inbox_key(agent_id), _CONSUMER_GROUP, stream_id)  # type: ignore[arg-type]
+    await get_redis().xack(_inbox_key(agent_id), _CONSUMER_GROUP, stream_id)
 
 
 def _parse_xread(
@@ -140,15 +140,16 @@ async def get_pending_delivery_counts(
     consumer = _consumer_name(agent_id)
     try:
         entries = await r.xpending_range(
-            key, _CONSUMER_GROUP, min="-", max="+", count=count,
+            key,
+            _CONSUMER_GROUP,
+            min="-",
+            max="+",
+            count=count,
             consumername=consumer,
         )
     except Exception:
         return {}
-    return {
-        entry["message_id"]: entry["times_delivered"]
-        for entry in entries
-    }
+    return {entry["message_id"]: entry["times_delivered"] for entry in entries}
 
 
 async def move_to_dlq(
@@ -160,13 +161,16 @@ async def move_to_dlq(
 ) -> None:
     """ACK the original and push to DLQ."""
     await xack(agent_id, stream_id)
-    await xadd_dlq(agent_id, {
-        "stream_id": stream_id,
-        "envelope": envelope_json,
-        "attempt_count": str(attempt),
-        "last_error": error,
-        "moved_at": datetime.now(UTC).isoformat(),
-    })
+    await xadd_dlq(
+        agent_id,
+        {
+            "stream_id": stream_id,
+            "envelope": envelope_json,
+            "attempt_count": str(attempt),
+            "last_error": error,
+            "moved_at": datetime.now(UTC).isoformat(),
+        },
+    )
 
 
 async def read_dlq(
@@ -215,12 +219,9 @@ async def wait_for_reply(
             await xack(agent_id, stream_id)
             continue
 
-        if (
-            envelope.get("type") == "reply"
-            and envelope.get("correlation_id") == correlation_str
-        ):
+        if envelope.get("type") == "reply" and envelope.get("correlation_id") == correlation_str:
             await xack(agent_id, stream_id)
-            return envelope
+            return envelope  # type: ignore[no-any-return]
 
         # Not our reply — leave it pending for the normal consumer loop.
         # (Don't ACK; the consumer will pick it up.)

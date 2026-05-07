@@ -17,6 +17,7 @@ import logging
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from contexts.workflow.application.executors.registry import register
 from contexts.workflow.domain.models import (
     NodeSpec,
     NodeType,
@@ -24,7 +25,6 @@ from contexts.workflow.domain.models import (
     StepOutcome,
     StepState,
 )
-from contexts.workflow.application.executors.registry import register
 
 logger = logging.getLogger(__name__)
 
@@ -45,11 +45,13 @@ async def execute(ctx: RunContext, node: NodeSpec, db: AsyncSession) -> StepOutc
     wait_key = f"wf:wait:{ctx.run_id}:{node.id}"
     await redis.set(
         wait_key,
-        json.dumps({
-            "run_id": str(ctx.run_id),
-            "node_id": node.id,
-            "event_type": event_type,
-        }),
+        json.dumps(
+            {
+                "run_id": str(ctx.run_id),
+                "node_id": node.id,
+                "event_type": event_type,
+            }
+        ),
         ex=timeout_seconds + 60,  # keep a grace window after timeout
     )
 
@@ -60,7 +62,10 @@ async def execute(ctx: RunContext, node: NodeSpec, db: AsyncSession) -> StepOutc
 
     logger.info(
         "run %s: waiting for event %r at node %s (timeout=%ds)",
-        ctx.run_id, event_type, node.id, timeout_seconds,
+        ctx.run_id,
+        event_type,
+        node.id,
+        timeout_seconds,
     )
 
     # Return park=True + timeout_ms/timeout_task so the engine enqueues a delayed

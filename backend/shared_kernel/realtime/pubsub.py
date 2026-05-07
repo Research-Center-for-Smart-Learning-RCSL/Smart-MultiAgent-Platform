@@ -88,7 +88,7 @@ class Subscriber:
         self._channels = channels
         self._pubsub: PubSub | None = None
 
-    async def __aenter__(self) -> "Subscriber":
+    async def __aenter__(self) -> Subscriber:
         r = get_redis()
         self._pubsub = r.pubsub()
         await self._pubsub.subscribe(*self._channels)

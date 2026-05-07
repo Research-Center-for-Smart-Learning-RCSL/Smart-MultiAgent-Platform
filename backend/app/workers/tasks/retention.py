@@ -22,10 +22,14 @@ from contexts.agents.infrastructure.tables import agents as agents_tbl
 from contexts.conversation.infrastructure.tables import chatrooms as chatrooms_tbl
 from contexts.identity.infrastructure.tables import (
     email_verify_tokens as email_verify_tokens_tbl,
+)
+from contexts.identity.infrastructure.tables import (
     password_reset_tokens as password_reset_tokens_tbl,
 )
 from contexts.tenancy.infrastructure.tables import (
     orgs as orgs_tbl,
+)
+from contexts.tenancy.infrastructure.tables import (
     projects as projects_tbl,
 )
 from contexts.workflow.infrastructure.tables import workflows as workflows_tbl
@@ -53,9 +57,7 @@ _TOKEN_TABLES: tuple[sa.Table, ...] = (
 )
 
 
-async def _emit_summary(
-    session: AsyncSession, action: str, rows_affected: int
-) -> None:
+async def _emit_summary(session: AsyncSession, action: str, rows_affected: int) -> None:
     await audit.emit(
         session,
         audit.AuditEvent(
@@ -73,7 +75,7 @@ async def _purge_messages(session: AsyncSession) -> int:
             "AND id IN (SELECT id FROM messages WHERE created_at < :cutoff LIMIT 1000)"
         ).bindparams(cutoff=cutoff)
     )
-    count = result.rowcount or 0
+    count = result.rowcount or 0  # type: ignore[attr-defined]
     await _emit_summary(session, "retention.messages.swept", count)
     return count
 
@@ -93,7 +95,7 @@ async def _purge_message_attachments(session: AsyncSession) -> int:
             ")"
         ).bindparams(cutoff=cutoff)
     )
-    count = result.rowcount or 0
+    count = result.rowcount or 0  # type: ignore[attr-defined]
     await _emit_summary(session, "retention.message_attachments.swept", count)
     return count
 
@@ -109,7 +111,7 @@ async def _purge_audit_logs(session: AsyncSession) -> int:
                 "AND id IN (SELECT id FROM audit_logs WHERE created_at < :cutoff LIMIT 1000)"
             ).bindparams(cutoff=cutoff)
         )
-        count = result.rowcount or 0
+        count = result.rowcount or 0  # type: ignore[attr-defined]
     finally:
         await session.execute(sa.text("RESET ROLE"))
     await _emit_summary(session, "retention.audit_logs.swept", count)
@@ -128,7 +130,7 @@ async def _archive_workflow_runs(session: AsyncSession) -> int:
             "LIMIT 500"
         ).bindparams(cutoff=cutoff)
     )
-    archived = result.rowcount or 0
+    archived = result.rowcount or 0  # type: ignore[attr-defined]
     if archived > 0:
         # Delete steps and source rows only for the runs that were just
         # archived (joined against workflow_runs_archive), not a fresh LIMIT
@@ -182,7 +184,7 @@ async def _rollup_key_usage_events(session: AsyncSession) -> int:
             "DELETE FROM key_usage_events WHERE id IN (SELECT id FROM old)"
         ).bindparams(cutoff=cutoff)
     )
-    count = result.rowcount or 0
+    count = result.rowcount or 0  # type: ignore[attr-defined]
     await _emit_summary(session, "retention.key_usage_events.rolled_up", count)
     return count
 
@@ -210,12 +212,9 @@ async def _purge_soft_deleted_tenancy(session: AsyncSession) -> int:
 
 async def _expire_invites(session: AsyncSession) -> int:
     result = await session.execute(
-        sa.text(
-            "UPDATE invites SET state = 'expired' "
-            "WHERE state = 'pending' AND expires_at < now()"
-        )
+        sa.text("UPDATE invites SET state = 'expired' " "WHERE state = 'pending' AND expires_at < now()")
     )
-    count = result.rowcount or 0
+    count = result.rowcount or 0  # type: ignore[attr-defined]
     await _emit_summary(session, "retention.invites.expired", count)
     return count
 
@@ -227,7 +226,7 @@ async def _expire_oc_transfers(session: AsyncSession) -> int:
             "WHERE state = 'pending' AND resolved_at IS NULL AND expires_at < now()"
         )
     )
-    count = result.rowcount or 0
+    count = result.rowcount or 0  # type: ignore[attr-defined]
     await _emit_summary(session, "retention.oc_transfers.expired", count)
     return count
 
@@ -240,7 +239,7 @@ async def _expire_approvals(session: AsyncSession) -> int:
             "AND started_at + make_interval(secs => timeout_seconds) < now()"
         )
     )
-    count = result.rowcount or 0
+    count = result.rowcount or 0  # type: ignore[attr-defined]
     await _emit_summary(session, "retention.approvals.expired", count)
     return count
 
@@ -248,9 +247,7 @@ async def _expire_approvals(session: AsyncSession) -> int:
 async def _purge_expired_tokens(session: AsyncSession) -> int:
     total = 0
     for tbl in _TOKEN_TABLES:
-        result = await session.execute(
-            sa.delete(tbl).where(tbl.c.expires_at < sa.func.now())
-        )
+        result = await session.execute(sa.delete(tbl).where(tbl.c.expires_at < sa.func.now()))
         total += result.rowcount or 0
     await _emit_summary(session, "retention.tokens.swept", total)
     return total
@@ -264,7 +261,7 @@ async def _prune_idle_sessions(session: AsyncSession) -> int:
             "AND id IN (SELECT id FROM sessions WHERE last_used_at < :cutoff LIMIT 1000)"
         ).bindparams(cutoff=cutoff)
     )
-    count = result.rowcount or 0
+    count = result.rowcount or 0  # type: ignore[attr-defined]
     await _emit_summary(session, "retention.sessions.pruned", count)
     return count
 
@@ -281,7 +278,7 @@ async def _purge_agent_instances(session: AsyncSession) -> int:
             ")"
         ).bindparams(cutoff=cutoff)
     )
-    count = result.rowcount or 0
+    count = result.rowcount or 0  # type: ignore[attr-defined]
     await _emit_summary(session, "retention.agent_instances.swept", count)
     return count
 
@@ -294,15 +291,12 @@ async def _close_idle_impersonations(session: AsyncSession) -> int:
             "WHERE ended_at IS NULL AND started_at < :cutoff"
         ).bindparams(cutoff=cutoff)
     )
-    count = result.rowcount or 0
+    count = result.rowcount or 0  # type: ignore[attr-defined]
     # Re-sample the gauge after the sweep so dashboards reflect the post-close
     # value. Coarse (nightly) but cheap; fine-grained tracking would belong in
     # the impersonation start/end paths.
     active_row = await session.execute(
-        sa.text(
-            "SELECT count(*) FROM admin_impersonation_sessions "
-            "WHERE ended_at IS NULL"
-        )
+        sa.text("SELECT count(*) FROM admin_impersonation_sessions " "WHERE ended_at IS NULL")
     )
     active = int(active_row.scalar() or 0)
     ADMIN_IMPERSONATION_SESSIONS_ACTIVE.set(active)
@@ -328,9 +322,7 @@ async def _purge_exports_bucket(session: AsyncSession) -> int:
         try:
             objects = mc.list_objects_sync(mc.exports_bucket)
         except Exception:
-            logger.bind(bucket=mc.exports_bucket).exception(
-                "exports_bucket sweep: list_objects failed"
-            )
+            logger.bind(bucket=mc.exports_bucket).exception("exports_bucket sweep: list_objects failed")
             return (0, 0)
 
         for obj in objects:
@@ -345,7 +337,7 @@ async def _purge_exports_bucket(session: AsyncSession) -> int:
                     mc.remove_object_sync(mc.exports_bucket, obj.object_name)
                     removed += 1
                     break
-                except Exception as exc:  # noqa: BLE001
+                except Exception as exc:
                     if attempt == 2:
                         failed += 1
                         logger.bind(
@@ -354,7 +346,7 @@ async def _purge_exports_bucket(session: AsyncSession) -> int:
                             error=str(exc),
                         ).warning("exports_bucket sweep: remove failed after 3 attempts")
                     else:
-                        _time.sleep(0.5 * (2 ** attempt))
+                        _time.sleep(0.5 * (2**attempt))
         return (removed, failed)
 
     removed, failed = await asyncio.to_thread(_sweep)
@@ -384,7 +376,7 @@ async def _sweep_instructions_chains(session: AsyncSession) -> int:
             ")"
         ).bindparams(cutoff=cutoff)
     )
-    count = result.rowcount or 0
+    count = result.rowcount or 0  # type: ignore[attr-defined]
     await _emit_summary(session, "retention.instructions_chains.swept", count)
     return count
 
@@ -411,9 +403,7 @@ async def _manage_key_usage_partitions(session: AsyncSession) -> int:
     month = today.month
     # next month
     nm_year, nm_month = (year + 1, 1) if month == 12 else (year, month + 1)
-    nm_after_year, nm_after_month = (
-        (nm_year + 1, 1) if nm_month == 12 else (nm_year, nm_month + 1)
-    )
+    nm_after_year, nm_after_month = (nm_year + 1, 1) if nm_month == 12 else (nm_year, nm_month + 1)
     next_part_name = f"key_usage_events_{nm_year:04d}{nm_month:02d}"
     next_lower = f"{nm_year:04d}-{nm_month:02d}-01"
     next_upper = f"{nm_after_year:04d}-{nm_after_month:02d}-01"
@@ -425,13 +415,11 @@ async def _manage_key_usage_partitions(session: AsyncSession) -> int:
     #    PARTITION OF is supported in PostgreSQL 11+ and is idempotent.
     create_sql = (
         f'CREATE TABLE IF NOT EXISTS "{next_part_name}" '
-        f'PARTITION OF key_usage_events '
+        f"PARTITION OF key_usage_events "
         f"FOR VALUES FROM ('{next_lower}') TO ('{next_upper}')"
     )
     before = await session.execute(
-        sa.text(
-            "SELECT 1 FROM pg_class WHERE relname = :rn"
-        ).bindparams(rn=next_part_name)
+        sa.text("SELECT 1 FROM pg_class WHERE relname = :rn").bindparams(rn=next_part_name)
     )
     existed = before.scalar() is not None
     await session.execute(sa.text(create_sql))
@@ -464,11 +452,7 @@ async def _manage_key_usage_partitions(session: AsyncSession) -> int:
         except (IndexError, ValueError):
             continue
         if upper <= cutoff_str:
-            await session.execute(
-                sa.text(
-                    f'ALTER TABLE key_usage_events DETACH PARTITION "{relname}"'
-                )
-            )
+            await session.execute(sa.text(f'ALTER TABLE key_usage_events DETACH PARTITION "{relname}"'))
             await session.execute(sa.text(f'DROP TABLE "{relname}"'))
             dropped += 1
 
@@ -482,9 +466,7 @@ async def _cleanup_tus_parts(session: AsyncSession) -> int:
 
     Redis TTL already reclaims the metadata; this job reclaims on-disk bytes.
     """
-    staging_dir = os.environ.get("SMAP_TUS_STAGING_DIR") or os.path.join(
-        tempfile.gettempdir(), "smap-tus"
-    )
+    staging_dir = os.environ.get("SMAP_TUS_STAGING_DIR") or os.path.join(tempfile.gettempdir(), "smap-tus")
     cutoff_ts = (now() - timedelta(hours=24)).timestamp()
     count = 0
     try:
@@ -534,16 +516,13 @@ async def retention_sweep(ctx: dict[str, Any]) -> dict[str, int]:
     failed: list[str] = []
     for name, func in _POLICIES:
         try:
-            async with sm() as session:
-                async with session.begin():
-                    count = await func(session)
+            async with sm() as session, session.begin():
+                count = await func(session)
             report[name] = count
             RETENTION_LAST_RUN_TIMESTAMP.labels(worker=name).set(_time.time())
             RETENTION_LAST_ROWS.labels(worker=name).set(count)
         except Exception:
-            logger.bind(event=f"retention_{name}_error").exception(
-                f"retention policy {name} failed"
-            )
+            logger.bind(event=f"retention_{name}_error").exception(f"retention policy {name} failed")
             report[name] = -1
             failed.append(name)
             RETENTION_FAILURES.labels(worker=name).inc()
@@ -556,8 +535,7 @@ async def retention_sweep(ctx: dict[str, Any]) -> dict[str, int]:
         failed_policies=failed,
     ).info(
         f"retention sweep complete — {total} rows affected, "
-        f"{len(failed)}/{len(_POLICIES)} policies failed"
-        + (f" ({', '.join(failed)})" if failed else "")
+        f"{len(failed)}/{len(_POLICIES)} policies failed" + (f" ({', '.join(failed)})" if failed else "")
     )
     _ = ctx
     return report

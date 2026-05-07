@@ -79,9 +79,7 @@ async def create_session(
     return token, record
 
 
-async def rotate_session(
-    old_token: str, *, new_jti: uuid.UUID
-) -> tuple[str, RefreshRecord, str]:
+async def rotate_session(old_token: str, *, new_jti: uuid.UUID) -> tuple[str, RefreshRecord, str]:
     """Consume `old_token`, mint a new one.
 
     Returns `(new_refresh_token, updated_record, old_hash)`. The caller uses

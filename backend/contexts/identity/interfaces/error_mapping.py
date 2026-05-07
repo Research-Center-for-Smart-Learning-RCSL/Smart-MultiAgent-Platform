@@ -32,7 +32,8 @@ _MAP: dict[type[errors.IdentityError], tuple[str, int, str]] = {
     errors.TokenInvalid: ("auth/token-invalid", 400, "Token invalid"),
     errors.TokenExpired: ("auth/token-expired", 401, "Token expired"),
     errors.OriginalCreatorSelfDeleteBlocked: (
-        "tenancy/original-creator-self-delete-blocked", 409,
+        "tenancy/original-creator-self-delete-blocked",
+        409,
         "Self-delete blocked — Original Creator transfer required",
     ),
 }
@@ -40,7 +41,8 @@ _MAP: dict[type[errors.IdentityError], tuple[str, int, str]] = {
 
 async def _handler(request: Request, exc: errors.IdentityError) -> JSONResponse:
     slug, status, title = _MAP.get(
-        type(exc), ("auth/invalid-credentials", 400, "Request rejected"),
+        type(exc),
+        ("auth/invalid-credentials", 400, "Request rejected"),
     )
     extras: dict[str, Any] = {}
     if isinstance(exc, errors.Lockout):
@@ -48,8 +50,11 @@ async def _handler(request: Request, exc: errors.IdentityError) -> JSONResponse:
     if isinstance(exc, errors.OriginalCreatorSelfDeleteBlocked):
         extras["blocked_org_ids"] = exc.blocked_orgs
     problem = Problem(
-        type=problem_type(slug), title=title, status=status,
-        detail=str(exc), extras=extras,
+        type=problem_type(slug),
+        title=title,
+        status=status,
+        detail=str(exc),
+        extras=extras,
     )
     body = problem.dump()
     body["instance"] = str(request.url.path)

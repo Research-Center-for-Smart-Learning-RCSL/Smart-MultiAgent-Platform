@@ -24,27 +24,33 @@ async def _compute_org_snapshot(session, org_id) -> dict[str, int]:  # type: ign
     counts: dict[str, int] = {}
     for label, query in (
         ("users", "SELECT count(*) FROM org_members WHERE org_id = :oid"),
-        ("chatrooms", (
-            "SELECT count(*) FROM chatrooms c "
-            "JOIN workspaces w ON w.id = c.workspace_id "
-            "JOIN projects p ON p.id = w.project_id "
-            "WHERE p.owner_org_id = :oid AND c.deleted_at IS NULL"
-        )),
-        ("agents", (
-            "SELECT count(*) FROM agents a "
-            "JOIN projects p ON p.id = a.project_id "
-            "WHERE p.owner_org_id = :oid AND a.deleted_at IS NULL"
-        )),
-        ("workflows", (
-            "SELECT count(*) FROM workflows wf "
-            "JOIN workspaces w ON w.id = wf.workspace_id "
-            "JOIN projects p ON p.id = w.project_id "
-            "WHERE p.owner_org_id = :oid AND wf.deleted_at IS NULL"
-        )),
-        ("projects", (
-            "SELECT count(*) FROM projects "
-            "WHERE owner_org_id = :oid AND deleted_at IS NULL"
-        )),
+        (
+            "chatrooms",
+            (
+                "SELECT count(*) FROM chatrooms c "
+                "JOIN workspaces w ON w.id = c.workspace_id "
+                "JOIN projects p ON p.id = w.project_id "
+                "WHERE p.owner_org_id = :oid AND c.deleted_at IS NULL"
+            ),
+        ),
+        (
+            "agents",
+            (
+                "SELECT count(*) FROM agents a "
+                "JOIN projects p ON p.id = a.project_id "
+                "WHERE p.owner_org_id = :oid AND a.deleted_at IS NULL"
+            ),
+        ),
+        (
+            "workflows",
+            (
+                "SELECT count(*) FROM workflows wf "
+                "JOIN workspaces w ON w.id = wf.workspace_id "
+                "JOIN projects p ON p.id = w.project_id "
+                "WHERE p.owner_org_id = :oid AND wf.deleted_at IS NULL"
+            ),
+        ),
+        ("projects", ("SELECT count(*) FROM projects " "WHERE owner_org_id = :oid AND deleted_at IS NULL")),
     ):
         result = await session.execute(sa.text(query).bindparams(oid=org_id))
         counts[label] = result.scalar_one()
@@ -64,9 +70,7 @@ async def daily_org_advisory_snapshot(ctx: dict[str, Any]) -> dict[str, int]:
     failed_orgs: list[str] = []
 
     async with sm() as session:
-        org_rows = (await session.execute(
-            sa.text("SELECT id FROM orgs WHERE deleted_at IS NULL")
-        )).all()
+        org_rows = (await session.execute(sa.text("SELECT id FROM orgs WHERE deleted_at IS NULL"))).all()
 
     eligible = len(org_rows)
 
@@ -75,7 +79,8 @@ async def daily_org_advisory_snapshot(ctx: dict[str, Any]) -> dict[str, int]:
             async with sm() as session:
                 snapshot = await _compute_org_snapshot(session, org_id)
             import json
-            snapshot["computed_at"] = now().isoformat()
+
+            snapshot["computed_at"] = now().isoformat()  # type: ignore[assignment]
             await redis.setex(
                 f"{_CACHE_PREFIX}{org_id}",
                 _CACHE_TTL_SECONDS,
@@ -93,17 +98,13 @@ async def daily_org_advisory_snapshot(ctx: dict[str, Any]) -> dict[str, int]:
         orgs_processed=total_orgs,
         eligible=eligible,
         failed=len(failed_orgs),
-    ).info(
-        f"advisory snapshots computed for {total_orgs}/{eligible} orgs "
-        f"({len(failed_orgs)} failed)"
-    )
+    ).info(f"advisory snapshots computed for {total_orgs}/{eligible} orgs " f"({len(failed_orgs)} failed)")
     _ = ctx
 
     # If every eligible org blew up, surface to Arq instead of returning quietly.
     if eligible > 0 and len(failed_orgs) == eligible:
         raise RuntimeError(
-            f"advisory snapshot: all {eligible} orgs failed "
-            f"(first 5: {', '.join(failed_orgs[:5])})"
+            f"advisory snapshot: all {eligible} orgs failed " f"(first 5: {', '.join(failed_orgs[:5])})"
         )
 
     return {
@@ -116,11 +117,12 @@ async def daily_org_advisory_snapshot(ctx: dict[str, Any]) -> dict[str, int]:
 async def get_org_advisory(org_id) -> dict[str, Any] | None:  # type: ignore[no-untyped-def]
     """Read cached snapshot for an org. Returns None if not yet computed."""
     import json
+
     redis = get_redis()
     raw = await redis.get(f"{_CACHE_PREFIX}{org_id}")
     if raw is None:
         return None
-    return json.loads(raw)
+    return json.loads(raw)  # type: ignore[no-any-return]
 
 
 async def get_advisory_targets() -> dict[str, int]:
@@ -128,12 +130,11 @@ async def get_advisory_targets() -> dict[str, int]:
     sm = get_sessionmaker()
     targets: dict[str, int] = {}
     async with sm() as session:
-        rows = (await session.execute(
-            sa.text(
-                "SELECT key, max_count FROM rate_limit_policies "
-                "WHERE key LIKE 'advisory_%'"
+        rows = (
+            await session.execute(
+                sa.text("SELECT key, max_count FROM rate_limit_policies " "WHERE key LIKE 'advisory_%'")
             )
-        )).all()
+        ).all()
     for key, max_count in rows:
         label = key.removeprefix("advisory_")
         targets[label] = max_count

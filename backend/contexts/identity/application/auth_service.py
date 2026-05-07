@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import uuid
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import timedelta
 
@@ -29,7 +30,7 @@ from contexts.identity.domain.errors import (
     TokenExpired,
     TokenInvalid,
 )
-from contexts.identity.domain.models import User, UserStatus
+from contexts.identity.domain.models import Session, User, UserStatus
 from contexts.identity.infrastructure import email_domain_policy, lockouts
 from contexts.identity.infrastructure.email import EmailMessage, EmailSender
 from contexts.identity.infrastructure.repositories import (
@@ -49,7 +50,7 @@ from shared_kernel.auth.password import (
 )
 
 _VERIFY_TTL = timedelta(hours=24)
-_RESET_TTL = timedelta(minutes=30)   # R6.05
+_RESET_TTL = timedelta(minutes=30)  # R6.05
 
 
 # ---------------------------------------------------------------------------
@@ -155,8 +156,9 @@ class AuthService:
         )
         return user
 
-    async def verify_email(self, token: str, *, remote_ip: str | None,
-                           request_id: uuid.UUID | None = None) -> User:
+    async def verify_email(
+        self, token: str, *, remote_ip: str | None, request_id: uuid.UUID | None = None
+    ) -> User:
         consumed = await self._verify.consume(token)
         if consumed is None:
             raise TokenInvalid("email verification token invalid or expired")
@@ -247,11 +249,15 @@ class AuthService:
         is_admin = await self._admins.is_admin(user.id)
         session_id = uuid.uuid4()
         access_token, claims = jwt.sign_access_token(
-            user_id=user.id, session_id=session_id, is_admin=is_admin,
+            user_id=user.id,
+            session_id=session_id,
+            is_admin=is_admin,
             role="admin" if is_admin else "user",
         )
         refresh_token, record = await tokens.create_session(
-            user_id=user.id, session_id=session_id, last_jti=claims.jti,
+            user_id=user.id,
+            session_id=session_id,
+            last_jti=claims.jti,
         )
         await self._sessions.insert(
             user_id=user.id,
@@ -282,7 +288,7 @@ class AuthService:
             tokens=TokenPair(
                 access_token=access_token,
                 refresh_token=refresh_token,
-                token_type="Bearer",
+                token_type="Bearer",  # noqa: S106 — OAuth2 token-type label, not a credential
                 expires_in=int(claims.remaining_ttl().total_seconds()),
             ),
             session_id=session_id,
@@ -315,7 +321,8 @@ class AuthService:
         )
         try:
             new_token, new_record, old_hash = await tokens.rotate_session(
-                refresh_token, new_jti=claims.jti,
+                refresh_token,
+                new_jti=claims.jti,
             )
         except tokens.TokenReuseError as exc:
             # The access token we just signed is technically valid — it was
@@ -346,7 +353,7 @@ class AuthService:
         return TokenPair(
             access_token=access_token,
             refresh_token=new_token,
-            token_type="Bearer",
+            token_type="Bearer",  # noqa: S106 — OAuth2 token-type label, not a credential
             expires_in=int(claims.remaining_ttl().total_seconds()),
         )
 
@@ -382,7 +389,10 @@ class AuthService:
     # ----- password reset -------------------------------------------------
 
     async def request_password_reset(
-        self, *, email: str, remote_ip: str | None,
+        self,
+        *,
+        email: str,
+        remote_ip: str | None,
         request_id: uuid.UUID | None = None,
     ) -> None:
         email = _normalise_email(email)
@@ -513,7 +523,7 @@ class AuthService:
 
     # ----- session management (R6.08) -------------------------------------
 
-    async def list_sessions(self, *, user_id: uuid.UUID):
+    async def list_sessions(self, *, user_id: uuid.UUID) -> Sequence[Session]:
         return await self._sessions.list_for_user(user_id)
 
     async def revoke_session(
@@ -556,32 +566,35 @@ class AuthService:
         for s in sessions:
             await tokens.kill_family(s.family_id)
             if s.last_jti is not None:
-                await tokens.deny_jti(s.last_jti, ttl=timedelta(
-                    seconds=get_settings().jwt.access_ttl_seconds,
-                ))
+                await tokens.deny_jti(
+                    s.last_jti,
+                    ttl=timedelta(
+                        seconds=get_settings().jwt.access_ttl_seconds,
+                    ),
+                )
         await self._sessions.revoke_all_for_user(user_id)
 
-    async def _send_email_verification(
-        self, email: str, token: str, *, user_id: uuid.UUID
-    ) -> None:
+    async def _send_email_verification(self, email: str, token: str, *, user_id: uuid.UUID) -> None:
         link = f"{self._public_origin}/api/auth/verify-email?token={token}"
-        await self._emailer.send(EmailMessage(
-            to=email,
-            subject="Verify your email",
-            text_body=f"Click to verify: {link}",
-            correlation_id=user_id,
-        ))
+        await self._emailer.send(
+            EmailMessage(
+                to=email,
+                subject="Verify your email",
+                text_body=f"Click to verify: {link}",
+                correlation_id=user_id,
+            )
+        )
 
-    async def _send_password_reset(
-        self, email: str, token: str, *, user_id: uuid.UUID
-    ) -> None:
+    async def _send_password_reset(self, email: str, token: str, *, user_id: uuid.UUID) -> None:
         link = f"{self._public_origin}/reset-password?token={token}"
-        await self._emailer.send(EmailMessage(
-            to=email,
-            subject="Reset your password",
-            text_body=f"Reset link (valid 30 min): {link}",
-            correlation_id=user_id,
-        ))
+        await self._emailer.send(
+            EmailMessage(
+                to=email,
+                subject="Reset your password",
+                text_body=f"Reset link (valid 30 min): {link}",
+                correlation_id=user_id,
+            )
+        )
 
 
 def _normalise_email(raw: str) -> str:

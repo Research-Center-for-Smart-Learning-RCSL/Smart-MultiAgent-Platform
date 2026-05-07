@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Sequence
+from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -28,20 +29,27 @@ class NotificationService:
         kind: NotificationKind,
         title: str,
         body: str | None = None,
-        metadata: dict | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> Notification:
         existing = await self._repo.find_recent(user_id=user_id, kind=kind, title=title)
         if existing:
             return existing
         notif = await self._repo.insert(
-            user_id=user_id, kind=kind, title=title, body=body, metadata=metadata,
+            user_id=user_id,
+            kind=kind,
+            title=title,
+            body=body,
+            metadata=metadata,
         )
         pub = Publisher(user_channel(user_id))
-        await pub.emit("notification.created", {
-            "id": str(notif.id),
-            "kind": notif.kind.value,
-            "title": notif.title,
-        })
+        await pub.emit(
+            "notification.created",
+            {
+                "id": str(notif.id),
+                "kind": notif.kind.value,
+                "title": notif.title,
+            },
+        )
         return notif
 
     async def list_for_user(

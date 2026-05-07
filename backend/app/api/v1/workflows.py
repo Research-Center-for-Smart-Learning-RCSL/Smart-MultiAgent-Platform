@@ -13,16 +13,17 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Path, Query, stat
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from contexts.workflow.application.workflow_service import WorkflowService
-from contexts.workflow.domain.errors import WorkflowError  # noqa: F401 — error_mapping catches these
 from contexts.conversation.interfaces.facade import ConversationFacade
+from contexts.workflow.application.workflow_service import WorkflowService
+from contexts.workflow.domain.errors import (
+    WorkflowError,  # noqa: F401 — error_mapping catches these
+)
 from shared_kernel.auth.dependencies import (
     current_principal,
     get_role_resolver,
 )
 from shared_kernel.auth.permissions import Capability, Principal, Scope, decide
 from shared_kernel.db.session import db_session
-
 
 # ---------------------------------------------------------------------------
 # Routers
@@ -191,13 +192,23 @@ async def validate_workflow(
     return ValidateOut(
         valid=result.valid,
         errors=[
-            {"rule": e.rule, "level": e.level, "message": e.message,
-             "node_id": e.node_id, "edge_id": e.edge_id}
+            {
+                "rule": e.rule,
+                "level": e.level,
+                "message": e.message,
+                "node_id": e.node_id,
+                "edge_id": e.edge_id,
+            }
             for e in result.errors
         ],
         warnings=[
-            {"rule": w.rule, "level": w.level, "message": w.message,
-             "node_id": w.node_id, "edge_id": w.edge_id}
+            {
+                "rule": w.rule,
+                "level": w.level,
+                "message": w.message,
+                "node_id": w.node_id,
+                "edge_id": w.edge_id,
+            }
             for w in result.warnings
         ],
     )
@@ -244,11 +255,11 @@ async def patch_workflow(
 ) -> WorkflowOut:
     try:
         expected_version = int(if_match)
-    except (ValueError, TypeError):
+    except (ValueError, TypeError) as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="If-Match header must be an integer version",
-        )
+        ) from exc
 
     svc = WorkflowService(db)
     wf = await svc.patch(
@@ -313,7 +324,10 @@ async def list_runs(
 ) -> list[RunOut | dict]:
     svc = WorkflowService(db)
     runs = await svc.list_runs(
-        workflow_id, limit=limit, offset=offset, include_archive=include_archive,
+        workflow_id,
+        limit=limit,
+        offset=offset,
+        include_archive=include_archive,
     )
     if include_archive:
         return runs  # type: ignore[return-value]

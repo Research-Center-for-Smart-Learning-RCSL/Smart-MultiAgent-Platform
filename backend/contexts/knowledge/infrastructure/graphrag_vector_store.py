@@ -11,8 +11,9 @@ description}`). Each project-scoped GraphRAG collection is named
 from __future__ import annotations
 
 import uuid
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Any, Iterable
+from typing import Any
 
 from qdrant_client import AsyncQdrantClient
 from qdrant_client.http.models import (
@@ -100,7 +101,8 @@ class GraphRagVectorStore:
         if build_id is not None:
             must.append(
                 FieldCondition(
-                    key="build_id", match=MatchValue(value=str(build_id)),
+                    key="build_id",
+                    match=MatchValue(value=str(build_id)),
                 )
             )
         qfilter = Filter(must=must) if must else None
@@ -114,9 +116,9 @@ class GraphRagVectorStore:
         out: list[GraphRagEntityHit] = []
         for r in results:
             pid = r.id
-            if not isinstance(pid, uuid.UUID):
+            if not isinstance(pid, uuid.UUID):  # type: ignore[unreachable]
                 try:
-                    pid = uuid.UUID(str(pid))
+                    pid = uuid.UUID(str(pid))  # type: ignore[assignment]
                 except ValueError:
                     continue
             payload: dict[str, Any] = dict(r.payload or {})
@@ -127,7 +129,7 @@ class GraphRagVectorStore:
                 b_uuid = None
             out.append(
                 GraphRagEntityHit(
-                    point_id=pid,
+                    point_id=pid,  # type: ignore[arg-type]
                     score=float(r.score or 0.0),
                     entity=str(payload.get("entity") or ""),
                     description=str(payload.get("description") or ""),
@@ -137,7 +139,10 @@ class GraphRagVectorStore:
         return out
 
     async def delete_by_build(
-        self, *, project_id: uuid.UUID, build_id: uuid.UUID,
+        self,
+        *,
+        project_id: uuid.UUID,
+        build_id: uuid.UUID,
     ) -> None:
         await self._client.delete(
             collection_name=graphrag_collection_name(project_id),

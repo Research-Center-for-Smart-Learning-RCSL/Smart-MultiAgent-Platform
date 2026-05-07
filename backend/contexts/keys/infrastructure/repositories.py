@@ -67,7 +67,9 @@ class ApiKeyRepository:
         last_test_at: Any,
     ) -> ApiKey:
         if not envelope.ciphertext or not envelope.nonce or not envelope.ciphertext_hmac:
-            raise ValueError("envelope has empty ciphertext/nonce/hmac; refusing to persist corrupted key material")
+            raise ValueError(
+                "envelope has empty ciphertext/nonce/hmac; refusing to persist corrupted key material",
+            )
         if not envelope.dek_wrapped:
             raise ValueError("envelope has empty dek_wrapped; refusing to persist corrupted key material")
         if envelope.transit_key_version < 1 or envelope.hmac_key_version < 1:
@@ -108,9 +110,7 @@ class ApiKeyRepository:
         ).first()
         return _row_to_api_key(row) if row else None
 
-    async def get_active_with_envelope(
-        self, key_id: uuid.UUID
-    ) -> tuple[ApiKey, EnvelopeRecord] | None:
+    async def get_active_with_envelope(self, key_id: uuid.UUID) -> tuple[ApiKey, EnvelopeRecord] | None:
         row = (
             await self._db.execute(
                 t.api_keys.select().where(

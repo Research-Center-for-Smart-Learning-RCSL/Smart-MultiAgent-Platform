@@ -23,12 +23,8 @@ from contexts.keys.domain.providers import (
 def test_capability_table_matches_r7_01() -> None:
     expected: dict[ApiKeyProvider, frozenset[ProviderCapability]] = {
         ApiKeyProvider.CLAUDE: frozenset({ProviderCapability.LLM_CHAT}),
-        ApiKeyProvider.OPENAI: frozenset(
-            {ProviderCapability.LLM_CHAT, ProviderCapability.EMBEDDING}
-        ),
-        ApiKeyProvider.GEMINI: frozenset(
-            {ProviderCapability.LLM_CHAT, ProviderCapability.EMBEDDING}
-        ),
+        ApiKeyProvider.OPENAI: frozenset({ProviderCapability.LLM_CHAT, ProviderCapability.EMBEDDING}),
+        ApiKeyProvider.GEMINI: frozenset({ProviderCapability.LLM_CHAT, ProviderCapability.EMBEDDING}),
         ApiKeyProvider.VOYAGE: frozenset({ProviderCapability.EMBEDDING}),
         ApiKeyProvider.COHERE: frozenset({ProviderCapability.RERANK}),
     }

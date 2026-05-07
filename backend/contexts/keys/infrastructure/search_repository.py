@@ -112,9 +112,7 @@ class SearchKeyRepository:
         ).first()
         return _row_to_sk(row) if row else None
 
-    async def get_active_with_envelope(
-        self, key_id: uuid.UUID
-    ) -> tuple[SearchKey, EnvelopeRecord] | None:
+    async def get_active_with_envelope(self, key_id: uuid.UUID) -> tuple[SearchKey, EnvelopeRecord] | None:
         row = (
             await self._db.execute(
                 t.search_keys.select().where(
@@ -145,14 +143,10 @@ class SearchKeyRepository:
                     t.search_keys.c.deleted_at.is_(None),
                 )
             )
-            .values(test_status=test_status.value,
-                    test_error=test_error,
-                    last_test_at=last_test_at)
+            .values(test_status=test_status.value, test_error=test_error, last_test_at=last_test_at)
         )
 
-    async def atomic_activate(
-        self, *, key_id: uuid.UUID, project_id: uuid.UUID
-    ) -> None:
+    async def atomic_activate(self, *, key_id: uuid.UUID, project_id: uuid.UUID) -> None:
         """Flip `key_id` to active and deactivate every sibling in one TX.
 
         The partial-unique index `uq_search_keys_active_per_project` enforces
@@ -183,9 +177,7 @@ class SearchKeyRepository:
 
     async def soft_delete(self, key_id: uuid.UUID, *, at: Any) -> None:
         await self._db.execute(
-            t.search_keys.update()
-            .where(t.search_keys.c.id == key_id)
-            .values(deleted_at=at, is_active=False)
+            t.search_keys.update().where(t.search_keys.c.id == key_id).values(deleted_at=at, is_active=False)
         )
 
 

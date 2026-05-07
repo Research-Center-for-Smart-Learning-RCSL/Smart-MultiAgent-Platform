@@ -36,14 +36,13 @@ async def ws_chatroom(ws: WebSocket, chatroom_id: uuid.UUID) -> None:
     # room-access rules is picked up in both channels at once.
     sm = get_sessionmaker()
     try:
-        async with sm() as session:
-            async with session.begin():
-                access = await resolve_room_access(
-                    session,
-                    principal=auth.principal,
-                    chatroom_id=chatroom_id,
-                )
-                ensure_can_read(access, is_admin=auth.principal.is_admin)
+        async with sm() as session, session.begin():
+            access = await resolve_room_access(
+                session,
+                principal=auth.principal,
+                chatroom_id=chatroom_id,
+            )
+            ensure_can_read(access, is_admin=auth.principal.is_admin)
     except (ChatroomNotFound, ForbiddenInRoom):
         await ws.close(code=4403)
         return
@@ -53,7 +52,8 @@ async def ws_chatroom(ws: WebSocket, chatroom_id: uuid.UUID) -> None:
 
     async def on_open(conn: ChannelConnection) -> None:
         added = await presence.join(
-            room_id=chatroom_id, user_id=conn.principal.user_id,
+            room_id=chatroom_id,
+            user_id=conn.principal.user_id,
         )
         if added:
             await publisher.emit(
@@ -63,7 +63,8 @@ async def ws_chatroom(ws: WebSocket, chatroom_id: uuid.UUID) -> None:
 
     async def on_close(conn: ChannelConnection) -> None:
         left = await presence.leave(
-            room_id=chatroom_id, user_id=conn.principal.user_id,
+            room_id=chatroom_id,
+            user_id=conn.principal.user_id,
         )
         if left:
             await publisher.emit(

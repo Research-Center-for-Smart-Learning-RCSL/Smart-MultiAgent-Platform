@@ -24,13 +24,15 @@ from __future__ import annotations
 import ipaddress
 
 # Explicit extra blocks on top of what the stdlib flags private / link-local.
-_EXPLICIT_BLOCKED_IPS: frozenset[str] = frozenset({
-    "169.254.169.254",   # AWS / GCP / Azure IMDS (also link-local)
-    "100.100.100.200",   # Alibaba
-    "192.0.0.192",       # Oracle OCI
-    "169.254.170.2",     # AWS ECS task metadata
-    "169.254.170.23",    # AWS ECS exec
-})
+_EXPLICIT_BLOCKED_IPS: frozenset[str] = frozenset(
+    {
+        "169.254.169.254",  # AWS / GCP / Azure IMDS (also link-local)
+        "100.100.100.200",  # Alibaba
+        "192.0.0.192",  # Oracle OCI
+        "169.254.170.2",  # AWS ECS task metadata
+        "169.254.170.23",  # AWS ECS exec
+    }
+)
 
 # IBM metadata is an entire /16 carved out of a public range.
 _EXPLICIT_BLOCKED_NETWORKS: tuple[ipaddress.IPv4Network | ipaddress.IPv6Network, ...] = (

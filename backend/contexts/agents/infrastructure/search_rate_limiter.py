@@ -14,12 +14,10 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True, slots=True)
 class RedisSearchRateLimiter:
-    async def try_acquire(
-        self, *, project_id: uuid.UUID, limit_per_minute: int
-    ) -> bool:
+    async def try_acquire(self, *, project_id: uuid.UUID, limit_per_minute: int) -> bool:
         if limit_per_minute <= 0:
             return False
-        from shared_kernel.auth.clients import get_redis  # noqa: PLC0415
+        from shared_kernel.auth.clients import get_redis
 
         client = get_redis()
         window = int(time.time()) // 60

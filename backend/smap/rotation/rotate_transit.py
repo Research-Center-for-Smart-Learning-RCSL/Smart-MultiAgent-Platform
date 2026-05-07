@@ -41,7 +41,7 @@ class RotationSummary:
 
 
 async def _latest_transit_version(client: VaultClient) -> int:
-    resp = client._call(  # noqa: SLF001 — operator tool reuses internal call path
+    resp = client._call(  # — operator tool reuses internal call path
         client._client.secrets.transit.read_key,
         name=client._cfg.transit_key_provider,
     )
@@ -49,7 +49,7 @@ async def _latest_transit_version(client: VaultClient) -> int:
 
 
 async def _rotate_transit(client: VaultClient) -> None:
-    client._call(  # noqa: SLF001
+    client._call(
         client._client.secrets.transit.rotate_key,
         name=client._cfg.transit_key_provider,
     )
@@ -88,11 +88,7 @@ async def _rewrap_table(
     )
 
     progress_row = (
-        await db.execute(
-            t.rewrap_progress.select().where(
-                t.rewrap_progress.c.table_name == table_name
-            )
-        )
+        await db.execute(t.rewrap_progress.select().where(t.rewrap_progress.c.table_name == table_name))
     ).one()
     last_id = progress_row.last_id
     total_rewrapped = int(progress_row.rows_rewrapped)
@@ -160,12 +156,8 @@ async def _run(settings: Settings) -> RotationSummary:
     maker = async_sessionmaker(engine, expire_on_commit=False)
     try:
         async with maker() as db:
-            api_done = await _rewrap_table(
-                db, client, table=t.api_keys, target_version=target_version
-            )
-            search_done = await _rewrap_table(
-                db, client, table=t.search_keys, target_version=target_version
-            )
+            api_done = await _rewrap_table(db, client, table=t.api_keys, target_version=target_version)
+            search_done = await _rewrap_table(db, client, table=t.search_keys, target_version=target_version)
     finally:
         await engine.dispose()
 

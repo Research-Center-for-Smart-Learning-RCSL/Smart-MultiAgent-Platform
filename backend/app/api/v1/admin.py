@@ -15,13 +15,11 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Path, Query, status
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from contexts.audit.domain.models import AuditFilter, AuditPage
+from contexts.audit.domain.models import AuditFilter
 from contexts.audit.interfaces.facade import AuditFacade
 from contexts.identity.application.admin_service import (
-    AdminEntry,
     AdminService,
     LastAdminError,
-    UserDetail,
 )
 from contexts.identity.application.impersonation_service import ImpersonationService
 from shared_kernel import audit
@@ -176,7 +174,9 @@ async def list_users(
     users = await service.search_users(q=q, status=user_status, cursor=cursor, limit=limit)
     return [
         UserSummaryOut(
-            id=u.id, email=u.email, status=u.status.value,
+            id=u.id,
+            email=u.email,
+            status=u.status.value,
             email_verified=u.email_verified,
             created_at=u.created_at.isoformat(),
         )
@@ -196,14 +196,18 @@ async def get_user(
         raise HTTPException(status_code=404, detail="User not found")
     u = detail.user
     return UserDetailOut(
-        id=u.id, email=u.email, status=u.status.value,
-        email_verified=u.email_verified, is_admin=detail.is_admin,
+        id=u.id,
+        email=u.email,
+        status=u.status.value,
+        email_verified=u.email_verified,
+        is_admin=detail.is_admin,
         banned_reason=u.banned_reason,
         banned_at=u.banned_at.isoformat() if u.banned_at else None,
         deleted_at=u.deleted_at.isoformat() if u.deleted_at else None,
         last_login_at=u.last_login_at.isoformat() if u.last_login_at else None,
         created_at=u.created_at.isoformat(),
-        org_ids=detail.org_ids, project_ids=detail.project_ids,
+        org_ids=detail.org_ids,
+        project_ids=detail.project_ids,
     )
 
 
@@ -218,8 +222,10 @@ async def ban_user(
     service = AdminService(db)
     try:
         await service.ban_user(
-            target_user_id=user_id, reason=body.reason,
-            admin_user_id=admin.user_id, actor_ip=ctx.actor_ip,
+            target_user_id=user_id,
+            reason=body.reason,
+            admin_user_id=admin.user_id,
+            actor_ip=ctx.actor_ip,
             request_id=ctx.request_id,
         )
     except ValueError as exc:
@@ -236,8 +242,10 @@ async def unban_user(
     service = AdminService(db)
     try:
         await service.unban_user(
-            target_user_id=user_id, admin_user_id=admin.user_id,
-            actor_ip=ctx.actor_ip, request_id=ctx.request_id,
+            target_user_id=user_id,
+            admin_user_id=admin.user_id,
+            actor_ip=ctx.actor_ip,
+            request_id=ctx.request_id,
         )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -253,8 +261,10 @@ async def soft_delete_user(
     service = AdminService(db)
     try:
         await service.soft_delete_user(
-            target_user_id=user_id, admin_user_id=admin.user_id,
-            actor_ip=ctx.actor_ip, request_id=ctx.request_id,
+            target_user_id=user_id,
+            admin_user_id=admin.user_id,
+            actor_ip=ctx.actor_ip,
+            request_id=ctx.request_id,
         )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -270,8 +280,10 @@ async def hard_delete_user(
     service = AdminService(db)
     try:
         await service.hard_delete_user(
-            target_user_id=user_id, admin_user_id=admin.user_id,
-            actor_ip=ctx.actor_ip, request_id=ctx.request_id,
+            target_user_id=user_id,
+            admin_user_id=admin.user_id,
+            actor_ip=ctx.actor_ip,
+            request_id=ctx.request_id,
         )
     except ValueError as exc:
         msg = str(exc)
@@ -294,8 +306,10 @@ async def impersonate(
     service = ImpersonationService(db)
     try:
         session, access_token = await service.start(
-            admin_user_id=admin.user_id, target_user_id=user_id,
-            actor_ip=ctx.actor_ip, request_id=ctx.request_id,
+            admin_user_id=admin.user_id,
+            target_user_id=user_id,
+            actor_ip=ctx.actor_ip,
+            request_id=ctx.request_id,
         )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -315,8 +329,10 @@ async def end_impersonate(
 ) -> None:
     service = ImpersonationService(db)
     ended = await service.end(
-        admin_user_id=admin.user_id, target_user_id=user_id,
-        actor_ip=ctx.actor_ip, request_id=ctx.request_id,
+        admin_user_id=admin.user_id,
+        target_user_id=user_id,
+        actor_ip=ctx.actor_ip,
+        request_id=ctx.request_id,
     )
     if not ended:
         raise HTTPException(status_code=404, detail="No active impersonation session")
@@ -354,8 +370,10 @@ async def promote_admin(
     service = AdminService(db)
     try:
         entry = await service.promote_admin(
-            target_user_id=body.user_id, admin_user_id=admin.user_id,
-            actor_ip=ctx.actor_ip, request_id=ctx.request_id,
+            target_user_id=body.user_id,
+            admin_user_id=admin.user_id,
+            actor_ip=ctx.actor_ip,
+            request_id=ctx.request_id,
         )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -376,10 +394,12 @@ async def demote_admin(
     service = AdminService(db)
     try:
         await service.demote_admin(
-            target_user_id=user_id, admin_user_id=admin.user_id,
-            actor_ip=ctx.actor_ip, request_id=ctx.request_id,
+            target_user_id=user_id,
+            admin_user_id=admin.user_id,
+            actor_ip=ctx.actor_ip,
+            request_id=ctx.request_id,
         )
-    except LastAdminError:
+    except LastAdminError as exc:
         raise HTTPException(
             status_code=409,
             detail=Problem(
@@ -388,7 +408,7 @@ async def demote_admin(
                 status=409,
                 extras={"error": "last_admin"},
             ).dump(),
-        )
+        ) from exc
 
 
 # ---------------------------------------------------------------------------
@@ -404,6 +424,7 @@ async def list_orgs(
     db: AsyncSession = Depends(db_session),
 ) -> list[OrgSummaryOut]:
     import sqlalchemy as sa
+
     if cursor is not None:
         q = sa.text(
             "SELECT id, name, creator_user_id, deleted_at, created_at "
@@ -420,7 +441,9 @@ async def list_orgs(
     rows = (await db.execute(q)).all()
     return [
         OrgSummaryOut(
-            id=r[0], name=r[1], creator_user_id=r[2],
+            id=r[0],
+            name=r[1],
+            creator_user_id=r[2],
             deleted_at=r[3].isoformat() if r[3] else None,
             created_at=r[4].isoformat(),
         )
@@ -436,10 +459,13 @@ async def force_delete_org(
     db: AsyncSession = Depends(db_session),
 ) -> None:
     import sqlalchemy as sa
+
     from shared_kernel.auth.clients import now as _now
+
     await db.execute(
-        sa.text("UPDATE orgs SET deleted_at = :now WHERE id = :id AND deleted_at IS NULL")
-        .bindparams(now=_now(), id=org_id)
+        sa.text("UPDATE orgs SET deleted_at = :now WHERE id = :id AND deleted_at IS NULL").bindparams(
+            now=_now(), id=org_id
+        )
     )
     await audit.emit(
         db,
@@ -463,6 +489,7 @@ async def force_transfer_oc(
     db: AsyncSession = Depends(db_session),
 ) -> dict:
     import sqlalchemy as sa
+
     await db.execute(
         sa.text(
             "UPDATE org_members SET is_original_creator = false "
@@ -471,11 +498,10 @@ async def force_transfer_oc(
     )
     result = await db.execute(
         sa.text(
-            "UPDATE org_members SET is_original_creator = true "
-            "WHERE org_id = :oid AND user_id = :uid"
+            "UPDATE org_members SET is_original_creator = true " "WHERE org_id = :oid AND user_id = :uid"
         ).bindparams(oid=org_id, uid=body.target_user_id)
     )
-    if result.rowcount == 0:  # type: ignore[union-attr]
+    if result.rowcount == 0:  # type: ignore[attr-defined]
         raise HTTPException(status_code=404, detail="Target user not a member of this org")
     await audit.emit(
         db,
@@ -505,6 +531,7 @@ async def list_projects(
     db: AsyncSession = Depends(db_session),
 ) -> list[ProjectSummaryOut]:
     import sqlalchemy as sa
+
     if cursor is not None:
         q = sa.text(
             "SELECT id, name, owner_user_id, owner_org_id, deleted_at, created_at "
@@ -521,7 +548,10 @@ async def list_projects(
     rows = (await db.execute(q)).all()
     return [
         ProjectSummaryOut(
-            id=r[0], name=r[1], owner_user_id=r[2], owner_org_id=r[3],
+            id=r[0],
+            name=r[1],
+            owner_user_id=r[2],
+            owner_org_id=r[3],
             deleted_at=r[4].isoformat() if r[4] else None,
             created_at=r[5].isoformat(),
         )
@@ -552,19 +582,29 @@ async def query_audit(
 ) -> AuditPageOut:
     facade = AuditFacade(db)
     filters = AuditFilter(
-        actor_user_id=actor_user_id, resource_type=resource_type,
-        resource_id=resource_id, action=action, from_ts=from_ts,
-        to_ts=to_ts, ip_prefix=ip_prefix, session_id=session_id,
+        actor_user_id=actor_user_id,
+        resource_type=resource_type,
+        resource_id=resource_id,
+        action=action,
+        from_ts=from_ts,
+        to_ts=to_ts,
+        ip_prefix=ip_prefix,
+        session_id=session_id,
         request_id=request_id,
     )
     page = await facade.query(filters, cursor=cursor, limit=limit)
     return AuditPageOut(
         items=[
             AuditEntryOut(
-                id=e.id, actor_user_id=e.actor_user_id, actor_ip=e.actor_ip,
-                action=e.action, resource_type=e.resource_type,
-                resource_id=e.resource_id, metadata=e.metadata,
-                session_id=e.session_id, request_id=e.request_id,
+                id=e.id,
+                actor_user_id=e.actor_user_id,
+                actor_ip=e.actor_ip,
+                action=e.action,
+                resource_type=e.resource_type,
+                resource_id=e.resource_id,
+                metadata=e.metadata,
+                session_id=e.session_id,
+                request_id=e.request_id,
                 created_at=e.created_at.isoformat(),
             )
             for e in page.items
@@ -586,23 +626,32 @@ async def export_audit(
 ) -> dict:
     """Kick off audit CSV export → MinIO `exports/` bucket."""
     filters = AuditFilter(
-        actor_user_id=actor_user_id, resource_type=resource_type,
-        action=action, from_ts=from_ts, to_ts=to_ts,
+        actor_user_id=actor_user_id,
+        resource_type=resource_type,
+        action=action,
+        from_ts=from_ts,
+        to_ts=to_ts,
     )
     facade = AuditFacade(db)
     csv_bytes = await facade.export_csv(filters)
 
     from shared_kernel.storage import export_key, get_minio_client
+
     client = get_minio_client()
     job_id = uuid.uuid4()
     key = export_key(job_id=job_id, filename="audit_export.csv")
     await client.put_object(
-        bucket=client.exports_bucket, key=key,
-        data=csv_bytes, content_type="text/csv",
+        bucket=client.exports_bucket,
+        key=key,
+        data=csv_bytes,
+        content_type="text/csv",
     )
     from datetime import timedelta as _td
+
     signed_url = await client.presigned_get(
-        bucket=client.exports_bucket, key=key, expires=_td(hours=1),
+        bucket=client.exports_bucket,
+        key=key,
+        expires=_td(hours=1),
     )
     await audit.emit(
         db,
@@ -631,8 +680,10 @@ async def restore_resource(
 ) -> RestoreOut:
     service = AdminService(db)
     restored = await service.restore_resource(
-        resource_type=resource_type, resource_id=resource_id,
-        admin_user_id=admin.user_id, actor_ip=ctx.actor_ip,
+        resource_type=resource_type,
+        resource_id=resource_id,
+        admin_user_id=admin.user_id,
+        actor_ip=ctx.actor_ip,
         request_id=ctx.request_id,
     )
     if not restored:
@@ -651,6 +702,7 @@ async def admin_metrics(
     db: AsyncSession = Depends(db_session),
 ) -> MetricsOut:
     import sqlalchemy as sa
+
     users_count = (await db.execute(sa.text("SELECT count(*) FROM users"))).scalar_one()
     orgs_count = (await db.execute(sa.text("SELECT count(*) FROM orgs"))).scalar_one()
     projects_count = (await db.execute(sa.text("SELECT count(*) FROM projects"))).scalar_one()
@@ -674,13 +726,21 @@ async def list_rate_limits(
     db: AsyncSession = Depends(db_session),
 ) -> list[RateLimitPolicyOut]:
     import sqlalchemy as sa
-    rows = (await db.execute(sa.text(
-        "SELECT key, window_sec, max_count, scope, updated_at "
-        "FROM rate_limit_policies ORDER BY key"
-    ))).all()
+
+    rows = (
+        await db.execute(
+            sa.text(
+                "SELECT key, window_sec, max_count, scope, updated_at "
+                "FROM rate_limit_policies ORDER BY key"
+            )
+        )
+    ).all()
     return [
         RateLimitPolicyOut(
-            key=r[0], window_sec=r[1], max_count=r[2], scope=r[3],
+            key=r[0],
+            window_sec=r[1],
+            max_count=r[2],
+            scope=r[3],
             updated_at=r[4].isoformat(),
         )
         for r in rows
@@ -696,6 +756,7 @@ async def patch_rate_limit(
     db: AsyncSession = Depends(db_session),
 ) -> RateLimitPolicyOut:
     import sqlalchemy as sa
+
     from shared_kernel.auth.clients import now as _now
 
     updates: dict = {"updated_at": _now()}
@@ -706,10 +767,12 @@ async def patch_rate_limit(
     if body.scope is not None:
         updates["scope"] = body.scope
 
+    # set_clause keys are drawn from a fixed allowlist (window_sec, max_count,
+    # scope); values are bound parameters. Not user-controlled identifiers.
     set_clause = ", ".join(f"{k} = :{k}" for k in updates)
     result = await db.execute(
         sa.text(
-            f"UPDATE rate_limit_policies SET {set_clause} WHERE key = :key RETURNING *"
+            f"UPDATE rate_limit_policies SET {set_clause} WHERE key = :key RETURNING *"  # noqa: S608
         ).bindparams(key=key, **updates)
     )
     row = result.first()
@@ -728,7 +791,10 @@ async def patch_rate_limit(
         ),
     )
     return RateLimitPolicyOut(
-        key=row[0], window_sec=row[1], max_count=row[2], scope=row[3],
+        key=row[0],
+        window_sec=row[1],
+        max_count=row[2],
+        scope=row[3],
         updated_at=row[4].isoformat(),
     )
 

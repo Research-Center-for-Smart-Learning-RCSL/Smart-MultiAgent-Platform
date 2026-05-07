@@ -42,9 +42,7 @@ class TenancyFacade:
         member = await self._project_members.get(project_id=project_id, user_id=user_id)
         return member is not None
 
-    async def get_project(
-        self, project_id: uuid.UUID, *, include_deleted: bool = False
-    ) -> Project | None:
+    async def get_project(self, project_id: uuid.UUID, *, include_deleted: bool = False) -> Project | None:
         return await self._projects.get(project_id, include_deleted=include_deleted)
 
 

@@ -192,8 +192,7 @@ async def get_agent_dlq(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="admin access required",
         )
-    entries = await read_dlq(agent_id)
-    return entries
+    return await read_dlq(agent_id)
 
 
 __all__ = ["router"]

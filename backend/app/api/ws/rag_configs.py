@@ -36,21 +36,20 @@ async def ws_rag_configs(ws: WebSocket, config_id: uuid.UUID) -> None:
     if not auth.principal.is_admin:
         sm = get_sessionmaker()
         try:
-            async with sm() as session:
-                async with session.begin():
-                    facade = KnowledgeFacade(session)
-                    cfg = await facade.get_rag_config(config_id)
-                    if cfg is None:
-                        await ws.close(code=4404)
-                        return
-                    resolver = TenancyRoleResolver(session)
-                    roles = await resolver.roles_for(
-                        auth.principal,
-                        Scope(project_id=cfg.project_id),
-                    )
-                    if not roles:
-                        await ws.close(code=4403)
-                        return
+            async with sm() as session, session.begin():
+                facade = KnowledgeFacade(session)
+                cfg = await facade.get_rag_config(config_id)
+                if cfg is None:
+                    await ws.close(code=4404)
+                    return
+                resolver = TenancyRoleResolver(session)
+                roles = await resolver.roles_for(
+                    auth.principal,
+                    Scope(project_id=cfg.project_id),
+                )
+                if not roles:
+                    await ws.close(code=4403)
+                    return
         except Exception:  # pragma: no cover
             # If the knowledge facade is stubbed or missing the config lookup,
             # deny the subscription conservatively.

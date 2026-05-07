@@ -9,8 +9,6 @@ Budget enforcement:
 
 from __future__ import annotations
 
-import math
-import threading
 import time
 from typing import Any
 
@@ -40,11 +38,26 @@ EVAL_BUDGET_MS = 5.0
 # Whitelisted functions (§3.2)
 # ---------------------------------------------------------------------------
 
-_ALLOWED_FUNCTIONS = frozenset({
-    "len", "lower", "upper", "contains", "startswith", "endswith",
-    "matches", "int", "float", "str", "json_get", "coalesce",
-    "now_unix", "abs", "min", "max",
-})
+_ALLOWED_FUNCTIONS = frozenset(
+    {
+        "len",
+        "lower",
+        "upper",
+        "contains",
+        "startswith",
+        "endswith",
+        "matches",
+        "int",
+        "float",
+        "str",
+        "json_get",
+        "coalesce",
+        "now_unix",
+        "abs",
+        "min",
+        "max",
+    }
+)
 
 
 def _resolve_var(segments: tuple[str | int, ...], variables: dict[str, Any]) -> Any:
@@ -76,7 +89,7 @@ def _resolve_var(segments: tuple[str | int, ...], variables: dict[str, Any]) -> 
         if obj is None:
             return None
         if isinstance(seg, int):
-            if isinstance(obj, (list, tuple)) and 0 <= seg < len(obj):
+            if isinstance(obj, list | tuple) and 0 <= seg < len(obj):
                 obj = obj[seg]
             else:
                 return None
@@ -108,7 +121,7 @@ def _json_get(obj: Any, path: str) -> Any:
                 if i < n and path[i] == ".":
                     i += 1
                 continue
-            if isinstance(current, (list, tuple)) and 0 <= idx < len(current):
+            if isinstance(current, list | tuple) and 0 <= idx < len(current):
                 current = current[idx]
             else:
                 return None
@@ -143,7 +156,7 @@ def _call_func(name: str, args: list[Any]) -> Any:
         if len(args) != 1:
             raise SELSyntaxError(f"len() takes 1 argument, got {len(args)}")
         v = args[0]
-        if isinstance(v, (str, list, tuple)):
+        if isinstance(v, str | list | tuple):
             return len(v)
         if isinstance(v, dict):
             return len(v)
@@ -161,7 +174,7 @@ def _call_func(name: str, args: list[Any]) -> Any:
         haystack, needle = args
         if isinstance(haystack, str):
             return str(needle) in haystack
-        if isinstance(haystack, (list, tuple)):
+        if isinstance(haystack, list | tuple):
             return needle in haystack
         return False
 
@@ -232,20 +245,20 @@ def _call_func(name: str, args: list[Any]) -> Any:
         if len(args) != 1:
             raise SELSyntaxError("abs() takes 1 argument")
         v = args[0]
-        if isinstance(v, (int, float)):
+        if isinstance(v, int | float):
             return abs(v)
         return 0
 
     if name == "min":
         if not args:
             raise SELSyntaxError("min() requires at least 1 argument")
-        nums = [a for a in args if isinstance(a, (int, float))]
+        nums = [a for a in args if isinstance(a, int | float)]
         return min(nums) if nums else None
 
     if name == "max":
         if not args:
             raise SELSyntaxError("max() requires at least 1 argument")
-        nums = [a for a in args if isinstance(a, (int, float))]
+        nums = [a for a in args if isinstance(a, int | float)]
         return max(nums) if nums else None
 
     raise SELForbiddenConstruct(f"Function {name!r} is not in the SEL whitelist")
@@ -254,11 +267,13 @@ def _call_func(name: str, args: list[Any]) -> Any:
 def _regex_match(text: str, pattern: str) -> bool:
     """RE2-safe regex match with 5 ms budget."""
     try:
-        import re2  # type: ignore[import-untyped]
+        import re2
+
         compiled = re2.compile(pattern)
         return compiled.search(text) is not None
     except ImportError:
         import re
+
         try:
             compiled_re = re.compile(pattern)
         except re.error:
@@ -304,7 +319,7 @@ class _Evaluator:
     def _eval_unary(self, node: UnaryOp) -> Any:
         val = self.visit(node.operand)
         if node.op == "-":
-            if isinstance(val, (int, float)):
+            if isinstance(val, int | float):
                 return -val
             return 0
         if node.op == "not":
@@ -339,25 +354,25 @@ class _Evaluator:
         if node.op == "+":
             if isinstance(left, str) and isinstance(right, str):
                 return left + right
-            if isinstance(left, (int, float)) and isinstance(right, (int, float)):
+            if isinstance(left, int | float) and isinstance(right, int | float):
                 return left + right
             return 0
         if node.op == "-":
-            if isinstance(left, (int, float)) and isinstance(right, (int, float)):
+            if isinstance(left, int | float) and isinstance(right, int | float):
                 return left - right
             return 0
         if node.op == "*":
-            if isinstance(left, (int, float)) and isinstance(right, (int, float)):
+            if isinstance(left, int | float) and isinstance(right, int | float):
                 return left * right
             return 0
         if node.op == "/":
-            if isinstance(left, (int, float)) and isinstance(right, (int, float)):
+            if isinstance(left, int | float) and isinstance(right, int | float):
                 if right == 0:
                     return 0
                 return left / right
             return 0
         if node.op == "%":
-            if isinstance(left, (int, float)) and isinstance(right, (int, float)):
+            if isinstance(left, int | float) and isinstance(right, int | float):
                 if right == 0:
                     return 0
                 return left % right
@@ -379,11 +394,11 @@ def _truthy(val: Any) -> bool:
         return False
     if isinstance(val, bool):
         return val
-    if isinstance(val, (int, float)):
+    if isinstance(val, int | float):
         return val != 0
     if isinstance(val, str):
         return len(val) > 0
-    if isinstance(val, (list, tuple, dict)):
+    if isinstance(val, list | tuple | dict):
         return len(val) > 0
     return True
 
@@ -394,15 +409,15 @@ def _safe_eq(a: Any, b: Any) -> bool:
     if a is None or b is None:
         return False
     if type(a) is type(b):
-        return a == b
+        return a == b  # type: ignore[no-any-return]
     # Cross-type: int/float comparison
-    if isinstance(a, (int, float)) and isinstance(b, (int, float)):
+    if isinstance(a, int | float) and isinstance(b, int | float):
         return a == b
     return False
 
 
 def _safe_cmp(op: str, a: Any, b: Any) -> bool:
-    if not (isinstance(a, (int, float)) and isinstance(b, (int, float))):
+    if not (isinstance(a, int | float) and isinstance(b, int | float)):
         return False
     if op == "<":
         return a < b

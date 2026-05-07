@@ -25,18 +25,49 @@ from shared_kernel.observability.metrics import MESSAGE_SANITIZE_REJECTIONS
 # bleach's default `tags` allow-list is too small for technical docs; we
 # extend with commonly-used block & inline elements but deliberately omit
 # the dangerous-in-context ones listed in R13.14.
-_ALLOWED_TAGS: frozenset[str] = frozenset({
-    "a", "abbr", "b", "blockquote", "br", "code", "div", "em", "h1", "h2",
-    "h3", "h4", "h5", "h6", "hr", "i", "img", "li", "ol", "p", "pre", "s",
-    "span", "strong", "sub", "sup", "table", "tbody", "td", "th", "thead",
-    "tr", "ul",
-})
+_ALLOWED_TAGS: frozenset[str] = frozenset(
+    {
+        "a",
+        "abbr",
+        "b",
+        "blockquote",
+        "br",
+        "code",
+        "div",
+        "em",
+        "h1",
+        "h2",
+        "h3",
+        "h4",
+        "h5",
+        "h6",
+        "hr",
+        "i",
+        "img",
+        "li",
+        "ol",
+        "p",
+        "pre",
+        "s",
+        "span",
+        "strong",
+        "sub",
+        "sup",
+        "table",
+        "tbody",
+        "td",
+        "th",
+        "thead",
+        "tr",
+        "ul",
+    }
+)
 
 _ALLOWED_ATTRS: dict[str, list[str]] = {
     "*": ["class", "id", "title"],
     "a": ["href", "rel", "target"],
     "img": ["src", "alt", "width", "height"],
-    "code": ["class"],          # language-… for highlight.js
+    "code": ["class"],  # language-… for highlight.js
     "pre": ["class"],
     "span": ["class"],
     "div": ["class"],
@@ -62,6 +93,7 @@ def _strip_css_payloads(html: str) -> str:
     drops the attribute entirely (not in _ALLOWED_ATTRS), the net effect
     is just defence-in-depth for when the allowlist config drifts.
     """
+
     def _scrub(match: re.Match[str]) -> str:
         inside = match.group(2)
         if _CSS_DANGER.search(inside):
@@ -102,7 +134,7 @@ def sanitize_html(raw_html: str) -> str:
     # across the two entry points (render_safe_html + sanitize_html).
     if cleaned != scrubbed:
         MESSAGE_SANITIZE_REJECTIONS.inc()
-    return cleaned
+    return cleaned  # type: ignore[no-any-return]
 
 
 __all__ = ["render_safe_html", "sanitize_html"]

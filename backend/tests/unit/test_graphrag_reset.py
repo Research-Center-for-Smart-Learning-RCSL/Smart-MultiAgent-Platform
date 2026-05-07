@@ -31,10 +31,13 @@ class RecordingDb:
         class _R:
             def one(_self) -> Any:  # noqa: N805
                 return None
+
             def first(_self) -> Any:  # noqa: N805
                 return None
+
             def all(_self) -> list[Any]:  # noqa: N805
                 return []
+
         return _R()
 
 
@@ -63,7 +66,7 @@ class FakeRepo:
         )
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_admin_reset_forces_idle_and_audits() -> None:
     cfg = GraphRagConfig(
         id=uuid.uuid4(),
@@ -80,7 +83,7 @@ async def test_admin_reset_forces_idle_and_audits() -> None:
     db = RecordingDb()
     service = GraphRagConfigService(db)  # type: ignore[arg-type]
     repo = FakeRepo(cfg)
-    service._configs = repo  # type: ignore[attr-defined]
+    service._configs = repo  # type: ignore[assignment, attr-defined]
 
     out = await service.admin_reset(
         config_id=cfg.id,

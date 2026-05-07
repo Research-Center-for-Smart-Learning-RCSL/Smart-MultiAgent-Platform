@@ -42,20 +42,19 @@ class TenancyRoleResolver(RoleResolver):
             om = await self._org_members.get(org_id=org_id, user_id=principal.user_id)
             if om is not None:
                 roles.add(
-                    Role.ORG_OWNER if om.role is OrgMemberRole.OWNER
-                    else Role.ORG_MEMBER,
+                    Role.ORG_OWNER if om.role is OrgMemberRole.OWNER else Role.ORG_MEMBER,
                 )
                 if om.role is OrgMemberRole.OWNER and project is not None:
                     roles.add(Role.PROJECT_OWNER)
 
         if scope.project_id:
             pm = await self._project_members.get(
-                project_id=scope.project_id, user_id=principal.user_id,
+                project_id=scope.project_id,
+                user_id=principal.user_id,
             )
             if pm is not None:
                 roles.add(
-                    Role.PROJECT_OWNER if pm.role is ProjectMemberRole.OWNER
-                    else Role.PROJECT_MEMBER,
+                    Role.PROJECT_OWNER if pm.role is ProjectMemberRole.OWNER else Role.PROJECT_MEMBER,
                 )
             # R5.03 again: user-owned project → owner bit
             if project and project.owner_user_id == principal.user_id:
@@ -65,24 +64,15 @@ class TenancyRoleResolver(RoleResolver):
         # the scope points at a specific resource — otherwise any authenticated
         # user would inherit PROJECT_MEMBER privileges on every project in the
         # system (key usage read, key upload, etc.).
-        if (
-            not roles
-            and scope.org_id is None
-            and scope.project_id is None
-            and scope.chatroom_id is None
-        ):
+        if not roles and scope.org_id is None and scope.project_id is None and scope.chatroom_id is None:
             roles.add(Role.PROJECT_MEMBER)
         return frozenset(roles)
 
-    async def is_original_creator(
-        self, *, user_id: uuid.UUID, org_id: uuid.UUID
-    ) -> bool:
+    async def is_original_creator(self, *, user_id: uuid.UUID, org_id: uuid.UUID) -> bool:
         member = await self._org_members.get(org_id=org_id, user_id=user_id)
         return member is not None and member.is_original_creator
 
-    async def is_chatroom_participant(
-        self, *, user_id: uuid.UUID, chatroom_id: uuid.UUID
-    ) -> bool:
+    async def is_chatroom_participant(self, *, user_id: uuid.UUID, chatroom_id: uuid.UUID) -> bool:
         # Chat-room ACL ships in Phase F; for now any authenticated user
         # resolves as a participant of chat rooms in their own projects. The
         # real table lookup hooks in here without touching the matrix logic.

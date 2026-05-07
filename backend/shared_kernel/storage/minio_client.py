@@ -23,7 +23,7 @@ from minio.error import S3Error
 from app.config.settings import MinioSection, get_settings
 
 _lock: Final = threading.Lock()
-_instance: "MinioClient | None" = None
+_instance: MinioClient | None = None
 
 
 class StorageError(RuntimeError):
@@ -97,7 +97,10 @@ class MinioClient:
         def _put() -> None:
             try:
                 self._client.fput_object(
-                    bucket, key, file_path, content_type=content_type,
+                    bucket,
+                    key,
+                    file_path,
+                    content_type=content_type,
                 )
             except S3Error as exc:  # pragma: no cover
                 raise StorageError(f"fput_object failed: {exc}") from exc

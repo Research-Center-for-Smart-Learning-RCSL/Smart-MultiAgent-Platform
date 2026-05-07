@@ -43,7 +43,7 @@ class WorkspaceCreatedOut(WorkspaceOut):
     default_chatroom_id: uuid.UUID
 
 
-def _to_out(ws) -> WorkspaceOut:  # type: ignore[no-untyped-def]
+def _to_out(ws) -> WorkspaceOut:
     return WorkspaceOut(
         id=ws.id,
         project_id=ws.project_id,
@@ -65,17 +65,20 @@ async def list_workspaces(
 
 
 @project_router.post(
-    "/{project_id}/workspaces", status_code=status.HTTP_201_CREATED,
+    "/{project_id}/workspaces",
+    status_code=status.HTTP_201_CREATED,
 )
 async def create_workspace(
     body: WorkspaceCreateIn,
     project_id: uuid.UUID = Path(...),
     ctx: RequestContext = Depends(current_context),
     principal: Principal = Depends(current_principal),
-    _=Depends(require(
-        Capability.RESOURCE_CREATE_EDIT,
-        scope_from_path(project_param="project_id"),
-    )),
+    _=Depends(
+        require(
+            Capability.RESOURCE_CREATE_EDIT,
+            scope_from_path(project_param="project_id"),
+        )
+    ),
     db: AsyncSession = Depends(db_session),
 ) -> WorkspaceCreatedOut:
     service = WorkspaceService(db)
@@ -95,7 +98,8 @@ async def create_workspace(
 
 
 @workspace_router.delete(
-    "/{workspace_id}", status_code=status.HTTP_204_NO_CONTENT,
+    "/{workspace_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
     response_model=None,
 )
 async def delete_workspace(
@@ -111,10 +115,12 @@ async def delete_workspace(
     ws = await facade.get_workspace(workspace_id)
     if ws is None:
         raise WorkspaceNotFound(str(workspace_id))
-    from shared_kernel.auth.dependencies import (  # noqa: PLC0415
-        _raise_forbidden, get_role_resolver,
+    from shared_kernel.auth.dependencies import (
+        _raise_forbidden,
+        get_role_resolver,
     )
-    from shared_kernel.auth.permissions import Scope, decide  # noqa: PLC0415
+    from shared_kernel.auth.permissions import Scope, decide
+
     resolver = await get_role_resolver(db)
     decision = await decide(
         principal,

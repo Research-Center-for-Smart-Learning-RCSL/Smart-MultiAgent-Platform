@@ -34,13 +34,11 @@ from contexts.knowledge.infrastructure.graphrag_vector_store import (
 
 
 class _Embedder:  # pragma: no cover — Protocol-ish duck typing
-    async def embed_batch(self, texts: list[str]) -> list[list[float]]: ...
+    async def embed_batch(self, texts: list[str]) -> list[list[float]]: ...  # type: ignore[empty-body]
 
 
 EmbedderFactory = Callable[[GraphRagConfig], Awaitable[_Embedder]]
-EvidenceFetcher = Callable[
-    [list[uuid.UUID]], Awaitable[list[str]]
-]
+EvidenceFetcher = Callable[[list[uuid.UUID]], Awaitable[list[str]]]
 
 
 class GraphRagRetrieveService:

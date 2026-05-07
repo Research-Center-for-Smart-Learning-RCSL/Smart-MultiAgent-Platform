@@ -14,12 +14,6 @@ from datetime import timedelta
 from io import BytesIO
 from typing import Any
 
-# Manifest writes to MinIO are bounded so a hung S3 connection cannot pin
-# an Arq worker indefinitely (R22.15 / I.4 — every worker call must be
-# bounded). 60 s is comfortably above the typical 50 MiB manifest at LAN
-# rates and far below the Arq job_timeout default.
-_EXPORT_PUT_TIMEOUT_SECONDS = 60
-
 from loguru import logger
 
 from contexts.conversation.application import export_service
@@ -42,6 +36,12 @@ from shared_kernel.db.session import get_sessionmaker
 from shared_kernel.markdown import render_safe_html
 from shared_kernel.storage import export_key, get_minio_client
 
+# Manifest writes to MinIO are bounded so a hung S3 connection cannot pin
+# an Arq worker indefinitely (R22.15 / I.4 — every worker call must be
+# bounded). 60 s is comfortably above the typical 50 MiB manifest at LAN
+# rates and far below the Arq job_timeout default.
+_EXPORT_PUT_TIMEOUT_SECONDS = 60
+
 
 async def file_scan_requested(ctx: dict[str, Any], attachment_id: str) -> str:
     """Placeholder scan task (R22.15.07).
@@ -54,14 +54,13 @@ async def file_scan_requested(ctx: dict[str, Any], attachment_id: str) -> str:
     """
     aid = uuid.UUID(attachment_id)
     sm = get_sessionmaker()
-    async with sm() as session:
-        async with session.begin():
-            service = AttachmentService(session)
-            await service.record_scan_result(
-                attachment_id=aid,
-                scan_status=ScanStatus.CLEAN,
-                actor_ip=None,
-            )
+    async with sm() as session, session.begin():
+        service = AttachmentService(session)
+        await service.record_scan_result(
+            attachment_id=aid,
+            scan_status=ScanStatus.CLEAN,
+            actor_ip=None,
+        )
     _ = ctx
     return "clean"
 
@@ -75,10 +74,9 @@ async def retention_purge(ctx: dict[str, Any]) -> dict[str, int]:
     sm = get_sessionmaker()
     # Loop chunks until a slice reports zero deletions.
     for _ in range(100):
-        async with sm() as session:
-            async with session.begin():
-                service = RetentionService(session)
-                report = await service.purge_once()
+        async with sm() as session, session.begin():
+            service = RetentionService(session)
+            report = await service.purge_once()
         if report.messages_deleted == 0:
             break
         total_messages += report.messages_deleted
@@ -105,7 +103,7 @@ async def chat_export(
     jid = uuid.UUID(job_id)
     rid = uuid.UUID(chatroom_id)
     oid = uuid.UUID(owner_user_id)
-    _ = timedelta  # noqa: F841 — hint for callers reading this module
+    _ = timedelta  # — hint for callers reading this module
 
     # Defence-in-depth: don't trust the enqueued args. Verify the job state
     # in Redis matches what the API stored, then re-run the room ACL for the
@@ -116,7 +114,8 @@ async def chat_export(
         raise PermissionError(f"export job {jid} has no state record")
     if state.chatroom_id != rid or state.owner_user_id != oid:
         await export_service.mark_failed(
-            job_id=jid, error="job parameters do not match stored state",
+            job_id=jid,
+            error="job parameters do not match stored state",
         )
         raise PermissionError(
             f"export job {jid} args mismatch stored state",
@@ -125,33 +124,37 @@ async def chat_export(
     await export_service.mark_running(jid)
     try:
         sm = get_sessionmaker()
-        async with sm() as session:
-            async with session.begin():
-                # Re-fetch admin status from DB so legitimate admin exports of
-                # rooms they aren't a member of still succeed; impersonated
-                # admins never reach this path because the export endpoint is
-                # in the impersonation deny-list (auth middleware).
-                is_admin = await IdentityFacade(session).is_admin(oid)
-                principal = Principal(
-                    user_id=oid, is_admin=is_admin, email_verified=True,
-                )
-                access = await resolve_room_access(
-                    session, principal=principal, chatroom_id=rid,
-                )
-                ensure_can_read(access, is_admin=is_admin)
+        async with sm() as session, session.begin():
+            # Re-fetch admin status from DB so legitimate admin exports of
+            # rooms they aren't a member of still succeed; impersonated
+            # admins never reach this path because the export endpoint is
+            # in the impersonation deny-list (auth middleware).
+            is_admin = await IdentityFacade(session).is_admin(oid)
+            principal = Principal(
+                user_id=oid,
+                is_admin=is_admin,
+                email_verified=True,
+            )
+            access = await resolve_room_access(
+                session,
+                principal=principal,
+                chatroom_id=rid,
+            )
+            ensure_can_read(access, is_admin=is_admin)
 
-                rooms = ChatroomRepository(session)
-                messages = MessageRepository(session)
-                edits = MessageEditRepository(session)
-                attachments = MessageAttachmentRepository(session)
+            rooms = ChatroomRepository(session)
+            messages = MessageRepository(session)
+            edits = MessageEditRepository(session)
+            attachments = MessageAttachmentRepository(session)
 
-                room = await rooms.get(rid)
-                rows = await messages.all_for_chatroom(rid)
-                serialized = []
-                for m in rows:
-                    msg_edits = await edits.list_for_message(m.id)
-                    msg_atts = await attachments.list_for_message(m.id)
-                    serialized.append({
+            room = await rooms.get(rid)
+            rows = await messages.all_for_chatroom(rid)
+            serialized = []
+            for m in rows:
+                msg_edits = await edits.list_for_message(m.id)
+                msg_atts = await attachments.list_for_message(m.id)
+                serialized.append(
+                    {
                         "id": str(m.id),
                         "sender_type": m.sender_type.value,
                         "sender_id": str(m.sender_id) if m.sender_id else None,
@@ -180,13 +183,12 @@ async def chat_export(
                             }
                             for a in msg_atts
                         ],
-                    })
+                    }
+                )
 
         enqueued = ctx.get("enqueue_time")
         exported_at = (
-            enqueued.isoformat()
-            if hasattr(enqueued, "isoformat")
-            else (str(enqueued) if enqueued else None)
+            enqueued.isoformat() if hasattr(enqueued, "isoformat") else (str(enqueued) if enqueued else None)  # type: ignore[union-attr]
         )
         manifest: dict[str, Any] = {
             "schema_version": 1,
@@ -198,7 +200,9 @@ async def chat_export(
             "messages": serialized,
         }
         payload = json.dumps(
-            manifest, separators=(",", ":"), default=str,
+            manifest,
+            separators=(",", ":"),
+            default=str,
         ).encode("utf-8")
 
         client = get_minio_client()
@@ -213,17 +217,19 @@ async def chat_export(
                 ),
                 timeout=_EXPORT_PUT_TIMEOUT_SECONDS,
             )
-        except asyncio.TimeoutError as exc:
+        except TimeoutError as exc:
             raise TimeoutError(
-                f"chat export MinIO put timed out after "
-                f"{_EXPORT_PUT_TIMEOUT_SECONDS}s (job {jid})"
+                f"chat export MinIO put timed out after " f"{_EXPORT_PUT_TIMEOUT_SECONDS}s (job {jid})"
             ) from exc
         await export_service.mark_ready(
-            job_id=jid, bucket=client.exports_bucket, object_key=key,
+            job_id=jid,
+            bucket=client.exports_bucket,
+            object_key=key,
         )
     except Exception as exc:  # pragma: no cover — operator-visible
         logger.bind(event="chat_export_failed", job_id=str(jid)).exception(
-            "export failed", exc_info=exc,
+            "export failed",
+            exc_info=exc,
         )
         await export_service.mark_failed(job_id=jid, error=str(exc))
         raise

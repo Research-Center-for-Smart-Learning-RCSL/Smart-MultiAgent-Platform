@@ -11,10 +11,10 @@ from contexts.keys.domain.groups import RotationPolicy
 
 class RotationReason(str, enum.Enum):
     OK = "ok"
-    ROTATE = "rotate"          # recoverable error on this member → try next
-    RETRY = "retry"            # same member, backoff then retry
-    QUOTA = "token_quota"      # bucket cap hit; treat as temporarily unavailable
-    FATAL = "fatal"            # do not retry / do not rotate — surface error
+    ROTATE = "rotate"  # recoverable error on this member → try next
+    RETRY = "retry"  # same member, backoff then retry
+    QUOTA = "token_quota"  # bucket cap hit; treat as temporarily unavailable
+    FATAL = "fatal"  # do not retry / do not rotate — surface error
 
 
 @dataclass(frozen=True, slots=True)
@@ -24,9 +24,7 @@ class ErrorOutcome:
     error_code: str | None
 
 
-def classify_http(
-    status: int, policy: RotationPolicy
-) -> ErrorOutcome:
+def classify_http(status: int, policy: RotationPolicy) -> ErrorOutcome:
     """Decide what to do with a `status`-returning provider call.
 
     - Listed in `rotate_on_error_codes` → retry (if `retry_on_error`) else rotate.

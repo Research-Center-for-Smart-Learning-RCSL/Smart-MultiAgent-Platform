@@ -118,9 +118,7 @@ def _render_bundle_text(bundle: GraphRagBundle) -> str:
     if bundle.entities:
         lines.append("entities: " + ", ".join(bundle.entities))
     for r in bundle.relations:
-        lines.append(
-            f"({r.subject}) -[{r.relation} c={r.confidence:.2f}]-> ({r.object})"
-        )
+        lines.append(f"({r.subject}) -[{r.relation} c={r.confidence:.2f}]-> ({r.object})")
     for ex in bundle.evidence_excerpts:
         lines.append(f"evidence: {ex}")
     return "\n".join(lines)

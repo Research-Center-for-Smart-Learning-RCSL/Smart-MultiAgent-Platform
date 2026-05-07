@@ -119,7 +119,7 @@ def _identity(scope: Scope, *, user_id: str | None, ip: str | None) -> str:
             return f"i:{ip or 'unknown'}"
         case Scope.USER_AND_IP:
             return f"ui:{user_id or 'anon'}|{ip or 'unknown'}"
-    return "x:unknown"
+    return "x:unknown"  # type: ignore[unreachable]
 
 
 async def check(
@@ -136,8 +136,12 @@ async def check(
     window_ms = policy.window_sec * 1000
     try:
         raw = await r.eval(
-            _SCRIPT, 1, key,
-            str(now_ms), str(window_ms), str(policy.max_count),
+            _SCRIPT,
+            1,
+            key,
+            str(now_ms),
+            str(window_ms),
+            str(policy.max_count),
         )
     except Exception:
         REDIS_COMMAND_ERRORS.labels(command="eval").inc()
@@ -168,8 +172,12 @@ async def check_raw(*, key: str, window_sec: int, max_count: int) -> Decision:
     window_ms = window_sec * 1000
     try:
         raw = await r.eval(
-            _SCRIPT, 1, key,
-            str(now_ms), str(window_ms), str(max_count),
+            _SCRIPT,
+            1,
+            key,
+            str(now_ms),
+            str(window_ms),
+            str(max_count),
         )
     except Exception:
         REDIS_COMMAND_ERRORS.labels(command="eval").inc()

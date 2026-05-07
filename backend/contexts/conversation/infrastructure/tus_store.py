@@ -25,7 +25,7 @@ import base64
 import binascii
 import json
 import uuid
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from typing import Final
 
 from shared_kernel.auth.clients import get_redis
@@ -48,14 +48,14 @@ class TusUpload:
     user_id: uuid.UUID
     upload_length: int
     upload_offset: int
-    purpose: str                 # "chat_attachment" | "rag_source"
+    purpose: str  # "chat_attachment" | "rag_source"
     project_id: uuid.UUID
     chatroom_id: uuid.UUID | None
     rag_config_id: uuid.UUID | None
     filename: str
     mime: str
     staging_path: str
-    metadata_raw: str            # original header for HEAD echo
+    metadata_raw: str  # original header for HEAD echo
 
 
 def parse_metadata(raw: str) -> dict[str, str]:
@@ -108,7 +108,9 @@ class TusUploadStore:
             "metadata_raw": upload.metadata_raw,
         }
         await get_redis().set(
-            _key(upload.upload_id), json.dumps(payload), ex=_TTL_SECONDS,
+            _key(upload.upload_id),
+            json.dumps(payload),
+            ex=_TTL_SECONDS,
         )
 
     async def get(self, upload_id: uuid.UUID) -> TusUpload | None:
@@ -123,12 +125,8 @@ class TusUploadStore:
             upload_offset=int(data["upload_offset"]),
             purpose=data["purpose"],
             project_id=uuid.UUID(data["project_id"]),
-            chatroom_id=(
-                uuid.UUID(data["chatroom_id"]) if data.get("chatroom_id") else None
-            ),
-            rag_config_id=(
-                uuid.UUID(data["rag_config_id"]) if data.get("rag_config_id") else None
-            ),
+            chatroom_id=(uuid.UUID(data["chatroom_id"]) if data.get("chatroom_id") else None),
+            rag_config_id=(uuid.UUID(data["rag_config_id"]) if data.get("rag_config_id") else None),
             filename=data["filename"],
             mime=data["mime"],
             staging_path=data["staging_path"],
@@ -136,7 +134,9 @@ class TusUploadStore:
         )
 
     async def update_offset(
-        self, upload_id: uuid.UUID, new_offset: int,
+        self,
+        upload_id: uuid.UUID,
+        new_offset: int,
     ) -> None:
         raw = await get_redis().get(_key(upload_id))
         if raw is None:

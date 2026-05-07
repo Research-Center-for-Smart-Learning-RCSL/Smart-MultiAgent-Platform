@@ -24,8 +24,7 @@ from app.config.settings import Settings
 from ._common import BootstrapReport
 
 _CONSTRAINTS: tuple[str, ...] = (
-    "CREATE CONSTRAINT entity_id_unique IF NOT EXISTS "
-    "FOR (e:Entity) REQUIRE e.id IS UNIQUE",
+    "CREATE CONSTRAINT entity_id_unique IF NOT EXISTS " "FOR (e:Entity) REQUIRE e.id IS UNIQUE",
 )
 
 _INDEXES: tuple[str, ...] = (
@@ -36,16 +35,11 @@ _INDEXES: tuple[str, ...] = (
 
 def run(settings: Settings) -> BootstrapReport:
     report = BootstrapReport(subcommand="neo4j-init")
-    driver = GraphDatabase.driver(
-        settings.neo4j.url, auth=(settings.neo4j.user, settings.neo4j.password)
-    )
+    driver = GraphDatabase.driver(settings.neo4j.url, auth=(settings.neo4j.user, settings.neo4j.password))
     target_db = settings.neo4j.database
     try:
         with driver.session(database="system") as sys_sess:
-            existing = {
-                row["name"]
-                for row in sys_sess.run("SHOW DATABASES YIELD name RETURN name").data()
-            }
+            existing = {row["name"] for row in sys_sess.run("SHOW DATABASES YIELD name RETURN name").data()}
             if target_db in existing:
                 report.already(f"database:{target_db}")
             else:

@@ -39,36 +39,47 @@ def _heartbeat_key(room_id: uuid.UUID, user_id: uuid.UUID) -> str:
 
 class PresenceTracker:
     async def join(
-        self, *, room_id: uuid.UUID, user_id: uuid.UUID,
+        self,
+        *,
+        room_id: uuid.UUID,
+        user_id: uuid.UUID,
     ) -> bool:
         """Record presence. Returns True if the user was newly added to the
         room (caller should publish a `presence.joined` event in that
         case), False if already present."""
         r = get_redis()
-        added = await r.sadd(_room_key(room_id), str(user_id))  # type: ignore[misc]
-        await r.sadd(_user_rooms_key(user_id), str(room_id))    # type: ignore[misc]
+        added = await r.sadd(_room_key(room_id), str(user_id))
+        await r.sadd(_user_rooms_key(user_id), str(room_id))
         await r.set(_heartbeat_key(room_id, user_id), "1", ex=_HEARTBEAT_TTL_SECONDS)
         return bool(added)
 
     async def heartbeat(
-        self, *, room_id: uuid.UUID, user_id: uuid.UUID,
+        self,
+        *,
+        room_id: uuid.UUID,
+        user_id: uuid.UUID,
     ) -> None:
         await get_redis().set(
-            _heartbeat_key(room_id, user_id), "1", ex=_HEARTBEAT_TTL_SECONDS,
+            _heartbeat_key(room_id, user_id),
+            "1",
+            ex=_HEARTBEAT_TTL_SECONDS,
         )
 
     async def leave(
-        self, *, room_id: uuid.UUID, user_id: uuid.UUID,
+        self,
+        *,
+        room_id: uuid.UUID,
+        user_id: uuid.UUID,
     ) -> bool:
         """Remove presence. Returns True if the user was actually present."""
         r = get_redis()
-        removed = await r.srem(_room_key(room_id), str(user_id))  # type: ignore[misc]
-        await r.srem(_user_rooms_key(user_id), str(room_id))      # type: ignore[misc]
+        removed = await r.srem(_room_key(room_id), str(user_id))
+        await r.srem(_user_rooms_key(user_id), str(room_id))
         await r.delete(_heartbeat_key(room_id, user_id))
         return bool(removed)
 
     async def list_room(self, room_id: uuid.UUID) -> list[uuid.UUID]:
-        raw = await get_redis().smembers(_room_key(room_id))  # type: ignore[misc]
+        raw = await get_redis().smembers(_room_key(room_id))
         return [uuid.UUID(v) for v in raw]
 
 

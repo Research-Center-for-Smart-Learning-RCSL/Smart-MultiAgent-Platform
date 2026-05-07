@@ -26,8 +26,8 @@ SoC:
 from __future__ import annotations
 
 import uuid
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Iterable
 
 from contexts.agents.domain.errors import A2AForbidden
 from contexts.agents.domain.models import Agent
@@ -112,8 +112,7 @@ def enforce(ipt: A2ACheckInput) -> None:
     verdict = evaluate(ipt)
     if not verdict.allowed:
         raise A2AForbidden(
-            f"a2a denied: {verdict.reason} "
-            f"(caller={ipt.caller.id}, callee={ipt.callee.id})"
+            f"a2a denied: {verdict.reason} " f"(caller={ipt.caller.id}, callee={ipt.callee.id})"
         )
 
 

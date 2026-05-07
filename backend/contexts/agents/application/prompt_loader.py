@@ -117,9 +117,7 @@ def parse_sections(text: str) -> tuple[str, list[PromptSection]]:
         if sid in ids:
             raise ValueError(f"duplicate section id {sid!r}")
         ids.add(sid)
-        sections.append(
-            PromptSection(id=sid, title=title, description=description, body=body)
-        )
+        sections.append(PromptSection(id=sid, title=title, description=description, body=body))
         i += 2
     return preamble, sections
 

@@ -36,9 +36,7 @@ async def publish_key_revoked(key_id: uuid.UUID) -> None:
     await get_redis().publish(CHANNEL_KEY_REVOKED, str(key_id))
 
 
-async def publish_carry_revoked(
-    *, key_id: uuid.UUID, project_id: uuid.UUID
-) -> None:
+async def publish_carry_revoked(*, key_id: uuid.UUID, project_id: uuid.UUID) -> None:
     """Announce that `key_id` was withdrawn from `project_id`."""
     payload = f"{key_id}:{project_id}"
     await get_redis().publish(CHANNEL_KEY_CARRY_REVOKED, payload)

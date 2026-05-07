@@ -29,11 +29,7 @@ def _bucket_for(path: str, method: str) -> ratelimit.Bucket:
     # tus PATCH (resumable chunk uploads) is explicitly 300/min/user per
     # R19.02 + F.5 — only the *Creation* POST and single-shot attachment POSTs
     # count against the 10/min/user upload bucket.
-    if method == "POST" and (
-        path.startswith("/api/tus")
-        or "/attachments" in path
-        or "/documents" in path
-    ):
+    if method == "POST" and (path.startswith("/api/tus") or "/attachments" in path or "/documents" in path):
         return ratelimit.Bucket.UPLOAD
     return ratelimit.Bucket.OTHER
 
@@ -59,11 +55,11 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         bucket = _bucket_for(path, request.method)
         ctx = getattr(request.state, "auth_ctx", None)
         user_id = str(ctx.principal.user_id) if ctx and ctx.principal else None
-        actor_ip = ctx.actor_ip if ctx else (
-            request.client.host if request.client else "unknown"
-        )
+        actor_ip = ctx.actor_ip if ctx else (request.client.host if request.client else "unknown")
         decision = await ratelimit.check(
-            bucket=bucket, user_id=user_id, actor_ip=actor_ip,
+            bucket=bucket,
+            user_id=user_id,
+            actor_ip=actor_ip,
         )
         if not decision.allowed:
             problem = Problem(

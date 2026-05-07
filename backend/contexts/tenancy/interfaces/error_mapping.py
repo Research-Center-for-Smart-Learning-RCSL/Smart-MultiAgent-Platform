@@ -15,7 +15,9 @@ _MAP: dict[type[errors.TenancyError], tuple[str, int, str]] = {
     errors.ProjectNotFound: ("tenancy/project-not-found", 404, "Project not found"),
     errors.MemberNotFound: ("tenancy/member-not-found", 404, "Member not found"),
     errors.OriginalCreatorConflict: (
-        "tenancy/original-creator-conflict", 409, "Original Creator conflict",
+        "tenancy/original-creator-conflict",
+        409,
+        "Original Creator conflict",
     ),
     errors.TransferConflict: ("tenancy/transfer-conflict", 409, "Transfer conflict"),
     errors.TransferNotFound: ("tenancy/transfer-not-found", 404, "Transfer not found"),
@@ -26,10 +28,13 @@ _MAP: dict[type[errors.TenancyError], tuple[str, int, str]] = {
     errors.NameTaken: ("tenancy/name-taken", 409, "Name already in use"),
     errors.VersionMismatch: ("tenancy/version-mismatch", 412, "Version mismatch (If-Match)"),
     errors.ProjectOwnerRequired: (
-        "tenancy/project-owner-required", 422, "Project must have an owner",
+        "tenancy/project-owner-required",
+        422,
+        "Project must have an owner",
     ),
     errors.CannotMigrateIndividualProject: (
-        "tenancy/cannot-migrate-individual-project", 409,
+        "tenancy/cannot-migrate-individual-project",
+        409,
         "Individual project cannot be moved into an Org",
     ),
 }
@@ -37,10 +42,14 @@ _MAP: dict[type[errors.TenancyError], tuple[str, int, str]] = {
 
 async def _handler(request: Request, exc: errors.TenancyError) -> JSONResponse:
     slug, status, title = _MAP.get(
-        type(exc), ("tenancy/generic", 400, "Tenancy error"),
+        type(exc),
+        ("tenancy/generic", 400, "Tenancy error"),
     )
     problem = Problem(
-        type=problem_type(slug), title=title, status=status, detail=str(exc),
+        type=problem_type(slug),
+        title=title,
+        status=status,
+        detail=str(exc),
     )
     body = problem.dump()
     body["instance"] = str(request.url.path)

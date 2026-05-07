@@ -15,8 +15,12 @@ from contexts.tenancy.domain.errors import (
 from contexts.tenancy.domain.models import (
     Project,
     ProjectMember,
-    ProjectMemberRole,
-    ProjectOwnerType,
+)
+from contexts.tenancy.domain.models import (
+    ProjectMemberRole as ProjectMemberRole,
+)
+from contexts.tenancy.domain.models import (
+    ProjectOwnerType as ProjectOwnerType,
 )
 from contexts.tenancy.infrastructure.repositories import (
     OrgMemberRepository,
@@ -117,7 +121,9 @@ class ProjectService:
         request_id: uuid.UUID | None = None,
     ) -> Project:
         project = await self._projects.rename(
-            project_id=project_id, new_name=new_name, expected_version=expected_version,
+            project_id=project_id,
+            new_name=new_name,
+            expected_version=expected_version,
         )
         await audit.emit(
             self._db,
@@ -215,7 +221,9 @@ class ProjectService:
         request_id: uuid.UUID | None = None,
     ) -> None:
         rowcount = await self._members.change_role(
-            project_id=project_id, user_id=target_user_id, new_role=new_role,
+            project_id=project_id,
+            user_id=target_user_id,
+            new_role=new_role,
         )
         if rowcount == 0:
             raise MemberNotFound(f"{target_user_id} in project {project_id}")

@@ -42,7 +42,8 @@ class OCTransferService:
     ) -> OCTransfer:
         # R8.15: target must already be an OrgOwner.
         target_member = await self._org_members.get(
-            org_id=org_id, user_id=target_user_id,
+            org_id=org_id,
+            user_id=target_user_id,
         )
         if target_member is None or target_member.role is not OrgMemberRole.OWNER:
             raise TransferConflict("target must already be an OrgOwner")
@@ -63,8 +64,7 @@ class OCTransferService:
                 actor_ip=actor_ip,
                 resource_type="org",
                 resource_id=org_id,
-                metadata={"target_user_id": str(target_user_id),
-                          "transfer_id": str(transfer.id)},
+                metadata={"target_user_id": str(target_user_id), "transfer_id": str(transfer.id)},
                 request_id=request_id,
             ),
         )
@@ -91,12 +91,14 @@ class OCTransferService:
         # kicked during the 7-day window. Also re-confirm the initiator still
         # holds the OC bit — an Admin force-transfer could have swapped it out.
         target_member = await self._org_members.get(
-            org_id=transfer.org_id, user_id=transfer.target_user_id,
+            org_id=transfer.org_id,
+            user_id=transfer.target_user_id,
         )
         if target_member is None or target_member.role is not OrgMemberRole.OWNER:
             raise TransferConflict("target is no longer an OrgOwner")
         initiator_member = await self._org_members.get(
-            org_id=transfer.org_id, user_id=transfer.initiator_user_id,
+            org_id=transfer.org_id,
+            user_id=transfer.initiator_user_id,
         )
         if initiator_member is None or not initiator_member.is_original_creator:
             raise TransferConflict("initiator is no longer the Original Creator")

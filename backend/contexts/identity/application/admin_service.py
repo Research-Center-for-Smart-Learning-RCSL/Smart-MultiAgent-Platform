@@ -7,7 +7,6 @@ last-admin guard, and user search. Each write emits an audit event.
 from __future__ import annotations
 
 import uuid
-from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any
@@ -79,14 +78,14 @@ class AdminService:
         if user is None:
             return None
         is_admin = await self._admins.is_admin(user_id)
-        org_rows = (
+        org_rows: list[Any] = (  # type: ignore[assignment]
             await self._db.execute(
                 sa.select(sa.column("org_id"))
                 .select_from(sa.table("org_members"))
                 .where(sa.column("user_id") == user_id)
             )
         ).all()
-        proj_rows = (
+        proj_rows: list[Any] = (  # type: ignore[assignment]
             await self._db.execute(
                 sa.select(sa.column("project_id"))
                 .select_from(sa.table("project_members"))
@@ -300,7 +299,7 @@ class AdminService:
         actor_ip: str | None,
         request_id: uuid.UUID | None = None,
     ) -> bool:
-        table_map: dict[str, sa.Table] = {
+        table_map: dict[str, Any] = {
             "user": t.users,
             "org": sa.table("orgs", sa.column("id"), sa.column("deleted_at")),
             "project": sa.table("projects", sa.column("id"), sa.column("deleted_at")),
@@ -318,7 +317,7 @@ class AdminService:
             )
             .values(deleted_at=None)
         )
-        if result.rowcount == 0:  # type: ignore[union-attr]
+        if result.rowcount == 0:
             return False
         if resource_type == "user":
             await self._db.execute(
@@ -348,9 +347,12 @@ class AdminService:
         for s in sessions:
             await tokens.kill_family(s.family_id)
             if s.last_jti is not None:
-                await tokens.deny_jti(s.last_jti, ttl=timedelta(
-                    seconds=get_settings().jwt.access_ttl_seconds,
-                ))
+                await tokens.deny_jti(
+                    s.last_jti,
+                    ttl=timedelta(
+                        seconds=get_settings().jwt.access_ttl_seconds,
+                    ),
+                )
         await self._sessions.revoke_all_for_user(user_id)
 
 

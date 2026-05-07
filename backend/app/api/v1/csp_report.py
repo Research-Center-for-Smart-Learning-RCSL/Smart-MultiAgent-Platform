@@ -18,7 +18,7 @@ async def csp_report(request: Request) -> None:
     # Do not enforce JSON schema — browsers send slightly different shapes.
     try:
         body = await request.json()
-    except Exception:  # noqa: BLE001
+    except Exception:
         body = (await request.body()).decode("utf-8", errors="replace")
     logger.bind(
         event="csp_violation",

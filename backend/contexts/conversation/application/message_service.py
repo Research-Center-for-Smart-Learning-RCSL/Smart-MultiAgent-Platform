@@ -7,6 +7,7 @@ sanitisation (F.7), attachments binding (F.5), search (F.10), and WS fan-out
 
 from __future__ import annotations
 
+import logging
 import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -31,8 +32,6 @@ from contexts.conversation.infrastructure.repositories import (
     MessageEditRepository,
     MessageRepository,
 )
-import logging
-
 from shared_kernel import audit
 from shared_kernel.auth.clients import now
 from shared_kernel.realtime.pubsub import Publisher, room_channel
@@ -87,12 +86,14 @@ class MessageService:
         )
 
     async def list_attachments(
-        self, message_id: uuid.UUID,
+        self,
+        message_id: uuid.UUID,
     ) -> Sequence[MessageAttachment]:
         return await self._attachments.list_for_message(message_id)
 
     async def list_edits(
-        self, message_id: uuid.UUID,
+        self,
+        message_id: uuid.UUID,
     ) -> Sequence[MessageEdit]:
         return await self._edits.list_for_message(message_id)
 
@@ -105,7 +106,7 @@ class MessageService:
         sender_user_id: uuid.UUID,
         content_md: str,
         metadata: dict[str, Any] | None = None,
-        attachment_ids: list[uuid.UUID] | None = None,
+        attachment_ids: list[uuid.UUID] | None = None,  # type: ignore[valid-type]
         actor_ip: str | None,
         request_id: uuid.UUID | None = None,
     ) -> Message:
@@ -185,14 +186,9 @@ class MessageService:
                     "agent messages are immutable (R13.22)",
                 )
             # Self-edit path: only the author, and only within 5 minutes.
-            if (
-                existing.sender_type is not SenderType.USER
-                or existing.sender_id != authority.actor_user_id
-            ):
+            if existing.sender_type is not SenderType.USER or existing.sender_id != authority.actor_user_id:
                 raise MessageImmutable("not the author")
-            if existing.created_at is None or (
-                now() - existing.created_at > SELF_EDIT_WINDOW
-            ):
+            if existing.created_at is None or (now() - existing.created_at > SELF_EDIT_WINDOW):
                 raise MessageEditWindowExceeded(
                     "5-minute self-edit window exceeded",
                 )
@@ -220,12 +216,8 @@ class MessageService:
                 {
                     "message_id": str(message_id),
                     "version": updated.version,
-                    "edited_at": updated.edited_at.isoformat()
-                        if updated.edited_at else None,
-                    "by_moderator": (
-                        moderator_path
-                        and authority.actor_user_id != existing.sender_id
-                    ),
+                    "edited_at": updated.edited_at.isoformat() if updated.edited_at else None,
+                    "by_moderator": (moderator_path and authority.actor_user_id != existing.sender_id),
                 },
             )
         except Exception:
@@ -242,8 +234,7 @@ class MessageService:
                     resource_id=message_id,
                     metadata={
                         "chatroom_id": str(existing.chatroom_id),
-                        "original_sender_id": str(existing.sender_id)
-                            if existing.sender_id else None,
+                        "original_sender_id": str(existing.sender_id) if existing.sender_id else None,
                     },
                     request_id=request_id,
                 ),
@@ -295,15 +286,15 @@ class MessageService:
                 metadata={
                     "chatroom_id": str(existing.chatroom_id),
                     "by_moderator": authority.is_admin or authority.is_moderator,
-                    "original_sender_id": str(existing.sender_id)
-                        if existing.sender_id else None,
+                    "original_sender_id": str(existing.sender_id) if existing.sender_id else None,
                 },
                 request_id=request_id,
             ),
         )
         try:
             await Publisher(room_channel(existing.chatroom_id)).emit(
-                "message.deleted", {"message_id": str(message_id)},
+                "message.deleted",
+                {"message_id": str(message_id)},
             )
         except Exception:
             _log.error("realtime publish failed for message.deleted %s", message_id, exc_info=True)

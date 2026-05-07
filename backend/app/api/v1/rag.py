@@ -31,15 +31,15 @@ from qdrant_client import AsyncQdrantClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config.settings import get_settings
+from contexts.keys.interfaces.facade import KeysFacade
 from contexts.knowledge.application.config_service import RagConfigService
 from contexts.knowledge.application.ingest_service import IngestInput, IngestService
 from contexts.knowledge.domain.models import ChunkStrategy, RagConfigDraft
 from contexts.knowledge.infrastructure.blob_store import MinioBlobStore
 from contexts.knowledge.infrastructure.embedders import embedder_for
 from contexts.knowledge.infrastructure.qdrant_store import QdrantStore
-from contexts.keys.interfaces.facade import KeysFacade
-from contexts.tenancy.infrastructure.repositories import ProjectMemberRepository
 from contexts.tenancy.domain.models import ProjectMemberRole
+from contexts.tenancy.infrastructure.repositories import ProjectMemberRepository
 from shared_kernel.auth.context import RequestContext
 from shared_kernel.auth.dependencies import (
     current_context,
@@ -50,7 +50,6 @@ from shared_kernel.auth.dependencies import (
 )
 from shared_kernel.auth.permissions import Capability, Principal
 from shared_kernel.db.session import db_session
-
 
 # ---------------------------------------------------------------------------
 # Pydantic schemas
@@ -101,7 +100,7 @@ class RagDocumentOut(BaseModel):
     uploaded_at: str
 
 
-def _to_config_out(c) -> RagConfigOut:  # type: ignore[no-untyped-def]
+def _to_config_out(c) -> RagConfigOut:
     return RagConfigOut(
         id=c.id,
         project_id=c.project_id,
@@ -121,7 +120,7 @@ def _to_config_out(c) -> RagConfigOut:  # type: ignore[no-untyped-def]
     )
 
 
-def _to_document_out(d) -> RagDocumentOut:  # type: ignore[no-untyped-def]
+def _to_document_out(d) -> RagDocumentOut:
     return RagDocumentOut(
         id=d.id,
         rag_config_id=d.rag_config_id,
@@ -140,7 +139,8 @@ def _to_document_out(d) -> RagDocumentOut:  # type: ignore[no-untyped-def]
 # ---------------------------------------------------------------------------
 
 project_router = APIRouter(
-    prefix="/api/projects/{project_id}/rag-configs", tags=["rag"],
+    prefix="/api/projects/{project_id}/rag-configs",
+    tags=["rag"],
 )
 
 
@@ -161,10 +161,12 @@ async def create_rag_config(
     project_id: uuid.UUID = Path(...),
     ctx: RequestContext = Depends(current_context),
     principal: Principal = Depends(current_principal),
-    _=Depends(require(
-        Capability.RESOURCE_CREATE_EDIT,
-        scope_from_path(project_param="project_id"),
-    )),
+    _=Depends(
+        require(
+            Capability.RESOURCE_CREATE_EDIT,
+            scope_from_path(project_param="project_id"),
+        )
+    ),
     db: AsyncSession = Depends(db_session),
 ) -> RagConfigOut:
     service = RagConfigService(db)
@@ -206,7 +208,8 @@ async def _require_owner(
 ) -> None:
     if principal.is_admin:
         return
-    from shared_kernel.auth.dependencies import _raise_forbidden  # noqa: PLC0415
+    from shared_kernel.auth.dependencies import _raise_forbidden
+
     members = ProjectMemberRepository(db)
     member = await members.get(project_id=project_id, user_id=principal.user_id)
     if member is None or member.role is not ProjectMemberRole.OWNER:
@@ -222,8 +225,9 @@ async def read_rag_config(
     service = RagConfigService(db)
     cfg = await service.get(config_id)
     # Membership check scoped to cfg's project.
-    from shared_kernel.auth.dependencies import get_role_resolver, _raise_forbidden  # noqa: PLC0415
-    from shared_kernel.auth.permissions import Scope  # noqa: PLC0415
+    from shared_kernel.auth.dependencies import _raise_forbidden, get_role_resolver
+    from shared_kernel.auth.permissions import Scope
+
     if not principal.is_admin:
         resolver = await get_role_resolver(db)
         roles = await resolver.roles_for(principal, Scope(project_id=cfg.project_id))
@@ -241,12 +245,15 @@ async def delete_rag_config(
 ) -> None:
     service = RagConfigService(db)
     cfg = await service.get(config_id)
-    from shared_kernel.auth.dependencies import get_role_resolver, _raise_forbidden  # noqa: PLC0415
-    from shared_kernel.auth.permissions import Scope, decide  # noqa: PLC0415
+    from shared_kernel.auth.dependencies import _raise_forbidden, get_role_resolver
+    from shared_kernel.auth.permissions import Scope, decide
+
     resolver = await get_role_resolver(db)
     decision = await decide(
-        principal, Capability.RESOURCE_CREATE_EDIT,
-        Scope(project_id=cfg.project_id), resolver,
+        principal,
+        Capability.RESOURCE_CREATE_EDIT,
+        Scope(project_id=cfg.project_id),
+        resolver,
     )
     if not decision.allowed:
         _raise_forbidden(decision.reason)
@@ -266,20 +273,25 @@ async def list_documents(
 ) -> list[RagDocumentOut]:
     service = RagConfigService(db)
     cfg = await service.get(config_id)
-    from shared_kernel.auth.dependencies import get_role_resolver, _raise_forbidden  # noqa: PLC0415
-    from shared_kernel.auth.permissions import Scope  # noqa: PLC0415
+    from shared_kernel.auth.dependencies import _raise_forbidden, get_role_resolver
+    from shared_kernel.auth.permissions import Scope
+
     if not principal.is_admin:
         resolver = await get_role_resolver(db)
         roles = await resolver.roles_for(principal, Scope(project_id=cfg.project_id))
         if not roles:
             _raise_forbidden("caller is not a member of the config's project")
-    from contexts.knowledge.infrastructure.repositories import RagDocumentRepository  # noqa: PLC0415
+    from contexts.knowledge.infrastructure.repositories import (
+        RagDocumentRepository,
+    )
+
     docs = await RagDocumentRepository(db).list_for_config(config_id)
     return [_to_document_out(d) for d in docs]
 
 
 @config_router.post(
-    "/{config_id}/documents", status_code=status.HTTP_201_CREATED,
+    "/{config_id}/documents",
+    status_code=status.HTTP_201_CREATED,
 )
 async def upload_document(
     config_id: uuid.UUID = Path(...),
@@ -293,12 +305,15 @@ async def upload_document(
     cfg = await config_service.get(config_id)
 
     # Capability + R10.10 Owner check.
-    from shared_kernel.auth.dependencies import get_role_resolver, _raise_forbidden  # noqa: PLC0415
-    from shared_kernel.auth.permissions import Scope, decide  # noqa: PLC0415
+    from shared_kernel.auth.dependencies import _raise_forbidden, get_role_resolver
+    from shared_kernel.auth.permissions import Scope, decide
+
     resolver = await get_role_resolver(db)
     decision = await decide(
-        principal, Capability.RESOURCE_CREATE_EDIT,
-        Scope(project_id=cfg.project_id), resolver,
+        principal,
+        Capability.RESOURCE_CREATE_EDIT,
+        Scope(project_id=cfg.project_id),
+        resolver,
     )
     if not decision.allowed:
         _raise_forbidden(decision.reason)
@@ -306,7 +321,8 @@ async def upload_document(
 
     if cfg.embed_key_id is None:
         raise HTTPException(
-            status_code=422, detail="rag config has no embed_key_id",
+            status_code=422,
+            detail="rag config has no embed_key_id",
         )
 
     data = await file.read()
@@ -321,7 +337,8 @@ async def upload_document(
         )
 
         settings = get_settings()
-        from minio import Minio  # noqa: PLC0415
+        from minio import Minio
+
         minio = Minio(
             settings.minio.endpoint,
             access_key=settings.minio.root_access_key,
@@ -338,7 +355,10 @@ async def upload_document(
         qdrant = QdrantStore(qclient)
 
         ingest = IngestService(
-            db, blob=blob, embedder=embedder, qdrant=qdrant,
+            db,
+            blob=blob,
+            embedder=embedder,
+            qdrant=qdrant,
             bucket=settings.minio.bucket_rag_sources,
         )
         doc = await ingest.ingest(
@@ -355,7 +375,7 @@ async def upload_document(
         )
     finally:
         # Best-effort scrub of the plaintext key.
-        plaintext = b"\x00" * len(plaintext)  # noqa: F841
+        plaintext = b"\x00" * len(plaintext)
     return _to_document_out(doc)
 
 
@@ -363,7 +383,9 @@ document_router = APIRouter(prefix="/api/rag-documents", tags=["rag"])
 
 
 @document_router.delete(
-    "/{document_id}", status_code=status.HTTP_204_NO_CONTENT, response_model=None,
+    "/{document_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_model=None,
 )
 async def delete_rag_document(
     document_id: uuid.UUID = Path(...),
@@ -381,12 +403,13 @@ async def delete_rag_document(
     covers ingestion (write) only; deletion follows the standard edit
     capability so non-owner editors can clean up their own uploads.
     """
-    from contexts.knowledge.infrastructure.repositories import (  # noqa: PLC0415
-        RagDocumentRepository, RagDocumentNotFound,
+    from contexts.knowledge.infrastructure.repositories import (
+        RagDocumentNotFound,
+        RagDocumentRepository,
     )
-    from shared_kernel.auth.dependencies import get_role_resolver, _raise_forbidden  # noqa: PLC0415
-    from shared_kernel.auth.permissions import Scope, decide  # noqa: PLC0415
-    from shared_kernel import audit as _audit  # noqa: PLC0415
+    from shared_kernel import audit as _audit
+    from shared_kernel.auth.dependencies import _raise_forbidden, get_role_resolver
+    from shared_kernel.auth.permissions import Scope, decide
 
     docs_repo = RagDocumentRepository(db)
     try:
@@ -401,8 +424,10 @@ async def delete_rag_document(
 
     resolver = await get_role_resolver(db)
     decision = await decide(
-        principal, Capability.RESOURCE_CREATE_EDIT,
-        Scope(project_id=cfg.project_id), resolver,
+        principal,
+        Capability.RESOURCE_CREATE_EDIT,
+        Scope(project_id=cfg.project_id),
+        resolver,
     )
     if not decision.allowed:
         _raise_forbidden(decision.reason)
@@ -417,18 +442,19 @@ async def delete_rag_document(
         )
         try:
             await QdrantStore(qclient).delete_document(
-                project_id=cfg.project_id, document_id=document_id,
+                project_id=cfg.project_id,
+                document_id=document_id,
             )
         finally:
             await qclient.close()
-    except Exception:  # noqa: BLE001
-        # Logged in audit metadata; not surfaced to the caller.
+    except Exception:  # noqa: S110 — best-effort cleanup; audit metadata records the outcome
         pass
 
     # Best-effort MinIO blob removal.
     blob_removed = True
     try:
-        from minio import Minio  # noqa: PLC0415
+        from minio import Minio
+
         settings = get_settings()
         minio = Minio(
             settings.minio.endpoint,
@@ -440,9 +466,10 @@ async def delete_rag_document(
         # minio_path is "<bucket>/<key>"; split on first slash.
         bucket, _, key = doc.minio_path.partition("/")
         if bucket and key:
-            import asyncio  # noqa: PLC0415
+            import asyncio
+
             await asyncio.to_thread(minio.remove_object, bucket, key)
-    except Exception:  # noqa: BLE001
+    except Exception:
         blob_removed = False
 
     await docs_repo.delete(document_id)

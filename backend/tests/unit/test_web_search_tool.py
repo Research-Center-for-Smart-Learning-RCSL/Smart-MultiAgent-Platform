@@ -37,10 +37,16 @@ class _FakeAdapter:
         proxy: Any,
         project_id: uuid.UUID,
     ) -> list[SearchResult]:
-        self.calls.append({
-            "query": query, "top_k": top_k, "locale": locale,
-            "freshness": freshness, "api_key": api_key, "project_id": project_id,
-        })
+        self.calls.append(
+            {
+                "query": query,
+                "top_k": top_k,
+                "locale": locale,
+                "freshness": freshness,
+                "api_key": api_key,
+                "project_id": project_id,
+            }
+        )
         return list(self.results)
 
 
@@ -51,9 +57,7 @@ class _DictCache:
     async def get(self, cache_key: str) -> list[SearchResult] | None:
         return self._store.get(cache_key)
 
-    async def set(
-        self, cache_key: str, results: list[SearchResult], *, ttl_s: int
-    ) -> None:
+    async def set(self, cache_key: str, results: list[SearchResult], *, ttl_s: int) -> None:
         self._store[cache_key] = list(results)
 
 
@@ -62,9 +66,7 @@ class _TokenLimiter:
         self.tokens = tokens
         self.limit_seen: int | None = None
 
-    async def try_acquire(
-        self, *, project_id: uuid.UUID, limit_per_minute: int
-    ) -> bool:
+    async def try_acquire(self, *, project_id: uuid.UUID, limit_per_minute: int) -> bool:
         self.limit_seen = limit_per_minute
         if self.tokens <= 0:
             return False
@@ -78,15 +80,15 @@ class _FakeProxy:
 
 
 class _FakeSession:
-    async def execute(self, stmt: Any) -> Any:  # noqa: ARG002
+    async def execute(self, stmt: Any) -> Any:
         class _R:
-            def first(self_inner: Any) -> None:
+            def first(self: Any) -> None:
                 return None
 
-            def all(self_inner: Any) -> list[Any]:
+            def all(self: Any) -> list[Any]:
                 return []
 
-            def one(self_inner: Any) -> None:
+            def one(self: Any) -> None:
                 return None
 
         return _R()
@@ -94,12 +96,19 @@ class _FakeSession:
 
 def _sk(provider: SearchProvider, *, is_active: bool = True) -> SearchKey:
     return SearchKey(
-        id=uuid.uuid4(), project_id=uuid.uuid4(),
-        provider=provider, masked_preview="****",
-        test_status=ProbeStatus.OK, test_error=None,
-        last_test_at=datetime.now(tz=UTC), is_active=is_active,
-        config={}, transit_key_version=1, hmac_key_version=1,
-        created_at=datetime.now(tz=UTC), deleted_at=None,
+        id=uuid.uuid4(),
+        project_id=uuid.uuid4(),
+        provider=provider,
+        masked_preview="****",
+        test_status=ProbeStatus.OK,
+        test_error=None,
+        last_test_at=datetime.now(tz=UTC),
+        is_active=is_active,
+        config={},
+        transit_key_version=1,
+        hmac_key_version=1,
+        created_at=datetime.now(tz=UTC),
+        deleted_at=None,
     )
 
 
@@ -121,18 +130,23 @@ class _StubWebSearchTool(WebSearchTool):
 
 def _result(title: str) -> SearchResult:
     return SearchResult(
-        title=title, url=f"https://example.com/{title}",
-        snippet="snippet " + title, published_at=None, score=0.5,
+        title=title,
+        url=f"https://example.com/{title}",
+        snippet="snippet " + title,
+        published_at=None,
+        score=0.5,
     )
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_missing_active_key_raises() -> None:
     tool = _StubWebSearchTool(
-        agent_id=uuid.uuid4(), project_id=uuid.uuid4(),
+        agent_id=uuid.uuid4(),
+        project_id=uuid.uuid4(),
         db=_FakeSession(),  # type: ignore[arg-type]
         adapters={SearchProvider.TAVILY: _FakeAdapter([])},
-        cache=_DictCache(), rate_limiter=_TokenLimiter(10),
+        cache=_DictCache(),
+        rate_limiter=_TokenLimiter(10),
         proxy=_FakeProxy(),
         active_key=None,
     )
@@ -140,32 +154,38 @@ async def test_missing_active_key_raises() -> None:
         await tool.search("anything")
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_rate_limit_denies() -> None:
     adapter = _FakeAdapter([_result("a")])
     sk = _sk(SearchProvider.TAVILY)
     tool = _StubWebSearchTool(
-        agent_id=uuid.uuid4(), project_id=sk.project_id,
+        agent_id=uuid.uuid4(),
+        project_id=sk.project_id,
         db=_FakeSession(),  # type: ignore[arg-type]
         adapters={SearchProvider.TAVILY: adapter},
-        cache=_DictCache(), rate_limiter=_TokenLimiter(tokens=0),
-        proxy=_FakeProxy(), active_key=sk,
+        cache=_DictCache(),
+        rate_limiter=_TokenLimiter(tokens=0),
+        proxy=_FakeProxy(),
+        active_key=sk,
     )
     with pytest.raises(SearchQuotaExceeded):
         await tool.search("hello")
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_live_call_then_cache_hit() -> None:
     adapter = _FakeAdapter([_result("a"), _result("b")])
     sk = _sk(SearchProvider.TAVILY)
     cache = _DictCache()
     tool = _StubWebSearchTool(
-        agent_id=uuid.uuid4(), project_id=sk.project_id,
+        agent_id=uuid.uuid4(),
+        project_id=sk.project_id,
         db=_FakeSession(),  # type: ignore[arg-type]
         adapters={SearchProvider.TAVILY: adapter},
-        cache=cache, rate_limiter=_TokenLimiter(10),
-        proxy=_FakeProxy(), active_key=sk,
+        cache=cache,
+        rate_limiter=_TokenLimiter(10),
+        proxy=_FakeProxy(),
+        active_key=sk,
     )
 
     first = await tool.search("hi", top_k=5, freshness="any", locale="en-US")
@@ -178,25 +198,31 @@ async def test_live_call_then_cache_hit() -> None:
     assert len(adapter.calls) == 1
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_four_kb_truncation() -> None:
     # Each result is ~1 KB, so >4 should be dropped after the 4 KB budget.
     big_snip = "x" * 900
     many = [
         SearchResult(
-            title=f"t{i}", url=f"https://example.com/{i}",
-            snippet=big_snip, published_at=None, score=0.1,
+            title=f"t{i}",
+            url=f"https://example.com/{i}",
+            snippet=big_snip,
+            published_at=None,
+            score=0.1,
         )
         for i in range(20)
     ]
     adapter = _FakeAdapter(many)
     sk = _sk(SearchProvider.TAVILY)
     tool = _StubWebSearchTool(
-        agent_id=uuid.uuid4(), project_id=sk.project_id,
+        agent_id=uuid.uuid4(),
+        project_id=sk.project_id,
         db=_FakeSession(),  # type: ignore[arg-type]
         adapters={SearchProvider.TAVILY: adapter},
-        cache=_DictCache(), rate_limiter=_TokenLimiter(10),
-        proxy=_FakeProxy(), active_key=sk,
+        cache=_DictCache(),
+        rate_limiter=_TokenLimiter(10),
+        proxy=_FakeProxy(),
+        active_key=sk,
     )
     out = await tool.search("hi", top_k=20, freshness="any", locale="en-US")
     # Each entry json size ~950+; 4096 / 950 ≈ 4 entries.
@@ -204,9 +230,11 @@ async def test_four_kb_truncation() -> None:
     serialised = json.dumps(
         [
             {
-                "title": r.title, "url": r.url,
+                "title": r.title,
+                "url": r.url,
                 "snippet": r.snippet,
-                "published_at": None, "score": r.score,
+                "published_at": None,
+                "score": r.score,
             }
             for r in out
         ],
@@ -215,15 +243,18 @@ async def test_four_kb_truncation() -> None:
     assert len(serialised) <= 4096
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 async def test_unregistered_provider_treated_as_not_configured() -> None:
     sk = _sk(SearchProvider.BRAVE)  # Only Tavily is registered in this test.
     tool = _StubWebSearchTool(
-        agent_id=uuid.uuid4(), project_id=sk.project_id,
+        agent_id=uuid.uuid4(),
+        project_id=sk.project_id,
         db=_FakeSession(),  # type: ignore[arg-type]
         adapters={SearchProvider.TAVILY: _FakeAdapter([])},
-        cache=_DictCache(), rate_limiter=_TokenLimiter(10),
-        proxy=_FakeProxy(), active_key=sk,
+        cache=_DictCache(),
+        rate_limiter=_TokenLimiter(10),
+        proxy=_FakeProxy(),
+        active_key=sk,
     )
     with pytest.raises(SearchKeyNotConfigured):
         await tool.search("hi")

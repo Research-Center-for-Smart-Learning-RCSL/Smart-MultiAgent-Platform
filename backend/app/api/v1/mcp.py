@@ -37,7 +37,6 @@ from shared_kernel.auth.dependencies import (
 from shared_kernel.auth.permissions import Capability, Principal
 from shared_kernel.db.session import db_session
 
-
 # ---------------------------------------------------------------------------
 # Pydantic schemas
 # ---------------------------------------------------------------------------
@@ -50,7 +49,7 @@ class McpTestOut(BaseModel):
     error: str | None = None
 
     @classmethod
-    def from_domain(cls, r: McpTestResult) -> "McpTestOut":
+    def from_domain(cls, r: McpTestResult) -> McpTestOut:
         return cls(
             ok=r.ok,
             tool_names=list(r.tool_names),
@@ -68,7 +67,7 @@ class AllowlistEntryOut(BaseModel):
     note: str | None
 
     @classmethod
-    def from_domain(cls, e: EgressAllowlistEntry) -> "AllowlistEntryOut":
+    def from_domain(cls, e: EgressAllowlistEntry) -> AllowlistEntryOut:
         return cls(
             id=e.id,
             project_id=e.project_id,
@@ -100,12 +99,13 @@ async def _require_owner(
     principal: Principal,
 ) -> None:
     """R10.10-style guard — Project Owner (or Admin) only."""
-    from shared_kernel.auth.dependencies import _raise_forbidden  # noqa: PLC0415
+    from shared_kernel.auth.dependencies import _raise_forbidden
 
     if principal.is_admin:
         return
     member = await ProjectMemberRepository(db).get(
-        project_id=project_id, user_id=principal.user_id,
+        project_id=project_id,
+        user_id=principal.user_id,
     )
     if member is None or member.role is not ProjectMemberRole.OWNER:
         _raise_forbidden(
@@ -119,7 +119,7 @@ def _get_sandbox_runner():  # pragma: no cover - runtime injection
     Defaults to :class:`DockerRunscSandbox`; tests override via
     ``app.dependency_overrides[_get_sandbox_runner] = ...``.
     """
-    from contexts.agents.infrastructure.sandbox.docker_runsc import (  # noqa: PLC0415
+    from contexts.agents.infrastructure.sandbox.docker_runsc import (
         DockerRunscSandbox,
     )
 
@@ -146,16 +146,18 @@ async def test_mcp_binding(
     agent_service = AgentService(db)
     agent = await agent_service.get(agent_id)
 
-    from shared_kernel.auth.dependencies import (  # noqa: PLC0415
+    from shared_kernel.auth.dependencies import (
         _raise_forbidden,
         get_role_resolver,
     )
-    from shared_kernel.auth.permissions import Scope, decide  # noqa: PLC0415
+    from shared_kernel.auth.permissions import Scope, decide
 
     resolver = await get_role_resolver(db)
     decision = await decide(
-        principal, Capability.RESOURCE_CREATE_EDIT,
-        Scope(project_id=agent.project_id), resolver,
+        principal,
+        Capability.RESOURCE_CREATE_EDIT,
+        Scope(project_id=agent.project_id),
+        resolver,
     )
     if not decision.allowed:
         _raise_forbidden(decision.reason)
@@ -177,7 +179,8 @@ async def test_mcp_binding(
 # ---------------------------------------------------------------------------
 
 project_router = APIRouter(
-    prefix="/api/projects/{project_id}/mcp/egress-allowlist", tags=["mcp"],
+    prefix="/api/projects/{project_id}/mcp/egress-allowlist",
+    tags=["mcp"],
 )
 
 
@@ -234,7 +237,8 @@ async def add_allowlist_entry(
 
 
 @project_router.delete(
-    "/{hostname}", status_code=status.HTTP_204_NO_CONTENT,
+    "/{hostname}",
+    status_code=status.HTTP_204_NO_CONTENT,
     response_model=None,
 )
 async def remove_allowlist_entry(

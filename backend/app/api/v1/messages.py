@@ -88,12 +88,14 @@ def _parse_if_match(header: str) -> int:
         return int(header.strip().strip('"'))
     except ValueError as exc:
         raise HTTPException(
-            status_code=412, detail=f"invalid If-Match: {header!r}",
+            status_code=412,
+            detail=f"invalid If-Match: {header!r}",
         ) from exc
 
 
 def _authority_from(
-    access: RoomAccess, principal: Principal,
+    access: RoomAccess,
+    principal: Principal,
 ) -> EditAuthority:
     return EditAuthority(
         actor_user_id=principal.user_id,
@@ -117,13 +119,18 @@ async def list_messages(
     db: AsyncSession = Depends(db_session),
 ) -> list[MessageOut]:
     access = await resolve_room_access(
-        db, principal=principal, chatroom_id=chatroom_id,
+        db,
+        principal=principal,
+        chatroom_id=chatroom_id,
     )
     ensure_can_read(access, is_admin=principal.is_admin)
     service = MessageService(db)
     try:
         rows = await service.list(
-            chatroom_id=chatroom_id, before=before, since=since, limit=limit,
+            chatroom_id=chatroom_id,
+            before=before,
+            since=since,
+            limit=limit,
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -131,7 +138,8 @@ async def list_messages(
 
 
 @chatroom_router.post(
-    "/{chatroom_id}/messages", status_code=status.HTTP_201_CREATED,
+    "/{chatroom_id}/messages",
+    status_code=status.HTTP_201_CREATED,
 )
 async def send_message(
     body: MessageSendIn,
@@ -141,7 +149,9 @@ async def send_message(
     db: AsyncSession = Depends(db_session),
 ) -> MessageOut:
     access = await resolve_room_access(
-        db, principal=principal, chatroom_id=chatroom_id,
+        db,
+        principal=principal,
+        chatroom_id=chatroom_id,
     )
     ensure_can_send(access, is_admin=principal.is_admin)
     service = MessageService(db)
@@ -170,7 +180,9 @@ async def _load_message_with_access(
     service = MessageService(db)
     msg = await service.get(message_id)  # raises MessageNotFound → 404
     access = await resolve_room_access(
-        db, principal=principal, chatroom_id=msg.chatroom_id,
+        db,
+        principal=principal,
+        chatroom_id=msg.chatroom_id,
     )
     return msg, access
 
@@ -212,7 +224,8 @@ async def edit_message(
 
 
 @message_router.delete(
-    "/{message_id}", status_code=status.HTTP_204_NO_CONTENT,
+    "/{message_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
     response_model=None,
 )
 async def delete_message(
@@ -227,10 +240,7 @@ async def delete_message(
     # Matrix row 20 MESSAGE_DELETE: own-only for members/guests, ALLOW for
     # project owners and org owners, plus Admin bypass. Evaluated inline so
     # the service stays AuthZ-agnostic (it only hard-deletes + audits).
-    is_author = (
-        msg.sender_id == principal.user_id
-        and msg.sender_type.value == "user"
-    )
+    is_author = msg.sender_id == principal.user_id and msg.sender_type.value == "user"
     if not (principal.is_admin or access.is_moderator or is_author):
         _raise_forbidden("cannot delete a message you do not own")
 

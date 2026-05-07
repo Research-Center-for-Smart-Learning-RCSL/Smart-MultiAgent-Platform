@@ -69,13 +69,10 @@ class GraphRagConfigService:
         if agent_row is None:
             raise GraphRagAgentProjectMismatch(str(draft.agent_id))
         if agent_row.project_id != project_id:
-            raise GraphRagAgentProjectMismatch(
-                f"agent {draft.agent_id} is not in project {project_id}"
-            )
+            raise GraphRagAgentProjectMismatch(f"agent {draft.agent_id} is not in project {project_id}")
         if agent_row.key_group_id == draft.builder_key_group_id:
             raise GraphRagBuilderKeyGroupConflict(
-                f"builder_key_group_id must differ from agent's key_group_id "
-                f"({agent_row.key_group_id})"
+                f"builder_key_group_id must differ from agent's key_group_id " f"({agent_row.key_group_id})"
             )
 
         cfg = await self._configs.create(
@@ -109,7 +106,8 @@ class GraphRagConfigService:
         return cfg
 
     async def list_for_project(
-        self, project_id: uuid.UUID,
+        self,
+        project_id: uuid.UUID,
     ) -> Sequence[GraphRagConfig]:
         return await self._configs.list_for_project(project_id)
 
@@ -153,10 +151,7 @@ class GraphRagConfigService:
         a user can't pivot the builder onto the agent's own consumer keys.
         """
         cfg = await self.get(config_id)
-        if (
-            builder_key_group_id is not None
-            and builder_key_group_id != cfg.builder_key_group_id
-        ):
+        if builder_key_group_id is not None and builder_key_group_id != cfg.builder_key_group_id:
             agent_row = (
                 await self._db.execute(
                     sa.select(agents_t.agents.c.key_group_id).where(
@@ -185,8 +180,7 @@ class GraphRagConfigService:
                 metadata={
                     "project_id": str(cfg.project_id),
                     "builder_key_group_id_changed": (
-                        builder_key_group_id is not None
-                        and builder_key_group_id != cfg.builder_key_group_id
+                        builder_key_group_id is not None and builder_key_group_id != cfg.builder_key_group_id
                     ),
                     "trigger_config_changed": trigger_config is not None,
                 },
@@ -209,7 +203,9 @@ class GraphRagConfigService:
         cfg = await self.get(config_id)
         prev = cfg.last_build_state
         await self._configs.set_state(
-            config_id=config_id, state=BuildState.IDLE, error=None,
+            config_id=config_id,
+            state=BuildState.IDLE,
+            error=None,
         )
         await audit.emit(
             self._db,
@@ -231,15 +227,14 @@ class GraphRagConfigService:
         return refreshed
 
     async def status(
-        self, config_id: uuid.UUID,
+        self,
+        config_id: uuid.UUID,
     ) -> dict[str, Any]:
         cfg = await self.get(config_id)
         return {
             "id": str(cfg.id),
             "state": cfg.last_build_state.value,
-            "last_build_at": (
-                cfg.last_build_at.isoformat() if cfg.last_build_at else None
-            ),
+            "last_build_at": (cfg.last_build_at.isoformat() if cfg.last_build_at else None),
             "last_build_error": cfg.last_build_error,
         }
 

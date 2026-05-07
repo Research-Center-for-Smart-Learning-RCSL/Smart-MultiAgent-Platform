@@ -68,18 +68,20 @@ class GraphRagConfigRepository:
         return _row_to_config(row)
 
     async def get(
-        self, config_id: uuid.UUID, *, include_deleted: bool = False,
+        self,
+        config_id: uuid.UUID,
+        *,
+        include_deleted: bool = False,
     ) -> GraphRagConfig | None:
         pred: sa.ColumnElement[bool] = t.graphrag_configs.c.id == config_id
         if not include_deleted:
             pred = sa.and_(pred, t.graphrag_configs.c.deleted_at.is_(None))
-        row = (
-            await self._db.execute(t.graphrag_configs.select().where(pred))
-        ).first()
+        row = (await self._db.execute(t.graphrag_configs.select().where(pred))).first()
         return _row_to_config(row) if row else None
 
     async def list_for_project(
-        self, project_id: uuid.UUID,
+        self,
+        project_id: uuid.UUID,
     ) -> Sequence[GraphRagConfig]:
         rows = (
             await self._db.execute(
@@ -96,7 +98,8 @@ class GraphRagConfigRepository:
         return [_row_to_config(r) for r in rows]
 
     async def list_in_state(
-        self, state: BuildState,
+        self,
+        state: BuildState,
     ) -> Sequence[GraphRagConfig]:
         rows = (
             await self._db.execute(
@@ -125,16 +128,12 @@ class GraphRagConfigRepository:
         if stamp_built_at:
             values["last_build_at"] = now()
         await self._db.execute(
-            t.graphrag_configs.update()
-            .where(t.graphrag_configs.c.id == config_id)
-            .values(**values)
+            t.graphrag_configs.update().where(t.graphrag_configs.c.id == config_id).values(**values)
         )
 
     async def soft_delete(self, config_id: uuid.UUID) -> None:
         await self._db.execute(
-            t.graphrag_configs.update()
-            .where(t.graphrag_configs.c.id == config_id)
-            .values(deleted_at=now())
+            t.graphrag_configs.update().where(t.graphrag_configs.c.id == config_id).values(deleted_at=now())
         )
 
     async def update(
@@ -157,9 +156,7 @@ class GraphRagConfigRepository:
         if not values:
             return
         await self._db.execute(
-            t.graphrag_configs.update()
-            .where(t.graphrag_configs.c.id == config_id)
-            .values(**values)
+            t.graphrag_configs.update().where(t.graphrag_configs.c.id == config_id).values(**values)
         )
 
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Sequence
+from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -22,10 +23,14 @@ class NotificationFacade:
         kind: NotificationKind,
         title: str,
         body: str | None = None,
-        metadata: dict | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> Notification:
         return await self._service.send(
-            user_id=user_id, kind=kind, title=title, body=body, metadata=metadata,
+            user_id=user_id,
+            kind=kind,
+            title=title,
+            body=body,
+            metadata=metadata,
         )
 
     async def list_for_user(

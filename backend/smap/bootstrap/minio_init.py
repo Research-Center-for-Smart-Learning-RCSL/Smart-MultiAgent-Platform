@@ -19,9 +19,9 @@ from typing import Any
 
 from minio import Minio
 from minio.commonconfig import ENABLED, Filter
+from minio.credentials import StaticProvider  # type: ignore[attr-defined]
 from minio.error import S3Error
 from minio.lifecycleconfig import Expiration, LifecycleConfig, Rule
-from minio.credentials import StaticProvider
 from minio.minioadmin import MinioAdmin
 
 from app.config.settings import Settings
@@ -111,9 +111,7 @@ def _admin_client(settings: Settings) -> MinioAdmin:
         access_key=settings.minio.root_access_key,
         secret_key=settings.minio.root_secret_key,
     )
-    return MinioAdmin(
-        settings.minio.endpoint, credentials=creds, secure=settings.minio.use_tls
-    )
+    return MinioAdmin(settings.minio.endpoint, credentials=creds, secure=settings.minio.use_tls)  # type: ignore[misc]
 
 
 def run(
@@ -157,9 +155,9 @@ def run(
             secret_key=new_secret,
             name=settings.minio.service_account_name,
             description="SMAP backend scoped account (chat-uploads/rag-sources/exports).",
-            policy=policy_str,
+            policy=policy_str,  # type: ignore[arg-type]
         )
-    except Exception as exc:  # noqa: BLE001 — MinIO error taxonomy is open-ended
+    except Exception as exc:  # — MinIO error taxonomy is open-ended
         msg = str(exc).lower()
         if "exists" in msg or "already" in msg or "duplicate" in msg:
             report.already(f"service-account:{settings.minio.service_account_name}")
