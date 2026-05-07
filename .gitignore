@@ -63,6 +63,9 @@ frontend/stats.html
 frontend/coverage/
 frontend/playwright-report/
 frontend/test-results/
+frontend/test-results*.txt
+frontend/test-output.txt
+frontend/full-test-output.txt
 
 # ---- Env / secrets ----
 .env

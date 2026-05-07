@@ -1,12 +1,23 @@
-"""MCP Sandbox Supervisor — gVisor availability health-check service (R12.05).
+"""MCP runtime probe — gVisor availability health-check service (R12.05).
 
-Exposes GET /healthz → 200 {"status":"ok"} when the Docker daemon is
-reachable AND the gVisor ``runsc`` runtime is registered.  Returns 503
-{"status":"error","detail":"..."} when either check fails.
+NOTE on naming: the directory is historically `mcp_supervisor` and the
+docker-compose service is `mcp-sandbox-supervisor`, but this process does
+**not** spawn or supervise sandbox containers. It only probes the host
+runtime: it shells out to `docker info --format '{{json .Runtimes}}'` and
+reports whether the gVisor `runsc` runtime is registered. Sandbox container
+lifecycle is owned by the backend MCP context (see
+`contexts/mcp/.../sandbox/*`) which spawns containers directly via the
+Docker API.
 
-This service holds the Docker socket mount and acts as the readiness gate for
-sandbox tool calls. Before any backend service spawns a gVisor container it
-should verify that this endpoint is healthy.
+Wire shape:
+
+- GET /healthz → 200 {"status":"ok"} when the Docker daemon is reachable
+  AND the gVisor `runsc` runtime is registered.
+- 503 {"status":"error","detail":"..."} when either check fails.
+
+This service holds the Docker socket mount and acts as the readiness gate
+for sandbox tool calls. Before any backend service spawns a gVisor
+container it should verify that this endpoint is healthy.
 
 Docker socket: /var/run/docker.sock must be bind-mounted into this container.
 """

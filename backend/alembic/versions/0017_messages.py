@@ -2,9 +2,13 @@
 
 `content_tsv` is maintained synchronously by a trigger on insert/update of
 `content_md` so full-text search (F.10) stays in sync without an async job.
-Partial indexes respect the `deleted_at IS NULL` soft-delete semantics used
-elsewhere in the schema (messages are hard-deleted on manual delete per
-R13.16 so the filter is belt-and-braces for retention edge-cases).
+
+Hard-delete enforcement (R13.16) is **application-side**, not a DB trigger:
+`MessageService.delete_message` issues a normal `DELETE` against
+`messages`, and rows in `message_edits` / `message_attachments` follow
+through the FK `ondelete="CASCADE"` declared on this table (line ~110 / 128).
+Partial indexes still respect `deleted_at IS NULL` as belt-and-braces in
+case soft-deleted rows ever land here through a bug.
 """
 
 from __future__ import annotations

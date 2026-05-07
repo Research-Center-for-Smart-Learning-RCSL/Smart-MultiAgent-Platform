@@ -65,7 +65,7 @@ Every long-running service MUST expose both a **liveness** (`/healthz`) and a **
 | `backend-worker` | Arq heartbeat in last 10 s | Same dependencies as backend-web |
 | `backend-ws` | Same as backend-web | Same as backend-web |
 | `egress-proxy` | Process responds | Nothing (stateless) |
-| `mcp-sandbox-supervisor` | Process responds | Docker socket reachable, gVisor runtime discoverable |
+| `mcp-sandbox-supervisor` | Process responds | Docker socket reachable, gVisor runtime discoverable. Note: this service is a runtime *probe*, not a lifecycle supervisor — it only verifies that `runsc` is registered. Sandbox container lifecycle is owned by the backend MCP context. |
 | `postgres` | Docker `pg_isready -U smap` | Same |
 | `redis` | Docker `redis-cli ping` | Same |
 | `qdrant` | Docker HTTP `GET /healthz` | Same |
@@ -229,6 +229,7 @@ All errors from the API use `application/problem+json` with these common fields:
 
 | Code (URI suffix) | HTTP | When | Client action |
 |---|---|---|---|
+| `auth/no-client-ip` | 400 | Request has no peer IP (TrustedProxyMiddleware can't resolve `actor_ip`) | Fix the reverse-proxy chain |
 | `auth/invalid-credentials` | 401 | Login failed | Show form error |
 | `auth/account-locked` | 423 | 5 bad attempts in 15 min | Wait 15 min |
 | `auth/not-verified` | 403 | Email not verified | Resend verification |
@@ -236,8 +237,10 @@ All errors from the API use `application/problem+json` with these common fields:
 | `auth/token-expired` | 401 | Access token expired | Call refresh |
 | `auth/token-revoked` | 401 | jti on denylist | Re-login |
 | `auth/captcha-failed` | 400 | Register w/o valid CAPTCHA | Retry |
+| `ip-banned` | 403 | Caller IP matches an entry in `ip_bans` (earliest middleware short-circuit) | Surface reason; appeal via operator |
 | `permission/forbidden` | 403 | Authz denied | Hide control |
-| `permission/last-admin` | 409 | Demoting last admin | Refuse |
+| `permission/last-admin` | 409 | Demoting last admin (org-scope) | Refuse |
+| `admin/last-admin` | 409 | Demoting last platform admin (admin-API path) | Refuse |
 | `validation/schema` | 422 | Request body schema error | Show field errors |
 | `validation/version-mismatch` | 409 | Optimistic lock failed | Refresh, retry |
 | `validation/org-has-other-members` | 409 | OC self-delete blocked | Transfer first |

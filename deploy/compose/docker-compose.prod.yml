@@ -113,6 +113,20 @@ services:
         reservations: { cpus: "0.5", memory: 2G }
 
   vault:
+    # Override the dev-mode command from docker-compose.yml. In prod the
+    # server runs against a real config file (file or raft storage) and is
+    # initialized + unsealed manually per deploy/vault/README.md §2.
+    command: server -config=/vault/config/vault.hcl
+    environment:
+      # Unset the dev-token + dev-listener envs so the dev path can never
+      # accidentally engage in prod even if the base file changes.
+      VAULT_DEV_ROOT_TOKEN_ID: ""
+      VAULT_DEV_LISTEN_ADDRESS: ""
+      VAULT_ADDR: http://0.0.0.0:8200
+    volumes:
+      # vault_data:/vault/file is inherited from docker-compose.yml; only
+      # the new config bind-mount needs to be added here.
+      - ../vault/vault.hcl:/vault/config/vault.hcl:ro
     deploy:
       resources:
         limits: { cpus: "1.0", memory: 2G }

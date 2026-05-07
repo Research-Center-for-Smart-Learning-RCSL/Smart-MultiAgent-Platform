@@ -260,4 +260,4 @@ By phase close:
 - **Thundering wake-ups.** `n=1` on a hot room can DoS a provider key; clamp bounds + D.6 exhaustion + `rate_limit_policies` 29 mitigate.
 - **Approval deadlock in consensus mode.** `timeout_seconds` forced by schema (1..86400); `timeout_leader` guarantees forward progress.
 - **Sub-agent billing confusion.** Dashboard surfaces both `agent_id` + `parent_agent_id`; reporting groups by parent in "by agent" panel.
-- **Instruct chain bloat.** `path uuid[]` capped by depth; audit table partitioned by issue month (matches `audit_logs` policy).
+- **Instruct chain bloat.** `path uuid[]` capped by depth. Bounded growth is enforced by the nightly 365-day retention sweep on `audit_logs` (`backend/alembic/versions/0004_audit.py`); the table is **not** partitioned — earlier wording in this file claimed monthly partitioning but no migration creates it.
