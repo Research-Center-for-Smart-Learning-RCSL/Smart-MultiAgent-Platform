@@ -15,7 +15,7 @@ from __future__ import annotations
 import uuid
 from typing import Any, Literal
 
-from fastapi import Response, APIRouter, Depends, Header, HTTPException, Path, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Path, status
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -319,7 +319,7 @@ async def patch_agent(
     return _to_agent_out(updated)
 
 
-@agent_router.delete("/{agent_id}", status_code=status.HTTP_204_NO_CONTENT, response_class=Response)
+@agent_router.delete("/{agent_id}", status_code=status.HTTP_204_NO_CONTENT, response_model=None)
 async def delete_agent(
     agent_id: uuid.UUID = Path(...),
     if_match: str = Header(..., alias="If-Match"),
@@ -442,7 +442,7 @@ async def patch_mcp_binding(
 @agent_router.delete(
     "/{agent_id}/mcp/{binding_id}",
     status_code=status.HTTP_204_NO_CONTENT,
-    response_class=Response,
+    response_model=None,
 )
 async def delete_mcp_binding(
     agent_id: uuid.UUID = Path(...),

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import APIRouter, Depends, Query, Response, status
+from fastapi import APIRouter, Depends, Query, status
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -66,7 +66,7 @@ async def list_carried_keys(
 @router.post(
     "/{project_id}/keys",
     status_code=status.HTTP_204_NO_CONTENT,
-    response_class=Response,
+    response_model=None,
     dependencies=[
         Depends(require(Capability.KEY_UPLOAD, scope_from_path(project_param="project_id"))),
     ],
@@ -91,7 +91,7 @@ async def carry_key(
 @router.delete(
     "/{project_id}/keys/{key_id}",
     status_code=status.HTTP_204_NO_CONTENT,
-    response_class=Response,
+    response_model=None,
     dependencies=[
         # KEY_DELETE_OWN (own carry) OR KEY_DELETE_OTHER (PO withdraw any).
         # The matrix accepts either; the service enforces ownership rules.

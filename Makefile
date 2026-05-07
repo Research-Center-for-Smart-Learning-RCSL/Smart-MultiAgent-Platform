@@ -92,7 +92,7 @@ migrations-check: ## Up → down → up round-trip against the scratch DB.
 # ---------- OpenAPI codegen (frontend uses generated types) ----------
 .PHONY: openapi-types
 openapi-types: ## Regenerate frontend API types from backend OpenAPI.
-	cd backend && python -m scripts.export_openapi > ../frontend/openapi.json
+	cd backend && python -m scripts.export_openapi > openapi.json
 	cd frontend && pnpm run gen:api
 
 # ---------- Install ----------

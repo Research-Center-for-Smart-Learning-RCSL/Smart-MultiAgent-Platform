@@ -19,6 +19,7 @@ from typing import Final
 
 import httpx
 
+from app.config.settings import get_settings
 from shared_kernel.auth.clients import get_vault_client
 
 _KV_PATH: Final = "smap/config/captcha"
@@ -50,8 +51,13 @@ async def verify(token: str | None, *, remote_ip: str | None) -> None:
     """Raise `CaptchaError` unless the token is valid.
 
     In `mode=off` this returns immediately — intended for the Playwright test
-    stack and dev mode only.
+    stack and dev mode only. When the app is running with `SMAP_APP_ENV=test`,
+    the bypass is automatic: Vault is not assumed to be provisioned in the
+    E2E compose stack, so reading `_KV_PATH` would fail before we ever get to
+    `mode`. The env check covers that without leaking into prod.
     """
+    if get_settings().app.env == "test":
+        return
     cfg = _load_config()
     if cfg.mode == "off":
         return

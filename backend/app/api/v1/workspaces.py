@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import Response, APIRouter, Depends, Path, status
+from fastapi import APIRouter, Depends, Path, status
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -96,7 +96,7 @@ async def create_workspace(
 
 @workspace_router.delete(
     "/{workspace_id}", status_code=status.HTTP_204_NO_CONTENT,
-    response_class=Response,
+    response_model=None,
 )
 async def delete_workspace(
     workspace_id: uuid.UUID = Path(...),

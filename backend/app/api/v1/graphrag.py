@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import Response, APIRouter, Depends, Path, status
+from fastapi import APIRouter, Depends, Path, status
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -256,7 +256,7 @@ async def update_config(
 
 @config_router.delete(
     "/{config_id}", status_code=status.HTTP_204_NO_CONTENT,
-    response_class=Response,
+    response_model=None,
 )
 async def delete_config(
     config_id: uuid.UUID = Path(...),

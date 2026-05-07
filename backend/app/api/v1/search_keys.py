@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
-from fastapi import APIRouter, Depends, Response, status
+from fastapi import APIRouter, Depends, status
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -127,7 +127,7 @@ async def retest_search_key(
 @router.post(
     "/{project_id}/search-keys/{key_id}/activate",
     status_code=status.HTTP_204_NO_CONTENT,
-    response_class=Response,
+    response_model=None,
     dependencies=[
         Depends(require(Capability.KEY_CONFIGURE, scope_from_path(project_param="project_id"))),
     ],
@@ -150,7 +150,7 @@ async def activate_search_key(
 @router.delete(
     "/{project_id}/search-keys/{key_id}",
     status_code=status.HTTP_204_NO_CONTENT,
-    response_class=Response,
+    response_model=None,
     dependencies=[
         Depends(require(Capability.KEY_CONFIGURE, scope_from_path(project_param="project_id"))),
     ],

@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import Response, APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -240,7 +240,7 @@ async def read_group(
     )
 
 
-@group_router.patch("/{group_id}", status_code=status.HTTP_204_NO_CONTENT, response_class=Response)
+@group_router.patch("/{group_id}", status_code=status.HTTP_204_NO_CONTENT, response_model=None)
 async def rename_group(
     group_id: uuid.UUID,
     payload: GroupPatchIn,
@@ -255,7 +255,7 @@ async def rename_group(
     )
 
 
-@group_router.delete("/{group_id}", status_code=status.HTTP_204_NO_CONTENT, response_class=Response)
+@group_router.delete("/{group_id}", status_code=status.HTTP_204_NO_CONTENT, response_model=None)
 async def delete_group(
     group_id: uuid.UUID,
     _: None = Depends(_require_group_configure),
@@ -295,7 +295,7 @@ async def add_member(
 @group_router.patch(
     "/{group_id}/keys/{key_id}",
     status_code=status.HTTP_204_NO_CONTENT,
-    response_class=Response,
+    response_model=None,
 )
 async def patch_member(
     group_id: uuid.UUID,
@@ -334,7 +334,7 @@ async def patch_member(
 @group_router.delete(
     "/{group_id}/keys/{key_id}",
     status_code=status.HTTP_204_NO_CONTENT,
-    response_class=Response,
+    response_model=None,
 )
 async def remove_member(
     group_id: uuid.UUID,
@@ -355,7 +355,7 @@ async def remove_member(
 @group_router.post(
     "/{group_id}/reorder",
     status_code=status.HTTP_204_NO_CONTENT,
-    response_class=Response,
+    response_model=None,
 )
 async def reorder_members(
     group_id: uuid.UUID,

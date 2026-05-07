@@ -7,13 +7,13 @@ warning level — aggregation/alerting is Phase I's responsibility.
 
 from __future__ import annotations
 
-from fastapi import Response, APIRouter, Request, status
+from fastapi import APIRouter, Request, status
 from loguru import logger
 
 router = APIRouter(prefix="/api", tags=["csp"])
 
 
-@router.post("/csp-report", status_code=status.HTTP_204_NO_CONTENT, response_class=Response)
+@router.post("/csp-report", status_code=status.HTTP_204_NO_CONTENT, response_model=None)
 async def csp_report(request: Request) -> None:
     # Do not enforce JSON schema — browsers send slightly different shapes.
     try:

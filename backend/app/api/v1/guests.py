@@ -29,6 +29,7 @@ router = APIRouter(prefix="/api/guest", tags=["guests"])
 @router.post(
     "/{chatroom_id}/{guest_token}/enroll",
     status_code=status.HTTP_204_NO_CONTENT,
+    response_model=None,
 )
 async def enroll_guest(
     chatroom_id: uuid.UUID = Path(...),

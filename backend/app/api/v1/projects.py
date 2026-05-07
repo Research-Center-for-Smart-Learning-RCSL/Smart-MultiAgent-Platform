@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 from typing import Literal
 
-from fastapi import Response, APIRouter, Depends, Header, HTTPException, Path, Query, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Path, Query, status
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -186,7 +186,7 @@ async def rename_project(
     return _to_out(project)
 
 
-@router.delete("/{project_id}", status_code=status.HTTP_204_NO_CONTENT, response_class=Response)
+@router.delete("/{project_id}", status_code=status.HTTP_204_NO_CONTENT, response_model=None)
 async def delete_project(
     project_id: uuid.UUID = Path(...),
     ctx: RequestContext = Depends(current_context),
@@ -204,7 +204,7 @@ async def delete_project(
     )
 
 
-@router.post("/{project_id}/restore", status_code=status.HTTP_204_NO_CONTENT, response_class=Response)
+@router.post("/{project_id}/restore", status_code=status.HTTP_204_NO_CONTENT, response_model=None)
 async def restore_project(
     project_id: uuid.UUID = Path(...),
     ctx: RequestContext = Depends(current_context),
@@ -240,7 +240,7 @@ async def list_members(
 
 @router.delete(
     "/{project_id}/members/{user_id}", status_code=status.HTTP_204_NO_CONTENT,
-    response_class=Response,
+    response_model=None,
 )
 async def remove_project_member(
     project_id: uuid.UUID = Path(...),

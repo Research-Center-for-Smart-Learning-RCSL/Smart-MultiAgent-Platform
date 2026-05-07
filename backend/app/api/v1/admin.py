@@ -11,7 +11,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from fastapi import Response, APIRouter, Body, Depends, HTTPException, Path, Query, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Path, Query, status
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -207,7 +207,7 @@ async def get_user(
     )
 
 
-@router.post("/users/{user_id}/ban", status_code=status.HTTP_204_NO_CONTENT, response_class=Response)
+@router.post("/users/{user_id}/ban", status_code=status.HTTP_204_NO_CONTENT, response_model=None)
 async def ban_user(
     user_id: uuid.UUID = Path(...),
     body: BanIn = Body(...),
@@ -226,7 +226,7 @@ async def ban_user(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
-@router.post("/users/{user_id}/unban", status_code=status.HTTP_204_NO_CONTENT, response_class=Response)
+@router.post("/users/{user_id}/unban", status_code=status.HTTP_204_NO_CONTENT, response_model=None)
 async def unban_user(
     user_id: uuid.UUID = Path(...),
     admin: Principal = Depends(_require_admin),
@@ -243,7 +243,7 @@ async def unban_user(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
-@router.post("/users/{user_id}/delete", status_code=status.HTTP_204_NO_CONTENT, response_class=Response)
+@router.post("/users/{user_id}/delete", status_code=status.HTTP_204_NO_CONTENT, response_model=None)
 async def soft_delete_user(
     user_id: uuid.UUID = Path(...),
     admin: Principal = Depends(_require_admin),
@@ -260,7 +260,7 @@ async def soft_delete_user(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
-@router.post("/users/{user_id}/hard-delete", status_code=status.HTTP_204_NO_CONTENT, response_class=Response)
+@router.post("/users/{user_id}/hard-delete", status_code=status.HTTP_204_NO_CONTENT, response_model=None)
 async def hard_delete_user(
     user_id: uuid.UUID = Path(...),
     admin: Principal = Depends(_require_admin),
@@ -305,7 +305,7 @@ async def impersonate(
 @router.post(
     "/users/{user_id}/end-impersonate",
     status_code=status.HTTP_204_NO_CONTENT,
-    response_class=Response,
+    response_model=None,
 )
 async def end_impersonate(
     user_id: uuid.UUID = Path(...),
@@ -366,7 +366,7 @@ async def promote_admin(
     )
 
 
-@router.delete("/admins/{user_id}", status_code=status.HTTP_204_NO_CONTENT, response_class=Response)
+@router.delete("/admins/{user_id}", status_code=status.HTTP_204_NO_CONTENT, response_model=None)
 async def demote_admin(
     user_id: uuid.UUID = Path(...),
     admin: Principal = Depends(_require_admin),
@@ -428,7 +428,7 @@ async def list_orgs(
     ]
 
 
-@router.post("/orgs/{org_id}/force-delete", status_code=status.HTTP_204_NO_CONTENT, response_class=Response)
+@router.post("/orgs/{org_id}/force-delete", status_code=status.HTTP_204_NO_CONTENT, response_model=None)
 async def force_delete_org(
     org_id: uuid.UUID = Path(...),
     admin: Principal = Depends(_require_admin),
