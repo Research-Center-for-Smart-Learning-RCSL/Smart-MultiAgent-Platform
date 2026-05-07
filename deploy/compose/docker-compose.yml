@@ -93,7 +93,7 @@ services:
     depends_on:
       postgres: { condition: service_healthy }
       redis: { condition: service_healthy }
-      vault: { condition: service_started }
+      vault: { condition: service_healthy }
     volumes:
       # Docker socket required for DockerRunscSandbox (MCP probe/test endpoints).
       - /var/run/docker.sock:/var/run/docker.sock
@@ -235,6 +235,15 @@ services:
       - vault_data:/vault/file
     networks: [backend_net]
     logging: *log-rotation
+    healthcheck:
+      # `?standbyok=true` returns 200 for an unsealed standby; the dev-mode
+      # vault is always active, so this also covers the active path. We hit
+      # 127.0.0.1 inside the container to bypass the listener wildcard.
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8200/v1/sys/health?standbyok=true"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
 
   # ---------- MCP sandbox plane ----------
   egress-proxy:

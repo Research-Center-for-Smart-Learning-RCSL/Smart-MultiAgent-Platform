@@ -229,6 +229,18 @@ class RagDocumentRepository:
             raise RagDocumentNotFound(str(document_id))
         return doc
 
+    async def delete(self, document_id: uuid.UUID) -> None:
+        """Hard-delete the document row.
+
+        ``rag_chunks.document_id`` is ``ON DELETE CASCADE`` (see
+        ``alembic/versions/0009_rag.py``), so chunks are removed atomically.
+        Qdrant points and MinIO blobs are NOT touched here — that's the
+        endpoint layer's job since they need infra clients we don't inject.
+        """
+        await self._db.execute(
+            t.rag_documents.delete().where(t.rag_documents.c.id == document_id)
+        )
+
     async def list_for_config(self, rag_config_id: uuid.UUID) -> Sequence[RagDocument]:
         rows = (
             await self._db.execute(

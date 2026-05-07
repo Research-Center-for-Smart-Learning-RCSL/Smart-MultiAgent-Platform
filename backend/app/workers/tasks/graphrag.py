@@ -21,6 +21,7 @@ from contexts.knowledge.infrastructure.neo4j_driver import Neo4jAsyncDriver
 from contexts.knowledge.infrastructure.redis_lock import RedisBuildLockStore, RedisSnapshotStore
 from contexts.knowledge.infrastructure.triple_extractor import LlmTripleExtractor
 from shared_kernel.db.session import get_sessionmaker
+from shared_kernel.observability.metrics import GRAPHRAG_BUILD_STATE
 
 _log = logging.getLogger(__name__)
 
@@ -152,9 +153,22 @@ async def graphrag_build(
             delta_loader=delta_loader,
             embedder_factory=_make_embedder_factory(),
         )
+        cfg_id_str = str(cfg_id)
+        # One-hot per state — set the active label to 1 and zero the others so
+        # `graphrag_build_state{config_id="...", state="..."} == 1` is unique
+        # at any moment.
+        def _set_state(active: str) -> None:
+            for s in ("idle", "building", "ready", "failed"):
+                GRAPHRAG_BUILD_STATE.labels(
+                    config_id=cfg_id_str, state=s,
+                ).set(1.0 if s == active else 0.0)
+
+        _set_state("building")
         try:
             result = await builder.run(config_id=cfg_id, triggered_by=triggered_by)
             await db.commit()
+            _set_state(result.state.value if result.state.value in
+                       ("ready", "failed") else "idle")
             _log.info(
                 "graphrag_build done config=%s state=%s triples=%d entities=%d",
                 config_id, result.state.value, result.triples_written,
@@ -166,6 +180,7 @@ async def graphrag_build(
                 f"entities={result.entities_written}"
             )
         except Exception:
+            _set_state("failed")
             _log.exception("graphrag_build failed config=%s", config_id)
             raise
         finally:

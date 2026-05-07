@@ -32,6 +32,12 @@ from contexts.workflow.infrastructure.tables import workflows as workflows_tbl
 from shared_kernel import audit
 from shared_kernel.auth.clients import now
 from shared_kernel.db.session import get_sessionmaker
+from shared_kernel.observability.metrics import (
+    ADMIN_IMPERSONATION_SESSIONS_ACTIVE,
+    RETENTION_FAILURES,
+    RETENTION_LAST_ROWS,
+    RETENTION_LAST_RUN_TIMESTAMP,
+)
 from shared_kernel.storage import get_minio_client
 
 _SOFT_DELETE_TABLES: tuple[sa.Table, ...] = (
@@ -289,6 +295,17 @@ async def _close_idle_impersonations(session: AsyncSession) -> int:
         ).bindparams(cutoff=cutoff)
     )
     count = result.rowcount or 0
+    # Re-sample the gauge after the sweep so dashboards reflect the post-close
+    # value. Coarse (nightly) but cheap; fine-grained tracking would belong in
+    # the impersonation start/end paths.
+    active_row = await session.execute(
+        sa.text(
+            "SELECT count(*) FROM admin_impersonation_sessions "
+            "WHERE ended_at IS NULL"
+        )
+    )
+    active = int(active_row.scalar() or 0)
+    ADMIN_IMPERSONATION_SESSIONS_ACTIVE.set(active)
     await _emit_summary(session, "retention.impersonations.closed", count)
     return count
 
@@ -372,6 +389,94 @@ async def _sweep_instructions_chains(session: AsyncSession) -> int:
     return count
 
 
+async def _manage_key_usage_partitions(session: AsyncSession) -> int:
+    """Monthly-range partition manager for ``key_usage_events`` (B3).
+
+    Per ``alembic/versions/0008_key_usage_events.py``, the ``at`` column is the
+    range key. This worker:
+
+    1. Creates the partition for the *next* calendar month if absent.
+    2. Detaches and drops partitions whose upper bound is older than 13 months
+       (data already rolled up into ``key_usage_daily``).
+
+    A single ``DEFAULT`` partition is allowed to remain as a safety net for
+    rows whose ``at`` falls outside any explicit range.
+
+    Returned int = number of partitions created + dropped (for the sweep
+    summary; failures still raise to be counted by RETENTION_FAILURES).
+    """
+    today = now().date()
+    # Anchor on UTC month boundaries.
+    year = today.year
+    month = today.month
+    # next month
+    nm_year, nm_month = (year + 1, 1) if month == 12 else (year, month + 1)
+    nm_after_year, nm_after_month = (
+        (nm_year + 1, 1) if nm_month == 12 else (nm_year, nm_month + 1)
+    )
+    next_part_name = f"key_usage_events_{nm_year:04d}{nm_month:02d}"
+    next_lower = f"{nm_year:04d}-{nm_month:02d}-01"
+    next_upper = f"{nm_after_year:04d}-{nm_after_month:02d}-01"
+
+    created = 0
+    dropped = 0
+
+    # 1. Create next month's partition if missing. CREATE TABLE IF NOT EXISTS
+    #    PARTITION OF is supported in PostgreSQL 11+ and is idempotent.
+    create_sql = (
+        f'CREATE TABLE IF NOT EXISTS "{next_part_name}" '
+        f'PARTITION OF key_usage_events '
+        f"FOR VALUES FROM ('{next_lower}') TO ('{next_upper}')"
+    )
+    before = await session.execute(
+        sa.text(
+            "SELECT 1 FROM pg_class WHERE relname = :rn"
+        ).bindparams(rn=next_part_name)
+    )
+    existed = before.scalar() is not None
+    await session.execute(sa.text(create_sql))
+    if not existed:
+        created += 1
+
+    # 2. Detach + drop partitions older than 13 months. We list partitions and
+    #    parse their upper-bound expression from pg_get_expr. Only drop named
+    #    partitions matching key_usage_events_YYYYMM; leave _default alone.
+    cutoff = today - timedelta(days=13 * 30)
+    cutoff_str = cutoff.strftime("%Y-%m-%d")
+    rows = await session.execute(
+        sa.text(
+            "SELECT c.relname, pg_get_expr(c.relpartbound, c.oid) AS bound "
+            "FROM pg_inherits i "
+            "JOIN pg_class p ON p.oid = i.inhparent "
+            "JOIN pg_class c ON c.oid = i.inhrelid "
+            "WHERE p.relname = 'key_usage_events' "
+            "  AND c.relname ~ '^key_usage_events_[0-9]{6}$'"
+        )
+    )
+    for relname, bound in rows.fetchall():
+        # bound looks like: FOR VALUES FROM ('2025-01-01') TO ('2025-02-01')
+        if bound is None:
+            continue
+        # extract the upper bound date
+        try:
+            after_to = bound.split(" TO ", 1)[1]
+            upper = after_to.split("'", 2)[1]
+        except (IndexError, ValueError):
+            continue
+        if upper <= cutoff_str:
+            await session.execute(
+                sa.text(
+                    f'ALTER TABLE key_usage_events DETACH PARTITION "{relname}"'
+                )
+            )
+            await session.execute(sa.text(f'DROP TABLE "{relname}"'))
+            dropped += 1
+
+    total = created + dropped
+    await _emit_summary(session, "retention.key_usage_partitions.managed", total)
+    return total
+
+
 async def _cleanup_tus_parts(session: AsyncSession) -> int:
     """Remove abandoned TUS `.part` staging files older than 24 h (R22.15.04).
 
@@ -403,6 +508,9 @@ _POLICIES = [
     ("audit_logs", _purge_audit_logs),
     ("workflow_runs", _archive_workflow_runs),
     ("key_usage_events", _rollup_key_usage_events),
+    # Partition lifecycle must run *after* the rollup so we don't drop a
+    # partition the same night its data is rolled up.
+    ("key_usage_partitions", _manage_key_usage_partitions),
     ("soft_deleted", _purge_soft_deleted_tenancy),
     ("invites", _expire_invites),
     ("oc_transfers", _expire_oc_transfers),
@@ -419,6 +527,8 @@ _POLICIES = [
 
 async def retention_sweep(ctx: dict[str, Any]) -> dict[str, int]:
     """Master retention cron — runs all policies in sequence."""
+    import time as _time
+
     sm = get_sessionmaker()
     report: dict[str, int] = {}
     failed: list[str] = []
@@ -428,12 +538,15 @@ async def retention_sweep(ctx: dict[str, Any]) -> dict[str, int]:
                 async with session.begin():
                     count = await func(session)
             report[name] = count
+            RETENTION_LAST_RUN_TIMESTAMP.labels(worker=name).set(_time.time())
+            RETENTION_LAST_ROWS.labels(worker=name).set(count)
         except Exception:
             logger.bind(event=f"retention_{name}_error").exception(
                 f"retention policy {name} failed"
             )
             report[name] = -1
             failed.append(name)
+            RETENTION_FAILURES.labels(worker=name).inc()
     total = sum(v for v in report.values() if v > 0)
     logger.bind(
         event="retention_sweep_done",

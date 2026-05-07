@@ -137,5 +137,30 @@ class GraphRagConfigRepository:
             .values(deleted_at=now())
         )
 
+    async def update(
+        self,
+        *,
+        config_id: uuid.UUID,
+        builder_key_group_id: uuid.UUID | None = None,
+        trigger_config: dict[str, Any] | None = None,
+    ) -> None:
+        """Partial update of a GraphRAG config (R11.05 — edit trigger / key-group).
+
+        Only the two fields the spec allows the user to mutate are accepted;
+        ``agent_id`` is immutable post-create (1:1 with config in DB).
+        """
+        values: dict[str, Any] = {}
+        if builder_key_group_id is not None:
+            values["builder_key_group_id"] = builder_key_group_id
+        if trigger_config is not None:
+            values["trigger_config"] = trigger_config
+        if not values:
+            return
+        await self._db.execute(
+            t.graphrag_configs.update()
+            .where(t.graphrag_configs.c.id == config_id)
+            .values(**values)
+        )
+
 
 __all__ = ["GraphRagConfigRepository"]

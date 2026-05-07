@@ -51,6 +51,12 @@ class GraphRagConfigCreateIn(BaseModel):
     trigger_config: dict[str, object] = Field(default_factory=dict)
 
 
+class GraphRagConfigPatchIn(BaseModel):
+    """Partial update — both fields optional. Omitted = unchanged."""
+    builder_key_group_id: uuid.UUID | None = None
+    trigger_config: dict[str, object] | None = None
+
+
 class GraphRagConfigOut(BaseModel):
     id: uuid.UUID
     project_id: uuid.UUID
@@ -218,6 +224,34 @@ async def read_status(
         last_build_at=payload["last_build_at"],
         last_build_error=payload["last_build_error"],
     )
+
+
+@config_router.patch("/{config_id}")
+async def update_config(
+    body: GraphRagConfigPatchIn,
+    config_id: uuid.UUID = Path(...),
+    ctx: RequestContext = Depends(current_context),
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(db_session),
+) -> GraphRagConfigOut:
+    """R11.05 — edit trigger config or builder key group.
+
+    AuthZ matches DELETE: ``RESOURCE_CREATE_EDIT`` at the config's project.
+    """
+    service = GraphRagConfigService(db)
+    cfg = await service.get(config_id)
+    await _assert_edit(db=db, principal=principal, project_id=cfg.project_id)
+    refreshed = await service.update(
+        config_id=config_id,
+        builder_key_group_id=body.builder_key_group_id,
+        trigger_config=(
+            dict(body.trigger_config) if body.trigger_config is not None else None
+        ),
+        actor_user_id=principal.user_id,
+        actor_ip=ctx.actor_ip,
+        request_id=ctx.request_id,
+    )
+    return _to_out(refreshed)
 
 
 @config_router.delete(
