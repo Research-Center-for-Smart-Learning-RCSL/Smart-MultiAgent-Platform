@@ -5,8 +5,6 @@ These do NOT spin up a real Arq runtime — that would require a live Redis
 Instead they exercise the *task callables* directly with stubbed clients,
 covering the failure-handling paths the audit flagged:
 
-  * `archive_workflow_runs` falls back to the default cutoff when the Redis
-    override is malformed (2.13)
   * `daily_org_advisory_snapshot` raises `RuntimeError` when every eligible
     org's snapshot fails (2.16)
   * `retention_sweep` records `-1` for a failing policy and surfaces it in
@@ -15,45 +13,10 @@ covering the failure-handling paths the audit flagged:
 
 from __future__ import annotations
 
-from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
 import pytest
-
-# --------------------------------------------------------------------------- #
-#  workflow.archive_workflow_runs — invalid override falls back to default    #
-# --------------------------------------------------------------------------- #
-
-
-@pytest.mark.asyncio()
-async def test_archive_override_invalid_logs_and_uses_default() -> None:
-    from app.workers.tasks import workflow as wf
-
-    fake_redis = AsyncMock()
-    fake_redis.get.return_value = b"not-an-int"
-
-    fake_db_rows: list[Any] = []
-    fake_session = AsyncMock()
-    fake_session.execute.return_value.all.return_value = fake_db_rows
-    fake_session.commit = AsyncMock()
-
-    class _SessionCM:
-        async def __aenter__(self):
-            return fake_session
-
-        async def __aexit__(self, *_a):
-            return None
-
-    with (
-        patch("shared_kernel.auth.clients.get_redis", return_value=fake_redis),
-        patch("shared_kernel.db.session.async_session", return_value=_SessionCM()),
-    ):
-        out = await wf.archive_workflow_runs({}, cutoff_days=90)
-
-    assert out == "archived=0"
-    fake_redis.get.assert_awaited_once_with("config:archive:cutoff_days")
-
 
 # --------------------------------------------------------------------------- #
 #  advisory.daily_org_advisory_snapshot — all-org failure raises               #

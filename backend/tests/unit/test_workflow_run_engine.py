@@ -130,11 +130,12 @@ async def test_on_error_retry_schedules_when_budget_remains() -> None:
     assert result.state == StepState.RUNNING
     assert result.park is True
     assert len(engine._pending_enqueues) == 1
-    task_name, run_id_str, node_id, delay_ms = engine._pending_enqueues[0]
+    task_name, run_id_str, node_id, delay_ms, from_edge = engine._pending_enqueues[0]
     assert task_name == "retry_workflow_node"
     assert run_id_str == str(ctx.run_id)
     assert node_id == "n1"
     assert delay_ms == 100  # backoff_ms * 1
+    assert from_edge is None  # retry tasks carry no spawning edge
 
 
 async def test_on_error_retry_backoff_grows_with_attempt() -> None:
@@ -149,7 +150,7 @@ async def test_on_error_retry_backoff_grows_with_attempt() -> None:
         result = await engine._apply_on_error(ctx, node, _failed_outcome(), uuid.uuid4())
 
     assert result.park is True
-    _, _, _, delay_ms = engine._pending_enqueues[0]
+    _, _, _, delay_ms, _from_edge = engine._pending_enqueues[0]
     assert delay_ms == 200 * 3  # retry_backoff_ms * new_count (3)
 
 
@@ -249,7 +250,9 @@ async def test_advance_from_single_edge_calls_execute_node() -> None:
 
     await engine._advance_from(ctx, "n1")
 
-    engine._execute_node.assert_awaited_once_with(ctx, "n2")
+    # ASYNC-9: the traversed edge id is threaded through so the join executor
+    # can dedupe fan-in arrivals per incoming branch.
+    engine._execute_node.assert_awaited_once_with(ctx, "n2", from_edge="e1")
     assert engine._pending_enqueues == []
 
 
@@ -275,6 +278,11 @@ async def test_advance_from_multiple_edges_enqueues_parallel_tasks() -> None:
     for entry in engine._pending_enqueues:
         assert entry[0] == "run_workflow_step"
         assert entry[3] == 0  # no delay for parallel branches
+    # ASYNC-9: each branch task carries the id of the edge that spawned it.
+    assert {(entry[2], entry[4]) for entry in engine._pending_enqueues} == {
+        ("n2", "e1"),
+        ("n3", "e2"),
+    }
 
 
 async def test_advance_from_no_edges_is_noop() -> None:
@@ -302,7 +310,7 @@ async def test_advance_from_port_filters_non_matching_edges() -> None:
 
     await engine._advance_from(ctx, "n1", port="true")
 
-    engine._execute_node.assert_awaited_once_with(ctx, "n2")
+    engine._execute_node.assert_awaited_once_with(ctx, "n2", from_edge="e1")
 
 
 async def test_advance_from_unrelated_node_edges_ignored() -> None:

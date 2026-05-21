@@ -15,6 +15,8 @@ SoC:
 
 from __future__ import annotations
 
+import json
+import logging
 import uuid
 from typing import Any
 
@@ -35,6 +37,8 @@ from contexts.orchestration.infrastructure.metrics import SUBAGENT_CONCURRENCY
 from contexts.orchestration.infrastructure.repositories import AgentInstanceRepository
 from shared_kernel import audit
 
+logger = logging.getLogger(__name__)
+
 
 class SubagentService:
     """Application-level sub-agent lifecycle manager (G.8)."""
@@ -43,6 +47,47 @@ class SubagentService:
         self._db = db
         self._instances = AgentInstanceRepository(db)
         self._agents = AgentsFacade(db)
+
+    # ------------------------------------------------------------------
+    # Workflow root instance (ASYNC-3)
+    # ------------------------------------------------------------------
+
+    async def ensure_root_instance(
+        self,
+        *,
+        agent_id: uuid.UUID,
+        workflow_run_id: uuid.UUID,
+    ) -> AgentInstance:
+        """Get-or-create the synthetic root instance for a workflow run.
+
+        A workflow ``subagent_spawn`` node spawns subagents but has no agent
+        *instance* to parent them under — only an agent *definition*. This
+        creates (once per workflow run, then reuses) a depth-0 root instance
+        so the depth and concurrency invariants enforced by :meth:`spawn`
+        hold unchanged.
+
+        Two parallel ``subagent_spawn`` nodes in the same run could each lose
+        the get-or-create race and create their own root; the only effect is
+        that the concurrency cap is then counted per-root rather than
+        per-run, which is acceptable for this interim wiring.
+        """
+        existing = await self._instances.find_alive_root_for_workflow_run(
+            agent_id=agent_id,
+            workflow_run_id=workflow_run_id,
+        )
+        if existing is not None:
+            return existing
+        return await self._instances.insert(
+            id=uuid.uuid4(),
+            agent_id=agent_id,
+            parent_id=None,
+            chatroom_id=None,
+            run_context={
+                "synthetic_root": True,
+                "workflow_run_id": str(workflow_run_id),
+            },
+            task_description=f"workflow run {workflow_run_id} subagent root",
+        )
 
     # ------------------------------------------------------------------
     # Spawn
@@ -162,6 +207,52 @@ class SubagentService:
                 },
             ),
         )
+
+        # ASYNC-3: if a workflow run parked itself waiting on this subagent,
+        # wake it now that the instance has finished.
+        await self._fire_workflow_callback(instance_id)
+
+    async def _fire_workflow_callback(self, instance_id: uuid.UUID) -> None:
+        """Resume a workflow run parked on this subagent (W10 completion hook).
+
+        ``subagent_spawn`` stores ``wf:subagent_callback:{instance_id}`` in
+        Redis when it parks a run with ``wait_for_all``. On destruction we read
+        that marker and enqueue ``workflow_subagent_complete`` so the engine
+        resumes the run at the stored output port. Instances without the
+        marker (e.g. chatroom subagents) are a no-op.
+
+        The enqueue happens inside the caller's transaction; ``workflow_
+        subagent_complete`` only touches workflow tables, independent of the
+        ``agent_instances`` row being destroyed, so there is no read-after-
+        write hazard if that transaction is still uncommitted.
+        """
+        from shared_kernel.auth.clients import get_redis
+
+        redis = get_redis()
+        key = f"wf:subagent_callback:{instance_id}"
+        raw = await redis.get(key)
+        if not raw:
+            return
+        try:
+            callback = json.loads(raw)
+            run_id = callback["run_id"]
+            node_id = callback["node_id"]
+            port = callback.get("port", "success")
+        except (json.JSONDecodeError, KeyError, TypeError):
+            logger.warning("subagent callback for %s is malformed: %r", instance_id, raw)
+            await redis.delete(key)
+            return
+
+        from arq.connections import RedisSettings, create_pool
+
+        from app.config.settings import get_settings
+
+        pool = await create_pool(RedisSettings.from_dsn(get_settings().redis.dsn))
+        try:
+            await pool.enqueue_job("workflow_subagent_complete", run_id, node_id, port)
+        finally:
+            await pool.aclose()
+        await redis.delete(key)
 
     # ------------------------------------------------------------------
     # Inheritance (R15.22)

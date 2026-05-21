@@ -19,6 +19,7 @@ from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.agents.infrastructure.tables import agents as agents_tbl
+from contexts.conversation.application.retention_service import RetentionService
 from contexts.conversation.infrastructure.tables import chatrooms as chatrooms_tbl
 from contexts.identity.infrastructure.tables import (
     email_verify_tokens as email_verify_tokens_tbl,
@@ -68,16 +69,34 @@ async def _emit_summary(session: AsyncSession, action: str, rows_affected: int) 
 
 
 async def _purge_messages(session: AsyncSession) -> int:
-    cutoff = now() - timedelta(days=5 * 365)
-    result = await session.execute(
-        sa.text(
-            "DELETE FROM messages WHERE created_at < :cutoff "
-            "AND id IN (SELECT id FROM messages WHERE created_at < :cutoff LIMIT 1000)"
-        ).bindparams(cutoff=cutoff)
+    """Hard-delete messages past the 5-year horizon (R13.15 / F.8).
+
+    Delegates to ``RetentionService.purge_once`` so the MinIO objects backing
+    attachments of purged messages are removed in the same pass — a plain
+    ``DELETE`` would orphan them. Chunked with its own short-lived
+    transactions so a large backlog cannot hold one giant transaction open.
+    """
+    sm = get_sessionmaker()
+    total_messages = 0
+    total_objects = 0
+    for _ in range(100):
+        async with sm() as chunk, chunk.begin():
+            report = await RetentionService(chunk).purge_once()
+        if report.messages_deleted == 0:
+            break
+        total_messages += report.messages_deleted
+        total_objects += report.attachments_objects_removed
+    await audit.emit(
+        session,
+        audit.AuditEvent(
+            action="retention.messages.swept",
+            metadata={
+                "rows_affected": total_messages,
+                "attachment_objects_removed": total_objects,
+            },
+        ),
     )
-    count = result.rowcount or 0  # type: ignore[attr-defined]
-    await _emit_summary(session, "retention.messages.swept", count)
-    return count
+    return total_messages
 
 
 async def _purge_message_attachments(session: AsyncSession) -> int:
@@ -121,15 +140,34 @@ async def _purge_audit_logs(session: AsyncSession) -> int:
 
 
 async def _archive_workflow_runs(session: AsyncSession) -> int:
+    """Archive workflow runs ended > 90 days ago into ``workflow_runs_archive``.
+
+    Writes the full archive row — ``trigger_type``, ``started_by_user_id`` and
+    a node-count / failure ``summary`` — and is idempotent: ``ON CONFLICT DO
+    NOTHING`` plus the ``NOT IN`` guard mean a re-run, or an overlap with a
+    previous partially-completed batch, can never raise a primary-key
+    violation on ``workflow_runs_archive``.
+    """
     cutoff = now() - timedelta(days=90)
     result = await session.execute(
         sa.text(
             "INSERT INTO workflow_runs_archive "
-            "(id, workflow_id, state, started_at, ended_at) "
-            "SELECT id, workflow_id, state, started_at, ended_at "
-            "FROM workflow_runs WHERE ended_at IS NOT NULL AND ended_at < :cutoff "
-            "AND id NOT IN (SELECT id FROM workflow_runs_archive) "
-            "LIMIT 500"
+            "(id, workflow_id, trigger_type, started_by_user_id, state, "
+            " started_at, ended_at, summary) "
+            "SELECT wr.id, wr.workflow_id, wr.trigger_type, wr.started_by_user_id, "
+            "       wr.state, wr.started_at, wr.ended_at, "
+            "       jsonb_build_object("
+            "         'node_count', "
+            "         (SELECT count(*) FROM workflow_steps ws WHERE ws.run_id = wr.id), "
+            "         'failures', "
+            "         (SELECT count(*) FROM workflow_steps ws "
+            "          WHERE ws.run_id = wr.id AND ws.state = 'failed')"
+            "       ) "
+            "FROM workflow_runs wr "
+            "WHERE wr.ended_at IS NOT NULL AND wr.ended_at < :cutoff "
+            "  AND wr.id NOT IN (SELECT id FROM workflow_runs_archive) "
+            "LIMIT 500 "
+            "ON CONFLICT (id) DO NOTHING"
         ).bindparams(cutoff=cutoff)
     )
     archived = result.rowcount or 0  # type: ignore[attr-defined]
@@ -282,6 +320,63 @@ async def _purge_agent_instances(session: AsyncSession) -> int:
     )
     count = result.rowcount or 0  # type: ignore[attr-defined]
     await _emit_summary(session, "retention.agent_instances.swept", count)
+    return count
+
+
+async def _sweep_orphaned_subagent_roots(session: AsyncSession) -> int:
+    """Reap synthetic subagent-root instances — and their children — for
+    workflow runs that no longer exist (ASYNC-3).
+
+    ``SubagentService.ensure_root_instance`` creates one depth-0 root
+    ``agent_instances`` row per (agent, workflow run) so a workflow
+    ``subagent_spawn`` node has a parent instance to spawn under. Neither the
+    synthetic root nor its workflow-spawned children are ever destroyed, so
+    ``destroyed_at`` stays NULL and ``_purge_agent_instances`` (destroyed-only)
+    never reclaims them. Once the owning workflow run is gone — completed and
+    archived by ``_archive_workflow_runs``, or hard-deleted — the whole
+    synthetic subtree is dead weight.
+
+    Children are deleted before roots: ``agent_instances.parent_id`` is
+    ``ON DELETE SET NULL``, so deleting a root first would merely orphan the
+    children (``parent_id`` → NULL) and leak them as parentless rows.
+    """
+    # The synthetic-root rows are isolated in a CTE first so the ``::uuid``
+    # cast only ever runs on a value our own code wrote (always a valid uuid),
+    # never on some other run_context shape. The NOT EXISTS then probes the
+    # workflow_runs primary key directly.
+    root_rows = await session.execute(
+        sa.text(
+            "WITH synth AS ("
+            "  SELECT id, run_context->>'workflow_run_id' AS wf_run_id "
+            "  FROM agent_instances "
+            "  WHERE parent_id IS NULL "
+            "    AND run_context->>'synthetic_root' = 'true' "
+            "  LIMIT 500"
+            ") "
+            "SELECT s.id FROM synth s "
+            "WHERE s.wf_run_id IS NOT NULL "
+            "  AND NOT EXISTS ("
+            "    SELECT 1 FROM workflow_runs wr WHERE wr.id = s.wf_run_id::uuid"
+            "  )"
+        )
+    )
+    root_ids = [r[0] for r in root_rows.all()]
+    if not root_ids:
+        await _emit_summary(session, "retention.subagent_roots.swept", 0)
+        return 0
+    # Children (depth 1; R15.19 forbids deeper) first — see docstring.
+    await session.execute(
+        sa.text("DELETE FROM agent_instances WHERE parent_id IN :ids").bindparams(
+            sa.bindparam("ids", value=root_ids, expanding=True)
+        )
+    )
+    result = await session.execute(
+        sa.text("DELETE FROM agent_instances WHERE id IN :ids").bindparams(
+            sa.bindparam("ids", value=root_ids, expanding=True)
+        )
+    )
+    count = result.rowcount or 0  # type: ignore[attr-defined]
+    await _emit_summary(session, "retention.subagent_roots.swept", count)
     return count
 
 
@@ -486,6 +581,22 @@ async def _cleanup_tus_parts(session: AsyncSession) -> int:
     return count
 
 
+async def _scrub_stale_presence(session: AsyncSession) -> int:
+    """Drop WS presence-set members whose heartbeat key has expired (ASYNC-7).
+
+    A connection that dies without a clean disconnect leaves its user in the
+    room presence SETs even though the 60 s heartbeat key is long gone. This
+    reconciles the SETs so room rosters do not accumulate ghosts. The Redis walk
+    lives in ``shared_kernel.realtime.presence`` so the key layout stays in one
+    place.
+    """
+    from shared_kernel.realtime.presence import scrub_stale_presence
+
+    removed = await scrub_stale_presence()
+    await _emit_summary(session, "retention.presence.scrubbed", removed)
+    return removed
+
+
 _POLICIES = [
     ("messages", _purge_messages),
     ("message_attachments", _purge_message_attachments),
@@ -502,10 +613,14 @@ _POLICIES = [
     ("tokens", _purge_expired_tokens),
     ("sessions", _prune_idle_sessions),
     ("agent_instances", _purge_agent_instances),
+    # Must run after agent_instances purge so any destroyed children are
+    # already gone — leaving childless synthetic roots cleanly deletable.
+    ("subagent_roots", _sweep_orphaned_subagent_roots),
     ("impersonations", _close_idle_impersonations),
     ("exports_bucket", _purge_exports_bucket),
     ("instructions_chains", _sweep_instructions_chains),
     ("tus_parts", _cleanup_tus_parts),
+    ("presence", _scrub_stale_presence),
 ]
 
 

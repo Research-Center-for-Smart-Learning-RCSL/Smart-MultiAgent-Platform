@@ -15,7 +15,7 @@ from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config.settings import get_settings
-from contexts.identity.application.auth_service import AuthService
+from contexts.identity.application.auth_service import AuthService, TokenPair
 from contexts.identity.application.factory import create_auth_service
 from contexts.identity.interfaces.facade import IdentityFacade
 from shared_kernel.auth import ratelimit
@@ -147,6 +147,17 @@ class TokenPairOut(BaseModel):
     expires_in: int
 
 
+def _token_pair_out(pair: TokenPair) -> TokenPairOut:
+    # `TokenPair` is a `slots=True` dataclass and therefore has no `__dict__`;
+    # splatting `**pair.__dict__` raises AttributeError. Map fields explicitly.
+    return TokenPairOut(
+        access_token=pair.access_token,
+        refresh_token=pair.refresh_token,
+        token_type=pair.token_type,
+        expires_in=pair.expires_in,
+    )
+
+
 class UserOut(BaseModel):
     id: uuid.UUID
     email: str
@@ -234,7 +245,7 @@ async def login(
         request_id=ctx.request_id,
     )
     _set_refresh_cookie(response, outcome.tokens.refresh_token)
-    return TokenPairOut(**outcome.tokens.__dict__)
+    return _token_pair_out(outcome.tokens)
 
 
 @router.post("/refresh")
@@ -255,7 +266,7 @@ async def refresh(
         request_id=ctx.request_id,
     )
     _set_refresh_cookie(response, pair.refresh_token)
-    return TokenPairOut(**pair.__dict__)
+    return _token_pair_out(pair)
 
 
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT, response_model=None)

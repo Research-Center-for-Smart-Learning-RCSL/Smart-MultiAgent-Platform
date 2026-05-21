@@ -99,8 +99,11 @@ def _build_outgoing(edges: list[EdgeSpec]) -> dict[str, list[EdgeSpec]]:
 # Engine
 # ---------------------------------------------------------------------------
 
-# Each entry: (arq_task_name, run_id_str, node_id, delay_ms)
-_PendingEnqueue = tuple[str, str, str, int]
+# Each entry: (arq_task_name, run_id_str, node_id, delay_ms, from_edge_id).
+# from_edge_id is set only for parallel-branch run_workflow_step tasks so a join
+# placed directly after the parallel node can still dedupe arrivals (ASYNC-9);
+# every other task type carries None.
+_PendingEnqueue = tuple[str, str, str, int, str | None]
 
 
 class RunEngine:
@@ -184,43 +187,15 @@ class RunEngine:
         run_id: uuid.UUID,
         node_id: str,
     ) -> None:
-        """Resume a parked run at a specific node."""
-        run = await self._runs.get(run_id)
-        if not run or run.state not in (RunState.RUNNING, RunState.WAITING):
+        """Resume a parked run by advancing FROM an already-finished node.
+
+        Used after an unpark (wait_for_event / approval): the node's work is
+        done, so the engine follows its outgoing edges. To *execute* a node —
+        e.g. a parallel fan-out branch — use :meth:`run_step` instead.
+        """
+        ctx = await self._prepare_continuation(run_id)
+        if ctx is None:
             return
-
-        from contexts.workflow.infrastructure.repositories import WorkflowRepository
-
-        wf_repo = WorkflowRepository(self._db)
-        workflow = await wf_repo.get(run.workflow_id)
-        if not workflow:
-            # W8: log and fail the run instead of silently returning.
-            logger.warning(
-                "run %s cannot resume: workflow %s has been deleted",
-                run_id,
-                run.workflow_id,
-            )
-            now = datetime.now(UTC)
-            await self._runs.update_state(run_id, state=RunState.FAILED, ended_at=now)
-            await audit.emit(
-                self._db,
-                audit.AuditEvent(
-                    action="workflow.run_finished",
-                    resource_type="workflow_run",
-                    resource_id=run_id,
-                    metadata={"final_state": "failed", "reason": "workflow deleted"},
-                ),
-            )
-            # DB-1: caller owns the commit.
-            return
-
-        ctx = RunContext(
-            run_id=run.id,
-            workflow_id=run.workflow_id,
-            workflow_def=workflow.definition,
-            variables=dict(run.variables),
-            trigger_payload=run.context.get("trigger_payload", {}),
-        )
 
         # W11: on an unexpected error the caller rolls back this resume's
         # pending writes, leaving the run stuck RUNNING/WAITING. Persist FAILED
@@ -236,6 +211,83 @@ class RunEngine:
             )
             await self._mark_run_failed_isolated(run_id)
             raise
+
+    async def run_step(
+        self,
+        run_id: uuid.UUID,
+        node_id: str,
+        from_edge: str | None = None,
+    ) -> None:
+        """Execute ``node_id`` as a parallel fan-out branch, then follow its edges.
+
+        The parallel fan-out (W1) enqueues one ``run_workflow_step`` per outgoing
+        edge; each must *run* its target node. This differs from
+        :meth:`resume_step`, which advances FROM a node that already finished — a
+        branch's first node has not run yet, so ``resume_step`` would skip it.
+        ``from_edge`` is the spawning edge id, threaded so a join sitting
+        immediately after the parallel node can dedupe arrivals per branch
+        (ASYNC-9).
+        """
+        ctx = await self._prepare_continuation(run_id)
+        if ctx is None:
+            return
+
+        try:
+            await self._execute_node(ctx, node_id, from_edge=from_edge)
+        except Exception:
+            logger.exception(
+                "run %s failed unexpectedly while running branch node %s",
+                run_id,
+                node_id,
+            )
+            await self._mark_run_failed_isolated(run_id)
+            raise
+
+    async def _prepare_continuation(
+        self,
+        run_id: uuid.UUID,
+    ) -> RunContext | None:
+        """Load a RUNNING/WAITING run and build its RunContext.
+
+        Shared by :meth:`resume_step` and :meth:`run_step`. Returns ``None`` when
+        the run is gone or no longer continuable; if the workflow definition was
+        deleted the run is marked FAILED here (W8). DB-1: the caller owns commit.
+        """
+        run = await self._runs.get(run_id)
+        if not run or run.state not in (RunState.RUNNING, RunState.WAITING):
+            return None
+
+        from contexts.workflow.infrastructure.repositories import WorkflowRepository
+
+        workflow = await WorkflowRepository(self._db).get(run.workflow_id)
+        if not workflow:
+            # W8: log and fail the run instead of silently returning.
+            logger.warning(
+                "run %s cannot continue: workflow %s has been deleted",
+                run_id,
+                run.workflow_id,
+            )
+            await self._runs.update_state(
+                run_id, state=RunState.FAILED, ended_at=datetime.now(UTC)
+            )
+            await audit.emit(
+                self._db,
+                audit.AuditEvent(
+                    action="workflow.run_finished",
+                    resource_type="workflow_run",
+                    resource_id=run_id,
+                    metadata={"final_state": "failed", "reason": "workflow deleted"},
+                ),
+            )
+            return None
+
+        return RunContext(
+            run_id=run.id,
+            workflow_id=run.workflow_id,
+            workflow_def=workflow.definition,
+            variables=dict(run.variables),
+            trigger_payload=run.context.get("trigger_payload", {}),
+        )
 
     async def retry_node(self, run_id: uuid.UUID, node_id: str) -> None:
         """Re-execute a failed node as part of the retry strategy (W3)."""
@@ -382,33 +434,70 @@ class RunEngine:
         except Exception:
             logger.exception("could not persist FAILED state for run %s", run_id)
 
-    async def dispatch_enqueues(self) -> None:
+    async def dispatch_enqueues(self, pool: Any | None = None) -> None:
         """Enqueue pending Arq tasks (W1/W3/W6/W10).
 
         DB-1 contract: the caller MUST have committed the transaction first, so
         a worker that picks up an enqueued job can see the run row. Entry points
         call this immediately after their single commit.
+
+        ASYNC-6: a worker task hands in its own long-lived Arq pool
+        (``ctx["redis"]``) via ``pool`` so nothing is opened here. On the API
+        path — which has no Arq ctx — ``pool`` is ``None``; a short-lived pool
+        is created and *always* closed in the ``finally`` block (including its
+        underlying connection pool), so Redis connections are never leaked.
         """
         if not self._pending_enqueues:
             return
         pending = list(self._pending_enqueues)
         self._pending_enqueues.clear()
 
-        from arq.connections import RedisSettings, create_pool
+        owns_pool = pool is None
+        if pool is None:
+            from arq.connections import RedisSettings, create_pool
 
-        from app.config.settings import get_settings
+            from app.config.settings import get_settings
 
-        pool = await create_pool(RedisSettings.from_dsn(get_settings().redis.dsn))
-        for task_name, run_id_str, node_id, delay_ms in pending:
-            kwargs: dict[str, Any] = {}
-            if delay_ms > 0:
-                kwargs["defer_by"] = timedelta(milliseconds=delay_ms)
-            await pool.enqueue_job(task_name, run_id_str, node_id, **kwargs)
+            pool = await create_pool(RedisSettings.from_dsn(get_settings().redis.dsn))
+        try:
+            for task_name, run_id_str, node_id, delay_ms, from_edge in pending:
+                kwargs: dict[str, Any] = {}
+                if delay_ms > 0:
+                    kwargs["defer_by"] = timedelta(milliseconds=delay_ms)
+                # run_workflow_step carries the spawning edge id (ASYNC-9); the
+                # other task types take only (run_id, node_id).
+                if from_edge is not None:
+                    await pool.enqueue_job(
+                        task_name, run_id_str, node_id, from_edge, **kwargs
+                    )
+                else:
+                    await pool.enqueue_job(task_name, run_id_str, node_id, **kwargs)
+        finally:
+            if owns_pool:
+                # close_connection_pool=True is required: create_pool builds the
+                # ArqRedis with an externally-supplied connection pool, so a bare
+                # aclose() would not disconnect the pooled sockets.
+                await pool.aclose(close_connection_pool=True)
 
-    async def _execute_node(self, ctx: RunContext, node_id: str) -> None:
-        """Execute one node and follow edges."""
+    async def _execute_node(
+        self,
+        ctx: RunContext,
+        node_id: str,
+        *,
+        from_edge: str | None = None,
+    ) -> None:
+        """Execute one node and follow edges.
+
+        ``from_edge`` is the id of the edge traversed to reach this node; the
+        join executor reads it (via ``ctx.arrived_via``) to dedupe fan-in
+        arrivals per incoming branch, so an Arq re-delivery / retry of a branch
+        cannot inflate the arrival count (ASYNC-9).
+        """
         if ctx.cancelled:
             return
+
+        # ASYNC-9: surface the traversed edge to the executor layer.
+        ctx.arrived_via = from_edge
 
         # Loop guard
         ctx.node_visit_counts[node_id] = ctx.node_visit_counts.get(node_id, 0) + 1
@@ -519,7 +608,7 @@ class RunEngine:
             await self._runs.update_state(ctx.run_id, state=RunState.WAITING)
             if outcome.timeout_ms > 0 and outcome.timeout_task:
                 self._pending_enqueues.append(
-                    (outcome.timeout_task, str(ctx.run_id), node_id, outcome.timeout_ms),
+                    (outcome.timeout_task, str(ctx.run_id), node_id, outcome.timeout_ms, None),
                 )
             return
 
@@ -587,15 +676,19 @@ class RunEngine:
             return
 
         if len(matching) == 1:
-            await self._execute_node(ctx, matching[0].to_node)
+            await self._execute_node(
+                ctx, matching[0].to_node, from_edge=matching[0].id
+            )
         else:
             # W1: multiple outgoing edges → parallel branches.
             # Enqueue each as an independent Arq task so branches truly run in parallel
             # with their own DB sessions; avoids sequential execution and session contention.
             ctx.active_branches = len(matching)
             for edge in matching:
+                # ASYNC-9: carry the spawning edge id so a join immediately
+                # downstream of the parallel node dedupes arrivals per branch.
                 self._pending_enqueues.append(
-                    ("run_workflow_step", str(ctx.run_id), edge.to_node, 0),
+                    ("run_workflow_step", str(ctx.run_id), edge.to_node, 0, edge.id),
                 )
 
     async def _apply_on_error(
@@ -630,7 +723,7 @@ class RunEngine:
                 backoff_ms = min(node.on_error.retry_backoff_ms * new_count, 60_000)
                 await redis.set(redis_key, str(new_count), ex=3600)
                 self._pending_enqueues.append(
-                    ("retry_workflow_node", str(ctx.run_id), node.id, backoff_ms),
+                    ("retry_workflow_node", str(ctx.run_id), node.id, backoff_ms, None),
                 )
                 logger.info(
                     "run %s: node %s retry %d/%d scheduled in %d ms",

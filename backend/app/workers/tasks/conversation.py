@@ -22,7 +22,6 @@ from contexts.conversation.application.access import (
     resolve_room_access,
 )
 from contexts.conversation.application.attachment_service import AttachmentService
-from contexts.conversation.application.retention_service import RetentionService
 from contexts.conversation.domain.models import ScanStatus
 from contexts.conversation.infrastructure.repositories import (
     ChatroomRepository,
@@ -63,34 +62,6 @@ async def file_scan_requested(ctx: dict[str, Any], attachment_id: str) -> str:
         )
     _ = ctx
     return "clean"
-
-
-async def retention_purge(ctx: dict[str, Any]) -> dict[str, int]:
-    """Nightly sweep — chunked so a single run cannot hold the worker
-    indefinitely. The cron is scheduled to 03:10 UTC; the chunking keeps
-    each slice bounded under one minute."""
-    total_messages = 0
-    total_objects = 0
-    sm = get_sessionmaker()
-    # Loop chunks until a slice reports zero deletions.
-    for _ in range(100):
-        async with sm() as session, session.begin():
-            service = RetentionService(session)
-            report = await service.purge_once()
-        if report.messages_deleted == 0:
-            break
-        total_messages += report.messages_deleted
-        total_objects += report.attachments_objects_removed
-    logger.bind(
-        event="retention_purge_done",
-        messages_deleted=total_messages,
-        objects_removed=total_objects,
-    ).info("retention purge complete")
-    _ = ctx
-    return {
-        "messages_deleted": total_messages,
-        "attachment_objects_removed": total_objects,
-    }
 
 
 async def chat_export(
@@ -238,4 +209,4 @@ async def chat_export(
 
 _ = BytesIO  # reserved for future streaming path
 
-__all__ = ["chat_export", "file_scan_requested", "retention_purge"]
+__all__ = ["chat_export", "file_scan_requested"]

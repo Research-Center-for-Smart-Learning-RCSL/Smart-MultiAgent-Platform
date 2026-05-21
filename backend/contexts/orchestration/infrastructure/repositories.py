@@ -415,6 +415,40 @@ class AgentInstanceRepository:
             return None
         return _row_to_instance(row)
 
+    async def find_alive_root_for_workflow_run(
+        self,
+        *,
+        agent_id: uuid.UUID,
+        workflow_run_id: uuid.UUID,
+    ) -> AgentInstance | None:
+        """Return the live synthetic root instance for a workflow run, if any.
+
+        A workflow ``subagent_spawn`` node has no real parent agent instance,
+        so ``SubagentService`` creates one depth-0 root instance (``parent_id``
+        NULL) per (agent, workflow run) and reuses it for every subagent of
+        that run. The run id is stamped into ``run_context``.
+        """
+        row = (
+            (
+                await self._db.execute(
+                    agent_instances.select()
+                    .where(
+                        agent_instances.c.agent_id == agent_id,
+                        agent_instances.c.parent_id.is_(None),
+                        agent_instances.c.destroyed_at.is_(None),
+                        agent_instances.c.run_context["workflow_run_id"].astext
+                        == str(workflow_run_id),
+                    )
+                    .limit(1),
+                )
+            )
+            .mappings()
+            .first()
+        )
+        if row is None:
+            return None
+        return _row_to_instance(row)
+
     async def destroy(self, instance_id: uuid.UUID, state: str = "completed") -> None:
         await self._db.execute(
             agent_instances.update()

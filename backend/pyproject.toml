@@ -216,6 +216,8 @@ disable_error_code = ["no-untyped-def", "type-arg"]
 module = ["shared_kernel.auth.tokens", "shared_kernel.auth.ratelimit",
           "shared_kernel.realtime.*", "shared_kernel.infra.redis_buckets",
           "contexts.workflow.application.executors.wait_for_event",
+          "contexts.workflow.application.executors.join",
+          "contexts.orchestration.application.a2a_consumer",
           "app.workers.tasks.workflow"]
 disable_error_code = ["misc", "no-untyped-call"]
 

@@ -57,8 +57,16 @@ async def execute(ctx: RunContext, node: NodeSpec, db: AsyncSession) -> StepOutc
         from contexts.orchestration.interfaces.facade import OrchestrationFacade
 
         facade = OrchestrationFacade(db)
+        # ASYNC-3: a workflow run has no parent agent *instance*, only a parent
+        # agent *definition*. Create (once per run) a synthetic depth-0 root
+        # instance so spawn()'s depth + concurrency invariants apply normally —
+        # passing ctx.run_id (a workflow_runs id) hit agent_instances and raised.
+        root = await facade.ensure_subagent_root(
+            parent_agent_id=uuid.UUID(parent_agent_id),
+            workflow_run_id=ctx.run_id,
+        )
         instance = await facade.spawn_subagent(
-            parent_instance_id=ctx.run_id,
+            parent_instance_id=root.id,
             parent_agent_id=uuid.UUID(parent_agent_id),
             task_description=task_desc,
             max_concurrent=max_alive,

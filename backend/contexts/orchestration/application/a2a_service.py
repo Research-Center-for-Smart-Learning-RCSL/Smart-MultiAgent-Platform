@@ -26,9 +26,9 @@ from contexts.agents.application.a2a_scope import (
 )
 from contexts.agents.domain.models import Agent
 from contexts.agents.interfaces.facade import AgentsFacade
-from contexts.orchestration.domain.errors import A2AForbidden, A2ATimeout
+from contexts.orchestration.domain.errors import A2ADeliveryFailed, A2AForbidden, A2ATimeout
 from contexts.orchestration.domain.models import A2AEnvelope, A2AMessageType
-from contexts.orchestration.infrastructure import a2a_streams
+from contexts.orchestration.infrastructure import a2a_rendezvous, a2a_streams
 from contexts.orchestration.infrastructure.metrics import A2A_MESSAGES
 from contexts.tenancy.interfaces.facade import TenancyFacade
 from shared_kernel import audit
@@ -138,17 +138,24 @@ class A2AService:
             callee_attached_context_ids=callee_attached_context_ids,
         )
 
-        # Ensure caller has a consumer group so wait_for_reply can read.
-        await a2a_streams.ensure_consumer_group(from_agent_id)
-        reply = await a2a_streams.wait_for_reply(
-            from_agent_id,
-            correlation_id,
-            timeout_seconds=timeout_seconds,
-        )
+        # The background A2A consumer (app.workers) is the sole reader of inbox
+        # streams and hands replies to the rendezvous. Reading the stream here
+        # would race that consumer for the same consumer-group entry, so we
+        # block on the rendezvous instead.
+        reply = await a2a_rendezvous.await_reply(correlation_id, timeout_seconds)
         if reply is None:
             raise A2ATimeout(
                 f"sync call from {from_agent_id} to {to_agent_id} "
                 f"timed out after {timeout_seconds}s "
+                f"(correlation_id={correlation_id})"
+            )
+        # A degraded reply (no agent runtime wired to serve the CALL) fails
+        # fast rather than masquerading as a successful but empty answer.
+        reply_payload = reply.get("payload")
+        if isinstance(reply_payload, dict) and a2a_rendezvous.A2A_ERROR_KEY in reply_payload:
+            raise A2ADeliveryFailed(
+                f"a2a call from {from_agent_id} to {to_agent_id} could not be "
+                f"served: {reply_payload[a2a_rendezvous.A2A_ERROR_KEY]} "
                 f"(correlation_id={correlation_id})"
             )
         return reply

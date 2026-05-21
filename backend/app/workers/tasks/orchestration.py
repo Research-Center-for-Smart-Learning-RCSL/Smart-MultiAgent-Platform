@@ -60,19 +60,68 @@ async def wakeup_agent(
 
 
 async def evaluate_silence(ctx: dict[str, Any]) -> str:
-    """Periodic sweep: check silence_minutes triggers for all active agents.
+    """Periodic sweep: fire silence_minutes wake-ups for room-bound agents.
 
-    Runs every 30 seconds via Arq cron. For each agent+room pair where
-    the silence trigger fires, enqueues a ``wakeup_agent`` job.
+    Runs every 30 s via Arq cron (G.3 / R15.02). Iterates every
+    ``chatroom_agents`` binding in a live (non-deleted) chatroom and asks
+    ``WakeupService.evaluate_silence_trigger`` whether the agent has been
+    silent long enough to wake. Each firing enqueues a ``wakeup_agent`` job.
+
+    After a firing the silence timestamp is reset so the trigger re-arms on
+    the next T-minute window instead of re-firing on every 30 s sweep — an
+    interim debounce until the Phase H agent runtime owns the timer.
     """
+    import sqlalchemy as sa
 
-    # In production, this would iterate over rooms with bound agents.
-    # For now, the task structure is in place; the room-agent binding
-    # query will be added when the workspace_agents join table lands (Phase H).
-    logger.bind(event="silence_sweep_noop").debug(
-        "silence trigger sweep: no-op until room-agent bindings exist"
+    from contexts.conversation.infrastructure.tables import chatroom_agents, chatrooms
+    from contexts.orchestration.application.wakeup_service import WakeupService
+    from contexts.orchestration.infrastructure import wakeup_state
+
+    redis = ctx["redis"]
+    fired = 0
+    checked = 0
+
+    async with async_session() as db:
+        svc = WakeupService(db)
+        pairs = (
+            await db.execute(
+                sa.select(chatroom_agents.c.agent_id, chatroom_agents.c.chatroom_id)
+                .select_from(
+                    chatroom_agents.join(
+                        chatrooms,
+                        chatrooms.c.id == chatroom_agents.c.chatroom_id,
+                    )
+                )
+                .where(chatrooms.c.deleted_at.is_(None))
+            )
+        ).all()
+
+        for agent_id, room_id in pairs:
+            checked += 1
+            try:
+                if await svc.evaluate_silence_trigger(agent_id=agent_id, room_id=room_id):
+                    await redis.enqueue_job(
+                        "wakeup_agent",
+                        str(agent_id),
+                        str(room_id),
+                        "silence_minutes",
+                    )
+                    # Debounce: re-arm the timer so the next 30 s sweep does
+                    # not immediately re-fire the same silence trigger.
+                    await wakeup_state.touch_silence_timestamp(agent_id, room_id)
+                    fired += 1
+            except Exception:
+                # One bad pair must not abort the sweep; clear any aborted
+                # transaction so subsequent reads on this session succeed.
+                await db.rollback()
+                logger.bind(agent_id=str(agent_id), room_id=str(room_id)).exception(
+                    "evaluate_silence: trigger check failed"
+                )
+
+    logger.bind(event="silence_sweep_done", checked=checked, fired=fired).info(
+        f"silence sweep: {fired}/{checked} bound agents woken"
     )
-    return "ok"
+    return f"fired={fired}"
 
 
 async def wakeup_refresh(ctx: dict[str, Any]) -> str:

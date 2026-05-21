@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 import uuid
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass, field
@@ -26,6 +27,7 @@ from typing import Any
 
 from fastapi import WebSocket, WebSocketDisconnect
 from loguru import logger
+from redis.exceptions import ResponseError
 
 from app.config.settings import get_settings
 from shared_kernel.auth.clients import get_redis
@@ -41,6 +43,18 @@ _OUTBOUND_QUEUE_MAX = 256  # bounded per connection
 _CLOSE_POLICY_VIOLATION = 1008
 _CLOSE_TRY_AGAIN_LATER = 1013
 _CLOSE_AUTH_FAILED = 4401  # app-level code, see §22.14
+# ASYNC-7: a live client sends periodic `ping` frames (and presence
+# heartbeats); silence past this window means the socket is half-open (the
+# client vanished without a TCP FIN). The server reaps it so the connection
+# slot and the per-user Redis cap entry are released. Generous enough — two-plus
+# missed client heartbeats (60 s TTL) — not to reap a merely-quiet client.
+_IDLE_TIMEOUT_SECONDS = 120.0
+# ASYNC-7: a connection refreshes its heartbeat score in the per-user cap ZSET
+# on every inbound frame. A score older than this — deliberately longer than
+# the idle timeout, so a live connection is always fresh — means the owning
+# process crashed without cleanup; such entries are pruned so a hard crash
+# cannot permanently consume the cap.
+_CONN_STALE_SECONDS = 300
 
 
 def _user_connections_key(user_id: uuid.UUID) -> str:
@@ -73,28 +87,53 @@ async def _register_user_connection(
     connection_id: uuid.UUID,
 ) -> bool:
     """Enforce ws_concurrent_per_user (R19.03). Returns False if the cap
-    is already reached (caller closes with `ws-per-user-limit` problem)."""
+    is already reached (caller closes with `ws-per-user-limit` problem).
+
+    ASYNC-7: the per-user registry is a ZSET scored by each connection's last
+    heartbeat. Entries from a connection whose process hard-crashed (so
+    `_cleanup` never ran) go stale and are pruned by score here, on every open,
+    so a crash cannot permanently consume the cap.
+    """
     cap = get_settings().limits.ws_concurrent_per_user
     r = get_redis()
     key = _user_connections_key(user_id)
-    # Atomic cap check: use a pipeline to SCARD + SADD in one round trip,
-    # then undo the add if we overflowed. Not perfectly race-free under
-    # concurrent opens from the same user, but bounded by a small margin
-    # (the extra N is O(parallel opens)) which is acceptable for a UX cap.
-    added = await r.sadd(key, str(connection_id))
-    count = await r.scard(key)
+    now = time.time()
+    try:
+        # Drop connections whose heartbeat lapsed (crashed without _cleanup).
+        await r.zremrangebyscore(key, "-inf", now - _CONN_STALE_SECONDS)
+    except ResponseError:
+        # A pre-ASYNC-7 deployment stored this key as a plain SET. Such a key is
+        # by definition the un-expiring registry this fix replaces — drop it and
+        # start the ZSET clean.
+        await r.delete(key)
+    # Not perfectly race-free under concurrent opens from the same user, but
+    # bounded by a small margin (O(parallel opens)) — acceptable for a UX cap.
+    await r.zadd(key, {str(connection_id): now})
+    count = await r.zcard(key)
+    # Backstop: if every connection for this user disappears the key self-expires.
+    await r.expire(key, _CONN_STALE_SECONDS)
     if count > cap:
-        await r.srem(key, str(connection_id))
+        await r.zrem(key, str(connection_id))
         return False
-    _ = added
     return True
+
+
+async def _touch_user_connection(
+    user_id: uuid.UUID,
+    connection_id: uuid.UUID,
+) -> None:
+    """Refresh this connection's heartbeat score in the per-user cap ZSET (ASYNC-7)."""
+    r = get_redis()
+    key = _user_connections_key(user_id)
+    await r.zadd(key, {str(connection_id): time.time()})
+    await r.expire(key, _CONN_STALE_SECONDS)
 
 
 async def _unregister_user_connection(
     user_id: uuid.UUID,
     connection_id: uuid.UUID,
 ) -> None:
-    await get_redis().srem(_user_connections_key(user_id), str(connection_id))
+    await get_redis().zrem(_user_connections_key(user_id), str(connection_id))
 
 
 async def connection_loop(
@@ -145,7 +184,27 @@ async def connection_loop(
 
     async def _reader() -> None:
         while True:
-            raw = await ws.receive_text()
+            # ASYNC-7: bound the receive so a client that vanished without a
+            # TCP FIN cannot block this task forever, leaking the connection
+            # slot and the per-user Redis cap entry.
+            try:
+                raw = await asyncio.wait_for(
+                    ws.receive_text(),
+                    timeout=_IDLE_TIMEOUT_SECONDS,
+                )
+            except TimeoutError:
+                logger.bind(
+                    event="ws_idle_timeout",
+                    connection_id=str(conn.connection_id),
+                ).info("ws idle timeout — closing half-open socket")
+                await ws.close(
+                    code=_CLOSE_TRY_AGAIN_LATER,
+                    reason="idle timeout",
+                )
+                return
+            # ASYNC-7: an inbound frame proves the socket is alive — refresh the
+            # connection's heartbeat score in the per-user cap registry.
+            await _touch_user_connection(conn.principal.user_id, conn.connection_id)
             try:
                 msg = json.loads(raw)
             except json.JSONDecodeError:

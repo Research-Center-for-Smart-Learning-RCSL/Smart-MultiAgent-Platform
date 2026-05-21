@@ -262,6 +262,22 @@ class OrchestrationFacade:
 
     # -- Sub-agent (G.8) --
 
+    async def ensure_subagent_root(
+        self,
+        *,
+        parent_agent_id: uuid.UUID,
+        workflow_run_id: uuid.UUID,
+    ) -> AgentInstance:
+        """Get-or-create the synthetic root instance for a workflow run.
+
+        Used by the workflow ``subagent_spawn`` executor, which has a parent
+        agent definition but no parent agent *instance* to spawn under.
+        """
+        return await self._subagent.ensure_root_instance(
+            agent_id=parent_agent_id,
+            workflow_run_id=workflow_run_id,
+        )
+
     async def spawn_subagent(
         self,
         *,

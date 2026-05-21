@@ -183,6 +183,9 @@ class RunContext:
     node_visit_counts: dict[str, int] = field(default_factory=dict)
     active_branches: int = 1
     cancelled: bool = False
+    # ASYNC-9: id of the edge traversed to reach the node currently executing;
+    # the join executor reads it to dedupe fan-in arrivals per incoming branch.
+    arrived_via: str | None = None
 
     @property
     def run_max_seconds(self) -> int:

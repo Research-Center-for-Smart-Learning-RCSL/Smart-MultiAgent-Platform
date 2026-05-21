@@ -4,8 +4,12 @@
 - retry_workflow_node:        Re-execute a failed node after its retry backoff (W3).
 - workflow_event_timeout:     Resume a wait_for_event run at the timeout port (W6).
 - workflow_subagent_timeout:  Fail a run that waited too long for a subagent (W10).
-- archive_workflow_runs:      Nightly 90-day archive sweep (H.6).
+- workflow_subagent_complete: Resume a run whose spawned subagent finished (W10).
 - workflow_cron_scheduler:    Compute next cron fire times and enqueue runs.
+
+Nightly 90-day run archival now lives in ``retention.retention_sweep``
+(see its ``_archive_workflow_runs`` policy) — a single retention path per
+table replaces the former duplicate ``archive_workflow_runs`` cron.
 """
 
 from __future__ import annotations
@@ -21,20 +25,30 @@ async def run_workflow_step(
     ctx: dict[str, Any],
     run_id: str,
     node_id: str,
+    from_edge: str | None = None,
 ) -> str:
-    """Resume a workflow run at a specific node after unparking."""
+    """Execute one parallel fan-out branch node, then follow its edges (W1).
+
+    The engine's parallel fan-out enqueues one of these per outgoing edge. The
+    task must *run* ``node_id`` itself — ``RunEngine.run_step`` does that —
+    rather than advance past it (the earlier ``resume_step`` call skipped the
+    branch's first node entirely). ``from_edge`` is the spawning edge id (ASYNC-9).
+    """
     from shared_kernel.db.session import async_session
 
     async with async_session() as db:
         from contexts.workflow.application.run_engine import RunEngine
 
         engine = RunEngine(db)
-        await engine.resume_step(uuid.UUID(run_id), node_id)
+        await engine.run_step(uuid.UUID(run_id), node_id, from_edge=from_edge)
         # DB-1: the task owns the transaction — commit once, then dispatch.
         await db.commit()
-        await engine.dispatch_enqueues()
+        # ASYNC-6: reuse this worker's own Arq pool — never open a fresh one.
+        await engine.dispatch_enqueues(ctx["redis"])
 
-    logger.bind(event="workflow_step_resumed", run_id=run_id, node_id=node_id).info("workflow step resumed")
+    logger.bind(event="workflow_branch_executed", run_id=run_id, node_id=node_id).info(
+        "workflow branch executed"
+    )
     return "ok"
 
 
@@ -57,7 +71,7 @@ async def retry_workflow_node(
         engine = RunEngine(db)
         await engine.retry_node(uuid.UUID(run_id), node_id)
         await db.commit()
-        await engine.dispatch_enqueues()
+        await engine.dispatch_enqueues(ctx["redis"])  # ASYNC-6: reuse worker pool
 
     # Clean up the retry counter after the final retry attempt completes.
     redis = get_redis()
@@ -74,18 +88,29 @@ async def workflow_event_timeout(
 ) -> str:
     """W6: Fire when a wait_for_event node times out without receiving its event.
 
-    Checks whether the event arrived (Redis key still present → not yet).
-    If timed out, resumes the run at the 'timeout' output port.
+    ASYNC-10: ownership of the resume is claimed atomically with ``GETDEL`` on
+    ``wf:wait:{run_id}:{node_id}``. Whoever deletes the key — this timeout job,
+    an Arq re-delivery of it, or an event dispatcher — owns the single resume;
+    every other party sees ``None`` and stops. This closes the TOCTOU window
+    where a plain ``EXISTS`` check let a run resume twice (once at ``timeout``
+    and once at ``default``), spawning duplicate downstream steps.
     """
+    import json
+
     from shared_kernel.auth.clients import get_redis
     from shared_kernel.db.session import async_session
 
     redis = get_redis()
     wait_key = f"wf:wait:{run_id}:{node_id}"
 
-    if not await redis.exists(wait_key):
-        # Event already handled by a dispatcher — nothing to do.
-        logger.bind(run_id=run_id, node_id=node_id).debug("workflow_event_timeout: event already received")
+    # Atomic claim: GETDEL hands the payload to exactly one caller and removes
+    # the key in the same step. A loser (event already dispatched, or this is a
+    # duplicate job) gets None and must not resume.
+    claimed = await redis.getdel(wait_key)
+    if claimed is None:
+        logger.bind(run_id=run_id, node_id=node_id).debug(
+            "workflow_event_timeout: wait already claimed (event received or duplicate job)"
+        )
         return "already_received"
 
     async with async_session() as db:
@@ -94,26 +119,21 @@ async def workflow_event_timeout(
         engine = RunEngine(db)
         await engine.resume_at_port(uuid.UUID(run_id), node_id, "timeout")
         await db.commit()
-        await engine.dispatch_enqueues()
+        # ASYNC-6: reuse this worker's own Arq pool — never open a fresh one.
+        await engine.dispatch_enqueues(ctx["redis"])
 
-    # Clean up wait keys.
-    info_raw = await redis.get(wait_key)
-    if info_raw:
-        import json
-
-        try:
-            info = json.loads(info_raw)
-            event_type = info.get("event_type", "")
-            index_key = f"wf:wait:by_event:{event_type}"
-            await redis.srem(index_key, f"{run_id}:{node_id}")
-        except Exception:
-            # Index cleanup is best-effort — the wait_key itself is dropped below
-            # regardless. Surface the parse failure so a malformed payload is
-            # noticed, but do NOT abort the timeout flow.
-            logger.bind(run_id=run_id, node_id=node_id).exception(
-                "workflow_event_timeout: failed to remove from event index"
-            )
-    await redis.delete(wait_key)
+    # Best-effort cleanup of the by-event index, using the claimed payload.
+    try:
+        info = json.loads(claimed)
+        event_type = info.get("event_type", "")
+        index_key = f"wf:wait:by_event:{event_type}"
+        await redis.srem(index_key, f"{run_id}:{node_id}")
+    except Exception:
+        # Index cleanup is best-effort — the wait_key is already gone. Surface a
+        # malformed payload so it is noticed, but do NOT abort the timeout flow.
+        logger.bind(run_id=run_id, node_id=node_id).exception(
+            "workflow_event_timeout: failed to remove from event index"
+        )
 
     logger.bind(event="workflow_event_timed_out", run_id=run_id, node_id=node_id).info(
         "workflow event timed out"
@@ -149,117 +169,33 @@ async def workflow_subagent_timeout(
     return "timed_out"
 
 
-async def archive_workflow_runs(
+async def workflow_subagent_complete(
     ctx: dict[str, Any],
-    cutoff_days: int = 90,
+    run_id: str,
+    node_id: str,
+    port: str = "success",
 ) -> str:
-    """Move ended runs older than cutoff_days to workflow_runs_archive.
+    """W10: Resume a run parked on ``subagent_spawn`` once its subagent finishes.
 
-    Admin-adjustable: if Redis key ``config:archive:cutoff_days`` is set,
-    that value overrides the default 90-day cutoff (rate_limit_policies-style
-    runtime config pattern).
+    Enqueued by ``SubagentService.destroy`` when a spawned agent instance that
+    carries a ``wf:subagent_callback:{instance_id}`` marker is torn down. The
+    callback payload supplies ``run_id`` / ``node_id`` / ``port``; this task
+    drives the workflow engine to resume from that output port.
     """
-    import sqlalchemy as sa
-
-    from contexts.orchestration.infrastructure.tables import workflow_runs
-    from contexts.workflow.infrastructure.tables import (
-        workflow_runs_archive,
-        workflow_steps,
-    )
-    from shared_kernel.auth.clients import get_redis
     from shared_kernel.db.session import async_session
 
-    redis = get_redis()
-    override = await redis.get("config:archive:cutoff_days")
-    if override:
-        try:
-            cutoff_days = max(1, int(override))
-        except (ValueError, TypeError) as exc:
-            # Bad override silently degrading to the default has masked
-            # operator typos in the past — log loud, keep the default.
-            logger.bind(override=override, error=str(exc)).warning(
-                "archive_workflow_runs: invalid config:archive:cutoff_days override; "
-                f"falling back to default {cutoff_days}d"
-            )
-
-    cutoff = datetime.now(UTC) - timedelta(days=cutoff_days)
-    archived = 0
-
     async with async_session() as db:
-        # Find ended runs older than cutoff
-        rows = (
-            await db.execute(
-                sa.select(workflow_runs)
-                .where(
-                    sa.and_(
-                        workflow_runs.c.ended_at.isnot(None),
-                        workflow_runs.c.ended_at < cutoff,
-                    ),
-                )
-                .limit(500),
-            )
-        ).all()
+        from contexts.workflow.application.run_engine import RunEngine
 
-        for row in rows:
-            # Count steps for summary
-            step_count = (
-                await db.execute(
-                    sa.select(sa.func.count())
-                    .select_from(workflow_steps)
-                    .where(workflow_steps.c.run_id == row.id),
-                )
-            ).scalar() or 0
-
-            failed_steps = (
-                await db.execute(
-                    sa.select(sa.func.count())
-                    .select_from(workflow_steps)
-                    .where(
-                        sa.and_(
-                            workflow_steps.c.run_id == row.id,
-                            workflow_steps.c.state == "failed",
-                        ),
-                    ),
-                )
-            ).scalar() or 0
-
-            summary = {
-                "node_count": step_count,
-                "failures": failed_steps,
-            }
-
-            # Insert archive row
-            await db.execute(
-                workflow_runs_archive.insert().values(
-                    id=row.id,
-                    workflow_id=row.workflow_id,
-                    trigger_type=row.trigger_type,
-                    started_by_user_id=row.started_by_user_id,
-                    state=row.state,
-                    started_at=row.started_at,
-                    ended_at=row.ended_at,
-                    summary=summary,
-                ),
-            )
-
-            # Delete steps
-            await db.execute(
-                workflow_steps.delete().where(workflow_steps.c.run_id == row.id),
-            )
-
-            # Delete the run
-            await db.execute(
-                workflow_runs.delete().where(workflow_runs.c.id == row.id),
-            )
-
-            archived += 1
-
+        engine = RunEngine(db)
+        await engine.resume_at_port(uuid.UUID(run_id), node_id, port)
         await db.commit()
+        await engine.dispatch_enqueues(ctx["redis"])  # ASYNC-6: reuse worker pool
 
-    logger.bind(event="workflow_archive_done", archived=archived, cutoff_days=cutoff_days).info(
-        f"archived {archived} workflow runs (cutoff={cutoff_days}d)"
+    logger.bind(event="workflow_subagent_resumed", run_id=run_id, node_id=node_id, port=port).info(
+        "workflow run resumed after subagent completion"
     )
-    return f"archived={archived}"
+    return "resumed"
 
 
 async def workflow_cron_scheduler(ctx: dict[str, Any]) -> str:
@@ -302,7 +238,7 @@ async def workflow_cron_scheduler(ctx: dict[str, Any]) -> str:
                 last_fire = await redis.get(redis_key)
 
                 if last_fire:
-                    last_dt = datetime.fromisoformat(last_fire.decode())
+                    last_dt = datetime.fromisoformat(last_fire)
                     if (now - last_dt).total_seconds() < 60:
                         continue
 
@@ -315,7 +251,7 @@ async def workflow_cron_scheduler(ctx: dict[str, Any]) -> str:
 
                     tz = zoneinfo.ZoneInfo(tz_str)
                     base = (
-                        datetime.fromisoformat(last_fire.decode())
+                        datetime.fromisoformat(last_fire)
                         if last_fire
                         else now - timedelta(minutes=1)
                     )
@@ -331,7 +267,7 @@ async def workflow_cron_scheduler(ctx: dict[str, Any]) -> str:
                             trigger_payload={"trigger_type": "cron"},
                         )
                         await db.commit()
-                        await svc.dispatch_pending()
+                        await svc.dispatch_pending(ctx["redis"])  # ASYNC-6
                         await redis.set(redis_key, now.isoformat(), ex=86400)
                         fired += 1
                 except Exception as exc:

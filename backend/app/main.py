@@ -15,8 +15,9 @@ what Phase A scaffolded. Middleware order (earliest first) matters:
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -131,6 +132,7 @@ from app.config.settings import get_settings
 from contexts.agents.interfaces import error_mapping as agents_errors
 from contexts.conversation.interfaces import error_mapping as conversation_errors
 from contexts.identity.interfaces import error_mapping as identity_errors
+from contexts.keys.infrastructure import revocation_listener
 from contexts.keys.interfaces import error_mapping as keys_errors
 from contexts.knowledge.interfaces import error_mapping as knowledge_errors
 from contexts.orchestration.interfaces import error_mapping as orchestration_errors
@@ -150,9 +152,21 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings = get_settings()
     configure_logging(settings.logging)
     await seed_test_users(app_env=settings.app.env)
+    # ASYNC-2: subscribe this process to key-revocation events so a revoked or
+    # carry-withdrawn DEK is punched out of the in-process provider_router cache.
+    # Without this listener a cached DEK keeps working until its TTL expires.
+    revocation_task = asyncio.create_task(
+        revocation_listener.run(),
+        name="key-revocation-listener",
+    )
     try:
         yield
     finally:
+        # Cancel the listener before closing Redis — its cancellation path
+        # unsubscribes and closes the pub/sub channel, which needs a live client.
+        revocation_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await revocation_task
         await close_redis()
         await dispose_db()
 
