@@ -1,7 +1,8 @@
 """Path-prefix-based rate-limit middleware (R19.02 / R19.04 / R19.06).
 
 Bucket selection:
-  * `/api/auth/*`            → auth      (10 / min / IP)
+  * `/api/auth/*` recovery   → auth-recovery (10 / min / IP)  [R19.02 / API-9]
+  * `/api/auth/*` other      → auth      (10 / min / IP)
   * `POST /api/chatrooms/.../messages` → chat-send (60 / min / user)
   * `POST /api/*attachments*|/api/tus*`→ upload (10 / min / user)
   * everything else          → other     (300 / min / user)
@@ -20,9 +21,21 @@ from starlette.responses import JSONResponse, Response
 from shared_kernel.auth import ratelimit
 from shared_kernel.errors.problem import Problem, problem_type
 
+# API-9: account-recovery paths get a dedicated IP bucket so reset-email
+# flooding cannot exhaust the shared `auth` counter that login also uses.
+_RECOVERY_PATHS = frozenset(
+    {
+        "/api/auth/request-password-reset",
+        "/api/auth/reset-password",
+        "/api/auth/verify-email",
+    }
+)
+
 
 def _bucket_for(path: str, method: str) -> ratelimit.Bucket:
     if path.startswith("/api/auth/"):
+        if path in _RECOVERY_PATHS:
+            return ratelimit.Bucket.AUTH_RECOVERY
         return ratelimit.Bucket.AUTH
     if method == "POST" and "/messages" in path and path.startswith("/api/chatrooms/"):
         return ratelimit.Bucket.CHAT

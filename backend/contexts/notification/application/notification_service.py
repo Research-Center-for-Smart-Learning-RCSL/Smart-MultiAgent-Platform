@@ -6,6 +6,7 @@ No email, webhook, or Slack — in-app only for v1.
 
 from __future__ import annotations
 
+import hashlib
 import uuid
 from collections.abc import Sequence
 from typing import Any
@@ -14,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.notification.domain.models import Notification, NotificationKind
 from contexts.notification.infrastructure.repositories import NotificationRepository
+from shared_kernel.auth.clients import now
 from shared_kernel.realtime.pubsub import Publisher, user_channel
 
 
@@ -30,17 +32,39 @@ class NotificationService:
         title: str,
         body: str | None = None,
         metadata: dict[str, Any] | None = None,
+        dedup_key: str | None = None,
     ) -> Notification:
-        existing = await self._repo.find_recent(user_id=user_id, kind=kind, title=title)
-        if existing:
-            return existing
-        notif = await self._repo.insert(
+        """Create a notification and push it over the user's WS channel.
+
+        NOTIF-DEDUP: duplicates are suppressed by a unique constraint on
+        ``(user_id, dedup_key)`` rather than a check-then-act SELECT, so two
+        concurrent identical sends can no longer both insert + both emit.
+        Callers with a natural idempotency key (e.g. a source event id) should
+        pass ``dedup_key`` so genuinely distinct notifications that merely share
+        a title are not collapsed. When omitted, a coarse 60-second time bucket
+        keyed on ``kind`` + ``title`` is used — preserving the old "same event
+        delivered twice" suppression, now race-free. The WS push fires only when
+        a row was actually inserted.
+        """
+        if dedup_key is None:
+            # Coarse 60s bucket keyed on kind + title. The title is hashed with
+            # a stable (process-independent) digest so the key length is bounded
+            # for the unique index and dedup still works across worker processes.
+            bucket = int(now().timestamp()) // 60
+            title_hash = hashlib.sha256(title.encode("utf-8")).hexdigest()[:32]
+            dedup_key = f"auto:{kind.value}:{title_hash}:{bucket}"
+
+        notif, created = await self._repo.insert(
             user_id=user_id,
             kind=kind,
             title=title,
             body=body,
             metadata=metadata,
+            dedup_key=dedup_key,
         )
+        if not created:
+            return notif
+
         pub = Publisher(user_channel(user_id))
         await pub.emit(
             "notification.created",

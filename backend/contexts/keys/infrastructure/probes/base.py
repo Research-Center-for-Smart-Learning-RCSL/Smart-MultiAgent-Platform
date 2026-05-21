@@ -32,6 +32,36 @@ class ProbeResult:
         # Trim to a sane length so we don't persist megabytes of provider HTML.
         return cls(status=ProbeStatus.FAILED, error=reason[:500])
 
+    def audit_category(self) -> str:
+        """Coarse, secret-free classification of this probe outcome.
+
+        The raw `error` string can still carry provider-supplied fragments —
+        `summarise_http_failure` interpolates the provider's `error.type` /
+        `error.code` — and `audit.redact()` only catches values that match a
+        fixed set of secret *shapes*. So the audit trail records this
+        closed-vocabulary category rather than `error` itself (SEC-6); the
+        verbatim string stays on the `test_error` column for the key owner.
+        """
+        if self.status is ProbeStatus.OK:
+            return "ok"
+        if self.status is ProbeStatus.UNTESTED:
+            return "untested"
+        err = self.error or ""
+        if err == "unauthorized":
+            return "unauthorized"
+        if err == "missing_cx":
+            return "config_error"
+        if err.startswith("network:"):
+            return "network"
+        if err.startswith("HTTP "):
+            # `summarise_http_failure` emits `HTTP <int>[ (kind)]`; keep only
+            # the numeric status code — never the provider-supplied `kind`.
+            parts = err.split()
+            if len(parts) > 1 and parts[1].isdigit():
+                return f"http_{parts[1]}"
+            return "http_error"
+        return "unknown"
+
 
 def new_http_client() -> httpx.AsyncClient:
     """Probe-scoped client.

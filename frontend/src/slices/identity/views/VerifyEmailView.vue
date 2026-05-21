@@ -1,15 +1,20 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
-import { useRoute } from 'vue-router'
 import { authApi } from '../api/auth'
 import { useSessionStore } from '../stores/session'
 
-const route = useRoute()
 const state = ref<'verifying' | 'success' | 'failure'>('verifying')
 const session = useSessionStore()
 
+// The verification token arrives in the URL fragment (`#token=…`) so it never
+// reaches the server's logs or `Referer` headers — read it from the hash and
+// POST it, never from the query string (SEC-8).
+function tokenFromHash(): string | null {
+  return new URLSearchParams(window.location.hash.slice(1)).get('token')
+}
+
 onMounted(async () => {
-  const token = route.query.token as string | undefined
+  const token = tokenFromHash()
   if (!token) {
     state.value = 'failure'
     return

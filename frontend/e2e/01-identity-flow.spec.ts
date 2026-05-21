@@ -22,7 +22,8 @@ test.describe('Identity flow: Register → verify → login', () => {
     // The seed routine pre-verifies the fixture user; this test only runs
     // when an out-of-band token is supplied (e.g. extracted from a test mailer).
     test.skip(!process.env.E2E_VERIFY_TOKEN, 'needs seeded verify token')
-    await page.goto(`/verify-email?token=${process.env.E2E_VERIFY_TOKEN}`)
+    // Token rides in the URL fragment, not the query string (SEC-8).
+    await page.goto(`/verify-email#token=${process.env.E2E_VERIFY_TOKEN}`)
     await expect(page.getByText(/verified|success/i)).toBeVisible()
   })
 

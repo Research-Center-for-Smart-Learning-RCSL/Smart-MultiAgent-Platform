@@ -90,10 +90,26 @@ async def dispose() -> None:
 
 
 async def db_session() -> AsyncIterator[AsyncSession]:
-    """FastAPI dependency — yields a session inside a transaction."""
+    """FastAPI dependency — yields a session; commits on success, rolls back on error.
+
+    The dependency owns the transaction: endpoints normally do not call
+    ``commit()`` themselves (see the agents/chatrooms routers). An endpoint that
+    must run work *after* a durable commit — e.g. enqueueing Arq jobs that
+    reference a just-written row — may call ``await session.commit()`` itself;
+    the trailing commit here is then a harmless no-op on an empty transaction.
+
+    This replaces the previous ``session.begin()`` block, whose context-exit
+    issued a second commit and raised on every request where the endpoint (or a
+    service it called) had already committed mid-request (DB-1).
+    """
     sm = get_sessionmaker()
-    async with sm() as session, session.begin():
-        yield session
+    async with sm() as session:
+        try:
+            yield session
+            await session.commit()
+        except Exception:
+            await session.rollback()
+            raise
 
 
 @asynccontextmanager

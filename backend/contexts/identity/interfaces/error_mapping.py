@@ -3,22 +3,22 @@
 Lives in `interfaces/` so the layering stays clean: shared_kernel does not
 know about any context, and routers do not import domain classes directly.
 `app.main` calls `register(app)` at startup.
+
+Dispatch + fallback live in `shared_kernel.errors.context_handler` (API-3) —
+this module only owns the identity-specific map and extras.
 """
 
 from __future__ import annotations
 
 from typing import Any
 
-from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI
 
 from contexts.identity.domain import errors
-from shared_kernel.errors.problem import Problem, problem_type
-
-_MEDIA = "application/problem+json"
+from shared_kernel.errors.context_handler import ErrorMap, register_context_handler
 
 # (ExceptionClass) → (slug, http-status, title)
-_MAP: dict[type[errors.IdentityError], tuple[str, int, str]] = {
+_MAP: ErrorMap = {
     errors.EmailAlreadyRegistered: ("auth/email-taken", 409, "Email already registered"),
     errors.EmailDomainDenied: ("auth/domain-denied", 422, "Email domain rejected"),
     errors.InvalidEmailFormat: ("auth/email-invalid", 422, "Invalid email address"),
@@ -39,30 +39,17 @@ _MAP: dict[type[errors.IdentityError], tuple[str, int, str]] = {
 }
 
 
-async def _handler(request: Request, exc: errors.IdentityError) -> JSONResponse:
-    slug, status, title = _MAP.get(
-        type(exc),
-        ("auth/invalid-credentials", 400, "Request rejected"),
-    )
+def _extras(exc: Exception) -> dict[str, Any]:
     extras: dict[str, Any] = {}
     if isinstance(exc, errors.Lockout):
         extras["retry_after_seconds"] = exc.retry_after_seconds
     if isinstance(exc, errors.OriginalCreatorSelfDeleteBlocked):
         extras["blocked_org_ids"] = exc.blocked_orgs
-    problem = Problem(
-        type=problem_type(slug),
-        title=title,
-        status=status,
-        detail=str(exc),
-        extras=extras,
-    )
-    body = problem.dump()
-    body["instance"] = str(request.url.path)
-    return JSONResponse(status_code=status, content=body, media_type=_MEDIA)
+    return extras
 
 
 def register(app: FastAPI) -> None:
-    app.add_exception_handler(errors.IdentityError, _handler)  # type: ignore[arg-type]
+    register_context_handler(app, errors.IdentityError, _MAP, _extras)
 
 
 __all__ = ["register"]

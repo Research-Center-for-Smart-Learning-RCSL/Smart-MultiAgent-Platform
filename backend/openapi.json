@@ -144,6 +144,7 @@
           },
           "system_prompt": {
             "default": "",
+            "maxLength": 100000,
             "title": "System Prompt",
             "type": "string"
           },
@@ -414,6 +415,7 @@
           "system_prompt": {
             "anyOf": [
               {
+                "maxLength": 100000,
                 "type": "string"
               },
               {
@@ -569,6 +571,86 @@
         ],
         "title": "ApiKeyProvider",
         "type": "string"
+      },
+      "ArchivedRunOut": {
+        "description": "A run row from the live+archive union (`list_runs?include_archive=true`).\n\nDistinct from `RunOut` (API-6): the archive projection omits `variables`,\nand the `archived` flag tells the client which table the row came from.\nDefining it explicitly means archive rows are schema-validated instead of\nbeing returned as raw service dicts.",
+        "properties": {
+          "archived": {
+            "title": "Archived",
+            "type": "boolean"
+          },
+          "ended_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ended At"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "started_at": {
+            "title": "Started At",
+            "type": "string"
+          },
+          "started_by_user_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started By User Id"
+          },
+          "state": {
+            "title": "State",
+            "type": "string"
+          },
+          "trigger_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Trigger Type"
+          },
+          "workflow_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Workflow Id"
+          }
+        },
+        "required": [
+          "id",
+          "workflow_id",
+          "trigger_type",
+          "started_by_user_id",
+          "state",
+          "started_at",
+          "ended_at",
+          "archived"
+        ],
+        "title": "ArchivedRunOut",
+        "type": "object"
       },
       "AttachmentDownloadOut": {
         "properties": {
@@ -1789,6 +1871,7 @@
               "format": "uuid",
               "type": "string"
             },
+            "maxItems": 1000,
             "title": "Ids",
             "type": "array"
           }
@@ -1818,6 +1901,7 @@
             "items": {
               "type": "string"
             },
+            "maxItems": 200,
             "title": "Allowed Tools",
             "type": "array"
           },
@@ -1826,6 +1910,7 @@
             "type": "object"
           },
           "reference": {
+            "maxLength": 2000,
             "minLength": 1,
             "title": "Reference",
             "type": "string"
@@ -1904,6 +1989,7 @@
                 "items": {
                   "type": "string"
                 },
+                "maxItems": 200,
                 "type": "array"
               },
               {
@@ -2083,6 +2169,7 @@
       "MessagePatchIn": {
         "properties": {
           "content_md": {
+            "maxLength": 100000,
             "minLength": 1,
             "title": "Content Md",
             "type": "string"
@@ -2101,10 +2188,12 @@
               "format": "uuid",
               "type": "string"
             },
+            "maxItems": 100,
             "title": "Attachment Ids",
             "type": "array"
           },
           "content_md": {
+            "maxLength": 100000,
             "minLength": 1,
             "title": "Content Md",
             "type": "string"
@@ -2940,6 +3029,7 @@
           "max_count": {
             "anyOf": [
               {
+                "minimum": 1.0,
                 "type": "integer"
               },
               {
@@ -2962,6 +3052,8 @@
           "window_sec": {
             "anyOf": [
               {
+                "maximum": 86400.0,
+                "minimum": 1.0,
                 "type": "integer"
               },
               {
@@ -8681,7 +8773,7 @@
             "description": "Validation Error"
           }
         },
-        "summary": "List all instructions in a chain",
+        "summary": "List all instructions in a chain (admin only)",
         "tags": [
           "orchestration"
         ]
@@ -8772,7 +8864,7 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Get a single instruction record",
+        "summary": "Get a single instruction record (admin only)",
         "tags": [
           "orchestration"
         ]
@@ -11878,7 +11970,7 @@
                         "$ref": "#/components/schemas/RunOut"
                       },
                       {
-                        "type": "object"
+                        "$ref": "#/components/schemas/ArchivedRunOut"
                       }
                     ]
                   },

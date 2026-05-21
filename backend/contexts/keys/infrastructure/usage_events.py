@@ -35,19 +35,26 @@ async def record_usage_event(
     chatroom_id: uuid.UUID | None = None,
 ) -> None:
     try:
-        await db.execute(
-            t.key_usage_events.insert().values(
-                key_id=key_id,
-                agent_id=agent_id,
-                parent_agent_id=parent_agent_id,
-                chatroom_id=chatroom_id,
-                input_tokens=input_tokens,
-                output_tokens=output_tokens,
-                request_ms=request_ms,
-                http_status=http_status,
-                error_code=error_code,
+        # DB-2: wrap the INSERT in a SAVEPOINT. If it fails (FK violation from a
+        # concurrently hard-deleted key, statement timeout, ...) Postgres marks
+        # the *whole* transaction failed; swallowing the Python exception alone
+        # does not clear that, so every later db.execute on the shared request
+        # session would raise InFailedSqlTransaction. begin_nested() rolls back
+        # only the savepoint, leaving the caller's transaction healthy.
+        async with db.begin_nested():
+            await db.execute(
+                t.key_usage_events.insert().values(
+                    key_id=key_id,
+                    agent_id=agent_id,
+                    parent_agent_id=parent_agent_id,
+                    chatroom_id=chatroom_id,
+                    input_tokens=input_tokens,
+                    output_tokens=output_tokens,
+                    request_ms=request_ms,
+                    http_status=http_status,
+                    error_code=error_code,
+                )
             )
-        )
     except Exception:
         # Non-blocking by contract. Swallow + log so router retries / returns
         # the provider response rather than surfacing "failed to account".

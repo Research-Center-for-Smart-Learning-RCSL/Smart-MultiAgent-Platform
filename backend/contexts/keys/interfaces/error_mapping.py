@@ -1,23 +1,20 @@
 """Keys domain errors → RFC 7807 problems.
 
-Mirrors `contexts/identity/interfaces/error_mapping.py`. `app.main` calls
-`register(app)` at startup so every `KeysError` raised from an endpoint or
-service becomes a `application/problem+json` response automatically.
+`app.main` calls `register(app)` at startup so every `KeysError` raised from an
+endpoint or service becomes an `application/problem+json` response. Dispatch +
+fallback live in `shared_kernel.errors.context_handler` (API-3).
 """
 
 from __future__ import annotations
 
 from typing import Any
 
-from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI
 
 from contexts.keys.domain import errors
-from shared_kernel.errors.problem import Problem, problem_type
+from shared_kernel.errors.context_handler import ErrorMap, register_context_handler
 
-_MEDIA = "application/problem+json"
-
-_MAP: dict[type[errors.KeysError], tuple[str, int, str]] = {
+_MAP: ErrorMap = {
     errors.CapabilityMismatch: (
         "keys/capability-mismatch",
         422,
@@ -49,11 +46,7 @@ _MAP: dict[type[errors.KeysError], tuple[str, int, str]] = {
 }
 
 
-async def _handler(request: Request, exc: errors.KeysError) -> JSONResponse:
-    slug, status, title = _MAP.get(
-        type(exc),
-        ("keys/not-found", 400, "Request rejected"),
-    )
+def _extras(exc: Exception) -> dict[str, Any]:
     extras: dict[str, Any] = {}
     if isinstance(exc, errors.CapabilityMismatch):
         extras["provider"] = exc.provider.value
@@ -64,20 +57,11 @@ async def _handler(request: Request, exc: errors.KeysError) -> JSONResponse:
     elif isinstance(exc, errors.KeyGroupExhausted):
         extras["group_id"] = str(exc.group_id)
         extras["reason"] = exc.reason
-    problem = Problem(
-        type=problem_type(slug),
-        title=title,
-        status=status,
-        detail=str(exc),
-        extras=extras,
-    )
-    body = problem.dump()
-    body["instance"] = str(request.url.path)
-    return JSONResponse(status_code=status, content=body, media_type=_MEDIA)
+    return extras
 
 
 def register(app: FastAPI) -> None:
-    app.add_exception_handler(errors.KeysError, _handler)  # type: ignore[arg-type]
+    register_context_handler(app, errors.KeysError, _MAP, _extras)
 
 
 __all__ = ["register"]

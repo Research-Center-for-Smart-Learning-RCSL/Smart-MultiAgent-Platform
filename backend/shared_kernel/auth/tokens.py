@@ -1,17 +1,25 @@
 """Refresh-token session store + access-token jti denylist (R6.03, R6.06, R6.08).
 
-Two Redis keyspaces:
+Redis keyspaces:
 
   session:{sha256(refresh_token)}     HSET  { user_id, session_id, family_id,
                                               last_jti, issued_at, expires_at }
                                       TTL = refresh TTL remaining
+
+  session_family:{family_id}          SET of currently-live session hashes
+
+  session_hash_family:{hash}          STRING family_id — a reverse index kept
+                                      for every hash *ever* issued in the
+                                      family (including rotated-away ones),
+                                      so reuse detection is an O(1) GET.
 
   jti_denylist:{jti}                  SET "1" EX access_ttl
 
 Reuse detection: refresh tokens rotate. Each rotation deletes the previous
 `session:{old_hash}` and writes `session:{new_hash}`. If a *deleted* hash is
 later presented, the whole family is killed — R6.03 "Reuse of a consumed
-refresh invalidates the whole session family".
+refresh invalidates the whole session family". The kill resolves the family
+via the `session_hash_family:` index in one GET — never a keyspace SCAN.
 
 DB mirror (`sessions` row) is maintained by `contexts.identity` so the
 "list my active sessions" UI (R6.08) can render without scanning Redis.
@@ -32,6 +40,7 @@ from shared_kernel.auth.clients import get_redis, now
 
 _SESSION_PREFIX: Final = "session:"
 _FAMILY_PREFIX: Final = "session_family:"
+_HASH_FAMILY_PREFIX: Final = "session_hash_family:"
 _DENYLIST_PREFIX: Final = "jti_denylist:"
 _REFRESH_BYTES: Final = 48
 
@@ -116,6 +125,11 @@ async def rotate_session(old_token: str, *, new_jti: uuid.UUID) -> tuple[str, Re
         pipe.srem(_FAMILY_PREFIX + str(record.family_id), old_hash)
         pipe.sadd(_FAMILY_PREFIX + str(record.family_id), new_hash)
         pipe.expire(_FAMILY_PREFIX + str(record.family_id), ttl_seconds)
+        pipe.set(_HASH_FAMILY_PREFIX + new_hash, str(record.family_id), ex=ttl_seconds)
+        # `session_hash_family:{old_hash}` is deliberately NOT deleted — it
+        # outlives rotation so a replay of the now-consumed token can still be
+        # traced to its family and trigger the reuse kill (R6.03). It expires
+        # on its own TTL.
         await pipe.execute()
     return new_token, new_record, old_hash
 
@@ -130,6 +144,7 @@ async def revoke_session(refresh_token: str) -> RefreshRecord | None:
     record = _parse_record(raw)
     async with r.pipeline(transaction=True) as pipe:
         pipe.delete(_SESSION_PREFIX + h)
+        pipe.delete(_HASH_FAMILY_PREFIX + h)
         pipe.srem(_FAMILY_PREFIX + str(record.family_id), h)
         await pipe.execute()
     return record
@@ -145,6 +160,7 @@ async def kill_family(family_id: uuid.UUID) -> int:
     async with r.pipeline(transaction=True) as pipe:
         for h in hashes:
             pipe.delete(_SESSION_PREFIX + h)
+            pipe.delete(_HASH_FAMILY_PREFIX + h)
         pipe.delete(fkey)
         await pipe.execute()
     return len(hashes)
@@ -184,23 +200,21 @@ async def _write_session(refresh_token: str, record: RefreshRecord) -> None:
         pipe.expire(_SESSION_PREFIX + h, ttl_seconds)
         pipe.sadd(_FAMILY_PREFIX + str(record.family_id), h)
         pipe.expire(_FAMILY_PREFIX + str(record.family_id), ttl_seconds)
+        pipe.set(_HASH_FAMILY_PREFIX + h, str(record.family_id), ex=ttl_seconds)
         await pipe.execute()
 
 
 async def _kill_family_by_hash(refresh_hash: str) -> None:
-    """Best-effort: if a stale hash maps to a known family, kill it."""
-    # We don't index hash→family, so this is an O(N) scan across family sets.
-    # Families are short-lived (≤ 30 days); miss rate is low, O(small).
-    r = get_redis()
-    cursor = 0
-    while True:
-        cursor, keys = await r.scan(cursor=cursor, match=_FAMILY_PREFIX + "*", count=100)
-        for fkey in keys:
-            if await r.sismember(fkey, refresh_hash):
-                family = fkey.removeprefix(_FAMILY_PREFIX)
-                await kill_family(uuid.UUID(family))
-        if cursor == 0:
-            break
+    """Kill the family a stale / replayed refresh hash belongs to (R6.03).
+
+    The `session_hash_family:` index maps every refresh hash ever issued in a
+    family to that family for the family's whole lifetime — so this is one
+    O(1) GET, not an unbounded keyspace SCAN driven by attacker input (SEC-9).
+    An unknown hash (random token guess) simply misses the index and no-ops.
+    """
+    family_id = await get_redis().get(_HASH_FAMILY_PREFIX + refresh_hash)
+    if family_id:
+        await kill_family(uuid.UUID(family_id))
 
 
 def _dump_record(r: RefreshRecord) -> dict[str, str]:

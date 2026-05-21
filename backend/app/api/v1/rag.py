@@ -33,7 +33,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config.settings import get_settings
 from contexts.keys.interfaces.facade import KeysFacade
 from contexts.knowledge.application.config_service import RagConfigService
-from contexts.knowledge.application.ingest_service import IngestInput, IngestService
+from contexts.knowledge.application.ingest_service import (
+    MAX_MULTIPART_BYTES,
+    IngestInput,
+    IngestService,
+)
+from contexts.knowledge.domain.errors import DocumentTooLarge
 from contexts.knowledge.domain.models import ChunkStrategy, RagConfigDraft
 from contexts.knowledge.infrastructure.blob_store import MinioBlobStore
 from contexts.knowledge.infrastructure.embedders import embedder_for
@@ -325,7 +330,15 @@ async def upload_document(
             detail="rag config has no embed_key_id",
         )
 
-    data = await file.read()
+    # API-4: enforce the 32 MB multipart cap BEFORE buffering the whole file
+    # in memory — read up to cap + 1 byte and reject on overflow (the same
+    # idiom as attachments.create_single_shot). IngestService re-checks the
+    # cap, but only after the body would already be resident.
+    data = await file.read(MAX_MULTIPART_BYTES + 1)
+    if len(data) > MAX_MULTIPART_BYTES:
+        raise DocumentTooLarge(
+            f"multipart upload exceeds {MAX_MULTIPART_BYTES} bytes; use tus",
+        )
 
     # Unwrap the BYO embedding key just long enough to sign the batch.
     plaintext = await KeysFacade(db).unwrap_api_key_plaintext(cfg.embed_key_id)

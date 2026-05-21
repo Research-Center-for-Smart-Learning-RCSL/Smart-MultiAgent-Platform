@@ -53,7 +53,9 @@ def upgrade() -> None:
     op.create_index("ix_audit_logs_created_at", "audit_logs", ["created_at"])
 
     # The retention role exists only so the trigger has something definite to
-    # check against. DO NOT grant it to the backend AppRole.
+    # check against. Migration 0027_audit_retention_grant grants membership to
+    # the app/worker role so the retention worker can SET ROLE to it; the role
+    # is NOINHERIT, so membership alone never passively bypasses the trigger.
     op.execute(
         """
         DO $$

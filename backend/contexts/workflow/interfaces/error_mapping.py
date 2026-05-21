@@ -1,18 +1,18 @@
-"""Workflow domain errors → RFC 7807 registration."""
+"""Workflow domain errors → RFC 7807 registration.
+
+Dispatch + fallback live in `shared_kernel.errors.context_handler` (API-3).
+"""
 
 from __future__ import annotations
 
 from typing import Any
 
-from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI
 
 from contexts.workflow.domain import errors
-from shared_kernel.errors.problem import Problem, problem_type
+from shared_kernel.errors.context_handler import ErrorMap, register_context_handler
 
-_MEDIA = "application/problem+json"
-
-_MAP: dict[type[errors.WorkflowError], tuple[str, int, str]] = {
+_MAP: ErrorMap = {
     errors.WorkflowNotFound: (
         "workflow-not-found",
         404,
@@ -81,30 +81,14 @@ _MAP: dict[type[errors.WorkflowError], tuple[str, int, str]] = {
 }
 
 
-async def _handler(request: Request, exc: errors.WorkflowError) -> JSONResponse:
-    slug, status_code, title = _MAP.get(
-        type(exc),
-        ("workflow/generic", 400, "Workflow error"),
-    )
-    extras: dict[str, Any] = {}
+def _extras(exc: Exception) -> dict[str, Any]:
     if isinstance(exc, errors.WorkflowValidationFailed):
-        extras["errors"] = exc.lint_errors
-        extras["warnings"] = exc.lint_warnings
-
-    problem = Problem(
-        type=problem_type(slug),
-        title=title,
-        status=status_code,
-        detail=str(exc),
-        extras=extras,
-    )
-    body = problem.dump()
-    body["instance"] = str(request.url.path)
-    return JSONResponse(status_code=status_code, content=body, media_type=_MEDIA)
+        return {"errors": exc.lint_errors, "warnings": exc.lint_warnings}
+    return {}
 
 
 def register(app: FastAPI) -> None:
-    app.add_exception_handler(errors.WorkflowError, _handler)  # type: ignore[arg-type]
+    register_context_handler(app, errors.WorkflowError, _MAP, _extras)
 
 
 __all__ = ["register"]

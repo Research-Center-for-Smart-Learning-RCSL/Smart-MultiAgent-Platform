@@ -191,7 +191,21 @@ def create_app() -> FastAPI:
             allow_origins=list(settings.security.cors_origins),
             allow_credentials=True,
             allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-            allow_headers=["*"],
+            # API-8: explicit request-header allowlist. `["*"]` is invalid to
+            # pair with credentialed requests (the browser ignores the wildcard
+            # and the SPA uses cookie auth), so enumerate exactly what the SPA
+            # sends: bearer auth, JSON bodies, optimistic-concurrency If-Match,
+            # the TUS resumable-upload headers, and the request-id correlator.
+            allow_headers=[
+                "Authorization",
+                "Content-Type",
+                "If-Match",
+                "Tus-Resumable",
+                "Upload-Length",
+                "Upload-Metadata",
+                "Upload-Offset",
+                "X-Request-ID",
+            ],
             expose_headers=[
                 "X-Request-ID",
                 "X-RateLimit-Limit",

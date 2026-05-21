@@ -18,6 +18,7 @@ from app.config.settings import get_settings
 from contexts.identity.application.auth_service import AuthService
 from contexts.identity.application.factory import create_auth_service
 from contexts.identity.interfaces.facade import IdentityFacade
+from shared_kernel.auth import ratelimit
 from shared_kernel.auth.context import RequestContext
 from shared_kernel.auth.dependencies import (
     current_context,
@@ -25,6 +26,7 @@ from shared_kernel.auth.dependencies import (
 )
 from shared_kernel.auth.permissions import Principal
 from shared_kernel.db.session import db_session
+from shared_kernel.errors.problem import Problem, problem_type
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -63,6 +65,32 @@ def _public_origin() -> str:
     # Single origin (§19a.07). Fall back to localhost in dev.
     origins = get_settings().security.cors_origins
     return origins[0] if origins else "http://localhost:8080"
+
+
+# API-9: per-target-email cap on password-reset requests. The rate-limit
+# middleware only buckets recovery flows by IP, so without this an attacker
+# rotating IPs can flood reset emails at a chosen victim. Keyed on the
+# *requested* address, so it leaks nothing about whether the account exists.
+_RESET_EMAIL_WINDOW_SEC = 3600
+_RESET_EMAIL_MAX = 5
+
+
+def _too_many_reset_requests(decision: ratelimit.Decision) -> HTTPException:
+    problem = Problem(
+        type=problem_type("rate-limited"),
+        title="Too Many Requests",
+        status=429,
+        detail="Password-reset requests for this address are temporarily rate-limited",
+        extras={"retry_after_seconds": decision.retry_after_seconds},
+    )
+    return HTTPException(
+        status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+        detail=problem.dump(),
+        headers={
+            "Retry-After": str(decision.retry_after_seconds),
+            "Content-Type": "application/problem+json",
+        },
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -265,6 +293,15 @@ async def request_password_reset(
     ctx: RequestContext = Depends(current_context),
     db: AsyncSession = Depends(db_session),
 ) -> None:
+    # API-9: per-target-email limiter, on top of the per-IP recovery bucket.
+    email_key = str(body.email).strip().lower()
+    decision = await ratelimit.check_raw(
+        key=f"rl:auth-recovery:reset-email:{email_key}",
+        window_sec=_RESET_EMAIL_WINDOW_SEC,
+        max_count=_RESET_EMAIL_MAX,
+    )
+    if not decision.allowed:
+        raise _too_many_reset_requests(decision)
     service = _service(db)
     await service.request_password_reset(
         email=body.email,

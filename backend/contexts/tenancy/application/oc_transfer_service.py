@@ -73,6 +73,7 @@ class OCTransferService:
     async def accept(
         self,
         *,
+        org_id: uuid.UUID,
         transfer_id: uuid.UUID,
         caller_user_id: uuid.UUID,
         actor_ip: str | None,
@@ -80,6 +81,12 @@ class OCTransferService:
     ) -> OCTransfer:
         transfer = await self._transfers.get(transfer_id)
         if transfer is None or transfer.resolved_at is not None:
+            raise TransferNotFound(str(transfer_id))
+        # The transfer must belong to the org named in the request path —
+        # otherwise a member of org A could resolve a transfer in org B by
+        # quoting B's transfer id under A's path (SEC-4). A mismatch is
+        # reported as "not found" so the path cannot be used to probe.
+        if transfer.org_id != org_id:
             raise TransferNotFound(str(transfer_id))
         if transfer.target_user_id != caller_user_id:
             raise TransferConflict("only the target may accept")
@@ -133,6 +140,7 @@ class OCTransferService:
     async def cancel(
         self,
         *,
+        org_id: uuid.UUID,
         transfer_id: uuid.UUID,
         caller_user_id: uuid.UUID,
         caller_is_admin: bool,
@@ -141,6 +149,9 @@ class OCTransferService:
     ) -> OCTransfer:
         transfer = await self._transfers.get(transfer_id)
         if transfer is None or transfer.resolved_at is not None:
+            raise TransferNotFound(str(transfer_id))
+        # The transfer must belong to the org named in the request path (SEC-4).
+        if transfer.org_id != org_id:
             raise TransferNotFound(str(transfer_id))
         if not caller_is_admin and transfer.initiator_user_id != caller_user_id:
             raise TransferConflict("only the initiator or an admin may cancel")

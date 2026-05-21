@@ -575,7 +575,12 @@ class AuthService:
         await self._sessions.revoke_all_for_user(user_id)
 
     async def _send_email_verification(self, email: str, token: str, *, user_id: uuid.UUID) -> None:
-        link = f"{self._public_origin}/api/auth/verify-email?token={token}"
+        # The token rides in the URL *fragment* (`#token=`), not the query
+        # string: fragments are never sent to the server, so the high-entropy
+        # single-use token stays out of access logs, `Referer` headers, and
+        # the browser-history query string. The SPA route reads `location.hash`
+        # and POSTs the token to `/api/auth/verify-email` (SEC-8).
+        link = f"{self._public_origin}/verify-email#token={token}"
         await self._emailer.send(
             EmailMessage(
                 to=email,
@@ -586,7 +591,8 @@ class AuthService:
         )
 
     async def _send_password_reset(self, email: str, token: str, *, user_id: uuid.UUID) -> None:
-        link = f"{self._public_origin}/reset-password?token={token}"
+        # Token in the URL fragment — see `_send_email_verification` (SEC-8).
+        link = f"{self._public_origin}/password-reset/confirm#token={token}"
         await self._emailer.send(
             EmailMessage(
                 to=email,

@@ -7,7 +7,7 @@ from collections.abc import Sequence
 from typing import Any
 
 import sqlalchemy as sa
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.agents.domain.mcp import EgressAllowlistEntry
@@ -49,36 +49,32 @@ class EgressAllowlistRepository:
     ) -> EgressAllowlistEntry:
         """Idempotent insert — if ``(project_id, hostname)`` exists, return it.
 
-        The UNIQUE constraint is used as the truth; on collision we re-select.
+        DB-3: uses ``INSERT ... ON CONFLICT DO UPDATE ... RETURNING`` so a
+        unique collision is resolved atomically inside a single statement. The
+        previous ``try INSERT / except IntegrityError: SELECT`` form ran its
+        recovery SELECT on a transaction Postgres had already marked failed, so
+        it raised ``InFailedSqlTransaction`` instead of returning the row.
+
+        ``DO UPDATE`` sets ``hostname`` to its own value — a no-op that changes
+        no data but makes the conflicting row visible to ``RETURNING`` (a bare
+        ``DO NOTHING`` returns nothing on conflict).
         """
-        try:
-            row = (
-                await self._db.execute(
-                    mcp_egress_allowlist.insert()
-                    .values(
-                        project_id=project_id,
-                        hostname=hostname,
-                        added_by_user_id=added_by_user_id,
-                        note=note,
-                    )
-                    .returning(mcp_egress_allowlist)
-                )
-            ).one()
-            return _row_to_entry(row)
-        except IntegrityError:
-            existing = (
-                await self._db.execute(
-                    mcp_egress_allowlist.select().where(
-                        sa.and_(
-                            mcp_egress_allowlist.c.project_id == project_id,
-                            mcp_egress_allowlist.c.hostname == hostname,
-                        )
-                    )
-                )
-            ).first()
-            if existing is None:  # pragma: no cover - defensive
-                raise
-            return _row_to_entry(existing)
+        stmt = (
+            pg_insert(mcp_egress_allowlist)
+            .values(
+                project_id=project_id,
+                hostname=hostname,
+                added_by_user_id=added_by_user_id,
+                note=note,
+            )
+            .on_conflict_do_update(
+                index_elements=["project_id", "hostname"],
+                set_={"hostname": mcp_egress_allowlist.c.hostname},
+            )
+            .returning(mcp_egress_allowlist)
+        )
+        row = (await self._db.execute(stmt)).one()
+        return _row_to_entry(row)
 
     async def delete(self, *, project_id: uuid.UUID, hostname: str) -> bool:
         result = await self._db.execute(

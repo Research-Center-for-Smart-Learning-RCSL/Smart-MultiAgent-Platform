@@ -60,12 +60,11 @@ class TenancyRoleResolver(RoleResolver):
             if project and project.owner_user_id == principal.user_id:
                 roles.add(Role.PROJECT_OWNER)
 
-        # Empty-scope ("any verified individual") fallback. MUST NOT fire when
-        # the scope points at a specific resource — otherwise any authenticated
-        # user would inherit PROJECT_MEMBER privileges on every project in the
-        # system (key usage read, key upload, etc.).
-        if not roles and scope.org_id is None and scope.project_id is None and scope.chatroom_id is None:
-            roles.add(Role.PROJECT_MEMBER)
+        # No empty-scope fallback (SEC-3). An empty scope no longer degrades
+        # to a default PROJECT_MEMBER role: `permissions.decide` handles the
+        # empty-scope case explicitly — allowing only the self-service
+        # capabilities and failing everything else closed — before it ever
+        # calls this resolver. An empty scope here therefore yields no roles.
         return frozenset(roles)
 
     async def is_original_creator(self, *, user_id: uuid.UUID, org_id: uuid.UUID) -> bool:

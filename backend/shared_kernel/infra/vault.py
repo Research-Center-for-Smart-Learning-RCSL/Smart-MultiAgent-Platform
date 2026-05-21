@@ -291,6 +291,11 @@ class VaultClient:
         header = orjson.loads(_b64url_decode(header_b64))
         if header.get("alg") != "RS256":
             raise VaultError("Only RS256 is accepted.")
+        # Pin `typ` too: the transit key only ever signs JWTs, so any other
+        # artifact (a differently-typed JWS) presented here is rejected before
+        # its signature is even checked (SEC-7).
+        if header.get("typ") != "JWT":
+            raise VaultError("JWT 'typ' header must be 'JWT'.")
         try:
             kid = int(header["kid"])
         except (KeyError, TypeError, ValueError) as exc:

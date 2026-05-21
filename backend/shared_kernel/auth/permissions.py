@@ -290,6 +290,18 @@ async def decide(
     if capability in _EMAIL_VERIFICATION_REQUIRED and not principal.email_verified:
         return Decision.deny("email verification required", Outcome.DENY)
 
+    # Empty-scope handling (SEC-3). A scope with no org / project / chatroom
+    # does not point at any resource, so role resolution cannot place the
+    # caller. Only the self-service capabilities ("any verified Individual may
+    # create their own Org / a personal Project") are legitimately checked
+    # without a scope; every other capability targets a concrete resource and
+    # MUST fail closed here rather than fall through to a permissive default
+    # role. This is the structural fix for the role-resolver fail-open.
+    if scope.org_id is None and scope.project_id is None and scope.chatroom_id is None:
+        if capability in _SELF_SERVICE_CAPABILITIES:
+            return Decision.allow("self-service: any verified individual", Outcome.ALLOW)
+        return Decision.deny("scope-requiring capability received an empty scope")
+
     roles = await resolver.roles_for(principal, scope)
     if not roles:
         return Decision.deny("no applicable role in scope")
@@ -333,6 +345,20 @@ _EMAIL_VERIFICATION_REQUIRED: frozenset[Capability] = frozenset(
     {
         Capability.ORG_CREATE,
         Capability.PROJECT_CREATE_UNDER_ORG,
+        Capability.PROJECT_CREATE_UNDER_USER,
+    }
+)
+
+# Self-service capabilities — the *only* capabilities a caller may exercise
+# against an empty scope (no org / project / chatroom). They encode the
+# "any verified Individual" allowance of §5.2 (R8.01): creating one's own Org
+# or a personal user-owned Project. Every other capability targets a concrete
+# resource and is failed closed on an empty scope (SEC-3). Note `decide`
+# applies the R6.02 email-verification gate before reaching the empty-scope
+# branch, so an unverified caller is still rejected for these.
+_SELF_SERVICE_CAPABILITIES: frozenset[Capability] = frozenset(
+    {
+        Capability.ORG_CREATE,
         Capability.PROJECT_CREATE_UNDER_USER,
     }
 )

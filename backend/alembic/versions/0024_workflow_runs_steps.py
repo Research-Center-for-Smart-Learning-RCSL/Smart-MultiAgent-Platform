@@ -2,6 +2,8 @@
 
 Extends the lightweight `workflow_runs` from G.6 with workflow-specific
 columns. Creates `workflow_steps` and `workflow_runs_archive`.
+
+WARNING: `downgrade()` is intentionally lossy — see the banner there.
 """
 
 from __future__ import annotations
@@ -123,6 +125,17 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    # ------------------------------------------------------------------
+    # DESTRUCTIVE / LOSSY DOWNGRADE — DB-7
+    # ------------------------------------------------------------------
+    # This downgrade DROPS `workflow_steps` and `workflow_runs_archive`
+    # outright and removes the `variables`, `context`, `workflow_id`,
+    # `trigger_type` and `started_by_user_id` columns from `workflow_runs`.
+    # Every workflow execution-history row held in those tables/columns is
+    # permanently destroyed — no backup is taken here. Do NOT run this
+    # against a production database unless that data has already been
+    # exported elsewhere.
+    # ------------------------------------------------------------------
     op.drop_index("ix_workflow_runs_archive_workflow_id",
                   table_name="workflow_runs_archive")
     op.drop_table("workflow_runs_archive")

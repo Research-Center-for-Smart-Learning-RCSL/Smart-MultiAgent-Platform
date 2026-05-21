@@ -44,15 +44,22 @@ message_router = APIRouter(prefix="/api/messages", tags=["messages"])
 # --------------------------------------------------------------------------- #
 
 
+# Upper bound on a single message body (API-7) — keeps oversized payloads from
+# driving memory / DB load. A markdown chat message never approaches this.
+_MAX_CONTENT_MD = 100_000
+# Upper bound on attachments referenced by one message (API-7).
+_MAX_ATTACHMENT_IDS = 100
+
+
 class MessageSendIn(BaseModel):
-    content_md: str = Field(min_length=1)
-    attachment_ids: list[uuid.UUID] = Field(default_factory=list)
+    content_md: str = Field(min_length=1, max_length=_MAX_CONTENT_MD)
+    attachment_ids: list[uuid.UUID] = Field(default_factory=list, max_length=_MAX_ATTACHMENT_IDS)
     # `metadata` is system-populated (rag_chunks, tool_calls, compact_summary,
     # etc. — §21.1) and deliberately not accepted from clients.
 
 
 class MessagePatchIn(BaseModel):
-    content_md: str = Field(min_length=1)
+    content_md: str = Field(min_length=1, max_length=_MAX_CONTENT_MD)
 
 
 class MessageOut(BaseModel):

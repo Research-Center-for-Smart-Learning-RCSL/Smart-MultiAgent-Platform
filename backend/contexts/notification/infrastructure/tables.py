@@ -20,6 +20,10 @@ notifications = sa.Table(
     sa.Column("metadata", pg.JSONB, nullable=False, server_default=sa.text("'{}'::jsonb")),
     sa.Column("read_at", sa.TIMESTAMP(timezone=True), nullable=True),
     sa.Column("created_at", sa.TIMESTAMP(timezone=True), nullable=False, server_default=sa.text("now()")),
+    # NOTIF-DEDUP: optional idempotency key. A partial unique index on
+    # (user_id, dedup_key) makes concurrent duplicate sends collide so exactly
+    # one INSERT ... ON CONFLICT DO NOTHING wins. See 0028_notification_dedup_key.
+    sa.Column("dedup_key", sa.Text, nullable=True),
 )
 
 __all__ = ["notifications"]

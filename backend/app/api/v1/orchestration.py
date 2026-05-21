@@ -2,7 +2,16 @@
 
 Exposes approval gates, instruct chains, sub-agent instances, and A2A DLQ
 entries for the frontend. All mutations flow through the workflow engine
-(Phase H). DLQ access is restricted to admin principals.
+(Phase H).
+
+AuthZ (API-2 — hybrid scoping):
+- Approvals (G.6) + sub-agents (G.8): resolved to their owning project; the
+  caller must hold a role in that project.
+- Instruct chains (G.7) + A2A DLQ (G.10): admin-only backstage.
+
+Every handler resolves its path UUID to a project (or requires admin) before
+returning data — without this an authenticated caller could read any tenant's
+orchestration state by enumerating IDs.
 """
 
 from __future__ import annotations
@@ -17,15 +26,48 @@ from contexts.orchestration.application.approval_service import ApprovalService
 from contexts.orchestration.application.instruct_service import InstructService
 from contexts.orchestration.application.subagent_service import SubagentService
 from contexts.orchestration.infrastructure.a2a_streams import read_dlq
-from shared_kernel.auth.dependencies import current_principal
-from shared_kernel.auth.permissions import Principal
+from shared_kernel.auth.dependencies import current_principal, get_role_resolver
+from shared_kernel.auth.permissions import Principal, RoleResolver, Scope
 from shared_kernel.db.session import db_session
 
 router = APIRouter(prefix="/api/orchestration", tags=["orchestration"])
 
 
 # ---------------------------------------------------------------------------
-# Helpers
+# AuthZ helpers
+# ---------------------------------------------------------------------------
+
+
+def _assert_admin(principal: Principal) -> None:
+    if not principal.is_admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="admin access required",
+        )
+
+
+async def _assert_project_member(
+    principal: Principal,
+    project_id: uuid.UUID,
+    resolver: RoleResolver,
+) -> None:
+    """Require the caller to hold any role in `project_id` (admin always passes)."""
+    if principal.is_admin:
+        return
+    roles = await resolver.roles_for(principal, Scope(project_id=project_id))
+    if not roles:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="caller is not a member of the project",
+        )
+
+
+def _not_found(what: str) -> HTTPException:
+    return HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"{what} not found")
+
+
+# ---------------------------------------------------------------------------
+# Helpers — row → dict
 # ---------------------------------------------------------------------------
 
 
@@ -85,7 +127,7 @@ def _instance_out(instance: Any) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
-# Approval endpoints (G.6)
+# Approval endpoints (G.6 — project members)
 # ---------------------------------------------------------------------------
 
 
@@ -97,11 +139,16 @@ async def get_approval(
     approval_id: uuid.UUID = Path(...),
     db: AsyncSession = Depends(db_session),
     principal: Principal = Depends(current_principal),
+    resolver: RoleResolver = Depends(get_role_resolver),
 ) -> dict[str, Any]:
     svc = ApprovalService(db)
+    project_id = await svc.resolve_project(approval_id)
+    if project_id is None:
+        raise _not_found("approval")
+    await _assert_project_member(principal, project_id, resolver)
     approval = await svc.get_approval(approval_id)
-    if approval is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="approval not found")
+    if approval is None:  # pragma: no cover — resolved above
+        raise _not_found("approval")
     votes = await svc.get_votes(approval_id)
     return _approval_out(approval, votes)
 
@@ -114,8 +161,13 @@ async def list_approvals_for_run(
     workflow_run_id: uuid.UUID = Path(...),
     db: AsyncSession = Depends(db_session),
     principal: Principal = Depends(current_principal),
+    resolver: RoleResolver = Depends(get_role_resolver),
 ) -> list[dict[str, Any]]:
     svc = ApprovalService(db)
+    project_id = await svc.resolve_run_project(workflow_run_id)
+    if project_id is None:
+        raise _not_found("workflow run")
+    await _assert_project_member(principal, project_id, resolver)
     approvals = await svc.list_for_run(workflow_run_id)
     return [_approval_out(a) for a in approvals]
 
@@ -127,36 +179,38 @@ async def list_approvals_for_run(
 
 @router.get(
     "/instructions/{instruction_id}",
-    summary="Get a single instruction record",
+    summary="Get a single instruction record (admin only)",
 )
 async def get_instruction(
     instruction_id: uuid.UUID = Path(...),
     db: AsyncSession = Depends(db_session),
     principal: Principal = Depends(current_principal),
 ) -> dict[str, Any]:
+    _assert_admin(principal)
     svc = InstructService(db)
     instruction = await svc.get_instruction(instruction_id)
     if instruction is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="instruction not found")
+        raise _not_found("instruction")
     return _instruction_out(instruction)
 
 
 @router.get(
     "/chains/{chain_id}/instructions",
-    summary="List all instructions in a chain",
+    summary="List all instructions in a chain (admin only)",
 )
 async def list_instructions_for_chain(
     chain_id: uuid.UUID = Path(...),
     db: AsyncSession = Depends(db_session),
     principal: Principal = Depends(current_principal),
 ) -> list[dict[str, Any]]:
+    _assert_admin(principal)
     svc = InstructService(db)
     instructions = await svc.list_for_chain(chain_id)
     return [_instruction_out(i) for i in instructions]
 
 
 # ---------------------------------------------------------------------------
-# Sub-agent endpoints (G.8)
+# Sub-agent endpoints (G.8 — project members)
 # ---------------------------------------------------------------------------
 
 
@@ -168,8 +222,13 @@ async def list_subagent_children(
     parent_instance_id: uuid.UUID = Path(...),
     db: AsyncSession = Depends(db_session),
     principal: Principal = Depends(current_principal),
+    resolver: RoleResolver = Depends(get_role_resolver),
 ) -> list[dict[str, Any]]:
     svc = SubagentService(db)
+    project_id = await svc.resolve_project(parent_instance_id)
+    if project_id is None:
+        raise _not_found("agent instance")
+    await _assert_project_member(principal, project_id, resolver)
     children = await svc.list_children(parent_instance_id)
     return [_instance_out(c) for c in children]
 
@@ -187,11 +246,7 @@ async def get_agent_dlq(
     agent_id: uuid.UUID = Path(...),
     principal: Principal = Depends(current_principal),
 ) -> list[dict[str, Any]]:
-    if not principal.is_admin:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="admin access required",
-        )
+    _assert_admin(principal)
     return await read_dlq(agent_id)
 
 

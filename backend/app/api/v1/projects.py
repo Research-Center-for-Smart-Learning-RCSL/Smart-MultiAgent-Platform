@@ -123,7 +123,7 @@ async def create_project(
     owner_type = ProjectOwnerType(body.owner_type)
     # The matrix capability differs per owner-type; check each manually here
     # so the scope_from_path builder can stay generic.
-    from shared_kernel.auth.dependencies import get_role_resolver
+    from shared_kernel.auth.dependencies import _raise_forbidden, get_role_resolver
     from shared_kernel.auth.permissions import (
         Scope,
         decide,
@@ -140,9 +140,19 @@ async def create_project(
     )
     decision = await decide(principal, cap, scope, resolver)
     if not decision.allowed:
-        from shared_kernel.auth.dependencies import _raise_forbidden
-
         _raise_forbidden(decision.reason)
+
+    # A user-owned project must be owned by the caller themselves. The
+    # capability check above only proves "may create a user-owned project",
+    # not "may create one *for this specific user*" — without this guard any
+    # verified user could plant a project in a victim's account (SEC-2). An
+    # admin may still create a project on behalf of another user.
+    if (
+        owner_type is ProjectOwnerType.USER
+        and body.owner_id != principal.user_id
+        and not principal.is_admin
+    ):
+        _raise_forbidden("a user-owned project must be owned by the caller")
 
     project = await service.create(
         owner_type=owner_type,

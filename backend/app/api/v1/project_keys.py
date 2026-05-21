@@ -16,15 +16,19 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.keys import KeyOut
 from contexts.keys.application.carry_service import CarryService, UsageSummary
+from contexts.keys.domain.errors import KeyNotFound
+from contexts.tenancy.interfaces.role_resolver import TenancyRoleResolver
 from shared_kernel.auth.context import RequestContext
 from shared_kernel.auth.dependencies import (
+    _raise_forbidden,
     current_context,
     current_principal,
+    get_role_resolver,
     require,
     require_membership,
     scope_from_path,
 )
-from shared_kernel.auth.permissions import Capability, Principal
+from shared_kernel.auth.permissions import Capability, Principal, Scope, decide
 from shared_kernel.db.session import db_session
 
 
@@ -92,15 +96,40 @@ async def carry_key(
     )
 
 
+async def require_withdraw(
+    project_id: uuid.UUID,
+    key_id: uuid.UUID,
+    principal: Principal = Depends(current_principal),
+    resolver: TenancyRoleResolver = Depends(get_role_resolver),
+    db: AsyncSession = Depends(db_session),
+) -> None:
+    """AuthZ gate for `DELETE /{project_id}/keys/{key_id}` (SEC-5).
+
+    Withdraw is two capabilities behind one route: the key's owner withdraws
+    their own carry (`key.delete_own`, an `OWN_ONLY` row), and a Project/Org
+    Owner withdraws anyone's (`key.delete_other`). `OWN_ONLY` is undecidable
+    until the key's owner is known — and `scope_from_path` cannot reach the DB
+    — so the owner is resolved here and fed into `Scope.resource_owner_user_id`
+    before `decide` runs. An unknown key fails closed as 404.
+    """
+    owner_id = await CarryService(db).key_owner(key_id)
+    if owner_id is None:
+        raise KeyNotFound(str(key_id))
+    scope = Scope(project_id=project_id, resource_owner_user_id=owner_id)
+    decision = await decide(principal, Capability.KEY_DELETE_OWN, scope, resolver)
+    if not decision.allowed:
+        decision = await decide(
+            principal, Capability.KEY_DELETE_OTHER_IN_PROJECT, scope, resolver
+        )
+    if not decision.allowed:
+        _raise_forbidden(decision.reason)
+
+
 @router.delete(
     "/{project_id}/keys/{key_id}",
     status_code=status.HTTP_204_NO_CONTENT,
     response_model=None,
-    dependencies=[
-        # KEY_DELETE_OWN (own carry) OR KEY_DELETE_OTHER (PO withdraw any).
-        # The matrix accepts either; the service enforces ownership rules.
-        Depends(require(Capability.KEY_DELETE_OWN, scope_from_path(project_param="project_id"))),
-    ],
+    dependencies=[Depends(require_withdraw)],
 )
 async def withdraw_key(
     project_id: uuid.UUID,

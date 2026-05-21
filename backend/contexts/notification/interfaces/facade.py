@@ -24,6 +24,7 @@ class NotificationFacade:
         title: str,
         body: str | None = None,
         metadata: dict[str, Any] | None = None,
+        dedup_key: str | None = None,
     ) -> Notification:
         return await self._service.send(
             user_id=user_id,
@@ -31,6 +32,7 @@ class NotificationFacade:
             title=title,
             body=body,
             metadata=metadata,
+            dedup_key=dedup_key,
         )
 
     async def list_for_user(

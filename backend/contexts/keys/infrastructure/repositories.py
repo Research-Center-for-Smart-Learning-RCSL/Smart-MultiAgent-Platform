@@ -97,6 +97,21 @@ class ApiKeyRepository:
         row = (await self._db.execute(stmt)).one()
         return _row_to_api_key(row)
 
+    async def owner_of(self, key_id: uuid.UUID) -> uuid.UUID | None:
+        """Resolve a key's owner, ignoring soft-delete state.
+
+        The withdraw AuthZ gate decides `OWN_ONLY` against this. Unlike
+        `get_active` it does not filter on `deleted_at`, so a stale carry left
+        behind on a soft-deleted key can still be authorised and cleaned up by
+        its original owner (SEC-5). Returns None if no such key row exists.
+        """
+        row = (
+            await self._db.execute(
+                sa.select(t.api_keys.c.owner_user_id).where(t.api_keys.c.id == key_id)
+            )
+        ).first()
+        return row.owner_user_id if row else None
+
     async def get_active(self, key_id: uuid.UUID) -> ApiKey | None:
         row = (
             await self._db.execute(

@@ -166,24 +166,17 @@ class RunEngine:
         )
 
         entry_node_id = definition.get("entry_node_id", "")
-        # W11: catch unexpected exceptions so we can mark the run FAILED instead of
-        # leaving it in a limbo state.
+        # DB-1 transaction contract: the engine never commits or rolls back.
+        # The caller (API endpoint or Arq task) owns the transaction, commits
+        # exactly once, then calls dispatch_enqueues(). If _execute_node raises,
+        # the caller rolls back — the run row inserted above is undone with it,
+        # so there is no half-finished run left behind to repair here.
         try:
             await self._execute_node(ctx, entry_node_id)
-            await self._db.commit()
-        except Exception as exc:
-            logger.exception("run %s failed unexpectedly during start: %s", run.id, exc)
-            try:
-                await self._db.rollback()
-                if not ctx.cancelled:
-                    now = datetime.now(UTC)
-                    await self._runs.update_state(run.id, state=RunState.FAILED, ended_at=now)
-                    await self._db.commit()
-            except Exception:
-                logger.exception("could not persist FAILED state for run %s", run.id)
+        except Exception:
+            logger.exception("run %s failed unexpectedly during start", run.id)
             raise
 
-        await self._dispatch_enqueues()
         return run.id
 
     async def resume_step(
@@ -218,7 +211,7 @@ class RunEngine:
                     metadata={"final_state": "failed", "reason": "workflow deleted"},
                 ),
             )
-            await self._db.commit()
+            # DB-1: caller owns the commit.
             return
 
         ctx = RunContext(
@@ -229,28 +222,20 @@ class RunEngine:
             trigger_payload=run.context.get("trigger_payload", {}),
         )
 
-        # W11: catch unexpected exceptions to prevent the run from being stuck WAITING.
+        # W11: on an unexpected error the caller rolls back this resume's
+        # pending writes, leaving the run stuck RUNNING/WAITING. Persist FAILED
+        # on an independent session so the marker survives that rollback, then
+        # re-raise for the caller to roll back and log.
         try:
             await self._advance_from(ctx, node_id)
-            await self._db.commit()
-        except Exception as exc:
+        except Exception:
             logger.exception(
-                "run %s failed unexpectedly while resuming at node %s: %s",
+                "run %s failed unexpectedly while resuming at node %s",
                 run_id,
                 node_id,
-                exc,
             )
-            try:
-                await self._db.rollback()
-                if not ctx.cancelled:
-                    now = datetime.now(UTC)
-                    await self._runs.update_state(run_id, state=RunState.FAILED, ended_at=now)
-                    await self._db.commit()
-            except Exception:
-                logger.exception("could not persist FAILED state for run %s", run_id)
+            await self._mark_run_failed_isolated(run_id)
             raise
-
-        await self._dispatch_enqueues()
 
     async def retry_node(self, run_id: uuid.UUID, node_id: str) -> None:
         """Re-execute a failed node as part of the retry strategy (W3)."""
@@ -377,8 +362,33 @@ class RunEngine:
 
     # -- internal --
 
-    async def _dispatch_enqueues(self) -> None:
-        """Enqueue pending Arq tasks after the DB transaction is committed (W1/W3/W6/W10)."""
+    async def _mark_run_failed_isolated(self, run_id: uuid.UUID) -> None:
+        """Persist a run's FAILED state on a fresh, independent session (W11).
+
+        Crash-recovery helper: when the caller's transaction is being torn down
+        by a failure, the FAILED marker must be written on a separate session
+        so it is not lost in the caller's rollback. Best-effort — a failure to
+        record it is logged, never raised.
+        """
+        from shared_kernel.db.session import async_session
+
+        try:
+            async with async_session() as session, session.begin():
+                await WorkflowRunRepository(session).update_state(
+                    run_id,
+                    state=RunState.FAILED,
+                    ended_at=datetime.now(UTC),
+                )
+        except Exception:
+            logger.exception("could not persist FAILED state for run %s", run_id)
+
+    async def dispatch_enqueues(self) -> None:
+        """Enqueue pending Arq tasks (W1/W3/W6/W10).
+
+        DB-1 contract: the caller MUST have committed the transaction first, so
+        a worker that picks up an enqueued job can see the run row. Entry points
+        call this immediately after their single commit.
+        """
         if not self._pending_enqueues:
             return
         pending = list(self._pending_enqueues)

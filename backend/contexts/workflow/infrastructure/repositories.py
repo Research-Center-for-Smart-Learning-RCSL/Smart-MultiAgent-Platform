@@ -134,11 +134,21 @@ class WorkflowRepository:
         name: str | None = None,
         definition: dict[str, Any] | None = None,
     ) -> Workflow | None:
-        values: dict[str, Any] = {"version": workflows.c.version + 1}
+        # `version` is bumped by the smap_bump_version trigger (migration
+        # 0029); never increment it here.
+        values: dict[str, Any] = {}
         if name is not None:
             values["name"] = name
         if definition is not None:
             values["definition"] = definition
+        if not values:
+            # Empty patch: nothing to write. Verify the row still exists at
+            # the expected version and return it unchanged — the trigger only
+            # fires on a real UPDATE, so an empty SET would be invalid SQL.
+            current = await self.get(workflow_id)
+            if current is None or current.version != expected_version:
+                return None
+            return current
 
         row = (
             await self._db.execute(
@@ -186,6 +196,19 @@ class WorkflowRunRepository:
             )
         ).first()
         return _row_to_run(row) if row else None
+
+    async def get_project_id(self, run_id: uuid.UUID) -> uuid.UUID | None:
+        """Return the run's `project_id`, or None if the run does not exist.
+
+        Used by the API layer to scope authorization without loading the full
+        run — the domain `WorkflowRun` deliberately omits `project_id`.
+        """
+        row = (
+            await self._db.execute(
+                sa.select(workflow_runs.c.project_id).where(workflow_runs.c.id == run_id),
+            )
+        ).first()
+        return row[0] if row else None
 
     async def list_for_workflow(
         self,
