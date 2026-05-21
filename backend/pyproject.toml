@@ -17,7 +17,7 @@ dependencies = [
   "alembic==1.13.*",
   "arq==0.26.*",
   "loguru==0.7.*",
-  "argon2-cffi==23.1.*",
+  "argon2-cffi>=23.1,<25.2",
   "httpx==0.27.*",
   "bleach==6.2.*",
   "markdown-it-py==3.0.*",
