@@ -192,9 +192,9 @@
 import { VueFlow, type Node as FlowNode, type Edge as FlowEdge, type GraphNode } from '@vue-flow/core'
 import { useMutation, useQueryClient } from '@tanstack/vue-query'
 import { computed, ref } from 'vue'
-import { useRoute } from 'vue-router'
+import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute } from 'vue-router'
 
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { useI18n } from 'vue-i18n'
 import { useBreakpoint } from '@shared/composables'
 import {
@@ -272,6 +272,11 @@ function flowToDef(): WorkflowDefinition {
 
 // Init: load the workflow from route context
 async function loadWorkflow(): Promise<void> {
+  // `useWorkflowStore` is a Pinia singleton holding per-workflow editor state
+  // (undo/redo stacks, lint results, dirty flag). Reset it first so workflow B
+  // never inherits workflow A's stacks — an "undo" on B would otherwise splice
+  // A's nodes onto B.
+  store.clearAll()
   const wsId = (route.params.workspaceId as string) || ''
   workspaceId.value = wsId
   if (!wsId) {
@@ -298,6 +303,30 @@ async function loadWorkflow(): Promise<void> {
 }
 
 void loadWorkflow()
+
+// Warn before discarding unsaved edits. `onBeforeRouteLeave` covers leaving
+// the editor entirely; `onBeforeRouteUpdate` covers switching to a different
+// workflow in place — a :workflowId param change on the same route record,
+// which would otherwise bypass the leave guard.
+async function confirmUnsaved(): Promise<boolean> {
+  if (!store.dirty) return true
+  try {
+    await ElMessageBox.confirm(
+      t('workflow.editor.unsavedConfirm'),
+      t('workflow.editor.unsavedConfirmTitle'),
+      {
+        confirmButtonText: t('workflow.editor.leaveAnyway'),
+        cancelButtonText: t('app.cancel'),
+        type: 'warning',
+      },
+    )
+    return true
+  } catch {
+    return false
+  }
+}
+onBeforeRouteLeave(confirmUnsaved)
+onBeforeRouteUpdate(confirmUnsaved)
 
 // Selected node from inspector
 const selectedNode = computed(() => {

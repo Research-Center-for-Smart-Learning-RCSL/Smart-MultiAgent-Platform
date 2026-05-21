@@ -46,7 +46,14 @@
       "deleteConfirm": "Delete this chatroom and all its messages? This cannot be undone.",
       "agentBindings": "Agent Bindings",
       "wakeupConfigSaved": "Wakeup config saved.",
-      "wakeupConfigFailed": "Failed to save wakeup config."
+      "wakeupConfigFailed": "Failed to save wakeup config.",
+      "loading": "Loading…",
+      "loadFailed": "Failed to load chatroom settings.",
+      "retry": "Retry",
+      "saved": "Settings saved.",
+      "saveFailed": "Failed to save settings.",
+      "versionConflict": "This chatroom changed elsewhere. Review your edits and save again.",
+      "deleteFailed": "Failed to delete chatroom."
     },
     "guest": {
       "enrolling": "Joining chatroom…",

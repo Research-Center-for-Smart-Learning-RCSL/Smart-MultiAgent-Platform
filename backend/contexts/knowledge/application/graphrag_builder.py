@@ -225,6 +225,7 @@ class GraphRagBuilder:
                 )
                 await self._vectors.upsert_entities(
                     project_id=cfg.project_id,
+                    config_id=cfg.id,
                     build_id=build_id,
                     points=[(e.point_id, e.vector, e.entity, e.description) for e in embeddings],
                 )
@@ -257,12 +258,35 @@ class GraphRagBuilder:
                 error=str(exc),
             )
 
-        # Both phases committed → sweep old builds + finalise.
+        # Both phases committed → supersede stale duplicates + finalise.
         await self._configs.set_state(
             config_id=cfg.id,
             state=BuildState.QDRANT_COMMITTED,
             error=None,
         )
+        # DOM-8: the GraphRAG entity collection accumulates across delta
+        # builds — each build embeds only the entities in its own delta, so
+        # earlier builds' points for *untouched* entities are still live and
+        # MUST be kept. Only the points this build re-embedded supersede an
+        # older copy: delete prior-build points for exactly those entity
+        # names. Best-effort — the build has already succeeded, so a sweep
+        # failure is logged, not fatal.
+        if embeddings:
+            try:
+                await self._vectors.delete_superseded_entities(
+                    project_id=cfg.project_id,
+                    config_id=cfg.id,
+                    keep_build_id=build_id,
+                    entities=[e.entity for e in embeddings],
+                )
+            except Exception as exc:  # best-effort cleanup; never fail the build
+                _log.warning(
+                    "graphrag superseded-entity sweep failed for config %s "
+                    "build %s: %s",
+                    cfg.id,
+                    build_id,
+                    exc,
+                )
         # Final idle state + stamp last_build_at.
         await self._configs.set_state(
             config_id=cfg.id,
@@ -339,6 +363,15 @@ class GraphRagBuilder:
         descriptions = [" | ".join(v) for _, v in ordered]
         embedder = await self._embedder_factory(cfg)
         vectors = await embedder.embed_batch(descriptions)
+        if len(vectors) != len(descriptions):
+            # DOM-5: a short embedding list would silently drop entities —
+            # description rows with no Qdrant vector. A `strict=False` zip
+            # would stop short and under-report `entities_written`. Fail
+            # the build instead so the reconciler/operator sees it.
+            raise GraphRagBuildFailed(
+                f"embedder returned {len(vectors)} vectors for "
+                f"{len(descriptions)} entities"
+            )
         return [
             EntityEmbedding(
                 point_id=uuid.uuid4(),
@@ -346,7 +379,7 @@ class GraphRagBuilder:
                 description=desc,
                 vector=vec,
             )
-            for (entity, _), desc, vec in zip(ordered, descriptions, vectors, strict=False)
+            for (entity, _), desc, vec in zip(ordered, descriptions, vectors, strict=True)
         ]
 
 

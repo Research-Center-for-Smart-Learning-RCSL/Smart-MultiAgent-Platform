@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import { getAccessToken } from '@shared/transport'
+import { accessTokenClaims } from '@shared/transport'
 
 export type AdminTab =
   | 'users'
@@ -16,16 +16,12 @@ export type AdminTab =
 export const useAdminStore = defineStore('admin/admin', () => {
   const currentTab = ref<AdminTab>('users')
 
-  const impersonatedBy = computed<string | null>(() => {
-    const token = getAccessToken()
-    if (!token) return null
-    try {
-      const payload = JSON.parse(atob(token.split('.')[1]))
-      return payload.impersonated_by ?? null
-    } catch {
-      return null
-    }
-  })
+  // Derives from the reactive `accessTokenClaims` — recomputes whenever the
+  // token changes, so the banner appears/disappears with impersonation (FE-8).
+  const impersonatedBy = computed<string | null>(
+    () =>
+      (accessTokenClaims.value?.impersonated_by as string | undefined) ?? null,
+  )
 
   return { currentTab, impersonatedBy }
 })

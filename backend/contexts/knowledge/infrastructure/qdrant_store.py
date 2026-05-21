@@ -148,3 +148,29 @@ class QdrantStore:
             ),
             wait=True,
         )
+
+    async def delete_documents(
+        self,
+        *,
+        project_id: uuid.UUID,
+        document_ids: Iterable[uuid.UUID],
+    ) -> None:
+        """Delete every point belonging to any of ``document_ids`` in one call.
+
+        Used by the RAG config-delete cascade (DOM-1), where a single config
+        can own many documents. No-ops on an empty id list or a missing
+        collection so the caller never has to special-case those.
+        """
+        ids = [str(d) for d in document_ids]
+        if not ids:
+            return
+        name = collection_name(project_id)
+        if not await self._client.collection_exists(name):
+            return
+        await self._client.delete(
+            collection_name=name,
+            points_selector=Filter(
+                must=[FieldCondition(key="doc_id", match=MatchAny(any=ids))]
+            ),
+            wait=True,
+        )

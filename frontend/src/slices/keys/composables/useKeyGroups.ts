@@ -1,4 +1,5 @@
 import { ref } from 'vue'
+import { errorMessage } from '@shared/errors'
 import {
   keyGroupsApi,
   type KeyGroup,
@@ -20,7 +21,7 @@ export function useKeyGroups(projectId: () => string) {
       const { data } = await keyGroupsApi.listForProject(pid)
       groups.value = data
     } catch (e) {
-      error.value = detail(e)
+      error.value = errorMessage(e)
     }
   }
 
@@ -30,7 +31,7 @@ export function useKeyGroups(projectId: () => string) {
     try {
       await keyGroupsApi.create(pid, name)
     } catch (e) {
-      error.value = detail(e)
+      error.value = errorMessage(e)
     }
     await reload()
   }
@@ -39,7 +40,7 @@ export function useKeyGroups(projectId: () => string) {
     try {
       await keyGroupsApi.remove(groupId)
     } catch (e) {
-      error.value = detail(e)
+      error.value = errorMessage(e)
     }
     await reload()
   }
@@ -61,7 +62,7 @@ export function useKeyGroupDetail(groupId: () => string) {
       const { data } = await keyGroupsApi.get(id)
       detailData.value = data
     } catch (e) {
-      error.value = detail(e)
+      error.value = errorMessage(e)
     }
   }
 
@@ -71,7 +72,7 @@ export function useKeyGroupDetail(groupId: () => string) {
     try {
       await keyGroupsApi.addMember(id, keyId)
     } catch (e) {
-      error.value = detail(e)
+      error.value = errorMessage(e)
     }
     await reload()
   }
@@ -82,7 +83,7 @@ export function useKeyGroupDetail(groupId: () => string) {
     try {
       await keyGroupsApi.removeMember(id, keyId)
     } catch (e) {
-      error.value = detail(e)
+      error.value = errorMessage(e)
     }
     await reload()
   }
@@ -93,7 +94,7 @@ export function useKeyGroupDetail(groupId: () => string) {
     try {
       await keyGroupsApi.patchMember(id, keyId, patch)
     } catch (e) {
-      error.value = detail(e)
+      error.value = errorMessage(e)
     }
     await reload()
   }
@@ -112,7 +113,7 @@ export function useKeyGroupDetail(groupId: () => string) {
     try {
       await keyGroupsApi.reorder(id, priorities)
     } catch (e) {
-      error.value = detail(e)
+      error.value = errorMessage(e)
       detailData.value = snapshot // immediate visual rollback
       await reload()              // then sync authoritative order from server
     }
@@ -127,9 +128,4 @@ export function useKeyGroupDetail(groupId: () => string) {
     patchMember,
     reorder,
   }
-}
-
-function detail(e: unknown): string {
-  const any_ = e as { response?: { data?: { detail?: string; title?: string } } }
-  return any_.response?.data?.detail ?? any_.response?.data?.title ?? 'request failed'
 }

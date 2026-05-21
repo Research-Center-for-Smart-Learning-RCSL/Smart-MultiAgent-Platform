@@ -5,12 +5,13 @@ Flow:
 1. Find the active search key for the project. If none, raise
    :class:`SearchKeyNotConfigured` (R12.10).
 2. Resolve the adapter by provider (R12.17 — Tavily ships in v1).
-3. Check the project-scoped rate limit (R12.14 — default 60/min, tunable).
-4. Check the Redis cache keyed by ``hash(provider,query_norm,top_k,locale,freshness)``
-   with TTL = 10 minutes (R12.13).
-5. Miss → call adapter via the Egress Proxy.
-6. Cap the serialised result at 4 KB (R12.12).
-7. Audit ``mcp.tool_invoked`` with the query truncated to 256 chars (R12.15).
+3. Check the Redis cache keyed by ``hash(provider,query_norm,top_k,locale,freshness)``
+   with TTL = 10 minutes (R12.13). A cache hit returns immediately and
+   consumes no rate-limit quota — quota gates real provider egress only.
+4. Miss → check the project-scoped rate limit (R12.14 — default 60/min,
+   tunable), then call the adapter via the Egress Proxy.
+5. Cap the serialised result at 4 KB (R12.12).
+6. Audit ``mcp.tool_invoked`` with the query truncated to 256 chars (R12.15).
 """
 
 from __future__ import annotations
@@ -118,7 +119,17 @@ class WebSearchTool:
                 f"no adapter registered for provider {key.provider.value}",
             )
 
-        # Step 3 — rate limit (check before hitting cache so quota is fair).
+        # Step 3 — cache. DOM-12: checked BEFORE the rate limiter so a cache
+        # hit costs neither a provider call nor a quota token; the rate limit
+        # exists to throttle real egress, and a cached answer makes none.
+        ck = _cache_key(key.provider.value, query, top_k, locale, freshness)
+        cached = await self.cache.get(ck)
+        if cached is not None:
+            capped = _cap_results(cached)
+            await self._audit(query, key.provider, "cache", len(capped))
+            return capped
+
+        # Step 4 — cache miss: consume a rate-limit token before egress (R12.14).
         allowed = await self.rate_limiter.try_acquire(
             project_id=self.project_id,
             limit_per_minute=self.rate_limit_per_minute,
@@ -128,15 +139,7 @@ class WebSearchTool:
                 f"project {self.project_id} exceeded {self.rate_limit_per_minute}/min",
             )
 
-        # Step 4 — cache.
-        ck = _cache_key(key.provider.value, query, top_k, locale, freshness)
-        cached = await self.cache.get(ck)
-        if cached is not None:
-            capped = _cap_results(cached)
-            await self._audit(query, key.provider, "cache", len(capped))
-            return capped
-
-        # Step 5 — miss; unwrap the search key and call the adapter.
+        # Step 5 — unwrap the search key and call the adapter.
         plaintext = await self._unwrap_search_key(key.id)
         try:
             results = await adapter.search(

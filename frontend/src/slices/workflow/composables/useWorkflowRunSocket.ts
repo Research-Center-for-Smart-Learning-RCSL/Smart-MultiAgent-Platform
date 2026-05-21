@@ -21,9 +21,17 @@ export function useWorkflowRunSocket(runId: string) {
   const path = `/workflow-runs/${runId}`
   const channel = wsManager.channel(path)
 
+  // Monotonic generation guard: each reconnect bumps this counter, so a
+  // slower in-flight sync started by an earlier reconnect cannot resolve last
+  // and re-apply a stale snapshot over fresher data (R24.23).
+  let syncGeneration = 0
+
   async function syncOnReconnect(): Promise<void> {
+    const generation = ++syncGeneration
     try {
       const steps = await listSteps(runId)
+      // A newer reconnect superseded this sync while it was in flight — drop it.
+      if (generation !== syncGeneration) return
       for (const s of steps) {
         wfStore.applyRunEvent({
           type: s.state === 'running' ? 'workflow.step_started'
@@ -61,8 +69,8 @@ export function useWorkflowRunSocket(runId: string) {
     }
   }
 
-  channel.subscribe('*', handleEvent)
-  channel.onStatus((isConnected) => {
+  const unsubscribeEvent = channel.subscribe('*', handleEvent)
+  const unsubscribeStatus = channel.onStatus((isConnected) => {
     connected.value = isConnected
     if (isConnected) void syncOnReconnect()
   })
@@ -81,6 +89,8 @@ export function useWorkflowRunSocket(runId: string) {
   })
 
   onBeforeUnmount(() => {
+    unsubscribeEvent()
+    unsubscribeStatus()
     wsManager.close(path)
   })
 

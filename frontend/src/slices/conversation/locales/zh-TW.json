@@ -46,7 +46,14 @@
       "deleteConfirm": "刪除此聊天室及所有訊息？此操作無法復原。",
       "agentBindings": "代理人繫結",
       "wakeupConfigSaved": "喚醒設定已儲存。",
-      "wakeupConfigFailed": "儲存喚醒設定失敗。"
+      "wakeupConfigFailed": "儲存喚醒設定失敗。",
+      "loading": "載入中…",
+      "loadFailed": "載入聊天室設定失敗。",
+      "retry": "重試",
+      "saved": "設定已儲存。",
+      "saveFailed": "儲存設定失敗。",
+      "versionConflict": "此聊天室已在他處變更。請檢查您的編輯後重新儲存。",
+      "deleteFailed": "刪除聊天室失敗。"
     },
     "guest": {
       "enrolling": "加入聊天室中…",

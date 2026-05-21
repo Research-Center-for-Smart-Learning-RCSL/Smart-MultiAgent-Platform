@@ -1,5 +1,5 @@
 import { computed, ref } from 'vue'
-import axios from 'axios'
+import { errorMessage } from '@shared/errors'
 import { projectKeysApi } from '../api/project-keys'
 import type { ApiKey } from '../api/keys'
 
@@ -21,7 +21,7 @@ export function useProjectKeys(projectId: () => string) {
       const { data } = await projectKeysApi.listCarried(pid)
       carried.value = data
     } catch (e) {
-      error.value = detail(e)
+      error.value = errorMessage(e)
     } finally {
       loading.value = false
     }
@@ -33,7 +33,7 @@ export function useProjectKeys(projectId: () => string) {
     try {
       await projectKeysApi.carry(pid, keyId)
     } catch (e) {
-      error.value = detail(e)
+      error.value = errorMessage(e)
     }
     await reload()
   }
@@ -44,23 +44,10 @@ export function useProjectKeys(projectId: () => string) {
     try {
       await projectKeysApi.withdraw(pid, keyId)
     } catch (e) {
-      error.value = detail(e)
+      error.value = errorMessage(e)
     }
     await reload()
   }
 
   return { carried, loading, error, isError, reload, carry, withdraw }
-}
-
-interface ProblemDetails {
-  detail?: string
-  title?: string
-}
-
-function detail(e: unknown): string {
-  if (axios.isAxiosError<ProblemDetails>(e)) {
-    return e.response?.data?.detail ?? e.response?.data?.title ?? e.message ?? 'request failed'
-  }
-  if (e instanceof Error) return e.message
-  return 'request failed'
 }

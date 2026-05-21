@@ -7,12 +7,18 @@ import { authApi, type Session } from '../api/auth'
 const { t } = useI18n()
 const sessions = ref<Session[]>([])
 const loading = ref(true)
+const loadError = ref(false)
 
 async function load(): Promise<void> {
   loading.value = true
+  loadError.value = false
   try {
     const { data } = await authApi.listSessions()
     sessions.value = data
+  } catch {
+    // Without this, a failed fetch rejects unhandled (global toast only) and
+    // the page renders an empty list as if the user had no sessions (FE-14).
+    loadError.value = true
   } finally {
     loading.value = false
   }
@@ -36,6 +42,19 @@ onMounted(load)
     <p v-if="loading">
       …
     </p>
+    <p
+      v-else-if="loadError"
+      role="alert"
+      class="error"
+    >
+      {{ $t('identity.sessions.loadError') }}
+      <button
+        type="button"
+        @click="load"
+      >
+        {{ $t('identity.sessions.retry') }}
+      </button>
+    </p>
     <ul v-else>
       <li
         v-for="s in sessions"
@@ -53,3 +72,9 @@ onMounted(load)
     </ul>
   </main>
 </template>
+
+<style scoped>
+.error {
+  color: #b91c1c;
+}
+</style>

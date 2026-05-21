@@ -67,6 +67,11 @@ export async function patchChatroom(
   return data
 }
 
+export async function getChatroom(chatroomId: string): Promise<Chatroom> {
+  const { data } = await http.get<Chatroom>(`/chatrooms/${chatroomId}`)
+  return data
+}
+
 export async function deleteChatroom(chatroomId: string): Promise<void> {
   await http.delete(`/chatrooms/${chatroomId}`)
 }

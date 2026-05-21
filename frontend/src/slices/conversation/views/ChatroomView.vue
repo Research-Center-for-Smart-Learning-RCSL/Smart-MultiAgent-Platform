@@ -117,6 +117,7 @@ import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import {
   computed,
   nextTick,
+  onBeforeUnmount,
   onMounted,
   onUpdated,
   reactive,
@@ -292,17 +293,50 @@ async function runExport(): Promise<void> {
   }
 }
 
+// KaTeX/Mermaid post-processing (FE-12). `onUpdated` fires on every reactive
+// change — each presence blip, typing indicator, new message — and the
+// Mermaid pass is async, so naive invocation lets overlapping runs race over
+// the same DOM nodes. We debounce so a burst collapses to one pass, and an
+// in-flight guard serialises runs; a change arriving mid-pass queues exactly
+// one follow-up so the latest DOM is always reflected.
+const ENHANCE_DEBOUNCE_MS = 120
+let enhanceTimer: ReturnType<typeof setTimeout> | null = null
+let enhanceInFlight = false
+let enhanceQueued = false
+
 async function runEnhance(): Promise<void> {
+  if (enhanceInFlight) {
+    enhanceQueued = true
+    return
+  }
   if (!listRef.value) return
+  enhanceInFlight = true
   try {
     await enhanceRenderedMarkdown(listRef.value)
   } catch {
     // Best-effort; rendering errors must not crash the chatroom.
+  } finally {
+    enhanceInFlight = false
+  }
+  if (enhanceQueued) {
+    enhanceQueued = false
+    scheduleEnhance()
   }
 }
 
-onMounted(runEnhance)
-onUpdated(runEnhance)
+function scheduleEnhance(): void {
+  if (enhanceTimer !== null) clearTimeout(enhanceTimer)
+  enhanceTimer = setTimeout(() => {
+    enhanceTimer = null
+    void runEnhance()
+  }, ENHANCE_DEBOUNCE_MS)
+}
+
+onMounted(scheduleEnhance)
+onUpdated(scheduleEnhance)
+onBeforeUnmount(() => {
+  if (enhanceTimer !== null) clearTimeout(enhanceTimer)
+})
 </script>
 
 <style scoped>

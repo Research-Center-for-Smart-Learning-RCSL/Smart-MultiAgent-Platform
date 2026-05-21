@@ -96,6 +96,13 @@ def _make_phase2_retry(
 
         embedder = embedder_for(provider=provider, model=model, api_key=api_key_str)
         vectors = await embedder.embed_batch(descriptions)
+        if len(vectors) != len(descriptions):
+            # DOM-5: a short embedding list would silently drop entities.
+            # Raise so the reconciler counts this retry as failed.
+            raise RuntimeError(
+                f"embedder returned {len(vectors)} vectors for "
+                f"{len(descriptions)} entities"
+            )
 
         await vector_store.ensure_graphrag_collection(
             cfg.project_id,
@@ -103,10 +110,11 @@ def _make_phase2_retry(
         )
         await vector_store.upsert_entities(
             project_id=cfg.project_id,
+            config_id=cfg.id,
             build_id=build_id,
             points=[
                 (_uuid.uuid4(), vec, entity, desc)
-                for (entity, _), desc, vec in zip(ordered, descriptions, vectors, strict=False)
+                for (entity, _), desc, vec in zip(ordered, descriptions, vectors, strict=True)
             ],
         )
 

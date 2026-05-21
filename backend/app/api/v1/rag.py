@@ -13,7 +13,10 @@ AuthZ:
 
 from __future__ import annotations
 
+import asyncio
+import logging
 import uuid
+from collections.abc import Sequence
 from typing import Any, Literal
 
 from fastapi import (
@@ -39,7 +42,11 @@ from contexts.knowledge.application.ingest_service import (
     IngestService,
 )
 from contexts.knowledge.domain.errors import DocumentTooLarge
-from contexts.knowledge.domain.models import ChunkStrategy, RagConfigDraft
+from contexts.knowledge.domain.models import (
+    ChunkStrategy,
+    RagConfigDraft,
+    RagDocument,
+)
 from contexts.knowledge.infrastructure.blob_store import MinioBlobStore
 from contexts.knowledge.infrastructure.embedders import embedder_for
 from contexts.knowledge.infrastructure.qdrant_store import QdrantStore
@@ -137,6 +144,86 @@ def _to_document_out(d) -> RagDocumentOut:
         scan_status=d.scan_status.value,
         uploaded_at=d.uploaded_at.isoformat(),
     )
+
+
+_log = logging.getLogger(__name__)
+
+
+async def _purge_documents_infra(
+    *,
+    project_id: uuid.UUID,
+    docs: Sequence[RagDocument],
+) -> dict[str, Any]:
+    """Best-effort removal of Qdrant points + MinIO blobs for ``docs``.
+
+    MUST be called only *after* the DB transaction that removed the document
+    rows has committed (DOM-4): infra deletes are irreversible, so the audit
+    trail has to be durable first. Every failure is swallowed and reflected
+    in the returned summary, which the caller writes to a follow-up audit
+    row — so the destructive infra step is itself always recorded.
+    """
+    summary: dict[str, Any] = {
+        "documents": len(docs),
+        "qdrant_purged": True,
+        "blobs_removed": 0,
+        "blobs_failed": 0,
+    }
+    if not docs:
+        return summary
+
+    settings = get_settings()
+
+    # Qdrant points — one batched delete keyed on doc_id.
+    try:
+        qclient = AsyncQdrantClient(
+            url=settings.qdrant.url,
+            api_key=settings.qdrant.api_key or None,
+        )
+        try:
+            await QdrantStore(qclient).delete_documents(
+                project_id=project_id,
+                document_ids=[d.id for d in docs],
+            )
+        finally:
+            await qclient.close()
+    except Exception:
+        summary["qdrant_purged"] = False
+        _log.exception(
+            "rag infra purge: qdrant delete failed for project %s", project_id
+        )
+
+    # MinIO blobs — one remove_object per document.
+    minio = None
+    try:
+        from minio import Minio
+
+        minio = Minio(
+            settings.minio.endpoint,
+            access_key=settings.minio.root_access_key,
+            secret_key=settings.minio.root_secret_key,
+            secure=settings.minio.use_tls,
+            region=settings.minio.region,
+        )
+    except Exception:
+        _log.exception("rag infra purge: minio client init failed")
+
+    for d in docs:
+        if minio is None:
+            summary["blobs_failed"] += 1
+            continue
+        try:
+            # minio_path is "<bucket>/<key>"; split on the first slash.
+            bucket, _, key = d.minio_path.partition("/")
+            if bucket and key:
+                await asyncio.to_thread(minio.remove_object, bucket, key)
+                summary["blobs_removed"] += 1
+            else:
+                summary["blobs_failed"] += 1
+        except Exception:
+            summary["blobs_failed"] += 1
+            _log.exception("rag infra purge: minio remove failed for doc %s", d.id)
+
+    return summary
 
 
 # ---------------------------------------------------------------------------
@@ -248,6 +335,15 @@ async def delete_rag_config(
     principal: Principal = Depends(current_principal),
     db: AsyncSession = Depends(db_session),
 ) -> None:
+    """§22.7 — soft-delete a RAG config and cascade its children.
+
+    DOM-1: a config's child documents/chunks/vectors/blobs are not removed
+    by the soft delete on its own row. ``RagConfigService.soft_delete``
+    hard-deletes the document rows (``rag_chunks`` cascade via FK); this
+    endpoint then commits and purges the Qdrant points + MinIO blobs
+    best-effort. Ordering matters (DOM-4): the commit is the point of no
+    return, so the destructive infra step always trails a durable audit row.
+    """
     service = RagConfigService(db)
     cfg = await service.get(config_id)
     from shared_kernel.auth.dependencies import _raise_forbidden, get_role_resolver
@@ -262,12 +358,34 @@ async def delete_rag_config(
     )
     if not decision.allowed:
         _raise_forbidden(decision.reason)
-    await service.soft_delete(
+
+    docs = await service.soft_delete(
         config_id=config_id,
         actor_user_id=principal.user_id,
         actor_ip=ctx.actor_ip,
         request_id=ctx.request_id,
     )
+    # DOM-4: commit the config + document removals and their audit row before
+    # touching any external store.
+    await db.commit()
+
+    # Best-effort purge of the cascaded documents' Qdrant points + blobs.
+    outcome = await _purge_documents_infra(project_id=cfg.project_id, docs=docs)
+    from shared_kernel import audit as _audit
+
+    await _audit.emit(
+        db,
+        _audit.AuditEvent(
+            action="rag.config_infra_purged",
+            actor_user_id=principal.user_id,
+            actor_ip=ctx.actor_ip,
+            resource_type="rag_config",
+            resource_id=config_id,
+            metadata={"project_id": str(cfg.project_id), **outcome},
+            request_id=ctx.request_id,
+        ),
+    )
+    # The follow-up audit row is committed by the db_session dependency.
 
 
 @config_router.get("/{config_id}/documents")
@@ -408,29 +526,44 @@ async def delete_rag_document(
 ) -> None:
     """§22.7 — hard-delete a RAG document.
 
-    Cleans up Qdrant points and the MinIO blob best-effort. The chunk rows
-    are removed by the FK cascade on ``rag_chunks.document_id``.
+    Removes the row + ``rag_chunks`` (FK cascade), then cleans up the Qdrant
+    points and MinIO blob best-effort. Ordering matters (DOM-4): the DB row
+    and audit record are written and committed *first* — the previous code
+    deleted the Qdrant points and blob before the row/audit, so a rollback
+    could leave an undeletable tombstone whose vectors+blob were already
+    gone, with no audit row of the destructive action.
 
     AuthZ matches upload: ``RESOURCE_CREATE_EDIT`` at the parent config's
     project. We do NOT require Project Owner here — the R10.10 owner gate
     covers ingestion (write) only; deletion follows the standard edit
     capability so non-owner editors can clean up their own uploads.
+
+    DOM-7: a missing document and an existing-but-forbidden document both
+    return 404. Branching on existence before authorization (the old code
+    returned 204 for any missing id) leaked a cross-tenant UUID enumeration
+    oracle; deletion is therefore no longer idempotent for a vanished id.
     """
     from contexts.knowledge.infrastructure.repositories import (
         RagDocumentNotFound,
         RagDocumentRepository,
     )
     from shared_kernel import audit as _audit
-    from shared_kernel.auth.dependencies import _raise_forbidden, get_role_resolver
+    from shared_kernel.auth.dependencies import get_role_resolver
     from shared_kernel.auth.permissions import Scope, decide
 
     docs_repo = RagDocumentRepository(db)
     try:
         doc = await docs_repo.require(document_id)
     except RagDocumentNotFound:
-        # Idempotent: a 204 on a missing id is preferable to a 404 race
-        # against concurrent deletes; the audit trail records the attempt.
-        return
+        # DOM-7: a missing id must not be distinguishable from an
+        # existing-but-forbidden id, or the 204/403 split becomes a
+        # cross-tenant document-UUID enumeration oracle. We cannot resolve a
+        # project scope for a non-existent id, so report 404 — the very same
+        # status an unauthorized caller receives below.
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="rag document not found",
+        ) from None
 
     config_service = RagConfigService(db)
     cfg = await config_service.get(doc.rag_config_id)
@@ -443,48 +576,17 @@ async def delete_rag_document(
         resolver,
     )
     if not decision.allowed:
-        _raise_forbidden(decision.reason)
-
-    # Best-effort cleanup of Qdrant points first — if that fails we still
-    # delete the row so the user isn't stuck with a tombstone.
-    try:
-        settings = get_settings()
-        qclient = AsyncQdrantClient(
-            url=settings.qdrant.url,
-            api_key=settings.qdrant.api_key or None,
+        # DOM-7: return 404 (not 403) so an unauthorized caller cannot tell a
+        # forbidden document apart from a missing one. Authorization is now
+        # resolved before any existence-revealing branch.
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="rag document not found",
         )
-        try:
-            await QdrantStore(qclient).delete_document(
-                project_id=cfg.project_id,
-                document_id=document_id,
-            )
-        finally:
-            await qclient.close()
-    except Exception:  # noqa: S110 — best-effort cleanup; audit metadata records the outcome
-        pass
 
-    # Best-effort MinIO blob removal.
-    blob_removed = True
-    try:
-        from minio import Minio
-
-        settings = get_settings()
-        minio = Minio(
-            settings.minio.endpoint,
-            access_key=settings.minio.root_access_key,
-            secret_key=settings.minio.root_secret_key,
-            secure=settings.minio.use_tls,
-            region=settings.minio.region,
-        )
-        # minio_path is "<bucket>/<key>"; split on first slash.
-        bucket, _, key = doc.minio_path.partition("/")
-        if bucket and key:
-            import asyncio
-
-            await asyncio.to_thread(minio.remove_object, bucket, key)
-    except Exception:
-        blob_removed = False
-
+    # DOM-4: remove the DB row + write the audit record, then commit — that
+    # commit is the point of no return. Only afterwards do the irreversible
+    # infra deletes.
     await docs_repo.delete(document_id)
     await _audit.emit(
         db,
@@ -498,7 +600,27 @@ async def delete_rag_document(
                 "rag_config_id": str(doc.rag_config_id),
                 "project_id": str(cfg.project_id),
                 "filename": doc.filename,
-                "blob_removed": blob_removed,
+            },
+            request_id=ctx.request_id,
+        ),
+    )
+    await db.commit()
+
+    # Best-effort purge of Qdrant points + MinIO blob, recorded in a
+    # follow-up audit row (committed by the db_session dependency).
+    outcome = await _purge_documents_infra(project_id=cfg.project_id, docs=[doc])
+    await _audit.emit(
+        db,
+        _audit.AuditEvent(
+            action="rag.document_infra_purged",
+            actor_user_id=principal.user_id,
+            actor_ip=ctx.actor_ip,
+            resource_type="rag_document",
+            resource_id=document_id,
+            metadata={
+                "rag_config_id": str(doc.rag_config_id),
+                "project_id": str(cfg.project_id),
+                **outcome,
             },
             request_id=ctx.request_id,
         ),

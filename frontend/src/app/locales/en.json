@@ -4,6 +4,11 @@
     "landingMessage": "Welcome to SMAP.",
     "notFound": "Page not found.",
     "backToHome": "Back to home",
-    "cancel": "Cancel"
+    "cancel": "Cancel",
+    "errorBoundary": {
+      "title": "Something went wrong",
+      "message": "This page hit an unexpected error. You can retry, or navigate elsewhere.",
+      "retry": "Retry"
+    }
   }
 }

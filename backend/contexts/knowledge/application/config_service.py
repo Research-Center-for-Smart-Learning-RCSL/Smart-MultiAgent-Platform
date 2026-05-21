@@ -25,8 +25,12 @@ from contexts.knowledge.domain.models import (
     EMBED_MODEL_WHITELIST,
     RagConfig,
     RagConfigDraft,
+    RagDocument,
 )
-from contexts.knowledge.infrastructure.repositories import RagConfigRepository
+from contexts.knowledge.infrastructure.repositories import (
+    RagConfigRepository,
+    RagDocumentRepository,
+)
 from shared_kernel import audit
 
 _EMBED = CapabilityRequirement(capability=ProviderCapability.EMBEDDING)
@@ -142,9 +146,23 @@ class RagConfigService:
         actor_user_id: uuid.UUID,
         actor_ip: str | None,
         request_id: uuid.UUID | None = None,
-    ) -> None:
-        await self.get(config_id)  # 404 if missing
+    ) -> Sequence[RagDocument]:
+        """Soft-delete the config and hard-delete its child documents.
+
+        DOM-1: a config delete must cascade. ``rag_documents`` are FK'd to
+        ``rag_configs`` but Postgres does not cascade across a *soft* delete,
+        so the document rows are hard-deleted here — ``rag_chunks`` follow
+        via their own ``ON DELETE CASCADE`` FK. The deleted documents are
+        returned (carrying ``minio_path``) so the caller can purge Qdrant
+        points + MinIO blobs *after* the DB commit — infra cleanup must
+        trail the durable audit row, never precede it (DOM-4).
+        """
+        cfg = await self.get(config_id)  # 404 if missing
+        docs_repo = RagDocumentRepository(self._db)
+        docs = list(await docs_repo.list_for_config(config_id))
         await self._configs.soft_delete(config_id)
+        for doc in docs:
+            await docs_repo.delete(doc.id)
         await audit.emit(
             self._db,
             audit.AuditEvent(
@@ -153,9 +171,14 @@ class RagConfigService:
                 actor_ip=actor_ip,
                 resource_type="rag_config",
                 resource_id=config_id,
+                metadata={
+                    "project_id": str(cfg.project_id),
+                    "cascaded_documents": len(docs),
+                },
                 request_id=request_id,
             ),
         )
+        return docs
 
 
 __all__ = ["RagConfigService"]

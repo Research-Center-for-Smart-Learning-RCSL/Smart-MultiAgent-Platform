@@ -11,17 +11,23 @@ export function useBanKickGuard(): void {
   let unsubStatus: (() => void) | null = null
   let unsubEvent: (() => void) | null = null
 
-  function teardown(): void {
+  function teardown(previousUserId?: string): void {
     unsubStatus?.()
     unsubEvent?.()
     unsubStatus = null
     unsubEvent = null
+    // Unsubscribing the handlers is not enough: the Channel itself keeps a
+    // live socket plus reconnect/refresh timers. Close it so a user switch
+    // (without a full logout) does not leave an orphaned per-user connection.
+    if (previousUserId) {
+      wsManager.close(`/user/${previousUserId}`)
+    }
   }
 
   watch(
     () => session.me?.id,
-    (userId) => {
-      teardown()
+    (userId, previousUserId) => {
+      teardown(previousUserId)
       if (!userId) return
 
       const channel = wsManager.channel(`/user/${userId}`)

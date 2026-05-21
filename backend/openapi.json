@@ -4213,6 +4213,24 @@
         "title": "WorkspaceOut",
         "type": "object"
       },
+      "WsTicketOut": {
+        "properties": {
+          "expires_in": {
+            "title": "Expires In",
+            "type": "integer"
+          },
+          "ticket": {
+            "title": "Ticket",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ticket",
+          "expires_in"
+        ],
+        "title": "WsTicketOut",
+        "type": "object"
+      },
       "app__api__v1__invites__InviteOut": {
         "properties": {
           "created_at": {
@@ -6769,6 +6787,28 @@
         ]
       }
     },
+    "/api/auth/ws-ticket": {
+      "post": {
+        "description": "Mint a short-lived, single-use ticket for a WebSocket handshake (FE-7).\n\nBrowsers cannot set `Authorization` on a WS upgrade, so the credential\nmust ride in `Sec-WebSocket-Protocol` \u2014 a header proxies and access logs\nrecord. Placing the JWT there leaks it; instead this endpoint (reached\nover HTTPS, where the bearer token sits in the redacted `Authorization`\nheader) stashes the access token behind an opaque ticket the handshake\nredeems exactly once. A ticket later found in a log is already consumed.\n\nThe `current_principal` dependency gates the call; the raw token is read\nstraight off the header so the exact JWT the caller presented is what the\nWS handshake later verifies.",
+        "operationId": "issue_ws_ticket_api_auth_ws_ticket_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WsTicketOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Issue Ws Ticket",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
     "/api/chatrooms/{chatroom_id}": {
       "delete": {
         "operationId": "delete_chatroom_api_chatrooms__chatroom_id__delete",
@@ -7511,6 +7551,7 @@
     },
     "/api/graphrag/{config_id}": {
       "delete": {
+        "description": "\u00a722.8 \u2014 soft-delete a GraphRAG config and cascade its external stores.\n\nDOM-2: the config's entity vectors live in the shared\n``graphrag_{project_id}`` Qdrant collection tagged with ``config_id``.\nThe old code cascaded only the Neo4j subgraph, so those vectors leaked\nforever \u2014 and, being in a collection shared with sibling configs, kept\nsurfacing in their retrieval. We now delete them via ``delete_by_config``.\n\nDOM-4: the soft delete + audit row are committed *first* \u2014 that commit is\nthe point of no return \u2014 and only then are the irreversible Neo4j +\nQdrant deletes attempted, best-effort, recorded in a follow-up audit row.",
         "operationId": "delete_config_api_graphrag__config_id__delete",
         "parameters": [
           {
@@ -11233,6 +11274,7 @@
     },
     "/api/rag-configs/{config_id}": {
       "delete": {
+        "description": "\u00a722.7 \u2014 soft-delete a RAG config and cascade its children.\n\nDOM-1: a config's child documents/chunks/vectors/blobs are not removed\nby the soft delete on its own row. ``RagConfigService.soft_delete``\nhard-deletes the document rows (``rag_chunks`` cascade via FK); this\nendpoint then commits and purges the Qdrant points + MinIO blobs\nbest-effort. Ordering matters (DOM-4): the commit is the point of no\nreturn, so the destructive infra step always trails a durable audit row.",
         "operationId": "delete_rag_config_api_rag_configs__config_id__delete",
         "parameters": [
           {
@@ -11408,7 +11450,7 @@
     },
     "/api/rag-documents/{document_id}": {
       "delete": {
-        "description": "\u00a722.7 \u2014 hard-delete a RAG document.\n\nCleans up Qdrant points and the MinIO blob best-effort. The chunk rows\nare removed by the FK cascade on ``rag_chunks.document_id``.\n\nAuthZ matches upload: ``RESOURCE_CREATE_EDIT`` at the parent config's\nproject. We do NOT require Project Owner here \u2014 the R10.10 owner gate\ncovers ingestion (write) only; deletion follows the standard edit\ncapability so non-owner editors can clean up their own uploads.",
+        "description": "\u00a722.7 \u2014 hard-delete a RAG document.\n\nRemoves the row + ``rag_chunks`` (FK cascade), then cleans up the Qdrant\npoints and MinIO blob best-effort. Ordering matters (DOM-4): the DB row\nand audit record are written and committed *first* \u2014 the previous code\ndeleted the Qdrant points and blob before the row/audit, so a rollback\ncould leave an undeletable tombstone whose vectors+blob were already\ngone, with no audit row of the destructive action.\n\nAuthZ matches upload: ``RESOURCE_CREATE_EDIT`` at the parent config's\nproject. We do NOT require Project Owner here \u2014 the R10.10 owner gate\ncovers ingestion (write) only; deletion follows the standard edit\ncapability so non-owner editors can clean up their own uploads.\n\nDOM-7: a missing document and an existing-but-forbidden document both\nreturn 404. Branching on existence before authorization (the old code\nreturned 204 for any missing id) leaked a cross-tenant UUID enumeration\noracle; deletion is therefore no longer idempotent for a vanished id.",
         "operationId": "delete_rag_document_api_rag_documents__document_id__delete",
         "parameters": [
           {

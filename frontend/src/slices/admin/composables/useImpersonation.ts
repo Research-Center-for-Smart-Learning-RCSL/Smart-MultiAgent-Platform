@@ -1,28 +1,20 @@
 import { computed } from 'vue'
 import { useMutation } from '@tanstack/vue-query'
-import { getAccessToken, setAccessToken } from '@shared/transport'
+import { accessTokenClaims, setAccessToken } from '@shared/transport'
 import { adminApi } from '../api/admin'
 
 export function useImpersonation() {
-  function decodePayload(): Record<string, unknown> | null {
-    const token = getAccessToken()
-    if (!token) return null
-    try {
-      return JSON.parse(atob(token.split('.')[1]))
-    } catch {
-      return null
-    }
-  }
-
-  const impersonatedBy = computed<string | null>(() => {
-    const p = decodePayload()
-    return (p?.impersonated_by as string) ?? null
-  })
+  // Both derive from the reactive `accessTokenClaims`, so they recompute the
+  // moment `setAccessToken` runs (start/end of impersonation) — a plain decode
+  // of the non-reactive token would cache the first value forever (FE-8).
+  const impersonatedBy = computed<string | null>(
+    () =>
+      (accessTokenClaims.value?.impersonated_by as string | undefined) ?? null,
+  )
 
   const activeSessionTarget = computed<string | null>(() => {
     if (!impersonatedBy.value) return null
-    const p = decodePayload()
-    return (p?.sub as string) ?? null
+    return (accessTokenClaims.value?.sub as string | undefined) ?? null
   })
 
   const isImpersonating = computed(() => impersonatedBy.value !== null)

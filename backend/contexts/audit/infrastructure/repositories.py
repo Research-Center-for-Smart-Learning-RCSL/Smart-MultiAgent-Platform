@@ -54,7 +54,26 @@ class AuditRepository:
         if filters.to_ts is not None:
             q = q.where(audit_logs.c.created_at <= filters.to_ts)
         if filters.ip_prefix is not None:
-            q = q.where(sa.cast(audit_logs.c.actor_ip, sa.Text).startswith(filters.ip_prefix))
+            # DOM-10: anchor the prefix at a separator boundary. A bare
+            # `startswith` lets `10.1` match `10.10.x` / `10.100.x` too, so
+            # forensic IP filters over-match. Cast INET -> text and require
+            # either an exact hit or the prefix followed immediately by a
+            # separator — `.` for an IPv4 octet, `:` for an IPv6 group — so a
+            # partial prefix never bleeds past the boundary. LIKE
+            # metacharacters in the caller's input are escaped to match
+            # literally.
+            prefix = filters.ip_prefix
+            escaped = (
+                prefix.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            )
+            ip_text = sa.cast(audit_logs.c.actor_ip, sa.Text)
+            q = q.where(
+                sa.or_(
+                    ip_text == prefix,
+                    ip_text.like(f"{escaped}.%", escape="\\"),
+                    ip_text.like(f"{escaped}:%", escape="\\"),
+                )
+            )
         if filters.session_id is not None:
             q = q.where(audit_logs.c.session_id == filters.session_id)
         if filters.request_id is not None:

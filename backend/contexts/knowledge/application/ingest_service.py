@@ -167,6 +167,16 @@ class IngestService:
             )
             if pieces:
                 vectors = await self._embedder.embed_batch(pieces)
+                if len(vectors) != len(pieces):
+                    # DOM-5: insert_many writes one rag_chunks row per piece;
+                    # a `strict=False` zip below would tolerate a short vector
+                    # list and leave the trailing chunks with no Qdrant point —
+                    # permanently unretrievable while `rag.document_indexed`
+                    # still reports the full count. Fail the whole ingest.
+                    raise ValueError(
+                        f"embedder returned {len(vectors)} vectors for "
+                        f"{len(pieces)} chunks; refusing partial index"
+                    )
                 await self._qdrant.ensure_collection(
                     cfg.project_id,
                     vector_size=self._embedder.vector_size,
@@ -199,7 +209,7 @@ class IngestService:
                                 "agent_ids": [],
                             },
                         )
-                        for idx, (pid, vec) in enumerate(zip(point_ids, vectors, strict=False))
+                        for idx, (pid, vec) in enumerate(zip(point_ids, vectors, strict=True))
                     ],
                 )
             await self._docs.set_status(

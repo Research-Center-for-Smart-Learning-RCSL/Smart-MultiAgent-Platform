@@ -19,6 +19,9 @@
     "editor": {
       "backToList": "工作流程",
       "unsaved": "未儲存的變更",
+      "unsavedConfirm": "您有未儲存的變更。確定要離開此頁面且不儲存嗎？",
+      "unsavedConfirmTitle": "未儲存的變更",
+      "leaveAnyway": "離開且不儲存",
       "undo": "復原",
       "redo": "重做",
       "validate": "驗證",

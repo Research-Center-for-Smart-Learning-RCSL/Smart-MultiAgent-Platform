@@ -26,10 +26,19 @@ export function useChatroomSocket(roomId: string) {
 
   const channel = wsManager.channel(`/chatroom/${roomId}`)
 
+  // Monotonic generation guard: each reconnect bumps this counter, so if the
+  // socket flaps and two replays overlap, a slower earlier fetch cannot
+  // resolve last and re-apply an older delta over fresher data (R24.23).
+  let replayGeneration = 0
+
   async function replayDelta(): Promise<void> {
     if (!lastSeenMessageId.value) return
+    const generation = ++replayGeneration
     try {
       const delta = await listMessages(roomId, { since: lastSeenMessageId.value })
+      // A newer reconnect superseded this replay while it was in flight — drop
+      // it so lastSeenMessageId cannot move backwards.
+      if (generation !== replayGeneration) return
       for (const m of delta) applyMessageCreated(m)
     } catch {
       // Non-fatal — the user can refresh manually.

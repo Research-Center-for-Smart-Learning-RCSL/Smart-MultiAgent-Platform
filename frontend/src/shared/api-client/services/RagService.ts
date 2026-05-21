@@ -58,6 +58,14 @@ export class RagService {
     }
     /**
      * Delete Rag Config
+     * §22.7 — soft-delete a RAG config and cascade its children.
+     *
+     * DOM-1: a config's child documents/chunks/vectors/blobs are not removed
+     * by the soft delete on its own row. ``RagConfigService.soft_delete``
+     * hard-deletes the document rows (``rag_chunks`` cascade via FK); this
+     * endpoint then commits and purges the Qdrant points + MinIO blobs
+     * best-effort. Ordering matters (DOM-4): the commit is the point of no
+     * return, so the destructive infra step always trails a durable audit row.
      * @returns void
      * @throws ApiError
      */
@@ -148,13 +156,22 @@ export class RagService {
      * Delete Rag Document
      * §22.7 — hard-delete a RAG document.
      *
-     * Cleans up Qdrant points and the MinIO blob best-effort. The chunk rows
-     * are removed by the FK cascade on ``rag_chunks.document_id``.
+     * Removes the row + ``rag_chunks`` (FK cascade), then cleans up the Qdrant
+     * points and MinIO blob best-effort. Ordering matters (DOM-4): the DB row
+     * and audit record are written and committed *first* — the previous code
+     * deleted the Qdrant points and blob before the row/audit, so a rollback
+     * could leave an undeletable tombstone whose vectors+blob were already
+     * gone, with no audit row of the destructive action.
      *
      * AuthZ matches upload: ``RESOURCE_CREATE_EDIT`` at the parent config's
      * project. We do NOT require Project Owner here — the R10.10 owner gate
      * covers ingestion (write) only; deletion follows the standard edit
      * capability so non-owner editors can clean up their own uploads.
+     *
+     * DOM-7: a missing document and an existing-but-forbidden document both
+     * return 404. Branching on existence before authorization (the old code
+     * returned 204 for any missing id) leaked a cross-tenant UUID enumeration
+     * oracle; deletion is therefore no longer idempotent for a vanished id.
      * @returns void
      * @throws ApiError
      */

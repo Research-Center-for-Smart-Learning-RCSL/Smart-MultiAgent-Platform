@@ -201,6 +201,12 @@ class AgentService:
             expected_version=expected_version,
             values=values,
         )
+        if not values:
+            # DOM-9: an empty patch set no recognised fields — repo.patch
+            # validated the version and returned the row unchanged, with no
+            # UPDATE and no version bump. Mirror ChatroomService.patch: emit
+            # no `agent.edited` audit row, since nothing was actually edited.
+            return updated
         await audit.emit(
             self._db,
             audit.AuditEvent(

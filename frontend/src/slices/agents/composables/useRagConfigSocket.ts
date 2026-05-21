@@ -70,8 +70,8 @@ export function useRagConfigSocket(configId: string, projectId: string) {
     }
   }
 
-  channel.subscribe('*', handleEvent)
-  channel.onStatus((isConnected) => {
+  const unsubscribeEvent = channel.subscribe('*', handleEvent)
+  const unsubscribeStatus = channel.onStatus((isConnected) => {
     connected.value = isConnected
     if (isConnected) void syncOnReconnect()
   })
@@ -89,6 +89,8 @@ export function useRagConfigSocket(configId: string, projectId: string) {
   })
 
   onBeforeUnmount(() => {
+    unsubscribeEvent()
+    unsubscribeStatus()
     wsManager.close(path)
   })
 
