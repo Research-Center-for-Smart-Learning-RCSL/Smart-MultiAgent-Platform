@@ -164,7 +164,11 @@ class AgentRepository:
         expected_version: int,
         values: dict[str, Any],
     ) -> Agent:
-        """Apply a partial patch. Bumps `version` on every successful write."""
+        """Apply a partial patch.
+
+        `version` is bumped by the `smap_bump_version` BEFORE-UPDATE trigger
+        (migration 0029) — repository code must never increment it by hand.
+        """
         if not values:
             # Caller must send at least one field; empty patch is nonsense.
             existing = await self.get(agent_id)
@@ -173,7 +177,6 @@ class AgentRepository:
             if existing.version != expected_version:
                 raise AgentVersionMismatch(str(agent_id))
             return existing
-        values = {**values, "version": t.agents.c.version + 1}
         stmt = (
             t.agents.update()
             .where(
@@ -225,7 +228,7 @@ class AgentRepository:
                     t.agents.c.deleted_at.is_(None),
                 )
             )
-            .values(deleted_at=now(), version=t.agents.c.version + 1)
+            .values(deleted_at=now())  # version bumped by smap_bump_version trigger
             .returning(t.agents)
         )
         row = (await self._db.execute(stmt)).first()

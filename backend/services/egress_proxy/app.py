@@ -8,7 +8,10 @@ Wire shape:
   rejects anything else.
 - Forward semantics: the request URL's host is resolved, the resolved IPs
   are screened by :func:`services.egress_proxy.ip_policy.is_blocked_ip`, and
-  the host is checked against the project's ``mcp_egress_allowlist``.
+  the host is checked against the project's ``mcp_egress_allowlist``. The
+  outbound connection is then pinned to one of the *screened* IP literals so
+  ``httpx`` cannot perform its own (unscreened) DNS resolution at connect
+  time — closing the DNS-rebinding / SSRF window structurally.
 - **Authorization stripping** — we drop any inbound ``authorization`` header
   so the sandbox cannot impersonate platform keys (R12.04).
 - Upstream response is streamed back 1:1.
@@ -27,7 +30,7 @@ import socket
 import uuid
 from dataclasses import dataclass
 from hashlib import sha256
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit, urlunsplit
 
 from fastapi import FastAPI, Request
 from fastapi.responses import Response
@@ -107,6 +110,31 @@ def _resolve_ips(host: str) -> list[str]:
     return out
 
 
+_DEFAULT_PORTS: dict[str, int] = {"http": 80, "https": 443}
+
+
+def _host_header(host: str, scheme: str, port: int | None) -> str:
+    """Build the ``Host`` header for the upstream — the real hostname plus a
+    non-default port. IPv6 literals are bracketed."""
+    name = f"[{host}]" if ":" in host else host
+    if port is not None and port != _DEFAULT_PORTS.get(scheme):
+        return f"{name}:{port}"
+    return name
+
+
+def _pin_url(*, scheme: str, path: str, query: str, ip: str, port: int | None) -> str:
+    """Rewrite the forward URL so its host is a pre-screened IP literal.
+
+    The TCP connection therefore lands on the exact address that passed
+    :func:`is_blocked_ip`; ``Host`` / SNI are carried separately so the
+    upstream still sees the original hostname. IPv6 literals are bracketed.
+    """
+    netloc = f"[{ip}]" if ":" in ip else ip
+    if port is not None:
+        netloc = f"{netloc}:{port}"
+    return urlunsplit((scheme, netloc, path or "/", query, ""))
+
+
 def _problem(status_code: int, slug: str, detail: str) -> Response:
     body = {
         "type": f"urn:smap:error:{slug}",
@@ -163,8 +191,22 @@ def create_app(settings: EgressProxySettings) -> FastAPI:
         host = fwd_parts.hostname or ""
         if not host:
             return _problem(400, "mcp-egress-denied", "invalid egress url")
+        scheme = (fwd_parts.scheme or "").lower()
+        if scheme not in ("http", "https"):
+            return _problem(
+                400, "mcp-egress-denied", f"unsupported egress scheme {scheme!r}"
+            )
+        try:
+            target_port = fwd_parts.port
+        except ValueError:
+            return _problem(400, "mcp-egress-denied", "invalid egress url port")
 
-        # 3. IP policy — resolve and block private / metadata / loopback.
+        # 3. IP policy — resolve the target host and screen every candidate
+        #    address. The outbound socket is then pinned to one of these
+        #    screened IP literals (step 6) instead of letting httpx re-resolve
+        #    the hostname at TCP-connect time. Pinning to a pre-validated
+        #    address closes the DNS-rebinding / SSRF window structurally —
+        #    there is no second, unscreened resolution to race.
         ips = _resolve_ips(host)
         if not ips:
             return _problem(502, "mcp-egress-denied", f"dns failure for {host}")
@@ -180,7 +222,6 @@ def create_app(settings: EgressProxySettings) -> FastAPI:
                 "mcp-egress-denied",
                 f"blocked host {host} resolved to disallowed IP",
             )
-        screened_ips = frozenset(ips)
 
         # 4. Allowlist check (R12.02).
         allowed = await settings.allowlist_checker.is_allowed(
@@ -207,38 +248,28 @@ def create_app(settings: EgressProxySettings) -> FastAPI:
             if name.lower() == "host":
                 continue
             upstream_headers[name] = value
+        # The inbound `Host` is the proxy's own host. Because the forward
+        # below connects to an IP literal, set `Host` explicitly to the real
+        # target so the upstream still sees the correct virtual host.
+        upstream_headers["host"] = _host_header(host, scheme, target_port)
 
-        # 6. DNS-rebinding mitigation: re-resolve immediately before the forward
-        #    and reject if the second resolution introduces any IP not in the
-        #    screened set. Without this, an attacker controlling DNS could
-        #    return a public IP at screen-time and 169.254.169.254 at connect
-        #    time. The window is now sub-millisecond instead of tens of ms.
-        recheck_ips = _resolve_ips(host)
-        if not recheck_ips:
-            return _problem(502, "mcp-egress-denied", f"dns failure for {host}")
-        if not set(recheck_ips).issubset(screened_ips):
-            _log.warning(
-                "egress_blocked_rebind project=%s host=%s " "first=%s second=%s",
-                project_id,
-                host,
-                list(screened_ips),
-                recheck_ips,
-            )
-            return _problem(
-                403,
-                "mcp-egress-denied",
-                f"dns rebinding detected for {host}",
-            )
-        if any(is_blocked_ip(ip) for ip in recheck_ips):
-            return _problem(
-                403,
-                "mcp-egress-denied",
-                f"blocked host {host} resolved to disallowed IP (rebind)",
-            )
-
-        # 7. Forward via httpx with a streaming response body and per-call
-        #    byte cap (see EgressProxySettings.response_max_bytes).
+        # 6. Forward via httpx with a streaming response body and per-call
+        #    byte cap (see EgressProxySettings.response_max_bytes). We connect
+        #    to a *screened IP literal* so the socket lands on the exact
+        #    address `is_blocked_ip` validated — httpx performs no DNS of its
+        #    own. The `Host` header (above) and the `sni_hostname` request
+        #    extension preserve virtual-hosting and TLS certificate
+        #    verification against the original hostname.
         import httpx
+
+        connect_ip = ips[0]
+        pinned_url = _pin_url(
+            scheme=scheme,
+            path=fwd_parts.path,
+            query=fwd_parts.query,
+            ip=connect_ip,
+            port=target_port,
+        )
 
         body = await request.body()
         max_bytes = settings.response_max_bytes
@@ -263,9 +294,10 @@ def create_app(settings: EgressProxySettings) -> FastAPI:
             ) as client:
                 req = client.build_request(
                     method=request.method,
-                    url=forward_url,
+                    url=pinned_url,
                     headers=upstream_headers,
                     content=body,
+                    extensions={"sni_hostname": host},
                 )
                 upstream = await client.send(req, stream=True)
                 try:
@@ -325,7 +357,7 @@ def create_app(settings: EgressProxySettings) -> FastAPI:
             _truncate(upstream_body),
         )
 
-        # 8. Relay response headers — drop hop-by-hop per RFC 7230. Build
+        # 7. Relay response headers — drop hop-by-hop per RFC 7230. Build
         #    a Response and then overwrite raw_headers so multi-valued
         #    entries (Set-Cookie) round-trip without collapsing.
         response = Response(

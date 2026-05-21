@@ -1,16 +1,16 @@
-"""Knowledge domain errors → RFC 7807 registration."""
+"""Knowledge domain errors → RFC 7807 registration.
+
+Dispatch + fallback live in `shared_kernel.errors.context_handler` (API-3).
+"""
 
 from __future__ import annotations
 
-from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI
 
 from contexts.knowledge.domain import errors
-from shared_kernel.errors.problem import Problem, problem_type
+from shared_kernel.errors.context_handler import ErrorMap, register_context_handler
 
-_MEDIA = "application/problem+json"
-
-_MAP: dict[type[errors.KnowledgeError], tuple[str, int, str]] = {
+_MAP: ErrorMap = {
     errors.RagConfigNotFound: (
         "knowledge/rag-config-not-found",
         404,
@@ -89,24 +89,8 @@ _MAP: dict[type[errors.KnowledgeError], tuple[str, int, str]] = {
 }
 
 
-async def _handler(request: Request, exc: errors.KnowledgeError) -> JSONResponse:
-    slug, status, title = _MAP.get(
-        type(exc),
-        ("knowledge/generic", 400, "Knowledge error"),
-    )
-    problem = Problem(
-        type=problem_type(slug),
-        title=title,
-        status=status,
-        detail=str(exc),
-    )
-    body = problem.dump()
-    body["instance"] = str(request.url.path)
-    return JSONResponse(status_code=status, content=body, media_type=_MEDIA)
-
-
 def register(app: FastAPI) -> None:
-    app.add_exception_handler(errors.KnowledgeError, _handler)  # type: ignore[arg-type]
+    register_context_handler(app, errors.KnowledgeError, _MAP)
 
 
 __all__ = ["register"]

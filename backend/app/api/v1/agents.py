@@ -43,11 +43,18 @@ from shared_kernel.db.session import db_session
 # ---------------------------------------------------------------------------
 
 
+# API-7: upper bounds on free-text / list fields — an unbounded system prompt
+# or tool list lets a single request drive memory / DB load.
+_MAX_SYSTEM_PROMPT = 100_000
+_MAX_REFERENCE = 2_000
+_MAX_ALLOWED_TOOLS = 200
+
+
 class AgentCreateIn(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     model_hint: Literal["claude", "openai", "gemini"]
     key_group_id: uuid.UUID
-    system_prompt: str = ""
+    system_prompt: str = Field(default="", max_length=_MAX_SYSTEM_PROMPT)
     prompt_strategy: Literal["full", "lazy"] = "full"
     rag_config_id: uuid.UUID | None = None
     graphrag_config_id: uuid.UUID | None = None
@@ -67,7 +74,7 @@ class AgentPatchIn(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=200)
     model_hint: Literal["claude", "openai", "gemini"] | None = None
     key_group_id: uuid.UUID | None = None
-    system_prompt: str | None = None
+    system_prompt: str | None = Field(default=None, max_length=_MAX_SYSTEM_PROMPT)
     prompt_strategy: Literal["full", "lazy"] | None = None
     rag_config_id: uuid.UUID | None = None
     graphrag_config_id: uuid.UUID | None = None
@@ -100,14 +107,14 @@ class AgentOut(BaseModel):
 
 class McpBindingCreateIn(BaseModel):
     source: Literal["builtin", "url", "package"]
-    reference: str = Field(min_length=1)
-    allowed_tools: list[str] = Field(default_factory=list)
+    reference: str = Field(min_length=1, max_length=_MAX_REFERENCE)
+    allowed_tools: list[str] = Field(default_factory=list, max_length=_MAX_ALLOWED_TOOLS)
     config: dict[str, Any] = Field(default_factory=dict)
 
 
 class McpBindingPatchIn(BaseModel):
     model_config = {"extra": "forbid"}
-    allowed_tools: list[str] | None = None
+    allowed_tools: list[str] | None = Field(default=None, max_length=_MAX_ALLOWED_TOOLS)
     config: dict[str, Any] | None = None
 
 

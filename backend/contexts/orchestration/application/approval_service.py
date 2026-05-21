@@ -304,6 +304,14 @@ class ApprovalService:
     async def get_approval(self, approval_id: uuid.UUID) -> Approval | None:
         return await self._approvals.get(approval_id)
 
+    async def resolve_project(self, approval_id: uuid.UUID) -> uuid.UUID | None:
+        """Project owning an approval (via its workflow run) — authz helper (API-2)."""
+        return await self._approvals.get_project_id(approval_id)
+
+    async def resolve_run_project(self, workflow_run_id: uuid.UUID) -> uuid.UUID | None:
+        """Project owning a workflow run — authz helper (API-2)."""
+        return await self._approvals.project_for_run(workflow_run_id)
+
     async def get_votes(self, approval_id: uuid.UUID) -> list[ApprovalVote]:
         return await self._votes.list_for_approval(approval_id)
 

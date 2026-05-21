@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Sequence
-from datetime import timedelta
 from typing import Any
 
 import sqlalchemy as sa
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.notification.domain.models import Notification, NotificationKind
@@ -40,47 +40,57 @@ class NotificationRepository:
         title: str,
         body: str | None = None,
         metadata: dict[str, Any] | None = None,
-    ) -> Notification:
-        row = (
-            await self._db.execute(
-                t.notifications.insert()
-                .values(
-                    user_id=user_id,
-                    kind=kind.value,
-                    title=title,
-                    body=body,
-                    metadata=metadata or {},
-                )
-                .returning(t.notifications)
-            )
-        ).one()
-        return _row_to_notification(row)
+        dedup_key: str | None = None,
+    ) -> tuple[Notification, bool]:
+        """Insert a notification.
 
-    async def find_recent(
-        self,
-        user_id: uuid.UUID,
-        kind: NotificationKind,
-        title: str,
-        *,
-        window_seconds: int = 60,
-    ) -> Notification | None:
-        cutoff = now() - timedelta(seconds=window_seconds)
-        row = (
+        Returns ``(notification, created)``. NOTIF-DEDUP: when ``dedup_key`` is
+        set and a row with the same ``(user_id, dedup_key)`` already exists,
+        nothing is inserted (``INSERT ... ON CONFLICT DO NOTHING``) and the
+        existing row is returned with ``created=False`` — concurrent duplicate
+        sends collide on the partial unique index instead of racing a
+        non-atomic SELECT-then-INSERT check.
+        """
+        values = {
+            "user_id": user_id,
+            "kind": kind.value,
+            "title": title,
+            "body": body,
+            "metadata": metadata or {},
+            "dedup_key": dedup_key,
+        }
+        if dedup_key is None:
+            row = (
+                await self._db.execute(
+                    t.notifications.insert().values(**values).returning(t.notifications)
+                )
+            ).one()
+            return _row_to_notification(row), True
+
+        stmt = (
+            pg_insert(t.notifications)
+            .values(**values)
+            .on_conflict_do_nothing(
+                index_elements=["user_id", "dedup_key"],
+                index_where=t.notifications.c.dedup_key.isnot(None),
+            )
+            .returning(t.notifications)
+        )
+        row = (await self._db.execute(stmt)).one_or_none()
+        if row is not None:
+            return _row_to_notification(row), True
+        # Conflict — a duplicate already exists; return the row that won.
+        existing = (
             await self._db.execute(
-                t.notifications.select()
-                .where(
+                t.notifications.select().where(
                     sa.and_(
                         t.notifications.c.user_id == user_id,
-                        t.notifications.c.kind == kind.value,
-                        t.notifications.c.title == title,
-                        t.notifications.c.created_at >= cutoff,
+                        t.notifications.c.dedup_key == dedup_key,
                     )
                 )
-                .order_by(t.notifications.c.created_at.desc())
-                .limit(1)
             )
-        ).one_or_none()
-        return _row_to_notification(row) if row else None
+        ).one()
+        return _row_to_notification(existing), False
 
     async def list_for_user(
         self,
@@ -89,14 +99,45 @@ class NotificationRepository:
         cursor: uuid.UUID | None = None,
         limit: int = 50,
     ) -> Sequence[Notification]:
+        """List a user's notifications newest-first, keyset-paginated.
+
+        DATA-PAGINATION: the feed is ordered by ``(created_at, id)`` and the
+        cursor pages on that same composite key. ``id`` is a random v4 UUID
+        uncorrelated with time, so the old ``WHERE id < cursor`` filtered an
+        arbitrary subset of a ``created_at``-ordered result — silently dropping
+        and duplicating rows. ``cursor`` stays a plain row id; its ``created_at``
+        is resolved here so the API/cursor contract is unchanged.
+        """
         q = (
             t.notifications.select()
             .where(t.notifications.c.user_id == user_id)
-            .order_by(t.notifications.c.created_at.desc())
+            .order_by(
+                t.notifications.c.created_at.desc(),
+                t.notifications.c.id.desc(),
+            )
             .limit(limit)
         )
         if cursor is not None:
-            q = q.where(t.notifications.c.id < cursor)
+            cursor_created_at = (
+                await self._db.execute(
+                    sa.select(t.notifications.c.created_at).where(
+                        t.notifications.c.id == cursor
+                    )
+                )
+            ).scalar_one_or_none()
+            if cursor_created_at is not None:
+                # Composite keyset expanded to OR/AND so every comparison is
+                # column-vs-value (bind types inferred from the column). Mirrors
+                # MessageRepository.list — the codebase's reference keyset.
+                q = q.where(
+                    sa.or_(
+                        t.notifications.c.created_at < cursor_created_at,
+                        sa.and_(
+                            t.notifications.c.created_at == cursor_created_at,
+                            t.notifications.c.id < cursor,
+                        ),
+                    )
+                )
         rows = (await self._db.execute(q)).all()
         return [_row_to_notification(r) for r in rows]
 

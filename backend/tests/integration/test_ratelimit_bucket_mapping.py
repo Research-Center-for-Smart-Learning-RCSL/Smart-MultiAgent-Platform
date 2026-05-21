@@ -20,6 +20,12 @@ from shared_kernel.auth.ratelimit import Bucket, Scope, default_policies
         ("POST", "/api/auth/login", Bucket.AUTH),
         ("POST", "/api/auth/register", Bucket.AUTH),
         ("POST", "/api/auth/refresh", Bucket.AUTH),
+        # Account-recovery flows get their own IP bucket (API-9) so reset-email
+        # flooding cannot starve the login bucket.
+        ("POST", "/api/auth/request-password-reset", Bucket.AUTH_RECOVERY),
+        ("POST", "/api/auth/reset-password", Bucket.AUTH_RECOVERY),
+        ("POST", "/api/auth/verify-email", Bucket.AUTH_RECOVERY),
+        ("GET", "/api/auth/verify-email", Bucket.AUTH_RECOVERY),
         # Chat-send — 60/min/user.
         ("POST", "/api/chatrooms/abc/messages", Bucket.CHAT),
         # Upload — 10/min/user for tus Creation + attachment POSTs.
@@ -45,6 +51,8 @@ def test_default_bucket_budgets_match_spec() -> None:
     assert policies[Bucket.AUTH].max_count == 10
     assert policies[Bucket.AUTH].window_sec == 60
     assert policies[Bucket.AUTH].scope is Scope.IP
+    assert policies[Bucket.AUTH_RECOVERY].max_count == 10
+    assert policies[Bucket.AUTH_RECOVERY].scope is Scope.IP
     assert policies[Bucket.CHAT].max_count == 60
     assert policies[Bucket.CHAT].scope is Scope.USER
     assert policies[Bucket.UPLOAD].max_count == 10

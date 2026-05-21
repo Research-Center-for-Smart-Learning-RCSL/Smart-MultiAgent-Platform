@@ -102,7 +102,9 @@ async def _purge_message_attachments(session: AsyncSession) -> int:
 
 async def _purge_audit_logs(session: AsyncSession) -> int:
     cutoff = now() - timedelta(days=365)
-    # Must SET ROLE to smap_audit_retention to bypass the append-only trigger.
+    # Bypass the audit_logs append-only trigger by running as the retention
+    # role. SET ROLE requires membership, granted to the app/worker role by
+    # migration 0027_audit_retention_grant (DB-4).
     await session.execute(sa.text("SET ROLE smap_audit_retention"))
     try:
         result = await session.execute(

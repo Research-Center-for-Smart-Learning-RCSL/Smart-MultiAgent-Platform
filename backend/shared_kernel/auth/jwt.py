@@ -25,8 +25,18 @@ from app.config.settings import JwtSection, get_settings
 from shared_kernel.auth.clients import get_vault_client, now
 from shared_kernel.infra.vault import VaultError
 
-_LEEWAY: Final[timedelta] = timedelta(seconds=5)
+# Clock-skew tolerance for temporal claims. Access tokens are signed and
+# verified by the same NTP-synced app fleet, so a single second is ample —
+# anything wider just widens the window a stale/forged token stays usable
+# (SEC-7).
+_LEEWAY: Final[timedelta] = timedelta(seconds=1)
 _DEFAULT_ROLE: Final = "user"
+
+# `token_use` discriminator stamped on every access token. Verification
+# rejects any JWT that lacks it, so an artifact minted for another purpose
+# but signed by the same Vault transit key cannot be replayed as an access
+# token (SEC-7).
+_TOKEN_USE_ACCESS: Final = "access"
 
 
 class JwtError(ValueError):
@@ -76,6 +86,7 @@ def sign_access_token(
         "sid": str(session_id),
         "rol": role,
         "adm": bool(is_admin),
+        "token_use": _TOKEN_USE_ACCESS,
     }
     if extra:
         claims.update(extra)
@@ -114,7 +125,16 @@ def verify_access_token(token: str) -> AccessClaims:
         raise JwtError(f"issuer mismatch: {iss!r}")
     if aud != cfg.audience:
         raise JwtError(f"audience mismatch: {aud!r}")
+    if claims.get("token_use") != _TOKEN_USE_ACCESS:
+        raise JwtError("token_use claim is not 'access'")
     current = now()
+    # `iat` must be sane: not after `exp`, and not meaningfully in the future.
+    # An unbounded `iat` would otherwise let a token with a far-future issue
+    # time (and matching long-lived `exp`) sail past the expiry check (SEC-7).
+    if iat >= exp:
+        raise JwtError("malformed claim set: iat >= exp")
+    if iat - _LEEWAY > current:
+        raise JwtError("access token issued in the future")
     if exp + _LEEWAY < current:
         raise JwtError("access token expired")
     if "nbf" in claims:

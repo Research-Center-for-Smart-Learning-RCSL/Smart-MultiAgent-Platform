@@ -236,7 +236,7 @@ class ChatroomRepository:
                     t.chatrooms.c.deleted_at.is_(None),
                 )
             )
-            .values(**values, version=t.chatrooms.c.version + 1)
+            .values(**values)  # version bumped by smap_bump_version trigger
             .returning(t.chatrooms)
         )
         row = (await self._db.execute(stmt)).first()
@@ -512,9 +512,9 @@ class MessageRepository:
             t.messages.update()
             .where(sa.and_(*conditions))
             .values(
+                # version bumped by the smap_bump_version trigger.
                 content_md=new_content_md,
                 edited_at=now(),
-                version=t.messages.c.version + 1,
             )
             .returning(t.messages)
         )

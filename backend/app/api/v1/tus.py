@@ -139,6 +139,22 @@ async def tus_patch(
             status_code=415,
             detail="Content-Type must be application/offset+octet-stream",
         )
+    # API-4: reject oversized chunks BEFORE buffering the body. request.body()
+    # pulls the entire chunk into RAM, so without the Content-Length pre-check
+    # a client could force the allocation and only then hit the length check.
+    declared = request.headers.get("Content-Length")
+    if declared is not None:
+        try:
+            declared_len = int(declared)
+        except ValueError:
+            raise HTTPException(
+                status_code=400,
+                detail="invalid Content-Length header",
+            ) from None
+        if declared_len > TUS_MAX_CHUNK:
+            raise AttachmentTooLarge(
+                f"PATCH chunk Content-Length {declared_len} bytes exceeds 16 MB cap",
+            )
     body = await request.body()
     if len(body) > TUS_MAX_CHUNK:
         raise AttachmentTooLarge(

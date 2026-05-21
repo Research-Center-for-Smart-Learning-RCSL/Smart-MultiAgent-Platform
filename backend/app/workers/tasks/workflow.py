@@ -30,6 +30,9 @@ async def run_workflow_step(
 
         engine = RunEngine(db)
         await engine.resume_step(uuid.UUID(run_id), node_id)
+        # DB-1: the task owns the transaction — commit once, then dispatch.
+        await db.commit()
+        await engine.dispatch_enqueues()
 
     logger.bind(event="workflow_step_resumed", run_id=run_id, node_id=node_id).info("workflow step resumed")
     return "ok"
@@ -54,7 +57,7 @@ async def retry_workflow_node(
         engine = RunEngine(db)
         await engine.retry_node(uuid.UUID(run_id), node_id)
         await db.commit()
-        await engine._dispatch_enqueues()
+        await engine.dispatch_enqueues()
 
     # Clean up the retry counter after the final retry attempt completes.
     redis = get_redis()
@@ -91,7 +94,7 @@ async def workflow_event_timeout(
         engine = RunEngine(db)
         await engine.resume_at_port(uuid.UUID(run_id), node_id, "timeout")
         await db.commit()
-        await engine._dispatch_enqueues()
+        await engine.dispatch_enqueues()
 
     # Clean up wait keys.
     info_raw = await redis.get(wait_key)
@@ -328,6 +331,7 @@ async def workflow_cron_scheduler(ctx: dict[str, Any]) -> str:
                             trigger_payload={"trigger_type": "cron"},
                         )
                         await db.commit()
+                        await svc.dispatch_pending()
                         await redis.set(redis_key, now.isoformat(), ex=86400)
                         fired += 1
                 except Exception as exc:

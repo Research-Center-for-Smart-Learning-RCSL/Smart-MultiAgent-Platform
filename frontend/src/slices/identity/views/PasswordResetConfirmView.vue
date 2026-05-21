@@ -1,16 +1,17 @@
 <script setup lang="ts">
 import { ref } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { useRouter } from 'vue-router'
 import { authApi } from '../api/auth'
 
-const route = useRoute()
 const router = useRouter()
 const newPassword = ref('')
 const error = ref<string | null>(null)
 const submitting = ref(false)
 
 async function submit(): Promise<void> {
-  const token = route.query.token as string | undefined
+  // The reset token arrives in the URL fragment (`#token=…`), keeping it out
+  // of server logs and `Referer` headers — read it from the hash (SEC-8).
+  const token = new URLSearchParams(window.location.hash.slice(1)).get('token')
   if (!token) {
     error.value = 'missing-token'
     return

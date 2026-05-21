@@ -373,6 +373,7 @@ async def transfer_initiate(
     org_id: uuid.UUID = Path(...),
     ctx: RequestContext = Depends(current_context),
     principal: Principal = Depends(current_principal),
+    _=Depends(require_membership(org_param="org_id")),
     db: AsyncSession = Depends(db_session),
 ) -> TransferOut:
     service = OCTransferService(db)
@@ -404,10 +405,12 @@ async def transfer_accept(
     transfer_id: uuid.UUID = Path(...),
     ctx: RequestContext = Depends(current_context),
     principal: Principal = Depends(current_principal),
+    _=Depends(require_membership(org_param="org_id")),
     db: AsyncSession = Depends(db_session),
 ) -> TransferOut:
     service = OCTransferService(db)
     t = await service.accept(
+        org_id=org_id,
         transfer_id=transfer_id,
         caller_user_id=principal.user_id,
         actor_ip=ctx.actor_ip,
@@ -426,10 +429,12 @@ async def transfer_cancel(
     transfer_id: uuid.UUID = Path(...),
     ctx: RequestContext = Depends(current_context),
     principal: Principal = Depends(current_principal),
+    _=Depends(require_membership(org_param="org_id")),
     db: AsyncSession = Depends(db_session),
 ) -> None:
     service = OCTransferService(db)
     await service.cancel(
+        org_id=org_id,
         transfer_id=transfer_id,
         caller_user_id=principal.user_id,
         caller_is_admin=principal.is_admin,

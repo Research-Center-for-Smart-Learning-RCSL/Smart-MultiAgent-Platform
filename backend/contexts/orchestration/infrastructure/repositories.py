@@ -28,6 +28,7 @@ from contexts.orchestration.infrastructure.tables import (
     approval_votes,
     approvals,
     instructions,
+    workflow_runs,
 )
 
 # ---------------------------------------------------------------------------
@@ -99,6 +100,34 @@ class ApprovalRepository:
         )
         if (result.rowcount or 0) == 0:
             raise ValueError(f"approval {approval_id} not found")
+
+    async def get_project_id(self, approval_id: uuid.UUID) -> uuid.UUID | None:
+        """Resolve approval → workflow_run → project for the authz scope check.
+
+        Returns None when the approval does not exist (API-2).
+        """
+        row = (
+            await self._db.execute(
+                sa.select(workflow_runs.c.project_id)
+                .select_from(
+                    approvals.join(
+                        workflow_runs,
+                        approvals.c.workflow_run_id == workflow_runs.c.id,
+                    ),
+                )
+                .where(approvals.c.id == approval_id),
+            )
+        ).first()
+        return row[0] if row else None
+
+    async def project_for_run(self, workflow_run_id: uuid.UUID) -> uuid.UUID | None:
+        """Return the project_id owning a workflow run, or None if absent (API-2)."""
+        row = (
+            await self._db.execute(
+                sa.select(workflow_runs.c.project_id).where(workflow_runs.c.id == workflow_run_id),
+            )
+        ).first()
+        return row[0] if row else None
 
     async def list_for_workflow_run(
         self,

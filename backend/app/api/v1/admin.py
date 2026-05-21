@@ -114,8 +114,10 @@ class AuditPageOut(BaseModel):
 
 
 class RateLimitPatchIn(BaseModel):
-    window_sec: int | None = None
-    max_count: int | None = None
+    # API-7: `ge=1` on both numerics — a 0 / negative `max_count` would disable
+    # rate limiting platform-wide; a non-positive window is meaningless.
+    window_sec: int | None = Field(default=None, ge=1, le=86_400)
+    max_count: int | None = Field(default=None, ge=1)
     scope: str | None = None
 
 

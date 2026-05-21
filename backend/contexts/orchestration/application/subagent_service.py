@@ -199,6 +199,17 @@ class SubagentService:
     async def get_instance(self, instance_id: uuid.UUID) -> AgentInstance | None:
         return await self._instances.get(instance_id)
 
+    async def resolve_project(self, instance_id: uuid.UUID) -> uuid.UUID | None:
+        """Project owning an instance (via its agent) — authz helper (API-2).
+
+        Returns None when the instance or its agent no longer exists.
+        """
+        instance = await self._instances.get(instance_id)
+        if instance is None:
+            return None
+        agent = await self._agents.get_agent(instance.agent_id, include_deleted=True)
+        return agent.project_id if agent else None
+
     async def list_children(self, parent_id: uuid.UUID) -> list[AgentInstance]:
         return await self._instances.list_alive_children(parent_id)
 

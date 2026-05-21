@@ -54,6 +54,10 @@ return {1, count + 1, now_ms + window_ms}
 
 class Bucket(str, Enum):
     AUTH = "auth"
+    # API-9: account-recovery flows (password-reset / verify-email) get their
+    # own IP counter so reset-flooding cannot starve the login bucket and
+    # shared-NAT users blocked on recovery can still log in.
+    AUTH_RECOVERY = "auth-recovery"
     CHAT = "chat-send"
     UPLOAD = "upload"
     OTHER = "other"
@@ -85,6 +89,8 @@ def default_policies(settings: Settings | None = None) -> dict[Bucket, Policy]:
     s = (settings or get_settings()).limits
     return {
         Bucket.AUTH: Policy(60, s.auth_per_min_ip, Scope.IP),
+        # Same per-IP allowance as AUTH but a separate sliding window.
+        Bucket.AUTH_RECOVERY: Policy(60, s.auth_per_min_ip, Scope.IP),
         Bucket.CHAT: Policy(60, s.chat_per_min_user, Scope.USER),
         Bucket.UPLOAD: Policy(60, s.upload_per_min_user, Scope.USER),
         Bucket.OTHER: Policy(60, s.other_per_min_user, Scope.USER),

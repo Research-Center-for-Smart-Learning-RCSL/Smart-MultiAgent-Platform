@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 
 from fastapi import APIRouter, Body, Depends, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.notification.interfaces.facade import NotificationFacade
@@ -27,7 +27,8 @@ class NotificationOut(BaseModel):
 
 
 class MarkReadIn(BaseModel):
-    ids: list[uuid.UUID]
+    # API-7: cap the batch so a giant `ids` list can't drive memory / DB load.
+    ids: list[uuid.UUID] = Field(..., max_length=1000)
 
 
 class MarkReadOut(BaseModel):

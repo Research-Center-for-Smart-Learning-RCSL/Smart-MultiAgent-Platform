@@ -80,7 +80,11 @@ class SearchKeyService:
                 actor_user_id=actor_user_id,
                 resource_type="search_key",
                 resource_id=sk.id,
-                metadata={"error": probe.error},
+                # Coarse category only — never the raw probe error (SEC-6).
+                metadata={
+                    "test_status": probe.status.value,
+                    "error_category": probe.audit_category(),
+                },
                 request_id=request_id,
             ),
         )
@@ -122,7 +126,11 @@ class SearchKeyService:
                 actor_user_id=actor_user_id,
                 resource_type="search_key",
                 resource_id=key_id,
-                metadata={"error": result.error},
+                # Coarse category only — never the raw probe error (SEC-6).
+                metadata={
+                    "test_status": result.status.value,
+                    "error_category": result.audit_category(),
+                },
                 request_id=request_id,
             ),
         )

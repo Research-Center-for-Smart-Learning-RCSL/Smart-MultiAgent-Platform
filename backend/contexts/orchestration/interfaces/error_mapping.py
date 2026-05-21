@@ -1,16 +1,26 @@
-"""Orchestration domain errors → RFC 7807 registration."""
+"""Orchestration domain errors → RFC 7807 registration.
+
+Dispatch + fallback live in `shared_kernel.errors.context_handler` (API-3).
+
+API-5: `WakeupClampApplied` and `ApprovalTimeoutLeader` are intentionally NOT
+mapped here. They are *advisory outcomes* (a wake-up value was clamped; a
+consensus vote fell back to the leader's verdict), not request failures — the
+domain comments call them out as "not an error per se". Mapping them to HTTP
+200 made any request that raised one return `200` with an RFC-7807 *problem*
+body, which breaks clients that branch on status. Advisory outcomes must be
+returned as values on the success path, never raised past a handler. Nothing
+in the codebase raises them today; if one is ever raised it now hits the 500
+fallback — a loud signal to fix the call site rather than a silent fake-200.
+"""
 
 from __future__ import annotations
 
-from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI
 
 from contexts.orchestration.domain import errors
-from shared_kernel.errors.problem import Problem, problem_type
+from shared_kernel.errors.context_handler import ErrorMap, register_context_handler
 
-_MEDIA = "application/problem+json"
-
-_MAP: dict[type[errors.OrchestrationError], tuple[str, int, str]] = {
+_MAP: ErrorMap = {
     errors.A2ATimeout: (
         "a2a-timeout",
         504,
@@ -25,11 +35,6 @@ _MAP: dict[type[errors.OrchestrationError], tuple[str, int, str]] = {
         "a2a-delivery-failed",
         502,
         "A2A message delivery exhausted retries",
-    ),
-    errors.WakeupClampApplied: (
-        "orchestration/wakeup-clamped",
-        200,
-        "Wake-up value was clamped to bounds",
     ),
     errors.WakeupFieldReadonly: (
         "orchestration/wakeup-field-readonly",
@@ -56,32 +61,11 @@ _MAP: dict[type[errors.OrchestrationError], tuple[str, int, str]] = {
         429,
         "Max concurrent sub-agents exceeded",
     ),
-    errors.ApprovalTimeoutLeader: (
-        "approval-timeout-leader",
-        200,
-        "Consensus timed out; leader verdict applied",
-    ),
 }
 
 
-async def _handler(request: Request, exc: errors.OrchestrationError) -> JSONResponse:
-    slug, status, title = _MAP.get(
-        type(exc),
-        ("orchestration/generic", 400, "Orchestration error"),
-    )
-    problem = Problem(
-        type=problem_type(slug),
-        title=title,
-        status=status,
-        detail=str(exc),
-    )
-    body = problem.dump()
-    body["instance"] = str(request.url.path)
-    return JSONResponse(status_code=status, content=body, media_type=_MEDIA)
-
-
 def register(app: FastAPI) -> None:
-    app.add_exception_handler(errors.OrchestrationError, _handler)  # type: ignore[arg-type]
+    register_context_handler(app, errors.OrchestrationError, _MAP)
 
 
 __all__ = ["register"]

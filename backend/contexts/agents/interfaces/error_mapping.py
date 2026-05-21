@@ -1,16 +1,16 @@
-"""Agents domain errors → RFC 7807 registration."""
+"""Agents domain errors → RFC 7807 registration.
+
+Dispatch + fallback live in `shared_kernel.errors.context_handler` (API-3).
+"""
 
 from __future__ import annotations
 
-from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI
 
 from contexts.agents.domain import errors
-from shared_kernel.errors.problem import Problem, problem_type
+from shared_kernel.errors.context_handler import ErrorMap, register_context_handler
 
-_MEDIA = "application/problem+json"
-
-_MAP: dict[type[errors.AgentsError], tuple[str, int, str]] = {
+_MAP: ErrorMap = {
     errors.AgentNotFound: ("agents/not-found", 404, "Agent not found"),
     errors.AgentNameTaken: ("agents/name-taken", 409, "Agent name already in use"),
     errors.AgentVersionMismatch: (
@@ -67,24 +67,8 @@ _MAP: dict[type[errors.AgentsError], tuple[str, int, str]] = {
 }
 
 
-async def _handler(request: Request, exc: errors.AgentsError) -> JSONResponse:
-    slug, status, title = _MAP.get(
-        type(exc),
-        ("agents/generic", 400, "Agents error"),
-    )
-    problem = Problem(
-        type=problem_type(slug),
-        title=title,
-        status=status,
-        detail=str(exc),
-    )
-    body = problem.dump()
-    body["instance"] = str(request.url.path)
-    return JSONResponse(status_code=status, content=body, media_type=_MEDIA)
-
-
 def register(app: FastAPI) -> None:
-    app.add_exception_handler(errors.AgentsError, _handler)  # type: ignore[arg-type]
+    register_context_handler(app, errors.AgentsError, _MAP)
 
 
 __all__ = ["register"]

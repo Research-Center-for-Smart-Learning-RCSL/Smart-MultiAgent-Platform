@@ -55,6 +55,15 @@ class CarryService:
     async def list_in_project(self, project_id: uuid.UUID) -> list[ApiKey]:
         return await self._carries.list_active_in_project(project_id)
 
+    async def key_owner(self, key_id: uuid.UUID) -> uuid.UUID | None:
+        """Return the owner of `key_id`, or None if no such key exists.
+
+        Used by the withdraw AuthZ gate to resolve the `OWN_ONLY` decision:
+        the key's owner withdraws via `key.delete_own`, a Project/Org Owner
+        withdraws anyone's carry via `key.delete_other` (SEC-5).
+        """
+        return await self._keys.owner_of(key_id)
+
     async def carry(
         self,
         *,

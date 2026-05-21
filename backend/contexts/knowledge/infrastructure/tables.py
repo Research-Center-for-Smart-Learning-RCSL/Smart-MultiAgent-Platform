@@ -96,6 +96,9 @@ rag_chunks = sa.Table(
     sa.Column("chunk_idx", sa.Integer, nullable=False),
     sa.Column("text", sa.Text, nullable=False),
     sa.Column("qdrant_point_id", pg.UUID(as_uuid=True), nullable=False),
+    # Mirrors 0012_rag.py — without it `compare_type=True` autogenerate
+    # would emit a spurious drop_constraint for this constraint.
+    sa.UniqueConstraint("document_id", "chunk_idx", name="uq_rag_chunk_doc_idx"),
 )
 
 

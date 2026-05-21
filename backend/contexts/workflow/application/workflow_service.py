@@ -54,6 +54,9 @@ class WorkflowService:
         self._runs = WorkflowRunRepository(db)
         self._steps = WorkflowStepRepository(db)
         self._archive = WorkflowRunArchiveRepository(db)
+        # DB-1: the engine used by the last trigger_run(); dispatch_pending()
+        # flushes its queued Arq jobs after the caller commits.
+        self._engine: RunEngine | None = None
 
     # -- CRUD --
 
@@ -225,8 +228,8 @@ class WorkflowService:
 
         pid = project_id or uuid.UUID("00000000-0000-0000-0000-000000000000")
 
-        engine = RunEngine(self._db)
-        return await engine.start_run(
+        self._engine = RunEngine(self._db)
+        return await self._engine.start_run(
             project_id=pid,
             workflow_id=workflow_id,
             definition=defn,
@@ -234,6 +237,16 @@ class WorkflowService:
             started_by_user_id=started_by_user_id,
             trigger_payload=trigger_payload,
         )
+
+    async def dispatch_pending(self) -> None:
+        """Enqueue the Arq jobs queued by the last ``trigger_run`` (DB-1).
+
+        Must be called by the entry point *after* it commits, so a worker never
+        picks up a job that references an uncommitted run. A no-op if no run was
+        triggered through this service instance.
+        """
+        if self._engine is not None:
+            await self._engine.dispatch_enqueues()
 
     async def get_run(self, run_id: uuid.UUID) -> WorkflowRun:
         run = await self._runs.get(run_id)

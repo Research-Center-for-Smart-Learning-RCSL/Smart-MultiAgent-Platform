@@ -123,7 +123,10 @@ class KeyService:
                 metadata={
                     "provider": provider.value,
                     "test_status": probe_result.status.value,
-                    "test_error": probe_result.error,
+                    # Coarse category only — the raw `test_error` may embed
+                    # provider-echoed fragments the audit redactor misses
+                    # (SEC-6). The verbatim string lives on the key row.
+                    "error_category": probe_result.audit_category(),
                 },
                 request_id=request_id,
             ),
@@ -180,7 +183,8 @@ class KeyService:
                 metadata={
                     "provider": key.provider.value,
                     "test_status": result.status.value,
-                    "test_error": result.error,
+                    # Coarse category only — never the raw `test_error` (SEC-6).
+                    "error_category": result.audit_category(),
                 },
                 request_id=request_id,
             ),
