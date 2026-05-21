@@ -3,15 +3,21 @@
 Task registry:
   - `noop`                        — liveness smoke
   - `file_scan_requested`         — F.5 attachment AV pass (no-op by default)
-  - `retention_purge`             — F.8 nightly 5-year sweep (cron)
   - `chat_export`                 — F.10 chat export → JSON manifest in MinIO
+  - `retention_sweep`             — I.4 nightly consolidated retention sweep (cron)
   - `key_usage_threshold_sample`  — D.8 80% hourly-limit sampler (every 30 s)
   - `agent_fs_gc`                 — E.10 nightly Docker volume GC (60-day retention)
+
+Background tasks (started in `on_startup`, stopped in `on_shutdown`):
+  - key-revocation listener  — ASYNC-2 / D.7 DEK cache invalidation
+  - A2A consumer supervisor  — ASYNC-1 / G.1 drains every agent inbox stream
 """
 
 from __future__ import annotations
 
+import asyncio
 import os
+from contextlib import suppress
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from threading import Thread
 from typing import Any, ClassVar
@@ -25,24 +31,27 @@ from app.workers.tasks.advisory import daily_org_advisory_snapshot
 from app.workers.tasks.conversation import (
     chat_export,
     file_scan_requested,
-    retention_purge,
 )
 from app.workers.tasks.graphrag import graphrag_build
 from app.workers.tasks.orchestration import (
     evaluate_silence,
+    make_dlq_audit_callback,
     wakeup_agent,
     wakeup_refresh,
 )
 from app.workers.tasks.retention import retention_sweep
 from app.workers.tasks.workflow import (
-    archive_workflow_runs,
     retry_workflow_node,
     run_workflow_step,
     workflow_cron_scheduler,
     workflow_event_timeout,
+    workflow_subagent_complete,
     workflow_subagent_timeout,
 )
 from contexts.keys.application.threshold_worker import sample_once as _threshold_sample_once
+from contexts.keys.infrastructure import revocation_listener
+from contexts.orchestration.application.a2a_consumer import A2AConsumerSupervisor
+from contexts.orchestration.application.a2a_handler import handle_envelope
 from shared_kernel.db import registry as _db_registry  # noqa: F401 — table imports
 from shared_kernel.db.session import get_sessionmaker
 from shared_kernel.logging.setup import configure_logging
@@ -116,13 +125,45 @@ def _start_healthz_sidecar() -> None:
 async def _startup(ctx: dict[str, Any]) -> None:
     configure_logging(get_settings().logging)
     _start_healthz_sidecar()
+    # ASYNC-2: punch revoked / carry-withdrawn DEKs out of this worker's
+    # in-process provider_router cache the moment the pub/sub event fires.
+    ctx["_revocation_task"] = asyncio.create_task(
+        revocation_listener.run(),
+        name="key-revocation-listener",
+    )
+    # ASYNC-1: drain every agent's A2A inbox stream. Without this every A2A
+    # message sits in Redis unread and every synchronous `call` blocks to
+    # timeout. The supervisor wires the DLQ audit callback (G.9).
+    supervisor = A2AConsumerSupervisor(
+        handle_envelope,
+        on_dlq=make_dlq_audit_callback(),
+    )
+    ctx["_a2a_supervisor"] = supervisor
+    ctx["_a2a_task"] = asyncio.create_task(
+        supervisor.run(),
+        name="a2a-consumer-supervisor",
+    )
+
+
+async def _shutdown(ctx: dict[str, Any]) -> None:
+    """Wind down the long-lived background tasks started in `_startup`."""
+    supervisor = ctx.get("_a2a_supervisor")
+    if supervisor is not None:
+        await supervisor.stop()
+    # Cancel the listener tasks before Arq tears the loop down; their
+    # cancellation paths unsubscribe / close Redis pub/sub cleanly.
+    for key in ("_a2a_task", "_revocation_task"):
+        task = ctx.get(key)
+        if task is not None:
+            task.cancel()
+            with suppress(asyncio.CancelledError):
+                await task
 
 
 class WorkerSettings:
     functions: ClassVar[list[Any]] = [
         noop,
         file_scan_requested,
-        retention_purge,
         chat_export,
         wakeup_agent,
         evaluate_silence,
@@ -131,7 +172,7 @@ class WorkerSettings:
         retry_workflow_node,
         workflow_event_timeout,
         workflow_subagent_timeout,
-        archive_workflow_runs,
+        workflow_subagent_complete,
         workflow_cron_scheduler,
         retention_sweep,
         daily_org_advisory_snapshot,
@@ -140,14 +181,16 @@ class WorkerSettings:
         agent_fs_gc,
     ]
     on_startup = _startup
+    on_shutdown = _shutdown
     redis_settings = RedisSettings.from_dsn(get_settings().redis.dsn)
     job_timeout = 600
     max_jobs = 50
     keep_result = 3600
     cron_jobs: ClassVar[list[Any]] = [
-        # 03:10 UTC daily — retention sweep (R13.15).
-        cron(retention_purge, hour=3, minute=10, run_at_startup=False),
-        # 03:30 UTC daily — comprehensive retention sweep (I.4).
+        # 03:30 UTC daily — single consolidated retention sweep (I.4). Covers
+        # message purge (R13.15) and 90-day workflow-run archival (H.6); the
+        # former duplicate `retention_purge` / `archive_workflow_runs` crons
+        # were removed (ASYNC-4 — one retention path per table).
         cron(retention_sweep, hour=3, minute=30, run_at_startup=False),
         # Every 30 seconds — silence trigger sweep (G.3 / R15.02).
         cron(evaluate_silence, second={0, 30}, run_at_startup=False),
@@ -155,8 +198,6 @@ class WorkerSettings:
         cron(wakeup_refresh, minute=0, run_at_startup=False),
         # 02:00 UTC daily — per-tenant advisory snapshot (I.8).
         cron(daily_org_advisory_snapshot, hour=2, minute=0, run_at_startup=False),
-        # 04:00 UTC daily — 90-day workflow run archive (H.6).
-        cron(archive_workflow_runs, hour=4, minute=0, run_at_startup=False),
         # Every minute — cron trigger scheduler (H.4).
         cron(workflow_cron_scheduler, minute=set(range(60)), run_at_startup=False),
         # Every 30 seconds — D.8 80% hourly-limit sampler (R7.11).

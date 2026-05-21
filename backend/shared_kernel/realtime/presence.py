@@ -83,4 +83,37 @@ class PresenceTracker:
         return [uuid.UUID(v) for v in raw]
 
 
-__all__ = ["PresenceTracker"]
+async def scrub_stale_presence() -> int:
+    """Reconcile presence SETs against heartbeat keys (ASYNC-7).
+
+    A connection that dies without a clean :meth:`PresenceTracker.leave` leaves
+    its user in ``ws:presence:{room}`` and ``ws:user:{user}:rooms`` even though
+    the 60 s heartbeat key has long expired. This sweep walks every room SET and
+    drops any member whose ``ws:presence:{room}:{user}:hb`` key is gone, removing
+    the matching back-reference too.
+
+    Returns the number of stale ``(room, user)`` memberships removed. Idempotent
+    and safe to run repeatedly — invoked by the retention worker.
+    """
+    r = get_redis()
+    removed = 0
+    async for room_key in r.scan_iter(match="ws:presence:*", count=200):
+        # `ws:presence:*` also matches the per-member heartbeat keys
+        # (`ws:presence:{room}:{user}:hb`). A room SET key has exactly two ':'
+        # separators; skip anything else.
+        if room_key.endswith(":hb") or room_key.count(":") != 2:
+            continue
+        room_id_str = room_key.split(":", 2)[2]
+        for user_id_str in await r.smembers(room_key):
+            # Key formats mirror _heartbeat_key / _user_rooms_key.
+            hb_key = f"ws:presence:{room_id_str}:{user_id_str}:hb"
+            if await r.exists(hb_key):
+                continue
+            # Heartbeat lapsed — drop the membership both ways.
+            await r.srem(room_key, user_id_str)
+            await r.srem(f"ws:user:{user_id_str}:rooms", room_id_str)
+            removed += 1
+    return removed
+
+
+__all__ = ["PresenceTracker", "scrub_stale_presence"]

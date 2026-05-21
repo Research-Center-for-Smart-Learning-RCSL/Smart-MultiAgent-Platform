@@ -238,15 +238,18 @@ class WorkflowService:
             trigger_payload=trigger_payload,
         )
 
-    async def dispatch_pending(self) -> None:
+    async def dispatch_pending(self, pool: Any | None = None) -> None:
         """Enqueue the Arq jobs queued by the last ``trigger_run`` (DB-1).
 
         Must be called by the entry point *after* it commits, so a worker never
         picks up a job that references an uncommitted run. A no-op if no run was
         triggered through this service instance.
+
+        ASYNC-6: a worker entry point passes its own ``ctx["redis"]`` pool so
+        no Arq connection pool is opened (and leaked) per dispatch.
         """
         if self._engine is not None:
-            await self._engine.dispatch_enqueues()
+            await self._engine.dispatch_enqueues(pool)
 
     async def get_run(self, run_id: uuid.UUID) -> WorkflowRun:
         run = await self._runs.get(run_id)

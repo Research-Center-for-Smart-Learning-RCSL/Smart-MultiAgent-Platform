@@ -83,9 +83,6 @@ class WorkflowFacade:
     async def cancel_run(self, run_id: uuid.UUID) -> None:
         await self._engine.cancel_run(run_id)
 
-    async def resume_step(self, run_id: uuid.UUID, node_id: str) -> None:
-        await self._engine.resume_step(run_id, node_id)
-
     async def list_steps(self, run_id: uuid.UUID) -> list[WorkflowStep]:
         return await self._svc.list_steps(run_id)
 

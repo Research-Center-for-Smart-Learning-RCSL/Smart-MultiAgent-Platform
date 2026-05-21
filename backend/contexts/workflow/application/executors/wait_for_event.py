@@ -4,10 +4,15 @@ W6: registers the wait context in Redis so external event dispatchers know which
 run+node to resume, and schedules a delayed timeout task via the engine's
 pending-enqueue mechanism so the run is not parked indefinitely.
 
-Event dispatchers should:
-  1. Read  wf:wait:by_event:{event_type}  (a Redis SET) for waiting runs.
-  2. Call  engine.resume_at_port(run_id, node_id, "default")  when the event fires.
-  3. Clean up the Redis keys (wf:wait:{run_id}:{node_id} and the SET member).
+Event dispatchers MUST claim the wait atomically before resuming (ASYNC-10):
+  1. Read   wf:wait:by_event:{event_type}  (a Redis SET) for waiting runs.
+  2. GETDEL wf:wait:{run_id}:{node_id} — only the caller that receives a
+     non-None payload owns the resume. This is the exact same claim that
+     ``workflow_event_timeout`` makes, so an event and its timeout can never
+     both resume the run (no duplicate downstream steps).
+  3. If — and only if — the claim succeeded, call
+     engine.resume_at_port(run_id, node_id, "default") and SREM the
+     wf:wait:by_event:{event_type} member.
 """
 
 from __future__ import annotations
