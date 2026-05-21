@@ -13,6 +13,7 @@ admin reset ⇒ ``principal.is_admin``.
 
 from __future__ import annotations
 
+import logging
 import uuid
 
 from fastapi import APIRouter, Depends, Path, status
@@ -37,6 +38,8 @@ from shared_kernel.auth.dependencies import (
 )
 from shared_kernel.auth.permissions import Capability, Principal
 from shared_kernel.db.session import db_session
+
+_log = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Pydantic schemas
@@ -273,6 +276,18 @@ async def delete_config(
     principal: Principal = Depends(current_principal),
     db: AsyncSession = Depends(db_session),
 ) -> None:
+    """§22.8 — soft-delete a GraphRAG config and cascade its external stores.
+
+    DOM-2: the config's entity vectors live in the shared
+    ``graphrag_{project_id}`` Qdrant collection tagged with ``config_id``.
+    The old code cascaded only the Neo4j subgraph, so those vectors leaked
+    forever — and, being in a collection shared with sibling configs, kept
+    surfacing in their retrieval. We now delete them via ``delete_by_config``.
+
+    DOM-4: the soft delete + audit row are committed *first* — that commit is
+    the point of no return — and only then are the irreversible Neo4j +
+    Qdrant deletes attempted, best-effort, recorded in a follow-up audit row.
+    """
     service = GraphRagConfigService(db)
     cfg = await service.get(config_id)
     await _assert_edit(db=db, principal=principal, project_id=cfg.project_id)
@@ -282,14 +297,18 @@ async def delete_config(
         actor_ip=ctx.actor_ip,
         request_id=ctx.request_id,
     )
-    # Cascade the Neo4j subgraph (§22.8). Kept inside the request lifecycle
-    # rather than a worker so the client knows the delete is complete.
-    from app.config.settings import get_settings
+    # DOM-4: commit the soft delete + audit row before any external delete.
+    await db.commit()
+
+    settings = get_settings()
+    neo4j_purged = True
+    qdrant_purged = True
+
+    # Cascade the Neo4j subgraph (§22.8).
     from contexts.knowledge.infrastructure.neo4j_driver import (
         Neo4jAsyncDriver,
     )
 
-    settings = get_settings()
     neo4j_conf = getattr(settings, "neo4j", None)
     if neo4j_conf is not None:
         driver = Neo4jAsyncDriver(
@@ -298,8 +317,60 @@ async def delete_config(
         )
         try:
             await driver.delete_all(config_id=config_id)
+        except Exception:
+            neo4j_purged = False
+            _log.exception(
+                "graphrag delete: neo4j cascade failed for config %s", config_id
+            )
         finally:
             await driver.close()
+
+    # DOM-2: delete this config's entity vectors from the shared Qdrant
+    # collection, scoped by the ``config_id`` payload tag.
+    try:
+        from qdrant_client import AsyncQdrantClient
+
+        from contexts.knowledge.infrastructure.graphrag_vector_store import (
+            GraphRagVectorStore,
+        )
+
+        qclient = AsyncQdrantClient(
+            url=settings.qdrant.url,
+            api_key=settings.qdrant.api_key or None,
+        )
+        try:
+            await GraphRagVectorStore(qclient).delete_by_config(
+                project_id=cfg.project_id,
+                config_id=config_id,
+            )
+        finally:
+            await qclient.close()
+    except Exception:
+        qdrant_purged = False
+        _log.exception(
+            "graphrag delete: qdrant cascade failed for config %s", config_id
+        )
+
+    # Follow-up audit row recording the infra outcome (DOM-4) — committed by
+    # the db_session dependency.
+    from shared_kernel import audit as _audit
+
+    await _audit.emit(
+        db,
+        _audit.AuditEvent(
+            action="graphrag.infra_purged",
+            actor_user_id=principal.user_id,
+            actor_ip=ctx.actor_ip,
+            resource_type="graphrag_config",
+            resource_id=config_id,
+            metadata={
+                "project_id": str(cfg.project_id),
+                "neo4j_purged": neo4j_purged,
+                "qdrant_purged": qdrant_purged,
+            },
+            request_id=ctx.request_id,
+        ),
+    )
 
 
 @config_router.post(

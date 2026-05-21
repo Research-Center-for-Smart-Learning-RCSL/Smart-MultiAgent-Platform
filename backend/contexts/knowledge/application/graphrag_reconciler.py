@@ -64,16 +64,34 @@ class ReconciliationLoop:
         self._sleep: Sleeper = sleeper or asyncio.sleep
 
     async def run_once(self) -> list[uuid.UUID]:
-        """Drive one scan-and-heal cycle. Returns ids touched."""
+        """Drive one scan-and-heal cycle. Returns ids successfully committed.
+
+        DOM-3: each config is committed independently. The previous code
+        opened one session, reconciled every stuck config, then committed
+        once at the end — so a single config raising would propagate out
+        of the loop and the ``finally`` would close the session
+        *uncommitted*, discarding the healed peers and their
+        ``graphrag.reconciled`` audit rows. Now one config's failure only
+        rolls back that config; peers stay durable.
+        """
         db = self._session_factory()
         try:
             repo = GraphRagConfigRepository(db)
             stuck = await repo.list_in_state(BuildState.FAILED_COMPENSATING)
             touched: list[uuid.UUID] = []
             for cfg in stuck:
-                await self._reconcile_one(db, cfg)
+                try:
+                    await self._reconcile_one(db, cfg)
+                    await db.commit()
+                except Exception:
+                    _log.exception(
+                        "graphrag reconcile failed for config %s; "
+                        "peers in this cycle are unaffected",
+                        cfg.id,
+                    )
+                    await db.rollback()
+                    continue
                 touched.append(cfg.id)
-            await db.commit()
             return touched
         finally:
             await db.close()
@@ -114,6 +132,13 @@ class ReconciliationLoop:
                 )
                 continue
             # Success — finalise.
+            #
+            # DOM-8: no superseded-entity sweep here. The builder sweeps using
+            # the exact entity names it just embedded; the reconciler only
+            # re-runs Phase-2 and never sees that list, and a blanket
+            # build-scoped delete would wipe live entities from earlier delta
+            # builds. Any duplicates this recovered build leaves behind are
+            # cleared by the next normal build that re-embeds those entities.
             repo = GraphRagConfigRepository(db)
             await repo.set_state(
                 config_id=cfg.id,

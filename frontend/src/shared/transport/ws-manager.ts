@@ -4,10 +4,22 @@
 //         ch.subscribe('message.created', handler)
 //         ch.close()
 //
-// Handles reconnect with exponential backoff, bearer-subprotocol auth,
+// Handles reconnect with exponential backoff, ticket-based handshake auth,
 // and in-socket token refresh before JWT expiry.
+//
+// Auth (FE-7): the handshake never carries the JWT. `Sec-WebSocket-Protocol`
+// is recorded by proxies and access logs, so instead the channel fetches a
+// short-lived, single-use ticket over HTTPS and offers `ticket.<id>` as the
+// subprotocol. The in-socket `refresh` frame *does* carry the JWT, but a frame
+// body is not logged the way a handshake header is — and it is refreshed over
+// HTTPS first so a long-backgrounded tab never sends an expired token.
 
-import { getAccessToken } from './axios'
+import {
+  decodeJwtClaims,
+  fetchWsTicket,
+  getAccessToken,
+  refreshAccessToken,
+} from './axios'
 
 export interface ChannelEvent {
   type: string
@@ -19,7 +31,21 @@ type StatusHandler = (connected: boolean) => void
 
 const INITIAL_BACKOFF_MS = 1_000
 const MAX_BACKOFF_MS = 30_000
+// Refresh the in-socket token this long before the access JWT's `exp`.
 const REFRESH_MARGIN_MS = 60_000
+// Floor for the refresh timer — a token already inside (or past) the margin
+// still schedules a near-immediate refresh rather than a zero/negative delay.
+const MIN_REFRESH_DELAY_MS = 5_000
+// Used when the token carries no decodable `exp` — fall back to a fixed cadence.
+const FALLBACK_REFRESH_MS = 60_000
+
+/** Expiry of the current access token in epoch-ms, or `null` if undecodable. */
+function accessTokenExpiryMs(): number | null {
+  const token = getAccessToken()
+  if (!token) return null
+  const exp = decodeJwtClaims(token)?.exp
+  return typeof exp === 'number' ? exp * 1000 : null
+}
 
 export class Channel {
   private socket: WebSocket | null = null
@@ -30,6 +56,7 @@ export class Channel {
   private backoff = INITIAL_BACKOFF_MS
   private closed = false
   private paused = false
+  private connecting = false
 
   constructor(private readonly path: string) {}
 
@@ -54,6 +81,9 @@ export class Channel {
     }
   }
 
+  // Sync entry point — callers (onMounted/onActivated hooks) need not await.
+  // The handshake itself is async (it fetches a ticket over HTTP), so the
+  // real work runs in `openSocket`.
   connect(): void {
     this.paused = false
     if (this.closed) return
@@ -63,45 +93,58 @@ export class Channel {
         this.socket.readyState === WebSocket.OPEN)
     )
       return
-    const token = getAccessToken()
-    if (!token) {
-      this.scheduleReconnect()
-      return
-    }
+    // The ticket fetch awaits an HTTP round-trip, so the socket-state guard
+    // above cannot catch a second call arriving during that await — this
+    // re-entrancy flag does.
+    if (this.connecting) return
+    this.connecting = true
+    void this.openSocket()
+  }
 
-    const proto = window.location.protocol === 'https:' ? 'wss' : 'ws'
-    const url = `${proto}://${window.location.host}/ws${this.path}`
-
+  private async openSocket(): Promise<void> {
     try {
-      this.socket = new WebSocket(url, [`bearer.${token}`])
-    } catch {
-      this.scheduleReconnect()
-      return
-    }
+      // Authenticate with a short-lived, single-use ticket — never the raw
+      // JWT (FE-7). The ticket fetch goes over HTTPS and silently refreshes an
+      // expired access token, so a long-backgrounded tab reconnects cleanly.
+      const ticket = await fetchWsTicket()
+      // A close()/disconnect() may have landed while the ticket was in flight.
+      if (this.closed || this.paused) return
 
-    this.socket.onopen = () => {
-      this.backoff = INITIAL_BACKOFF_MS
-      this.emitStatus(true)
-      this.scheduleTokenRefresh()
-    }
+      const proto = window.location.protocol === 'https:' ? 'wss' : 'ws'
+      const url = `${proto}://${window.location.host}/ws${this.path}`
+      const socket = new WebSocket(url, [`ticket.${ticket}`])
+      this.socket = socket
 
-    this.socket.onmessage = (msg) => {
-      try {
-        const event = JSON.parse(msg.data as string) as ChannelEvent
-        this.dispatch(event)
-      } catch {
-        // skip malformed frames
+      socket.onopen = () => {
+        this.backoff = INITIAL_BACKOFF_MS
+        this.emitStatus(true)
+        this.scheduleTokenRefresh()
       }
-    }
 
-    this.socket.onclose = () => {
-      this.emitStatus(false)
-      this.clearRefreshTimer()
-      if (!this.closed && !this.paused) this.scheduleReconnect()
-    }
+      socket.onmessage = (msg) => {
+        try {
+          const event = JSON.parse(msg.data as string) as ChannelEvent
+          this.dispatch(event)
+        } catch {
+          // skip malformed frames
+        }
+      }
 
-    this.socket.onerror = () => {
-      // onclose fires immediately after
+      socket.onclose = () => {
+        this.emitStatus(false)
+        this.clearRefreshTimer()
+        if (!this.closed && !this.paused) this.scheduleReconnect()
+      }
+
+      socket.onerror = () => {
+        // onclose fires immediately after
+      }
+    } catch {
+      // No ticket (offline, or the access token could not be refreshed) or the
+      // socket constructor threw — back off and retry.
+      this.scheduleReconnect()
+    } finally {
+      this.connecting = false
     }
   }
 
@@ -157,24 +200,61 @@ export class Channel {
     }
   }
 
+  // Schedule the next in-socket refresh from the token's real `exp` — not a
+  // fixed interval — so it fires once per token lifetime, just before expiry
+  // (FE-7). An undecodable token falls back to a fixed cadence.
   private scheduleTokenRefresh(): void {
     this.clearRefreshTimer()
     if (this.closed || this.paused) return
+    const expiryMs = accessTokenExpiryMs()
+    const delay =
+      expiryMs !== null
+        ? Math.max(
+            MIN_REFRESH_DELAY_MS,
+            expiryMs - Date.now() - REFRESH_MARGIN_MS,
+          )
+        : FALLBACK_REFRESH_MS
     this.refreshTimer = setTimeout(() => {
-      this.refreshTimer = null
-      if (this.closed || this.paused) return
-      const token = getAccessToken()
-      if (token && this.socket?.readyState === WebSocket.OPEN) {
-        try {
-          this.socket.send(JSON.stringify({ type: 'refresh', access_token: token }))
-        } catch {
-          // Socket became unwritable; let reconnect re-authenticate.
-          this.scheduleReconnect()
-          return
-        }
+      void this.runTokenRefresh()
+    }, delay)
+  }
+
+  private async runTokenRefresh(): Promise<void> {
+    this.refreshTimer = null
+    if (this.closed || this.paused) return
+
+    let token = getAccessToken()
+    const expiryMs = accessTokenExpiryMs()
+    // Only pay for an HTTP refresh when the token is genuinely near expiry —
+    // a sibling channel sharing this access token may have refreshed it
+    // already, in which case we just resend the fresh one.
+    const needsRefresh =
+      expiryMs === null || expiryMs - Date.now() <= REFRESH_MARGIN_MS
+    if (needsRefresh) {
+      try {
+        token = (await refreshAccessToken()) ?? token
+      } catch {
+        // Refresh failed — resend whatever token we still hold; the server
+        // closes the socket (4401) if it has truly expired and we reconnect.
       }
-      this.scheduleTokenRefresh()
-    }, REFRESH_MARGIN_MS)
+    }
+
+    if (this.closed || this.paused) return
+    // Socket dropped while we were refreshing — `onclose` already queued a
+    // reconnect, and the fresh socket's `onopen` re-arms this loop. Returning
+    // here avoids a stray no-op refresh timer running alongside the reconnect.
+    const socket = this.socket
+    if (!socket || socket.readyState !== WebSocket.OPEN) return
+    if (token) {
+      try {
+        socket.send(JSON.stringify({ type: 'refresh', access_token: token }))
+      } catch {
+        // Socket became unwritable; let reconnect re-authenticate.
+        this.scheduleReconnect()
+        return
+      }
+    }
+    this.scheduleTokenRefresh()
   }
 
   private clearRefreshTimer(): void {

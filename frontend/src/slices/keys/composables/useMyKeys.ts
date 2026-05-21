@@ -1,5 +1,5 @@
 import { ref } from 'vue'
-import axios from 'axios'
+import { errorMessage } from '@shared/errors'
 import { keysApi, type ApiKey, type ApiKeyProvider } from '../api/keys'
 
 export function useMyKeys() {
@@ -15,7 +15,7 @@ export function useMyKeys() {
       const { data } = await keysApi.list()
       keys.value = data
     } catch (e) {
-      error.value = extractDetail(e)
+      error.value = errorMessage(e)
     } finally {
       loading.value = false
     }
@@ -34,7 +34,7 @@ export function useMyKeys() {
       await reload()
       return data
     } catch (e) {
-      error.value = extractDetail(e)
+      error.value = errorMessage(e)
       return null
     } finally {
       uploading.value = false
@@ -46,7 +46,7 @@ export function useMyKeys() {
       await keysApi.retest(id)
       await reload()
     } catch (e) {
-      error.value = extractDetail(e)
+      error.value = errorMessage(e)
     }
   }
 
@@ -55,22 +55,9 @@ export function useMyKeys() {
       await keysApi.remove(id)
       await reload()
     } catch (e) {
-      error.value = extractDetail(e)
+      error.value = errorMessage(e)
     }
   }
 
   return { keys, loading, uploading, error, reload, upload, retest, remove }
-}
-
-interface ProblemDetails {
-  detail?: string
-  title?: string
-}
-
-function extractDetail(e: unknown): string {
-  if (axios.isAxiosError<ProblemDetails>(e)) {
-    return e.response?.data?.detail ?? e.response?.data?.title ?? e.message ?? 'request failed'
-  }
-  if (e instanceof Error) return e.message
-  return 'request failed'
 }

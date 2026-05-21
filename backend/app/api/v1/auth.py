@@ -27,6 +27,7 @@ from shared_kernel.auth.dependencies import (
 from shared_kernel.auth.permissions import Principal
 from shared_kernel.db.session import db_session
 from shared_kernel.errors.problem import Problem, problem_type
+from shared_kernel.realtime import mint_ws_ticket
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -173,6 +174,11 @@ class SessionOut(BaseModel):
     expires_at: str
     user_agent: str | None
     ip_inet: str | None
+
+
+class WsTicketOut(BaseModel):
+    ticket: str
+    expires_in: int
 
 
 # ---------------------------------------------------------------------------
@@ -423,6 +429,35 @@ async def revoke_session(
         remote_ip=ctx.actor_ip,
         request_id=ctx.request_id,
     )
+
+
+@router.post("/ws-ticket")
+async def issue_ws_ticket(
+    request: Request,
+    principal: Principal = Depends(current_principal),
+) -> WsTicketOut:
+    """Mint a short-lived, single-use ticket for a WebSocket handshake (FE-7).
+
+    Browsers cannot set `Authorization` on a WS upgrade, so the credential
+    must ride in `Sec-WebSocket-Protocol` — a header proxies and access logs
+    record. Placing the JWT there leaks it; instead this endpoint (reached
+    over HTTPS, where the bearer token sits in the redacted `Authorization`
+    header) stashes the access token behind an opaque ticket the handshake
+    redeems exactly once. A ticket later found in a log is already consumed.
+
+    The `current_principal` dependency gates the call; the raw token is read
+    straight off the header so the exact JWT the caller presented is what the
+    WS handshake later verifies.
+    """
+    auth_header = request.headers.get("authorization", "")
+    scheme, _, raw_token = auth_header.partition(" ")
+    if scheme.lower() != "bearer" or not raw_token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing bearer token",
+        )
+    ticket, ttl = await mint_ws_ticket(raw_token)
+    return WsTicketOut(ticket=ticket, expires_in=ttl)
 
 
 __all__ = ["router"]

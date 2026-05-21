@@ -14,6 +14,7 @@ import type { SessionOut } from '../models/SessionOut';
 import type { TokenPairOut } from '../models/TokenPairOut';
 import type { UserOut } from '../models/UserOut';
 import type { VerifyEmailIn } from '../models/VerifyEmailIn';
+import type { WsTicketOut } from '../models/WsTicketOut';
 import type { CancelablePromise } from '../core/CancelablePromise';
 import { OpenAPI } from '../core/OpenAPI';
 import { request as __request } from '../core/request';
@@ -260,6 +261,29 @@ export class AuthService {
             errors: {
                 422: `Validation Error`,
             },
+        });
+    }
+    /**
+     * Issue Ws Ticket
+     * Mint a short-lived, single-use ticket for a WebSocket handshake (FE-7).
+     *
+     * Browsers cannot set `Authorization` on a WS upgrade, so the credential
+     * must ride in `Sec-WebSocket-Protocol` — a header proxies and access logs
+     * record. Placing the JWT there leaks it; instead this endpoint (reached
+     * over HTTPS, where the bearer token sits in the redacted `Authorization`
+     * header) stashes the access token behind an opaque ticket the handshake
+     * redeems exactly once. A ticket later found in a log is already consumed.
+     *
+     * The `current_principal` dependency gates the call; the raw token is read
+     * straight off the header so the exact JWT the caller presented is what the
+     * WS handshake later verifies.
+     * @returns WsTicketOut Successful Response
+     * @throws ApiError
+     */
+    public static issueWsTicketApiAuthWsTicketPost(): CancelablePromise<WsTicketOut> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/auth/ws-ticket',
         });
     }
 }

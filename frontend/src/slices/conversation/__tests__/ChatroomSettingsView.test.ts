@@ -57,13 +57,17 @@ describe('ChatroomSettingsView', () => {
     expect(wrapper.exists()).toBe(true)
   })
 
-  it('shows the settings section once chatroom data loads', async () => {
+  it('shows the settings form once chatroom data loads', async () => {
     const wrapper = await renderView(ChatroomSettingsView, {
       routes,
       initialRoute: '/chatrooms/cr_1/settings',
       queryClient: seededClient([makeChatroom()]),
     })
     await flushPromises()
-    expect(wrapper.find('section').exists()).toBe(true)
+    // The form renders only after `loadRoom` resolves `room` from the cache.
+    expect(wrapper.find('form').exists()).toBe(true)
+    expect((wrapper.find('input').element as HTMLInputElement).value).toBe(
+      'Room One',
+    )
   })
 })

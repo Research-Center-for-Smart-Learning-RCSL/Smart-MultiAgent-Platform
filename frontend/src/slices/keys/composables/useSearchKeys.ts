@@ -1,4 +1,5 @@
 import { ref } from 'vue'
+import { errorMessage } from '@shared/errors'
 import {
   searchKeysApi,
   type SearchKey,
@@ -19,7 +20,7 @@ export function useSearchKeys(projectId: () => string) {
       const { data } = await searchKeysApi.list(pid)
       keys.value = data
     } catch (e) {
-      error.value = detail(e)
+      error.value = errorMessage(e)
     }
   }
 
@@ -33,7 +34,7 @@ export function useSearchKeys(projectId: () => string) {
     try {
       await searchKeysApi.upload(pid, provider, secret, config)
     } catch (e) {
-      error.value = detail(e)
+      error.value = errorMessage(e)
     }
     await reload()
   }
@@ -44,7 +45,7 @@ export function useSearchKeys(projectId: () => string) {
     try {
       await searchKeysApi.retest(pid, id)
     } catch (e) {
-      error.value = detail(e)
+      error.value = errorMessage(e)
     }
     await reload()
   }
@@ -55,7 +56,7 @@ export function useSearchKeys(projectId: () => string) {
     try {
       await searchKeysApi.activate(pid, id)
     } catch (e) {
-      error.value = detail(e)
+      error.value = errorMessage(e)
     }
     await reload()
   }
@@ -66,15 +67,10 @@ export function useSearchKeys(projectId: () => string) {
     try {
       await searchKeysApi.remove(pid, id)
     } catch (e) {
-      error.value = detail(e)
+      error.value = errorMessage(e)
     }
     await reload()
   }
 
   return { keys, error, reload, upload, retest, activate, remove }
-}
-
-function detail(e: unknown): string {
-  const any_ = e as { response?: { data?: { detail?: string; title?: string } } }
-  return any_.response?.data?.detail ?? any_.response?.data?.title ?? 'request failed'
 }

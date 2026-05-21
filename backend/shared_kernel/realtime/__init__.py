@@ -15,6 +15,7 @@ from shared_kernel.realtime.pubsub import Publisher, Subscriber, publish
 from shared_kernel.realtime.ws_auth import (
     WsAuthError,
     authenticate_subprotocol,
+    mint_ws_ticket,
 )
 
 __all__ = [
@@ -25,5 +26,6 @@ __all__ = [
     "WsAuthError",
     "authenticate_subprotocol",
     "connection_loop",
+    "mint_ws_ticket",
     "publish",
 ]

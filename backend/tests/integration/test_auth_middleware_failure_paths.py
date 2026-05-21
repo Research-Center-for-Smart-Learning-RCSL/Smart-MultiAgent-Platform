@@ -23,6 +23,30 @@ from shared_kernel.auth import jwt as jwt_module
 _AUTHED_PATH = "/api/orgs"
 
 
+@pytest.fixture(autouse=True)
+def _stub_rate_limiter() -> Iterator[None]:
+    """The rate-limit middleware sits downstream of auth and calls Redis on
+    every non-exempt request; this test tier has no Redis. Stub the check to a
+    plain ALLOW so a non-fatal (anonymous) request flows past it and reaches
+    the route's own auth dependency — what's under test is the auth contract,
+    not infra availability. The token-rejection tests short-circuit at the
+    auth middleware and never reach this stub, so it is harmless to them.
+    """
+    from shared_kernel.auth import ratelimit
+
+    async def _allow(**_kw: object) -> ratelimit.Decision:
+        return ratelimit.Decision(
+            allowed=True,
+            remaining=1,
+            limit=1,
+            reset_ms=0,
+            retry_after_seconds=0,
+        )
+
+    with patch.object(ratelimit, "check", new=_allow):
+        yield
+
+
 @pytest.fixture()
 def deny_jti_in_redis() -> Iterator[None]:
     async def _is_denied(_jti):

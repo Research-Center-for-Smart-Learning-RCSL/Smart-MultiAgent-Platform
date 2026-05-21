@@ -2,6 +2,7 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
+import type { ArchivedRunOut } from '../models/ArchivedRunOut';
 import type { RunOut } from '../models/RunOut';
 import type { RunTriggerIn } from '../models/RunTriggerIn';
 import type { ValidateIn } from '../models/ValidateIn';
@@ -79,7 +80,7 @@ export class WorkflowsService {
         limit?: number,
         offset?: number,
         includeArchive?: boolean,
-    }): CancelablePromise<Array<(RunOut | Record<string, any>)>> {
+    }): CancelablePromise<Array<(RunOut | ArchivedRunOut)>> {
         return __request(OpenAPI, {
             method: 'GET',
             url: '/api/workflows/{workflow_id}/runs',

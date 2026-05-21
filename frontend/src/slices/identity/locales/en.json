@@ -46,7 +46,9 @@
       "title": "Active sessions",
       "currentBadge": "(this device)",
       "revoke": "Revoke",
-      "revokeError": "Failed to revoke session."
+      "revokeError": "Failed to revoke session.",
+      "loadError": "Failed to load sessions.",
+      "retry": "Retry"
     },
     "errors": {
       "generic": "Something went wrong. Please try again.",

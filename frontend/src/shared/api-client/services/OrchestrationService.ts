@@ -49,7 +49,7 @@ export class OrchestrationService {
         });
     }
     /**
-     * List all instructions in a chain
+     * List all instructions in a chain (admin only)
      * @returns any Successful Response
      * @throws ApiError
      */
@@ -91,7 +91,7 @@ export class OrchestrationService {
         });
     }
     /**
-     * Get a single instruction record
+     * Get a single instruction record (admin only)
      * @returns any Successful Response
      * @throws ApiError
      */

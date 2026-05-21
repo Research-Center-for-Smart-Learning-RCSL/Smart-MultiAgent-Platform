@@ -46,7 +46,9 @@
       "title": "作用中連線",
       "currentBadge": "（目前裝置）",
       "revoke": "撤銷",
-      "revokeError": "撤銷連線失敗。"
+      "revokeError": "撤銷連線失敗。",
+      "loadError": "載入連線失敗。",
+      "retry": "重試"
     },
     "errors": {
       "generic": "發生錯誤，請再試一次。",

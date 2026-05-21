@@ -197,11 +197,12 @@ class FakeVectorStore:
     def __init__(self, *, raise_on_upsert: Exception | None = None) -> None:
         self.raise_on_upsert = raise_on_upsert
         self.upserts: list[list[Any]] = []
+        self.superseded_calls: list[dict[str, Any]] = []
 
     async def ensure_graphrag_collection(self, project_id, *, vector_size, **_):
         return None
 
-    async def upsert_entities(self, *, project_id, build_id, points):
+    async def upsert_entities(self, *, project_id, config_id, build_id, points):
         if self.raise_on_upsert is not None:
             raise self.raise_on_upsert
         self.upserts.append(list(points))
@@ -211,6 +212,12 @@ class FakeVectorStore:
 
     async def delete_by_build(self, **_: Any) -> None:
         return None
+
+    async def delete_by_config(self, **_: Any) -> None:
+        return None
+
+    async def delete_superseded_entities(self, **kwargs: Any) -> None:
+        self.superseded_calls.append(kwargs)
 
 
 class FakeExtractor:
@@ -326,6 +333,14 @@ async def test_happy_path_transitions_to_idle() -> None:
     assert lock.released == [cfg.id]
     assert not snaps.store  # cleaned on success
 
+    # DOM-8: the build supersedes prior-build copies of exactly the entities
+    # it re-embedded (alice + bob), tagged with this build's id.
+    assert len(vectors.superseded_calls) == 1
+    sweep = vectors.superseded_calls[0]
+    assert sorted(sweep["entities"]) == ["alice", "bob"]
+    assert sweep["keep_build_id"] == result.build_id
+    assert sweep["config_id"] == cfg.id
+
 
 # ---------------------------------------------------------------------------
 # Phase-1 failure
@@ -355,6 +370,7 @@ async def test_phase1_failure_marks_failed_and_cleans_snapshot() -> None:
     assert store.cfg.last_build_state is BuildState.FAILED
     assert not snaps.store
     assert vectors.upserts == []
+    assert vectors.superseded_calls == []  # DOM-8: a failed build sweeps nothing
 
 
 # ---------------------------------------------------------------------------
@@ -383,6 +399,8 @@ async def test_phase2_failure_enters_compensating_and_keeps_snapshot() -> None:
     assert store.cfg.last_build_state is BuildState.FAILED_COMPENSATING
     # Snapshot must survive — reconciler needs it.
     assert snaps.store
+    # DOM-8: Phase-2 never reached QDRANT_COMMITTED, so no sweep ran.
+    assert vectors.superseded_calls == []
 
 
 # ---------------------------------------------------------------------------

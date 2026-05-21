@@ -24,6 +24,7 @@ export type { app__api__v1__orgs__InviteCreateIn } from './models/app__api__v1__
 export type { app__api__v1__orgs__InviteOut } from './models/app__api__v1__orgs__InviteOut';
 export type { app__api__v1__orgs__MemberPatchIn } from './models/app__api__v1__orgs__MemberPatchIn';
 export type { app__api__v1__projects__InviteCreateIn } from './models/app__api__v1__projects__InviteCreateIn';
+export type { ArchivedRunOut } from './models/ArchivedRunOut';
 export type { AttachmentDownloadOut } from './models/AttachmentDownloadOut';
 export type { AttachmentOut } from './models/AttachmentOut';
 export type { AuditEntryOut } from './models/AuditEntryOut';
@@ -122,6 +123,7 @@ export type { WorkflowPatchIn } from './models/WorkflowPatchIn';
 export type { WorkspaceCreatedOut } from './models/WorkspaceCreatedOut';
 export type { WorkspaceCreateIn } from './models/WorkspaceCreateIn';
 export type { WorkspaceOut } from './models/WorkspaceOut';
+export type { WsTicketOut } from './models/WsTicketOut';
 
 export { AdminService } from './services/AdminService';
 export { AgentsService } from './services/AgentsService';

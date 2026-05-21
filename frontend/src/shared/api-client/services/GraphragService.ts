@@ -13,6 +13,17 @@ import { request as __request } from '../core/request';
 export class GraphragService {
     /**
      * Delete Config
+     * §22.8 — soft-delete a GraphRAG config and cascade its external stores.
+     *
+     * DOM-2: the config's entity vectors live in the shared
+     * ``graphrag_{project_id}`` Qdrant collection tagged with ``config_id``.
+     * The old code cascaded only the Neo4j subgraph, so those vectors leaked
+     * forever — and, being in a collection shared with sibling configs, kept
+     * surfacing in their retrieval. We now delete them via ``delete_by_config``.
+     *
+     * DOM-4: the soft delete + audit row are committed *first* — that commit is
+     * the point of no return — and only then are the irreversible Neo4j +
+     * Qdrant deletes attempted, best-effort, recorded in a follow-up audit row.
      * @returns void
      * @throws ApiError
      */

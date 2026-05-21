@@ -19,6 +19,9 @@
     "editor": {
       "backToList": "Workflows",
       "unsaved": "Unsaved changes",
+      "unsavedConfirm": "You have unsaved changes. Leave this page without saving?",
+      "unsavedConfirmTitle": "Unsaved changes",
+      "leaveAnyway": "Leave without saving",
       "undo": "Undo",
       "redo": "Redo",
       "validate": "Validate",

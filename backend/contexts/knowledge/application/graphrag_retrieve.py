@@ -77,15 +77,27 @@ class GraphRagRetrieveService:
         embedder = await self._embedder_factory(cfg)
         query_vec = (await embedder.embed_batch([text]))[0]
 
+        # Scope the vector search to this config's entity points (DOM-2).
+        # ``graphrag_{project_id}`` is shared by every config in the project;
+        # without the ``config_id`` filter a query would vector-match — and
+        # seed Neo4j traversal with — entities from sibling or deleted
+        # configs. We deliberately do NOT filter by ``build_id``: the entity
+        # collection accumulates across delta builds and each build embeds
+        # only its own delta, so the live entity set spans many builds. The
+        # builder instead supersedes stale per-entity duplicates on finalise
+        # (DOM-8), keeping at most one point per entity name.
         hits = await self._vectors.search_entities(
             project_id=cfg.project_id,
             query_vector=query_vec,
             top_k=top_k,
+            config_id=cfg.id,
         )
         if not hits:
             return GraphRagBundle(entities=(), relations=(), evidence_excerpts=())
 
-        seed_entities = [h.entity for h in hits if h.entity]
+        # Dedup by entity name — defends against any residual duplicate points
+        # (DOM-8) so traversal seeds and the bundle stay distinct.
+        seed_entities = list(dict.fromkeys(h.entity for h in hits if h.entity))
         raw_edges = await self._neo4j.traverse(
             config_id=cfg.id,
             seed_entities=seed_entities,

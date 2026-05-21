@@ -82,3 +82,25 @@ export class NetworkError extends ApiError {
     this.name = 'NetworkError'
   }
 }
+
+/**
+ * Human-readable message for any error thrown by the HTTP transport.
+ *
+ * The axios response interceptor (`transport/axios.ts`) converts every
+ * problem+json response into an `ApiError` subclass and throws *that* — it
+ * never surfaces a raw `AxiosError`. Callers must therefore branch on
+ * `ApiError`, not on `e.response`. For 422s the per-field errors are more
+ * actionable than the generic `detail`, so they are surfaced when present.
+ */
+export function errorMessage(e: unknown, fallback = 'request failed'): string {
+  if (e instanceof ValidationError && e.fieldErrors.length > 0) {
+    return e.fieldErrors.map((fe) => `${fe.path}: ${fe.message}`).join('; ')
+  }
+  if (e instanceof ApiError) {
+    return e.detail ?? e.title
+  }
+  if (e instanceof Error) {
+    return e.message
+  }
+  return fallback
+}

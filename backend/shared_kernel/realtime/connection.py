@@ -22,6 +22,7 @@ import json
 import time
 import uuid
 from collections.abc import Awaitable, Callable, Sequence
+from contextlib import suppress
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -55,6 +56,10 @@ _IDLE_TIMEOUT_SECONDS = 120.0
 # process crashed without cleanup; such entries are pruned so a hard crash
 # cannot permanently consume the cap.
 _CONN_STALE_SECONDS = 300
+# ASYNC-13: on teardown the writer is given this long to observe `shutdown` and
+# return between frames before it is force-cancelled — bounding the wait so a
+# writer wedged on a half-open socket cannot stall connection teardown.
+_WRITER_DRAIN_GRACE_SECONDS = 2.0
 
 
 def _user_connections_key(user_id: uuid.UUID) -> str:
@@ -182,6 +187,22 @@ async def connection_loop(
             await ws.close(code=_CLOSE_POLICY_VIOLATION, reason="open failed")
             return
 
+    # ASYNC-13: the driver tasks never call ws.close() themselves — a close
+    # racing the writer's in-flight send_text surfaced noisy exceptions. A task
+    # that wants the connection gone records the intended close frame via
+    # `_request_close` and returns; connection_loop performs the single,
+    # authoritative ws.close() in its finally-block, once every task has
+    # stopped touching the socket. `shutdown` lets the writer wind down between
+    # frames so it is not torn down mid-send.
+    close_code = 1000
+    close_reason = ""
+    shutdown = asyncio.Event()
+
+    def _request_close(code: int, reason: str) -> None:
+        nonlocal close_code, close_reason
+        close_code = code
+        close_reason = reason
+
     async def _reader() -> None:
         while True:
             # ASYNC-7: bound the receive so a client that vanished without a
@@ -197,10 +218,7 @@ async def connection_loop(
                     event="ws_idle_timeout",
                     connection_id=str(conn.connection_id),
                 ).info("ws idle timeout — closing half-open socket")
-                await ws.close(
-                    code=_CLOSE_TRY_AGAIN_LATER,
-                    reason="idle timeout",
-                )
+                _request_close(_CLOSE_TRY_AGAIN_LATER, "idle timeout")
                 return
             # ASYNC-7: an inbound frame proves the socket is alive — refresh the
             # connection's heartbeat score in the per-user cap registry.
@@ -218,12 +236,12 @@ async def connection_loop(
                 try:
                     new_principal = await refresh_principal(token)
                 except WsAuthError:
-                    await ws.close(code=_CLOSE_AUTH_FAILED, reason="refresh failed")
+                    _request_close(_CLOSE_AUTH_FAILED, "refresh failed")
                     return
                 # Principal must remain the same user — clients cannot hop
                 # identities mid-socket.
                 if new_principal.user_id != conn.principal.user_id:
-                    await ws.close(code=_CLOSE_AUTH_FAILED, reason="principal changed")
+                    _request_close(_CLOSE_AUTH_FAILED, "principal changed")
                     return
                 conn.principal = new_principal
                 await conn.enqueue({"type": "refresh.ack"})
@@ -237,23 +255,41 @@ async def connection_loop(
                 if not await conn.enqueue(event):
                     # Slow consumer — drop the connection rather than block
                     # the Redis pubsub reader for other subscribers.
-                    await ws.close(
-                        code=_CLOSE_TRY_AGAIN_LATER,
-                        reason="slow consumer",
-                    )
+                    _request_close(_CLOSE_TRY_AGAIN_LATER, "slow consumer")
                     return
 
     async def _writer() -> None:
-        while True:
-            event = await conn.outbound.get()
-            await ws.send_text(
-                json.dumps(event, default=str, separators=(",", ":")),
-            )
+        # ASYNC-13: between frames, race the outbound queue against `shutdown`
+        # so a peer task asking the connection to close stops the writer
+        # cleanly — it returns rather than being cancelled mid-send_text,
+        # leaving connection_loop's finally-block as the sole ws.close() caller.
+        stopper = asyncio.ensure_future(shutdown.wait())
+        try:
+            while not shutdown.is_set():
+                getter = asyncio.ensure_future(conn.outbound.get())
+                try:
+                    await asyncio.wait(
+                        {getter, stopper},
+                        return_when=asyncio.FIRST_COMPLETED,
+                    )
+                finally:
+                    # Abandon the get if it lost the race — never leaves an
+                    # item half-dequeued (asyncio.Queue.get is atomic).
+                    if not getter.done():
+                        getter.cancel()
+                if shutdown.is_set():
+                    return  # `shutdown` won (or fired during a send) — exit.
+                await ws.send_text(
+                    json.dumps(getter.result(), default=str, separators=(",", ":")),
+                )
+        finally:
+            stopper.cancel()
 
     tasks = [
         asyncio.create_task(_reader(), name=f"ws-reader-{conn.connection_id}"),
         asyncio.create_task(_writer(), name=f"ws-writer-{conn.connection_id}"),
     ]
+    writer_task = tasks[1]
     if channels:
         tasks.append(
             asyncio.create_task(
@@ -263,21 +299,47 @@ async def connection_loop(
         )
 
     try:
-        done, pending = await asyncio.wait(
-            tasks,
-            return_when=asyncio.FIRST_COMPLETED,
+        # Run until the first task ends — client disconnect, idle timeout,
+        # slow consumer, auth failure — or connection_loop itself being
+        # cancelled (app shutdown).
+        await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+    finally:
+        # ASYNC-13: wind every driver task down BEFORE the single ws.close(),
+        # no matter how the await above exited — normal completion *or*
+        # connection_loop itself being cancelled. The close must never race a
+        # live _writer, so it happens only once every task has stopped.
+        shutdown.set()
+        # `_reader` / `_pubsub_fanin` block on I/O that does not observe
+        # `shutdown`, so cancel them; neither writes to the socket, so
+        # cancellation is clean. The writer observes `shutdown` and returns
+        # between frames — grant it a short grace period before
+        # force-cancelling, so it is not torn down mid-send_text, while a
+        # writer wedged on a half-open socket still cannot stall teardown.
+        for t in tasks:
+            if t is not writer_task and not t.done():
+                t.cancel()
+        finished, _ = await asyncio.wait(
+            {writer_task}, timeout=_WRITER_DRAIN_GRACE_SECONDS
         )
-        for t in pending:
-            t.cancel()
-        for t in done:
-            exc = t.exception()
-            if exc and not isinstance(exc, WebSocketDisconnect):
+        if not finished:
+            writer_task.cancel()
+        for t in tasks:
+            try:
+                await t
+            except (asyncio.CancelledError, WebSocketDisconnect):
+                pass
+            except Exception as exc:
                 logger.bind(event="ws_task_error").exception(
                     "ws task failed",
                     exc_info=exc,
                 )
-    finally:
         await _cleanup(conn, on_close)
+        # ASYNC-13: the single, authoritative close — every driver task has
+        # stopped above, so this never races an in-flight send_text. Suppressed
+        # because the socket may already be closed (client-initiated
+        # disconnect, or a close already sent by the ASGI server).
+        with suppress(Exception):
+            await ws.close(code=close_code, reason=close_reason)
 
 
 async def _cleanup(

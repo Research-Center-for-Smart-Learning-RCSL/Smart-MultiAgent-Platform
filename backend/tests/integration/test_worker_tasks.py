@@ -31,7 +31,9 @@ async def test_advisory_snapshot_raises_when_every_org_fails() -> None:
 
     fake_redis = AsyncMock()
     list_session = AsyncMock()
-    list_session.execute.return_value.all.return_value = org_ids
+    # `.all()` is a *sync* SQLAlchemy Result method — an AsyncMock child would
+    # return a coroutine that `len()` cannot consume. Force a plain MagicMock.
+    list_session.execute.return_value.all = MagicMock(return_value=org_ids)
 
     class _ListCM:
         async def __aenter__(self):
@@ -70,7 +72,8 @@ async def test_advisory_snapshot_partial_failure_does_not_raise() -> None:
 
     fake_redis = AsyncMock()
     list_session = AsyncMock()
-    list_session.execute.return_value.all.return_value = [(ok_id,), (bad_id,)]
+    # `.all()` is sync (see test above) — keep it a MagicMock, not AsyncMock.
+    list_session.execute.return_value.all = MagicMock(return_value=[(ok_id,), (bad_id,)])
 
     class _ListCM:
         async def __aenter__(self):

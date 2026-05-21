@@ -8,10 +8,11 @@ tokens is close enough for chunk sizing (true embedding token counts only
 matter at the embedder call, which is provider-specific) and keeps the
 chunker dependency-free.
 
-`semantic` delegates to `semantic-text-splitter` if available. When the
-library is missing the function raises :class:`ChunkParamsInvalid` so the
-ingest service can surface a clear error rather than silently falling
-back to fixed.
+`semantic` delegates to the `semantic-text-splitter` wheel, which is a hard
+requirement of the strategy. When the wheel is missing :func:`chunk_semantic`
+raises :class:`ChunkParamsInvalid` rather than falling back, so chunk
+boundaries — and the embeddings derived from them — never diverge silently
+between an environment that has the wheel and one that does not.
 
 SoC: pure functions over text; no I/O.
 """
@@ -72,45 +73,37 @@ def chunk_semantic(
     max_tokens_per_chunk: int,
     similarity_threshold: float,
 ) -> list[str]:
+    """Capacity-bounded semantic chunking via ``semantic-text-splitter``.
+
+    ``similarity_threshold`` is part of the persisted ``chunk_params``
+    contract (REQUIREMENTS.md R10.04) and is validated here, but the current
+    ``semantic-text-splitter`` backend splits purely by token *capacity* at
+    sentence/paragraph boundaries — it has no embedding-similarity cutoff, so
+    the value is not consumed. It is kept reserved for a future
+    similarity-aware backend; validating it now keeps stored configs honest.
+
+    The wheel is mandatory for this strategy: a missing import raises
+    :class:`ChunkParamsInvalid` instead of falling back, so chunk boundaries
+    (and the embeddings derived from them) are identical across environments.
+    """
     if max_tokens_per_chunk <= 0:
         raise ChunkParamsInvalid("max_tokens_per_chunk must be positive")
     if not 0.0 < similarity_threshold <= 1.0:
         raise ChunkParamsInvalid("similarity_threshold must be in (0, 1]")
     try:
         # Naming: the package installs as `semantic-text-splitter` and
-        # imports as `semantic_text_splitter`. Lazy-import so missing
-        # wheels don't break module load.
+        # imports as `semantic_text_splitter`. Lazy-import so a missing
+        # wheel breaks only use of this strategy, not module load.
         from semantic_text_splitter import TextSplitter  # type: ignore[import-not-found]
-    except ImportError:
-        # Soft-fallback: approximate semantic chunking with a sentence-aware
-        # fixed chunker. This keeps the ingest path functional without the
-        # optional dep. The exact-match behaviour lives in tests that pin
-        # the wheel; production runs SHOULD install the dep.
-        return _sentence_aware_fallback(text, max_tokens_per_chunk)
+    except ImportError as exc:
+        raise ChunkParamsInvalid(
+            "the 'semantic' chunk strategy requires the optional "
+            "'semantic-text-splitter' wheel, which is not installed; "
+            "install it or switch the RAG config to the 'fixed' strategy",
+        ) from exc
 
     splitter = TextSplitter(capacity=max_tokens_per_chunk)
     return [c for c in splitter.chunks(text) if c.strip()]
-
-
-def _sentence_aware_fallback(text: str, max_tokens: int) -> list[str]:
-    # Break on sentence-ending punctuation, then pack back up to the
-    # token budget. Not as good as the real lib but deterministic.
-    import re as _re
-
-    sentences = [s.strip() for s in _re.split(r"(?<=[.!?。！？])\s+", text) if s.strip()]
-    out: list[str] = []
-    buf: list[str] = []
-    count = 0
-    for sent in sentences:
-        toks = _tokens(sent)
-        if count + len(toks) > max_tokens and buf:
-            out.append(" ".join(buf))
-            buf, count = [], 0
-        buf.append(sent)
-        count += len(toks)
-    if buf:
-        out.append(" ".join(buf))
-    return out
 
 
 def chunk_text(

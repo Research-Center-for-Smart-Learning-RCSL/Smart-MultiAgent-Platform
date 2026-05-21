@@ -47,7 +47,7 @@ export function installErrorHandler(app: App): void {
   })
 }
 
-function reportError(err: unknown): void {
+export function reportError(err: unknown): void {
   try {
     const payload = {
       message: err instanceof Error ? err.message : String(err),
