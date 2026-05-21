@@ -24,7 +24,7 @@ dependencies = [
   "google-re2==1.1.*",
   "hvac==2.3.*",
   "redis==5.2.*",
-  "python-multipart==0.0.26",
+  "python-multipart==0.0.28",
   "orjson==3.10.*",
   "cryptography==43.0.*",
   "psycopg[binary]==3.2.*",
@@ -40,9 +40,9 @@ dependencies = [
 otel = [
   "opentelemetry-sdk==1.27.*",
   "opentelemetry-exporter-otlp-proto-http==1.27.*",
-  "opentelemetry-instrumentation-fastapi==0.48b0",
-  "opentelemetry-instrumentation-sqlalchemy==0.48b0",
-  "opentelemetry-instrumentation-httpx==0.48b0",
+  "opentelemetry-instrumentation-fastapi==0.62b1",
+  "opentelemetry-instrumentation-sqlalchemy==0.62b1",
+  "opentelemetry-instrumentation-httpx==0.62b1",
 ]
 dev = [
   "ruff==0.7.*",
