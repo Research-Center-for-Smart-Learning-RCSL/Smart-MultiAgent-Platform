@@ -2,6 +2,8 @@
 
 This document describes the security architecture, controls, and disclosure process for SMAP.
 
+> **Licensing & warranty notice.** SMAP is distributed under the GNU AGPL-3.0-or-later (see [LICENSE](./LICENSE)) and is provided **"AS IS" without warranty of any kind** as set out in sections 15 through 17 of that license. This document describes the security controls that SMAP attempts to implement; it does **not** constitute a warranty that the software is free of defects or fit for any particular purpose. Operators are responsible for deploying, configuring, and monitoring their own instances. Reporting a vulnerability under this policy does not create any contractual or fiduciary relationship between the reporter and the project maintainers.
+
 ---
 
 ## Table of Contents

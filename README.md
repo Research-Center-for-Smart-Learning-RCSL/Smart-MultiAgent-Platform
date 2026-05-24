@@ -258,4 +258,27 @@ Full gate notes for each closed phase are in `docs/implement/00-overview.md`.
 
 ## License
 
-TBD.
+Copyright (C) 2026 **Isaries**.
+
+SMAP is dual-licensed:
+
+- **Open-source license** — [GNU Affero General Public License v3.0 or later](./LICENSE) (AGPL-3.0-or-later). You may self-host, modify, and redistribute SMAP under the AGPL. Note that AGPL §13 requires you to make the complete corresponding source available to **all users who interact with the software over a network**, including any modifications you have made.
+- **Commercial license** — for organizations that cannot accept the AGPL (for example, proprietary integrations or closed-source SaaS deployments), an alternative commercial license is available from the copyright holder. Open a **GitHub Discussion** under the **"Commercial / Licensing"** category to start the conversation.
+
+Contributors must sign a Contributor License Agreement before pull requests can be merged. See [CONTRIBUTING.md](./CONTRIBUTING.md) and [CLA/](./CLA/) for details.
+
+### Third-party services and their licenses
+
+SMAP orchestrates several independent services through their network APIs. SMAP's source code is licensed as described above, but operators who **modify or redistribute** the bundled service binaries are bound by **those services' own licenses**:
+
+| Component | License | Operator note |
+|---|---|---|
+| **MinIO** server | GNU AGPL-3.0 (since 2021-04) | Calling MinIO over the S3 API does not create a derivative work. Modifying the MinIO binary itself triggers AGPL §13 for MinIO. |
+| **Neo4j Community Edition** | GNU GPL-3.0 | Bolt-protocol clients are not derivative works. Embedding or modifying the Neo4j binary triggers GPL §5. The Enterprise edition is a separate commercial product. |
+| **HashiCorp Vault** | BUSL-1.1 (since v1.15) | Production use by competing managed-Vault providers is restricted. Operators not in that situation are unaffected; alternatively, the [OpenBao](https://openbao.org) fork is MPL-2.0. |
+| **PostgreSQL** | PostgreSQL License (BSD-style) | No restrictions for self-hosted deployment. |
+| **Redis** (≤ 7.2) | BSD-3-Clause | Redis 7.4+ uses RSALv2/SSPLv1; pin to 7.2 for unrestricted use, or use the [Valkey](https://valkey.io) fork. |
+| **Qdrant** | Apache-2.0 | No restrictions. |
+| **Nginx** | BSD-2-Clause | No restrictions. |
+
+Application-level dependencies (Vue, FastAPI, SQLAlchemy, etc.) are predominantly MIT or Apache-2.0; see `pyproject.toml` and `package.json` for the authoritative list.
