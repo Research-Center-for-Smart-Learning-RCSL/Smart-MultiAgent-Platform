@@ -50,6 +50,30 @@ SINGLE_SHOT_MAX_BYTES = 32 * 1024 * 1024  # R22.15 switch-to-tus threshold
 TUS_MAX_BYTES = 1024 * 1024 * 1024  # 1 GiB (R22.15.02)
 ATTACHMENT_TTL = timedelta(days=3)  # §21.5 chat-uploads lifecycle
 
+# MIME types we are willing to serve *inline* from the storage origin. Anything
+# scriptable in a browser (text/html, image/svg+xml, …) is deliberately absent,
+# so it is forced to download instead of rendering as attacker-controlled
+# markup in the storage origin (SEC-M2). The uploader's declared `mime` is not
+# trusted; this allowlist is the gate.
+_INLINE_SAFE_MIME = frozenset(
+    {
+        "image/png",
+        "image/jpeg",
+        "image/gif",
+        "image/webp",
+        "image/bmp",
+        "application/pdf",
+        "text/plain",
+    }
+)
+
+
+def _safe_header_filename(name: str) -> str:
+    """Strip control chars / quotes so the value can't break out of the
+    Content-Disposition header (defence-in-depth; the SDK also URL-encodes it)."""
+    cleaned = "".join(c for c in name if c.isprintable() and c not in '"\\\r\n')
+    return cleaned[:200] or "download"
+
 
 @dataclass(frozen=True, slots=True)
 class AttachmentPointer:
@@ -223,10 +247,24 @@ class AttachmentService:
         if row.status is AttachmentStatus.QUARANTINED:
             raise AttachmentQuarantined(str(attachment_id))
         bucket, _, key = row.minio_path.partition("/")
+        # Override the served Content-Type/Disposition rather than trusting the
+        # uploader-declared `mime` stored on the object (SEC-M2). Known-safe
+        # types render inline; everything scriptable downloads as a neutral
+        # octet-stream so it can never execute in the storage origin.
+        normalised_mime = (row.mime or "").split(";", 1)[0].strip().lower()
+        filename = _safe_header_filename(row.filename)
+        if normalised_mime in _INLINE_SAFE_MIME:
+            content_type = normalised_mime
+            disposition = f'inline; filename="{filename}"'
+        else:
+            content_type = "application/octet-stream"
+            disposition = f'attachment; filename="{filename}"'
         url = await self._minio.presigned_get(
             bucket=bucket,
             key=key,
             expires=timedelta(minutes=15),
+            response_content_type=content_type,
+            response_content_disposition=disposition,
         )
         return AttachmentPointer(attachment=row, url=url)
 

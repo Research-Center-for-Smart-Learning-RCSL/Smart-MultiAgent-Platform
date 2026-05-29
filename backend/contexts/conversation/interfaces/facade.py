@@ -46,6 +46,13 @@ class ConversationFacade:
     ) -> Chatroom | None:
         return await self._rooms.get(chatroom_id)
 
+    async def list_chatroom_ids_for_project(
+        self,
+        project_id: uuid.UUID,
+    ) -> list[uuid.UUID]:
+        """Live chatroom ids across the project's workspaces (workflow linter)."""
+        return await self._rooms.list_ids_for_project(project_id)
+
     async def chatroom_by_guest_token(self, token: str) -> Chatroom | None:
         return await self._rooms.get_by_guest_token(token)
 

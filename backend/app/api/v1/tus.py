@@ -84,9 +84,17 @@ async def tus_create(
             chatroom_id=chatroom_id,
         )
         ensure_can_send(access, is_admin=principal.is_admin)
-    # rag_source ACL gate lives in the knowledge context; it will wrap this
-    # router if/when wired in E.6. For now we accept and let the finaliser
-    # defend itself when the object is picked up.
+    else:
+        # SEC-L4: chat_attachment is the only purpose with a real, ACL-gated,
+        # working finaliser. `rag_source` (and any other/unset purpose) has NO
+        # membership check on the client-declared rag_config_id and a no-op
+        # finaliser — accepting it is a latent cross-tenant ingestion vector the
+        # moment the feature is wired. Fail closed until the rag_source ACL +
+        # finaliser land (E.6) and add their own branch here.
+        raise HTTPException(
+            status_code=403,
+            detail=f"TUS upload purpose {purpose!r} is not enabled",
+        )
 
     service = TusService(db)
     result = await service.create(

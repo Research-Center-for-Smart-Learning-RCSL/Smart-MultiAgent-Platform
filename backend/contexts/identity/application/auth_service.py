@@ -44,6 +44,7 @@ from shared_kernel import audit
 from shared_kernel.auth import captcha, jwt, ratelimit, tokens
 from shared_kernel.auth.clients import now
 from shared_kernel.auth.password import (
+    DUMMY_HASH,
     PasswordHasher,
     PasswordPolicyError,
     validate_password,
@@ -115,7 +116,7 @@ class AuthService:
         captcha_token: str | None,
         remote_ip: str | None,
         request_id: uuid.UUID | None = None,
-    ) -> User:
+    ) -> None:
         email = _normalise_email(email)
         try:
             await captcha.verify(captcha_token, remote_ip=remote_ip)
@@ -132,7 +133,33 @@ class AuthService:
 
         existing = await self._users.get_active_by_email(email)
         if existing is not None:
-            raise EmailAlreadyRegistered(email)
+            # Anti-enumeration (SEC-M4): the unauthenticated caller must not be
+            # able to tell "email taken" from "email new" via the HTTP status.
+            # Both branches return 202; the real account holder is told they
+            # already have an account out-of-band, over the address they own.
+            #
+            # Per-email rate limit (mirrors request_password_reset): without it
+            # this branch is an unauthenticated mailbomb — anyone could spam a
+            # victim's inbox by re-POSTing /register with their address. Cap at
+            # 5 / 10 min; over the limit we silently skip the email but still
+            # return the same uniform 202.
+            notice_key = "rl:reg:e:" + hashlib.sha256(email.encode()).hexdigest()[:24]
+            rl = await ratelimit.check_raw(key=notice_key, window_sec=600, max_count=5)
+            if rl.allowed:
+                await self._send_already_registered_notice(email, user_id=existing.id)
+                await audit.emit(
+                    self._db,
+                    audit.AuditEvent(
+                        action="auth.register.existing_email",
+                        actor_user_id=existing.id,
+                        actor_ip=remote_ip,
+                        resource_type="user",
+                        resource_id=existing.id,
+                        metadata={"email": email},
+                        request_id=request_id,
+                    ),
+                )
+            return
 
         user = await self._users.insert(
             email=email,
@@ -154,7 +181,6 @@ class AuthService:
                 request_id=request_id,
             ),
         )
-        return user
 
     async def verify_email(
         self, token: str, *, remote_ip: str | None, request_id: uuid.UUID | None = None
@@ -205,6 +231,10 @@ class AuthService:
         user = await self._users.get_active_by_email(email)
         fail = False
         if user is None:
+            # Verify the submitted password against a fixed dummy hash so the
+            # absence of an account costs the same ~64 MiB/t=3 Argon2id work as
+            # a real verify — denying the login timing oracle (SEC-M3).
+            self._hasher.verify(DUMMY_HASH, password)
             fail = True
         elif user.status is UserStatus.DELETED:
             raise AccountDeleted()
@@ -586,6 +616,26 @@ class AuthService:
                 to=email,
                 subject="Verify your email",
                 text_body=f"Click to verify: {link}",
+                correlation_id=user_id,
+            )
+        )
+
+    async def _send_already_registered_notice(self, email: str, *, user_id: uuid.UUID) -> None:
+        # Sent when someone tries to register an address that already has an
+        # account (SEC-M4). It carries no token and grants no capability — it
+        # only informs the address owner so the registration attempt is not
+        # silent, while keeping the "already registered" fact off the HTTP path.
+        link = f"{self._public_origin}/login"
+        await self._emailer.send(
+            EmailMessage(
+                to=email,
+                subject="You already have an account",
+                text_body=(
+                    "Someone tried to register an account with this email "
+                    f"address, but one already exists. If this was you, sign in "
+                    f"at {link} or use the password-reset flow. If it wasn't, "
+                    "you can safely ignore this message."
+                ),
                 correlation_id=user_id,
             )
         )

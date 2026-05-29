@@ -155,10 +155,29 @@ class MinioClient:
         bucket: str,
         key: str,
         expires: timedelta = timedelta(minutes=15),
+        response_content_type: str | None = None,
+        response_content_disposition: str | None = None,
     ) -> str:
+        # Response-header overrides ride in the presigned URL's signed query
+        # string, so the object's *stored* Content-Type (which is
+        # attacker-controlled for chat uploads) is overridden at serve time —
+        # the browser sees what we dictate, not what the uploader declared
+        # (SEC-M2). MinIO honours `response-content-type` /
+        # `response-content-disposition` exactly like S3.
+        response_headers: dict[str, str] = {}
+        if response_content_type is not None:
+            response_headers["response-content-type"] = response_content_type
+        if response_content_disposition is not None:
+            response_headers["response-content-disposition"] = response_content_disposition
+
         def _sign() -> str:
             try:
-                return self._client.presigned_get_object(bucket, key, expires=expires)
+                return self._client.presigned_get_object(
+                    bucket,
+                    key,
+                    expires=expires,
+                    response_headers=response_headers or None,
+                )
             except S3Error as exc:  # pragma: no cover
                 raise StorageError(f"presigned_get failed: {exc}") from exc
 
@@ -207,7 +226,11 @@ def rag_source_key(*, project_id: uuid.UUID, document_id: uuid.UUID, filename: s
 
 
 def export_key(*, job_id: uuid.UUID, filename: str) -> str:
-    return f"{job_id}/{filename}"
+    # SEC-L6: sanitise like chat_upload_key / rag_source_key so a filename can
+    # never inject path separators into the object key. Keys are UUID-namespaced
+    # so this is consistency / defence-in-depth, not a live traversal fix.
+    safe_name = filename.replace("/", "_").replace("\\", "_")
+    return f"{job_id}/{safe_name}"
 
 
 __all__ = [

@@ -75,6 +75,19 @@ class McpTimeout(AgentsError):
     code = "mcp-timeout"
 
 
+class SandboxRuntimeViolation(AgentsError):
+    """The spawned sandbox container is not running under the gVisor (``runsc``)
+    runtime the isolation model depends on (SEC-M5).
+
+    ``runtime: runsc`` in the host-config is only a *request*; if gVisor is not
+    installed/registered the daemon silently falls back to ``runc``, collapsing
+    the sandbox to a shared-kernel container. We refuse to run untrusted code
+    in that case.
+    """
+
+    code = "agents/sandbox-runtime-violation"
+
+
 class CapabilityMismatch(AgentsError):
     """Tool invocation asked for a capability the key/group cannot serve."""
 
@@ -108,6 +121,7 @@ __all__ = [
     "McpEgressDenied",
     "McpTestFailed",
     "McpTimeout",
+    "SandboxRuntimeViolation",
     "SearchKeyNotConfigured",
     "SearchQuotaExceeded",
 ]

@@ -187,6 +187,28 @@ class ChatroomRepository:
         ).first()
         return _row_to_chatroom(row) if row else None
 
+    async def list_ids_for_project(self, project_id: uuid.UUID) -> list[uuid.UUID]:
+        """All live chatroom ids whose workspace belongs to *project_id*.
+
+        Scopes chatroom references for the workflow linter (rule 8): a workflow
+        may reference any chatroom in its workspace's project, across that
+        project's workspaces.
+        """
+        rows = (
+            await self._db.execute(
+                sa.select(t.chatrooms.c.id)
+                .join(t.workspaces, t.chatrooms.c.workspace_id == t.workspaces.c.id)
+                .where(
+                    sa.and_(
+                        t.workspaces.c.project_id == project_id,
+                        t.chatrooms.c.deleted_at.is_(None),
+                        t.workspaces.c.deleted_at.is_(None),
+                    )
+                )
+            )
+        ).all()
+        return [r.id for r in rows]
+
     async def list_for_workspace(
         self,
         workspace_id: uuid.UUID,

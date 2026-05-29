@@ -1,4 +1,8 @@
-"""Semantic linter — 14 blocking rules + 6 advisory warnings (§5).
+"""Semantic linter — 15 blocking rules + 6 advisory warnings (§5).
+
+Rule 15 (SEC-L5) parses every SEL expression at save time so invalid or
+non-whitelisted expressions are rejected up front instead of failing silently
+at run time.
 
 Each rule is a pure function: check(definition, ...) → list[LintIssue].
 The aggregator collects all issues without stopping at the first error.
@@ -10,7 +14,13 @@ import re
 from collections import defaultdict
 from typing import Any
 
+from contexts.workflow.domain.errors import (
+    SELBudgetExceeded,
+    SELForbiddenConstruct,
+    SELSyntaxError,
+)
 from contexts.workflow.domain.models import LintIssue, ValidationResult
+from contexts.workflow.sel.evaluator import validate as validate_sel
 
 _VAR_REF_RE = re.compile(
     r"\{\{\s*"
@@ -583,6 +593,43 @@ def rule_14_parallel_join(defn: dict[str, Any]) -> list[LintIssue]:
 
 
 # ---------------------------------------------------------------------------
+# Rule 15: SEL expressions parse + use only whitelisted functions (SEC-L5)
+# ---------------------------------------------------------------------------
+
+
+def rule_15_sel_expressions(defn: dict[str, Any]) -> list[LintIssue]:
+    """Parse every SEL expression at save time.
+
+    Previously the linter never parsed SEL, so a syntactically invalid or
+    non-whitelisted expression saved cleanly and only failed at run time —
+    where the condition executor swallows the error and silently falls through
+    to the default port. Validating here turns that into a blocking save error.
+    """
+    issues: list[LintIssue] = []
+    for n in defn.get("nodes", []):
+        ntype = n.get("type", "")
+        config = n.get("config", {})
+        exprs: list[str] = []
+        if ntype == "condition":
+            exprs = [b.get("when", "") for b in config.get("branches", [])]
+        elif ntype == "set_variable":
+            exprs = [a.get("expression", "") for a in config.get("assignments", [])]
+
+        for expr in exprs:
+            # Empty/whitespace expressions are caught by the structural rules
+            # (a condition branch needs a real predicate); don't double-report.
+            if not isinstance(expr, str) or not expr.strip():
+                continue
+            try:
+                validate_sel(expr)
+            except (SELSyntaxError, SELForbiddenConstruct, SELBudgetExceeded) as exc:
+                issues.append(
+                    LintIssue(15, "error", f"Invalid SEL expression {expr!r}: {exc}", node_id=n["id"]),
+                )
+    return issues
+
+
+# ---------------------------------------------------------------------------
 # Advisory warnings (§5.2)
 # ---------------------------------------------------------------------------
 
@@ -690,6 +737,7 @@ def validate_definition(
     all_issues.extend(rule_12_variable_references(defn))
     all_issues.extend(rule_13_port_coverage(defn))
     all_issues.extend(rule_14_parallel_join(defn))
+    all_issues.extend(rule_15_sel_expressions(defn))
 
     # Advisory
     all_issues.extend(advisory_warnings(defn))

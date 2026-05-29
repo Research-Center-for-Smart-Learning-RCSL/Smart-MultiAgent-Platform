@@ -72,10 +72,18 @@ class TenancyRoleResolver(RoleResolver):
         return member is not None and member.is_original_creator
 
     async def is_chatroom_participant(self, *, user_id: uuid.UUID, chatroom_id: uuid.UUID) -> bool:
-        # Chat-room ACL ships in Phase F; for now any authenticated user
-        # resolves as a participant of chat rooms in their own projects. The
-        # real table lookup hooks in here without touching the matrix logic.
-        return True
+        # SEC-L3: do NOT fail open. The previous `return True` would grant any
+        # ROOM_ACL capability to any authenticated user the moment a route fed
+        # a `chatroom_id` scope into the matrix. It is unreachable today (the
+        # only ROOM_ACL caller passes no chatroom_id and so fails closed), but a
+        # silent allow-all is a landmine for the next ROOM_ACL route. The real,
+        # working room ACL lives in `conversation/application/access.py`; wire a
+        # route through that, not this resolver. Until then, refuse loudly.
+        raise NotImplementedError(
+            "TenancyRoleResolver.is_chatroom_participant is not implemented; "
+            "ROOM_ACL routes must resolve participation via "
+            "conversation.application.access, not the tenancy role resolver"
+        )
 
 
 __all__ = ["TenancyRoleResolver"]

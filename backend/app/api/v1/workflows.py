@@ -17,6 +17,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Path, Query, stat
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from contexts.agents.interfaces.facade import AgentsFacade
 from contexts.conversation.interfaces.facade import ConversationFacade
 from contexts.workflow.application.workflow_service import WorkflowService
 from contexts.workflow.domain.errors import (
@@ -121,6 +122,32 @@ async def _require_chat_create(
     decision = await decide(principal, Capability.CHAT_CREATE, scope, resolver)
     if not decision.allowed:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=decision.reason)
+
+
+async def _linter_valid_ids(
+    db: AsyncSession,
+    project_id: uuid.UUID | None,
+) -> tuple[frozenset[str], frozenset[str]]:
+    """Build the (agent ids, chatroom ids) sets the linter scopes references
+    against (rules 6 & 8).
+
+    F1: without these the service defaulted both to empty, so the linter
+    rejected *every* workflow that referenced an agent or chatroom — i.e. any
+    non-trivial workflow failed to save. The ids are scoped to the workflow's
+    own project, so a reference to another tenant's agent/chatroom is still
+    rejected. `subagent_parent_ids` stays empty by design: sub-agents are
+    runtime AgentInstances (G.8), not agent definitions, so there is no
+    save-time set — depth>1 is enforced at spawn time by the orchestration
+    service, not here.
+    """
+    if project_id is None:  # defensive — the resolvers always set it
+        return frozenset(), frozenset()
+    agents = await AgentsFacade(db).list_agents_for_project(project_id)
+    chatroom_ids = await ConversationFacade(db).list_chatroom_ids_for_project(project_id)
+    return (
+        frozenset(str(a.id) for a in agents),
+        frozenset(str(cid) for cid in chatroom_ids),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -302,7 +329,12 @@ async def validate_workflow(
 ) -> ValidateOut:
     await _require_member(principal, scope, resolver)
     svc = WorkflowService(db)
-    result = svc.validate(payload.definition)
+    valid_agent_ids, valid_chatroom_ids = await _linter_valid_ids(db, scope.project_id)
+    result = svc.validate(
+        payload.definition,
+        valid_agent_ids=valid_agent_ids,
+        valid_chatroom_ids=valid_chatroom_ids,
+    )
     return ValidateOut(
         valid=result.valid,
         errors=[
@@ -342,11 +374,14 @@ async def create_workflow(
 ) -> WorkflowOut:
     await _require_chat_create(principal, scope, resolver)
     svc = WorkflowService(db)
+    valid_agent_ids, valid_chatroom_ids = await _linter_valid_ids(db, scope.project_id)
     wf = await svc.create(
         workspace_id=wid,
         name=payload.name,
         definition=payload.definition,
         actor_user_id=principal.user_id,
+        valid_agent_ids=valid_agent_ids,
+        valid_chatroom_ids=valid_chatroom_ids,
     )
     return _to_workflow_out(wf)
 
@@ -376,12 +411,15 @@ async def patch_workflow(
         ) from exc
 
     svc = WorkflowService(db)
+    valid_agent_ids, valid_chatroom_ids = await _linter_valid_ids(db, scope.project_id)
     wf = await svc.patch(
         workflow_id,
         expected_version=expected_version,
         name=payload.name,
         definition=payload.definition,
         actor_user_id=principal.user_id,
+        valid_agent_ids=valid_agent_ids,
+        valid_chatroom_ids=valid_chatroom_ids,
     )
     return _to_workflow_out(wf)
 
