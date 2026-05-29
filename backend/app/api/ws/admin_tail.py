@@ -29,6 +29,8 @@ async def ws_admin_tail(ws: WebSocket) -> None:
         principal=auth.principal,
         subprotocol=auth.subprotocol,
         channels=[AUDIT_TAIL_CHANNEL],
+        token_expires_at=auth.expires_at,
+        token_jti=auth.jti,
     )
 
 

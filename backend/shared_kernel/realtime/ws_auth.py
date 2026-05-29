@@ -29,7 +29,9 @@ code 4401 so the client can re-handshake.
 from __future__ import annotations
 
 import secrets
+import uuid
 from dataclasses import dataclass
+from datetime import datetime
 
 from fastapi import WebSocket
 
@@ -55,6 +57,21 @@ class WsAuth:
     principal: Principal
     subprotocol: str  # echoed on accept
     access_token: str
+    # SEC-H2: the connection layer holds these so a live socket can be torn
+    # down once the token expires or its jti is denylisted (logout / ban /
+    # session kill) — not only when the client voluntarily refreshes.
+    expires_at: datetime
+    jti: uuid.UUID
+
+
+@dataclass(frozen=True, slots=True)
+class RefreshedPrincipal:
+    """Result of an in-socket refresh — carries the new token's exp/jti so the
+    connection's revocation watchdog tracks the *refreshed* token (SEC-H2)."""
+
+    principal: Principal
+    expires_at: datetime
+    jti: uuid.UUID
 
 
 async def mint_ws_ticket(access_token: str) -> tuple[str, int]:
@@ -110,10 +127,16 @@ async def authenticate_subprotocol(ws: WebSocket) -> WsAuth:
             is_admin=profile.is_admin,
             email_verified=profile.email_verified,
         )
-    return WsAuth(principal=principal, subprotocol=proto, access_token=token)
+    return WsAuth(
+        principal=principal,
+        subprotocol=proto,
+        access_token=token,
+        expires_at=claims.exp,
+        jti=claims.jti,
+    )
 
 
-async def refresh_principal(access_token: str) -> Principal:
+async def refresh_principal(access_token: str) -> RefreshedPrincipal:
     """Re-verify a token presented via in-socket refresh."""
     try:
         claims = jwt.verify_access_token(access_token)
@@ -126,14 +149,16 @@ async def refresh_principal(access_token: str) -> Principal:
         profile = await IdentityFacade(session).get_profile(claims.sub)
         if profile is None or profile.status.value != "active":
             raise WsAuthError("account inactive")
-        return Principal(
+        principal = Principal(
             user_id=profile.id,
             is_admin=profile.is_admin,
             email_verified=profile.email_verified,
         )
+    return RefreshedPrincipal(principal=principal, expires_at=claims.exp, jti=claims.jti)
 
 
 __all__ = [
+    "RefreshedPrincipal",
     "WsAuth",
     "WsAuthError",
     "authenticate_subprotocol",

@@ -77,6 +77,8 @@ async def ws_chatroom(ws: WebSocket, chatroom_id: uuid.UUID) -> None:
         principal=auth.principal,
         subprotocol=auth.subprotocol,
         channels=[room_channel(chatroom_id)],
+        token_expires_at=auth.expires_at,
+        token_jti=auth.jti,
         on_open=on_open,
         on_close=on_close,
     )

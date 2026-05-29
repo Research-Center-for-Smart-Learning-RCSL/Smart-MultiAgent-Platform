@@ -35,6 +35,8 @@ async def ws_user(ws: WebSocket, user_id: uuid.UUID) -> None:
         principal=auth.principal,
         subprotocol=auth.subprotocol,
         channels=[user_channel(user_id)],
+        token_expires_at=auth.expires_at,
+        token_jti=auth.jti,
     )
 
 

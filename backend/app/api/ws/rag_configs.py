@@ -61,6 +61,8 @@ async def ws_rag_configs(ws: WebSocket, config_id: uuid.UUID) -> None:
         principal=auth.principal,
         subprotocol=auth.subprotocol,
         channels=[rag_channel(config_id)],
+        token_expires_at=auth.expires_at,
+        token_jti=auth.jti,
     )
 
 

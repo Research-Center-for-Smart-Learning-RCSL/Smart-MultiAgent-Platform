@@ -169,6 +169,29 @@ class LoggingSection(BaseSettings):
     json: bool = True  # type: ignore[assignment]
 
 
+class EgressSection(BaseSettings):
+    """Caller-side config for reaching the Egress Proxy (R12.04 / SEC-H5).
+
+    The built-in tool runtime builds :class:`HttpxEgressProxyClient` from this
+    so ``web_search`` egress traverses the proxy's allowlist + IP policy.
+    """
+
+    model_config = SettingsConfigDict(env_prefix="SMAP_EGRESS_", extra="ignore")
+
+    proxy_url: str = "http://egress-proxy:8080"
+    upstream_timeout_s: float = 20.0
+    # Same HMAC secret the egress-proxy verifies. Read from the un-prefixed
+    # EGRESS_PROXY_SHARED_SECRET (matches the proxy service + .env.example),
+    # falling back to the section-prefixed form.
+    shared_secret: str = Field(
+        default="",
+        validation_alias=AliasChoices(
+            "EGRESS_PROXY_SHARED_SECRET",
+            "SMAP_EGRESS_SHARED_SECRET",
+        ),
+    )
+
+
 class LimitsSection(BaseSettings):
     """Numeric budgets keyed by §19.02 bucket; real enforcement lands in C.12."""
 
@@ -208,6 +231,7 @@ class Settings(BaseSettings):
     security: SecuritySection = Field(default_factory=SecuritySection)
     logging: LoggingSection = Field(default_factory=LoggingSection)
     limits: LimitsSection = Field(default_factory=LimitsSection)
+    egress: EgressSection = Field(default_factory=EgressSection)
 
 
 def _check_prod_secrets(s: Settings) -> None:

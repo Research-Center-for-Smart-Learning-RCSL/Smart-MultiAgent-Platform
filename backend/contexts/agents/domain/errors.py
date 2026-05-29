@@ -31,6 +31,22 @@ class KeyGroupOutOfProject(AgentsError):
     code = "agents/key-group-out-of-project"
 
 
+class RagConfigOutOfProject(AgentsError):
+    """Attached RAG config does not belong to the agent's project (SEC-H1).
+
+    Surfaced as 404 — an attacker probing another tenant's config UUID must
+    not be able to tell "exists elsewhere" from "does not exist".
+    """
+
+    code = "agents/rag-config-not-found"
+
+
+class GraphRagConfigOutOfProject(AgentsError):
+    """Attached GraphRAG config does not belong to the agent's project (SEC-H1)."""
+
+    code = "agents/graphrag-config-not-found"
+
+
 class A2AForbidden(AgentsError):
     """R9.17 — scope check failed."""
 
@@ -85,8 +101,10 @@ __all__ = [
     "AgentVersionMismatch",
     "AgentsError",
     "CapabilityMismatch",
+    "GraphRagConfigOutOfProject",
     "KeyGroupOutOfProject",
     "McpBindingNotFound",
+    "RagConfigOutOfProject",
     "McpEgressDenied",
     "McpTestFailed",
     "McpTimeout",

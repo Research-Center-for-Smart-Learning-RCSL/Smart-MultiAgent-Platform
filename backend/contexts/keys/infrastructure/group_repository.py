@@ -111,6 +111,39 @@ class KeyGroupMemberRepository:
         ).all()
         return [_row_to_member(r) for r in rows]
 
+    async def list_ordered_carried(self, group_id: uuid.UUID) -> list[KeyGroupMember]:
+        """Members whose key is *actively carried* into the group's project.
+
+        SEC-H3: provider-call eligibility must require an active
+        ``key_projects`` carry row scoped to the group's project — not bare
+        group membership. A withdrawn carry (``carried=false``) — a Project
+        Owner pulling a user's key, or the membership-removal fanout — drops
+        the member here, so the provider router can no longer select or
+        decrypt that key. Because the check is a DB join re-run on every call,
+        a revocation takes effect immediately and does not depend on the
+        in-process DEK cache TTL or an at-most-once pub/sub invalidation.
+        """
+        m = t.key_group_members
+        kg = t.key_groups
+        kp = t.key_projects
+        stmt = (
+            sa.select(m)
+            .select_from(
+                m.join(kg, kg.c.id == m.c.group_id).join(
+                    kp,
+                    sa.and_(
+                        kp.c.key_id == m.c.key_id,
+                        kp.c.project_id == kg.c.project_id,
+                        kp.c.carried.is_(True),
+                    ),
+                )
+            )
+            .where(m.c.group_id == group_id)
+            .order_by(m.c.priority.asc())
+        )
+        rows = (await self._db.execute(stmt)).all()
+        return [_row_to_member(r) for r in rows]
+
     async def add(
         self,
         *,

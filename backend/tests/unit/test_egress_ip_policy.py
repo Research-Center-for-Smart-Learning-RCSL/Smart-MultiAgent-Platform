@@ -23,6 +23,10 @@ from services.egress_proxy.ip_policy import is_blocked_ip
         "100.100.100.200",  # Alibaba
         "192.0.0.192",  # Oracle
         "161.26.1.1",  # IBM (explicit block)
+        "100.64.0.1",  # CGNAT (RFC 6598) — SEC-H4
+        "100.127.255.254",  # CGNAT upper edge — SEC-H4
+        "64:ff9b::1.1.1.1",  # NAT64 well-known prefix (RFC 6052) — SEC-H4
+        "64:ff9b::ffff:ffff",  # NAT64 wrapping a public-looking v4 — SEC-H4
         "::1",  # IPv6 loopback
         "fe80::1",  # IPv6 link-local
         "fc00::1",  # IPv6 unique-local

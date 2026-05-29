@@ -28,7 +28,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from contexts.agents.domain.errors import (
     AgentCapExceeded,
     AgentNotFound,
+    GraphRagConfigOutOfProject,
     KeyGroupOutOfProject,
+    RagConfigOutOfProject,
 )
 from contexts.agents.domain.models import (
     Agent,
@@ -43,6 +45,7 @@ from contexts.agents.infrastructure.repositories import (
     AgentRepository,
 )
 from contexts.keys.interfaces.facade import KeysFacade
+from contexts.knowledge.interfaces.facade import KnowledgeFacade
 from shared_kernel import audit
 
 _AGENT_CAP_PER_PROJECT = 1000
@@ -57,11 +60,32 @@ class AgentService:
         self._agents = AgentRepository(db)
         self._bindings = AgentMcpBindingRepository(db)
         self._keys = KeysFacade(db)
+        self._knowledge = KnowledgeFacade(db)
 
     async def _assert_key_group_in_project(self, *, key_group_id: uuid.UUID, project_id: uuid.UUID) -> None:
         group = await self._keys.get_key_group(key_group_id)
         if group is None or group.project_id != project_id:
             raise KeyGroupOutOfProject(f"key_group {key_group_id} is not in project {project_id}")
+
+    async def _assert_rag_config_in_project(self, *, rag_config_id: uuid.UUID, project_id: uuid.UUID) -> None:
+        """SEC-H1 — a RAG config attached to an agent must live in the same
+        project, else the agent would pull another tenant's document chunks
+        into context at retrieval time (the Qdrant collection is keyed on the
+        *config's* project_id). Mirrors `_assert_key_group_in_project`.
+        """
+        cfg = await self._knowledge.get_rag_config(rag_config_id)
+        if cfg is None or cfg.project_id != project_id:
+            raise RagConfigOutOfProject(f"rag_config {rag_config_id} is not in project {project_id}")
+
+    async def _assert_graphrag_config_in_project(
+        self, *, graphrag_config_id: uuid.UUID, project_id: uuid.UUID
+    ) -> None:
+        """SEC-H1 — same cross-tenant guard for an attached GraphRAG config."""
+        cfg = await self._knowledge.get_graphrag_config(graphrag_config_id)
+        if cfg is None or cfg.project_id != project_id:
+            raise GraphRagConfigOutOfProject(
+                f"graphrag_config {graphrag_config_id} is not in project {project_id}"
+            )
 
     async def create(
         self,
@@ -92,6 +116,16 @@ class AgentService:
             key_group_id=draft.key_group_id,
             project_id=project_id,
         )
+        if draft.rag_config_id is not None:
+            await self._assert_rag_config_in_project(
+                rag_config_id=draft.rag_config_id,
+                project_id=project_id,
+            )
+        if draft.graphrag_config_id is not None:
+            await self._assert_graphrag_config_in_project(
+                graphrag_config_id=draft.graphrag_config_id,
+                project_id=project_id,
+            )
 
         wakeup = draft.wakeup_config or {}
         agent = await self._agents.create(
@@ -156,6 +190,19 @@ class AgentService:
         if new_kg is not None and new_kg != current.key_group_id:
             await self._assert_key_group_in_project(
                 key_group_id=new_kg,
+                project_id=current.project_id,
+            )
+        # SEC-H1 — same project guard when (re)attaching a RAG / GraphRAG
+        # config. `clear_*` wins over a stale id, so only validate an actual
+        # attach (the create path does the same check).
+        if not draft.clear_rag_config and draft.rag_config_id is not None:
+            await self._assert_rag_config_in_project(
+                rag_config_id=draft.rag_config_id,
+                project_id=current.project_id,
+            )
+        if not draft.clear_graphrag_config and draft.graphrag_config_id is not None:
+            await self._assert_graphrag_config_in_project(
+                graphrag_config_id=draft.graphrag_config_id,
                 project_id=current.project_id,
             )
 
