@@ -7,7 +7,12 @@ Every call runs an ephemeral container with:
 - 100 MB tmpfs at ``/workspace`` (for ``file`` the tmpfs is swapped for the
   per-agent named volume ``smap-agent-fs-{agent_id}``)
 - memory=512m, cpus=0.5, pids_limit=128, nofile ulimit 512
-- Network attached to ``smap_egress_net`` only; DNS restricted
+- Network attached to ``smap_egress_net`` only. That network is declared
+  ``internal: true`` in compose (SEC-C1), so the container has **no** default
+  gateway: the egress proxy — the single host that straddles ``egress_net``
+  and the outbound ``backend_net`` — is the only reachable peer. Do not give
+  this container a second network or this network a gateway; that isolation is
+  what forces all sandbox egress through the proxy's HMAC + allowlist policy.
 - ``--rm`` at exit
 
 Docker SDK imports are **lazy** — the module imports cleanly without Docker

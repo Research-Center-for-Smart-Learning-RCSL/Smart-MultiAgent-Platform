@@ -3,7 +3,12 @@
 The proxy never forwards to:
 
 - RFC 1918 private space (``10/8``, ``172.16/12``, ``192.168/16``)
-- Carrier-grade NAT (``100.64.0.0/10``)
+- Carrier-grade NAT (``100.64.0.0/10``) — backs cloud-internal load balancers,
+  k8s node/pod ranges, and Tailscale; the stdlib does NOT flag it as private
+  (SEC-H4), so it is enumerated explicitly below.
+- NAT64 well-known prefix (``64:ff9b::/96``) — embeds IPv4 targets in IPv6 and
+  is only caught incidentally / version-dependently by ``is_reserved``; blocked
+  explicitly so the policy does not depend on stdlib version (SEC-H4).
 - Loopback (``127/8``, ``::1``)
 - Link-local (``169.254/16``, ``fe80::/10``)
 - IPv6 unique-local (``fc00::/7``)
@@ -34,9 +39,18 @@ _EXPLICIT_BLOCKED_IPS: frozenset[str] = frozenset(
     }
 )
 
-# IBM metadata is an entire /16 carved out of a public range.
+# Networks the stdlib flags do NOT reliably catch, so we enumerate them.
 _EXPLICIT_BLOCKED_NETWORKS: tuple[ipaddress.IPv4Network | ipaddress.IPv6Network, ...] = (
+    # IBM metadata is an entire /16 carved out of a public range.
     ipaddress.ip_network("161.26.0.0/16"),
+    # SEC-H4: Carrier-grade NAT (RFC 6598). `is_private` is False for this
+    # range on CPython, so without this entry an allowlisted hostname resolving
+    # into CGNAT space (cloud LBs, k8s, Tailscale) would be forwarded.
+    ipaddress.ip_network("100.64.0.0/10"),
+    # SEC-H4: NAT64 well-known prefix (RFC 6052) — `64:ff9b::/96` embeds an
+    # IPv4 destination in an IPv6 address; only caught incidentally by
+    # `is_reserved` and version-dependently, so block it explicitly.
+    ipaddress.ip_network("64:ff9b::/96"),
 )
 
 

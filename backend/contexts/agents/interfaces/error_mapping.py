@@ -28,6 +28,16 @@ _MAP: ErrorMap = {
         422,
         "Key Group does not belong to the agent's project",
     ),
+    errors.RagConfigOutOfProject: (
+        "agents/rag-config-not-found",
+        404,
+        "RAG config not found",
+    ),
+    errors.GraphRagConfigOutOfProject: (
+        "agents/graphrag-config-not-found",
+        404,
+        "GraphRAG config not found",
+    ),
     errors.A2AForbidden: ("a2a-forbidden", 403, "A2A call forbidden"),
     errors.McpBindingNotFound: (
         "agents/mcp-binding-not-found",

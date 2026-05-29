@@ -24,6 +24,7 @@ import uuid
 from collections.abc import Awaitable, Callable, Sequence
 from contextlib import suppress
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Any
 
 from fastapi import WebSocket, WebSocketDisconnect
@@ -31,7 +32,8 @@ from loguru import logger
 from redis.exceptions import ResponseError
 
 from app.config.settings import get_settings
-from shared_kernel.auth.clients import get_redis
+from shared_kernel.auth import tokens
+from shared_kernel.auth.clients import get_redis, now
 from shared_kernel.auth.permissions import Principal
 from shared_kernel.observability.metrics import (
     WS_CONNECTIONS_ACTIVE,
@@ -50,6 +52,15 @@ _CLOSE_AUTH_FAILED = 4401  # app-level code, see §22.14
 # slot and the per-user Redis cap entry are released. Generous enough — two-plus
 # missed client heartbeats (60 s TTL) — not to reap a merely-quiet client.
 _IDLE_TIMEOUT_SECONDS = 120.0
+# SEC-H2: the handshake authorizes the token once; after `accept` the only
+# re-auth was a *client-initiated* `refresh` frame, so a revoked/expired
+# principal kept receiving events until it chose to disconnect. The auth
+# watchdog re-checks the held token's expiry (locally) and its jti denylist
+# (Redis) on this cadence, so logout / ban / session-kill tears the socket
+# down within roughly one access-TTL + this interval — matching the
+# per-request guarantee the HTTP middleware upholds. 30 s is well under the
+# access-token TTL while keeping the Redis EXISTS probe rate negligible.
+_AUTH_RECHECK_SECONDS = 30.0
 # ASYNC-7: a connection refreshes its heartbeat score in the per-user cap ZSET
 # on every inbound frame. A score older than this — deliberately longer than
 # the idle timeout, so a live connection is always fresh — means the owning
@@ -76,6 +87,12 @@ class ChannelConnection:
     outbound: asyncio.Queue[dict[str, Any]] = field(
         default_factory=lambda: asyncio.Queue(maxsize=_OUTBOUND_QUEUE_MAX),
     )
+    # SEC-H2: the access token's expiry + jti, tracked so the auth watchdog can
+    # tear the socket down on expiry/revocation. Refreshed in-place when the
+    # client sends a `refresh` frame. `None` means the caller opted out of
+    # live re-auth (e.g. a test harness with no token metadata).
+    token_expires_at: datetime | None = None
+    token_jti: uuid.UUID | None = None
 
     async def enqueue(self, event: dict[str, Any]) -> bool:
         """Try to enqueue without blocking. Returns False when full —
@@ -147,6 +164,8 @@ async def connection_loop(
     principal: Principal,
     subprotocol: str,
     channels: Sequence[str],
+    token_expires_at: datetime | None = None,
+    token_jti: uuid.UUID | None = None,
     on_open: Callable[[ChannelConnection], Awaitable[None]] | None = None,
     on_close: Callable[[ChannelConnection], Awaitable[None]] | None = None,
     on_client_message: (Callable[[ChannelConnection, dict[str, Any]], Awaitable[None]] | None) = None,
@@ -159,7 +178,12 @@ async def connection_loop(
     own (refresh, ping) are handled here; everything else falls through to
     `on_client_message` if the endpoint opted in.
     """
-    conn = ChannelConnection(ws=ws, principal=principal)
+    conn = ChannelConnection(
+        ws=ws,
+        principal=principal,
+        token_expires_at=token_expires_at,
+        token_jti=token_jti,
+    )
 
     # Per-user cap — check before accepting so the accept+close path is rare.
     if not await _register_user_connection(principal.user_id, conn.connection_id):
@@ -234,16 +258,20 @@ async def connection_loop(
             if mtype == "refresh":
                 token = msg.get("access_token", "")
                 try:
-                    new_principal = await refresh_principal(token)
+                    refreshed = await refresh_principal(token)
                 except WsAuthError:
                     _request_close(_CLOSE_AUTH_FAILED, "refresh failed")
                     return
                 # Principal must remain the same user — clients cannot hop
                 # identities mid-socket.
-                if new_principal.user_id != conn.principal.user_id:
+                if refreshed.principal.user_id != conn.principal.user_id:
                     _request_close(_CLOSE_AUTH_FAILED, "principal changed")
                     return
-                conn.principal = new_principal
+                conn.principal = refreshed.principal
+                # SEC-H2: track the *refreshed* token so the watchdog enforces
+                # the new expiry/jti, not the one presented at handshake.
+                conn.token_expires_at = refreshed.expires_at
+                conn.token_jti = refreshed.jti
                 await conn.enqueue({"type": "refresh.ack"})
                 continue
             if on_client_message is not None:
@@ -285,6 +313,38 @@ async def connection_loop(
         finally:
             stopper.cancel()
 
+    async def _auth_watchdog() -> None:
+        # SEC-H2: re-authorize a live socket on a fixed cadence so a token that
+        # has since expired or been revoked (logout / ban / session kill) tears
+        # the connection down — the handshake check alone left a window the
+        # full access-TTL wide. Reads `conn.token_*` each tick so an in-socket
+        # refresh is honoured. This task never writes to the socket; it only
+        # records the intended close frame and returns, leaving the single
+        # authoritative ws.close() to connection_loop's finally-block.
+        while True:
+            await asyncio.sleep(_AUTH_RECHECK_SECONDS)
+            if conn.token_expires_at is not None and now() >= conn.token_expires_at:
+                _request_close(_CLOSE_AUTH_FAILED, "token expired")
+                return
+            jti = conn.token_jti
+            if jti is None:
+                continue
+            try:
+                denied = await tokens.is_denied(jti)
+            except Exception:
+                # A transient Redis error must not mass-disconnect live
+                # sockets; expiry is still enforced locally above. Log and
+                # retry on the next tick (fail-open on the denylist probe
+                # only — the same posture as a Redis blip on the HTTP path).
+                logger.bind(
+                    event="ws_denylist_check_error",
+                    connection_id=str(conn.connection_id),
+                ).warning("ws denylist re-check failed; retrying next tick")
+                continue
+            if denied:
+                _request_close(_CLOSE_AUTH_FAILED, "token revoked")
+                return
+
     tasks = [
         asyncio.create_task(_reader(), name=f"ws-reader-{conn.connection_id}"),
         asyncio.create_task(_writer(), name=f"ws-writer-{conn.connection_id}"),
@@ -295,6 +355,18 @@ async def connection_loop(
             asyncio.create_task(
                 _pubsub_fanin(),
                 name=f"ws-fanin-{conn.connection_id}",
+            ),
+        )
+    # SEC-H2: only run the watchdog when the caller supplied token metadata.
+    # Without this guard a caller that opts out (token_expires_at=None) would
+    # still get a task that loops forever — harmless, but the explicit gate
+    # keeps the no-metadata path (tests) free of a Redis-touching background
+    # task. With metadata, expiry is always enforced; denylist when reachable.
+    if token_expires_at is not None or token_jti is not None:
+        tasks.append(
+            asyncio.create_task(
+                _auth_watchdog(),
+                name=f"ws-authwatch-{conn.connection_id}",
             ),
         )
 

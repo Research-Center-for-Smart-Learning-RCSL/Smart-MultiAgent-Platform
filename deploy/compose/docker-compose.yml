@@ -19,7 +19,18 @@ networks:
     internal: false
   egress_net:
     name: smap_egress_net
-    internal: false
+    # SEC-C1: the MCP sandbox plane. `internal: true` removes this network's
+    # gateway, so a sandbox container attached here (docker_runsc.py sets
+    # `network_mode: smap_egress_net`) has NO route to the Docker bridge — it
+    # cannot reach the cloud metadata IP (169.254.169.254), the data plane
+    # (postgres/redis/vault on backend_net), or any public host with a raw
+    # socket. The ONLY host it can reach is the egress-proxy, which straddles
+    # this internal network and the non-internal backend_net (giving the proxy
+    # its own internet route while denying one to the sandbox). This network
+    # isolation IS the L3 chokepoint that forces all sandbox egress through the
+    # proxy's HMAC + allowlist + IP-policy enforcement; without it those
+    # controls were advisory (a hostile MCP tool ignored the proxy entirely).
+    internal: true
 
 volumes:
   postgres_data:

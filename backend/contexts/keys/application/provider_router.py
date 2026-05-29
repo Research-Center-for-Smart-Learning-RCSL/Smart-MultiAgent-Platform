@@ -269,7 +269,13 @@ class ProviderRouter:
     async def _load_eligible(
         self, group_id: uuid.UUID, capability: ProviderCapability
     ) -> list[_EligibleMember]:
-        members = await self._members_repo.list_ordered(group_id)
+        # SEC-H3: `list_ordered_carried` (not `list_ordered`) requires an
+        # active `key_projects` carry into the group's project, so a withdrawn
+        # or never-carried key is never selected. `get_active` then filters
+        # soft-deleted keys. Both are fresh DB reads per call, so the
+        # authorization gate does not rely on the DEK cache being invalidated
+        # in time — a revoked key is excluded here, before `_unwrap_secret`.
+        members = await self._members_repo.list_ordered_carried(group_id)
         eligible: list[_EligibleMember] = []
         for m in members:
             key = await self._keys_repo.get_active(m.key_id)

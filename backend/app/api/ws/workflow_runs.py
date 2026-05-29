@@ -49,6 +49,8 @@ async def ws_workflow_runs(ws: WebSocket, run_id: uuid.UUID) -> None:
         principal=auth.principal,
         subprotocol=auth.subprotocol,
         channels=[workflow_channel(run_id)],
+        token_expires_at=auth.expires_at,
+        token_jti=auth.jti,
     )
 
 

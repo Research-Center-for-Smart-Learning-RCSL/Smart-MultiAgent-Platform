@@ -142,7 +142,12 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 
 - **smap_frontend_net:** nginx ↔ backend-web ↔ frontend
 - **smap_backend_net:** backend ↔ all data stores + Vault
-- **smap_egress_net:** MCP sandbox containers ↔ egress-proxy only
+- **smap_egress_net:** MCP sandbox containers ↔ egress-proxy only. Declared
+  `internal: true` (SEC-C1) — it has **no** gateway, so a sandbox attached
+  here cannot reach the data plane, cloud metadata, or the public internet
+  except through the egress-proxy, which alone straddles this network and the
+  outbound `backend_net`. Do not give this network a gateway or attach a
+  sandbox to a second network; that isolation is the egress chokepoint.
 
 ---
 
