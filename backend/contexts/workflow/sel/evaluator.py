@@ -9,6 +9,7 @@ Budget enforcement:
 
 from __future__ import annotations
 
+import logging
 import time
 from typing import Any
 
@@ -264,21 +265,49 @@ def _call_func(name: str, args: list[Any]) -> Any:
     raise SELForbiddenConstruct(f"Function {name!r} is not in the SEL whitelist")
 
 
+_log = logging.getLogger(__name__)
+_re2_unavailable_warned = False
+
+
+def confirm_re2_available() -> bool:
+    """Startup probe (SEC-L5): is the linear-time `re2` engine importable?
+
+    Logs an error and returns False when it is not. Called from app startup so
+    a missing `google-re2` (a pinned production dependency) is surfaced loudly
+    at boot instead of being discovered only when a workflow first evaluates a
+    `matches()` call — at which point it fails closed (see `_regex_match`).
+    """
+    try:
+        import re2  # noqa: F401
+    except ImportError:
+        _log.error(
+            "google-re2 is not importable; SEL matches() will fail closed "
+            "(always no-match). Install google-re2 — it is a pinned production "
+            "dependency that bounds regex evaluation to linear time."
+        )
+        return False
+    return True
+
+
 def _regex_match(text: str, pattern: str) -> bool:
-    """RE2-safe regex match with 5 ms budget."""
+    """ReDoS-safe regex match via google-re2's linear-time engine.
+
+    If re2 is unavailable we FAIL CLOSED (return no-match) rather than falling
+    back to the stdlib `re` engine (SEC-L5): `re` backtracks, so a crafted
+    pattern/input pair is a ReDoS vector, and a single `re.search` cannot be
+    interrupted by the evaluator's 5 ms deadline. A no-match is the safe
+    default for a SEL predicate.
+    """
     try:
         import re2
-
-        compiled = re2.compile(pattern)
-        return compiled.search(text) is not None
     except ImportError:
-        import re
-
-        try:
-            compiled_re = re.compile(pattern)
-        except re.error:
-            return False
-        return compiled_re.search(text) is not None
+        global _re2_unavailable_warned
+        if not _re2_unavailable_warned:
+            _re2_unavailable_warned = True
+            _log.error("SEL matches() invoked without google-re2; failing closed (no-match)")
+        return False
+    try:
+        return re2.compile(pattern).search(text) is not None
     except Exception:
         return False
 
@@ -433,6 +462,40 @@ def _safe_cmp(op: str, a: Any, b: Any) -> bool:
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
+
+
+def _walk_validate(node: ASTNode) -> None:
+    """Static-check a parsed AST: every function call must name a whitelisted
+    function. Mirrors the runtime guard in `_eval_func` so the same rejection
+    happens at save/lint time without evaluating anything."""
+    if isinstance(node, FuncCall):
+        if node.name not in _ALLOWED_FUNCTIONS:
+            raise SELForbiddenConstruct(f"Function {node.name!r} is not in the SEL whitelist")
+        for arg in node.args:
+            _walk_validate(arg)
+    elif isinstance(node, BinOp):
+        _walk_validate(node.left)
+        _walk_validate(node.right)
+    elif isinstance(node, UnaryOp):
+        _walk_validate(node.operand)
+    # NumberLit / StringLit / BoolLit / NullLit / VarRef are leaves.
+
+
+def validate(expression: str) -> None:
+    """Parse + statically validate a SEL expression WITHOUT evaluating it.
+
+    Raises SELBudgetExceeded / SELSyntaxError / SELForbiddenConstruct on an
+    over-long, syntactically invalid, too-deep, or non-whitelisted expression.
+    The workflow linter calls this at save time (SEC-L5) so a bad expression is
+    rejected up front rather than failing — and being silently swallowed by the
+    condition executor — only when the branch runs.
+    """
+    if len(expression) > MAX_EXPR_LENGTH:
+        raise SELBudgetExceeded(
+            f"Expression length {len(expression)} exceeds max {MAX_EXPR_LENGTH}",
+        )
+    ast = parse(tokenize(expression))
+    _walk_validate(ast)
 
 
 def evaluate(expression: str, variables: dict[str, Any] | None = None) -> Any:

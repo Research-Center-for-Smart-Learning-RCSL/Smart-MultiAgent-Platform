@@ -118,6 +118,10 @@ def verify_access_token(token: str) -> AccessClaims:
         jti = uuid.UUID(claims["jti"])
         iat = datetime.fromtimestamp(int(claims["iat"]), tz=now().tzinfo)
         exp = datetime.fromtimestamp(int(claims["exp"]), tz=now().tzinfo)
+        # `nbf` is REQUIRED, not optional (SEC-L1). SMAP always mints it, so a
+        # token lacking it is malformed/forged; treating it as optional would
+        # let a crafted token skip the not-yet-valid check entirely.
+        nbf = datetime.fromtimestamp(int(claims["nbf"]), tz=now().tzinfo)
     except (KeyError, ValueError, TypeError) as exc:
         raise JwtError(f"malformed claim set: {exc}") from exc
 
@@ -137,10 +141,8 @@ def verify_access_token(token: str) -> AccessClaims:
         raise JwtError("access token issued in the future")
     if exp + _LEEWAY < current:
         raise JwtError("access token expired")
-    if "nbf" in claims:
-        nbf = datetime.fromtimestamp(int(claims["nbf"]), tz=current.tzinfo)
-        if current + _LEEWAY < nbf:
-            raise JwtError("access token not yet valid")
+    if current + _LEEWAY < nbf:
+        raise JwtError("access token not yet valid")
 
     imp_raw = claims.get("impersonated_by")
     impersonated_by: uuid.UUID | None = None

@@ -59,6 +59,11 @@ _MAP: ErrorMap = {
         504,
         "MCP probe exceeded timeout",
     ),
+    errors.SandboxRuntimeViolation: (
+        "agents/sandbox-runtime-violation",
+        503,
+        "Sandbox runtime unavailable (gVisor isolation could not be confirmed)",
+    ),
     errors.CapabilityMismatch: (
         "capability-mismatch",
         422,

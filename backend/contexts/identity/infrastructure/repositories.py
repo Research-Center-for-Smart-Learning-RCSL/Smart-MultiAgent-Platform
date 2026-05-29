@@ -280,6 +280,21 @@ class _TokenRepo:
         """Return (plaintext_token, hash) — plaintext goes in the email body."""
         token = _new_token()
         token_hash = _hash_token(token)
+        # SEC-L2: burn any still-valid prior token for this user before issuing
+        # the new one. Without this, reissuing (re-request verification / reset)
+        # leaves every earlier token live until its own TTL, so several links
+        # are simultaneously usable instead of just the newest. The TTL+used_at
+        # filter keeps it cheap and idempotent.
+        await self._db.execute(
+            self._table.update()
+            .where(
+                sa.and_(
+                    self._table.c.user_id == user_id,
+                    self._table.c.used_at.is_(None),
+                )
+            )
+            .values(used_at=now())
+        )
         await self._db.execute(
             self._table.insert().values(
                 user_id=user_id,

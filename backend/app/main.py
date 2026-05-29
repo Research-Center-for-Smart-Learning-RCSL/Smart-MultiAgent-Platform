@@ -138,6 +138,7 @@ from contexts.knowledge.interfaces import error_mapping as knowledge_errors
 from contexts.orchestration.interfaces import error_mapping as orchestration_errors
 from contexts.tenancy.interfaces import error_mapping as tenancy_errors
 from contexts.workflow.interfaces import error_mapping as workflow_errors
+from contexts.workflow.sel.evaluator import confirm_re2_available
 from shared_kernel.auth.clients import close_redis
 from shared_kernel.db import registry as _db_registry  # noqa: F401 side-effect: table imports
 from shared_kernel.db.session import dispose as dispose_db
@@ -151,6 +152,10 @@ from shared_kernel.observability.otel import install_otel
 async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings = get_settings()
     configure_logging(settings.logging)
+    # SEC-L5: confirm the linear-time regex engine is present at boot. If it is
+    # missing, SEL matches() fails closed at run time; this logs the misconfig
+    # loudly up front rather than letting it surface only mid-workflow.
+    confirm_re2_available()
     await seed_test_users(app_env=settings.app.env)
     # ASYNC-2: subscribe this process to key-revocation events so a revoked or
     # carry-withdrawn DEK is punched out of the in-process provider_router cache.

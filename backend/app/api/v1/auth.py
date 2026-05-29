@@ -186,7 +186,7 @@ class WsTicketOut(BaseModel):
 # ---------------------------------------------------------------------------
 
 
-@router.post("/register", status_code=status.HTTP_201_CREATED)
+@router.post("/register", status_code=status.HTTP_202_ACCEPTED)
 async def register(
     body: RegisterIn,
     request: Request,
@@ -194,14 +194,18 @@ async def register(
     db: AsyncSession = Depends(db_session),
 ) -> dict[str, str]:
     service = _service(db)
-    user = await service.register(
+    # Uniform response regardless of whether the email is new or already taken
+    # (SEC-M4): the service either creates a pending user + sends verification,
+    # or notifies the existing owner out-of-band. The HTTP reply never reveals
+    # which path ran, so registration cannot be used to enumerate accounts.
+    await service.register(
         email=body.email,
         password=body.password,
         captcha_token=body.captcha_token,
         remote_ip=ctx.actor_ip,
         request_id=ctx.request_id,
     )
-    return {"id": str(user.id), "status": user.status.value}
+    return {"status": "verification_pending"}
 
 
 @router.post("/verify-email")

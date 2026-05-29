@@ -95,7 +95,13 @@ def tokenize(source: str) -> list[Token]:
             while i < n and (source[i].isdigit() or source[i] == "."):
                 i += 1
             text = source[start:i]
-            val: int | float = float(text) if "." in text else int(text)
+            # SEC-L5: a malformed literal like "1.2.3" reaches here as one run;
+            # surface it as a SELSyntaxError rather than letting the raw Python
+            # ValueError escape the lexer uncaught.
+            try:
+                val: int | float = float(text) if "." in text else int(text)
+            except ValueError as exc:
+                raise SELSyntaxError(f"Malformed number {text!r} at pos {start}") from exc
             tokens.append(Token(TokenType.NUMBER, val, start))
             continue
 

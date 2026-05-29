@@ -141,7 +141,17 @@ class ObservabilitySection(BaseSettings):
 class SecuritySection(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="SMAP_SEC_", extra="ignore")
 
-    trusted_proxies: list[str] = Field(default_factory=lambda: ["127.0.0.1/32"])
+    # SEC-M1: the default MUST cover the reverse-proxy peer or X-Forwarded-For
+    # is discarded and every client collapses to one IP (per-IP bans and
+    # rate-limit buckets become a single global bucket). In the compose
+    # topology nginx reaches backend-web over the Docker bridge (172.16.0.0/12),
+    # so it is trusted by default; ::1 covers IPv6 loopback. Trusting a private
+    # range that no proxy uses is low-risk (private IPs are not internet-
+    # routable to a public peer). Operators tighten this to their actual bridge
+    # subnet via SMAP_SEC_TRUSTED_PROXIES.
+    trusted_proxies: list[str] = Field(
+        default_factory=lambda: ["127.0.0.1/32", "::1/128", "172.16.0.0/12"]
+    )
     # Accept both the spec-literal env name `SMAP_CSP_REPORT_ONLY` (R19a.06)
     # and the section-prefixed `SMAP_SEC_CSP_REPORT_ONLY` form.
     csp_report_only: bool = Field(

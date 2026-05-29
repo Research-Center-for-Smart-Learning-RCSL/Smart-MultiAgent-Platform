@@ -31,7 +31,11 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any, Literal
 
-from contexts.agents.domain.errors import McpEgressDenied, McpTimeout
+from contexts.agents.domain.errors import (
+    McpEgressDenied,
+    McpTimeout,
+    SandboxRuntimeViolation,
+)
 from contexts.agents.domain.mcp import McpTestResult, ToolCallResult
 
 # Pinned by digest in production; the tag here is a placeholder used only as
@@ -62,6 +66,36 @@ class DockerRunscSandbox:
         import docker
 
         return docker.from_env()
+
+    @staticmethod
+    def _assert_runsc(container: Any) -> None:
+        """Verify the freshly-created container actually landed on gVisor.
+
+        ``runtime: runsc`` in the host-config is only a request — if gVisor is
+        missing or misregistered the daemon silently falls back to ``runc``,
+        which shares the host kernel and voids the sandbox's isolation
+        assumption. We inspect the effective runtime and refuse to run the
+        workload on a mismatch (SEC-M5). ``auto_remove=True`` means a killed
+        container disappears on its own; the explicit remove is best-effort.
+        """
+        try:
+            container.reload()
+            runtime = (container.attrs.get("HostConfig") or {}).get("Runtime")
+        except Exception as exc:
+            with contextlib.suppress(Exception):
+                container.kill()
+            raise SandboxRuntimeViolation(
+                "could not confirm sandbox container runtime",
+            ) from exc
+        if runtime != "runsc":
+            with contextlib.suppress(Exception):
+                container.kill()
+            with contextlib.suppress(Exception):
+                container.remove(force=True)
+            raise SandboxRuntimeViolation(
+                f"sandbox container runtime is {runtime!r}, expected 'runsc'; "
+                "refusing to run untrusted workload without gVisor isolation",
+            )
 
     def _base_host_config(self) -> dict[str, Any]:
         return {
@@ -148,6 +182,7 @@ class DockerRunscSandbox:
             detach=True,
             **host_config,
         )
+        self._assert_runsc(container)
         exit_status = container.wait(timeout=timeout_s)
         status_code = int(exit_status.get("StatusCode", 1))
         logs = container.logs(stdout=True, stderr=False).decode(
@@ -194,6 +229,7 @@ class DockerRunscSandbox:
             detach=True,
             **host_config,
         )
+        self._assert_runsc(container)
         exit_status = container.wait(timeout=timeout_s)
         duration_ms = int((time.monotonic() - start) * 1000)
         status_code = int(exit_status.get("StatusCode", 1))
@@ -255,6 +291,7 @@ class DockerRunscSandbox:
             detach=True,
             **host_config,
         )
+        self._assert_runsc(container)
         exit_status = container.wait(timeout=timeout_s)
         duration_ms = int((time.monotonic() - start) * 1000)
         status_code = int(exit_status.get("StatusCode", 1))
@@ -297,6 +334,7 @@ class DockerRunscSandbox:
             detach=True,
             **host_config,
         )
+        self._assert_runsc(container)
         try:
             exit_status = container.wait(timeout=min(timeout_s, 30.0))
         except Exception as exc:
