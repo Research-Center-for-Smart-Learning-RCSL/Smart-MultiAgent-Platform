@@ -1,6 +1,19 @@
 {
   "components": {
     "schemas": {
+      "AcceptByTokenIn": {
+        "properties": {
+          "token": {
+            "title": "Token",
+            "type": "string"
+          }
+        },
+        "required": [
+          "token"
+        ],
+        "title": "AcceptByTokenIn",
+        "type": "object"
+      },
       "AddMemberIn": {
         "properties": {
           "key_id": {
@@ -982,6 +995,29 @@
           "file"
         ],
         "title": "Body_upload_document_api_rag_configs__config_id__documents_post",
+        "type": "object"
+      },
+      "CaptchaConfigOut": {
+        "properties": {
+          "mode": {
+            "title": "Mode",
+            "type": "string"
+          },
+          "provider": {
+            "title": "Provider",
+            "type": "string"
+          },
+          "sitekey": {
+            "title": "Sitekey",
+            "type": "string"
+          }
+        },
+        "required": [
+          "mode",
+          "provider",
+          "sitekey"
+        ],
+        "title": "CaptchaConfigOut",
         "type": "object"
       },
       "CarryIn": {
@@ -6313,6 +6349,28 @@
         ]
       }
     },
+    "/api/auth/captcha-config": {
+      "get": {
+        "description": "Public CAPTCHA config for the registration widget (R19a.12).\n\nUnauthenticated by design \u2014 the SPA fetches this before the user has any\ncredentials. Returns only the public provider/sitekey/mode; the verify\nsecret never leaves the backend. When ``mode=off`` the SPA renders no widget.",
+        "operationId": "captcha_config_api_auth_captcha_config_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CaptchaConfigOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Captcha Config",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
     "/api/auth/change-email": {
       "post": {
         "operationId": "change_email_api_auth_change_email_post",
@@ -6532,7 +6590,7 @@
           "required": true
         },
         "responses": {
-          "201": {
+          "202": {
             "content": {
               "application/json": {
                 "schema": {
@@ -7138,7 +7196,7 @@
     },
     "/api/chatrooms/{chatroom_id}/compact": {
       "post": {
-        "description": "Trigger an immediate compaction pass for the room.\n\nAccepted by the runtime and executed on the next agent turn.\nActual compaction is wired by Phase H; this endpoint records the\nintent and returns 202 so the frontend slash command can complete.",
+        "description": "Trigger an immediate compaction pass for the room.\n\nRecords a one-shot intent flag (K.2): the next agent turn in this room\nreads + clears it and forces a compaction pass before its provider call\n(``turn_engine._consume_compact_flag``). Returns 202 so the frontend slash\ncommand completes immediately.",
         "operationId": "compact_chatroom_api_chatrooms__chatroom_id__compact_post",
         "parameters": [
           {
@@ -7859,6 +7917,48 @@
           }
         },
         "summary": "List Inbox",
+        "tags": [
+          "invites"
+        ]
+      }
+    },
+    "/api/invites/accept-by-token": {
+      "post": {
+        "description": "Redeem an invite from its emailed token link (R6.09).\n\nThe token authorises acceptance (it proves the holder received the invite\nmail), so no email match is required \u2014 but the caller must still be logged\nin AND email-verified (R6.11), same as the by-id accept path.",
+        "operationId": "accept_by_token_api_invites_accept_by_token_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AcceptByTokenIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/app__api__v1__invites__InviteOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Accept By Token",
         "tags": [
           "invites"
         ]

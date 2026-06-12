@@ -293,6 +293,66 @@ Any extra fields beyond the core RFC 7807 set are documented per-type in this ca
 
 ---
 
+## 7a. Email / SMTP (transactional mail)
+
+Transactional mail covers email verification (R6.02), password reset (R6.05),
+email-change re-verification (R6.06), and org/project invites (R6.09–R6.11).
+Without a working SMTP transport **users cannot complete registration through the
+UI** — the verification link is never delivered.
+
+### 7a.1 Configuration
+
+Non-secret connection parameters live in `.env` (read by `EmailSection`):
+
+| Var | Default | Notes |
+| --- | --- | --- |
+| `SMTP_HOST` | *(empty)* | Empty ⇒ dev "log to stdout" sender; no mail is sent. |
+| `SMTP_PORT` | `587` | `465` for `implicit` TLS. |
+| `SMTP_FROM` | `SMAP <no-reply@localhost>` | Envelope/header From. |
+| `SMTP_TLS_MODE` | `starttls` | `starttls` (587) \| `implicit` (465) \| `none` (in-cluster relay only). |
+| `SMTP_TIMEOUT_S` | `15` | Per-send timeout. |
+
+SMTP **credentials are never put in `.env`**. Store them in Vault KV at
+`secret/smap/config/smtp`:
+
+```bash
+vault kv put secret/smap/config/smtp username="apikey" password="<smtp-password>"
+```
+
+If `SMTP_HOST` is set but the Vault secret is unreadable, the sender proceeds
+**without authentication** (valid for an unauthenticated in-cluster relay / MailHog)
+and logs `event=smtp_creds_missing`.
+
+### 7a.2 Fail-open behaviour
+
+The factory selects `SmtpEmailSender` only when `SMTP_HOST` is set; otherwise it
+keeps the dev `LoggingEmailSender`. This is deliberate — a self-hosted operator
+may run mail-less in a closed lab. **In `env=prod` with no `SMTP_HOST` the backend
+still boots** but logs exactly one warning at startup (`event=smtp_unconfigured`):
+registration, reset, and invites are silently undeliverable. Grep the boot logs
+for that event after any prod deploy.
+
+### 7a.3 Smoke test (staging)
+
+1. `vault kv put secret/smap/config/smtp …` and set `SMTP_*` for the staging relay.
+2. Register a throwaway address; confirm a "Verify your email" message arrives.
+3. Click the link → account becomes `active` → log in succeeds.
+4. Run a password-reset round-trip and one org-invite to an **unregistered** address
+   (the invite link should route through sign-up, then auto-enroll).
+
+CI exercises the same path headlessly against MailHog (`compose.test.yml` +
+the `wiring` job's email round-trip).
+
+### 7a.4 CAPTCHA config
+
+The registration CAPTCHA (R19a.12) provider/secret/sitekey/mode live in Vault KV
+`secret/smap/config/captcha`. The frontend reads only the **public** subset via
+`GET /api/auth/captcha-config` (provider + sitekey + mode); the verify secret never
+leaves the backend. `mode=off` (or an unreachable Vault) ⇒ no widget renders and the
+backend bypasses verification. Login takes no CAPTCHA — it is register-only.
+
+---
+
 ## 8. Runbooks (selected high-impact scenarios)
 
 ### 8.1 "Vault is sealed after host restart"

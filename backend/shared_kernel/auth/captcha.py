@@ -18,6 +18,7 @@ from dataclasses import dataclass
 from typing import Final
 
 import httpx
+from loguru import logger
 
 from app.config.settings import get_settings
 from shared_kernel.auth.clients import get_vault_client
@@ -38,6 +39,19 @@ class _Config:
     mode: str  # "on" | "off"
 
 
+@dataclass(frozen=True, slots=True)
+class PublicCaptchaConfig:
+    """The non-secret subset the frontend needs to render the widget.
+
+    Crucially excludes the verify ``secret`` — only ``provider`` + ``sitekey``
+    (both public-by-design) and the on/off ``mode`` leave the backend.
+    """
+
+    mode: str  # "on" | "off"
+    provider: str  # "hcaptcha" | "turnstile" | "off"
+    sitekey: str
+
+
 def _load_config() -> _Config:
     raw = get_vault_client().kv_get(_KV_PATH)
     return _Config(
@@ -45,6 +59,32 @@ def _load_config() -> _Config:
         secret=str(raw.get("secret", "")),
         mode=str(raw.get("mode", "on")).lower(),
     )
+
+
+def public_config() -> PublicCaptchaConfig:
+    """Provider + sitekey + mode for ``GET /api/auth/captcha-config`` (R19a.12).
+
+    Mirrors :func:`verify`'s test-mode bypass (the E2E stack has no Vault), and
+    fails *open to off* if Vault is unreachable so the registration page can
+    always render — a transient Vault outage shows no widget rather than a blank
+    page. When ``mode=off`` the provider is forced to ``off`` so the SPA renders
+    nothing regardless of the configured provider.
+    """
+    if get_settings().app.env == "test":
+        return PublicCaptchaConfig(mode="off", provider="off", sitekey="")
+    try:
+        raw = get_vault_client().kv_get(_KV_PATH)
+    except Exception:
+        logger.bind(event="captcha_config_unreadable", path=_KV_PATH).warning(
+            "captcha config unreadable from Vault; serving mode=off to the frontend"
+        )
+        return PublicCaptchaConfig(mode="off", provider="off", sitekey="")
+    mode = str(raw.get("mode", "on")).lower()
+    provider = str(raw.get("provider", "off")).lower()
+    sitekey = str(raw.get("sitekey", ""))
+    if mode == "off":
+        provider = "off"
+    return PublicCaptchaConfig(mode=mode, provider=provider, sitekey=sitekey)
 
 
 async def verify(token: str | None, *, remote_ip: str | None) -> None:
@@ -81,4 +121,4 @@ async def verify(token: str | None, *, remote_ip: str | None) -> None:
         raise CaptchaError(f"CAPTCHA rejected: {body.get('error-codes') or 'unknown'}")
 
 
-__all__ = ["CaptchaError", "verify"]
+__all__ = ["CaptchaError", "PublicCaptchaConfig", "public_config", "verify"]

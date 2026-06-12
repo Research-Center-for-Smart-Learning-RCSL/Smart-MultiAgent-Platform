@@ -57,7 +57,12 @@
       "accept": "接受",
       "reject": "拒絕",
       "empty": "沒有待處理的邀請。",
-      "unverifiedBlock": "接受邀請前請先驗證信箱。"
+      "unverifiedBlock": "接受邀請前請先驗證信箱。",
+      "acceptTitle": "接受邀請",
+      "accepting": "正在接受您的邀請…",
+      "acceptSuccess": "已接受邀請，您現在擁有存取權限。",
+      "acceptFailure": "此邀請連結無效或已過期。",
+      "goToInbox": "前往邀請"
     },
     "transfer": {
       "title": "轉移原始建立者",

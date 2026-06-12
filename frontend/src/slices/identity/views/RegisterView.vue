@@ -1,20 +1,35 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { authApi } from '../api/auth'
+import { authApi, type CaptchaConfig } from '../api/auth'
 import { isProblemWithType } from '@shared/transport'
+import CaptchaWidget from '../components/CaptchaWidget.vue'
 
 const { t } = useI18n()
 const email = ref('')
 const password = ref('')
 const captchaToken = ref('')
+const captcha = ref<CaptchaConfig>({ mode: 'off', provider: 'off', sitekey: '' })
 const error = ref<string | null>(null)
 const submitting = ref(false)
 const router = useRouter()
 
+onMounted(async () => {
+  try {
+    const { data } = await authApi.captchaConfig()
+    captcha.value = data
+  } catch {
+    // Config unreachable → leave widget off; backend still enforces if enabled.
+  }
+})
+
 async function submit(): Promise<void> {
   error.value = null
+  if (captcha.value.provider !== 'off' && !captchaToken.value) {
+    error.value = t('identity.errors.captcha')
+    return
+  }
   submitting.value = true
   try {
     await authApi.register({
@@ -57,14 +72,12 @@ async function submit(): Promise<void> {
           minlength="10"
         >
       </label>
-      <label>
-        {{ $t('identity.register.captcha') }}
-        <input
-          v-model="captchaToken"
-          :placeholder="$t('identity.register.captchaPlaceholder')"
-          required
-        >
-      </label>
+      <CaptchaWidget
+        v-if="captcha.provider !== 'off'"
+        :provider="captcha.provider"
+        :sitekey="captcha.sitekey"
+        @update:token="captchaToken = $event"
+      />
       <p
         v-if="error"
         class="error"

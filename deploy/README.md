@@ -111,6 +111,46 @@ This runs `python -m smap.bootstrap all`, which is idempotent:
 
 ---
 
+## 5a. Build the gVisor sandbox images (K.5)
+
+The MCP / `code_exec` / `file` tools run inside two gVisor-isolated images that
+are **not** pulled from a registry — you build them locally:
+
+```bash
+cd deploy/compose
+docker compose --profile sandbox-build build
+# → smap/mcp-runtime:pinned   (stdio + URL MCP servers + the in-image driver)
+# → smap/code-exec:pinned      (curated scientific Python)
+```
+
+Requirements and notes:
+
+- **gVisor (`runsc`) must be installed and registered as a Docker runtime** on
+  the host — `docker_runsc.py` asserts the container actually landed on `runsc`
+  and refuses to run untrusted workloads on `runc`. Install:
+  https://gvisor.dev/docs/user_guide/install/
+- **Baked-in MCP servers.** The sandbox network is gateway-less, so a stdio MCP
+  server cannot install itself from npm/PyPI at run time — add the servers your
+  agents bind to `deploy/sandbox/mcp-runtime/Dockerfile` (the image ships
+  `@modelcontextprotocol/server-everything` for the smoke test). URL-source MCP
+  servers are reached through the egress proxy and need no baking.
+- **Pin by digest in production.** After building (or after the CI job records
+  them), set the digests so a rebuilt-but-unreviewed image can't slip in:
+
+  ```bash
+  SANDBOX_MCP_IMAGE=smap/mcp-runtime@sha256:<digest>
+  SANDBOX_CODE_EXEC_IMAGE=smap/code-exec@sha256:<digest>
+  ```
+
+  The backend reads these (defaulting to the `:pinned` tags for dev).
+- **Egress.** The proxy is a custom HMAC forwarder, not a transparent
+  `HTTP_PROXY`. The host pre-signs the per-project HMAC and passes it into the
+  sandbox, so the shared secret never enters the container; `code_exec` has no
+  raw outbound route (safe default), and allowlisted egress is exposed only via
+  `web_search` / URL MCP.
+
+---
+
 ## 6. Start the full stack
 
 ```bash

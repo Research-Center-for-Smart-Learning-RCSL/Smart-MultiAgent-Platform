@@ -26,6 +26,7 @@ SoC:
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any, Literal, Protocol
 
@@ -116,7 +117,7 @@ class CompactPlan:
 
 
 def choose_range_to_compact(
-    messages: list[MessageLike],
+    messages: Sequence[MessageLike],
     *,
     target_tokens_to_shed: int,
 ) -> CompactPlan | None:
@@ -180,7 +181,7 @@ class CompactFailed(RuntimeError):
 
 async def run_compact(
     *,
-    messages: list[MessageLike],
+    messages: Sequence[MessageLike],
     projected_tokens: int,
     context_token_cap: int | None,
     provider_context_limit: int,

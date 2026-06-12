@@ -161,6 +161,53 @@ class MessageService:
             _log.error("realtime publish failed for message.created %s", msg.id, exc_info=True)
         return msg
 
+    async def send_agent(
+        self,
+        *,
+        chatroom_id: uuid.UUID,
+        agent_id: uuid.UUID,
+        content_md: str,
+        metadata: dict[str, Any] | None = None,
+        request_id: uuid.UUID | None = None,
+    ) -> Message:
+        """Persist an agent's reply (K.2). The turn engine's only write surface.
+
+        Constructs ``sender_type=AGENT`` (which :meth:`send` refuses — it is
+        user-only) and audits it. Unlike :meth:`send`, this does **not** publish
+        ``message.created``: an agent reply has no optimistic client echo, so the
+        ``message.created`` notification must fire *after* the turn engine commits
+        (otherwise the client's refetch races an uncommitted row and the reply is
+        invisible). The caller publishes post-commit. Agent messages are
+        immutable (R13.22) — there is no edit/delete here.
+        """
+        meta = dict(metadata or {})
+        meta.setdefault("type", "agent_reply")
+        msg = await self._messages.create(
+            chatroom_id=chatroom_id,
+            sender_type=SenderType.AGENT,
+            sender_id=agent_id,
+            content_md=content_md,
+            metadata=meta,
+        )
+        await audit.emit(
+            self._db,
+            audit.AuditEvent(
+                action="message.sent",
+                actor_user_id=None,
+                actor_ip=None,
+                resource_type="message",
+                resource_id=msg.id,
+                metadata={
+                    "chatroom_id": str(chatroom_id),
+                    "agent_id": str(agent_id),
+                    "sender": "agent",
+                    "len": len(content_md),
+                },
+                request_id=request_id,
+            ),
+        )
+        return msg
+
     async def edit(
         self,
         *,

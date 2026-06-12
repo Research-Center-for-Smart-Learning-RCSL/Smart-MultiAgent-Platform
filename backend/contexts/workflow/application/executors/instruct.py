@@ -45,7 +45,35 @@ async def execute(ctx: RunContext, node: NodeSpec, db: AsyncSession) -> StepOutc
         result_output = {"instruction_id": str(instruction.id)}
 
         if config.get("wait_for_completion", True):
-            # Park until instruction completes
+            # Park until the instruction completes. Register the resume claim key
+            # (instruction_id → run+node) so the A2A handler's mark_completed /
+            # mark_timeout (K.3) can find this parked node and drive
+            # resume_at_port (K.4). Without this the node parked forever. Arm a
+            # deferred deadline job keyed by the same instruction_id so a target
+            # that never answers eventually frees the run at the failure port —
+            # deferred well past commit, mirroring the approval-gate timeout arm.
+            import json
+            from contextlib import suppress
+            from datetime import timedelta
+
+            from shared_kernel.auth.clients import get_redis
+            from shared_kernel.queue import enqueue
+
+            timeout_seconds = int(config.get("completion_timeout_seconds", 120))
+            redis = get_redis()
+            await redis.set(
+                f"wf:instruct:{instruction.id}",
+                json.dumps({"run_id": str(ctx.run_id), "node_id": node.id}),
+                ex=timeout_seconds + 300,
+            )
+            # Best-effort: if the deadline job can't be armed, the A2A path's
+            # mark_timeout still resumes the run on a failed/absent reply.
+            with suppress(Exception):
+                await enqueue(
+                    "workflow_instruct_timeout",
+                    str(instruction.id),
+                    _defer_by=timedelta(seconds=timeout_seconds),
+                )
             return StepOutcome(
                 state=StepState.RUNNING,
                 output=result_output,

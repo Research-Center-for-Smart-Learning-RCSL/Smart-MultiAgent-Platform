@@ -26,37 +26,115 @@ async def wakeup_agent(
     room_id: str,
     trigger: str = "every_n_messages",
 ) -> str:
-    """Fire a wake-up for a single agent in a single room.
+    """Fire a wake-up for a single agent in a single room (K.3, link b).
 
-    Enqueued by the wake-up evaluator when a trigger fires.
-    The actual LLM turn execution is orchestrated by the agent runtime
-    (Phase H); this task just marks the wake-up as fired and logs the
-    audit event.
+    Enqueued by the wake-up evaluator (``every_n_messages`` from the message
+    endpoint, ``silence_minutes`` from the silence sweep). Runs a real agent
+    turn through the K.2 ``TurnEngine`` and records ``wakeup.fired`` *after*
+    the turn. Guards before spending a provider call:
+
+    - room still live (not soft-deleted);
+    - agent still exists (``get_agent`` filters deleted);
+    - autostop not tripped — consecutive agent-only rounds below the agent's
+      ``autostop_rounds`` (R15.03/R15.04), a backstop against turn storms for
+      both trigger kinds (the silence sweep also checks this pre-enqueue).
+
+    The turn's own commit / rollback and ``agent.turn_*`` audits are owned by
+    the engine; on a completed turn we bump autostop so a runaway agent loop
+    eventually stalls until a user speaks again.
     """
+    from app.config.settings import get_settings
+    from contexts.agents.application.runtime.turn_engine import TurnEngine
+    from contexts.agents.interfaces.facade import AgentsFacade
+    from contexts.conversation.infrastructure.repositories import ChatroomRepository
+    from contexts.orchestration.domain.models import WakeupConfig
+    from contexts.orchestration.infrastructure import wakeup_state
+    from contexts.orchestration.interfaces.facade import OrchestrationFacade
     from shared_kernel import audit
 
     aid = uuid.UUID(agent_id)
     rid = uuid.UUID(room_id)
 
     async with async_session() as db:
+        # --- guards -----------------------------------------------------
+        room = await ChatroomRepository(db).get(rid)
+        if room is None:
+            logger.bind(agent_id=agent_id, room_id=room_id).info("wakeup skipped: room gone")
+            return "skipped:room_gone"
+        agent = await AgentsFacade(db).get_agent(aid)
+        if agent is None:
+            logger.bind(agent_id=agent_id, room_id=room_id).info("wakeup skipped: agent gone")
+            return "skipped:agent_gone"
+        cfg = WakeupConfig.from_dict(agent.wakeup_config)
+        autostop_limit = cfg.triggers.silence_minutes.autostop_rounds
+        autostop_count = await wakeup_state.get_autostop_count(aid, rid)
+        if autostop_limit > 0 and autostop_count >= autostop_limit:
+            logger.bind(
+                agent_id=agent_id, room_id=room_id, autostop=autostop_count
+            ).info("wakeup skipped: autostop tripped")
+            return "skipped:autostop"
+
+        # --- turn -------------------------------------------------------
+        settings = get_settings()
+        engine = TurnEngine(
+            db,
+            qdrant_url=settings.qdrant.url,
+            qdrant_api_key=settings.qdrant.api_key,
+        )
+        result = await engine.run_turn(agent_id=aid, chatroom_id=rid, trigger=trigger)
+
         await audit.emit(
             db,
             audit.AuditEvent(
                 action="wakeup.fired",
                 resource_type="agent",
                 resource_id=aid,
-                metadata={"room_id": str(rid), "trigger": trigger},
+                metadata={"room_id": str(rid), "trigger": trigger, "result": result.status},
             ),
         )
         await db.commit()
+
+        # Count the round for autostop only when a reply was actually produced.
+        if result.status == "completed":
+            await OrchestrationFacade(db).on_agent_message_sent(agent_id=aid, room_id=rid)
+
+    # K.4: fire a wakeup_signal to workflows whose dormant trigger watches this
+    # agent. Best-effort, post-commit; failure must not fail the wake-up.
+    try:
+        await ctx["redis"].enqueue_job("workflow_signal", "wakeup", {"agent_id": str(aid)})
+    except Exception:
+        logger.bind(agent_id=agent_id).warning("wakeup workflow-signal dispatch failed")
 
     logger.bind(
         event="wakeup_fired",
         agent_id=agent_id,
         room_id=room_id,
         trigger=trigger,
+        result=result.status,
     ).info("wakeup fired")
-    return "ok"
+    return result.status
+
+
+async def approval_timeout(
+    ctx: dict[str, Any],
+    approval_id: str,
+    chatroom_id: str | None = None,
+) -> str:
+    """Resolve an approval gate that did not reach a verdict in time (R15.13).
+
+    Armed as a deferred job when the gate is created (K.3). Idempotent: if the
+    gate already resolved via votes, ``handle_timeout`` is a no-op and returns
+    the existing state.
+    """
+    from contexts.orchestration.interfaces.facade import OrchestrationFacade
+
+    aid = uuid.UUID(approval_id)
+    cid = uuid.UUID(chatroom_id) if chatroom_id else None
+    async with async_session() as db:
+        state = await OrchestrationFacade(db).handle_approval_timeout(aid, chatroom_id=cid)
+        await db.commit()
+    logger.bind(approval_id=approval_id, state=state.value).info("approval timeout handled")
+    return state.value
 
 
 async def evaluate_silence(ctx: dict[str, Any]) -> str:
@@ -187,4 +265,10 @@ def make_dlq_audit_callback() -> Callable[[uuid.UUID, str, str, int], Awaitable[
     return _on_dlq
 
 
-__all__ = ["evaluate_silence", "make_dlq_audit_callback", "wakeup_agent", "wakeup_refresh"]
+__all__ = [
+    "approval_timeout",
+    "evaluate_silence",
+    "make_dlq_audit_callback",
+    "wakeup_agent",
+    "wakeup_refresh",
+]

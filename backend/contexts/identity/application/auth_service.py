@@ -31,7 +31,7 @@ from contexts.identity.domain.errors import (
     TokenInvalid,
 )
 from contexts.identity.domain.models import Session, User, UserStatus
-from contexts.identity.infrastructure import email_domain_policy, lockouts
+from contexts.identity.infrastructure import email_domain_policy, email_templates, lockouts
 from contexts.identity.infrastructure.email import EmailMessage, EmailSender
 from contexts.identity.infrastructure.repositories import (
     AdminRepository,
@@ -536,7 +536,7 @@ class AuthService:
             raise EmailAlreadyRegistered(new_email)
         await self._users.set_email(user_id, new_email)
         token, _ = await self._verify.issue(user_id, _VERIFY_TTL)
-        await self._send_email_verification(new_email, token, user_id=user_id)
+        await self._send_email_change_reverify(new_email, token, user_id=user_id)
         await self._invalidate_user_sessions(user_id, reason="email_change")
         await audit.emit(
             self._db,
@@ -604,6 +604,19 @@ class AuthService:
                 )
         await self._sessions.revoke_all_for_user(user_id)
 
+    async def _deliver(
+        self, email: str, rendered: email_templates.RenderedEmail, *, user_id: uuid.UUID
+    ) -> None:
+        await self._emailer.send(
+            EmailMessage(
+                to=email,
+                subject=rendered.subject,
+                text_body=rendered.text_body,
+                html_body=rendered.html_body,
+                correlation_id=user_id,
+            )
+        )
+
     async def _send_email_verification(self, email: str, token: str, *, user_id: uuid.UUID) -> None:
         # The token rides in the URL *fragment* (`#token=`), not the query
         # string: fragments are never sent to the server, so the high-entropy
@@ -611,14 +624,13 @@ class AuthService:
         # the browser-history query string. The SPA route reads `location.hash`
         # and POSTs the token to `/api/auth/verify-email` (SEC-8).
         link = f"{self._public_origin}/verify-email#token={token}"
-        await self._emailer.send(
-            EmailMessage(
-                to=email,
-                subject="Verify your email",
-                text_body=f"Click to verify: {link}",
-                correlation_id=user_id,
-            )
-        )
+        await self._deliver(email, email_templates.verify_email(link), user_id=user_id)
+
+    async def _send_email_change_reverify(self, email: str, token: str, *, user_id: uuid.UUID) -> None:
+        # Same fragment-token discipline as verification; distinct copy so the
+        # new-address owner understands why they're receiving it (R6.06).
+        link = f"{self._public_origin}/verify-email#token={token}"
+        await self._deliver(email, email_templates.email_change_reverify(link), user_id=user_id)
 
     async def _send_already_registered_notice(self, email: str, *, user_id: uuid.UUID) -> None:
         # Sent when someone tries to register an address that already has an
@@ -626,31 +638,12 @@ class AuthService:
         # only informs the address owner so the registration attempt is not
         # silent, while keeping the "already registered" fact off the HTTP path.
         link = f"{self._public_origin}/login"
-        await self._emailer.send(
-            EmailMessage(
-                to=email,
-                subject="You already have an account",
-                text_body=(
-                    "Someone tried to register an account with this email "
-                    f"address, but one already exists. If this was you, sign in "
-                    f"at {link} or use the password-reset flow. If it wasn't, "
-                    "you can safely ignore this message."
-                ),
-                correlation_id=user_id,
-            )
-        )
+        await self._deliver(email, email_templates.already_registered(link), user_id=user_id)
 
     async def _send_password_reset(self, email: str, token: str, *, user_id: uuid.UUID) -> None:
         # Token in the URL fragment — see `_send_email_verification` (SEC-8).
         link = f"{self._public_origin}/password-reset/confirm#token={token}"
-        await self._emailer.send(
-            EmailMessage(
-                to=email,
-                subject="Reset your password",
-                text_body=f"Reset link (valid 30 min): {link}",
-                correlation_id=user_id,
-            )
-        )
+        await self._deliver(email, email_templates.password_reset(link), user_id=user_id)
 
 
 def _normalise_email(raw: str) -> str:

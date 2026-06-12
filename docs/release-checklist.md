@@ -28,6 +28,9 @@ Source: `deploy/vault/README.md` §7.
 - [ ] MFA enrollment prompt shown on first admin login.
 - [ ] All Alembic migrations applied cleanly (`alembic upgrade head` — 27 migrations, A through J).
 - [ ] `alembic downgrade base && alembic upgrade head` round-trip succeeds.
+- [ ] **SMTP smoke (K.6)**: with `SMTP_*` + Vault `secret/smap/config/smtp` configured, register a throwaway address on staging → verification mail **received** → link verifies → login succeeds. Run one password-reset round-trip and one invite to an unregistered address (sign-up → auto-enroll).
+- [ ] **SMTP fail-open guard**: a `env=prod` boot with no `SMTP_HOST` logs `event=smtp_unconfigured` exactly once and does not crash.
+- [ ] **CAPTCHA**: `GET /api/auth/captcha-config` returns the configured provider+sitekey (no secret); with `mode=off` no widget renders and registration still succeeds.
 
 ---
 

@@ -2,6 +2,7 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
+import type { CaptchaConfigOut } from '../models/CaptchaConfigOut';
 import type { ChangeEmailIn } from '../models/ChangeEmailIn';
 import type { ChangePasswordIn } from '../models/ChangePasswordIn';
 import type { LoginIn } from '../models/LoginIn';
@@ -19,6 +20,22 @@ import type { CancelablePromise } from '../core/CancelablePromise';
 import { OpenAPI } from '../core/OpenAPI';
 import { request as __request } from '../core/request';
 export class AuthService {
+    /**
+     * Captcha Config
+     * Public CAPTCHA config for the registration widget (R19a.12).
+     *
+     * Unauthenticated by design — the SPA fetches this before the user has any
+     * credentials. Returns only the public provider/sitekey/mode; the verify
+     * secret never leaves the backend. When ``mode=off`` the SPA renders no widget.
+     * @returns CaptchaConfigOut Successful Response
+     * @throws ApiError
+     */
+    public static captchaConfigApiAuthCaptchaConfigGet(): CancelablePromise<CaptchaConfigOut> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/auth/captcha-config',
+        });
+    }
     /**
      * Change Email
      * @returns void

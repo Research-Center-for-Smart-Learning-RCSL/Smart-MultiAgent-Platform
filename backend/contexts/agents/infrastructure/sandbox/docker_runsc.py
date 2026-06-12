@@ -24,11 +24,13 @@ this class.
 from __future__ import annotations
 
 import contextlib
+import hmac
 import json
 import time
 import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass
+from hashlib import sha256
 from typing import Any, Literal
 
 from contexts.agents.domain.errors import (
@@ -51,6 +53,18 @@ _CPUS = 0.5
 _PIDS_LIMIT = 128
 _NOFILE_LIMIT = 512
 _WORKSPACE_TMPFS_BYTES = 100 * 1024 * 1024
+# A small writable /tmp tmpfs. The root FS is read-only (SEC), but npx/uvx write
+# their cache to $HOME/.npm and matplotlib writes MPLCONFIGDIR — all under /tmp.
+# Without this, stdio MCP servers cannot launch and `import matplotlib` fails on
+# the read-only rootfs. tmpfs stays writable even when root is read-only (K.5).
+_TMP_TMPFS_BYTES = 64 * 1024 * 1024
+
+
+def _sandbox_tmpfs() -> dict[str, str]:
+    return {
+        "/workspace": f"size={_WORKSPACE_TMPFS_BYTES}",
+        "/tmp": f"size={_TMP_TMPFS_BYTES}",  # noqa: S108 — in-container tmpfs, not a host path
+    }
 
 
 @dataclass(frozen=True, slots=True)
@@ -60,12 +74,34 @@ class DockerRunscSandbox:
     mcp_image: str = _DEFAULT_MCP_IMAGE
     code_exec_image: str = _DEFAULT_CODE_IMAGE
     egress_network: str = _EGRESS_NETWORK
+    # K.5: how a URL-source MCP server reaches out. The egress proxy is a custom
+    # HMAC forwarder, not a transparent HTTP_PROXY — so we pre-sign the
+    # per-project HMAC here and pass it (with the proxy URL) into the container.
+    # The raw shared secret NEVER enters the sandbox; only the project-scoped
+    # signature does, so a sandbox cannot forge egress for another project.
+    egress_proxy_url: str = ""
+    egress_shared_secret: bytes = b""
 
     def _client(self) -> Any:
         """Lazy-import the docker SDK so unit tests don't need it installed."""
         import docker
 
         return docker.from_env()
+
+    def _egress_env(self, project_id: uuid.UUID) -> dict[str, str]:
+        """Pre-signed egress credentials for the sandbox's URL-MCP path (K.5).
+
+        Empty when egress is unconfigured — the driver then refuses url-source
+        egress (exit 42) rather than calling out unauthenticated."""
+        if not self.egress_proxy_url or not self.egress_shared_secret:
+            return {}
+        signature = hmac.new(
+            self.egress_shared_secret, str(project_id).encode("ascii"), sha256
+        ).hexdigest()
+        return {
+            "SMAP_EGRESS_PROXY_URL": self.egress_proxy_url,
+            "SMAP_EGRESS_HMAC": signature,
+        }
 
     @staticmethod
     def _assert_runsc(container: Any) -> None:
@@ -172,13 +208,14 @@ class DockerRunscSandbox:
             "SMAP_MCP_SOURCE": source,
             "SMAP_MCP_REFERENCE": reference,
             "SMAP_MCP_AUTH_JSON": json.dumps(auth or {}),
+            **self._egress_env(project_id),
         }
         container = client.containers.run(
             image=self.mcp_image,
             command=["probe"],
             environment=env,
             user=_SANDBOX_UID,
-            tmpfs={"/workspace": f"size={_WORKSPACE_TMPFS_BYTES}"},
+            tmpfs=_sandbox_tmpfs(),
             detach=True,
             **host_config,
         )
@@ -208,16 +245,26 @@ class DockerRunscSandbox:
         tool_name: str,
         arguments: dict[str, Any],
         project_id: uuid.UUID,
+        source: str = "",
+        reference: str = "",
+        auth: dict[str, Any] | None = None,
         timeout_s: float = 60.0,
     ) -> ToolCallResult:
         client = self._client()
         host_config = self._base_host_config()
+        # The driver needs source/reference/auth to launch the same server it
+        # would for ``probe`` (the container has no DB to resolve binding_id),
+        # so they travel with the invoke env alongside the egress credentials.
         env = {
             "SMAP_AGENT_ID": str(agent_id),
             "SMAP_PROJECT_ID": str(project_id),
             "SMAP_BINDING_ID": str(binding_id),
             "SMAP_TOOL_NAME": tool_name,
             "SMAP_TOOL_ARGS_JSON": json.dumps(arguments),
+            "SMAP_MCP_SOURCE": source,
+            "SMAP_MCP_REFERENCE": reference,
+            "SMAP_MCP_AUTH_JSON": json.dumps(auth or {}),
+            **self._egress_env(project_id),
         }
         start = time.monotonic()
         container = client.containers.run(
@@ -225,7 +272,7 @@ class DockerRunscSandbox:
             command=["invoke"],
             environment=env,
             user=_SANDBOX_UID,
-            tmpfs={"/workspace": f"size={_WORKSPACE_TMPFS_BYTES}"},
+            tmpfs=_sandbox_tmpfs(),
             detach=True,
             **host_config,
         )
@@ -330,7 +377,7 @@ class DockerRunscSandbox:
             command=["python", "-c", source],
             environment=env,
             user=_SANDBOX_UID,
-            tmpfs={"/workspace": f"size={_WORKSPACE_TMPFS_BYTES}"},
+            tmpfs=_sandbox_tmpfs(),
             detach=True,
             **host_config,
         )
@@ -367,4 +414,26 @@ class DockerRunscSandbox:
         )
 
 
-__all__ = ["DockerRunscSandbox"]
+def docker_runsc_sandbox_from_settings() -> DockerRunscSandbox:
+    """Build the production sandbox runner from settings (composition root, K.5).
+
+    Image references come from the ``SANDBOX_*`` pins (digest-pinned in prod);
+    the egress proxy URL + shared secret are reused from the egress settings so
+    a URL-source MCP server's outbound traffic is pre-signed for its project.
+    """
+    from app.config.settings import get_settings
+
+    cfg = get_settings()
+    try:
+        secret = bytes.fromhex(cfg.egress.shared_secret) if cfg.egress.shared_secret else b""
+    except ValueError:
+        secret = b""
+    return DockerRunscSandbox(
+        mcp_image=cfg.sandbox.mcp_image,
+        code_exec_image=cfg.sandbox.code_exec_image,
+        egress_proxy_url=cfg.egress.proxy_url,
+        egress_shared_secret=secret,
+    )
+
+
+__all__ = ["DockerRunscSandbox", "docker_runsc_sandbox_from_settings"]

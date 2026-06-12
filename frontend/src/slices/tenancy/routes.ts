@@ -49,4 +49,13 @@ export const tenancyRoutes: RouteRecordRaw[] = [
     component: () => import('./views/InboxInvitesView.vue'),
     meta: { requiresAuth: true },
   },
+  {
+    // Target of the emailed invite link (R6.09). The plaintext token rides in
+    // the URL fragment; this view POSTs it to /invites/accept-by-token. Guarded
+    // so an unregistered invitee is sent through sign-up first (R6.11).
+    path: '/invites/accept',
+    name: 'tenancy.inviteAccept',
+    component: () => import('./views/InviteAcceptView.vue'),
+    meta: { requiresAuth: true, requiresVerifiedEmail: true },
+  },
 ]

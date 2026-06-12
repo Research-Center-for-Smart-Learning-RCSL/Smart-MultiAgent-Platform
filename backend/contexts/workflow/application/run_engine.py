@@ -383,6 +383,37 @@ class RunEngine:
 
         await self._advance_from(ctx, node_id, port=port)
 
+    async def force_fail(self, run_id: uuid.UUID, *, reason: str) -> bool:
+        """Fail a RUNNING/WAITING run from outside the execution loop (K.4 watchdog).
+
+        Used by the timeout watchdog when ``run_max_seconds`` / ``idle_max_seconds``
+        is exceeded. Idempotent: a run that already reached a terminal state is
+        left untouched and ``False`` is returned. DB-1: the caller owns commit.
+        """
+        run = await self._runs.get(run_id)
+        if not run or run.state not in (RunState.RUNNING, RunState.WAITING):
+            return False
+
+        now = datetime.now(UTC)
+        await self._runs.update_state(run_id, state=RunState.FAILED, ended_at=now)
+        await self._steps.cancel_pending_for_run(run_id)
+        WORKFLOW_RUNS_TOTAL.labels(state="failed").inc()
+
+        await audit.emit(
+            self._db,
+            audit.AuditEvent(
+                action="workflow.run_finished",
+                resource_type="workflow_run",
+                resource_id=run_id,
+                metadata={"final_state": "failed", "reason": reason},
+            ),
+        )
+        await Publisher(workflow_channel(run_id)).emit(
+            "workflow.run_finished",
+            {"run_id": str(run_id), "state": "failed", "reason": reason},
+        )
+        return True
+
     async def cancel_run(self, run_id: uuid.UUID) -> None:
         """Cancel a running/waiting workflow run."""
         run = await self._runs.get(run_id)
@@ -463,7 +494,12 @@ class RunEngine:
             for task_name, run_id_str, node_id, delay_ms, from_edge in pending:
                 kwargs: dict[str, Any] = {}
                 if delay_ms > 0:
-                    kwargs["defer_by"] = timedelta(milliseconds=delay_ms)
+                    # arq's deferral parameter is ``_defer_by`` (leading
+                    # underscore). The bare ``defer_by`` used previously fell
+                    # through to ``**kwargs`` and was passed as a *job argument*
+                    # — the timeout/retry task then crashed on an unexpected
+                    # keyword and the delay was never applied (K.4).
+                    kwargs["_defer_by"] = timedelta(milliseconds=delay_ms)
                 # run_workflow_step carries the spawning edge id (ASYNC-9); the
                 # other task types take only (run_id, node_id).
                 if from_edge is not None:
@@ -602,6 +638,15 @@ class RunEngine:
 
         # Update run variables
         await self._runs.update_variables(ctx.run_id, ctx.variables)
+
+        # K.4: a set_variable change can satisfy a sibling branch parked on a
+        # variable_matches wait. Signal it *after* commit (this enqueue is
+        # dispatched by dispatch_enqueues post-commit) so the resume reads the
+        # committed variables. Reuses the (run_id, node_id) enqueue shape.
+        if node.type == NodeType.SET_VARIABLE and outcome.state == StepState.SUCCEEDED:
+            self._pending_enqueues.append(
+                ("workflow_variable_signal", str(ctx.run_id), node_id, 0, None)
+            )
 
         # Parked — set run to WAITING, schedule any timeout task, then stop.
         if outcome.park:

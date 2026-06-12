@@ -202,6 +202,65 @@ class EgressSection(BaseSettings):
     )
 
 
+class SandboxSection(BaseSettings):
+    """gVisor sandbox image references (R12.03 / R12.05 / K.5).
+
+    Production pins both images by digest (``smap/mcp-runtime@sha256:…``) via
+    ``SANDBOX_MCP_IMAGE`` / ``SANDBOX_CODE_EXEC_IMAGE``; the CI build job records
+    the digests. The defaults are the dev tags so a self-hosting operator who
+    ran ``docker compose --profile sandbox-build build`` gets a working stack
+    without extra config. Read from un-prefixed names to match ``.env.example``.
+    """
+
+    model_config = SettingsConfigDict(env_prefix="SMAP_SANDBOX_", extra="ignore")
+
+    mcp_image: str = Field(
+        default="smap/mcp-runtime:pinned",
+        validation_alias=AliasChoices("SANDBOX_MCP_IMAGE", "SMAP_SANDBOX_MCP_IMAGE"),
+    )
+    code_exec_image: str = Field(
+        default="smap/code-exec:pinned",
+        validation_alias=AliasChoices("SANDBOX_CODE_EXEC_IMAGE", "SMAP_SANDBOX_CODE_EXEC_IMAGE"),
+    )
+
+
+class EmailSection(BaseSettings):
+    """Outbound SMTP transport config (R6.01 / K.6).
+
+    Only non-secret connection parameters live here; the SMTP *credentials*
+    (username / password) are read from Vault KV ``secret/smap/config/smtp`` by
+    :class:`SmtpEmailSender`, never from the environment. ``smtp_host`` being
+    empty is the signal that no real mail transport is configured — the factory
+    then keeps the dev ``LoggingEmailSender`` (and, in prod, logs a warning).
+    Read from un-prefixed names to match ``.env.example``.
+    """
+
+    model_config = SettingsConfigDict(env_prefix="SMAP_SMTP_", extra="ignore")
+
+    smtp_host: str = Field(
+        default="",
+        validation_alias=AliasChoices("SMTP_HOST", "SMAP_SMTP_HOST"),
+    )
+    smtp_port: int = Field(
+        default=587,
+        validation_alias=AliasChoices("SMTP_PORT", "SMAP_SMTP_PORT"),
+    )
+    smtp_from: str = Field(
+        default="SMAP <no-reply@localhost>",
+        validation_alias=AliasChoices("SMTP_FROM", "SMAP_SMTP_FROM"),
+    )
+    # "starttls" (587, upgrade), "implicit" (465, TLS-on-connect), or "none"
+    # (plaintext — only for an in-cluster relay / MailHog).
+    smtp_tls_mode: Literal["starttls", "implicit", "none"] = Field(
+        default="starttls",
+        validation_alias=AliasChoices("SMTP_TLS_MODE", "SMAP_SMTP_TLS_MODE"),
+    )
+    smtp_timeout_s: float = Field(
+        default=15.0,
+        validation_alias=AliasChoices("SMTP_TIMEOUT_S", "SMAP_SMTP_TIMEOUT_S"),
+    )
+
+
 class LimitsSection(BaseSettings):
     """Numeric budgets keyed by §19.02 bucket; real enforcement lands in C.12."""
 
@@ -242,6 +301,8 @@ class Settings(BaseSettings):
     logging: LoggingSection = Field(default_factory=LoggingSection)
     limits: LimitsSection = Field(default_factory=LimitsSection)
     egress: EgressSection = Field(default_factory=EgressSection)
+    sandbox: SandboxSection = Field(default_factory=SandboxSection)
+    email: EmailSection = Field(default_factory=EmailSection)
 
 
 def _check_prod_secrets(s: Settings) -> None:

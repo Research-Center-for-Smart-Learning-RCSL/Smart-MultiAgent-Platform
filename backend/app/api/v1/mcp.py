@@ -116,14 +116,15 @@ async def _require_owner(
 def _get_sandbox_runner():  # pragma: no cover - runtime injection
     """Resolve the process-wide :class:`SandboxRunner`.
 
-    Defaults to :class:`DockerRunscSandbox`; tests override via
+    Defaults to the settings-built :class:`DockerRunscSandbox` (digest-pinned
+    images + pre-signed egress, K.5); tests override via
     ``app.dependency_overrides[_get_sandbox_runner] = ...``.
     """
     from contexts.agents.infrastructure.sandbox.docker_runsc import (
-        DockerRunscSandbox,
+        docker_runsc_sandbox_from_settings,
     )
 
-    return DockerRunscSandbox()
+    return docker_runsc_sandbox_from_settings()
 
 
 # ---------------------------------------------------------------------------

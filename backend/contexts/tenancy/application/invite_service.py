@@ -21,6 +21,10 @@ from dataclasses import dataclass
 import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config.settings import get_settings
+from contexts.identity.application.factory import LazyEmailSender, email_sender_factory
+from contexts.identity.infrastructure import email_templates
+from contexts.identity.infrastructure.email import EmailMessage, EmailSender
 from contexts.notification.application.notification_service import NotificationService
 from contexts.notification.domain.models import NotificationKind
 from contexts.tenancy.domain.errors import (
@@ -53,12 +57,29 @@ class InviteCreated:
     plaintext_token: str
 
 
+def _default_public_origin() -> str:
+    # Single origin (§19a.07); mirrors app.api.v1.auth._public_origin.
+    origins = get_settings().security.cors_origins
+    return (origins[0] if origins else "http://localhost:8080").rstrip("/")
+
+
 class InviteService:
-    def __init__(self, db: AsyncSession) -> None:
+    def __init__(
+        self,
+        db: AsyncSession,
+        *,
+        email_sender: EmailSender | None = None,
+        public_origin: str | None = None,
+    ) -> None:
         self._db = db
         self._invites = InviteRepository(db)
         self._org_members = OrgMemberRepository(db)
         self._project_members = ProjectMemberRepository(db)
+        # Defaults keep the zero-arg `InviteService(db)` call sites (routers,
+        # tests) working; production wires the same SMTP-or-logging sender the
+        # auth service uses, so invite mail is delivered the same way.
+        self._emailer = email_sender or LazyEmailSender(email_sender_factory)
+        self._public_origin = (public_origin or _default_public_origin()).rstrip("/")
 
     async def create_org_invite(
         self,
@@ -91,6 +112,7 @@ class InviteService:
             ),
         )
         await self._notify_invitee(invitee_email, invite.id, InviteScope.ORG, org_id)
+        await self._email_invite(invitee_email, token, InviteScope.ORG, org_id)
         return InviteCreated(invite=invite, plaintext_token=token)
 
     async def create_project_invite(
@@ -124,6 +146,7 @@ class InviteService:
             ),
         )
         await self._notify_invitee(invitee_email, invite.id, InviteScope.PROJECT, project_id)
+        await self._email_invite(invitee_email, token, InviteScope.PROJECT, project_id)
         return InviteCreated(invite=invite, plaintext_token=token)
 
     async def _notify_invitee(
@@ -150,6 +173,40 @@ class InviteService:
             kind=NotificationKind.INVITE_RECEIVED,
             title=f"You have been invited to a {scope_label}",
             metadata={"invite_id": str(invite_id), "scope": scope_label, "scope_id": str(scope_id)},
+        )
+
+    async def _scope_name(self, scope: InviteScope, scope_id: uuid.UUID) -> str:
+        table = _t.orgs if scope is InviteScope.ORG else _t.projects
+        row = (
+            await self._db.execute(sa.select(table.c.name).where(table.c.id == scope_id))
+        ).first()
+        return row.name if row else ""
+
+    async def _email_invite(
+        self,
+        invitee_email: str,
+        token: str,
+        scope: InviteScope,
+        scope_id: uuid.UUID,
+    ) -> None:
+        # R6.09: the invite mail carries the plaintext token in the URL fragment
+        # (`#token=`, SEC-8). The SPA accept route reads it from `location.hash`
+        # and POSTs to `/api/invites/accept-by-token`; an unregistered invitee is
+        # routed through sign-up first, then auto-enrolled. This is what makes the
+        # previously write-only token column actually do something.
+        scope_label = "org" if scope is InviteScope.ORG else "project"
+        scope_name = await self._scope_name(scope, scope_id)
+        accept_link = f"{self._public_origin}/invites/accept#token={token}"
+        rendered = email_templates.invite(
+            scope_label=scope_label, scope_name=scope_name, accept_link=accept_link
+        )
+        await self._emailer.send(
+            EmailMessage(
+                to=invitee_email,
+                subject=rendered.subject,
+                text_body=rendered.text_body,
+                html_body=rendered.html_body,
+            )
         )
 
     async def list_inbound(
@@ -204,6 +261,48 @@ class InviteService:
             raise InviteNotFound(str(invite_id))
         if invite.invitee_email.lower() != caller_email.lower():
             raise InviteNotForCaller(str(invite_id))
+        return await self._finalize_acceptance(
+            invite,
+            caller_user_id=caller_user_id,
+            actor_ip=actor_ip,
+            request_id=request_id,
+        )
+
+    async def accept_by_token(
+        self,
+        *,
+        token: str,
+        caller_user_id: uuid.UUID,
+        actor_ip: str | None,
+        request_id: uuid.UUID | None = None,
+    ) -> Invite:
+        """Accept an invite by its emailed token link (R6.09).
+
+        Possession of the token is the authorisation here — it replaces the
+        logged-in-email match of :meth:`accept`, so an invitee who signed up
+        with a different address (or via the link before their email was known)
+        can still redeem it. The caller must still be logged in AND verified;
+        that gate is enforced at the router (R6.11).
+        """
+        invite = await self._invites.get_by_token(token)
+        if invite is None:
+            raise InviteNotFound("invite token invalid")
+        return await self._finalize_acceptance(
+            invite,
+            caller_user_id=caller_user_id,
+            actor_ip=actor_ip,
+            request_id=request_id,
+        )
+
+    async def _finalize_acceptance(
+        self,
+        invite: Invite,
+        *,
+        caller_user_id: uuid.UUID,
+        actor_ip: str | None,
+        request_id: uuid.UUID | None,
+    ) -> Invite:
+        invite_id = invite.id
         if invite.state is not InviteState.PENDING:
             raise InviteNotFound(str(invite_id))
         if invite.expires_at < now():

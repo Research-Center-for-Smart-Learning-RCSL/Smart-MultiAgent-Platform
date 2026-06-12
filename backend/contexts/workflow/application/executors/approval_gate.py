@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import uuid
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -30,20 +31,46 @@ async def execute(ctx: RunContext, node: NodeSpec, db: AsyncSession) -> StepOutc
     question = interpolate(config.get("question_template", ""), variables)
 
     try:
-        from contexts.orchestration.domain.models import ApprovalGateConfig
+        from contexts.orchestration.domain.models import ApprovalGateConfig, ApprovalMode
         from contexts.orchestration.interfaces.facade import OrchestrationFacade
 
         facade = OrchestrationFacade(db)
-        gate_config = ApprovalGateConfig(  # type: ignore[call-arg]
-            mode=config["mode"],
-            leader_agent_id=uuid.UUID(config["leader_agent_id"]),
-            approver_agent_ids=[uuid.UUID(a) for a in config.get("approvers", [])],
-            timeout_seconds=config.get("timeout_seconds", 1800),
+
+        # The dataclass field is ``approvers`` (not ``approver_agent_ids``) and
+        # ``mode`` is an ``ApprovalMode`` enum, not a raw string — passing either
+        # wrongly raised before this node could ever park (the bug the deleted
+        # ``# type: ignore[call-arg]`` was masking). ``__post_init__`` also
+        # requires the leader to be among the approvers, so fold it in: a schema
+        # may legitimately list the leader only in ``leader_agent_id``.
+        leader_id = uuid.UUID(config["leader_agent_id"])
+        approvers = [uuid.UUID(a) for a in config.get("approvers", [])]
+        if leader_id not in approvers:
+            approvers.append(leader_id)
+        timeout_seconds = config.get("timeout_seconds", 1800)
+        gate_config = ApprovalGateConfig(
+            mode=ApprovalMode(config["mode"]),
+            leader_agent_id=leader_id,
+            approvers=tuple(approvers),
+            timeout_seconds=timeout_seconds,
         )
 
         approval = await facade.create_approval_gate(
             workflow_run_id=ctx.run_id,
             config=gate_config,
+        )
+
+        # Register the resume claim key so approval resolution (vote or timeout)
+        # can find this parked node and drive ``resume_at_port`` (K.4). Mirrors
+        # the wait_for_event ``wf:wait:*`` contract; the value carries the
+        # (run_id, node_id) the resolver resumes. TTL outlives the gate timeout
+        # plus a grace window so a late resolution can still claim it.
+        from shared_kernel.auth.clients import get_redis
+
+        redis = get_redis()
+        await redis.set(
+            f"wf:approval:{approval.id}",
+            json.dumps({"run_id": str(ctx.run_id), "node_id": node.id}),
+            ex=int(timeout_seconds) + 300,
         )
 
         pub = Publisher(workflow_channel(ctx.run_id))

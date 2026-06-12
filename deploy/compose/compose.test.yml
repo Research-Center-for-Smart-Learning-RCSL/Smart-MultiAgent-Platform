@@ -54,6 +54,26 @@ services:
       SMAP_SEED_USER_PASSWORD: E2eP@ssw0rd!Str0ng
       SMAP_SEED_ADMIN_EMAIL: e2e-admin@smap.test
       SMAP_SEED_ADMIN_PASSWORD: E2eAdm1n!Str0ng
+      # K.6: deliver transactional mail to the MailHog catch-all relay so the
+      # email-round-trip wiring test can read it back over MailHog's HTTP API.
+      # `none` = plaintext (MailHog has no TLS); creds are unused.
+      SMTP_HOST: mailhog
+      SMTP_PORT: "1025"
+      SMTP_FROM: SMAP <no-reply@smap.test>
+      SMTP_TLS_MODE: none
+    depends_on:
+      mailhog:
+        condition: service_started
+
+  # ---------- MailHog — SMTP catch-all for the email round-trip test (K.6) ----
+  # Accepts mail on :1025 and exposes a JSON API + UI on :8025. The wiring test
+  # (K.7 #6) registers a user, then polls http://mailhog:8025/api/v2/messages
+  # for the verification link.
+  mailhog:
+    image: mailhog/mailhog:v1.0.1
+    networks: [backend_net]
+    ports:
+      - "8025:8025"
 
   # ---------- Backend worker ----------
   backend-worker:

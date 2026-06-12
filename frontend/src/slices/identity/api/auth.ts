@@ -3,7 +3,12 @@ import { http } from '@shared/transport'
 export interface LoginRequest {
   email: string
   password: string
-  captcha_token?: string
+}
+
+export interface CaptchaConfig {
+  mode: 'on' | 'off'
+  provider: 'hcaptcha' | 'turnstile' | 'off'
+  sitekey: string
 }
 
 export interface TokenPair {
@@ -33,6 +38,8 @@ export interface Session {
 export const authApi = {
   register: (body: { email: string; password: string; captcha_token: string }) =>
     http.post('/auth/register', body),
+
+  captchaConfig: () => http.get<CaptchaConfig>('/auth/captcha-config'),
 
   verifyEmail: (token: string) =>
     http.post('/auth/verify-email', { token }),

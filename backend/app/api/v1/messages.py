@@ -8,6 +8,7 @@ resolved here so the service stays free of AuthZ primitives.
 
 from __future__ import annotations
 
+import logging
 import uuid
 from typing import Any
 
@@ -25,6 +26,7 @@ from contexts.conversation.application.message_service import (
     EditAuthority,
     MessageService,
 )
+from contexts.conversation.application.triggers import evaluate_message_wakeups
 from contexts.conversation.domain.models import Message
 from shared_kernel.auth.context import RequestContext
 from shared_kernel.auth.dependencies import (
@@ -34,6 +36,9 @@ from shared_kernel.auth.dependencies import (
 )
 from shared_kernel.auth.permissions import Principal
 from shared_kernel.db.session import db_session
+from shared_kernel.queue import enqueue
+
+_log = logging.getLogger(__name__)
 
 chatroom_router = APIRouter(prefix="/api/chatrooms", tags=["messages"])
 message_router = APIRouter(prefix="/api/messages", tags=["messages"])
@@ -171,7 +176,54 @@ async def send_message(
         actor_ip=ctx.actor_ip,
         request_id=ctx.request_id,
     )
+    # Durable-commit the message *before* dispatching wake-ups: the worker's
+    # turn loads room history on a separate connection and must see this row
+    # (db_session's trailing commit is then a no-op). K.3 link (a).
+    await db.commit()
+    await _dispatch_message_wakeups(db, chatroom_id)
+    await _dispatch_message_workflow_signal(chatroom_id, body.content_md)
     return _to_out(msg)
+
+
+async def _dispatch_message_wakeups(db: AsyncSession, chatroom_id: uuid.UUID) -> None:
+    """Evaluate every_n_messages for the room's bound agents and enqueue a
+    ``wakeup_agent`` turn for each that fired. Best-effort: a Redis / dispatch
+    hiccup must never fail the user's send (the message is already committed)."""
+    try:
+        woken = await evaluate_message_wakeups(
+            db, chatroom_id=chatroom_id, sender_is_user=True
+        )
+        for agent_id in woken:
+            await enqueue(
+                "wakeup_agent",
+                str(agent_id),
+                str(chatroom_id),
+                "every_n_messages",
+            )
+    except Exception:  # pragma: no cover — defensive; exercised via wiring tier
+        _log.warning(
+            "wake-up dispatch failed for room %s; message persisted, no turn enqueued",
+            chatroom_id,
+            exc_info=True,
+        )
+
+
+async def _dispatch_message_workflow_signal(chatroom_id: uuid.UUID, content: str) -> None:
+    """Fan a ``message_received`` signal to workflows (K.4): resume parked
+    ``message_in_room`` waits and start dormant ``message_received`` triggers.
+    Best-effort and post-commit — never fails the user's send."""
+    try:
+        await enqueue(
+            "workflow_signal",
+            "message",
+            {
+                "chatroom_id": str(chatroom_id),
+                "sender_type": "user",
+                "content": content,
+            },
+        )
+    except Exception:  # pragma: no cover — defensive
+        _log.warning("workflow message-signal dispatch failed for room %s", chatroom_id, exc_info=True)
 
 
 # --------------------------------------------------------------------------- #

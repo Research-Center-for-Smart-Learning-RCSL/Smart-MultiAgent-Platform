@@ -32,8 +32,9 @@ import asyncio
 import logging
 import time
 import uuid
+from collections.abc import AsyncGenerator
 from dataclasses import dataclass
-from typing import Any, Protocol
+from typing import Any, Protocol, runtime_checkable
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -43,7 +44,7 @@ from contexts.keys.application.router_policy import (
     backoff_delay_ms,
     classify_http,
 )
-from contexts.keys.domain.errors import KeyGroupExhausted
+from contexts.keys.domain.errors import CapabilityMismatch, KeyGroupExhausted, KeyNotFound
 from contexts.keys.domain.groups import HourlyLimits, KeyGroupMember
 from contexts.keys.domain.models import ApiKey
 from contexts.keys.domain.providers import ApiKeyProvider, ProviderCapability
@@ -89,6 +90,64 @@ class ProviderAdapter(Protocol):
     provider: ApiKeyProvider
 
     async def invoke(self, *, secret: str, request: ProviderRequest) -> ProviderCallResult: ...
+
+
+# ---------------------------------------------------------------------------
+# Streaming seam (K.1). Chat adapters yield token deltas as they arrive and
+# close with exactly one `StreamComplete` carrying final usage. Embedding /
+# rerank adapters do not implement `stream`.
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class TokenDelta:
+    """One incremental chunk of assistant text."""
+
+    text: str
+
+
+@dataclass(frozen=True, slots=True)
+class StreamComplete:
+    """Terminal stream event — carries the same shape as a non-stream call.
+
+    `result.body` holds the accumulated `{text, tool_calls, finish_reason}`
+    so a consumer that missed deltas can still reconstruct the full turn.
+    `result.http_status` is the provider's status; a non-2xx with no preceding
+    `TokenDelta` lets the router rotate to the next key.
+    """
+
+    result: ProviderCallResult
+
+
+StreamEvent = TokenDelta | StreamComplete
+
+
+@runtime_checkable
+class StreamingAdapter(Protocol):
+    """Optional capability — chat adapters add streaming on top of `invoke`."""
+
+    provider: ApiKeyProvider
+
+    def stream(
+        self, *, secret: str, request: ProviderRequest
+    ) -> AsyncGenerator[StreamEvent, None]: ...
+
+
+class ProviderStreamError(RuntimeError):
+    """A streamed turn failed *after* the first token — not retryable.
+
+    Per the K.1 adapter contract (and §K Risks): once any text has been
+    emitted to the client we cannot transparently rotate keys, because the
+    partial output is already committed. The turn fails visibly (R9.09).
+    """
+
+    def __init__(self, http_status: int) -> None:
+        super().__init__(f"provider stream failed after first token (HTTP {http_status})")
+        self.http_status = http_status
+
+
+class _RotateStream(RuntimeError):
+    """Internal — a stream failed *before* the first token; rotate to next key."""
 
 
 # ---------------------------------------------------------------------------
@@ -229,6 +288,174 @@ class ProviderRouter:
             )
             await asyncio.sleep(sleep_for)
 
+    async def call_stream(
+        self, *, group_id: uuid.UUID, request: ProviderRequest
+    ) -> AsyncGenerator[StreamEvent, None]:
+        """Streaming variant of :meth:`call` with rotate-before-first-token.
+
+        Rotation semantics are deliberately weaker than the unary path
+        (§K Risks): a member that fails *before* emitting any `TokenDelta`
+        is abandoned and the next priority is tried; once the first token
+        has been yielded the turn is committed and a later failure raises
+        `ProviderStreamError` rather than silently rotating (partial output
+        cannot be replayed across keys). There is no same-member retry and
+        no quota queue-wait — a human is waiting on the socket.
+
+        Yields `TokenDelta` events followed by one terminal `StreamComplete`.
+        Raises `KeyGroupExhausted` if no member can serve the request.
+        """
+        members = await self._load_eligible(group_id, request.capability)
+        if not members:
+            raise KeyGroupExhausted(group_id=group_id, reason="no_members")
+
+        quota_blocked = False
+        for em in members:
+            if await self._quota_exceeded(em):
+                quota_blocked = True
+                continue
+            # Widen to `object` so the StreamingAdapter Protocol check narrows
+            # correctly — `ProviderAdapter` lacks `stream`, which would otherwise
+            # make mypy treat the positive branch as unreachable.
+            adapter_obj: object = self._adapters.get(em.key.provider)
+            if not isinstance(adapter_obj, StreamingAdapter):
+                # No streaming adapter for this provider — treat as a fatal
+                # member (mis-provisioned group) and rotate.
+                continue
+            # Own the inner generator's lifecycle: closing it in `finally`
+            # guarantees its usage accounting runs even when *our* consumer
+            # abandons the stream — `async for` does not aclose its sub-iterator,
+            # so the abort signal must be propagated explicitly down the chain.
+            inner = self._stream_member(em, request, adapter_obj)
+            try:
+                async for ev in inner:
+                    yield ev
+                return  # streamed to completion
+            except (_RotateStream, _KeyVanished):
+                continue
+            finally:
+                await inner.aclose()
+        # Nothing produced a stream.
+        if quota_blocked:
+            KEY_GROUP_EXHAUSTED_TOTAL.labels(reason="quota").inc()
+            raise KeyGroupExhausted(group_id=group_id, reason="quota")
+        KEY_GROUP_EXHAUSTED_TOTAL.labels(reason="errors").inc()
+        raise KeyGroupExhausted(group_id=group_id, reason="errors")
+
+    async def _stream_member(
+        self,
+        em: _EligibleMember,
+        request: ProviderRequest,
+        adapter: StreamingAdapter,
+    ) -> AsyncGenerator[StreamEvent, None]:
+        """Drive one member's stream; account usage exactly once; classify status.
+
+        Accounting lives in the `finally` so it fires on every exit path —
+        normal completion, provider transport error, **and** consumer
+        abandonment (client disconnect → `GeneratorExit`, or an exception thrown
+        into our `yield`). A consumer-side abort records ``client_abort`` rather
+        than being mislabelled a provider ``transport_error``; a provider
+        transport error is caught around the adapter's `__anext__` only, so it is
+        never confused with an exception originating in the consumer.
+
+        Raises `_RotateStream` when nothing was emitted (safe to rotate),
+        `ProviderStreamError` when a non-OK terminal status follows ≥1 token,
+        and re-raises provider transport errors that occur after the first token.
+        """
+        secret_bytes = await self._unwrap_secret(em.key.id)
+        t0 = time.monotonic()
+        first_token = False
+        complete: StreamComplete | None = None
+        transport_exc: Exception | None = None
+
+        async def _account() -> None:
+            # Best-effort and self-contained: we run inside a `finally`, so a
+            # DB/Redis hiccup must never mask the real control-flow outcome.
+            try:
+                elapsed_ms = int((time.monotonic() - t0) * 1000)
+                if complete is not None:
+                    res = complete.result
+                    error_code = classify_http(res.http_status, em.member.rotation).error_code
+                    await redis_buckets.record(
+                        em.key.id,
+                        input_tokens=res.input_tokens,
+                        output_tokens=res.output_tokens,
+                        requests=1,
+                    )
+                    await record_usage_event(
+                        self._db,
+                        key_id=em.key.id,
+                        input_tokens=res.input_tokens,
+                        output_tokens=res.output_tokens,
+                        request_ms=res.request_ms or elapsed_ms,
+                        http_status=res.http_status,
+                        error_code=error_code,
+                        agent_id=request.agent_id,
+                        parent_agent_id=request.parent_agent_id,
+                        chatroom_id=request.chatroom_id,
+                    )
+                    PROVIDER_CALL_TOTAL.labels(
+                        provider=em.key.provider.value, status=str(res.http_status)
+                    ).inc()
+                else:
+                    # No terminal event: a provider transport error, or the
+                    # consumer walked away mid-stream (token counts unknown).
+                    code = "transport_error" if transport_exc is not None else "client_abort"
+                    await record_usage_event(
+                        self._db,
+                        key_id=em.key.id,
+                        input_tokens=0,
+                        output_tokens=0,
+                        request_ms=elapsed_ms,
+                        http_status=None,
+                        error_code=code,
+                        agent_id=request.agent_id,
+                        parent_agent_id=request.parent_agent_id,
+                        chatroom_id=request.chatroom_id,
+                    )
+            except Exception:
+                _log.exception("stream usage accounting failed key=%s", em.key.id)
+
+        agen = adapter.stream(secret=secret_bytes.decode("utf-8"), request=request)
+        try:
+            while True:
+                try:
+                    ev = await agen.__anext__()
+                except StopAsyncIteration:
+                    break
+                except Exception as exc:  # provider transport error
+                    transport_exc = exc
+                    _log.warning("stream transport error key=%s err=%s", em.key.id, exc)
+                    break
+                if isinstance(ev, TokenDelta):
+                    first_token = True
+                    # A consumer exception / GeneratorExit lands HERE, outside the
+                    # inner try — so it is never miscounted as a provider failure.
+                    yield ev
+                else:  # StreamComplete
+                    complete = ev
+
+            if transport_exc is not None:
+                if first_token:
+                    raise transport_exc
+                raise _RotateStream from transport_exc
+            if complete is None:
+                # Adapter closed without a terminal event — dry failure.
+                if first_token:
+                    raise ProviderStreamError(0)
+                raise _RotateStream
+            outcome = classify_http(complete.result.http_status, em.member.rotation)
+            if outcome.reason is RotationReason.OK:
+                yield complete
+                return
+            # Non-OK terminal status.
+            if first_token:
+                raise ProviderStreamError(complete.result.http_status)
+            raise _RotateStream
+        finally:
+            await _account()
+            await agen.aclose()
+            secret_bytes = b"\x00" * len(secret_bytes)  # scrub rebind
+
     async def _try_member(
         self,
         em: _EligibleMember,
@@ -263,6 +490,78 @@ class ProviderRouter:
             # ROTATE, or RETRY exhausted → terminal for this member, advance.
             st.exhausted = True
             return None
+
+    async def call_single_key(
+        self, *, key_id: uuid.UUID, request: ProviderRequest
+    ) -> ProviderCallResult:
+        """Pinned-key call — no rotation — for embedding / rerank traffic.
+
+        Rotation is wrong for these: RAG pins one ``embed_key_id`` and a
+        GraphRAG collection's vector *dimensions* depend on the embedding
+        model, so silently rotating to another provider's key would corrupt
+        the index. This still routes through the concrete adapter (no
+        key-prefix sniffing) and writes a `key_usage_events` row (R7.12), so
+        no caller needs ``unwrap_api_key_plaintext`` + raw httpx anymore.
+        """
+        key = await self._keys_repo.get_active(key_id)
+        if key is None:
+            raise KeyNotFound(str(key_id))
+        if request.capability not in _CAPS[key.provider]:
+            raise CapabilityMismatch(provider=key.provider, required=request.capability)
+        adapter = self._adapters.get(key.provider)
+        if adapter is None:
+            raise ValueError(f"no adapter for provider {key.provider.value}")
+
+        secret = await self._unwrap_secret(key_id)
+        t0 = time.monotonic()
+        try:
+            result = await adapter.invoke(secret=secret.decode("utf-8"), request=request)
+        except Exception:
+            elapsed_ms = int((time.monotonic() - t0) * 1000)
+            await record_usage_event(
+                self._db,
+                key_id=key_id,
+                input_tokens=0,
+                output_tokens=0,
+                request_ms=elapsed_ms,
+                http_status=None,
+                error_code="transport_error",
+                agent_id=request.agent_id,
+                parent_agent_id=request.parent_agent_id,
+                chatroom_id=request.chatroom_id,
+            )
+            raise
+        finally:
+            secret = b"\x00" * len(secret)  # scrub rebind
+        elapsed_ms = int((time.monotonic() - t0) * 1000)
+
+        status = result.http_status
+        if 200 <= status < 300:
+            error_code: str | None = None
+        elif status in (401, 403):
+            error_code = "provider_unauthorized"
+        else:
+            error_code = f"http_{status}"
+        await redis_buckets.record(
+            key_id,
+            input_tokens=result.input_tokens,
+            output_tokens=result.output_tokens,
+            requests=1,
+        )
+        await record_usage_event(
+            self._db,
+            key_id=key_id,
+            input_tokens=result.input_tokens,
+            output_tokens=result.output_tokens,
+            request_ms=result.request_ms or elapsed_ms,
+            http_status=status,
+            error_code=error_code,
+            agent_id=request.agent_id,
+            parent_agent_id=request.parent_agent_id,
+            chatroom_id=request.chatroom_id,
+        )
+        PROVIDER_CALL_TOTAL.labels(provider=key.provider.value, status=str(status)).inc()
+        return result
 
     # -----------------------------------------------------------------
 
@@ -401,5 +700,10 @@ __all__ = [
     "ProviderCallResult",
     "ProviderRequest",
     "ProviderRouter",
+    "ProviderStreamError",
     "RouterConfig",
+    "StreamComplete",
+    "StreamEvent",
+    "StreamingAdapter",
+    "TokenDelta",
 ]

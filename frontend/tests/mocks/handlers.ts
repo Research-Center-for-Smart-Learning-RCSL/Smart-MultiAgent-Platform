@@ -9,6 +9,10 @@ export const handlers = [
     }),
   ),
 
+  http.get('/api/auth/captcha-config', () =>
+    HttpResponse.json({ mode: 'off', provider: 'off', sitekey: '' }),
+  ),
+
   http.post('/api/auth/logout', () => new HttpResponse(null, { status: 204 })),
 
   http.post('/api/auth/refresh', () =>
@@ -133,6 +137,19 @@ export const handlers = [
 
   http.get('/api/invites/inbox', () => HttpResponse.json([])),
   http.get('/api/invites', () => HttpResponse.json([])),
+  http.post('/api/invites/accept-by-token', () =>
+    HttpResponse.json({
+      id: 'inv_1',
+      scope_type: 'org',
+      scope_id: 'org_1',
+      scope_name: 'Test Org',
+      invitee_email: 'test@example.com',
+      role: 'member',
+      state: 'accepted',
+      created_at: '2026-01-01T00:00:00Z',
+      expires_at: '2026-01-08T00:00:00Z',
+    }),
+  ),
   http.get('/api/projects', () => HttpResponse.json([])),
 
   http.get('/api/guest/:token', () =>

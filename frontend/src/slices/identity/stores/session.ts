@@ -22,11 +22,10 @@ export const useSessionStore = defineStore('identity/session', () => {
     accessTokenExpiresAt.value = Date.now() + pair.expires_in * 1000
   }
 
-  async function login(email: string, password: string, captcha?: string): Promise<void> {
-    const payload = captcha
-      ? { email, password, captcha_token: captcha }
-      : { email, password }
-    const { data } = await authApi.login(payload)
+  async function login(email: string, password: string): Promise<void> {
+    // Login takes no CAPTCHA (R19a.12 is register-only); the backend /auth/login
+    // payload has no captcha_token field.
+    const { data } = await authApi.login({ email, password })
     applyTokens(data)
     await refreshMe()
   }
