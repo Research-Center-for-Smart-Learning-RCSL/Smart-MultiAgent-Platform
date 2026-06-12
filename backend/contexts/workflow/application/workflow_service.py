@@ -226,7 +226,18 @@ class WorkflowService:
         if trigger_nodes:
             trigger_type = trigger_nodes[0].get("config", {}).get("trigger_type", "manual")
 
-        pid = project_id or uuid.UUID("00000000-0000-0000-0000-000000000000")
+        # H.4/K.4: a run's project_id is a NOT-NULL FK. The API path supplies it
+        # from the request scope; the cron scheduler (and any other
+        # project-less trigger) does not, so derive it from the workflow's
+        # workspace. The former ``UUID(int=0)`` fallback violated the FK and
+        # failed every cron-triggered run at insert.
+        pid = project_id
+        if pid is None:
+            pid = await self._repo.resolve_project_id(workflow_id)
+            if pid is None:
+                raise WorkflowNotFound(
+                    f"Cannot resolve project for workflow {workflow_id} (workspace missing?)"
+                )
 
         self._engine = RunEngine(self._db)
         return await self._engine.start_run(

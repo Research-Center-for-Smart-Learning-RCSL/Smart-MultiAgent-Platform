@@ -131,6 +131,7 @@ from app.bootstrap.seed import seed_test_users
 from app.config.settings import get_settings
 from contexts.agents.interfaces import error_mapping as agents_errors
 from contexts.conversation.interfaces import error_mapping as conversation_errors
+from contexts.identity.application.factory import warn_if_email_unconfigured
 from contexts.identity.interfaces import error_mapping as identity_errors
 from contexts.keys.infrastructure import revocation_listener
 from contexts.keys.interfaces import error_mapping as keys_errors
@@ -156,6 +157,9 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     # missing, SEL matches() fails closed at run time; this logs the misconfig
     # loudly up front rather than letting it surface only mid-workflow.
     confirm_re2_available()
+    # K.6: in prod without SMTP, registration/reset/invite mail is undeliverable.
+    # Warn loudly once at boot rather than failing — mail-less labs are allowed.
+    warn_if_email_unconfigured()
     await seed_test_users(app_env=settings.app.env)
     # ASYNC-2: subscribe this process to key-revocation events so a revoked or
     # carry-withdrawn DEK is punched out of the in-process provider_router cache.

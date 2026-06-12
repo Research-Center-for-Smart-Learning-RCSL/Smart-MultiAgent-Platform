@@ -34,6 +34,7 @@ from app.workers.tasks.conversation import (
 )
 from app.workers.tasks.graphrag import graphrag_build
 from app.workers.tasks.orchestration import (
+    approval_timeout,
     evaluate_silence,
     make_dlq_audit_callback,
     wakeup_agent,
@@ -42,11 +43,19 @@ from app.workers.tasks.orchestration import (
 from app.workers.tasks.retention import retention_sweep
 from app.workers.tasks.workflow import (
     retry_workflow_node,
+    run_triggered_workflow,
     run_workflow_step,
     workflow_cron_scheduler,
+    workflow_event_resume,
     workflow_event_timeout,
+    workflow_instruct_timeout,
+    workflow_resume_approval,
+    workflow_resume_instruct,
+    workflow_signal,
     workflow_subagent_complete,
     workflow_subagent_timeout,
+    workflow_variable_signal,
+    workflow_watchdog,
 )
 from contexts.keys.application.threshold_worker import sample_once as _threshold_sample_once
 from contexts.keys.infrastructure import revocation_listener
@@ -168,12 +177,21 @@ class WorkerSettings:
         wakeup_agent,
         evaluate_silence,
         wakeup_refresh,
+        approval_timeout,
         run_workflow_step,
         retry_workflow_node,
         workflow_event_timeout,
         workflow_subagent_timeout,
         workflow_subagent_complete,
         workflow_cron_scheduler,
+        workflow_signal,
+        workflow_variable_signal,
+        workflow_event_resume,
+        run_triggered_workflow,
+        workflow_resume_approval,
+        workflow_resume_instruct,
+        workflow_instruct_timeout,
+        workflow_watchdog,
         retention_sweep,
         daily_org_advisory_snapshot,
         key_usage_threshold_sample,
@@ -200,6 +218,9 @@ class WorkerSettings:
         cron(daily_org_advisory_snapshot, hour=2, minute=0, run_at_startup=False),
         # Every minute — cron trigger scheduler (H.4).
         cron(workflow_cron_scheduler, minute=set(range(60)), run_at_startup=False),
+        # Every minute — workflow timeout watchdog (K.4): fail runs past their
+        # run_max_seconds / idle_max_seconds budgets.
+        cron(workflow_watchdog, minute=set(range(60)), run_at_startup=False),
         # Every 30 seconds — D.8 80% hourly-limit sampler (R7.11).
         cron(key_usage_threshold_sample, second={0, 30}, run_at_startup=False),
         # 05:00 UTC daily — per-agent Docker volume GC (E.10 / R12.03, 60-day retention).

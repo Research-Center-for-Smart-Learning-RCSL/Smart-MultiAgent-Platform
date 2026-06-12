@@ -298,3 +298,29 @@ services:
       timeout: 5s
       retries: 5
       start_period: 10s
+
+  # ---------- Sandbox images (build-only; K.5) ----------
+  # These are not long-running services — they only define how the two gVisor
+  # sandbox images are built. A self-hosting operator runs:
+  #     docker compose --profile sandbox-build build
+  # to produce `smap/mcp-runtime:pinned` + `smap/code-exec:pinned`, which
+  # docker_runsc.py spawns (pin by digest via SANDBOX_MCP_IMAGE /
+  # SANDBOX_CODE_EXEC_IMAGE in production). The `profiles:` key keeps them out
+  # of the default `up`. `command` is a no-op so an accidental `up` exits clean.
+  mcp-runtime-image:
+    profiles: ["sandbox-build"]
+    image: smap/mcp-runtime:pinned
+    build:
+      context: ../sandbox
+      dockerfile: mcp-runtime/Dockerfile
+    command: ["true"]
+    restart: "no"
+
+  code-exec-image:
+    profiles: ["sandbox-build"]
+    image: smap/code-exec:pinned
+    build:
+      context: ../sandbox
+      dockerfile: code-exec/Dockerfile
+    command: ["true"]
+    restart: "no"

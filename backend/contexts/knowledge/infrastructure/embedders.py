@@ -1,28 +1,27 @@
-"""Embedder adapters for the R10.05 whitelist.
+"""Router-backed embedder for the R10.05 whitelist (K.1).
 
-Four providers × four models; one HTTP call per batch per provider. Each
-adapter receives the *plaintext* API key at construction — the caller
-(ingest / retrieve services) obtains it via ``KeysFacade.unwrap_api_key_plaintext``
-and scrubs it afterwards.
+Embedding calls flow through :meth:`ProviderRouter.call_single_key` — the
+*pinned-key* path (no rotation: a RAG config pins one ``embed_key_id`` and a
+collection's vector dimensions must stay stable). This kills the previous
+``KeysFacade.unwrap_api_key_plaintext`` + raw-httpx pattern (the caller no
+longer touches key material) and records a `key_usage_events` row per batch
+(R7.12).
 
-The vector sizes embedded below mirror the current provider dimensions
-as of 2026-Q1 and are authoritative for Qdrant `ensure_collection` sizing.
-Changing provider defaults means migrating collections — tracked in
-``docs/implement/E-agents-knowledge.md`` Risks section.
+The vector sizes below mirror current provider dimensions as of 2026-Q1 and
+are authoritative for Qdrant ``ensure_collection`` sizing. Changing provider
+defaults means migrating collections — tracked in
+``docs/implement/E-agents-knowledge.md`` Risks.
 """
 
 from __future__ import annotations
 
-import httpx
+import uuid
 
+from contexts.keys.application.provider_router import ProviderRequest, ProviderRouter
+from contexts.keys.domain.providers import ProviderCapability
 from contexts.knowledge.application.ports import Embedder
 
-__all__ = [
-    "GeminiEmbedder",
-    "OpenAIEmbedder",
-    "VoyageEmbedder",
-    "embedder_for",
-]
+__all__ = ["EmbeddingError", "RouterEmbedder", "router_embedder_for"]
 
 
 _VECTOR_SIZES: dict[tuple[str, str], int] = {
@@ -33,6 +32,15 @@ _VECTOR_SIZES: dict[tuple[str, str], int] = {
 }
 
 
+class EmbeddingError(RuntimeError):
+    """Provider returned a non-2xx for an embedding batch (scrubbed)."""
+
+    def __init__(self, http_status: int, detail: object = None) -> None:
+        super().__init__(f"embedding provider failed (HTTP {http_status})")
+        self.http_status = http_status
+        self.detail = detail
+
+
 def _vector_size(provider: str, model: str) -> int:
     try:
         return _VECTOR_SIZES[(provider, model)]
@@ -40,86 +48,43 @@ def _vector_size(provider: str, model: str) -> int:
         raise ValueError(f"unknown embedder ({provider}, {model})") from exc
 
 
-class _BaseEmbedder:
+class RouterEmbedder(Embedder):
+    """Concrete :class:`Embedder` signing through one pinned key via the router."""
+
     def __init__(
         self,
         *,
+        router: ProviderRouter,
+        key_id: uuid.UUID,
+        provider: str,
         model: str,
-        api_key: str,
-        vector_size: int,
-        http: httpx.AsyncClient | None = None,
     ) -> None:
+        self._router = router
+        self._key_id = key_id
         self._model = model
-        self._api_key = api_key
-        self.vector_size = vector_size
-        self._http = http or httpx.AsyncClient(timeout=30.0)
+        self.vector_size = _vector_size(provider, model)
 
-
-class OpenAIEmbedder(_BaseEmbedder, Embedder):
     async def embed_batch(self, texts: list[str]) -> list[list[float]]:
         if not texts:
             return []
-        r = await self._http.post(
-            "https://api.openai.com/v1/embeddings",
-            headers={"Authorization": f"Bearer {self._api_key}"},
-            json={"model": self._model, "input": texts},
+        result = await self._router.call_single_key(
+            key_id=self._key_id,
+            request=ProviderRequest(
+                capability=ProviderCapability.EMBEDDING,
+                payload={"model": self._model, "input": texts},
+            ),
         )
-        r.raise_for_status()
-        data = r.json()["data"]
-        # OpenAI preserves input order.
-        return [d["embedding"] for d in data]
+        if result.http_status != 200:
+            raise EmbeddingError(result.http_status, result.body.get("error"))
+        return list(result.body.get("embeddings") or [])
 
 
-class VoyageEmbedder(_BaseEmbedder, Embedder):
-    async def embed_batch(self, texts: list[str]) -> list[list[float]]:
-        if not texts:
-            return []
-        r = await self._http.post(
-            "https://api.voyageai.com/v1/embeddings",
-            headers={"Authorization": f"Bearer {self._api_key}"},
-            json={"model": self._model, "input": texts},
-        )
-        r.raise_for_status()
-        data = r.json()["data"]
-        return [d["embedding"] for d in sorted(data, key=lambda x: x["index"])]
-
-
-class GeminiEmbedder(_BaseEmbedder, Embedder):
-    async def embed_batch(self, texts: list[str]) -> list[list[float]]:
-        # Gemini's batch endpoint (`batchEmbedContents`) takes one request per
-        # input; we fan out then await in order.
-        if not texts:
-            return []
-        url = (
-            f"https://generativelanguage.googleapis.com/v1beta/"
-            f"models/{self._model}:batchEmbedContents?key={self._api_key}"
-        )
-        body = {
-            "requests": [
-                {
-                    "model": f"models/{self._model}",
-                    "content": {"parts": [{"text": t}]},
-                }
-                for t in texts
-            ],
-        }
-        r = await self._http.post(url, json=body)
-        r.raise_for_status()
-        return [e["values"] for e in r.json()["embeddings"]]
-
-
-def embedder_for(
+def router_embedder_for(
     *,
+    router: ProviderRouter,
+    key_id: uuid.UUID,
     provider: str,
     model: str,
-    api_key: str,
-    http: httpx.AsyncClient | None = None,
 ) -> Embedder:
-    vs = _vector_size(provider, model)
-    if provider == "openai":
-        return OpenAIEmbedder(model=model, api_key=api_key, vector_size=vs, http=http)
-    if provider == "voyage":
-        return VoyageEmbedder(model=model, api_key=api_key, vector_size=vs, http=http)
-    if provider == "gemini":
-        return GeminiEmbedder(model=model, api_key=api_key, vector_size=vs, http=http)
-    raise ValueError(f"no embedder for provider {provider!r}")
+    """Build a pinned-key embedder; validates the (provider, model) dimension."""
+    return RouterEmbedder(router=router, key_id=key_id, provider=provider, model=model)

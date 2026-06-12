@@ -104,6 +104,37 @@ async def accept(
     return _to_out(updated)
 
 
+class AcceptByTokenIn(BaseModel):
+    token: str
+
+
+@router.post("/accept-by-token", status_code=status.HTTP_200_OK)
+async def accept_by_token(
+    body: AcceptByTokenIn,
+    ctx: RequestContext = Depends(current_context),
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(db_session),
+) -> InviteOut:
+    """Redeem an invite from its emailed token link (R6.09).
+
+    The token authorises acceptance (it proves the holder received the invite
+    mail), so no email match is required — but the caller must still be logged
+    in AND email-verified (R6.11), same as the by-id accept path.
+    """
+    if not principal.email_verified:
+        from shared_kernel.auth.dependencies import _raise_forbidden
+
+        _raise_forbidden("email verification required (R6.11)")
+    service = InviteService(db)
+    updated = await service.accept_by_token(
+        token=body.token,
+        caller_user_id=principal.user_id,
+        actor_ip=ctx.actor_ip,
+        request_id=ctx.request_id,
+    )
+    return _to_out(updated)
+
+
 @router.post("/{invite_id}/reject", status_code=status.HTTP_200_OK)
 async def reject(
     invite_id: uuid.UUID = Path(...),

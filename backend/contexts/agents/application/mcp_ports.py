@@ -47,6 +47,9 @@ class SandboxRunner(Protocol):
         tool_name: str,
         arguments: dict[str, Any],
         project_id: uuid.UUID,
+        source: str = "",
+        reference: str = "",
+        auth: dict[str, Any] | None = None,
         timeout_s: float = 60.0,
     ) -> ToolCallResult: ...
 

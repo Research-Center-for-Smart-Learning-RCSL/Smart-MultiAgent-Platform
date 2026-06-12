@@ -1,11 +1,15 @@
 """LLM-backed (subject, relation, object) triple extractor (R11.03).
 
-The adapter resolves the builder Key Group to a concrete provider key via
-:class:`contexts.keys.interfaces.facade.KeysFacade`, calls the selected
-LLM with a fixed extraction prompt, and parses a JSON array of triples
-from the response. Failure modes (non-JSON output, missing fields) are
-surfaced as empty result sets so the builder can still mark phase-1
-complete instead of compensating on a soft parse error.
+The extractor hands the builder Key Group to the :class:`ProviderRouter`,
+which selects + rotates a concrete provider key, signs the call through the
+matching adapter (K.1), records usage, and returns normalised text. The
+extractor parses a JSON array of triples from that text. Failure modes
+(no keys, exhaustion, non-JSON output, missing fields) are surfaced as empty
+result sets so the builder can still mark phase-1 complete instead of
+compensating on a soft parse error.
+
+No key material is handled here anymore — the router owns unwrap + scrub
+(K.∞ gate: no `unwrap_api_key_plaintext` LLM bypass survives K).
 """
 
 from __future__ import annotations
@@ -14,15 +18,24 @@ import json
 import logging
 import re
 import uuid
-from typing import Protocol
 
-from sqlalchemy.ext.asyncio import AsyncSession
-
-from contexts.keys.interfaces.facade import KeysFacade
+from contexts.keys.application.provider_router import ProviderRequest, ProviderRouter
+from contexts.keys.domain.errors import KeyGroupExhausted
+from contexts.keys.domain.providers import ProviderCapability
 from contexts.knowledge.application.graphrag_ports import DeltaMessage
 from contexts.knowledge.domain.graphrag import Triple
 
 _log = logging.getLogger(__name__)
+
+# Builder-level extraction models, supplied to the adapter per provider so the
+# router can pick whichever key it rotates to. These are the *builder's* model
+# choice (cheap/fast tier), NOT an adapter hardcode — an agent turn supplies its
+# own ``model`` instead (K.1 contract).
+_DEFAULT_EXTRACTION_MODELS: dict[str, str] = {
+    "claude": "claude-3-5-haiku-latest",
+    "openai": "gpt-4o-mini",
+    "gemini": "gemini-2.0-flash",
+}
 
 _EXTRACTION_PROMPT = (
     "You are an information extraction engine. From the following chat "
@@ -34,23 +47,17 @@ _EXTRACTION_PROMPT = (
 )
 
 
-class ChatCompleter(Protocol):
-    """Minimal LLM surface used by the extractor (provider-agnostic)."""
-
-    async def complete(self, *, prompt: str, api_key: str) -> str: ...
-
-
 class LlmTripleExtractor:
-    """Concrete :class:`TripleExtractor` — resolves key, prompts, parses."""
+    """Concrete :class:`TripleExtractor` — routes through the key group, parses."""
 
     def __init__(
         self,
-        db: AsyncSession,
         *,
-        completer: ChatCompleter,
+        router: ProviderRouter,
+        models: dict[str, str] | None = None,
     ) -> None:
-        self._db = db
-        self._completer = completer
+        self._router = router
+        self._models = models or _DEFAULT_EXTRACTION_MODELS
 
     async def extract(
         self,
@@ -61,45 +68,36 @@ class LlmTripleExtractor:
     ) -> list[Triple]:
         if not messages:
             return []
-        key_id = await self._resolve_key_id(builder_key_group_id)
-        if key_id is None:
+        request = ProviderRequest(
+            capability=ProviderCapability.LLM_CHAT,
+            payload={
+                "models": self._models,
+                "max_tokens": 4096,
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": _EXTRACTION_PROMPT.format(messages=_render_messages(messages)),
+                    }
+                ],
+            },
+        )
+        try:
+            result = await self._router.call(group_id=builder_key_group_id, request=request)
+        except KeyGroupExhausted as exc:
             _log.warning(
-                "graphrag extractor: key group %s has no active keys",
+                "graphrag extractor: key group %s unusable (%s)",
+                builder_key_group_id,
+                exc.reason,
+            )
+            return []
+        if result.http_status != 200:
+            _log.warning(
+                "graphrag extractor: provider returned %s for group %s",
+                result.http_status,
                 builder_key_group_id,
             )
             return []
-
-        facade = KeysFacade(self._db)
-        plaintext = await facade.unwrap_api_key_plaintext(key_id)
-        try:
-            prompt = _EXTRACTION_PROMPT.format(
-                messages=_render_messages(messages),
-            )
-            raw = await self._completer.complete(
-                prompt=prompt,
-                api_key=plaintext.decode("utf-8"),
-            )
-        finally:
-            plaintext = b"\x00" * len(plaintext)
-        return _parse_triples(raw)
-
-    async def _resolve_key_id(
-        self,
-        group_id: uuid.UUID,
-    ) -> uuid.UUID | None:
-        """Pick one active key from the builder Key Group."""
-        from contexts.keys.infrastructure.group_repository import (
-            KeyGroupMemberRepository,
-        )
-
-        facade = KeysFacade(self._db)
-        group = await facade.get_key_group(group_id)
-        if group is None:
-            return None
-        members = await KeyGroupMemberRepository(self._db).list_ordered(group_id)
-        if not members:
-            return None
-        return members[0].key_id
+        return _parse_triples(str(result.body.get("text", "")))
 
 
 def _render_messages(messages: list[DeltaMessage]) -> str:
@@ -162,4 +160,4 @@ def _parse_triples(raw: str) -> list[Triple]:
     return out
 
 
-__all__ = ["ChatCompleter", "LlmTripleExtractor"]
+__all__ = ["LlmTripleExtractor"]

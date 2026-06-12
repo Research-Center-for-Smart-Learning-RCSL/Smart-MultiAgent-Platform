@@ -7,6 +7,7 @@ export { CancelablePromise, CancelError } from './core/CancelablePromise';
 export { OpenAPI } from './core/OpenAPI';
 export type { OpenAPIConfig } from './core/OpenAPI';
 
+export type { AcceptByTokenIn } from './models/AcceptByTokenIn';
 export type { AddMemberIn } from './models/AddMemberIn';
 export type { AdminEntryOut } from './models/AdminEntryOut';
 export type { AdminPromoteIn } from './models/AdminPromoteIn';
@@ -32,6 +33,7 @@ export type { AuditPageOut } from './models/AuditPageOut';
 export type { BanIn } from './models/BanIn';
 export type { Body_create_single_shot_api_chatrooms__chatroom_id__attachments_post } from './models/Body_create_single_shot_api_chatrooms__chatroom_id__attachments_post';
 export type { Body_upload_document_api_rag_configs__config_id__documents_post } from './models/Body_upload_document_api_rag_configs__config_id__documents_post';
+export type { CaptchaConfigOut } from './models/CaptchaConfigOut';
 export type { CarryIn } from './models/CarryIn';
 export type { ChangeEmailIn } from './models/ChangeEmailIn';
 export type { ChangePasswordIn } from './models/ChangePasswordIn';

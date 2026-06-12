@@ -16,5 +16,6 @@ export const invitesApi = {
   list: (state: 'pending' | 'accepted' | 'rejected' = 'pending') =>
     http.get<Invite[]>(`/invites`, { params: { state } }),
   accept: (id: string) => http.post(`/invites/${id}/accept`),
+  acceptByToken: (token: string) => http.post<Invite>(`/invites/accept-by-token`, { token }),
   reject: (id: string) => http.post(`/invites/${id}/reject`),
 }

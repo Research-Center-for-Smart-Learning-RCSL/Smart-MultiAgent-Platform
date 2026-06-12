@@ -17,6 +17,7 @@ dependencies = [
   "alembic==1.13.*",
   "arq==0.26.*",
   "loguru==0.7.*",
+  "aiosmtplib==3.0.*",
   "argon2-cffi==23.1.*",
   "httpx==0.27.*",
   "bleach==6.2.*",
@@ -173,6 +174,7 @@ module = [
   "docker.*",
   "bleach.*",
   "re2.*",
+  "aiosmtplib.*",
 ]
 ignore_missing_imports = true
 
@@ -231,6 +233,7 @@ markers = [
   "unit: fast, isolated unit tests",
   "integration: requires infra (DB/Redis/Vault/etc.) — skipped in fmt/lint CI",
   "e2e: full-stack tests; Playwright or compose.test.yml",
+  "wiring: cross-context tripwires (K.7) — real Postgres+Redis+MailHog from compose.test.yml, FakeAdapter LLM; run by the backend-wiring CI job",
 ]
 
 # ---------- Import-linter (SoC enforcement — §23 DDD boundaries) ----------

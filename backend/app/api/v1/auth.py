@@ -18,7 +18,7 @@ from app.config.settings import get_settings
 from contexts.identity.application.auth_service import AuthService, TokenPair
 from contexts.identity.application.factory import create_auth_service
 from contexts.identity.interfaces.facade import IdentityFacade
-from shared_kernel.auth import ratelimit
+from shared_kernel.auth import captcha, ratelimit
 from shared_kernel.auth.context import RequestContext
 from shared_kernel.auth.dependencies import (
     current_context,
@@ -181,6 +181,12 @@ class WsTicketOut(BaseModel):
     expires_in: int
 
 
+class CaptchaConfigOut(BaseModel):
+    mode: str  # "on" | "off"
+    provider: str  # "hcaptcha" | "turnstile" | "off"
+    sitekey: str
+
+
 # ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
@@ -206,6 +212,18 @@ async def register(
         request_id=ctx.request_id,
     )
     return {"status": "verification_pending"}
+
+
+@router.get("/captcha-config")
+async def captcha_config() -> CaptchaConfigOut:
+    """Public CAPTCHA config for the registration widget (R19a.12).
+
+    Unauthenticated by design — the SPA fetches this before the user has any
+    credentials. Returns only the public provider/sitekey/mode; the verify
+    secret never leaves the backend. When ``mode=off`` the SPA renders no widget.
+    """
+    cfg = captcha.public_config()
+    return CaptchaConfigOut(mode=cfg.mode, provider=cfg.provider, sitekey=cfg.sitekey)
 
 
 @router.post("/verify-email")

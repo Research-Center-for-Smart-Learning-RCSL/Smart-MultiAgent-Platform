@@ -58,7 +58,133 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
       - run: pip install -e '.[dev]'
-      - run: pytest -q --cov=app --cov=contexts --cov=shared_kernel -m "not integration and not e2e"
+      # Unit tier only. The `integration` / `wiring` markers now genuinely
+      # filter (K.7): integration tests run in backend-integration, the
+      # cross-context wiring tier in backend-wiring.
+      - run: pytest -q --cov=app --cov=contexts --cov=shared_kernel -m "not integration and not e2e and not wiring"
+
+  # ──────────────────────────────────────────────
+  # Integration tier — cross-boundary via TestClient + stubs (no live infra)
+  # ──────────────────────────────────────────────
+  # Everything under tests/integration/ (auto-marked by its conftest). These
+  # exercise the HTTP/middleware boundary with fakes, so they need no DB/Redis;
+  # they live in their own job so the unit job's `-m "not integration"` filter
+  # is meaningful (K.7 deliverable 2).
+  backend-integration:
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: backend } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+      - run: pip install -e '.[dev]'
+      - run: pytest -q -m "integration and not wiring"
+
+  # ──────────────────────────────────────────────
+  # Wiring tier (K.7) — real Postgres + Redis + MailHog, FakeAdapter LLM
+  # ──────────────────────────────────────────────
+  # The permanent cross-context guard set: message→reply, A2A round-trip,
+  # workflow golden run, executor completeness, usage-event-per-call, email
+  # round-trip. Runs INSIDE the compose network (so `postgres`/`redis`/`mailhog`
+  # resolve, matching the tests' hostnames). REQUIRED — no continue-on-error:
+  # deleting an executor import or the on_message_created wiring fails here.
+  backend-wiring:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Start data services
+        run: |
+          docker compose \
+            -f deploy/compose/docker-compose.yml \
+            -f deploy/compose/compose.test.yml \
+            up -d --wait --wait-timeout 120 postgres redis vault mailhog
+      - name: Apply DB migrations
+        run: |
+          docker compose \
+            -f deploy/compose/docker-compose.yml \
+            -f deploy/compose/compose.test.yml \
+            run --rm --no-deps \
+            -e SMAP_APP_ENV=test \
+            -e SMAP_DB_DSN=postgresql+asyncpg://smap:smap@postgres:5432/smap_test \
+            -e VAULT_ADDR=http://vault:8200 \
+            -e VAULT_TOKEN=root \
+            backend-web python -m smap.bootstrap db-init
+      - name: Run wiring tier
+        run: |
+          docker compose \
+            -f deploy/compose/docker-compose.yml \
+            -f deploy/compose/compose.test.yml \
+            run --rm --no-deps \
+            -e SMAP_APP_ENV=test \
+            -e SMAP_DB_DSN=postgresql+asyncpg://smap:smap@postgres:5432/smap_test \
+            -e SMAP_REDIS_DSN=redis://redis:6379/1 \
+            -e VAULT_ADDR=http://vault:8200 \
+            -e VAULT_TOKEN=root \
+            backend-web sh -lc "pip install -e '.[dev]' && pytest -q -m wiring"
+      - name: Dump stack logs on failure
+        if: failure()
+        run: |
+          docker compose \
+            -f deploy/compose/docker-compose.yml \
+            -f deploy/compose/compose.test.yml \
+            logs --no-color postgres redis vault mailhog > wiring-stack.log || true
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: wiring-stack-logs
+          path: wiring-stack.log
+          retention-days: 7
+      - name: Tear down
+        if: always()
+        run: |
+          docker compose \
+            -f deploy/compose/docker-compose.yml \
+            -f deploy/compose/compose.test.yml \
+            down -v
+
+  # ──────────────────────────────────────────────
+  # Sandbox images — build + driver smoke + digest record (K.5)
+  # ──────────────────────────────────────────────
+  # Builds both gVisor sandbox images and smoke-runs the in-image driver's
+  # `probe` against the baked stdio MCP server. The driver itself is runtime-
+  # agnostic, so this validates the build + protocol under plain Docker; the
+  # gVisor (runsc) assertion is host-side (docker_runsc.py) and is exercised on
+  # the staging box, not here. Digests are recorded as a build artifact so the
+  # SANDBOX_*_IMAGE pins can be updated from a reviewed build.
+  sandbox-images:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build mcp-runtime image
+        run: docker build -t smap/mcp-runtime:ci -f deploy/sandbox/mcp-runtime/Dockerfile deploy/sandbox
+      - name: Build code-exec image
+        run: docker build -t smap/code-exec:ci -f deploy/sandbox/code-exec/Dockerfile deploy/sandbox
+      - name: Driver smoke — probe the baked stdio MCP server
+        run: |
+          out="$(docker run --rm \
+            -e SMAP_AGENT_ID=00000000-0000-0000-0000-000000000000 \
+            -e SMAP_PROJECT_ID=00000000-0000-0000-0000-000000000000 \
+            -e SMAP_MCP_SOURCE=package \
+            -e SMAP_MCP_REFERENCE='npx:@modelcontextprotocol/server-everything' \
+            -e SMAP_MCP_AUTH_JSON='{}' \
+            smap/mcp-runtime:ci probe)"
+          echo "probe output: $out"
+          echo "$out" | python3 -c "import json,sys; d=json.load(sys.stdin); assert d.get('tools'), 'no tools returned'; print('tools:', len(d['tools']))"
+      - name: Driver smoke — code-exec runs python directly
+        run: |
+          out="$(docker run --rm smap/code-exec:ci python -c "print(6*7)")"
+          echo "code-exec output: $out"
+          test "$out" = "42"
+      - name: Record image digests
+        run: |
+          docker images --no-trunc --format '{{.Repository}}:{{.Tag}} {{.ID}}' \
+            smap/mcp-runtime:ci smap/code-exec:ci | tee sandbox-image-digests.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sandbox-image-digests
+          path: sandbox-image-digests.txt
 
   # ──────────────────────────────────────────────
   # Dependency CVE audit (SEC-DEP)

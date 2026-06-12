@@ -34,7 +34,7 @@ from qdrant_client import AsyncQdrantClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config.settings import get_settings
-from contexts.keys.interfaces.facade import KeysFacade
+from contexts.keys.infrastructure.adapters import build_router
 from contexts.knowledge.application.config_service import RagConfigService
 from contexts.knowledge.application.ingest_service import (
     MAX_MULTIPART_BYTES,
@@ -48,7 +48,7 @@ from contexts.knowledge.domain.models import (
     RagDocument,
 )
 from contexts.knowledge.infrastructure.blob_store import MinioBlobStore
-from contexts.knowledge.infrastructure.embedders import embedder_for
+from contexts.knowledge.infrastructure.embedders import router_embedder_for
 from contexts.knowledge.infrastructure.qdrant_store import QdrantStore
 from contexts.tenancy.domain.models import ProjectMemberRole
 from contexts.tenancy.infrastructure.repositories import ProjectMemberRepository
@@ -458,55 +458,52 @@ async def upload_document(
             f"multipart upload exceeds {MAX_MULTIPART_BYTES} bytes; use tus",
         )
 
-    # Unwrap the BYO embedding key just long enough to sign the batch.
-    plaintext = await KeysFacade(db).unwrap_api_key_plaintext(cfg.embed_key_id)
-    try:
-        embedder = embedder_for(
-            provider=cfg.embed_provider,
-            model=cfg.embed_model,
-            api_key=plaintext.decode("utf-8"),
-        )
+    # Pinned-key embedder — the router unwraps + scrubs + accounts (R7.12);
+    # the BYO key never enters this request handler.
+    embedder = router_embedder_for(
+        router=build_router(db),
+        key_id=cfg.embed_key_id,
+        provider=cfg.embed_provider,
+        model=cfg.embed_model,
+    )
 
-        settings = get_settings()
-        from minio import Minio
+    settings = get_settings()
+    from minio import Minio
 
-        minio = Minio(
-            settings.minio.endpoint,
-            access_key=settings.minio.root_access_key,
-            secret_key=settings.minio.root_secret_key,
-            secure=settings.minio.use_tls,
-            region=settings.minio.region,
-        )
-        blob = MinioBlobStore(minio)
+    minio = Minio(
+        settings.minio.endpoint,
+        access_key=settings.minio.root_access_key,
+        secret_key=settings.minio.root_secret_key,
+        secure=settings.minio.use_tls,
+        region=settings.minio.region,
+    )
+    blob = MinioBlobStore(minio)
 
-        qclient = AsyncQdrantClient(
-            url=settings.qdrant.url,
-            api_key=settings.qdrant.api_key or None,
-        )
-        qdrant = QdrantStore(qclient)
+    qclient = AsyncQdrantClient(
+        url=settings.qdrant.url,
+        api_key=settings.qdrant.api_key or None,
+    )
+    qdrant = QdrantStore(qclient)
 
-        ingest = IngestService(
-            db,
-            blob=blob,
-            embedder=embedder,
-            qdrant=qdrant,
-            bucket=settings.minio.bucket_rag_sources,
-        )
-        doc = await ingest.ingest(
-            ipt=IngestInput(
-                rag_config_id=config_id,
-                filename=file.filename or "upload",
-                mime=mime or file.content_type or "application/octet-stream",
-                data=data,
-                uploaded_by=principal.user_id,
-            ),
-            actor_user_id=principal.user_id,
-            actor_ip=ctx.actor_ip,
-            request_id=ctx.request_id,
-        )
-    finally:
-        # Best-effort scrub of the plaintext key.
-        plaintext = b"\x00" * len(plaintext)
+    ingest = IngestService(
+        db,
+        blob=blob,
+        embedder=embedder,
+        qdrant=qdrant,
+        bucket=settings.minio.bucket_rag_sources,
+    )
+    doc = await ingest.ingest(
+        ipt=IngestInput(
+            rag_config_id=config_id,
+            filename=file.filename or "upload",
+            mime=mime or file.content_type or "application/octet-stream",
+            data=data,
+            uploaded_by=principal.user_id,
+        ),
+        actor_user_id=principal.user_id,
+        actor_ip=ctx.actor_ip,
+        request_id=ctx.request_id,
+    )
     return _to_document_out(doc)
 
 

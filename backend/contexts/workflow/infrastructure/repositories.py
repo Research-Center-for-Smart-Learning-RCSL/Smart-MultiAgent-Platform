@@ -9,6 +9,7 @@ from typing import Any
 import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from contexts.conversation.infrastructure.tables import workspaces
 from contexts.orchestration.infrastructure.tables import workflow_runs
 from contexts.workflow.domain.models import (
     RunState,
@@ -166,6 +167,26 @@ class WorkflowRepository:
         ).first()
         return _row_to_workflow(row) if row else None
 
+    async def resolve_project_id(self, workflow_id: uuid.UUID) -> uuid.UUID | None:
+        """Resolve the owning ``project_id`` via ``workflows → workspaces``.
+
+        ``workflow_runs.project_id`` is a NOT-NULL FK to ``projects``; a run
+        triggered without an explicit project (the cron scheduler) must derive
+        it here rather than fall back to a bogus ``UUID(int=0)`` that violates
+        the FK on insert. Returns ``None`` if the workflow (or its workspace) is
+        gone, in which case the caller declines to start the run.
+        """
+        row = (
+            await self._db.execute(
+                sa.select(workspaces.c.project_id)
+                .select_from(
+                    workflows.join(workspaces, workflows.c.workspace_id == workspaces.c.id)
+                )
+                .where(workflows.c.id == workflow_id)
+            )
+        ).first()
+        return row[0] if row else None
+
     async def soft_delete(self, workflow_id: uuid.UUID) -> bool:
         result = await self._db.execute(
             workflows.update()
@@ -283,6 +304,23 @@ class WorkflowRunRepository:
             workflow_runs.update().where(workflow_runs.c.id == run_id).values(variables=variables),
         )
 
+    async def list_active(self) -> list[tuple[uuid.UUID, uuid.UUID, datetime]]:
+        """``(run_id, workflow_id, started_at)`` for every RUNNING/WAITING run.
+
+        Drives the timeout watchdog (K.4) — it loads each run's workflow
+        definition to read ``run_max_seconds`` / ``idle_max_seconds``.
+        """
+        rows = (
+            await self._db.execute(
+                sa.select(
+                    workflow_runs.c.id,
+                    workflow_runs.c.workflow_id,
+                    workflow_runs.c.started_at,
+                ).where(workflow_runs.c.state.in_(["running", "waiting"]))
+            )
+        ).all()
+        return [(r.id, r.workflow_id, r.started_at) for r in rows]
+
 
 # ---------------------------------------------------------------------------
 # WorkflowStepRepository
@@ -350,6 +388,17 @@ class WorkflowStepRepository:
             )
         ).all()
         return [_row_to_step(r) for r in rows]
+
+    async def latest_activity_at(self, run_id: uuid.UUID) -> datetime | None:
+        """Most recent step ``started_at`` for a run — the idle-watchdog clock."""
+        row = (
+            await self._db.execute(
+                sa.select(sa.func.max(workflow_steps.c.started_at)).where(
+                    workflow_steps.c.run_id == run_id
+                )
+            )
+        ).first()
+        return row[0] if row else None
 
     async def cancel_pending_for_run(self, run_id: uuid.UUID) -> int:
         result = await self._db.execute(

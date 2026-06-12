@@ -15,6 +15,7 @@ SoC:
 
 from __future__ import annotations
 
+import logging
 import uuid
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -35,6 +36,8 @@ from contexts.orchestration.infrastructure.repositories import (
 )
 from shared_kernel import audit
 from shared_kernel.realtime.pubsub import Publisher, room_channel, workflow_channel
+
+_log = logging.getLogger(__name__)
 
 
 class ApprovalService:
@@ -103,7 +106,53 @@ class ApprovalService:
             },
         )
 
+        # K.3: notify approver agents so their next turn exposes cast_approval_vote,
+        # and arm the timeout as a deferred job. Best-effort — a Redis/dispatch
+        # hiccup must not fail gate creation (votes can still resolve it; the
+        # timeout merely defaults to the leader's verdict if unscheduled).
+        await self._notify_and_arm(
+            approval_id=approval_id,
+            config=config,
+            workflow_run_id=workflow_run_id,
+            chatroom_id=chatroom_id,
+        )
+
         return approval
+
+    async def _notify_and_arm(
+        self,
+        *,
+        approval_id: uuid.UUID,
+        config: ApprovalGateConfig,
+        workflow_run_id: uuid.UUID,
+        chatroom_id: uuid.UUID | None,
+    ) -> None:
+        from datetime import timedelta
+
+        from contexts.orchestration.infrastructure import pending_notify
+        from shared_kernel.queue import enqueue
+
+        note = {
+            "kind": "approval_request",
+            "approval_id": str(approval_id),
+            "mode": config.mode.value,
+            "workflow_run_id": str(workflow_run_id),
+            "chatroom_id": str(chatroom_id) if chatroom_id else None,
+        }
+        try:
+            for approver in config.approvers:
+                await pending_notify.push(approver, dict(note))
+        except Exception:
+            _log.warning("approval %s: approver notify failed", approval_id, exc_info=True)
+        try:
+            await enqueue(
+                "approval_timeout",
+                str(approval_id),
+                str(chatroom_id) if chatroom_id else None,
+                _defer_by=timedelta(seconds=config.timeout_seconds),
+            )
+        except Exception:
+            _log.warning("approval %s: timeout-job arm failed", approval_id, exc_info=True)
 
     # ------------------------------------------------------------------
     # Cast vote
@@ -187,6 +236,7 @@ class ApprovalService:
             resolved_state,
             chatroom_id=chatroom_id,
         )
+        await self._enqueue_workflow_resume(approval_id)
         return resolved_state
 
     # ------------------------------------------------------------------
@@ -231,6 +281,20 @@ class ApprovalService:
             resolved_state,
             chatroom_id=chatroom_id,
         )
+        await self._enqueue_workflow_resume(approval.id)
+
+    async def _enqueue_workflow_resume(self, approval_id: uuid.UUID) -> None:
+        """Ask the engine to resume a workflow run parked on this gate (K.4).
+
+        Best-effort: a non-workflow (room-only) gate has no ``wf:approval:{id}``
+        claim key, so the resume task no-ops. The task itself bridges the commit
+        gap when the gate resolved inside a long agent turn (vote path)."""
+        from shared_kernel.queue import enqueue
+
+        try:
+            await enqueue("workflow_resume_approval", str(approval_id))
+        except Exception:
+            _log.warning("approval %s: workflow resume dispatch failed", approval_id, exc_info=True)
 
     @staticmethod
     def _evaluate_votes(

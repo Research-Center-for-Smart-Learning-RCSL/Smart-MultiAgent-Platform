@@ -34,15 +34,15 @@ def _make_phase2_retry(
     import uuid as _uuid
 
     async def _retry(*, cfg: Any, build_id: Any) -> None:
+        from contexts.keys.infrastructure.adapters import build_router
         from contexts.keys.infrastructure.group_repository import (
             KeyGroupMemberRepository,
         )
         from contexts.keys.infrastructure.repositories import (
             ApiKeyRepository,
         )
-        from contexts.keys.interfaces.facade import KeysFacade
         from contexts.knowledge.infrastructure.embedders import (
-            embedder_for,
+            router_embedder_for,
         )
 
         # Get the triples written in Phase-1 so we can reconstruct descriptions.
@@ -70,9 +70,8 @@ def _make_phase2_retry(
             "voyage": "voyage-3",
         }
         maker = get_sessionmaker()
-        api_key_str: str | None = None
-        provider = model = ""
         async with maker() as db:
+            resolved: tuple[str, str, _uuid.UUID] | None = None
             members = await KeyGroupMemberRepository(db).list_ordered(
                 cfg.builder_key_group_id,
             )
@@ -83,19 +82,24 @@ def _make_phase2_retry(
                 prov = key.provider.value
                 if prov not in embed_model:
                     continue
-                plaintext = await KeysFacade(db).unwrap_api_key_plaintext(key.id)
-                try:
-                    api_key_str = plaintext.decode("utf-8")
-                    provider, model = prov, embed_model[prov]
-                finally:
-                    plaintext = b"\x00" * len(plaintext)
+                resolved = (prov, embed_model[prov], key.id)
                 break
 
-        if api_key_str is None:
-            raise RuntimeError(f"no embedding key in builder group {cfg.builder_key_group_id}")
+            if resolved is None:
+                raise RuntimeError(f"no embedding key in builder group {cfg.builder_key_group_id}")
 
-        embedder = embedder_for(provider=provider, model=model, api_key=api_key_str)
-        vectors = await embedder.embed_batch(descriptions)
+            provider, model, key_id = resolved
+            # Pinned-key embedder via the router — no plaintext here; usage is
+            # accounted and committed with this session (R7.12).
+            embedder = router_embedder_for(
+                router=build_router(db),
+                key_id=key_id,
+                provider=provider,
+                model=model,
+            )
+            vectors = await embedder.embed_batch(descriptions)
+            await db.commit()
+
         if len(vectors) != len(descriptions):
             # DOM-5: a short embedding list would silently drop entities.
             # Raise so the reconciler counts this retry as failed.

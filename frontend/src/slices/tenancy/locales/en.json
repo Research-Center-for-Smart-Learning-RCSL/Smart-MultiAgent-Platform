@@ -57,7 +57,12 @@
       "accept": "Accept",
       "reject": "Reject",
       "empty": "No pending invitations.",
-      "unverifiedBlock": "Please verify your email before accepting invitations."
+      "unverifiedBlock": "Please verify your email before accepting invitations.",
+      "acceptTitle": "Accept invitation",
+      "accepting": "Accepting your invitation…",
+      "acceptSuccess": "Invitation accepted. You now have access.",
+      "acceptFailure": "This invitation link is invalid or has expired.",
+      "goToInbox": "Go to invitations"
     },
     "transfer": {
       "title": "Transfer original-creator",

@@ -532,6 +532,18 @@ class InviteRepository:
         row = (await self._db.execute(t.invites.select().where(t.invites.c.id == invite_id))).first()
         return _row_to_invite(row) if row else None
 
+    async def get_by_token(self, token: str) -> Invite | None:
+        """Resolve an invite by its plaintext token (hash lookup, R6.09).
+
+        Possession of the token is the authorisation for the accept-by-link
+        path — the token is never persisted in plaintext, only its SHA-256.
+        """
+        token_hash = _hash_token(token)
+        row = (
+            await self._db.execute(t.invites.select().where(t.invites.c.token_hash == token_hash))
+        ).first()
+        return _row_to_invite(row) if row else None
+
     async def transition(
         self,
         *,

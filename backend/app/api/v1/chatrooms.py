@@ -414,12 +414,16 @@ async def compact_chatroom(
 ) -> dict[str, str]:
     """Trigger an immediate compaction pass for the room.
 
-    Accepted by the runtime and executed on the next agent turn.
-    Actual compaction is wired by Phase H; this endpoint records the
-    intent and returns 202 so the frontend slash command can complete.
+    Records a one-shot intent flag (K.2): the next agent turn in this room
+    reads + clears it and forces a compaction pass before its provider call
+    (``turn_engine._consume_compact_flag``). Returns 202 so the frontend slash
+    command completes immediately.
     """
     project_id = await _project_id_for_chatroom(db, chatroom_id)
     await _require_project_cap(db, principal, project_id, Capability.CHAT_SEND)
+    from shared_kernel.auth.clients import get_redis
+
+    await get_redis().set(f"compact:pending:{chatroom_id}", "1", ex=3600)
     return {"status": "accepted", "chatroom_id": str(chatroom_id)}
 
 

@@ -284,3 +284,434 @@ async def workflow_cron_scheduler(ctx: dict[str, Any]) -> str:
             f"cron scheduler: all {eligible} eligible workflows failed: " + "; ".join(errors),
         )
     return f"fired={fired} errors={len(errors)}"
+
+
+# ===========================================================================
+# K.4 — signal dispatch (resume parked waits + start dormant trigger kinds)
+# ===========================================================================
+
+
+async def workflow_signal(ctx: dict[str, Any], source: str, payload: dict[str, Any]) -> str:
+    """Fan a real-world signal out to parked waits and dormant trigger nodes (K.4).
+
+    Enqueued (best-effort, post-commit) from the three severed link points:
+    message send (``source="message"``), the A2A consumer (``"a2a"``), and the
+    wake-up path (``"wakeup"``). (The intra-run ``variable_matches`` re-check has
+    its own engine-driven task, ``workflow_variable_signal``.) Itself a
+    lightweight fan-out — it never resumes or triggers inline; it enqueues one
+    ``workflow_event_resume`` per matching wait and one ``run_triggered_workflow``
+    per matching dormant trigger, so each resumed/started run owns its session,
+    commit and dispatch.
+    """
+    from contexts.workflow.application import event_dispatch as ed
+    from shared_kernel.auth.clients import get_redis
+    from shared_kernel.db.session import async_session
+
+    redis = get_redis()
+    pool = ctx["redis"]
+    resumed = 0
+    triggered = 0
+
+    async def _enqueue_resume(run_id: str, node_id: str) -> None:
+        nonlocal resumed
+        await pool.enqueue_job("workflow_event_resume", run_id, node_id)
+        resumed += 1
+
+    async def _enqueue_triggers(wf_ids: list[Any], trigger_type: str) -> None:
+        nonlocal triggered
+        for wf_id in wf_ids:
+            tp = {"trigger_type": trigger_type, **payload}
+            await pool.enqueue_job("run_triggered_workflow", str(wf_id), tp)
+            triggered += 1
+
+    if source == "message":
+        chatroom_id = str(payload.get("chatroom_id", ""))
+        sender_type = str(payload.get("sender_type", ""))
+        content = str(payload.get("content", ""))
+
+        def _wait_pred(match: dict[str, Any]) -> bool:
+            return ed.matches_message(
+                match, chatroom_id=chatroom_id, sender_type=sender_type, content=content
+            )
+
+        for run_id, node_id in await ed.find_matching_waits(redis, "message_in_room", _wait_pred):
+            await _enqueue_resume(run_id, node_id)
+
+        def _trig_pred(config: dict[str, Any]) -> bool:
+            return ed.matches_message(
+                config, chatroom_id=chatroom_id, sender_type=sender_type, content=content
+            )
+
+        async with async_session() as db:
+            wf_ids = await ed.find_triggered_workflows(db, "message_received", _trig_pred)
+        await _enqueue_triggers(wf_ids, "message_received")
+
+    elif source == "a2a":
+        target_agent_id = str(payload.get("target_agent_id", ""))
+        msg_type = str(payload.get("msg_type", ""))
+
+        def _a2a_wait_pred(match: dict[str, Any]) -> bool:
+            return ed.matches_a2a(match, target_agent_id=target_agent_id, msg_type=msg_type)
+
+        for run_id, node_id in await ed.find_matching_waits(redis, "a2a_message", _a2a_wait_pred):
+            await _enqueue_resume(run_id, node_id)
+
+        def _a2a_trig_pred(config: dict[str, Any]) -> bool:
+            return ed.matches_a2a_trigger(config, agent_id=target_agent_id, msg_type=msg_type)
+
+        async with async_session() as db:
+            wf_ids = await ed.find_triggered_workflows(db, "a2a_event", _a2a_trig_pred)
+        await _enqueue_triggers(wf_ids, "a2a_event")
+
+    elif source == "wakeup":
+        agent_id = str(payload.get("agent_id", ""))
+
+        def _wake_pred(config: dict[str, Any]) -> bool:
+            return str(config.get("agent_id", "")) == agent_id
+
+        async with async_session() as db:
+            wf_ids = await ed.find_triggered_workflows(db, "wakeup_signal", _wake_pred)
+        await _enqueue_triggers(wf_ids, "wakeup_signal")
+
+    logger.bind(event="workflow_signal", source=source, resumed=resumed, triggered=triggered).info(
+        "workflow signal dispatched"
+    )
+    return f"resumed={resumed} triggered={triggered}"
+
+
+async def workflow_variable_signal(ctx: dict[str, Any], run_id: str, node_id: str) -> str:
+    """Re-check variable_matches waits in a run after a set_variable step (K.4).
+
+    Enqueued by the engine post-commit (so the new variables are visible). The
+    ``node_id`` is the set_variable node that fired; it is logged only — the
+    re-check spans every variable_matches wait parked in this run.
+    """
+    from contexts.workflow.application import event_dispatch as ed
+    from contexts.workflow.infrastructure.repositories import WorkflowRunRepository
+    from shared_kernel.auth.clients import get_redis
+    from shared_kernel.db.session import async_session
+
+    redis = get_redis()
+    async with async_session() as db:
+        run = await WorkflowRunRepository(db).get(uuid.UUID(run_id))
+        variables = dict(run.variables) if run else {}
+
+    resumed = 0
+    for rid, nid, match in await ed.find_run_variable_waits(redis, run_id):
+        if ed.matches_variable(match, variables):
+            await ctx["redis"].enqueue_job("workflow_event_resume", rid, nid)
+            resumed += 1
+
+    logger.bind(run_id=run_id, node_id=node_id, resumed=resumed).debug("variable signal dispatched")
+    return f"resumed={resumed}"
+
+
+async def workflow_event_resume(ctx: dict[str, Any], run_id: str, node_id: str) -> str:
+    """Resume a parked ``wait_for_event`` node when its event arrives (K.4).
+
+    ASYNC-10: the resume is claimed atomically with ``GETDEL`` on
+    ``wf:wait:{run_id}:{node_id}`` — the same key the timeout job claims — so an
+    event and its timeout can never both resume the run.
+    """
+    import json
+
+    from shared_kernel.auth.clients import get_redis
+    from shared_kernel.db.session import async_session
+
+    redis = get_redis()
+    wait_key = f"wf:wait:{run_id}:{node_id}"
+    claimed = await redis.getdel(wait_key)
+    if claimed is None:
+        return "already_claimed"
+
+    async with async_session() as db:
+        from contexts.workflow.application.run_engine import RunEngine
+
+        engine = RunEngine(db)
+        await engine.resume_at_port(uuid.UUID(run_id), node_id, "default")
+        await _emit_resumed(db, run_id, node_id, reason="event")
+        await db.commit()
+        await engine.dispatch_enqueues(ctx["redis"])
+
+    # Best-effort index cleanup using the claimed payload.
+    try:
+        info = json.loads(claimed)
+        event_type = info.get("event_type", "")
+        await redis.srem(f"wf:wait:by_event:{event_type}", f"{run_id}:{node_id}")
+    except Exception:
+        logger.bind(run_id=run_id, node_id=node_id).exception("event resume: index cleanup failed")
+
+    logger.bind(event="workflow_event_resumed", run_id=run_id, node_id=node_id).info("workflow event resumed")
+    return "resumed"
+
+
+async def run_triggered_workflow(
+    ctx: dict[str, Any],
+    workflow_id: str,
+    trigger_payload: dict[str, Any] | None = None,
+) -> str:
+    """Start a run for a workflow whose dormant trigger node matched a signal (K.4)."""
+    from contexts.workflow.application.workflow_service import WorkflowService
+    from shared_kernel.db.session import async_session
+
+    async with async_session() as db:
+        svc = WorkflowService(db)
+        try:
+            run_id = await svc.trigger_run(uuid.UUID(workflow_id), trigger_payload=trigger_payload or {})
+        except Exception:
+            logger.bind(workflow_id=workflow_id).exception("triggered workflow start failed")
+            return "error"
+        await db.commit()
+        await svc.dispatch_pending(ctx["redis"])
+
+    logger.bind(event="workflow_triggered", workflow_id=workflow_id, run_id=str(run_id)).info(
+        "dormant-trigger workflow started"
+    )
+    return str(run_id)
+
+
+# ===========================================================================
+# K.4 — approval / instruct resume + timeout watchdog
+# ===========================================================================
+
+# Poll budget bridging the gap between an approval resolving inside an agent
+# turn's tool call and that turn's single end-of-turn commit (the turn engine
+# commits once). 3 s × 210 ≈ 10.5 min ≥ the 600 s job timeout, so any voting
+# turn has committed (or rolled back) before the budget is spent.
+_APPROVAL_RESUME_DELAY_S = 3
+_APPROVAL_RESUME_MAX_ATTEMPTS = 210
+
+
+async def workflow_resume_approval(ctx: dict[str, Any], approval_id: str, attempt: int = 0) -> str:
+    """Resume a workflow run parked on ``approval_gate`` once the gate resolves (K.4).
+
+    Enqueued by ``ApprovalService`` on vote-driven and timeout-driven resolution.
+    A vote resolves the gate inside the voting agent's turn, which only commits
+    at turn end, so this job re-checks (bounded) until the resolved state is
+    visible, then atomically claims ``wf:approval:{id}`` and resumes at the
+    approved/rejected/timeout port. Non-workflow (room-only) approvals carry no
+    claim key and no-op here.
+    """
+    import json
+
+    from contexts.orchestration.domain.models import ApprovalState
+    from contexts.orchestration.interfaces.facade import OrchestrationFacade
+    from shared_kernel.auth.clients import get_redis
+    from shared_kernel.db.session import async_session
+
+    redis = get_redis()
+    key = f"wf:approval:{approval_id}"
+    if await redis.get(key) is None:
+        return "noop:no_claim"
+
+    aid = uuid.UUID(approval_id)
+    async with async_session() as db:
+        facade = OrchestrationFacade(db)
+        approval = await facade.get_approval(aid)
+        if approval is None:
+            await redis.delete(key)
+            return "noop:gone"
+        if approval.state == ApprovalState.PENDING:
+            # Resolver's transaction not yet committed (long turn) or it rolled
+            # back. Retry within budget; the gate-timeout path will resolve and
+            # re-enqueue if votes never commit.
+            if attempt < _APPROVAL_RESUME_MAX_ATTEMPTS:
+                await ctx["redis"].enqueue_job(
+                    "workflow_resume_approval",
+                    approval_id,
+                    attempt + 1,
+                    _defer_by=timedelta(seconds=_APPROVAL_RESUME_DELAY_S),
+                )
+            return "pending:retry"
+
+        votes = await facade.get_approval_votes(aid)
+        port = _approval_port(approval, votes)
+
+        claimed = await redis.getdel(key)
+        if claimed is None:
+            return "noop:claimed_elsewhere"
+        info = json.loads(claimed)
+
+        from contexts.workflow.application.run_engine import RunEngine
+
+        engine = RunEngine(db)
+        await engine.resume_at_port(uuid.UUID(info["run_id"]), info["node_id"], port)
+        await _emit_resumed(db, info["run_id"], info["node_id"], reason=f"approval:{port}")
+        await db.commit()
+        await engine.dispatch_enqueues(ctx["redis"])
+
+    logger.bind(event="workflow_approval_resumed", approval_id=approval_id, port=port).info(
+        "workflow resumed after approval"
+    )
+    return f"resumed:{port}"
+
+
+def _approval_port(approval: Any, votes: list[Any]) -> str:
+    """Map a resolved approval to the approval_gate output port."""
+    from contexts.orchestration.domain.models import ApprovalState
+
+    if approval.state == ApprovalState.APPROVED:
+        return "approved"
+    if approval.state == ApprovalState.REJECTED:
+        return "rejected"
+    # TIMEOUT_LEADER — the leader's last vote breaks it; no leader vote → timeout.
+    leader_votes = [v for v in votes if v.voter_agent_id == approval.leader_agent_id]
+    if leader_votes:
+        return "approved" if leader_votes[-1].vote else "rejected"
+    return "timeout"
+
+
+async def workflow_resume_instruct(ctx: dict[str, Any], instruction_id: str) -> str:
+    """Resume a workflow run parked on ``instruct`` once the instruction settles (K.4).
+
+    Enqueued post-commit by the A2A handler (completion) and by
+    ``workflow_instruct_timeout`` (deadline). The committed instruction state
+    decides the port, so completion and timeout can't disagree; ``GETDEL`` on
+    ``wf:instruct:{id}`` makes the resume single-shot. Non-workflow instructs
+    carry no claim key and no-op.
+    """
+    import json
+
+    from contexts.orchestration.domain.models import InstructionState
+    from contexts.orchestration.interfaces.facade import OrchestrationFacade
+    from shared_kernel.auth.clients import get_redis
+    from shared_kernel.db.session import async_session
+
+    redis = get_redis()
+    key = f"wf:instruct:{instruction_id}"
+    if await redis.get(key) is None:
+        return "noop:no_claim"
+
+    iid = uuid.UUID(instruction_id)
+    async with async_session() as db:
+        instruction = await OrchestrationFacade(db).get_instruction(iid)
+        if instruction is None:
+            await redis.delete(key)
+            return "noop:gone"
+        if instruction.state == InstructionState.COMPLETED:
+            port = "success"
+        elif instruction.state in (InstructionState.TIMEOUT, InstructionState.REJECTED_LOOP):
+            port = "failure"
+        else:
+            return "pending"  # issued/delivered — not settled yet
+
+        claimed = await redis.getdel(key)
+        if claimed is None:
+            return "noop:claimed_elsewhere"
+        info = json.loads(claimed)
+
+        from contexts.workflow.application.run_engine import RunEngine
+
+        engine = RunEngine(db)
+        await engine.resume_at_port(uuid.UUID(info["run_id"]), info["node_id"], port)
+        await _emit_resumed(db, info["run_id"], info["node_id"], reason=f"instruct:{port}")
+        await db.commit()
+        await engine.dispatch_enqueues(ctx["redis"])
+
+    logger.bind(event="workflow_instruct_resumed", instruction_id=instruction_id, port=port).info(
+        "workflow resumed after instruct"
+    )
+    return f"resumed:{port}"
+
+
+async def workflow_instruct_timeout(ctx: dict[str, Any], instruction_id: str) -> str:
+    """Deadline for a parked ``instruct`` node — mark timeout, then resume (K.4)."""
+    from contexts.orchestration.domain.models import InstructionState
+    from contexts.orchestration.interfaces.facade import OrchestrationFacade
+    from shared_kernel.db.session import async_session
+
+    iid = uuid.UUID(instruction_id)
+    async with async_session() as db:
+        facade = OrchestrationFacade(db)
+        instruction = await facade.get_instruction(iid)
+        if instruction is None or instruction.state in (
+            InstructionState.COMPLETED,
+            InstructionState.TIMEOUT,
+            InstructionState.REJECTED_LOOP,
+        ):
+            return "noop"
+        await facade.mark_instruct_timeout(iid)
+        await db.commit()
+
+    await ctx["redis"].enqueue_job("workflow_resume_instruct", instruction_id)
+    logger.bind(instruction_id=instruction_id).info("instruct deadline: marked timeout")
+    return "timed_out"
+
+
+async def _emit_resumed(db: Any, run_id: str, node_id: str, *, reason: str) -> None:
+    """Audit ``workflow.resumed`` (cross-cutting checklist item 2)."""
+    from shared_kernel import audit
+
+    await audit.emit(
+        db,
+        audit.AuditEvent(
+            action="workflow.resumed",
+            resource_type="workflow_run",
+            resource_id=uuid.UUID(run_id),
+            metadata={"node_id": node_id, "reason": reason},
+        ),
+    )
+
+
+async def workflow_watchdog(ctx: dict[str, Any]) -> str:
+    """Fail runs that blow their ``run_max_seconds`` / ``idle_max_seconds`` (K.4).
+
+    Cron-driven. The engine enforces neither budget today — a run parked on a
+    wait whose event never arrives (and whose timeout job was lost) would sit
+    RUNNING/WAITING forever. This sweep is the backstop: per active run it loads
+    the workflow definition's timeouts and fails the run past either budget.
+    """
+    from contexts.workflow.application.run_engine import RunEngine
+    from contexts.workflow.domain.models import RunContext
+    from contexts.workflow.infrastructure.repositories import (
+        WorkflowRepository,
+        WorkflowRunRepository,
+        WorkflowStepRepository,
+    )
+    from shared_kernel.db.session import async_session
+
+    now = datetime.now(UTC)
+    failed = 0
+    checked = 0
+
+    async with async_session() as db:
+        runs = WorkflowRunRepository(db)
+        steps = WorkflowStepRepository(db)
+        workflows_repo = WorkflowRepository(db)
+        active = await runs.list_active()
+
+        for run_id, workflow_id, started_at in active:
+            checked += 1
+            try:
+                wf = await workflows_repo.get(workflow_id, include_deleted=True)
+                if wf is None:
+                    continue
+                ctx_view = RunContext(
+                    run_id=run_id,
+                    workflow_id=workflow_id,
+                    workflow_def=wf.definition,
+                    variables={},
+                )
+                run_age = (now - started_at).total_seconds()
+                reason: str | None = None
+                if run_age > ctx_view.run_max_seconds:
+                    reason = f"run_max_seconds exceeded ({run_age:.0f}s > {ctx_view.run_max_seconds}s)"
+                else:
+                    last = await steps.latest_activity_at(run_id)
+                    idle_since = last or started_at
+                    idle = (now - idle_since).total_seconds()
+                    if idle > ctx_view.idle_max_seconds:
+                        reason = f"idle_max_seconds exceeded ({idle:.0f}s > {ctx_view.idle_max_seconds}s)"
+                if reason is None:
+                    continue
+                if await RunEngine(db).force_fail(run_id, reason=reason):
+                    await db.commit()
+                    failed += 1
+            except Exception:
+                await db.rollback()
+                logger.bind(run_id=str(run_id)).exception("watchdog: run check failed")
+
+    logger.bind(event="workflow_watchdog_done", checked=checked, failed=failed).info(
+        f"workflow watchdog: failed {failed}/{checked} active runs"
+    )
+    return f"failed={failed}"

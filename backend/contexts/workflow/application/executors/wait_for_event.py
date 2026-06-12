@@ -47,6 +47,10 @@ async def execute(ctx: RunContext, node: NodeSpec, db: AsyncSession) -> StepOutc
     redis = get_redis()
 
     # Register wait context so event dispatchers can locate this parked run.
+    # The full node config travels with it so the dispatcher (K.4) can match an
+    # incoming event against this wait's criteria (chatroom_id / sender_filter /
+    # content_regex for message_in_room; target_agent_id / types for
+    # a2a_message; expression for variable_matches) before claiming the resume.
     wait_key = f"wf:wait:{ctx.run_id}:{node.id}"
     await redis.set(
         wait_key,
@@ -55,6 +59,7 @@ async def execute(ctx: RunContext, node: NodeSpec, db: AsyncSession) -> StepOutc
                 "run_id": str(ctx.run_id),
                 "node_id": node.id,
                 "event_type": event_type,
+                "match": dict(config),
             }
         ),
         ex=timeout_seconds + 60,  # keep a grace window after timeout
