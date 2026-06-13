@@ -76,4 +76,25 @@ export class WorkspacesService {
             },
         });
     }
+    /**
+     * Read Workspace
+     * @returns WorkspaceOut Successful Response
+     * @throws ApiError
+     */
+    public static readWorkspaceApiWorkspacesWorkspaceIdGet({
+        workspaceId,
+    }: {
+        workspaceId: string,
+    }): CancelablePromise<WorkspaceOut> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/workspaces/{workspace_id}',
+            path: {
+                'workspace_id': workspaceId,
+            },
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
 }

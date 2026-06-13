@@ -168,7 +168,7 @@ def _patch_task_env(
 
         async def run_turn(self, *, agent_id, chatroom_id, trigger):
             rec["run_turn"].append((agent_id, chatroom_id, trigger))
-            return SimpleNamespace(status=turn_status)
+            return SimpleNamespace(status=turn_status, reason=None)
 
     monkeypatch.setattr(
         "contexts.agents.application.runtime.turn_engine.TurnEngine", _TurnEngine

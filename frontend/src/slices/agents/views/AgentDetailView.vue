@@ -4,14 +4,15 @@ import { useRoute, useRouter } from 'vue-router'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/vue-query'
 import { useForm } from 'vee-validate'
 import { toTypedSchema } from '@vee-validate/zod'
-import { watch } from 'vue'
+import { computed, watch } from 'vue'
 
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { FormField } from '@shared/ui'
 import { useServerErrors } from '@shared/composables'
+import { keyGroupsApi } from '@slices/keys'
 import { agentsApi } from '../api'
 import { agentKeys } from '../queries'
-import { agentCreateSchema } from '../types/schemas'
+import { agentCreateSchema, type AgentCreateInput } from '../types/schemas'
 
 const { t } = useI18n()
 const route = useRoute()
@@ -27,17 +28,41 @@ const query = useQuery({
   },
 })
 
+// `project_id` (needed to scope the pickers) travels on the agent payload, not
+// the route, so both queries stay disabled until the agent has loaded.
+const pickerProjectId = computed(() => query.data.value?.project_id ?? '')
+
+const keyGroupsQuery = useQuery({
+  queryKey: ['keys', 'keyGroups', 'agent', agentId],
+  enabled: computed(() => !!pickerProjectId.value),
+  queryFn: async () => {
+    const { data } = await keyGroupsApi.listForProject(pickerProjectId.value)
+    return data
+  },
+})
+
+const ragConfigsQuery = useQuery({
+  queryKey: ['agents', 'ragConfigs', 'agent', agentId],
+  enabled: computed(() => !!pickerProjectId.value),
+  queryFn: async () => {
+    const { data } = await agentsApi.listRagConfigs(pickerProjectId.value)
+    return data
+  },
+})
+
 const schema = toTypedSchema(agentCreateSchema)
-const { handleSubmit, errors, defineField, resetForm, setErrors } = useForm({
+const { handleSubmit, errors, defineField, resetForm, setErrors } = useForm<AgentCreateInput>({
   validationSchema: schema,
 })
 
 const [name] = defineField('name')
-const [modelProvider] = defineField('model_provider')
-const [modelName] = defineField('model_name')
+const [modelHint] = defineField('model_hint')
+const [keyGroupId] = defineField('key_group_id')
 const [systemPrompt] = defineField('system_prompt')
-const [temperature] = defineField('temperature')
-const [maxTokens] = defineField('max_tokens')
+const [promptStrategy] = defineField('prompt_strategy')
+const [contextMode] = defineField('context_mode')
+const [ragConfigId] = defineField('rag_config_id')
+const [a2aEnabled] = defineField('a2a_enabled')
 
 const { applyServerErrors } = useServerErrors(setErrors)
 
@@ -48,13 +73,15 @@ watch(
     resetForm({
       values: {
         name: agent.name,
-        model_provider: agent.model_provider,
-        model_name: agent.model_name,
+        model_hint: agent.model_hint as AgentCreateInput['model_hint'],
+        key_group_id: agent.key_group_id,
         system_prompt: agent.system_prompt,
-        temperature: agent.temperature,
-        max_tokens: agent.max_tokens,
+        prompt_strategy: agent.prompt_strategy as AgentCreateInput['prompt_strategy'],
+        context_mode: agent.context_mode as AgentCreateInput['context_mode'],
         rag_config_id: agent.rag_config_id,
-        mcp_server_ids: agent.mcp_server_ids,
+        graphrag_config_id: agent.graphrag_config_id,
+        context_token_cap: agent.context_token_cap,
+        a2a_enabled: agent.a2a_enabled,
       },
     })
   },
@@ -62,7 +89,7 @@ watch(
 )
 
 const patchMutation = useMutation({
-  mutationFn: async (values: Record<string, unknown>) => {
+  mutationFn: async (values: AgentCreateInput) => {
     const agent = query.data.value
     if (!agent) throw new Error('Agent not loaded')
     const { data } = await agentsApi.patch(agentId, agent.version, values)
@@ -138,20 +165,20 @@ const onSubmit = handleSubmit((values) => {
       </FormField>
 
       <FormField
-        :label="t('agents.form.provider')"
-        name="model_provider"
-        :error="errors.model_provider"
+        :label="t('agents.form.modelHint')"
+        name="model_hint"
+        :error="errors.model_hint"
         required
       >
         <select
-          id="model_provider"
-          v-model="modelProvider"
+          id="model_hint"
+          v-model="modelHint"
         >
-          <option value="openai">
-            OpenAI
-          </option>
           <option value="claude">
             Claude
+          </option>
+          <option value="openai">
+            OpenAI
           </option>
           <option value="gemini">
             Gemini
@@ -160,15 +187,29 @@ const onSubmit = handleSubmit((values) => {
       </FormField>
 
       <FormField
-        :label="t('agents.form.model')"
-        name="model_name"
-        :error="errors.model_name"
+        :label="t('agents.form.keyGroup')"
+        name="key_group_id"
+        :error="errors.key_group_id"
         required
       >
-        <input
-          id="model_name"
-          v-model="modelName"
+        <select
+          id="key_group_id"
+          v-model="keyGroupId"
         >
+          <option
+            value=""
+            disabled
+          >
+            {{ t('agents.form.keyGroupPlaceholder') }}
+          </option>
+          <option
+            v-for="g in keyGroupsQuery.data.value ?? []"
+            :key="g.id"
+            :value="g.id"
+          >
+            {{ g.name }}
+          </option>
+        </select>
       </FormField>
 
       <FormField
@@ -184,31 +225,72 @@ const onSubmit = handleSubmit((values) => {
       </FormField>
 
       <FormField
-        :label="t('agents.form.temperature')"
-        name="temperature"
-        :error="errors.temperature"
+        :label="t('agents.form.promptStrategy')"
+        name="prompt_strategy"
+        :error="errors.prompt_strategy"
       >
-        <input
-          id="temperature"
-          v-model.number="temperature"
-          type="number"
-          step="0.1"
-          min="0"
-          max="2"
+        <select
+          id="prompt_strategy"
+          v-model="promptStrategy"
         >
+          <option value="full">
+            {{ t('agents.form.promptStrategyFull') }}
+          </option>
+          <option value="lazy">
+            {{ t('agents.form.promptStrategyLazy') }}
+          </option>
+        </select>
       </FormField>
 
       <FormField
-        :label="t('agents.form.maxTokens')"
-        name="max_tokens"
-        :error="errors.max_tokens"
+        :label="t('agents.form.contextMode')"
+        name="context_mode"
+        :error="errors.context_mode"
+      >
+        <select
+          id="context_mode"
+          v-model="contextMode"
+        >
+          <option value="general">
+            {{ t('agents.form.contextModeGeneral') }}
+          </option>
+          <option value="compact">
+            {{ t('agents.form.contextModeCompact') }}
+          </option>
+        </select>
+      </FormField>
+
+      <FormField
+        :label="t('agents.form.ragConfig')"
+        name="rag_config_id"
+        :error="errors.rag_config_id"
+      >
+        <select
+          id="rag_config_id"
+          v-model="ragConfigId"
+        >
+          <option :value="null">
+            {{ t('agents.form.ragConfigNone') }}
+          </option>
+          <option
+            v-for="rc in ragConfigsQuery.data.value ?? []"
+            :key="rc.id"
+            :value="rc.id"
+          >
+            {{ rc.name }}
+          </option>
+        </select>
+      </FormField>
+
+      <FormField
+        :label="t('agents.form.a2aEnabled')"
+        name="a2a_enabled"
+        :error="errors.a2a_enabled"
       >
         <input
-          id="max_tokens"
-          v-model.number="maxTokens"
-          type="number"
-          min="1"
-          max="128000"
+          id="a2a_enabled"
+          v-model="a2aEnabled"
+          type="checkbox"
         >
       </FormField>
 

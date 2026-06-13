@@ -9,12 +9,34 @@ invite services depend only on the interface.
 
 from __future__ import annotations
 
+import hashlib
 import uuid
 from dataclasses import dataclass
 from email.message import EmailMessage as MimeMessage
 from typing import Protocol
 
 from loguru import logger
+from prometheus_client import Counter
+
+from shared_kernel.observability.metrics import REGISTRY
+
+# emails_sent_total{template,result} — observability for the mail transport.
+# Registered against the shared REGISTRY so it is exposed via `/metrics`.
+EMAILS_SENT_TOTAL = Counter(
+    "emails_sent_total",
+    "Outbound transactional emails dispatched by the sender.",
+    labelnames=("template", "result"),
+    registry=REGISTRY,
+)
+
+
+def recipient_digest(addr: str) -> str:
+    """SHA-256 hex digest (first 16 chars) of a normalised recipient address.
+
+    Lets logs/audit/metrics correlate on a recipient without ever persisting the
+    plaintext address (SEC: avoid PII in logs).
+    """
+    return hashlib.sha256(addr.strip().lower().encode("utf-8")).hexdigest()[:16]
 
 
 @dataclass(frozen=True, slots=True)
@@ -25,6 +47,9 @@ class EmailMessage:
     html_body: str | None = None
     # Correlation ID so tests can match a log line to a user action.
     correlation_id: uuid.UUID | None = None
+    # Template name (e.g. "invite", "verify_email") — drives the metrics label
+    # and the `email.sent` audit; never the recipient address.
+    template: str = "unknown"
 
 
 class EmailSender(Protocol):
@@ -37,10 +62,12 @@ class LoggingEmailSender:
     async def send(self, msg: EmailMessage) -> None:
         logger.bind(
             event="email_send",
-            to=msg.to,
+            recipient=recipient_digest(msg.to),
+            template=msg.template,
             subject=msg.subject,
             correlation_id=str(msg.correlation_id) if msg.correlation_id else None,
         ).info(msg.text_body)
+        EMAILS_SENT_TOTAL.labels(template=msg.template, result="sent").inc()
 
 
 def build_mime(msg: EmailMessage, *, from_addr: str) -> MimeMessage:
@@ -113,17 +140,25 @@ class SmtpEmailSender:
                 timeout=self._timeout,
             )
         except Exception:
-            # Surface the failure to the operator but never leak the body/token.
-            logger.bind(event="email_send_failed", to=msg.to, subject=msg.subject).exception(
-                "SMTP delivery failed"
-            )
+            # Surface the failure to the operator but never leak the body/token
+            # or the plaintext recipient address (digest only).
+            EMAILS_SENT_TOTAL.labels(template=msg.template, result="failed").inc()
+            logger.bind(
+                event="email_send_failed",
+                recipient=recipient_digest(msg.to),
+                template=msg.template,
+                subject=msg.subject,
+            ).exception("SMTP delivery failed")
             raise
+        EMAILS_SENT_TOTAL.labels(template=msg.template, result="sent").inc()
 
 
 __all__ = [
+    "EMAILS_SENT_TOTAL",
     "EmailMessage",
     "EmailSender",
     "LoggingEmailSender",
     "SmtpEmailSender",
     "build_mime",
+    "recipient_digest",
 ]

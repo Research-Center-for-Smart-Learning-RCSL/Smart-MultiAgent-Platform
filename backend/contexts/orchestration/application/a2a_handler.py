@@ -122,7 +122,12 @@ async def _handle_instruct(envelope: A2AEnvelope) -> None:
             if result.status == "completed":
                 await facade.mark_instruct_completed(instruction_id)
             else:
-                await facade.mark_instruct_timeout(instruction_id)
+                # Provider/turn failure — not a deadline timeout. mark_failed
+                # records the real cause (instruct.failed audit) while keeping
+                # a settled state the workflow resume task maps to ``failure``.
+                from contexts.orchestration.application.instruct_service import InstructService
+
+                await InstructService(db).mark_failed(instruction_id)
             await db.commit()
 
     # K.4: resume any workflow run parked on this instruct node — post-commit so
@@ -160,6 +165,9 @@ async def _run_turn_with_db(db: Any, to_id: uuid.UUID, envelope: A2AEnvelope) ->
     return await engine.run_input_turn(
         agent_id=to_id,
         input_text=_input_from_payload(envelope.payload),
+        # Attribute the turn's usage to the calling agent (guarded: a non-UUID
+        # sender simply yields no attribution rather than failing the turn).
+        parent_agent_id=_maybe_uuid(envelope.from_agent),
         workflow_run_id=envelope.workflow_run_id,
     )
 

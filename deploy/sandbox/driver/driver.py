@@ -10,6 +10,8 @@ Subcommands (host contract):
   invoke  — call one MCP tool; print the tool's text result on stdout
             (diagnostics on stderr); exit code is the tool's success.
   file    — list / read / write inside ``/workspace`` (the per-agent volume).
+            For ``write`` the host stages the payload into the volume with
+            ``put_archive`` and this driver renames it onto the target path.
   exec    — run a Python snippet (the code-exec image normally runs
             ``python -c`` directly; this is here for protocol completeness).
 
@@ -29,7 +31,6 @@ lazily so the pure helpers in :mod:`protocol` stay testable on any host.
 from __future__ import annotations
 
 import asyncio
-import base64
 import json
 import os
 import sys
@@ -233,12 +234,21 @@ def cmd_file() -> int:
             sys.stdout.buffer.write(fh.read())
         return EXIT_OK
     if op == "write":
-        data_b64 = _env("SMAP_FILE_DATA_B64")
-        data = base64.b64decode(data_b64) if data_b64 else b""
+        # The host stages the payload into the volume via put_archive before
+        # starting this container (K.5 FIX 4 — env vars cap at ~128 KiB, far
+        # below the tool's 10 MB budget). Same volume → os.replace is an
+        # atomic rename, no second copy of the payload.
+        staging = safe_workspace_path(_env("SMAP_FILE_STAGING"))
         os.makedirs(os.path.dirname(path) or "/workspace", exist_ok=True)
-        with open(path, "wb") as fh:
-            fh.write(data)
-        sys.stdout.write(json.dumps({"written": len(data), "path": path}))
+        try:
+            size = os.path.getsize(staging)
+            os.replace(staging, path)
+        except OSError:
+            # Don't leave a stray staged payload behind on failure.
+            if os.path.exists(staging):
+                os.unlink(staging)
+            raise
+        sys.stdout.write(json.dumps({"written": size, "path": path}))
         return EXIT_OK
     sys.stderr.write(f"unknown file op {op!r}")
     return EXIT_ERROR

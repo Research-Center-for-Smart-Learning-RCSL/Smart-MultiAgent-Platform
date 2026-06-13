@@ -110,6 +110,23 @@ def warn_if_email_unconfigured() -> None:
             "Registration through the UI is effectively disabled until SMTP is set up."
         )
 
+    # Port/TLS-mode mismatch: a plaintext STARTTLS connect to an implicit-TLS
+    # port (465) — or an implicit-TLS connect to the STARTTLS port (587) — does
+    # not error cleanly; it usually hangs until the timeout, so every outbound
+    # mail stalls. Warn loudly at startup rather than discovering it per-send.
+    if s.email.smtp_host:
+        port, mode = s.email.smtp_port, s.email.smtp_tls_mode
+        if port == 465 and mode == "starttls":
+            logger.bind(event="smtp_tls_mismatch", port=port, tls_mode=mode).warning(
+                "SMTP_PORT=465 (implicit TLS) with SMTP_TLS_MODE=starttls: a plaintext "
+                "STARTTLS connect to an implicit-TLS port will hang. Use SMTP_TLS_MODE=implicit."
+            )
+        elif port == 587 and mode == "implicit":
+            logger.bind(event="smtp_tls_mismatch", port=port, tls_mode=mode).warning(
+                "SMTP_PORT=587 (STARTTLS) with SMTP_TLS_MODE=implicit: a TLS-on-connect "
+                "handshake to a plaintext port will hang. Use SMTP_TLS_MODE=starttls."
+            )
+
 
 def create_auth_service(db: AsyncSession, *, public_origin: str) -> AuthService:
     return AuthService(

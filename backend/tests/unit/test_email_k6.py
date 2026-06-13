@@ -193,6 +193,84 @@ def test_templates_carry_link_in_text_and_html() -> None:
     assert "org" in inv.text_body
 
 
+def test_invite_subject_strips_header_injection() -> None:
+    # A scope name with CR/LF/control chars must not survive into the Subject —
+    # otherwise EmailMessage raises ValueError (header injection guard) → 500.
+    inv = tmpl.invite(
+        scope_label="org",
+        scope_name="Evil\r\nBcc: x@y.com\x00 Corp",
+        accept_link="https://app.example/invites/accept#token=T",
+    )
+    assert "\r" not in inv.subject
+    assert "\n" not in inv.subject
+    assert "\x00" not in inv.subject
+    # The sanitised subject must build a valid MIME header without raising.
+    mime = email_mod.build_mime(
+        email_mod.EmailMessage(to="i@x", subject=inv.subject, text_body=inv.text_body),
+        from_addr="f@x",
+    )
+    assert mime["Subject"] == inv.subject
+
+
+async def test_emails_sent_total_counts_success_and_failure(monkeypatch) -> None:
+    def _value(result: str) -> float:
+        return (
+            email_mod.EMAILS_SENT_TOTAL.labels(template="verify_email", result=result)._value.get()
+        )
+
+    sent0, fail0 = _value("sent"), _value("failed")
+
+    # LoggingEmailSender always "sends".
+    await email_mod.LoggingEmailSender().send(
+        email_mod.EmailMessage(to="u@x", subject="S", text_body="b", template="verify_email")
+    )
+    assert _value("sent") == sent0 + 1
+
+    # SmtpEmailSender increments the failure label and re-raises.
+    fake_mod = types.ModuleType("aiosmtplib")
+
+    async def _boom(*a, **k):
+        raise RuntimeError("relay down")
+
+    fake_mod.send = _boom  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "aiosmtplib", fake_mod)
+    sender = email_mod.SmtpEmailSender(host="m", port=25, from_addr="f@x", tls_mode="none")
+    with pytest.raises(RuntimeError):
+        await sender.send(
+            email_mod.EmailMessage(to="u@x", subject="S", text_body="b", template="verify_email")
+        )
+    assert _value("failed") == fail0 + 1
+
+
+def test_recipient_digest_is_stable_and_not_plaintext() -> None:
+    d = email_mod.recipient_digest("User@Example.com")
+    assert d == email_mod.recipient_digest("user@example.com")  # normalised
+    assert len(d) == 16
+    assert "example" not in d
+
+
+@pytest.mark.parametrize(
+    ("port", "mode", "expect_warn"),
+    [
+        (465, "starttls", True),
+        (587, "implicit", True),
+        (587, "starttls", False),
+        (465, "implicit", False),
+        (25, "none", False),
+    ],
+)
+def test_warn_on_smtp_port_tls_mismatch(monkeypatch, port, mode, expect_warn) -> None:
+    calls: list[str] = []
+    fake_logger = SimpleNamespace(bind=lambda **_: SimpleNamespace(warning=lambda m: calls.append(m)))
+    monkeypatch.setattr(factory, "logger", fake_logger)
+    s = _settings(env="dev", smtp_host="mail")
+    s.email.smtp_port = port
+    s.email.smtp_tls_mode = mode
+    monkeypatch.setattr(factory, "get_settings", lambda: s)
+    factory.warn_if_email_unconfigured()
+    assert (len(calls) == 1) is expect_warn
+
+
 # --------------------------------------------------------------------------- #
 # captcha.public_config                                                        #
 # --------------------------------------------------------------------------- #
@@ -263,9 +341,24 @@ class _CapturingSender:
         self.sent.append(msg)
 
 
+def _patch_invite_infra(monkeypatch, *, rl_allowed: bool = True):
+    """Stub the ratelimit + audit collaborators `_email_invite` now calls."""
+    from contexts.tenancy.application import invite_service as isvc
+
+    monkeypatch.setattr(
+        isvc.ratelimit,
+        "check_raw",
+        AsyncMock(return_value=SimpleNamespace(allowed=rl_allowed, retry_after_seconds=0)),
+    )
+    emit = AsyncMock()
+    monkeypatch.setattr(isvc.audit, "emit", emit)
+    return emit
+
+
 async def test_email_invite_carries_token_link(monkeypatch) -> None:
     from contexts.tenancy.domain.models import InviteScope
 
+    emit = _patch_invite_infra(monkeypatch)
     sender = _CapturingSender()
     svc = _invite_service(sender)
     # _scope_name issues one db.execute(...).first()
@@ -278,8 +371,30 @@ async def test_email_invite_carries_token_link(monkeypatch) -> None:
     assert len(sender.sent) == 1
     msg = sender.sent[0]
     assert msg.to == "invitee@x.com"
+    assert msg.template == "invite"
     assert "https://app.example/invites/accept#token=TOK123" in msg.text_body
     assert "Acme" in msg.text_body
+    # email.sent audit fired with template + recipient digest (never plaintext).
+    emit.assert_awaited_once()
+    meta = emit.await_args.args[1].metadata
+    assert meta["template"] == "invite"
+    assert "invitee@x.com" not in str(meta)
+    assert meta["recipient"] == email_mod.recipient_digest("invitee@x.com")
+
+
+async def test_email_invite_skipped_when_rate_limited(monkeypatch) -> None:
+    from contexts.tenancy.domain.models import InviteScope
+
+    emit = _patch_invite_infra(monkeypatch, rl_allowed=False)
+    sender = _CapturingSender()
+    svc = _invite_service(sender)
+    svc._db.execute = AsyncMock()  # must NOT be reached — we return before _scope_name
+
+    await svc._email_invite("victim@x.com", "TOK", InviteScope.ORG, uuid.uuid4())
+
+    assert sender.sent == []  # mail suppressed
+    emit.assert_not_awaited()  # no email.sent audit when skipped
+    svc._db.execute.assert_not_awaited()
 
 
 async def test_accept_by_token_finalizes_membership(monkeypatch) -> None:
@@ -311,6 +426,16 @@ async def test_accept_by_token_finalizes_membership(monkeypatch) -> None:
     svc._invites.get_by_token.assert_awaited_once_with("TOK")
     svc._org_members.add.assert_awaited_once()
     assert out.state is InviteState.ACCEPTED
+
+
+def test_hash_token_accepts_non_ascii() -> None:
+    # A non-ASCII token must not raise UnicodeEncodeError (would be a 500); it
+    # simply hashes to a non-match → 404, which is the correct outcome.
+    from contexts.tenancy.infrastructure.repositories import _hash_token
+
+    h = _hash_token("töken-ünïcode-✓")
+    assert len(h) == 64
+    assert h != _hash_token("ascii-token")
 
 
 async def test_accept_by_token_rejects_unknown_token(monkeypatch) -> None:

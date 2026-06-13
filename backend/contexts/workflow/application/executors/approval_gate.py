@@ -52,6 +52,9 @@ async def execute(ctx: RunContext, node: NodeSpec, db: AsyncSession) -> StepOutc
             leader_agent_id=leader_id,
             approvers=tuple(approvers),
             timeout_seconds=timeout_seconds,
+            # Thread the interpolated question through to the approvers'
+            # pending-notify payloads so voters know what they decide on.
+            question=question or None,
         )
 
         approval = await facade.create_approval_gate(

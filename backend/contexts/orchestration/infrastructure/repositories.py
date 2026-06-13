@@ -93,13 +93,25 @@ class ApprovalRepository:
         self,
         approval_id: uuid.UUID,
         state: ApprovalState,
-    ) -> None:
+    ) -> bool:
+        """Compare-and-set: ``pending`` → ``state``.
+
+        Returns True iff this call won the transition (the row was still
+        pending). Vote-driven resolution and the timeout job race in separate
+        sessions; the WHERE guard makes resolution single-shot so a late
+        timeout can never overwrite a committed APPROVED/REJECTED (and two
+        concurrent votes cannot both resolve+publish).
+        """
         ended = datetime.now(UTC) if state != ApprovalState.PENDING else None
         result = await self._db.execute(
-            approvals.update().where(approvals.c.id == approval_id).values(state=state.value, ended_at=ended),
+            approvals.update()
+            .where(
+                approvals.c.id == approval_id,
+                approvals.c.state == ApprovalState.PENDING.value,
+            )
+            .values(state=state.value, ended_at=ended),
         )
-        if (result.rowcount or 0) == 0:
-            raise ValueError(f"approval {approval_id} not found")
+        return (result.rowcount or 0) > 0
 
     async def get_project_id(self, approval_id: uuid.UUID) -> uuid.UUID | None:
         """Resolve approval → workflow_run → project for the authz scope check.

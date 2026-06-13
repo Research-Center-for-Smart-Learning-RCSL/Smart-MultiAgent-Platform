@@ -147,7 +147,7 @@ async def test_pending_context_adds_approval_tool(monkeypatch) -> None:
 
     engine = te.TurnEngine.__new__(te.TurnEngine)
     engine._db = object()  # type: ignore[attr-defined]
-    block, tools = await engine._pending_context_and_tools(_agent())
+    block, tools, _notes = await engine._pending_context_and_tools(_agent())
 
     assert block is not None
     assert str(approval_id) in block
@@ -163,7 +163,7 @@ async def test_pending_context_empty(monkeypatch) -> None:
     )
     engine = te.TurnEngine.__new__(te.TurnEngine)
     engine._db = object()  # type: ignore[attr-defined]
-    block, tools = await engine._pending_context_and_tools(_agent())
+    block, tools, _notes = await engine._pending_context_and_tools(_agent())
     assert block is None
     assert tools == []
 
@@ -324,7 +324,7 @@ async def test_handle_instruct_marks_states(monkeypatch) -> None:
 
 
 @pytest.mark.asyncio()
-async def test_handle_instruct_timeout_on_failed_turn(monkeypatch) -> None:
+async def test_handle_instruct_failed_turn_marks_failed(monkeypatch) -> None:
     calls: list = []
 
     class _Facade:
@@ -340,8 +340,18 @@ async def test_handle_instruct_timeout_on_failed_turn(monkeypatch) -> None:
         async def mark_instruct_timeout(self, iid):
             calls.append(("timeout", iid))
 
+    class _Instruct:
+        def __init__(self, db) -> None:
+            pass
+
+        async def mark_failed(self, iid):
+            calls.append(("failed", iid))
+
     monkeypatch.setattr(
         "contexts.orchestration.interfaces.facade.OrchestrationFacade", _Facade
+    )
+    monkeypatch.setattr(
+        "contexts.orchestration.application.instruct_service.InstructService", _Instruct
     )
 
     @asynccontextmanager
@@ -355,8 +365,72 @@ async def test_handle_instruct_timeout_on_failed_turn(monkeypatch) -> None:
 
     iid = uuid.uuid4()
     await h.handle_envelope(_env(A2AMessageType.INSTRUCT, {"instruction_id": str(iid), "input": "go"}))
-    assert ("timeout", iid) in calls
+    # A provider/turn failure is recorded as a failure, not misfiled as a
+    # deadline timeout.
+    assert ("failed", iid) in calls
     assert ("completed", iid) not in calls
+    assert ("timeout", iid) not in calls
+
+
+@pytest.mark.asyncio()
+async def test_run_turn_with_db_passes_parent_agent_id(monkeypatch) -> None:
+    captured: dict = {}
+
+    class _Engine:
+        def __init__(self, db, *, qdrant_url, qdrant_api_key) -> None:
+            pass
+
+        async def run_input_turn(self, **kw):
+            captured.update(kw)
+            return SimpleNamespace(status="completed", text="ok", reason=None)
+
+    monkeypatch.setattr(
+        "contexts.agents.application.runtime.turn_engine.TurnEngine", _Engine
+    )
+    monkeypatch.setattr(
+        "app.config.settings.get_settings",
+        lambda: SimpleNamespace(qdrant=SimpleNamespace(url="http://q", api_key=None)),
+    )
+
+    env = _env(A2AMessageType.CALL, {"input": "x"})
+    await h._run_turn_with_db(_FakeDB(), uuid.UUID(env.to_agent), env)
+
+    # Usage attribution: the calling agent rides through as parent_agent_id.
+    assert captured["parent_agent_id"] == uuid.UUID(str(env.from_agent))
+
+
+@pytest.mark.asyncio()
+async def test_run_turn_with_db_tolerates_non_uuid_sender(monkeypatch) -> None:
+    captured: dict = {}
+
+    class _Engine:
+        def __init__(self, db, *, qdrant_url, qdrant_api_key) -> None:
+            pass
+
+        async def run_input_turn(self, **kw):
+            captured.update(kw)
+            return SimpleNamespace(status="completed", text="ok", reason=None)
+
+    monkeypatch.setattr(
+        "contexts.agents.application.runtime.turn_engine.TurnEngine", _Engine
+    )
+    monkeypatch.setattr(
+        "app.config.settings.get_settings",
+        lambda: SimpleNamespace(qdrant=SimpleNamespace(url="http://q", api_key=None)),
+    )
+
+    env = A2AEnvelope(
+        id=uuid.uuid4(),
+        from_agent="system",  # not a UUID — must not break the turn
+        to_agent=str(uuid.uuid4()),
+        workflow_run_id=None,
+        type=A2AMessageType.CALL,
+        payload={"input": "x"},
+        correlation_id=uuid.uuid4(),
+        created_at=datetime.now(UTC),
+    )
+    await h._run_turn_with_db(_FakeDB(), uuid.UUID(env.to_agent), env)
+    assert captured["parent_agent_id"] is None
 
 
 @pytest.mark.asyncio()
@@ -463,6 +537,7 @@ async def test_notify_and_arm_notifies_and_schedules(monkeypatch) -> None:
         approvers=(leader, other),
         leader_agent_id=leader,
         timeout_seconds=120,
+        question="Deploy v2 to production?",
     )
     approval_id, run_id, room_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
 
@@ -491,16 +566,25 @@ async def test_notify_and_arm_notifies_and_schedules(monkeypatch) -> None:
         chatroom_id=room_id,
     )
 
-    # Every approver got an approval_request carrying the gate id + room.
+    # Every approver got an approval_request carrying the gate id + room +
+    # the question being decided.
     assert {p[0] for p in pushed} == {leader, other}
     for _aid, note in pushed:
         assert note["kind"] == "approval_request"
         assert note["approval_id"] == str(approval_id)
         assert note["chatroom_id"] == str(room_id)
+        assert note["question"] == "Deploy v2 to production?"
+    # One turn-driving job per approver — without it the parked notification
+    # is never drained and every gate falls to the timeout port.
+    drives = [(j, a) for j, a, _k in enq if j == "drive_approver_turn"]
+    assert {a[0] for _j, a in drives} == {str(leader), str(other)}
+    for _j, args in drives:
+        assert args[1] == str(approval_id)
+        assert args[2] == str(room_id)
     # The timeout was armed as a deferred job for this gate.
-    assert len(enq) == 1
-    job, args, kwargs = enq[0]
-    assert job == "approval_timeout"
+    timeouts = [(j, a, k) for j, a, k in enq if j == "approval_timeout"]
+    assert len(timeouts) == 1
+    _job, args, kwargs = timeouts[0]
     assert args[0] == str(approval_id)
     assert args[1] == str(room_id)
     assert "_defer_by" in kwargs

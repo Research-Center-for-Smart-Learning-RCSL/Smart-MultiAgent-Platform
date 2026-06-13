@@ -14,6 +14,13 @@ FROM node:22-slim
 # --- system Python + uv (provides uvx) for Python-packaged MCP servers -------
 # node:22-slim is Debian bookworm. We add the distro Python 3 plus pipx/uv so
 # both `npx` (npm ecosystem) and `uvx` (PyPI ecosystem) stdio servers launch.
+#
+# KNOWN DEVIATION from the K.5 spec's "Python 3.12": bookworm's distro python3
+# is 3.11 and Debian ships no 3.12 apt package — getting 3.12 here means a
+# source build or a third-party repo, bloating and destabilising the sandbox
+# image for no functional gain (the driver + mcp SDK are 3.11-compatible, and
+# uvx-launched servers resolve their own interpreters via uv). Revisit when
+# the base moves to a trixie-based node image.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         python3 python3-pip python3-venv ca-certificates \

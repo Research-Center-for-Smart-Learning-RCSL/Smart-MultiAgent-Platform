@@ -273,6 +273,60 @@ async def test_stream_transport_error_after_first_token_raises(monkeypatch) -> N
 
 
 @pytest.mark.asyncio()
+@pytest.mark.parametrize("status", [529, 429])  # synthetic in-stream error statuses
+async def test_stream_rotates_on_synthetic_in_stream_error_status(monkeypatch, status) -> None:
+    # Adapters map mid-stream provider error events (delivered inside an HTTP
+    # 200) onto synthetic non-2xx StreamCompletes — before the first token the
+    # router must rotate, exactly as for a real non-2xx response.
+    k1, k2 = uuid.uuid4(), uuid.uuid4()
+    fail = _StreamAdapter(
+        ApiKeyProvider.OPENAI,
+        [StreamComplete(ProviderCallResult(status, {"error": f"HTTP {status} (x)"}))],
+    )
+    ok = _StreamAdapter(
+        ApiKeyProvider.CLAUDE,
+        [TokenDelta("ok"), StreamComplete(ProviderCallResult(200, {"text": "ok"}, 1, 1))],
+    )
+    router, recorded = _make_router(
+        monkeypatch,
+        {ApiKeyProvider.OPENAI: fail, ApiKeyProvider.CLAUDE: ok},
+        [_Member(k1), _Member(k2)],
+        {k1: _Key(k1, ApiKeyProvider.OPENAI), k2: _Key(k2, ApiKeyProvider.CLAUDE)},
+    )
+    events = await _drain(router.call_stream(group_id=uuid.uuid4(), request=_CHAT))
+    assert [e.text for e in events if isinstance(e, TokenDelta)] == ["ok"]
+    assert {r["http_status"] for r in recorded} == {status, 200}
+
+
+@pytest.mark.asyncio()
+async def test_stream_propagates_attribution_into_usage(monkeypatch) -> None:
+    # agent_id / parent_agent_id / chatroom_id ride the request into every
+    # recorded usage event (R7.12 attribution).
+    kid = uuid.uuid4()
+    aid, pid, cid = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+    req = ProviderRequest(
+        capability=ProviderCapability.LLM_CHAT,
+        payload={"model": "m", "messages": [{"role": "user", "content": "hi"}]},
+        agent_id=aid,
+        parent_agent_id=pid,
+        chatroom_id=cid,
+    )
+    adapter = _StreamAdapter(
+        ApiKeyProvider.OPENAI,
+        [TokenDelta("ok"), StreamComplete(ProviderCallResult(200, {"text": "ok"}, 1, 1))],
+    )
+    router, recorded = _make_router(
+        monkeypatch, {ApiKeyProvider.OPENAI: adapter}, [_Member(kid)],
+        {kid: _Key(kid, ApiKeyProvider.OPENAI)},
+    )
+    await _drain(router.call_stream(group_id=uuid.uuid4(), request=req))
+    assert len(recorded) == 1
+    assert recorded[0]["agent_id"] == aid
+    assert recorded[0]["parent_agent_id"] == pid
+    assert recorded[0]["chatroom_id"] == cid
+
+
+@pytest.mark.asyncio()
 async def test_single_key_records_and_returns(monkeypatch) -> None:
     kid = uuid.uuid4()
     embed_req = ProviderRequest(

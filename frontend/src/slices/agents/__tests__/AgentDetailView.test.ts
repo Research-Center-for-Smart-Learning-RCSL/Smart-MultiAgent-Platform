@@ -24,14 +24,20 @@ describe('AgentDetailView', () => {
           id: 'agent_1',
           name: 'My Bot',
           project_id: 'proj_1',
-          model_provider: 'openai',
-          model_name: 'gpt-4o',
+          model_hint: 'openai',
+          key_group_id: 'kg_1',
           system_prompt: 'You are helpful.',
-          temperature: 0.5,
-          max_tokens: 2048,
-          version: 1,
+          prompt_strategy: 'full',
           rag_config_id: null,
-          mcp_server_ids: [],
+          graphrag_config_id: null,
+          context_mode: 'general',
+          context_token_cap: null,
+          a2a_enabled: false,
+          wakeup_config: {},
+          workflow_capabilities: {},
+          version: 1,
+          created_at: '2026-01-01T00:00:00Z',
+          deleted_at: null,
         }),
       ),
     )
@@ -43,7 +49,7 @@ describe('AgentDetailView', () => {
     await wrapper.vm.$nextTick()
     const nameInput = wrapper.find('#name').element as HTMLInputElement
     expect(nameInput.value).toBe('My Bot')
-    const tempInput = wrapper.find('#temperature').element as HTMLInputElement
-    expect(Number(tempInput.value)).toBe(0.5)
+    const modelHintSelect = wrapper.find('#model_hint').element as HTMLSelectElement
+    expect(modelHintSelect.value).toBe('openai')
   })
 })

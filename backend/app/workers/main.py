@@ -28,6 +28,7 @@ from arq.connections import RedisSettings
 from app.config.settings import get_settings
 from app.workers.agent_fs_gc import run_once as _agent_fs_gc_run_once
 from app.workers.tasks.advisory import daily_org_advisory_snapshot
+from app.workers.tasks.approvals import drive_approver_turn
 from app.workers.tasks.conversation import (
     chat_export,
     file_scan_requested,
@@ -178,6 +179,7 @@ class WorkerSettings:
         evaluate_silence,
         wakeup_refresh,
         approval_timeout,
+        drive_approver_turn,
         run_workflow_step,
         retry_workflow_node,
         workflow_event_timeout,

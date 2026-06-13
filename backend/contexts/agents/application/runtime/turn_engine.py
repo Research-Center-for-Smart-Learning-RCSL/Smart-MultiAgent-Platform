@@ -16,10 +16,12 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 import uuid
 from dataclasses import dataclass
 from typing import Any, cast
 
+from prometheus_client import Counter, Histogram
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.agents.application import context as ctxmod
@@ -45,14 +47,44 @@ from contexts.keys.application.provider_router import (
 from contexts.keys.domain.errors import KeyGroupExhausted
 from contexts.keys.domain.providers import ProviderCapability
 from contexts.keys.infrastructure.adapters import build_router
+from contexts.keys.infrastructure.group_repository import KeyGroupRepository
 from shared_kernel import audit
+from shared_kernel.observability.metrics import REGISTRY
 from shared_kernel.realtime.pubsub import Publisher, room_channel
-from shared_kernel.realtime.turn_lock import turn_lock
+from shared_kernel.realtime.turn_lock import DEFAULT_TURN_TTL_S, turn_lock
 
 _log = logging.getLogger(__name__)
 
 MAX_TOOL_ROUNDS = 8
 _DEFAULT_MAX_TOKENS = 4096
+
+# Per-(agent, room) turn rate limit — backstop against trigger storms. Not yet
+# surfaced in `settings.limits` (no agent-runtime settings section exists);
+# promote these to settings when one lands.
+_TURN_RATE_WINDOW_S = 300
+_TURN_RATE_MAX_TURNS = 30
+
+# ---- Turn observability (same pattern as PROVIDER_CALL_TOTAL) ---------------
+
+AGENT_TURNS_TOTAL = Counter(
+    "agent_turns_total",
+    "Agent turns run by the turn engine, labelled by terminal result.",
+    labelnames=("result",),
+    registry=REGISTRY,
+)
+
+AGENT_TURN_DURATION_SECONDS = Histogram(
+    "agent_turn_duration_seconds",
+    "Wall-clock duration of one agent turn (lock acquire to release).",
+    buckets=(0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0, 120.0, 300.0),
+    registry=REGISTRY,
+)
+
+AGENT_STREAM_TOKENS_TOTAL = Counter(
+    "agent_stream_tokens_total",
+    "Streamed token deltas emitted by agent turns.",
+    registry=REGISTRY,
+)
 
 # The schema stores only a provider *hint* (`model_hint`), not a concrete model.
 # These are the turn-engine's caller-supplied chat-model defaults per provider —
@@ -68,6 +100,63 @@ _CONTEXT_LIMITS: dict[str, int] = {
     "openai": 128_000,
     "gemini": 1_000_000,
 }
+
+# Default embedding model per provider for GraphRAG retrieval — mirrors the
+# builder's map in ``app.workers.tasks.graphrag`` (kept local: contexts must
+# not import from ``app``).
+_GRAPHRAG_EMBED_MODELS: dict[str, str] = {
+    "openai": "text-embedding-3-small",
+    "gemini": "text-embedding-004",
+    "voyage": "voyage-3",
+}
+
+
+def _queued_trigger_key(agent_id: uuid.UUID, chatroom_id: uuid.UUID) -> str:
+    return f"turn:queued:{agent_id}:{chatroom_id}"
+
+
+async def _mark_trigger_queued(
+    agent_id: uuid.UUID, chatroom_id: uuid.UUID, trigger: str
+) -> None:
+    """Record (at most once — SETNX) that a trigger landed while a turn held
+    the lock, so the lock holder re-enqueues exactly one follow-up turn."""
+    try:
+        from shared_kernel.auth.clients import get_redis
+
+        await get_redis().set(
+            _queued_trigger_key(agent_id, chatroom_id),
+            trigger,
+            nx=True,
+            ex=DEFAULT_TURN_TTL_S,
+        )
+    except Exception:
+        _log.warning(
+            "failed to queue coalesced trigger agent=%s room=%s",
+            agent_id,
+            chatroom_id,
+            exc_info=True,
+        )
+
+
+async def _pop_queued_trigger(
+    agent_id: uuid.UUID, chatroom_id: uuid.UUID
+) -> str | None:
+    """Atomically read-and-clear the coalesced-trigger flag (GETDEL)."""
+    try:
+        from shared_kernel.auth.clients import get_redis
+
+        val = await get_redis().getdel(_queued_trigger_key(agent_id, chatroom_id))
+    except Exception:
+        _log.warning(
+            "failed to read coalesced trigger agent=%s room=%s",
+            agent_id,
+            chatroom_id,
+            exc_info=True,
+        )
+        return None
+    if not val:
+        return None
+    return val.decode() if isinstance(val, bytes) else str(val)
 
 
 @dataclass(frozen=True, slots=True)
@@ -92,6 +181,9 @@ class TurnEngine:
         self._router = router or build_router(db)
         self._qdrant_url = qdrant_url
         self._qdrant_api_key = qdrant_api_key
+        # Rooms whose one-shot POST /compact flag this engine consumed — used
+        # to re-arm the flag if the turn that consumed it fails.
+        self._compact_forced_rooms: set[uuid.UUID] = set()
 
     async def run_turn(
         self,
@@ -103,12 +195,17 @@ class TurnEngine:
         input_text: str | None = None,
         request_id: uuid.UUID | None = None,
     ) -> TurnResult:
+        started = time.monotonic()
         async with turn_lock(agent_id, chatroom_id) as acquired:
             if not acquired:
-                # A turn is already running for this (agent, room); coalescing of
-                # the missed trigger is the caller's concern (K.3).
+                # A turn is already running for this (agent, room). Park the
+                # trigger (SETNX = at most one) so the lock holder re-enqueues
+                # a follow-up turn after release — without this, a user message
+                # landing mid-turn would never get a reply.
+                await _mark_trigger_queued(agent_id, chatroom_id, trigger)
+                AGENT_TURNS_TOTAL.labels(result="skipped").inc()
                 return TurnResult(status="skipped", reason="locked")
-            return await self._run_locked(
+            result = await self._run_locked(
                 agent_id=agent_id,
                 chatroom_id=chatroom_id,
                 trigger=trigger,
@@ -116,6 +213,24 @@ class TurnEngine:
                 input_text=input_text,
                 request_id=request_id,
             )
+        # Lock released — drain the coalesced trigger (if any) into exactly one
+        # follow-up wakeup so the message that arrived mid-turn gets a reply.
+        queued = await _pop_queued_trigger(agent_id, chatroom_id)
+        if queued is not None:
+            try:
+                from shared_kernel.queue import enqueue
+
+                await enqueue("wakeup_agent", str(agent_id), str(chatroom_id), queued)
+            except Exception:
+                _log.warning(
+                    "coalesced wakeup enqueue failed agent=%s room=%s",
+                    agent_id,
+                    chatroom_id,
+                    exc_info=True,
+                )
+        AGENT_TURNS_TOTAL.labels(result=result.status).inc()
+        AGENT_TURN_DURATION_SECONDS.observe(time.monotonic() - started)
+        return result
 
     async def run_input_turn(
         self,
@@ -138,11 +253,12 @@ class TurnEngine:
             return TurnResult(status="skipped", reason="agent_gone")
         models = dict(_DEFAULT_CHAT_MODELS)
         wf = str(workflow_run_id) if workflow_run_id else None
+        pending_notes: list[dict[str, Any]] = []
         try:
             await self._audit(agent, None, "agent.turn_started", {"mode": "a2a", "workflow_run_id": wf})
             base_system, lazy_prompt, section_cache = self._resolve_prompt(agent)
             system_parts = [base_system] if base_system else []
-            notify_block, extra_tools = await self._pending_context_and_tools(agent)
+            notify_block, extra_tools, pending_notes = await self._pending_context_and_tools(agent)
             extra_tools = extra_tools + await self._builtin_tools(agent)
             if notify_block:
                 system_parts.append(notify_block)
@@ -176,6 +292,8 @@ class TurnEngine:
                 await self._db.commit()
             except Exception:
                 _log.exception("a2a turn failure-path bookkeeping failed")
+            # The agent never saw the drained notifications — put them back.
+            await self._requeue_notifications(agent, pending_notes)
             return TurnResult(status="failed", reason=_err_kind(exc))
 
     async def _builtin_tools(self, agent: Agent) -> list[Tool]:
@@ -215,19 +333,24 @@ class TurnEngine:
         base_system = lazy_prompt.index if lazy_prompt is not None else prompt.text  # type: ignore[union-attr]
         return base_system, lazy_prompt, section_cache
 
-    async def _pending_context_and_tools(self, agent: Agent) -> tuple[str | None, list[Tool]]:
+    async def _pending_context_and_tools(
+        self, agent: Agent
+    ) -> tuple[str | None, list[Tool], list[dict[str, Any]]]:
         """Drain queued A2A notifications for this agent into a context block
         (R9.16) and, for approval-request notifications, the ``cast_approval_vote``
         tool scoped to exactly the pending gate ids. Best-effort: a Redis hiccup
-        yields no context rather than failing the turn."""
+        yields no context rather than failing the turn.
+
+        Also returns the raw drained notes so a turn that fails (or skips)
+        before the agent sees them can :meth:`_requeue_notifications`."""
         from contexts.orchestration.infrastructure import pending_notify
 
         try:
             notes = await pending_notify.drain(agent.id)
         except Exception:
-            return None, []
+            return None, [], []
         if not notes:
-            return None, []
+            return None, [], []
         approvals: dict[uuid.UUID, uuid.UUID | None] = {}
         lines: list[str] = []
         for n in notes:
@@ -245,6 +368,8 @@ class TurnEngine:
                     f"- Approval requested (approval_id={n['approval_id']}, "
                     f"mode={n.get('mode', '?')}). Call cast_approval_vote to respond."
                 )
+                if n.get("question"):
+                    lines.append(f"  Question: {n['question']}")
             else:
                 lines.append(f"- {json.dumps(n, separators=(',', ':'))}")
         tools: list[Tool] = []
@@ -254,7 +379,26 @@ class TurnEngine:
                     self._db, agent_id=agent.id, allowed_approvals=approvals
                 )
             )
-        return "[Incoming notifications]\n" + "\n".join(lines), tools
+        return "[Incoming notifications]\n" + "\n".join(lines), tools, notes
+
+    async def _requeue_notifications(
+        self, agent: Agent, notes: list[dict[str, Any]]
+    ) -> None:
+        """Restore drained-but-unseen notifications (turn failed / skipped
+        before the provider call could read them). Best-effort."""
+        if not notes:
+            return
+        try:
+            from contexts.orchestration.infrastructure import pending_notify
+
+            await pending_notify.requeue(agent.id, notes)
+        except Exception:
+            _log.warning(
+                "failed to requeue %d pending notifications agent=%s",
+                len(notes),
+                agent.id,
+                exc_info=True,
+            )
 
     async def _run_locked(
         self,
@@ -276,12 +420,35 @@ class TurnEngine:
         )
         if not bound:
             return TurnResult(status="skipped", reason="not_bound")
+        # AuthZ tap: the agent's key group must still belong to the agent's
+        # project (defends against a key-group move/delete racing the trigger).
+        group = await KeyGroupRepository(self._db).get_active(agent.key_group_id)
+        if group is None or group.project_id != agent.project_id:
+            await self._audit(
+                agent,
+                chatroom_id,
+                "agent.turn_skipped",
+                {"reason": "key_group_scope", "key_group_id": str(agent.key_group_id)},
+            )
+            await self._db.commit()
+            return TurnResult(status="skipped", reason="key_group_scope")
+        # Per-(agent, room) turn rate bucket — backstop against trigger storms.
+        if not await self._turn_rate_allowed(agent_id, chatroom_id):
+            await self._audit(
+                agent,
+                chatroom_id,
+                "agent.turn_skipped",
+                {"reason": "rate_limited", "trigger": trigger},
+            )
+            await self._db.commit()
+            return TurnResult(status="skipped", reason="rate_limited")
 
         provider = agent.model_hint.value
         models = dict(_DEFAULT_CHAT_MODELS)
         context_limit = _CONTEXT_LIMITS.get(provider, 128_000)
 
         room = room_channel(chatroom_id)
+        pending_notes: list[dict[str, Any]] = []
 
         try:
             # Emitted inside the try so any failure still routes to the
@@ -301,12 +468,20 @@ class TurnEngine:
             for hm in history:
                 if hm.role == "system":  # compact_summary
                     system_parts.append(f"[Earlier conversation summary]\n{hm.content}")
-            rag_block = await self._rag_context(agent, history)
+            # Retrieval keys off the *current* input when this turn carries one
+            # (run_input_turn); otherwise the latest user message in history.
+            query_text = input_text or next(
+                (h.content for h in reversed(history) if h.role == "user"), None
+            )
+            rag_block = await self._rag_context(agent, query_text)
             if rag_block:
                 system_parts.append(rag_block)
+            graphrag_block = await self._graphrag_context(agent, query_text)
+            if graphrag_block:
+                system_parts.append(graphrag_block)
             # Drain queued A2A notifications (R9.16); approval requests also add
             # the cast_approval_vote tool for this turn.
-            notify_block, extra_tools = await self._pending_context_and_tools(agent)
+            notify_block, extra_tools, pending_notes = await self._pending_context_and_tools(agent)
             extra_tools = extra_tools + await self._builtin_tools(agent)
             if notify_block:
                 system_parts.append(notify_block)
@@ -323,6 +498,9 @@ class TurnEngine:
                 await Publisher(room).emit("agent.finished")
                 await self._audit(agent, chatroom_id, "agent.turn_finished", {"empty": True})
                 await self._db.commit()
+                # The drained notifications were folded into a prompt that will
+                # never reach the provider — restore them for the next turn.
+                await self._requeue_notifications(agent, pending_notes)
                 return TurnResult(status="skipped", reason="no_input")
 
             registry = build_registry(
@@ -332,6 +510,13 @@ class TurnEngine:
                 section_cache=section_cache,
                 extra=extra_tools,
             )
+
+            # Commit the pre-stream writes (turn_started audit, compaction
+            # summary row) so the DB transaction is not held open across the
+            # whole provider stream. Mid-stream writes (router usage events,
+            # tool audits) and the reply + turn_finished audit form their own
+            # transaction committed below — reply persistence stays atomic.
+            await self._db.commit()
 
             final_text, rounds = await self._stream_with_tools(
                 agent=agent,
@@ -344,6 +529,19 @@ class TurnEngine:
                 room=room,
             )
 
+            if not final_text.strip():
+                # Nothing to say — never persist an empty agent message.
+                await self._audit(
+                    agent,
+                    chatroom_id,
+                    "agent.turn_finished",
+                    {"tool_rounds": rounds, "reason": "empty_reply"},
+                )
+                await self._db.commit()
+                self._compact_forced_rooms.discard(chatroom_id)
+                await Publisher(room).emit("agent.finished", {"reason": "empty_reply"})
+                return TurnResult(status="skipped", reason="empty_reply", tool_rounds=rounds)
+
             msg = await MessageService(self._db).send_agent(
                 chatroom_id=chatroom_id,
                 agent_id=agent.id,
@@ -355,6 +553,7 @@ class TurnEngine:
                 agent, chatroom_id, "agent.turn_finished", {"tool_rounds": rounds}
             )
             await self._db.commit()
+            self._compact_forced_rooms.discard(chatroom_id)
             # Publish AFTER commit so a client's refetch sees the committed row
             # (agent replies have no optimistic echo, unlike user sends).
             pub = Publisher(room)
@@ -368,6 +567,10 @@ class TurnEngine:
                 },
             )
             await pub.emit("agent.finished", {"message_id": str(msg.id)})
+            # K.4: agent replies feed workflow `message` triggers/waits exactly
+            # like user sends do (sender_filter agent/any). Best-effort,
+            # post-commit — never fails the turn.
+            await self._dispatch_agent_message_signal(chatroom_id, final_text)
             return TurnResult(
                 status="completed", message_id=msg.id, text=final_text, tool_rounds=rounds
             )
@@ -375,16 +578,73 @@ class TurnEngine:
         except Exception as exc:
             _log.exception("agent turn failed agent=%s room=%s", agent_id, chatroom_id)
             await self._db.rollback()
-            # Never leave the room stuck in "thinking".
+            # Never leave the room stuck in "thinking". The WS emit and the
+            # audit row are independently guarded: a Redis outage must not
+            # swallow the agent.turn_failed audit (DB), and vice versa.
             try:
                 await Publisher(room).emit("agent.finished", {"error": _err_kind(exc)})
+            except Exception:
+                _log.exception("agent turn failure-path WS emit failed")
+            try:
                 await self._audit(
                     agent, chatroom_id, "agent.turn_failed", {"error": _err_kind(exc)}
                 )
                 await self._db.commit()
             except Exception:
                 _log.exception("agent turn failure-path bookkeeping failed")
+            # The agent never acted on the drained notifications — restore them.
+            await self._requeue_notifications(agent, pending_notes)
+            # Re-arm the one-shot /compact flag this turn consumed but wasted.
+            await self._restore_compact_flag(chatroom_id)
             return TurnResult(status="failed", reason=_err_kind(exc))
+
+    async def _dispatch_agent_message_signal(
+        self, chatroom_id: uuid.UUID, content: str
+    ) -> None:
+        """Mirror of the user-send route's workflow signal dispatch
+        (``app.api.v1.messages._dispatch_message_workflow_signal``) with
+        ``sender_type="agent"``. Best-effort and post-commit."""
+        try:
+            from shared_kernel.queue import enqueue
+
+            await enqueue(
+                "workflow_signal",
+                "message",
+                {
+                    "chatroom_id": str(chatroom_id),
+                    "sender_type": "agent",
+                    "content": content,
+                },
+            )
+        except Exception:
+            _log.warning(
+                "workflow message-signal dispatch failed for room %s",
+                chatroom_id,
+                exc_info=True,
+            )
+
+    async def _turn_rate_allowed(
+        self, agent_id: uuid.UUID, chatroom_id: uuid.UUID
+    ) -> bool:
+        """Sliding-window per-(agent, room) turn cap. Fails open: a rate-limit
+        infrastructure fault must not silence the agent."""
+        try:
+            from shared_kernel.auth import ratelimit
+
+            decision = await ratelimit.check_raw(
+                key=f"rl:agent-turn:{agent_id}:{chatroom_id}",
+                window_sec=_TURN_RATE_WINDOW_S,
+                max_count=_TURN_RATE_MAX_TURNS,
+            )
+            return decision.allowed
+        except Exception:
+            _log.warning(
+                "turn rate-limit check failed agent=%s room=%s (allowing)",
+                agent_id,
+                chatroom_id,
+                exc_info=True,
+            )
+            return True
 
     # ----------------------------------------------------------------- #
 
@@ -437,22 +697,78 @@ class TurnEngine:
         if not did:
             return history
         # Reload so the summary replaces the folded range.
-        return await tx.load_model_history(self._db, chatroom_id=chatroom_id)
+        reloaded = await tx.load_model_history(self._db, chatroom_id=chatroom_id)
+        await self._audit(
+            agent,
+            chatroom_id,
+            "agent.compact_run",
+            {
+                "forced": forced,
+                "token_cap": cap,
+                "tokens_before": projected,
+                "tokens_after": sum(h.token_count for h in reloaded),
+                "messages_before": len(history),
+                "messages_after": len(reloaded),
+            },
+        )
+        return reloaded
+
+    async def run_compaction(
+        self, *, agent_id: uuid.UUID, chatroom_id: uuid.UUID
+    ) -> bool:
+        """Headless compaction pass (G.10) — runs the turn engine's compaction
+        machinery without a provider turn. Used by the ``compact_chatroom``
+        worker task enqueued by POST /compact; the one-shot Redis flag set by
+        the endpoint forces the pass inside :meth:`_assemble_history`."""
+        agent = await AgentsFacade(self._db).get_agent(agent_id)
+        if agent is None:
+            return False
+        provider = agent.model_hint.value
+        context_limit = _CONTEXT_LIMITS.get(provider, 128_000)
+        try:
+            await self._assemble_history(
+                agent, chatroom_id, context_limit, dict(_DEFAULT_CHAT_MODELS)
+            )
+            await self._db.commit()
+            self._compact_forced_rooms.discard(chatroom_id)
+            return True
+        except Exception:
+            _log.exception(
+                "headless compaction failed agent=%s room=%s", agent_id, chatroom_id
+            )
+            await self._db.rollback()
+            await self._restore_compact_flag(chatroom_id)
+            return False
 
     async def _consume_compact_flag(self, chatroom_id: uuid.UUID) -> bool:
-        """Read-and-clear the forced-compaction flag set by POST /compact."""
+        """Atomically read-and-clear (GETDEL) the forced-compaction flag set by
+        POST /compact. Consumed rooms are tracked so a failed turn can re-arm
+        the flag via :meth:`_restore_compact_flag`."""
         try:
             from shared_kernel.auth.clients import get_redis
 
-            redis = get_redis()
-            key = f"compact:pending:{chatroom_id}"
-            val = await redis.get(key)
+            val = await get_redis().getdel(f"compact:pending:{chatroom_id}")
             if val:
-                await redis.delete(key)
+                self._compact_forced_rooms.add(chatroom_id)
                 return True
             return False
         except Exception:
             return False
+
+    async def _restore_compact_flag(self, chatroom_id: uuid.UUID) -> None:
+        """Re-arm the one-shot /compact flag if this engine consumed it but the
+        consuming turn failed before committing a compaction. Best-effort."""
+        if chatroom_id not in self._compact_forced_rooms:
+            return
+        try:
+            from shared_kernel.auth.clients import get_redis
+
+            await get_redis().set(f"compact:pending:{chatroom_id}", "1", ex=3600)
+            self._compact_forced_rooms.discard(chatroom_id)
+        except Exception:
+            _log.warning(
+                "failed to restore compact flag for room %s", chatroom_id, exc_info=True
+            )
 
     async def _stream_with_tools(
         self,
@@ -489,6 +805,7 @@ class TurnEngine:
                 group_id=agent.key_group_id, request=request
             ):
                 if isinstance(ev, TokenDelta):
+                    AGENT_STREAM_TOKENS_TOTAL.inc()
                     if room is not None:
                         await Publisher(room).emit("agent.token", {"text": ev.text})
                 elif isinstance(ev, StreamComplete):
@@ -516,19 +833,13 @@ class TurnEngine:
         # Tool-round budget exhausted — return the latest text we have.
         return last_text, MAX_TOOL_ROUNDS
 
-    async def _rag_context(
-        self, agent: Agent, history: list[tx.HistoryMessage]
-    ) -> str | None:
-        if agent.rag_config_id is None or self._qdrant_url is None:
-            return None
-        query = next(
-            (h.content for h in reversed(history) if h.role == "user"), None
-        )
-        if not query:
+    async def _rag_context(self, agent: Agent, query: str | None) -> str | None:
+        if agent.rag_config_id is None or self._qdrant_url is None or not query:
             return None
         try:
             from qdrant_client import AsyncQdrantClient
 
+            from contexts.knowledge.application.ports import Reranker
             from contexts.knowledge.application.retrieve import RetrieveService
             from contexts.knowledge.infrastructure.embedders import router_embedder_for
             from contexts.knowledge.infrastructure.qdrant_store import QdrantStore
@@ -543,11 +854,39 @@ class TurnEngine:
                 provider=cfg.embed_provider,
                 model=cfg.embed_model,
             )
+            reranker: Reranker | None = None
+            if cfg.rerank_enabled and cfg.rerank_key_id is not None:
+                try:
+                    from contexts.knowledge.infrastructure.rerankers import CohereReranker
+
+                    # Router-backed constructor (mirrors RouterEmbedder): the
+                    # caller never touches key plaintext — the router unwraps
+                    # the pinned rerank key on demand. If the reranker module
+                    # still has the legacy `api_key` constructor this raises
+                    # TypeError and we retrieve without rerank.
+                    reranker = CohereReranker(
+                        router=self._router,
+                        key_id=cfg.rerank_key_id,
+                        model=cfg.rerank_model or "rerank-3",
+                    )
+                except TypeError:
+                    _log.warning(
+                        "router-backed reranker unavailable for rag config %s; "
+                        "retrieving without rerank",
+                        cfg.id,
+                    )
             qclient = AsyncQdrantClient(url=self._qdrant_url, api_key=self._qdrant_api_key or None)
             try:
-                svc = RetrieveService(self._db, embedder=embedder, qdrant=QdrantStore(qclient))
+                svc = RetrieveService(
+                    self._db, embedder=embedder, qdrant=QdrantStore(qclient), reranker=reranker
+                )
                 chunks = await svc.query(
-                    config_id=agent.rag_config_id, text=query, agent_id=agent.id, rerank=False
+                    config_id=agent.rag_config_id,
+                    text=query,
+                    agent_id=agent.id,
+                    # rerank=None defers to cfg.rerank_enabled; without a
+                    # reranker instance force it off so query() stays cheap.
+                    rerank=None if reranker is not None else False,
                 )
                 if not chunks:
                     return None
@@ -557,6 +896,85 @@ class TurnEngine:
         except Exception:
             _log.warning("RAG retrieval failed agent=%s", agent.id, exc_info=True)
             return None
+
+    async def _graphrag_context(self, agent: Agent, query: str | None) -> str | None:
+        """GraphRAG context block (R11.06) — mirrors :meth:`_rag_context`:
+        retrieval failure must never fail the turn."""
+        if agent.graphrag_config_id is None or not query:
+            return None
+        try:
+            bundle = await self._graphrag_query(agent.graphrag_config_id, query)
+            if bundle is None or not (bundle.entities or bundle.relations):
+                return None
+            return str(bundle.as_system_message()["content"])
+        except Exception:
+            _log.warning("GraphRAG retrieval failed agent=%s", agent.id, exc_info=True)
+            return None
+
+    async def _graphrag_query(self, config_id: uuid.UUID, query: str) -> Any:
+        """Production GraphRAG retrieval wiring (E.8). Seam for unit tests —
+        fakes replace this method to exercise :meth:`_graphrag_context`."""
+        from app.config.settings import get_settings
+
+        settings = get_settings()
+        neo4j_conf = getattr(settings, "neo4j", None)
+        if neo4j_conf is None or self._qdrant_url is None:
+            return None
+
+        from qdrant_client import AsyncQdrantClient
+
+        from contexts.knowledge.application.graphrag_retrieve import GraphRagRetrieveService
+        from contexts.knowledge.infrastructure.embedders import router_embedder_for
+        from contexts.knowledge.infrastructure.graphrag_vector_store import GraphRagVectorStore
+        from contexts.knowledge.infrastructure.neo4j_driver import Neo4jAsyncDriver
+
+        async def _embedder_factory(cfg: Any) -> Any:
+            resolved = await self._resolve_graphrag_embed_key(cfg.builder_key_group_id)
+            if resolved is None:
+                raise RuntimeError(
+                    f"builder key group {cfg.builder_key_group_id} has no embedding key"
+                )
+            provider, model, key_id = resolved
+            return router_embedder_for(
+                router=self._router, key_id=key_id, provider=provider, model=model
+            )
+
+        driver = Neo4jAsyncDriver(
+            uri=neo4j_conf.url, auth=(neo4j_conf.user, neo4j_conf.password)
+        )
+        qclient = AsyncQdrantClient(url=self._qdrant_url, api_key=self._qdrant_api_key or None)
+        try:
+            svc = GraphRagRetrieveService(
+                self._db,
+                neo4j=driver,
+                vector_store=GraphRagVectorStore(qclient),
+                embedder_factory=_embedder_factory,
+            )
+            return await svc.query(config_id=config_id, text=query)
+        finally:
+            await qclient.close()
+            await driver.close()
+
+    async def _resolve_graphrag_embed_key(
+        self, builder_key_group_id: uuid.UUID
+    ) -> tuple[str, str, uuid.UUID] | None:
+        """First embedding-capable key in the builder group → (provider, model,
+        key_id). Mirrors the builder's resolution so retrieval embeds with the
+        same model family the build used."""
+        from contexts.keys.infrastructure.group_repository import KeyGroupMemberRepository
+        from contexts.keys.infrastructure.repositories import ApiKeyRepository
+
+        members = await KeyGroupMemberRepository(self._db).list_ordered(builder_key_group_id)
+        for m in members:
+            key = await ApiKeyRepository(self._db).get_active(m.key_id)
+            if key is None:
+                continue
+            provider = key.provider.value
+            model = _GRAPHRAG_EMBED_MODELS.get(provider)
+            if model is None:
+                continue
+            return provider, model, key.id
+        return None
 
     async def _audit(
         self,

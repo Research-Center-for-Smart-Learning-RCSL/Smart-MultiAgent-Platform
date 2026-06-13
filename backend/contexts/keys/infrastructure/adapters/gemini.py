@@ -192,6 +192,27 @@ class GeminiAdapter:
                     return
                 async for data in base.iter_sse_lines(resp):
                     ev = json.loads(data)
+                    err = ev.get("error")
+                    if isinstance(err, dict) and not ev.get("candidates"):
+                        # In-band failure object inside an HTTP 200 stream —
+                        # map onto a synthetic non-2xx for router classification.
+                        code = err.get("code")
+                        status = code if isinstance(code, int) and 400 <= code < 600 else 500
+                        yield StreamComplete(
+                            ProviderCallResult(
+                                http_status=status,
+                                body=base.scrub_stream_error(status, err.get("status")),
+                                input_tokens=input_tokens,
+                                output_tokens=output_tokens,
+                            )
+                        )
+                        return
+                    if not ev.get("candidates"):
+                        # Prompt blocked: no candidates ever arrive — surface the
+                        # block reason instead of an empty "success".
+                        block = (ev.get("promptFeedback") or {}).get("blockReason")
+                        if block:
+                            finish_reason = f"blocked:{block}"
                     chunk_text, chunk_tools, chunk_finish = _parse_candidate(ev)
                     if chunk_text:
                         text_parts.append(chunk_text)

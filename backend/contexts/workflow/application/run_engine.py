@@ -336,20 +336,37 @@ class RunEngine:
         run_id: uuid.UUID,
         node_id: str,
         port: str,
-    ) -> None:
-        """Resume a WAITING run at an explicit output port (W6/W10 — event/timeout)."""
+    ) -> bool:
+        """Resume a WAITING run at an explicit output port (W6/W10 — event/timeout).
+
+        Returns ``True`` only when the run was actually resumed (the parked step
+        sealed and edges followed). Returns ``False`` when nothing was resumed:
+        the run is gone, already terminal, or simply not WAITING — and also when
+        the workflow definition was deleted (the run is failed here; the caller
+        sees ``False``, re-checks the run state, finds it terminal, and drops
+        its claim instead of retrying).
+
+        One-wait-per-run limitation: run state is a single per-run FSM column,
+        so the engine can only observe "this run is WAITING", not *which* parked
+        node it is waiting on. With parallel branches, a second branch may be
+        parked while the first one is being resumed (state RUNNING) — this
+        method then returns ``False`` for the second branch's resume. Callers
+        that claimed a single-shot resume token (``wf:wait:*`` / ``wf:approval:*``
+        / ``wf:instruct:*``) MUST restore the claim and retry later on a
+        ``False`` + non-terminal run, or the wait is lost (claim-before-verify).
+        """
         from contexts.workflow.infrastructure.repositories import WorkflowRepository
 
         run = await self._runs.get(run_id)
         if not run or run.state != RunState.WAITING:
-            return
+            return False
 
         workflow = await WorkflowRepository(self._db).get(run.workflow_id)
         if not workflow:
             logger.warning("resume_at_port: workflow %s deleted; failing run %s", run.workflow_id, run_id)
             now = datetime.now(UTC)
             await self._runs.update_state(run_id, state=RunState.FAILED, ended_at=now)
-            return
+            return False
 
         ctx = RunContext(
             run_id=run_id,
@@ -365,9 +382,17 @@ class RunEngine:
         # Parked executors (wait_for_event, subagent_spawn) leave their step in
         # RUNNING/no-ended_at; the resume path must seal it before advancing.
         import sqlalchemy as sa
+        from sqlalchemy.dialects import postgresql as pg
 
         from contexts.workflow.infrastructure.tables import workflow_steps
 
+        # History accuracy (K remediation): resuming at a timeout/failure port
+        # must not seal the parked step as `succeeded`. StepState has no
+        # `timeout`, so those ports map to `failed`; the actual resume port is
+        # stashed in the step output either way. A `rejected` approval gate is a
+        # successfully *resolved* gate, so it stays `succeeded` with its port
+        # recorded.
+        sealed_state = "failed" if port in ("timeout", "failure") else "succeeded"
         await self._db.execute(
             workflow_steps.update()
             .where(
@@ -378,10 +403,17 @@ class RunEngine:
                     workflow_steps.c.ended_at.is_(None),
                 )
             )
-            .values(state="succeeded", ended_at=sa.text("now()"))
+            .values(
+                state=sealed_state,
+                ended_at=sa.text("now()"),
+                output=workflow_steps.c.output.op("||")(
+                    sa.cast({"resume_port": port}, pg.JSONB)
+                ),
+            )
         )
 
         await self._advance_from(ctx, node_id, port=port)
+        return True
 
     async def force_fail(self, run_id: uuid.UUID, *, reason: str) -> bool:
         """Fail a RUNNING/WAITING run from outside the execution loop (K.4 watchdog).
@@ -649,6 +681,16 @@ class RunEngine:
             )
 
         # Parked — set run to WAITING, schedule any timeout task, then stop.
+        #
+        # One-wait-per-run-at-a-time: WAITING is a single per-run FSM column.
+        # If parallel branches park more than one node, the run still has only
+        # one observable WAITING state, and resume_at_port() resumes whichever
+        # claim fires first — a second resume arriving while the run is RUNNING
+        # returns False and must be retried by its (restored) claim holder.
+        # Note also that some parked executors (wait_for_event) write their
+        # Redis claim key *inside* this transaction's executor call, i.e. the
+        # key may be visible to dispatchers before this WAITING update commits;
+        # resume tasks therefore tolerate a not-yet-WAITING run by retrying.
         if outcome.park:
             await self._runs.update_state(ctx.run_id, state=RunState.WAITING)
             if outcome.timeout_ms > 0 and outcome.timeout_task:
@@ -760,8 +802,11 @@ class RunEngine:
 
             redis = get_redis()
             redis_key = f"wf:retry:{ctx.run_id}:{node.id}"
+            # get_redis() uses decode_responses=True, so ``raw`` is already a
+            # str — calling .decode() on it raised AttributeError and failed
+            # the whole run on the first retryable error (K remediation).
             raw = await redis.get(redis_key)
-            retry_count = int(raw.decode()) if raw else 0
+            retry_count = int(raw) if raw else 0
 
             if retry_count < node.on_error.retry_max:
                 new_count = retry_count + 1

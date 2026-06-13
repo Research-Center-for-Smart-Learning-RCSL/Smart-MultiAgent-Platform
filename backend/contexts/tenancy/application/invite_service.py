@@ -14,17 +14,19 @@ never persisted. Acceptance requires the caller be logged in AND verified
 
 from __future__ import annotations
 
+import hashlib
 import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass
 
 import sqlalchemy as sa
+from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config.settings import get_settings
 from contexts.identity.application.factory import LazyEmailSender, email_sender_factory
 from contexts.identity.infrastructure import email_templates
-from contexts.identity.infrastructure.email import EmailMessage, EmailSender
+from contexts.identity.infrastructure.email import EmailMessage, EmailSender, recipient_digest
 from contexts.notification.application.notification_service import NotificationService
 from contexts.notification.domain.models import NotificationKind
 from contexts.tenancy.domain.errors import (
@@ -48,6 +50,7 @@ from contexts.tenancy.infrastructure.repositories import (
     ProjectMemberRepository,
 )
 from shared_kernel import audit
+from shared_kernel.auth import ratelimit
 from shared_kernel.auth.clients import now
 
 
@@ -107,7 +110,7 @@ class InviteService:
                 actor_ip=actor_ip,
                 resource_type="org",
                 resource_id=org_id,
-                metadata={"invitee_email": invitee_email, "role": role.value},
+                metadata={"invitee_digest": recipient_digest(invitee_email), "role": role.value},
                 request_id=request_id,
             ),
         )
@@ -141,7 +144,7 @@ class InviteService:
                 actor_ip=actor_ip,
                 resource_type="project",
                 resource_id=project_id,
-                metadata={"invitee_email": invitee_email, "role": role.value},
+                metadata={"invitee_digest": recipient_digest(invitee_email), "role": role.value},
                 request_id=request_id,
             ),
         )
@@ -194,6 +197,20 @@ class InviteService:
         # and POSTs to `/api/invites/accept-by-token`; an unregistered invitee is
         # routed through sign-up first, then auto-enrolled. This is what makes the
         # previously write-only token column actually do something.
+        # Per-recipient rate limit (mirrors auth_service register/reset): without
+        # it this is an unauthenticated mailbomb — an inviter could spam a
+        # victim's inbox by re-POSTing invite-create with their address. Cap at
+        # 5 / 10 min; over the limit we SKIP the mail (the invite row is already
+        # created + audited) rather than failing invite creation.
+        digest = recipient_digest(invitee_email)
+        rl_key = "rl:inv:e:" + hashlib.sha256(invitee_email.lower().encode()).hexdigest()[:24]
+        rl = await ratelimit.check_raw(key=rl_key, window_sec=600, max_count=5)
+        if not rl.allowed:
+            logger.bind(event="invite_email_skipped_ratelimit", recipient=digest).info(
+                "invite email suppressed: per-recipient rate limit exceeded"
+            )
+            return
+
         scope_label = "org" if scope is InviteScope.ORG else "project"
         scope_name = await self._scope_name(scope, scope_id)
         accept_link = f"{self._public_origin}/invites/accept#token={token}"
@@ -206,7 +223,18 @@ class InviteService:
                 subject=rendered.subject,
                 text_body=rendered.text_body,
                 html_body=rendered.html_body,
+                template="invite",
             )
+        )
+        # email.sent audit with template + recipient digest (never plaintext).
+        await audit.emit(
+            self._db,
+            audit.AuditEvent(
+                action="email.sent",
+                resource_type=scope_label,
+                resource_id=scope_id,
+                metadata={"template": "invite", "recipient": digest},
+            ),
         )
 
     async def list_inbound(

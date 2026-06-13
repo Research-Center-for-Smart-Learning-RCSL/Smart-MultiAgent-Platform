@@ -75,6 +75,18 @@ def scrub_error(resp: httpx.Response) -> dict[str, Any]:
     return {"error": summarise_http_failure(resp)}
 
 
+def scrub_stream_error(status: int, kind: object = None) -> dict[str, Any]:
+    """Secret-free error body for an *in-stream* provider error event.
+
+    Mirrors :func:`scrub_error`'s closed vocabulary (status + provider error
+    type/code only) for errors delivered inside an HTTP-200 SSE stream — no
+    URLs, headers, messages, or key material survive.
+    """
+    if kind:
+        return {"error": f"HTTP {status} ({kind})"}
+    return {"error": f"HTTP {status}"}
+
+
 def resolve_model(payload: dict[str, Any], provider: ApiKeyProvider) -> str:
     """Caller-supplied model id; never hardcoded (K.1 contract).
 
@@ -118,4 +130,5 @@ __all__ = [
     "new_client",
     "resolve_model",
     "scrub_error",
+    "scrub_stream_error",
 ]

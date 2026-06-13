@@ -26,9 +26,9 @@ describe('AgentListView', () => {
     // Click the create/toggle button
     await wrapper.find('.btn.btn-primary').trigger('click')
     expect(wrapper.find('.agent-list__form').exists()).toBe(true)
-    // The form should contain name and model fields
+    // The form should contain the real backend-contract fields.
     expect(wrapper.find('#name').exists()).toBe(true)
-    expect(wrapper.find('#model_provider').exists()).toBe(true)
-    expect(wrapper.find('#model_name').exists()).toBe(true)
+    expect(wrapper.find('#model_hint').exists()).toBe(true)
+    expect(wrapper.find('#key_group_id').exists()).toBe(true)
   })
 })

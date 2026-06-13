@@ -111,12 +111,20 @@ jobs:
             -e VAULT_ADDR=http://vault:8200 \
             -e VAULT_TOKEN=root \
             backend-web python -m smap.bootstrap db-init
+      # The runtime image deliberately ships without tests/ (.dockerignore) and
+      # runs as appuser, who can neither write site-packages nor $HOME — so the
+      # suite must NOT rely on the baked-in source or an in-container editable
+      # install as appuser. Bind-mount the checkout's backend/ over /app (tests
+      # included, matching the Dockerfile dev-stage workflow) and run as root so
+      # `pip install -e .[dev]` can write site-packages in the container layer.
       - name: Run wiring tier
         run: |
           docker compose \
             -f deploy/compose/docker-compose.yml \
             -f deploy/compose/compose.test.yml \
             run --rm --no-deps \
+            --volume "${{ github.workspace }}/backend:/app" \
+            --user root \
             -e SMAP_APP_ENV=test \
             -e SMAP_DB_DSN=postgresql+asyncpg://smap:smap@postgres:5432/smap_test \
             -e SMAP_REDIS_DSN=redis://redis:6379/1 \

@@ -97,6 +97,34 @@ async def create_workspace(
     )
 
 
+@workspace_router.get("/{workspace_id}")
+async def read_workspace(
+    workspace_id: uuid.UUID = Path(...),
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(db_session),
+) -> WorkspaceOut:
+    # Single-workspace read. The chatroom-settings UI uses this to resolve a
+    # room's parent project (chatrooms carry only workspace_id) before listing
+    # the project's bindable agents. Any member of the parent project may read
+    # it; admin bypass via principal.is_admin.
+    facade = ConversationFacade(db)
+    ws = await facade.get_workspace(workspace_id)
+    if ws is None:
+        raise WorkspaceNotFound(str(workspace_id))
+    if not principal.is_admin:
+        from shared_kernel.auth.dependencies import (
+            _raise_forbidden,
+            get_role_resolver,
+        )
+        from shared_kernel.auth.permissions import Scope
+
+        resolver = await get_role_resolver(db)
+        roles = await resolver.roles_for(principal, Scope(project_id=ws.project_id))
+        if not roles:
+            _raise_forbidden("caller is not a member of the project")
+    return _to_out(ws)
+
+
 @workspace_router.delete(
     "/{workspace_id}",
     status_code=status.HTTP_204_NO_CONTENT,

@@ -21,7 +21,10 @@ from contexts.agents.domain.mcp import ToolCallResult
 from shared_kernel import audit
 
 _ROOT = "/workspace"
-_MAX_WRITE_BYTES = 10 * 1024 * 1024  # 10 MB per op — volume quota still wins.
+# 10 MB per op — volume quota still wins. Deliverable end-to-end: the runner
+# transports the payload into the volume via tar/put_archive (K.5 FIX 4), so
+# this cap is not silently shrunk by env-var size limits.
+_MAX_WRITE_BYTES = 10 * 1024 * 1024
 
 
 def _safe_relpath(raw: str) -> str:

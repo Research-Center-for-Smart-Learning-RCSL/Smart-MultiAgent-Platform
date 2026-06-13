@@ -101,24 +101,79 @@
         </button>
       </form>
 
-      <!-- Agent binding panel — wake-up config editor + DLQ viewer (G.10).
-           Agents are bound via Phase H workspace_agents; this panel renders
-           once binding data is available. Until then it stays hidden. -->
-      <section
-        v-if="boundAgents.length"
-        class="agent-bindings mt-4"
-      >
+      <!-- Agent binding panel — bind project agents to this room, then edit
+           each bound agent's wake-up config + view its DLQ (G.10). Agents are
+           project-scoped, so we resolve workspace → project before listing. -->
+      <section class="agent-bindings mt-4">
         <h2 class="font-semibold mb-2">
           {{ $t('conversation.settings.agentBindings') }}
         </h2>
+
+        <form
+          class="agent-add flex items-end gap-2 mb-3"
+          @submit.prevent="onAddAgent"
+        >
+          <label>
+            {{ $t('conversation.settings.addAgent') }}
+            <select
+              v-model="selectedAgentId"
+              :disabled="bindingBusy"
+            >
+              <option
+                value=""
+                disabled
+              >
+                {{ $t('conversation.settings.selectAgent') }}
+              </option>
+              <option
+                v-for="a in availableAgents"
+                :key="a.id"
+                :value="a.id"
+              >
+                {{ a.name }}
+              </option>
+            </select>
+          </label>
+          <button
+            type="submit"
+            :disabled="!selectedAgentId || bindingBusy"
+          >
+            {{ $t('conversation.settings.add') }}
+          </button>
+        </form>
+
+        <p
+          v-if="!availableAgents.length && !boundAgents.length && !orphanAgentIds.length"
+          class="muted text-sm text-gray-500"
+        >
+          {{ $t('conversation.settings.noAgents') }}
+        </p>
+
+        <p
+          v-if="bindingError"
+          role="alert"
+          class="error"
+        >
+          {{ $t(bindingError) }}
+        </p>
+
         <div
           v-for="agent in boundAgents"
           :key="agent.id"
           class="mb-4"
         >
-          <p class="font-medium text-sm mb-1">
-            {{ agent.name ?? agent.id.slice(0, 8) }}
-          </p>
+          <div class="agent-head flex items-center justify-between gap-2">
+            <p class="font-medium text-sm mb-1">
+              {{ agent.name ?? agent.id.slice(0, 8) }}
+            </p>
+            <button
+              type="button"
+              :disabled="bindingBusy"
+              @click="onRemoveAgent(agent.id)"
+            >
+              {{ $t('conversation.settings.removeAgent') }}
+            </button>
+          </div>
           <WakeupConfigEditor
             v-if="agent.wakeup_config"
             :model-value="agent.wakeup_config"
@@ -127,6 +182,25 @@
           <!-- DLQ viewer per agent — room owner / admin only (G.10). -->
           <DlqViewer :agent-id="agent.id" />
         </div>
+
+        <!-- Stale bindings whose agent no longer appears in the project list
+             (typically soft-deleted) — still removable. -->
+        <div
+          v-for="id in orphanAgentIds"
+          :key="id"
+          class="agent-head flex items-center justify-between gap-2 mb-4"
+        >
+          <p class="font-medium text-sm text-gray-500">
+            {{ id.slice(0, 8) }} · {{ $t('conversation.settings.unknownAgent') }}
+          </p>
+          <button
+            type="button"
+            :disabled="bindingBusy"
+            @click="onRemoveAgent(id)"
+          >
+            {{ $t('conversation.settings.removeAgent') }}
+          </button>
+        </div>
       </section>
     </template>
   </main>
@@ -134,21 +208,27 @@
 
 <script setup lang="ts">
 import { useQueryClient } from '@tanstack/vue-query'
-import { onMounted, reactive, ref, watchEffect } from 'vue'
+import { computed, onMounted, reactive, ref, watchEffect } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useI18n } from 'vue-i18n'
 import { ApiError } from '@shared/errors'
 import {
+  addChatroomAgent,
   deleteChatroom,
   getChatroom,
   getGuestLink,
+  getWorkspace,
+  listChatroomAgents,
   listChatrooms,
+  listProjectAgents,
   patchChatroom,
+  removeChatroomAgent,
 } from '../api'
 import { DlqViewer, WakeupConfigEditor, patchAgentWakeupConfig } from '@slices/workflow'
 import type { WakeupConfig } from '@slices/workflow'
+import type { Agent } from '@slices/agents'
 import type { Chatroom } from '../types'
 
 const { t } = useI18n()
@@ -173,13 +253,119 @@ const saving = ref(false)
 // i18n key for the inline save error, or null when the form is clean.
 const saveError = ref<string | null>(null)
 
-// Agent bindings (populated by Phase H workspace_agents; empty until then).
+// Agent bindings. Chatrooms only carry `workspace_id`, so we resolve the
+// parent project, list its agents, and intersect with the room's bound set.
 interface BoundAgent {
   id: string
   name?: string
   wakeup_config?: WakeupConfig
 }
-const boundAgents = ref<BoundAgent[]>([])
+// All agents in the room's parent project, and the ids currently bound.
+const projectAgents = ref<Agent[]>([])
+const boundAgentIds = ref<string[]>([])
+const selectedAgentId = ref('')
+const bindingBusy = ref(false)
+// i18n key for an inline binding error, or null when clean.
+const bindingError = ref<string | null>(null)
+
+// WakeupConfigEditor dereferences `triggers.{every_n_messages,silence_minutes,
+// call_only}.enabled` at setup, so it only accepts a fully-formed config — a
+// partial one (e.g. `{triggers:{}}`) would crash the whole panel. Validate the
+// three trigger sub-objects are present before handing it over.
+function isFullWakeupConfig(raw: unknown): boolean {
+  if (!raw || typeof raw !== 'object') return false
+  const triggers = (raw as Record<string, unknown>).triggers
+  if (!triggers || typeof triggers !== 'object') return false
+  const t = triggers as Record<string, unknown>
+  return (
+    typeof t.every_n_messages === 'object'
+    && typeof t.silence_minutes === 'object'
+    && typeof t.call_only === 'object'
+  )
+}
+
+// Return a plain deep clone when the shape is valid, else undefined so the
+// editor stays hidden. The source is a reactive proxy and the editor
+// structuredClones its model-value (which rejects proxies), so the JSON
+// round-trip both unwraps and deep-copies.
+function toEditableWakeup(raw: unknown): WakeupConfig | undefined {
+  return isFullWakeupConfig(raw)
+    ? (JSON.parse(JSON.stringify(raw)) as WakeupConfig)
+    : undefined
+}
+
+const boundAgents = computed<BoundAgent[]>(() =>
+  boundAgentIds.value
+    .map((id) => projectAgents.value.find((a) => a.id === id))
+    .filter((a): a is Agent => a != null)
+    .map((a) => ({
+      id: a.id,
+      name: a.name,
+      wakeup_config: toEditableWakeup(a.wakeup_config),
+    })),
+)
+
+// Agents bindable but not yet bound (active only).
+const availableAgents = computed<Agent[]>(() =>
+  projectAgents.value.filter(
+    (a) => !a.deleted_at && !boundAgentIds.value.includes(a.id),
+  ),
+)
+
+// Bound ids with no match in the project list (e.g. the agent was soft-deleted
+// after binding — the list endpoint omits it). Surfaced as removable rows so a
+// stale binding can still be cleaned up rather than becoming invisible.
+const orphanAgentIds = computed<string[]>(() =>
+  boundAgentIds.value.filter(
+    (id) => !projectAgents.value.some((a) => a.id === id),
+  ),
+)
+
+/** Resolve project, then load its agents + this room's bound set. */
+async function loadBindings(): Promise<void> {
+  if (!room.value) return
+  bindingError.value = null
+  try {
+    const ws = await getWorkspace(room.value.workspace_id)
+    const [agents, boundIds] = await Promise.all([
+      listProjectAgents(ws.project_id),
+      listChatroomAgents(chatroomId),
+    ])
+    projectAgents.value = agents
+    boundAgentIds.value = boundIds
+  } catch {
+    bindingError.value = 'conversation.settings.bindingsLoadFailed'
+  }
+}
+
+async function onAddAgent(): Promise<void> {
+  if (!selectedAgentId.value || bindingBusy.value) return
+  bindingBusy.value = true
+  bindingError.value = null
+  try {
+    await addChatroomAgent(chatroomId, selectedAgentId.value)
+    selectedAgentId.value = ''
+    await loadBindings()
+  } catch {
+    bindingError.value = 'conversation.settings.bindFailed'
+  } finally {
+    bindingBusy.value = false
+  }
+}
+
+async function onRemoveAgent(agentId: string): Promise<void> {
+  if (bindingBusy.value) return
+  bindingBusy.value = true
+  bindingError.value = null
+  try {
+    await removeChatroomAgent(chatroomId, agentId)
+    await loadBindings()
+  } catch {
+    bindingError.value = 'conversation.settings.unbindFailed'
+  } finally {
+    bindingBusy.value = false
+  }
+}
 
 async function saveWakeupConfig(agentId: string, config: WakeupConfig): Promise<void> {
   try {
@@ -221,10 +407,12 @@ async function loadRoom(): Promise<void> {
   if (cached) {
     applyRoom(cached)
     loading.value = false
+    void loadBindings()
     return
   }
   try {
     applyRoom(await getChatroom(chatroomId))
+    void loadBindings()
   } catch {
     loadError.value = true
   } finally {

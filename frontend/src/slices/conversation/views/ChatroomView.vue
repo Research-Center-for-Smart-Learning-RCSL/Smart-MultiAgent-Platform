@@ -49,6 +49,22 @@
           v-html="rendered[m.id]"
         />
       </li>
+      <!-- Transient streaming draft: agent.token deltas accumulate here until
+           the persisted reply arrives via message.created (also rendered
+           through renderMarkdown → DOMPurify, same XSS contract). -->
+      <li
+        v-if="streamingHtml"
+        class="streaming"
+        data-testid="streaming-draft"
+      >
+        <div class="meta">
+          <span class="streaming-label">{{ $t('conversation.chatroom.agentStreaming') }}</span>
+        </div>
+        <div
+          class="md"
+          v-html="streamingHtml"
+        />
+      </li>
     </ol>
 
     <aside
@@ -199,6 +215,30 @@ watch(
 
 const { connected } = useChatroomSocket(chatroomId)
 const orchStore = useOrchestrationStore()
+
+// Streaming draft bubble (agent.token accumulation) — sanitised exactly like
+// persisted messages.
+const streamingHtml = computed(() => {
+  const text = store.agentStream[chatroomId]
+  return text ? renderMarkdown(text) : ''
+})
+
+// Agent failure surfaced by the socket layer: backend agent.finished{error}
+// or the client-side thinking watchdog ('timeout'). Toast once, then clear.
+watch(
+  () => store.agentError[chatroomId],
+  (err) => {
+    if (!err) return
+    ElMessage.error(
+      t(
+        err === 'timeout'
+          ? 'conversation.chatroom.agentTimeout'
+          : 'conversation.chatroom.agentFailed',
+      ),
+    )
+    store.setAgentError(chatroomId, null)
+  },
+)
 
 const presenceList = computed(() => {
   const set = store.presence[chatroomId]

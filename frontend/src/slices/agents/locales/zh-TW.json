@@ -22,11 +22,20 @@
     },
     "form": {
       "name": "名稱",
-      "provider": "模型提供者",
-      "model": "模型名稱",
+      "modelHint": "模型提供者",
+      "keyGroup": "金鑰群組",
+      "keyGroupPlaceholder": "選擇金鑰群組…",
+      "noKeyGroups": "此專案尚未建立任何金鑰群組。請先到金鑰頁面建立，才能新增代理人。",
       "systemPrompt": "系統提示詞",
-      "temperature": "溫度",
-      "maxTokens": "最大 Token 數",
+      "promptStrategy": "提示詞策略",
+      "promptStrategyFull": "完整",
+      "promptStrategyLazy": "延遲（依需求載入）",
+      "contextMode": "脈絡模式",
+      "contextModeGeneral": "一般",
+      "contextModeCompact": "精簡（自動摘要）",
+      "ragConfig": "RAG 設定",
+      "ragConfigNone": "無",
+      "a2aEnabled": "啟用代理人對代理人（A2A）",
       "submit": "建立代理人"
     }
   }

@@ -23,6 +23,14 @@ from contexts.keys.infrastructure.adapters import base
 _URL = "https://api.anthropic.com/v1/messages"
 _VERSION = "2023-06-01"
 
+# Anthropic delivers mid-stream failures as HTTP 200 + `{"type": "error", ...}`
+# then closes the stream. Map the documented error types onto the HTTP status
+# they would carry out-of-stream so the router's classify_http applies.
+_STREAM_ERROR_STATUS: dict[str, int] = {
+    "overloaded_error": 529,
+    "rate_limit_error": 429,
+}
+
 
 def _headers(secret: str) -> dict[str, str]:
     return {
@@ -67,9 +75,12 @@ def _translate_messages(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 )
             out.append({"role": "assistant", "content": blocks})
             continue
-        out.append(
-            {"role": "assistant" if role == "assistant" else "user", "content": m.get("content", "")}
-        )
+        content = m.get("content", "")
+        if not content:
+            # Anthropic 400s on empty content — a deterministic 400 would burn
+            # every key in the group via rotation, so drop the message instead.
+            continue
+        out.append({"role": "assistant" if role == "assistant" else "user", "content": content})
     return out
 
 
@@ -188,6 +199,21 @@ class AnthropicAdapter:
                         finish_reason = (ev.get("delta") or {}).get("stop_reason", finish_reason)
                         usage = ev.get("usage") or {}
                         output_tokens = int(usage.get("output_tokens", output_tokens))
+                    elif etype == "error":
+                        # Mid-stream failure delivered inside an HTTP 200 — map
+                        # it onto a synthetic non-2xx so the router classifies
+                        # (rotate before first token / fail-visible after).
+                        kind = (ev.get("error") or {}).get("type")
+                        status = _STREAM_ERROR_STATUS.get(kind, 500)
+                        yield StreamComplete(
+                            ProviderCallResult(
+                                http_status=status,
+                                body=base.scrub_stream_error(status, kind),
+                                input_tokens=input_tokens,
+                                output_tokens=output_tokens,
+                            )
+                        )
+                        return
 
         tool_calls = [
             {

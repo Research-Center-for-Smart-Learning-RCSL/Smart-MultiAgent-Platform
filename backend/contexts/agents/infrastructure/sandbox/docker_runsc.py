@@ -13,7 +13,10 @@ Every call runs an ephemeral container with:
   and the outbound ``backend_net`` — is the only reachable peer. Do not give
   this container a second network or this network a gateway; that isolation is
   what forces all sandbox egress through the proxy's HMAC + allowlist policy.
-- ``--rm`` at exit
+- explicit ``remove(force=True)`` in a ``finally`` after every run. NOT
+  ``auto_remove``: with auto-remove the daemon may reap the container between
+  ``wait()`` returning and ``logs()`` being read, raising ``NotFound`` and
+  losing the workload's output (K.5 FIX 6).
 
 Docker SDK imports are **lazy** — the module imports cleanly without Docker
 installed, so unit tests can exercise the pure bits without requiring a
@@ -67,6 +70,39 @@ def _sandbox_tmpfs() -> dict[str, str]:
     }
 
 
+def _tar_single_file(name: str, data: bytes) -> bytes:
+    """One-member tar stream for ``put_archive`` (the write-payload transport).
+
+    Owned by the sandbox uid so the driver (also uid 10001) can rename and,
+    on failure, unlink the staged file inside the volume.
+    """
+    import io
+    import tarfile
+
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w") as tar:
+        info = tarfile.TarInfo(name=name)
+        info.size = len(data)
+        info.mode = 0o600
+        info.uid = info.gid = _SANDBOX_UID
+        tar.addfile(info, io.BytesIO(data))
+    return buf.getvalue()
+
+
+# Wrapper for ``code_exec`` when the caller supplies stdin (K.5 FIX 7): the
+# code-exec image runs ``python -c`` directly (no driver), so a bare env var
+# was never read and sys.stdin stayed attached to nothing. When stdin is
+# provided we run this shim instead, which materialises SMAP_CODE_EXEC_STDIN
+# as sys.stdin and then execs the real source (passed as the next argv token).
+# Env-var transport caps stdin at ~128 KiB — fine for the tool's use case.
+_STDIN_SHIM = (
+    "import io, os, sys\n"
+    "sys.stdin = io.StringIO(os.environ.pop('SMAP_CODE_EXEC_STDIN', ''))\n"
+    "_src = sys.argv.pop(1)\n"
+    "exec(compile(_src, '<code_exec>', 'exec'), {'__name__': '__main__'})\n"
+)
+
+
 @dataclass(frozen=True, slots=True)
 class DockerRunscSandbox:
     """Concrete :class:`SandboxRunner` backed by the local Docker daemon."""
@@ -111,8 +147,8 @@ class DockerRunscSandbox:
         missing or misregistered the daemon silently falls back to ``runc``,
         which shares the host kernel and voids the sandbox's isolation
         assumption. We inspect the effective runtime and refuse to run the
-        workload on a mismatch (SEC-M5). ``auto_remove=True`` means a killed
-        container disappears on its own; the explicit remove is best-effort.
+        workload on a mismatch (SEC-M5). Kill/remove here is best-effort —
+        every caller also removes the container in its own ``finally``.
         """
         try:
             container.reload()
@@ -144,8 +180,17 @@ class DockerRunscSandbox:
             "security_opt": ["no-new-privileges"],
             "cap_drop": ["ALL"],
             "ulimits": [{"Name": "nofile", "Soft": _NOFILE_LIMIT, "Hard": _NOFILE_LIMIT}],
-            "auto_remove": True,
+            # auto_remove=False on purpose: wait() + logs() race the daemon's
+            # auto-reaper and can lose output to NotFound (K.5 FIX 6). Every
+            # call path removes the container explicitly in a finally block.
+            "auto_remove": False,
         }
+
+    @staticmethod
+    def _remove_quietly(container: Any) -> None:
+        """Best-effort container removal — never masks the in-flight result."""
+        with contextlib.suppress(Exception):
+            container.remove(force=True)
 
     async def probe(
         self,
@@ -219,13 +264,24 @@ class DockerRunscSandbox:
             detach=True,
             **host_config,
         )
-        self._assert_runsc(container)
-        exit_status = container.wait(timeout=timeout_s)
-        status_code = int(exit_status.get("StatusCode", 1))
-        logs = container.logs(stdout=True, stderr=False).decode(
-            "utf-8",
-            errors="replace",
-        )
+        try:
+            self._assert_runsc(container)
+            try:
+                exit_status = container.wait(timeout=timeout_s)
+            except Exception as exc:
+                # docker-py's wait(timeout=) raises requests.exceptions
+                # .ReadTimeout, NOT builtin TimeoutError — catch broadly, kill
+                # the hung container, and surface as a timeout (K.5 FIX 5).
+                with contextlib.suppress(Exception):
+                    container.kill()
+                raise TimeoutError(f"probe container did not exit within {timeout_s:.1f}s") from exc
+            status_code = int(exit_status.get("StatusCode", 1))
+            logs = container.logs(stdout=True, stderr=False).decode(
+                "utf-8",
+                errors="replace",
+            )
+        finally:
+            self._remove_quietly(container)
         if status_code == 42:
             raise McpEgressDenied("egress proxy denied MCP probe")
         if status_code != 0:
@@ -276,18 +332,30 @@ class DockerRunscSandbox:
             detach=True,
             **host_config,
         )
-        self._assert_runsc(container)
-        exit_status = container.wait(timeout=timeout_s)
-        duration_ms = int((time.monotonic() - start) * 1000)
-        status_code = int(exit_status.get("StatusCode", 1))
-        stdout = container.logs(stdout=True, stderr=False).decode(
-            "utf-8",
-            errors="replace",
-        )
-        stderr = container.logs(stdout=False, stderr=True).decode(
-            "utf-8",
-            errors="replace",
-        )
+        try:
+            self._assert_runsc(container)
+            try:
+                exit_status = container.wait(timeout=timeout_s)
+            except Exception as exc:
+                # wait(timeout=) raises requests' ReadTimeout, not TimeoutError;
+                # kill the hung container and map to McpTimeout (K.5 FIX 5).
+                with contextlib.suppress(Exception):
+                    container.kill()
+                raise McpTimeout(
+                    f"MCP tool invocation exceeded {timeout_s:.1f}s budget",
+                ) from exc
+            duration_ms = int((time.monotonic() - start) * 1000)
+            status_code = int(exit_status.get("StatusCode", 1))
+            stdout = container.logs(stdout=True, stderr=False).decode(
+                "utf-8",
+                errors="replace",
+            )
+            stderr = container.logs(stdout=False, stderr=True).decode(
+                "utf-8",
+                errors="replace",
+            )
+        finally:
+            self._remove_quietly(container)
         if status_code == 42:
             raise McpEgressDenied("egress proxy denied MCP tool invocation")
         return ToolCallResult(
@@ -323,33 +391,67 @@ class DockerRunscSandbox:
         if op == "write":
             if data is None:
                 raise ValueError("write requires data bytes")
-            # The driver reads stdin for the payload when op=write. Docker SDK
-            # handles this via exec + stdin; simplest route is to pass data as
-            # an environment variable when small, else via the container's
-            # own stdin. Base64 to keep it JSON-safe.
-            import base64 as _b64
-
-            env["SMAP_FILE_DATA_B64"] = _b64.b64encode(data).decode("ascii")
-        container = client.containers.run(
-            image=self.mcp_image,
-            command=["file"],
-            environment=env,
-            user=_SANDBOX_UID,
-            detach=True,
-            **host_config,
-        )
-        self._assert_runsc(container)
-        exit_status = container.wait(timeout=timeout_s)
-        duration_ms = int((time.monotonic() - start) * 1000)
-        status_code = int(exit_status.get("StatusCode", 1))
-        stdout = container.logs(stdout=True, stderr=False).decode(
-            "utf-8",
-            errors="replace",
-        )
-        stderr = container.logs(stdout=False, stderr=True).decode(
-            "utf-8",
-            errors="replace",
-        )
+            # K.5 FIX 4: the payload travels as a tar archive copied into the
+            # per-agent volume via ``put_archive`` on the *created* (not yet
+            # started) container — `docker cp` semantics resolve the volume
+            # mount even before start. The previous env-var transport
+            # (SMAP_FILE_DATA_B64) hit Linux's ~128 KiB single-env cap, capping
+            # real writes at ~96 KB while the file tool advertised 10 MB. The
+            # driver atomically ``os.replace``s the staged file onto the target
+            # path (same volume → rename, no second copy).
+            stage_name = f".smap-stage-{uuid.uuid4().hex}"
+            env["SMAP_FILE_STAGING"] = f"/workspace/{stage_name}"
+            container = client.containers.create(
+                image=self.mcp_image,
+                command=["file"],
+                environment=env,
+                user=_SANDBOX_UID,
+                **host_config,
+            )
+            try:
+                container.put_archive("/workspace", _tar_single_file(stage_name, data))
+                container.start()
+            except Exception:
+                self._remove_quietly(container)
+                raise
+        else:
+            container = client.containers.run(
+                image=self.mcp_image,
+                command=["file"],
+                environment=env,
+                user=_SANDBOX_UID,
+                detach=True,
+                **host_config,
+            )
+        try:
+            self._assert_runsc(container)
+            try:
+                exit_status = container.wait(timeout=timeout_s)
+            except Exception as exc:
+                # See invoke_mcp_tool: wait raises requests' ReadTimeout. Kill
+                # and surface a timeout result like run_code_exec (K.5 FIX 5).
+                with contextlib.suppress(Exception):
+                    container.kill()
+                return ToolCallResult(
+                    ok=False,
+                    stdout="",
+                    stderr=f"timeout: {exc}",
+                    exit_code=124,
+                    duration_ms=int((time.monotonic() - start) * 1000),
+                    metadata={"volume": volume, "op": op},
+                )
+            duration_ms = int((time.monotonic() - start) * 1000)
+            status_code = int(exit_status.get("StatusCode", 1))
+            stdout = container.logs(stdout=True, stderr=False).decode(
+                "utf-8",
+                errors="replace",
+            )
+            stderr = container.logs(stdout=False, stderr=True).decode(
+                "utf-8",
+                errors="replace",
+            )
+        finally:
+            self._remove_quietly(container)
         return ToolCallResult(
             ok=status_code == 0,
             stdout=stdout,
@@ -370,41 +472,50 @@ class DockerRunscSandbox:
         client = self._client()
         host_config = self._base_host_config()
         # Code exec gets an ephemeral tmpfs workspace, never a named volume.
-        env = {"SMAP_AGENT_ID": str(agent_id), "SMAP_CODE_EXEC_STDIN": stdin}
+        env = {"SMAP_AGENT_ID": str(agent_id)}
+        # No stdin → run the source directly; with stdin → run the shim that
+        # feeds SMAP_CODE_EXEC_STDIN into sys.stdin first (see _STDIN_SHIM).
+        command = ["python", "-c", source]
+        if stdin:
+            env["SMAP_CODE_EXEC_STDIN"] = stdin
+            command = ["python", "-c", _STDIN_SHIM, source]
         start = time.monotonic()
         container = client.containers.run(
             image=self.code_exec_image,
-            command=["python", "-c", source],
+            command=command,
             environment=env,
             user=_SANDBOX_UID,
             tmpfs=_sandbox_tmpfs(),
             detach=True,
             **host_config,
         )
-        self._assert_runsc(container)
         try:
-            exit_status = container.wait(timeout=min(timeout_s, 30.0))
-        except Exception as exc:
-            # Force-kill and surface as timeout result rather than raising.
-            with contextlib.suppress(Exception):
-                container.kill()
-            return ToolCallResult(
-                ok=False,
-                stdout="",
-                stderr=f"timeout: {exc}",
-                exit_code=124,
-                duration_ms=int((time.monotonic() - start) * 1000),
+            self._assert_runsc(container)
+            try:
+                exit_status = container.wait(timeout=min(timeout_s, 30.0))
+            except Exception as exc:
+                # Force-kill and surface as timeout result rather than raising.
+                with contextlib.suppress(Exception):
+                    container.kill()
+                return ToolCallResult(
+                    ok=False,
+                    stdout="",
+                    stderr=f"timeout: {exc}",
+                    exit_code=124,
+                    duration_ms=int((time.monotonic() - start) * 1000),
+                )
+            duration_ms = int((time.monotonic() - start) * 1000)
+            status_code = int(exit_status.get("StatusCode", 1))
+            stdout = container.logs(stdout=True, stderr=False).decode(
+                "utf-8",
+                errors="replace",
             )
-        duration_ms = int((time.monotonic() - start) * 1000)
-        status_code = int(exit_status.get("StatusCode", 1))
-        stdout = container.logs(stdout=True, stderr=False).decode(
-            "utf-8",
-            errors="replace",
-        )
-        stderr = container.logs(stdout=False, stderr=True).decode(
-            "utf-8",
-            errors="replace",
-        )
+            stderr = container.logs(stdout=False, stderr=True).decode(
+                "utf-8",
+                errors="replace",
+            )
+        finally:
+            self._remove_quietly(container)
         return ToolCallResult(
             ok=status_code == 0,
             stdout=stdout,
