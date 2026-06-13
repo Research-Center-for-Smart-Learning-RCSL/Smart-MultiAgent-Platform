@@ -46,6 +46,24 @@ services:
       SMAP_REDIS_DSN: redis://redis:6379/1
       VAULT_ADDR: http://vault:8200
       VAULT_TOKEN: root
+      # The runtime Vault client authenticates with SMAP_VAULT_DEV_TOKEN (dev
+      # mode) or role/secret (prod) — NOT VAULT_TOKEN. Without it, JWT signing
+      # via the smap-jwt-sign transit key 500s on every login/register even
+      # though /readyz's vault probe (connectivity only) passes.
+      SMAP_VAULT_DEV_TOKEN: root
+      # The AUTH rate-limit bucket (default 10/min/IP) covers /auth/refresh +
+      # /auth/me + /auth/ws-ticket, which the SPA fires on EVERY boot. The whole
+      # Playwright suite drives from one IP, so the default throttles later
+      # specs to 429 → silent logout. Raise it for the test stack (these specs
+      # exercise features, not rate limiting — that has its own coverage).
+      # NB: a real concern for prod multi-tab/reload-heavy users; tracked for the
+      # operator, but the prod budget is an R19.02 stakeholder decision.
+      SMAP_LIMIT_AUTH_PER_MIN_IP: "2000"
+      # E2E/Playwright drives the app over plain HTTP (Vite :5173 proxy to :8000),
+      # so the refresh-token cookie must NOT be Secure or the browser drops it and
+      # every hard navigation bounces back to /login (silent refresh has nothing
+      # to send). Prod keeps the default (secure=true) behind TLS.
+      SMAP_SEC_SESSION_COOKIE_SECURE: "false"
       # The neo4j service below is provisioned with neo4j/neo4jneo4j; the
       # backend must use the same or /readyz's probe_neo4j (and neo4j-init)
       # fail auth and backend-web never becomes healthy.
@@ -54,9 +72,12 @@ services:
       # (app/bootstrap/seed.py) is gated on SMAP_APP_ENV=test, so this only
       # ever runs in the test stack.
       SMAP_SEED_ON_STARTUP: "true"
-      SMAP_SEED_USER_EMAIL: e2e-user@smap.test
+      # Non-reserved domain: the auth endpoints validate with EmailStr, which
+      # 422s reserved TLDs like .test, so a .test seed user could be created
+      # (repository insert bypasses EmailStr) but never logged in.
+      SMAP_SEED_USER_EMAIL: e2e-user@example.com
       SMAP_SEED_USER_PASSWORD: E2eP@ssw0rd!Str0ng
-      SMAP_SEED_ADMIN_EMAIL: e2e-admin@smap.test
+      SMAP_SEED_ADMIN_EMAIL: e2e-admin@example.com
       SMAP_SEED_ADMIN_PASSWORD: E2eAdm1n!Str0ng
       # K.6: deliver transactional mail to the MailHog catch-all relay so the
       # email-round-trip wiring test can read it back over MailHog's HTTP API.
@@ -88,6 +109,7 @@ services:
       SMAP_REDIS_DSN: redis://redis:6379/1
       VAULT_ADDR: http://vault:8200
       VAULT_TOKEN: root
+      SMAP_VAULT_DEV_TOKEN: root
       SMAP_NEO4J_PASSWORD: neo4jneo4j
 
   # ---------- Data services ----------

@@ -76,6 +76,10 @@ export function onUnauthorizedRedirect(cb: () => void): void {
 export const http: AxiosInstance = axios.create({
   baseURL: '/api',
   headers: { 'Content-Type': 'application/json' },
+  // Auth refresh rides on the httpOnly `smap_refresh` cookie; the client must
+  // send credentials so the boot-time silent refresh (and any cross-origin
+  // deployment) actually carries the cookie.
+  withCredentials: true,
 })
 
 // --- Request interceptors (run in order) ---
