@@ -88,12 +88,8 @@ def _wire_task(monkeypatch, approval, *, turn_result=None):
     async def _sess():
         yield _FakeDB()
 
-    monkeypatch.setattr(
-        "contexts.orchestration.interfaces.facade.OrchestrationFacade", _Facade
-    )
-    monkeypatch.setattr(
-        "contexts.agents.application.runtime.turn_engine.TurnEngine", _Engine
-    )
+    monkeypatch.setattr("contexts.orchestration.interfaces.facade.OrchestrationFacade", _Facade)
+    monkeypatch.setattr("contexts.agents.application.runtime.turn_engine.TurnEngine", _Engine)
     monkeypatch.setattr(
         "app.config.settings.get_settings",
         lambda: SimpleNamespace(qdrant=SimpleNamespace(url="http://q", api_key=None)),
@@ -102,15 +98,13 @@ def _wire_task(monkeypatch, approval, *, turn_result=None):
     return captured
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 async def test_drive_approver_turn_runs_headless_turn(monkeypatch) -> None:
     approval = _approval(ApprovalState.PENDING)
     captured = _wire_task(monkeypatch, approval)
     agent_id = uuid.uuid4()
 
-    out = await tasks_appr.drive_approver_turn(
-        {}, str(agent_id), str(approval.id), str(uuid.uuid4())
-    )
+    out = await tasks_appr.drive_approver_turn({}, str(agent_id), str(approval.id), str(uuid.uuid4()))
 
     assert out == "completed"
     assert captured["looked_up"] == approval.id
@@ -121,7 +115,7 @@ async def test_drive_approver_turn_runs_headless_turn(monkeypatch) -> None:
     assert "approval" in kw["input_text"].lower()
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 async def test_drive_approver_turn_skips_resolved_gate(monkeypatch) -> None:
     approval = _approval(ApprovalState.APPROVED)
     captured = _wire_task(monkeypatch, approval)
@@ -132,7 +126,7 @@ async def test_drive_approver_turn_skips_resolved_gate(monkeypatch) -> None:
     assert "turn_kwargs" not in captured  # no provider call spent
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 async def test_drive_approver_turn_skips_missing_gate(monkeypatch) -> None:
     captured = _wire_task(monkeypatch, None)
     out = await tasks_appr.drive_approver_turn({}, str(uuid.uuid4()), str(uuid.uuid4()), None)
@@ -194,14 +188,14 @@ def _service(monkeypatch, *, approval, votes=(), cas_wins=True):
     return svc, effects
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 async def test_handle_timeout_missing_approval_returns_none(monkeypatch) -> None:
     svc, effects = _service(monkeypatch, approval=None)
     assert await svc.handle_timeout(uuid.uuid4()) is None
     assert effects == []  # no resolution side effects for a missing gate
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 async def test_handle_timeout_after_resolution_noops(monkeypatch) -> None:
     approval = _approval(ApprovalState.APPROVED)
     svc, effects = _service(monkeypatch, approval=approval)
@@ -212,7 +206,7 @@ async def test_handle_timeout_after_resolution_noops(monkeypatch) -> None:
     assert effects == []  # already resolved before we even read: pure no-op
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 async def test_handle_timeout_loses_cas_race_noops(monkeypatch) -> None:
     # Read sees PENDING, but a vote commits APPROVED before the CAS lands —
     # the WHERE state='pending' guard loses and timeout must not publish.
@@ -231,7 +225,7 @@ async def test_handle_timeout_loses_cas_race_noops(monkeypatch) -> None:
     assert kinds == ["cas"]
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 async def test_handle_timeout_wins_cas_publishes_and_resumes(monkeypatch) -> None:
     approval = _approval(ApprovalState.PENDING)
     svc, effects = _service(monkeypatch, approval=approval, cas_wins=True)
@@ -246,7 +240,7 @@ async def test_handle_timeout_wins_cas_publishes_and_resumes(monkeypatch) -> Non
     assert len(resumes) == 1
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 async def test_try_resolve_second_resolution_noops(monkeypatch) -> None:
     # Two concurrent votes both evaluate to a decision; only the CAS winner
     # publishes/audits/resumes — the loser must back off entirely.
@@ -267,7 +261,7 @@ async def test_try_resolve_second_resolution_noops(monkeypatch) -> None:
     assert kinds == ["cas"]  # lost the race: nothing published, nothing enqueued
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 async def test_try_resolve_winner_publishes_once(monkeypatch) -> None:
     leader = uuid.uuid4()
     approval = _approval(ApprovalState.PENDING, leader=leader)

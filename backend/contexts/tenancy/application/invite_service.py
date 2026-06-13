@@ -180,9 +180,7 @@ class InviteService:
 
     async def _scope_name(self, scope: InviteScope, scope_id: uuid.UUID) -> str:
         table = _t.orgs if scope is InviteScope.ORG else _t.projects
-        row = (
-            await self._db.execute(sa.select(table.c.name).where(table.c.id == scope_id))
-        ).first()
+        row = (await self._db.execute(sa.select(table.c.name).where(table.c.id == scope_id))).first()
         return row.name if row else ""
 
     async def _email_invite(

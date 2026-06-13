@@ -30,7 +30,7 @@ class _FakeRunner:
         raise NotImplementedError
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 async def test_run_captures_stdout_stderr_and_exit() -> None:
     expected = ToolCallResult(
         ok=True,
@@ -46,7 +46,7 @@ async def test_run_captures_stdout_stderr_and_exit() -> None:
     assert runner.calls[0]["source"] == "print(42)"
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 async def test_run_non_zero_exit_returned() -> None:
     expected = ToolCallResult(
         ok=False,
@@ -63,7 +63,7 @@ async def test_run_non_zero_exit_returned() -> None:
     assert "Traceback" in result.stderr
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 async def test_timeout_clamped_to_30s() -> None:
     runner = _FakeRunner(
         ToolCallResult(ok=True, stdout="", stderr="", exit_code=0, duration_ms=1),
@@ -73,7 +73,7 @@ async def test_timeout_clamped_to_30s() -> None:
     assert runner.calls[0]["timeout_s"] == 30.0  # clamped
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 async def test_timeout_accepts_shorter_budget() -> None:
     runner = _FakeRunner(
         ToolCallResult(ok=True, stdout="", stderr="", exit_code=0, duration_ms=1),
@@ -83,7 +83,7 @@ async def test_timeout_accepts_shorter_budget() -> None:
     assert runner.calls[0]["timeout_s"] == 5.0
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 async def test_timeout_rejects_non_positive() -> None:
     tool = CodeExecTool(
         agent_id=uuid.uuid4(),
@@ -97,7 +97,7 @@ async def test_timeout_rejects_non_positive() -> None:
         await tool.run("print(1)", timeout_s=-5)
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 async def test_empty_source_rejected() -> None:
     tool = CodeExecTool(
         agent_id=uuid.uuid4(),

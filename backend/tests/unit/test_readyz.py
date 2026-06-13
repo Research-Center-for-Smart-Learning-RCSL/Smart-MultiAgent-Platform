@@ -11,7 +11,7 @@ from fastapi.testclient import TestClient
 from shared_kernel.infra.probes.base import ProbeResult
 
 
-@pytest.fixture()
+@pytest.fixture
 def fake_probes_all_ok(client: TestClient) -> Iterator[TestClient]:
     results = [ProbeResult(n, True) for n in ("postgres", "redis", "qdrant", "neo4j", "minio", "vault")]
     import app.api.v1.readyz as readyz_module
@@ -23,7 +23,7 @@ def fake_probes_all_ok(client: TestClient) -> Iterator[TestClient]:
     readyz_module._cached = None
 
 
-@pytest.fixture()
+@pytest.fixture
 def fake_probes_one_down(client: TestClient) -> Iterator[TestClient]:
     results = [
         ProbeResult("postgres", True),

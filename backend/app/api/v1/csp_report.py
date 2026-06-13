@@ -27,7 +27,7 @@ _MAX_LOG_CHARS = 2048
 
 def _too_large() -> HTTPException:
     return HTTPException(
-        status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+        status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
         detail="CSP report exceeds maximum accepted size",
     )
 

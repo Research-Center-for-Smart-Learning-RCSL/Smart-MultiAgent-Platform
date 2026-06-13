@@ -36,7 +36,7 @@ def _filter_matches(flt: Any, payload: dict[str, Any]) -> bool:
     if any(_cond_matches(c, payload) for c in (flt.must_not or [])):
         return False
     should = list(flt.should or [])
-    if should and not any(_cond_matches(c, payload) for c in should):
+    if should and not any(_cond_matches(c, payload) for c in should):  # noqa: SIM103 (guard-clause chain)
         return False
     return True
 
@@ -52,16 +52,12 @@ class _FakeQdrant:
     async def collection_exists(self, name: str) -> bool:
         return name in self._collections
 
-    async def upsert(
-        self, *, collection_name: str, points: list[Any], wait: bool = True
-    ) -> None:
+    async def upsert(self, *, collection_name: str, points: list[Any], wait: bool = True) -> None:
         self._collections.add(collection_name)
         for p in points:
             self.points[str(p.id)] = dict(p.payload or {})
 
-    async def delete(
-        self, *, collection_name: str, points_selector: Any, wait: bool = True
-    ) -> None:
+    async def delete(self, *, collection_name: str, points_selector: Any, wait: bool = True) -> None:
         self.points = {
             pid: payload
             for pid, payload in self.points.items()
@@ -71,10 +67,7 @@ class _FakeQdrant:
 
 def _surviving(fake: _FakeQdrant) -> set[tuple[str, str, str]]:
     """The (config_id, entity, build_id) triples still present."""
-    return {
-        (p["config_id"], p["entity"], p["build_id"])
-        for p in fake.points.values()
-    }
+    return {(p["config_id"], p["entity"], p["build_id"]) for p in fake.points.values()}
 
 
 async def _seed(
@@ -89,14 +82,11 @@ async def _seed(
         project_id=project_id,
         config_id=config_id,
         build_id=build_id,
-        points=[
-            (uuid.uuid4(), [0.1, 0.2, 0.3], name, f"desc {name}")
-            for name in entities
-        ],
+        points=[(uuid.uuid4(), [0.1, 0.2, 0.3], name, f"desc {name}") for name in entities],
     )
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 async def test_supersede_keeps_untouched_and_live_entities() -> None:
     fake = _FakeQdrant()
     store = GraphRagVectorStore(fake)  # type: ignore[arg-type]
@@ -107,12 +97,11 @@ async def test_supersede_keeps_untouched_and_live_entities() -> None:
 
     # Initial build embeds alice/bob/carol; a later delta re-embeds alice and
     # introduces dave. A sibling config also has an entity called "alice".
-    await _seed(store, project_id=project_id, config_id=config_id,
-                build_id=b1, entities=["alice", "bob", "carol"])
-    await _seed(store, project_id=project_id, config_id=config_id,
-                build_id=b2, entities=["alice", "dave"])
-    await _seed(store, project_id=project_id, config_id=other_config,
-                build_id=b_other, entities=["alice"])
+    await _seed(
+        store, project_id=project_id, config_id=config_id, build_id=b1, entities=["alice", "bob", "carol"]
+    )
+    await _seed(store, project_id=project_id, config_id=config_id, build_id=b2, entities=["alice", "dave"])
+    await _seed(store, project_id=project_id, config_id=other_config, build_id=b_other, entities=["alice"])
 
     await store.delete_superseded_entities(
         project_id=project_id,
@@ -134,7 +123,7 @@ async def test_supersede_keeps_untouched_and_live_entities() -> None:
     }
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 async def test_supersede_empty_entity_list_is_noop() -> None:
     """An empty list must NOT degrade into 'delete every other build'."""
     fake = _FakeQdrant()
@@ -142,8 +131,7 @@ async def test_supersede_empty_entity_list_is_noop() -> None:
     project_id = uuid.uuid4()
     config_id = uuid.uuid4()
     b1 = uuid.uuid4()
-    await _seed(store, project_id=project_id, config_id=config_id,
-                build_id=b1, entities=["alice", "bob"])
+    await _seed(store, project_id=project_id, config_id=config_id, build_id=b1, entities=["alice", "bob"])
 
     await store.delete_superseded_entities(
         project_id=project_id,
@@ -158,7 +146,7 @@ async def test_supersede_empty_entity_list_is_noop() -> None:
     }
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 async def test_supersede_missing_collection_is_noop() -> None:
     fake = _FakeQdrant()
     store = GraphRagVectorStore(fake)  # type: ignore[arg-type]

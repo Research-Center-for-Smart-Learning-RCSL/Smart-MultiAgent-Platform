@@ -73,7 +73,7 @@ def _wire_engine(monkeypatch, agent, *, drain=None):
     monkeypatch.setattr(te, "build_registry", lambda *a, **k: SimpleNamespace())
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 async def test_run_input_turn_headless_completed(monkeypatch) -> None:
     agent = _agent()
     _wire_engine(monkeypatch, agent)
@@ -104,7 +104,7 @@ async def test_run_input_turn_headless_completed(monkeypatch) -> None:
     assert captured["messages"] == [{"role": "user", "content": "hi"}]
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 async def test_run_input_turn_agent_gone(monkeypatch) -> None:
     _wire_engine(monkeypatch, None)
     engine = te.TurnEngine.__new__(te.TurnEngine)
@@ -120,7 +120,7 @@ async def test_run_input_turn_agent_gone(monkeypatch) -> None:
 # --------------------------------------------------------------------------- #
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 async def test_pending_context_adds_approval_tool(monkeypatch) -> None:
     approval_id = uuid.uuid4()
     room_id = uuid.uuid4()
@@ -133,9 +133,7 @@ async def test_pending_context_adds_approval_tool(monkeypatch) -> None:
         },
         {"kind": "notify", "from_agent": "x", "payload": {"a": 1}},
     ]
-    monkeypatch.setattr(
-        "contexts.orchestration.infrastructure.pending_notify.drain", _async_return(notes)
-    )
+    monkeypatch.setattr("contexts.orchestration.infrastructure.pending_notify.drain", _async_return(notes))
     sentinel = SimpleNamespace(name="cast_approval_vote")
     seen: dict = {}
 
@@ -156,11 +154,9 @@ async def test_pending_context_adds_approval_tool(monkeypatch) -> None:
     assert seen["allowed"] == {approval_id: room_id}
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 async def test_pending_context_empty(monkeypatch) -> None:
-    monkeypatch.setattr(
-        "contexts.orchestration.infrastructure.pending_notify.drain", _async_return([])
-    )
+    monkeypatch.setattr("contexts.orchestration.infrastructure.pending_notify.drain", _async_return([]))
     engine = te.TurnEngine.__new__(te.TurnEngine)
     engine._db = object()  # type: ignore[attr-defined]
     block, tools, _notes = await engine._pending_context_and_tools(_agent())
@@ -173,7 +169,7 @@ async def test_pending_context_empty(monkeypatch) -> None:
 # --------------------------------------------------------------------------- #
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 async def test_cast_approval_vote_records(monkeypatch) -> None:
     approval_id, agent_id = uuid.uuid4(), uuid.uuid4()
     captured: dict = {}
@@ -184,9 +180,7 @@ async def test_cast_approval_vote_records(monkeypatch) -> None:
         def __init__(self, db) -> None:
             pass
 
-        async def cast_approval_vote(
-            self, *, approval_id, voter_agent_id, vote, rationale, chatroom_id
-        ):
+        async def cast_approval_vote(self, *, approval_id, voter_agent_id, vote, rationale, chatroom_id):
             captured.update(
                 approval_id=approval_id,
                 voter=voter_agent_id,
@@ -196,9 +190,7 @@ async def test_cast_approval_vote_records(monkeypatch) -> None:
             )
             return SimpleNamespace(vote=vote)
 
-    monkeypatch.setattr(
-        "contexts.orchestration.interfaces.facade.OrchestrationFacade", _Facade
-    )
+    monkeypatch.setattr("contexts.orchestration.interfaces.facade.OrchestrationFacade", _Facade)
     tool = tr.build_cast_approval_vote_tool(
         object(), agent_id=agent_id, allowed_approvals={approval_id: room_id}
     )
@@ -212,15 +204,13 @@ async def test_cast_approval_vote_records(monkeypatch) -> None:
     assert captured["chatroom_id"] == room_id
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 async def test_cast_approval_vote_rejects_unscoped_and_bad_id(monkeypatch) -> None:
     class _Facade:
         def __init__(self, db) -> None:
             raise AssertionError("must not reach the service for an invalid gate")
 
-    monkeypatch.setattr(
-        "contexts.orchestration.interfaces.facade.OrchestrationFacade", _Facade
-    )
+    monkeypatch.setattr("contexts.orchestration.interfaces.facade.OrchestrationFacade", _Facade)
     tool = tr.build_cast_approval_vote_tool(
         object(), agent_id=uuid.uuid4(), allowed_approvals={uuid.uuid4(): None}
     )
@@ -248,7 +238,7 @@ def _env(type_, payload, to_agent=None):
     )
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 async def test_handle_call_delivers_reply(monkeypatch) -> None:
     delivered: dict = {}
 
@@ -269,7 +259,7 @@ async def test_handle_call_delivers_reply(monkeypatch) -> None:
     assert delivered["env"]["to_agent"] == str(env.from_agent)
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 async def test_handle_call_failed_delivers_error(monkeypatch) -> None:
     delivered: dict = {}
 
@@ -285,7 +275,7 @@ async def test_handle_call_failed_delivers_error(monkeypatch) -> None:
     assert h.a2a_rendezvous.A2A_ERROR_KEY in delivered["env"]["payload"]
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 async def test_handle_instruct_marks_states(monkeypatch) -> None:
     calls: list = []
 
@@ -302,9 +292,7 @@ async def test_handle_instruct_marks_states(monkeypatch) -> None:
         async def mark_instruct_timeout(self, iid):
             calls.append(("timeout", iid))
 
-    monkeypatch.setattr(
-        "contexts.orchestration.interfaces.facade.OrchestrationFacade", _Facade
-    )
+    monkeypatch.setattr("contexts.orchestration.interfaces.facade.OrchestrationFacade", _Facade)
 
     @asynccontextmanager
     async def _sess():
@@ -323,7 +311,7 @@ async def test_handle_instruct_marks_states(monkeypatch) -> None:
     assert ("timeout", iid) not in calls
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 async def test_handle_instruct_failed_turn_marks_failed(monkeypatch) -> None:
     calls: list = []
 
@@ -347,12 +335,8 @@ async def test_handle_instruct_failed_turn_marks_failed(monkeypatch) -> None:
         async def mark_failed(self, iid):
             calls.append(("failed", iid))
 
-    monkeypatch.setattr(
-        "contexts.orchestration.interfaces.facade.OrchestrationFacade", _Facade
-    )
-    monkeypatch.setattr(
-        "contexts.orchestration.application.instruct_service.InstructService", _Instruct
-    )
+    monkeypatch.setattr("contexts.orchestration.interfaces.facade.OrchestrationFacade", _Facade)
+    monkeypatch.setattr("contexts.orchestration.application.instruct_service.InstructService", _Instruct)
 
     @asynccontextmanager
     async def _sess():
@@ -372,7 +356,7 @@ async def test_handle_instruct_failed_turn_marks_failed(monkeypatch) -> None:
     assert ("timeout", iid) not in calls
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 async def test_run_turn_with_db_passes_parent_agent_id(monkeypatch) -> None:
     captured: dict = {}
 
@@ -384,9 +368,7 @@ async def test_run_turn_with_db_passes_parent_agent_id(monkeypatch) -> None:
             captured.update(kw)
             return SimpleNamespace(status="completed", text="ok", reason=None)
 
-    monkeypatch.setattr(
-        "contexts.agents.application.runtime.turn_engine.TurnEngine", _Engine
-    )
+    monkeypatch.setattr("contexts.agents.application.runtime.turn_engine.TurnEngine", _Engine)
     monkeypatch.setattr(
         "app.config.settings.get_settings",
         lambda: SimpleNamespace(qdrant=SimpleNamespace(url="http://q", api_key=None)),
@@ -399,7 +381,7 @@ async def test_run_turn_with_db_passes_parent_agent_id(monkeypatch) -> None:
     assert captured["parent_agent_id"] == uuid.UUID(str(env.from_agent))
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 async def test_run_turn_with_db_tolerates_non_uuid_sender(monkeypatch) -> None:
     captured: dict = {}
 
@@ -411,9 +393,7 @@ async def test_run_turn_with_db_tolerates_non_uuid_sender(monkeypatch) -> None:
             captured.update(kw)
             return SimpleNamespace(status="completed", text="ok", reason=None)
 
-    monkeypatch.setattr(
-        "contexts.agents.application.runtime.turn_engine.TurnEngine", _Engine
-    )
+    monkeypatch.setattr("contexts.agents.application.runtime.turn_engine.TurnEngine", _Engine)
     monkeypatch.setattr(
         "app.config.settings.get_settings",
         lambda: SimpleNamespace(qdrant=SimpleNamespace(url="http://q", api_key=None)),
@@ -433,7 +413,7 @@ async def test_run_turn_with_db_tolerates_non_uuid_sender(monkeypatch) -> None:
     assert captured["parent_agent_id"] is None
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 async def test_handle_notify_parks_notification(monkeypatch) -> None:
     pushed: list = []
 
@@ -506,7 +486,7 @@ class _FakeRedis:
         return _FakePipe(self.store)
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 async def test_pending_notify_roundtrip(monkeypatch) -> None:
     fake = _FakeRedis()
     monkeypatch.setattr(pn, "get_redis", lambda: fake)
@@ -526,7 +506,7 @@ async def test_pending_notify_roundtrip(monkeypatch) -> None:
 # --------------------------------------------------------------------------- #
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 async def test_notify_and_arm_notifies_and_schedules(monkeypatch) -> None:
     import contexts.orchestration.application.approval_service as appr
     from contexts.orchestration.domain.models import ApprovalGateConfig, ApprovalMode
@@ -553,9 +533,7 @@ async def test_notify_and_arm_notifies_and_schedules(monkeypatch) -> None:
 
     # Patch where _notify_and_arm imports them (function-local imports resolve
     # against the source modules).
-    monkeypatch.setattr(
-        "contexts.orchestration.infrastructure.pending_notify.push", _push
-    )
+    monkeypatch.setattr("contexts.orchestration.infrastructure.pending_notify.push", _push)
     monkeypatch.setattr("shared_kernel.queue.enqueue", _enqueue)
 
     svc = appr.ApprovalService.__new__(appr.ApprovalService)

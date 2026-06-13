@@ -82,7 +82,7 @@ async def xadd_dlq(agent_id: uuid.UUID, entry: dict[str, str]) -> str:
     r = get_redis()
     entry_id: Any = await r.xadd(
         _dlq_key(agent_id),
-        entry,  # type: ignore[arg-type]
+        entry,
         maxlen=_STREAM_MAXLEN,
         approximate=True,
     )

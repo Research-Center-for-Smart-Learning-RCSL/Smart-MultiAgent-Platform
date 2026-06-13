@@ -147,8 +147,7 @@ class GeminiAdapter:
         url = f"{_BASE}/{model}:batchEmbedContents"
         body = {
             "requests": [
-                {"model": f"models/{model}", "content": {"parts": [{"text": t}]}}
-                for t in payload["input"]
+                {"model": f"models/{model}", "content": {"parts": [{"text": t}]}} for t in payload["input"]
             ]
         }
         async with base.new_client() as client:
@@ -161,9 +160,7 @@ class GeminiAdapter:
             body={"embeddings": [e["values"] for e in data.get("embeddings") or []]},
         )
 
-    async def stream(
-        self, *, secret: str, request: ProviderRequest
-    ) -> AsyncGenerator[StreamEvent, None]:
+    async def stream(self, *, secret: str, request: ProviderRequest) -> AsyncGenerator[StreamEvent, None]:
         if request.capability is not ProviderCapability.LLM_CHAT:
             raise ValueError(f"gemini does not stream {request.capability.value}")
         model = base.resolve_model(request.payload, ApiKeyProvider.GEMINI)
@@ -185,9 +182,7 @@ class GeminiAdapter:
                 if resp.status_code != 200:
                     await resp.aread()
                     yield StreamComplete(
-                        ProviderCallResult(
-                            http_status=resp.status_code, body=base.scrub_error(resp)
-                        )
+                        ProviderCallResult(http_status=resp.status_code, body=base.scrub_error(resp))
                     )
                     return
                 async for data in base.iter_sse_lines(resp):

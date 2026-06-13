@@ -108,8 +108,7 @@ def _make_embedder_factory(db: AsyncSession) -> Any:
         resolved = await _resolve_embed_key(db, cfg.builder_key_group_id)
         if resolved is None:
             raise RuntimeError(
-                f"builder key group {cfg.builder_key_group_id} has no embedding key "
-                "(openai/gemini/voyage)"
+                f"builder key group {cfg.builder_key_group_id} has no embedding key " "(openai/gemini/voyage)"
             )
         provider, model, key_id = resolved
         return router_embedder_for(router=router, key_id=key_id, provider=provider, model=model)

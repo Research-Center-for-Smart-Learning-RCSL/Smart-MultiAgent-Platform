@@ -82,6 +82,14 @@ def evaluate(ipt: A2ACheckInput) -> A2AVerdict:
     if ipt.callee_project_deleted:
         return A2AVerdict(allowed=False, reason="callee project soft-deleted")
 
+    # A self-invocation (agent calling itself) crosses no authorization
+    # boundary. It is also the exact path the workflow agent_invocation executor
+    # takes (from_agent == to_agent == the node's agent), so denying it would
+    # break every workflow agent turn unless the agent also opted into
+    # call_only. Allow it unconditionally (independent of a2a_enabled).
+    if ipt.caller.id == ipt.callee.id:
+        return A2AVerdict(allowed=True, reason="self-invocation")
+
     if not ipt.caller.a2a_enabled:
         return A2AVerdict(allowed=False, reason="caller a2a_enabled=false")
     if not ipt.callee.a2a_enabled:

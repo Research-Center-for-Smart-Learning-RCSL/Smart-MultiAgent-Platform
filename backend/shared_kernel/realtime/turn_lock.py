@@ -32,8 +32,7 @@ _log = logging.getLogger(__name__)
 DEFAULT_TURN_TTL_S = 300
 
 _RELEASE_LUA = (
-    "if redis.call('get', KEYS[1]) == ARGV[1] then "
-    "return redis.call('del', KEYS[1]) else return 0 end"
+    "if redis.call('get', KEYS[1]) == ARGV[1] then " "return redis.call('del', KEYS[1]) else return 0 end"
 )
 
 # Token compare-then-PEXPIRE: the heartbeat must never refresh a lock a later

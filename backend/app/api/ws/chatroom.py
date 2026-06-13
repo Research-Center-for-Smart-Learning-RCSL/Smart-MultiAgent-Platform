@@ -36,14 +36,10 @@ async def _notify_presence(chatroom_id: uuid.UUID, *, has_live_users: bool) -> N
     ``on_presence_changed`` may write audit rows in future."""
     try:
         async with async_session() as db:
-            await evaluate_presence_change(
-                db, chatroom_id=chatroom_id, has_live_users=has_live_users
-            )
+            await evaluate_presence_change(db, chatroom_id=chatroom_id, has_live_users=has_live_users)
             await db.commit()
     except Exception:  # pragma: no cover — defensive; presence is fire-and-forget
-        _log.warning(
-            "presence-change dispatch failed for room %s", chatroom_id, exc_info=True
-        )
+        _log.warning("presence-change dispatch failed for room %s", chatroom_id, exc_info=True)
 
 
 @router.websocket("/ws/chatroom/{chatroom_id}")

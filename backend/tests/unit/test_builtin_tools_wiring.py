@@ -80,7 +80,12 @@ def test_no_bindings_yields_only_builtins() -> None:
 async def test_code_exec_maps_ok_and_error() -> None:
     runner = AsyncMock()
     runner.run_code_exec.return_value = _ok("42")
-    tools = {t.name: t for t in bt.build_builtin_tools(AsyncMock(), agent=_agent(), mcp_bindings=[], deps=_deps(runner=runner))}
+    tools = {
+        t.name: t
+        for t in bt.build_builtin_tools(
+            AsyncMock(), agent=_agent(), mcp_bindings=[], deps=_deps(runner=runner)
+        )
+    }
 
     res = await tools["code_exec"].invoke({"source": "print(42)"})
     assert res.content == "42"
@@ -93,7 +98,9 @@ async def test_code_exec_maps_ok_and_error() -> None:
 
 
 async def test_code_exec_requires_source() -> None:
-    tools = {t.name: t for t in bt.build_builtin_tools(AsyncMock(), agent=_agent(), mcp_bindings=[], deps=_deps())}
+    tools = {
+        t.name: t for t in bt.build_builtin_tools(AsyncMock(), agent=_agent(), mcp_bindings=[], deps=_deps())
+    }
     res = await tools["code_exec"].invoke({})
     assert res.is_error is True
 
@@ -101,7 +108,12 @@ async def test_code_exec_requires_source() -> None:
 async def test_file_dispatches_op() -> None:
     runner = AsyncMock()
     runner.run_file_op.return_value = _ok("a\nb")
-    tools = {t.name: t for t in bt.build_builtin_tools(AsyncMock(), agent=_agent(), mcp_bindings=[], deps=_deps(runner=runner))}
+    tools = {
+        t.name: t
+        for t in bt.build_builtin_tools(
+            AsyncMock(), agent=_agent(), mcp_bindings=[], deps=_deps(runner=runner)
+        )
+    }
 
     res = await tools["file"].invoke({"op": "list", "path": "/workspace"})
     assert res.content == "a\nb"
@@ -123,7 +135,9 @@ async def test_mcp_tool_passes_source_reference() -> None:
     agent = _agent()
     tools = {
         t.name: t
-        for t in bt.build_builtin_tools(AsyncMock(), agent=agent, mcp_bindings=[binding], deps=_deps(runner=runner))
+        for t in bt.build_builtin_tools(
+            AsyncMock(), agent=agent, mcp_bindings=[binding], deps=_deps(runner=runner)
+        )
     }
     name = next(n for n in tools if n.startswith("mcp__"))
 
@@ -142,7 +156,9 @@ async def test_mcp_tool_degrades_on_error() -> None:
     binding = _binding(("alpha",))
     tools = {
         t.name: t
-        for t in bt.build_builtin_tools(AsyncMock(), agent=_agent(), mcp_bindings=[binding], deps=_deps(runner=runner))
+        for t in bt.build_builtin_tools(
+            AsyncMock(), agent=_agent(), mcp_bindings=[binding], deps=_deps(runner=runner)
+        )
     }
     name = next(n for n in tools if n.startswith("mcp__"))
     res = await tools[name].invoke({})
@@ -159,10 +175,10 @@ async def test_web_search_formats_results(monkeypatch) -> None:
     async def _fake_search(self, query, **kw):
         return [SearchResult(title="T", url="https://x", snippet="s", published_at=None, score=0.9)]
 
-    monkeypatch.setattr(
-        "contexts.agents.application.tools.web_search.WebSearchTool.search", _fake_search
-    )
-    tools = {t.name: t for t in bt.build_builtin_tools(AsyncMock(), agent=_agent(), mcp_bindings=[], deps=_deps())}
+    monkeypatch.setattr("contexts.agents.application.tools.web_search.WebSearchTool.search", _fake_search)
+    tools = {
+        t.name: t for t in bt.build_builtin_tools(AsyncMock(), agent=_agent(), mcp_bindings=[], deps=_deps())
+    }
     res = await tools["web_search"].invoke({"query": "hi"})
     assert res.is_error is False
     payload = json.loads(res.content)
@@ -171,7 +187,9 @@ async def test_web_search_formats_results(monkeypatch) -> None:
 
 async def test_web_search_degrades_on_missing_key() -> None:
     # Real WebSearchTool.search with no active key raises → tool returns is_error.
-    tools = {t.name: t for t in bt.build_builtin_tools(AsyncMock(), agent=_agent(), mcp_bindings=[], deps=_deps())}
+    tools = {
+        t.name: t for t in bt.build_builtin_tools(AsyncMock(), agent=_agent(), mcp_bindings=[], deps=_deps())
+    }
     res = await tools["web_search"].invoke({"query": "hi"})
     assert res.is_error is True
 
@@ -214,7 +232,9 @@ def test_sandbox_from_settings_reads_pins(monkeypatch) -> None:
     import contexts.agents.infrastructure.sandbox.docker_runsc as dr
 
     fake = SimpleNamespace(
-        sandbox=SimpleNamespace(mcp_image="smap/mcp-runtime@sha256:abc", code_exec_image="smap/code-exec@sha256:def"),
+        sandbox=SimpleNamespace(
+            mcp_image="smap/mcp-runtime@sha256:abc", code_exec_image="smap/code-exec@sha256:def"
+        ),
         egress=SimpleNamespace(proxy_url="http://egress-proxy:8080", shared_secret="0a0b"),
     )
     monkeypatch.setattr("app.config.settings.get_settings", lambda: fake)

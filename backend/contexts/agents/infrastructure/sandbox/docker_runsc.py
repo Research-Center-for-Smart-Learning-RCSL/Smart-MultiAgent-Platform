@@ -131,9 +131,7 @@ class DockerRunscSandbox:
         egress (exit 42) rather than calling out unauthenticated."""
         if not self.egress_proxy_url or not self.egress_shared_secret:
             return {}
-        signature = hmac.new(
-            self.egress_shared_secret, str(project_id).encode("ascii"), sha256
-        ).hexdigest()
+        signature = hmac.new(self.egress_shared_secret, str(project_id).encode("ascii"), sha256).hexdigest()
         return {
             "SMAP_EGRESS_PROXY_URL": self.egress_proxy_url,
             "SMAP_EGRESS_HMAC": signature,

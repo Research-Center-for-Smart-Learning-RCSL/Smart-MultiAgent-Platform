@@ -79,7 +79,7 @@ def _cfg() -> GraphRagConfig:
     )
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 async def test_hybrid_query_returns_bundle() -> None:
     cfg = _cfg()
     msg_id = uuid.uuid4()
@@ -130,7 +130,7 @@ async def _ev_fetcher(ids: list[uuid.UUID]) -> list[str]:
     return [f"excerpt-{i}" for i in range(len(ids))]
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 async def test_empty_vector_hits_returns_empty_bundle() -> None:
     cfg = _cfg()
     service = GraphRagRetrieveService(

@@ -108,7 +108,7 @@ def sanitize_html(raw_html: str) -> str:
     # across the two entry points (render_safe_html + sanitize_html).
     if cleaned != raw_html:
         MESSAGE_SANITIZE_REJECTIONS.inc()
-    return cleaned  # type: ignore[no-any-return]
+    return cleaned
 
 
 __all__ = ["render_safe_html", "sanitize_html"]

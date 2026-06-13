@@ -147,11 +147,7 @@ async def create_project(
     # not "may create one *for this specific user*" — without this guard any
     # verified user could plant a project in a victim's account (SEC-2). An
     # admin may still create a project on behalf of another user.
-    if (
-        owner_type is ProjectOwnerType.USER
-        and body.owner_id != principal.user_id
-        and not principal.is_admin
-    ):
+    if owner_type is ProjectOwnerType.USER and body.owner_id != principal.user_id and not principal.is_admin:
         _raise_forbidden("a user-owned project must be owned by the caller")
 
     project = await service.create(

@@ -47,7 +47,7 @@ class _FakeTransitEnvelope:
         return {"data": {"plaintext": base64.b64encode(dek).decode()}}
 
 
-@pytest.fixture()
+@pytest.fixture
 def client(monkeypatch: pytest.MonkeyPatch) -> VaultClient:
     kv = _FakeKv(
         {

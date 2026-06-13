@@ -104,8 +104,7 @@ def _make_phase2_retry(
             # DOM-5: a short embedding list would silently drop entities.
             # Raise so the reconciler counts this retry as failed.
             raise RuntimeError(
-                f"embedder returned {len(vectors)} vectors for "
-                f"{len(descriptions)} entities"
+                f"embedder returned {len(vectors)} vectors for " f"{len(descriptions)} entities"
             )
 
         await vector_store.ensure_graphrag_collection(

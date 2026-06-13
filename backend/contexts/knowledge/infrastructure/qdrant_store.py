@@ -169,8 +169,6 @@ class QdrantStore:
             return
         await self._client.delete(
             collection_name=name,
-            points_selector=Filter(
-                must=[FieldCondition(key="doc_id", match=MatchAny(any=ids))]
-            ),
+            points_selector=Filter(must=[FieldCondition(key="doc_id", match=MatchAny(any=ids))]),
             wait=True,
         )

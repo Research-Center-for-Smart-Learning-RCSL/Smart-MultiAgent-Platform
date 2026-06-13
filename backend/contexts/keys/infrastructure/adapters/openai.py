@@ -169,9 +169,7 @@ class OpenAIAdapter:
             input_tokens=int(usage.get("prompt_tokens", 0)),
         )
 
-    async def stream(
-        self, *, secret: str, request: ProviderRequest
-    ) -> AsyncGenerator[StreamEvent, None]:
+    async def stream(self, *, secret: str, request: ProviderRequest) -> AsyncGenerator[StreamEvent, None]:
         if request.capability is not ProviderCapability.LLM_CHAT:
             raise ValueError(f"openai does not stream {request.capability.value}")
         text_parts: list[str] = []
@@ -187,9 +185,7 @@ class OpenAIAdapter:
                 if resp.status_code != 200:
                     await resp.aread()
                     yield StreamComplete(
-                        ProviderCallResult(
-                            http_status=resp.status_code, body=base.scrub_error(resp)
-                        )
+                        ProviderCallResult(http_status=resp.status_code, body=base.scrub_error(resp))
                     )
                     return
                 async for data in base.iter_sse_lines(resp):

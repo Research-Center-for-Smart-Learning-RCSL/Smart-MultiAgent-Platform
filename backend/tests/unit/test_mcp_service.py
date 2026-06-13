@@ -112,7 +112,7 @@ def _binding(agent_id: uuid.UUID, *, config: dict[str, Any] | None = None) -> Mc
     )
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 async def test_list_delegates_to_repo() -> None:
     agent_id = uuid.uuid4()
     b = _binding(agent_id)
@@ -122,7 +122,7 @@ async def test_list_delegates_to_repo() -> None:
     assert [x.id for x in rows] == [b.id]
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 async def test_remove_deletes_and_audits() -> None:
     agent_id = uuid.uuid4()
     b = _binding(agent_id)
@@ -141,7 +141,7 @@ async def test_remove_deletes_and_audits() -> None:
     assert session.executed, "expected audit row to be inserted"
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 async def test_test_endpoint_calls_runner_probe_ok() -> None:
     agent_id = uuid.uuid4()
     project_id = uuid.uuid4()
@@ -165,7 +165,7 @@ async def test_test_endpoint_calls_runner_probe_ok() -> None:
     assert runner.probe_calls[0]["reference"] == b.reference
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 async def test_test_endpoint_unknown_binding() -> None:
     agent_id = uuid.uuid4()
     svc = McpBindingService(_FakeSession(), runner=_FakeRunner())  # type: ignore[arg-type]
@@ -180,7 +180,7 @@ async def test_test_endpoint_unknown_binding() -> None:
         )
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 async def test_test_endpoint_surfaces_egress_denial() -> None:
     agent_id = uuid.uuid4()
     b = _binding(agent_id)
@@ -197,7 +197,7 @@ async def test_test_endpoint_surfaces_egress_denial() -> None:
         )
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 async def test_test_endpoint_surfaces_timeout() -> None:
     agent_id = uuid.uuid4()
     b = _binding(agent_id)
@@ -214,7 +214,7 @@ async def test_test_endpoint_surfaces_timeout() -> None:
         )
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 async def test_test_endpoint_wraps_unexpected_as_failed() -> None:
     agent_id = uuid.uuid4()
     b = _binding(agent_id)

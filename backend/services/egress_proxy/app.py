@@ -193,9 +193,7 @@ def create_app(settings: EgressProxySettings) -> FastAPI:
             return _problem(400, "mcp-egress-denied", "invalid egress url")
         scheme = (fwd_parts.scheme or "").lower()
         if scheme not in ("http", "https"):
-            return _problem(
-                400, "mcp-egress-denied", f"unsupported egress scheme {scheme!r}"
-            )
+            return _problem(400, "mcp-egress-denied", f"unsupported egress scheme {scheme!r}")
         try:
             target_port = fwd_parts.port
         except ValueError:

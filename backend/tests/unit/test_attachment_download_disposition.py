@@ -76,7 +76,7 @@ def _service(row: MessageAttachment) -> tuple[AttachmentService, _FakeMinio]:
     return svc, minio
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 @pytest.mark.parametrize("mime", ["text/html", "image/svg+xml", "application/xhtml+xml", ""])
 async def test_scriptable_types_forced_to_download(mime: str) -> None:
     row = _row(mime=mime)
@@ -87,7 +87,7 @@ async def test_scriptable_types_forced_to_download(mime: str) -> None:
     assert str(call["disposition"]).startswith("attachment;")
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 @pytest.mark.parametrize("mime", ["image/png", "image/jpeg", "application/pdf", "text/plain"])
 async def test_known_safe_types_served_inline_with_their_own_type(mime: str) -> None:
     row = _row(mime=mime)
@@ -98,7 +98,7 @@ async def test_known_safe_types_served_inline_with_their_own_type(mime: str) -> 
     assert str(call["disposition"]).startswith("inline;")
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 async def test_mime_with_params_is_normalised() -> None:
     # `image/svg+xml; charset=utf-8` must still be treated as the scriptable
     # base type, not pass the allowlist by virtue of the parameter suffix.
@@ -108,7 +108,7 @@ async def test_mime_with_params_is_normalised() -> None:
     assert minio.calls[0]["content_type"] == "application/octet-stream"
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 async def test_filename_cannot_break_out_of_header() -> None:
     # Quotes / CRLF in the filename must be stripped so they cannot inject
     # additional Content-Disposition parameters.

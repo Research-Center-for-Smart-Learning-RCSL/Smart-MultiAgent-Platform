@@ -15,7 +15,7 @@ import pytest
 from contexts.tenancy.interfaces.role_resolver import TenancyRoleResolver
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 async def test_is_chatroom_participant_does_not_fail_open() -> None:
     resolver = TenancyRoleResolver(db=None)  # type: ignore[arg-type]
     with pytest.raises(NotImplementedError):

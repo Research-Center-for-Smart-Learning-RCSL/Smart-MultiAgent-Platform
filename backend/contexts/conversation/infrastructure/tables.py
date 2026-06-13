@@ -80,7 +80,14 @@ messages = sa.Table(
         sa.ForeignKey("chatrooms.id", ondelete="CASCADE"),
         nullable=False,
     ),
-    sa.Column("sender_type", sa.Text, nullable=False),
+    sa.Column(
+        # Must match the DB type created in migration 0017 (PG ENUM
+        # `message_sender_type`), not sa.Text — asyncpg refuses to bind a
+        # VARCHAR parameter into an enum column (DatatypeMismatchError).
+        "sender_type",
+        pg.ENUM("user", "agent", "system", name="message_sender_type", create_type=False),
+        nullable=False,
+    ),
     sa.Column("sender_id", pg.UUID(as_uuid=True), nullable=True),
     sa.Column("content_md", sa.Text, nullable=False, server_default=sa.text("''")),
     sa.Column("content_tsv", pg.TSVECTOR, nullable=True),

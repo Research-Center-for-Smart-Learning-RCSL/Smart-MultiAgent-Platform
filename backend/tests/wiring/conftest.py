@@ -17,7 +17,6 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 
-import pytest
 import pytest_asyncio
 
 from shared_kernel.auth import clients

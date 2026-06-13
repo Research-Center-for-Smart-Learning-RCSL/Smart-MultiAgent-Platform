@@ -43,8 +43,8 @@ _cache: tuple[float, bool, str] | None = None
 
 def _check() -> tuple[bool, str]:
     try:
-        result = subprocess.run(
-            ["docker", "info", "--format", "{{json .Runtimes}}"],  # noqa: S603, S607
+        result = subprocess.run(  # noqa: S603
+            ["docker", "info", "--format", "{{json .Runtimes}}"],  # noqa: S607
             capture_output=True,
             text=True,
             timeout=5,

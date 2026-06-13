@@ -19,7 +19,7 @@ async def _fake_ip_ban_reload(_session) -> None:  # type: ignore[no-untyped-def]
     _ip_bans._cache.loaded_at = time.monotonic()
 
 
-@pytest.fixture()
+@pytest.fixture
 def client() -> Iterator[TestClient]:
     with (
         patch("shared_kernel.auth.ip_bans.reload", new=_fake_ip_ban_reload),

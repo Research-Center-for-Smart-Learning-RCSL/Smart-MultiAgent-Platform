@@ -188,9 +188,7 @@ async def _purge_documents_infra(
             await qclient.close()
     except Exception:
         summary["qdrant_purged"] = False
-        _log.exception(
-            "rag infra purge: qdrant delete failed for project %s", project_id
-        )
+        _log.exception("rag infra purge: qdrant delete failed for project %s", project_id)
 
     # MinIO blobs — one remove_object per document.
     minio = None

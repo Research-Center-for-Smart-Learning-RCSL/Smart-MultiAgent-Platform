@@ -390,9 +390,7 @@ async def connection_loop(
         for t in tasks:
             if t is not writer_task and not t.done():
                 t.cancel()
-        finished, _ = await asyncio.wait(
-            {writer_task}, timeout=_WRITER_DRAIN_GRACE_SECONDS
-        )
+        finished, _ = await asyncio.wait({writer_task}, timeout=_WRITER_DRAIN_GRACE_SECONDS)
         if not finished:
             writer_task.cancel()
         for t in tasks:

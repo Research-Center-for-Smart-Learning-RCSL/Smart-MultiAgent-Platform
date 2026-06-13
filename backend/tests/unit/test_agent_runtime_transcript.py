@@ -21,7 +21,7 @@ def _msg(sender: SenderType, content: str, *, metadata: dict | None = None) -> M
     )
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 async def test_load_model_history_elides_compacted_and_orders(monkeypatch) -> None:
     m1 = _msg(SenderType.USER, "first user")
     m2 = _msg(SenderType.AGENT, "first agent")

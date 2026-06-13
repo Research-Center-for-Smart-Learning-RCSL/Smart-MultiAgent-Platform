@@ -23,7 +23,7 @@ import pytest
 # --------------------------------------------------------------------------- #
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 async def test_advisory_snapshot_raises_when_every_org_fails() -> None:
     from app.workers.tasks import advisory as adv
 
@@ -64,7 +64,7 @@ async def test_advisory_snapshot_raises_when_every_org_fails() -> None:
         await adv.daily_org_advisory_snapshot({})
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 async def test_advisory_snapshot_partial_failure_does_not_raise() -> None:
     from app.workers.tasks import advisory as adv
 
@@ -123,7 +123,7 @@ async def test_advisory_snapshot_partial_failure_does_not_raise() -> None:
 # --------------------------------------------------------------------------- #
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 async def test_retention_sweep_tracks_failed_policy() -> None:
     from app.workers.tasks import retention as ret
 

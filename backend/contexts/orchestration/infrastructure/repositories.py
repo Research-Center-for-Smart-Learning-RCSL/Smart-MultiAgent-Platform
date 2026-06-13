@@ -448,8 +448,7 @@ class AgentInstanceRepository:
                         agent_instances.c.agent_id == agent_id,
                         agent_instances.c.parent_id.is_(None),
                         agent_instances.c.destroyed_at.is_(None),
-                        agent_instances.c.run_context["workflow_run_id"].astext
-                        == str(workflow_run_id),
+                        agent_instances.c.run_context["workflow_run_id"].astext == str(workflow_run_id),
                     )
                     .limit(1),
                 )

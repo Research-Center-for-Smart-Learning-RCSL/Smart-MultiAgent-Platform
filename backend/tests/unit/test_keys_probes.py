@@ -10,7 +10,7 @@ from contexts.keys.domain.providers import ApiKeyProvider
 from contexts.keys.infrastructure.probes import PROBES, ProbeStatus, probe
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 @respx.mock
 async def test_anthropic_probe_ok() -> None:
     route = respx.post("https://api.anthropic.com/v1/messages").respond(200, json={"id": "msg_x"})
@@ -20,7 +20,7 @@ async def test_anthropic_probe_ok() -> None:
     assert route.calls.last.request.headers["x-api-key"] == "sk-ant-abc"
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 @respx.mock
 async def test_anthropic_probe_401() -> None:
     respx.post("https://api.anthropic.com/v1/messages").respond(
@@ -31,7 +31,7 @@ async def test_anthropic_probe_401() -> None:
     assert result.error == "unauthorized"
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 @respx.mock
 async def test_openai_probe_ok() -> None:
     route = respx.get("https://api.openai.com/v1/models").respond(200, json={"data": []})
@@ -41,7 +41,7 @@ async def test_openai_probe_ok() -> None:
     assert route.calls.last.request.headers["authorization"] == "Bearer sk-openai-live"
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 @respx.mock
 async def test_gemini_probe_uses_query_key() -> None:
     route = respx.get("https://generativelanguage.googleapis.com/v1/models").respond(200, json={})
@@ -52,7 +52,7 @@ async def test_gemini_probe_uses_query_key() -> None:
     assert "authorization" not in route.calls.last.request.headers
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 @respx.mock
 async def test_voyage_probe_ok() -> None:
     route = respx.post("https://api.voyageai.com/v1/embeddings").respond(
@@ -63,7 +63,7 @@ async def test_voyage_probe_ok() -> None:
     assert result.status is ProbeStatus.OK
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 @respx.mock
 async def test_cohere_probe_ok() -> None:
     route = respx.get("https://api.cohere.com/v1/models").respond(200, json={"models": []})
@@ -72,7 +72,7 @@ async def test_cohere_probe_ok() -> None:
     assert result.status is ProbeStatus.OK
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 @respx.mock
 async def test_probe_network_error_returns_failed() -> None:
     respx.get("https://api.openai.com/v1/models").mock(side_effect=httpx.ConnectError("boom"))
@@ -81,7 +81,7 @@ async def test_probe_network_error_returns_failed() -> None:
     assert "network" in (result.error or "")
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 @respx.mock
 async def test_probe_server_error_summarises_without_secret() -> None:
     respx.get("https://api.openai.com/v1/models").respond(

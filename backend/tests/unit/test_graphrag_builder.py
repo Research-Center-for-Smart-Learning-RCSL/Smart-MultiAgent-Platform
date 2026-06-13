@@ -304,7 +304,7 @@ def _make_builder(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 async def test_happy_path_transitions_to_idle() -> None:
     cfg = _make_cfg()
     neo4j, vectors = FakeNeo4j(), FakeVectorStore()
@@ -347,7 +347,7 @@ async def test_happy_path_transitions_to_idle() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 async def test_phase1_failure_marks_failed_and_cleans_snapshot() -> None:
     cfg = _make_cfg()
     neo4j = FakeNeo4j(raise_on_apply=RuntimeError("cypher boom"))
@@ -378,7 +378,7 @@ async def test_phase1_failure_marks_failed_and_cleans_snapshot() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 async def test_phase2_failure_enters_compensating_and_keeps_snapshot() -> None:
     cfg = _make_cfg()
     neo4j = FakeNeo4j()
@@ -408,7 +408,7 @@ async def test_phase2_failure_enters_compensating_and_keeps_snapshot() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 async def test_reconciler_retry_succeeds() -> None:
     cfg = _make_cfg()
     neo4j = FakeNeo4j()
@@ -478,7 +478,7 @@ async def test_reconciler_retry_succeeds() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 async def test_reconciler_exhausted_rolls_back() -> None:
     cfg = _make_cfg()
     neo4j = FakeNeo4j()

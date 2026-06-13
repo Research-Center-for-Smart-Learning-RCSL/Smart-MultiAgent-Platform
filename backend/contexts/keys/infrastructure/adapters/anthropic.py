@@ -131,9 +131,7 @@ class AnthropicAdapter:
         if request.capability is not ProviderCapability.LLM_CHAT:
             raise ValueError(f"claude does not serve {request.capability.value}")
         async with base.new_client() as client:
-            resp = await client.post(
-                _URL, json=_body(request, stream=False), headers=_headers(secret)
-            )
+            resp = await client.post(_URL, json=_body(request, stream=False), headers=_headers(secret))
         if resp.status_code != 200:
             return ProviderCallResult(http_status=resp.status_code, body=base.scrub_error(resp))
         data = resp.json()
@@ -145,9 +143,7 @@ class AnthropicAdapter:
             output_tokens=int(usage.get("output_tokens", 0)),
         )
 
-    async def stream(
-        self, *, secret: str, request: ProviderRequest
-    ) -> AsyncGenerator[StreamEvent, None]:
+    async def stream(self, *, secret: str, request: ProviderRequest) -> AsyncGenerator[StreamEvent, None]:
         if request.capability is not ProviderCapability.LLM_CHAT:
             raise ValueError(f"claude does not serve {request.capability.value}")
         text_parts: list[str] = []
@@ -165,9 +161,7 @@ class AnthropicAdapter:
                 if resp.status_code != 200:
                     await resp.aread()
                     yield StreamComplete(
-                        ProviderCallResult(
-                            http_status=resp.status_code, body=base.scrub_error(resp)
-                        )
+                        ProviderCallResult(http_status=resp.status_code, body=base.scrub_error(resp))
                     )
                     return
                 async for data in base.iter_sse_lines(resp):
@@ -204,7 +198,7 @@ class AnthropicAdapter:
                         # it onto a synthetic non-2xx so the router classifies
                         # (rotate before first token / fail-visible after).
                         kind = (ev.get("error") or {}).get("type")
-                        status = _STREAM_ERROR_STATUS.get(kind, 500)
+                        status = _STREAM_ERROR_STATUS.get(kind, 500) if isinstance(kind, str) else 500
                         yield StreamComplete(
                             ProviderCallResult(
                                 http_status=status,
