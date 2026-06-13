@@ -116,7 +116,7 @@ async def _drain(agen) -> list:
     return [e async for e in agen]
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 async def test_stream_success_records_usage(monkeypatch) -> None:
     kid = uuid.uuid4()
     ok = _StreamAdapter(
@@ -128,7 +128,9 @@ async def test_stream_success_records_usage(monkeypatch) -> None:
         ],
     )
     router, recorded = _make_router(
-        monkeypatch, {ApiKeyProvider.OPENAI: ok}, [_Member(kid)],
+        monkeypatch,
+        {ApiKeyProvider.OPENAI: ok},
+        [_Member(kid)],
         {kid: _Key(kid, ApiKeyProvider.OPENAI)},
     )
     events = await _drain(router.call_stream(group_id=uuid.uuid4(), request=_CHAT))
@@ -139,12 +141,10 @@ async def test_stream_success_records_usage(monkeypatch) -> None:
     assert recorded[0]["http_status"] == 200
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 async def test_stream_rotates_before_first_token(monkeypatch) -> None:
     k1, k2 = uuid.uuid4(), uuid.uuid4()
-    fail = _StreamAdapter(
-        ApiKeyProvider.OPENAI, [StreamComplete(ProviderCallResult(500, {"error": "x"}))]
-    )
+    fail = _StreamAdapter(ApiKeyProvider.OPENAI, [StreamComplete(ProviderCallResult(500, {"error": "x"}))])
     ok = _StreamAdapter(
         ApiKeyProvider.CLAUDE,
         [TokenDelta("ok"), StreamComplete(ProviderCallResult(200, {"text": "ok"}, 1, 1))],
@@ -161,7 +161,7 @@ async def test_stream_rotates_before_first_token(monkeypatch) -> None:
     assert {r["http_status"] for r in recorded} == {500, 200}
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 async def test_stream_fails_after_first_token_raises(monkeypatch) -> None:
     kid = uuid.uuid4()
     bad = _StreamAdapter(
@@ -169,7 +169,9 @@ async def test_stream_fails_after_first_token_raises(monkeypatch) -> None:
         [TokenDelta("par"), StreamComplete(ProviderCallResult(500, {"error": "x"}))],
     )
     router, _ = _make_router(
-        monkeypatch, {ApiKeyProvider.OPENAI: bad}, [_Member(kid)],
+        monkeypatch,
+        {ApiKeyProvider.OPENAI: bad},
+        [_Member(kid)],
         {kid: _Key(kid, ApiKeyProvider.OPENAI)},
     )
     seen: list[str] = []
@@ -184,21 +186,21 @@ async def test_stream_fails_after_first_token_raises(monkeypatch) -> None:
     assert seen == ["par"]  # the partial token reached the consumer before the failure
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 async def test_stream_all_fail_raises_exhausted(monkeypatch) -> None:
     kid = uuid.uuid4()
-    fail = _StreamAdapter(
-        ApiKeyProvider.OPENAI, [StreamComplete(ProviderCallResult(500, {"error": "x"}))]
-    )
+    fail = _StreamAdapter(ApiKeyProvider.OPENAI, [StreamComplete(ProviderCallResult(500, {"error": "x"}))])
     router, _ = _make_router(
-        monkeypatch, {ApiKeyProvider.OPENAI: fail}, [_Member(kid)],
+        monkeypatch,
+        {ApiKeyProvider.OPENAI: fail},
+        [_Member(kid)],
         {kid: _Key(kid, ApiKeyProvider.OPENAI)},
     )
     with pytest.raises(KeyGroupExhausted):
         await _drain(router.call_stream(group_id=uuid.uuid4(), request=_CHAT))
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 async def test_stream_consumer_abort_records_client_abort(monkeypatch) -> None:
     # Consumer walks away after the first token: accounting must still fire
     # (via the aclose chain) and label it `client_abort`, NOT `transport_error`.
@@ -212,7 +214,9 @@ async def test_stream_consumer_abort_records_client_abort(monkeypatch) -> None:
         ],
     )
     router, recorded = _make_router(
-        monkeypatch, {ApiKeyProvider.OPENAI: adapter}, [_Member(kid)],
+        monkeypatch,
+        {ApiKeyProvider.OPENAI: adapter},
+        [_Member(kid)],
         {kid: _Key(kid, ApiKeyProvider.OPENAI)},
     )
     agen = router.call_stream(group_id=uuid.uuid4(), request=_CHAT)
@@ -227,7 +231,7 @@ async def test_stream_consumer_abort_records_client_abort(monkeypatch) -> None:
     assert recorded[0]["http_status"] is None
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 async def test_stream_transport_error_before_first_token_rotates(monkeypatch) -> None:
     k1, k2 = uuid.uuid4(), uuid.uuid4()
     boom = _StreamAdapter(ApiKeyProvider.OPENAI, [httpx.ConnectError("boom")])
@@ -247,14 +251,14 @@ async def test_stream_transport_error_before_first_token_rotates(monkeypatch) ->
     assert "transport_error" in codes  # the failed member was accounted
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 async def test_stream_transport_error_after_first_token_raises(monkeypatch) -> None:
     kid = uuid.uuid4()
-    adapter = _StreamAdapter(
-        ApiKeyProvider.OPENAI, [TokenDelta("par"), httpx.ConnectError("mid-stream")]
-    )
+    adapter = _StreamAdapter(ApiKeyProvider.OPENAI, [TokenDelta("par"), httpx.ConnectError("mid-stream")])
     router, recorded = _make_router(
-        monkeypatch, {ApiKeyProvider.OPENAI: adapter}, [_Member(kid)],
+        monkeypatch,
+        {ApiKeyProvider.OPENAI: adapter},
+        [_Member(kid)],
         {kid: _Key(kid, ApiKeyProvider.OPENAI)},
     )
     seen: list[str] = []
@@ -272,7 +276,7 @@ async def test_stream_transport_error_after_first_token_raises(monkeypatch) -> N
     assert recorded[0]["error_code"] == "transport_error"
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 @pytest.mark.parametrize("status", [529, 429])  # synthetic in-stream error statuses
 async def test_stream_rotates_on_synthetic_in_stream_error_status(monkeypatch, status) -> None:
     # Adapters map mid-stream provider error events (delivered inside an HTTP
@@ -298,7 +302,7 @@ async def test_stream_rotates_on_synthetic_in_stream_error_status(monkeypatch, s
     assert {r["http_status"] for r in recorded} == {status, 200}
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 async def test_stream_propagates_attribution_into_usage(monkeypatch) -> None:
     # agent_id / parent_agent_id / chatroom_id ride the request into every
     # recorded usage event (R7.12 attribution).
@@ -316,7 +320,9 @@ async def test_stream_propagates_attribution_into_usage(monkeypatch) -> None:
         [TokenDelta("ok"), StreamComplete(ProviderCallResult(200, {"text": "ok"}, 1, 1))],
     )
     router, recorded = _make_router(
-        monkeypatch, {ApiKeyProvider.OPENAI: adapter}, [_Member(kid)],
+        monkeypatch,
+        {ApiKeyProvider.OPENAI: adapter},
+        [_Member(kid)],
         {kid: _Key(kid, ApiKeyProvider.OPENAI)},
     )
     await _drain(router.call_stream(group_id=uuid.uuid4(), request=req))
@@ -326,7 +332,7 @@ async def test_stream_propagates_attribution_into_usage(monkeypatch) -> None:
     assert recorded[0]["chatroom_id"] == cid
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 async def test_single_key_records_and_returns(monkeypatch) -> None:
     kid = uuid.uuid4()
     embed_req = ProviderRequest(
@@ -347,12 +353,14 @@ async def test_single_key_records_and_returns(monkeypatch) -> None:
     assert recorded[0]["error_code"] is None
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 async def test_single_key_capability_mismatch(monkeypatch) -> None:
     kid = uuid.uuid4()
     router, _ = _make_router(
-        monkeypatch, {ApiKeyProvider.VOYAGE: _StreamAdapter(ApiKeyProvider.VOYAGE, [])},
-        [], {kid: _Key(kid, ApiKeyProvider.VOYAGE)},
+        monkeypatch,
+        {ApiKeyProvider.VOYAGE: _StreamAdapter(ApiKeyProvider.VOYAGE, [])},
+        [],
+        {kid: _Key(kid, ApiKeyProvider.VOYAGE)},
     )
     # VOYAGE serves EMBEDDING only — an LLM_CHAT request must be refused.
     with pytest.raises(CapabilityMismatch):

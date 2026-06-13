@@ -69,9 +69,9 @@ async def wakeup_agent(
         autostop_limit = cfg.triggers.silence_minutes.autostop_rounds
         autostop_count = await wakeup_state.get_autostop_count(aid, rid)
         if autostop_limit > 0 and autostop_count >= autostop_limit:
-            logger.bind(
-                agent_id=agent_id, room_id=room_id, autostop=autostop_count
-            ).info("wakeup skipped: autostop tripped")
+            logger.bind(agent_id=agent_id, room_id=room_id, autostop=autostop_count).info(
+                "wakeup skipped: autostop tripped"
+            )
             return "skipped:autostop"
 
         # --- turn -------------------------------------------------------
@@ -163,9 +163,7 @@ async def compact_chatroom(ctx: dict[str, Any], chatroom_id: str) -> str:
         for binding in bindings:
             ok = await engine.run_compaction(agent_id=binding.agent_id, chatroom_id=rid)
             if ok:
-                logger.bind(room_id=chatroom_id, agent_id=str(binding.agent_id)).info(
-                    "compact pass run"
-                )
+                logger.bind(room_id=chatroom_id, agent_id=str(binding.agent_id)).info("compact pass run")
                 return "completed"
         return "failed"
 

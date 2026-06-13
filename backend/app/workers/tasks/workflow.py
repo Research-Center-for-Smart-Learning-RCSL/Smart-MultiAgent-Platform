@@ -319,11 +319,7 @@ async def workflow_cron_scheduler(ctx: dict[str, Any]) -> str:
                     import zoneinfo
 
                     tz = zoneinfo.ZoneInfo(tz_str)
-                    base = (
-                        datetime.fromisoformat(last_fire)
-                        if last_fire
-                        else now - timedelta(minutes=1)
-                    )
+                    base = datetime.fromisoformat(last_fire) if last_fire else now - timedelta(minutes=1)
                     cron_it = croniter(cron_expr, base.astimezone(tz))
                     next_fire = cron_it.get_next(datetime)
 

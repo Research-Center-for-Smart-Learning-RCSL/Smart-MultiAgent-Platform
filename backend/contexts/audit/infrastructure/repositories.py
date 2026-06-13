@@ -63,9 +63,7 @@ class AuditRepository:
             # metacharacters in the caller's input are escaped to match
             # literally.
             prefix = filters.ip_prefix
-            escaped = (
-                prefix.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-            )
+            escaped = prefix.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
             ip_text = sa.cast(audit_logs.c.actor_ip, sa.Text)
             q = q.where(
                 sa.or_(

@@ -214,9 +214,7 @@ def test_invite_subject_strips_header_injection() -> None:
 
 async def test_emails_sent_total_counts_success_and_failure(monkeypatch) -> None:
     def _value(result: str) -> float:
-        return (
-            email_mod.EMAILS_SENT_TOTAL.labels(template="verify_email", result=result)._value.get()
-        )
+        return email_mod.EMAILS_SENT_TOTAL.labels(template="verify_email", result=result)._value.get()
 
     sent0, fail0 = _value("sent"), _value("failed")
 

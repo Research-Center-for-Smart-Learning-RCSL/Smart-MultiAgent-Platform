@@ -140,10 +140,7 @@ def _build_web_search_tool(db: AsyncSession, *, agent: Agent, deps: BuiltinToolD
 
 def _dump_results(results: list[SearchResult]) -> str:
     return json.dumps(
-        [
-            {"title": r.title, "url": r.url, "snippet": r.snippet, "score": r.score}
-            for r in results
-        ],
+        [{"title": r.title, "url": r.url, "snippet": r.snippet, "score": r.score} for r in results],
         separators=(",", ":"),
     )
 
@@ -264,7 +261,7 @@ async def _audit_mcp_invoke(
                 },
             ),
         )
-    except Exception:  # pragma: no cover - audit is best-effort
+    except Exception:  # noqa: S110  # pragma: no cover - audit is best-effort
         pass
 
 

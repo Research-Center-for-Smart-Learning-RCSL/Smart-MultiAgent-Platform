@@ -319,9 +319,7 @@ async def delete_config(
             await driver.delete_all(config_id=config_id)
         except Exception:
             neo4j_purged = False
-            _log.exception(
-                "graphrag delete: neo4j cascade failed for config %s", config_id
-            )
+            _log.exception("graphrag delete: neo4j cascade failed for config %s", config_id)
         finally:
             await driver.close()
 
@@ -347,9 +345,7 @@ async def delete_config(
             await qclient.close()
     except Exception:
         qdrant_purged = False
-        _log.exception(
-            "graphrag delete: qdrant cascade failed for config %s", config_id
-        )
+        _log.exception("graphrag delete: qdrant cascade failed for config %s", config_id)
 
     # Follow-up audit row recording the infra outcome (DOM-4) — committed by
     # the db_session dependency.

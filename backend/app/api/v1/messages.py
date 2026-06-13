@@ -190,9 +190,7 @@ async def _dispatch_message_wakeups(db: AsyncSession, chatroom_id: uuid.UUID) ->
     ``wakeup_agent`` turn for each that fired. Best-effort: a Redis / dispatch
     hiccup must never fail the user's send (the message is already committed)."""
     try:
-        woken = await evaluate_message_wakeups(
-            db, chatroom_id=chatroom_id, sender_is_user=True
-        )
+        woken = await evaluate_message_wakeups(db, chatroom_id=chatroom_id, sender_is_user=True)
         for agent_id in woken:
             await enqueue(
                 "wakeup_agent",

@@ -164,7 +164,9 @@ class MinioClient:
         # the browser sees what we dictate, not what the uploader declared
         # (SEC-M2). MinIO honours `response-content-type` /
         # `response-content-disposition` exactly like S3.
-        response_headers: dict[str, str] = {}
+        # Widened to the minio stub's value type (str | list[str] | tuple[str]);
+        # we only ever store str values but the SDK signature is broader.
+        response_headers: dict[str, str | list[str] | tuple[str]] = {}
         if response_content_type is not None:
             response_headers["response-content-type"] = response_content_type
         if response_content_disposition is not None:

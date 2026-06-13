@@ -17,9 +17,7 @@ from contexts.identity.application.auth_service import TokenPair
 def test_token_pair_instance_has_no_dict() -> None:
     # The precondition the bug hinged on. If `TokenPair` ever drops
     # `slots=True`, this assertion flips and the regression is moot.
-    pair = TokenPair(
-        access_token="a", refresh_token="r", token_type="Bearer", expires_in=900
-    )
+    pair = TokenPair(access_token="a", refresh_token="r", token_type="Bearer", expires_in=900)
     with pytest.raises(AttributeError):
         _ = pair.__dict__
 

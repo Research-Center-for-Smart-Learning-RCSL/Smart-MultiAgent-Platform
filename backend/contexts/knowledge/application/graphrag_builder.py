@@ -281,8 +281,7 @@ class GraphRagBuilder:
                 )
             except Exception as exc:  # best-effort cleanup; never fail the build
                 _log.warning(
-                    "graphrag superseded-entity sweep failed for config %s "
-                    "build %s: %s",
+                    "graphrag superseded-entity sweep failed for config %s " "build %s: %s",
                     cfg.id,
                     build_id,
                     exc,
@@ -369,8 +368,7 @@ class GraphRagBuilder:
             # would stop short and under-report `entities_written`. Fail
             # the build instead so the reconciler/operator sees it.
             raise GraphRagBuildFailed(
-                f"embedder returned {len(vectors)} vectors for "
-                f"{len(descriptions)} entities"
+                f"embedder returned {len(vectors)} vectors for " f"{len(descriptions)} entities"
             )
         return [
             EntityEmbedding(

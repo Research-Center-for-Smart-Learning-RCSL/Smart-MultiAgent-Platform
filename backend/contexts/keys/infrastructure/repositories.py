@@ -106,9 +106,7 @@ class ApiKeyRepository:
         its original owner (SEC-5). Returns None if no such key row exists.
         """
         row = (
-            await self._db.execute(
-                sa.select(t.api_keys.c.owner_user_id).where(t.api_keys.c.id == key_id)
-            )
+            await self._db.execute(sa.select(t.api_keys.c.owner_user_id).where(t.api_keys.c.id == key_id))
         ).first()
         return row.owner_user_id if row else None
 

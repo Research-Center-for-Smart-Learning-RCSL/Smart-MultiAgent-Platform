@@ -267,9 +267,7 @@ class RunEngine:
                 run_id,
                 run.workflow_id,
             )
-            await self._runs.update_state(
-                run_id, state=RunState.FAILED, ended_at=datetime.now(UTC)
-            )
+            await self._runs.update_state(run_id, state=RunState.FAILED, ended_at=datetime.now(UTC))
             await audit.emit(
                 self._db,
                 audit.AuditEvent(
@@ -406,9 +404,7 @@ class RunEngine:
             .values(
                 state=sealed_state,
                 ended_at=sa.text("now()"),
-                output=workflow_steps.c.output.op("||")(
-                    sa.cast({"resume_port": port}, pg.JSONB)
-                ),
+                output=workflow_steps.c.output.op("||")(sa.cast({"resume_port": port}, pg.JSONB)),
             )
         )
 
@@ -535,9 +531,7 @@ class RunEngine:
                 # run_workflow_step carries the spawning edge id (ASYNC-9); the
                 # other task types take only (run_id, node_id).
                 if from_edge is not None:
-                    await pool.enqueue_job(
-                        task_name, run_id_str, node_id, from_edge, **kwargs
-                    )
+                    await pool.enqueue_job(task_name, run_id_str, node_id, from_edge, **kwargs)
                 else:
                     await pool.enqueue_job(task_name, run_id_str, node_id, **kwargs)
         finally:
@@ -676,9 +670,7 @@ class RunEngine:
         # dispatched by dispatch_enqueues post-commit) so the resume reads the
         # committed variables. Reuses the (run_id, node_id) enqueue shape.
         if node.type == NodeType.SET_VARIABLE and outcome.state == StepState.SUCCEEDED:
-            self._pending_enqueues.append(
-                ("workflow_variable_signal", str(ctx.run_id), node_id, 0, None)
-            )
+            self._pending_enqueues.append(("workflow_variable_signal", str(ctx.run_id), node_id, 0, None))
 
         # Parked — set run to WAITING, schedule any timeout task, then stop.
         #
@@ -763,9 +755,7 @@ class RunEngine:
             return
 
         if len(matching) == 1:
-            await self._execute_node(
-                ctx, matching[0].to_node, from_edge=matching[0].id
-            )
+            await self._execute_node(ctx, matching[0].to_node, from_edge=matching[0].id)
         else:
             # W1: multiple outgoing edges → parallel branches.
             # Enqueue each as an independent Arq task so branches truly run in parallel

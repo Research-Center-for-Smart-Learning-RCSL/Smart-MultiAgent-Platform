@@ -16,9 +16,17 @@ from pathlib import Path
 
 import pytest
 
-_PROTOCOL_PATH = (
-    Path(__file__).resolve().parents[3] / "deploy" / "sandbox" / "driver" / "protocol.py"
-)
+_PROTOCOL_PATH = Path(__file__).resolve().parents[3] / "deploy" / "sandbox" / "driver" / "protocol.py"
+
+# The driver lives at the repo root under deploy/, which is NOT mounted in the
+# wiring tier's container (only backend/ is bind-mounted over /app). pytest still
+# imports every test module during collection, so guard the module-level load:
+# skip cleanly when the file is absent instead of crashing the whole collection.
+if not _PROTOCOL_PATH.is_file():
+    pytest.skip(
+        "driver protocol.py not present (deploy/ not mounted in this tier)",
+        allow_module_level=True,
+    )
 
 
 def _load_protocol():

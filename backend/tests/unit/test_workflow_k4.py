@@ -261,13 +261,21 @@ def test_matches_message_any_sender_no_regex() -> None:
 
 def test_matches_a2a_and_trigger() -> None:
     agent = str(uuid.uuid4())
-    assert ed.matches_a2a({"target_agent_id": agent, "types": ["call"]}, target_agent_id=agent, msg_type="call")
-    assert not ed.matches_a2a({"target_agent_id": agent, "types": ["call"]}, target_agent_id=agent, msg_type="notify")
+    assert ed.matches_a2a(
+        {"target_agent_id": agent, "types": ["call"]}, target_agent_id=agent, msg_type="call"
+    )
+    assert not ed.matches_a2a(
+        {"target_agent_id": agent, "types": ["call"]}, target_agent_id=agent, msg_type="notify"
+    )
     # no types → any type matches
     assert ed.matches_a2a({"target_agent_id": agent}, target_agent_id=agent, msg_type="notify")
     # trigger requires event_types membership
-    assert ed.matches_a2a_trigger({"agent_id": agent, "event_types": ["instruct"]}, agent_id=agent, msg_type="instruct")
-    assert not ed.matches_a2a_trigger({"agent_id": agent, "event_types": ["call"]}, agent_id=agent, msg_type="reply")
+    assert ed.matches_a2a_trigger(
+        {"agent_id": agent, "event_types": ["instruct"]}, agent_id=agent, msg_type="instruct"
+    )
+    assert not ed.matches_a2a_trigger(
+        {"agent_id": agent, "event_types": ["call"]}, agent_id=agent, msg_type="reply"
+    )
 
 
 def test_matches_variable_expression() -> None:
@@ -387,9 +395,7 @@ async def test_force_fail_marks_failed(monkeypatch) -> None:
     run_id = uuid.uuid4()
     engine = RunEngine(db=MagicMock())
     engine._runs = MagicMock()
-    engine._runs.get = AsyncMock(
-        return_value=SimpleNamespace(id=run_id, state=RunState.WAITING)
-    )
+    engine._runs.get = AsyncMock(return_value=SimpleNamespace(id=run_id, state=RunState.WAITING))
     engine._runs.update_state = AsyncMock(return_value=True)
     engine._steps = MagicMock()
     engine._steps.cancel_pending_for_run = AsyncMock(return_value=0)
@@ -474,9 +480,7 @@ async def test_resume_instruct_completed_resumes_success(monkeypatch) -> None:
     redis.kv[f"wf:instruct:{iid}"] = json.dumps({"run_id": run_id, "node_id": node_id})
 
     facade = SimpleNamespace(
-        get_instruction=AsyncMock(
-            return_value=SimpleNamespace(state=InstructionState.COMPLETED)
-        )
+        get_instruction=AsyncMock(return_value=SimpleNamespace(state=InstructionState.COMPLETED))
     )
     resumed: dict = {}
 
@@ -495,9 +499,7 @@ async def test_resume_instruct_completed_resumes_success(monkeypatch) -> None:
     db.commit = AsyncMock()
     monkeypatch.setattr("shared_kernel.auth.clients.get_redis", lambda: redis)
     monkeypatch.setattr("shared_kernel.db.session.async_session", lambda: _FakeSession(db))
-    monkeypatch.setattr(
-        "contexts.orchestration.interfaces.facade.OrchestrationFacade", lambda db: facade
-    )
+    monkeypatch.setattr("contexts.orchestration.interfaces.facade.OrchestrationFacade", lambda db: facade)
     monkeypatch.setattr("contexts.workflow.application.run_engine.RunEngine", _FakeEngine)
     monkeypatch.setattr("shared_kernel.audit.emit", AsyncMock())
 
@@ -523,9 +525,7 @@ async def test_resume_instruct_pending_does_not_claim(monkeypatch) -> None:
     db = MagicMock()
     monkeypatch.setattr("shared_kernel.auth.clients.get_redis", lambda: redis)
     monkeypatch.setattr("shared_kernel.db.session.async_session", lambda: _FakeSession(db))
-    monkeypatch.setattr(
-        "contexts.orchestration.interfaces.facade.OrchestrationFacade", lambda db: facade
-    )
+    monkeypatch.setattr("contexts.orchestration.interfaces.facade.OrchestrationFacade", lambda db: facade)
 
     result = await wf.workflow_resume_instruct({"redis": AsyncMock()}, str(iid))
 
@@ -549,9 +549,7 @@ async def test_resume_approval_retries_while_pending(monkeypatch) -> None:
     pool = AsyncMock()
     monkeypatch.setattr("shared_kernel.auth.clients.get_redis", lambda: redis)
     monkeypatch.setattr("shared_kernel.db.session.async_session", lambda: _FakeSession(db))
-    monkeypatch.setattr(
-        "contexts.orchestration.interfaces.facade.OrchestrationFacade", lambda db: facade
-    )
+    monkeypatch.setattr("contexts.orchestration.interfaces.facade.OrchestrationFacade", lambda db: facade)
 
     result = await wf.workflow_resume_approval({"redis": pool}, str(aid), 0)
 

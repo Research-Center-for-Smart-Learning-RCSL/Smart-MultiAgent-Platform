@@ -66,7 +66,7 @@ class FakeRepo:
         )
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 async def test_admin_reset_forces_idle_and_audits() -> None:
     cfg = GraphRagConfig(
         id=uuid.uuid4(),

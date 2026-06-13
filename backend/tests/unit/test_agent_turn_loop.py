@@ -64,7 +64,7 @@ class _FakeRegistry:
         return ToolResult(content='{"ok": true}')
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 async def test_stream_with_tools_runs_one_tool_round(monkeypatch) -> None:
     events: list = []
 
@@ -114,7 +114,7 @@ async def test_stream_with_tools_runs_one_tool_round(monkeypatch) -> None:
     assert engine._router.requests[1].payload["messages"][-1]["role"] == "tool"  # type: ignore[attr-defined]
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 async def test_stream_with_tools_no_tools_single_round(monkeypatch) -> None:
     class _PlainRouter:
         async def call_stream(self, *, group_id, request):

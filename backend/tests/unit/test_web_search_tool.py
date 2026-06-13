@@ -138,7 +138,7 @@ def _result(title: str) -> SearchResult:
     )
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 async def test_missing_active_key_raises() -> None:
     tool = _StubWebSearchTool(
         agent_id=uuid.uuid4(),
@@ -154,7 +154,7 @@ async def test_missing_active_key_raises() -> None:
         await tool.search("anything")
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 async def test_rate_limit_denies() -> None:
     adapter = _FakeAdapter([_result("a")])
     sk = _sk(SearchProvider.TAVILY)
@@ -172,7 +172,7 @@ async def test_rate_limit_denies() -> None:
         await tool.search("hello")
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 async def test_live_call_then_cache_hit() -> None:
     adapter = _FakeAdapter([_result("a"), _result("b")])
     sk = _sk(SearchProvider.TAVILY)
@@ -198,7 +198,7 @@ async def test_live_call_then_cache_hit() -> None:
     assert len(adapter.calls) == 1
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 async def test_four_kb_truncation() -> None:
     # Each result is ~1 KB, so >4 should be dropped after the 4 KB budget.
     big_snip = "x" * 900
@@ -243,7 +243,7 @@ async def test_four_kb_truncation() -> None:
     assert len(serialised) <= 4096
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 async def test_unregistered_provider_treated_as_not_configured() -> None:
     sk = _sk(SearchProvider.BRAVE)  # Only Tavily is registered in this test.
     tool = _StubWebSearchTool(

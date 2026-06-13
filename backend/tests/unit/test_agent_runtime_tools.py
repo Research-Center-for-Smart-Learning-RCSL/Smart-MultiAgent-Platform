@@ -16,7 +16,7 @@ from contexts.agents.application.runtime.tool_registry import (
 )
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 async def test_update_wakeup_tool_invokes_facade(monkeypatch) -> None:
     captured: dict = {}
 
@@ -53,7 +53,7 @@ async def test_update_wakeup_tool_invokes_facade(monkeypatch) -> None:
     assert captured["actor_agent_id"] == agent_id
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 async def test_load_prompt_section_tool_serves_and_caches() -> None:
     prompt = LazyPrompt(index="idx", bodies={"alpha": "body-A", "beta": "body-B"})
     cache = SectionCache()
@@ -68,7 +68,7 @@ async def test_load_prompt_section_tool_serves_and_caches() -> None:
     assert miss.is_error
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 async def test_registry_dispatch_and_unknown() -> None:
     reg = build_registry(object(), agent_id=uuid.uuid4())
     # update_wakeup is always present; load_prompt_section only with a lazy prompt.
@@ -80,16 +80,14 @@ async def test_registry_dispatch_and_unknown() -> None:
     assert unknown.is_error
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 async def test_registry_includes_lazy_section_tool() -> None:
     prompt = LazyPrompt(index="idx", bodies={"a": "x"})
-    reg = build_registry(
-        object(), agent_id=uuid.uuid4(), lazy_prompt=prompt, section_cache=SectionCache()
-    )
+    reg = build_registry(object(), agent_id=uuid.uuid4(), lazy_prompt=prompt, section_cache=SectionCache())
     assert {s["name"] for s in reg.specs()} == {"update_wakeup", "load_prompt_section"}
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 async def test_registry_swallows_tool_exception() -> None:
     from contexts.agents.application.runtime.tool_registry import Tool
 

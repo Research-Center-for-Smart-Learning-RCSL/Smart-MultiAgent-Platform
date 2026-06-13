@@ -118,9 +118,7 @@ async def require_withdraw(
     scope = Scope(project_id=project_id, resource_owner_user_id=owner_id)
     decision = await decide(principal, Capability.KEY_DELETE_OWN, scope, resolver)
     if not decision.allowed:
-        decision = await decide(
-            principal, Capability.KEY_DELETE_OTHER_IN_PROJECT, scope, resolver
-        )
+        decision = await decide(principal, Capability.KEY_DELETE_OTHER_IN_PROJECT, scope, resolver)
     if not decision.allowed:
         _raise_forbidden(decision.reason)
 

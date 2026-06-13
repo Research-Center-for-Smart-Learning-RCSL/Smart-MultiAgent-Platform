@@ -96,7 +96,7 @@ class _FakeRepo:
         return await self.list_for_project(project_id)
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 async def test_add_normalises_and_audits() -> None:
     session = _FakeSession()
     svc = EgressAllowlistService(session)  # type: ignore[arg-type]
@@ -115,7 +115,7 @@ async def test_add_normalises_and_audits() -> None:
     assert session.executed
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 async def test_add_rejects_invalid_hostname() -> None:
     svc = EgressAllowlistService(_FakeSession())  # type: ignore[arg-type]
     svc._repo = _FakeRepo()  # type: ignore[assignment]
@@ -129,7 +129,7 @@ async def test_add_rejects_invalid_hostname() -> None:
         )
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 async def test_replace_normalises_and_deduplicates() -> None:
     svc = EgressAllowlistService(_FakeSession())  # type: ignore[arg-type]
     repo = _FakeRepo()
@@ -146,7 +146,7 @@ async def test_replace_normalises_and_deduplicates() -> None:
     assert hosts == ["bar.example.com", "foo.example.com"]
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 async def test_remove_returns_false_when_missing() -> None:
     svc = EgressAllowlistService(_FakeSession())  # type: ignore[arg-type]
     svc._repo = _FakeRepo()  # type: ignore[assignment]
@@ -159,7 +159,7 @@ async def test_remove_returns_false_when_missing() -> None:
     assert removed is False
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 async def test_non_owner_guard_is_router_concern_not_service() -> None:
     """The service trusts the caller; the guard lives in the router.
 

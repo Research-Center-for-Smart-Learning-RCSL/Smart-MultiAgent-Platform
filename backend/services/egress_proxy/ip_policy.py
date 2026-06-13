@@ -85,7 +85,7 @@ def is_blocked_ip(ip: str) -> bool:
 
     # IPv6 unique-local (fc00::/7) is not caught by ``is_private`` on some
     # versions — double-check explicitly.
-    if addr.version == 6 and addr in ipaddress.ip_network("fc00::/7"):
+    if addr.version == 6 and addr in ipaddress.ip_network("fc00::/7"):  # noqa: SIM103 (guard-clause chain)
         return True
 
     return False

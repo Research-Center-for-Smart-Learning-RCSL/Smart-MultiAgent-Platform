@@ -541,9 +541,7 @@ class InviteRepository:
         path — the token is never persisted in plaintext, only its SHA-256.
         """
         token_hash = _hash_token(token)
-        row = (
-            await self._db.execute(t.invites.select().where(t.invites.c.token_hash == token_hash))
-        ).first()
+        row = (await self._db.execute(t.invites.select().where(t.invites.c.token_hash == token_hash))).first()
         return _row_to_invite(row) if row else None
 
     async def transition(

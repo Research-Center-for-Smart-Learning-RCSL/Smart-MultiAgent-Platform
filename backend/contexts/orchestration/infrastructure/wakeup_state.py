@@ -115,7 +115,7 @@ async def is_silence_active(
     room_id: uuid.UUID,
 ) -> bool:
     val = await get_redis().get(_silence_active_key(agent_id, room_id))
-    return val == "1"  # type: ignore[no-any-return]
+    return val == "1"
 
 
 # ---------------------------------------------------------------------------

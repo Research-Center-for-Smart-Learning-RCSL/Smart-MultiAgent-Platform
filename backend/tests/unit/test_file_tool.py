@@ -36,14 +36,14 @@ class _FakeRunner:
         raise NotImplementedError
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 async def test_volume_name_format() -> None:
     agent_id = uuid.uuid4()
     tool = FileTool(agent_id=agent_id, runner=_FakeRunner())
     assert tool.volume_name == f"smap-agent-fs-{agent_id}"
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 async def test_list_delegates_to_runner() -> None:
     runner = _FakeRunner()
     agent_id = uuid.uuid4()
@@ -56,7 +56,7 @@ async def test_list_delegates_to_runner() -> None:
     assert call["agent_id"] == agent_id
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 async def test_read_delegates_with_absolute_path() -> None:
     runner = _FakeRunner()
     tool = FileTool(agent_id=uuid.uuid4(), runner=runner)
@@ -65,7 +65,7 @@ async def test_read_delegates_with_absolute_path() -> None:
     assert runner.calls[0]["op"] == "read"
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 async def test_write_delegates_with_bytes() -> None:
     runner = _FakeRunner()
     tool = FileTool(agent_id=uuid.uuid4(), runner=runner)
@@ -76,7 +76,7 @@ async def test_write_delegates_with_bytes() -> None:
     assert c["path"] == "/workspace/out.txt"
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 async def test_path_traversal_rejected() -> None:
     tool = FileTool(agent_id=uuid.uuid4(), runner=_FakeRunner())
     for bad in ["../etc/passwd", "/etc/passwd", "../../..", "foo/../../bar"]:
@@ -84,21 +84,21 @@ async def test_path_traversal_rejected() -> None:
             await tool.read(bad)
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 async def test_null_byte_rejected() -> None:
     tool = FileTool(agent_id=uuid.uuid4(), runner=_FakeRunner())
     with pytest.raises(ValueError):
         await tool.read("foo\x00bar")
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 async def test_write_requires_bytes() -> None:
     tool = FileTool(agent_id=uuid.uuid4(), runner=_FakeRunner())
     with pytest.raises(TypeError):
         await tool.write("a.txt", "not-bytes")  # type: ignore[arg-type]
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 async def test_write_size_cap() -> None:
     tool = FileTool(agent_id=uuid.uuid4(), runner=_FakeRunner())
     with pytest.raises(ValueError):

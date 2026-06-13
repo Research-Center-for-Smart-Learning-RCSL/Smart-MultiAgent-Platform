@@ -93,7 +93,7 @@ class _FakeStore:
         return "new_id"
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 async def test_run_compact_success() -> None:
     msgs = [_m(1, 400), _m(2, 300), _m(3, 200)]
     store = _FakeStore()
@@ -110,7 +110,7 @@ async def test_run_compact_success() -> None:
     assert "summary of" in store.called_with["text"]
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 async def test_run_compact_raises_compact_failed_on_summariser_error() -> None:
     msgs = [_m(1, 900)]
     store = _FakeStore()

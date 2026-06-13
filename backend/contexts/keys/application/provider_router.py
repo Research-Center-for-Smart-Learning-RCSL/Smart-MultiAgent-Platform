@@ -128,9 +128,7 @@ class StreamingAdapter(Protocol):
 
     provider: ApiKeyProvider
 
-    def stream(
-        self, *, secret: str, request: ProviderRequest
-    ) -> AsyncGenerator[StreamEvent, None]: ...
+    def stream(self, *, secret: str, request: ProviderRequest) -> AsyncGenerator[StreamEvent, None]: ...
 
 
 class ProviderStreamError(RuntimeError):
@@ -496,9 +494,7 @@ class ProviderRouter:
             st.exhausted = True
             return None
 
-    async def call_single_key(
-        self, *, key_id: uuid.UUID, request: ProviderRequest
-    ) -> ProviderCallResult:
+    async def call_single_key(self, *, key_id: uuid.UUID, request: ProviderRequest) -> ProviderCallResult:
         """Pinned-key call — no rotation — for embedding / rerank traffic.
 
         Rotation is wrong for these: RAG pins one ``embed_key_id`` and a
@@ -603,7 +599,7 @@ class ProviderRouter:
             return True
         if lim.max_output_tokens_per_hour and used.output_tokens >= lim.max_output_tokens_per_hour:
             return True
-        if lim.max_requests_per_hour and used.requests >= lim.max_requests_per_hour:
+        if lim.max_requests_per_hour and used.requests >= lim.max_requests_per_hour:  # noqa: SIM103 (guard-clause chain)
             return True
         return False
 
@@ -689,9 +685,7 @@ class _KeyVanished(RuntimeError):
 
 # R7.01 lookup — derived once at import time from the authoritative table in
 # `contexts.keys.domain.providers` (no duplicated capability matrix here).
-_CAPS: dict[ApiKeyProvider, frozenset[ProviderCapability]] = {
-    p: capabilities_of(p) for p in ApiKeyProvider
-}
+_CAPS: dict[ApiKeyProvider, frozenset[ProviderCapability]] = {p: capabilities_of(p) for p in ApiKeyProvider}
 
 
 def _limits_unbounded(lim: HourlyLimits) -> bool:

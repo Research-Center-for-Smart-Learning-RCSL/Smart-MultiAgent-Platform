@@ -61,9 +61,7 @@ class NotificationRepository:
         }
         if dedup_key is None:
             row = (
-                await self._db.execute(
-                    t.notifications.insert().values(**values).returning(t.notifications)
-                )
+                await self._db.execute(t.notifications.insert().values(**values).returning(t.notifications))
             ).one()
             return _row_to_notification(row), True
 
@@ -76,9 +74,12 @@ class NotificationRepository:
             )
             .returning(t.notifications)
         )
-        row = (await self._db.execute(stmt)).one_or_none()
-        if row is not None:
-            return _row_to_notification(row), True
+        # `on_conflict_do_nothing` + RETURNING yields a row only when the insert
+        # actually happened; a conflict suppresses the insert and returns None.
+        # Use a distinct optional-typed name so the None branch stays reachable.
+        inserted = (await self._db.execute(stmt)).one_or_none()
+        if inserted is not None:
+            return _row_to_notification(inserted), True
         # Conflict — a duplicate already exists; return the row that won.
         existing = (
             await self._db.execute(
@@ -120,9 +121,7 @@ class NotificationRepository:
         if cursor is not None:
             cursor_created_at = (
                 await self._db.execute(
-                    sa.select(t.notifications.c.created_at).where(
-                        t.notifications.c.id == cursor
-                    )
+                    sa.select(t.notifications.c.created_at).where(t.notifications.c.id == cursor)
                 )
             ).scalar_one_or_none()
             if cursor_created_at is not None:

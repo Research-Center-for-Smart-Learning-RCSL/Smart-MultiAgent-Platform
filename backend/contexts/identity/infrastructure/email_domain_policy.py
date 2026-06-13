@@ -36,7 +36,7 @@ async def is_allowed(email: str) -> bool:
     await _refresh_if_stale()
     if _cache.mode == "deny" and domain in _cache.deny:
         return False
-    if _cache.mode == "allow" and domain not in _cache.allow:
+    if _cache.mode == "allow" and domain not in _cache.allow:  # noqa: SIM103 (guard-clause chain)
         return False
     return True
 

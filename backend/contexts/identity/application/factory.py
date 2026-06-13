@@ -57,8 +57,7 @@ def _default_email_sender() -> EmailSender:
         # No creds in Vault is valid for an unauthenticated in-cluster relay /
         # MailHog; log and proceed without auth rather than dropping to logging.
         logger.bind(event="smtp_creds_missing", path=_SMTP_KV_PATH).warning(
-            "SMTP host is configured but Vault credentials are unreadable; "
-            "sending without authentication"
+            "SMTP host is configured but Vault credentials are unreadable; " "sending without authentication"
         )
     return SmtpEmailSender(
         host=cfg.smtp_host,

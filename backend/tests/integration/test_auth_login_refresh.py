@@ -67,18 +67,18 @@ class _FakeAuthService:
         return _pair("rotated")
 
 
-@pytest.fixture()
+@pytest.fixture
 def fake_service() -> _FakeAuthService:
     return _FakeAuthService()
 
 
-@pytest.fixture()
+@pytest.fixture
 def minted_tickets() -> list[str]:
     """Records the raw access tokens handed to `mint_ws_ticket`."""
     return []
 
 
-@pytest.fixture()
+@pytest.fixture
 def auth_client(
     fake_service: _FakeAuthService,
     minted_tickets: list[str],

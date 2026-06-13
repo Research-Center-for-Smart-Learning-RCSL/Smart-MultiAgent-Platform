@@ -204,11 +204,7 @@ def build_cast_approval_vote_tool(
             rationale=(str(args["rationale"]) if args.get("rationale") else None),
             chatroom_id=allowed_approvals[approval_id],
         )
-        return ToolResult(
-            content=json.dumps(
-                {"approval_id": raw, "vote": ballot.vote, "recorded": True}
-            )
-        )
+        return ToolResult(content=json.dumps({"approval_id": raw, "vote": ballot.vote, "recorded": True}))
 
     return Tool(
         name="cast_approval_vote",

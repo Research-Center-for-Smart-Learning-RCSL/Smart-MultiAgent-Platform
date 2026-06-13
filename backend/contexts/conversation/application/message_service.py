@@ -106,7 +106,10 @@ class MessageService:
         sender_user_id: uuid.UUID,
         content_md: str,
         metadata: dict[str, Any] | None = None,
-        attachment_ids: list[uuid.UUID] | None = None,  # type: ignore[valid-type]
+        # NB: `Sequence`, not `list` — this class defines a `list()` method, and
+        # under PEP 563 string annotations `list[...]` resolves to that method
+        # (valid-type error) rather than the builtin generic.
+        attachment_ids: Sequence[uuid.UUID] | None = None,
         actor_ip: str | None,
         request_id: uuid.UUID | None = None,
     ) -> Message:

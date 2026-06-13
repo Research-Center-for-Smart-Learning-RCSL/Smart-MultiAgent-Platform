@@ -60,7 +60,7 @@ class _FakeTransit:
         self.version += 1
 
 
-@pytest.fixture()
+@pytest.fixture
 def vault_fixture(monkeypatch: pytest.MonkeyPatch) -> tuple[VaultClient, _FakeTransit]:
     kv = _FakeKv(
         {

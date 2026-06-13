@@ -85,8 +85,7 @@ class ReconciliationLoop:
                     await db.commit()
                 except Exception:
                     _log.exception(
-                        "graphrag reconcile failed for config %s; "
-                        "peers in this cycle are unaffected",
+                        "graphrag reconcile failed for config %s; " "peers in this cycle are unaffected",
                         cfg.id,
                     )
                     await db.rollback()

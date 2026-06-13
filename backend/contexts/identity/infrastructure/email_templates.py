@@ -139,8 +139,7 @@ def already_registered(login_link: str) -> RenderedEmail:
         html_body=_wrap_html(
             "You already have an account",
             [
-                "Someone tried to register an account with this email address, "
-                "but one already exists.",
+                "Someone tried to register an account with this email address, " "but one already exists.",
                 "If this was you, sign in or use the password-reset flow. "
                 "If it wasn't, you can safely ignore this message.",
             ],

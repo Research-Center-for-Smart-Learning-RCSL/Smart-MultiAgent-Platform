@@ -47,7 +47,7 @@ def test_matrix_shape_is_24x6() -> None:
 
 # Admin is universal ALLOW except for KEY_VIEW_PLAINTEXT (row 1).
 @pytest.mark.parametrize("cap", list(Capability))
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 async def test_admin_universal_allow_except_plaintext(cap: Capability) -> None:
     principal = Principal(user_id=uuid.uuid4(), is_admin=True, email_verified=True)
     resolver = FakeResolver(roles=frozenset())
@@ -120,7 +120,7 @@ _EXPECTED_ALLOW: dict[Capability, set[Role]] = {
 
 @pytest.mark.parametrize("cap", list(Capability))
 @pytest.mark.parametrize("role", list(Role))
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 async def test_matrix_full_sweep(cap: Capability, role: Role) -> None:
     """Every (capability, role) ⇒ allow iff §5.2 says so.
 
@@ -153,7 +153,7 @@ async def test_matrix_full_sweep(cap: Capability, role: Role) -> None:
 
 
 # Targeted: OWN_ONLY denies when the caller does NOT own the resource.
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 async def test_own_only_denies_when_not_owner() -> None:
     caller = uuid.uuid4()
     other = uuid.uuid4()
@@ -165,7 +165,7 @@ async def test_own_only_denies_when_not_owner() -> None:
 
 
 # Targeted: ORG_DELETE — OrgOwner without OC is denied.
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 async def test_org_delete_requires_original_creator() -> None:
     user = uuid.uuid4()
     principal = Principal(user_id=user, is_admin=False, email_verified=True)
@@ -176,7 +176,7 @@ async def test_org_delete_requires_original_creator() -> None:
 
 
 # R6.02: unverified users cannot create Org / Project.
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 async def test_email_unverified_blocks_create_capabilities() -> None:
     principal = Principal(user_id=uuid.uuid4(), is_admin=False, email_verified=False)
     resolver = FakeResolver(roles=frozenset({Role.ORG_OWNER}))
@@ -190,7 +190,7 @@ async def test_email_unverified_blocks_create_capabilities() -> None:
 
 
 # R5.01 precedence: Admin beats email-unverified for non-plaintext rows.
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 async def test_admin_not_gated_by_email_verification() -> None:
     principal = Principal(user_id=uuid.uuid4(), is_admin=True, email_verified=False)
     resolver = FakeResolver(roles=frozenset())
@@ -199,7 +199,7 @@ async def test_admin_not_gated_by_email_verification() -> None:
 
 
 # ROOM_ACL — GUEST allowed only with room participation proven.
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 async def test_guest_chat_send_requires_room_participation() -> None:
     principal = Principal(user_id=uuid.uuid4(), is_admin=False, email_verified=False)
     scope = Scope(chatroom_id=uuid.uuid4())

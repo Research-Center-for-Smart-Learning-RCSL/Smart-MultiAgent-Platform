@@ -34,7 +34,7 @@ def _fake_agent_repo(agent_ids):
     return _Repo
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 async def test_evaluate_message_wakeups_returns_wake_list(monkeypatch) -> None:
     a1, a2 = uuid.uuid4(), uuid.uuid4()
     room = uuid.uuid4()
@@ -47,16 +47,12 @@ async def test_evaluate_message_wakeups_returns_wake_list(monkeypatch) -> None:
             pass
 
         async def on_message_created(self, *, room_id, sender_is_user, agent_ids):
-            captured.update(
-                room_id=room_id, sender_is_user=sender_is_user, agent_ids=list(agent_ids)
-            )
+            captured.update(room_id=room_id, sender_is_user=sender_is_user, agent_ids=list(agent_ids))
             return [a1]  # only a1's every_n trigger fired
 
     monkeypatch.setattr(facade_mod, "OrchestrationFacade", _Facade)
 
-    woken = await triggers.evaluate_message_wakeups(
-        object(), chatroom_id=room, sender_is_user=True
-    )
+    woken = await triggers.evaluate_message_wakeups(object(), chatroom_id=room, sender_is_user=True)
 
     assert woken == [a1]
     assert captured["room_id"] == room
@@ -64,7 +60,7 @@ async def test_evaluate_message_wakeups_returns_wake_list(monkeypatch) -> None:
     assert captured["agent_ids"] == [a1, a2]
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 async def test_evaluate_message_wakeups_no_agents_skips_facade(monkeypatch) -> None:
     monkeypatch.setattr(triggers, "ChatroomAgentRepository", _fake_agent_repo([]))
 
@@ -74,13 +70,11 @@ async def test_evaluate_message_wakeups_no_agents_skips_facade(monkeypatch) -> N
 
     monkeypatch.setattr(facade_mod, "OrchestrationFacade", _Boom)
 
-    woken = await triggers.evaluate_message_wakeups(
-        object(), chatroom_id=uuid.uuid4(), sender_is_user=True
-    )
+    woken = await triggers.evaluate_message_wakeups(object(), chatroom_id=uuid.uuid4(), sender_is_user=True)
     assert woken == []
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 async def test_evaluate_presence_change_forwards_flag(monkeypatch) -> None:
     a1 = uuid.uuid4()
     room = uuid.uuid4()
@@ -93,15 +87,11 @@ async def test_evaluate_presence_change_forwards_flag(monkeypatch) -> None:
             pass
 
         async def on_presence_changed(self, *, room_id, agent_ids, has_live_users):
-            captured.update(
-                room_id=room_id, agent_ids=list(agent_ids), has_live_users=has_live_users
-            )
+            captured.update(room_id=room_id, agent_ids=list(agent_ids), has_live_users=has_live_users)
 
     monkeypatch.setattr(facade_mod, "OrchestrationFacade", _Facade)
 
-    await triggers.evaluate_presence_change(
-        object(), chatroom_id=room, has_live_users=False
-    )
+    await triggers.evaluate_presence_change(object(), chatroom_id=room, has_live_users=False)
     assert captured == {"room_id": room, "agent_ids": [a1], "has_live_users": False}
 
 
@@ -170,9 +160,7 @@ def _patch_task_env(
             rec["run_turn"].append((agent_id, chatroom_id, trigger))
             return SimpleNamespace(status=turn_status, reason=None)
 
-    monkeypatch.setattr(
-        "contexts.agents.application.runtime.turn_engine.TurnEngine", _TurnEngine
-    )
+    monkeypatch.setattr("contexts.agents.application.runtime.turn_engine.TurnEngine", _TurnEngine)
 
     class _OrchFacade:
         def __init__(self, db) -> None:
@@ -182,9 +170,7 @@ def _patch_task_env(
             rec["on_agent_message_sent"].append((agent_id, room_id))
             return 1
 
-    monkeypatch.setattr(
-        "contexts.orchestration.interfaces.facade.OrchestrationFacade", _OrchFacade
-    )
+    monkeypatch.setattr("contexts.orchestration.interfaces.facade.OrchestrationFacade", _OrchFacade)
 
     async def _emit(db, event):
         rec["audit"].append(event.action)
@@ -202,13 +188,11 @@ def _patch_task_env(
 def _agent(autostop_rounds=5):
     return SimpleNamespace(
         id=uuid.uuid4(),
-        wakeup_config={
-            "triggers": {"silence_minutes": {"autostop_rounds": autostop_rounds}}
-        },
+        wakeup_config={"triggers": {"silence_minutes": {"autostop_rounds": autostop_rounds}}},
     )
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 async def test_wakeup_agent_skips_when_room_gone(monkeypatch) -> None:
     rec = _patch_task_env(monkeypatch, room=None, agent=_agent())
     out = await orch_task.wakeup_agent({}, str(uuid.uuid4()), str(uuid.uuid4()))
@@ -216,7 +200,7 @@ async def test_wakeup_agent_skips_when_room_gone(monkeypatch) -> None:
     assert rec["run_turn"] == []
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 async def test_wakeup_agent_skips_when_agent_gone(monkeypatch) -> None:
     rec = _patch_task_env(monkeypatch, room=SimpleNamespace(id=uuid.uuid4()), agent=None)
     out = await orch_task.wakeup_agent({}, str(uuid.uuid4()), str(uuid.uuid4()))
@@ -224,7 +208,7 @@ async def test_wakeup_agent_skips_when_agent_gone(monkeypatch) -> None:
     assert rec["run_turn"] == []
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 async def test_wakeup_agent_skips_when_autostop_tripped(monkeypatch) -> None:
     rec = _patch_task_env(
         monkeypatch,
@@ -237,12 +221,10 @@ async def test_wakeup_agent_skips_when_autostop_tripped(monkeypatch) -> None:
     assert rec["run_turn"] == []
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 async def test_wakeup_agent_runs_turn_and_counts_round(monkeypatch) -> None:
     aid, rid = uuid.uuid4(), uuid.uuid4()
-    rec = _patch_task_env(
-        monkeypatch, room=SimpleNamespace(id=rid), agent=_agent(), turn_status="completed"
-    )
+    rec = _patch_task_env(monkeypatch, room=SimpleNamespace(id=rid), agent=_agent(), turn_status="completed")
     out = await orch_task.wakeup_agent({}, str(aid), str(rid), "silence_minutes")
 
     assert out == "completed"
@@ -252,12 +234,10 @@ async def test_wakeup_agent_runs_turn_and_counts_round(monkeypatch) -> None:
     assert "wakeup.fired" in rec["audit"]
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 async def test_wakeup_agent_skipped_turn_does_not_count_round(monkeypatch) -> None:
     aid, rid = uuid.uuid4(), uuid.uuid4()
-    rec = _patch_task_env(
-        monkeypatch, room=SimpleNamespace(id=rid), agent=_agent(), turn_status="skipped"
-    )
+    rec = _patch_task_env(monkeypatch, room=SimpleNamespace(id=rid), agent=_agent(), turn_status="skipped")
     out = await orch_task.wakeup_agent({}, str(aid), str(rid))
 
     assert out == "skipped"

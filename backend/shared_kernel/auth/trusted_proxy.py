@@ -21,10 +21,16 @@ def resolve_actor_ip(
     peer_ip: str,
     forwarded_for: str | None,
     trusted_cidrs: Sequence[str],
-) -> str:
+) -> str | None:
     networks = [ipaddress.ip_network(c, strict=False) for c in trusted_cidrs]
     peer_addr = _parse(peer_ip)
-    if peer_addr is None or not any(peer_addr in n for n in networks):
+    if peer_addr is None:
+        # The transport peer is not a parseable IP (e.g. a non-network transport
+        # or a test harness whose host is the literal "testclient"). We have no
+        # trustworthy client IP — return None rather than propagate a non-IP
+        # string into inet columns, IP-ban checks, or rate-limit keys.
+        return None
+    if not any(peer_addr in n for n in networks):
         # Peer itself is untrusted — ignore whatever header was sent.
         return peer_ip
 

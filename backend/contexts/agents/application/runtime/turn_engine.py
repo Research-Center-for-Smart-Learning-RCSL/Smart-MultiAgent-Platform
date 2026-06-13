@@ -115,9 +115,7 @@ def _queued_trigger_key(agent_id: uuid.UUID, chatroom_id: uuid.UUID) -> str:
     return f"turn:queued:{agent_id}:{chatroom_id}"
 
 
-async def _mark_trigger_queued(
-    agent_id: uuid.UUID, chatroom_id: uuid.UUID, trigger: str
-) -> None:
+async def _mark_trigger_queued(agent_id: uuid.UUID, chatroom_id: uuid.UUID, trigger: str) -> None:
     """Record (at most once — SETNX) that a trigger landed while a turn held
     the lock, so the lock holder re-enqueues exactly one follow-up turn."""
     try:
@@ -138,9 +136,7 @@ async def _mark_trigger_queued(
         )
 
 
-async def _pop_queued_trigger(
-    agent_id: uuid.UUID, chatroom_id: uuid.UUID
-) -> str | None:
+async def _pop_queued_trigger(agent_id: uuid.UUID, chatroom_id: uuid.UUID) -> str | None:
     """Atomically read-and-clear the coalesced-trigger flag (GETDEL)."""
     try:
         from shared_kernel.auth.clients import get_redis
@@ -318,9 +314,7 @@ class TurnEngine:
             _log.warning("builtin tool assembly failed for agent %s", agent.id, exc_info=True)
             return []
 
-    def _resolve_prompt(
-        self, agent: Agent
-    ) -> tuple[str, LazyPrompt | None, SectionCache | None]:
+    def _resolve_prompt(self, agent: Agent) -> tuple[str, LazyPrompt | None, SectionCache | None]:
         """Resolve the agent's system prompt (R9.04–R9.08). All chat providers
         support tools, so ``lazy`` never has to fall back to ``full`` here."""
         prompt = assemble(
@@ -375,15 +369,11 @@ class TurnEngine:
         tools: list[Tool] = []
         if approvals:
             tools.append(
-                build_cast_approval_vote_tool(
-                    self._db, agent_id=agent.id, allowed_approvals=approvals
-                )
+                build_cast_approval_vote_tool(self._db, agent_id=agent.id, allowed_approvals=approvals)
             )
         return "[Incoming notifications]\n" + "\n".join(lines), tools, notes
 
-    async def _requeue_notifications(
-        self, agent: Agent, notes: list[dict[str, Any]]
-    ) -> None:
+    async def _requeue_notifications(self, agent: Agent, notes: list[dict[str, Any]]) -> None:
         """Restore drained-but-unseen notifications (turn failed / skipped
         before the provider call could read them). Best-effort."""
         if not notes:
@@ -470,9 +460,7 @@ class TurnEngine:
                     system_parts.append(f"[Earlier conversation summary]\n{hm.content}")
             # Retrieval keys off the *current* input when this turn carries one
             # (run_input_turn); otherwise the latest user message in history.
-            query_text = input_text or next(
-                (h.content for h in reversed(history) if h.role == "user"), None
-            )
+            query_text = input_text or next((h.content for h in reversed(history) if h.role == "user"), None)
             rag_block = await self._rag_context(agent, query_text)
             if rag_block:
                 system_parts.append(rag_block)
@@ -549,9 +537,7 @@ class TurnEngine:
                 metadata={"trigger": trigger, "tool_rounds": rounds},
                 request_id=request_id,
             )
-            await self._audit(
-                agent, chatroom_id, "agent.turn_finished", {"tool_rounds": rounds}
-            )
+            await self._audit(agent, chatroom_id, "agent.turn_finished", {"tool_rounds": rounds})
             await self._db.commit()
             self._compact_forced_rooms.discard(chatroom_id)
             # Publish AFTER commit so a client's refetch sees the committed row
@@ -571,9 +557,7 @@ class TurnEngine:
             # like user sends do (sender_filter agent/any). Best-effort,
             # post-commit — never fails the turn.
             await self._dispatch_agent_message_signal(chatroom_id, final_text)
-            return TurnResult(
-                status="completed", message_id=msg.id, text=final_text, tool_rounds=rounds
-            )
+            return TurnResult(status="completed", message_id=msg.id, text=final_text, tool_rounds=rounds)
 
         except Exception as exc:
             _log.exception("agent turn failed agent=%s room=%s", agent_id, chatroom_id)
@@ -586,9 +570,7 @@ class TurnEngine:
             except Exception:
                 _log.exception("agent turn failure-path WS emit failed")
             try:
-                await self._audit(
-                    agent, chatroom_id, "agent.turn_failed", {"error": _err_kind(exc)}
-                )
+                await self._audit(agent, chatroom_id, "agent.turn_failed", {"error": _err_kind(exc)})
                 await self._db.commit()
             except Exception:
                 _log.exception("agent turn failure-path bookkeeping failed")
@@ -598,9 +580,7 @@ class TurnEngine:
             await self._restore_compact_flag(chatroom_id)
             return TurnResult(status="failed", reason=_err_kind(exc))
 
-    async def _dispatch_agent_message_signal(
-        self, chatroom_id: uuid.UUID, content: str
-    ) -> None:
+    async def _dispatch_agent_message_signal(self, chatroom_id: uuid.UUID, content: str) -> None:
         """Mirror of the user-send route's workflow signal dispatch
         (``app.api.v1.messages._dispatch_message_workflow_signal``) with
         ``sender_type="agent"``. Best-effort and post-commit."""
@@ -623,9 +603,7 @@ class TurnEngine:
                 exc_info=True,
             )
 
-    async def _turn_rate_allowed(
-        self, agent_id: uuid.UUID, chatroom_id: uuid.UUID
-    ) -> bool:
+    async def _turn_rate_allowed(self, agent_id: uuid.UUID, chatroom_id: uuid.UUID) -> bool:
         """Sliding-window per-(agent, room) turn cap. Fails open: a rate-limit
         infrastructure fault must not silence the agent."""
         try:
@@ -713,9 +691,7 @@ class TurnEngine:
         )
         return reloaded
 
-    async def run_compaction(
-        self, *, agent_id: uuid.UUID, chatroom_id: uuid.UUID
-    ) -> bool:
+    async def run_compaction(self, *, agent_id: uuid.UUID, chatroom_id: uuid.UUID) -> bool:
         """Headless compaction pass (G.10) — runs the turn engine's compaction
         machinery without a provider turn. Used by the ``compact_chatroom``
         worker task enqueued by POST /compact; the one-shot Redis flag set by
@@ -726,16 +702,12 @@ class TurnEngine:
         provider = agent.model_hint.value
         context_limit = _CONTEXT_LIMITS.get(provider, 128_000)
         try:
-            await self._assemble_history(
-                agent, chatroom_id, context_limit, dict(_DEFAULT_CHAT_MODELS)
-            )
+            await self._assemble_history(agent, chatroom_id, context_limit, dict(_DEFAULT_CHAT_MODELS))
             await self._db.commit()
             self._compact_forced_rooms.discard(chatroom_id)
             return True
         except Exception:
-            _log.exception(
-                "headless compaction failed agent=%s room=%s", agent_id, chatroom_id
-            )
+            _log.exception("headless compaction failed agent=%s room=%s", agent_id, chatroom_id)
             await self._db.rollback()
             await self._restore_compact_flag(chatroom_id)
             return False
@@ -766,9 +738,7 @@ class TurnEngine:
             await get_redis().set(f"compact:pending:{chatroom_id}", "1", ex=3600)
             self._compact_forced_rooms.discard(chatroom_id)
         except Exception:
-            _log.warning(
-                "failed to restore compact flag for room %s", chatroom_id, exc_info=True
-            )
+            _log.warning("failed to restore compact flag for room %s", chatroom_id, exc_info=True)
 
     async def _stream_with_tools(
         self,
@@ -801,9 +771,7 @@ class TurnEngine:
                 chatroom_id=chatroom_id,
             )
             body: dict[str, Any] = {}
-            async for ev in self._router.call_stream(
-                group_id=agent.key_group_id, request=request
-            ):
+            async for ev in self._router.call_stream(group_id=agent.key_group_id, request=request):
                 if isinstance(ev, TokenDelta):
                     AGENT_STREAM_TOKENS_TOTAL.inc()
                     if room is not None:
@@ -816,9 +784,7 @@ class TurnEngine:
             if not tool_calls:
                 return last_text, rounds - 1
             # Append the assistant tool-use turn, then each tool result.
-            messages.append(
-                {"role": "assistant", "content": last_text, "tool_calls": tool_calls}
-            )
+            messages.append({"role": "assistant", "content": last_text, "tool_calls": tool_calls})
             for tc in tool_calls:
                 result = await registry.call(tc.get("name"), tc.get("arguments") or {})
                 messages.append(
@@ -857,22 +823,21 @@ class TurnEngine:
             reranker: Reranker | None = None
             if cfg.rerank_enabled and cfg.rerank_key_id is not None:
                 try:
-                    from contexts.knowledge.infrastructure.rerankers import CohereReranker
+                    from contexts.knowledge.infrastructure.rerankers import RouterReranker
 
                     # Router-backed constructor (mirrors RouterEmbedder): the
                     # caller never touches key plaintext — the router unwraps
                     # the pinned rerank key on demand. If the reranker module
                     # still has the legacy `api_key` constructor this raises
                     # TypeError and we retrieve without rerank.
-                    reranker = CohereReranker(
+                    reranker = RouterReranker(
                         router=self._router,
                         key_id=cfg.rerank_key_id,
                         model=cfg.rerank_model or "rerank-3",
                     )
                 except TypeError:
                     _log.warning(
-                        "router-backed reranker unavailable for rag config %s; "
-                        "retrieving without rerank",
+                        "router-backed reranker unavailable for rag config %s; " "retrieving without rerank",
                         cfg.id,
                     )
             qclient = AsyncQdrantClient(url=self._qdrant_url, api_key=self._qdrant_api_key or None)
@@ -931,17 +896,11 @@ class TurnEngine:
         async def _embedder_factory(cfg: Any) -> Any:
             resolved = await self._resolve_graphrag_embed_key(cfg.builder_key_group_id)
             if resolved is None:
-                raise RuntimeError(
-                    f"builder key group {cfg.builder_key_group_id} has no embedding key"
-                )
+                raise RuntimeError(f"builder key group {cfg.builder_key_group_id} has no embedding key")
             provider, model, key_id = resolved
-            return router_embedder_for(
-                router=self._router, key_id=key_id, provider=provider, model=model
-            )
+            return router_embedder_for(router=self._router, key_id=key_id, provider=provider, model=model)
 
-        driver = Neo4jAsyncDriver(
-            uri=neo4j_conf.url, auth=(neo4j_conf.user, neo4j_conf.password)
-        )
+        driver = Neo4jAsyncDriver(uri=neo4j_conf.url, auth=(neo4j_conf.user, neo4j_conf.password))
         qclient = AsyncQdrantClient(url=self._qdrant_url, api_key=self._qdrant_api_key or None)
         try:
             svc = GraphRagRetrieveService(

@@ -68,7 +68,7 @@ class _FakeTransit:
         return {"data": {"signature": f"vault:v{ver}:{base64.b64encode(sig).decode()}"}}
 
 
-@pytest.fixture()
+@pytest.fixture
 def vault_client(monkeypatch: pytest.MonkeyPatch) -> tuple[VaultClient, _FakeTransit]:
     transit = _FakeTransit()
     transit.add_version(1)

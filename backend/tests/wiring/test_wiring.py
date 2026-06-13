@@ -314,7 +314,10 @@ async def test_a2a_call_round_trip(monkeypatch: pytest.MonkeyPatch) -> None:
             context_mode=ContextMode.GENERAL,
             context_token_cap=None,
             a2a_enabled=True,
-            wakeup_config={},
+            # The callee must opt into being A2A-callable: with no shared
+            # invocation context between two distinct agents, R9.17 requires
+            # call_only on the target (a2a_scope.is_call_only_enabled).
+            wakeup_config={"triggers": {"call_only": {"enabled": True}}},
             workflow_capabilities={},
         )
         await seed_db.commit()
@@ -364,9 +367,6 @@ async def test_workflow_golden_run(monkeypatch: pytest.MonkeyPatch) -> None:
 
     async with async_session() as seed_db:
         env = await _seed_agent_and_room(seed_db, a2a_enabled=True)
-        workflow = await WorkflowRepository(seed_db).insert(
-            workspace_id=env.workspace.id, name="golden", definition={}
-        )
         await seed_db.commit()
 
     agent_id = env.agent.id
@@ -403,6 +403,16 @@ async def test_workflow_golden_run(monkeypatch: pytest.MonkeyPatch) -> None:
             {"id": "e4", "from": "gate_1", "to": "end_1", "from_port": "approved"},
         ],
     }
+
+    # resume_at_port reloads the workflow row's definition as the source of
+    # truth (start_run's `definition` arg is the same document the API loads
+    # from this row). The row MUST carry the real definition — an empty stub
+    # leaves the resume path with no edges, so the run never reaches `end`.
+    async with async_session() as wf_db:
+        workflow = await WorkflowRepository(wf_db).insert(
+            workspace_id=env.workspace.id, name="golden", definition=definition
+        )
+        await wf_db.commit()
 
     async with _serving(agent_id), async_session() as db:
         # start_run drives trigger -> condition -> agent_invocation (which makes a
@@ -447,7 +457,14 @@ async def test_usage_event_written_per_provider_call() -> None:
             provider=ApiKeyProvider.OPENAI,
             name=f"k-{u}",
             envelope=EnvelopeRecord(
-                ciphertext=b"ct", nonce=b"no", dek_wrapped="vault:v1:zz", ciphertext_hmac=b"hm"
+                ciphertext=b"ct",
+                nonce=b"no",
+                dek_wrapped="vault:v1:zz",
+                ciphertext_hmac=b"hm",
+                # transit_key_version defaults to 0 ("unparsed/legacy"), which the
+                # repository rejects as corrupted; set it to a valid version.
+                transit_key_version=1,
+                hmac_key_version=1,
             ),
             masked_preview="sk-...abcd",
             test_status=ProbeStatus.OK,
@@ -493,7 +510,9 @@ def test_register_delivers_verification_email_via_smtp() -> None:
 
     from app.main import create_app
 
-    email = f"verify-{uuid.uuid4().hex[:8]}@smap.test"
+    # NB: a non-reserved domain — email-validator rejects reserved TLDs like
+    # `.test` (used elsewhere only via the repository, which bypasses EmailStr).
+    email = f"verify-{uuid.uuid4().hex[:8]}@example.com"
     with TestClient(create_app()) as client:
         resp = client.post(
             "/api/auth/register",

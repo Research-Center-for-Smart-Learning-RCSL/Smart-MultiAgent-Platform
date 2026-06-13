@@ -18,9 +18,7 @@ from loguru import logger
 
 from shared_kernel.db.session import async_session
 
-_APPROVER_TURN_INPUT = (
-    "An approval request is pending; review your notifications and vote."
-)
+_APPROVER_TURN_INPUT = "An approval request is pending; review your notifications and vote."
 
 
 async def drive_approver_turn(

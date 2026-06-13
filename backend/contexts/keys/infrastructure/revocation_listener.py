@@ -87,7 +87,7 @@ async def _listen_once() -> None:
         with suppress(Exception):
             await pubsub.unsubscribe()
         with suppress(Exception):
-            await pubsub.aclose()  # type: ignore[no-untyped-call]
+            await pubsub.aclose()
 
 
 def _handle(channel: str, data: str) -> None:

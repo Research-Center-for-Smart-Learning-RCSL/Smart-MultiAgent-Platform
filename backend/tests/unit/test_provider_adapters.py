@@ -44,7 +44,7 @@ def _sse(*objs: dict, done: bool = False) -> httpx.Response:
 # --------------------------------------------------------------------------- #
 # Anthropic                                                                    #
 # --------------------------------------------------------------------------- #
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 @respx.mock
 async def test_anthropic_invoke_normalises_and_uses_payload_model() -> None:
     route = respx.post("https://api.anthropic.com/v1/messages").respond(
@@ -69,18 +69,15 @@ async def test_anthropic_invoke_normalises_and_uses_payload_model() -> None:
     assert route.calls.last.request.headers["x-api-key"] == _SECRET
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 @respx.mock
 async def test_anthropic_stream_reassembles_tokens_and_usage() -> None:
     respx.post("https://api.anthropic.com/v1/messages").mock(
         return_value=_sse(
             {"type": "message_start", "message": {"usage": {"input_tokens": 5}}},
-            {"type": "content_block_delta", "index": 0,
-             "delta": {"type": "text_delta", "text": "Hel"}},
-            {"type": "content_block_delta", "index": 0,
-             "delta": {"type": "text_delta", "text": "lo"}},
-            {"type": "message_delta", "delta": {"stop_reason": "end_turn"},
-             "usage": {"output_tokens": 2}},
+            {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "Hel"}},
+            {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "lo"}},
+            {"type": "message_delta", "delta": {"stop_reason": "end_turn"}, "usage": {"output_tokens": 2}},
         )
     )
     events = [e async for e in AnthropicAdapter().stream(secret=_SECRET, request=_chat("claude-x"))]
@@ -94,34 +91,40 @@ async def test_anthropic_stream_reassembles_tokens_and_usage() -> None:
     assert final.result.output_tokens == 2
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 @respx.mock
 async def test_anthropic_stream_assembles_tool_call() -> None:
     # tool_use input arrives as concatenated input_json_delta fragments.
     respx.post("https://api.anthropic.com/v1/messages").mock(
         return_value=_sse(
             {"type": "message_start", "message": {"usage": {"input_tokens": 5}}},
-            {"type": "content_block_start", "index": 0,
-             "content_block": {"type": "tool_use", "id": "t1", "name": "lookup"}},
-            {"type": "content_block_delta", "index": 0,
-             "delta": {"type": "input_json_delta", "partial_json": '{"q"'}},
-            {"type": "content_block_delta", "index": 0,
-             "delta": {"type": "input_json_delta", "partial_json": ': "x"}'}},
+            {
+                "type": "content_block_start",
+                "index": 0,
+                "content_block": {"type": "tool_use", "id": "t1", "name": "lookup"},
+            },
+            {
+                "type": "content_block_delta",
+                "index": 0,
+                "delta": {"type": "input_json_delta", "partial_json": '{"q"'},
+            },
+            {
+                "type": "content_block_delta",
+                "index": 0,
+                "delta": {"type": "input_json_delta", "partial_json": ': "x"}'},
+            },
             {"type": "content_block_stop", "index": 0},
-            {"type": "message_delta", "delta": {"stop_reason": "tool_use"},
-             "usage": {"output_tokens": 3}},
+            {"type": "message_delta", "delta": {"stop_reason": "tool_use"}, "usage": {"output_tokens": 3}},
         )
     )
     events = [e async for e in AnthropicAdapter().stream(secret=_SECRET, request=_chat("claude-x"))]
     final = events[-1]
     assert isinstance(final, StreamComplete)
-    assert final.result.body["tool_calls"] == [
-        {"id": "t1", "name": "lookup", "arguments": {"q": "x"}}
-    ]
+    assert final.result.body["tool_calls"] == [{"id": "t1", "name": "lookup", "arguments": {"q": "x"}}]
     assert final.result.body["finish_reason"] == "tool_use"
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 @respx.mock
 @pytest.mark.parametrize(
     ("etype", "status"),
@@ -144,7 +147,7 @@ async def test_anthropic_in_stream_error_maps_to_non_2xx(etype: str, status: int
     assert _SECRET not in json.dumps(final.result.body)  # scrubbed
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 @respx.mock
 async def test_anthropic_skips_empty_assistant_history_message() -> None:
     # `{"role": "assistant", "content": ""}` would 400 deterministically and
@@ -169,13 +172,12 @@ async def test_anthropic_skips_empty_assistant_history_message() -> None:
     assert all(m["content"] for m in msgs)
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 @respx.mock
 async def test_anthropic_error_is_scrubbed() -> None:
     respx.post("https://api.anthropic.com/v1/messages").respond(
         400,
-        json={"error": {"type": "invalid_request_error",
-                        "message": f"key {_SECRET} rejected"}},
+        json={"error": {"type": "invalid_request_error", "message": f"key {_SECRET} rejected"}},
     )
     res = await AnthropicAdapter().invoke(secret=_SECRET, request=_chat("claude-x"))
     assert res.http_status == 400
@@ -186,7 +188,7 @@ async def test_anthropic_error_is_scrubbed() -> None:
 # --------------------------------------------------------------------------- #
 # OpenAI                                                                       #
 # --------------------------------------------------------------------------- #
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 @respx.mock
 async def test_openai_chat_translates_system_and_tools() -> None:
     route = respx.post("https://api.openai.com/v1/chat/completions").respond(
@@ -211,7 +213,7 @@ async def test_openai_chat_translates_system_and_tools() -> None:
     assert sent["tools"][0]["function"]["name"] == "f"
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 @respx.mock
 async def test_openai_embedding_preserves_order() -> None:
     respx.post("https://api.openai.com/v1/embeddings").respond(
@@ -233,7 +235,7 @@ async def test_openai_embedding_preserves_order() -> None:
     assert res.input_tokens == 9
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 @respx.mock
 async def test_openai_stream_reassembles() -> None:
     route = respx.post("https://api.openai.com/v1/chat/completions").mock(
@@ -255,19 +257,37 @@ async def test_openai_stream_reassembles() -> None:
     assert sent["stream_options"] == {"include_usage": True}
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 @respx.mock
 async def test_openai_stream_merges_tool_call_deltas_by_index() -> None:
     # Tool calls stream as index-keyed fragments: id/name first, args appended.
     respx.post("https://api.openai.com/v1/chat/completions").mock(
         return_value=_sse(
-            {"choices": [{"delta": {"tool_calls": [
-                {"index": 0, "id": "c1", "function": {"name": "f", "arguments": '{"x"'}}
-            ]}, "finish_reason": None}]},
-            {"choices": [{"delta": {"tool_calls": [
-                {"index": 0, "function": {"arguments": ": 1}"}},
-                {"index": 1, "id": "c2", "function": {"name": "g", "arguments": "{}"}},
-            ]}, "finish_reason": None}]},
+            {
+                "choices": [
+                    {
+                        "delta": {
+                            "tool_calls": [
+                                {"index": 0, "id": "c1", "function": {"name": "f", "arguments": '{"x"'}}
+                            ]
+                        },
+                        "finish_reason": None,
+                    }
+                ]
+            },
+            {
+                "choices": [
+                    {
+                        "delta": {
+                            "tool_calls": [
+                                {"index": 0, "function": {"arguments": ": 1}"}},
+                                {"index": 1, "id": "c2", "function": {"name": "g", "arguments": "{}"}},
+                            ]
+                        },
+                        "finish_reason": None,
+                    }
+                ]
+            },
             {"choices": [{"delta": {}, "finish_reason": "tool_calls"}]},
             done=True,
         )
@@ -282,7 +302,7 @@ async def test_openai_stream_merges_tool_call_deltas_by_index() -> None:
     assert final.result.body["finish_reason"] == "tool_calls"
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 @respx.mock
 @pytest.mark.parametrize(
     ("kind", "status"),
@@ -307,7 +327,7 @@ async def test_openai_in_stream_error_maps_to_non_2xx(kind: str, status: int) ->
 # --------------------------------------------------------------------------- #
 # Gemini — key MUST be a header, never the query string                        #
 # --------------------------------------------------------------------------- #
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 @respx.mock
 async def test_gemini_chat_uses_header_not_query_key() -> None:
     route = respx.post(
@@ -328,7 +348,7 @@ async def test_gemini_chat_uses_header_not_query_key() -> None:
     assert _SECRET not in str(req.url)  # never on the query string
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 @respx.mock
 async def test_gemini_stream_header_and_reassembly() -> None:
     route = respx.post(
@@ -336,8 +356,10 @@ async def test_gemini_stream_header_and_reassembly() -> None:
     ).mock(
         return_value=_sse(
             {"candidates": [{"content": {"parts": [{"text": "Hel"}]}}]},
-            {"candidates": [{"content": {"parts": [{"text": "lo"}]}, "finishReason": "STOP"}],
-             "usageMetadata": {"promptTokenCount": 4, "candidatesTokenCount": 2}},
+            {
+                "candidates": [{"content": {"parts": [{"text": "lo"}]}, "finishReason": "STOP"}],
+                "usageMetadata": {"promptTokenCount": 4, "candidatesTokenCount": 2},
+            },
         )
     )
     events = [e async for e in GeminiAdapter().stream(secret=_SECRET, request=_chat("gemini-x"))]
@@ -349,7 +371,7 @@ async def test_gemini_stream_header_and_reassembly() -> None:
     assert route.calls.last.request.url.params["alt"] == "sse"
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 @respx.mock
 @pytest.mark.parametrize(
     ("code", "kind", "status"),
@@ -357,9 +379,7 @@ async def test_gemini_stream_header_and_reassembly() -> None:
 )
 async def test_gemini_in_stream_error_maps_to_non_2xx(code, kind: str, status: int) -> None:
     # In-band `{"error": {...}}` objects (no candidates) must NOT pass as success.
-    respx.post(
-        "https://generativelanguage.googleapis.com/v1beta/models/gemini-x:streamGenerateContent"
-    ).mock(
+    respx.post("https://generativelanguage.googleapis.com/v1beta/models/gemini-x:streamGenerateContent").mock(
         return_value=_sse(
             {"error": {"code": code, "status": kind, "message": f"key {_SECRET} oops"}},
         )
@@ -373,13 +393,13 @@ async def test_gemini_in_stream_error_maps_to_non_2xx(code, kind: str, status: i
     assert _SECRET not in json.dumps(final.result.body)  # scrubbed
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 @respx.mock
 async def test_gemini_stream_block_reason_surfaces_as_finish_reason() -> None:
     # Prompt blocked: zero candidates is NOT an empty success.
-    respx.post(
-        "https://generativelanguage.googleapis.com/v1beta/models/gemini-x:streamGenerateContent"
-    ).mock(return_value=_sse({"promptFeedback": {"blockReason": "SAFETY"}}))
+    respx.post("https://generativelanguage.googleapis.com/v1beta/models/gemini-x:streamGenerateContent").mock(
+        return_value=_sse({"promptFeedback": {"blockReason": "SAFETY"}})
+    )
     events = [e async for e in GeminiAdapter().stream(secret=_SECRET, request=_chat("gemini-x"))]
     final = events[-1]
     assert isinstance(final, StreamComplete)
@@ -391,7 +411,7 @@ async def test_gemini_stream_block_reason_surfaces_as_finish_reason() -> None:
 # --------------------------------------------------------------------------- #
 # Voyage (embed) + Cohere (rerank)                                             #
 # --------------------------------------------------------------------------- #
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 @respx.mock
 async def test_voyage_embedding() -> None:
     respx.post("https://api.voyageai.com/v1/embeddings").respond(
@@ -407,13 +427,12 @@ async def test_voyage_embedding() -> None:
     assert res.input_tokens == 4
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 @respx.mock
 async def test_cohere_rerank() -> None:
     respx.post("https://api.cohere.com/v1/rerank").respond(
         200,
-        json={"results": [{"index": 2, "relevance_score": 0.9},
-                          {"index": 0, "relevance_score": 0.4}]},
+        json={"results": [{"index": 2, "relevance_score": 0.9}, {"index": 0, "relevance_score": 0.4}]},
     )
     req = ProviderRequest(
         capability=ProviderCapability.RERANK,
@@ -429,12 +448,16 @@ async def test_cohere_rerank() -> None:
 def _tool_roundtrip_messages() -> list[dict]:
     return [
         {"role": "user", "content": "set cadence"},
-        {"role": "assistant", "content": "", "tool_calls": [{"id": "t1", "name": "f", "arguments": {"x": 1}}]},
+        {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [{"id": "t1", "name": "f", "arguments": {"x": 1}}],
+        },
         {"role": "tool", "tool_call_id": "t1", "name": "f", "content": "42"},
     ]
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 @respx.mock
 async def test_openai_translates_tool_roundtrip() -> None:
     route = respx.post("https://api.openai.com/v1/chat/completions").respond(
@@ -450,7 +473,7 @@ async def test_openai_translates_tool_roundtrip() -> None:
     assert msgs[2] == {"role": "tool", "tool_call_id": "t1", "content": "42"}
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 @respx.mock
 async def test_anthropic_translates_tool_roundtrip() -> None:
     route = respx.post("https://api.anthropic.com/v1/messages").respond(
@@ -468,7 +491,7 @@ async def test_anthropic_translates_tool_roundtrip() -> None:
     assert msgs[2]["content"][0]["tool_use_id"] == "t1"
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 @respx.mock
 async def test_gemini_translates_tool_roundtrip() -> None:
     route = respx.post(
@@ -485,7 +508,7 @@ async def test_gemini_translates_tool_roundtrip() -> None:
     assert contents[2]["parts"][0]["functionResponse"]["response"] == {"result": "42"}
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 async def test_adapter_rejects_wrong_capability() -> None:
     with pytest.raises(ValueError):
         await VoyageAdapter().invoke(secret=_SECRET, request=_chat("voyage-3"))
@@ -499,7 +522,7 @@ async def test_adapter_rejects_wrong_capability() -> None:
         )
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 async def test_resolve_model_required() -> None:
     # No model and no models-map → the adapter refuses rather than guessing.
     req = ProviderRequest(

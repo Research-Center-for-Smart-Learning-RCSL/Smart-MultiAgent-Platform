@@ -96,8 +96,8 @@ def _tesseract_ocr(pdf_bytes: bytes) -> str:
         pdf_path = base / "src.pdf"
         pdf_path.write_bytes(pdf_bytes)
         try:
-            subprocess.run(
-                ["pdftoppm", "-r", "200", "-png", str(pdf_path), str(base / "page")],  # noqa: S603, S607
+            subprocess.run(  # noqa: S603
+                ["pdftoppm", "-r", "200", "-png", str(pdf_path), str(base / "page")],  # noqa: S607
                 check=True,
                 capture_output=True,
                 timeout=120,
@@ -107,8 +107,8 @@ def _tesseract_ocr(pdf_bytes: bytes) -> str:
         pages_text: list[str] = []
         for img in sorted(base.glob("page-*.png")):
             try:
-                r = subprocess.run(
-                    ["tesseract", str(img), "-"],  # noqa: S603, S607
+                r = subprocess.run(  # noqa: S603
+                    ["tesseract", str(img), "-"],  # noqa: S607
                     check=True,
                     capture_output=True,
                     timeout=120,

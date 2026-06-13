@@ -47,7 +47,7 @@ def _stub_rate_limiter() -> Iterator[None]:
         yield
 
 
-@pytest.fixture()
+@pytest.fixture
 def deny_jti_in_redis() -> Iterator[None]:
     async def _is_denied(_jti):
         return True

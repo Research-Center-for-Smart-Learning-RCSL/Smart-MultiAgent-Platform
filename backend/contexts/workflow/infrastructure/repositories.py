@@ -179,9 +179,7 @@ class WorkflowRepository:
         row = (
             await self._db.execute(
                 sa.select(workspaces.c.project_id)
-                .select_from(
-                    workflows.join(workspaces, workflows.c.workspace_id == workspaces.c.id)
-                )
+                .select_from(workflows.join(workspaces, workflows.c.workspace_id == workspaces.c.id))
                 .where(workflows.c.id == workflow_id)
             )
         ).first()
@@ -393,9 +391,7 @@ class WorkflowStepRepository:
         """Most recent step ``started_at`` for a run — the idle-watchdog clock."""
         row = (
             await self._db.execute(
-                sa.select(sa.func.max(workflow_steps.c.started_at)).where(
-                    workflow_steps.c.run_id == run_id
-                )
+                sa.select(sa.func.max(workflow_steps.c.started_at)).where(workflow_steps.c.run_id == run_id)
             )
         ).first()
         return row[0] if row else None
