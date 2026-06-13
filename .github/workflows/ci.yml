@@ -221,7 +221,7 @@ jobs:
         working-directory: backend
         continue-on-error: true
         run: python -m pip_audit --desc on --progress-spinner off
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         with: { version: "${{ env.PNPM_VERSION }}" }
       - uses: actions/setup-node@v4
         with:
@@ -244,7 +244,7 @@ jobs:
     defaults: { run: { working-directory: frontend } }
     steps:
       - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         with: { version: "${{ env.PNPM_VERSION }}" }
       - uses: actions/setup-node@v4
         with:
@@ -285,7 +285,7 @@ jobs:
     defaults: { run: { working-directory: frontend } }
     steps:
       - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         with: { version: "${{ env.PNPM_VERSION }}" }
       - uses: actions/setup-node@v4
         with:
@@ -310,7 +310,7 @@ jobs:
     defaults: { run: { working-directory: frontend } }
     steps:
       - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         with: { version: "${{ env.PNPM_VERSION }}" }
       - uses: actions/setup-node@v4
         with:
@@ -340,7 +340,7 @@ jobs:
       - name: Install backend deps (for OpenAPI export)
         working-directory: backend
         run: pip install -e '.[dev]'
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         with: { version: "${{ env.PNPM_VERSION }}" }
       - uses: actions/setup-node@v4
         with:
@@ -363,7 +363,7 @@ jobs:
     defaults: { run: { working-directory: frontend } }
     steps:
       - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         with: { version: "${{ env.PNPM_VERSION }}" }
       - uses: actions/setup-node@v4
         with:
@@ -385,7 +385,7 @@ jobs:
     defaults: { run: { working-directory: frontend } }
     steps:
       - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         with: { version: "${{ env.PNPM_VERSION }}" }
       - uses: actions/setup-node@v4
         with:
@@ -408,7 +408,7 @@ jobs:
     defaults: { run: { working-directory: frontend } }
     steps:
       - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         with: { version: "${{ env.PNPM_VERSION }}" }
       - uses: actions/setup-node@v4
         with:
