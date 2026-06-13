@@ -3,7 +3,7 @@
 /* tslint:disable */
 /* eslint-disable */
 export type Body_create_single_shot_api_chatrooms__chatroom_id__attachments_post = {
-    file: string;
+    file: Blob;
     mime?: (string | null);
 };
 
