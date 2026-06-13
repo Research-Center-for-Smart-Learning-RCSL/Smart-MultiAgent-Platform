@@ -169,14 +169,14 @@ export class AuthService {
     }
     /**
      * Request Password Reset
-     * @returns any Successful Response
+     * @returns null Successful Response
      * @throws ApiError
      */
     public static requestPasswordResetApiAuthRequestPasswordResetPost({
         requestBody,
     }: {
         requestBody: PasswordResetRequestIn,
-    }): CancelablePromise<any> {
+    }): CancelablePromise<null> {
         return __request(OpenAPI, {
             method: 'POST',
             url: '/api/auth/request-password-reset',
