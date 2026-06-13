@@ -11,18 +11,24 @@
 # CI matrices the `dev` overlay (docker-compose.override.yml) and the `prod`
 # overlay separately — they MUST NOT be mixed (risk: §25 §23 drift).
 #
+# Every long-running service sets `restart: unless-stopped` so a crash (or a
+# host reboot) brings it back without operator intervention; the base file left
+# them at the Docker default (`no`).
+#
 # Tuning target: ≥16-core / 64 GB single host.
 # Total hard-limit sum ≈ 56 GB; remaining ~8 GB reserved for OS + Docker daemon.
 # If your host has only 32 GB, halve every memory value and drop replicas by 1.
 
 services:
   nginx:
+    restart: unless-stopped
     deploy:
       resources:
         limits: { cpus: "1.0", memory: 512M }
         reservations: { cpus: "0.25", memory: 256M }
 
   backend-web:
+    restart: unless-stopped
     # 4 uvicorn workers per process; 3 replicas → 12 workers total.
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4
     environment:
@@ -36,6 +42,7 @@ services:
         reservations: { cpus: "2.0", memory: 2G }
 
   backend-worker:
+    restart: unless-stopped
     environment:
       SMAP_APP_ENV: prod
     deploy:
@@ -45,6 +52,7 @@ services:
         reservations: { cpus: "1.0", memory: 1G }
 
   postgres:
+    restart: unless-stopped
     command:
       - postgres
       # shared_buffers = 25 % of postgres container limit (8 GB → 2 GB).
@@ -64,16 +72,17 @@ services:
       - max_connections=512
       - -c
       - wal_compression=on
-      - -c
-      - shared_preload_libraries=pg_cron
-      - -c
-      - cron.database_name=smap
+      # NB: no pg_cron. The pgvector image ships without it, so
+      # `shared_preload_libraries=pg_cron` made Postgres exit FATAL at boot —
+      # and nothing uses it (periodic work runs on the arq cron worker, and
+      # bootstrap db-init already skips the pg_cron extension).
     deploy:
       resources:
         limits: { cpus: "6.0", memory: 8G }
         reservations: { cpus: "3.0", memory: 4G }
 
   redis:
+    restart: unless-stopped
     command:
       - redis-server
       - --appendonly
@@ -89,6 +98,7 @@ services:
         reservations: { cpus: "0.25", memory: 1G }
 
   qdrant:
+    restart: unless-stopped
     deploy:
       resources:
         # Qdrant is mmap-based; more RAM → more vectors stay in page cache.
@@ -96,6 +106,7 @@ services:
         reservations: { cpus: "2.0", memory: 4G }
 
   neo4j:
+    restart: unless-stopped
     environment:
       NEO4J_server_memory_heap_initial__size: "3G"
       NEO4J_server_memory_heap_max__size: "5G"
@@ -107,12 +118,14 @@ services:
         reservations: { cpus: "2.0", memory: 4G }
 
   minio:
+    restart: unless-stopped
     deploy:
       resources:
         limits: { cpus: "2.0", memory: 5G }
         reservations: { cpus: "0.5", memory: 2G }
 
   vault:
+    restart: unless-stopped
     # Override the dev-mode command from docker-compose.yml. In prod the
     # server runs against a real config file (file or raft storage) and is
     # initialized + unsealed manually per deploy/vault/README.md §2.
@@ -133,12 +146,14 @@ services:
         reservations: { cpus: "0.25", memory: 512M }
 
   egress-proxy:
+    restart: unless-stopped
     deploy:
       resources:
         limits: { cpus: "1.0", memory: 512M }
         reservations: { cpus: "0.25", memory: 256M }
 
   mcp-sandbox-supervisor:
+    restart: unless-stopped
     deploy:
       resources:
         # Each spawned gVisor container consumes memory here; 4 G gives ~4 concurrent tool calls.
@@ -146,6 +161,17 @@ services:
         reservations: { cpus: "1.0", memory: 1G }
 
   frontend:
+    # Prod serves the BUILT SPA via nginx (frontend/Dockerfile stage 2), not the
+    # base file's Vite dev server. image + build override the base
+    # node:20-alpine; command overrides the base `vite dev`. The base's
+    # ../../:/app bind-mount leaks through (compose concatenates `volumes`) but
+    # is inert — nginx serves from /usr/share/nginx/html and never reads /app.
+    image: smap-frontend:prod
+    build:
+      context: ../../
+      dockerfile: frontend/Dockerfile
+    command: ["nginx", "-g", "daemon off;"]
+    restart: unless-stopped
     deploy:
       resources:
         limits: { cpus: "0.5", memory: 256M }
