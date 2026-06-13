@@ -425,33 +425,40 @@ jobs:
       - name: Install Playwright browsers
         run: npx playwright install --with-deps chromium
 
-      # Bring up data-plane deps first; they're a precondition for the migration
-      # step that follows. The test overlay maps backend-web to host :8000 so
-      # Vite's dev proxy can reach it after backend-web finally starts.
+      # Bring up the FULL data plane backend-web's /readyz probes (Postgres,
+      # Redis, Qdrant, Neo4j, MinIO, Vault) — not just postgres/redis/vault, or
+      # backend-web never becomes healthy and the stack-start step below times
+      # out. The test overlay maps backend-web to host :8000 so Vite's dev proxy
+      # can reach it after backend-web finally starts.
       - name: Start data services
         working-directory: .
         run: |
           docker compose \
             -f deploy/compose/docker-compose.yml \
             -f deploy/compose/compose.test.yml \
-            up -d --wait --wait-timeout 120 postgres redis vault
+            up -d --wait --wait-timeout 120 postgres redis vault qdrant neo4j minio mailhog
 
-      # Run alembic + extension creation against the test DB before backend-web
-      # starts, so the seed routine in app/bootstrap/seed.py finds the schema.
-      # `--no-deps` keeps this from spinning up a second backend-web in the
-      # background.
-      - name: Apply DB migrations
+      # Full bootstrap (not just db-init): /readyz also checks the MinIO buckets
+      # (probe_minio → bucket_exists) and the app needs Vault transit keys for
+      # JWT signing, so vault-init/approle + minio/qdrant/neo4j-init must run.
+      # `all` reads the Vault policy files from the repo's deploy/ tree, which is
+      # not in the runtime image — bind-mount it. SMAP_VAULT_DEV_TOKEN unlocks
+      # the dev-mode Vault; SMAP_NEO4J_PASSWORD is inherited from the backend-web
+      # service env in compose.test.yml. `--no-deps` avoids a second backend-web.
+      - name: Bootstrap test stack (migrations + Vault + MinIO + Qdrant + Neo4j)
         working-directory: .
         run: |
           docker compose \
             -f deploy/compose/docker-compose.yml \
             -f deploy/compose/compose.test.yml \
             run --rm --no-deps \
+            --volume "${{ github.workspace }}/deploy:/deploy:ro" \
             -e SMAP_APP_ENV=test \
             -e SMAP_DB_DSN=postgresql+asyncpg://smap:smap@postgres:5432/smap_test \
             -e VAULT_ADDR=http://vault:8200 \
             -e VAULT_TOKEN=root \
-            backend-web python -m smap.bootstrap db-init
+            -e SMAP_VAULT_DEV_TOKEN=root \
+            backend-web python -m smap.bootstrap all
 
       - name: Start backend stack
         working-directory: .

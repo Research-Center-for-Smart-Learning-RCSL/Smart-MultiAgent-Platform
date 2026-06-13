@@ -194,7 +194,12 @@ services:
     networks: [backend_net]
     logging: *log-rotation
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:6333/readyz"]
+      # The qdrant image ships neither wget nor curl, so the old wget probe
+      # always failed ("executable file not found") and the container never
+      # became healthy — blocking anything with a `qdrant: {condition:
+      # service_healthy}` dependency (e.g. the E2E stack's backend-web /readyz).
+      # bash IS present; probe the HTTP port via /dev/tcp (accepting == up).
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/6333"]
       interval: 10s
       timeout: 3s
       retries: 5

@@ -34,7 +34,9 @@ _ROLE_SETTINGS: dict[str, dict[str, object]] = {
         "secret_id_num_uses": 0,
         "secret_id_ttl": 0,
         "bind_secret_id": True,
-        "local_secret_ids": False,
+        # hvac 2.3's create_or_update_approle names this `enable_local_secret_ids`
+        # (the bare `local_secret_ids` kwarg raises TypeError).
+        "enable_local_secret_ids": False,
     },
     "smap-rotation": {
         "token_policies": ["smap-rotation"],

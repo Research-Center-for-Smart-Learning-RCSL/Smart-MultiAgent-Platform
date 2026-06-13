@@ -13,7 +13,6 @@ Vault client at startup and never touches root credentials.
 
 from __future__ import annotations
 
-import json
 import secrets
 from typing import Any
 
@@ -111,7 +110,14 @@ def _admin_client(settings: Settings) -> MinioAdmin:
         access_key=settings.minio.root_access_key,
         secret_key=settings.minio.root_secret_key,
     )
-    return MinioAdmin(settings.minio.endpoint, credentials=creds, secure=settings.minio.use_tls)  # type: ignore[misc]
+    # minio 7.2's MinioAdmin takes endpoint as a keyword-only arg (positional
+    # raises TypeError).
+    return MinioAdmin(
+        endpoint=settings.minio.endpoint,
+        credentials=creds,
+        region=settings.minio.region,
+        secure=settings.minio.use_tls,
+    )
 
 
 def run(
@@ -147,15 +153,20 @@ def run(
     # a dict, and splitting the policy off the account buys nothing here).
     # The inline policy is the exact same IAM-style document as would be
     # installed server-side; it scopes the account to the three buckets only.
-    policy_str = json.dumps(_policy_document(settings))
-    new_secret = secrets.token_urlsafe(32)
+    # minio 7.2's add_service_account takes the inline policy as a dict and
+    # json-encodes it internally; passing a pre-encoded str double-encodes it
+    # and the server rejects it ("cannot unmarshal string into policy.subPolicy").
+    policy_doc = _policy_document(settings)
+    # MinIO caps service-account secret keys at 40 chars; token_urlsafe(32)
+    # yields ~43 and is rejected (XMinioAdminInvalidSecretKey). 24 bytes → 32.
+    new_secret = secrets.token_urlsafe(24)
     try:
         admin.add_service_account(
             access_key=settings.minio.service_account_name,
             secret_key=new_secret,
             name=settings.minio.service_account_name,
             description="SMAP backend scoped account (chat-uploads/rag-sources/exports).",
-            policy=policy_str,  # type: ignore[arg-type]
+            policy=policy_doc,
         )
     except Exception as exc:  # — MinIO error taxonomy is open-ended
         msg = str(exc).lower()
