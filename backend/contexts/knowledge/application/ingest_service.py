@@ -58,6 +58,7 @@ from contexts.knowledge.infrastructure.repositories import (
     RagDocumentRepository,
 )
 from shared_kernel import audit
+from shared_kernel.realtime.pubsub import Publisher, rag_channel
 
 MAX_MULTIPART_BYTES = 32 * 1024 * 1024  # §22.7 — tus for anything larger
 
@@ -157,6 +158,13 @@ class IngestService:
                 request_id=request_id,
             ),
         )
+        # Live status for clients watching ws:rag:{config_id} (useRagConfigSocket).
+        # Multipart ingest is synchronous (one doc per request), so we emit the
+        # start/terminal events only — there is no incremental progress to report.
+        # Fire-and-forget: the frontend refetches authoritative state on receipt.
+        await Publisher(rag_channel(cfg.id)).emit(
+            "ingestion.started", {"document_id": str(doc.id), "total": 1}
+        )
 
         try:
             text = MIME_TO_PARSER[mime](ipt.data)
@@ -228,6 +236,9 @@ class IngestService:
                     request_id=request_id,
                 ),
             )
+            await Publisher(rag_channel(cfg.id)).emit(
+                "ingestion.completed", {"document_id": str(doc.id), "chunks": len(pieces)}
+            )
         except Exception as exc:  # — any failure → mark + surface
             # Best-effort status flip; if this fails the enclosing transaction
             # rolls back anyway, dropping the row in the same unit of work.
@@ -235,6 +246,10 @@ class IngestService:
                 await self._docs.set_status(
                     document_id=doc.id,
                     status=DocumentStatus.FAILED,
+                )
+            with contextlib.suppress(Exception):
+                await Publisher(rag_channel(cfg.id)).emit(
+                    "ingestion.failed", {"document_id": str(doc.id), "error": str(exc)}
                 )
             raise IngestFailed(f"{type(exc).__name__}: {exc}") from exc
 

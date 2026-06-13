@@ -27,6 +27,7 @@ from contexts.notification.domain.models import NotificationKind
 from shared_kernel import audit
 from shared_kernel.auth import tokens
 from shared_kernel.auth.clients import now
+from shared_kernel.realtime.pubsub import Publisher, user_channel
 
 
 @dataclass(frozen=True, slots=True)
@@ -115,6 +116,11 @@ class AdminService:
         await self._require_user(target_user_id)
         await self._users.ban(target_user_id, reason)
         await self._invalidate_user_sessions(target_user_id)
+        # Real-time force-logout (R24.19): the frontend's ban-kick guard listens
+        # on /ws/user/{id} and redirects to login. Session invalidation alone
+        # only takes effect on the victim's next request; this evicts open tabs
+        # immediately.
+        await Publisher(user_channel(target_user_id)).emit("ban-kick", {"reason": reason})
         await audit.emit(
             self._db,
             audit.AuditEvent(

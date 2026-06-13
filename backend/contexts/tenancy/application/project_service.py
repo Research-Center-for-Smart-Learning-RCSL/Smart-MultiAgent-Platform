@@ -197,6 +197,18 @@ class ProjectService:
         if member is None:
             raise MemberNotFound(f"{target_user_id} in project {project_id}")
         await self._members.remove(project_id=project_id, user_id=target_user_id)
+        # R7.04 (security): revoke the keys this user had carried INTO the project
+        # so the project can no longer consume the ex-member's provider keys. The
+        # KeysFacade was built for exactly this fan-out but was never wired in.
+        # Shares this transaction's session.
+        from contexts.keys.interfaces.facade import KeysFacade
+
+        revoked = await KeysFacade(self._db).revoke_carries_for_user_leaving_project(
+            user_id=target_user_id,
+            project_id=project_id,
+            actor_user_id=actor_user_id,
+            request_id=request_id,
+        )
         await audit.emit(
             self._db,
             audit.AuditEvent(
@@ -205,7 +217,10 @@ class ProjectService:
                 actor_ip=actor_ip,
                 resource_type="project_member",
                 resource_id=project_id,
-                metadata={"target_user_id": str(target_user_id)},
+                metadata={
+                    "target_user_id": str(target_user_id),
+                    "carries_revoked": len(revoked),
+                },
                 request_id=request_id,
             ),
         )
