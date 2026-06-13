@@ -3,15 +3,16 @@ import { seedUser } from './fixtures/auth'
 
 test.describe('Identity flow: Register → verify → login', () => {
   test('register a new account', async ({ page }) => {
-    const email = `e2e-${Date.now()}@smap.test`
+    // Non-reserved domain — the backend's EmailStr 422s reserved TLDs like .test.
+    const email = `e2e-${Date.now()}@example.com`
     const password = 'E2eP@ssw0rd!Str0ng'
 
     await page.goto('/register')
     await page.getByLabel(/email/i).fill(email)
     await page.getByLabel(/password/i).fill(password)
-    // RegisterView requires a captcha token; backend bypasses verification
-    // when SMAP_APP_ENV=test (see shared_kernel/auth/captcha.py).
-    await page.getByLabel(/captcha/i).fill('e2e-bypass')
+    // The test stack's captcha config is provider=off, so RegisterView renders
+    // no captcha widget and the backend skips verification — register submits
+    // with email + password only.
     await page.getByRole('button', { name: /register|sign up|submit/i }).click()
     // RegisterView.vue redirects to /login?pendingVerify=1 on success.
     await page.waitForURL(/\/login\?.*pendingVerify=1/)
