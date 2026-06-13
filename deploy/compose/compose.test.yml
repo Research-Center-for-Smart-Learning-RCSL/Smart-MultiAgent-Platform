@@ -46,10 +46,10 @@ services:
       SMAP_REDIS_DSN: redis://redis:6379/1
       VAULT_ADDR: http://vault:8200
       VAULT_TOKEN: root
-      # The neo4j service below is provisioned with neo4j/testpassword; the
+      # The neo4j service below is provisioned with neo4j/neo4jneo4j; the
       # backend must use the same or /readyz's probe_neo4j (and neo4j-init)
       # fail auth and backend-web never becomes healthy.
-      SMAP_NEO4J_PASSWORD: testpassword
+      SMAP_NEO4J_PASSWORD: neo4jneo4j
       # Seeded users match frontend/e2e/fixtures/auth.ts. The seed routine
       # (app/bootstrap/seed.py) is gated on SMAP_APP_ENV=test, so this only
       # ever runs in the test stack.
@@ -88,7 +88,7 @@ services:
       SMAP_REDIS_DSN: redis://redis:6379/1
       VAULT_ADDR: http://vault:8200
       VAULT_TOKEN: root
-      SMAP_NEO4J_PASSWORD: testpassword
+      SMAP_NEO4J_PASSWORD: neo4jneo4j
 
   # ---------- Data services ----------
   postgres:
@@ -116,7 +116,7 @@ services:
   # ---------- Neo4j — test credentials ----------
   neo4j:
     environment:
-      NEO4J_AUTH: neo4j/testpassword
+      NEO4J_AUTH: neo4j/neo4jneo4j
       NEO4J_server_memory_heap_initial__size: "256M"
       NEO4J_server_memory_heap_max__size: "512M"
 
