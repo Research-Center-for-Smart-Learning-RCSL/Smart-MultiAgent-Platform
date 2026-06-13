@@ -214,7 +214,7 @@ class OrchestrationFacade:
         approval_id: uuid.UUID,
         *,
         chatroom_id: uuid.UUID | None = None,
-    ) -> ApprovalState:
+    ) -> ApprovalState | None:
         return await self._approval.handle_timeout(
             approval_id,
             chatroom_id=chatroom_id,

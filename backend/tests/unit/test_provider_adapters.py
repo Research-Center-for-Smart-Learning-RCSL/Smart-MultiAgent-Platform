@@ -34,8 +34,10 @@ def _chat(model: str, **extra: object) -> ProviderRequest:
     return ProviderRequest(capability=ProviderCapability.LLM_CHAT, payload=payload)
 
 
-def _sse(*objs: dict) -> httpx.Response:
+def _sse(*objs: dict, done: bool = False) -> httpx.Response:
     body = "".join(f"data: {json.dumps(o)}\n\n" for o in objs)
+    if done:
+        body += "data: [DONE]\n\n"  # OpenAI terminal sentinel
     return httpx.Response(200, text=body, headers={"content-type": "text/event-stream"})
 
 
@@ -90,6 +92,81 @@ async def test_anthropic_stream_reassembles_tokens_and_usage() -> None:
     assert final.result.body["finish_reason"] == "end_turn"
     assert final.result.input_tokens == 5
     assert final.result.output_tokens == 2
+
+
+@pytest.mark.asyncio()
+@respx.mock
+async def test_anthropic_stream_assembles_tool_call() -> None:
+    # tool_use input arrives as concatenated input_json_delta fragments.
+    respx.post("https://api.anthropic.com/v1/messages").mock(
+        return_value=_sse(
+            {"type": "message_start", "message": {"usage": {"input_tokens": 5}}},
+            {"type": "content_block_start", "index": 0,
+             "content_block": {"type": "tool_use", "id": "t1", "name": "lookup"}},
+            {"type": "content_block_delta", "index": 0,
+             "delta": {"type": "input_json_delta", "partial_json": '{"q"'}},
+            {"type": "content_block_delta", "index": 0,
+             "delta": {"type": "input_json_delta", "partial_json": ': "x"}'}},
+            {"type": "content_block_stop", "index": 0},
+            {"type": "message_delta", "delta": {"stop_reason": "tool_use"},
+             "usage": {"output_tokens": 3}},
+        )
+    )
+    events = [e async for e in AnthropicAdapter().stream(secret=_SECRET, request=_chat("claude-x"))]
+    final = events[-1]
+    assert isinstance(final, StreamComplete)
+    assert final.result.body["tool_calls"] == [
+        {"id": "t1", "name": "lookup", "arguments": {"q": "x"}}
+    ]
+    assert final.result.body["finish_reason"] == "tool_use"
+
+
+@pytest.mark.asyncio()
+@respx.mock
+@pytest.mark.parametrize(
+    ("etype", "status"),
+    [("overloaded_error", 529), ("rate_limit_error", 429), ("api_error", 500)],
+)
+async def test_anthropic_in_stream_error_maps_to_non_2xx(etype: str, status: int) -> None:
+    # HTTP 200 + `{"type": "error", ...}` mid-stream must NOT pass as success.
+    respx.post("https://api.anthropic.com/v1/messages").mock(
+        return_value=_sse(
+            {"type": "message_start", "message": {"usage": {"input_tokens": 5}}},
+            {"type": "error", "error": {"type": etype, "message": f"key {_SECRET} oops"}},
+        )
+    )
+    events = [e async for e in AnthropicAdapter().stream(secret=_SECRET, request=_chat("claude-x"))]
+    assert len(events) == 1  # no token deltas, exactly one terminal event
+    final = events[0]
+    assert isinstance(final, StreamComplete)
+    assert final.result.http_status == status
+    assert final.result.body == {"error": f"HTTP {status} ({etype})"}
+    assert _SECRET not in json.dumps(final.result.body)  # scrubbed
+
+
+@pytest.mark.asyncio()
+@respx.mock
+async def test_anthropic_skips_empty_assistant_history_message() -> None:
+    # `{"role": "assistant", "content": ""}` would 400 deterministically and
+    # burn every key via rotation — it must be dropped from the request.
+    route = respx.post("https://api.anthropic.com/v1/messages").respond(
+        200, json={"content": [{"type": "text", "text": "ok"}], "stop_reason": "end", "usage": {}}
+    )
+    req = ProviderRequest(
+        capability=ProviderCapability.LLM_CHAT,
+        payload={
+            "model": "claude-x",
+            "messages": [
+                {"role": "user", "content": "hi"},
+                {"role": "assistant", "content": ""},  # no tool_calls, no text
+                {"role": "user", "content": "still there?"},
+            ],
+        },
+    )
+    await AnthropicAdapter().invoke(secret=_SECRET, request=req)
+    msgs = json.loads(route.calls.last.request.content)["messages"]
+    assert [m["role"] for m in msgs] == ["user", "user"]
+    assert all(m["content"] for m in msgs)
 
 
 @pytest.mark.asyncio()
@@ -159,11 +236,12 @@ async def test_openai_embedding_preserves_order() -> None:
 @pytest.mark.asyncio()
 @respx.mock
 async def test_openai_stream_reassembles() -> None:
-    respx.post("https://api.openai.com/v1/chat/completions").mock(
+    route = respx.post("https://api.openai.com/v1/chat/completions").mock(
         return_value=_sse(
             {"choices": [{"delta": {"content": "Hel"}, "finish_reason": None}]},
             {"choices": [{"delta": {"content": "lo"}, "finish_reason": "stop"}]},
             {"choices": [], "usage": {"prompt_tokens": 5, "completion_tokens": 2}},
+            done=True,  # OpenAI closes with `data: [DONE]`
         )
     )
     events = [e async for e in OpenAIAdapter().stream(secret=_SECRET, request=_chat("gpt-4o"))]
@@ -172,6 +250,58 @@ async def test_openai_stream_reassembles() -> None:
     assert isinstance(final, StreamComplete)
     assert final.result.output_tokens == 2
     assert final.result.input_tokens == 5
+    # The outbound request must opt into usage frames on the final chunk.
+    sent = json.loads(route.calls.last.request.content)
+    assert sent["stream_options"] == {"include_usage": True}
+
+
+@pytest.mark.asyncio()
+@respx.mock
+async def test_openai_stream_merges_tool_call_deltas_by_index() -> None:
+    # Tool calls stream as index-keyed fragments: id/name first, args appended.
+    respx.post("https://api.openai.com/v1/chat/completions").mock(
+        return_value=_sse(
+            {"choices": [{"delta": {"tool_calls": [
+                {"index": 0, "id": "c1", "function": {"name": "f", "arguments": '{"x"'}}
+            ]}, "finish_reason": None}]},
+            {"choices": [{"delta": {"tool_calls": [
+                {"index": 0, "function": {"arguments": ": 1}"}},
+                {"index": 1, "id": "c2", "function": {"name": "g", "arguments": "{}"}},
+            ]}, "finish_reason": None}]},
+            {"choices": [{"delta": {}, "finish_reason": "tool_calls"}]},
+            done=True,
+        )
+    )
+    events = [e async for e in OpenAIAdapter().stream(secret=_SECRET, request=_chat("gpt-4o"))]
+    final = events[-1]
+    assert isinstance(final, StreamComplete)
+    assert final.result.body["tool_calls"] == [
+        {"id": "c1", "name": "f", "arguments": {"x": 1}},
+        {"id": "c2", "name": "g", "arguments": {}},
+    ]
+    assert final.result.body["finish_reason"] == "tool_calls"
+
+
+@pytest.mark.asyncio()
+@respx.mock
+@pytest.mark.parametrize(
+    ("kind", "status"),
+    [("rate_limit_exceeded", 429), ("server_error", 500)],
+)
+async def test_openai_in_stream_error_maps_to_non_2xx(kind: str, status: int) -> None:
+    # `data: {"error": {...}}` chunks (no choices) must NOT pass as success.
+    respx.post("https://api.openai.com/v1/chat/completions").mock(
+        return_value=_sse(
+            {"error": {"type": kind, "message": f"key {_SECRET} oops"}},
+        )
+    )
+    events = [e async for e in OpenAIAdapter().stream(secret=_SECRET, request=_chat("gpt-4o"))]
+    assert len(events) == 1
+    final = events[0]
+    assert isinstance(final, StreamComplete)
+    assert final.result.http_status == status
+    assert final.result.body == {"error": f"HTTP {status} ({kind})"}
+    assert _SECRET not in json.dumps(final.result.body)  # scrubbed
 
 
 # --------------------------------------------------------------------------- #
@@ -215,6 +345,47 @@ async def test_gemini_stream_header_and_reassembly() -> None:
     assert events[-1].result.output_tokens == 2
     assert route.calls.last.request.headers["x-goog-api-key"] == _SECRET
     assert _SECRET not in str(route.calls.last.request.url)
+    # Only `alt=sse` rides the query string (the key never does).
+    assert route.calls.last.request.url.params["alt"] == "sse"
+
+
+@pytest.mark.asyncio()
+@respx.mock
+@pytest.mark.parametrize(
+    ("code", "kind", "status"),
+    [(429, "RESOURCE_EXHAUSTED", 429), ("oops", "INTERNAL", 500)],
+)
+async def test_gemini_in_stream_error_maps_to_non_2xx(code, kind: str, status: int) -> None:
+    # In-band `{"error": {...}}` objects (no candidates) must NOT pass as success.
+    respx.post(
+        "https://generativelanguage.googleapis.com/v1beta/models/gemini-x:streamGenerateContent"
+    ).mock(
+        return_value=_sse(
+            {"error": {"code": code, "status": kind, "message": f"key {_SECRET} oops"}},
+        )
+    )
+    events = [e async for e in GeminiAdapter().stream(secret=_SECRET, request=_chat("gemini-x"))]
+    assert len(events) == 1
+    final = events[0]
+    assert isinstance(final, StreamComplete)
+    assert final.result.http_status == status
+    assert final.result.body == {"error": f"HTTP {status} ({kind})"}
+    assert _SECRET not in json.dumps(final.result.body)  # scrubbed
+
+
+@pytest.mark.asyncio()
+@respx.mock
+async def test_gemini_stream_block_reason_surfaces_as_finish_reason() -> None:
+    # Prompt blocked: zero candidates is NOT an empty success.
+    respx.post(
+        "https://generativelanguage.googleapis.com/v1beta/models/gemini-x:streamGenerateContent"
+    ).mock(return_value=_sse({"promptFeedback": {"blockReason": "SAFETY"}}))
+    events = [e async for e in GeminiAdapter().stream(secret=_SECRET, request=_chat("gemini-x"))]
+    final = events[-1]
+    assert isinstance(final, StreamComplete)
+    assert final.result.http_status == 200
+    assert final.result.body["text"] == ""
+    assert final.result.body["finish_reason"] == "blocked:SAFETY"
 
 
 # --------------------------------------------------------------------------- #

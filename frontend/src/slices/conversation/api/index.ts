@@ -2,6 +2,7 @@
 // errors surface as AxiosError with `response.data` typed as ProblemJson.
 
 import { http } from '@shared/transport'
+import type { Agent } from '@slices/agents'
 import type {
   Attachment,
   AttachmentDownload,
@@ -27,6 +28,11 @@ export async function createWorkspace(
     `/projects/${projectId}/workspaces`,
     payload,
   )
+  return data
+}
+
+export async function getWorkspace(workspaceId: string): Promise<Workspace> {
+  const { data } = await http.get<Workspace>(`/workspaces/${workspaceId}`)
   return data
 }
 
@@ -83,6 +89,37 @@ export async function getGuestLink(
     `/chatrooms/${chatroomId}/guest-link`,
   )
   return data
+}
+
+// ---- chatroom agent bindings ---------------------------------------------
+// A chatroom binds agents from its parent project. Chatrooms carry only a
+// `workspace_id`, so the settings UI resolves workspace → project via
+// `getWorkspace`, lists that project's agents, and toggles bindings here.
+
+export async function listProjectAgents(projectId: string): Promise<Agent[]> {
+  const { data } = await http.get<Agent[]>(`/projects/${projectId}/agents`)
+  return data
+}
+
+export async function listChatroomAgents(chatroomId: string): Promise<string[]> {
+  const { data } = await http.get<{ agent_id: string }[]>(
+    `/chatrooms/${chatroomId}/agents`,
+  )
+  return data.map((r) => r.agent_id)
+}
+
+export async function addChatroomAgent(
+  chatroomId: string,
+  agentId: string,
+): Promise<void> {
+  await http.post(`/chatrooms/${chatroomId}/agents`, { agent_id: agentId })
+}
+
+export async function removeChatroomAgent(
+  chatroomId: string,
+  agentId: string,
+): Promise<void> {
+  await http.delete(`/chatrooms/${chatroomId}/agents/${agentId}`)
 }
 
 // ---- messages ------------------------------------------------------------

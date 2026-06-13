@@ -22,11 +22,20 @@
     },
     "form": {
       "name": "Name",
-      "provider": "Model Provider",
-      "model": "Model Name",
+      "modelHint": "Model Provider",
+      "keyGroup": "Key Group",
+      "keyGroupPlaceholder": "Select a key group…",
+      "noKeyGroups": "This project has no key groups yet. Create one in the Keys section before adding an agent.",
       "systemPrompt": "System Prompt",
-      "temperature": "Temperature",
-      "maxTokens": "Max Tokens",
+      "promptStrategy": "Prompt Strategy",
+      "promptStrategyFull": "Full",
+      "promptStrategyLazy": "Lazy (load on demand)",
+      "contextMode": "Context Mode",
+      "contextModeGeneral": "General",
+      "contextModeCompact": "Compact (auto-summarise)",
+      "ragConfig": "RAG Configuration",
+      "ragConfigNone": "None",
+      "a2aEnabled": "Enable agent-to-agent (A2A)",
       "submit": "Create Agent"
     }
   }

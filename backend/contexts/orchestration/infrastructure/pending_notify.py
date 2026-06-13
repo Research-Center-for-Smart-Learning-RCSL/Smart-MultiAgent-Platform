@@ -64,4 +64,26 @@ async def drain(agent_id: uuid.UUID) -> list[dict[str, Any]]:
     return out
 
 
-__all__ = ["drain", "push"]
+async def requeue(agent_id: uuid.UUID, notes: list[dict[str, Any]]) -> None:
+    """Put drained notifications back at the *head* of the queue, preserving
+    their original order (oldest first).
+
+    Used when a turn drained the queue but then failed or short-circuited
+    before the agent could see the notifications — without this, drain-then-
+    fail destroys approval requests and A2A notifies. LPUSH in reverse so
+    ``notes[0]`` ends up at the head; anything pushed while the turn ran stays
+    behind the restored batch (newer), and the cap still trims oldest-first.
+    """
+    if not notes:
+        return
+    r = get_redis()
+    key = _key(agent_id)
+    pipe = r.pipeline(transaction=False)
+    for note in reversed(notes):
+        pipe.lpush(key, json.dumps(note, separators=(",", ":")))
+    pipe.ltrim(key, -_MAX_PENDING, -1)
+    pipe.expire(key, _TTL_SECONDS)
+    await pipe.execute()
+
+
+__all__ = ["drain", "push", "requeue"]

@@ -83,13 +83,24 @@ async def wakeup_agent(
         )
         result = await engine.run_turn(agent_id=aid, chatroom_id=rid, trigger=trigger)
 
+        # Result-accurate audit slug: `wakeup.fired` is reserved for turns that
+        # actually produced a reply (mirrors the agent.turn_* naming).
+        action = {
+            "completed": "wakeup.fired",
+            "skipped": "wakeup.skipped",
+        }.get(result.status, "wakeup.failed")
         await audit.emit(
             db,
             audit.AuditEvent(
-                action="wakeup.fired",
+                action=action,
                 resource_type="agent",
                 resource_id=aid,
-                metadata={"room_id": str(rid), "trigger": trigger, "result": result.status},
+                metadata={
+                    "room_id": str(rid),
+                    "trigger": trigger,
+                    "result": result.status,
+                    "reason": result.reason,
+                },
             ),
         )
         await db.commit()
@@ -115,6 +126,50 @@ async def wakeup_agent(
     return result.status
 
 
+async def compact_chatroom(ctx: dict[str, Any], chatroom_id: str) -> str:
+    """Run the forced compaction requested by POST /compact (G.10).
+
+    The endpoint sets the one-shot ``compact:pending:{room}`` flag *and*
+    enqueues this job, so compaction happens promptly even if no agent turn
+    fires within the flag's 1-hour TTL. Compaction is room-level (one summary
+    row in ``messages``), so the first live bound agent's config drives the
+    pass — the engine consumes the flag, summarises via the agent's key group,
+    and commits. If a racing turn already consumed the flag this run is a
+    cheap no-op (the engine's normal mode/cap check applies).
+    """
+    from app.config.settings import get_settings
+    from contexts.agents.application.runtime.turn_engine import TurnEngine
+    from contexts.conversation.infrastructure.repositories import (
+        ChatroomAgentRepository,
+        ChatroomRepository,
+    )
+
+    rid = uuid.UUID(chatroom_id)
+    async with async_session() as db:
+        room = await ChatroomRepository(db).get(rid)
+        if room is None:
+            logger.bind(room_id=chatroom_id).info("compact skipped: room gone")
+            return "skipped:room_gone"
+        bindings = await ChatroomAgentRepository(db).list(rid)
+        if not bindings:
+            logger.bind(room_id=chatroom_id).info("compact skipped: no bound agents")
+            return "skipped:no_agents"
+        settings = get_settings()
+        engine = TurnEngine(
+            db,
+            qdrant_url=settings.qdrant.url,
+            qdrant_api_key=settings.qdrant.api_key,
+        )
+        for binding in bindings:
+            ok = await engine.run_compaction(agent_id=binding.agent_id, chatroom_id=rid)
+            if ok:
+                logger.bind(room_id=chatroom_id, agent_id=str(binding.agent_id)).info(
+                    "compact pass run"
+                )
+                return "completed"
+        return "failed"
+
+
 async def approval_timeout(
     ctx: dict[str, Any],
     approval_id: str,
@@ -133,6 +188,9 @@ async def approval_timeout(
     async with async_session() as db:
         state = await OrchestrationFacade(db).handle_approval_timeout(aid, chatroom_id=cid)
         await db.commit()
+    if state is None:
+        logger.bind(approval_id=approval_id).info("approval timeout: approval gone")
+        return "noop:gone"
     logger.bind(approval_id=approval_id, state=state.value).info("approval timeout handled")
     return state.value
 
@@ -267,6 +325,7 @@ def make_dlq_audit_callback() -> Callable[[uuid.UUID, str, str, int], Awaitable[
 
 __all__ = [
     "approval_timeout",
+    "compact_chatroom",
     "evaluate_silence",
     "make_dlq_audit_callback",
     "wakeup_agent",

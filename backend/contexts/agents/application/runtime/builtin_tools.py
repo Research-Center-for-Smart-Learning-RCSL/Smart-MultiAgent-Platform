@@ -228,7 +228,9 @@ def _build_mcp_tool(
                 auth=auth,
             )
         except Exception as exc:
+            await _audit_mcp_invoke(db, agent, binding, tool, ok=False)
             return ToolResult(content=f"mcp tool {tool} failed: {exc}", is_error=True)
+        await _audit_mcp_invoke(db, agent, binding, tool, ok=res.ok)
         body = res.stdout if res.ok else f"{res.stdout}\n[stderr]\n{res.stderr}".strip()
         return ToolResult(content=_clip(body or "(no output)"), is_error=not res.ok)
 
@@ -238,6 +240,32 @@ def _build_mcp_tool(
         input_schema={"type": "object", "additionalProperties": True},
         invoke=_invoke,
     )
+
+
+async def _audit_mcp_invoke(
+    db: AsyncSession, agent: Agent, binding: McpBinding, tool: str, *, ok: bool
+) -> None:
+    """Per-call MCP tool audit (R12.02/R12.15). Best-effort: an audit hiccup
+    must not abort the tool call or the turn."""
+    try:
+        from shared_kernel import audit
+
+        await audit.emit(
+            db,
+            audit.AuditEvent(
+                action="mcp.tool_invoked",
+                resource_type="agent",
+                resource_id=agent.id,
+                metadata={
+                    "binding_id": str(binding.id),
+                    "reference": binding.reference,
+                    "tool": tool,
+                    "ok": ok,
+                },
+            ),
+        )
+    except Exception:  # pragma: no cover - audit is best-effort
+        pass
 
 
 def _unseal_binding_auth(binding: McpBinding) -> dict[str, Any] | None:

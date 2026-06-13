@@ -58,6 +58,11 @@ class _FakeRedis:
     async def expire(self, key, ttl):
         return True
 
+    async def ttl(self, key):
+        # No TTL tracking — claims behave as persistent (-1); restore paths
+        # then fall back to their default restore TTL.
+        return -1 if key in self.kv else -2
+
 
 def _seed_wait(redis: _FakeRedis, run_id: str, node_id: str, event_type: str, match: dict) -> None:
     redis.sets.setdefault(f"wf:wait:by_event:{event_type}", set()).add(f"{run_id}:{node_id}")
@@ -481,6 +486,7 @@ async def test_resume_instruct_completed_resumes_success(monkeypatch) -> None:
 
         async def resume_at_port(self, rid, nid, port):
             resumed["args"] = (str(rid), nid, port)
+            return True
 
         async def dispatch_enqueues(self, pool):
             pass

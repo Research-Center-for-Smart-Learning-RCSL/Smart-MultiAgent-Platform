@@ -47,7 +47,7 @@ from contexts.keys.application.router_policy import (
 from contexts.keys.domain.errors import CapabilityMismatch, KeyGroupExhausted, KeyNotFound
 from contexts.keys.domain.groups import HourlyLimits, KeyGroupMember
 from contexts.keys.domain.models import ApiKey
-from contexts.keys.domain.providers import ApiKeyProvider, ProviderCapability
+from contexts.keys.domain.providers import ApiKeyProvider, ProviderCapability, capabilities_of
 from contexts.keys.infrastructure.group_repository import KeyGroupMemberRepository
 from contexts.keys.infrastructure.repositories import ApiKeyRepository
 from contexts.keys.infrastructure.usage_events import record_usage_event
@@ -399,7 +399,10 @@ class ProviderRouter:
                 else:
                     # No terminal event: a provider transport error, or the
                     # consumer walked away mid-stream (token counts unknown).
+                    # Still a request against the key — count it toward
+                    # max_requests_per_hour (timeouts must not be free).
                     code = "transport_error" if transport_exc is not None else "client_abort"
+                    await redis_buckets.record(em.key.id, requests=1)
                     await record_usage_event(
                         self._db,
                         key_id=em.key.id,
@@ -454,7 +457,9 @@ class ProviderRouter:
         finally:
             await _account()
             await agen.aclose()
-            secret_bytes = b"\x00" * len(secret_bytes)  # scrub rebind
+            # Drop the local reference only — this does NOT zeroise the secret;
+            # plaintext lifetime is bounded by the DEK cache TTL.
+            secret_bytes = b"\x00" * len(secret_bytes)
 
     async def _try_member(
         self,
@@ -518,6 +523,8 @@ class ProviderRouter:
             result = await adapter.invoke(secret=secret.decode("utf-8"), request=request)
         except Exception:
             elapsed_ms = int((time.monotonic() - t0) * 1000)
+            # Transport failures still count toward max_requests_per_hour.
+            await redis_buckets.record(key_id, requests=1)
             await record_usage_event(
                 self._db,
                 key_id=key_id,
@@ -532,7 +539,9 @@ class ProviderRouter:
             )
             raise
         finally:
-            secret = b"\x00" * len(secret)  # scrub rebind
+            # Drop the local reference only — this does NOT zeroise the secret;
+            # plaintext lifetime is bounded by the DEK cache TTL.
+            secret = b"\x00" * len(secret)
         elapsed_ms = int((time.monotonic() - t0) * 1000)
 
         status = result.http_status
@@ -611,6 +620,8 @@ class ProviderRouter:
         except Exception as exc:
             elapsed_ms = int((time.monotonic() - t0) * 1000)
             _log.warning("adapter transport error key=%s err=%s", em.key.id, exc)
+            # Transport failures still count toward max_requests_per_hour.
+            await redis_buckets.record(em.key.id, requests=1)
             await record_usage_event(
                 self._db,
                 key_id=em.key.id,
@@ -625,7 +636,9 @@ class ProviderRouter:
             )
             return ErrorOutcome(RotationReason.RETRY, None, "transport_error"), None
         finally:
-            secret = b"\x00" * len(secret)  # scrub rebind
+            # Drop the local reference only — this does NOT zeroise the secret;
+            # plaintext lifetime is bounded by the DEK cache TTL.
+            secret = b"\x00" * len(secret)
         elapsed_ms = int((time.monotonic() - t0) * 1000)
 
         outcome = classify_http(result.http_status, em.member.rotation)
@@ -674,14 +687,10 @@ class _KeyVanished(RuntimeError):
         self.key_id = key_id
 
 
-# R7.01 lookup — kept inline to avoid importing `providers.capabilities_of`
-# every call; the table is tiny and immutable.
+# R7.01 lookup — derived once at import time from the authoritative table in
+# `contexts.keys.domain.providers` (no duplicated capability matrix here).
 _CAPS: dict[ApiKeyProvider, frozenset[ProviderCapability]] = {
-    ApiKeyProvider.CLAUDE: frozenset({ProviderCapability.LLM_CHAT}),
-    ApiKeyProvider.OPENAI: frozenset({ProviderCapability.LLM_CHAT, ProviderCapability.EMBEDDING}),
-    ApiKeyProvider.GEMINI: frozenset({ProviderCapability.LLM_CHAT, ProviderCapability.EMBEDDING}),
-    ApiKeyProvider.VOYAGE: frozenset({ProviderCapability.EMBEDDING}),
-    ApiKeyProvider.COHERE: frozenset({ProviderCapability.RERANK}),
+    p: capabilities_of(p) for p in ApiKeyProvider
 }
 
 

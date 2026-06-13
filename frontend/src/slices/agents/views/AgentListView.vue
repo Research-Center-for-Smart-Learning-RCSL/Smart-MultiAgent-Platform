@@ -4,14 +4,15 @@ import { useRoute, useRouter } from 'vue-router'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/vue-query'
 import { useForm } from 'vee-validate'
 import { toTypedSchema } from '@vee-validate/zod'
-import { ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 
 import { ElMessage } from 'element-plus'
 import { FormField } from '@shared/ui'
 import { useServerErrors } from '@shared/composables'
+import { keyGroupsApi } from '@slices/keys'
 import { agentsApi } from '../api'
 import { agentKeys } from '../queries'
-import { agentCreateSchema } from '../types/schemas'
+import { agentCreateSchema, type AgentCreateInput } from '../types/schemas'
 
 const { t } = useI18n()
 const route = useRoute()
@@ -29,32 +30,68 @@ const query = useQuery({
   },
 })
 
+// Key groups are the BYO-key routing target — an agent cannot be created
+// without one, so the picker is required and we block submit when empty.
+const keyGroupsQuery = useQuery({
+  queryKey: ['keys', 'keyGroups', projectId],
+  queryFn: async () => {
+    const { data } = await keyGroupsApi.listForProject(projectId)
+    return data
+  },
+})
+
+const ragConfigsQuery = useQuery({
+  queryKey: agentKeys.ragConfigs(projectId),
+  queryFn: async () => {
+    const { data } = await agentsApi.listRagConfigs(projectId)
+    return data
+  },
+})
+
+const hasKeyGroups = computed(() => (keyGroupsQuery.data.value?.length ?? 0) > 0)
+
 const schema = toTypedSchema(agentCreateSchema)
-const { handleSubmit, errors, defineField, resetForm, setErrors } = useForm({
+const { handleSubmit, errors, defineField, resetForm, setErrors } = useForm<AgentCreateInput>({
   validationSchema: schema,
   initialValues: {
     name: '',
-    model_provider: 'openai',
-    model_name: 'gpt-4o',
+    model_hint: 'claude',
+    key_group_id: '',
     system_prompt: '',
-    temperature: 0.7,
-    max_tokens: 4096,
+    prompt_strategy: 'full',
     rag_config_id: null,
-    mcp_server_ids: [],
+    graphrag_config_id: null,
+    context_mode: 'general',
+    context_token_cap: null,
+    a2a_enabled: false,
   },
 })
 
 const [name] = defineField('name')
-const [modelProvider] = defineField('model_provider')
-const [modelName] = defineField('model_name')
+const [modelHint] = defineField('model_hint')
+const [keyGroupId] = defineField('key_group_id')
 const [systemPrompt] = defineField('system_prompt')
-const [temperature] = defineField('temperature')
-const [maxTokens] = defineField('max_tokens')
+const [promptStrategy] = defineField('prompt_strategy')
+const [contextMode] = defineField('context_mode')
+const [ragConfigId] = defineField('rag_config_id')
+const [a2aEnabled] = defineField('a2a_enabled')
+
+// Default the required picker to the first available group once loaded so the
+// common single-group case needs no manual selection.
+watch(
+  () => keyGroupsQuery.data.value,
+  (groups) => {
+    if (groups && groups.length && !keyGroupId.value) {
+      keyGroupId.value = groups[0]!.id
+    }
+  },
+  { immediate: true },
+)
 
 const { applyServerErrors } = useServerErrors(setErrors)
 
 const createMutation = useMutation({
-  mutationFn: async (values: Parameters<typeof agentsApi.create>[1]) => {
+  mutationFn: async (values: AgentCreateInput) => {
     const { data } = await agentsApi.create(projectId, values)
     return data
   },
@@ -72,7 +109,7 @@ const createMutation = useMutation({
 })
 
 const onSubmit = handleSubmit((values) => {
-  createMutation.mutate(values as Parameters<typeof agentsApi.create>[1])
+  createMutation.mutate(values)
 })
 
 function goToAgent(agentId: string) {
@@ -99,6 +136,14 @@ function goToAgent(agentId: string) {
       class="agent-list__form"
       @submit.prevent="onSubmit"
     >
+      <p
+        v-if="!keyGroupsQuery.isLoading.value && !hasKeyGroups"
+        class="agent-list__warning"
+        role="alert"
+      >
+        {{ t('agents.form.noKeyGroups') }}
+      </p>
+
       <FormField
         :label="t('agents.form.name')"
         name="name"
@@ -114,20 +159,20 @@ function goToAgent(agentId: string) {
       </FormField>
 
       <FormField
-        :label="t('agents.form.provider')"
-        name="model_provider"
-        :error="errors.model_provider"
+        :label="t('agents.form.modelHint')"
+        name="model_hint"
+        :error="errors.model_hint"
         required
       >
         <select
-          id="model_provider"
-          v-model="modelProvider"
+          id="model_hint"
+          v-model="modelHint"
         >
-          <option value="openai">
-            OpenAI
-          </option>
           <option value="claude">
             Claude
+          </option>
+          <option value="openai">
+            OpenAI
           </option>
           <option value="gemini">
             Gemini
@@ -136,17 +181,29 @@ function goToAgent(agentId: string) {
       </FormField>
 
       <FormField
-        :label="t('agents.form.model')"
-        name="model_name"
-        :error="errors.model_name"
+        :label="t('agents.form.keyGroup')"
+        name="key_group_id"
+        :error="errors.key_group_id"
         required
       >
-        <input
-          id="model_name"
-          v-model="modelName"
-          :aria-describedby="errors.model_name ? 'model_name-error' : undefined"
-          :aria-invalid="!!errors.model_name"
+        <select
+          id="key_group_id"
+          v-model="keyGroupId"
         >
+          <option
+            value=""
+            disabled
+          >
+            {{ t('agents.form.keyGroupPlaceholder') }}
+          </option>
+          <option
+            v-for="g in keyGroupsQuery.data.value ?? []"
+            :key="g.id"
+            :value="g.id"
+          >
+            {{ g.name }}
+          </option>
+        </select>
       </FormField>
 
       <FormField
@@ -162,38 +219,79 @@ function goToAgent(agentId: string) {
       </FormField>
 
       <FormField
-        :label="t('agents.form.temperature')"
-        name="temperature"
-        :error="errors.temperature"
+        :label="t('agents.form.promptStrategy')"
+        name="prompt_strategy"
+        :error="errors.prompt_strategy"
       >
-        <input
-          id="temperature"
-          v-model.number="temperature"
-          type="number"
-          step="0.1"
-          min="0"
-          max="2"
+        <select
+          id="prompt_strategy"
+          v-model="promptStrategy"
         >
+          <option value="full">
+            {{ t('agents.form.promptStrategyFull') }}
+          </option>
+          <option value="lazy">
+            {{ t('agents.form.promptStrategyLazy') }}
+          </option>
+        </select>
       </FormField>
 
       <FormField
-        :label="t('agents.form.maxTokens')"
-        name="max_tokens"
-        :error="errors.max_tokens"
+        :label="t('agents.form.contextMode')"
+        name="context_mode"
+        :error="errors.context_mode"
+      >
+        <select
+          id="context_mode"
+          v-model="contextMode"
+        >
+          <option value="general">
+            {{ t('agents.form.contextModeGeneral') }}
+          </option>
+          <option value="compact">
+            {{ t('agents.form.contextModeCompact') }}
+          </option>
+        </select>
+      </FormField>
+
+      <FormField
+        :label="t('agents.form.ragConfig')"
+        name="rag_config_id"
+        :error="errors.rag_config_id"
+      >
+        <select
+          id="rag_config_id"
+          v-model="ragConfigId"
+        >
+          <option :value="null">
+            {{ t('agents.form.ragConfigNone') }}
+          </option>
+          <option
+            v-for="rc in ragConfigsQuery.data.value ?? []"
+            :key="rc.id"
+            :value="rc.id"
+          >
+            {{ rc.name }}
+          </option>
+        </select>
+      </FormField>
+
+      <FormField
+        :label="t('agents.form.a2aEnabled')"
+        name="a2a_enabled"
+        :error="errors.a2a_enabled"
       >
         <input
-          id="max_tokens"
-          v-model.number="maxTokens"
-          type="number"
-          min="1"
-          max="128000"
+          id="a2a_enabled"
+          v-model="a2aEnabled"
+          type="checkbox"
         >
       </FormField>
 
       <button
         type="submit"
         class="btn btn-primary"
-        :disabled="createMutation.isPending.value"
+        :disabled="createMutation.isPending.value || !hasKeyGroups"
       >
         {{ t('agents.form.submit') }}
       </button>
@@ -220,7 +318,7 @@ function goToAgent(agentId: string) {
         @keydown.enter="goToAgent(agent.id)"
       >
         <span class="agent-list__item-name">{{ agent.name }}</span>
-        <span class="agent-list__item-model">{{ agent.model_provider }} / {{ agent.model_name }}</span>
+        <span class="agent-list__item-model">{{ agent.model_hint }}</span>
       </li>
     </ul>
 
@@ -245,6 +343,10 @@ function goToAgent(agentId: string) {
   padding: var(--space-4);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
+}
+.agent-list__warning {
+  color: var(--color-danger, #b91c1c);
+  margin-bottom: var(--space-3);
 }
 .agent-list__items {
   list-style: none;

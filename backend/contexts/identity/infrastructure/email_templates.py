@@ -13,7 +13,22 @@ token in the URL *fragment* (`#token=`) — see ``auth_service._send_*`` for why
 from __future__ import annotations
 
 import html
+import re
 from dataclasses import dataclass
+
+_WS_RE = re.compile(r"\s+")
+
+
+def _clean_header_text(value: str) -> str:
+    """Collapse CR/LF, other control chars, and whitespace runs to single spaces.
+
+    A scope name carrying ``\\r\\n``/control characters would make Python's
+    ``EmailMessage`` raise ``ValueError`` (header-injection guard) → a 500 on
+    every invite from that org/project. Sanitising the interpolated name before
+    it reaches the Subject header neutralises that without rejecting the invite.
+    """
+    cleaned = "".join(ch if ch.isprintable() else " " for ch in value)
+    return _WS_RE.sub(" ", cleaned).strip()
 
 
 @dataclass(frozen=True, slots=True)
@@ -141,6 +156,7 @@ def invite(*, scope_label: str, scope_name: str, accept_link: str) -> RenderedEm
     The link lands on the SPA accept route; for an unregistered invitee the SPA
     routes them through sign-up first, then redeems the token (auto-enroll).
     """
+    scope_name = _clean_header_text(scope_name)
     where = f"the {scope_label} “{scope_name}”" if scope_name else f"a {scope_label}"
     return RenderedEmail(
         subject=f"You've been invited to {where}",

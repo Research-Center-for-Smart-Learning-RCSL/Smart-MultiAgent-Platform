@@ -246,6 +246,10 @@ class ApprovalGateConfig:
     approvers: tuple[uuid.UUID, ...]
     leader_agent_id: uuid.UUID
     timeout_seconds: int = 300
+    # What the approvers are deciding on — interpolated by the workflow node
+    # and threaded into the approvers' pending-notify payloads so a voter
+    # actually knows the subject of the vote.
+    question: str | None = None
 
     def __post_init__(self) -> None:
         if self.timeout_seconds < 1 or self.timeout_seconds > 86400:

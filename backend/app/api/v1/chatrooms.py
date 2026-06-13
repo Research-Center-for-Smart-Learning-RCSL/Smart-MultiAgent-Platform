@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Path, Request, st
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from contexts.agents.interfaces.facade import AgentsFacade
 from contexts.conversation.application.chatroom_service import (
     ChatroomFlagsPatch,
     ChatroomService,
@@ -329,6 +330,15 @@ async def add_chatroom_agent(
         project_id,
         Capability.RESOURCE_CREATE_EDIT,
     )
+    # Agents are project-scoped; a chatroom may only bind agents from its own
+    # project. The picker UI already filters to in-project agents, but guard the
+    # raw endpoint too so a direct call cannot create a cross-project binding.
+    agent = await AgentsFacade(db).get_agent(body.agent_id)
+    if agent is None or agent.project_id != project_id:
+        raise HTTPException(
+            status_code=422,
+            detail="agent does not belong to this chatroom's project",
+        )
     service = ChatroomService(db)
     await service.add_agent(
         chatroom_id=chatroom_id,

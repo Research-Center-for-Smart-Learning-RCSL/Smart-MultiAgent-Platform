@@ -17,6 +17,11 @@ import { listMessages } from '../api'
 import { useConversationStore } from '../stores/conversation'
 import type { Message } from '../types'
 
+// Client-side watchdog for a wedged turn: if the worker crashes mid-turn no
+// `agent.finished` ever arrives, so without this the thinking spinner sticks
+// forever. Re-armed on every `agent.token`, cleared on `agent.finished`.
+export const AGENT_THINKING_TIMEOUT_MS = 120_000
+
 export function useChatroomSocket(roomId: string) {
   const qc = useQueryClient()
   const store = useConversationStore()
@@ -55,12 +60,34 @@ export function useChatroomSocket(roomId: string) {
     lastSeenMessageId.value = m.id
   }
 
+  let thinkingTimer: ReturnType<typeof setTimeout> | null = null
+
+  function clearThinkingTimeout(): void {
+    if (thinkingTimer !== null) {
+      clearTimeout(thinkingTimer)
+      thinkingTimer = null
+    }
+  }
+
+  function armThinkingTimeout(): void {
+    clearThinkingTimeout()
+    thinkingTimer = setTimeout(() => {
+      thinkingTimer = null
+      store.setAgentThinking(roomId, false)
+      store.clearAgentStream(roomId)
+      store.setAgentError(roomId, 'timeout')
+    }, AGENT_THINKING_TIMEOUT_MS)
+  }
+
   function handleEvent(ev: ChannelEvent): void {
     switch (ev.type) {
       case 'message.created': {
         const mid = ev.message_id as string
         qc.invalidateQueries({ queryKey: ['conversation', 'messages', roomId] })
         lastSeenMessageId.value = mid
+        // The persisted reply has landed — drop the transient streaming draft
+        // so the bubble is replaced by the real message, never doubled.
+        store.clearAgentStream(roomId)
         break
       }
       case 'message.updated':
@@ -75,9 +102,26 @@ export function useChatroomSocket(roomId: string) {
         break
       case 'agent.thinking':
         store.setAgentThinking(roomId, true)
+        store.clearAgentStream(roomId)
+        store.setAgentError(roomId, null)
+        armThinkingTimeout()
+        break
+      // Per-token stream from the turn engine; payload is {"text": "<delta>"}.
+      case 'agent.token':
+        if (typeof ev.text === 'string' && ev.text) {
+          store.appendAgentToken(roomId, ev.text)
+        }
+        armThinkingTimeout()
         break
       case 'agent.finished':
+        clearThinkingTimeout()
         store.setAgentThinking(roomId, false)
+        if (typeof ev.error === 'string' && ev.error) {
+          // Failed turn — no message.created will follow, so clear the draft
+          // here and surface the error kind for the view to toast.
+          store.clearAgentStream(roomId)
+          store.setAgentError(roomId, ev.error)
+        }
         break
       case 'approval.requested': {
         const approval = ev as unknown as { approval_id: string } & ApprovalWithVotes
@@ -123,10 +167,12 @@ export function useChatroomSocket(roomId: string) {
   })
 
   onDeactivated(() => {
+    clearThinkingTimeout()
     channel.disconnect()
   })
 
   onBeforeUnmount(() => {
+    clearThinkingTimeout()
     unsubscribeEvent()
     unsubscribeStatus()
     wsManager.close(`/chatroom/${roomId}`)

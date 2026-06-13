@@ -189,6 +189,29 @@ class InstructService:
             InstructionState.TIMEOUT,
         )
 
+    async def mark_failed(self, instruction_id: uuid.UUID) -> None:
+        """Record a provider/turn failure — distinct from a deadline timeout.
+
+        The DB ``instruction_state`` enum has no ``failed`` member (adding one
+        needs a migration plus a resume-port mapping change), so the row
+        settles as TIMEOUT — which the workflow resume task already maps to
+        the ``failure`` port — and the actual cause is preserved as an
+        ``instruct.failed`` audit event.
+        """
+        await self._instructions.update_state(
+            instruction_id,
+            InstructionState.TIMEOUT,
+        )
+        await audit.emit(
+            self._db,
+            audit.AuditEvent(
+                action="instruct.failed",
+                resource_type="instruction",
+                resource_id=instruction_id,
+                metadata={"reason": "turn_failed"},
+            ),
+        )
+
     async def get_instruction(self, instruction_id: uuid.UUID) -> Instruction | None:
         return await self._instructions.get(instruction_id)
 

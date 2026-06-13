@@ -26,6 +26,11 @@ from shared_kernel.auth.clients import get_vault_client
 _KV_PATH: Final = "smap/config/captcha"
 _HCAPTCHA_URL: Final = "https://api.hcaptcha.com/siteverify"
 _TURNSTILE_URL: Final = "https://challenges.cloudflare.com/turnstile/v0/siteverify"
+# Strict provider → siteverify-URL allowlist (verify() fails closed on a miss).
+_SITEVERIFY_URLS: Final[dict[str, str]] = {
+    "hcaptcha": _HCAPTCHA_URL,
+    "turnstile": _TURNSTILE_URL,
+}
 
 
 class CaptchaError(ValueError):
@@ -98,13 +103,23 @@ async def verify(token: str | None, *, remote_ip: str | None) -> None:
     """
     if get_settings().app.env == "test":
         return
-    cfg = _load_config()
+    # Fail CLOSED: any unexpected error reading the Vault-backed config (down,
+    # missing path, malformed) surfaces as a CaptchaError rather than a 500 or a
+    # silent bypass. public_config() stays fail-OPEN; verify() never does.
+    try:
+        cfg = _load_config()
+    except Exception as exc:
+        raise CaptchaError(f"CAPTCHA config unavailable: {exc}") from exc
     if cfg.mode == "off":
         return
     if not token:
         raise CaptchaError("missing CAPTCHA token")
 
-    url = _HCAPTCHA_URL if cfg.provider == "hcaptcha" else _TURNSTILE_URL
+    # Strict provider allowlist: an unknown/typo provider must NOT fall through to
+    # the Turnstile host (which would POST the secret to the wrong endpoint).
+    url = _SITEVERIFY_URLS.get(cfg.provider)
+    if url is None:
+        raise CaptchaError(f"unsupported CAPTCHA provider: {cfg.provider!r}")
     payload = {"secret": cfg.secret, "response": token}
     if remote_ip:
         payload["remoteip"] = remote_ip

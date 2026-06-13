@@ -95,6 +95,7 @@ class ApprovalService:
                     "leader_agent_id": str(config.leader_agent_id),
                     "approver_agent_ids": [str(a) for a in config.approvers],
                     "timeout_seconds": config.timeout_seconds,
+                    "question": config.question,
                 },
             )
 
@@ -138,12 +139,31 @@ class ApprovalService:
             "mode": config.mode.value,
             "workflow_run_id": str(workflow_run_id),
             "chatroom_id": str(chatroom_id) if chatroom_id else None,
+            # What is being voted on — without it the approver only sees an
+            # opaque approval_id and cannot make an informed decision.
+            "question": config.question,
         }
-        try:
-            for approver in config.approvers:
+        for approver in config.approvers:
+            try:
                 await pending_notify.push(approver, dict(note))
-        except Exception:
-            _log.warning("approval %s: approver notify failed", approval_id, exc_info=True)
+                # Pending notifies are only drained at the approver's *next*
+                # turn, and nothing else causes one for a headless approver —
+                # without this the gate always falls to the timeout port.
+                # Drive one headless turn per approver; the drained note
+                # supplies the cast_approval_vote tool.
+                await enqueue(
+                    "drive_approver_turn",
+                    str(approver),
+                    str(approval_id),
+                    str(chatroom_id) if chatroom_id else None,
+                )
+            except Exception:
+                _log.warning(
+                    "approval %s: approver %s notify/turn dispatch failed",
+                    approval_id,
+                    approver,
+                    exc_info=True,
+                )
         try:
             await enqueue(
                 "approval_timeout",
@@ -192,10 +212,17 @@ class ApprovalService:
         approval_id: uuid.UUID,
         *,
         chatroom_id: uuid.UUID | None = None,
-    ) -> ApprovalState:
+    ) -> ApprovalState | None:
+        """Resolve a still-pending gate to TIMEOUT_LEADER.
+
+        Returns the resolved (or already-resolved) state, or None when the
+        approval does not exist.
+        """
         approval = await self._approvals.get(approval_id)
-        if approval is None or approval.state != ApprovalState.PENDING:
-            return approval.state if approval else ApprovalState.PENDING
+        if approval is None:
+            return None
+        if approval.state != ApprovalState.PENDING:
+            return approval.state
 
         leader_votes = [
             v
@@ -210,7 +237,11 @@ class ApprovalService:
             leader_verdict = "no_vote"
 
         resolved_state = ApprovalState.TIMEOUT_LEADER
-        await self._approvals.update_state(approval_id, resolved_state)
+        if not await self._approvals.update_state(approval_id, resolved_state):
+            # A vote resolved the gate between our read and the CAS — that
+            # resolution path owns the audit/publish/resume side effects.
+            refreshed = await self._approvals.get(approval_id)
+            return refreshed.state if refreshed else None
 
         APPROVAL_RESOLUTIONS.labels(
             mode=approval.mode.value,
@@ -254,7 +285,10 @@ class ApprovalService:
         if resolved_state is None:
             return
 
-        await self._approvals.update_state(approval.id, resolved_state)
+        if not await self._approvals.update_state(approval.id, resolved_state):
+            # Already resolved by a concurrent vote or the timeout job — the
+            # winning path owns the audit/publish/resume side effects.
+            return
 
         APPROVAL_RESOLUTIONS.labels(
             mode=approval.mode.value,

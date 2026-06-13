@@ -20,6 +20,40 @@ from typing import Any
 
 from loguru import logger
 
+# ---------------------------------------------------------------------------
+# Claim-before-verify recovery (K remediation)
+#
+# Every resume task claims its single-shot token (``wf:wait:*`` /
+# ``wf:approval:*`` / ``wf:instruct:*``) with GETDEL *before* calling
+# ``RunEngine.resume_at_port``, which silently no-ops when the run is not
+# WAITING (the parking transaction hasn't committed yet — the claim key is
+# written inside it but visible to Redis immediately — or a parallel sibling
+# branch holds the run in RUNNING). Dropping the claim there lost the wait
+# forever. On a failed resume of a NON-terminal run the claim is restored with
+# its remaining TTL and the task re-enqueues itself with a short defer, bounded
+# by the same budget as the approval pending-poll (3 s × 210 ≈ 10.5 min).
+# ---------------------------------------------------------------------------
+
+_RESUME_RETRY_DELAY_S = 3
+_RESUME_RETRY_MAX_ATTEMPTS = 210
+# Fallback TTL when the claim's original TTL could not be read (e.g. it had
+# already expired between the TTL read and the GETDEL).
+_CLAIM_RESTORE_TTL_S = 60
+
+
+async def _run_is_terminal(db: Any, run_id: str) -> bool:
+    """True when the run is gone or in a terminal state (no resume possible)."""
+    from contexts.workflow.domain.models import RunState
+    from contexts.workflow.infrastructure.repositories import WorkflowRunRepository
+
+    run = await WorkflowRunRepository(db).get(uuid.UUID(run_id))
+    return run is None or run.state in (RunState.SUCCEEDED, RunState.FAILED, RunState.CANCELLED)
+
+
+async def _restore_claim(redis: Any, key: str, payload: Any, ttl: int | None) -> None:
+    """Put a GETDEL-claimed resume token back so a later claimant can own it."""
+    await redis.set(key, payload, ex=ttl if ttl and ttl > 0 else _CLAIM_RESTORE_TTL_S)
+
 
 async def run_workflow_step(
     ctx: dict[str, Any],
@@ -85,6 +119,7 @@ async def workflow_event_timeout(
     ctx: dict[str, Any],
     run_id: str,
     node_id: str,
+    attempt: int = 0,
 ) -> str:
     """W6: Fire when a wait_for_event node times out without receiving its event.
 
@@ -94,6 +129,9 @@ async def workflow_event_timeout(
     every other party sees ``None`` and stops. This closes the TOCTOU window
     where a plain ``EXISTS`` check let a run resume twice (once at ``timeout``
     and once at ``default``), spawning duplicate downstream steps.
+
+    Claim-before-verify: if the run turns out not to be WAITING (parallel
+    sibling running), the claim is restored and this job retries bounded.
     """
     import json
 
@@ -103,6 +141,9 @@ async def workflow_event_timeout(
     redis = get_redis()
     wait_key = f"wf:wait:{run_id}:{node_id}"
 
+    # Capture the remaining TTL before claiming so a failed resume can restore
+    # the claim with (approximately) its original deadline.
+    ttl = await redis.ttl(wait_key)
     # Atomic claim: GETDEL hands the payload to exactly one caller and removes
     # the key in the same step. A loser (event already dispatched, or this is a
     # duplicate job) gets None and must not resume.
@@ -117,8 +158,22 @@ async def workflow_event_timeout(
         from contexts.workflow.application.run_engine import RunEngine
 
         engine = RunEngine(db)
-        await engine.resume_at_port(uuid.UUID(run_id), node_id, "timeout")
+        resumed = await engine.resume_at_port(uuid.UUID(run_id), node_id, "timeout")
         await db.commit()
+        if not resumed and not await _run_is_terminal(db, run_id):
+            # Run not WAITING (parallel sibling executing) — restore the claim
+            # and retry; the wait must not be lost (claim-before-verify).
+            await _restore_claim(redis, wait_key, claimed, ttl)
+            if attempt < _RESUME_RETRY_MAX_ATTEMPTS:
+                await ctx["redis"].enqueue_job(
+                    "workflow_event_timeout",
+                    run_id,
+                    node_id,
+                    attempt + 1,
+                    _defer_by=timedelta(seconds=_RESUME_RETRY_DELAY_S),
+                )
+                return "not_waiting:retry"
+            return "not_waiting:gave_up"
         # ASYNC-6: reuse this worker's own Arq pool — never open a fresh one.
         await engine.dispatch_enqueues(ctx["redis"])
 
@@ -135,6 +190,8 @@ async def workflow_event_timeout(
             "workflow_event_timeout: failed to remove from event index"
         )
 
+    if not resumed:
+        return "noop:terminal"
     logger.bind(event="workflow_event_timed_out", run_id=run_id, node_id=node_id).info(
         "workflow event timed out"
     )
@@ -234,6 +291,18 @@ async def workflow_cron_scheduler(ctx: dict[str, Any]) -> str:
                 if not cron_expr:
                     continue
 
+                # Catch-up window / one-fire-per-pass semantics:
+                # - The scheduler cron runs once a minute; each trigger fires at
+                #   most ONCE per pass (the 60 s guard below also debounces a
+                #   duplicate pass). Sub-minute cron expressions are therefore
+                #   effectively clamped to one run per minute.
+                # - On a missed window (worker down), the next pass computes the
+                #   next fire from ``last_fire`` (or ``now - 60s`` on first
+                #   sight) and enqueues a single catch-up run — never one run
+                #   per missed tick.
+                # - ``last_fire`` lives in Redis with a 24 h TTL; if it expires
+                #   (long outage / flush), the baseline resets to ``now - 60s``,
+                #   so at most one stale fire can occur.
                 redis_key = f"wf:cron:{row.id}:last_fire"
                 last_fire = await redis.get(redis_key)
 
@@ -271,6 +340,11 @@ async def workflow_cron_scheduler(ctx: dict[str, Any]) -> str:
                         await redis.set(redis_key, now.isoformat(), ex=86400)
                         fired += 1
                 except Exception as exc:
+                    # The session is shared across the whole pass: a failed
+                    # trigger_run leaves it pending-rollback and would poison
+                    # every subsequent workflow — roll back before continuing
+                    # (mirrors workflow_watchdog).
+                    await db.rollback()
                     logger.bind(workflow_id=str(row.id)).exception("cron eval failed")
                     errors.append(f"{row.id}: {exc}")
 
@@ -406,12 +480,17 @@ async def workflow_variable_signal(ctx: dict[str, Any], run_id: str, node_id: st
     return f"resumed={resumed}"
 
 
-async def workflow_event_resume(ctx: dict[str, Any], run_id: str, node_id: str) -> str:
+async def workflow_event_resume(ctx: dict[str, Any], run_id: str, node_id: str, attempt: int = 0) -> str:
     """Resume a parked ``wait_for_event`` node when its event arrives (K.4).
 
     ASYNC-10: the resume is claimed atomically with ``GETDEL`` on
     ``wf:wait:{run_id}:{node_id}`` — the same key the timeout job claims — so an
     event and its timeout can never both resume the run.
+
+    Claim-before-verify: when ``resume_at_port`` reports the run was not
+    WAITING (park not yet committed, or a parallel sibling holds the run in
+    RUNNING) and the run is not terminal, the claim is restored with its
+    remaining TTL and this job retries bounded — otherwise the wait was lost.
     """
     import json
 
@@ -420,6 +499,7 @@ async def workflow_event_resume(ctx: dict[str, Any], run_id: str, node_id: str) 
 
     redis = get_redis()
     wait_key = f"wf:wait:{run_id}:{node_id}"
+    ttl = await redis.ttl(wait_key)
     claimed = await redis.getdel(wait_key)
     if claimed is None:
         return "already_claimed"
@@ -428,10 +508,26 @@ async def workflow_event_resume(ctx: dict[str, Any], run_id: str, node_id: str) 
         from contexts.workflow.application.run_engine import RunEngine
 
         engine = RunEngine(db)
-        await engine.resume_at_port(uuid.UUID(run_id), node_id, "default")
-        await _emit_resumed(db, run_id, node_id, reason="event")
-        await db.commit()
-        await engine.dispatch_enqueues(ctx["redis"])
+        resumed = await engine.resume_at_port(uuid.UUID(run_id), node_id, "default")
+        if not resumed:
+            await db.commit()  # persist side effects (e.g. workflow-deleted FAILED)
+            if not await _run_is_terminal(db, run_id):
+                await _restore_claim(redis, wait_key, claimed, ttl)
+                if attempt < _RESUME_RETRY_MAX_ATTEMPTS:
+                    await ctx["redis"].enqueue_job(
+                        "workflow_event_resume",
+                        run_id,
+                        node_id,
+                        attempt + 1,
+                        _defer_by=timedelta(seconds=_RESUME_RETRY_DELAY_S),
+                    )
+                    return "not_waiting:retry"
+                return "not_waiting:gave_up"
+            # Terminal run: drop the claim and fall through to index cleanup.
+        else:
+            await _emit_resumed(db, run_id, node_id, reason="event")
+            await db.commit()
+            await engine.dispatch_enqueues(ctx["redis"])
 
     # Best-effort index cleanup using the claimed payload.
     try:
@@ -441,6 +537,8 @@ async def workflow_event_resume(ctx: dict[str, Any], run_id: str, node_id: str) 
     except Exception:
         logger.bind(run_id=run_id, node_id=node_id).exception("event resume: index cleanup failed")
 
+    if not resumed:
+        return "noop:terminal"
     logger.bind(event="workflow_event_resumed", run_id=run_id, node_id=node_id).info("workflow event resumed")
     return "resumed"
 
@@ -527,6 +625,7 @@ async def workflow_resume_approval(ctx: dict[str, Any], approval_id: str, attemp
         votes = await facade.get_approval_votes(aid)
         port = _approval_port(approval, votes)
 
+        ttl = await redis.ttl(key)
         claimed = await redis.getdel(key)
         if claimed is None:
             return "noop:claimed_elsewhere"
@@ -535,7 +634,24 @@ async def workflow_resume_approval(ctx: dict[str, Any], approval_id: str, attemp
         from contexts.workflow.application.run_engine import RunEngine
 
         engine = RunEngine(db)
-        await engine.resume_at_port(uuid.UUID(info["run_id"]), info["node_id"], port)
+        resumed = await engine.resume_at_port(uuid.UUID(info["run_id"]), info["node_id"], port)
+        if not resumed:
+            await db.commit()  # persist side effects (e.g. workflow-deleted FAILED)
+            if await _run_is_terminal(db, info["run_id"]):
+                return "noop:terminal"
+            # Claim-before-verify: run not WAITING yet (parking commit pending
+            # or a parallel sibling running) — restore the claim and retry.
+            # Shares the attempt budget with the pending-poll above.
+            await _restore_claim(redis, key, claimed, ttl)
+            if attempt < _APPROVAL_RESUME_MAX_ATTEMPTS:
+                await ctx["redis"].enqueue_job(
+                    "workflow_resume_approval",
+                    approval_id,
+                    attempt + 1,
+                    _defer_by=timedelta(seconds=_APPROVAL_RESUME_DELAY_S),
+                )
+                return "not_waiting:retry"
+            return "not_waiting:gave_up"
         await _emit_resumed(db, info["run_id"], info["node_id"], reason=f"approval:{port}")
         await db.commit()
         await engine.dispatch_enqueues(ctx["redis"])
@@ -561,7 +677,7 @@ def _approval_port(approval: Any, votes: list[Any]) -> str:
     return "timeout"
 
 
-async def workflow_resume_instruct(ctx: dict[str, Any], instruction_id: str) -> str:
+async def workflow_resume_instruct(ctx: dict[str, Any], instruction_id: str, attempt: int = 0) -> str:
     """Resume a workflow run parked on ``instruct`` once the instruction settles (K.4).
 
     Enqueued post-commit by the A2A handler (completion) and by
@@ -569,6 +685,10 @@ async def workflow_resume_instruct(ctx: dict[str, Any], instruction_id: str) -> 
     decides the port, so completion and timeout can't disagree; ``GETDEL`` on
     ``wf:instruct:{id}`` makes the resume single-shot. Non-workflow instructs
     carry no claim key and no-op.
+
+    Also populates the instruct node's ``output_variable`` (the executor only
+    does so on the non-parked path) and, claim-before-verify, restores the
+    claim + retries bounded when the run is not WAITING yet.
     """
     import json
 
@@ -595,6 +715,7 @@ async def workflow_resume_instruct(ctx: dict[str, Any], instruction_id: str) -> 
         else:
             return "pending"  # issued/delivered — not settled yet
 
+        ttl = await redis.ttl(key)
         claimed = await redis.getdel(key)
         if claimed is None:
             return "noop:claimed_elsewhere"
@@ -602,8 +723,28 @@ async def workflow_resume_instruct(ctx: dict[str, Any], instruction_id: str) -> 
 
         from contexts.workflow.application.run_engine import RunEngine
 
+        if port == "success":
+            # Populate the node's output_variable BEFORE resuming so downstream
+            # nodes (and resume_at_port's variable snapshot) see it.
+            await _store_instruct_output(db, info["run_id"], info["node_id"], str(iid))
+
         engine = RunEngine(db)
-        await engine.resume_at_port(uuid.UUID(info["run_id"]), info["node_id"], port)
+        resumed = await engine.resume_at_port(uuid.UUID(info["run_id"]), info["node_id"], port)
+        if not resumed:
+            await db.commit()  # persist side effects (output_variable / failed run)
+            if await _run_is_terminal(db, info["run_id"]):
+                return "noop:terminal"
+            # Claim-before-verify: restore the claim and retry bounded.
+            await _restore_claim(redis, key, claimed, ttl)
+            if attempt < _RESUME_RETRY_MAX_ATTEMPTS:
+                await ctx["redis"].enqueue_job(
+                    "workflow_resume_instruct",
+                    instruction_id,
+                    attempt + 1,
+                    _defer_by=timedelta(seconds=_RESUME_RETRY_DELAY_S),
+                )
+                return "not_waiting:retry"
+            return "not_waiting:gave_up"
         await _emit_resumed(db, info["run_id"], info["node_id"], reason=f"instruct:{port}")
         await db.commit()
         await engine.dispatch_enqueues(ctx["redis"])
@@ -638,6 +779,45 @@ async def workflow_instruct_timeout(ctx: dict[str, Any], instruction_id: str) ->
     return "timed_out"
 
 
+async def _store_instruct_output(db: Any, run_id: str, node_id: str, instruction_id: str) -> None:
+    """Populate the instruct node's ``output_variable`` on the parked path.
+
+    The executor writes it only on the non-parked (``wait_for_completion=False``)
+    branch; a parked node resumed here never surfaced anything. The instruction's
+    reply *text* is not persisted anywhere (the A2A turn result lives only in
+    memory in ``a2a_handler``), so — matching the non-parked path's semantics —
+    the instruction id is stored. Best-effort: a population failure must not
+    block the resume. Idempotent across resume retries.
+    """
+    try:
+        from contexts.workflow.infrastructure.repositories import (
+            WorkflowRepository,
+            WorkflowRunRepository,
+        )
+
+        runs = WorkflowRunRepository(db)
+        run = await runs.get(uuid.UUID(run_id))
+        if run is None:
+            return
+        workflow = await WorkflowRepository(db).get(run.workflow_id, include_deleted=True)
+        if workflow is None:
+            return
+        node = next(
+            (n for n in workflow.definition.get("nodes", []) if n.get("id") == node_id),
+            None,
+        )
+        output_variable = (node or {}).get("config", {}).get("output_variable")
+        if not output_variable:
+            return
+        variables = dict(run.variables)
+        variables[output_variable] = instruction_id
+        await runs.update_variables(uuid.UUID(run_id), variables)
+    except Exception:
+        logger.bind(run_id=run_id, node_id=node_id).exception(
+            "instruct resume: output_variable population failed"
+        )
+
+
 async def _emit_resumed(db: Any, run_id: str, node_id: str, *, reason: str) -> None:
     """Audit ``workflow.resumed`` (cross-cutting checklist item 2)."""
     from shared_kernel import audit
@@ -660,6 +840,16 @@ async def workflow_watchdog(ctx: dict[str, Any]) -> str:
     wait whose event never arrives (and whose timeout job was lost) would sit
     RUNNING/WAITING forever. This sweep is the backstop: per active run it loads
     the workflow definition's timeouts and fails the run past either budget.
+
+    Idle-vs-parked interaction: the idle clock is the latest step ``started_at``
+    (``latest_activity_at``), and a *legitimately* parked run (approval_gate /
+    wait_for_event / instruct) accrues idle time the whole while it waits. The
+    defaults live in ``RunContext`` (``run_max_seconds=3600``,
+    ``idle_max_seconds=1800``, override via the definition's ``timeouts``
+    block); a workflow whose longest gate/wait timeout exceeds
+    ``idle_max_seconds`` WILL be force-failed by this watchdog while merely
+    waiting — authors must set ``idle_max_seconds`` above their longest
+    gate/wait timeout.
     """
     from contexts.workflow.application.run_engine import RunEngine
     from contexts.workflow.domain.models import RunContext

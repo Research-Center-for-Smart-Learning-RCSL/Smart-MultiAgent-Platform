@@ -194,6 +194,21 @@ class OpenAIAdapter:
                     return
                 async for data in base.iter_sse_lines(resp):
                     ev = json.loads(data)
+                    err = ev.get("error")
+                    if isinstance(err, dict) and not ev.get("choices"):
+                        # Mid-stream failure delivered inside an HTTP 200 —
+                        # map onto a synthetic non-2xx for router classification.
+                        kind = err.get("type") or err.get("code")
+                        status = 429 if "rate_limit" in str(kind or "") else 500
+                        yield StreamComplete(
+                            ProviderCallResult(
+                                http_status=status,
+                                body=base.scrub_stream_error(status, kind),
+                                input_tokens=input_tokens,
+                                output_tokens=output_tokens,
+                            )
+                        )
+                        return
                     usage = ev.get("usage")
                     if usage:
                         input_tokens = int(usage.get("prompt_tokens", input_tokens))

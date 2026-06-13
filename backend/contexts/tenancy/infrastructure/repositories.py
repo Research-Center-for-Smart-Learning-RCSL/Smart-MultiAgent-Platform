@@ -461,7 +461,9 @@ class ProjectMemberRepository:
 
 
 def _hash_token(token: str) -> str:
-    return hashlib.sha256(token.encode("ascii")).hexdigest()
+    # utf-8 (not ascii) so a non-ASCII token never raises UnicodeEncodeError →
+    # an invalid token simply hashes to a non-match (404), which is correct.
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
 def _new_token() -> str:
