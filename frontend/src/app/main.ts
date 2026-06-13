@@ -31,16 +31,23 @@ installAdminSlice()
 const app = createApp(App)
 installErrorHandler(app)
 app.use(createPinia())
-app.use(router)
 app.use(i18n)
 app.use(VueQueryPlugin, { queryClient })
 
 syncHtmlLang()
 
-// Restore session from the persisted refresh token before mounting so the
-// first route decision sees the right auth state (R24.12 #4).
+// Restore session from the persisted refresh token BEFORE installing the router
+// (R24.12 #4). Vue Router fires its initial navigation — and therefore the auth
+// guard — at install time, so installing it before the boot refresh resolves
+// makes the guard observe an unauthenticated session and bounce a logged-in
+// user (deep link / hard reload) to /login, never recovering once hydrate lands.
+// Gating router install + mount on hydrate makes the first route decision see
+// the real auth state.
 const session = useSessionStore()
-session.hydrate().finally(() => app.mount('#app'))
+session.hydrate().finally(() => {
+  app.use(router)
+  app.mount('#app')
+})
 
 // Re-hydrate when the user returns to the tab so auth state stays fresh.
 document.addEventListener('visibilitychange', () => {
