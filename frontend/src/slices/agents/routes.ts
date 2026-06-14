@@ -14,6 +14,12 @@ export const agentsRoutes: RouteRecordRaw[] = [
     meta: { requiresAuth: true, requiresVerifiedEmail: true },
   },
   {
+    path: '/projects/:projectId/rag-configs',
+    name: 'agents.ragConfigs',
+    component: () => import('./views/RagConfigListView.vue'),
+    meta: { requiresAuth: true, requiresVerifiedEmail: true },
+  },
+  {
     path: '/projects/:projectId/rag-configs/:configId',
     name: 'agents.ragConfig',
     component: () => import('./views/RagConfigDetailView.vue'),

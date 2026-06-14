@@ -274,6 +274,12 @@ function goToAgent(agentId: string) {
             {{ rc.name }}
           </option>
         </select>
+        <RouterLink
+          class="agent-list__rag-manage"
+          :to="{ name: 'agents.ragConfigs', params: { projectId } }"
+        >
+          {{ t('agents.form.manageRagConfigs') }}
+        </RouterLink>
       </FormField>
 
       <FormField
