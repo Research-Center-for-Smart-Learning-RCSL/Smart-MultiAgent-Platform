@@ -608,8 +608,13 @@ class AuthService:
                 request_id=request_id,
             ),
         )
-        # Redis side-effects come last, after every DB write, so a failed commit
-        # cannot leave a logged-out-but-undeleted account behind.
+        # Commit the deletion BEFORE the non-transactional Redis session teardown.
+        # The db_session dependency only commits after the handler returns, so
+        # doing the Redis invalidation first would destroy the user's sessions
+        # even if the trailing commit then failed — leaving a logged-out but
+        # *undeleted* account. Committing here makes the delete durable first;
+        # the dependency's later commit is a harmless no-op.
+        await self._db.commit()
         await self._invalidate_user_sessions(user_id, reason="account_deleted")
         return counts
 
