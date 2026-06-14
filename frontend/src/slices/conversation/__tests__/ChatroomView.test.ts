@@ -84,6 +84,56 @@ describe('ChatroomView', () => {
     expect(wrapper.findAll('.link-btn').length).toBe(2)
   })
 
+  it('renders message attachments: download for active, placeholder for expired', async () => {
+    server.use(
+      http.get('/api/chatrooms/cr_1/messages', () =>
+        HttpResponse.json([
+          {
+            id: 'm_1',
+            chatroom_id: 'cr_1',
+            sender_type: 'user',
+            sender_id: 'u_1',
+            content_md: 'see files',
+            metadata: {},
+            version: 1,
+            created_at: '2026-01-01T00:00:00Z',
+            edited_at: null,
+            deleted_at: null,
+            attachments: [
+              {
+                id: 'att_1',
+                chatroom_id: 'cr_1',
+                message_id: 'm_1',
+                filename: 'report.pdf',
+                mime: 'application/pdf',
+                size_bytes: 10,
+                status: 'active',
+                scan_status: 'clean',
+              },
+              {
+                id: 'att_2',
+                chatroom_id: 'cr_1',
+                message_id: 'm_1',
+                filename: 'old.png',
+                mime: 'image/png',
+                size_bytes: 10,
+                status: 'expired',
+                scan_status: 'clean',
+              },
+            ],
+          },
+        ]),
+      ),
+    )
+    const wrapper = await renderView(ChatroomView, {
+      routes,
+      initialRoute: '/chatrooms/cr_1',
+    })
+    await settle()
+    expect(wrapper.text()).toContain('report.pdf') // active → download button
+    expect(wrapper.find('.attachment-gone').exists()).toBe(true) // expired → placeholder
+  })
+
   it('surfaces export status after triggering an export', async () => {
     server.use(
       http.post('/api/chatrooms/cr_1/export', () =>

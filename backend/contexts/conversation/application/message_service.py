@@ -91,6 +91,17 @@ class MessageService:
     ) -> Sequence[MessageAttachment]:
         return await self._attachments.list_for_message(message_id)
 
+    async def list_attachments_for(
+        self,
+        message_ids: Sequence[uuid.UUID],
+    ) -> dict[uuid.UUID, list[MessageAttachment]]:
+        """Group attachments by message id for a page of messages (one query)."""
+        grouped: dict[uuid.UUID, list[MessageAttachment]] = {}
+        for a in await self._attachments.list_for_messages(message_ids):
+            if a.message_id is not None:
+                grouped.setdefault(a.message_id, []).append(a)
+        return grouped
+
     async def list_edits(
         self,
         message_id: uuid.UUID,

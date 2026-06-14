@@ -10,12 +10,14 @@ from __future__ import annotations
 
 import logging
 import uuid
+from collections.abc import Sequence
 from typing import Any
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Path, Query, status
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.v1.attachments import AttachmentOut
 from contexts.conversation.application.access import (
     RoomAccess,
     ensure_can_read,
@@ -78,9 +80,26 @@ class MessageOut(BaseModel):
     created_at: str | None
     edited_at: str | None
     deleted_at: str | None
+    # Attachments bound to this message. Includes expired/quarantined rows so the
+    # client can render `[attachment expired]` (R13.11) rather than a dead link;
+    # the presigned download URL is fetched lazily via GET /api/attachments/{id}.
+    attachments: list[AttachmentOut] = []
 
 
-def _to_out(m: Message) -> MessageOut:
+def _att_out(a: object) -> AttachmentOut:
+    return AttachmentOut(
+        id=a.id,  # type: ignore[attr-defined]
+        chatroom_id=a.chatroom_id,  # type: ignore[attr-defined]
+        message_id=a.message_id,  # type: ignore[attr-defined]
+        filename=a.filename,  # type: ignore[attr-defined]
+        mime=a.mime,  # type: ignore[attr-defined]
+        size_bytes=a.size_bytes,  # type: ignore[attr-defined]
+        status=a.status.value,  # type: ignore[attr-defined]
+        scan_status=a.scan_status.value,  # type: ignore[attr-defined]
+    )
+
+
+def _to_out(m: Message, attachments: Sequence[object] = ()) -> MessageOut:
     return MessageOut(
         id=m.id,
         chatroom_id=m.chatroom_id,
@@ -92,6 +111,7 @@ def _to_out(m: Message) -> MessageOut:
         created_at=m.created_at.isoformat() if m.created_at else None,
         edited_at=m.edited_at.isoformat() if m.edited_at else None,
         deleted_at=m.deleted_at.isoformat() if m.deleted_at else None,
+        attachments=[_att_out(a) for a in attachments],
     )
 
 
@@ -146,7 +166,8 @@ async def list_messages(
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    return [_to_out(m) for m in rows]
+    by_msg = await service.list_attachments_for([m.id for m in rows])
+    return [_to_out(m, by_msg.get(m.id, [])) for m in rows]
 
 
 @chatroom_router.post(
@@ -182,7 +203,7 @@ async def send_message(
     await db.commit()
     await _dispatch_message_wakeups(db, chatroom_id)
     await _dispatch_message_workflow_signal(chatroom_id, body.content_md)
-    return _to_out(msg)
+    return _to_out(msg, await service.list_attachments(msg.id))
 
 
 async def _dispatch_message_wakeups(db: AsyncSession, chatroom_id: uuid.UUID) -> None:
@@ -252,7 +273,7 @@ async def read_message(
 ) -> MessageOut:
     msg, access = await _load_message_with_access(db, principal, message_id)
     ensure_can_read(access, is_admin=principal.is_admin)
-    return _to_out(msg)
+    return _to_out(msg, await MessageService(db).list_attachments(msg.id))
 
 
 @message_router.patch("/{message_id}")
