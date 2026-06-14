@@ -16,6 +16,18 @@ export interface OrgMember {
   joined_at: string
 }
 
+// Mirrors backend `OrgQuotasOut`. Advisory only (R8): usage counts vs the
+// platform's advisory targets; not hard-enforced.
+export interface OrgQuotas {
+  users: number
+  projects: number
+  chatrooms: number
+  agents: number
+  workflows: number
+  computed_at: string | null
+  advisory_targets: Record<string, number>
+}
+
 export interface OriginalCreatorTransfer {
   id: string
   org_id: string
@@ -33,6 +45,7 @@ export const orgsApi = {
   rename: (id: string, name: string, version: number) =>
     http.patch(`/orgs/${id}`, { name }, { headers: { 'If-Match': String(version) } }),
   remove: (id: string) => http.delete(`/orgs/${id}`),
+  quotas: (id: string) => http.get<OrgQuotas>(`/orgs/${id}/quotas`),
 
   listMembers: (id: string) => http.get<OrgMember[]>(`/orgs/${id}/members`),
   removeMember: (id: string, uid: string) => http.delete(`/orgs/${id}/members/${uid}`),

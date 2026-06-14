@@ -25,9 +25,13 @@ export const projectsApi = {
     http.post<Project>(`/projects`, { owner_type, owner_id, name }),
   get: (id: string) => http.get<Project>(`/projects/${id}`),
   remove: (id: string) => http.delete(`/projects/${id}`),
+  rename: (id: string, name: string, version: number) =>
+    http.patch<Project>(`/projects/${id}`, { name }, { headers: { 'If-Match': String(version) } }),
   listMembers: (id: string) => http.get<ProjectMember[]>(`/projects/${id}/members`),
   removeMember: (id: string, uid: string) =>
     http.delete(`/projects/${id}/members/${uid}`),
+  setRole: (id: string, uid: string, role: 'owner' | 'member') =>
+    http.patch(`/projects/${id}/members/${uid}`, { role }),
   invite: (id: string, email: string, role: 'owner' | 'member') =>
     http.post(`/projects/${id}/invites`, { invitee_email: email, role }),
 }

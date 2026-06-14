@@ -30,6 +30,15 @@ async function invite(): Promise<void> {
   }
 }
 
+async function setRole(uid: string, role: 'owner' | 'member'): Promise<void> {
+  try {
+    await projectsApi.setRole(projectId(), uid, role)
+    await load()
+  } catch {
+    ElMessage.error(t('tenancy.members.roleError'))
+  }
+}
+
 async function remove(uid: string): Promise<void> {
   try {
     await ElMessageBox.confirm(
@@ -84,6 +93,18 @@ onMounted(load)
         :key="m.user_id"
       >
         {{ m.email }} — {{ m.role }}
+        <button
+          v-if="m.role === 'member'"
+          @click="setRole(m.user_id, 'owner')"
+        >
+          {{ $t('tenancy.members.promote') }}
+        </button>
+        <button
+          v-else
+          @click="setRole(m.user_id, 'member')"
+        >
+          {{ $t('tenancy.members.demote') }}
+        </button>
         <button @click="remove(m.user_id)">
           {{ $t('tenancy.members.remove') }}
         </button>
