@@ -153,7 +153,7 @@ import {
   sendMessage,
   compactChatroom,
 } from '../api'
-import { tusUpload, resourceToAttachmentId } from '../api/tus'
+import { tusUpload, resourceToAttachmentId } from '@shared/transport'
 import { useChatroomSocket } from '../composables/useChatroomSocket'
 import { enhanceRenderedMarkdown, renderMarkdown, sanitizeSnippet } from '../lib/renderMarkdown'
 import { convKeys } from '../queries'

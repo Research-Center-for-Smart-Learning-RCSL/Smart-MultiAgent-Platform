@@ -18,3 +18,10 @@ export { parseProblem, isProblemWithType, isNetworkError } from './problem-json'
 export type { ProblemJson } from './problem-json'
 
 export { idempotencyKey } from './idempotency'
+
+export {
+  tusUpload,
+  resourceToAttachmentId,
+  resourceToRagDocumentId,
+} from './tus'
+export type { TusUploadOptions, TusUploadResult } from './tus'

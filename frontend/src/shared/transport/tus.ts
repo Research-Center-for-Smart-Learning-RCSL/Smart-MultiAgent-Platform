@@ -1,12 +1,17 @@
-// Minimal TUS 1.0.0 client — just enough for the composer dropzone.
+// Minimal TUS 1.0.0 client — shared transport utility.
 //
-// This is intentionally NOT tus-js-client: we already speak the protocol
-// from the backend side and the UI's needs are modest (linear append,
-// progress callbacks, pause/resume via an AbortController). Keeping the
-// implementation in-repo avoids a third-party bundle and lets us use the
-// same axios transport (auth header + refresh interceptor) for creation.
+// This is intentionally NOT tus-js-client: we already speak the protocol from
+// the backend side and the UI's needs are modest (linear append, progress
+// callbacks, pause/resume via an AbortController). Keeping it in-repo avoids a
+// third-party bundle and reuses the same axios transport (auth header + refresh
+// interceptor) for creation.
+//
+// Lives in shared/ because more than one slice uploads via tus: conversation
+// (chat_attachment) and agents (rag_source). The cross-slice dependency rule
+// forbids agents → conversation, so the shared transport is the only place both
+// may import from.
 
-import { http } from '@shared/transport'
+import { http } from './axios'
 
 const CHUNK_SIZE = 8 * 1024 * 1024 // 8 MB; backend accepts up to 16 MB per PATCH
 const TUS_VERSION = '1.0.0'
@@ -74,7 +79,7 @@ async function patchChunk(
       'Content-Type': 'application/offset+octet-stream',
     },
     signal,
-    transformRequest: [(d) => d],      // axios would JSON-stringify otherwise
+    transformRequest: [(d) => d], // axios would JSON-stringify otherwise
   })
   return {
     newOffset: Number(res.headers['upload-offset'] ?? 0),
@@ -82,9 +87,7 @@ async function patchChunk(
   }
 }
 
-export async function tusUpload(
-  opts: TusUploadOptions,
-): Promise<TusUploadResult> {
+export async function tusUpload(opts: TusUploadOptions): Promise<TusUploadResult> {
   const uploadId = await createUpload(opts)
   let offset = 0
   let resource: string | null = null
@@ -102,5 +105,11 @@ export async function tusUpload(
 export function resourceToAttachmentId(header: string | null): string | null {
   if (!header) return null
   const m = /\/api\/attachments\/([0-9a-f-]{36})/i.exec(header)
+  return m ? m[1] : null
+}
+
+export function resourceToRagDocumentId(header: string | null): string | null {
+  if (!header) return null
+  const m = /\/api\/rag-documents\/([0-9a-f-]{36})/i.exec(header)
   return m ? m[1] : null
 }
