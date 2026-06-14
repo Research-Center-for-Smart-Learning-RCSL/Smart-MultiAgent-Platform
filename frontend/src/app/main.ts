@@ -14,6 +14,7 @@ import { installAgentsSlice } from '@slices/agents'
 import { installConversationSlice } from '@slices/conversation'
 import { installIdentitySlice, useSessionStore } from '@slices/identity'
 import { installKeysSlice } from '@slices/keys'
+import { installNotificationsSlice } from '@slices/notifications'
 import { installTenancySlice } from '@slices/tenancy'
 import { installWorkflowSlice } from '@slices/workflow'
 
@@ -27,6 +28,7 @@ installAgentsSlice()
 installConversationSlice()
 installWorkflowSlice()
 installAdminSlice()
+installNotificationsSlice()
 
 const app = createApp(App)
 installErrorHandler(app)

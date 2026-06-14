@@ -1,0 +1,12 @@
+{
+  "notifications": {
+    "title": "Notifications",
+    "bellLabel": "Notifications ({count} unread)",
+    "loading": "Loading notifications…",
+    "empty": "You have no notifications.",
+    "markAll": "Mark all read",
+    "markRead": "Mark read",
+    "markFailed": "Failed to mark as read.",
+    "loadMore": "Load more"
+  }
+}

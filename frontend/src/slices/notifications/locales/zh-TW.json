@@ -1,0 +1,12 @@
+{
+  "notifications": {
+    "title": "通知",
+    "bellLabel": "通知（{count} 則未讀）",
+    "loading": "載入通知中…",
+    "empty": "目前沒有通知。",
+    "markAll": "全部標為已讀",
+    "markRead": "標為已讀",
+    "markFailed": "標為已讀失敗。",
+    "loadMore": "載入更多"
+  }
+}
