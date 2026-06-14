@@ -9,7 +9,12 @@ useBanKickGuard()
 
 <template>
   <ImpersonationBanner />
-  <NotificationBell />
+  <!-- The bell is always-present chrome above the routed view; isolate it in
+       its own boundary so a render/setup throw in it (query, socket, i18n)
+       cannot escape past App and blank the whole app (FE-11). -->
+  <ErrorBoundary>
+    <NotificationBell />
+  </ErrorBoundary>
   <!--
     ErrorBoundary contains a render-time throw in any view to a retry
     fallback, instead of letting Vue blank the entire app (FE-11).

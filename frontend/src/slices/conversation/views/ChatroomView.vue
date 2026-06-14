@@ -202,7 +202,7 @@ import { useRoute } from 'vue-router'
 
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useI18n } from 'vue-i18n'
-import { useBreakpoint } from '@shared/composables'
+import { useBreakpoint, usePolling } from '@shared/composables'
 import { useSessionStore } from '@slices/identity'
 import {
   createExport,
@@ -219,7 +219,7 @@ import { useChatroomSocket } from '../composables/useChatroomSocket'
 import { enhanceRenderedMarkdown, renderMarkdown, sanitizeSnippet } from '../lib/renderMarkdown'
 import { convKeys } from '../queries'
 import { useConversationStore } from '../stores/conversation'
-import type { Message, SearchHit } from '../types'
+import type { ExportStatus, Message, SearchHit } from '../types'
 import { ApprovalCard, useOrchestrationStore } from '@slices/workflow'
 
 const { t } = useI18n()
@@ -460,36 +460,25 @@ async function confirmDelete(m: Message): Promise<void> {
 
 // ---- export with status polling + download (R13.17) ----------------------
 // The export runs in a worker; there is no WS channel for it, so poll the job
-// until it settles. Bounded, and cleaned up on unmount.
+// until it settles via the shared usePolling primitive (transient blips
+// reschedule rather than strand the UI; timers cleared on unmount).
 
-interface ExportJob {
-  status: 'queued' | 'running' | 'ready' | 'failed'
-  url: string | null
-}
-const exportJob = ref<ExportJob | null>(null)
-const EXPORT_TERMINAL = new Set(['ready', 'failed'])
-let exportTimer: ReturnType<typeof setTimeout> | null = null
-let exportDisposed = false
+const EXPORT_TERMINAL = new Set<ExportStatus['status']>(['ready', 'failed'])
+const exportJob = ref<Pick<ExportStatus, 'status' | 'url'> | null>(null)
 
-async function pollExport(jobId: string, attempts = 0): Promise<void> {
-  if (exportDisposed || attempts > 60) return // ~3 min ceiling at 3 s/poll
-  try {
-    const s = await getExport(jobId)
-    if (exportDisposed) return
+const exportPoll = usePolling<ExportStatus>((jobId) => getExport(jobId), {
+  maxAttempts: 60, // ~3 min at 3 s/poll
+  isTerminal: (s) => EXPORT_TERMINAL.has(s.status),
+  onResult: (_jobId, s) => {
     exportJob.value = { status: s.status, url: s.url }
-    if (!EXPORT_TERMINAL.has(s.status)) {
-      exportTimer = setTimeout(() => void pollExport(jobId, attempts + 1), 3000)
-    }
-  } catch {
-    // leave the last known state; the user can re-export
-  }
-}
+  },
+})
 
 async function runExport(): Promise<void> {
   try {
     const { job_id, status } = await createExport(chatroomId)
-    exportJob.value = { status: status as ExportJob['status'], url: null }
-    void pollExport(job_id)
+    exportJob.value = { status: status as ExportStatus['status'], url: null }
+    exportPoll.start(job_id)
   } catch {
     ElMessage.error(t('conversation.chatroom.exportFailed'))
   }
@@ -538,8 +527,6 @@ onMounted(scheduleEnhance)
 onUpdated(scheduleEnhance)
 onBeforeUnmount(() => {
   if (enhanceTimer !== null) clearTimeout(enhanceTimer)
-  exportDisposed = true
-  if (exportTimer !== null) clearTimeout(exportTimer)
 })
 </script>
 

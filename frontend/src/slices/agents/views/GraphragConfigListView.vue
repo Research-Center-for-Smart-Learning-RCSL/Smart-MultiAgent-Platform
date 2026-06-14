@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onScopeDispose, ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/vue-query'
@@ -8,7 +8,7 @@ import { toTypedSchema } from '@vee-validate/zod'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
 import { FormField } from '@shared/ui'
-import { useServerErrors } from '@shared/composables'
+import { useServerErrors, usePolling } from '@shared/composables'
 import { keyGroupsApi, keysKeys } from '@slices/keys'
 import { agentsApi, type GraphragConfig } from '../api'
 import { agentKeys } from '../queries'
@@ -123,41 +123,24 @@ const effectiveState = (cfg: GraphragConfig): string =>
   liveState.value[cfg.id] ?? cfg.last_build_state
 const isBuilding = (cfg: GraphragConfig): boolean => IN_PROGRESS.has(effectiveState(cfg))
 
-// Recursive polling has to be cancelled on unmount, otherwise navigating away
-// mid-build leaks a timer chain that keeps fetching + invalidating for minutes.
-const pollTimers = new Set<ReturnType<typeof setTimeout>>()
-let disposed = false
-onScopeDispose(() => {
-  disposed = true
-  pollTimers.forEach((t) => clearTimeout(t))
-  pollTimers.clear()
-})
-
-async function pollStatus(id: string, attempts = 0): Promise<void> {
-  if (disposed || attempts > 40) return // ~2 min ceiling at 3 s/poll
-  try {
-    const { data } = await agentsApi.getGraphragStatus(id)
-    if (disposed) return
-    liveState.value = { ...liveState.value, [id]: data.state }
-    if (IN_PROGRESS.has(data.state)) {
-      const timer = setTimeout(() => {
-        pollTimers.delete(timer)
-        void pollStatus(id, attempts + 1)
-      }, 3000)
-      pollTimers.add(timer)
-    } else {
+// Poll the status endpoint until the 2PC build settles (shared usePolling:
+// bounded, transient errors reschedule, timers cleared on unmount). Keyed by
+// config id so several builds can poll at once.
+const statusPoll = usePolling((id) => agentsApi.getGraphragStatus(id).then((r) => r.data), {
+  isTerminal: (s) => !IN_PROGRESS.has(s.state),
+  onResult: (id, s) => {
+    liveState.value = { ...liveState.value, [id]: s.state }
+    if (!IN_PROGRESS.has(s.state)) {
       qc.invalidateQueries({ queryKey: agentKeys.graphragConfigs(projectId) })
     }
-  } catch {
-    // stop polling; the manual Refresh button remains available
-  }
-}
+  },
+})
 
 const buildMutation = useMutation({
   mutationFn: (id: string) => agentsApi.buildGraphrag(id),
   onSuccess: (_data, id) => {
     ElMessage.success(t('agents.graphragList.buildStarted'))
-    void pollStatus(id)
+    statusPoll.start(id)
   },
   onError: () => ElMessage.error(t('agents.graphragList.buildFailed')),
 })

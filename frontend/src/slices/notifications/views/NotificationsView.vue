@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/vue-query'
+import { useInfiniteQuery, useQueryClient, type InfiniteData } from '@tanstack/vue-query'
 import { ElMessage } from 'element-plus'
 
 import { notificationsApi, type Notification } from '../api'
@@ -11,6 +11,10 @@ const { t } = useI18n()
 const qc = useQueryClient()
 
 const PAGE_SIZE = 50
+// Backend MarkReadIn caps `ids` at 1000 per request — chunk to stay under it.
+const MARK_BATCH = 1000
+// Bound the "mark all" page-load loop so a pathological backlog can't spin.
+const MAX_LOAD_PAGES = 40
 
 const query = useInfiniteQuery({
   queryKey: notificationKeys.list(),
@@ -24,25 +28,57 @@ const query = useInfiniteQuery({
 
 const items = computed<Notification[]>(() => (query.data.value?.pages ?? []).flat())
 const hasUnread = computed(() => items.value.some((n) => !n.read_at))
+const marking = ref(false)
 
-const markReadMutation = useMutation({
-  mutationFn: (ids: string[]) => notificationsApi.markRead(ids),
-  onSuccess: () => {
-    qc.invalidateQueries({ queryKey: notificationKeys.list() })
-    qc.invalidateQueries({ queryKey: notificationKeys.unreadCount() })
-  },
-  onError: () => ElMessage.error(t('notifications.markFailed')),
-})
-
-function markOne(n: Notification): void {
-  if (!n.read_at) markReadMutation.mutate([n.id])
+// Patch read_at on the loaded pages in place instead of invalidating the whole
+// infinite query (which would refetch every loaded page); only the server-side
+// unread count needs a refetch for the bell badge.
+function patchRead(ids: string[]): void {
+  const set = new Set(ids)
+  const now = new Date().toISOString()
+  qc.setQueryData<InfiniteData<Notification[]>>(notificationKeys.list(), (old) =>
+    old
+      ? {
+          ...old,
+          pages: old.pages.map((page) =>
+            page.map((n) => (set.has(n.id) ? { ...n, read_at: now } : n)),
+          ),
+        }
+      : old,
+  )
+  qc.invalidateQueries({ queryKey: notificationKeys.unreadCount() })
 }
 
-// The backend marks specific ids; "mark all" operates on the currently-loaded
-// unread set (there is no bulk endpoint), so load more first to mark older ones.
-function markAllLoaded(): void {
-  const ids = items.value.filter((n) => !n.read_at).map((n) => n.id)
-  if (ids.length) markReadMutation.mutate(ids)
+async function markOne(n: Notification): Promise<void> {
+  if (n.read_at) return
+  try {
+    await notificationsApi.markRead([n.id])
+    patchRead([n.id])
+  } catch {
+    ElMessage.error(t('notifications.markFailed'))
+  }
+}
+
+// "Mark all" loads the remaining pages first so it genuinely clears the backlog
+// (and the bell badge), then marks in ≤1000-id batches to respect the API cap.
+async function markAll(): Promise<void> {
+  marking.value = true
+  try {
+    let guard = 0
+    while (query.hasNextPage.value && guard < MAX_LOAD_PAGES) {
+      await query.fetchNextPage()
+      guard += 1
+    }
+    const ids = items.value.filter((n) => !n.read_at).map((n) => n.id)
+    for (let i = 0; i < ids.length; i += MARK_BATCH) {
+      await notificationsApi.markRead(ids.slice(i, i + MARK_BATCH))
+    }
+    if (ids.length) patchRead(ids)
+  } catch {
+    ElMessage.error(t('notifications.markFailed'))
+  } finally {
+    marking.value = false
+  }
 }
 
 function fmt(iso: string): string {
@@ -59,8 +95,8 @@ function fmt(iso: string): string {
       <button
         class="btn"
         type="button"
-        :disabled="!hasUnread || markReadMutation.isPending.value"
-        @click="markAllLoaded"
+        :disabled="!hasUnread || marking"
+        @click="markAll"
       >
         {{ t('notifications.markAll') }}
       </button>

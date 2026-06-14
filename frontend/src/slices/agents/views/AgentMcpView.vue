@@ -86,15 +86,29 @@ const onSubmit = handleSubmit((values) =>
   createMutation.mutate({ ...values, allowed_tools: parseTools(allowedToolsRaw.value) }),
 )
 
-// Test results are keyed by binding id; a binding can be (re)tested any time.
+// Test results + in-flight state are keyed by binding id so a slow/hung probe
+// on one binding only disables that row's Test button, not every row's.
 const testResults = ref<Record<string, McpTestResult>>({})
+const testingIds = ref<Set<string>>(new Set())
+const isTesting = (bindingId: string): boolean => testingIds.value.has(bindingId)
+
 const testMutation = useMutation({
   mutationFn: (bindingId: string) => agentsApi.testMcpBinding(agentId, bindingId),
   onSuccess: (res, bindingId) => {
     testResults.value = { ...testResults.value, [bindingId]: res.data }
   },
   onError: () => ElMessage.error(t('agents.mcp.testFailed')),
+  onSettled: (_res, _err, bindingId) => {
+    const next = new Set(testingIds.value)
+    next.delete(bindingId)
+    testingIds.value = next
+  },
 })
+
+function runTest(bindingId: string): void {
+  testingIds.value = new Set(testingIds.value).add(bindingId)
+  testMutation.mutate(bindingId)
+}
 
 const deleteMutation = useMutation({
   mutationFn: (bindingId: string) => agentsApi.deleteMcpBinding(agentId, bindingId),
@@ -266,8 +280,8 @@ async function confirmDelete(b: McpBinding): Promise<void> {
             <button
               class="btn"
               type="button"
-              :disabled="testMutation.isPending.value"
-              @click="testMutation.mutate(b.id)"
+              :disabled="isTesting(b.id)"
+              @click="runTest(b.id)"
             >
               {{ t('agents.mcp.test') }}
             </button>
