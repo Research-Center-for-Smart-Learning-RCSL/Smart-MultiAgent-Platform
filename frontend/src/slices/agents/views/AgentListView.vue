@@ -9,7 +9,7 @@ import { computed, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { FormField } from '@shared/ui'
 import { useServerErrors } from '@shared/composables'
-import { keyGroupsApi } from '@slices/keys'
+import { keyGroupsApi, keysKeys } from '@slices/keys'
 import { agentsApi } from '../api'
 import { agentKeys } from '../queries'
 import { agentCreateSchema, type AgentCreateInput } from '../types/schemas'
@@ -33,7 +33,7 @@ const query = useQuery({
 // Key groups are the BYO-key routing target — an agent cannot be created
 // without one, so the picker is required and we block submit when empty.
 const keyGroupsQuery = useQuery({
-  queryKey: ['keys', 'keyGroups', projectId],
+  queryKey: keysKeys.keyGroups(projectId),
   queryFn: async () => {
     const { data } = await keyGroupsApi.listForProject(projectId)
     return data

@@ -78,6 +78,7 @@
       "rerankKey": "重排序金鑰",
       "rerankKeyPlaceholder": "選擇重排序金鑰…",
       "rerankModel": "重排序模型",
+      "noRerankKeys": "此專案沒有 Cohere（重排序）金鑰——請到金鑰頁面攜入一把以啟用重排序。",
       "submit": "建立設定"
     },
     "graphragList": {
@@ -104,8 +105,12 @@
       "builderHint": "建置金鑰群組用於抽取實體與關係；它必須與代理人本身的金鑰群組不同（帳務分離）。",
       "colAgent": "代理人",
       "colBuilder": "建置金鑰群組",
+      "colBinding": "綁定",
       "colState": "建置狀態",
-      "colActions": "操作"
+      "colActions": "操作",
+      "bound": "已啟用",
+      "unbound": "未綁定",
+      "unboundHint": "此設定已建置，但代理人尚未使用它。請開啟該代理人並設定其 GraphRAG 設定以啟用檢索。"
     },
     "graphragForm": {
       "agent": "代理人",

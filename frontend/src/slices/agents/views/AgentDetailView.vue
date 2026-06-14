@@ -9,7 +9,7 @@ import { computed, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { FormField } from '@shared/ui'
 import { useServerErrors } from '@shared/composables'
-import { keyGroupsApi } from '@slices/keys'
+import { keyGroupsApi, keysKeys } from '@slices/keys'
 import { agentsApi } from '../api'
 import { agentKeys } from '../queries'
 import { agentCreateSchema, type AgentCreateInput } from '../types/schemas'
@@ -32,8 +32,12 @@ const query = useQuery({
 // the route, so both queries stay disabled until the agent has loaded.
 const pickerProjectId = computed(() => query.data.value?.project_id ?? '')
 
+// These three pickers fetch the same project-scoped lists the RAG/GraphRAG list
+// views own, so they MUST use the shared factory keys — otherwise the list
+// views' create/delete invalidations (keyed by projectId) never reach this
+// cache and the pickers serve stale options after a config is created.
 const keyGroupsQuery = useQuery({
-  queryKey: ['keys', 'keyGroups', 'agent', agentId],
+  queryKey: computed(() => keysKeys.keyGroups(pickerProjectId.value)),
   enabled: computed(() => !!pickerProjectId.value),
   queryFn: async () => {
     const { data } = await keyGroupsApi.listForProject(pickerProjectId.value)
@@ -42,7 +46,7 @@ const keyGroupsQuery = useQuery({
 })
 
 const ragConfigsQuery = useQuery({
-  queryKey: ['agents', 'ragConfigs', 'agent', agentId],
+  queryKey: computed(() => agentKeys.ragConfigs(pickerProjectId.value)),
   enabled: computed(() => !!pickerProjectId.value),
   queryFn: async () => {
     const { data } = await agentsApi.listRagConfigs(pickerProjectId.value)
@@ -54,7 +58,7 @@ const ragConfigsQuery = useQuery({
 // is the one built for it. Setting `graphrag_config_id` here is what the runtime
 // reads to enable graph retrieval (turn_engine reads agent.graphrag_config_id).
 const graphragConfigsQuery = useQuery({
-  queryKey: ['agents', 'graphragConfigs', 'agent', agentId],
+  queryKey: computed(() => agentKeys.graphragConfigs(pickerProjectId.value)),
   enabled: computed(() => !!pickerProjectId.value),
   queryFn: async () => {
     const { data } = await agentsApi.listGraphragConfigs(pickerProjectId.value)
