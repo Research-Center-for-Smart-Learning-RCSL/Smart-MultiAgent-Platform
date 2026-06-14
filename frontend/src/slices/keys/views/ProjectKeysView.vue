@@ -21,17 +21,32 @@ const carriable = computed(() =>
   myKeys.value.filter((m) => !carried.value.some((c) => c.id === m.id)),
 )
 
-// Per-key usage panel (R7.05): a window selector + the aggregate counts. Loaded
-// on demand so the carried-keys list stays a single request.
+// Per-key usage panel (R7.05): a window selector + the aggregate counts. One map
+// owns both the selected window and its loaded result so they can't drift; the
+// counts are loaded on demand and cleared when the window changes (so stale
+// numbers are never shown against a different window).
 const WINDOWS: UsageWindow[] = ['1h', '24h', '7d', '30d']
-const usageByKey = ref<Record<string, KeyUsage>>({})
-const windowByKey = ref<Record<string, UsageWindow>>({})
+interface UsageState {
+  window: UsageWindow
+  usage?: KeyUsage
+}
+const usageState = ref<Record<string, UsageState>>({})
+
+function windowOf(keyId: string): UsageWindow {
+  return usageState.value[keyId]?.window ?? '1h'
+}
+
+function onWindowChange(keyId: string, ev: Event): void {
+  const w = (ev.target as HTMLSelectElement).value as UsageWindow
+  // Drop any previously-loaded counts so they aren't shown against the new window.
+  usageState.value = { ...usageState.value, [keyId]: { window: w } }
+}
 
 async function loadUsage(keyId: string): Promise<void> {
-  const w = windowByKey.value[keyId] ?? '1h'
+  const w = windowOf(keyId)
   try {
     const { data } = await projectKeysApi.usage(projectId.value, keyId, w)
-    usageByKey.value = { ...usageByKey.value, [keyId]: data }
+    usageState.value = { ...usageState.value, [keyId]: { window: w, usage: data } }
   } catch {
     ElMessage.error(t('keys.project.usageError'))
   }
@@ -73,8 +88,9 @@ watch(projectId, async () => {
           </button>
           <span class="usage-controls">
             <select
-              v-model="windowByKey[k.id]"
+              :value="windowOf(k.id)"
               :aria-label="$t('keys.project.usageWindow')"
+              @change="onWindowChange(k.id, $event)"
             >
               <option
                 v-for="w in WINDOWS"
@@ -92,13 +108,13 @@ watch(projectId, async () => {
             </button>
           </span>
           <span
-            v-if="usageByKey[k.id]"
+            v-if="usageState[k.id]?.usage"
             class="usage"
           >
-            {{ $t('keys.project.usageReq') }}: {{ usageByKey[k.id]!.requests }} ·
-            {{ $t('keys.project.usageIn') }}: {{ usageByKey[k.id]!.input_tokens }} ·
-            {{ $t('keys.project.usageOut') }}: {{ usageByKey[k.id]!.output_tokens }} ·
-            {{ $t('keys.project.usageErr') }}: {{ usageByKey[k.id]!.errors }}
+            {{ $t('keys.project.usageReq') }}: {{ usageState[k.id]!.usage!.requests }} ·
+            {{ $t('keys.project.usageIn') }}: {{ usageState[k.id]!.usage!.input_tokens }} ·
+            {{ $t('keys.project.usageOut') }}: {{ usageState[k.id]!.usage!.output_tokens }} ·
+            {{ $t('keys.project.usageErr') }}: {{ usageState[k.id]!.usage!.errors }}
           </span>
         </li>
         <li

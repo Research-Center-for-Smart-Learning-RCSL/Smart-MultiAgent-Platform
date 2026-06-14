@@ -175,15 +175,27 @@ export async function listDlq(agentId: string): Promise<DlqEntry[]> {
 // ---- Agent wakeup config (Phase H) -----------------------------------------
 
 // The agent's stored wakeup_config defaults to `{}` (server_default), so callers
-// must default-fill before handing it to the structured editor.
-export async function getAgentWakeupConfig(agentId: string): Promise<unknown> {
-  const { data } = await http.get<{ wakeup_config?: unknown }>(`/agents/${agentId}`)
-  return data.wakeup_config ?? {}
+// must default-fill before handing it to the structured editor. The version is
+// returned too: the agent PATCH requires an `If-Match` precondition.
+export async function getAgentWakeupConfig(
+  agentId: string,
+): Promise<{ wakeupConfig: unknown; version: number }> {
+  const { data } = await http.get<{ wakeup_config?: unknown; version: number }>(
+    `/agents/${agentId}`,
+  )
+  return { wakeupConfig: data.wakeup_config ?? {}, version: data.version }
 }
 
+// Returns the bumped version so the caller can save again without a refetch.
 export async function patchAgentWakeupConfig(
   agentId: string,
   wakeupConfig: WakeupConfig,
-): Promise<void> {
-  await http.patch(`/agents/${agentId}`, { wakeup_config: wakeupConfig })
+  version: number,
+): Promise<number> {
+  const { data } = await http.patch<{ version: number }>(
+    `/agents/${agentId}`,
+    { wakeup_config: wakeupConfig },
+    { headers: { 'If-Match': String(version) } },
+  )
+  return data.version
 }
