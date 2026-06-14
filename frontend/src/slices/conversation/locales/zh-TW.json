@@ -47,7 +47,9 @@
       "editFailed": "無法編輯——可能已超過 5 分鐘期限或已在他處變更。",
       "deleteTitle": "刪除訊息",
       "deleteConfirm": "刪除此訊息？這會對所有人移除且無法復原。",
-      "deleteFailed": "刪除訊息失敗。"
+      "deleteFailed": "刪除訊息失敗。",
+      "attachmentExpired": "［附件已過期］{name}",
+      "attachmentFailed": "開啟附件失敗。"
     },
     "settings": {
       "title": "聊天室設定",

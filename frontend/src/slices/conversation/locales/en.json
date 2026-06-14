@@ -47,7 +47,9 @@
       "editFailed": "Could not edit — it may be past the 5-minute window or changed elsewhere.",
       "deleteTitle": "Delete Message",
       "deleteConfirm": "Delete this message? This removes it for everyone and cannot be undone.",
-      "deleteFailed": "Failed to delete message."
+      "deleteFailed": "Failed to delete message.",
+      "attachmentExpired": "[attachment expired] {name}",
+      "attachmentFailed": "Failed to open attachment."
     },
     "settings": {
       "title": "Chatroom Settings",

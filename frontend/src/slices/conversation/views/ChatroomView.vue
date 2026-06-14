@@ -105,6 +105,28 @@
           class="md"
           v-html="rendered[m.id]"
         />
+        <ul
+          v-if="m.attachments && m.attachments.length"
+          class="attachments"
+        >
+          <li
+            v-for="att in m.attachments"
+            :key="att.id"
+          >
+            <button
+              v-if="att.status === 'active'"
+              type="button"
+              class="link-btn"
+              @click="downloadAttachment(att)"
+            >
+              {{ att.filename }}
+            </button>
+            <span
+              v-else
+              class="attachment-gone"
+            >{{ $t('conversation.chatroom.attachmentExpired', { name: att.filename }) }}</span>
+          </li>
+        </ul>
       </li>
       <!-- Transient streaming draft: agent.token deltas accumulate here until
            the persisted reply arrives via message.created (also rendered
@@ -208,6 +230,7 @@ import {
   createExport,
   deleteMessage,
   editMessage,
+  getAttachment,
   getExport,
   listMessages,
   searchMessages,
@@ -219,7 +242,7 @@ import { useChatroomSocket } from '../composables/useChatroomSocket'
 import { enhanceRenderedMarkdown, renderMarkdown, sanitizeSnippet } from '../lib/renderMarkdown'
 import { convKeys } from '../queries'
 import { useConversationStore } from '../stores/conversation'
-import type { ExportStatus, Message, SearchHit } from '../types'
+import type { Attachment, ExportStatus, Message, SearchHit } from '../types'
 import { ApprovalCard, useOrchestrationStore } from '@slices/workflow'
 
 const { t } = useI18n()
@@ -440,6 +463,17 @@ async function saveEdit(): Promise<void> {
   }
 }
 
+async function downloadAttachment(att: Attachment): Promise<void> {
+  // Fetch a short-lived presigned URL on demand (R13.10) and open it; the URL
+  // points straight at object storage, so no bytes flow through the SPA.
+  try {
+    const dl = await getAttachment(att.id)
+    window.open(dl.url, '_blank', 'noopener')
+  } catch {
+    ElMessage.error(t('conversation.chatroom.attachmentFailed'))
+  }
+}
+
 async function confirmDelete(m: Message): Promise<void> {
   try {
     await ElMessageBox.confirm(
@@ -605,6 +639,11 @@ onBeforeUnmount(() => {
 }
 .export-status {
   margin-left: 0.5rem;
+  font-size: 0.85rem;
+}
+.attachment-gone {
+  color: var(--color-muted, #6b7280);
+  font-style: italic;
   font-size: 0.85rem;
 }
 </style>

@@ -34,6 +34,9 @@ export interface Message {
   created_at: string
   edited_at: string | null
   deleted_at: string | null
+  // Attachments bound to this message (R13.11). Includes expired/quarantined so
+  // the UI can show a placeholder instead of a dead link.
+  attachments?: Attachment[]
 }
 
 export interface Attachment {

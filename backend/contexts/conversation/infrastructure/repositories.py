@@ -754,6 +754,23 @@ class MessageAttachmentRepository:
         ).all()
         return [_row_to_attachment(r) for r in rows]
 
+    async def list_for_messages(
+        self,
+        message_ids: Sequence[uuid.UUID],
+    ) -> Sequence[MessageAttachment]:
+        """Batched variant of :meth:`list_for_message` — one query for a page of
+        messages, so the timeline render avoids an N+1 attachment fetch."""
+        if not message_ids:
+            return []
+        rows = (
+            await self._db.execute(
+                t.message_attachments.select().where(
+                    t.message_attachments.c.message_id.in_(list(message_ids)),
+                )
+            )
+        ).all()
+        return [_row_to_attachment(r) for r in rows]
+
     async def bind_to_message(
         self,
         *,
