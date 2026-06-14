@@ -99,18 +99,28 @@ Closes Tier-2 gaps #9, #10, #11 and Tier-3 #12–#16.
 
 **Exit criteria.** Integration tests per touched view (gate #8). Project owner changes a member role and it persists; org/project rename round-trips; quota panel renders; WakeupConfigEditor saves and reloads; DLQ viewer lists entries; key group rename works; usage panel shows windowed data; owner restores a soft-deleted project.
 
-## M.5 Backend / ops deferred items (from K.0) — **CODE/OPS** — M
+## M.5 Backend / ops deferred items (from K.0) — **CODE/OPS** — DONE (2026-06-14)
 
-Closes the non-frontend items K parked (`K-agent-runtime.md` §K.0 line 22). **Re-verify each still exists on current `main` before fixing — do not fix a phantom.**
+The non-frontend items K parked (`K-agent-runtime.md` §K.0 line 22), each re-verified on `main` first (6 parallel investigations). Also closed the two escalations from M.1 (#5) and M.3 (#8).
 
-**Candidate defects (verify first).**
+**Fixed:**
 
-- **Guest-route auth bug** — guest links / `/ws/chatroom` guest path auth handling (R6.12/R13.07). Confirm the exact defect against `guests.py` + the WS guest path.
-- **Admin rate-limit Redis mirror** — `PATCH /api/admin/rate-limits` persists but may not propagate to the live Redis bucket config (R19.02). Confirm whether the runtime reads the patched values.
-- **`graphrag_reconciler` deployment** — the 2PC reconciler worker (Neo4j/Qdrant drift, R15.16) may exist in code but not be scheduled/deployed. Confirm it is registered in the arq worker and compose.
-- **`rotate-transit` checkpoint bug** — the resumable rewrap CLI (`smap.rotation rotate-transit`) checkpoint/resume correctness. Confirm against the rewrap_progress table logic.
+- **`rotate-transit` checkpoint** — real, and the *inverse* of the deferred description: single-rotation crash-resume was already safe; the bug was that the **second rotation skipped every row** (the prior completed rotation's `last_id` cursor was preserved on the new target, so `id > last_id` matched nothing — DEKs silently left at the old version, undecryptable once `min_decryption_version` is raised). Fix: a pure `_resume_cursor` decision (insert/reset/resume) that resets the cursor on a new target. No migration. Unit-tested (`test_rotate_transit_resume.py`).
+- **Per-agent built-in tool gate** (closes M.1 escalation #5) — `build_builtin_tools` added file/web_search/code_exec unconditionally (violating R12.01/R12.10/§12.1) and misrouted `source='builtin'` bindings to the MCP sandbox. Fix (Option A, no migration): honor a builtin-source binding's enabled set (back-compat: no builtin binding → all three), skip builtin bindings from the sandbox loop. The M.1 MCP UI already creates these bindings.
+- **Admin rate-limit Redis mirror** — worse than described: the `config:ratelimit:*` mirror was never written and the table shipped empty (GET `[]` / PATCH 404). Fix (no migration): a startup `prime_policies()` seeds the 5 bucket rows from compile-time defaults + primes the mirror, and the admin PATCH now `HSET`s the mirror so overrides take effect live. (Default limits already worked via compile-time fallback.)
+- **`graphrag_reconciler` deployment** — the `ReconciliationLoop` + entrypoint existed but were never registered. Fix: a `graphrag_reconcile` arq task (calls `reconcile_once()`) registered as a once-per-minute cron (cron lock keeps it singleton across replicas). No migration.
+- **`MessageOut` attachments** (closes M.3 escalation #8) — read API exposed no attachments, so the UI had no ids to download / show `[attachment expired]`. Fix (no migration): `MessageOut.attachments` populated via a batched `list_for_messages` (no N+1; includes expired/quarantined per R13.11) + frontend download / placeholder in `ChatroomView`.
 
-**Exit criteria.** Per confirmed defect: a regression test (or ops verification for deployment items) that fails before the fix and passes after. Items that turn out not to reproduce are struck from this list with a note.
+**Struck (false alarm):**
+
+- **Guest-route auth bug** — does NOT reproduce on `main`: the guest flow is sound (constant-time token compare, room-scoped `is_guest`, the WS path reuses the same `resolve_room_access`/`ensure_can_read` ACL, send is HTTP-only through `ensure_can_send`). No exploitable escalation.
+
+**Deferred (product/doc decisions, not bugs):**
+
+- `ensure_can_send` ordering: a room with BOTH `allow_project_owners_only` AND `allow_guest_links` fail-closed-denies an enrolled guest's send (unusual config). Needs a §13.2 product call before changing.
+- §22.14 doc drift: documents `Sec-WebSocket-Protocol: bearer.<token>`; the impl uses a single-use `ticket.<id>` (more secure — avoids logging the JWT). Correct the spec, not the code.
+
+**Exit criteria.** Met: each fix has a regression test; backend verified via the local unit tier (396 passing) + pinned ruff 0.7 (check + format); CI's pinned mypy 1.13 / integration / wiring tiers are the gate.
 
 ## M.6 Documentation, checklist & E2E re-enable — **OPS** — S
 
