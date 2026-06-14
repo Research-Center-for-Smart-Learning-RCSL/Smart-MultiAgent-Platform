@@ -72,6 +72,52 @@ def test_no_bindings_yields_only_builtins() -> None:
     assert {t.name for t in tools} == {"web_search", "code_exec", "file"}
 
 
+def _builtin(*, reference: str = "", tools: tuple[str, ...] = ()) -> SimpleNamespace:
+    return SimpleNamespace(
+        id=uuid.uuid4(),
+        source=McpSource.BUILTIN,
+        reference=reference,
+        allowed_tools=tools,
+        config={},
+    )
+
+
+def test_builtin_binding_gates_to_named_tools_only() -> None:
+    # A builtin binding naming web_search (editor convention: in `reference`)
+    # opts the agent into ONLY web_search — code_exec/file are withheld
+    # (R12.01/R12.10/§12.1). And it must NOT be routed to the MCP sandbox.
+    agent = _agent()
+    tools = bt.build_builtin_tools(
+        AsyncMock(), agent=agent, mcp_bindings=[_builtin(reference="web_search")], deps=_deps()
+    )
+    names = {t.name for t in tools}
+    assert names == {"web_search"}
+    assert not any(n.startswith("mcp__") for n in names)
+
+
+def test_builtin_binding_via_allowed_tools() -> None:
+    tools = bt.build_builtin_tools(
+        AsyncMock(), agent=_agent(), mcp_bindings=[_builtin(tools=("file", "code_exec"))], deps=_deps()
+    )
+    assert {t.name for t in tools} == {"file", "code_exec"}
+
+
+def test_builtin_gate_coexists_with_mcp_server_binding() -> None:
+    # builtin gate (web_search only) + a package server (its tools still appear)
+    agent = _agent()
+    tools = bt.build_builtin_tools(
+        AsyncMock(),
+        agent=agent,
+        mcp_bindings=[_builtin(reference="web_search"), _binding(("alpha",))],
+        deps=_deps(),
+    )
+    names = {t.name for t in tools}
+    assert "web_search" in names
+    assert "code_exec" not in names
+    assert "file" not in names
+    assert any(n.endswith("__alpha") for n in names)
+
+
 # --------------------------------------------------------------------------- #
 # code_exec / file                                                            #
 # --------------------------------------------------------------------------- #
