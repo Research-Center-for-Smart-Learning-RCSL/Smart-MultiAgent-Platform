@@ -781,6 +781,16 @@ async def patch_rate_limit(
     if row is None:
         raise HTTPException(status_code=404, detail="Rate-limit policy not found")
 
+    # Mirror the new policy into Redis so the live limiter picks it up at once
+    # (the hot path reads config:ratelimit:{bucket}, not the DB). Without this the
+    # change would only persist in Postgres and never take effect.
+    from shared_kernel.auth.clients import get_redis
+
+    await get_redis().hset(
+        f"config:ratelimit:{row[0]}",
+        mapping={"window_sec": int(row[1]), "max_count": int(row[2]), "scope": row[3]},
+    )
+
     await audit.emit(
         db,
         audit.AuditEvent(

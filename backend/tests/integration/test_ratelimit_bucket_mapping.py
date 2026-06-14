@@ -59,3 +59,10 @@ def test_default_bucket_budgets_match_spec() -> None:
     assert policies[Bucket.UPLOAD].scope is Scope.USER
     assert policies[Bucket.OTHER].max_count == 300
     assert policies[Bucket.OTHER].scope is Scope.USER
+
+
+def test_every_bucket_has_a_default_policy() -> None:
+    # prime_policies() seeds + mirrors one row per Bucket keyed by Bucket.value,
+    # and the limiter reads config:ratelimit:{Bucket.value}. A Bucket without a
+    # default would be seeded inconsistently / silently skipped — pin the 1:1.
+    assert {b.value for b in Bucket} == {b.value for b in default_policies()}
