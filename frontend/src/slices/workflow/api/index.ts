@@ -174,6 +174,13 @@ export async function listDlq(agentId: string): Promise<DlqEntry[]> {
 
 // ---- Agent wakeup config (Phase H) -----------------------------------------
 
+// The agent's stored wakeup_config defaults to `{}` (server_default), so callers
+// must default-fill before handing it to the structured editor.
+export async function getAgentWakeupConfig(agentId: string): Promise<unknown> {
+  const { data } = await http.get<{ wakeup_config?: unknown }>(`/agents/${agentId}`)
+  return data.wakeup_config ?? {}
+}
+
 export async function patchAgentWakeupConfig(
   agentId: string,
   wakeupConfig: WakeupConfig,

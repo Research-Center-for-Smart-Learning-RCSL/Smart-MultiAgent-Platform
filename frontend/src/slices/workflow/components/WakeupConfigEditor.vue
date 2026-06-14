@@ -14,14 +14,21 @@ const emit = defineEmits<{
   (e: 'update:modelValue', value: WakeupConfig): void
 }>()
 
-const local = reactive<WakeupConfig>(structuredClone(props.modelValue))
+// Plain-data deep clone. `structuredClone` throws DataCloneError on a Vue
+// reactive proxy (which is what a v-model parent passes in), and WakeupConfig is
+// pure JSON data, so a JSON round-trip is both safe and proxy-tolerant.
+function clone(v: WakeupConfig): WakeupConfig {
+  return JSON.parse(JSON.stringify(v)) as WakeupConfig
+}
+
+const local = reactive<WakeupConfig>(clone(props.modelValue))
 
 watch(() => props.modelValue, (v) => {
-  Object.assign(local, structuredClone(v))
+  Object.assign(local, clone(v))
 }, { deep: true })
 
 function emitUpdate(): void {
-  emit('update:modelValue', structuredClone(local))
+  emit('update:modelValue', clone(local))
 }
 
 const isInert = computed(() =>

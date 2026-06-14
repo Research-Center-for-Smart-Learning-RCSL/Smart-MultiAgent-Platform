@@ -31,4 +31,10 @@ export const workflowRoutes: RouteRecordRaw[] = [
     component: () => import('./views/WorkflowBackstageView.vue'),
     meta: { requiresAuth: true, requiresRole: ['admin', 'project_owner'] },
   },
+  {
+    path: '/agents/:agentId/orchestration',
+    name: 'workflow.agentOrchestration',
+    component: () => import('./views/AgentOrchestrationView.vue'),
+    meta: { requiresAuth: true, requiresVerifiedEmail: true },
+  },
 ]
