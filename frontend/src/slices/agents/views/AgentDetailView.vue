@@ -290,6 +290,12 @@ const onSubmit = handleSubmit((values) => {
         >
           {{ t('agents.rag.manageLink') }}
         </RouterLink>
+        <RouterLink
+          class="agent-detail__rag-manage"
+          :to="{ name: 'agents.ragConfigs', params: { projectId: pickerProjectId } }"
+        >
+          {{ t('agents.form.manageRagConfigs') }}
+        </RouterLink>
       </FormField>
 
       <FormField
