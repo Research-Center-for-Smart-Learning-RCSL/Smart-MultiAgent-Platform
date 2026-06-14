@@ -10,6 +10,7 @@ import { agentsRoutes } from '@slices/agents'
 import { conversationRoutes } from '@slices/conversation'
 import { identityRoutes, useSessionStore } from '@slices/identity'
 import { keysRoutes } from '@slices/keys'
+import { notificationsRoutes } from '@slices/notifications'
 import { tenancyRoutes } from '@slices/tenancy'
 import { workflowRoutes } from '@slices/workflow'
 import { onUnauthorizedRedirect } from '@shared/transport'
@@ -29,6 +30,7 @@ const routes: RouteRecordRaw[] = [
   ...conversationRoutes,
   ...workflowRoutes,
   ...adminRoutes,
+  ...notificationsRoutes,
   {
     path: '/:pathMatch(.*)*',
     name: 'not-found',

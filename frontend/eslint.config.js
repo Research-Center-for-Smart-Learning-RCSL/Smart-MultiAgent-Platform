@@ -11,16 +11,17 @@ import tsParser from '@typescript-eslint/parser'
 import vueParser from 'vue-eslint-parser'
 import vuejsAccessibility from 'eslint-plugin-vuejs-accessibility'
 
-const SLICES = ['identity', 'tenancy', 'keys', 'agents', 'conversation', 'workflow', 'admin']
+const SLICES = ['identity', 'tenancy', 'keys', 'agents', 'conversation', 'workflow', 'admin', 'notifications']
 
 const SLICE_DEPS = {
-  identity:     [],
-  tenancy:      ['identity'],
-  keys:         ['tenancy', 'identity'],
-  agents:       ['keys', 'tenancy', 'identity'],
-  conversation: ['agents', 'keys', 'tenancy', 'identity'],
-  workflow:     ['conversation', 'agents', 'keys', 'tenancy', 'identity'],
-  admin:        [],
+  identity:      [],
+  tenancy:       ['identity'],
+  keys:          ['tenancy', 'identity'],
+  agents:        ['keys', 'tenancy', 'identity'],
+  conversation:  ['agents', 'keys', 'tenancy', 'identity'],
+  workflow:      ['conversation', 'agents', 'keys', 'tenancy', 'identity'],
+  admin:         [],
+  notifications: ['identity'],
 }
 
 function buildSliceBoundaryRules() {
