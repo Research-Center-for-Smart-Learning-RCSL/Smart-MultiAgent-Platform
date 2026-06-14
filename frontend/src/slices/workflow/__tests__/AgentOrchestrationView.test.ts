@@ -23,7 +23,7 @@ describe('AgentOrchestrationView', () => {
     // structured editor does not crash on the missing nested shape.
     server.use(
       http.get('/api/agents/agent_1', () =>
-        HttpResponse.json({ id: 'agent_1', wakeup_config: {} }),
+        HttpResponse.json({ id: 'agent_1', wakeup_config: {}, version: 1 }),
       ),
     )
     const wrapper = await renderView(AgentOrchestrationView, {

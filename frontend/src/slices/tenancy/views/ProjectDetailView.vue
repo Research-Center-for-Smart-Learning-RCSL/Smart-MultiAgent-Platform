@@ -3,6 +3,7 @@ import { onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { useInlineRename } from '@shared/composables'
 import { projectsApi, type Project } from '../api/projects'
 
 const { t } = useI18n()
@@ -10,9 +11,6 @@ const route = useRoute()
 const router = useRouter()
 const project = ref<Project | null>(null)
 const loading = ref(false)
-
-const renaming = ref(false)
-const nameDraft = ref('')
 
 async function load(): Promise<void> {
   loading.value = true
@@ -24,24 +22,21 @@ async function load(): Promise<void> {
   }
 }
 
-function startRename(): void {
-  if (!project.value) return
-  nameDraft.value = project.value.name
-  renaming.value = true
-}
-
-async function saveRename(): Promise<void> {
-  if (!project.value) return
-  const name = nameDraft.value.trim()
-  if (!name) return
-  try {
-    await projectsApi.rename(project.value.id, name, project.value.version)
-    renaming.value = false
-    await load()
-  } catch {
-    ElMessage.error(t('tenancy.projects.renameError'))
-  }
-}
+// Use the PATCH response (new name + bumped version) rather than reloading, so a
+// reload failure can't mask success or strand a stale version for the next edit.
+const rename = useInlineRename({
+  current: () => project.value?.name ?? '',
+  save: async (name) => {
+    if (!project.value) return
+    try {
+      const { data } = await projectsApi.rename(project.value.id, name, project.value.version)
+      project.value = data
+    } catch (e) {
+      ElMessage.error(t('tenancy.projects.renameError'))
+      throw e
+    }
+  },
+})
 
 async function remove(): Promise<void> {
   if (!project.value) return
@@ -71,20 +66,20 @@ onMounted(load)
       {{ $t('tenancy.projects.loading') }}
     </p>
     <template v-else-if="project">
-      <h1 v-if="!renaming">
+      <h1 v-if="!rename.renaming.value">
         {{ project.name }}
-        <button @click="startRename">
+        <button @click="rename.start">
           {{ $t('tenancy.projects.rename') }}
         </button>
       </h1>
       <form
         v-else
-        @submit.prevent="saveRename"
+        @submit.prevent="rename.save"
       >
         <label>
           {{ $t('tenancy.projects.renameLabel') }}
           <input
-            v-model="nameDraft"
+            v-model="rename.nameDraft.value"
             required
           >
         </label>
@@ -93,7 +88,7 @@ onMounted(load)
         </button>
         <button
           type="button"
-          @click="renaming = false"
+          @click="rename.cancel"
         >
           {{ $t('app.cancel') }}
         </button>

@@ -43,7 +43,7 @@ export const orgsApi = {
   create: (name: string) => http.post<Org>('/orgs', { name }),
   get: (id: string) => http.get<Org>(`/orgs/${id}`),
   rename: (id: string, name: string, version: number) =>
-    http.patch(`/orgs/${id}`, { name }, { headers: { 'If-Match': String(version) } }),
+    http.patch<Org>(`/orgs/${id}`, { name }, { headers: { 'If-Match': String(version) } }),
   remove: (id: string) => http.delete(`/orgs/${id}`),
   quotas: (id: string) => http.get<OrgQuotas>(`/orgs/${id}/quotas`),
 

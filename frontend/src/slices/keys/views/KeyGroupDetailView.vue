@@ -3,6 +3,7 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { useI18n } from 'vue-i18n'
+import { useInlineRename } from '@shared/composables'
 import { useKeyGroupDetail } from '../composables/useKeyGroups'
 import { useProjectKeys } from '../composables/useProjectKeys'
 import { keyGroupsApi } from '../api/key-groups'
@@ -18,25 +19,20 @@ const { carried, reload: reloadCarried } = useProjectKeys(() => projectId.value)
 
 const selectedKeyId = ref<string>('')
 
-const renaming = ref(false)
-const nameDraft = ref('')
-
-function startRename(): void {
-  if (!detail.value) return
-  nameDraft.value = detail.value.group.name
-  renaming.value = true
-}
-async function saveRename(): Promise<void> {
-  const name = nameDraft.value.trim()
-  if (!name) return
-  try {
-    await keyGroupsApi.rename(groupId.value, name)
-    renaming.value = false
-    await reload()
-  } catch {
-    ElMessage.error(t('keys.groups.renameError'))
-  }
-}
+// Key-group rename takes no version (no If-Match), so refresh the detail after
+// the PATCH; the reload is best-effort and must not mask a successful rename.
+const rename = useInlineRename({
+  current: () => detail.value?.group.name ?? '',
+  save: async (name) => {
+    try {
+      await keyGroupsApi.rename(groupId.value, name)
+    } catch (e) {
+      ElMessage.error(t('keys.groups.renameError'))
+      throw e
+    }
+    void reload().catch(() => {})
+  },
+})
 
 async function onAdd() {
   if (!selectedKeyId.value) return
@@ -82,23 +78,23 @@ watch([groupId, projectId], async () => {
 
 <template>
   <main class="key-group-detail-view">
-    <h1 v-if="!renaming">
+    <h1 v-if="!rename.renaming.value">
       {{ detail?.group.name ?? '—' }}
       <button
         v-if="detail"
-        @click="startRename"
+        @click="rename.start"
       >
         {{ $t('keys.groups.rename') }}
       </button>
     </h1>
     <form
       v-else
-      @submit.prevent="saveRename"
+      @submit.prevent="rename.save"
     >
       <label>
         {{ $t('keys.groups.renameLabel') }}
         <input
-          v-model="nameDraft"
+          v-model="rename.nameDraft.value"
           required
         >
       </label>
@@ -107,7 +103,7 @@ watch([groupId, projectId], async () => {
       </button>
       <button
         type="button"
-        @click="renaming = false"
+        @click="rename.cancel"
       >
         {{ $t('app.cancel') }}
       </button>

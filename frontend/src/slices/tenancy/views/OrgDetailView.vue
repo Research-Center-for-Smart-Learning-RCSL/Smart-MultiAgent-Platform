@@ -3,6 +3,7 @@ import { onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { useInlineRename } from '@shared/composables'
 import { orgsApi, type Org, type OrgQuotas } from '../api/orgs'
 
 const { t } = useI18n()
@@ -12,9 +13,6 @@ const org = ref<Org | null>(null)
 const quotas = ref<OrgQuotas | null>(null)
 const loading = ref(false)
 const error = ref<string | null>(null)
-
-const renaming = ref(false)
-const nameDraft = ref('')
 
 async function load(): Promise<void> {
   loading.value = true
@@ -31,32 +29,35 @@ async function load(): Promise<void> {
   }
 }
 
+// Generation guard: a later fetch (e.g. after a remount) must win even if an
+// earlier slow request resolves after it.
+let quotasGen = 0
 async function loadQuotas(id: string): Promise<void> {
+  const gen = ++quotasGen
   try {
-    quotas.value = (await orgsApi.quotas(id)).data
+    const { data } = await orgsApi.quotas(id)
+    if (gen === quotasGen) quotas.value = data
   } catch {
-    quotas.value = null
+    if (gen === quotasGen) quotas.value = null
   }
 }
 
-function startRename(): void {
-  if (!org.value) return
-  nameDraft.value = org.value.name
-  renaming.value = true
-}
-
-async function saveRename(): Promise<void> {
-  if (!org.value) return
-  const name = nameDraft.value.trim()
-  if (!name) return
-  try {
-    await orgsApi.rename(org.value.id, name, org.value.version)
-    renaming.value = false
-    await load() // refresh name + bumped version
-  } catch {
-    ElMessage.error(t('tenancy.orgs.renameError'))
-  }
-}
+// Assign the PATCH response directly (it carries the new name + bumped version)
+// rather than reloading — a reload failure must not mask a successful rename or
+// leave a stale version that 412s the next rename.
+const rename = useInlineRename({
+  current: () => org.value?.name ?? '',
+  save: async (name) => {
+    if (!org.value) return
+    try {
+      const { data } = await orgsApi.rename(org.value.id, name, org.value.version)
+      org.value = data
+    } catch (e) {
+      ElMessage.error(t('tenancy.orgs.renameError'))
+      throw e
+    }
+  },
+})
 
 async function remove(): Promise<void> {
   if (!org.value) return
@@ -85,21 +86,27 @@ onMounted(load)
     <p v-if="loading">
       {{ $t('tenancy.orgs.loading') }}
     </p>
+    <p
+      v-else-if="error"
+      class="error"
+    >
+      {{ $t('tenancy.orgs.loadError') }}
+    </p>
     <template v-else-if="org">
-      <h1 v-if="!renaming">
+      <h1 v-if="!rename.renaming.value">
         {{ org.name }}
-        <button @click="startRename">
+        <button @click="rename.start">
           {{ $t('tenancy.orgs.rename') }}
         </button>
       </h1>
       <form
         v-else
-        @submit.prevent="saveRename"
+        @submit.prevent="rename.save"
       >
         <label>
           {{ $t('tenancy.orgs.renameLabel') }}
           <input
-            v-model="nameDraft"
+            v-model="rename.nameDraft.value"
             required
           >
         </label>
@@ -108,7 +115,7 @@ onMounted(load)
         </button>
         <button
           type="button"
-          @click="renaming = false"
+          @click="rename.cancel"
         >
           {{ $t('app.cancel') }}
         </button>
@@ -140,12 +147,6 @@ onMounted(load)
         </p>
       </section>
 
-      <p
-        v-if="error"
-        class="error"
-      >
-        {{ error }}
-      </p>
       <button @click="remove">
         {{ $t('tenancy.orgs.delete') }}
       </button>

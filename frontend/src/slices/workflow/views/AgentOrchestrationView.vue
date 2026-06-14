@@ -47,10 +47,14 @@ function withDefaults(raw: unknown): WakeupConfig {
 const config = ref<WakeupConfig | null>(null)
 const loading = ref(true)
 const saving = ref(false)
+// Agent PATCH requires an If-Match precondition; track the version across saves.
+const version = ref(0)
 
 onMounted(async () => {
   try {
-    config.value = withDefaults(await getAgentWakeupConfig(agentId))
+    const { wakeupConfig, version: v } = await getAgentWakeupConfig(agentId)
+    config.value = withDefaults(wakeupConfig)
+    version.value = v
   } catch {
     config.value = withDefaults({})
     ElMessage.error(t('workflow.agentOps.loadError'))
@@ -63,7 +67,7 @@ async function save(): Promise<void> {
   if (!config.value) return
   saving.value = true
   try {
-    await patchAgentWakeupConfig(agentId, config.value)
+    version.value = await patchAgentWakeupConfig(agentId, config.value, version.value)
     ElMessage.success(t('workflow.agentOps.saved'))
   } catch {
     ElMessage.error(t('workflow.agentOps.saveError'))
