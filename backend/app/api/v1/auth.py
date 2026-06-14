@@ -141,6 +141,10 @@ class ChangeEmailIn(BaseModel):
     password: str
 
 
+class DeleteAccountIn(BaseModel):
+    password: str
+
+
 class TokenPairOut(BaseModel):
     access_token: str
     refresh_token: str
@@ -396,6 +400,32 @@ async def change_email(
         remote_ip=ctx.actor_ip,
         request_id=ctx.request_id,
     )
+
+
+@router.delete("/me", status_code=status.HTTP_204_NO_CONTENT, response_model=None)
+async def delete_account(
+    body: DeleteAccountIn,
+    response: Response,
+    ctx: RequestContext = Depends(current_context),
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(db_session),
+) -> None:
+    """Self-service account deletion (R6.07 / R8.14 / R8.18).
+
+    Re-confirms the current password (destructive, recovery-gated action), soft-
+    deletes the account + its tenancy footprint, then clears the refresh cookie.
+    Returns 409 (``tenancy/original-creator-self-delete-blocked`` with
+    ``blocked_org_ids``) when the caller is the Original Creator of an Org that
+    still has other active members.
+    """
+    service = _service(db)
+    await service.delete_account(
+        user_id=principal.user_id,
+        password=body.password,
+        remote_ip=ctx.actor_ip,
+        request_id=ctx.request_id,
+    )
+    _clear_refresh_cookie(response)
 
 
 @router.get("/me")

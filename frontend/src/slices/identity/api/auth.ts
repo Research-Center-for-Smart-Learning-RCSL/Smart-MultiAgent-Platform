@@ -65,6 +65,13 @@ export const authApi = {
 
   me: () => http.get<Me>('/auth/me'),
 
+  // Self-service account deletion (R6.07). DELETE carries the re-auth password
+  // in the body (`{ data }` — axios puts a DELETE payload there). A 409 means
+  // the caller is the Original Creator of an Org with other members; the
+  // `blocked_org_ids` problem extra lists them.
+  deleteAccount: (password: string) =>
+    http.delete('/auth/me', { data: { password } }),
+
   listSessions: () => http.get<Session[]>('/auth/sessions'),
 
   revokeSession: (id: string) => http.delete(`/auth/sessions/${id}`),

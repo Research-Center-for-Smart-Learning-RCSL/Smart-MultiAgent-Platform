@@ -49,4 +49,10 @@ export const identityRoutes: RouteRecordRaw[] = [
     component: () => import('./views/SessionsView.vue'),
     meta: { requiresAuth: true },
   },
+  {
+    path: '/account/delete',
+    name: 'identity.deleteAccount',
+    component: () => import('./views/DeleteAccountView.vue'),
+    meta: { requiresAuth: true },
+  },
 ]

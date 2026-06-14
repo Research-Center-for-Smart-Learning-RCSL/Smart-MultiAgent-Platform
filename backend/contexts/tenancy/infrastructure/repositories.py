@@ -411,6 +411,24 @@ class ProjectMemberRepository:
             for r in rows
         ]
 
+    async def list_project_ids_for_user(self, user_id: uuid.UUID) -> Sequence[uuid.UUID]:
+        """Every project the user holds a membership row in (any role).
+
+        Used by the account-self-deletion cascade (R8.14) to find the projects
+        the user must be removed from; ownership is a separate axis handled via
+        ``ProjectRepository.list_by_user``.
+
+        Returns a ``Sequence`` rather than ``list[...]``: under PEP 563 a
+        ``list[...]`` annotation in this class resolves to the sibling ``list``
+        method, not the builtin (the same footgun that bit ``message_service``).
+        """
+        rows = (
+            await self._db.execute(
+                sa.select(t.project_members.c.project_id).where(t.project_members.c.user_id == user_id)
+            )
+        ).all()
+        return [r.project_id for r in rows]
+
     async def get(self, *, project_id: uuid.UUID, user_id: uuid.UUID) -> ProjectMember | None:
         row = (
             await self._db.execute(
