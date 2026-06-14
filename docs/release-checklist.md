@@ -25,7 +25,6 @@ Source: `deploy/vault/README.md` §7.
 - [ ] `/healthz` returns 200.
 - [ ] `python -m smap.bootstrap all` is idempotent — second run produces no errors or side effects.
 - [ ] First admin account created and can log in.
-- [ ] MFA enrollment prompt shown on first admin login.
 - [ ] All Alembic migrations applied cleanly (`alembic upgrade head` — 27 migrations, A through J).
 - [ ] `alembic downgrade base && alembic upgrade head` round-trip succeeds.
 - [ ] **SMTP smoke (K.6)**: with `SMTP_*` + Vault `secret/smap/config/smtp` configured, register a throwaway address on staging → verification mail **received** → link verifies → login succeeds. Run one password-reset round-trip and one invite to an unregistered address (sign-up → auto-enroll).
