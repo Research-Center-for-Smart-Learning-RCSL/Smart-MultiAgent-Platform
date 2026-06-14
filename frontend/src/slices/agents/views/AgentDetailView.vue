@@ -359,6 +359,18 @@ const onSubmit = handleSubmit((values) => {
       </FormField>
 
       <FormField
+        :label="t('agents.form.orchestration')"
+        name="orchestration"
+      >
+        <RouterLink
+          class="agent-detail__rag-manage"
+          :to="{ name: 'workflow.agentOrchestration', params: { agentId } }"
+        >
+          {{ t('agents.form.manageOrchestration') }}
+        </RouterLink>
+      </FormField>
+
+      <FormField
         :label="t('agents.form.a2aEnabled')"
         name="a2a_enabled"
         :error="errors.a2a_enabled"

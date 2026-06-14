@@ -103,6 +103,17 @@
       "movedAt": "Moved At",
       "refresh": "Refresh"
     },
+    "agentOps": {
+      "title": "Agent Orchestration",
+      "subtitle": "Wake-up triggers and the dead-letter queue for this agent.",
+      "wakeupSection": "Wake-up configuration",
+      "dlqSection": "Dead letter queue",
+      "loading": "Loading…",
+      "save": "Save wake-up config",
+      "saved": "Wake-up configuration saved.",
+      "saveError": "Failed to save wake-up configuration.",
+      "loadError": "Failed to load wake-up configuration."
+    },
     "instructChain": {
       "title": "Instruct Chain {id}",
       "loading": "Loading…",

@@ -103,6 +103,17 @@
       "movedAt": "移入時間",
       "refresh": "重新整理"
     },
+    "agentOps": {
+      "title": "代理人編排",
+      "subtitle": "此代理人的喚醒觸發條件與死信佇列。",
+      "wakeupSection": "喚醒設定",
+      "dlqSection": "死信佇列",
+      "loading": "載入中…",
+      "save": "儲存喚醒設定",
+      "saved": "喚醒設定已儲存。",
+      "saveError": "儲存喚醒設定失敗。",
+      "loadError": "載入喚醒設定失敗。"
+    },
     "instructChain": {
       "title": "指令鏈 {id}",
       "loading": "載入中…",

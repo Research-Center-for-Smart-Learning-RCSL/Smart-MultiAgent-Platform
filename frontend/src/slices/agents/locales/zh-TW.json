@@ -42,6 +42,8 @@
       "manageGraphragConfigs": "管理 GraphRAG 設定",
       "mcp": "MCP 伺服器",
       "manageMcp": "管理 MCP 伺服器與工具",
+      "orchestration": "編排",
+      "manageOrchestration": "喚醒設定與 DLQ",
       "a2aEnabled": "啟用代理人對代理人（A2A）",
       "submit": "建立代理人"
     },

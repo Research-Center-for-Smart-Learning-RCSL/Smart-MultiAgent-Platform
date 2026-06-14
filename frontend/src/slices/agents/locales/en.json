@@ -42,6 +42,8 @@
       "manageGraphragConfigs": "Manage GraphRAG configurations",
       "mcp": "MCP Servers",
       "manageMcp": "Manage MCP servers & tools",
+      "orchestration": "Orchestration",
+      "manageOrchestration": "Wake-up config & DLQ",
       "a2aEnabled": "Enable agent-to-agent (A2A)",
       "submit": "Create Agent"
     },
