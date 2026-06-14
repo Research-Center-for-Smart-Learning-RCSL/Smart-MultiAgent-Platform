@@ -82,7 +82,29 @@ Run against `compose.test.yml` (full stack with seeded fixtures):
 - [ ] 07 — Workflow flow: editor → validate → run → live steps via WS
 - [ ] 08 — Admin impersonate: start → audit visible → last-admin block
 
+Phase M UI gap-remediation flows (M.1–M.4):
+
+- [ ] 09 — RAG config (M.1): create a RAG config → it appears in the agent RAG picker → attach to an agent. (Note: path 04 depends on this.)
+- [ ] 10 — GraphRAG (M.1): create a GraphRAG config → bind on the agent → Build → status reaches a terminal `BuildState`; the list shows Bound/Not-bound correctly.
+- [ ] 11 — MCP (M.1): bind a url/package MCP server to an agent → Test returns tool names; add/remove a project egress-allowlist host.
+- [ ] 12 — Notifications (M.2): an event (e.g. invite received) bumps the bell unread count live over `/ws/user`; the panel lists it; mark-read clears it.
+- [ ] 13 — Message edit/delete (M.3): author edits own message < 5 min (R13.21) and after > 5 min is blocked (Admin/Owner can); delete removes it for everyone + from search (R13.16).
+- [ ] 14 — Export + attachments (M.3/M.5): export → status polls to ready → download link works; a message's attachment downloads via presigned URL; an expired attachment shows `[attachment expired]` (R13.11).
+- [ ] 15 — Tenancy/keys mgmt (M.4): change a project member's role; rename an org/project; key-group rename; project key-usage panel renders windowed counts.
+
 Retry budget: ≤ 1 per path.
+
+---
+
+## 5a. Phase M backend (M.5) acceptance
+
+Verify on staging (these were the K-deferred / escalated backend items):
+
+- [ ] Per-agent built-in tools (M.5): an agent with no `source='builtin'` MCP binding still has file/web_search/code_exec; once a builtin binding lists a subset, only those are exposed (R12.01/R12.10).
+- [ ] Admin rate-limit override (M.5): `GET /api/admin/rate-limits` returns the 5 seeded bucket rows; `PATCH` one and confirm the new budget takes effect **without a restart** (the Redis mirror is updated live).
+- [ ] GraphRAG reconciler (M.5): the `graphrag_reconcile` arq cron appears in the worker schedule and runs ~once/minute; a config left in `FAILED_COMPENSATING` is healed.
+- [ ] rotate-transit (M.5): run `smap.rotation rotate-transit` twice in succession — the **second** rotation rewraps all DEKs (does not skip them); `rewrap_progress` resets per rotation.
+- [ ] Message attachments API (M.5): `GET /api/chatrooms/{id}/messages` returns each message's `attachments` (incl. expired/quarantined), enabling the path-14 UI.
 
 ---
 
