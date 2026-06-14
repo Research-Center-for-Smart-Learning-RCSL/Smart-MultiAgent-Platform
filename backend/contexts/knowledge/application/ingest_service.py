@@ -62,6 +62,18 @@ from shared_kernel.realtime.pubsub import Publisher, rag_channel
 
 MAX_MULTIPART_BYTES = 32 * 1024 * 1024  # §22.7 — tus for anything larger
 
+# Embed + persist this many chunks per round-trip. Bounds the provider request
+# size (avoids 413 on a huge document) and the peak vector memory to one batch,
+# so a 1 GiB tus upload does not hold every vector at once.
+_EMBED_BATCH = 128
+
+
+def rag_source_object_key(*, project_id: uuid.UUID, config_id: uuid.UUID, sha256: str) -> str:
+    """Canonical MinIO key for a RAG source blob — shared by the synchronous
+    multipart path and the async tus finaliser so both write/dedup/download at
+    the same location (sha-addressed for idempotent re-upload)."""
+    return f"{project_id}/{config_id}/{sha256}"
+
 
 @dataclass(frozen=True, slots=True)
 class IngestInput:
@@ -112,18 +124,31 @@ class IngestService:
 
         sha = hashlib.sha256(ipt.data).hexdigest()
 
-        # Dedup per R10.02: same sha in same config → return the existing row
-        # without re-embedding.
+        # Dedup per R10.02: same sha in same config. Only a *successful* prior
+        # ingest short-circuits — a FAILED/stuck row is re-indexed in place so a
+        # re-upload is a genuine retry rather than a no-op onto a dead row.
         existing = await self._docs.find_by_sha(
             rag_config_id=cfg.id,
             sha256=sha,
         )
-        if existing is not None:
+        if existing is not None and existing.status is DocumentStatus.READY:
             return existing
+        if existing is not None:
+            await Publisher(rag_channel(cfg.id)).emit(
+                "ingestion.started", {"document_id": str(existing.id), "total": 1}
+            )
+            return await self._index_document(
+                doc=existing,
+                cfg=cfg,
+                data=ipt.data,
+                actor_user_id=actor_user_id,
+                actor_ip=actor_ip,
+                request_id=request_id,
+            )
 
         # Persist bytes first so a crash mid-pipeline never leaves a DB row
         # pointing at a missing blob.
-        key = f"{cfg.project_id}/{cfg.id}/{sha}"
+        key = rag_source_object_key(project_id=cfg.project_id, config_id=cfg.id, sha256=sha)
         minio_path = await self._blob.put(
             bucket=self._bucket,
             key=key,
@@ -194,8 +219,10 @@ class IngestService:
         doc = await self._docs.get(document_id)
         if doc is None:
             raise IngestFailed(f"document {document_id} not found")
-        if doc.status is not DocumentStatus.INGESTING:
-            # Already processed (or failed) — idempotent no-op on retry.
+        if doc.status is DocumentStatus.READY:
+            # Already indexed — idempotent no-op (a duplicate enqueue or a retry
+            # after success). A FAILED/INGESTING doc is (re)processed so an Arq
+            # retry of a transient failure actually re-indexes.
             return doc
         cfg = await self._configs.get(doc.rag_config_id)
         if cfg is None:
@@ -235,52 +262,57 @@ class IngestService:
                 params=cfg.chunk_params,
             )
             if pieces:
-                vectors = await self._embedder.embed_batch(pieces)
-                if len(vectors) != len(pieces):
-                    # DOM-5: insert_many writes one rag_chunks row per piece;
-                    # a `strict=False` zip below would tolerate a short vector
-                    # list and leave the trailing chunks with no Qdrant point —
-                    # permanently unretrievable while `rag.document_indexed`
-                    # still reports the full count. Fail the whole ingest.
-                    raise ValueError(
-                        f"embedder returned {len(vectors)} vectors for "
-                        f"{len(pieces)} chunks; refusing partial index"
-                    )
                 await self._qdrant.ensure_collection(
                     cfg.project_id,
                     vector_size=self._embedder.vector_size,
                 )
-                point_ids: list[uuid.UUID] = [uuid.uuid4() for _ in pieces]
-                # Insert DB rows before upserting Qdrant vectors: if insert_many
-                # fails the transaction rolls back cleanly before Qdrant is touched.
-                # If upsert_chunks fails after a successful insert_many, the
-                # transaction rolls back the DB rows so no orphaned records remain.
-                await self._chunks.insert_many(
-                    [
-                        {
-                            "document_id": doc.id,
-                            "chunk_idx": idx,
-                            "text": pieces[idx],
-                            "qdrant_point_id": point_ids[idx],
-                        }
-                        for idx in range(len(pieces))
-                    ]
-                )
-                await self._qdrant.upsert_chunks(
-                    project_id=cfg.project_id,
-                    points=[
-                        (
-                            pid,
-                            vec,
-                            {
-                                "doc_id": str(doc.id),
-                                "chunk_idx": idx,
-                                "agent_ids": [],
-                            },
+                # Embed + persist in batches: a tus rag_source can be up to 1 GiB
+                # → hundreds of thousands of chunks. Sending them all to the
+                # embedder in one call risks a provider 413 and holds every vector
+                # in memory at once. Each batch's rag_chunks rows + Qdrant points
+                # share the enclosing transaction, so a mid-document failure still
+                # rolls back every DB row (Qdrant points from earlier batches are
+                # orphaned but unreferenced — retrieval joins through rag_chunks).
+                for start in range(0, len(pieces), _EMBED_BATCH):
+                    batch = pieces[start : start + _EMBED_BATCH]
+                    vectors = await self._embedder.embed_batch(batch)
+                    if len(vectors) != len(batch):
+                        # DOM-5: refuse a short vector list that would leave
+                        # trailing chunks with no Qdrant point (silently
+                        # unretrievable) while the count still reports full.
+                        raise ValueError(
+                            f"embedder returned {len(vectors)} vectors for "
+                            f"{len(batch)} chunks; refusing partial index"
                         )
-                        for idx, (pid, vec) in enumerate(zip(point_ids, vectors, strict=True))
-                    ],
-                )
+                    point_ids: list[uuid.UUID] = [uuid.uuid4() for _ in batch]
+                    # Insert DB rows before the Qdrant upsert so a DB failure
+                    # rolls back before Qdrant is touched.
+                    await self._chunks.insert_many(
+                        [
+                            {
+                                "document_id": doc.id,
+                                "chunk_idx": start + i,
+                                "text": batch[i],
+                                "qdrant_point_id": point_ids[i],
+                            }
+                            for i in range(len(batch))
+                        ]
+                    )
+                    await self._qdrant.upsert_chunks(
+                        project_id=cfg.project_id,
+                        points=[
+                            (
+                                pid,
+                                vec,
+                                {
+                                    "doc_id": str(doc.id),
+                                    "chunk_idx": start + i,
+                                    "agent_ids": [],
+                                },
+                            )
+                            for i, (pid, vec) in enumerate(zip(point_ids, vectors, strict=True))
+                        ],
+                    )
             await self._docs.set_status(
                 document_id=doc.id,
                 status=DocumentStatus.READY,
@@ -314,7 +346,8 @@ class IngestService:
                 )
             raise IngestFailed(f"{type(exc).__name__}: {exc}") from exc
 
-        # Re-read to return the committed status.
+        # Re-read so the returned row reflects the just-set status (the caller
+        # owns the commit).
         refreshed = await self._docs.get(doc.id)
         assert refreshed is not None
         return refreshed

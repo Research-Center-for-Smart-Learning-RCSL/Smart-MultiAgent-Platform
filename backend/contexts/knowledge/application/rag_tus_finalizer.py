@@ -21,9 +21,12 @@ import uuid
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from contexts.knowledge.application.ingest_service import _normalise_mime
+from contexts.knowledge.application.ingest_service import (
+    _normalise_mime,
+    rag_source_object_key,
+)
 from contexts.knowledge.domain.errors import RagConfigNotFound, UnsupportedMime
-from contexts.knowledge.domain.models import RagDocument
+from contexts.knowledge.domain.models import DocumentStatus, RagDocument
 from contexts.knowledge.infrastructure.parsers import MIME_TO_PARSER
 from contexts.knowledge.infrastructure.repositories import (
     RagConfigRepository,
@@ -76,12 +79,18 @@ class RagTusFinalizer:
         # the web process.
         sha = await asyncio.to_thread(_sha256_file, staging_path)
         existing = await self._docs.find_by_sha(rag_config_id=cfg.id, sha256=sha)
+        if existing is not None and existing.status is DocumentStatus.READY:
+            # Same bytes already indexed for this config — true dedup; the caller
+            # cleans up the staging file.
+            return existing
         if existing is not None:
-            # Same bytes already ingested for this config — skip re-upload + the
-            # worker enqueue; the caller cleans up the staging file.
+            # A prior attempt left this sha FAILED/stuck; the blob is already in
+            # MinIO. Re-drive the worker rather than dedup onto a dead row so a
+            # re-upload is a genuine retry.
+            await self._enqueue_index(existing.id, config_id=cfg.id)
             return existing
 
-        key = f"{cfg.project_id}/{cfg.id}/{sha}"
+        key = rag_source_object_key(project_id=cfg.project_id, config_id=cfg.id, sha256=sha)
         await self._minio.put_file(
             bucket=self._minio.rag_sources_bucket,
             key=key,
@@ -116,20 +125,25 @@ class RagTusFinalizer:
                 request_id=request_id,
             ),
         )
-        # ws:rag:{config_id} — register-phase event; the worker emits the
-        # terminal ingestion.completed/.failed once indexing runs.
-        await Publisher(rag_channel(cfg.id)).emit(
-            "ingestion.started", {"document_id": str(doc.id), "total": 1}
-        )
-        # Off-request indexing (E.6): the worker downloads the blob and runs the
-        # parse/chunk/embed/upsert pipeline. Job id is keyed on the document so a
-        # duplicate enqueue collapses to one run.
-        await enqueue(
-            "rag_ingest_document",
-            document_id=str(doc.id),
-            _job_id=f"rag-ingest:{doc.id}",
-        )
+        await self._enqueue_index(doc.id, config_id=cfg.id)
         return doc
+
+    async def _enqueue_index(self, document_id: uuid.UUID, *, config_id: uuid.UUID) -> None:
+        # Commit the rag_documents row BEFORE enqueuing: the rag_ingest_document
+        # worker runs on a separate connection and must see a committed row. The
+        # request's db_session dependency only commits AFTER the handler returns,
+        # so without this the worker can dequeue first, find no row, and the doc
+        # would stick in 'ingesting' forever (db_session docstring warns of this).
+        await self._db.commit()
+        # ws:rag:{config_id} — register-phase event; the worker emits the terminal
+        # ingestion.completed/.failed once indexing runs.
+        await Publisher(rag_channel(config_id)).emit(
+            "ingestion.started", {"document_id": str(document_id), "total": 1}
+        )
+        # No deterministic _job_id: each enqueue must be able to run (a retry of a
+        # FAILED doc included). process_document is idempotent — it skips a doc
+        # already READY — so a duplicate enqueue is harmless.
+        await enqueue("rag_ingest_document", document_id=str(document_id))
 
 
 __all__ = ["RagTusFinalizer"]

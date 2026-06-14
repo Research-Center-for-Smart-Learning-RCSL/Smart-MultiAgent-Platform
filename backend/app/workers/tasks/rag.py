@@ -9,6 +9,7 @@ must not embed synchronously inside the final PATCH.
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import uuid
 from typing import Any
@@ -28,6 +29,7 @@ from contexts.knowledge.infrastructure.repositories import (
     RagDocumentRepository,
 )
 from shared_kernel.db.session import get_sessionmaker
+from shared_kernel.realtime.pubsub import Publisher, rag_channel
 
 _log = logging.getLogger(__name__)
 
@@ -49,6 +51,13 @@ async def rag_ingest_document(ctx: dict[str, Any], *, document_id: str) -> str:
         if cfg is None or cfg.embed_key_id is None:
             await RagDocumentRepository(db).set_status(document_id=doc_id, status=DocumentStatus.FAILED)
             await db.commit()
+            # Emit the terminal event the frontend waits on; without it the docs
+            # table sticks on 'ingesting' until a manual reload.
+            with contextlib.suppress(Exception):
+                await Publisher(rag_channel(doc.rag_config_id)).emit(
+                    "ingestion.failed",
+                    {"document_id": document_id, "error": "rag config missing or has no embed key"},
+                )
             _log.warning("rag_ingest_document: config missing/embed_key_id unset for %s", document_id)
             return "config missing or no embed key"
 
@@ -84,7 +93,9 @@ async def rag_ingest_document(ctx: dict[str, Any], *, document_id: str) -> str:
             # process_document already emitted ingestion.failed (Redis, survives
             # the rollback) but its set_status(FAILED) rode the doomed txn. Persist
             # the terminal status in a fresh session so the doc never sticks in
-            # 'ingesting', then re-raise so Arq records the job failure.
+            # 'ingesting', then re-raise so Arq retries — process_document
+            # reprocesses any non-READY doc, so a retry of a transient failure
+            # genuinely re-indexes (it is not a dead no-op).
             await db.rollback()
             async with sm() as db2:
                 await RagDocumentRepository(db2).set_status(document_id=doc_id, status=DocumentStatus.FAILED)

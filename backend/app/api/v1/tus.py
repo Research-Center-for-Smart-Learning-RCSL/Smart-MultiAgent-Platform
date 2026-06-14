@@ -33,8 +33,7 @@ from contexts.conversation.domain.errors import (
 )
 from contexts.conversation.infrastructure.tus_store import parse_metadata
 from contexts.knowledge.interfaces.facade import KnowledgeFacade
-from contexts.tenancy.domain.models import ProjectMemberRole
-from contexts.tenancy.infrastructure.repositories import ProjectMemberRepository
+from contexts.tenancy.interfaces.facade import TenancyFacade
 from shared_kernel.auth.context import RequestContext
 from shared_kernel.auth.dependencies import current_context, current_principal
 from shared_kernel.auth.permissions import Principal
@@ -55,11 +54,10 @@ async def _require_rag_owner(
     principal: Principal,
 ) -> None:
     """R10.10 — only a Project Owner (or platform Admin) may upload RAG
-    sources. Mirrors `rag.py::_require_owner` for the tus path."""
+    sources. Shares ``TenancyFacade.is_project_owner`` with the multipart path."""
     if principal.is_admin:
         return
-    member = await ProjectMemberRepository(db).get(project_id=project_id, user_id=principal.user_id)
-    if member is None or member.role is not ProjectMemberRole.OWNER:
+    if not await TenancyFacade(db).is_project_owner(principal.user_id, project_id):
         raise HTTPException(
             status_code=403,
             detail="R10.10 requires Project Owner to upload RAG sources",
@@ -118,6 +116,11 @@ async def tus_create(
         cfg = await KnowledgeFacade(db).get_rag_config(rag_config_id)
         if cfg is None:
             raise HTTPException(status_code=404, detail="rag config not found")
+        # Reject up front if the config can't be embedded (mirrors the multipart
+        # path's 422) — otherwise the client streams the whole (up to 1 GiB) file
+        # only for the worker to mark it FAILED.
+        if cfg.embed_key_id is None:
+            raise HTTPException(status_code=422, detail="rag config has no embed_key_id")
         await _require_rag_owner(db, project_id=cfg.project_id, principal=principal)
     else:
         # Any other/unset purpose has no ACL-gated finaliser — fail closed.

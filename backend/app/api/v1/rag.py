@@ -50,8 +50,7 @@ from contexts.knowledge.domain.models import (
 from contexts.knowledge.infrastructure.blob_store import MinioBlobStore
 from contexts.knowledge.infrastructure.embedders import router_embedder_for
 from contexts.knowledge.infrastructure.qdrant_store import QdrantStore
-from contexts.tenancy.domain.models import ProjectMemberRole
-from contexts.tenancy.infrastructure.repositories import ProjectMemberRepository
+from contexts.tenancy.interfaces.facade import TenancyFacade
 from shared_kernel.auth.context import RequestContext
 from shared_kernel.auth.dependencies import (
     current_context,
@@ -300,9 +299,7 @@ async def _require_owner(
         return
     from shared_kernel.auth.dependencies import _raise_forbidden
 
-    members = ProjectMemberRepository(db)
-    member = await members.get(project_id=project_id, user_id=principal.user_id)
-    if member is None or member.role is not ProjectMemberRole.OWNER:
+    if not await TenancyFacade(db).is_project_owner(principal.user_id, project_id):
         _raise_forbidden("R10.10 requires Project Owner to upload RAG documents")
 
 
