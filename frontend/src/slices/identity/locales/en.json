@@ -50,6 +50,14 @@
       "loadError": "Failed to load sessions.",
       "retry": "Retry"
     },
+    "deleteAccount": {
+      "title": "Delete account",
+      "warning": "This permanently closes your account. Your individual projects and data are removed and recoverable by an administrator for 60 days only. This cannot be undone by you.",
+      "password": "Current password",
+      "confirm": "I understand this deletes my account and its data.",
+      "submit": "Delete my account",
+      "blocked": "You are the Original Creator of the organisation(s) below, which still have other members. Transfer the Original-Creator role or delete each organisation before deleting your account."
+    },
     "errors": {
       "generic": "Something went wrong. Please try again.",
       "invalid": "Invalid email or password.",

@@ -1238,6 +1238,19 @@
         "title": "ChatroomPatchIn",
         "type": "object"
       },
+      "DeleteAccountIn": {
+        "properties": {
+          "password": {
+            "title": "Password",
+            "type": "string"
+          }
+        },
+        "required": [
+          "password"
+        ],
+        "title": "DeleteAccountIn",
+        "type": "object"
+      },
       "ExportCreateOut": {
         "properties": {
           "job_id": {
@@ -6508,6 +6521,39 @@
       }
     },
     "/api/auth/me": {
+      "delete": {
+        "description": "Self-service account deletion (R6.07 / R8.14 / R8.18).\n\nRe-confirms the current password (destructive, recovery-gated action), soft-\ndeletes the account + its tenancy footprint, then clears the refresh cookie.\nReturns 409 (``tenancy/original-creator-self-delete-blocked`` with\n``blocked_org_ids``) when the caller is the Original Creator of an Org that\nstill has other active members.",
+        "operationId": "delete_account_api_auth_me_delete",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeleteAccountIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Account",
+        "tags": [
+          "auth"
+        ]
+      },
       "get": {
         "operationId": "me_api_auth_me_get",
         "responses": {

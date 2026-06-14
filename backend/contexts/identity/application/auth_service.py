@@ -26,6 +26,7 @@ from contexts.identity.domain.errors import (
     InvalidCredentials,
     InvalidEmailFormat,
     Lockout,
+    OriginalCreatorSelfDeleteBlocked,
     PasswordPolicyViolation,
     TokenExpired,
     TokenInvalid,
@@ -550,6 +551,67 @@ class AuthService:
                 request_id=request_id,
             ),
         )
+
+    async def delete_account(
+        self,
+        *,
+        user_id: uuid.UUID,
+        password: str,
+        remote_ip: str | None,
+        request_id: uuid.UUID | None = None,
+    ) -> dict[str, int]:
+        """Self-service account deletion (R6.07 / R8.14 / R8.18).
+
+        The account is *soft*-deleted (60-day admin-restore window, R8.13); the
+        tenancy footprint is torn down in the same transaction. Re-authenticates
+        with the current password even though the caller holds a live session —
+        this is a destructive, recovery-gated action, so a hijacked session
+        alone must not be enough to trigger it.
+        """
+        # R6.07: re-authenticate.
+        user = await self._users.get_by_id(user_id)
+        if user is None or not self._hasher.verify(user.password_hash, password).ok:
+            raise InvalidCredentials()
+
+        # Cross-context (tenancy). Lazy import mirrors ProjectService→KeysFacade:
+        # it avoids a module-load cycle, and the cross-context independence
+        # contract is deferred in pyproject's import-linter, so the call is
+        # permitted. Shares this session → the cascade is one transaction.
+        from contexts.tenancy.interfaces.facade import TenancyFacade
+
+        tenancy = TenancyFacade(self._db)
+
+        # R8.18: refuse while the user is the Original Creator of any Org that
+        # still has other active members — they must transfer OC or delete the
+        # Org first. 409 carries the blocking Org IDs (see identity error map).
+        blocked = await tenancy.orgs_blocking_self_delete(user_id)
+        if blocked:
+            raise OriginalCreatorSelfDeleteBlocked([str(org_id) for org_id in blocked])
+
+        # R8.14: soft-delete owned projects, drop memberships, reap solo Orgs.
+        counts = await tenancy.cascade_account_deletion(
+            user_id=user_id,
+            actor_ip=remote_ip,
+            request_id=request_id,
+        )
+
+        await self._users.soft_delete(user_id)
+        await audit.emit(
+            self._db,
+            audit.AuditEvent(
+                action="user.self_deleted",
+                actor_user_id=user_id,
+                actor_ip=remote_ip,
+                resource_type="user",
+                resource_id=user_id,
+                metadata=counts,
+                request_id=request_id,
+            ),
+        )
+        # Redis side-effects come last, after every DB write, so a failed commit
+        # cannot leave a logged-out-but-undeleted account behind.
+        await self._invalidate_user_sessions(user_id, reason="account_deleted")
+        return counts
 
     # ----- session management (R6.08) -------------------------------------
 

@@ -40,6 +40,7 @@ export type { ChangePasswordIn } from './models/ChangePasswordIn';
 export type { ChatroomCreateIn } from './models/ChatroomCreateIn';
 export type { ChatroomOut } from './models/ChatroomOut';
 export type { ChatroomPatchIn } from './models/ChatroomPatchIn';
+export type { DeleteAccountIn } from './models/DeleteAccountIn';
 export type { ExportCreateOut } from './models/ExportCreateOut';
 export type { ExportStatusOut } from './models/ExportStatusOut';
 export type { ForceTransferIn } from './models/ForceTransferIn';

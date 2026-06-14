@@ -5,6 +5,7 @@
 import type { CaptchaConfigOut } from '../models/CaptchaConfigOut';
 import type { ChangeEmailIn } from '../models/ChangeEmailIn';
 import type { ChangePasswordIn } from '../models/ChangePasswordIn';
+import type { DeleteAccountIn } from '../models/DeleteAccountIn';
 import type { LoginIn } from '../models/LoginIn';
 import type { LogoutIn } from '../models/LogoutIn';
 import type { PasswordResetIn } from '../models/PasswordResetIn';
@@ -109,6 +110,33 @@ export class AuthService {
         return __request(OpenAPI, {
             method: 'POST',
             url: '/api/auth/logout',
+            body: requestBody,
+            mediaType: 'application/json',
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * Delete Account
+     * Self-service account deletion (R6.07 / R8.14 / R8.18).
+     *
+     * Re-confirms the current password (destructive, recovery-gated action), soft-
+     * deletes the account + its tenancy footprint, then clears the refresh cookie.
+     * Returns 409 (``tenancy/original-creator-self-delete-blocked`` with
+     * ``blocked_org_ids``) when the caller is the Original Creator of an Org that
+     * still has other active members.
+     * @returns void
+     * @throws ApiError
+     */
+    public static deleteAccountApiAuthMeDelete({
+        requestBody,
+    }: {
+        requestBody: DeleteAccountIn,
+    }): CancelablePromise<void> {
+        return __request(OpenAPI, {
+            method: 'DELETE',
+            url: '/api/auth/me',
             body: requestBody,
             mediaType: 'application/json',
             errors: {
