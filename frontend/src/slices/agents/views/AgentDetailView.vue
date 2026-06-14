@@ -50,6 +50,22 @@ const ragConfigsQuery = useQuery({
   },
 })
 
+// A GraphRAG config is 1:1 with an agent, so the only config this agent may bind
+// is the one built for it. Setting `graphrag_config_id` here is what the runtime
+// reads to enable graph retrieval (turn_engine reads agent.graphrag_config_id).
+const graphragConfigsQuery = useQuery({
+  queryKey: ['agents', 'graphragConfigs', 'agent', agentId],
+  enabled: computed(() => !!pickerProjectId.value),
+  queryFn: async () => {
+    const { data } = await agentsApi.listGraphragConfigs(pickerProjectId.value)
+    return data
+  },
+})
+
+const thisAgentGraphrag = computed(() =>
+  (graphragConfigsQuery.data.value ?? []).find((c) => c.agent_id === agentId),
+)
+
 const schema = toTypedSchema(agentCreateSchema)
 const { handleSubmit, errors, defineField, resetForm, setErrors } = useForm<AgentCreateInput>({
   validationSchema: schema,
@@ -62,6 +78,7 @@ const [systemPrompt] = defineField('system_prompt')
 const [promptStrategy] = defineField('prompt_strategy')
 const [contextMode] = defineField('context_mode')
 const [ragConfigId] = defineField('rag_config_id')
+const [graphragConfigId] = defineField('graphrag_config_id')
 const [a2aEnabled] = defineField('a2a_enabled')
 
 const { applyServerErrors } = useServerErrors(setErrors)
@@ -295,6 +312,33 @@ const onSubmit = handleSubmit((values) => {
           :to="{ name: 'agents.ragConfigs', params: { projectId: pickerProjectId } }"
         >
           {{ t('agents.form.manageRagConfigs') }}
+        </RouterLink>
+      </FormField>
+
+      <FormField
+        :label="t('agents.form.graphragConfig')"
+        name="graphrag_config_id"
+        :error="errors.graphrag_config_id"
+      >
+        <select
+          id="graphrag_config_id"
+          v-model="graphragConfigId"
+        >
+          <option :value="null">
+            {{ t('agents.form.graphragConfigNone') }}
+          </option>
+          <option
+            v-if="thisAgentGraphrag"
+            :value="thisAgentGraphrag.id"
+          >
+            {{ t('agents.form.graphragConfigThis') }}
+          </option>
+        </select>
+        <RouterLink
+          class="agent-detail__rag-manage"
+          :to="{ name: 'agents.graphragConfigs', params: { projectId: pickerProjectId } }"
+        >
+          {{ t('agents.form.manageGraphragConfigs') }}
         </RouterLink>
       </FormField>
 

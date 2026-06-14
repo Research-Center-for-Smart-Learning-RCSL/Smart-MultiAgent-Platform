@@ -36,3 +36,14 @@ export const ragConfigCreateSchema = z.object({
 })
 
 export type RagConfigCreateInput = z.infer<typeof ragConfigCreateSchema>
+
+// Mirrors backend `GraphRagConfigCreateIn`. 1:1 with an agent (R15.16);
+// `builder_key_group_id` must differ from the agent's own key group (the
+// backend rejects a match with GraphRagBuilderKeyGroupConflict).
+export const graphragConfigCreateSchema = z.object({
+  agent_id: z.string().uuid(),
+  builder_key_group_id: z.string().uuid(),
+  trigger_config: z.record(z.unknown()).default({}),
+})
+
+export type GraphragConfigCreateInput = z.infer<typeof graphragConfigCreateSchema>
