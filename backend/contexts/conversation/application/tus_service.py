@@ -80,6 +80,7 @@ class TusPatchResult:
     new_offset: int
     completed: bool
     attachment: MessageAttachment | None
+    rag_document_id: uuid.UUID | None = None
 
 
 class TusService:
@@ -228,6 +229,7 @@ class TusService:
 
         # Final PATCH — finalize + clean up.
         attachment = None
+        rag_document_id: uuid.UUID | None = None
         if upload.purpose == "chat_attachment":
             assert upload.chatroom_id is not None  # guaranteed by create()
             attachment = await self._attachments.finalize_tus(
@@ -243,10 +245,25 @@ class TusService:
                 request_id=request_id,
             )
         else:
-            # rag_source completion is wired in the knowledge context's own
-            # finaliser (Phase E.6). For now, leave the state and let the
-            # RAG router call out when it picks the upload up.
-            pass
+            # rag_source (create() guarantees rag_config_id present). Cross-context
+            # into knowledge via lazy import (same pattern as project_service ->
+            # KeysFacade); the finaliser streams the staged blob into MinIO,
+            # registers the rag_documents row, and enqueues the rag_ingest_document
+            # worker that runs the embed pipeline off the request path (E.6).
+            assert upload.rag_config_id is not None
+            from contexts.knowledge.application.rag_tus_finalizer import RagTusFinalizer
+
+            doc = await RagTusFinalizer(self._db).finalize(
+                rag_config_id=upload.rag_config_id,
+                filename=upload.filename,
+                mime=upload.mime,
+                staging_path=upload.staging_path,
+                size_bytes=upload.upload_length,
+                uploaded_by=user_id,
+                actor_ip=actor_ip,
+                request_id=request_id,
+            )
+            rag_document_id = doc.id
 
         # Cleanup: staging + state. Best-effort on the file so a missing
         # inode after a crash doesn't wedge the API.
@@ -257,6 +274,7 @@ class TusService:
             new_offset=new_offset,
             completed=True,
             attachment=attachment,
+            rag_document_id=rag_document_id,
         )
 
     # ---- terminate --------------------------------------------------------

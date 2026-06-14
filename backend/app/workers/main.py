@@ -6,6 +6,7 @@ Task registry:
   - `chat_export`                 — F.10 chat export → JSON manifest in MinIO
   - `retention_sweep`             — I.4 nightly consolidated retention sweep (cron)
   - `key_usage_threshold_sample`  — D.8 80% hourly-limit sampler (every 30 s)
+  - `rag_ingest_document`         — E.6 off-request RAG indexing for tus uploads
   - `agent_fs_gc`                 — E.10 nightly Docker volume GC (60-day retention)
 
 Background tasks (started in `on_startup`, stopped in `on_shutdown`):
@@ -41,6 +42,7 @@ from app.workers.tasks.orchestration import (
     wakeup_agent,
     wakeup_refresh,
 )
+from app.workers.tasks.rag import rag_ingest_document
 from app.workers.tasks.retention import retention_sweep
 from app.workers.tasks.workflow import (
     retry_workflow_node,
@@ -198,6 +200,7 @@ class WorkerSettings:
         daily_org_advisory_snapshot,
         key_usage_threshold_sample,
         graphrag_build,
+        rag_ingest_document,
         agent_fs_gc,
     ]
     on_startup = _startup
