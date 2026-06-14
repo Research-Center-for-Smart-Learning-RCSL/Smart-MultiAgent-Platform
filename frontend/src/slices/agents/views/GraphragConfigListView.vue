@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onScopeDispose, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/vue-query'
@@ -9,7 +9,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 
 import { FormField } from '@shared/ui'
 import { useServerErrors } from '@shared/composables'
-import { keyGroupsApi } from '@slices/keys'
+import { keyGroupsApi, keysKeys } from '@slices/keys'
 import { agentsApi, type GraphragConfig } from '../api'
 import { agentKeys } from '../queries'
 import {
@@ -35,15 +35,23 @@ const agentsQuery = useQuery({
 })
 
 const keyGroupsQuery = useQuery({
-  queryKey: ['keys', 'keyGroups', projectId],
+  queryKey: keysKeys.keyGroups(projectId),
   queryFn: async () => (await keyGroupsApi.listForProject(projectId)).data,
 })
 
 const agentById = computed(() =>
   new Map((agentsQuery.data.value ?? []).map((a) => [a.id, a])),
 )
-const keyGroupName = (id: string): string =>
-  (keyGroupsQuery.data.value ?? []).find((g) => g.id === id)?.name ?? id
+const keyGroupById = computed(() =>
+  new Map((keyGroupsQuery.data.value ?? []).map((g) => [g.id, g.name])),
+)
+const keyGroupName = (id: string): string => keyGroupById.value.get(id) ?? id
+
+// A config is "bound" only when its agent actually points back at it
+// (turn_engine reads agent.graphrag_config_id). Creating + building a config is
+// inert until the agent is bound on its detail page — surface that explicitly.
+const isBound = (cfg: GraphragConfig): boolean =>
+  agentById.value.get(cfg.agent_id)?.graphrag_config_id === cfg.id
 
 // A GraphRAG config is 1:1 with an agent — only agents without one yet can take
 // a new config.
@@ -108,13 +116,35 @@ const onSubmit = handleSubmit((values) => createMutation.mutate(values))
 const IN_PROGRESS = new Set(['running', 'neo4j_committed', 'failed_compensating'])
 const liveState = ref<Record<string, string>>({})
 
+// The effective state of a row prefers the live-polled value over the cached
+// last_build_state, so the per-row Build button can disable itself the moment a
+// build is in flight (preventing duplicate enqueues against an in-progress 2PC).
+const effectiveState = (cfg: GraphragConfig): string =>
+  liveState.value[cfg.id] ?? cfg.last_build_state
+const isBuilding = (cfg: GraphragConfig): boolean => IN_PROGRESS.has(effectiveState(cfg))
+
+// Recursive polling has to be cancelled on unmount, otherwise navigating away
+// mid-build leaks a timer chain that keeps fetching + invalidating for minutes.
+const pollTimers = new Set<ReturnType<typeof setTimeout>>()
+let disposed = false
+onScopeDispose(() => {
+  disposed = true
+  pollTimers.forEach((t) => clearTimeout(t))
+  pollTimers.clear()
+})
+
 async function pollStatus(id: string, attempts = 0): Promise<void> {
-  if (attempts > 40) return // ~2 min ceiling at 3 s/poll
+  if (disposed || attempts > 40) return // ~2 min ceiling at 3 s/poll
   try {
     const { data } = await agentsApi.getGraphragStatus(id)
+    if (disposed) return
     liveState.value = { ...liveState.value, [id]: data.state }
     if (IN_PROGRESS.has(data.state)) {
-      setTimeout(() => void pollStatus(id, attempts + 1), 3000)
+      const timer = setTimeout(() => {
+        pollTimers.delete(timer)
+        void pollStatus(id, attempts + 1)
+      }, 3000)
+      pollTimers.add(timer)
     } else {
       qc.invalidateQueries({ queryKey: agentKeys.graphragConfigs(projectId) })
     }
@@ -131,6 +161,14 @@ const buildMutation = useMutation({
   },
   onError: () => ElMessage.error(t('agents.graphragList.buildFailed')),
 })
+
+// Optimistically mark the row in-progress before the POST resolves so a fast
+// 202 can't re-enable the button (the mutation's own isPending clears on 202,
+// long before the multi-minute build settles).
+function startBuild(id: string): void {
+  liveState.value = { ...liveState.value, [id]: 'running' }
+  buildMutation.mutate(id)
+}
 
 const deleteMutation = useMutation({
   mutationFn: (id: string) => agentsApi.deleteGraphragConfig(id),
@@ -288,6 +326,7 @@ function refresh(): void {
         <tr>
           <th>{{ t('agents.graphragList.colAgent') }}</th>
           <th>{{ t('agents.graphragList.colBuilder') }}</th>
+          <th>{{ t('agents.graphragList.colBinding') }}</th>
           <th>{{ t('agents.graphragList.colState') }}</th>
           <th>{{ t('agents.graphragList.colActions') }}</th>
         </tr>
@@ -300,7 +339,15 @@ function refresh(): void {
           <td>{{ agentById.get(c.agent_id)?.name ?? c.agent_id }}</td>
           <td>{{ keyGroupName(c.builder_key_group_id) }}</td>
           <td>
-            {{ liveState[c.id] ?? c.last_build_state }}
+            <span v-if="isBound(c)">{{ t('agents.graphragList.bound') }}</span>
+            <span
+              v-else
+              class="graphrag-list__error"
+              :title="t('agents.graphragList.unboundHint')"
+            >{{ t('agents.graphragList.unbound') }}</span>
+          </td>
+          <td>
+            {{ effectiveState(c) }}
             <span
               v-if="c.last_build_error"
               class="graphrag-list__error"
@@ -311,8 +358,8 @@ function refresh(): void {
             <button
               class="btn"
               type="button"
-              :disabled="buildMutation.isPending.value"
-              @click="buildMutation.mutate(c.id)"
+              :disabled="isBuilding(c)"
+              @click="startBuild(c.id)"
             >
               {{ t('agents.graphragList.build') }}
             </button>
@@ -326,7 +373,7 @@ function refresh(): void {
           </td>
         </tr>
         <tr v-if="(configsQuery.data.value ?? []).length === 0">
-          <td colspan="4">
+          <td colspan="5">
             {{ t('agents.graphragList.empty') }}
           </td>
         </tr>

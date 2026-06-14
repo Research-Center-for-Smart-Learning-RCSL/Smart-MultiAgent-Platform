@@ -103,4 +103,28 @@ describe('GraphragConfigListView', () => {
       wrapper.find('.graphrag-list__header .btn-primary').attributes('disabled'),
     ).toBeDefined()
   })
+
+  it('flags a config as unbound when its agent does not point back at it', async () => {
+    // AGENT.graphrag_config_id is null, so the gr_1 config is built-but-inert.
+    seed({ configs: [CONFIG] })
+    const wrapper = await renderView(GraphragConfigListView, {
+      routes,
+      initialRoute: '/projects/proj_1/graphrag-configs',
+    })
+    await settle(wrapper)
+    expect(wrapper.find('.graphrag-list__error').exists()).toBe(true)
+  })
+
+  it('flags a config as bound when its agent points back at it', async () => {
+    seed({ configs: [CONFIG], agents: [{ ...AGENT, graphrag_config_id: 'gr_1' }] })
+    const wrapper = await renderView(GraphragConfigListView, {
+      routes,
+      initialRoute: '/projects/proj_1/graphrag-configs',
+    })
+    await settle(wrapper)
+    // No unbound/error marker on the binding cell when the agent points at it
+    // (the only .graphrag-list__error would be a build-error flag, and CONFIG
+    // has last_build_error null).
+    expect(wrapper.find('.graphrag-list__error').exists()).toBe(false)
+  })
 })

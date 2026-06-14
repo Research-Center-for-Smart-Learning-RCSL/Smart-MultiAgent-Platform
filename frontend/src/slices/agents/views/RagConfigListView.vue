@@ -9,7 +9,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 
 import { FormField } from '@shared/ui'
 import { useServerErrors } from '@shared/composables'
-import { projectKeysApi, CAPABILITIES, type ApiKey } from '@slices/keys'
+import { projectKeysApi, CAPABILITIES, keysKeys, type ApiKey } from '@slices/keys'
 import { agentsApi, type RagConfig } from '../api'
 import { agentKeys } from '../queries'
 import { ragConfigCreateSchema, type RagConfigCreateInput } from '../types/schemas'
@@ -30,7 +30,7 @@ const configsQuery = useQuery({
 // config cannot be built without an embedding key, so we block submit when the
 // project has none of the right capability.
 const projectKeysQuery = useQuery({
-  queryKey: ['keys', 'projectKeys', projectId],
+  queryKey: keysKeys.projectKeys(projectId),
   queryFn: async () => (await projectKeysApi.listCarried(projectId)).data,
 })
 
@@ -45,6 +45,7 @@ const rerankKeys = computed(() =>
   ),
 )
 const hasEmbedKeys = computed(() => embedKeys.value.length > 0)
+const hasRerankKeys = computed(() => rerankKeys.value.length > 0)
 
 const schema = toTypedSchema(ragConfigCreateSchema)
 const { handleSubmit, errors, defineField, resetForm, setErrors, values } =
@@ -78,10 +79,12 @@ const [topK] = defineField('top_k')
 // Chunk params are a free-form JSONB blob on the backend; expose the few keys
 // the chunkers actually read (knowledge/infrastructure/chunkers.py) and assemble
 // them at submit. Defaults mirror DEFAULT_CHUNK_PARAMS so an untouched form is
-// valid.
-const chunkSizeTokens = ref(512)
-const chunkOverlapTokens = ref(64)
-const similarityThreshold = ref(0.8)
+// valid. These live outside vee-validate, so resetCreateForm() must reset them
+// explicitly (resetForm only touches registered fields).
+const CHUNK_DEFAULTS = { size: 512, overlap: 64, similarity: 0.8 }
+const chunkSizeTokens = ref(CHUNK_DEFAULTS.size)
+const chunkOverlapTokens = ref(CHUNK_DEFAULTS.overlap)
+const similarityThreshold = ref(CHUNK_DEFAULTS.similarity)
 
 // embed_provider is determined by the chosen key, never picked independently —
 // keep them in lockstep so the backend never sees a provider/key mismatch.
@@ -118,6 +121,22 @@ watch(rerankEnabled, (on) => {
   }
 })
 
+// Rerank requires a cohere key; if the toggle is on without one the backend
+// rejects with CapabilityMismatch, so block submit client-side.
+const rerankIncomplete = computed(() => rerankEnabled.value && !rerankKeyId.value)
+
+// resetForm only resets registered vee-validate fields, so the standalone chunk
+// refs and the auto-defaulted embed key must be reset by hand — otherwise the
+// next "New Configuration" inherits the previous config's chunk sizes and shows
+// an empty embed-key picker.
+function resetCreateForm(): void {
+  resetForm()
+  chunkSizeTokens.value = CHUNK_DEFAULTS.size
+  chunkOverlapTokens.value = CHUNK_DEFAULTS.overlap
+  similarityThreshold.value = CHUNK_DEFAULTS.similarity
+  if (embedKeys.value.length) embedKeyId.value = embedKeys.value[0]!.id
+}
+
 const { applyServerErrors } = useServerErrors(setErrors)
 
 const createMutation = useMutation({
@@ -125,7 +144,7 @@ const createMutation = useMutation({
     (await agentsApi.createRagConfig(projectId, payload)).data,
   onSuccess: () => {
     qc.invalidateQueries({ queryKey: agentKeys.ragConfigs(projectId) })
-    resetForm()
+    resetCreateForm()
     showForm.value = false
     ElMessage.success(t('agents.ragList.created'))
   },
@@ -333,7 +352,12 @@ function keyLabel(k: ApiKey): string {
           id="rerank_enabled"
           v-model="rerankEnabled"
           type="checkbox"
+          :disabled="!hasRerankKeys"
         >
+        <span
+          v-if="!hasRerankKeys"
+          class="rag-list__hint"
+        >{{ t('agents.ragForm.noRerankKeys') }}</span>
       </FormField>
 
       <template v-if="rerankEnabled">
@@ -376,7 +400,7 @@ function keyLabel(k: ApiKey): string {
       <button
         type="submit"
         class="btn btn-primary"
-        :disabled="createMutation.isPending.value || !hasEmbedKeys"
+        :disabled="createMutation.isPending.value || !hasEmbedKeys || rerankIncomplete"
       >
         {{ t('agents.ragForm.submit') }}
       </button>
@@ -445,6 +469,12 @@ function keyLabel(k: ApiKey): string {
 .rag-list__warning {
   color: var(--color-danger, #b91c1c);
   margin-bottom: var(--space-3);
+}
+.rag-list__hint {
+  display: block;
+  color: var(--color-muted);
+  font-size: 0.875rem;
+  margin-top: var(--space-1);
 }
 .rag-list__table {
   width: 100%;

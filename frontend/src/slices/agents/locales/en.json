@@ -78,6 +78,7 @@
       "rerankKey": "Rerank Key",
       "rerankKeyPlaceholder": "Select a rerank key…",
       "rerankModel": "Rerank Model",
+      "noRerankKeys": "No Cohere (rerank) key in this project — carry one in the Keys section to enable reranking.",
       "submit": "Create Configuration"
     },
     "graphragList": {
@@ -104,8 +105,12 @@
       "builderHint": "The builder key group extracts entities and relations; it must differ from the agent's own key group (billing separation).",
       "colAgent": "Agent",
       "colBuilder": "Builder Key Group",
+      "colBinding": "Binding",
       "colState": "Build State",
-      "colActions": "Actions"
+      "colActions": "Actions",
+      "bound": "Active",
+      "unbound": "Not bound",
+      "unboundHint": "This config is built but the agent does not use it yet. Open the agent and set its GraphRAG configuration to activate retrieval."
     },
     "graphragForm": {
       "agent": "Agent",
