@@ -5,6 +5,7 @@
     "notFound": "找不到頁面。",
     "backToHome": "返回首頁",
     "cancel": "取消",
+    "save": "儲存",
     "errorBoundary": {
       "title": "發生錯誤",
       "message": "此頁面發生未預期的錯誤。您可以重試，或前往其他頁面。",

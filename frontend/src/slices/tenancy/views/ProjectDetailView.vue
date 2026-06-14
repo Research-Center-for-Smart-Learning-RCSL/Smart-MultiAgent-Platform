@@ -11,6 +11,9 @@ const router = useRouter()
 const project = ref<Project | null>(null)
 const loading = ref(false)
 
+const renaming = ref(false)
+const nameDraft = ref('')
+
 async function load(): Promise<void> {
   loading.value = true
   try {
@@ -18,6 +21,25 @@ async function load(): Promise<void> {
     project.value = data
   } finally {
     loading.value = false
+  }
+}
+
+function startRename(): void {
+  if (!project.value) return
+  nameDraft.value = project.value.name
+  renaming.value = true
+}
+
+async function saveRename(): Promise<void> {
+  if (!project.value) return
+  const name = nameDraft.value.trim()
+  if (!name) return
+  try {
+    await projectsApi.rename(project.value.id, name, project.value.version)
+    renaming.value = false
+    await load()
+  } catch {
+    ElMessage.error(t('tenancy.projects.renameError'))
   }
 }
 
@@ -49,7 +71,33 @@ onMounted(load)
       {{ $t('tenancy.projects.loading') }}
     </p>
     <template v-else-if="project">
-      <h1>{{ project.name }}</h1>
+      <h1 v-if="!renaming">
+        {{ project.name }}
+        <button @click="startRename">
+          {{ $t('tenancy.projects.rename') }}
+        </button>
+      </h1>
+      <form
+        v-else
+        @submit.prevent="saveRename"
+      >
+        <label>
+          {{ $t('tenancy.projects.renameLabel') }}
+          <input
+            v-model="nameDraft"
+            required
+          >
+        </label>
+        <button type="submit">
+          {{ $t('app.save') }}
+        </button>
+        <button
+          type="button"
+          @click="renaming = false"
+        >
+          {{ $t('app.cancel') }}
+        </button>
+      </form>
       <p>{{ project.owner_type }} / {{ project.owner_id }}</p>
       <router-link :to="{ name: 'tenancy.projectMembers', params: { id: project.id } }">
         {{ $t('tenancy.projects.members') }}

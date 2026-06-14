@@ -20,7 +20,19 @@
       "creating": "Creating…",
       "cancel": "Cancel",
       "nameHelp": "1–60 characters. You can rename later.",
-      "retry": "Retry"
+      "retry": "Retry",
+      "rename": "Rename",
+      "renameLabel": "Organisation name",
+      "renameError": "Failed to rename — it may have changed elsewhere.",
+      "quotas": {
+        "title": "Usage (advisory)",
+        "users": "Users",
+        "projects": "Projects",
+        "chatrooms": "Chatrooms",
+        "agents": "Agents",
+        "workflows": "Workflows",
+        "advisoryNote": "Advisory targets are not hard-enforced."
+      }
     },
     "projects": {
       "listTitle": "Projects",
@@ -35,7 +47,10 @@
       "loading": "Loading…",
       "deleteConfirmTitle": "Delete Project",
       "deleteConfirm": "Delete this project? This cannot be undone.",
-      "empty": "No projects yet."
+      "empty": "No projects yet.",
+      "rename": "Rename",
+      "renameLabel": "Project name",
+      "renameError": "Failed to rename — it may have changed elsewhere."
     },
     "members": {
       "title": "Members",
