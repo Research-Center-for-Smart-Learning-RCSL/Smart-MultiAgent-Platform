@@ -255,6 +255,12 @@ class RagChunkRepository:
             return
         await self._db.execute(t.rag_chunks.insert(), list(chunks))
 
+    async def delete_for_document(self, document_id: uuid.UUID) -> None:
+        """Drop every chunk row for a document. Lets a reprocess start from a
+        clean slate so re-inserting chunk_idx 0..N never collides with rows from
+        a prior (failed) attempt on the ``uq_rag_chunk_doc_idx`` constraint."""
+        await self._db.execute(t.rag_chunks.delete().where(t.rag_chunks.c.document_id == document_id))
+
     async def list_for_document(self, document_id: uuid.UUID) -> Sequence[RagChunk]:
         rows = (
             await self._db.execute(

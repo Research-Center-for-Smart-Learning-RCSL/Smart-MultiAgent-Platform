@@ -13,6 +13,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import timedelta
 
+from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config.settings import get_settings
@@ -612,10 +613,20 @@ class AuthService:
         # The db_session dependency only commits after the handler returns, so
         # doing the Redis invalidation first would destroy the user's sessions
         # even if the trailing commit then failed — leaving a logged-out but
-        # *undeleted* account. Committing here makes the delete durable first;
-        # the dependency's later commit is a harmless no-op.
+        # *undeleted* account. Committing here makes the delete durable first.
         await self._db.commit()
-        await self._invalidate_user_sessions(user_id, reason="account_deleted")
+        # Best-effort: the delete is already durable and the auth middleware
+        # rejects DELETED users on every request (and on refresh), so a transient
+        # Redis outage here must not fail the committed deletion or block the
+        # endpoint's cookie clear. Outstanding sessions are then closed lazily by
+        # the next request/refresh, which 401s a non-ACTIVE user.
+        try:
+            await self._invalidate_user_sessions(user_id, reason="account_deleted")
+        except Exception:
+            logger.bind(event="self_delete_session_teardown_failed", user_id=str(user_id)).warning(
+                "account self-delete committed but session invalidation failed; "
+                "sessions will lapse on next request/refresh"
+            )
         return counts
 
     # ----- session management (R6.08) -------------------------------------

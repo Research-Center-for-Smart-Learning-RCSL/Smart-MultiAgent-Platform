@@ -75,12 +75,16 @@ class _FakeEmbedder:
 class _FakeQdrant:
     def __init__(self) -> None:
         self.upserts: list[Any] = []
+        self.deletes: list[uuid.UUID] = []
 
     async def ensure_collection(self, project_id: uuid.UUID, *, vector_size: int) -> None:
         return None
 
     async def upsert_chunks(self, *, project_id: uuid.UUID, points: Any) -> None:
         self.upserts.append(list(points))
+
+    async def delete_document(self, *, project_id: uuid.UUID, document_id: uuid.UUID) -> None:
+        self.deletes.append(document_id)
 
 
 async def _seed_config(db: AsyncSession, *, chunk_params: dict[str, Any] | None = None) -> tuple[Any, Any]:

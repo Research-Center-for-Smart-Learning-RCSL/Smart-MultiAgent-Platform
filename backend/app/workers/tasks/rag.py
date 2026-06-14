@@ -98,8 +98,15 @@ async def rag_ingest_document(ctx: dict[str, Any], *, document_id: str) -> str:
             # genuinely re-indexes (it is not a dead no-op).
             await db.rollback()
             async with sm() as db2:
-                await RagDocumentRepository(db2).set_status(document_id=doc_id, status=DocumentStatus.FAILED)
-                await db2.commit()
+                # Don't clobber a doc another run already brought to READY (e.g. a
+                # uq_rag_chunk_doc_idx collision from a duplicate run that lost the
+                # race): only mark FAILED if it is still mid-flight.
+                current = await RagDocumentRepository(db2).get(doc_id)
+                if current is not None and current.status is not DocumentStatus.READY:
+                    await RagDocumentRepository(db2).set_status(
+                        document_id=doc_id, status=DocumentStatus.FAILED
+                    )
+                    await db2.commit()
             _log.exception("rag_ingest_document failed for %s", document_id)
             raise
         finally:

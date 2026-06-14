@@ -85,16 +85,14 @@ class TenancyFacade:
         has other active members. It:
 
         * soft-deletes every Individual-owned Project;
+        * removes the user from every *other* project membership — including the
+          projects of a reaped solo Org — so the keys they carried in are revoked
+          (R7.04) and the membership row is dropped before the project is deleted;
         * for Orgs the user solely owns as OC, soft-deletes the Org (via
           ``OrgService.soft_delete`` so it emits ``org.deleted`` like every other
           org deletion) and its projects, so no Org outlives its only member
           (R8.14: "or the Org is deleted"); for all other Orgs, just drops the
-          membership;
-        * removes the user from every *other* project membership (revoking the
-          keys they had carried in, R7.04, and auditing each) — but skips
-          projects of a reaped solo Org, which are being deleted wholesale, to
-          avoid wasted carry-revocation and contradictory member-removed /
-          project-deleted audit pairs on the same resource.
+          membership.
 
         Returns counts for the aggregate ``user.self_deleted`` audit record.
         """
@@ -114,23 +112,23 @@ class TenancyFacade:
                 request_id=request_id,
             )
 
-        # Classify orgs first so the project-membership loop can skip the
-        # projects of solo-OC orgs that are about to be reaped.
-        solo_orgs: list[uuid.UUID] = []
+        # Classify orgs once, caching each solo-OC org's projects so the reap
+        # loop below doesn't re-query list_by_org.
+        solo_org_projects: dict[uuid.UUID, list[Project]] = {}
         surviving_orgs: list[uuid.UUID] = []
-        reaped_project_ids: set[uuid.UUID] = set()
         for org in await self._orgs.list_for_user(user_id):
             oc = await self._org_members.original_creator(org.id)
             if oc is not None and oc.user_id == user_id:
-                solo_orgs.append(org.id)
-                for project in await self._projects.list_by_org(org.id):
-                    reaped_project_ids.add(project.id)
+                solo_org_projects[org.id] = list(await self._projects.list_by_org(org.id))
             else:
                 surviving_orgs.append(org.id)
 
+        # Leave every OTHER project the user is a member of — reaped solo-org
+        # projects included — so remove_member revokes their carried keys (R7.04)
+        # before the reap loop soft-deletes the project.
         projects_left = 0
         for project_id in await self._project_members.list_project_ids_for_user(user_id):
-            if project_id in owned_ids or project_id in reaped_project_ids:
+            if project_id in owned_ids:
                 continue
             await proj_svc.remove_member(
                 project_id=project_id,
@@ -141,8 +139,8 @@ class TenancyFacade:
             )
             projects_left += 1
 
-        for org_id in solo_orgs:
-            for project in await self._projects.list_by_org(org_id):
+        for org_id, projects in solo_org_projects.items():
+            for project in projects:
                 await proj_svc.soft_delete(
                     project_id=project.id,
                     actor_user_id=user_id,
@@ -163,7 +161,7 @@ class TenancyFacade:
             "projects_deleted": len(owned),
             "projects_left": projects_left,
             "orgs_left": len(surviving_orgs),
-            "solo_orgs_deleted": len(solo_orgs),
+            "solo_orgs_deleted": len(solo_org_projects),
         }
 
 

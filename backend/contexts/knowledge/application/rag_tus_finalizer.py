@@ -16,6 +16,7 @@ store, dedup, and download blobs identically.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import hashlib
 import uuid
 
@@ -23,6 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.knowledge.application.ingest_service import (
     _normalise_mime,
+    emit_reupload_audit,
     rag_source_object_key,
 )
 from contexts.knowledge.domain.errors import RagConfigNotFound, UnsupportedMime
@@ -86,7 +88,15 @@ class RagTusFinalizer:
         if existing is not None:
             # A prior attempt left this sha FAILED/stuck; the blob is already in
             # MinIO. Re-drive the worker rather than dedup onto a dead row so a
-            # re-upload is a genuine retry.
+            # re-upload is a genuine retry. Record the re-upload in the audit trail
+            # (the first upload is long past).
+            await emit_reupload_audit(
+                self._db,
+                doc=existing,
+                actor_user_id=uploaded_by,
+                actor_ip=actor_ip,
+                request_id=request_id,
+            )
             await self._enqueue_index(existing.id, config_id=cfg.id)
             return existing
 
@@ -140,10 +150,30 @@ class RagTusFinalizer:
         await Publisher(rag_channel(config_id)).emit(
             "ingestion.started", {"document_id": str(document_id), "total": 1}
         )
-        # No deterministic _job_id: each enqueue must be able to run (a retry of a
-        # FAILED doc included). process_document is idempotent — it skips a doc
-        # already READY — so a duplicate enqueue is harmless.
-        await enqueue("rag_ingest_document", document_id=str(document_id))
+        # Deterministic job id: collapses a duplicate/concurrent enqueue for the
+        # same document (e.g. a re-upload while the first job is still running) to
+        # one run, so two workers never index the same doc and collide on
+        # uq_rag_chunk_doc_idx. Arq's own retry of a *failed* run reuses this id
+        # (it is not a new enqueue), so transient failures still retry; only a
+        # fresh manual re-upload within the result-TTL window is briefly deduped.
+        try:
+            await enqueue(
+                "rag_ingest_document",
+                document_id=str(document_id),
+                _job_id=f"rag-ingest:{document_id}",
+            )
+        except Exception:
+            # Arq/Redis unavailable: don't leave the committed row stuck
+            # 'ingesting' with no worker. Mark it FAILED so a re-upload (re-drive)
+            # or operator can retry, and tell the frontend.
+            await self._docs.set_status(document_id=document_id, status=DocumentStatus.FAILED)
+            await self._db.commit()
+            with contextlib.suppress(Exception):
+                await Publisher(rag_channel(config_id)).emit(
+                    "ingestion.failed",
+                    {"document_id": str(document_id), "error": "could not enqueue indexing job"},
+                )
+            raise
 
 
 __all__ = ["RagTusFinalizer"]
