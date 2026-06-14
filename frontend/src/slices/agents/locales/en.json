@@ -37,6 +37,33 @@
       "ragConfigNone": "None",
       "a2aEnabled": "Enable agent-to-agent (A2A)",
       "submit": "Create Agent"
+    },
+    "rag": {
+      "title": "RAG Documents",
+      "subtitle": "Upload source documents to index for retrieval. Files over 32 MB upload resumably and index in the background.",
+      "manageLink": "Manage documents",
+      "upload": "Upload document",
+      "uploading": "Uploading…",
+      "uploadStarted": "Upload accepted; indexing in progress.",
+      "uploadFailed": "Upload failed.",
+      "sizeHint": "Supported: PDF, DOCX, Markdown, TXT. Large files (over 32 MB) resume automatically.",
+      "loading": "Loading documents…",
+      "empty": "No documents uploaded yet.",
+      "colName": "Name",
+      "colSize": "Size",
+      "colStatus": "Status",
+      "colActions": "Actions",
+      "delete": "Delete",
+      "deleted": "Document deleted.",
+      "deleteFailed": "Failed to delete document.",
+      "deleteTitle": "Delete Document",
+      "deleteConfirm": "Delete \"{name}\"? This removes its indexed chunks and cannot be undone.",
+      "statusLabel": {
+        "ingesting": "Indexing…",
+        "ready": "Ready",
+        "failed": "Failed",
+        "quarantined": "Quarantined"
+      }
     }
   }
 }

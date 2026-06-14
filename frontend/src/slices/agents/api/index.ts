@@ -24,6 +24,22 @@ export interface Agent {
   deleted_at: string | null
 }
 
+// Mirrors backend `RagDocumentOut`.
+export interface RagDocument {
+  id: string
+  rag_config_id: string
+  filename: string
+  mime: string
+  size_bytes: number
+  status: 'ingesting' | 'ready' | 'failed' | 'quarantined'
+  scan_status: 'pending' | 'clean' | 'quarantined' | 'skipped'
+  uploaded_at: string
+}
+
+// Files at or below this size go through the synchronous multipart endpoint;
+// larger ones MUST use the resumable tus path (R22.15 / backend MAX_MULTIPART).
+export const RAG_MULTIPART_MAX = 32 * 1024 * 1024
+
 // Mirrors backend `RagConfigOut`.
 export interface RagConfig {
   id: string
@@ -68,4 +84,24 @@ export const agentsApi = {
 
   deleteRagConfig: (configId: string) =>
     http.delete(`/rag-configs/${configId}`),
+
+  getRagConfig: (configId: string) =>
+    http.get<RagConfig>(`/rag-configs/${configId}`),
+
+  listDocuments: (configId: string) =>
+    http.get<RagDocument[]>(`/rag-configs/${configId}/documents`),
+
+  // ≤ 32 MB synchronous path. Larger files use tusUpload(purpose:'rag_source')
+  // from @shared/transport, which the backend routes to the ingest worker.
+  uploadDocumentMultipart: (configId: string, file: File) => {
+    const form = new FormData()
+    form.append('file', file)
+    form.append('mime', file.type || 'application/octet-stream')
+    return http.post<RagDocument>(`/rag-configs/${configId}/documents`, form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    })
+  },
+
+  deleteDocument: (documentId: string) =>
+    http.delete(`/rag-documents/${documentId}`),
 }

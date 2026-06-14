@@ -37,6 +37,33 @@
       "ragConfigNone": "無",
       "a2aEnabled": "啟用代理人對代理人（A2A）",
       "submit": "建立代理人"
+    },
+    "rag": {
+      "title": "RAG 文件",
+      "subtitle": "上傳要索引的來源文件以供檢索。超過 32 MB 的檔案會以可續傳方式上傳並在背景索引。",
+      "manageLink": "管理文件",
+      "upload": "上傳文件",
+      "uploading": "上傳中…",
+      "uploadStarted": "已接受上傳，索引進行中。",
+      "uploadFailed": "上傳失敗。",
+      "sizeHint": "支援格式：PDF、DOCX、Markdown、TXT。大型檔案（超過 32 MB）會自動續傳。",
+      "loading": "載入文件中…",
+      "empty": "尚未上傳任何文件。",
+      "colName": "名稱",
+      "colSize": "大小",
+      "colStatus": "狀態",
+      "colActions": "操作",
+      "delete": "刪除",
+      "deleted": "文件已刪除。",
+      "deleteFailed": "刪除文件失敗。",
+      "deleteTitle": "刪除文件",
+      "deleteConfirm": "刪除「{name}」？這會移除其已索引的片段，且無法復原。",
+      "statusLabel": {
+        "ingesting": "索引中…",
+        "ready": "就緒",
+        "failed": "失敗",
+        "quarantined": "已隔離"
+      }
     }
   }
 }
