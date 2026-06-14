@@ -16,6 +16,7 @@ what Phase A scaffolded. Middleware order (earliest first) matters:
 from __future__ import annotations
 
 import asyncio
+import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager, suppress
 
@@ -161,6 +162,17 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     # Warn loudly once at boot rather than failing — mail-less labs are allowed.
     warn_if_email_unconfigured()
     await seed_test_users(app_env=settings.app.env)
+    # Seed rate-limit policy rows + prime the Redis mirror so the admin
+    # GET/PATCH endpoints operate on real rows and operator overrides take
+    # effect live (and survive a Redis flush). Best-effort: the limiter falls
+    # back to compile-time defaults if this hasn't run, so a hiccup here must
+    # not block boot.
+    try:
+        from shared_kernel.auth.ratelimit import prime_policies
+
+        await prime_policies()
+    except Exception:  # pragma: no cover - non-fatal boot step
+        logging.getLogger(__name__).warning("rate-limit policy prime failed", exc_info=True)
     # ASYNC-2: subscribe this process to key-revocation events so a revoked or
     # carry-withdrawn DEK is punched out of the in-process provider_router cache.
     # Without this listener a cached DEK keeps working until its TTL expires.

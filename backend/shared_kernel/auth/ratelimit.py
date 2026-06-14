@@ -97,6 +97,46 @@ def default_policies(settings: Settings | None = None) -> dict[Bucket, Policy]:
     }
 
 
+async def prime_policies() -> None:
+    """Seed the DB policy rows from compile-time defaults and mirror them into
+    Redis. Run once at app startup so:
+
+      * ``GET``/``PATCH /api/admin/rate-limits`` operate on real rows (the table
+        ships empty, so without this the GET returns ``[]`` and the PATCH 404s);
+      * the limiter's hot path reads the ``config:ratelimit:{bucket}`` mirror
+        rather than the DB;
+      * an operator override (persisted in the DB row) survives a Redis flush —
+        the DB row is authoritative and ``ON CONFLICT DO NOTHING`` never clobbers
+        an override on a later boot.
+    """
+    from sqlalchemy import text
+
+    from shared_kernel.db.session import async_session
+
+    defaults = default_policies()
+    async with async_session() as db, db.begin():
+        for bucket, pol in defaults.items():
+            await db.execute(
+                text(
+                    "INSERT INTO rate_limit_policies (key, window_sec, max_count, scope) "
+                    "VALUES (:k, :w, :m, :s) ON CONFLICT (key) DO NOTHING"
+                ).bindparams(k=bucket.value, w=pol.window_sec, m=pol.max_count, s=pol.scope.value)
+            )
+        rows = (
+            await db.execute(text("SELECT key, window_sec, max_count, scope FROM rate_limit_policies"))
+        ).all()
+
+    bucket_keys = {b.value for b in Bucket}
+    r = get_redis()
+    for key, window_sec, max_count, scope in rows:
+        if key not in bucket_keys:
+            continue  # e.g. advisory_* rows share this table; not limiter buckets
+        await r.hset(
+            f"config:ratelimit:{key}",
+            mapping={"window_sec": int(window_sec), "max_count": int(max_count), "scope": scope},
+        )
+
+
 async def _resolve_policy(bucket: Bucket) -> Policy:
     """Runtime override via `config:ratelimit:{bucket}` Redis key, else default."""
     r = get_redis()
