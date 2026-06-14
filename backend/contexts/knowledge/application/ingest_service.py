@@ -48,7 +48,7 @@ from contexts.knowledge.domain.errors import (
     RagConfigNotFound,
     UnsupportedMime,
 )
-from contexts.knowledge.domain.models import DocumentStatus, RagDocument
+from contexts.knowledge.domain.models import DocumentStatus, RagConfig, RagDocument
 from contexts.knowledge.infrastructure.chunkers import chunk_text
 from contexts.knowledge.infrastructure.parsers import MIME_TO_PARSER
 from contexts.knowledge.infrastructure.qdrant_store import QdrantStore
@@ -166,8 +166,69 @@ class IngestService:
             "ingestion.started", {"document_id": str(doc.id), "total": 1}
         )
 
+        return await self._index_document(
+            doc=doc,
+            cfg=cfg,
+            data=ipt.data,
+            actor_user_id=actor_user_id,
+            actor_ip=actor_ip,
+            request_id=request_id,
+        )
+
+    async def process_document(
+        self,
+        *,
+        document_id: uuid.UUID,
+        actor_ip: str | None = None,
+        request_id: uuid.UUID | None = None,
+    ) -> RagDocument:
+        """Index an already-registered document (E.6 async tus path).
+
+        The tus finaliser (``RagTusFinalizer``) has already streamed the bytes
+        to MinIO and created the ``rag_documents`` row in ``ingesting`` state +
+        emitted ``ingestion.started``. The ``rag_ingest_document`` Arq worker
+        calls this to download the blob and run the parse/chunk/embed/upsert
+        pipeline off the request path — large files (up to 1 GiB) must not embed
+        synchronously inside the final PATCH.
+        """
+        doc = await self._docs.get(document_id)
+        if doc is None:
+            raise IngestFailed(f"document {document_id} not found")
+        if doc.status is not DocumentStatus.INGESTING:
+            # Already processed (or failed) — idempotent no-op on retry.
+            return doc
+        cfg = await self._configs.get(doc.rag_config_id)
+        if cfg is None:
+            raise RagConfigNotFound(str(doc.rag_config_id))
+
+        bucket, _, key = doc.minio_path.partition("/")
+        data = await self._blob.get(bucket=bucket, key=key)
+        return await self._index_document(
+            doc=doc,
+            cfg=cfg,
+            data=data,
+            actor_user_id=doc.uploaded_by,
+            actor_ip=actor_ip,
+            request_id=request_id,
+        )
+
+    async def _index_document(
+        self,
+        *,
+        doc: RagDocument,
+        cfg: RagConfig,
+        data: bytes,
+        actor_user_id: uuid.UUID | None,
+        actor_ip: str | None,
+        request_id: uuid.UUID | None,
+    ) -> RagDocument:
+        """Parse → chunk → embed → upsert for a registered document, then flip
+        status + emit the terminal ws event. Shared by the synchronous
+        multipart ``ingest`` path and the async ``process_document`` worker path
+        so both index identically. The caller owns registration + the
+        ``ingestion.started`` event."""
         try:
-            text = MIME_TO_PARSER[mime](ipt.data)
+            text = MIME_TO_PARSER[doc.mime](data)
             pieces = chunk_text(
                 text,
                 strategy=cfg.chunk_strategy,

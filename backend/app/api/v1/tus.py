@@ -32,6 +32,9 @@ from contexts.conversation.domain.errors import (
     TusMetadataInvalid,
 )
 from contexts.conversation.infrastructure.tus_store import parse_metadata
+from contexts.knowledge.interfaces.facade import KnowledgeFacade
+from contexts.tenancy.domain.models import ProjectMemberRole
+from contexts.tenancy.infrastructure.repositories import ProjectMemberRepository
 from shared_kernel.auth.context import RequestContext
 from shared_kernel.auth.dependencies import current_context, current_principal
 from shared_kernel.auth.permissions import Principal
@@ -43,6 +46,24 @@ router = APIRouter(prefix="/api/tus", tags=["tus"])
 def _tus_base_headers() -> dict[str, str]:
     # These headers must be present on every TUS response.
     return {"Tus-Resumable": TUS_VERSION}
+
+
+async def _require_rag_owner(
+    db: AsyncSession,
+    *,
+    project_id: uuid.UUID,
+    principal: Principal,
+) -> None:
+    """R10.10 — only a Project Owner (or platform Admin) may upload RAG
+    sources. Mirrors `rag.py::_require_owner` for the tus path."""
+    if principal.is_admin:
+        return
+    member = await ProjectMemberRepository(db).get(project_id=project_id, user_id=principal.user_id)
+    if member is None or member.role is not ProjectMemberRole.OWNER:
+        raise HTTPException(
+            status_code=403,
+            detail="R10.10 requires Project Owner to upload RAG sources",
+        )
 
 
 @router.options("")
@@ -84,13 +105,22 @@ async def tus_create(
             chatroom_id=chatroom_id,
         )
         ensure_can_send(access, is_admin=principal.is_admin)
+    elif purpose == "rag_source":
+        # Authorise against the config's REAL project (not the client-declared
+        # project_id in metadata): resolve the rag_config, then require the
+        # caller be a Project Owner — the same R10.10 gate the multipart RAG
+        # upload enforces. The finaliser likewise keys the blob off the config's
+        # project, so a forged metadata project_id buys nothing.
+        try:
+            rag_config_id = uuid.UUID(meta.get("rag_config_id", ""))
+        except ValueError as exc:
+            raise TusMetadataInvalid("rag_config_id must be UUID") from exc
+        cfg = await KnowledgeFacade(db).get_rag_config(rag_config_id)
+        if cfg is None:
+            raise HTTPException(status_code=404, detail="rag config not found")
+        await _require_rag_owner(db, project_id=cfg.project_id, principal=principal)
     else:
-        # SEC-L4: chat_attachment is the only purpose with a real, ACL-gated,
-        # working finaliser. `rag_source` (and any other/unset purpose) has NO
-        # membership check on the client-declared rag_config_id and a no-op
-        # finaliser — accepting it is a latent cross-tenant ingestion vector the
-        # moment the feature is wired. Fail closed until the rag_source ACL +
-        # finaliser land (E.6) and add their own branch here.
+        # Any other/unset purpose has no ACL-gated finaliser — fail closed.
         raise HTTPException(
             status_code=403,
             detail=f"TUS upload purpose {purpose!r} is not enabled",
@@ -179,10 +209,12 @@ async def tus_patch(
         request_id=ctx.request_id,
     )
     headers = _tus_base_headers() | {"Upload-Offset": str(result.new_offset)}
-    # X-SMAP-Resource lets the client jump straight to the created attachment
+    # X-SMAP-Resource lets the client jump straight to the created resource
     # once the upload completes (R22.15.05).
     if result.completed and result.attachment is not None:
         headers["X-SMAP-Resource"] = f"/api/attachments/{result.attachment.id}"
+    elif result.completed and result.rag_document_id is not None:
+        headers["X-SMAP-Resource"] = f"/api/rag-documents/{result.rag_document_id}"
     return Response(status_code=204, headers=headers)
 
 
