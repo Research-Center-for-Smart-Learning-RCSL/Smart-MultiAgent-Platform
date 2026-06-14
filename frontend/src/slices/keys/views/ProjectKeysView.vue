@@ -1,10 +1,14 @@
 <script setup lang="ts">
-import { computed, onMounted, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
+import { ElMessage } from 'element-plus'
+import { useI18n } from 'vue-i18n'
 import { useMyKeys } from '../composables/useMyKeys'
 import { useProjectKeys } from '../composables/useProjectKeys'
+import { projectKeysApi, type KeyUsage, type UsageWindow } from '../api/project-keys'
 import CapabilityChip from '../components/CapabilityChip.vue'
 
+const { t } = useI18n()
 const route = useRoute()
 const projectId = computed(() => route.params.projectId as string)
 
@@ -16,6 +20,22 @@ const { carried, error, reload, carry, withdraw } = useProjectKeys(
 const carriable = computed(() =>
   myKeys.value.filter((m) => !carried.value.some((c) => c.id === m.id)),
 )
+
+// Per-key usage panel (R7.05): a window selector + the aggregate counts. Loaded
+// on demand so the carried-keys list stays a single request.
+const WINDOWS: UsageWindow[] = ['1h', '24h', '7d', '30d']
+const usageByKey = ref<Record<string, KeyUsage>>({})
+const windowByKey = ref<Record<string, UsageWindow>>({})
+
+async function loadUsage(keyId: string): Promise<void> {
+  const w = windowByKey.value[keyId] ?? '1h'
+  try {
+    const { data } = await projectKeysApi.usage(projectId.value, keyId, w)
+    usageByKey.value = { ...usageByKey.value, [keyId]: data }
+  } catch {
+    ElMessage.error(t('keys.project.usageError'))
+  }
+}
 
 onMounted(async () => {
   await Promise.all([reloadMine(), reload()])
@@ -51,6 +71,35 @@ watch(projectId, async () => {
           >
             {{ $t('keys.project.withdraw') }}
           </button>
+          <span class="usage-controls">
+            <select
+              v-model="windowByKey[k.id]"
+              :aria-label="$t('keys.project.usageWindow')"
+            >
+              <option
+                v-for="w in WINDOWS"
+                :key="w"
+                :value="w"
+              >
+                {{ w }}
+              </option>
+            </select>
+            <button
+              data-testid="usage"
+              @click="loadUsage(k.id)"
+            >
+              {{ $t('keys.project.usage') }}
+            </button>
+          </span>
+          <span
+            v-if="usageByKey[k.id]"
+            class="usage"
+          >
+            {{ $t('keys.project.usageReq') }}: {{ usageByKey[k.id]!.requests }} ·
+            {{ $t('keys.project.usageIn') }}: {{ usageByKey[k.id]!.input_tokens }} ·
+            {{ $t('keys.project.usageOut') }}: {{ usageByKey[k.id]!.output_tokens }} ·
+            {{ $t('keys.project.usageErr') }}: {{ usageByKey[k.id]!.errors }}
+          </span>
         </li>
         <li
           v-if="carried.length === 0"
