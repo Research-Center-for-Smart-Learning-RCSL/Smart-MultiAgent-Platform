@@ -1,9 +1,13 @@
-"""GraphRAG reconciliation worker entrypoint (E.7 / R11.04).
+"""GraphRAG reconciliation worker (E.7 / R11.04).
 
-Runs :class:`ReconciliationLoop.run_forever(period_s=60)` in-process.
-Production deploys launch this under the same Arq supervisor as other
-workers (operations.md §2.1); for local dev it is invocable as
-``python -m app.workers.graphrag_reconciler``.
+Production runs reconciliation as a once-per-minute arq cron — the
+``graphrag_reconcile`` task in ``app.workers.tasks.graphrag`` calls
+:func:`reconcile_once`, and arq's cron lock keeps it singleton across worker
+replicas (registered in ``app.workers.main.WorkerSettings``).
+
+This module also exposes a standalone ``run_forever`` loop, invocable as
+``python -m app.workers.graphrag_reconciler``, for local dev or a dedicated
+process; the arq cron is the deployed path.
 """
 
 from __future__ import annotations
@@ -124,28 +128,41 @@ def _make_phase2_retry(
     return _retry
 
 
-async def _main() -> None:
-    logging.basicConfig(level=logging.INFO)
+def _build_loop() -> tuple[ReconciliationLoop, Neo4jAsyncDriver]:
+    """Construct a reconciliation loop + its Neo4j driver (caller closes it)."""
     settings = get_settings()
-    neo4j_conf = settings.neo4j
     neo4j = Neo4jAsyncDriver(
-        uri=neo4j_conf.url,
-        auth=(neo4j_conf.user, neo4j_conf.password),
+        uri=settings.neo4j.url,
+        auth=(settings.neo4j.user, settings.neo4j.password),
     )
     from qdrant_client import AsyncQdrantClient
 
     qclient = AsyncQdrantClient(url=settings.qdrant.url)
     vectors = GraphRagVectorStore(qclient)
-    snapshots = RedisSnapshotStore()
-
     maker = get_sessionmaker()
     loop = ReconciliationLoop(
         session_factory=lambda: maker(),
         neo4j=neo4j,
         vector_store=vectors,
-        snapshot_store=snapshots,
+        snapshot_store=RedisSnapshotStore(),
         phase2_retry=_make_phase2_retry(neo4j, vectors),
     )
+    return loop, neo4j
+
+
+async def reconcile_once() -> list:
+    """One scan-and-heal pass; builds deps, runs, tears down. The arq cron tick
+    (M.5.4) calls this; the standalone process below uses ``run_forever``."""
+    loop, neo4j = _build_loop()
+    try:
+        return await loop.run_once()
+    finally:
+        await neo4j.close()
+
+
+async def _main() -> None:
+    logging.basicConfig(level=logging.INFO)
+    loop, neo4j = _build_loop()
     try:
         await loop.run_forever(period_s=60.0)
     finally:

@@ -34,7 +34,7 @@ from app.workers.tasks.conversation import (
     chat_export,
     file_scan_requested,
 )
-from app.workers.tasks.graphrag import graphrag_build
+from app.workers.tasks.graphrag import graphrag_build, graphrag_reconcile
 from app.workers.tasks.orchestration import (
     approval_timeout,
     evaluate_silence,
@@ -200,6 +200,7 @@ class WorkerSettings:
         daily_org_advisory_snapshot,
         key_usage_threshold_sample,
         graphrag_build,
+        graphrag_reconcile,
         rag_ingest_document,
         agent_fs_gc,
     ]
@@ -230,4 +231,7 @@ class WorkerSettings:
         cron(key_usage_threshold_sample, second={0, 30}, run_at_startup=False),
         # 05:00 UTC daily — per-agent Docker volume GC (E.10 / R12.03, 60-day retention).
         cron(agent_fs_gc, hour=5, minute=0, run_at_startup=False),
+        # Every minute — heal GraphRAG 2PC drift (M.5.4 / R11.04): configs stuck
+        # in FAILED_COMPENSATING. arq's cron lock keeps it singleton across replicas.
+        cron(graphrag_reconcile, minute=set(range(60)), run_at_startup=False),
     ]
