@@ -1,9 +1,13 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
+import { ElMessage } from 'element-plus'
+import { useI18n } from 'vue-i18n'
 import { useKeyGroupDetail } from '../composables/useKeyGroups'
 import { useProjectKeys } from '../composables/useProjectKeys'
+import { keyGroupsApi } from '../api/key-groups'
 
+const { t } = useI18n()
 const route = useRoute()
 const projectId = computed(() => route.params.projectId as string)
 const groupId = computed(() => route.params.id as string)
@@ -13,6 +17,26 @@ const { detail, error, reload, addMember, removeMember, patchMember, reorder } =
 const { carried, reload: reloadCarried } = useProjectKeys(() => projectId.value)
 
 const selectedKeyId = ref<string>('')
+
+const renaming = ref(false)
+const nameDraft = ref('')
+
+function startRename(): void {
+  if (!detail.value) return
+  nameDraft.value = detail.value.group.name
+  renaming.value = true
+}
+async function saveRename(): Promise<void> {
+  const name = nameDraft.value.trim()
+  if (!name) return
+  try {
+    await keyGroupsApi.rename(groupId.value, name)
+    renaming.value = false
+    await reload()
+  } catch {
+    ElMessage.error(t('keys.groups.renameError'))
+  }
+}
 
 async function onAdd() {
   if (!selectedKeyId.value) return
@@ -58,7 +82,36 @@ watch([groupId, projectId], async () => {
 
 <template>
   <main class="key-group-detail-view">
-    <h1>{{ detail?.group.name ?? '—' }}</h1>
+    <h1 v-if="!renaming">
+      {{ detail?.group.name ?? '—' }}
+      <button
+        v-if="detail"
+        @click="startRename"
+      >
+        {{ $t('keys.groups.rename') }}
+      </button>
+    </h1>
+    <form
+      v-else
+      @submit.prevent="saveRename"
+    >
+      <label>
+        {{ $t('keys.groups.renameLabel') }}
+        <input
+          v-model="nameDraft"
+          required
+        >
+      </label>
+      <button type="submit">
+        {{ $t('app.save') }}
+      </button>
+      <button
+        type="button"
+        @click="renaming = false"
+      >
+        {{ $t('app.cancel') }}
+      </button>
+    </form>
     <p
       v-if="error"
       class="error"

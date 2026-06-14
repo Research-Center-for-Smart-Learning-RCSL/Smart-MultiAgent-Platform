@@ -31,7 +31,14 @@
       "noneCarried": "此專案尚未攜入任何金鑰。",
       "carryNew": "攜入金鑰",
       "carry": "攜入",
-      "noneCarriable": "所有金鑰皆已攜入。"
+      "noneCarriable": "所有金鑰皆已攜入。",
+      "usage": "用量",
+      "usageWindow": "用量區間",
+      "usageReq": "請求數",
+      "usageIn": "輸入 Token",
+      "usageOut": "輸出 Token",
+      "usageErr": "錯誤數",
+      "usageError": "載入用量失敗。"
     },
     "groups": {
       "listTitle": "金鑰群組",
@@ -47,7 +54,10 @@
       "maxReqPerHour": "每小時最大請求數",
       "noMembers": "此群組尚無成員。",
       "selectKey": "選擇金鑰…",
-      "add": "新增"
+      "add": "新增",
+      "rename": "重新命名",
+      "renameLabel": "群組名稱",
+      "renameError": "重新命名群組失敗。"
     },
     "search": {
       "title": "搜尋金鑰",
