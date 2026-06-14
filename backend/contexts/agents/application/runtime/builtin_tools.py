@@ -24,10 +24,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.agents.application.runtime.tool_registry import Tool, ToolResult
 from contexts.agents.domain.mcp import SearchResult
-from contexts.agents.domain.models import Agent, McpBinding
+from contexts.agents.domain.models import Agent, McpBinding, McpSource
 
 # Per-tool output caps so a chatty tool can't blow the context window.
 _MAX_TOOL_OUTPUT = 16_000
+
+# The built-in tools an agent may enable via a `source='builtin'` MCP binding.
+_BUILTIN_TOOL_NAMES = frozenset({"web_search", "code_exec", "file"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -281,6 +284,28 @@ def _unseal_binding_auth(binding: McpBinding) -> dict[str, Any] | None:
         return None
 
 
+def _enabled_builtins(mcp_bindings: list[McpBinding]) -> set[str]:
+    """Which built-in tools (web_search/code_exec/file) an agent has enabled.
+
+    Per-agent gating (R12.01/R12.10/§12.1): an agent enables a built-in by holding
+    a ``source='builtin'`` MCP binding that names it — in ``reference`` (one tool
+    per binding, the editor's convention) or in ``allowed_tools``.
+
+    Back-compat: an agent with NO builtin-source binding keeps all three on (the
+    historical default), so existing agents are unaffected; once it has at least
+    one builtin binding, only the named tools are exposed.
+    """
+    builtin_bindings = [b for b in mcp_bindings if b.source == McpSource.BUILTIN]
+    if not builtin_bindings:
+        return set(_BUILTIN_TOOL_NAMES)
+    enabled: set[str] = set()
+    for b in builtin_bindings:
+        if b.reference in _BUILTIN_TOOL_NAMES:
+            enabled.add(b.reference)
+        enabled.update(t for t in b.allowed_tools if t in _BUILTIN_TOOL_NAMES)
+    return enabled
+
+
 def build_builtin_tools(
     db: AsyncSession,
     *,
@@ -288,13 +313,26 @@ def build_builtin_tools(
     mcp_bindings: list[McpBinding],
     deps: BuiltinToolDeps,
 ) -> list[Tool]:
-    """Assemble web_search + code_exec + file + per-binding MCP tools (K.5)."""
+    """Assemble the agent's enabled built-in tools + its MCP server tools (K.5).
+
+    Built-ins are gated per-agent via ``_enabled_builtins``; builtin-source
+    bindings are NEVER routed to the MCP sandbox runner (they have no remote
+    server) — only url/package bindings produce sandboxed MCP tools.
+    """
+    enabled = _enabled_builtins(mcp_bindings)
+    builders = {
+        "web_search": _build_web_search_tool,
+        "code_exec": _build_code_exec_tool,
+        "file": _build_file_tool,
+    }
     tools: list[Tool] = [
-        _build_web_search_tool(db, agent=agent, deps=deps),
-        _build_code_exec_tool(db, agent=agent, deps=deps),
-        _build_file_tool(db, agent=agent, deps=deps),
+        builders[name](db, agent=agent, deps=deps)
+        for name in ("web_search", "code_exec", "file")
+        if name in enabled
     ]
     for binding in mcp_bindings:
+        if binding.source == McpSource.BUILTIN:
+            continue
         for tool_name in binding.allowed_tools:
             tools.append(_build_mcp_tool(db, agent=agent, binding=binding, tool=tool_name, deps=deps))
     return tools
