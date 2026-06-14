@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import uuid
 from typing import Any
 
 from app.config.settings import get_settings
@@ -150,7 +151,7 @@ def _build_loop() -> tuple[ReconciliationLoop, Neo4jAsyncDriver]:
     return loop, neo4j
 
 
-async def reconcile_once() -> list:
+async def reconcile_once() -> list[uuid.UUID]:
     """One scan-and-heal pass; builds deps, runs, tears down. The arq cron tick
     (M.5.4) calls this; the standalone process below uses ``run_forever``."""
     loop, neo4j = _build_loop()

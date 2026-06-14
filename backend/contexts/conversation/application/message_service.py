@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import logging
 import uuid
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import timedelta
 from typing import Any
@@ -94,8 +94,13 @@ class MessageService:
     async def list_attachments_for(
         self,
         message_ids: Sequence[uuid.UUID],
-    ) -> dict[uuid.UUID, list[MessageAttachment]]:
-        """Group attachments by message id for a page of messages (one query)."""
+    ) -> Mapping[uuid.UUID, Sequence[MessageAttachment]]:
+        """Group attachments by message id for a page of messages (one query).
+
+        Returns a Mapping/Sequence (not ``dict[..., list[...]]``): this class
+        defines a ``list`` method, so a bare ``list[...]`` annotation here would
+        resolve to that method under PEP 563 deferred annotations (pinned
+        mypy 1.13 flags it as `valid-type`)."""
         grouped: dict[uuid.UUID, list[MessageAttachment]] = {}
         for a in await self._attachments.list_for_messages(message_ids):
             if a.message_id is not None:
