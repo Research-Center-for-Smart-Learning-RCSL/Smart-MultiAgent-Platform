@@ -134,6 +134,15 @@ class IngestService:
         if existing is not None and existing.status is DocumentStatus.READY:
             return existing
         if existing is not None:
+            # Re-upload of a FAILED/stuck doc — record it in the audit trail (the
+            # first upload is long past) so retries aren't invisible, then re-index.
+            await emit_reupload_audit(
+                self._db,
+                doc=existing,
+                actor_user_id=actor_user_id,
+                actor_ip=actor_ip,
+                request_id=request_id,
+            )
             await Publisher(rag_channel(cfg.id)).emit(
                 "ingestion.started", {"document_id": str(existing.id), "total": 1}
             )
@@ -261,18 +270,27 @@ class IngestService:
                 strategy=cfg.chunk_strategy,
                 params=cfg.chunk_params,
             )
+            await self._qdrant.ensure_collection(
+                cfg.project_id,
+                vector_size=self._embedder.vector_size,
+            )
+            # Idempotent reprocess: clear any chunks + Qdrant points from a prior
+            # (failed) attempt before re-inserting. delete_document filters by the
+            # doc_id payload, so it also sweeps points orphaned by a rolled-back
+            # batch. _index_document only runs on non-READY docs (READY short-
+            # circuits earlier), which never have *committed* chunks, so this is a
+            # no-op on the fresh path and a clean-slate on retry/re-upload — and it
+            # prevents uq_rag_chunk_doc_idx collisions on reprocess.
+            await self._qdrant.delete_document(project_id=cfg.project_id, document_id=doc.id)
+            await self._chunks.delete_for_document(doc.id)
             if pieces:
-                await self._qdrant.ensure_collection(
-                    cfg.project_id,
-                    vector_size=self._embedder.vector_size,
-                )
                 # Embed + persist in batches: a tus rag_source can be up to 1 GiB
                 # → hundreds of thousands of chunks. Sending them all to the
                 # embedder in one call risks a provider 413 and holds every vector
-                # in memory at once. Each batch's rag_chunks rows + Qdrant points
-                # share the enclosing transaction, so a mid-document failure still
-                # rolls back every DB row (Qdrant points from earlier batches are
-                # orphaned but unreferenced — retrieval joins through rag_chunks).
+                # in memory at once. On a mid-document failure the DB rolls back
+                # every rag_chunks row; earlier batches' Qdrant points are left
+                # behind but are swept by the clear-then-index above on the next
+                # attempt (delete_document by doc_id), so they never accumulate.
                 for start in range(0, len(pieces), _EMBED_BATCH):
                     batch = pieces[start : start + _EMBED_BATCH]
                     vectors = await self._embedder.embed_batch(batch)
@@ -351,6 +369,39 @@ class IngestService:
         refreshed = await self._docs.get(doc.id)
         assert refreshed is not None
         return refreshed
+
+
+async def emit_reupload_audit(
+    db: AsyncSession,
+    *,
+    doc: RagDocument,
+    actor_user_id: uuid.UUID | None,
+    actor_ip: str | None,
+    request_id: uuid.UUID | None,
+) -> None:
+    """Audit a re-upload of an existing (non-READY) RAG document. The original
+    ``rag.document_uploaded`` is long past; without this, retries leave only
+    ``rag.document_indexed`` rows and the upload trail under-counts re-uploads.
+    Shared by the multipart re-index path and the tus re-drive path."""
+    await audit.emit(
+        db,
+        audit.AuditEvent(
+            action="rag.document_uploaded",
+            actor_user_id=actor_user_id,
+            actor_ip=actor_ip,
+            resource_type="rag_document",
+            resource_id=doc.id,
+            metadata={
+                "rag_config_id": str(doc.rag_config_id),
+                "filename": doc.filename,
+                "mime": doc.mime,
+                "size_bytes": doc.size_bytes,
+                "sha256": doc.sha256,
+                "reupload": True,
+            },
+            request_id=request_id,
+        ),
+    )
 
 
 def _normalise_mime(raw: str, filename: str) -> str:
