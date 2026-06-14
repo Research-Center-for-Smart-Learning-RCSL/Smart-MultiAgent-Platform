@@ -12,15 +12,16 @@ const session = useSessionStore()
 const authed = computed(() => !!session.me)
 
 // Live updates over /ws/user/{id}; the query below is the source of truth and
-// the socket invalidates it. A modest refetchInterval is the fallback if the
-// socket drops.
+// the socket invalidates it. refetchOnWindowFocus (default) covers tab returns,
+// so the interval is only a slow fallback for a silently-dropped socket — long,
+// not a tight 60 s poll firing app-wide forever.
 useNotificationsSocket()
 
 const unreadQuery = useQuery({
   queryKey: notificationKeys.unreadCount(),
   queryFn: async () => (await notificationsApi.unreadCount()).data.count,
   enabled: authed,
-  refetchInterval: 60_000,
+  refetchInterval: 300_000,
 })
 
 const count = computed(() => unreadQuery.data.value ?? 0)
@@ -61,7 +62,10 @@ const badge = computed(() => (count.value > 99 ? '99+' : String(count.value)))
   position: fixed;
   top: var(--space-3, 0.75rem);
   right: var(--space-3, 0.75rem);
-  z-index: 50;
+  /* Above the impersonation banner (z-9999) so the bell is never hidden behind
+     it. A proper app header would remove the need for a fixed overlay entirely
+     (tracked as M.4 layout work). */
+  z-index: 10000;
   display: inline-flex;
   align-items: center;
   justify-content: center;
