@@ -347,6 +347,18 @@ const onSubmit = handleSubmit((values) => {
       </FormField>
 
       <FormField
+        :label="t('agents.form.mcp')"
+        name="mcp"
+      >
+        <RouterLink
+          class="agent-detail__rag-manage"
+          :to="{ name: 'agents.mcp', params: { agentId } }"
+        >
+          {{ t('agents.form.manageMcp') }}
+        </RouterLink>
+      </FormField>
+
+      <FormField
         :label="t('agents.form.a2aEnabled')"
         name="a2a_enabled"
         :error="errors.a2a_enabled"

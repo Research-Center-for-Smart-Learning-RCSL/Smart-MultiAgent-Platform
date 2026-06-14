@@ -47,3 +47,15 @@ export const graphragConfigCreateSchema = z.object({
 })
 
 export type GraphragConfigCreateInput = z.infer<typeof graphragConfigCreateSchema>
+
+// Mirrors backend `McpBindingCreateIn`. `source` decides how `reference` is
+// read (built-in tool name / MCP server URL / package spec); `allowed_tools`
+// whitelists the server tools exposed to the agent.
+export const mcpBindingCreateSchema = z.object({
+  source: z.enum(['builtin', 'url', 'package']),
+  reference: z.string().trim().min(1).max(2000),
+  allowed_tools: z.array(z.string().trim().min(1)).default([]),
+  config: z.record(z.unknown()).default({}),
+})
+
+export type McpBindingCreateInput = z.infer<typeof mcpBindingCreateSchema>

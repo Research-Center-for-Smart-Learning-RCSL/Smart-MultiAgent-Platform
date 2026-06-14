@@ -2,6 +2,7 @@ import { http } from '@shared/transport'
 import type {
   AgentCreateInput,
   GraphragConfigCreateInput,
+  McpBindingCreateInput,
   RagConfigCreateInput,
 } from '../types/schemas'
 
@@ -93,6 +94,37 @@ export interface GraphragBuild {
   state: string
 }
 
+// Mirrors backend `McpBindingOut`. `source` selects how `reference` is
+// interpreted: a built-in tool name, an MCP server URL, or a package spec.
+// `allowed_tools` whitelists which of the server's tools the agent may call.
+export interface McpBinding {
+  id: string
+  agent_id: string
+  source: 'builtin' | 'url' | 'package'
+  reference: string
+  allowed_tools: string[]
+  config: Record<string, unknown>
+  created_at: string
+}
+
+// Mirrors backend `McpTestOut` — the sandbox probe result.
+export interface McpTestResult {
+  ok: boolean
+  tool_names: string[]
+  duration_ms: number
+  error: string | null
+}
+
+// Mirrors backend `AllowlistEntryOut`.
+export interface EgressAllowlistEntry {
+  id: string
+  project_id: string
+  hostname: string
+  added_by_user_id: string | null
+  added_at: string
+  note: string | null
+}
+
 export const agentsApi = {
   list: (projectId: string) =>
     http.get<Agent[]>(`/projects/${projectId}/agents`),
@@ -154,4 +186,27 @@ export const agentsApi = {
 
   buildGraphrag: (configId: string) =>
     http.post<GraphragBuild>(`/graphrag/${configId}/build`),
+
+  listMcpBindings: (agentId: string) =>
+    http.get<McpBinding[]>(`/agents/${agentId}/mcp`),
+
+  addMcpBinding: (agentId: string, payload: McpBindingCreateInput) =>
+    http.post<McpBinding>(`/agents/${agentId}/mcp`, payload),
+
+  deleteMcpBinding: (agentId: string, bindingId: string) =>
+    http.delete(`/agents/${agentId}/mcp/${bindingId}`),
+
+  testMcpBinding: (agentId: string, bindingId: string) =>
+    http.post<McpTestResult>(`/agents/${agentId}/mcp/${bindingId}/test`),
+
+  listEgressAllowlist: (projectId: string) =>
+    http.get<EgressAllowlistEntry[]>(`/projects/${projectId}/mcp/egress-allowlist`),
+
+  addEgressAllowlistEntry: (
+    projectId: string,
+    payload: { hostname: string; note: string | null },
+  ) => http.post<EgressAllowlistEntry>(`/projects/${projectId}/mcp/egress-allowlist`, payload),
+
+  removeEgressAllowlistEntry: (projectId: string, hostname: string) =>
+    http.delete(`/projects/${projectId}/mcp/egress-allowlist/${encodeURIComponent(hostname)}`),
 }
