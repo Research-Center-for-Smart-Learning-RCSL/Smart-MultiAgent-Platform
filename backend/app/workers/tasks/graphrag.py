@@ -196,4 +196,18 @@ async def graphrag_build(
             await qclient.close()
 
 
-__all__ = ["graphrag_build"]
+async def graphrag_reconcile(ctx: dict[str, Any]) -> int:
+    """arq cron tick (M.5.4): heal GraphRAG configs stuck in FAILED_COMPENSATING
+    (R11.04 / 2PC drift). Without this scheduled task the reconciler loop was
+    never run in production and drift was never repaired. Runs once per minute;
+    arq's cron lock keeps it a singleton across worker replicas.
+    """
+    from app.workers.graphrag_reconciler import reconcile_once
+
+    healed = await reconcile_once()
+    if healed:
+        _log.info("graphrag reconcile healed %d config(s): %s", len(healed), healed)
+    return len(healed)
+
+
+__all__ = ["graphrag_build", "graphrag_reconcile"]
