@@ -1,5 +1,9 @@
 import { http } from '@shared/transport'
-import type { AgentCreateInput, RagConfigCreateInput } from '../types/schemas'
+import type {
+  AgentCreateInput,
+  GraphragConfigCreateInput,
+  RagConfigCreateInput,
+} from '../types/schemas'
 
 // Mirrors backend `AgentOut` (backend/app/api/v1/agents.py). `model_hint`
 // selects the provider family; the concrete model + key rotation come from the
@@ -58,6 +62,37 @@ export interface RagConfig {
   created_at: string
 }
 
+// Mirrors backend `GraphRagConfigOut`. A GraphRAG config is 1:1 with an agent
+// (R15.16); `builder_key_group_id` is the key group used to extract triples and
+// MUST differ from the agent's own consumer key group (billing separation).
+export interface GraphragConfig {
+  id: string
+  project_id: string
+  agent_id: string
+  builder_key_group_id: string
+  trigger_config: Record<string, unknown>
+  last_build_state: string
+  last_build_at: string | null
+  last_build_error: string | null
+  created_at: string
+  deleted_at: string | null
+}
+
+// Mirrors backend `GraphRagStatusOut`.
+export interface GraphragStatus {
+  id: string
+  state: string
+  last_build_at: string | null
+  last_build_error: string | null
+}
+
+// Mirrors backend `GraphRagBuildOut` (202 on build accept).
+export interface GraphragBuild {
+  accepted: boolean
+  build_id: string | null
+  state: string
+}
+
 export const agentsApi = {
   list: (projectId: string) =>
     http.get<Agent[]>(`/projects/${projectId}/agents`),
@@ -104,4 +139,19 @@ export const agentsApi = {
 
   deleteDocument: (documentId: string) =>
     http.delete(`/rag-documents/${documentId}`),
+
+  listGraphragConfigs: (projectId: string) =>
+    http.get<GraphragConfig[]>(`/projects/${projectId}/graphrag-configs`),
+
+  createGraphragConfig: (projectId: string, payload: GraphragConfigCreateInput) =>
+    http.post<GraphragConfig>(`/projects/${projectId}/graphrag-configs`, payload),
+
+  getGraphragStatus: (configId: string) =>
+    http.get<GraphragStatus>(`/graphrag/${configId}/status`),
+
+  deleteGraphragConfig: (configId: string) =>
+    http.delete(`/graphrag/${configId}`),
+
+  buildGraphrag: (configId: string) =>
+    http.post<GraphragBuild>(`/graphrag/${configId}/build`),
 }

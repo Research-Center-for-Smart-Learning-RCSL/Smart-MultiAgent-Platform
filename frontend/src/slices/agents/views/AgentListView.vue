@@ -280,6 +280,12 @@ function goToAgent(agentId: string) {
         >
           {{ t('agents.form.manageRagConfigs') }}
         </RouterLink>
+        <RouterLink
+          class="agent-list__rag-manage"
+          :to="{ name: 'agents.graphragConfigs', params: { projectId } }"
+        >
+          {{ t('agents.form.manageGraphragConfigs') }}
+        </RouterLink>
       </FormField>
 
       <FormField

@@ -9,4 +9,8 @@ export const agentKeys = {
     ['agents', 'ragConfig', configId] as const,
   ragDocuments: (configId: string) =>
     ['agents', 'ragDocuments', configId] as const,
+  graphragConfigs: (projectId: string) =>
+    ['agents', 'graphragConfigs', projectId] as const,
+  graphragConfig: (configId: string) =>
+    ['agents', 'graphragConfig', configId] as const,
 }
