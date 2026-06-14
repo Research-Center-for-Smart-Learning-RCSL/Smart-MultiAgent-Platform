@@ -11,8 +11,10 @@ Flow:
    leaves Vault.
 5. Commit per chunk so a kill mid-run keeps the checkpoint usable.
 
-Idempotent: re-running after a completed rotation becomes a no-op because
-the version filter picks up nothing to rewrap.
+Idempotent within a rotation: re-running with the SAME target version is a
+no-op (the version filter picks up nothing). Starting a NEW rotation resets
+the per-table resume cursor (see `_rewrap_table`), so a second rotation does
+not inherit the prior run's `last_id` and skip every row.
 """
 
 from __future__ import annotations
@@ -55,6 +57,23 @@ async def _rotate_transit(client: VaultClient) -> None:
     )
 
 
+def _resume_cursor(existing: object | None, target_version: int) -> tuple[int | None, int, str]:
+    """Decide the resume cursor for a rewrap given the existing progress row.
+
+    Returns ``(last_id, rows_rewrapped, action)`` where action is one of
+    ``"insert"`` (no row yet), ``"reset"`` (a row for a DIFFERENT target — a new
+    rotation, so the cursor MUST restart at the table head or every row is
+    skipped), or ``"resume"`` (same target — crash-resume from the checkpoint).
+
+    Pure so the reset-vs-resume decision is unit-testable without a database.
+    """
+    if existing is None:
+        return None, 0, "insert"
+    if int(existing.target_transit_version) != target_version:  # type: ignore[attr-defined]
+        return None, 0, "reset"
+    return existing.last_id, int(existing.rows_rewrapped), "resume"  # type: ignore[attr-defined]
+
+
 async def _rewrap_table(
     db: AsyncSession,
     client: VaultClient,
@@ -69,29 +88,44 @@ async def _rewrap_table(
     """
     table_name = table.name
 
-    # Upsert a progress row so crash-resume can tell which table we're on.
-    await db.execute(
-        pg_insert(t.rewrap_progress)
-        .values(
-            table_name=table_name,
-            last_id=None,
-            target_transit_version=target_version,
-            rows_rewrapped=0,
-        )
-        .on_conflict_do_update(
-            index_elements=["table_name"],
-            set_={
-                "target_transit_version": target_version,
-                "completed_at": None,
-            },
-        )
-    )
-
-    progress_row = (
+    # Establish the resume cursor. A progress row is per target table; whether we
+    # resume it or start fresh depends on the rotation target:
+    #   - no row yet              → start fresh (cursor = None)
+    #   - row for a DIFFERENT target → NEW rotation: reset the cursor, else the
+    #     previous rotation's last_id (== the table's max id) makes `id > last_id`
+    #     match zero rows and every DEK is silently left at the old version.
+    #   - row for the SAME target → crash-resume: keep last_id / rows_rewrapped.
+    existing = (
         await db.execute(t.rewrap_progress.select().where(t.rewrap_progress.c.table_name == table_name))
-    ).one()
-    last_id = progress_row.last_id
-    total_rewrapped = int(progress_row.rows_rewrapped)
+    ).one_or_none()
+    last_id, total_rewrapped, action = _resume_cursor(existing, target_version)
+
+    if action == "insert":
+        await db.execute(
+            pg_insert(t.rewrap_progress).values(
+                table_name=table_name,
+                last_id=None,
+                target_transit_version=target_version,
+                rows_rewrapped=0,
+            )
+        )
+    elif action == "reset":
+        await db.execute(
+            t.rewrap_progress.update()
+            .where(t.rewrap_progress.c.table_name == table_name)
+            .values(
+                target_transit_version=target_version,
+                completed_at=None,
+                last_id=None,
+                rows_rewrapped=0,
+            )
+        )
+    else:  # resume
+        await db.execute(
+            t.rewrap_progress.update()
+            .where(t.rewrap_progress.c.table_name == table_name)
+            .values(completed_at=None)
+        )
 
     await db.commit()
 
