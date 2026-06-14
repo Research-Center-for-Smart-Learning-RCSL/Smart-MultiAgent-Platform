@@ -31,7 +31,23 @@
       "sendFailed": "傳送訊息失敗。",
       "searchFailed": "搜尋失敗。",
       "exportQueued": "匯出已排入佇列（{jobId}）。下載即將備妥。",
-      "exportFailed": "匯出啟動失敗。"
+      "exportFailed": "匯出啟動失敗。",
+      "exportDownload": "下載匯出檔",
+      "exportState": {
+        "queued": "匯出排隊中…",
+        "running": "匯出進行中…",
+        "ready": "匯出完成",
+        "failed": "匯出失敗"
+      },
+      "edited": "（已編輯）",
+      "edit": "編輯",
+      "delete": "刪除",
+      "save": "儲存",
+      "cancel": "取消",
+      "editFailed": "無法編輯——可能已超過 5 分鐘期限或已在他處變更。",
+      "deleteTitle": "刪除訊息",
+      "deleteConfirm": "刪除此訊息？這會對所有人移除且無法復原。",
+      "deleteFailed": "刪除訊息失敗。"
     },
     "settings": {
       "title": "聊天室設定",
