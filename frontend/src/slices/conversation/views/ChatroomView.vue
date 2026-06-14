@@ -16,6 +16,17 @@
       <button @click="runExport">
         {{ $t('conversation.chatroom.export') }}
       </button>
+      <span
+        v-if="exportJob"
+        class="export-status"
+      >
+        <a
+          v-if="exportJob.status === 'ready' && exportJob.url"
+          :href="exportJob.url"
+          download
+        >{{ $t('conversation.chatroom.exportDownload') }}</a>
+        <span v-else>{{ $t(`conversation.chatroom.exportState.${exportJob.status}`) }}</span>
+      </span>
     </header>
 
     <!-- Live approval cards (G.10) — rendered above messages when present. -->
@@ -42,9 +53,55 @@
         <div class="meta">
           <span>{{ m.sender_type }}</span>
           <time>{{ m.created_at }}</time>
+          <span
+            v-if="m.edited_at"
+            class="edited"
+          >{{ $t('conversation.chatroom.edited') }}</span>
+          <span class="msg-actions">
+            <button
+              v-if="editingId !== m.id && canEdit(m)"
+              type="button"
+              class="link-btn"
+              @click="startEdit(m)"
+            >
+              {{ $t('conversation.chatroom.edit') }}
+            </button>
+            <button
+              v-if="canDelete(m)"
+              type="button"
+              class="link-btn link-btn--danger"
+              @click="confirmDelete(m)"
+            >
+              {{ $t('conversation.chatroom.delete') }}
+            </button>
+          </span>
         </div>
-        <!-- Single v-html site per R24.41. -->
+        <!-- Inline editor (R13.21); otherwise the single v-html site (R24.41). -->
         <div
+          v-if="editingId === m.id"
+          class="md-edit"
+        >
+          <textarea
+            v-model="editDraft"
+            :aria-label="$t('conversation.chatroom.edit')"
+          />
+          <div class="md-edit__actions">
+            <button
+              type="button"
+              @click="saveEdit"
+            >
+              {{ $t('conversation.chatroom.save') }}
+            </button>
+            <button
+              type="button"
+              @click="cancelEdit"
+            >
+              {{ $t('conversation.chatroom.cancel') }}
+            </button>
+          </div>
+        </div>
+        <div
+          v-else
           class="md"
           v-html="rendered[m.id]"
         />
@@ -143,11 +200,15 @@ import {
 } from 'vue'
 import { useRoute } from 'vue-router'
 
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { useI18n } from 'vue-i18n'
 import { useBreakpoint } from '@shared/composables'
+import { useSessionStore } from '@slices/identity'
 import {
   createExport,
+  deleteMessage,
+  editMessage,
+  getExport,
   listMessages,
   searchMessages,
   sendMessage,
@@ -165,8 +226,34 @@ const { t } = useI18n()
 const route = useRoute()
 const qc = useQueryClient()
 const store = useConversationStore()
+const session = useSessionStore()
 const chatroomId = route.params.chatroomId as string
 const projectId = (route.params.projectId as string) || ''
+
+// R13.21/R13.23: an author may edit their OWN message within 5 minutes; beyond
+// that only Admin/Project Owner may. Agents never edit their own (R13.22). The
+// backend is authoritative (If-Match + server-side window) — these gate the UI
+// affordances only.
+const EDIT_WINDOW_MS = 5 * 60 * 1000
+const myId = computed(() => session.me?.id ?? null)
+const isAdmin = computed(() => session.me?.is_admin ?? false)
+
+function isOwnUserMessage(m: Message): boolean {
+  return m.sender_type === 'user' && !!myId.value && m.sender_id === myId.value
+}
+function canEdit(m: Message): boolean {
+  if (isAdmin.value) return true
+  return (
+    isOwnUserMessage(m) &&
+    Date.now() - new Date(m.created_at).getTime() < EDIT_WINDOW_MS
+  )
+}
+function canDelete(m: Message): boolean {
+  // R13.16: users delete within their scope; admins delete anything. We only
+  // surface the control for own messages or admins; the backend enforces the
+  // full scope (and a Project Owner deleting others' messages is allowed there).
+  return isAdmin.value || isOwnUserMessage(m)
+}
 
 const { isMobile } = useBreakpoint()
 store.setActive(chatroomId)
@@ -324,10 +411,85 @@ async function runSearch(): Promise<void> {
   }
 }
 
+// ---- message edit / delete (R13.16 / R13.21) -----------------------------
+
+const editingId = ref<string | null>(null)
+const editDraft = ref('')
+const editVersion = ref(0)
+
+function startEdit(m: Message): void {
+  editingId.value = m.id
+  editDraft.value = m.content_md
+  editVersion.value = m.version
+}
+function cancelEdit(): void {
+  editingId.value = null
+  editDraft.value = ''
+}
+async function saveEdit(): Promise<void> {
+  const id = editingId.value
+  const text = editDraft.value.trim()
+  if (!id || !text) return
+  try {
+    await editMessage(id, editVersion.value, text)
+    cancelEdit()
+    await qc.invalidateQueries({ queryKey: convKeys.messages(chatroomId) })
+  } catch {
+    // 409 (stale If-Match) or 403 (past the 5-min window / not authorised).
+    ElMessage.error(t('conversation.chatroom.editFailed'))
+  }
+}
+
+async function confirmDelete(m: Message): Promise<void> {
+  try {
+    await ElMessageBox.confirm(
+      t('conversation.chatroom.deleteConfirm'),
+      t('conversation.chatroom.deleteTitle'),
+      { type: 'warning' },
+    )
+  } catch {
+    return // dismissed
+  }
+  try {
+    await deleteMessage(m.id)
+    await qc.invalidateQueries({ queryKey: convKeys.messages(chatroomId) })
+  } catch {
+    ElMessage.error(t('conversation.chatroom.deleteFailed'))
+  }
+}
+
+// ---- export with status polling + download (R13.17) ----------------------
+// The export runs in a worker; there is no WS channel for it, so poll the job
+// until it settles. Bounded, and cleaned up on unmount.
+
+interface ExportJob {
+  status: 'queued' | 'running' | 'ready' | 'failed'
+  url: string | null
+}
+const exportJob = ref<ExportJob | null>(null)
+const EXPORT_TERMINAL = new Set(['ready', 'failed'])
+let exportTimer: ReturnType<typeof setTimeout> | null = null
+let exportDisposed = false
+
+async function pollExport(jobId: string, attempts = 0): Promise<void> {
+  if (exportDisposed || attempts > 60) return // ~3 min ceiling at 3 s/poll
+  try {
+    const s = await getExport(jobId)
+    if (exportDisposed) return
+    exportJob.value = { status: s.status, url: s.url }
+    if (!EXPORT_TERMINAL.has(s.status)) {
+      exportTimer = setTimeout(() => void pollExport(jobId, attempts + 1), 3000)
+    }
+  } catch {
+    // leave the last known state; the user can re-export
+  }
+}
+
 async function runExport(): Promise<void> {
   try {
-    const { job_id } = await createExport(chatroomId)
-    ElMessage.success(t('conversation.chatroom.exportQueued', { jobId: job_id.slice(0, 8) }))
+    const { job_id, status } = await createExport(chatroomId)
+    exportJob.value = { status: status as ExportJob['status'], url: null }
+    void pollExport(job_id)
   } catch {
     ElMessage.error(t('conversation.chatroom.exportFailed'))
   }
@@ -376,6 +538,8 @@ onMounted(scheduleEnhance)
 onUpdated(scheduleEnhance)
 onBeforeUnmount(() => {
   if (enhanceTimer !== null) clearTimeout(enhanceTimer)
+  exportDisposed = true
+  if (exportTimer !== null) clearTimeout(exportTimer)
 })
 </script>
 
@@ -417,5 +581,43 @@ onBeforeUnmount(() => {
 }
 .chatroom--mobile .presence {
   display: none;
+}
+.meta {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.edited {
+  color: var(--color-muted, #6b7280);
+  font-size: 0.75rem;
+}
+.msg-actions {
+  margin-left: auto;
+  display: inline-flex;
+  gap: 0.5rem;
+}
+.link-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: 0.8rem;
+  color: var(--color-primary, #2563eb);
+  cursor: pointer;
+}
+.link-btn--danger {
+  color: var(--color-danger, #b91c1c);
+}
+.md-edit textarea {
+  width: 100%;
+  min-height: 4rem;
+}
+.md-edit__actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.25rem;
+}
+.export-status {
+  margin-left: 0.5rem;
+  font-size: 0.85rem;
 }
 </style>

@@ -31,7 +31,23 @@
       "sendFailed": "Failed to send message.",
       "searchFailed": "Search failed.",
       "exportQueued": "Export queued ({jobId}). Download will be ready shortly.",
-      "exportFailed": "Failed to start export."
+      "exportFailed": "Failed to start export.",
+      "exportDownload": "Download export",
+      "exportState": {
+        "queued": "Export queued…",
+        "running": "Export running…",
+        "ready": "Export ready",
+        "failed": "Export failed"
+      },
+      "edited": "(edited)",
+      "edit": "Edit",
+      "delete": "Delete",
+      "save": "Save",
+      "cancel": "Cancel",
+      "editFailed": "Could not edit — it may be past the 5-minute window or changed elsewhere.",
+      "deleteTitle": "Delete Message",
+      "deleteConfirm": "Delete this message? This removes it for everyone and cannot be undone.",
+      "deleteFailed": "Failed to delete message."
     },
     "settings": {
       "title": "Chatroom Settings",

@@ -1,9 +1,12 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { nextTick } from 'vue'
+import { http, HttpResponse } from 'msw'
 import { ElMessage } from 'element-plus'
+import { server } from '../../../../tests/mocks/server'
 import { renderView } from '../../../../tests/utils'
 import ChatroomView from '../views/ChatroomView.vue'
 import { useConversationStore } from '../stores/conversation'
+import { useSessionStore } from '@slices/identity'
 
 const routes = [
   {
@@ -12,6 +15,22 @@ const routes = [
     component: ChatroomView,
   },
 ]
+
+function signInAs(userId: string, isAdmin = false): void {
+  const session = useSessionStore()
+  session.me = {
+    id: userId,
+    email: 'u@smap.test',
+    email_verified: true,
+    is_admin: isAdmin,
+    status: 'active',
+  }
+}
+
+async function settle(): Promise<void> {
+  await new Promise((r) => setTimeout(r, 100))
+  await nextTick()
+}
 
 describe('ChatroomView', () => {
   it('renders without errors', async () => {
@@ -34,6 +53,50 @@ describe('ChatroomView', () => {
 
   afterEach(() => {
     vi.restoreAllMocks()
+  })
+
+  it('shows edit/delete affordances on the user\'s own recent message', async () => {
+    server.use(
+      http.get('/api/chatrooms/cr_1/messages', () =>
+        HttpResponse.json([
+          {
+            id: 'm_1',
+            chatroom_id: 'cr_1',
+            sender_type: 'user',
+            sender_id: 'u_1',
+            content_md: 'hello',
+            metadata: {},
+            version: 1,
+            created_at: new Date(Date.now() - 1000).toISOString(),
+            edited_at: null,
+            deleted_at: null,
+          },
+        ]),
+      ),
+    )
+    const wrapper = await renderView(ChatroomView, {
+      routes,
+      initialRoute: '/chatrooms/cr_1',
+    })
+    signInAs('u_1')
+    await settle()
+    // Two link buttons (Edit + Delete) on the own, within-window message.
+    expect(wrapper.findAll('.link-btn').length).toBe(2)
+  })
+
+  it('surfaces export status after triggering an export', async () => {
+    server.use(
+      http.post('/api/chatrooms/cr_1/export', () =>
+        HttpResponse.json({ job_id: 'job_1', status: 'queued' }),
+      ),
+    )
+    const wrapper = await renderView(ChatroomView, {
+      routes,
+      initialRoute: '/chatrooms/cr_1',
+    })
+    await wrapper.find('header button').trigger('click')
+    await settle()
+    expect(wrapper.find('.export-status').exists()).toBe(true)
   })
 
   it('renders the streaming draft bubble while agent tokens accumulate', async () => {
