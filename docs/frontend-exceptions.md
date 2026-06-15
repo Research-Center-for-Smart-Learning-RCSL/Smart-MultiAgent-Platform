@@ -52,3 +52,24 @@ At that point install Storybook 8 (Vue 3 + Vite framework), add `.storybook/main
 | Storybook play functions | Vitest + `@vue/test-utils` unit specs in `frontend/src/shared/__tests__/` |
 | Playwright screenshots on Storybook stories | Playwright E2E specs in `frontend/e2e/` (full-view rendering) |
 | `Foo.stories.ts` co-location (R24.16) | N/A — no stories in v1 |
+
+## Dead generated api-client: retained as CI contract artifact
+
+**Status:** Retained in tree — unused at runtime, alive in CI.
+**Date logged:** 2026-06-15 (M.6 closure).
+
+### Scope
+
+`frontend/src/shared/api-client/` (~117 model files, 29 service files) was generated from `backend/openapi.json` via `openapi-typescript-codegen`. **Zero imports** exist from any slice — the real API surface is hand-written per-slice `api/index.ts` wrappers using `@shared/transport`.
+
+### Why it stays
+
+The `frontend-gate-openapi-drift` CI job (`scripts/check-openapi-drift.sh`) re-exports the OpenAPI spec from the backend, regenerates the TS client, and fails if the committed tree drifts. This gate catches backend schema changes (new fields, renamed types, removed endpoints) that would otherwise silently diverge from the frontend contract. Deleting the generated client would break this gate.
+
+### Why it is not imported
+
+Each slice owns its own typed API surface (hand-written, narrowly typed, transport-isolated per Gate #3). The generated client uses a monolithic `ApiResult<T>` pattern that bypasses the slice transport layer and would violate Gates #2, #3, and #7. Importing it was never the intent — it exists solely as a machine-readable contract mirror.
+
+### Reinstatement trigger
+
+If a future phase adopts code-generation as the primary API client (e.g. via `@hey-api/openapi-ts` with per-slice barrel re-exports), migrate the drift gate to the new generator and delete this tree.
