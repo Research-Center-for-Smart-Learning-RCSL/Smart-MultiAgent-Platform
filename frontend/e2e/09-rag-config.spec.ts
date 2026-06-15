@@ -14,6 +14,7 @@ test.describe('RAG config: create → appears in agent picker → attach (M.1)',
 
     await page.getByRole('button', { name: /create/i }).click()
     await page.locator('#name').fill(`e2e-rag-${Date.now()}`)
+    await page.locator('#embed_model').fill('text-embedding-3-small')
     await page.locator('#chunk_strategy').selectOption('fixed')
     await page.locator('#top_k').fill('5')
 
@@ -24,7 +25,8 @@ test.describe('RAG config: create → appears in agent picker → attach (M.1)',
     await embedSelect.selectOption({ index: 1 })
 
     await page.locator('button[type="submit"], .btn-primary').click()
-    await expect(page.getByRole('alert')).not.toBeVisible({ timeout: 5000 })
+    // On success the form closes and the new config appears in the table.
+    await expect(page.locator('table, [role="table"]')).toBeVisible({ timeout: 5000 })
   })
 
   test('RAG config appears in agent picker', async ({ authedPage: page }) => {

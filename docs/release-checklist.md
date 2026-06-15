@@ -149,7 +149,7 @@ Verify each retention worker's last-run metric is within the expected window:
 
 ## 8. Documentation
 
-- [ ] `docs/implement/00-overview.md` §0.8: all phases A–J marked ☑ with dates.
+- [ ] `docs/implement/00-overview.md` §0.8: all phases A–M marked ☑ with dates.
 - [ ] `REQUIREMENTS.md` has no unresolved TODOs or TBD markers for v1 scope.
 - [ ] `docs/operations.md` runbooks reviewed and current.
 - [ ] `deploy/vault/README.md` matches deployed Vault state.

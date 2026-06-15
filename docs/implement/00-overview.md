@@ -22,6 +22,8 @@ This directory breaks the full SMAP build (per `REQUIREMENTS.md`) into phases. T
 | **I** | Admin, Audit, Notifications, Retention | `/api/admin/*` full set incl. `admins` CRUD with last-Admin guard + `ip-bans` + `force-transfer-original-creator` + `graphrag/reset` + `rate-limits PATCH`; retention 16-class worker matrix; in-app-only notifications (R18.02 kinds) | `slices/admin` | J |
 | **J** | Frontend Integration, E2E & Release | Seven slices, dependency direction `conversation → agents → keys → tenancy → identity → shared`, 12 CI SoC gates, Playwright against `compose.test.yml`, bundle 250/200 KB, type-cov ≥95% | All slices finalised | — |
 | **K** | Agent Runtime & Critical Gap Remediation | Provider adapters + router wiring, agent turn engine (context/prompt/RAG/tools/streaming), trigger→reply wiring, workflow executor/resume fixes, sandbox images + driver, SMTP delivery + CAPTCHA widget, wiring-tier tests | CAPTCHA widget in `RegisterView`; no other FE change | J.∞ (release gate) |
+| **L** | Account Self-Delete & RAG Ingestion | Account self-deletion (R6.07/R8.14/R8.18), large-file RAG ingestion via tus (E.6/R10.02/R22.15), RAG document management UI | `slices/agents` RAG detail view | M |
+| **M** | Frontend Gap Remediation & Deferred-List Closure | Per-agent built-in tool gate, admin rate-limit Redis mirror, graphrag reconciler, rotate-transit cursor, MessageOut attachments | RAG/GraphRAG/MCP config UI, notifications slice, message edit/delete/export, tenancy/keys mgmt, orchestration wiring | J.∞ (release gate) |
 
 ## 0.2 Dependency graph (informal)
 

@@ -19,7 +19,7 @@ test.describe('Tenancy/keys mgmt: roles, rename, key-group, usage (M.4)', () => 
     await expect(renameBtn).toBeVisible()
     await renameBtn.click()
 
-    const nameInput = page.locator('input[type="text"]').first()
+    const nameInput = page.locator('form input').first()
     const original = await nameInput.inputValue()
     const newName = `${original}-r`
     await nameInput.fill(newName)
@@ -28,7 +28,7 @@ test.describe('Tenancy/keys mgmt: roles, rename, key-group, usage (M.4)', () => 
 
     // Restore original name.
     await page.getByRole('button', { name: /rename/i }).click()
-    await page.locator('input[type="text"]').first().fill(original)
+    await page.locator('form input').first().fill(original)
     await page.getByRole('button', { name: /save/i }).click()
     await expect(page.getByText(original)).toBeVisible({ timeout: 5000 })
   })
@@ -41,16 +41,18 @@ test.describe('Tenancy/keys mgmt: roles, rename, key-group, usage (M.4)', () => 
     await expect(renameBtn).toBeVisible()
     await renameBtn.click()
 
-    const nameInput = page.locator('input[type="text"]').first()
+    const nameInput = page.locator('form input').first()
     const original = await nameInput.inputValue()
     const newName = `${original}-r`
     await nameInput.fill(newName)
     await page.getByRole('button', { name: /save/i }).click()
     await expect(page.getByText(newName)).toBeVisible({ timeout: 5000 })
 
+    // Restore original name.
     await page.getByRole('button', { name: /rename/i }).click()
-    await page.locator('input[type="text"]').first().fill(original)
+    await page.locator('form input').first().fill(original)
     await page.getByRole('button', { name: /save/i }).click()
+    await expect(page.getByText(original)).toBeVisible({ timeout: 5000 })
   })
 
   test('key group rename', async ({ authedPage: page }) => {
@@ -61,16 +63,17 @@ test.describe('Tenancy/keys mgmt: roles, rename, key-group, usage (M.4)', () => 
     await expect(renameBtn).toBeVisible()
     await renameBtn.click()
 
-    const nameInput = page.locator('input[type="text"]').first()
+    const nameInput = page.locator('form input').first()
     const original = await nameInput.inputValue()
     await nameInput.fill(`${original}-r`)
     await page.getByRole('button', { name: /save/i }).click()
     await expect(page.getByText(`${original}-r`)).toBeVisible({ timeout: 5000 })
 
-    // Restore.
+    // Restore original name.
     await page.getByRole('button', { name: /rename/i }).click()
-    await page.locator('input[type="text"]').first().fill(original)
+    await page.locator('form input').first().fill(original)
     await page.getByRole('button', { name: /save/i }).click()
+    await expect(page.getByText(original)).toBeVisible({ timeout: 5000 })
   })
 
   test('project key usage panel renders', async ({ authedPage: page }) => {
