@@ -2,11 +2,13 @@
 import { onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessageBox } from 'element-plus'
+import { useToast } from '@shared/composables'
 import { orgsApi, type OrgMember } from '../api/orgs'
 
 const { t } = useI18n()
 const route = useRoute()
+const toast = useToast()
 const members = ref<OrgMember[]>([])
 const inviteEmail = ref('')
 const inviteRole = ref<'owner' | 'member'>('member')
@@ -26,7 +28,7 @@ async function invite(): Promise<void> {
     await orgsApi.invite(orgId(), inviteEmail.value.trim(), inviteRole.value)
     inviteEmail.value = ''
   } catch {
-    ElMessage.error(t('tenancy.members.inviteError'))
+    toast.error(t('tenancy.members.inviteError'))
   }
 }
 
@@ -35,7 +37,7 @@ async function setRole(uid: string, role: 'owner' | 'member'): Promise<void> {
     await orgsApi.setRole(orgId(), uid, role)
     await load()
   } catch {
-    ElMessage.error(t('tenancy.members.roleError'))
+    toast.error(t('tenancy.members.roleError'))
   }
 }
 
@@ -53,7 +55,7 @@ async function remove(uid: string): Promise<void> {
     await orgsApi.removeMember(orgId(), uid)
     await load()
   } catch {
-    ElMessage.error(t('identity.errors.generic'))
+    toast.error(t('identity.errors.generic'))
   }
 }
 

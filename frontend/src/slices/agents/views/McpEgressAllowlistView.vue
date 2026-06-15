@@ -5,10 +5,10 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/vue-query'
 import { useForm } from 'vee-validate'
 import { toTypedSchema } from '@vee-validate/zod'
 import { z } from 'zod'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessageBox } from 'element-plus'
 
 import { FormField } from '@shared/ui'
-import { useServerErrors } from '@shared/composables'
+import { useServerErrors, useToast } from '@shared/composables'
 import { agentsApi, type EgressAllowlistEntry } from '../api'
 import { agentKeys } from '../queries'
 
@@ -16,6 +16,7 @@ const { t } = useI18n()
 const route = useRoute()
 const qc = useQueryClient()
 const projectId = route.params.projectId as string
+const toast = useToast()
 
 const allowlistQuery = useQuery({
   queryKey: agentKeys.egressAllowlist(projectId),
@@ -44,10 +45,10 @@ const addMutation = useMutation({
   onSuccess: () => {
     qc.invalidateQueries({ queryKey: agentKeys.egressAllowlist(projectId) })
     resetForm()
-    ElMessage.success(t('agents.egress.added'))
+    toast.success(t('agents.egress.added'))
   },
   onError: (err) => {
-    if (!applyServerErrors(err)) ElMessage.error(t('agents.egress.addFailed'))
+    if (!applyServerErrors(err)) toast.error(t('agents.egress.addFailed'))
   },
 })
 
@@ -57,9 +58,9 @@ const removeMutation = useMutation({
   mutationFn: (host: string) => agentsApi.removeEgressAllowlistEntry(projectId, host),
   onSuccess: () => {
     qc.invalidateQueries({ queryKey: agentKeys.egressAllowlist(projectId) })
-    ElMessage.success(t('agents.egress.removed'))
+    toast.success(t('agents.egress.removed'))
   },
-  onError: () => ElMessage.error(t('agents.egress.removeFailed')),
+  onError: () => toast.error(t('agents.egress.removeFailed')),
 })
 
 async function confirmRemove(entry: EgressAllowlistEntry): Promise<void> {

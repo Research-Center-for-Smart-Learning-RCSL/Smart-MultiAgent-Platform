@@ -5,10 +5,10 @@ import { useI18n } from 'vue-i18n'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/vue-query'
 import { useForm } from 'vee-validate'
 import { toTypedSchema } from '@vee-validate/zod'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessageBox } from 'element-plus'
 
 import { FormField } from '@shared/ui'
-import { useServerErrors, usePolling } from '@shared/composables'
+import { useServerErrors, usePolling, useToast } from '@shared/composables'
 import { keyGroupsApi, keysKeys } from '@slices/keys'
 import { agentsApi, type GraphragConfig } from '../api'
 import { agentKeys } from '../queries'
@@ -21,6 +21,7 @@ const { t } = useI18n()
 const route = useRoute()
 const qc = useQueryClient()
 const projectId = route.params.projectId as string
+const toast = useToast()
 
 const showForm = ref(false)
 
@@ -100,10 +101,10 @@ const createMutation = useMutation({
     qc.invalidateQueries({ queryKey: agentKeys.graphragConfigs(projectId) })
     resetForm()
     showForm.value = false
-    ElMessage.success(t('agents.graphragList.created'))
+    toast.success(t('agents.graphragList.created'))
   },
   onError: (err) => {
-    if (!applyServerErrors(err)) ElMessage.error(t('agents.graphragList.createFailed'))
+    if (!applyServerErrors(err)) toast.error(t('agents.graphragList.createFailed'))
   },
 })
 
@@ -139,10 +140,10 @@ const statusPoll = usePolling((id) => agentsApi.getGraphragStatus(id).then((r) =
 const buildMutation = useMutation({
   mutationFn: (id: string) => agentsApi.buildGraphrag(id),
   onSuccess: (_data, id) => {
-    ElMessage.success(t('agents.graphragList.buildStarted'))
+    toast.success(t('agents.graphragList.buildStarted'))
     statusPoll.start(id)
   },
-  onError: () => ElMessage.error(t('agents.graphragList.buildFailed')),
+  onError: () => toast.error(t('agents.graphragList.buildFailed')),
 })
 
 // Optimistically mark the row in-progress before the POST resolves so a fast
@@ -157,9 +158,9 @@ const deleteMutation = useMutation({
   mutationFn: (id: string) => agentsApi.deleteGraphragConfig(id),
   onSuccess: () => {
     qc.invalidateQueries({ queryKey: agentKeys.graphragConfigs(projectId) })
-    ElMessage.success(t('agents.graphragList.deleted'))
+    toast.success(t('agents.graphragList.deleted'))
   },
-  onError: () => ElMessage.error(t('agents.graphragList.deleteFailed')),
+  onError: () => toast.error(t('agents.graphragList.deleteFailed')),
 })
 
 async function confirmDelete(cfg: GraphragConfig): Promise<void> {

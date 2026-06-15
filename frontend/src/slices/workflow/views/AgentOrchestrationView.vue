@@ -2,7 +2,7 @@
 import { ref, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { ElMessage } from 'element-plus'
+import { useToast } from '@shared/composables'
 
 import { getAgentWakeupConfig, patchAgentWakeupConfig } from '../api'
 import type { WakeupConfig } from '../types'
@@ -12,6 +12,7 @@ import DlqViewer from '../components/DlqViewer.vue'
 const { t } = useI18n()
 const route = useRoute()
 const agentId = route.params.agentId as string
+const toast = useToast()
 
 // The stored wakeup_config is `{}` by default, but the editor accesses the full
 // nested shape — so merge whatever is stored onto a complete default.
@@ -57,7 +58,7 @@ onMounted(async () => {
     version.value = v
   } catch {
     config.value = withDefaults({})
-    ElMessage.error(t('workflow.agentOps.loadError'))
+    toast.error(t('workflow.agentOps.loadError'))
   } finally {
     loading.value = false
   }
@@ -68,9 +69,9 @@ async function save(): Promise<void> {
   saving.value = true
   try {
     version.value = await patchAgentWakeupConfig(agentId, config.value, version.value)
-    ElMessage.success(t('workflow.agentOps.saved'))
+    toast.success(t('workflow.agentOps.saved'))
   } catch {
-    ElMessage.error(t('workflow.agentOps.saveError'))
+    toast.error(t('workflow.agentOps.saveError'))
   } finally {
     saving.value = false
   }

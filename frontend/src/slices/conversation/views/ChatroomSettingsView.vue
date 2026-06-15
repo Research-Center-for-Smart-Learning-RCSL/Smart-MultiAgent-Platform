@@ -211,7 +211,8 @@ import { useQueryClient } from '@tanstack/vue-query'
 import { computed, onMounted, reactive, ref, watchEffect } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessageBox } from 'element-plus'
+import { useToast } from '@shared/composables'
 import { useI18n } from 'vue-i18n'
 import { ApiError } from '@shared/errors'
 import {
@@ -232,6 +233,7 @@ import type { Agent } from '@slices/agents'
 import type { Chatroom } from '../types'
 
 const { t } = useI18n()
+const toast = useToast()
 const route = useRoute()
 const router = useRouter()
 const qc = useQueryClient()
@@ -370,9 +372,9 @@ async function onRemoveAgent(agentId: string): Promise<void> {
 async function saveWakeupConfig(agentId: string, config: WakeupConfig): Promise<void> {
   try {
     await patchAgentWakeupConfig(agentId, config)
-    ElMessage.success(t('conversation.settings.wakeupConfigSaved'))
+    toast.success(t('conversation.settings.wakeupConfigSaved'))
   } catch {
-    ElMessage.error(t('conversation.settings.wakeupConfigFailed'))
+    toast.error(t('conversation.settings.wakeupConfigFailed'))
   }
 }
 
@@ -432,7 +434,7 @@ async function onSave(): Promise<void> {
       }),
     )
     await qc.invalidateQueries({ queryKey: ['conversation', 'chatrooms'] })
-    ElMessage.success(t('conversation.settings.saved'))
+    toast.success(t('conversation.settings.saved'))
   } catch (e) {
     if (e instanceof ApiError && e.status === 409) {
       // Stale optimistic-concurrency version (another writer won the race).
@@ -465,7 +467,7 @@ async function onDelete(): Promise<void> {
   try {
     await deleteChatroom(chatroomId)
   } catch {
-    ElMessage.error(t('conversation.settings.deleteFailed'))
+    toast.error(t('conversation.settings.deleteFailed'))
     return
   }
   await qc.invalidateQueries({ queryKey: ['conversation', 'chatrooms'] })
@@ -499,7 +501,12 @@ watchEffect(() => {
 </script>
 
 <style scoped>
+.chatroom-settings h1 {
+  font-size: 1.25rem;
+  font-weight: 600;
+  margin-bottom: 1rem;
+}
 .error {
-  color: #b91c1c;
+  color: var(--color-danger);
 }
 </style>

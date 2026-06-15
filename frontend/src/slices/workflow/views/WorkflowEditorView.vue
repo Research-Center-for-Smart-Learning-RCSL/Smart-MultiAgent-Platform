@@ -1,7 +1,7 @@
 <template>
   <section class="workflow-editor flex flex-col h-full">
     <!-- Toolbar -->
-    <header class="flex items-center gap-3 px-4 py-2 border-b bg-white shrink-0">
+    <header class="flex items-center gap-3 px-4 py-2 border-b bg-bg shrink-0">
       <router-link
         :to="{ name: 'workflow.list', params: { workspaceId } }"
         class="text-sm text-gray-500 hover:underline"
@@ -159,8 +159,8 @@
 
       <!-- Side panel: node config inspector -->
       <aside
-        v-if="selectedNode"
-        class="w-80 border-l bg-gray-50 p-4 overflow-y-auto shrink-0"
+        v-if="selectedNode && isDesktop"
+        class="w-80 border-l bg-surface p-4 overflow-y-auto shrink-0"
       >
         <h3 class="font-semibold mb-2">
           {{ selectedNode.id }}
@@ -177,7 +177,7 @@
               {{ $t('workflow.editor.nodeConfig') }}
             </dt>
             <dd>
-              <pre class="bg-white border rounded p-2 overflow-x-auto text-[11px]">{{
+              <pre class="bg-bg border rounded p-2 overflow-x-auto text-[11px]">{{
                 JSON.stringify(selectedNode.config, null, 2)
               }}</pre>
             </dd>
@@ -194,7 +194,8 @@ import { useMutation, useQueryClient } from '@tanstack/vue-query'
 import { computed, ref } from 'vue'
 import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute } from 'vue-router'
 
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessageBox } from 'element-plus'
+import { useToast } from '@shared/composables'
 import { useI18n } from 'vue-i18n'
 import { useBreakpoint } from '@shared/composables'
 import {
@@ -211,6 +212,7 @@ import '@vue-flow/core/dist/style.css'
 import '@vue-flow/core/dist/theme-default.css'
 
 const { t } = useI18n()
+const toast = useToast()
 const route = useRoute()
 const qc = useQueryClient()
 const store = useWorkflowStore()
@@ -410,7 +412,7 @@ const saveMutation = useMutation({
     store.markSaved(wf.version)
     qc.invalidateQueries({ queryKey: wfKeys.workflow(workflowId) })
   },
-  onError: () => ElMessage.error(t('workflow.editor.saveFailed')),
+  onError: () => toast.error(t('workflow.editor.saveFailed')),
 })
 
 function onSave(): void {
@@ -426,10 +428,10 @@ async function onValidate(): Promise<void> {
     const result = await validateWorkflow(workspaceId.value, def)
     store.setLintResult(result.errors, result.warnings)
     if (!result.errors.length && !result.warnings.length) {
-      ElMessage.success(t('workflow.editor.valid'))
+      toast.success(t('workflow.editor.valid'))
     }
   } catch {
-    ElMessage.error(t('workflow.editor.validateFailed'))
+    toast.error(t('workflow.editor.validateFailed'))
   }
 }
 
@@ -439,9 +441,9 @@ async function onDryRun(): Promise<void> {
   dryRunning.value = true
   try {
     await triggerRun(workflowId, { __dry_run: true })
-    ElMessage.success(t('workflow.editor.dryRunQueued'))
+    toast.success(t('workflow.editor.dryRunQueued'))
   } catch {
-    ElMessage.error(t('workflow.editor.dryRunFailed'))
+    toast.error(t('workflow.editor.dryRunFailed'))
   } finally {
     dryRunning.value = false
   }
@@ -455,7 +457,7 @@ async function onDryRun(): Promise<void> {
 .node-box {
   cursor: pointer;
   transition: box-shadow 0.15s ease;
-  background: white;
+  background: var(--color-bg);
 }
 .node-box:hover {
   box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.3);

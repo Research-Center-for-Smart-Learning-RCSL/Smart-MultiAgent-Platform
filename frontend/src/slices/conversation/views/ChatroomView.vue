@@ -226,7 +226,8 @@ import {
 } from 'vue'
 import { useRoute } from 'vue-router'
 
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessageBox } from 'element-plus'
+import { useToast } from '@shared/composables'
 import { useI18n } from 'vue-i18n'
 import { useBreakpoint, usePolling } from '@shared/composables'
 import { useSessionStore } from '@slices/identity'
@@ -250,6 +251,7 @@ import type { Attachment, ExportStatus, Message, SearchHit } from '../types'
 import { ApprovalCard, useOrchestrationStore } from '@slices/workflow'
 
 const { t } = useI18n()
+const toast = useToast()
 const route = useRoute()
 const qc = useQueryClient()
 const store = useConversationStore()
@@ -343,7 +345,7 @@ watch(
   () => store.agentError[chatroomId],
   (err) => {
     if (!err) return
-    ElMessage.error(
+    toast.error(
       t(
         err === 'timeout'
           ? 'conversation.chatroom.agentTimeout'
@@ -421,7 +423,7 @@ async function onSend(): Promise<void> {
     await nextTick()
     listRef.value?.scrollTo({ top: listRef.value.scrollHeight })
   } catch {
-    ElMessage.error(t('conversation.chatroom.sendFailed'))
+    toast.error(t('conversation.chatroom.sendFailed'))
   }
 }
 
@@ -434,7 +436,7 @@ async function runSearch(): Promise<void> {
     const res = await searchMessages(chatroomId, searchQuery.value.trim())
     searchHits.value = res.hits
   } catch {
-    ElMessage.error(t('conversation.chatroom.searchFailed'))
+    toast.error(t('conversation.chatroom.searchFailed'))
   }
 }
 
@@ -463,7 +465,7 @@ async function saveEdit(): Promise<void> {
     await qc.invalidateQueries({ queryKey: convKeys.messages(chatroomId) })
   } catch {
     // 409 (stale If-Match) or 403 (past the 5-min window / not authorised).
-    ElMessage.error(t('conversation.chatroom.editFailed'))
+    toast.error(t('conversation.chatroom.editFailed'))
   }
 }
 
@@ -481,7 +483,7 @@ function downloadAttachment(att: Attachment): void {
     })
     .catch(() => {
       win?.close()
-      ElMessage.error(t('conversation.chatroom.attachmentFailed'))
+      toast.error(t('conversation.chatroom.attachmentFailed'))
     })
 }
 
@@ -499,7 +501,7 @@ async function confirmDelete(m: Message): Promise<void> {
     await deleteMessage(m.id)
     await qc.invalidateQueries({ queryKey: convKeys.messages(chatroomId) })
   } catch {
-    ElMessage.error(t('conversation.chatroom.deleteFailed'))
+    toast.error(t('conversation.chatroom.deleteFailed'))
   }
 }
 
@@ -525,7 +527,7 @@ async function runExport(): Promise<void> {
     exportJob.value = { status: status as ExportStatus['status'], url: null }
     exportPoll.start(job_id)
   } catch {
-    ElMessage.error(t('conversation.chatroom.exportFailed'))
+    toast.error(t('conversation.chatroom.exportFailed'))
   }
 }
 
@@ -582,6 +584,10 @@ onBeforeUnmount(() => {
   grid-template-rows: auto 1fr auto auto;
   gap: 0.5rem;
   height: 100%;
+}
+.chatroom h1 {
+  font-size: 1.25rem;
+  font-weight: 600;
 }
 .messages {
   grid-column: 1;

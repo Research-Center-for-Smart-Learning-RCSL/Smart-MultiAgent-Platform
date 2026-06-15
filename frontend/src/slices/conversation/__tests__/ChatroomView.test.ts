@@ -1,12 +1,23 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { nextTick } from 'vue'
 import { http, HttpResponse } from 'msw'
-import { ElMessage } from 'element-plus'
 import { server } from '../../../../tests/mocks/server'
 import { renderView } from '../../../../tests/utils'
 import ChatroomView from '../views/ChatroomView.vue'
 import { useConversationStore } from '../stores/conversation'
 import { useSessionStore } from '@slices/identity'
+
+const mockToast = vi.hoisted(() => ({
+  success: vi.fn(),
+  error: vi.fn(),
+  warning: vi.fn(),
+  info: vi.fn(),
+}))
+
+vi.mock('@shared/composables', async (importOriginal) => {
+  const actual = await importOriginal() as Record<string, unknown>
+  return { ...actual, useToast: () => mockToast }
+})
 
 const routes = [
   {
@@ -171,7 +182,7 @@ describe('ChatroomView', () => {
   })
 
   it('toasts and clears the store flag when an agent error is surfaced', async () => {
-    const errorSpy = vi.spyOn(ElMessage, 'error').mockReturnValue(undefined as never)
+    mockToast.error.mockClear()
     await renderView(ChatroomView, {
       routes,
       initialRoute: '/chatrooms/cr_1',
@@ -180,12 +191,12 @@ describe('ChatroomView', () => {
 
     store.setAgentError('cr_1', 'provider_error')
     await nextTick()
-    expect(errorSpy).toHaveBeenCalledTimes(1)
+    expect(mockToast.error).toHaveBeenCalledTimes(1)
     expect(store.agentError['cr_1']).toBeNull()
 
     store.setAgentError('cr_1', 'timeout')
     await nextTick()
-    expect(errorSpy).toHaveBeenCalledTimes(2)
+    expect(mockToast.error).toHaveBeenCalledTimes(2)
     expect(store.agentError['cr_1']).toBeNull()
   })
 })

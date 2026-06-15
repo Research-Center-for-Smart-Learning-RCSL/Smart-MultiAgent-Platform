@@ -1,13 +1,14 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { ElMessage } from 'element-plus'
+import { useToast } from '@shared/composables'
 import { authApi, type Session } from '../api/auth'
 
 const { t } = useI18n()
 const sessions = ref<Session[]>([])
 const loading = ref(true)
 const loadError = ref(false)
+const toast = useToast()
 
 async function load(): Promise<void> {
   loading.value = true
@@ -29,7 +30,7 @@ async function revoke(id: string): Promise<void> {
     await authApi.revokeSession(id)
     await load()
   } catch {
-    ElMessage.error(t('identity.sessions.revokeError'))
+    toast.error(t('identity.sessions.revokeError'))
   }
 }
 

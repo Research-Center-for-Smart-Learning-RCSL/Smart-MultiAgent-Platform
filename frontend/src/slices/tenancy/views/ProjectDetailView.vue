@@ -2,13 +2,14 @@
 import { onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { ElMessage, ElMessageBox } from 'element-plus'
-import { useInlineRename } from '@shared/composables'
+import { ElMessageBox } from 'element-plus'
+import { useInlineRename, useToast } from '@shared/composables'
 import { projectsApi, type Project } from '../api/projects'
 
 const { t } = useI18n()
 const route = useRoute()
 const router = useRouter()
+const toast = useToast()
 const project = ref<Project | null>(null)
 const loading = ref(false)
 
@@ -32,7 +33,7 @@ const rename = useInlineRename({
       const { data } = await projectsApi.rename(project.value.id, name, project.value.version)
       project.value = data
     } catch (e) {
-      ElMessage.error(t('tenancy.projects.renameError'))
+      toast.error(t('tenancy.projects.renameError'))
       throw e
     }
   },
@@ -53,7 +54,7 @@ async function remove(): Promise<void> {
     await projectsApi.remove(project.value.id)
     router.push({ name: 'tenancy.projectList' })
   } catch {
-    ElMessage.error(t('identity.errors.generic'))
+    toast.error(t('identity.errors.generic'))
   }
 }
 

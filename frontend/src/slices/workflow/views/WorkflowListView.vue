@@ -1,9 +1,6 @@
 <template>
   <section class="workflow-list">
-    <header class="flex items-center justify-between mb-4">
-      <h1 class="text-xl font-semibold">
-        {{ $t('workflow.list.title') }}
-      </h1>
+    <SPageHeader :title="$t('workflow.list.title')">
       <form
         class="flex gap-2"
         @submit.prevent="onCreate"
@@ -24,7 +21,7 @@
           {{ $t('workflow.list.create') }}
         </button>
       </form>
-    </header>
+    </SPageHeader>
 
     <p
       v-if="query.isLoading.value"
@@ -39,61 +36,63 @@
       {{ $t('workflow.list.loadError') }}
     </p>
 
-    <table
+    <div
       v-else-if="query.data.value?.length"
-      class="w-full text-sm"
+      class="overflow-x-auto"
     >
-      <thead>
-        <tr class="border-b text-left">
-          <th class="py-2">
-            {{ $t('workflow.list.name') }}
-          </th>
-          <th class="py-2">
-            {{ $t('workflow.list.version') }}
-          </th>
-          <th class="py-2">
-            {{ $t('workflow.list.created') }}
-          </th>
-          <th class="py-2" />
-        </tr>
-      </thead>
-      <tbody>
-        <tr
-          v-for="wf in query.data.value"
-          :key="wf.id"
-          class="border-b"
-        >
-          <td class="py-2">
-            <router-link
-              :to="{ name: 'workflow.editor', params: { workflowId: wf.id } }"
-              class="text-blue-600 hover:underline"
-            >
-              {{ wf.name }}
-            </router-link>
-          </td>
-          <td class="py-2 text-gray-500">
-            v{{ wf.version }}
-          </td>
-          <td class="py-2 text-gray-500">
-            {{ new Date(wf.created_at).toLocaleDateString() }}
-          </td>
-          <td class="py-2 flex gap-2 justify-end">
-            <router-link
-              :to="{ name: 'workflow.runs', params: { workflowId: wf.id } }"
-              class="text-sm text-gray-600 hover:underline"
-            >
-              {{ $t('workflow.list.runs') }}
-            </router-link>
-            <button
-              class="text-sm text-red-600 hover:underline"
-              @click="onDelete(wf.id)"
-            >
-              {{ $t('workflow.list.delete') }}
-            </button>
-          </td>
-        </tr>
-      </tbody>
-    </table>
+      <table class="w-full text-sm">
+        <thead>
+          <tr class="border-b text-left">
+            <th class="py-2">
+              {{ $t('workflow.list.name') }}
+            </th>
+            <th class="py-2">
+              {{ $t('workflow.list.version') }}
+            </th>
+            <th class="py-2">
+              {{ $t('workflow.list.created') }}
+            </th>
+            <th class="py-2" />
+          </tr>
+        </thead>
+        <tbody>
+          <tr
+            v-for="wf in query.data.value"
+            :key="wf.id"
+            class="border-b"
+          >
+            <td class="py-2">
+              <router-link
+                :to="{ name: 'workflow.editor', params: { workflowId: wf.id } }"
+                class="text-blue-600 hover:underline"
+              >
+                {{ wf.name }}
+              </router-link>
+            </td>
+            <td class="py-2 text-gray-500">
+              v{{ wf.version }}
+            </td>
+            <td class="py-2 text-gray-500">
+              {{ new Date(wf.created_at).toLocaleDateString() }}
+            </td>
+            <td class="py-2 flex gap-2 justify-end">
+              <router-link
+                :to="{ name: 'workflow.runs', params: { workflowId: wf.id } }"
+                class="text-sm text-gray-600 hover:underline"
+              >
+                {{ $t('workflow.list.runs') }}
+              </router-link>
+              <button
+                class="text-sm text-red-600 hover:underline"
+                @click="onDelete(wf.id)"
+              >
+                {{ $t('workflow.list.delete') }}
+              </button>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
 
     <p
       v-else
@@ -109,12 +108,15 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/vue-query'
 import { ref } from 'vue'
 import { useRoute } from 'vue-router'
 
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessageBox } from 'element-plus'
 import { useI18n } from 'vue-i18n'
+import { SPageHeader } from '@shared/ui'
+import { useToast } from '@shared/composables'
 import { createWorkflow, deleteWorkflow, listWorkflows } from '../api'
 import { wfKeys } from '../queries'
 
 const { t } = useI18n()
+const toast = useToast()
 const route = useRoute()
 const qc = useQueryClient()
 const workspaceId = route.params.workspaceId as string
@@ -141,7 +143,7 @@ const createMutation = useMutation({
   onSuccess: () => {
     qc.invalidateQueries({ queryKey: wfKeys.workflows(workspaceId) })
   },
-  onError: () => ElMessage.error(t('workflow.list.createFailed')),
+  onError: () => toast.error(t('workflow.list.createFailed')),
 })
 
 async function onCreate(): Promise<void> {
@@ -165,7 +167,7 @@ async function onDelete(id: string): Promise<void> {
     await deleteWorkflow(id)
     qc.invalidateQueries({ queryKey: wfKeys.workflows(workspaceId) })
   } catch {
-    ElMessage.error(t('workflow.list.deleteFailed'))
+    toast.error(t('workflow.list.deleteFailed'))
   }
 }
 </script>
