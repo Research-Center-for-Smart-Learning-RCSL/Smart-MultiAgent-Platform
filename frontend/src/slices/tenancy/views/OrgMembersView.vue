@@ -22,7 +22,7 @@ async function load(): Promise<void> {
     const { data } = await orgsApi.listMembers(orgId())
     members.value = data
   } catch {
-    toast.error('Failed to load members.')
+    toast.error(t('tenancy.members.loadFailed'))
   }
 }
 

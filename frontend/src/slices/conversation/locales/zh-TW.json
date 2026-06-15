@@ -5,7 +5,8 @@
       "create": "建立",
       "delete": "刪除",
       "loading": "載入中…",
-      "createFailed": "建立工作區失敗。"
+      "createFailed": "建立工作區失敗。",
+      "deleteFailed": "刪除工作區失敗。"
     },
     "chatrooms": {
       "title": "聊天室",

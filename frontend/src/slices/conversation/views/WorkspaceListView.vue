@@ -72,12 +72,8 @@ const createMutation = useMutation({
 
 async function onCreate(): Promise<void> {
   if (!newName.value.trim()) return
-  try {
-    await createMutation.mutateAsync(newName.value.trim())
-    newName.value = ''
-  } catch {
-    // error toast handled by createMutation onError
-  }
+  await createMutation.mutateAsync(newName.value.trim())
+  newName.value = ''
 }
 
 async function onDelete(id: string): Promise<void> {
@@ -85,7 +81,7 @@ async function onDelete(id: string): Promise<void> {
     await deleteWorkspace(id)
     await qc.invalidateQueries({ queryKey: convKeys.workspaces(projectId) })
   } catch {
-    toast.error('Failed to delete workspace.')
+    toast.error(t('conversation.workspaces.deleteFailed'))
   }
 }
 </script>

@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import { useToast } from '@shared/composables'
 import { projectsApi, type Project, type ProjectOwnerType } from '../api/projects'
 
+const { t } = useI18n()
 const route = useRoute()
 const toast = useToast()
 const scope = ref<ProjectOwnerType>((route.query.scope as ProjectOwnerType) || 'user')
@@ -22,7 +24,7 @@ async function load(): Promise<void> {
     const { data } = await projectsApi.list(scope.value, ownerId.value)
     projects.value = data
   } catch {
-    toast.error('Failed to load projects.')
+    toast.error(t('tenancy.projects.loadFailed'))
   } finally {
     loading.value = false
   }
@@ -35,7 +37,7 @@ async function create(): Promise<void> {
     name.value = ''
     await load()
   } catch {
-    toast.error('Failed to create project.')
+    toast.error(t('tenancy.projects.createFailed'))
   }
 }
 

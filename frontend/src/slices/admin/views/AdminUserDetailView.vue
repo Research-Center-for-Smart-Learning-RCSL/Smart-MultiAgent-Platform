@@ -21,31 +21,35 @@
     <div class="admin-user-detail__actions">
       <button
         v-if="query.data.value.status === 'active'"
+        class="btn btn-danger"
         @click="onBan"
       >
         {{ $t('admin.users.ban') }}
       </button>
       <button
         v-if="query.data.value.status === 'banned'"
+        class="btn"
         @click="actions.unbanUser.mutate(userId)"
       >
         {{ $t('admin.users.unban') }}
       </button>
       <button
         v-if="query.data.value.status === 'active'"
+        class="btn btn-danger"
         @click="onSoftDelete"
       >
         {{ $t('admin.userDetail.softDelete') }}
       </button>
       <button
         v-if="query.data.value.deleted_at"
-        class="admin-user-detail__danger"
+        class="btn btn-danger"
         @click="onHardDelete"
       >
         {{ $t('admin.userDetail.hardDelete') }}
       </button>
       <button
         v-if="query.data.value.status === 'active'"
+        class="btn"
         @click="onImpersonate"
       >
         {{ $t('admin.userDetail.impersonate') }}
@@ -81,7 +85,7 @@ async function onBan(): Promise<void> {
     const { value: reason } = await ElMessageBox.prompt(
       t('admin.users.banDialogMessage'),
       t('admin.users.banDialogTitle'),
-      { confirmButtonText: t('admin.users.banDialogConfirm'), cancelButtonText: t('admin.common.cancel'), inputPattern: /\S+/, inputErrorMessage: t('admin.users.banDialogReasonRequired') },
+      { confirmButtonText: t('admin.users.banDialogConfirm'), cancelButtonText: t('app.cancel'), inputPattern: /\S+/, inputErrorMessage: t('admin.users.banDialogReasonRequired') },
     )
     if (reason) actions.banUser.mutate({ userId, reason })
   } catch {
@@ -94,7 +98,7 @@ async function onSoftDelete(): Promise<void> {
     await ElMessageBox.confirm(
       t('admin.userDetail.softDeleteMessage'),
       t('admin.userDetail.softDeleteTitle'),
-      { confirmButtonText: t('admin.userDetail.softDeleteConfirm'), cancelButtonText: t('admin.common.cancel'), type: 'warning' },
+      { confirmButtonText: t('admin.userDetail.softDeleteConfirm'), cancelButtonText: t('app.cancel'), type: 'warning' },
     )
     actions.softDeleteUser.mutate(userId)
   } catch {
@@ -107,7 +111,7 @@ async function onHardDelete(): Promise<void> {
     await ElMessageBox.confirm(
       t('admin.userDetail.hardDeleteMessage'),
       t('admin.userDetail.hardDeleteTitle'),
-      { confirmButtonText: t('admin.userDetail.hardDeleteConfirm'), cancelButtonText: t('admin.common.cancel'), type: 'error' },
+      { confirmButtonText: t('admin.userDetail.hardDeleteConfirm'), cancelButtonText: t('app.cancel'), type: 'error' },
     )
     actions.hardDeleteUser.mutate(userId)
   } catch {
@@ -120,7 +124,7 @@ async function onImpersonate(): Promise<void> {
     await ElMessageBox.confirm(
       t('admin.userDetail.impersonateMessage'),
       t('admin.userDetail.impersonateTitle'),
-      { confirmButtonText: t('admin.userDetail.impersonateConfirm'), cancelButtonText: t('admin.common.cancel'), type: 'warning' },
+      { confirmButtonText: t('admin.userDetail.impersonateConfirm'), cancelButtonText: t('app.cancel'), type: 'warning' },
     )
     startImpersonation.mutate(userId)
   } catch {
@@ -133,5 +137,4 @@ async function onImpersonate(): Promise<void> {
 dl { display: grid; grid-template-columns: 12rem 1fr; gap: 0.25rem 1rem; }
 dt { font-weight: 600; }
 .admin-user-detail__actions { display: flex; gap: 0.5rem; margin-top: 1rem; }
-.admin-user-detail__danger { color: var(--color-danger, #dc2626); }
 </style>

@@ -23,18 +23,21 @@
           <td>
             <button
               v-if="!org.deleted_at"
+              class="btn btn-danger btn-sm"
               @click="onForceDelete(org.id, org.name)"
             >
               {{ $t('admin.orgs.forceDelete') }}
             </button>
             <button
               v-if="org.deleted_at"
+              class="btn btn-sm"
               @click="actions.restoreResource.mutate({ type: 'org', id: org.id })"
             >
               {{ $t('admin.orgs.restore') }}
             </button>
             <button
               v-if="!org.deleted_at"
+              class="btn btn-sm"
               @click="onTransfer(org.id)"
             >
               {{ $t('admin.orgs.forceTransfer') }}
@@ -79,7 +82,7 @@ async function onForceDelete(orgId: string, orgName: string): Promise<void> {
     await ElMessageBox.confirm(
       t('admin.orgs.forceDeleteMessage', { name: orgName }),
       t('admin.orgs.forceDeleteTitle'),
-      { confirmButtonText: t('admin.orgs.forceDeleteConfirm'), cancelButtonText: t('admin.common.cancel'), type: 'error' },
+      { confirmButtonText: t('admin.orgs.forceDeleteConfirm'), cancelButtonText: t('app.cancel'), type: 'error' },
     )
     actions.forceDeleteOrg.mutate(orgId)
   } catch {
@@ -92,7 +95,7 @@ async function onTransfer(orgId: string): Promise<void> {
     const { value: targetUserId } = await ElMessageBox.prompt(
       t('admin.orgs.forceTransferMessage'),
       t('admin.orgs.forceTransferTitle'),
-      { confirmButtonText: t('admin.orgs.forceTransferConfirm'), cancelButtonText: t('admin.common.cancel'), inputPattern: /\S+/, inputErrorMessage: t('admin.orgs.forceTransferUserIdRequired') },
+      { confirmButtonText: t('admin.orgs.forceTransferConfirm'), cancelButtonText: t('app.cancel'), inputPattern: /\S+/, inputErrorMessage: t('admin.orgs.forceTransferUserIdRequired') },
     )
     if (targetUserId) transferMutation.mutate({ orgId, targetUserId })
   } catch {

@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useToast } from '@shared/composables'
 import { invitesApi, type Invite } from '../api/invites'
 import { useSessionStore } from '@slices/identity'
 import { isProblemWithType } from '@shared/transport'
 
+const { t } = useI18n()
 const toast = useToast()
 const invites = ref<Invite[]>([])
 const error = ref<string | null>(null)
@@ -15,7 +17,7 @@ async function load(): Promise<void> {
     const { data } = await invitesApi.list('pending')
     invites.value = data
   } catch {
-    toast.error('Failed to load invites.')
+    toast.error(t('tenancy.invites.loadFailed'))
   }
 }
 
@@ -36,7 +38,7 @@ async function reject(id: string): Promise<void> {
     await invitesApi.reject(id)
     await load()
   } catch {
-    toast.error('Failed to reject invite.')
+    toast.error(t('tenancy.invites.rejectFailed'))
   }
 }
 

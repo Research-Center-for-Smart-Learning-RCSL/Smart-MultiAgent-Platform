@@ -5,9 +5,7 @@
     },
     "common": {
       "yes": "Yes",
-      "no": "No",
-      "cancel": "Cancel",
-      "delete": "Delete"
+      "no": "No"
     },
     "nav": {
       "users": "Users",
@@ -170,6 +168,20 @@
       "readOnly": "Read-only mode — all write operations are blocked.",
       "startFailed": "Failed to start impersonation session.",
       "endFailed": "Failed to end impersonation session."
+    },
+    "actionErrors": {
+      "banFailed": "Failed to ban user.",
+      "unbanFailed": "Failed to unban user.",
+      "deleteFailed": "Failed to delete user.",
+      "hardDeleteFailed": "Failed to permanently delete user.",
+      "promoteFailed": "Failed to promote user to admin.",
+      "demoteFailed": "Failed to demote admin.",
+      "deleteOrgFailed": "Failed to delete organisation.",
+      "createIpBanFailed": "Failed to create IP ban.",
+      "removeIpBanFailed": "Failed to remove IP ban.",
+      "rateLimitFailed": "Failed to update rate limit.",
+      "restoreFailed": "Failed to restore resource.",
+      "resetGraphragFailed": "Failed to reset GraphRAG index."
     }
   }
 }

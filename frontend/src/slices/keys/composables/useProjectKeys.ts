@@ -1,11 +1,9 @@
 import { computed, ref } from 'vue'
-import { useToast } from '@shared/composables'
 import { errorMessage } from '@shared/errors'
 import { projectKeysApi } from '../api/project-keys'
 import type { ApiKey } from '../api/keys'
 
 export function useProjectKeys(projectId: () => string) {
-  const toast = useToast()
   const carried = ref<ApiKey[]>([])
   const loading = ref(false)
   const error = ref<string | null>(null)
@@ -24,7 +22,6 @@ export function useProjectKeys(projectId: () => string) {
       carried.value = data
     } catch (e) {
       error.value = errorMessage(e)
-      toast.error('Failed to load project keys.')
     } finally {
       loading.value = false
     }
@@ -37,7 +34,6 @@ export function useProjectKeys(projectId: () => string) {
       await projectKeysApi.carry(pid, keyId)
     } catch (e) {
       error.value = errorMessage(e)
-      toast.error('Failed to carry key to project.')
     }
     await reload()
   }
@@ -49,7 +45,6 @@ export function useProjectKeys(projectId: () => string) {
       await projectKeysApi.withdraw(pid, keyId)
     } catch (e) {
       error.value = errorMessage(e)
-      toast.error('Failed to withdraw key from project.')
     }
     await reload()
   }

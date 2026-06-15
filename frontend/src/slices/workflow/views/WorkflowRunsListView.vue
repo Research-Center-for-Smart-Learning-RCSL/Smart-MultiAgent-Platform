@@ -105,11 +105,13 @@ import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import { computed, ref } from 'vue'
 import { useRoute } from 'vue-router'
 
+import { useI18n } from 'vue-i18n'
 import { useToast } from '@shared/composables'
 import { SPageHeader, SStatusBadge } from '@shared/ui'
 import { listRuns, triggerRun } from '../api'
 import { wfKeys } from '../queries'
 
+const { t } = useI18n()
 const route = useRoute()
 const toast = useToast()
 const qc = useQueryClient()
@@ -128,7 +130,7 @@ async function onTrigger(): Promise<void> {
     await triggerRun(workflowId)
     qc.invalidateQueries({ queryKey: wfKeys.runs(workflowId) })
   } catch {
-    toast.error('Failed to trigger workflow run.')
+    toast.error(t('workflow.runs.triggerFailed'))
   }
 }
 </script>

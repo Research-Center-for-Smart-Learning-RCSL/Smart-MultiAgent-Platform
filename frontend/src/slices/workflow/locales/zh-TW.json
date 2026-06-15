@@ -54,7 +54,8 @@
       "ended": "結束時間",
       "inspect": "檢視",
       "archived": "已封存",
-      "empty": "尚無執行紀錄。"
+      "empty": "尚無執行紀錄。",
+      "triggerFailed": "觸發工作流程執行失敗。"
     },
     "run": {
       "title": "執行檢視器",
