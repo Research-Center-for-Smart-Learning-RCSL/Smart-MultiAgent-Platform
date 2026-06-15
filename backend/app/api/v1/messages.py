@@ -17,7 +17,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Path, Query, stat
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.v1.attachments import AttachmentOut
+from app.api.v1.attachments import AttachmentOut, to_attachment_out
 from contexts.conversation.application.access import (
     RoomAccess,
     ensure_can_read,
@@ -86,19 +86,6 @@ class MessageOut(BaseModel):
     attachments: list[AttachmentOut] = []
 
 
-def _att_out(a: object) -> AttachmentOut:
-    return AttachmentOut(
-        id=a.id,  # type: ignore[attr-defined]
-        chatroom_id=a.chatroom_id,  # type: ignore[attr-defined]
-        message_id=a.message_id,  # type: ignore[attr-defined]
-        filename=a.filename,  # type: ignore[attr-defined]
-        mime=a.mime,  # type: ignore[attr-defined]
-        size_bytes=a.size_bytes,  # type: ignore[attr-defined]
-        status=a.status.value,  # type: ignore[attr-defined]
-        scan_status=a.scan_status.value,  # type: ignore[attr-defined]
-    )
-
-
 def _to_out(m: Message, attachments: Sequence[object] = ()) -> MessageOut:
     return MessageOut(
         id=m.id,
@@ -111,7 +98,7 @@ def _to_out(m: Message, attachments: Sequence[object] = ()) -> MessageOut:
         created_at=m.created_at.isoformat() if m.created_at else None,
         edited_at=m.edited_at.isoformat() if m.edited_at else None,
         deleted_at=m.deleted_at.isoformat() if m.deleted_at else None,
-        attachments=[_att_out(a) for a in attachments],
+        attachments=[to_attachment_out(a) for a in attachments],
     )
 
 
@@ -298,7 +285,7 @@ async def edit_message(
         request_id=ctx.request_id,
     )
     _ = msg  # preserved for clarity; service re-reads before updating
-    return _to_out(updated)
+    return _to_out(updated, await service.list_attachments(updated.id))
 
 
 @message_router.delete(

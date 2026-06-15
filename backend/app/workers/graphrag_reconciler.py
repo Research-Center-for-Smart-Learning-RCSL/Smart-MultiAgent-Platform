@@ -15,6 +15,8 @@ from __future__ import annotations
 import asyncio
 import logging
 import uuid
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from typing import Any
 
 from app.config.settings import get_settings
@@ -129,8 +131,11 @@ def _make_phase2_retry(
     return _retry
 
 
-def _build_loop() -> tuple[ReconciliationLoop, Neo4jAsyncDriver]:
-    """Construct a reconciliation loop + its Neo4j driver (caller closes it)."""
+@asynccontextmanager
+async def _loop() -> AsyncIterator[ReconciliationLoop]:
+    """Build a reconciliation loop and tear down BOTH its Neo4j AND Qdrant
+    clients on exit. (The cron tick runs once per minute, so a leaked Qdrant
+    client per tick would exhaust the worker's sockets — close both.)"""
     settings = get_settings()
     neo4j = Neo4jAsyncDriver(
         uri=settings.neo4j.url,
@@ -148,26 +153,24 @@ def _build_loop() -> tuple[ReconciliationLoop, Neo4jAsyncDriver]:
         snapshot_store=RedisSnapshotStore(),
         phase2_retry=_make_phase2_retry(neo4j, vectors),
     )
-    return loop, neo4j
+    try:
+        yield loop
+    finally:
+        await neo4j.close()
+        await qclient.close()
 
 
 async def reconcile_once() -> list[uuid.UUID]:
     """One scan-and-heal pass; builds deps, runs, tears down. The arq cron tick
     (M.5.4) calls this; the standalone process below uses ``run_forever``."""
-    loop, neo4j = _build_loop()
-    try:
+    async with _loop() as loop:
         return await loop.run_once()
-    finally:
-        await neo4j.close()
 
 
 async def _main() -> None:
     logging.basicConfig(level=logging.INFO)
-    loop, neo4j = _build_loop()
-    try:
+    async with _loop() as loop:
         await loop.run_forever(period_s=60.0)
-    finally:
-        await neo4j.close()
 
 
 def run() -> None:

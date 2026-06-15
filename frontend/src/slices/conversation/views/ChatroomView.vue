@@ -122,6 +122,10 @@
               {{ att.filename }}
             </button>
             <span
+              v-else-if="att.status === 'quarantined'"
+              class="attachment-gone"
+            >{{ $t('conversation.chatroom.attachmentQuarantined', { name: att.filename }) }}</span>
+            <span
               v-else
               class="attachment-gone"
             >{{ $t('conversation.chatroom.attachmentExpired', { name: att.filename }) }}</span>
@@ -463,15 +467,22 @@ async function saveEdit(): Promise<void> {
   }
 }
 
-async function downloadAttachment(att: Attachment): Promise<void> {
-  // Fetch a short-lived presigned URL on demand (R13.10) and open it; the URL
-  // points straight at object storage, so no bytes flow through the SPA.
-  try {
-    const dl = await getAttachment(att.id)
-    window.open(dl.url, '_blank', 'noopener')
-  } catch {
-    ElMessage.error(t('conversation.chatroom.attachmentFailed'))
-  }
+function downloadAttachment(att: Attachment): void {
+  // Open the tab synchronously inside the click gesture, THEN fetch the
+  // short-lived presigned URL and point the tab at it. window.open() after an
+  // await is treated as a programmatic popup and silently blocked (and returns
+  // null, so a try/catch around it never fires). The URL goes straight to object
+  // storage, so no bytes flow through the SPA.
+  const win = window.open('about:blank', '_blank')
+  getAttachment(att.id)
+    .then((dl) => {
+      if (win) win.location.href = dl.url
+      else window.location.href = dl.url // popup blocked → fall back to this tab
+    })
+    .catch(() => {
+      win?.close()
+      ElMessage.error(t('conversation.chatroom.attachmentFailed'))
+    })
 }
 
 async function confirmDelete(m: Message): Promise<void> {

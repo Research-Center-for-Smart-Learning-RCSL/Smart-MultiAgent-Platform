@@ -409,6 +409,21 @@ async def add_mcp_binding(
     if not decision.allowed:
         _raise_forbidden(decision.reason)
 
+    # A `builtin` binding toggles built-in tools per agent; if it names no known
+    # tool (in `reference` or `allowed_tools`) it would silently disable ALL of
+    # them for the agent (the gate only defaults-on when there are zero builtin
+    # bindings). Reject it at creation rather than let it become a dead binding.
+    if body.source == "builtin":
+        from contexts.agents.application.runtime.builtin_tools import BUILTIN_TOOL_NAMES
+
+        named = {body.reference, *body.allowed_tools} & BUILTIN_TOOL_NAMES
+        if not named:
+            raise HTTPException(
+                status_code=422,
+                detail=f"builtin MCP binding must name one of {sorted(BUILTIN_TOOL_NAMES)} "
+                "in reference or allowed_tools",
+            )
+
     binding = await service.add_mcp_binding(
         agent_id=agent_id,
         source=McpSource(body.source),

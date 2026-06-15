@@ -17,6 +17,7 @@ raises into the loop — a missing search key or a sandbox fault surfaces as an
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
@@ -28,9 +29,6 @@ from contexts.agents.domain.models import Agent, McpBinding, McpSource
 
 # Per-tool output caps so a chatty tool can't blow the context window.
 _MAX_TOOL_OUTPUT = 16_000
-
-# The built-in tools an agent may enable via a `source='builtin'` MCP binding.
-_BUILTIN_TOOL_NAMES = frozenset({"web_search", "code_exec", "file"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -284,6 +282,17 @@ def _unseal_binding_auth(binding: McpBinding) -> dict[str, Any] | None:
         return None
 
 
+# Single source of truth for the built-in tools, in a stable order: name → its
+# builder. `BUILTIN_TOOL_NAMES` (public) is derived from it and reused by the
+# binding-creation validator so a builtin binding can't name a non-tool.
+_BUILTIN_BUILDERS: dict[str, Callable[..., Tool]] = {
+    "web_search": _build_web_search_tool,
+    "code_exec": _build_code_exec_tool,
+    "file": _build_file_tool,
+}
+BUILTIN_TOOL_NAMES = frozenset(_BUILTIN_BUILDERS)
+
+
 def _enabled_builtins(mcp_bindings: list[McpBinding]) -> set[str]:
     """Which built-in tools (web_search/code_exec/file) an agent has enabled.
 
@@ -297,12 +306,12 @@ def _enabled_builtins(mcp_bindings: list[McpBinding]) -> set[str]:
     """
     builtin_bindings = [b for b in mcp_bindings if b.source == McpSource.BUILTIN]
     if not builtin_bindings:
-        return set(_BUILTIN_TOOL_NAMES)
+        return set(BUILTIN_TOOL_NAMES)
     enabled: set[str] = set()
     for b in builtin_bindings:
-        if b.reference in _BUILTIN_TOOL_NAMES:
+        if b.reference in BUILTIN_TOOL_NAMES:
             enabled.add(b.reference)
-        enabled.update(t for t in b.allowed_tools if t in _BUILTIN_TOOL_NAMES)
+        enabled.update(t for t in b.allowed_tools if t in BUILTIN_TOOL_NAMES)
     return enabled
 
 
@@ -320,15 +329,8 @@ def build_builtin_tools(
     server) — only url/package bindings produce sandboxed MCP tools.
     """
     enabled = _enabled_builtins(mcp_bindings)
-    builders = {
-        "web_search": _build_web_search_tool,
-        "code_exec": _build_code_exec_tool,
-        "file": _build_file_tool,
-    }
     tools: list[Tool] = [
-        builders[name](db, agent=agent, deps=deps)
-        for name in ("web_search", "code_exec", "file")
-        if name in enabled
+        builder(db, agent=agent, deps=deps) for name, builder in _BUILTIN_BUILDERS.items() if name in enabled
     ]
     for binding in mcp_bindings:
         if binding.source == McpSource.BUILTIN:
@@ -338,4 +340,4 @@ def build_builtin_tools(
     return tools
 
 
-__all__ = ["BuiltinToolDeps", "build_builtin_tools", "default_builtin_deps"]
+__all__ = ["BUILTIN_TOOL_NAMES", "BuiltinToolDeps", "build_builtin_tools", "default_builtin_deps"]

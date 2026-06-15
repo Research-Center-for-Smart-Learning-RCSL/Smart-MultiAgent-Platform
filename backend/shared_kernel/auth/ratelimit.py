@@ -97,6 +97,19 @@ def default_policies(settings: Settings | None = None) -> dict[Bucket, Policy]:
     }
 
 
+async def mirror_policy(key: str, *, window_sec: int, max_count: int, scope: str) -> None:
+    """Write one policy into the limiter's hot-path Redis mirror.
+
+    Single source of truth for the ``config:ratelimit:{key}`` hash shape, shared
+    by startup priming and the admin PATCH so the two can never write a different
+    field set. ``_resolve_policy`` reads exactly these fields.
+    """
+    await get_redis().hset(
+        f"config:ratelimit:{key}",
+        mapping={"window_sec": int(window_sec), "max_count": int(max_count), "scope": scope},
+    )
+
+
 async def prime_policies() -> None:
     """Seed the DB policy rows from compile-time defaults and mirror them into
     Redis. Run once at app startup so:
@@ -127,14 +140,10 @@ async def prime_policies() -> None:
         ).all()
 
     bucket_keys = {b.value for b in Bucket}
-    r = get_redis()
     for key, window_sec, max_count, scope in rows:
         if key not in bucket_keys:
             continue  # e.g. advisory_* rows share this table; not limiter buckets
-        await r.hset(
-            f"config:ratelimit:{key}",
-            mapping={"window_sec": int(window_sec), "max_count": int(max_count), "scope": scope},
-        )
+        await mirror_policy(key, window_sec=window_sec, max_count=max_count, scope=scope)
 
 
 async def _resolve_policy(bucket: Bucket) -> Policy:
