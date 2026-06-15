@@ -13,9 +13,7 @@ test.describe('Notifications: bell badge → list → mark-read (M.2)', () => {
 
   test('mark-all button exists on notifications page', async ({ authedPage: page }) => {
     await page.goto('/notifications')
-    await expect(
-      page.getByRole('button', { name: /mark.*all/i }).or(page.getByText(/no.*notification/i)),
-    ).toBeVisible()
+    await expect(page.getByRole('button', { name: /mark.*all/i })).toBeVisible()
   })
 
   test('bell badge updates after mark-read', async ({ authedPage: page }) => {
