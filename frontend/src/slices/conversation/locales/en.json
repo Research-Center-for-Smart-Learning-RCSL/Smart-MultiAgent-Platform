@@ -49,6 +49,7 @@
       "deleteConfirm": "Delete this message? This removes it for everyone and cannot be undone.",
       "deleteFailed": "Failed to delete message.",
       "attachmentExpired": "[attachment expired] {name}",
+      "attachmentQuarantined": "[attachment blocked] {name}",
       "attachmentFailed": "Failed to open attachment."
     },
     "settings": {

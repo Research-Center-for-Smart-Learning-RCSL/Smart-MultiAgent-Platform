@@ -781,16 +781,6 @@ async def patch_rate_limit(
     if row is None:
         raise HTTPException(status_code=404, detail="Rate-limit policy not found")
 
-    # Mirror the new policy into Redis so the live limiter picks it up at once
-    # (the hot path reads config:ratelimit:{bucket}, not the DB). Without this the
-    # change would only persist in Postgres and never take effect.
-    from shared_kernel.auth.clients import get_redis
-
-    await get_redis().hset(
-        f"config:ratelimit:{row[0]}",
-        mapping={"window_sec": int(row[1]), "max_count": int(row[2]), "scope": row[3]},
-    )
-
     await audit.emit(
         db,
         audit.AuditEvent(
@@ -802,6 +792,15 @@ async def patch_rate_limit(
             request_id=ctx.request_id,
         ),
     )
+
+    # Persist FIRST (the DB row is authoritative), THEN mirror into Redis so the
+    # live limiter picks it up. If we mirrored before committing and the commit
+    # later failed, Redis would enforce a policy Postgres rolled back. Commit here
+    # explicitly (the db_session trailing commit then no-ops).
+    from shared_kernel.auth.ratelimit import mirror_policy
+
+    await db.commit()
+    await mirror_policy(row[0], window_sec=int(row[1]), max_count=int(row[2]), scope=row[3])
     return RateLimitPolicyOut(
         key=row[0],
         window_sec=row[1],

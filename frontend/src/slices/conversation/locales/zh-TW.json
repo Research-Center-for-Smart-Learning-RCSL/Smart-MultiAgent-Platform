@@ -49,6 +49,7 @@
       "deleteConfirm": "刪除此訊息？這會對所有人移除且無法復原。",
       "deleteFailed": "刪除訊息失敗。",
       "attachmentExpired": "［附件已過期］{name}",
+      "attachmentQuarantined": "［附件已封鎖］{name}",
       "attachmentFailed": "開啟附件失敗。"
     },
     "settings": {

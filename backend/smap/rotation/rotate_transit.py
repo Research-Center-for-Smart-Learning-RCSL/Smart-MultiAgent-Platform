@@ -57,21 +57,22 @@ async def _rotate_transit(client: VaultClient) -> None:
     )
 
 
-def _resume_cursor(existing: object | None, target_version: int) -> tuple[int | None, int, str]:
+def _resume_cursor(existing: object | None, target_version: int) -> tuple[int | None, int, bool]:
     """Decide the resume cursor for a rewrap given the existing progress row.
 
-    Returns ``(last_id, rows_rewrapped, action)`` where action is one of
-    ``"insert"`` (no row yet), ``"reset"`` (a row for a DIFFERENT target — a new
-    rotation, so the cursor MUST restart at the table head or every row is
-    skipped), or ``"resume"`` (same target — crash-resume from the checkpoint).
+    Returns ``(last_id, rows_rewrapped, resume)``. ``resume=False`` starts a
+    FRESH rotation — either no row yet, or a row for a DIFFERENT target version,
+    in which case the cursor MUST restart at the table head (else the prior
+    rotation's last_id makes ``id > last_id`` skip every row). ``resume=True`` is
+    a crash-resume of the SAME target from its checkpoint.
 
     Pure so the reset-vs-resume decision is unit-testable without a database.
     """
     if existing is None:
-        return None, 0, "insert"
+        return None, 0, False
     if int(existing.target_transit_version) != target_version:  # type: ignore[attr-defined]
-        return None, 0, "reset"
-    return existing.last_id, int(existing.rows_rewrapped), "resume"  # type: ignore[attr-defined]
+        return None, 0, False
+    return existing.last_id, int(existing.rows_rewrapped), True  # type: ignore[attr-defined]
 
 
 async def _rewrap_table(
@@ -98,33 +99,36 @@ async def _rewrap_table(
     existing = (
         await db.execute(t.rewrap_progress.select().where(t.rewrap_progress.c.table_name == table_name))
     ).one_or_none()
-    last_id, total_rewrapped, action = _resume_cursor(existing, target_version)
+    last_id, total_rewrapped, resume = _resume_cursor(existing, target_version)
 
-    if action == "insert":
+    if resume:
+        # Same target — keep the checkpoint, just clear the completed marker.
         await db.execute(
-            pg_insert(t.rewrap_progress).values(
+            t.rewrap_progress.update()
+            .where(t.rewrap_progress.c.table_name == table_name)
+            .values(completed_at=None)
+        )
+    else:
+        # Fresh rotation (no row, or a new target): reset the cursor to the table
+        # head. ON CONFLICT DO UPDATE keeps this atomic so a concurrent/duplicate
+        # start merges to the same reset state instead of a PK IntegrityError.
+        await db.execute(
+            pg_insert(t.rewrap_progress)
+            .values(
                 table_name=table_name,
                 last_id=None,
                 target_transit_version=target_version,
                 rows_rewrapped=0,
             )
-        )
-    elif action == "reset":
-        await db.execute(
-            t.rewrap_progress.update()
-            .where(t.rewrap_progress.c.table_name == table_name)
-            .values(
-                target_transit_version=target_version,
-                completed_at=None,
-                last_id=None,
-                rows_rewrapped=0,
+            .on_conflict_do_update(
+                index_elements=["table_name"],
+                set_={
+                    "target_transit_version": target_version,
+                    "completed_at": None,
+                    "last_id": None,
+                    "rows_rewrapped": 0,
+                },
             )
-        )
-    else:  # resume
-        await db.execute(
-            t.rewrap_progress.update()
-            .where(t.rewrap_progress.c.table_name == table_name)
-            .values(completed_at=None)
         )
 
     await db.commit()

@@ -91,7 +91,7 @@ async def create_single_shot(
         actor_ip=ctx.actor_ip,
         request_id=ctx.request_id,
     )
-    return _to_out(attachment)
+    return to_attachment_out(attachment)
 
 
 @attachment_router.get("/{attachment_id}")
@@ -123,11 +123,15 @@ async def read_attachment(
         ensure_can_read(access, is_admin=principal.is_admin)
 
     ptr = await service.get_for_download(attachment_id=attachment_id)
-    base = _to_out(ptr.attachment).model_dump()
+    base = to_attachment_out(ptr.attachment).model_dump()
     return AttachmentDownloadOut(url=ptr.url, **base)
 
 
-def _to_out(m: object) -> AttachmentOut:
+def to_attachment_out(m: object) -> AttachmentOut:
+    """Map a `MessageAttachment` domain row to the wire `AttachmentOut`.
+
+    Shared converter — also used by the messages router to embed a message's
+    attachments, so the two responses never diverge."""
     return AttachmentOut(
         id=m.id,  # type: ignore[attr-defined]
         chatroom_id=m.chatroom_id,  # type: ignore[attr-defined]
@@ -142,4 +146,4 @@ def _to_out(m: object) -> AttachmentOut:
 
 _ = ConversationFacade  # retained for future cross-context reads
 
-__all__ = ["attachment_router", "chatroom_router"]
+__all__ = ["AttachmentOut", "attachment_router", "chatroom_router", "to_attachment_out"]

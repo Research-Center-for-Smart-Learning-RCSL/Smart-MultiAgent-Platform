@@ -10,7 +10,8 @@ from __future__ import annotations
 import uuid
 from types import SimpleNamespace
 
-from app.api.v1.messages import _att_out, _to_out
+from app.api.v1.attachments import to_attachment_out
+from app.api.v1.messages import _to_out
 
 
 def _msg() -> SimpleNamespace:
@@ -53,7 +54,7 @@ def test_to_out_embeds_attachments() -> None:
     assert "expired" in {a.status for a in out.attachments}
 
 
-def test_att_out_maps_enum_status_to_str() -> None:
-    out = _att_out(_att(status="quarantined", scan="quarantined"))
+def test_attachment_converter_maps_enum_status_to_str() -> None:
+    out = to_attachment_out(_att(status="quarantined", scan="quarantined"))
     assert out.status == "quarantined"
     assert out.scan_status == "quarantined"

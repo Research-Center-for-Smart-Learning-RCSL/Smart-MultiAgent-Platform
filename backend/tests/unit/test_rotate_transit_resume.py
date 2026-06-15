@@ -23,16 +23,18 @@ class _Progress:
 
 
 def test_no_existing_row_starts_fresh() -> None:
-    assert _resume_cursor(None, target_version=2) == (None, 0, "insert")
+    # resume=False → caller does the fresh-start upsert (cursor at the head).
+    assert _resume_cursor(None, target_version=2) == (None, 0, False)
 
 
 def test_new_rotation_resets_cursor() -> None:
     # Rotation 1 → v2 completed, cursor parked at the table's max id (999).
     existing = _Progress(target_transit_version=2, last_id=999, rows_rewrapped=500)
-    # Rotation 2 → v3 must restart at the head, NOT inherit last_id=999.
-    assert _resume_cursor(existing, target_version=3) == (None, 0, "reset")
+    # Rotation 2 → v3 must restart at the head (resume=False, last_id=None),
+    # NOT inherit last_id=999 (which would skip every row).
+    assert _resume_cursor(existing, target_version=3) == (None, 0, False)
 
 
 def test_same_rotation_resumes_from_checkpoint() -> None:
     existing = _Progress(target_transit_version=3, last_id=420, rows_rewrapped=42)
-    assert _resume_cursor(existing, target_version=3) == (420, 42, "resume")
+    assert _resume_cursor(existing, target_version=3) == (420, 42, True)
