@@ -6,9 +6,9 @@ import { useForm } from 'vee-validate'
 import { toTypedSchema } from '@vee-validate/zod'
 import { computed, watch } from 'vue'
 
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessageBox } from 'element-plus'
 import { FormField } from '@shared/ui'
-import { useServerErrors } from '@shared/composables'
+import { useServerErrors, useToast } from '@shared/composables'
 import { keyGroupsApi, keysKeys } from '@slices/keys'
 import { agentsApi } from '../api'
 import { agentKeys } from '../queries'
@@ -18,6 +18,7 @@ const { t } = useI18n()
 const route = useRoute()
 const router = useRouter()
 const qc = useQueryClient()
+const toast = useToast()
 const agentId = route.params.agentId as string
 
 const query = useQuery({
@@ -118,11 +119,11 @@ const patchMutation = useMutation({
   },
   onSuccess: () => {
     qc.invalidateQueries({ queryKey: agentKeys.agent(agentId) })
-    ElMessage.success(t('agents.detail.saved'))
+    toast.success(t('agents.detail.saved'))
   },
   onError: (err) => {
     if (!applyServerErrors(err)) {
-      ElMessage.error(t('agents.detail.saveFailed'))
+      toast.error(t('agents.detail.saveFailed'))
     }
   },
 })
@@ -132,7 +133,7 @@ const deleteMutation = useMutation({
   onSuccess: () => {
     router.back()
   },
-  onError: () => ElMessage.error(t('agents.detail.deleteFailed')),
+  onError: () => toast.error(t('agents.detail.deleteFailed')),
 })
 
 async function onDelete(): Promise<void> {

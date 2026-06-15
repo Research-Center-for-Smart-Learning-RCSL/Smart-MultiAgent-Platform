@@ -3,8 +3,9 @@ import { ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/vue-query'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessageBox } from 'element-plus'
 
+import { useToast } from '@shared/composables'
 import { tusUpload } from '@shared/transport'
 import { agentsApi, RAG_MULTIPART_MAX, type RagDocument } from '../api'
 import { agentKeys } from '../queries'
@@ -15,6 +16,7 @@ const route = useRoute()
 const qc = useQueryClient()
 const projectId = route.params.projectId as string
 const configId = route.params.configId as string
+const toast = useToast()
 
 // Live ingestion status (ws:rag-configs/{id}) — drives the in-flight badge and
 // refetches the document list when the worker reaches a terminal state.
@@ -66,10 +68,10 @@ async function onFile(event: Event): Promise<void> {
         },
       })
     }
-    ElMessage.success(t('agents.rag.uploadStarted'))
+    toast.success(t('agents.rag.uploadStarted'))
     qc.invalidateQueries({ queryKey: agentKeys.ragDocuments(configId) })
   } catch {
-    ElMessage.error(t('agents.rag.uploadFailed'))
+    toast.error(t('agents.rag.uploadFailed'))
   } finally {
     uploading.value = false
     if (fileInput.value) fileInput.value.value = ''
@@ -79,10 +81,10 @@ async function onFile(event: Event): Promise<void> {
 const deleteMutation = useMutation({
   mutationFn: (id: string) => agentsApi.deleteDocument(id),
   onSuccess: () => {
-    ElMessage.success(t('agents.rag.deleted'))
+    toast.success(t('agents.rag.deleted'))
     qc.invalidateQueries({ queryKey: agentKeys.ragDocuments(configId) })
   },
-  onError: () => ElMessage.error(t('agents.rag.deleteFailed')),
+  onError: () => toast.error(t('agents.rag.deleteFailed')),
 })
 
 async function confirmDelete(doc: RagDocument): Promise<void> {

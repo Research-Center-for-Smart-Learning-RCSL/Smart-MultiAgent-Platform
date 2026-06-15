@@ -1,3 +1,4 @@
+import '@shared/styles/main.css'
 import { createApp } from 'vue'
 import { createPinia } from 'pinia'
 import { VueQueryPlugin } from '@tanstack/vue-query'

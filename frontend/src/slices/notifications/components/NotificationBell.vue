@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useQuery } from '@tanstack/vue-query'
+import { BellIcon } from '@heroicons/vue/24/outline'
 import { useSessionStore } from '@slices/identity'
 import { notificationsApi } from '../api'
 import { notificationKeys } from '../queries'
@@ -35,21 +36,10 @@ const badge = computed(() => (count.value > 99 ? '99+' : String(count.value)))
     :to="{ name: 'notifications.list' }"
     :aria-label="t('notifications.bellLabel', { count })"
   >
-    <svg
+    <BellIcon
       class="notif-bell__icon"
-      viewBox="0 0 24 24"
-      width="22"
-      height="22"
-      fill="none"
-      stroke="currentColor"
-      stroke-width="2"
-      stroke-linecap="round"
-      stroke-linejoin="round"
       aria-hidden="true"
-    >
-      <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
-      <path d="M13.73 21a2 2 0 0 1-3.46 0" />
-    </svg>
+    />
     <span
       v-if="count > 0"
       class="notif-bell__badge"
@@ -59,13 +49,7 @@ const badge = computed(() => (count.value > 99 ? '99+' : String(count.value)))
 
 <style scoped>
 .notif-bell {
-  position: fixed;
-  top: var(--space-3, 0.75rem);
-  right: var(--space-3, 0.75rem);
-  /* Above the impersonation banner (z-9999) so the bell is never hidden behind
-     it. A proper app header would remove the need for a fixed overlay entirely
-     (tracked as M.4 layout work). */
-  z-index: 10000;
+  position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -75,6 +59,10 @@ const badge = computed(() => (count.value > 99 ? '99+' : String(count.value)))
   color: var(--color-text, #1f2937);
   background: var(--color-surface, #fff);
   border: 1px solid var(--color-border, #e5e7eb);
+}
+.notif-bell__icon {
+  width: 22px;
+  height: 22px;
 }
 .notif-bell:hover {
   background: var(--color-surface-hover, #f3f4f6);

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
-import { ElMessage } from 'element-plus'
+import { useToast } from '@shared/composables'
 import { useI18n } from 'vue-i18n'
 import { useMyKeys } from '../composables/useMyKeys'
 import { useProjectKeys } from '../composables/useProjectKeys'
@@ -9,6 +9,7 @@ import { projectKeysApi, type KeyUsage, type UsageWindow } from '../api/project-
 import CapabilityChip from '../components/CapabilityChip.vue'
 
 const { t } = useI18n()
+const toast = useToast()
 const route = useRoute()
 const projectId = computed(() => route.params.projectId as string)
 
@@ -48,7 +49,7 @@ async function loadUsage(keyId: string): Promise<void> {
     const { data } = await projectKeysApi.usage(projectId.value, keyId, w)
     usageState.value = { ...usageState.value, [keyId]: { window: w, usage: data } }
   } catch {
-    ElMessage.error(t('keys.project.usageError'))
+    toast.error(t('keys.project.usageError'))
   }
 }
 

@@ -61,73 +61,75 @@
     >
       …
     </p>
-    <table
+    <div
       v-else-if="steps.length"
-      class="w-full text-sm"
+      class="overflow-x-auto"
     >
-      <thead>
-        <tr class="border-b text-left">
-          <th
-            scope="col"
-            class="py-1"
-          >
-            {{ $t('workflow.run.nodeId') }}
-          </th>
-          <th
-            scope="col"
-            class="py-1"
-          >
-            {{ $t('workflow.run.state') }}
-          </th>
-          <th
-            scope="col"
-            class="py-1"
-          >
-            {{ $t('workflow.run.started') }}
-          </th>
-          <th
-            scope="col"
-            class="py-1"
-          >
-            {{ $t('workflow.run.ended') }}
-          </th>
-          <th
-            scope="col"
-            class="py-1"
-          >
-            {{ $t('workflow.run.error') }}
-          </th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr
-          v-for="step in steps"
-          :key="step.id"
-          class="border-b"
-        >
-          <td class="py-1 font-mono text-xs">
-            {{ step.node_id }}
-          </td>
-          <td class="py-1">
-            <span
-              class="px-1.5 py-0.5 text-xs rounded"
-              :class="stateClass(step.state)"
+      <table class="w-full text-sm">
+        <thead>
+          <tr class="border-b text-left">
+            <th
+              scope="col"
+              class="py-1"
             >
-              {{ step.state }}
-            </span>
-          </td>
-          <td class="py-1 text-gray-500">
-            {{ new Date(step.started_at).toLocaleTimeString() }}
-          </td>
-          <td class="py-1 text-gray-500">
-            {{ step.ended_at ? new Date(step.ended_at).toLocaleTimeString() : '—' }}
-          </td>
-          <td class="py-1 text-red-600 text-xs truncate max-w-[200px]">
-            {{ step.error ?? '' }}
-          </td>
-        </tr>
-      </tbody>
-    </table>
+              {{ $t('workflow.run.nodeId') }}
+            </th>
+            <th
+              scope="col"
+              class="py-1"
+            >
+              {{ $t('workflow.run.state') }}
+            </th>
+            <th
+              scope="col"
+              class="py-1"
+            >
+              {{ $t('workflow.run.started') }}
+            </th>
+            <th
+              scope="col"
+              class="py-1"
+            >
+              {{ $t('workflow.run.ended') }}
+            </th>
+            <th
+              scope="col"
+              class="py-1"
+            >
+              {{ $t('workflow.run.error') }}
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr
+            v-for="step in steps"
+            :key="step.id"
+            class="border-b"
+          >
+            <td class="py-1 font-mono text-xs">
+              {{ step.node_id }}
+            </td>
+            <td class="py-1">
+              <span
+                class="px-1.5 py-0.5 text-xs rounded"
+                :class="stateClass(step.state)"
+              >
+                {{ step.state }}
+              </span>
+            </td>
+            <td class="py-1 text-gray-500">
+              {{ new Date(step.started_at).toLocaleTimeString() }}
+            </td>
+            <td class="py-1 text-gray-500">
+              {{ step.ended_at ? new Date(step.ended_at).toLocaleTimeString() : '—' }}
+            </td>
+            <td class="py-1 text-red-600 text-xs truncate max-w-[200px]">
+              {{ step.error ?? '' }}
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
     <p
       v-else
       class="text-gray-400"
@@ -142,7 +144,7 @@ import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
-import { ElMessage } from 'element-plus'
+import { useToast } from '@shared/composables'
 import { useI18n } from 'vue-i18n'
 import { cancelRun, getRun, listSteps } from '../api'
 import { useWorkflowRunSocket } from '../composables/useWorkflowRunSocket'
@@ -154,6 +156,7 @@ const route = useRoute()
 const router = useRouter()
 const qc = useQueryClient()
 const runId = route.params.runId as string
+const toast = useToast()
 
 const { connected } = useWorkflowRunSocket(runId)
 
@@ -211,7 +214,7 @@ async function onCancel(): Promise<void> {
     qc.invalidateQueries({ queryKey: wfKeys.run(runId) })
     qc.invalidateQueries({ queryKey: wfKeys.steps(runId) })
   } catch {
-    ElMessage.error(t('workflow.run.cancelFailed'))
+    toast.error(t('workflow.run.cancelFailed'))
   }
 }
 </script>

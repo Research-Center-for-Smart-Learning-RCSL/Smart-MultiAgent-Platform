@@ -36,4 +36,4 @@ Each slice directory contains:
 2. **Public-surface only.** Cross-slice imports go through `@slices/<name>` (the slice `index.ts`), never deep paths.
 3. **Store ↔ API boundary.** Stores never import `api/` directly — they subscribe to `queries/` or accept values from views.
 4. **Single v-html site.** Only `slices/conversation/lib/renderMarkdown.ts` is allowed to render sanitised HTML.
-5. **No global CSS.** Component `<style scoped>` only. Shared tokens live in `@shared/styles/tokens.css`.
+5. **No global CSS.** Component `<style scoped>` only. Design tokens and component classes live in `@shared/styles/main.css` (Tailwind v4 + `@theme`).

@@ -1,19 +1,21 @@
 <script setup lang="ts">
 import { ImpersonationBanner } from '@slices/admin'
 import { NotificationBell } from '@slices/notifications'
-import { useBanKickGuard } from '@shared/composables'
+import { useBanKickGuard, useTheme } from '@shared/composables'
+import { ThemeToggle } from '@shared/ui'
 import ErrorBoundary from './ErrorBoundary.vue'
 
 useBanKickGuard()
+useTheme()
 </script>
 
 <template>
   <ImpersonationBanner />
-  <!-- The bell is always-present chrome above the routed view; isolate it in
-       its own boundary so a render/setup throw in it (query, socket, i18n)
-       cannot escape past App and blank the whole app (FE-11). -->
   <ErrorBoundary>
-    <NotificationBell />
+    <div class="app-chrome">
+      <ThemeToggle />
+      <NotificationBell />
+    </div>
   </ErrorBoundary>
   <!--
     ErrorBoundary contains a render-time throw in any view to a retry
@@ -29,3 +31,15 @@ useBanKickGuard()
     <router-view :key="$route.path" />
   </ErrorBoundary>
 </template>
+
+<style scoped>
+.app-chrome {
+  position: fixed;
+  top: var(--space-3, 0.75rem);
+  right: var(--space-3, 0.75rem);
+  z-index: 10000;
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+</style>

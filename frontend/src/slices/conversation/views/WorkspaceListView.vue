@@ -43,7 +43,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/vue-query'
 import { ref } from 'vue'
 import { useRoute } from 'vue-router'
 
-import { ElMessage } from 'element-plus'
+import { useToast } from '@shared/composables'
 import { useI18n } from 'vue-i18n'
 import {
   createWorkspace,
@@ -57,6 +57,7 @@ const route = useRoute()
 const qc = useQueryClient()
 const projectId = route.params.projectId as string
 const newName = ref('')
+const toast = useToast()
 
 const query = useQuery({
   queryKey: convKeys.workspaces(projectId),
@@ -66,7 +67,7 @@ const query = useQuery({
 const createMutation = useMutation({
   mutationFn: (name: string) => createWorkspace(projectId, { name }),
   onSuccess: () => qc.invalidateQueries({ queryKey: convKeys.workspaces(projectId) }),
-  onError: () => ElMessage.error(t('conversation.workspaces.createFailed')),
+  onError: () => toast.error(t('conversation.workspaces.createFailed')),
 })
 
 async function onCreate(): Promise<void> {

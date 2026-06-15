@@ -5,10 +5,10 @@ import { useI18n } from 'vue-i18n'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/vue-query'
 import { useForm } from 'vee-validate'
 import { toTypedSchema } from '@vee-validate/zod'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessageBox } from 'element-plus'
 
 import { FormField } from '@shared/ui'
-import { useServerErrors } from '@shared/composables'
+import { useServerErrors, useToast } from '@shared/composables'
 import { projectKeysApi, CAPABILITIES, keysKeys, type ApiKey } from '@slices/keys'
 import { agentsApi, type RagConfig } from '../api'
 import { agentKeys } from '../queries'
@@ -18,6 +18,7 @@ const { t } = useI18n()
 const route = useRoute()
 const qc = useQueryClient()
 const projectId = route.params.projectId as string
+const toast = useToast()
 
 const showForm = ref(false)
 
@@ -146,10 +147,10 @@ const createMutation = useMutation({
     qc.invalidateQueries({ queryKey: agentKeys.ragConfigs(projectId) })
     resetCreateForm()
     showForm.value = false
-    ElMessage.success(t('agents.ragList.created'))
+    toast.success(t('agents.ragList.created'))
   },
   onError: (err) => {
-    if (!applyServerErrors(err)) ElMessage.error(t('agents.ragList.createFailed'))
+    if (!applyServerErrors(err)) toast.error(t('agents.ragList.createFailed'))
   },
 })
 
@@ -168,9 +169,9 @@ const deleteMutation = useMutation({
   mutationFn: (id: string) => agentsApi.deleteRagConfig(id),
   onSuccess: () => {
     qc.invalidateQueries({ queryKey: agentKeys.ragConfigs(projectId) })
-    ElMessage.success(t('agents.ragList.deleted'))
+    toast.success(t('agents.ragList.deleted'))
   },
-  onError: () => ElMessage.error(t('agents.ragList.deleteFailed')),
+  onError: () => toast.error(t('agents.ragList.deleteFailed')),
 })
 
 async function confirmDelete(cfg: RagConfig): Promise<void> {

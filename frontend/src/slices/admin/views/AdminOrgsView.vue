@@ -48,13 +48,15 @@
 
 <script setup lang="ts">
 import { useQuery, useMutation, useQueryClient } from '@tanstack/vue-query'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessageBox } from 'element-plus'
+import { useToast } from '@shared/composables'
 
 import { adminApi } from '../api/admin'
 import { adminKeys } from '../queries'
 import { useAdminActions } from '../composables/useAdminActions'
 
 const qc = useQueryClient()
+const toast = useToast()
 
 const query = useQuery({
   queryKey: adminKeys.orgs(),
@@ -67,7 +69,7 @@ const transferMutation = useMutation({
   mutationFn: ({ orgId, targetUserId }: { orgId: string; targetUserId: string }) =>
     adminApi.forceTransferOC(orgId, targetUserId),
   onSuccess: () => qc.invalidateQueries({ queryKey: adminKeys.orgs() }),
-  onError: () => ElMessage.error('OC transfer failed.'),
+  onError: () => toast.error('OC transfer failed.'),
 })
 
 async function onForceDelete(orgId: string, orgName: string): Promise<void> {

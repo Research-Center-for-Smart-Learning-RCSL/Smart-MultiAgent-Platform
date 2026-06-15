@@ -2,13 +2,14 @@
 import { onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { ElMessage, ElMessageBox } from 'element-plus'
-import { useInlineRename } from '@shared/composables'
+import { ElMessageBox } from 'element-plus'
+import { useInlineRename, useToast } from '@shared/composables'
 import { orgsApi, type Org, type OrgQuotas } from '../api/orgs'
 
 const { t } = useI18n()
 const route = useRoute()
 const router = useRouter()
+const toast = useToast()
 const org = ref<Org | null>(null)
 const quotas = ref<OrgQuotas | null>(null)
 const loading = ref(false)
@@ -53,7 +54,7 @@ const rename = useInlineRename({
       const { data } = await orgsApi.rename(org.value.id, name, org.value.version)
       org.value = data
     } catch (e) {
-      ElMessage.error(t('tenancy.orgs.renameError'))
+      toast.error(t('tenancy.orgs.renameError'))
       throw e
     }
   },
@@ -74,7 +75,7 @@ async function remove(): Promise<void> {
     await orgsApi.remove(org.value.id)
     router.push({ name: 'tenancy.orgList' })
   } catch {
-    ElMessage.error(t('identity.errors.generic'))
+    toast.error(t('identity.errors.generic'))
   }
 }
 

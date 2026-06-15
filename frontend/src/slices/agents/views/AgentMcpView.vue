@@ -5,10 +5,10 @@ import { useI18n } from 'vue-i18n'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/vue-query'
 import { useForm } from 'vee-validate'
 import { toTypedSchema } from '@vee-validate/zod'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessageBox } from 'element-plus'
 
 import { FormField } from '@shared/ui'
-import { useServerErrors } from '@shared/composables'
+import { useServerErrors, useToast } from '@shared/composables'
 import { agentsApi, type McpBinding, type McpTestResult } from '../api'
 import { agentKeys } from '../queries'
 import { mcpBindingCreateSchema, type McpBindingCreateInput } from '../types/schemas'
@@ -16,6 +16,7 @@ import { mcpBindingCreateSchema, type McpBindingCreateInput } from '../types/sch
 const { t } = useI18n()
 const route = useRoute()
 const qc = useQueryClient()
+const toast = useToast()
 const agentId = route.params.agentId as string
 
 // The three built-in tool names a `builtin`-source binding can reference.
@@ -75,10 +76,10 @@ const createMutation = useMutation({
     qc.invalidateQueries({ queryKey: agentKeys.mcpBindings(agentId) })
     resetCreateForm()
     showForm.value = false
-    ElMessage.success(t('agents.mcp.created'))
+    toast.success(t('agents.mcp.created'))
   },
   onError: (err) => {
-    if (!applyServerErrors(err)) ElMessage.error(t('agents.mcp.createFailed'))
+    if (!applyServerErrors(err)) toast.error(t('agents.mcp.createFailed'))
   },
 })
 
@@ -97,7 +98,7 @@ const testMutation = useMutation({
   onSuccess: (res, bindingId) => {
     testResults.value = { ...testResults.value, [bindingId]: res.data }
   },
-  onError: () => ElMessage.error(t('agents.mcp.testFailed')),
+  onError: () => toast.error(t('agents.mcp.testFailed')),
   onSettled: (_res, _err, bindingId) => {
     const next = new Set(testingIds.value)
     next.delete(bindingId)
@@ -114,9 +115,9 @@ const deleteMutation = useMutation({
   mutationFn: (bindingId: string) => agentsApi.deleteMcpBinding(agentId, bindingId),
   onSuccess: () => {
     qc.invalidateQueries({ queryKey: agentKeys.mcpBindings(agentId) })
-    ElMessage.success(t('agents.mcp.deleted'))
+    toast.success(t('agents.mcp.deleted'))
   },
-  onError: () => ElMessage.error(t('agents.mcp.deleteFailed')),
+  onError: () => toast.error(t('agents.mcp.deleteFailed')),
 })
 
 async function confirmDelete(b: McpBinding): Promise<void> {

@@ -43,7 +43,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/vue-query'
 import { ref } from 'vue'
 import { useRoute } from 'vue-router'
 
-import { ElMessage } from 'element-plus'
+import { useToast } from '@shared/composables'
 import { useI18n } from 'vue-i18n'
 import { createChatroom, listChatrooms } from '../api'
 import { convKeys } from '../queries'
@@ -51,6 +51,7 @@ import { convKeys } from '../queries'
 const { t } = useI18n()
 const route = useRoute()
 const qc = useQueryClient()
+const toast = useToast()
 const workspaceId = route.params.workspaceId as string
 const newName = ref('')
 
@@ -62,7 +63,7 @@ const query = useQuery({
 const createMutation = useMutation({
   mutationFn: (name: string) => createChatroom(workspaceId, { name }),
   onSuccess: () => qc.invalidateQueries({ queryKey: convKeys.chatrooms(workspaceId) }),
-  onError: () => ElMessage.error(t('conversation.chatrooms.createFailed')),
+  onError: () => toast.error(t('conversation.chatrooms.createFailed')),
 })
 
 async function onCreate(): Promise<void> {

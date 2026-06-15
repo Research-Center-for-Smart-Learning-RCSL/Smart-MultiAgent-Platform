@@ -1,14 +1,14 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
-import { ElMessage } from 'element-plus'
 import { useI18n } from 'vue-i18n'
-import { useInlineRename } from '@shared/composables'
+import { useInlineRename, useToast } from '@shared/composables'
 import { useKeyGroupDetail } from '../composables/useKeyGroups'
 import { useProjectKeys } from '../composables/useProjectKeys'
 import { keyGroupsApi } from '../api/key-groups'
 
 const { t } = useI18n()
+const toast = useToast()
 const route = useRoute()
 const projectId = computed(() => route.params.projectId as string)
 const groupId = computed(() => route.params.id as string)
@@ -27,7 +27,7 @@ const rename = useInlineRename({
     try {
       await keyGroupsApi.rename(groupId.value, name)
     } catch (e) {
-      ElMessage.error(t('keys.groups.renameError'))
+      toast.error(t('keys.groups.renameError'))
       throw e
     }
     void reload().catch(() => {})

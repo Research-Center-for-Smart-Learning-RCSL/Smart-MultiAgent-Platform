@@ -6,9 +6,8 @@ import { useForm } from 'vee-validate'
 import { toTypedSchema } from '@vee-validate/zod'
 import { computed, ref, watch } from 'vue'
 
-import { ElMessage } from 'element-plus'
 import { FormField } from '@shared/ui'
-import { useServerErrors } from '@shared/composables'
+import { useServerErrors, useToast } from '@shared/composables'
 import { keyGroupsApi, keysKeys } from '@slices/keys'
 import { agentsApi } from '../api'
 import { agentKeys } from '../queries'
@@ -18,6 +17,7 @@ const { t } = useI18n()
 const route = useRoute()
 const router = useRouter()
 const qc = useQueryClient()
+const toast = useToast()
 const projectId = route.params.projectId as string
 
 const showForm = ref(false)
@@ -99,11 +99,11 @@ const createMutation = useMutation({
     qc.invalidateQueries({ queryKey: agentKeys.agents(projectId) })
     resetForm()
     showForm.value = false
-    ElMessage.success(t('agents.list.created'))
+    toast.success(t('agents.list.created'))
   },
   onError: (err) => {
     if (!applyServerErrors(err)) {
-      ElMessage.error(t('agents.list.createFailed'))
+      toast.error(t('agents.list.createFailed'))
     }
   },
 })

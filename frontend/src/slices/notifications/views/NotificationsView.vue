@@ -2,13 +2,14 @@
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useInfiniteQuery, useQueryClient, type InfiniteData } from '@tanstack/vue-query'
-import { ElMessage } from 'element-plus'
-
+import { SPageHeader } from '@shared/ui'
+import { useToast } from '@shared/composables'
 import { notificationsApi, type Notification } from '../api'
 import { notificationKeys } from '../queries'
 
 const { t } = useI18n()
 const qc = useQueryClient()
+const toast = useToast()
 
 const PAGE_SIZE = 50
 // Backend MarkReadIn caps `ids` at 1000 per request — chunk to stay under it.
@@ -55,7 +56,7 @@ async function markOne(n: Notification): Promise<void> {
     await notificationsApi.markRead([n.id])
     patchRead([n.id])
   } catch {
-    ElMessage.error(t('notifications.markFailed'))
+    toast.error(t('notifications.markFailed'))
   }
 }
 
@@ -75,7 +76,7 @@ async function markAll(): Promise<void> {
     }
     if (ids.length) patchRead(ids)
   } catch {
-    ElMessage.error(t('notifications.markFailed'))
+    toast.error(t('notifications.markFailed'))
   } finally {
     marking.value = false
   }
@@ -88,10 +89,7 @@ function fmt(iso: string): string {
 
 <template>
   <section class="notifications p-6">
-    <div class="notifications__header">
-      <h1 class="text-xl font-semibold">
-        {{ t('notifications.title') }}
-      </h1>
+    <SPageHeader :title="t('notifications.title')">
       <button
         class="btn"
         type="button"
@@ -100,7 +98,7 @@ function fmt(iso: string): string {
       >
         {{ t('notifications.markAll') }}
       </button>
-    </div>
+    </SPageHeader>
 
     <p v-if="query.isLoading.value">
       {{ t('notifications.loading') }}

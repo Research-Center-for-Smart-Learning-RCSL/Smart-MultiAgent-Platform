@@ -1,0 +1,233 @@
+@import "tailwindcss";
+
+/* ─── Theme tokens ────────────────────────────────────────────────
+   Semantic colors, radii, fonts, breakpoints.
+   Spacing uses Tailwind's default --spacing: 0.25rem which matches
+   our original token scale exactly (p-1=4px … p-6=24px).
+   ─────────────────────────────────────────────────────────────── */
+@theme {
+  --color-bg: #ffffff;
+  --color-fg: #1f2328;
+  --color-muted: #6b7280;
+  --color-accent: #2563eb;
+  --color-danger: #dc2626;
+  --color-surface: #f9fafb;
+  --color-border: #e5e7eb;
+  --color-success: #16a34a;
+  --color-warning: #d97706;
+
+  --radius-md: 6px;
+
+  --font-body: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+
+  --breakpoint-sm: 480px;
+  --breakpoint-md: 768px;
+  --breakpoint-lg: 1024px;
+  --breakpoint-xl: 1280px;
+}
+
+/* ─── Dark mode ───────────────────────────────────────────────── */
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
+/* ─── Base layer ──────────────────────────────────────────────── */
+@layer base {
+  html,
+  body {
+    margin: 0;
+    background: var(--color-bg);
+    color: var(--color-fg);
+    font-family: var(--font-body);
+  }
+
+  /* Compatibility aliases — existing scoped CSS uses var(--space-*) */
+  :root {
+    --space-1: 4px;
+    --space-2: 8px;
+    --space-3: 12px;
+    --space-4: 16px;
+    --space-6: 24px;
+    --touch-min: 44px;
+    --color-primary: var(--color-accent);
+    --color-text: var(--color-fg);
+  }
+
+  /* Dark theme overrides — semantic colors switch, palette colors stay */
+  :root[data-theme="dark"] {
+    --color-bg: #0b0f14;
+    --color-fg: #e5e7eb;
+    --color-muted: #9ca3af;
+    --color-accent: #60a5fa;
+    --color-danger: #f87171;
+    --color-surface: #1f2937;
+    --color-border: #374151;
+    --color-success: #4ade80;
+    --color-warning: #fbbf24;
+    --color-primary: #60a5fa;
+    --color-text: #e5e7eb;
+  }
+
+  /* Restore Preflight-stripped form element chrome */
+  fieldset {
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    padding: 1rem;
+    margin: 0 0 1rem;
+  }
+
+  legend {
+    font-weight: 600;
+    font-size: 0.875rem;
+    padding: 0 0.25rem;
+  }
+}
+
+/* ─── Component classes ───────────────────────────────────────── */
+@layer components {
+  /* Buttons */
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    padding: 0.5rem 1rem;
+    font-size: 0.875rem;
+    font-weight: 500;
+    line-height: 1.25rem;
+    border-radius: var(--radius-md);
+    border: 1px solid var(--color-border);
+    background: var(--color-surface);
+    color: var(--color-fg);
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s;
+  }
+
+  .btn:hover {
+    background: var(--color-border);
+  }
+
+  .btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  .btn-primary {
+    background: var(--color-accent);
+    color: #fff;
+    border-color: var(--color-accent);
+  }
+
+  .btn-primary:hover {
+    background: color-mix(in srgb, var(--color-accent), black 12%);
+  }
+
+  .btn-danger {
+    background: var(--color-danger);
+    color: #fff;
+    border-color: var(--color-danger);
+  }
+
+  .btn-danger:hover {
+    background: color-mix(in srgb, var(--color-danger), black 12%);
+  }
+
+  .btn-sm {
+    padding: 0.25rem 0.625rem;
+    font-size: 0.75rem;
+    min-height: 32px;
+  }
+
+  /* Auth form pages (LoginView, RegisterView, etc.) */
+  .form-page {
+    max-width: 28rem;
+    margin: 3rem auto;
+    padding: 0 1rem;
+  }
+
+  .form-page h1 {
+    font-size: 1.5rem;
+    font-weight: 600;
+    margin-bottom: 1rem;
+  }
+
+  .form-page form {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+
+  .form-page label {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    font-size: 0.875rem;
+    font-weight: 500;
+  }
+
+  .form-page input:not([type="checkbox"]),
+  .form-page select,
+  .form-page textarea {
+    padding: 0.5rem;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    font-size: 0.875rem;
+    background: var(--color-bg);
+    color: var(--color-fg);
+  }
+
+  .form-page input:focus,
+  .form-page select:focus,
+  .form-page textarea:focus {
+    outline: 2px solid var(--color-accent);
+    outline-offset: -1px;
+  }
+
+  .form-page .error {
+    color: var(--color-danger);
+    font-size: 0.875rem;
+  }
+
+  .form-page .links {
+    display: flex;
+    gap: 0.75rem;
+    margin-top: 1rem;
+    font-size: 0.875rem;
+  }
+
+  .form-page button[type="submit"] {
+    padding: 0.5rem 1rem;
+    background: var(--color-accent);
+    color: #fff;
+    border: none;
+    border-radius: var(--radius-md);
+    font-weight: 500;
+    cursor: pointer;
+  }
+
+  .form-page button[type="submit"]:hover {
+    background: color-mix(in srgb, var(--color-accent), black 12%);
+  }
+
+  .form-page button[type="submit"]:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  /* Text link buttons (used in ChatroomView) */
+  .link-btn {
+    background: none;
+    border: none;
+    padding: 0;
+    font-size: 0.8rem;
+    color: var(--color-accent);
+    cursor: pointer;
+  }
+
+  .link-btn:hover {
+    text-decoration: underline;
+  }
+
+  .link-btn--danger {
+    color: var(--color-danger);
+  }
+}
