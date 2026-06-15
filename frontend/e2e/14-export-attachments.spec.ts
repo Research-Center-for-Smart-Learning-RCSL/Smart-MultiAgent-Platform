@@ -32,11 +32,11 @@ test.describe('Export + attachments: download + expired state (M.3/M.5)', () => 
     const chatroomId = process.env.E2E_CHATROOM_ID!
     await page.goto(`/chatrooms/${chatroomId}`)
 
-    // At least one attachment element should be visible (download button or expired label).
-    const attachments = page.locator('.attachments')
+    // At least one attachment element should be visible (download button or gone label).
+    const attachments = page.locator('.messages .attachments')
     test.skip((await attachments.count()) === 0, 'no messages with attachments')
     await expect(
-      attachments.first().locator('.link-btn, [class*="expired"], [class*="quarantine"]'),
+      attachments.first().locator('.link-btn, .attachment-gone'),
     ).toBeVisible()
   })
 })

@@ -13,10 +13,9 @@ test.describe('MCP: bind server → test → egress allowlist (M.1)', () => {
     await page.getByRole('button', { name: /add/i }).click()
 
     await page.locator('#source').selectOption('builtin')
-    const refInput = page.locator('#reference')
-    if (await refInput.isVisible()) {
-      await refInput.selectOption({ index: 0 })
-    }
+    const refSelect = page.locator('select#reference')
+    await expect(refSelect).toBeVisible()
+    await refSelect.selectOption({ index: 1 })
     await page.locator('button[type="submit"], .btn-primary').click()
     await expect(page.locator('table, [role="table"]')).toBeVisible()
   })
@@ -42,7 +41,7 @@ test.describe('MCP: bind server → test → egress allowlist (M.1)', () => {
     await page.getByRole('button', { name: /add/i }).click()
     await expect(page.getByText(hostname)).toBeVisible()
 
-    await page.getByRole('row', { name: new RegExp(hostname) })
+    await page.getByRole('row', { name: hostname })
       .getByRole('button', { name: /remove/i }).click()
     await expect(page.getByText(hostname)).not.toBeVisible()
   })
