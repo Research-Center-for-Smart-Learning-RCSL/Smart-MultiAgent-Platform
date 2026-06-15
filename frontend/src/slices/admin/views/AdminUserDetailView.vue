@@ -7,8 +7,8 @@
     <dl>
       <dt>ID</dt><dd>{{ query.data.value.id }}</dd>
       <dt>{{ $t('admin.users.status') }}</dt><dd>{{ query.data.value.status }}</dd>
-      <dt>{{ $t('admin.users.verified') }}</dt><dd>{{ query.data.value.email_verified ? 'Yes' : 'No' }}</dd>
-      <dt>{{ $t('admin.userDetail.isAdmin') }}</dt><dd>{{ query.data.value.is_admin ? 'Yes' : 'No' }}</dd>
+      <dt>{{ $t('admin.users.verified') }}</dt><dd>{{ query.data.value.email_verified ? $t('admin.common.yes') : $t('admin.common.no') }}</dd>
+      <dt>{{ $t('admin.userDetail.isAdmin') }}</dt><dd>{{ query.data.value.is_admin ? $t('admin.common.yes') : $t('admin.common.no') }}</dd>
       <dt>{{ $t('admin.userDetail.bannedReason') }}</dt><dd>{{ query.data.value.banned_reason ?? '-' }}</dd>
       <dt>{{ $t('admin.userDetail.bannedAt') }}</dt><dd>{{ query.data.value.banned_at ?? '-' }}</dd>
       <dt>{{ $t('admin.userDetail.deletedAt') }}</dt><dd>{{ query.data.value.deleted_at ?? '-' }}</dd>
@@ -55,6 +55,7 @@
 </template>
 
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
 import { useQuery } from '@tanstack/vue-query'
 import { useRoute } from 'vue-router'
 import { ElMessageBox } from 'element-plus'
@@ -63,6 +64,7 @@ import { adminKeys } from '../queries'
 import { useAdminActions } from '../composables/useAdminActions'
 import { useImpersonation } from '../composables/useImpersonation'
 
+const { t } = useI18n()
 const route = useRoute()
 const userId = route.params.userId as string
 
@@ -77,9 +79,9 @@ const { startImpersonation } = useImpersonation()
 async function onBan(): Promise<void> {
   try {
     const { value: reason } = await ElMessageBox.prompt(
-      'Provide a reason for banning this user:',
-      'Ban User',
-      { confirmButtonText: 'Ban', cancelButtonText: 'Cancel', inputPattern: /\S+/, inputErrorMessage: 'Reason is required' },
+      t('admin.users.banDialogMessage'),
+      t('admin.users.banDialogTitle'),
+      { confirmButtonText: t('admin.users.banDialogConfirm'), cancelButtonText: t('admin.common.cancel'), inputPattern: /\S+/, inputErrorMessage: t('admin.users.banDialogReasonRequired') },
     )
     if (reason) actions.banUser.mutate({ userId, reason })
   } catch {
@@ -90,9 +92,9 @@ async function onBan(): Promise<void> {
 async function onSoftDelete(): Promise<void> {
   try {
     await ElMessageBox.confirm(
-      'This will deactivate the account. The user will not be able to log in.',
-      'Delete User',
-      { confirmButtonText: 'Delete', cancelButtonText: 'Cancel', type: 'warning' },
+      t('admin.userDetail.softDeleteMessage'),
+      t('admin.userDetail.softDeleteTitle'),
+      { confirmButtonText: t('admin.userDetail.softDeleteConfirm'), cancelButtonText: t('admin.common.cancel'), type: 'warning' },
     )
     actions.softDeleteUser.mutate(userId)
   } catch {
@@ -103,9 +105,9 @@ async function onSoftDelete(): Promise<void> {
 async function onHardDelete(): Promise<void> {
   try {
     await ElMessageBox.confirm(
-      'This will permanently destroy all user data. This action cannot be undone.',
-      'Permanently Delete User',
-      { confirmButtonText: 'Delete Forever', cancelButtonText: 'Cancel', type: 'error' },
+      t('admin.userDetail.hardDeleteMessage'),
+      t('admin.userDetail.hardDeleteTitle'),
+      { confirmButtonText: t('admin.userDetail.hardDeleteConfirm'), cancelButtonText: t('admin.common.cancel'), type: 'error' },
     )
     actions.hardDeleteUser.mutate(userId)
   } catch {
@@ -116,9 +118,9 @@ async function onHardDelete(): Promise<void> {
 async function onImpersonate(): Promise<void> {
   try {
     await ElMessageBox.confirm(
-      'Start a read-only impersonation session for this user?',
-      'Impersonate User',
-      { confirmButtonText: 'Start', cancelButtonText: 'Cancel', type: 'warning' },
+      t('admin.userDetail.impersonateMessage'),
+      t('admin.userDetail.impersonateTitle'),
+      { confirmButtonText: t('admin.userDetail.impersonateConfirm'), cancelButtonText: t('admin.common.cancel'), type: 'warning' },
     )
     startImpersonation.mutate(userId)
   } catch {

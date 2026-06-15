@@ -3,6 +3,12 @@
     "home": {
       "title": "管理控制台"
     },
+    "common": {
+      "yes": "是",
+      "no": "否",
+      "cancel": "取消",
+      "delete": "刪除"
+    },
     "nav": {
       "users": "使用者",
       "admins": "管理員",
@@ -36,7 +42,11 @@
       "loadError": "載入使用者失敗。",
       "retry": "重試",
       "empty": "尚無使用者。",
-      "emptyFiltered": "沒有符合篩選條件的使用者。"
+      "emptyFiltered": "沒有符合篩選條件的使用者。",
+      "banDialogMessage": "請提供封鎖此使用者的原因：",
+      "banDialogTitle": "封鎖使用者",
+      "banDialogConfirm": "封鎖",
+      "banDialogReasonRequired": "原因為必填"
     },
     "userDetail": {
       "isAdmin": "管理員",
@@ -48,7 +58,16 @@
       "projects": "專案數",
       "softDelete": "軟刪除",
       "hardDelete": "永久刪除",
-      "impersonate": "模擬登入"
+      "impersonate": "模擬登入",
+      "softDeleteMessage": "這將停用此帳號，使用者將無法登入。",
+      "softDeleteTitle": "刪除使用者",
+      "softDeleteConfirm": "刪除",
+      "hardDeleteMessage": "這將永久銷毀所有使用者資料，此操作無法復原。",
+      "hardDeleteTitle": "永久刪除使用者",
+      "hardDeleteConfirm": "永久刪除",
+      "impersonateMessage": "啟動此使用者的唯讀模擬工作階段？",
+      "impersonateTitle": "模擬使用者",
+      "impersonateConfirm": "開始"
     },
     "admins": {
       "title": "管理員",
@@ -73,7 +92,15 @@
       "deleted": "已刪除",
       "forceDelete": "強制刪除",
       "restore": "還原",
-      "forceTransfer": "強制轉移原始建立者"
+      "forceTransfer": "強制轉移原始建立者",
+      "forceDeleteMessage": "永久刪除「{name}」及其所有專案？此操作無法復原。",
+      "forceDeleteTitle": "強制刪除組織",
+      "forceDeleteConfirm": "刪除",
+      "forceTransferMessage": "輸入 OC 轉移的目標使用者 ID：",
+      "forceTransferTitle": "強制轉移 OC",
+      "forceTransferConfirm": "轉移",
+      "forceTransferUserIdRequired": "使用者 ID 為必填",
+      "transferFailed": "OC 轉移失敗。"
     },
     "projects": {
       "title": "專案",

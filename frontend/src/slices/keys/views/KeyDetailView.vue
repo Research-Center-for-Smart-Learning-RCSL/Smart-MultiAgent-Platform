@@ -33,10 +33,16 @@ onMounted(reload)
         <dt>{{ $t('keys.detail.lastTest') }}</dt>
         <dd>{{ current.last_test_at ?? '—' }}</dd>
       </dl>
-      <button @click="retest(current.id)">
+      <button
+        class="btn"
+        @click="retest(current.id)"
+      >
         {{ $t('keys.detail.retest') }}
       </button>
-      <button @click="remove(current.id)">
+      <button
+        class="btn btn-danger"
+        @click="remove(current.id)"
+      >
         {{ $t('keys.detail.delete') }}
       </button>
     </section>

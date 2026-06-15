@@ -69,7 +69,10 @@ onMounted(load)
     <template v-else-if="project">
       <h1 v-if="!rename.renaming.value">
         {{ project.name }}
-        <button @click="rename.start">
+        <button
+          class="btn btn-sm"
+          @click="rename.start"
+        >
           {{ $t('tenancy.projects.rename') }}
         </button>
       </h1>
@@ -84,11 +87,15 @@ onMounted(load)
             required
           >
         </label>
-        <button type="submit">
+        <button
+          type="submit"
+          class="btn btn-primary"
+        >
           {{ $t('app.save') }}
         </button>
         <button
           type="button"
+          class="btn"
           @click="rename.cancel"
         >
           {{ $t('app.cancel') }}
@@ -98,7 +105,10 @@ onMounted(load)
       <router-link :to="{ name: 'tenancy.projectMembers', params: { id: project.id } }">
         {{ $t('tenancy.projects.members') }}
       </router-link>
-      <button @click="remove">
+      <button
+        class="btn btn-danger"
+        @click="remove"
+      >
         {{ $t('tenancy.orgs.delete') }}
       </button>
     </template>

@@ -67,6 +67,7 @@ watch(projectId, async () => {
     <p
       v-if="error"
       class="error"
+      role="alert"
     >
       {{ error }}
     </p>

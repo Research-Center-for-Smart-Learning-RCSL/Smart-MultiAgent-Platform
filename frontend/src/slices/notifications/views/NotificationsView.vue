@@ -155,12 +155,6 @@ function fmt(iso: string): string {
 </template>
 
 <style scoped>
-.notifications__header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: var(--space-4);
-}
 .notifications__list {
   list-style: none;
   padding: 0;

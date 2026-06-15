@@ -3,6 +3,12 @@
     "home": {
       "title": "Admin Console"
     },
+    "common": {
+      "yes": "Yes",
+      "no": "No",
+      "cancel": "Cancel",
+      "delete": "Delete"
+    },
     "nav": {
       "users": "Users",
       "admins": "Admins",
@@ -36,7 +42,11 @@
       "loadError": "Failed to load users.",
       "retry": "Retry",
       "empty": "No users yet.",
-      "emptyFiltered": "No users match your filters."
+      "emptyFiltered": "No users match your filters.",
+      "banDialogMessage": "Provide a reason for banning this user:",
+      "banDialogTitle": "Ban User",
+      "banDialogConfirm": "Ban",
+      "banDialogReasonRequired": "Reason is required"
     },
     "userDetail": {
       "isAdmin": "Is Admin",
@@ -48,7 +58,16 @@
       "projects": "Projects",
       "softDelete": "Soft Delete",
       "hardDelete": "Hard Delete",
-      "impersonate": "Impersonate"
+      "impersonate": "Impersonate",
+      "softDeleteMessage": "This will deactivate the account. The user will not be able to log in.",
+      "softDeleteTitle": "Delete User",
+      "softDeleteConfirm": "Delete",
+      "hardDeleteMessage": "This will permanently destroy all user data. This action cannot be undone.",
+      "hardDeleteTitle": "Permanently Delete User",
+      "hardDeleteConfirm": "Delete Forever",
+      "impersonateMessage": "Start a read-only impersonation session for this user?",
+      "impersonateTitle": "Impersonate User",
+      "impersonateConfirm": "Start"
     },
     "admins": {
       "title": "Admins",
@@ -73,7 +92,15 @@
       "deleted": "Deleted",
       "forceDelete": "Force Delete",
       "restore": "Restore",
-      "forceTransfer": "Force Transfer OC"
+      "forceTransfer": "Force Transfer OC",
+      "forceDeleteMessage": "Permanently delete \"{name}\" and all its projects? This cannot be undone.",
+      "forceDeleteTitle": "Force Delete Organisation",
+      "forceDeleteConfirm": "Delete",
+      "forceTransferMessage": "Enter the target user ID for OC transfer:",
+      "forceTransferTitle": "Force Transfer OC",
+      "forceTransferConfirm": "Transfer",
+      "forceTransferUserIdRequired": "User ID is required",
+      "transferFailed": "OC transfer failed."
     },
     "projects": {
       "title": "Projects",

@@ -34,6 +34,7 @@ watch(projectId, reload)
     <p
       v-if="error"
       class="error"
+      role="alert"
     >
       {{ error }}
     </p>

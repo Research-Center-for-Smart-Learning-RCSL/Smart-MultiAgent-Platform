@@ -47,6 +47,7 @@
 </template>
 
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/vue-query'
 import { ElMessageBox } from 'element-plus'
 import { useToast } from '@shared/composables'
@@ -55,6 +56,7 @@ import { adminApi } from '../api/admin'
 import { adminKeys } from '../queries'
 import { useAdminActions } from '../composables/useAdminActions'
 
+const { t } = useI18n()
 const qc = useQueryClient()
 const toast = useToast()
 
@@ -69,15 +71,15 @@ const transferMutation = useMutation({
   mutationFn: ({ orgId, targetUserId }: { orgId: string; targetUserId: string }) =>
     adminApi.forceTransferOC(orgId, targetUserId),
   onSuccess: () => qc.invalidateQueries({ queryKey: adminKeys.orgs() }),
-  onError: () => toast.error('OC transfer failed.'),
+  onError: () => toast.error(t('admin.orgs.transferFailed')),
 })
 
 async function onForceDelete(orgId: string, orgName: string): Promise<void> {
   try {
     await ElMessageBox.confirm(
-      `Permanently delete "${orgName}" and all its projects? This cannot be undone.`,
-      'Force Delete Organisation',
-      { confirmButtonText: 'Delete', cancelButtonText: 'Cancel', type: 'error' },
+      t('admin.orgs.forceDeleteMessage', { name: orgName }),
+      t('admin.orgs.forceDeleteTitle'),
+      { confirmButtonText: t('admin.orgs.forceDeleteConfirm'), cancelButtonText: t('admin.common.cancel'), type: 'error' },
     )
     actions.forceDeleteOrg.mutate(orgId)
   } catch {
@@ -88,9 +90,9 @@ async function onForceDelete(orgId: string, orgName: string): Promise<void> {
 async function onTransfer(orgId: string): Promise<void> {
   try {
     const { value: targetUserId } = await ElMessageBox.prompt(
-      'Enter the target user ID for OC transfer:',
-      'Force Transfer OC',
-      { confirmButtonText: 'Transfer', cancelButtonText: 'Cancel', inputPattern: /\S+/, inputErrorMessage: 'User ID is required' },
+      t('admin.orgs.forceTransferMessage'),
+      t('admin.orgs.forceTransferTitle'),
+      { confirmButtonText: t('admin.orgs.forceTransferConfirm'), cancelButtonText: t('admin.common.cancel'), inputPattern: /\S+/, inputErrorMessage: t('admin.orgs.forceTransferUserIdRequired') },
     )
     if (targetUserId) transferMutation.mutate({ orgId, targetUserId })
   } catch {
