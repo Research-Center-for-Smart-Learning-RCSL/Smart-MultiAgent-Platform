@@ -86,6 +86,7 @@ async function submit(): Promise<void> {
       </p>
       <button
         type="submit"
+        class="btn btn-primary"
         :disabled="submitting"
       >
         {{ $t('identity.register.submit') }}

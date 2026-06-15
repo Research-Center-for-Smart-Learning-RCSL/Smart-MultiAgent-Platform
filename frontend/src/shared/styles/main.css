@@ -27,9 +27,6 @@
   --breakpoint-xl: 1280px;
 }
 
-/* ─── Dark mode ───────────────────────────────────────────────── */
-@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
-
 /* ─── Base layer ──────────────────────────────────────────────── */
 @layer base {
   html,
@@ -38,6 +35,25 @@
     background: var(--color-bg);
     color: var(--color-fg);
     font-family: var(--font-body);
+  }
+
+  /* Restore heading sizes stripped by Preflight */
+  h1 {
+    font-size: 1.25rem;
+    font-weight: 600;
+    line-height: 1.4;
+  }
+
+  h2 {
+    font-size: 1.125rem;
+    font-weight: 600;
+    line-height: 1.4;
+  }
+
+  h3 {
+    font-size: 1rem;
+    font-weight: 600;
+    line-height: 1.4;
   }
 
   /* Compatibility aliases — existing scoped CSS uses var(--space-*) */
@@ -72,7 +88,6 @@
     border: 1px solid var(--color-border);
     border-radius: var(--radius-md);
     padding: 1rem;
-    margin: 0 0 1rem;
   }
 
   legend {
@@ -194,40 +209,5 @@
     font-size: 0.875rem;
   }
 
-  .form-page button[type="submit"] {
-    padding: 0.5rem 1rem;
-    background: var(--color-accent);
-    color: #fff;
-    border: none;
-    border-radius: var(--radius-md);
-    font-weight: 500;
-    cursor: pointer;
-  }
 
-  .form-page button[type="submit"]:hover {
-    background: color-mix(in srgb, var(--color-accent), black 12%);
-  }
-
-  .form-page button[type="submit"]:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
-
-  /* Text link buttons (used in ChatroomView) */
-  .link-btn {
-    background: none;
-    border: none;
-    padding: 0;
-    font-size: 0.8rem;
-    color: var(--color-accent);
-    cursor: pointer;
-  }
-
-  .link-btn:hover {
-    text-decoration: underline;
-  }
-
-  .link-btn--danger {
-    color: var(--color-danger);
-  }
 }

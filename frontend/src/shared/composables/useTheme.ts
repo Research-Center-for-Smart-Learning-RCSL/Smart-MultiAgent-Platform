@@ -1,4 +1,4 @@
-import { ref, watchEffect } from 'vue'
+import { ref, watch } from 'vue'
 
 export type Theme = 'light' | 'dark' | 'system'
 
@@ -21,12 +21,24 @@ function readStored(): Theme {
   return 'system'
 }
 
-const theme = ref<Theme>(readStored())
+function persist(t: Theme): void {
+  try { localStorage.setItem(STORAGE_KEY, t) } catch { /* quota / restricted */ }
+}
 
 function applyTheme(): void {
+  if (typeof document === 'undefined') return
   const resolved = theme.value === 'system' ? getSystemPreference() : theme.value
   document.documentElement.setAttribute('data-theme', resolved)
 }
+
+const theme = ref<Theme>(readStored())
+
+applyTheme()
+
+watch(theme, (v) => {
+  persist(v)
+  applyTheme()
+})
 
 if (supportsMatchMedia()) {
   window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
@@ -35,11 +47,6 @@ if (supportsMatchMedia()) {
 }
 
 export function useTheme() {
-  watchEffect(() => {
-    localStorage.setItem(STORAGE_KEY, theme.value)
-    applyTheme()
-  })
-
   return {
     theme,
     setTheme: (t: Theme) => { theme.value = t },
