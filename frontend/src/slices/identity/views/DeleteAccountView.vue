@@ -85,7 +85,7 @@ async function submit(): Promise<void> {
       </ul>
       <button
         type="submit"
-        class="danger"
+        class="btn btn-danger"
         :disabled="submitting || !confirmed"
       >
         {{ $t('identity.deleteAccount.submit') }}

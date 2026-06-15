@@ -37,6 +37,7 @@ async function submit(): Promise<void> {
       </label>
       <button
         type="submit"
+        class="btn btn-primary"
         :disabled="submitting"
       >
         {{ $t('identity.passwordReset.requestSubmit') }}

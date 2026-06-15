@@ -1,22 +1,23 @@
 <script setup lang="ts">
 import { ImpersonationBanner } from '@slices/admin'
 import { NotificationBell } from '@slices/notifications'
-import { useBanKickGuard, useTheme } from '@shared/composables'
+import { useBanKickGuard } from '@shared/composables'
 import { ThemeToggle } from '@shared/ui'
 import ErrorBoundary from './ErrorBoundary.vue'
 
 useBanKickGuard()
-useTheme()
 </script>
 
 <template>
   <ImpersonationBanner />
-  <ErrorBoundary>
-    <div class="app-chrome">
+  <div class="app-chrome">
+    <ErrorBoundary>
       <ThemeToggle />
+    </ErrorBoundary>
+    <ErrorBoundary>
       <NotificationBell />
-    </div>
-  </ErrorBoundary>
+    </ErrorBoundary>
+  </div>
   <!--
     ErrorBoundary contains a render-time throw in any view to a retry
     fallback, instead of letting Vue blank the entire app (FE-11).

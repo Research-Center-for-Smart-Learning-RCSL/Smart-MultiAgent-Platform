@@ -12,13 +12,10 @@
       <h1 class="text-xl font-semibold">
         {{ $t('workflow.run.title') }}
       </h1>
-      <span
+      <SStatusBadge
         v-if="run"
-        class="px-2 py-0.5 text-xs rounded-full"
-        :class="stateClass(run.state)"
-      >
-        {{ run.state }}
-      </span>
+        :status="run.state"
+      />
       <span
         v-if="connected"
         class="ml-2 w-2 h-2 rounded-full bg-green-500 inline-block"
@@ -110,12 +107,7 @@
               {{ step.node_id }}
             </td>
             <td class="py-1">
-              <span
-                class="px-1.5 py-0.5 text-xs rounded"
-                :class="stateClass(step.state)"
-              >
-                {{ step.state }}
-              </span>
+              <SStatusBadge :status="step.state" />
             </td>
             <td class="py-1 text-gray-500">
               {{ new Date(step.started_at).toLocaleTimeString() }}
@@ -145,11 +137,11 @@ import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 import { useToast } from '@shared/composables'
+import { SStatusBadge } from '@shared/ui'
 import { useI18n } from 'vue-i18n'
 import { cancelRun, getRun, listSteps } from '../api'
 import { useWorkflowRunSocket } from '../composables/useWorkflowRunSocket'
 import { wfKeys } from '../queries'
-import type { RunState, StepState } from '../types'
 
 const { t } = useI18n()
 const route = useRoute()
@@ -180,26 +172,6 @@ const stepsQuery = useQuery({
 
 const run = computed(() => runQuery.data.value ?? null)
 const steps = computed(() => stepsQuery.data.value ?? [])
-
-function stateClass(state: RunState | StepState | string): string {
-  switch (state) {
-    case 'running':
-      return 'bg-blue-100 text-blue-700'
-    case 'waiting':
-      return 'bg-yellow-100 text-yellow-700'
-    case 'succeeded':
-      return 'bg-green-100 text-green-700'
-    case 'failed':
-      return 'bg-red-100 text-red-700'
-    case 'cancelled':
-    case 'skipped':
-      return 'bg-gray-100 text-gray-600'
-    case 'pending':
-      return 'bg-gray-50 text-gray-400'
-    default:
-      return ''
-  }
-}
 
 function onBackToRuns(): void {
   // The runs-list route is workspace+workflow scoped, but `WorkflowRun` does
