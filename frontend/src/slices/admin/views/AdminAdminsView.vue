@@ -11,7 +11,10 @@
         :placeholder="$t('admin.admins.userIdPlaceholder')"
         required
       >
-      <button type="submit">
+      <button
+        type="submit"
+        class="btn btn-primary"
+      >
         {{ $t('admin.admins.promote') }}
       </button>
     </form>
@@ -41,7 +44,10 @@
           <td>{{ admin.promoted_by_user_id ?? '-' }}</td>
           <td>{{ new Date(admin.promoted_at).toLocaleDateString() }}</td>
           <td>
-            <button @click="onDemote(admin.user_id)">
+            <button
+              class="btn btn-danger btn-sm"
+              @click="onDemote(admin.user_id)"
+            >
               {{ $t('admin.admins.demote') }}
             </button>
           </td>

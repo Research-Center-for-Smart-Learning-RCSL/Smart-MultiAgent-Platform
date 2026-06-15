@@ -18,6 +18,7 @@
       >
       <button
         type="submit"
+        class="btn btn-primary"
         :disabled="actions.createIpBan.isPending.value"
       >
         {{ $t('admin.ipBans.add') }}
@@ -42,7 +43,10 @@
           <td>{{ ban.reason }}</td>
           <td>{{ new Date(ban.created_at).toLocaleDateString() }}</td>
           <td>
-            <button @click="actions.deleteIpBan.mutate(ban.id)">
+            <button
+              class="btn btn-danger btn-sm"
+              @click="actions.deleteIpBan.mutate(ban.id)"
+            >
               {{ $t('admin.ipBans.remove') }}
             </button>
           </td>

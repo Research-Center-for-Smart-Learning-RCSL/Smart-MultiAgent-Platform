@@ -39,7 +39,10 @@
           <td>{{ policy.scope }}</td>
           <td>{{ new Date(policy.updated_at).toLocaleString() }}</td>
           <td>
-            <button @click="onPatch(policy.key)">
+            <button
+              class="btn btn-primary btn-sm"
+              @click="onPatch(policy.key)"
+            >
               {{ $t('admin.rateLimits.save') }}
             </button>
           </td>

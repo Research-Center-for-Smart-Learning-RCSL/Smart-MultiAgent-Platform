@@ -609,10 +609,10 @@ onBeforeUnmount(() => {
   grid-row: 4;
 }
 .pill.on {
-  color: #0a0;
+  color: var(--color-success);
 }
 .pill.off {
-  color: #a00;
+  color: var(--color-danger);
 }
 .chatroom--mobile {
   grid-template-columns: 1fr;

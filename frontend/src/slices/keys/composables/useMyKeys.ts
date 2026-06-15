@@ -1,8 +1,10 @@
 import { ref } from 'vue'
+import { useToast } from '@shared/composables'
 import { errorMessage } from '@shared/errors'
 import { keysApi, type ApiKey, type ApiKeyProvider } from '../api/keys'
 
 export function useMyKeys() {
+  const toast = useToast()
   const keys = ref<ApiKey[]>([])
   const loading = ref(false)
   const uploading = ref(false)
@@ -16,6 +18,7 @@ export function useMyKeys() {
       keys.value = data
     } catch (e) {
       error.value = errorMessage(e)
+      toast.error('Failed to load keys.')
     } finally {
       loading.value = false
     }
@@ -35,6 +38,7 @@ export function useMyKeys() {
       return data
     } catch (e) {
       error.value = errorMessage(e)
+      toast.error('Failed to upload key.')
       return null
     } finally {
       uploading.value = false
@@ -47,6 +51,7 @@ export function useMyKeys() {
       await reload()
     } catch (e) {
       error.value = errorMessage(e)
+      toast.error('Failed to retest key.')
     }
   }
 
@@ -56,6 +61,7 @@ export function useMyKeys() {
       await reload()
     } catch (e) {
       error.value = errorMessage(e)
+      toast.error('Failed to remove key.')
     }
   }
 

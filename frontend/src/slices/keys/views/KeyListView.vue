@@ -36,6 +36,7 @@ onMounted(reload)
     <p
       v-if="error"
       class="error"
+      role="alert"
       data-testid="key-error"
     >
       {{ error }}

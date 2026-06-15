@@ -39,6 +39,7 @@ onMounted(async () => {
     <p
       v-else
       class="error"
+      role="alert"
     >
       {{ $t('tenancy.invites.acceptFailure') }}
     </p>

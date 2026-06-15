@@ -14,6 +14,7 @@
       {{ $t('conversation.settings.loadFailed') }}
       <button
         type="button"
+        class="btn"
         @click="loadRoom"
       >
         {{ $t('conversation.settings.retry') }}
@@ -74,6 +75,7 @@
           >
           <button
             type="button"
+            class="btn btn-sm"
             @click="copyGuest"
           >
             {{ $t('conversation.settings.copy') }}
@@ -88,12 +90,14 @@
         </p>
         <button
           type="submit"
+          class="btn btn-primary"
           :disabled="saving"
         >
           {{ $t('conversation.settings.save') }}
         </button>
         <button
           type="button"
+          class="btn btn-danger"
           :disabled="saving"
           @click="onDelete"
         >
@@ -136,6 +140,7 @@
           </label>
           <button
             type="submit"
+            class="btn btn-primary"
             :disabled="!selectedAgentId || bindingBusy"
           >
             {{ $t('conversation.settings.add') }}
@@ -168,6 +173,7 @@
             </p>
             <button
               type="button"
+              class="btn btn-danger btn-sm"
               :disabled="bindingBusy"
               @click="onRemoveAgent(agent.id)"
             >
@@ -195,6 +201,7 @@
           </p>
           <button
             type="button"
+            class="btn btn-danger btn-sm"
             :disabled="bindingBusy"
             @click="onRemoveAgent(id)"
           >

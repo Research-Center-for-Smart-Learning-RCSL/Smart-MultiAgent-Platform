@@ -9,6 +9,7 @@
     <p
       v-if="state === 'error'"
       class="error"
+      role="alert"
     >
       {{ $t('conversation.guest.error') }}
     </p>

@@ -1,16 +1,22 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
+import { useToast } from '@shared/composables'
 import { invitesApi, type Invite } from '../api/invites'
 import { useSessionStore } from '@slices/identity'
 import { isProblemWithType } from '@shared/transport'
 
+const toast = useToast()
 const invites = ref<Invite[]>([])
 const error = ref<string | null>(null)
 const session = useSessionStore()
 
 async function load(): Promise<void> {
-  const { data } = await invitesApi.list('pending')
-  invites.value = data
+  try {
+    const { data } = await invitesApi.list('pending')
+    invites.value = data
+  } catch {
+    toast.error('Failed to load invites.')
+  }
 }
 
 async function accept(id: string): Promise<void> {
@@ -26,8 +32,12 @@ async function accept(id: string): Promise<void> {
 }
 
 async function reject(id: string): Promise<void> {
-  await invitesApi.reject(id)
-  await load()
+  try {
+    await invitesApi.reject(id)
+    await load()
+  } catch {
+    toast.error('Failed to reject invite.')
+  }
 }
 
 onMounted(load)

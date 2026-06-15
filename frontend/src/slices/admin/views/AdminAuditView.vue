@@ -40,11 +40,15 @@
         type="datetime-local"
         :aria-label="$t('admin.audit.to')"
       >
-      <button type="submit">
+      <button
+        type="submit"
+        class="btn"
+      >
         {{ $t('admin.users.search') }}
       </button>
       <button
         type="button"
+        class="btn"
         @click="onExport"
       >
         {{ $t('admin.audit.export') }}
@@ -83,7 +87,10 @@
       v-if="query.data.value?.next_cursor"
       class="admin-audit__pagination"
     >
-      <button @click="loadMore">
+      <button
+        class="btn"
+        @click="loadMore"
+      >
         {{ $t('admin.audit.loadMore') }}
       </button>
     </div>

@@ -41,6 +41,7 @@ onMounted(async () => {
     <p
       v-else
       class="error"
+      role="alert"
     >
       {{ $t('identity.verifyEmail.failure') }}
     </p>

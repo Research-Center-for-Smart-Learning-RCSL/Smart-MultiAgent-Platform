@@ -83,7 +83,7 @@
             </router-link>
           </td>
           <td>{{ user.status }}</td>
-          <td>{{ user.email_verified ? 'Yes' : 'No' }}</td>
+          <td>{{ user.email_verified ? $t('admin.common.yes') : $t('admin.common.no') }}</td>
           <td>{{ new Date(user.created_at).toLocaleDateString() }}</td>
           <td>
             <button
@@ -113,11 +113,14 @@
 
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useQuery } from '@tanstack/vue-query'
 import { ElMessageBox } from 'element-plus'
 import { adminApi } from '../api/admin'
 import { adminKeys } from '../queries'
 import { useAdminActions } from '../composables/useAdminActions'
+
+const { t } = useI18n()
 
 const searchQuery = ref('')
 const statusFilter = ref('')
@@ -145,9 +148,9 @@ const actions = useAdminActions()
 async function onBan(userId: string): Promise<void> {
   try {
     const { value: reason } = await ElMessageBox.prompt(
-      'Provide a reason for banning this user:',
-      'Ban User',
-      { confirmButtonText: 'Ban', cancelButtonText: 'Cancel', inputPattern: /\S+/, inputErrorMessage: 'Reason is required' },
+      t('admin.users.banDialogMessage'),
+      t('admin.users.banDialogTitle'),
+      { confirmButtonText: t('admin.users.banDialogConfirm'), cancelButtonText: t('admin.common.cancel'), inputPattern: /\S+/, inputErrorMessage: t('admin.users.banDialogReasonRequired') },
     )
     if (reason) actions.banUser.mutate({ userId, reason })
   } catch {

@@ -18,8 +18,12 @@ function projectId(): string {
 }
 
 async function load(): Promise<void> {
-  const { data } = await projectsApi.listMembers(projectId())
-  members.value = data
+  try {
+    const { data } = await projectsApi.listMembers(projectId())
+    members.value = data
+  } catch {
+    toast.error('Failed to load members.')
+  }
 }
 
 async function invite(): Promise<void> {

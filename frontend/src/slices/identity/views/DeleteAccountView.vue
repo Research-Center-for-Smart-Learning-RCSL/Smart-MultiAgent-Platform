@@ -69,6 +69,7 @@ async function submit(): Promise<void> {
       <p
         v-if="error"
         class="error"
+        role="alert"
       >
         {{ error }}
       </p>

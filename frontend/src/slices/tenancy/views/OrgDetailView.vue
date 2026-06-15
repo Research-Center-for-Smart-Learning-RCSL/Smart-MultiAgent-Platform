@@ -90,6 +90,7 @@ onMounted(load)
     <p
       v-else-if="error"
       class="error"
+      role="alert"
     >
       {{ $t('tenancy.orgs.loadError') }}
     </p>
