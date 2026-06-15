@@ -5,9 +5,7 @@
     },
     "common": {
       "yes": "是",
-      "no": "否",
-      "cancel": "取消",
-      "delete": "刪除"
+      "no": "否"
     },
     "nav": {
       "users": "使用者",
@@ -170,6 +168,20 @@
       "readOnly": "唯讀模式 — 所有寫入操作已被封鎖。",
       "startFailed": "無法啟動模擬登入工作階段。",
       "endFailed": "無法結束模擬登入工作階段。"
+    },
+    "actionErrors": {
+      "banFailed": "封鎖使用者失敗。",
+      "unbanFailed": "解除封鎖失敗。",
+      "deleteFailed": "刪除使用者失敗。",
+      "hardDeleteFailed": "永久刪除使用者失敗。",
+      "promoteFailed": "提升為管理員失敗。",
+      "demoteFailed": "降級管理員失敗。",
+      "deleteOrgFailed": "刪除組織失敗。",
+      "createIpBanFailed": "建立 IP 封鎖失敗。",
+      "removeIpBanFailed": "移除 IP 封鎖失敗。",
+      "rateLimitFailed": "更新速率限制失敗。",
+      "restoreFailed": "還原資源失敗。",
+      "resetGraphragFailed": "重設 GraphRAG 索引失敗。"
     }
   }
 }

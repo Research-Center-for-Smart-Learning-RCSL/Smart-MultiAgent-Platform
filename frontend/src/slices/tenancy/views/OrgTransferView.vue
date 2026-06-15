@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import { useToast } from '@shared/composables'
 import { orgsApi, type OriginalCreatorTransfer } from '../api/orgs'
 
+const { t } = useI18n()
 const route = useRoute()
 const toast = useToast()
 const pending = ref<OriginalCreatorTransfer | null>(null)
@@ -17,9 +19,9 @@ function orgId(): string {
 async function load(): Promise<void> {
   try {
     const { data } = await orgsApi.listTransfers(orgId())
-    pending.value = data.find((t) => t.state === 'pending') ?? null
+    pending.value = data.find((tr) => tr.state === 'pending') ?? null
   } catch {
-    toast.error('Failed to load transfers.')
+    toast.error(t('tenancy.transfer.loadFailed'))
   }
 }
 
@@ -40,7 +42,7 @@ async function cancel(): Promise<void> {
     await orgsApi.cancelTransfer(orgId(), pending.value.id)
     await load()
   } catch {
-    toast.error('Failed to cancel transfer.')
+    toast.error(t('tenancy.transfer.cancelFailed'))
   }
 }
 

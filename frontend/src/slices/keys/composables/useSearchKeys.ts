@@ -1,5 +1,4 @@
 import { ref } from 'vue'
-import { useToast } from '@shared/composables'
 import { errorMessage } from '@shared/errors'
 import {
   searchKeysApi,
@@ -8,7 +7,6 @@ import {
 } from '../api/search-keys'
 
 export function useSearchKeys(projectId: () => string) {
-  const toast = useToast()
   const keys = ref<SearchKey[]>([])
   const error = ref<string | null>(null)
 
@@ -23,7 +21,6 @@ export function useSearchKeys(projectId: () => string) {
       keys.value = data
     } catch (e) {
       error.value = errorMessage(e)
-      toast.error('Failed to load search keys.')
     }
   }
 
@@ -38,7 +35,6 @@ export function useSearchKeys(projectId: () => string) {
       await searchKeysApi.upload(pid, provider, secret, config)
     } catch (e) {
       error.value = errorMessage(e)
-      toast.error('Failed to upload search key.')
     }
     await reload()
   }
@@ -50,7 +46,6 @@ export function useSearchKeys(projectId: () => string) {
       await searchKeysApi.retest(pid, id)
     } catch (e) {
       error.value = errorMessage(e)
-      toast.error('Failed to retest search key.')
     }
     await reload()
   }
@@ -62,7 +57,6 @@ export function useSearchKeys(projectId: () => string) {
       await searchKeysApi.activate(pid, id)
     } catch (e) {
       error.value = errorMessage(e)
-      toast.error('Failed to activate search key.')
     }
     await reload()
   }
@@ -74,7 +68,6 @@ export function useSearchKeys(projectId: () => string) {
       await searchKeysApi.remove(pid, id)
     } catch (e) {
       error.value = errorMessage(e)
-      toast.error('Failed to remove search key.')
     }
     await reload()
   }

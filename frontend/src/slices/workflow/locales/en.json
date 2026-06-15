@@ -54,7 +54,8 @@
       "ended": "Ended",
       "inspect": "Inspect",
       "archived": "archived",
-      "empty": "No runs yet."
+      "empty": "No runs yet.",
+      "triggerFailed": "Failed to trigger workflow run."
     },
     "run": {
       "title": "Run Inspector",

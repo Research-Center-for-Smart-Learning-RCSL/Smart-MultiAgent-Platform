@@ -50,7 +50,9 @@
       "empty": "尚無專案。",
       "rename": "重新命名",
       "renameLabel": "專案名稱",
-      "renameError": "重新命名失敗——可能已在他處變更。"
+      "renameError": "重新命名失敗——可能已在他處變更。",
+      "loadFailed": "載入專案失敗。",
+      "createFailed": "建立專案失敗。"
     },
     "members": {
       "title": "成員",
@@ -65,7 +67,8 @@
       "removeConfirmTitle": "移除成員",
       "removeConfirm": "移除此成員？",
       "inviteError": "邀請發送失敗。",
-      "roleError": "角色更新失敗。"
+      "roleError": "角色更新失敗。",
+      "loadFailed": "載入成員失敗。"
     },
     "invites": {
       "inboxTitle": "邀請",
@@ -77,7 +80,9 @@
       "accepting": "正在接受您的邀請…",
       "acceptSuccess": "已接受邀請，您現在擁有存取權限。",
       "acceptFailure": "此邀請連結無效或已過期。",
-      "goToInbox": "前往邀請"
+      "goToInbox": "前往邀請",
+      "loadFailed": "載入邀請失敗。",
+      "rejectFailed": "拒絕邀請失敗。"
     },
     "transfer": {
       "title": "轉移原始建立者",
@@ -87,7 +92,9 @@
       "pending": "待確認的轉移",
       "accept": "接受",
       "cancel": "取消",
-      "none": "目前沒有待確認的轉移。"
+      "none": "目前沒有待確認的轉移。",
+      "loadFailed": "載入轉移紀錄失敗。",
+      "cancelFailed": "取消轉移失敗。"
     }
   }
 }

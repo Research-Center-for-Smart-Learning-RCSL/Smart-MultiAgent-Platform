@@ -28,7 +28,10 @@
           {{ $t('admin.users.statusDeleted') }}
         </option>
       </select>
-      <button type="submit">
+      <button
+        type="submit"
+        class="btn"
+      >
         {{ $t('admin.users.search') }}
       </button>
     </form>
@@ -47,6 +50,7 @@
       {{ $t('admin.users.loadError') }}
       <button
         type="button"
+        class="btn"
         @click="query.refetch()"
       >
         {{ $t('admin.users.retry') }}
@@ -88,12 +92,14 @@
           <td>
             <button
               v-if="user.status === 'active'"
+              class="btn btn-danger btn-sm"
               @click="onBan(user.id)"
             >
               {{ $t('admin.users.ban') }}
             </button>
             <button
               v-if="user.status === 'banned'"
+              class="btn btn-sm"
               @click="actions.unbanUser.mutate(user.id)"
             >
               {{ $t('admin.users.unban') }}
@@ -150,7 +156,7 @@ async function onBan(userId: string): Promise<void> {
     const { value: reason } = await ElMessageBox.prompt(
       t('admin.users.banDialogMessage'),
       t('admin.users.banDialogTitle'),
-      { confirmButtonText: t('admin.users.banDialogConfirm'), cancelButtonText: t('admin.common.cancel'), inputPattern: /\S+/, inputErrorMessage: t('admin.users.banDialogReasonRequired') },
+      { confirmButtonText: t('admin.users.banDialogConfirm'), cancelButtonText: t('app.cancel'), inputPattern: /\S+/, inputErrorMessage: t('admin.users.banDialogReasonRequired') },
     )
     if (reason) actions.banUser.mutate({ userId, reason })
   } catch {

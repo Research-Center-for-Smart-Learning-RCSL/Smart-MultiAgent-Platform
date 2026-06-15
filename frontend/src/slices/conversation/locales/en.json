@@ -5,7 +5,8 @@
       "create": "Create",
       "delete": "Delete",
       "loading": "Loading…",
-      "createFailed": "Failed to create workspace."
+      "createFailed": "Failed to create workspace.",
+      "deleteFailed": "Failed to delete workspace."
     },
     "chatrooms": {
       "title": "Chatrooms",

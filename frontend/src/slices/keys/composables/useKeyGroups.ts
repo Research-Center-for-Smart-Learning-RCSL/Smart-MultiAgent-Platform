@@ -1,5 +1,4 @@
 import { ref } from 'vue'
-import { useToast } from '@shared/composables'
 import { errorMessage } from '@shared/errors'
 import {
   keyGroupsApi,
@@ -9,7 +8,6 @@ import {
 } from '../api/key-groups'
 
 export function useKeyGroups(projectId: () => string) {
-  const toast = useToast()
   const groups = ref<KeyGroup[]>([])
   const error = ref<string | null>(null)
 
@@ -24,7 +22,6 @@ export function useKeyGroups(projectId: () => string) {
       groups.value = data
     } catch (e) {
       error.value = errorMessage(e)
-      toast.error('Failed to load key groups.')
     }
   }
 
@@ -35,7 +32,6 @@ export function useKeyGroups(projectId: () => string) {
       await keyGroupsApi.create(pid, name)
     } catch (e) {
       error.value = errorMessage(e)
-      toast.error('Failed to create key group.')
     }
     await reload()
   }
@@ -45,7 +41,6 @@ export function useKeyGroups(projectId: () => string) {
       await keyGroupsApi.remove(groupId)
     } catch (e) {
       error.value = errorMessage(e)
-      toast.error('Failed to remove key group.')
     }
     await reload()
   }
@@ -54,7 +49,6 @@ export function useKeyGroups(projectId: () => string) {
 }
 
 export function useKeyGroupDetail(groupId: () => string) {
-  const toast = useToast()
   const detailData = ref<KeyGroupDetail | null>(null)
   const error = ref<string | null>(null)
 
@@ -69,7 +63,6 @@ export function useKeyGroupDetail(groupId: () => string) {
       detailData.value = data
     } catch (e) {
       error.value = errorMessage(e)
-      toast.error('Failed to load group details.')
     }
   }
 
@@ -80,7 +73,6 @@ export function useKeyGroupDetail(groupId: () => string) {
       await keyGroupsApi.addMember(id, keyId)
     } catch (e) {
       error.value = errorMessage(e)
-      toast.error('Failed to add member.')
     }
     await reload()
   }
@@ -92,7 +84,6 @@ export function useKeyGroupDetail(groupId: () => string) {
       await keyGroupsApi.removeMember(id, keyId)
     } catch (e) {
       error.value = errorMessage(e)
-      toast.error('Failed to remove member.')
     }
     await reload()
   }
@@ -104,7 +95,6 @@ export function useKeyGroupDetail(groupId: () => string) {
       await keyGroupsApi.patchMember(id, keyId, patch)
     } catch (e) {
       error.value = errorMessage(e)
-      toast.error('Failed to update member limits.')
     }
     await reload()
   }
@@ -124,7 +114,6 @@ export function useKeyGroupDetail(groupId: () => string) {
       await keyGroupsApi.reorder(id, priorities)
     } catch (e) {
       error.value = errorMessage(e)
-      toast.error('Failed to reorder members.')
       detailData.value = snapshot // immediate visual rollback
       await reload()              // then sync authoritative order from server
     }

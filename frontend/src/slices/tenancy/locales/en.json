@@ -50,7 +50,9 @@
       "empty": "No projects yet.",
       "rename": "Rename",
       "renameLabel": "Project name",
-      "renameError": "Failed to rename — it may have changed elsewhere."
+      "renameError": "Failed to rename — it may have changed elsewhere.",
+      "loadFailed": "Failed to load projects.",
+      "createFailed": "Failed to create project."
     },
     "members": {
       "title": "Members",
@@ -65,7 +67,8 @@
       "removeConfirmTitle": "Remove Member",
       "removeConfirm": "Remove this member?",
       "inviteError": "Failed to send invite.",
-      "roleError": "Failed to update role."
+      "roleError": "Failed to update role.",
+      "loadFailed": "Failed to load members."
     },
     "invites": {
       "inboxTitle": "Invitations",
@@ -77,7 +80,9 @@
       "accepting": "Accepting your invitation…",
       "acceptSuccess": "Invitation accepted. You now have access.",
       "acceptFailure": "This invitation link is invalid or has expired.",
-      "goToInbox": "Go to invitations"
+      "goToInbox": "Go to invitations",
+      "loadFailed": "Failed to load invites.",
+      "rejectFailed": "Failed to reject invite."
     },
     "transfer": {
       "title": "Transfer original-creator",
@@ -87,7 +92,9 @@
       "pending": "Pending transfer",
       "accept": "Accept",
       "cancel": "Cancel",
-      "none": "No pending transfer."
+      "none": "No pending transfer.",
+      "loadFailed": "Failed to load transfers.",
+      "cancelFailed": "Failed to cancel transfer."
     }
   }
 }
