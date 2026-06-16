@@ -62,7 +62,10 @@ function removeBranch(index: number) {
 <template>
   <div class="space-y-4">
     <!-- Branches -->
-    <FormField :label="t('workflow.config.branches')" name="condition-branches">
+    <FormField
+      :label="t('workflow.config.branches')"
+      name="condition-branches"
+    >
       <div class="space-y-3">
         <div
           v-for="(branch, idx) in getBranches()"
@@ -82,26 +85,34 @@ function removeBranch(index: number) {
             </button>
           </div>
 
-          <label class="block text-xs font-medium">
+          <label
+            :for="`condition-when-${idx}`"
+            class="block text-xs font-medium"
+          >
             {{ t('workflow.config.when') }}
           </label>
           <textarea
+            :id="`condition-when-${idx}`"
             :value="branch.when"
             class="w-full text-sm border rounded px-2 py-1 bg-bg min-h-[60px] font-mono"
             :placeholder="t('workflow.config.when')"
             @input="updateBranchField(idx, 'when', ($event.target as HTMLTextAreaElement).value)"
           />
 
-          <label class="block text-xs font-medium">
+          <label
+            :for="`condition-port-${idx}`"
+            class="block text-xs font-medium"
+          >
             {{ t('workflow.config.port') }}
           </label>
           <input
+            :id="`condition-port-${idx}`"
             :value="branch.port"
             type="text"
             class="w-full text-sm border rounded px-2 py-1 bg-bg"
             :placeholder="t('workflow.config.port')"
             @input="updateBranchField(idx, 'port', ($event.target as HTMLInputElement).value)"
-          />
+          >
         </div>
       </div>
 
@@ -115,13 +126,17 @@ function removeBranch(index: number) {
     </FormField>
 
     <!-- Default port -->
-    <FormField :label="t('workflow.config.defaultPort')" name="condition-default-port">
+    <FormField
+      :label="t('workflow.config.defaultPort')"
+      name="condition-default-port"
+    >
       <input
+        id="condition-default-port"
         :value="local.default_port ?? 'default'"
         type="text"
         class="w-full text-sm border rounded px-2 py-1 bg-bg"
         @input="update('default_port', ($event.target as HTMLInputElement).value)"
-      />
+      >
     </FormField>
   </div>
 </template>

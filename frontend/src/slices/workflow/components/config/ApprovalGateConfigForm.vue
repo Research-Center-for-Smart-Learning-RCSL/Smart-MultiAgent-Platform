@@ -41,7 +41,11 @@ function isApprover(agentId: string): boolean {
 <template>
   <div class="space-y-3">
     <!-- Mode -->
-    <FormField :label="t('workflow.config.mode')" name="approval-mode" required>
+    <FormField
+      :label="t('workflow.config.mode')"
+      name="approval-mode"
+      required
+    >
       <select
         id="approval-mode"
         :value="local.mode ?? 'single'"
@@ -59,14 +63,21 @@ function isApprover(agentId: string): boolean {
     </FormField>
 
     <!-- Leader Agent -->
-    <FormField :label="t('workflow.config.leaderAgentId')" name="leader-agent-id" required>
+    <FormField
+      :label="t('workflow.config.leaderAgentId')"
+      name="leader-agent-id"
+      required
+    >
       <select
         id="leader-agent-id"
         :value="local.leader_agent_id ?? ''"
         class="w-full text-sm border rounded px-2 py-1 bg-bg"
         @change="update('leader_agent_id', ($event.target as HTMLSelectElement).value)"
       >
-        <option value="" disabled>
+        <option
+          value=""
+          disabled
+        >
           {{ t('workflow.config.none') }}
         </option>
         <option
@@ -80,7 +91,10 @@ function isApprover(agentId: string): boolean {
     </FormField>
 
     <!-- Approvers (checkbox per agent) -->
-    <FormField :label="t('workflow.config.approvers')" name="approvers">
+    <FormField
+      :label="t('workflow.config.approvers')"
+      name="approvers"
+    >
       <div class="space-y-1">
         <label
           v-for="agent in agents"
@@ -91,14 +105,17 @@ function isApprover(agentId: string): boolean {
             type="checkbox"
             :checked="isApprover(agent.id)"
             @change="toggleApprover(agent.id)"
-          />
+          >
           <span class="text-sm">{{ agent.name }}</span>
         </label>
       </div>
     </FormField>
 
     <!-- Timeout Seconds -->
-    <FormField :label="t('workflow.config.timeoutSeconds')" name="timeout-seconds">
+    <FormField
+      :label="t('workflow.config.timeoutSeconds')"
+      name="timeout-seconds"
+    >
       <input
         id="timeout-seconds"
         type="number"
@@ -107,11 +124,15 @@ function isApprover(agentId: string): boolean {
         max="86400"
         class="w-full text-sm border rounded px-2 py-1 bg-bg"
         @input="update('timeout_seconds', safeNumber(($event.target as HTMLInputElement).value, 1))"
-      />
+      >
     </FormField>
 
     <!-- Question Template -->
-    <FormField :label="t('workflow.config.questionTemplate')" name="question-template" required>
+    <FormField
+      :label="t('workflow.config.questionTemplate')"
+      name="question-template"
+      required
+    >
       <textarea
         id="question-template"
         :value="(local.question_template as string) ?? ''"

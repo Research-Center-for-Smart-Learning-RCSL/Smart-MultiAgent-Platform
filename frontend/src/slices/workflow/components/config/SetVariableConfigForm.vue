@@ -61,7 +61,10 @@ function removeAssignment(index: number) {
 
 <template>
   <div class="space-y-4">
-    <FormField :label="t('workflow.config.assignments')" name="set-var-assignments">
+    <FormField
+      :label="t('workflow.config.assignments')"
+      name="set-var-assignments"
+    >
       <div class="space-y-3">
         <div
           v-for="(assignment, idx) in getAssignments()"
@@ -81,21 +84,29 @@ function removeAssignment(index: number) {
             </button>
           </div>
 
-          <label class="block text-xs font-medium">
+          <label
+            :for="`set-var-variable-${idx}`"
+            class="block text-xs font-medium"
+          >
             {{ t('workflow.config.variable') }}
           </label>
           <input
+            :id="`set-var-variable-${idx}`"
             :value="assignment.variable"
             type="text"
             class="w-full text-sm border rounded px-2 py-1 bg-bg"
             :placeholder="t('workflow.config.variable')"
             @input="updateAssignment(idx, 'variable', ($event.target as HTMLInputElement).value)"
-          />
+          >
 
-          <label class="block text-xs font-medium">
+          <label
+            :for="`set-var-expression-${idx}`"
+            class="block text-xs font-medium"
+          >
             {{ t('workflow.config.expression') }}
           </label>
           <textarea
+            :id="`set-var-expression-${idx}`"
             :value="assignment.expression"
             class="w-full text-sm border rounded px-2 py-1 bg-bg min-h-[60px] font-mono"
             :placeholder="t('workflow.config.expression')"

@@ -26,7 +26,7 @@ const configModelProps = {
     return (props.modelValue ?? defaults()) as Record<string, unknown>
   },
 }
-const { local, update } = useConfigModel(
+const { local } = useConfigModel(
   configModelProps,
   emit as unknown as (event: 'update:modelValue', value: Record<string, unknown>) => void,
 )
@@ -64,7 +64,10 @@ function onStrategyChange(event: Event): void {
     </summary>
 
     <div class="mt-2 space-y-2">
-      <FormField :label="t('workflow.config.errorStrategy')" name="on-error-strategy">
+      <FormField
+        :label="t('workflow.config.errorStrategy')"
+        name="on-error-strategy"
+      >
         <select
           id="on-error-strategy"
           :value="local.strategy"
@@ -83,7 +86,10 @@ function onStrategyChange(event: Event): void {
 
       <!-- Retry fields -->
       <template v-if="local.strategy === 'retry'">
-        <FormField :label="t('workflow.config.retryMax')" name="on-error-retry-max">
+        <FormField
+          :label="t('workflow.config.retryMax')"
+          name="on-error-retry-max"
+        >
           <input
             id="on-error-retry-max"
             v-model.number="local.retry_max"
@@ -92,10 +98,13 @@ function onStrategyChange(event: Event): void {
             max="10"
             class="w-full text-sm border rounded px-2 py-1 bg-bg"
             @input="emitUpdate"
-          />
+          >
         </FormField>
 
-        <FormField :label="t('workflow.config.retryBackoffMs')" name="on-error-retry-backoff">
+        <FormField
+          :label="t('workflow.config.retryBackoffMs')"
+          name="on-error-retry-backoff"
+        >
           <input
             id="on-error-retry-backoff"
             v-model.number="local.retry_backoff_ms"
@@ -105,7 +114,7 @@ function onStrategyChange(event: Event): void {
             step="100"
             class="w-full text-sm border rounded px-2 py-1 bg-bg"
             @input="emitUpdate"
-          />
+          >
         </FormField>
       </template>
 

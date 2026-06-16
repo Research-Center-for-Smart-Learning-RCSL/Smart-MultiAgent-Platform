@@ -42,7 +42,10 @@ function onReturnVariablesInput(event: Event) {
 <template>
   <div class="space-y-4">
     <!-- Status -->
-    <FormField :label="t('workflow.config.status')" name="end-status">
+    <FormField
+      :label="t('workflow.config.status')"
+      name="end-status"
+    >
       <select
         id="end-status"
         :value="local.status ?? 'success'"
@@ -71,7 +74,7 @@ function onReturnVariablesInput(event: Event) {
         type="text"
         class="w-full text-sm border rounded px-2 py-1 bg-bg"
         @input="onReturnVariablesInput"
-      />
+      >
     </FormField>
 
     <!-- Failure reason (only when status === 'failure') -->

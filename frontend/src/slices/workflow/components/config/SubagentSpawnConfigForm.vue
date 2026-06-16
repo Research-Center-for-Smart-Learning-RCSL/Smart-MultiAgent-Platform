@@ -24,7 +24,10 @@ const { local, update } = useConfigModel(props, emit)
 <template>
   <div class="space-y-4">
     <!-- Parent Agent -->
-    <FormField :label="t('workflow.config.parentAgentId')" name="subagent-parent-agent">
+    <FormField
+      :label="t('workflow.config.parentAgentId')"
+      name="subagent-parent-agent"
+    >
       <select
         id="subagent-parent-agent"
         :value="local.parent_agent_id ?? ''"
@@ -45,7 +48,10 @@ const { local, update } = useConfigModel(props, emit)
     </FormField>
 
     <!-- Task Template -->
-    <FormField :label="t('workflow.config.taskTemplate')" name="subagent-task-template">
+    <FormField
+      :label="t('workflow.config.taskTemplate')"
+      name="subagent-task-template"
+    >
       <textarea
         id="subagent-task-template"
         :value="(local.task_template as string) ?? ''"
@@ -55,7 +61,10 @@ const { local, update } = useConfigModel(props, emit)
     </FormField>
 
     <!-- Max Alive Simultaneously -->
-    <FormField :label="t('workflow.config.maxAliveSimultaneously')" name="subagent-max-alive">
+    <FormField
+      :label="t('workflow.config.maxAliveSimultaneously')"
+      name="subagent-max-alive"
+    >
       <input
         id="subagent-max-alive"
         :value="local.max_alive_simultaneously ?? 3"
@@ -64,24 +73,30 @@ const { local, update } = useConfigModel(props, emit)
         max="20"
         class="w-full text-sm border rounded px-2 py-1 bg-bg"
         @input="update('max_alive_simultaneously', safeNumber(($event.target as HTMLInputElement).value, 1))"
-      />
+      >
     </FormField>
 
     <!-- Wait for All -->
-    <FormField :label="t('workflow.config.waitForAll')" name="subagent-wait-all">
+    <FormField
+      :label="t('workflow.config.waitForAll')"
+      name="subagent-wait-all"
+    >
       <label class="flex items-center gap-2">
         <input
           id="subagent-wait-all"
           type="checkbox"
           :checked="local.wait_for_all !== false"
           @change="update('wait_for_all', ($event.target as HTMLInputElement).checked)"
-        />
+        >
         <span class="text-sm">{{ t('workflow.config.waitForAll') }}</span>
       </label>
     </FormField>
 
     <!-- Timeout Seconds -->
-    <FormField :label="t('workflow.config.timeoutSeconds')" name="subagent-timeout">
+    <FormField
+      :label="t('workflow.config.timeoutSeconds')"
+      name="subagent-timeout"
+    >
       <input
         id="subagent-timeout"
         :value="local.timeout_seconds ?? 180"
@@ -90,18 +105,21 @@ const { local, update } = useConfigModel(props, emit)
         max="600"
         class="w-full text-sm border rounded px-2 py-1 bg-bg"
         @input="update('timeout_seconds', safeNumber(($event.target as HTMLInputElement).value, 1))"
-      />
+      >
     </FormField>
 
     <!-- Output Variable -->
-    <FormField :label="t('workflow.config.outputVariable')" name="subagent-output-var">
+    <FormField
+      :label="t('workflow.config.outputVariable')"
+      name="subagent-output-var"
+    >
       <input
         id="subagent-output-var"
         :value="(local.output_variable as string) ?? ''"
         type="text"
         class="w-full text-sm border rounded px-2 py-1 bg-bg"
         @input="update('output_variable', ($event.target as HTMLInputElement).value)"
-      />
+      >
     </FormField>
 
     <!-- On Error -->

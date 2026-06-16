@@ -24,7 +24,10 @@ const { local, update } = useConfigModel(props, emit)
 <template>
   <div class="space-y-4">
     <!-- Mode -->
-    <FormField :label="t('workflow.config.mode')" name="join-mode">
+    <FormField
+      :label="t('workflow.config.mode')"
+      name="join-mode"
+    >
       <select
         id="join-mode"
         :value="local.mode ?? 'all'"
@@ -55,11 +58,14 @@ const { local, update } = useConfigModel(props, emit)
         max="50"
         class="w-full text-sm border rounded px-2 py-1 bg-bg"
         @input="update('count', safeNumber(($event.target as HTMLInputElement).value, 1))"
-      />
+      >
     </FormField>
 
     <!-- Timeout -->
-    <FormField :label="t('workflow.config.timeoutSeconds')" name="join-timeout">
+    <FormField
+      :label="t('workflow.config.timeoutSeconds')"
+      name="join-timeout"
+    >
       <input
         id="join-timeout"
         :value="local.timeout_seconds ?? 600"
@@ -68,7 +74,7 @@ const { local, update } = useConfigModel(props, emit)
         max="86400"
         class="w-full text-sm border rounded px-2 py-1 bg-bg"
         @input="update('timeout_seconds', safeNumber(($event.target as HTMLInputElement).value, 1))"
-      />
+      >
     </FormField>
   </div>
 </template>

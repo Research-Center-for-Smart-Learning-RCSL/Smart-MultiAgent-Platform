@@ -24,7 +24,10 @@ const { local, update } = useConfigModel(props, emit)
 <template>
   <div class="space-y-4">
     <!-- Issuer Agent -->
-    <FormField :label="t('workflow.config.issuerAgentId')" name="instruct-issuer-agent">
+    <FormField
+      :label="t('workflow.config.issuerAgentId')"
+      name="instruct-issuer-agent"
+    >
       <select
         id="instruct-issuer-agent"
         :value="local.issuer_agent_id ?? ''"
@@ -45,7 +48,10 @@ const { local, update } = useConfigModel(props, emit)
     </FormField>
 
     <!-- Target Agent -->
-    <FormField :label="t('workflow.config.targetAgentId')" name="instruct-target-agent">
+    <FormField
+      :label="t('workflow.config.targetAgentId')"
+      name="instruct-target-agent"
+    >
       <select
         id="instruct-target-agent"
         :value="local.target_agent_id ?? ''"
@@ -66,7 +72,10 @@ const { local, update } = useConfigModel(props, emit)
     </FormField>
 
     <!-- Instruction Template -->
-    <FormField :label="t('workflow.config.instructionTemplate')" name="instruct-template">
+    <FormField
+      :label="t('workflow.config.instructionTemplate')"
+      name="instruct-template"
+    >
       <textarea
         id="instruct-template"
         :value="(local.instruction_template as string) ?? ''"
@@ -76,14 +85,17 @@ const { local, update } = useConfigModel(props, emit)
     </FormField>
 
     <!-- Wait for completion -->
-    <FormField :label="t('workflow.config.waitForCompletion')" name="instruct-wait">
+    <FormField
+      :label="t('workflow.config.waitForCompletion')"
+      name="instruct-wait"
+    >
       <label class="flex items-center gap-2">
         <input
           id="instruct-wait"
           type="checkbox"
           :checked="local.wait_for_completion !== false"
           @change="update('wait_for_completion', ($event.target as HTMLInputElement).checked)"
-        />
+        >
         <span class="text-sm">{{ t('workflow.config.waitForCompletion') }}</span>
       </label>
     </FormField>
@@ -102,18 +114,21 @@ const { local, update } = useConfigModel(props, emit)
         max="600"
         class="w-full text-sm border rounded px-2 py-1 bg-bg"
         @input="update('completion_timeout_seconds', safeNumber(($event.target as HTMLInputElement).value, 1))"
-      />
+      >
     </FormField>
 
     <!-- Output Variable -->
-    <FormField :label="t('workflow.config.outputVariable')" name="instruct-output-var">
+    <FormField
+      :label="t('workflow.config.outputVariable')"
+      name="instruct-output-var"
+    >
       <input
         id="instruct-output-var"
         :value="(local.output_variable as string) ?? ''"
         type="text"
         class="w-full text-sm border rounded px-2 py-1 bg-bg"
         @input="update('output_variable', ($event.target as HTMLInputElement).value)"
-      />
+      >
     </FormField>
 
     <!-- On Error -->

@@ -45,7 +45,10 @@ function toggleType(type: string) {
 <template>
   <div class="space-y-4">
     <!-- Event type -->
-    <FormField :label="t('workflow.config.eventType')" name="wait-event-type">
+    <FormField
+      :label="t('workflow.config.eventType')"
+      name="wait-event-type"
+    >
       <select
         id="wait-event-type"
         :value="local.event_type ?? 'message_in_room'"
@@ -63,7 +66,10 @@ function toggleType(type: string) {
     </FormField>
 
     <!-- Timeout -->
-    <FormField :label="t('workflow.config.timeoutSeconds')" name="wait-timeout">
+    <FormField
+      :label="t('workflow.config.timeoutSeconds')"
+      name="wait-timeout"
+    >
       <input
         id="wait-timeout"
         :value="local.timeout_seconds ?? 300"
@@ -72,12 +78,15 @@ function toggleType(type: string) {
         max="86400"
         class="w-full text-sm border rounded px-2 py-1 bg-bg"
         @input="update('timeout_seconds', safeNumber(($event.target as HTMLInputElement).value, 1))"
-      />
+      >
     </FormField>
 
     <!-- message_in_room fields -->
     <template v-if="(local.event_type ?? 'message_in_room') === 'message_in_room'">
-      <FormField :label="t('workflow.config.chatroomId')" name="wait-chatroom">
+      <FormField
+        :label="t('workflow.config.chatroomId')"
+        name="wait-chatroom"
+      >
         <select
           id="wait-chatroom"
           :value="local.chatroom_id ?? ''"
@@ -97,7 +106,10 @@ function toggleType(type: string) {
         </select>
       </FormField>
 
-      <FormField :label="t('workflow.config.senderFilter')" name="wait-sender-filter">
+      <FormField
+        :label="t('workflow.config.senderFilter')"
+        name="wait-sender-filter"
+      >
         <select
           id="wait-sender-filter"
           :value="local.sender_filter ?? 'any'"
@@ -114,20 +126,26 @@ function toggleType(type: string) {
         </select>
       </FormField>
 
-      <FormField :label="t('workflow.config.contentRegex')" name="wait-content-regex">
+      <FormField
+        :label="t('workflow.config.contentRegex')"
+        name="wait-content-regex"
+      >
         <input
           id="wait-content-regex"
           :value="local.content_regex ?? ''"
           type="text"
           class="w-full text-sm border rounded px-2 py-1 bg-bg"
           @input="update('content_regex', ($event.target as HTMLInputElement).value)"
-        />
+        >
       </FormField>
     </template>
 
     <!-- a2a_message fields -->
     <template v-if="local.event_type === 'a2a_message'">
-      <FormField :label="t('workflow.config.agentId')" name="wait-agent">
+      <FormField
+        :label="t('workflow.config.agentId')"
+        name="wait-agent"
+      >
         <select
           id="wait-agent"
           :value="local.agent_id ?? ''"
@@ -147,7 +165,10 @@ function toggleType(type: string) {
         </select>
       </FormField>
 
-      <FormField :label="t('workflow.config.types')" name="wait-a2a-types">
+      <FormField
+        :label="t('workflow.config.types')"
+        name="wait-a2a-types"
+      >
         <div class="space-y-1">
           <label
             v-for="at in A2A_TYPES"
@@ -158,7 +179,7 @@ function toggleType(type: string) {
               type="checkbox"
               :checked="getTypes().includes(at)"
               @change="toggleType(at)"
-            />
+            >
             <span class="text-sm">{{ at }}</span>
           </label>
         </div>
@@ -167,7 +188,10 @@ function toggleType(type: string) {
 
     <!-- timer fields -->
     <template v-if="local.event_type === 'timer'">
-      <FormField :label="t('workflow.config.delaySeconds')" name="wait-delay">
+      <FormField
+        :label="t('workflow.config.delaySeconds')"
+        name="wait-delay"
+      >
         <input
           id="wait-delay"
           :value="local.delay_seconds ?? 60"
@@ -176,13 +200,16 @@ function toggleType(type: string) {
           max="86400"
           class="w-full text-sm border rounded px-2 py-1 bg-bg"
           @input="update('delay_seconds', safeNumber(($event.target as HTMLInputElement).value, 1))"
-        />
+        >
       </FormField>
     </template>
 
     <!-- variable_matches fields -->
     <template v-if="local.event_type === 'variable_matches'">
-      <FormField :label="t('workflow.config.expression')" name="wait-expression">
+      <FormField
+        :label="t('workflow.config.expression')"
+        name="wait-expression"
+      >
         <textarea
           id="wait-expression"
           :value="(local.expression as string) ?? ''"
