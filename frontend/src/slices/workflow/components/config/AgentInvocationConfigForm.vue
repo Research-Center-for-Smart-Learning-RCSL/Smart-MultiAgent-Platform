@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { reactive, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useConfigModel, safeNumber } from '../../composables/useConfigModel'
 import FormField from '@shared/ui/FormField.vue'
 import OnErrorConfigForm from './OnErrorConfigForm.vue'
 import type { OnErrorConfig } from '../../types'
@@ -18,11 +18,7 @@ const emit = defineEmits<{
   'update:modelValue': [value: Record<string, unknown>]
 }>()
 
-function clone<T>(v: T): T {
-  return JSON.parse(JSON.stringify(v)) as T
-}
-
-const local = reactive<Record<string, unknown>>({ ...props.modelValue })
+const { local, update } = useConfigModel(props, emit)
 
 // Defaults
 if (local.stream_to_chatroom === undefined) {
@@ -30,15 +26,6 @@ if (local.stream_to_chatroom === undefined) {
 }
 if (local.timeout_seconds === undefined) {
   local.timeout_seconds = 120
-}
-
-watch(() => props.modelValue, (v) => {
-  Object.assign(local, clone(v))
-}, { deep: true })
-
-function update(field: string, value: unknown) {
-  local[field] = value
-  emit('update:modelValue', { ...local })
 }
 </script>
 
@@ -128,7 +115,7 @@ function update(field: string, value: unknown) {
         min="1"
         max="600"
         class="w-full text-sm border rounded px-2 py-1 bg-bg"
-        @input="update('timeout_seconds', Number(($event.target as HTMLInputElement).value))"
+        @input="update('timeout_seconds', safeNumber(($event.target as HTMLInputElement).value, 1))"
       />
     </FormField>
 

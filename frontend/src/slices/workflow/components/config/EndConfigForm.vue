@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { reactive, watch, computed } from 'vue'
+import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useConfigModel } from '../../composables/useConfigModel'
 import FormField from '@shared/ui/FormField.vue'
 
 const { t } = useI18n()
@@ -18,20 +19,7 @@ const emit = defineEmits<{
   'update:modelValue': [value: Record<string, unknown>]
 }>()
 
-function clone<T>(v: T): T {
-  return JSON.parse(JSON.stringify(v)) as T
-}
-
-const local = reactive<Record<string, unknown>>({ ...props.modelValue })
-
-watch(() => props.modelValue, (v) => {
-  Object.assign(local, clone(v))
-}, { deep: true })
-
-function update(field: string, value: unknown) {
-  local[field] = value
-  emit('update:modelValue', { ...local })
-}
+const { local, update } = useConfigModel(props, emit)
 
 const returnVariablesDisplay = computed(() => {
   const raw = local.return_variables

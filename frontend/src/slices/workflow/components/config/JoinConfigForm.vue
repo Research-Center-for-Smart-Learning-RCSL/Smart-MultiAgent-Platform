@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { reactive, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useConfigModel, safeNumber } from '../../composables/useConfigModel'
 import FormField from '@shared/ui/FormField.vue'
 
 const { t } = useI18n()
@@ -18,20 +18,7 @@ const emit = defineEmits<{
   'update:modelValue': [value: Record<string, unknown>]
 }>()
 
-function clone<T>(v: T): T {
-  return JSON.parse(JSON.stringify(v)) as T
-}
-
-const local = reactive<Record<string, unknown>>({ ...props.modelValue })
-
-watch(() => props.modelValue, (v) => {
-  Object.assign(local, clone(v))
-}, { deep: true })
-
-function update(field: string, value: unknown) {
-  local[field] = value
-  emit('update:modelValue', { ...local })
-}
+const { local, update } = useConfigModel(props, emit)
 </script>
 
 <template>
@@ -67,7 +54,7 @@ function update(field: string, value: unknown) {
         min="1"
         max="50"
         class="w-full text-sm border rounded px-2 py-1 bg-bg"
-        @input="update('count', Number(($event.target as HTMLInputElement).value))"
+        @input="update('count', safeNumber(($event.target as HTMLInputElement).value, 1))"
       />
     </FormField>
 
@@ -80,7 +67,7 @@ function update(field: string, value: unknown) {
         min="1"
         max="86400"
         class="w-full text-sm border rounded px-2 py-1 bg-bg"
-        @input="update('timeout_seconds', Number(($event.target as HTMLInputElement).value))"
+        @input="update('timeout_seconds', safeNumber(($event.target as HTMLInputElement).value, 1))"
       />
     </FormField>
   </div>

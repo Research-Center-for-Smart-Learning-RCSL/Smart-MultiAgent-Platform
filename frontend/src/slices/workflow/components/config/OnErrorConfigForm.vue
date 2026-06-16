@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { reactive, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useConfigModel } from '../../composables/useConfigModel'
 import FormField from '@shared/ui/FormField.vue'
 import type { OnErrorConfig, OnErrorStrategy } from '../../types'
 
@@ -21,24 +21,18 @@ function defaults(): OnErrorConfig {
   return { strategy: 'fail' }
 }
 
-function clone(v: OnErrorConfig): OnErrorConfig {
-  return JSON.parse(JSON.stringify(v)) as OnErrorConfig
-}
-
-const local = reactive<OnErrorConfig>(
-  props.modelValue ? clone(props.modelValue) : defaults(),
-)
-
-watch(
-  () => props.modelValue,
-  (v) => {
-    Object.assign(local, v ? clone(v) : defaults())
+const configModelProps = {
+  get modelValue() {
+    return (props.modelValue ?? defaults()) as Record<string, unknown>
   },
-  { deep: true },
+}
+const { local, update } = useConfigModel(
+  configModelProps,
+  emit as unknown as (event: 'update:modelValue', value: Record<string, unknown>) => void,
 )
 
 function emitUpdate(): void {
-  emit('update:modelValue', clone(local))
+  emit('update:modelValue', { ...local } as OnErrorConfig)
 }
 
 function onStrategyChange(event: Event): void {
