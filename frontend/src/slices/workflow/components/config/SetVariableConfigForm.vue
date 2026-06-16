@@ -1,0 +1,129 @@
+<script setup lang="ts">
+import { reactive, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
+import FormField from '@shared/ui/FormField.vue'
+
+const { t } = useI18n()
+
+interface Assignment {
+  variable: string
+  expression: string
+}
+
+const props = defineProps<{
+  modelValue: Record<string, unknown>
+  agents: Array<{ id: string; name: string }>
+  chatrooms: Array<{ id: string; name: string }>
+  allNodeIds: string[]
+}>()
+
+const emit = defineEmits<{
+  'update:modelValue': [value: Record<string, unknown>]
+}>()
+
+function clone<T>(v: T): T {
+  return JSON.parse(JSON.stringify(v)) as T
+}
+
+function toAssignments(raw: unknown): Assignment[] {
+  if (Array.isArray(raw) && raw.length > 0) {
+    return raw.map((a) => ({
+      variable: String(a?.variable ?? ''),
+      expression: String(a?.expression ?? ''),
+    }))
+  }
+  return [{ variable: '', expression: '' }]
+}
+
+const local = reactive<Record<string, unknown>>({ ...props.modelValue })
+
+watch(() => props.modelValue, (v) => {
+  Object.assign(local, clone(v))
+}, { deep: true })
+
+function getAssignments(): Assignment[] {
+  return toAssignments(local.assignments)
+}
+
+function update(field: string, value: unknown) {
+  local[field] = value
+  emit('update:modelValue', { ...local })
+}
+
+function updateAssignment(index: number, field: keyof Assignment, value: string) {
+  const assignments = clone(getAssignments())
+  assignments[index][field] = value
+  update('assignments', assignments)
+}
+
+function addAssignment() {
+  const assignments = clone(getAssignments())
+  assignments.push({ variable: '', expression: '' })
+  update('assignments', assignments)
+}
+
+function removeAssignment(index: number) {
+  const assignments = clone(getAssignments())
+  assignments.splice(index, 1)
+  if (assignments.length === 0) {
+    assignments.push({ variable: '', expression: '' })
+  }
+  update('assignments', assignments)
+}
+</script>
+
+<template>
+  <div class="space-y-4">
+    <FormField :label="t('workflow.config.assignments')" name="set-var-assignments">
+      <div class="space-y-3">
+        <div
+          v-for="(assignment, idx) in getAssignments()"
+          :key="idx"
+          class="border rounded p-2 space-y-2 relative"
+        >
+          <div class="flex items-start justify-between gap-2">
+            <span class="text-xs font-medium text-muted">
+              #{{ idx + 1 }}
+            </span>
+            <button
+              type="button"
+              class="text-xs text-red-600 hover:text-red-800"
+              @click="removeAssignment(idx)"
+            >
+              {{ t('workflow.config.removeAssignment') }}
+            </button>
+          </div>
+
+          <label class="block text-xs font-medium">
+            {{ t('workflow.config.variable') }}
+          </label>
+          <input
+            :value="assignment.variable"
+            type="text"
+            class="w-full text-sm border rounded px-2 py-1 bg-bg"
+            :placeholder="t('workflow.config.variable')"
+            @input="updateAssignment(idx, 'variable', ($event.target as HTMLInputElement).value)"
+          />
+
+          <label class="block text-xs font-medium">
+            {{ t('workflow.config.expression') }}
+          </label>
+          <textarea
+            :value="assignment.expression"
+            class="w-full text-sm border rounded px-2 py-1 bg-bg min-h-[60px] font-mono"
+            :placeholder="t('workflow.config.expression')"
+            @input="updateAssignment(idx, 'expression', ($event.target as HTMLTextAreaElement).value)"
+          />
+        </div>
+      </div>
+
+      <button
+        type="button"
+        class="mt-2 text-sm text-blue-600 hover:text-blue-800"
+        @click="addAssignment"
+      >
+        + {{ t('workflow.config.addAssignment') }}
+      </button>
+    </FormField>
+  </div>
+</template>

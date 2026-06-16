@@ -26,7 +26,7 @@ export default defineConfig({
     rollupOptions: {
       output: {
         manualChunks: (id) => {
-          if (id.includes('@vue-flow/core')) return 'vue-flow'
+          if (id.includes('@vue-flow/')) return 'vue-flow'
           if (id.includes('mermaid')) return 'mermaid'
           if (id.includes('katex')) return 'katex'
           if (id.includes('highlight.js')) return 'hljs'
