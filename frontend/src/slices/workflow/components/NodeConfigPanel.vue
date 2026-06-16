@@ -60,7 +60,7 @@ const configComponent = computed(() => CONFIG_FORM_MAP[props.node.type] ?? null)
 <template>
   <div class="space-y-3">
     <!-- Node ID (read-only) -->
-    <div class="text-xs text-gray-500 dark:text-gray-400">
+    <div class="text-xs" style="color: var(--color-muted)">
       ID: {{ node.id }}
     </div>
 

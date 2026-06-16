@@ -47,7 +47,7 @@
                 <button
                   v-for="nt in group.types"
                   :key="nt"
-                  class="block w-full text-left px-3 py-1.5 text-sm hover:bg-blue-50"
+                  class="block w-full text-left px-3 py-1.5 text-sm hover:bg-blue-50 dark:hover:bg-blue-900/30"
                   @click="addNode(nt)"
                 >
                   {{ $t(NODE_TYPE_LABELS[nt]) }}
@@ -227,6 +227,7 @@ import type { NodeType, Workflow, WorkflowDefinition, WorkflowNode } from '../ty
 
 import '@vue-flow/core/dist/style.css'
 import '@vue-flow/core/dist/theme-default.css'
+import '@vue-flow/controls/dist/style.css'
 
 const { t } = useI18n()
 const toast = useToast()
@@ -241,6 +242,15 @@ const dryRunning = ref(false)
 const paletteOpen = ref(false)
 const selectedEdgeId = ref<string | null>(null)
 let nodeCounter = 0
+
+function seedNodeCounter(nodes: FlowNode[]): void {
+  let max = 0
+  for (const n of nodes) {
+    const m = n.id.match(/_(\d+)$/)
+    if (m) max = Math.max(max, Number(m[1]))
+  }
+  nodeCounter = max
+}
 
 const workflow = ref<Workflow | null>(null)
 const loadError = ref<string | null>(null)
@@ -327,6 +337,7 @@ async function loadWorkflow(): Promise<void> {
     definition.value = found.definition
     store.markSaved(found.version)
     defToFlow(found.definition)
+    seedNodeCounter(flowNodes.value)
     loadError.value = null
   } catch {
     loadError.value = t('workflow.editor.loadFailed')
@@ -380,10 +391,19 @@ async function confirmUnsaved(): Promise<boolean> {
 onBeforeRouteLeave(confirmUnsaved)
 onBeforeRouteUpdate(confirmUnsaved)
 
-// Selected node from inspector
-const selectedNode = computed(() => {
+// Selected node — derived from flowNodes (the live source of truth) rather than
+// definition.value (only updated on load/save/undo).
+const selectedNode = computed<WorkflowNode | null>(() => {
   if (!store.selectedNodeId) return null
-  return definition.value.nodes.find((n) => n.id === store.selectedNodeId) ?? null
+  const fn = flowNodes.value.find((n) => n.id === store.selectedNodeId)
+  if (!fn) return null
+  return {
+    id: fn.id,
+    type: fn.data.nodeType as NodeType,
+    label: fn.data.label,
+    config: fn.data.config ?? {},
+    position: fn.position,
+  }
 })
 
 // Debounced lint on change
@@ -524,13 +544,26 @@ function onConnect(connection: Connection): void {
 }
 
 // ---------------------------------------------------------------------------
-// Config update from sidebar
+// Config / label update from sidebar — debounced undo so each keystroke
+// doesn't push a separate snapshot.
 // ---------------------------------------------------------------------------
+
+let undoTimer: number | null = null
+let undoSnapshotPending = false
+
+function pushUndoDebounced(): void {
+  if (!undoSnapshotPending) {
+    undoSnapshotPending = true
+    store.pushUndo(flowToDef())
+  }
+  if (undoTimer) clearTimeout(undoTimer)
+  undoTimer = window.setTimeout(() => { undoSnapshotPending = false }, 600)
+}
 
 function onConfigUpdate(config: Record<string, unknown>): void {
   const nodeId = store.selectedNodeId
   if (!nodeId) return
-  store.pushUndo(flowToDef())
+  pushUndoDebounced()
   flowNodes.value = flowNodes.value.map((n) =>
     n.id === nodeId ? { ...n, data: { ...n.data, config } } : n,
   )
@@ -541,6 +574,7 @@ function onConfigUpdate(config: Record<string, unknown>): void {
 function onLabelUpdate(label: string): void {
   const nodeId = store.selectedNodeId
   if (!nodeId) return
+  pushUndoDebounced()
   flowNodes.value = flowNodes.value.map((n) =>
     n.id === nodeId ? { ...n, data: { ...n.data, label } } : n,
   )

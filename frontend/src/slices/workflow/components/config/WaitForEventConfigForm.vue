@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { reactive, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useConfigModel, safeNumber } from '../../composables/useConfigModel'
 import FormField from '@shared/ui/FormField.vue'
 
 const { t } = useI18n()
@@ -16,24 +16,11 @@ const emit = defineEmits<{
   'update:modelValue': [value: Record<string, unknown>]
 }>()
 
-function clone<T>(v: T): T {
-  return JSON.parse(JSON.stringify(v)) as T
-}
+const { local, update } = useConfigModel(props, emit)
 
 const EVENT_TYPES = ['message_in_room', 'a2a_message', 'timer', 'variable_matches'] as const
 const SENDER_FILTERS = ['any', 'user', 'agent', 'guest'] as const
 const A2A_TYPES = ['call', 'reply', 'notify', 'instruct'] as const
-
-const local = reactive<Record<string, unknown>>({ ...props.modelValue })
-
-watch(() => props.modelValue, (v) => {
-  Object.assign(local, clone(v))
-}, { deep: true })
-
-function update(field: string, value: unknown) {
-  local[field] = value
-  emit('update:modelValue', { ...local })
-}
 
 function getTypes(): string[] {
   if (Array.isArray(local.types)) {
@@ -45,7 +32,7 @@ function getTypes(): string[] {
 function toggleType(type: string) {
   const current = getTypes()
   const idx = current.indexOf(type)
-  const next = clone(current)
+  const next = structuredClone(current)
   if (idx === -1) {
     next.push(type)
   } else {
@@ -84,7 +71,7 @@ function toggleType(type: string) {
         min="1"
         max="86400"
         class="w-full text-sm border rounded px-2 py-1 bg-bg"
-        @input="update('timeout_seconds', Number(($event.target as HTMLInputElement).value))"
+        @input="update('timeout_seconds', safeNumber(($event.target as HTMLInputElement).value, 1))"
       />
     </FormField>
 
@@ -188,7 +175,7 @@ function toggleType(type: string) {
           min="1"
           max="86400"
           class="w-full text-sm border rounded px-2 py-1 bg-bg"
-          @input="update('delay_seconds', Number(($event.target as HTMLInputElement).value))"
+          @input="update('delay_seconds', safeNumber(($event.target as HTMLInputElement).value, 1))"
         />
       </FormField>
     </template>

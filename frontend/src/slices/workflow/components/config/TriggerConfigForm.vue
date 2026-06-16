@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { reactive, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useConfigModel } from '../../composables/useConfigModel'
 import FormField from '@shared/ui/FormField.vue'
 
 const { t } = useI18n()
@@ -16,24 +16,11 @@ const emit = defineEmits<{
   'update:modelValue': [value: Record<string, unknown>]
 }>()
 
-function clone<T>(v: T): T {
-  return JSON.parse(JSON.stringify(v)) as T
-}
-
-const local = reactive<Record<string, unknown>>({ ...props.modelValue })
+const { local, update } = useConfigModel(props, emit)
 
 // Ensure trigger_type has a default
 if (!local.trigger_type) {
   local.trigger_type = 'manual'
-}
-
-watch(() => props.modelValue, (v) => {
-  Object.assign(local, clone(v))
-}, { deep: true })
-
-function update(field: string, value: unknown) {
-  local[field] = value
-  emit('update:modelValue', { ...local })
 }
 
 const TRIGGER_TYPES = ['manual', 'cron', 'message_received', 'a2a_event', 'wakeup_signal'] as const

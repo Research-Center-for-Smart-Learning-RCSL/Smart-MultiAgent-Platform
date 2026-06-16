@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { reactive, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useConfigModel } from '../../composables/useConfigModel'
 import FormField from '@shared/ui/FormField.vue'
 
 const { t } = useI18n()
@@ -21,9 +21,7 @@ const emit = defineEmits<{
   'update:modelValue': [value: Record<string, unknown>]
 }>()
 
-function clone<T>(v: T): T {
-  return JSON.parse(JSON.stringify(v)) as T
-}
+const { local, update } = useConfigModel(props, emit)
 
 function toBranches(raw: unknown): Branch[] {
   if (Array.isArray(raw) && raw.length > 0) {
@@ -35,35 +33,24 @@ function toBranches(raw: unknown): Branch[] {
   return [{ when: '', port: '' }]
 }
 
-const local = reactive<Record<string, unknown>>({ ...props.modelValue })
-
-watch(() => props.modelValue, (v) => {
-  Object.assign(local, clone(v))
-}, { deep: true })
-
 function getBranches(): Branch[] {
   return toBranches(local.branches)
 }
 
-function update(field: string, value: unknown) {
-  local[field] = value
-  emit('update:modelValue', { ...local })
-}
-
 function updateBranchField(index: number, field: keyof Branch, value: string) {
-  const branches = clone(getBranches())
+  const branches = structuredClone(getBranches())
   branches[index][field] = value
   update('branches', branches)
 }
 
 function addBranch() {
-  const branches = clone(getBranches())
+  const branches = structuredClone(getBranches())
   branches.push({ when: '', port: '' })
   update('branches', branches)
 }
 
 function removeBranch(index: number) {
-  const branches = clone(getBranches())
+  const branches = structuredClone(getBranches())
   branches.splice(index, 1)
   if (branches.length === 0) {
     branches.push({ when: '', port: '' })
