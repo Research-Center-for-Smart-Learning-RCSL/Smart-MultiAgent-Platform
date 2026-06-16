@@ -25,6 +25,37 @@
 
       <div class="ml-auto flex items-center gap-2">
         <template v-if="isDesktop">
+          <!-- Add Node dropdown -->
+          <div class="relative">
+            <button
+              class="btn btn-sm"
+              @click="paletteOpen = !paletteOpen"
+            >
+              + {{ $t('workflow.palette.addNode') }}
+            </button>
+            <div
+              v-if="paletteOpen"
+              class="absolute top-full left-0 mt-1 bg-bg border rounded shadow-lg z-50 w-52 py-1"
+            >
+              <template
+                v-for="group in NODE_PALETTE_GROUPS"
+                :key="group.label"
+              >
+                <div class="px-3 py-1 text-[10px] font-semibold text-gray-400 uppercase tracking-wide">
+                  {{ $t(group.label) }}
+                </div>
+                <button
+                  v-for="nt in group.types"
+                  :key="nt"
+                  class="block w-full text-left px-3 py-1.5 text-sm hover:bg-blue-50"
+                  @click="addNode(nt)"
+                >
+                  {{ $t(NODE_TYPE_LABELS[nt]) }}
+                </button>
+              </template>
+            </div>
+          </div>
+
           <button
             class="btn btn-sm"
             :disabled="!store.canUndo"
@@ -134,64 +165,47 @@
           v-if="flowNodes.length"
           v-model:nodes="flowNodes"
           v-model:edges="flowEdges"
+          :node-types="nodeTypes"
           :default-viewport="{ x: 50, y: 50, zoom: 0.85 }"
           fit-view-on-init
           @nodes-change="onNodesChange"
           @edges-change="onEdgesChange"
           @node-click="onNodeClick"
-          @pane-click="store.selectNode(null)"
+          @edge-click="onEdgeClick"
+          @connect="onConnect"
+          @pane-click="onPaneClick"
+          @keydown="onCanvasKeydown"
         >
-          <template #node-default="{ data, id }">
-            <div
-              class="node-box rounded border px-3 py-2 text-xs min-w-[120px]"
-              :class="nodeClass(data.nodeType, id)"
-            >
-              <div class="font-semibold">
-                {{ data.label || id }}
-              </div>
-              <div class="text-gray-400">
-                {{ data.nodeType }}
-              </div>
-            </div>
-          </template>
+          <Background />
+          <Controls />
         </VueFlow>
       </div>
 
-      <!-- Side panel: node config inspector -->
+      <!-- Side panel: node config editor -->
       <aside
         v-if="selectedNode && isDesktop"
         class="w-80 border-l bg-surface p-4 overflow-y-auto shrink-0"
       >
-        <h3 class="font-semibold mb-2">
-          {{ selectedNode.id }}
-        </h3>
-        <dl class="text-xs space-y-2">
-          <div>
-            <dt class="text-gray-500">
-              {{ $t('workflow.editor.nodeType') }}
-            </dt>
-            <dd>{{ selectedNode.type }}</dd>
-          </div>
-          <div>
-            <dt class="text-gray-500">
-              {{ $t('workflow.editor.nodeConfig') }}
-            </dt>
-            <dd>
-              <pre class="bg-bg border rounded p-2 overflow-x-auto text-[11px]">{{
-                JSON.stringify(selectedNode.config, null, 2)
-              }}</pre>
-            </dd>
-          </div>
-        </dl>
+        <NodeConfigPanel
+          :node="selectedNode"
+          :agents="agents"
+          :chatrooms="chatrooms"
+          :all-node-ids="allNodeIds"
+          @update:config="onConfigUpdate"
+          @update:label="onLabelUpdate"
+          @delete="onDeleteNode"
+        />
       </aside>
     </div>
   </section>
 </template>
 
 <script setup lang="ts">
-import { VueFlow, type Node as FlowNode, type Edge as FlowEdge, type GraphNode } from '@vue-flow/core'
+import { VueFlow, type Node as FlowNode, type Edge as FlowEdge, type GraphNode, type Connection } from '@vue-flow/core'
+import { Background } from '@vue-flow/background'
+import { Controls } from '@vue-flow/controls'
 import { useMutation, useQueryClient } from '@tanstack/vue-query'
-import { computed, ref } from 'vue'
+import { computed, markRaw, ref } from 'vue'
 import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute } from 'vue-router'
 
 import { ElMessageBox } from 'element-plus'
@@ -206,7 +220,10 @@ import {
 } from '../api'
 import { wfKeys } from '../queries'
 import { useWorkflowStore } from '../stores/workflow'
-import type { Workflow, WorkflowDefinition, WorkflowNode } from '../types'
+import { NODE_DEFAULTS, NODE_TYPE_LABELS, NODE_PALETTE_GROUPS } from '../constants'
+import NodeConfigPanel from '../components/NodeConfigPanel.vue'
+import WorkflowNodeComponent from '../components/WorkflowNodeComponent.vue'
+import type { NodeType, Workflow, WorkflowDefinition, WorkflowNode } from '../types'
 
 import '@vue-flow/core/dist/style.css'
 import '@vue-flow/core/dist/theme-default.css'
@@ -219,8 +236,11 @@ const store = useWorkflowStore()
 
 const { isDesktop } = useBreakpoint()
 const workflowId = route.params.workflowId as string
-const workspaceId = ref('')
+const workspaceId = ref((route.params.workspaceId as string) || '')
 const dryRunning = ref(false)
+const paletteOpen = ref(false)
+const selectedEdgeId = ref<string | null>(null)
+let nodeCounter = 0
 
 const workflow = ref<Workflow | null>(null)
 const loadError = ref<string | null>(null)
@@ -234,10 +254,19 @@ const definition = ref<WorkflowDefinition>({
 const flowNodes = ref<FlowNode[]>([])
 const flowEdges = ref<FlowEdge[]>([])
 
+// Data for config forms (agents + chatrooms in the project)
+const agents = ref<Array<{ id: string; name: string }>>([])
+const chatrooms = ref<Array<{ id: string; name: string }>>([])
+const allNodeIds = computed(() => flowNodes.value.map((n) => n.id))
+
+// Custom node type registration — markRaw prevents Vue from making the
+// component definition reactive (VueFlow requirement).
+const nodeTypes = { 'workflow-node': markRaw(WorkflowNodeComponent) }
+
 function defToFlow(def: WorkflowDefinition): void {
   flowNodes.value = def.nodes.map((n, i) => ({
     id: n.id,
-    type: 'default',
+    type: 'workflow-node',
     position: n.position ?? { x: 100 + (i % 4) * 200, y: 80 + Math.floor(i / 4) * 120 },
     data: { label: n.label || n.id, nodeType: n.type, config: n.config },
   }))
@@ -304,7 +333,28 @@ async function loadWorkflow(): Promise<void> {
   }
 }
 
-void loadWorkflow()
+async function loadContextData(): Promise<void> {
+  try {
+    const { getWorkspace } = await import('@slices/conversation/api')
+    const ws = await getWorkspace(workspaceId.value)
+    const [{ agentsApi }, { listChatrooms }] = await Promise.all([
+      import('@slices/agents/api'),
+      import('@slices/conversation/api'),
+    ])
+    const [agentList, chatroomList] = await Promise.all([
+      agentsApi.list(ws.project_id),
+      listChatrooms(workspaceId.value),
+    ])
+    agents.value = agentList.map((a: { id: string; name: string }) => ({ id: a.id, name: a.name }))
+    chatrooms.value = chatroomList.map((c: { id: string; name: string }) => ({ id: c.id, name: c.name }))
+  } catch {
+    // Non-fatal — config pickers will just be empty
+  }
+}
+
+void loadWorkflow().then(() => {
+  if (workspaceId.value) void loadContextData()
+})
 
 // Warn before discarding unsaved edits. `onBeforeRouteLeave` covers leaving
 // the editor entirely; `onBeforeRouteUpdate` covers switching to a different
@@ -336,18 +386,6 @@ const selectedNode = computed(() => {
   return definition.value.nodes.find((n) => n.id === store.selectedNodeId) ?? null
 })
 
-function nodeClass(nodeType: string, nodeId: string): string {
-  const classes: string[] = []
-  if (nodeId === store.selectedNodeId) classes.push('ring-2 ring-blue-400')
-  const step = store.liveSteps[nodeId]
-  if (step?.state === 'running') classes.push('border-blue-500 bg-blue-50')
-  else if (step?.state === 'succeeded') classes.push('border-green-500 bg-green-50')
-  else if (step?.state === 'failed') classes.push('border-red-500 bg-red-50')
-  if (nodeType === 'trigger') classes.push('border-purple-400')
-  if (nodeType === 'end') classes.push('border-gray-600')
-  return classes.join(' ')
-}
-
 // Debounced lint on change
 let lintTimer: number | null = null
 
@@ -377,6 +415,136 @@ function onEdgesChange(): void {
 
 function onNodeClick({ node }: { node: GraphNode }): void {
   store.selectNode(node.id)
+  selectedEdgeId.value = null
+}
+
+function onEdgeClick({ edge }: { edge: FlowEdge }): void {
+  selectedEdgeId.value = edge.id
+  store.selectNode(null)
+}
+
+function onPaneClick(): void {
+  store.selectNode(null)
+  selectedEdgeId.value = null
+  paletteOpen.value = false
+}
+
+// ---------------------------------------------------------------------------
+// Add node
+// ---------------------------------------------------------------------------
+
+function addNode(type: NodeType): void {
+  paletteOpen.value = false
+  store.pushUndo(flowToDef())
+  nodeCounter++
+  const id = `${type}_${nodeCounter}`
+  const pos = { x: 250 + nodeCounter * 30, y: 200 + nodeCounter * 30 }
+  flowNodes.value = [...flowNodes.value, {
+    id,
+    type: 'workflow-node',
+    position: pos,
+    data: { label: id, nodeType: type, config: JSON.parse(JSON.stringify(NODE_DEFAULTS[type])) },
+  }]
+  store.selectNode(id)
+  store.markDirty()
+  scheduleLint()
+  toast.success(t('workflow.config.nodeAdded'))
+}
+
+// ---------------------------------------------------------------------------
+// Delete node / edge
+// ---------------------------------------------------------------------------
+
+async function onDeleteNode(): Promise<void> {
+  const nodeId = store.selectedNodeId
+  if (!nodeId) return
+  const node = flowNodes.value.find((n) => n.id === nodeId)
+  if (node?.data.nodeType === 'trigger') {
+    toast.error(t('workflow.config.cannotDeleteTrigger'))
+    return
+  }
+  try {
+    await ElMessageBox.confirm(
+      t('workflow.config.deleteConfirm'),
+      t('workflow.config.deleteConfirmTitle'),
+      { confirmButtonText: t('workflow.config.deleteNode'), type: 'warning' },
+    )
+  } catch { return }
+  store.pushUndo(flowToDef())
+  flowNodes.value = flowNodes.value.filter((n) => n.id !== nodeId)
+  flowEdges.value = flowEdges.value.filter((e) => e.source !== nodeId && e.target !== nodeId)
+  store.selectNode(null)
+  store.markDirty()
+  scheduleLint()
+  toast.success(t('workflow.config.nodeDeleted'))
+}
+
+function deleteSelectedEdge(): void {
+  if (!selectedEdgeId.value) return
+  store.pushUndo(flowToDef())
+  flowEdges.value = flowEdges.value.filter((e) => e.id !== selectedEdgeId.value)
+  selectedEdgeId.value = null
+  store.markDirty()
+  scheduleLint()
+}
+
+function onCanvasKeydown(event: KeyboardEvent): void {
+  if (event.key === 'Delete' || event.key === 'Backspace') {
+    const tag = (event.target as HTMLElement)?.tagName
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return
+    if (selectedEdgeId.value) deleteSelectedEdge()
+    else if (store.selectedNodeId) void onDeleteNode()
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Connect edges
+// ---------------------------------------------------------------------------
+
+function onConnect(connection: Connection): void {
+  if (!connection.source || !connection.target) return
+  const srcNode = flowNodes.value.find((n) => n.id === connection.source)
+  if (srcNode?.data.nodeType === 'end') return
+  const tgtNode = flowNodes.value.find((n) => n.id === connection.target)
+  if (tgtNode?.data.nodeType === 'trigger') return
+  const handle = connection.sourceHandle ?? 'default'
+  const edgeId = `e_${connection.source}_${handle}_${connection.target}`
+  if (flowEdges.value.some((e) => e.source === connection.source && e.target === connection.target && e.sourceHandle === handle)) return
+  store.pushUndo(flowToDef())
+  flowEdges.value = [...flowEdges.value, {
+    id: edgeId,
+    source: connection.source,
+    target: connection.target,
+    sourceHandle: handle,
+    label: handle !== 'default' ? handle : undefined,
+    animated: false,
+  }]
+  store.markDirty()
+  scheduleLint()
+}
+
+// ---------------------------------------------------------------------------
+// Config update from sidebar
+// ---------------------------------------------------------------------------
+
+function onConfigUpdate(config: Record<string, unknown>): void {
+  const nodeId = store.selectedNodeId
+  if (!nodeId) return
+  store.pushUndo(flowToDef())
+  flowNodes.value = flowNodes.value.map((n) =>
+    n.id === nodeId ? { ...n, data: { ...n.data, config } } : n,
+  )
+  store.markDirty()
+  scheduleLint()
+}
+
+function onLabelUpdate(label: string): void {
+  const nodeId = store.selectedNodeId
+  if (!nodeId) return
+  flowNodes.value = flowNodes.value.map((n) =>
+    n.id === nodeId ? { ...n, data: { ...n.data, label } } : n,
+  )
+  store.markDirty()
 }
 
 // Undo / redo
@@ -453,13 +621,5 @@ async function onDryRun(): Promise<void> {
 <style scoped>
 .workflow-editor {
   height: 100%;
-}
-.node-box {
-  cursor: pointer;
-  transition: box-shadow 0.15s ease;
-  background: var(--color-bg);
-}
-.node-box:hover {
-  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.3);
 }
 </style>
