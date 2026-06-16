@@ -21,7 +21,10 @@ const { local, update } = useConfigModel(props, emit)
 
 <template>
   <div class="space-y-4">
-    <FormField :label="t('workflow.config.description')" name="parallel-description">
+    <FormField
+      :label="t('workflow.config.description')"
+      name="parallel-description"
+    >
       <textarea
         id="parallel-description"
         :value="(local.description as string) ?? ''"

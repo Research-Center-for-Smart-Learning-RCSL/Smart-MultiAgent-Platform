@@ -32,14 +32,21 @@ if (local.timeout_seconds === undefined) {
 <template>
   <div class="space-y-3">
     <!-- Agent ID (required) -->
-    <FormField :label="t('workflow.config.agentId')" name="agent-id" required>
+    <FormField
+      :label="t('workflow.config.agentId')"
+      name="agent-id"
+      required
+    >
       <select
         id="agent-id"
         :value="local.agent_id ?? ''"
         class="w-full text-sm border rounded px-2 py-1 bg-bg"
         @change="update('agent_id', ($event.target as HTMLSelectElement).value)"
       >
-        <option value="" disabled>
+        <option
+          value=""
+          disabled
+        >
           {{ t('workflow.config.none') }}
         </option>
         <option
@@ -53,7 +60,11 @@ if (local.timeout_seconds === undefined) {
     </FormField>
 
     <!-- Input Template (required) -->
-    <FormField :label="t('workflow.config.inputTemplate')" name="input-template" required>
+    <FormField
+      :label="t('workflow.config.inputTemplate')"
+      name="input-template"
+      required
+    >
       <textarea
         id="input-template"
         :value="(local.input_template as string) ?? ''"
@@ -63,18 +74,24 @@ if (local.timeout_seconds === undefined) {
     </FormField>
 
     <!-- Output Variable -->
-    <FormField :label="t('workflow.config.outputVariable')" name="output-variable">
+    <FormField
+      :label="t('workflow.config.outputVariable')"
+      name="output-variable"
+    >
       <input
         id="output-variable"
         type="text"
         :value="(local.output_variable as string) ?? ''"
         class="w-full text-sm border rounded px-2 py-1 bg-bg"
         @input="update('output_variable', ($event.target as HTMLInputElement).value)"
-      />
+      >
     </FormField>
 
     <!-- Target Chatroom (optional, with Default option) -->
-    <FormField :label="t('workflow.config.targetChatroomId')" name="target-chatroom-id">
+    <FormField
+      :label="t('workflow.config.targetChatroomId')"
+      name="target-chatroom-id"
+    >
       <select
         id="target-chatroom-id"
         :value="local.target_chatroom_id ?? ''"
@@ -95,19 +112,25 @@ if (local.timeout_seconds === undefined) {
     </FormField>
 
     <!-- Stream to Chatroom -->
-    <FormField :label="t('workflow.config.streamToChatroom')" name="stream-to-chatroom">
+    <FormField
+      :label="t('workflow.config.streamToChatroom')"
+      name="stream-to-chatroom"
+    >
       <label class="flex items-center gap-2">
         <input
           type="checkbox"
           :checked="local.stream_to_chatroom !== false"
           @change="update('stream_to_chatroom', ($event.target as HTMLInputElement).checked)"
-        />
+        >
         <span class="text-sm">{{ t('workflow.config.streamToChatroom') }}</span>
       </label>
     </FormField>
 
     <!-- Timeout Seconds -->
-    <FormField :label="t('workflow.config.timeoutSeconds')" name="timeout-seconds">
+    <FormField
+      :label="t('workflow.config.timeoutSeconds')"
+      name="timeout-seconds"
+    >
       <input
         id="timeout-seconds"
         type="number"
@@ -116,7 +139,7 @@ if (local.timeout_seconds === undefined) {
         max="600"
         class="w-full text-sm border rounded px-2 py-1 bg-bg"
         @input="update('timeout_seconds', safeNumber(($event.target as HTMLInputElement).value, 1))"
-      />
+      >
     </FormField>
 
     <!-- On Error -->

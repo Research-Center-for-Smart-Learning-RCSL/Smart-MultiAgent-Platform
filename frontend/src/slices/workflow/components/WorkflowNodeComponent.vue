@@ -124,7 +124,10 @@ function handleLeftPercent(index: number, total: number): string {
     <div class="font-semibold leading-tight truncate max-w-[180px]">
       {{ data.label || id }}
     </div>
-    <div class="text-[11px] mt-0.5" style="color: var(--color-muted)">
+    <div
+      class="text-[11px] mt-0.5"
+      style="color: var(--color-muted)"
+    >
       {{ data.nodeType }}
     </div>
   </div>
@@ -136,10 +139,10 @@ function handleLeftPercent(index: number, total: number): string {
   >
     <Handle
       v-for="(port, idx) in sourcePorts"
+      :id="port"
       :key="port"
       type="source"
       :position="Position.Bottom"
-      :id="port"
       :style="{
         left: handleLeftPercent(idx, sourcePorts.length),
       }"

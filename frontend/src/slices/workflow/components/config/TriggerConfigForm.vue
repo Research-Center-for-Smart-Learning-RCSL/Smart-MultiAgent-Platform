@@ -31,6 +31,10 @@ const SENDER_FILTER_OPTIONS = ['any', 'user', 'agent', 'guest'] as const
 
 const EVENT_TYPE_OPTIONS = ['call', 'reply', 'notify', 'instruct'] as const
 
+// Technical placeholders (cron syntax / IANA timezone) — universal, not translated
+const CRON_PLACEHOLDER = '0 9 * * MON-FRI'
+const TIMEZONE_PLACEHOLDER = 'UTC'
+
 function toggleArrayItem(field: string, item: string): void {
   const current = Array.isArray(local[field]) ? [...(local[field] as string[])] : []
   const idx = current.indexOf(item)
@@ -50,7 +54,11 @@ function isInArray(field: string, item: string): boolean {
 <template>
   <div class="space-y-3">
     <!-- Trigger Type -->
-    <FormField :label="t('workflow.config.triggerType')" name="trigger-type" required>
+    <FormField
+      :label="t('workflow.config.triggerType')"
+      name="trigger-type"
+      required
+    >
       <select
         id="trigger-type"
         :value="local.trigger_type ?? 'manual'"
@@ -69,7 +77,10 @@ function isInArray(field: string, item: string): boolean {
 
     <!-- Manual: allowed_roles checkboxes -->
     <div v-if="local.trigger_type === 'manual'">
-      <FormField :label="t('workflow.config.allowedRoles')" name="allowed-roles">
+      <FormField
+        :label="t('workflow.config.allowedRoles')"
+        name="allowed-roles"
+      >
         <div class="space-y-1">
           <label
             v-for="role in ROLE_OPTIONS"
@@ -80,7 +91,7 @@ function isInArray(field: string, item: string): boolean {
               type="checkbox"
               :checked="isInArray('allowed_roles', role)"
               @change="toggleArrayItem('allowed_roles', role)"
-            />
+            >
             <span class="text-sm">{{ role }}</span>
           </label>
         </div>
@@ -88,33 +99,49 @@ function isInArray(field: string, item: string): boolean {
     </div>
 
     <!-- Cron: cron_expression + timezone -->
-    <div v-if="local.trigger_type === 'cron'" class="space-y-3">
-      <FormField :label="t('workflow.config.cronExpression')" name="cron-expression" required>
+    <div
+      v-if="local.trigger_type === 'cron'"
+      class="space-y-3"
+    >
+      <FormField
+        :label="t('workflow.config.cronExpression')"
+        name="cron-expression"
+        required
+      >
         <input
           id="cron-expression"
           type="text"
           :value="local.cron_expression ?? ''"
           class="w-full text-sm border rounded px-2 py-1 bg-bg"
-          placeholder="0 9 * * MON-FRI"
+          :placeholder="CRON_PLACEHOLDER"
           @input="update('cron_expression', ($event.target as HTMLInputElement).value)"
-        />
+        >
       </FormField>
 
-      <FormField :label="t('workflow.config.timezone')" name="timezone">
+      <FormField
+        :label="t('workflow.config.timezone')"
+        name="timezone"
+      >
         <input
           id="timezone"
           type="text"
           :value="local.timezone ?? 'UTC'"
           class="w-full text-sm border rounded px-2 py-1 bg-bg"
-          placeholder="UTC"
+          :placeholder="TIMEZONE_PLACEHOLDER"
           @input="update('timezone', ($event.target as HTMLInputElement).value)"
-        />
+        >
       </FormField>
     </div>
 
     <!-- Message Received: chatroom_id, sender_filter, content_regex -->
-    <div v-if="local.trigger_type === 'message_received'" class="space-y-3">
-      <FormField :label="t('workflow.config.chatroomId')" name="chatroom-id">
+    <div
+      v-if="local.trigger_type === 'message_received'"
+      class="space-y-3"
+    >
+      <FormField
+        :label="t('workflow.config.chatroomId')"
+        name="chatroom-id"
+      >
         <select
           id="chatroom-id"
           :value="local.chatroom_id ?? ''"
@@ -134,7 +161,10 @@ function isInArray(field: string, item: string): boolean {
         </select>
       </FormField>
 
-      <FormField :label="t('workflow.config.senderFilter')" name="sender-filter">
+      <FormField
+        :label="t('workflow.config.senderFilter')"
+        name="sender-filter"
+      >
         <select
           id="sender-filter"
           :value="local.sender_filter ?? 'any'"
@@ -151,7 +181,10 @@ function isInArray(field: string, item: string): boolean {
         </select>
       </FormField>
 
-      <FormField :label="t('workflow.config.contentRegex')" name="content-regex">
+      <FormField
+        :label="t('workflow.config.contentRegex')"
+        name="content-regex"
+      >
         <input
           id="content-regex"
           type="text"
@@ -159,13 +192,19 @@ function isInArray(field: string, item: string): boolean {
           class="w-full text-sm border rounded px-2 py-1 bg-bg"
           placeholder=".*"
           @input="update('content_regex', ($event.target as HTMLInputElement).value)"
-        />
+        >
       </FormField>
     </div>
 
     <!-- A2A Event: agent_id, event_types checkboxes -->
-    <div v-if="local.trigger_type === 'a2a_event'" class="space-y-3">
-      <FormField :label="t('workflow.config.agentId')" name="a2a-agent-id">
+    <div
+      v-if="local.trigger_type === 'a2a_event'"
+      class="space-y-3"
+    >
+      <FormField
+        :label="t('workflow.config.agentId')"
+        name="a2a-agent-id"
+      >
         <select
           id="a2a-agent-id"
           :value="local.agent_id ?? ''"
@@ -185,7 +224,10 @@ function isInArray(field: string, item: string): boolean {
         </select>
       </FormField>
 
-      <FormField :label="t('workflow.config.eventTypes')" name="event-types">
+      <FormField
+        :label="t('workflow.config.eventTypes')"
+        name="event-types"
+      >
         <div class="space-y-1">
           <label
             v-for="et in EVENT_TYPE_OPTIONS"
@@ -196,7 +238,7 @@ function isInArray(field: string, item: string): boolean {
               type="checkbox"
               :checked="isInArray('event_types', et)"
               @change="toggleArrayItem('event_types', et)"
-            />
+            >
             <span class="text-sm">{{ et }}</span>
           </label>
         </div>
@@ -205,7 +247,10 @@ function isInArray(field: string, item: string): boolean {
 
     <!-- Wakeup Signal: agent_id -->
     <div v-if="local.trigger_type === 'wakeup_signal'">
-      <FormField :label="t('workflow.config.agentId')" name="wakeup-agent-id">
+      <FormField
+        :label="t('workflow.config.agentId')"
+        name="wakeup-agent-id"
+      >
         <select
           id="wakeup-agent-id"
           :value="local.agent_id ?? ''"

@@ -60,19 +60,25 @@ const configComponent = computed(() => CONFIG_FORM_MAP[props.node.type] ?? null)
 <template>
   <div class="space-y-3">
     <!-- Node ID (read-only) -->
-    <div class="text-xs" style="color: var(--color-muted)">
+    <div
+      class="text-xs"
+      style="color: var(--color-muted)"
+    >
       ID: {{ node.id }}
     </div>
 
     <!-- Label (editable) -->
-    <FormField :label="t('workflow.config.label')" name="node-label">
+    <FormField
+      :label="t('workflow.config.label')"
+      name="node-label"
+    >
       <input
         id="node-label"
         v-model="localLabel"
         type="text"
         class="w-full text-sm border rounded px-2 py-1 bg-bg"
         @input="$emit('update:label', localLabel)"
-      />
+      >
     </FormField>
 
     <!-- Type-specific config form (dynamic component) -->
