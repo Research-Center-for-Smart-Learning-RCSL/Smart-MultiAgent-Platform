@@ -344,7 +344,10 @@ async function loadEarlier(): Promise<void> {
     if (page.length < PAGE_SIZE) hasOlderMessages.value = false
     if (page.length === 0) return
     // Deduplicate by id in case the first page overlaps.
-    const existing = new Set(olderMessages.value.map((m) => m.id))
+    const existing = new Set([
+      ...olderMessages.value.map((m) => m.id),
+      ...(query.data.value ?? []).map((m) => m.id),
+    ])
     const fresh = page.filter((m) => !existing.has(m.id))
     olderMessages.value = [...fresh, ...olderMessages.value]
   } catch {

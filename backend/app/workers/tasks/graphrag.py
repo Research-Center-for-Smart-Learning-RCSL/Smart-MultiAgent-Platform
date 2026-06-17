@@ -58,30 +58,39 @@ class _DbDeltaLoader:
     ) -> list[DeltaMessage]:
         sm = get_sessionmaker()
         result: list[DeltaMessage] = []
+        last_created_at: str | None = None
         last_id: str | None = None
         async with sm() as db:
             while True:
-                # Keyset pagination on m.id (stable PK order within the
-                # created_at sort) to avoid loading unbounded result sets.
-                id_clause = "AND m.id > :last_id " if last_id else ""
+                # Composite keyset pagination on (created_at, id) matching the
+                # ORDER BY to avoid loading unbounded result sets.  UUID v4 PKs
+                # have no inherent ordering, so the cursor must include
+                # created_at to stay consistent with the sort.
+                cursor_clause = (
+                    "AND (m.created_at, m.id) > (:last_created_at::timestamptz, :last_id::uuid) "
+                    if last_id is not None
+                    else ""
+                )
                 params: dict[str, Any] = {
                     "agent_id": str(self._agent_id),
                     "since": since,
                     "batch_size": self._BATCH_SIZE,
                 }
                 if last_id is not None:
+                    params["last_created_at"] = last_created_at
                     params["last_id"] = last_id
                 rows = (
                     await db.execute(
                         sa.text(
-                            "SELECT m.id, m.sender_type AS role, m.content_md AS content "
+                            "SELECT m.id, m.sender_type AS role, m.content_md AS content, "
+                            "m.created_at "
                             "FROM messages m "
                             "JOIN chatrooms cr ON cr.id = m.chatroom_id "
                             "JOIN chatroom_agents ca ON ca.chatroom_id = cr.id "
                             "WHERE ca.agent_id = :agent_id "
                             "  AND m.deleted_at IS NULL "
                             "  AND (:since::timestamptz IS NULL OR m.created_at > :since) "
-                            f"{id_clause}"
+                            f"{cursor_clause}"
                             "ORDER BY m.created_at, m.id "
                             "LIMIT :batch_size"
                         ),
@@ -91,7 +100,9 @@ class _DbDeltaLoader:
                 result.extend(_DbMsg(id=r.id, role=r.role, content=r.content) for r in rows)
                 if len(rows) < self._BATCH_SIZE:
                     break
-                last_id = str(rows[-1].id)
+                last_row = rows[-1]
+                last_created_at = str(last_row.created_at)
+                last_id = str(last_row.id)
         return result
 
 

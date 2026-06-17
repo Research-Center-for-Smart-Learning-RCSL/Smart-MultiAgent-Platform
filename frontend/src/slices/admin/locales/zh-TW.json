@@ -117,6 +117,8 @@
       "from": "起始時間",
       "to": "結束時間",
       "export": "匯出 CSV",
+      "exportDateRequired": "匯出前請設定起始與結束時間。",
+      "exportFailed": "匯出失敗，請重試。",
       "loadMore": "載入更多"
     },
     "ops": {

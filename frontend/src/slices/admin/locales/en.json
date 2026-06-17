@@ -117,6 +117,8 @@
       "from": "From",
       "to": "To",
       "export": "Export CSV",
+      "exportDateRequired": "Please set both From and To dates before exporting.",
+      "exportFailed": "Export failed. Please try again.",
       "loadMore": "Load More"
     },
     "ops": {

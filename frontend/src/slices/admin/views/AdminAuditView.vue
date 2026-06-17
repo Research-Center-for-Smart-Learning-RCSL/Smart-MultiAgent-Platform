@@ -100,9 +100,14 @@
 <script setup lang="ts">
 import { reactive, ref, computed, watch } from 'vue'
 import { useQuery } from '@tanstack/vue-query'
+import { useI18n } from 'vue-i18n'
+import { useToast } from '@shared/composables'
 import { adminApi } from '../api/admin'
 import { adminKeys } from '../queries'
 import type { AuditFilter, AuditEntry } from '../types'
+
+const { t } = useI18n()
+const toast = useToast()
 
 const filters = reactive<AuditFilter>({})
 const appliedFilters = ref<AuditFilter>({})
@@ -127,6 +132,7 @@ function applyFilters(): void {
 const query = useQuery({
   queryKey: computed(() => adminKeys.audit(appliedFilters.value)),
   queryFn: () => adminApi.queryAudit(appliedFilters.value).then(r => r.data),
+  refetchOnWindowFocus: false,
 })
 
 watch(() => query.data.value, (data) => {
@@ -148,8 +154,16 @@ function loadMore(): void {
 }
 
 async function onExport(): Promise<void> {
-  const { data } = await adminApi.exportAudit(appliedFilters.value)
-  window.open(data.url, '_blank')
+  if (!appliedFilters.value.from || !appliedFilters.value.to) {
+    toast.warning(t('admin.audit.exportDateRequired'))
+    return
+  }
+  try {
+    const { data } = await adminApi.exportAudit(appliedFilters.value)
+    window.open(data.url, '_blank')
+  } catch {
+    toast.error(t('admin.audit.exportFailed'))
+  }
 }
 </script>
 
