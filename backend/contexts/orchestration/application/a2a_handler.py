@@ -58,7 +58,11 @@ async def handle_envelope(envelope: A2AEnvelope) -> None:
         return
     await pending_notify.push(
         to_id,
-        {"kind": "notify", "from_agent": str(envelope.from_agent), "payload": envelope.payload},
+        {
+            "kind": "notify",
+            "from_agent": str(envelope.from_agent) if envelope.from_agent else None,
+            "payload": envelope.payload,
+        },
     )
 
 
@@ -87,7 +91,7 @@ async def _handle_call(envelope: A2AEnvelope) -> None:
     reply_env = {
         "type": A2AMessageType.REPLY.value,
         "from_agent": envelope.to_agent,
-        "to_agent": str(envelope.from_agent),
+        "to_agent": str(envelope.from_agent) if envelope.from_agent else None,
         "correlation_id": str(envelope.correlation_id),
         # Top-level for the workflow agent_invocation executor; also in payload
         # for the standard reply convention.
@@ -208,7 +212,7 @@ async def _deliver_error(envelope: A2AEnvelope, detail: str) -> None:
     error_reply = {
         "type": A2AMessageType.REPLY.value,
         "from_agent": envelope.to_agent,
-        "to_agent": str(envelope.from_agent),
+        "to_agent": str(envelope.from_agent) if envelope.from_agent else None,
         "correlation_id": str(envelope.correlation_id),
         "payload": {
             a2a_rendezvous.A2A_ERROR_KEY: "agent call failed",
