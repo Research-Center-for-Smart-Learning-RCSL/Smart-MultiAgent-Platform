@@ -29,7 +29,11 @@ export const workflowRoutes: RouteRecordRaw[] = [
     path: '/workspaces/:workspaceId/workflows/:workflowId/backstage',
     name: 'workflow.backstage',
     component: () => import('./views/WorkflowBackstageView.vue'),
-    meta: { requiresAuth: true, requiredRoles: ['admin', 'project_owner'] },
+    // NOTE: project_owner access would require per-project role resolution in
+    // the route guard, which is not available from global session state today.
+    // For now only admins can reach the backstage; revisit when per-project
+    // role context is wired into the router.
+    meta: { requiresAuth: true, requiredRoles: ['admin'] },
   },
   {
     path: '/agents/:agentId/orchestration',

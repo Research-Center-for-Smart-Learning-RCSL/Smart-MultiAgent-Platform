@@ -146,23 +146,23 @@ class AgentRepository:
         self,
         project_id: uuid.UUID,
         *,
-        limit: int = 100,
+        limit: int | None = None,
         offset: int = 0,
     ) -> Sequence[Agent]:
-        rows = (
-            await self._db.execute(
-                t.agents.select()
-                .where(
-                    sa.and_(
-                        t.agents.c.project_id == project_id,
-                        t.agents.c.deleted_at.is_(None),
-                    )
+        q = (
+            t.agents.select()
+            .where(
+                sa.and_(
+                    t.agents.c.project_id == project_id,
+                    t.agents.c.deleted_at.is_(None),
                 )
-                .order_by(t.agents.c.created_at.desc())
-                .limit(limit)
-                .offset(offset)
             )
-        ).all()
+            .order_by(t.agents.c.created_at.desc())
+            .offset(offset)
+        )
+        if limit is not None:
+            q = q.limit(limit)
+        rows = (await self._db.execute(q)).all()
         return [_row_to_agent(r) for r in rows]
 
     async def patch(
