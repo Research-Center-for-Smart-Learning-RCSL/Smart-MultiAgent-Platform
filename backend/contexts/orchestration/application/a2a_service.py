@@ -72,15 +72,22 @@ class A2AService:
             to_agent_id = uuid.UUID(envelope.to_agent)
         except ValueError as exc:
             raise A2AForbidden(f"to_agent is not a valid agent id: {envelope.to_agent!r}") from exc
-        caller = await self._require_agent(envelope.from_agent)
-        callee = await self._require_agent(to_agent_id)
 
-        await self._enforce_scope(
-            caller=caller,
-            callee=callee,
-            callee_attached_context_ids=callee_attached_context_ids or frozenset(),
-            caller_invocation_context_id=caller_invocation_context_id,
-        )
+        # When from_agent is None the call originates from the workflow engine
+        # (a trusted internal caller) — skip caller validation and scope check.
+        if envelope.from_agent is not None:
+            caller = await self._require_agent(envelope.from_agent)
+            callee = await self._require_agent(to_agent_id)
+
+            await self._enforce_scope(
+                caller=caller,
+                callee=callee,
+                callee_attached_context_ids=callee_attached_context_ids or frozenset(),
+                caller_invocation_context_id=caller_invocation_context_id,
+            )
+        else:
+            # Still validate the callee exists even for workflow calls.
+            await self._require_agent(to_agent_id)
 
         await a2a_streams.ensure_consumer_group(to_agent_id)
         envelope_json = json.dumps(envelope.to_dict(), separators=(",", ":"))
@@ -94,7 +101,7 @@ class A2AService:
                 resource_type="a2a_message",
                 resource_id=envelope.id,
                 metadata={
-                    "from_agent": str(envelope.from_agent),
+                    "from_agent": str(envelope.from_agent) if envelope.from_agent else "workflow",
                     "to_agent": envelope.to_agent,
                     "type": envelope.type.value,
                     "correlation_id": str(envelope.correlation_id),
