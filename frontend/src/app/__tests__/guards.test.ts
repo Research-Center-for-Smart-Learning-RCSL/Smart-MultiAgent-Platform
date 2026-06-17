@@ -8,10 +8,10 @@ import {
   type RouteMeta,
 } from '../guards'
 
-const authed: GuardContext = { isAuthenticated: true, isVerified: true, isAdmin: false }
-const unauthed: GuardContext = { isAuthenticated: false, isVerified: false, isAdmin: false }
-const admin: GuardContext = { isAuthenticated: true, isVerified: true, isAdmin: true }
-const unverified: GuardContext = { isAuthenticated: true, isVerified: false, isAdmin: false }
+const authed: GuardContext = { isAuthenticated: true, isVerified: true, isAdmin: false, roles: [] }
+const unauthed: GuardContext = { isAuthenticated: false, isVerified: false, isAdmin: false, roles: [] }
+const admin: GuardContext = { isAuthenticated: true, isVerified: true, isAdmin: true, roles: ['admin'] }
+const unverified: GuardContext = { isAuthenticated: true, isVerified: false, isAdmin: false, roles: [] }
 
 describe('authGuard', () => {
   it('passes when no requiresAuth', () => {
@@ -58,6 +58,20 @@ describe('roleGuard', () => {
 
   it('redirects to root for non-admin', () => {
     expect(roleGuard({ requiredRoles: ['admin'] }, authed)).toEqual({
+      name: 'root',
+    })
+  })
+
+  it('passes when user has any of the required roles', () => {
+    const projectOwner: GuardContext = {
+      isAuthenticated: true, isVerified: true, isAdmin: false,
+      roles: ['project_owner'],
+    }
+    expect(roleGuard({ requiredRoles: ['admin', 'project_owner'] }, projectOwner)).toBe(true)
+  })
+
+  it('redirects when user has none of the required roles', () => {
+    expect(roleGuard({ requiredRoles: ['admin', 'project_owner'] }, authed)).toEqual({
       name: 'root',
     })
   })

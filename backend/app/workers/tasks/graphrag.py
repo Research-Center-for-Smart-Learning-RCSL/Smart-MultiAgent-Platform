@@ -47,6 +47,8 @@ class _DbDeltaLoader:
     def __init__(self, *, agent_id: uuid.UUID) -> None:
         self._agent_id = agent_id
 
+    _BATCH_SIZE = 2000
+
     async def load(
         self,
         *,
@@ -55,23 +57,42 @@ class _DbDeltaLoader:
         mode: Any,
     ) -> list[DeltaMessage]:
         sm = get_sessionmaker()
+        result: list[DeltaMessage] = []
+        last_id: str | None = None
         async with sm() as db:
-            rows = (
-                await db.execute(
-                    sa.text(
-                        "SELECT m.id, m.sender_type AS role, m.content_md AS content "
-                        "FROM messages m "
-                        "JOIN chatrooms cr ON cr.id = m.chatroom_id "
-                        "JOIN chatroom_agents ca ON ca.chatroom_id = cr.id "
-                        "WHERE ca.agent_id = :agent_id "
-                        "  AND m.deleted_at IS NULL "
-                        "  AND (:since::timestamptz IS NULL OR m.created_at > :since) "
-                        "ORDER BY m.created_at"
-                    ),
-                    {"agent_id": str(self._agent_id), "since": since},
-                )
-            ).all()
-        return [_DbMsg(id=r.id, role=r.role, content=r.content) for r in rows]
+            while True:
+                # Keyset pagination on m.id (stable PK order within the
+                # created_at sort) to avoid loading unbounded result sets.
+                id_clause = "AND m.id > :last_id " if last_id else ""
+                params: dict[str, Any] = {
+                    "agent_id": str(self._agent_id),
+                    "since": since,
+                    "batch_size": self._BATCH_SIZE,
+                }
+                if last_id is not None:
+                    params["last_id"] = last_id
+                rows = (
+                    await db.execute(
+                        sa.text(
+                            "SELECT m.id, m.sender_type AS role, m.content_md AS content "
+                            "FROM messages m "
+                            "JOIN chatrooms cr ON cr.id = m.chatroom_id "
+                            "JOIN chatroom_agents ca ON ca.chatroom_id = cr.id "
+                            "WHERE ca.agent_id = :agent_id "
+                            "  AND m.deleted_at IS NULL "
+                            "  AND (:since::timestamptz IS NULL OR m.created_at > :since) "
+                            f"{id_clause}"
+                            "ORDER BY m.created_at, m.id "
+                            "LIMIT :batch_size"
+                        ),
+                        params,
+                    )
+                ).all()
+                result.extend(_DbMsg(id=r.id, role=r.role, content=r.content) for r in rows)
+                if len(rows) < self._BATCH_SIZE:
+                    break
+                last_id = str(rows[-1].id)
+        return result
 
 
 async def _resolve_embed_key(

@@ -16,6 +16,8 @@ import uuid
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Path, status
+
+from app.api.v1.deps import PaginationParams
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -182,11 +184,14 @@ project_router = APIRouter(prefix="/api/projects/{project_id}/agents", tags=["ag
 @project_router.get("")
 async def list_project_agents(
     project_id: uuid.UUID = Path(...),
+    pagination: PaginationParams = Depends(),
     _=Depends(require_membership(project_param="project_id")),
     db: AsyncSession = Depends(db_session),
 ) -> list[AgentOut]:
     service = AgentService(db)
-    rows = await service.list_for_project(project_id)
+    rows = await service.list_for_project(
+        project_id, limit=pagination.limit, offset=pagination.offset,
+    )
     return [_to_agent_out(r) for r in rows]
 
 

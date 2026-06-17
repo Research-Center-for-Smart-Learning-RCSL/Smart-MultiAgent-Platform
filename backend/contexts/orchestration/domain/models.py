@@ -32,7 +32,7 @@ class A2AEnvelope:
     """
 
     id: uuid.UUID
-    from_agent: uuid.UUID
+    from_agent: uuid.UUID | None
     to_agent: str  # uuid or "broadcast:workspace"
     workflow_run_id: uuid.UUID | None
     type: A2AMessageType
@@ -43,7 +43,7 @@ class A2AEnvelope:
     def to_dict(self) -> dict[str, Any]:
         return {
             "id": str(self.id),
-            "from_agent": str(self.from_agent),
+            "from_agent": str(self.from_agent) if self.from_agent else None,
             "to_agent": self.to_agent,
             "workflow_run_id": str(self.workflow_run_id) if self.workflow_run_id else None,
             "type": self.type.value,
@@ -56,7 +56,7 @@ class A2AEnvelope:
     def from_dict(cls, data: dict[str, Any]) -> A2AEnvelope:
         return cls(
             id=uuid.UUID(data["id"]),
-            from_agent=uuid.UUID(data["from_agent"]),
+            from_agent=uuid.UUID(data["from_agent"]) if data.get("from_agent") else None,
             to_agent=data["to_agent"],
             workflow_run_id=uuid.UUID(data["workflow_run_id"]) if data.get("workflow_run_id") else None,
             type=A2AMessageType(data["type"]),

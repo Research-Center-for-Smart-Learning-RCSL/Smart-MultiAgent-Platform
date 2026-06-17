@@ -129,7 +129,7 @@ const patchMutation = useMutation({
 })
 
 const deleteMutation = useMutation({
-  mutationFn: () => agentsApi.remove(agentId),
+  mutationFn: () => agentsApi.remove(agentId, query.data.value!.version),
   onSuccess: () => {
     router.back()
   },

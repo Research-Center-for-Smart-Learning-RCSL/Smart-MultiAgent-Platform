@@ -85,7 +85,7 @@ class MinioSection(BaseSettings):
     # source of truth; changing them is a config + Alembic change, never a
     # one-off mutation of the bucket lifecycle via the console.
     chat_uploads_expiry_days: int = 3  # R13.10
-    exports_expiry_hours: int = 24  # §21.5
+    exports_expiry_hours: int = 24  # §21.5 — NOT YET IMPLEMENTED — lifecycle not applied yet
     service_account_name: str = "smap-backend"
 
 
@@ -116,6 +116,7 @@ class JwtSection(BaseSettings):
     refresh_ttl_seconds: int = 30 * 24 * 3600
     issuer: str = "smap.local"
     audience: str = "smap.api"
+    # NOT YET IMPLEMENTED — reserved for future JWT rotation (R6.03).
     # Operator-tunable, but the default MUST match R6.03: 7-day overlap.
     verify_overlap_days: int = 7
     rotation_days: int = 90
@@ -167,6 +168,10 @@ class SecuritySection(BaseSettings):
     # so allowing "none" (cross-site cookies with `Secure`) would weaken
     # the CSRF posture without compensating mitigations.
     session_cookie_samesite: Literal["lax", "strict"] = "lax"
+    # AV / file-scan integration (R22.15.07). When False, the
+    # ``file_scan_requested`` worker marks every attachment CLEAN (no-op
+    # pass). Set to True once a ClamAV or VirusTotal adapter is wired in.
+    file_scan_enabled: bool = False
 
 
 class LoggingSection(BaseSettings):
@@ -319,6 +324,13 @@ def _check_prod_secrets(s: Settings) -> None:
         problems.append("SMAP_VAULT_DEV_TOKEN must not be set in production")
     if not (s.vault.role_id and s.vault.secret_id):
         problems.append("SMAP_VAULT_ROLE_ID and SMAP_VAULT_SECRET_ID must be set in production")
+    # S2: empty egress shared_secret in prod allows unsigned requests to the
+    # egress proxy — any backend caller could bypass the HMAC gate.
+    if not s.egress.shared_secret:
+        problems.append("EGRESS_PROXY_SHARED_SECRET must not be empty in production")
+    # S6: OpenAPI/Swagger docs must not be exposed in production.
+    if s.app.docs_enabled:
+        problems.append("SMAP_APP_DOCS_ENABLED must be false in production")
     # 2.10: empty CORS in prod silently lets the auth handler fall back to
     # http://localhost:8080 — refuse to start instead of shipping a broken origin.
     if not s.security.cors_origins:

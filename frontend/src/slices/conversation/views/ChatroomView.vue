@@ -47,6 +47,18 @@
       class="messages"
     >
       <li
+        v-if="hasOlderMessages"
+        class="load-earlier"
+      >
+        <button
+          type="button"
+          :disabled="loadingOlder"
+          @click="loadEarlier"
+        >
+          {{ loadingOlder ? $t('conversation.chatroom.loadingEarlier') : $t('conversation.chatroom.loadEarlier') }}
+        </button>
+      </li>
+      <li
         v-for="m in messages"
         :key="m.id"
       >
@@ -297,15 +309,50 @@ const renderedSnippets = computed<Record<string, string>>(() => {
   return out
 })
 
+const PAGE_SIZE = 100
+const olderMessages = ref<Message[]>([])
+const hasOlderMessages = ref(true)
+const loadingOlder = ref(false)
+
 const query = useQuery({
   queryKey: convKeys.messages(chatroomId),
-  queryFn: () => listMessages(chatroomId, { limit: 100 }),
+  queryFn: () => listMessages(chatroomId, { limit: PAGE_SIZE }),
 })
-const messages = computed<Message[]>(() =>
-  [...(query.data.value ?? [])].sort((a, b) =>
+watch(() => query.data.value, (recent) => {
+  if (recent && recent.length < PAGE_SIZE && olderMessages.value.length === 0) {
+    hasOlderMessages.value = false
+  }
+}, { immediate: true })
+
+const messages = computed<Message[]>(() => {
+  const recent = query.data.value ?? []
+  return [...olderMessages.value, ...recent].sort((a, b) =>
     a.created_at < b.created_at ? -1 : 1,
-  ),
-)
+  )
+})
+
+async function loadEarlier(): Promise<void> {
+  if (loadingOlder.value || !hasOlderMessages.value) return
+  const oldest = messages.value[0]
+  if (!oldest) return
+  loadingOlder.value = true
+  try {
+    const page = await listMessages(chatroomId, {
+      before: oldest.id,
+      limit: PAGE_SIZE,
+    })
+    if (page.length < PAGE_SIZE) hasOlderMessages.value = false
+    if (page.length === 0) return
+    // Deduplicate by id in case the first page overlaps.
+    const existing = new Set(olderMessages.value.map((m) => m.id))
+    const fresh = page.filter((m) => !existing.has(m.id))
+    olderMessages.value = [...fresh, ...olderMessages.value]
+  } catch {
+    toast.error(t('conversation.chatroom.loadEarlierFailed'))
+  } finally {
+    loadingOlder.value = false
+  }
+}
 
 const rendered = reactive<Record<string, string>>({})
 const renderedSources = new Map<string, string>()
@@ -662,5 +709,22 @@ onBeforeUnmount(() => {
   color: var(--color-muted, #6b7280);
   font-style: italic;
   font-size: 0.85rem;
+}
+.load-earlier {
+  text-align: center;
+  padding: 0.5rem 0;
+}
+.load-earlier button {
+  font-size: 0.85rem;
+  color: var(--color-primary, #2563eb);
+  background: none;
+  border: 1px solid var(--color-primary, #2563eb);
+  border-radius: 4px;
+  padding: 0.25rem 0.75rem;
+  cursor: pointer;
+}
+.load-earlier button:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 </style>

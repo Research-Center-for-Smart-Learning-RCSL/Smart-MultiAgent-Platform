@@ -38,6 +38,7 @@
       "retry": "Retry",
       "valid": "Workflow is valid.",
       "validateFailed": "Validation request failed.",
+      "dryRunComingSoon": "Dry run is not yet supported by the backend — coming soon.",
       "dryRunQueued": "Dry run queued.",
       "dryRunFailed": "Failed to start dry run.",
       "loading": "Loading workflow…",

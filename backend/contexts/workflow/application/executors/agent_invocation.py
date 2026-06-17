@@ -39,7 +39,7 @@ async def execute(ctx: RunContext, node: NodeSpec, db: AsyncSession) -> StepOutc
         facade = OrchestrationFacade(db)
 
         result = await facade.a2a_call(
-            from_agent_id=uuid.UUID(agent_id),
+            from_agent_id=None,
             to_agent_id=uuid.UUID(agent_id),
             payload={"input": rendered_input, "origin": "workflow"},
             workflow_run_id=ctx.run_id,

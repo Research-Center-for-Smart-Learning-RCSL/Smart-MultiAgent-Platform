@@ -4,6 +4,8 @@ export interface GuardContext {
   isAuthenticated: boolean
   isVerified: boolean
   isAdmin: boolean
+  /** Effective roles for the current user (e.g. ['admin', 'project_owner']). */
+  roles: string[]
 }
 
 export interface RouteMeta {
@@ -41,8 +43,11 @@ export function roleGuard(
   meta: RouteMeta,
   ctx: GuardContext,
 ): GuardResult {
-  const roles = meta.requiredRoles
-  if (roles?.includes('admin') && !ctx.isAdmin) {
+  const required = meta.requiredRoles
+  if (!required || required.length === 0) return true
+  // Pass if the user holds ANY of the required roles (disjunction).
+  const hasRole = required.some((r) => ctx.roles.includes(r))
+  if (!hasRole) {
     return { name: 'root' }
   }
   return true

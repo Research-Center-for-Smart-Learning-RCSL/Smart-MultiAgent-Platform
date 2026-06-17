@@ -8,6 +8,7 @@ Other contexts (Orchestration, Conversation) use this facade to:
 
 from __future__ import annotations
 
+import logging
 import uuid
 from typing import Any
 
@@ -24,6 +25,8 @@ from contexts.workflow.domain.models import (
     WorkflowStep,
 )
 
+logger = logging.getLogger(__name__)
+
 
 class WorkflowFacade:
     def __init__(self, db: AsyncSession) -> None:
@@ -35,6 +38,7 @@ class WorkflowFacade:
         try:
             return await self._svc.get(workflow_id)
         except Exception:
+            logger.exception("Failed to fetch workflow %s", workflow_id)
             return None
 
     def validate_definition(
@@ -70,6 +74,7 @@ class WorkflowFacade:
         try:
             return await self._svc.get_run(run_id)
         except Exception:
+            logger.exception("Failed to fetch workflow run %s", run_id)
             return None
 
     async def get_run_project_id(self, run_id: uuid.UUID) -> uuid.UUID | None:

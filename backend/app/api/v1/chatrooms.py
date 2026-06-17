@@ -5,6 +5,8 @@ from __future__ import annotations
 import uuid
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Path, Request, status
+
+from app.api.v1.deps import PaginationParams
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -155,6 +157,7 @@ async def _require_project_cap(
 @workspace_router.get("/{workspace_id}/chatrooms")
 async def list_chatrooms(
     workspace_id: uuid.UUID = Path(...),
+    pagination: PaginationParams = Depends(),
     principal: Principal = Depends(current_principal),
     db: AsyncSession = Depends(db_session),
 ) -> list[ChatroomOut]:
@@ -170,7 +173,9 @@ async def list_chatrooms(
         if not roles:
             _raise_forbidden("caller is not a member of the project")
     service = ChatroomService(db)
-    rows = await service.list_for_workspace(workspace_id)
+    rows = await service.list_for_workspace(
+        workspace_id, limit=pagination.limit, offset=pagination.offset,
+    )
     return [_to_out(r) for r in rows]
 
 
@@ -434,6 +439,9 @@ async def compact_chatroom(
     from shared_kernel.auth.clients import get_redis
 
     await get_redis().set(f"compact:pending:{chatroom_id}", "1", ex=3600)
+    from shared_kernel.queue import enqueue as enqueue_job
+
+    await enqueue_job("compact_chatroom", str(chatroom_id))
     return {"status": "accepted", "chatroom_id": str(chatroom_id)}
 
 

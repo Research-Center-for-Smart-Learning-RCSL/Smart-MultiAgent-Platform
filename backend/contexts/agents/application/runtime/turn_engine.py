@@ -86,10 +86,15 @@ AGENT_STREAM_TOKENS_TOTAL = Counter(
     registry=REGISTRY,
 )
 
-# The schema stores only a provider *hint* (`model_hint`), not a concrete model.
-# These are the turn-engine's caller-supplied chat-model defaults per provider —
-# passed to the adapter as a `models` map (not an adapter hardcode), so whichever
-# key the router rotates to gets a model. (Schema gap: agents have no model id.)
+# The schema stores only a provider *hint* (`model_hint`), not a concrete model
+# id.  These are the turn-engine's caller-supplied chat-model defaults per
+# provider — passed to the adapter as a `models` map (not an adapter hardcode),
+# so whichever key the router rotates to gets a model.
+#
+# Schema gap (P16): ``AgentModelHint`` is a *provider* discriminator
+# (claude / openai / gemini), not a per-agent model selector.  When a
+# ``model_id`` column lands on the ``agents`` table, override the
+# corresponding entry in the ``models`` dict inside ``_resolve_models``.
 _DEFAULT_CHAT_MODELS: dict[str, str] = {
     "claude": "claude-sonnet-4-6",
     "openai": "gpt-4o",
@@ -100,6 +105,21 @@ _CONTEXT_LIMITS: dict[str, int] = {
     "openai": 128_000,
     "gemini": 1_000_000,
 }
+
+
+def _resolve_models(agent: Agent) -> dict[str, str]:
+    """Build the ``models`` map for a turn, applying agent-level overrides.
+
+    Today ``AgentModelHint`` is only a provider discriminator so the
+    returned dict is just a copy of the defaults.  When a ``model_id``
+    column is added to agents, slot the override here::
+
+        models = dict(_DEFAULT_CHAT_MODELS)
+        if agent.model_id:
+            models[agent.model_hint.value] = agent.model_id
+        return models
+    """
+    return dict(_DEFAULT_CHAT_MODELS)
 
 # Default embedding model per provider for GraphRAG retrieval — mirrors the
 # builder's map in ``app.workers.tasks.graphrag`` (kept local: contexts must
@@ -247,7 +267,7 @@ class TurnEngine:
         agent = await AgentsFacade(self._db).get_agent(agent_id)
         if agent is None:
             return TurnResult(status="skipped", reason="agent_gone")
-        models = dict(_DEFAULT_CHAT_MODELS)
+        models = _resolve_models(agent)
         wf = str(workflow_run_id) if workflow_run_id else None
         pending_notes: list[dict[str, Any]] = []
         try:
@@ -342,6 +362,10 @@ class TurnEngine:
         try:
             notes = await pending_notify.drain(agent.id)
         except Exception:
+            _log.warning(
+                "Redis unavailable for turn context, running without pending context",
+                exc_info=True,
+            )
             return None, [], []
         if not notes:
             return None, [], []
@@ -434,7 +458,7 @@ class TurnEngine:
             return TurnResult(status="skipped", reason="rate_limited")
 
         provider = agent.model_hint.value
-        models = dict(_DEFAULT_CHAT_MODELS)
+        models = _resolve_models(agent)
         context_limit = _CONTEXT_LIMITS.get(provider, 128_000)
 
         room = room_channel(chatroom_id)
@@ -702,7 +726,7 @@ class TurnEngine:
         provider = agent.model_hint.value
         context_limit = _CONTEXT_LIMITS.get(provider, 128_000)
         try:
-            await self._assemble_history(agent, chatroom_id, context_limit, dict(_DEFAULT_CHAT_MODELS))
+            await self._assemble_history(agent, chatroom_id, context_limit, _resolve_models(agent))
             await self._db.commit()
             self._compact_forced_rooms.discard(chatroom_id)
             return True
@@ -725,6 +749,7 @@ class TurnEngine:
                 return True
             return False
         except Exception:
+            _log.warning("Failed to read compact flag", exc_info=True)
             return False
 
     async def _restore_compact_flag(self, chatroom_id: uuid.UUID) -> None:

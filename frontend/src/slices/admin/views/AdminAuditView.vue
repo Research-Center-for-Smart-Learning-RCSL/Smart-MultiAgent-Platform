@@ -55,7 +55,7 @@
       </button>
     </form>
 
-    <table v-if="query.data.value">
+    <table v-if="allItems.length">
       <thead>
         <tr>
           <th>ID</th>
@@ -69,7 +69,7 @@
       </thead>
       <tbody>
         <tr
-          v-for="entry in query.data.value.items"
+          v-for="entry in allItems"
           :key="entry.id"
         >
           <td>{{ entry.id }}</td>
@@ -84,7 +84,7 @@
     </table>
 
     <div
-      v-if="query.data.value?.next_cursor"
+      v-if="nextCursor"
       class="admin-audit__pagination"
     >
       <button
@@ -98,14 +98,16 @@
 </template>
 
 <script setup lang="ts">
-import { reactive, ref } from 'vue'
+import { reactive, ref, computed, watch } from 'vue'
 import { useQuery } from '@tanstack/vue-query'
 import { adminApi } from '../api/admin'
 import { adminKeys } from '../queries'
-import type { AuditFilter } from '../types'
+import type { AuditFilter, AuditEntry } from '../types'
 
 const filters = reactive<AuditFilter>({})
 const appliedFilters = ref<AuditFilter>({})
+const allItems = ref<AuditEntry[]>([])
+const nextCursor = ref<number | null>(null)
 
 function applyFilters(): void {
   const clean: AuditFilter = {}
@@ -117,17 +119,31 @@ function applyFilters(): void {
   if (filters.session_id) clean.session_id = filters.session_id
   if (filters.from) clean.from = filters.from
   if (filters.to) clean.to = filters.to
+  allItems.value = []
+  nextCursor.value = null
   appliedFilters.value = clean
 }
 
 const query = useQuery({
-  queryKey: adminKeys.audit(appliedFilters.value),
+  queryKey: computed(() => adminKeys.audit(appliedFilters.value)),
   queryFn: () => adminApi.queryAudit(appliedFilters.value).then(r => r.data),
 })
 
+watch(() => query.data.value, (data) => {
+  if (!data) return
+  if (appliedFilters.value.cursor) {
+    // Load-more: accumulate new items
+    allItems.value = [...allItems.value, ...data.items]
+  } else {
+    // Fresh query: replace items
+    allItems.value = [...data.items]
+  }
+  nextCursor.value = data.next_cursor
+})
+
 function loadMore(): void {
-  if (query.data.value?.next_cursor) {
-    appliedFilters.value = { ...appliedFilters.value, cursor: query.data.value.next_cursor }
+  if (nextCursor.value) {
+    appliedFilters.value = { ...appliedFilters.value, cursor: nextCursor.value }
   }
 }
 

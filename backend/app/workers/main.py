@@ -37,6 +37,7 @@ from app.workers.tasks.conversation import (
 from app.workers.tasks.graphrag import graphrag_build, graphrag_reconcile
 from app.workers.tasks.orchestration import (
     approval_timeout,
+    compact_chatroom,
     evaluate_silence,
     make_dlq_audit_callback,
     wakeup_agent,
@@ -181,6 +182,7 @@ class WorkerSettings:
         evaluate_silence,
         wakeup_refresh,
         approval_timeout,
+        compact_chatroom,
         drive_approver_turn,
         run_workflow_step,
         retry_workflow_node,

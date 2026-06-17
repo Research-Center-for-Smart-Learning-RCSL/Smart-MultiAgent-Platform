@@ -268,27 +268,6 @@ export class AuthService {
         });
     }
     /**
-     * Verify Email Via Link
-     * @returns string Successful Response
-     * @throws ApiError
-     */
-    public static verifyEmailViaLinkApiAuthVerifyEmailGet({
-        token,
-    }: {
-        token: string,
-    }): CancelablePromise<Record<string, string>> {
-        return __request(OpenAPI, {
-            method: 'GET',
-            url: '/api/auth/verify-email',
-            query: {
-                'token': token,
-            },
-            errors: {
-                422: `Validation Error`,
-            },
-        });
-    }
-    /**
      * Verify Email
      * @returns string Successful Response
      * @throws ApiError

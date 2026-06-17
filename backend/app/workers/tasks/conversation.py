@@ -40,28 +40,55 @@ from shared_kernel.storage import export_key, get_minio_client
 # bounded). 60 s is comfortably above the typical 50 MiB manifest at LAN
 # rates and far below the Arq job_timeout default.
 _EXPORT_PUT_TIMEOUT_SECONDS = 60
+# Cap messages per export to bound memory; 50 000 messages at ~2 KB each ≈ 100 MB.
+_EXPORT_MAX_MESSAGES = 50_000
+
+
+_file_scan_warned = False
 
 
 async def file_scan_requested(ctx: dict[str, Any], attachment_id: str) -> str:
-    """Placeholder scan task (R22.15.07).
+    """AV scan task (R22.15.07).
 
-    "Unconfigured = no-op pass" per spec — we mark the attachment CLEAN
-    by default. A real integration (ClamAV / VirusTotal) swaps this
-    function body and may return QUARANTINED, which
-    `AttachmentService.record_scan_result` translates into
-    `status='quarantined'` + audit.
+    When ``settings.security.file_scan_enabled`` is ``False`` (the default),
+    every attachment is auto-approved as CLEAN and a one-time warning is
+    logged.  To enable real scanning, set ``SMAP_SEC_FILE_SCAN_ENABLED=true``
+    and wire a ClamAV / VirusTotal adapter into this function body:
+
+        1. Fetch the blob from MinIO via the attachment's ``minio_path``.
+        2. Submit bytes to the AV engine.
+        3. Call ``service.record_scan_result(…, scan_status=ScanStatus.QUARANTINED)``
+           if the engine reports a threat; ``CLEAN`` otherwise.
     """
-    aid = uuid.UUID(attachment_id)
-    sm = get_sessionmaker()
-    async with sm() as session, session.begin():
-        service = AttachmentService(session)
-        await service.record_scan_result(
-            attachment_id=aid,
-            scan_status=ScanStatus.CLEAN,
-            actor_ip=None,
-        )
-    _ = ctx
-    return "clean"
+    global _file_scan_warned  # noqa: PLW0603
+
+    from app.config.settings import get_settings
+
+    if not get_settings().security.file_scan_enabled:
+        if not _file_scan_warned:
+            logger.warning(
+                "File scanning disabled — all attachments auto-approved. "
+                "Set SMAP_SEC_FILE_SCAN_ENABLED=true once an AV adapter is wired in."
+            )
+            _file_scan_warned = True
+
+        aid = uuid.UUID(attachment_id)
+        sm = get_sessionmaker()
+        async with sm() as session, session.begin():
+            service = AttachmentService(session)
+            await service.record_scan_result(
+                attachment_id=aid,
+                scan_status=ScanStatus.CLEAN,
+                actor_ip=None,
+            )
+        _ = ctx
+        return "clean"
+
+    # TODO(P15): Implement real scan path when file_scan_enabled is True.
+    # Fetch the blob, submit to ClamAV/VirusTotal, record the result.
+    raise NotImplementedError(
+        "file_scan_enabled is True but no AV adapter is configured"
+    )
 
 
 async def chat_export(
@@ -119,7 +146,7 @@ async def chat_export(
             attachments = MessageAttachmentRepository(session)
 
             room = await rooms.get(rid)
-            rows = await messages.all_for_chatroom(rid)
+            rows = await messages.all_for_chatroom(rid, limit=_EXPORT_MAX_MESSAGES)
             serialized = []
             for m in rows:
                 msg_edits = await edits.list_for_message(m.id)

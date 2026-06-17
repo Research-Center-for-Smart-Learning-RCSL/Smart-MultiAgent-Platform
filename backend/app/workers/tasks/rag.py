@@ -113,4 +113,11 @@ async def rag_ingest_document(ctx: dict[str, Any], *, document_id: str) -> str:
             await qclient.close()
 
 
+# P20: The task re-raises after marking FAILED so that Arq retries on
+# transient failures (provider 429, Qdrant timeout, etc.).  Arq's default
+# max_tries is 1 (no retry); set it to 3 so we get 2 automatic retries
+# before the job lands in the dead-letter queue.  Arq reads this attribute
+# from the function object at job dispatch time.
+rag_ingest_document.max_tries = 3  # type: ignore[attr-defined]
+
 __all__ = ["rag_ingest_document"]

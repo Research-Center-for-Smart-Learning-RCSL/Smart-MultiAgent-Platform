@@ -17,6 +17,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Path, Query, stat
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.v1.deps import PaginationParams
 from contexts.agents.interfaces.facade import AgentsFacade
 from contexts.conversation.interfaces.facade import ConversationFacade
 from contexts.workflow.application.workflow_service import WorkflowService
@@ -304,6 +305,7 @@ def _to_step_out(step: Any) -> StepOut:
 @workspace_router.get("/{wid}/workflows")
 async def list_workflows(
     wid: uuid.UUID = Path(...),
+    pagination: PaginationParams = Depends(),
     scope: Scope = Depends(_resolve_workspace),
     principal: Principal = Depends(current_principal),
     resolver: RoleResolver = Depends(get_role_resolver),
@@ -311,7 +313,9 @@ async def list_workflows(
 ) -> list[WorkflowOut]:
     await _require_member(principal, scope, resolver)
     svc = WorkflowService(db)
-    workflows = await svc.list_for_workspace(wid)
+    workflows = await svc.list_for_workspace(
+        wid, limit=pagination.limit, offset=pagination.offset,
+    )
     return [_to_workflow_out(w) for w in workflows]
 
 

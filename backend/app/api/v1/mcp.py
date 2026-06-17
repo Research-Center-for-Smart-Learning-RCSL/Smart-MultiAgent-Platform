@@ -14,10 +14,11 @@ the endpoints that are new in E.9:
 
 from __future__ import annotations
 
+import re
 import uuid
 
 from fastapi import APIRouter, Depends, Path, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.agents.application.agent_service import AgentService
@@ -78,13 +79,38 @@ class AllowlistEntryOut(BaseModel):
         )
 
 
+# S9: RFC-1123 hostname pattern — no wildcards, whitespace, or non-DNS chars.
+_HOSTNAME_RE = re.compile(r"^[a-zA-Z0-9]([a-zA-Z0-9.\-]*[a-zA-Z0-9])?$")
+
+
+def _validate_hostname(v: str) -> str:
+    if len(v) > 253:
+        raise ValueError("hostname exceeds max DNS name length (253)")
+    if not _HOSTNAME_RE.match(v):
+        raise ValueError(
+            "hostname contains invalid characters; "
+            "only alphanumerics, hyphens, and dots are allowed (RFC 1123)"
+        )
+    return v
+
+
 class AllowlistAddIn(BaseModel):
     hostname: str = Field(min_length=1, max_length=253)
     note: str | None = Field(default=None, max_length=500)
 
+    @field_validator("hostname")
+    @classmethod
+    def _check_hostname(cls, v: str) -> str:
+        return _validate_hostname(v)
+
 
 class AllowlistReplaceIn(BaseModel):
     hostnames: list[str] = Field(default_factory=list, max_length=500)
+
+    @field_validator("hostnames")
+    @classmethod
+    def _check_hostnames(cls, v: list[str]) -> list[str]:
+        return [_validate_hostname(h) for h in v]
 
 
 # ---------------------------------------------------------------------------

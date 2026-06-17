@@ -1,6 +1,6 @@
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useMutation } from '@tanstack/vue-query'
-import { accessTokenClaims, setAccessToken } from '@shared/transport'
+import { accessTokenClaims, getAccessToken, setAccessToken } from '@shared/transport'
 import { adminApi } from '../api/admin'
 
 export function useImpersonation() {
@@ -19,15 +19,23 @@ export function useImpersonation() {
 
   const isImpersonating = computed(() => impersonatedBy.value !== null)
 
+  /** Saved admin token to restore after impersonation ends (B5). */
+  const savedAdminToken = ref<string | null>(null)
+
   const startImpersonation = useMutation({
     mutationFn: (userId: string) => adminApi.impersonate(userId),
     onSuccess: (res) => {
+      savedAdminToken.value = getAccessToken()
       setAccessToken(res.data.access_token)
     },
   })
 
   const endImpersonation = useMutation({
     mutationFn: (userId: string) => adminApi.endImpersonate(userId),
+    onSuccess: () => {
+      setAccessToken(savedAdminToken.value)
+      savedAdminToken.value = null
+    },
   })
 
   function blockMutatingAction(): boolean {

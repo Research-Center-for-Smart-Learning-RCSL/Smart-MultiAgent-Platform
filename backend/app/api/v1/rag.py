@@ -81,6 +81,16 @@ class RagConfigCreateIn(BaseModel):
     top_k: int = Field(default=8, gt=0, le=100)
 
 
+class RagConfigPatchIn(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=200)
+    top_k: int | None = Field(default=None, gt=0, le=100)
+    chunk_params: dict[str, Any] | None = None
+    rerank_enabled: bool | None = None
+    rerank_key_id: uuid.UUID | None = None
+    rerank_provider: Literal["cohere"] | None = None
+    rerank_model: str | None = None
+
+
 class RagConfigOut(BaseModel):
     id: uuid.UUID
     project_id: uuid.UUID
@@ -323,6 +333,43 @@ async def read_rag_config(
     return _to_config_out(cfg)
 
 
+@config_router.patch("/{config_id}")
+async def patch_rag_config(
+    body: RagConfigPatchIn,
+    config_id: uuid.UUID = Path(...),
+    ctx: RequestContext = Depends(current_context),
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(db_session),
+) -> RagConfigOut:
+    service = RagConfigService(db)
+    cfg = await service.get(config_id)
+    from shared_kernel.auth.dependencies import _raise_forbidden, get_role_resolver
+    from shared_kernel.auth.permissions import Scope, decide
+
+    resolver = await get_role_resolver(db)
+    decision = await decide(
+        principal,
+        Capability.RESOURCE_CREATE_EDIT,
+        Scope(project_id=cfg.project_id),
+        resolver,
+    )
+    if not decision.allowed:
+        _raise_forbidden(decision.reason)
+
+    patch = body.model_dump(exclude_unset=True)
+    if not patch:
+        return _to_config_out(cfg)
+
+    updated = await service.update(
+        config_id=config_id,
+        patch=patch,
+        actor_user_id=principal.user_id,
+        actor_ip=ctx.actor_ip,
+        request_id=ctx.request_id,
+    )
+    return _to_config_out(updated)
+
+
 @config_router.delete("/{config_id}", status_code=status.HTTP_204_NO_CONTENT, response_model=None)
 async def delete_rag_config(
     config_id: uuid.UUID = Path(...),
@@ -478,28 +525,31 @@ async def upload_document(
         url=settings.qdrant.url,
         api_key=settings.qdrant.api_key or None,
     )
-    qdrant = QdrantStore(qclient)
+    try:
+        qdrant = QdrantStore(qclient)
 
-    ingest = IngestService(
-        db,
-        blob=blob,
-        embedder=embedder,
-        qdrant=qdrant,
-        bucket=settings.minio.bucket_rag_sources,
-    )
-    doc = await ingest.ingest(
-        ipt=IngestInput(
-            rag_config_id=config_id,
-            filename=file.filename or "upload",
-            mime=mime or file.content_type or "application/octet-stream",
-            data=data,
-            uploaded_by=principal.user_id,
-        ),
-        actor_user_id=principal.user_id,
-        actor_ip=ctx.actor_ip,
-        request_id=ctx.request_id,
-    )
-    return _to_document_out(doc)
+        ingest = IngestService(
+            db,
+            blob=blob,
+            embedder=embedder,
+            qdrant=qdrant,
+            bucket=settings.minio.bucket_rag_sources,
+        )
+        doc = await ingest.ingest(
+            ipt=IngestInput(
+                rag_config_id=config_id,
+                filename=file.filename or "upload",
+                mime=mime or file.content_type or "application/octet-stream",
+                data=data,
+                uploaded_by=principal.user_id,
+            ),
+            actor_user_id=principal.user_id,
+            actor_ip=ctx.actor_ip,
+            request_id=ctx.request_id,
+        )
+        return _to_document_out(doc)
+    finally:
+        await qclient.close()
 
 
 document_router = APIRouter(prefix="/api/rag-documents", tags=["rag"])

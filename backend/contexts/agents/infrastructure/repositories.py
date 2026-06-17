@@ -142,7 +142,13 @@ class AgentRepository:
         row = (await self._db.execute(t.agents.select().where(predicate))).first()
         return _row_to_agent(row) if row else None
 
-    async def list_for_project(self, project_id: uuid.UUID) -> Sequence[Agent]:
+    async def list_for_project(
+        self,
+        project_id: uuid.UUID,
+        *,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> Sequence[Agent]:
         rows = (
             await self._db.execute(
                 t.agents.select()
@@ -153,6 +159,8 @@ class AgentRepository:
                     )
                 )
                 .order_by(t.agents.c.created_at.desc())
+                .limit(limit)
+                .offset(offset)
             )
         ).all()
         return [_row_to_agent(r) for r in rows]

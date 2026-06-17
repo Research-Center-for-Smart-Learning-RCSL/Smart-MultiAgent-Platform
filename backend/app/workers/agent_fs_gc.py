@@ -31,21 +31,35 @@ _log = logging.getLogger(__name__)
 _RETENTION_DAYS = 60
 
 
+_GC_BATCH_SIZE = 500
+
+
 async def _list_purgeable_agent_ids(now: datetime) -> list[uuid.UUID]:
     cutoff = now - timedelta(days=_RETENTION_DAYS)
     maker = get_sessionmaker()
+    ids: list[uuid.UUID] = []
     async with maker() as session:
-        rows = (
-            await session.execute(
-                sa.select(t.agents.c.id).where(
-                    sa.and_(
-                        t.agents.c.deleted_at.is_not(None),
-                        t.agents.c.deleted_at < cutoff,
+        offset = 0
+        while True:
+            rows = (
+                await session.execute(
+                    sa.select(t.agents.c.id)
+                    .where(
+                        sa.and_(
+                            t.agents.c.deleted_at.is_not(None),
+                            t.agents.c.deleted_at < cutoff,
+                        )
                     )
+                    .order_by(t.agents.c.id)
+                    .limit(_GC_BATCH_SIZE)
+                    .offset(offset)
                 )
-            )
-        ).all()
-    return [r[0] for r in rows]
+            ).all()
+            ids.extend(r[0] for r in rows)
+            if len(rows) < _GC_BATCH_SIZE:
+                break
+            offset += _GC_BATCH_SIZE
+    return ids
 
 
 def _volume_name(agent_id: uuid.UUID) -> str:

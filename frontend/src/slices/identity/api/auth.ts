@@ -49,7 +49,10 @@ export const authApi = {
   refresh: () =>
     http.post<TokenPair>('/auth/refresh', {}),
 
-  logout: () => http.post('/auth/logout'),
+  // The server extracts the refresh token from the httpOnly `smap_refresh`
+  // cookie (sent automatically by the browser).  The empty body ensures
+  // FastAPI can parse the optional `LogoutIn` schema without a 422.
+  logout: () => http.post('/auth/logout', {}),
 
   requestPasswordReset: (email: string) =>
     http.post('/auth/request-password-reset', { email }),

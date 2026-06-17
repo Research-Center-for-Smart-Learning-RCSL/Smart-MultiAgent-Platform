@@ -1,16 +1,25 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useToast } from '@shared/composables'
+import { useSessionStore } from '@slices/identity'
 import { orgsApi, type OriginalCreatorTransfer } from '../api/orgs'
 
 const { t } = useI18n()
 const route = useRoute()
 const toast = useToast()
+const session = useSessionStore()
 const pending = ref<OriginalCreatorTransfer | null>(null)
 const targetUserId = ref('')
 const error = ref<string | null>(null)
+
+const isTarget = computed(
+  () => pending.value !== null && session.me?.id === pending.value.target_user_id,
+)
+const isInitiator = computed(
+  () => pending.value !== null && session.me?.id === pending.value.initiator_user_id,
+)
 
 function orgId(): string {
   return route.params.id as string
@@ -36,6 +45,16 @@ async function initiate(): Promise<void> {
   }
 }
 
+async function acceptTransfer(): Promise<void> {
+  if (!pending.value) return
+  try {
+    await orgsApi.acceptTransfer(orgId(), pending.value.id)
+    await load()
+  } catch {
+    toast.error(t('tenancy.transfer.acceptFailed'))
+  }
+}
+
 async function cancel(): Promise<void> {
   if (!pending.value) return
   try {
@@ -54,7 +73,16 @@ onMounted(load)
     <h1>{{ $t('tenancy.transfer.title') }}</h1>
     <div v-if="pending">
       <p>{{ $t('tenancy.transfer.pending') }}: {{ pending.target_user_id }} ({{ pending.expires_at }})</p>
-      <button @click="cancel">
+      <button
+        v-if="isTarget"
+        @click="acceptTransfer"
+      >
+        {{ $t('tenancy.transfer.accept') }}
+      </button>
+      <button
+        v-if="isInitiator"
+        @click="cancel"
+      >
         {{ $t('tenancy.transfer.cancel') }}
       </button>
     </div>

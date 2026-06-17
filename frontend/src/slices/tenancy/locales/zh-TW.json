@@ -52,6 +52,7 @@
       "renameLabel": "專案名稱",
       "renameError": "重新命名失敗——可能已在他處變更。",
       "loadFailed": "載入專案失敗。",
+      "loadError": "載入專案失敗。",
       "createFailed": "建立專案失敗。"
     },
     "members": {
@@ -82,7 +83,8 @@
       "acceptFailure": "此邀請連結無效或已過期。",
       "goToInbox": "前往邀請",
       "loadFailed": "載入邀請失敗。",
-      "rejectFailed": "拒絕邀請失敗。"
+      "rejectFailed": "拒絕邀請失敗。",
+      "acceptError": "接受邀請失敗，請再試一次。"
     },
     "transfer": {
       "title": "轉移原始建立者",
@@ -94,7 +96,8 @@
       "cancel": "取消",
       "none": "目前沒有待確認的轉移。",
       "loadFailed": "載入轉移紀錄失敗。",
-      "cancelFailed": "取消轉移失敗。"
+      "cancelFailed": "取消轉移失敗。",
+      "acceptFailed": "接受轉移失敗。"
     }
   }
 }

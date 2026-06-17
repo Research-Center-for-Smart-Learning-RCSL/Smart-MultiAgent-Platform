@@ -21,8 +21,13 @@ class AuditFacade:
     ) -> AuditPage:
         return await self._service.query(filters, cursor=cursor, limit=limit)
 
-    async def export_csv(self, filters: AuditFilter) -> bytes:
-        return await self._service.export_csv(filters)
+    async def export_csv(
+        self,
+        filters: AuditFilter,
+        *,
+        max_rows: int | None = None,
+    ) -> bytes:
+        return await self._service.export_csv(filters, max_rows=max_rows)
 
 
 __all__ = ["AuditFacade"]

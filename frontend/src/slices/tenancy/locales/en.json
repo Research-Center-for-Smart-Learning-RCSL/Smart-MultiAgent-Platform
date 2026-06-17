@@ -52,6 +52,7 @@
       "renameLabel": "Project name",
       "renameError": "Failed to rename — it may have changed elsewhere.",
       "loadFailed": "Failed to load projects.",
+      "loadError": "Failed to load project.",
       "createFailed": "Failed to create project."
     },
     "members": {
@@ -82,7 +83,8 @@
       "acceptFailure": "This invitation link is invalid or has expired.",
       "goToInbox": "Go to invitations",
       "loadFailed": "Failed to load invites.",
-      "rejectFailed": "Failed to reject invite."
+      "rejectFailed": "Failed to reject invite.",
+      "acceptError": "Failed to accept invite. Please try again."
     },
     "transfer": {
       "title": "Transfer original-creator",
@@ -94,7 +96,8 @@
       "cancel": "Cancel",
       "none": "No pending transfer.",
       "loadFailed": "Failed to load transfers.",
-      "cancelFailed": "Failed to cancel transfer."
+      "cancelFailed": "Failed to cancel transfer.",
+      "acceptFailed": "Failed to accept transfer."
     }
   }
 }
