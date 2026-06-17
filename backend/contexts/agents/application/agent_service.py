@@ -174,7 +174,7 @@ class AgentService:
         self,
         project_id: uuid.UUID,
         *,
-        limit: int = 100,
+        limit: int | None = None,
         offset: int = 0,
     ) -> Sequence[Agent]:
         return await self._agents.list_for_project(

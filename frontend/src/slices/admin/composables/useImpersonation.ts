@@ -3,6 +3,10 @@ import { useMutation } from '@tanstack/vue-query'
 import { accessTokenClaims, getAccessToken, setAccessToken } from '@shared/transport'
 import { adminApi } from '../api/admin'
 
+/** Saved admin token to restore after impersonation ends (B5).
+ *  Module-scoped so all callers of useImpersonation() share the same ref. */
+const savedAdminToken = ref<string | null>(null)
+
 export function useImpersonation() {
   // Both derive from the reactive `accessTokenClaims`, so they recompute the
   // moment `setAccessToken` runs (start/end of impersonation) — a plain decode
@@ -18,9 +22,6 @@ export function useImpersonation() {
   })
 
   const isImpersonating = computed(() => impersonatedBy.value !== null)
-
-  /** Saved admin token to restore after impersonation ends (B5). */
-  const savedAdminToken = ref<string | null>(null)
 
   const startImpersonation = useMutation({
     mutationFn: (userId: string) => adminApi.impersonate(userId),
