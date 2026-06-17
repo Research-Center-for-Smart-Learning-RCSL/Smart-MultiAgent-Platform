@@ -615,6 +615,9 @@ async def query_audit(
     )
 
 
+_MAX_EXPORT_ROWS = 100_000
+
+
 @router.post("/audit/export")
 async def export_audit(
     actor_user_id: uuid.UUID | None = Query(None),
@@ -627,6 +630,12 @@ async def export_audit(
     db: AsyncSession = Depends(db_session),
 ) -> dict:
     """Kick off audit CSV export → MinIO `exports/` bucket."""
+    # Require a date range to prevent full-table dumps.
+    if from_ts is None or to_ts is None:
+        raise HTTPException(
+            status_code=422,
+            detail="Both 'from' and 'to' date filters are required for audit export.",
+        )
     filters = AuditFilter(
         actor_user_id=actor_user_id,
         resource_type=resource_type,
@@ -635,7 +644,7 @@ async def export_audit(
         to_ts=to_ts,
     )
     facade = AuditFacade(db)
-    csv_bytes = await facade.export_csv(filters)
+    csv_bytes = await facade.export_csv(filters, max_rows=_MAX_EXPORT_ROWS)
 
     from shared_kernel.storage import export_key, get_minio_client
 
@@ -698,23 +707,38 @@ async def restore_resource(
 # ---------------------------------------------------------------------------
 
 
+_metrics_cache: dict[str, tuple[float, "MetricsOut"]] = {}
+_METRICS_TTL_SECONDS = 60.0
+
+
 @router.get("/metrics")
 async def admin_metrics(
     _: Principal = Depends(_require_admin),
     db: AsyncSession = Depends(db_session),
 ) -> MetricsOut:
+    import time
+
     import sqlalchemy as sa
+
+    now = time.monotonic()
+    cached = _metrics_cache.get("v1")
+    if cached is not None:
+        cached_at, cached_result = cached
+        if now - cached_at < _METRICS_TTL_SECONDS:
+            return cached_result
 
     users_count = (await db.execute(sa.text("SELECT count(*) FROM users"))).scalar_one()
     orgs_count = (await db.execute(sa.text("SELECT count(*) FROM orgs"))).scalar_one()
     projects_count = (await db.execute(sa.text("SELECT count(*) FROM projects"))).scalar_one()
     audit_count = (await db.execute(sa.text("SELECT count(*) FROM audit_logs"))).scalar_one()
-    return MetricsOut(
+    result = MetricsOut(
         total_users=users_count,
         total_orgs=orgs_count,
         total_projects=projects_count,
         total_audit_entries=audit_count,
     )
+    _metrics_cache["v1"] = (now, result)
+    return result
 
 
 # ---------------------------------------------------------------------------

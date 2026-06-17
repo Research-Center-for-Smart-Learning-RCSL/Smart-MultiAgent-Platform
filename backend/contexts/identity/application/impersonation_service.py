@@ -149,20 +149,26 @@ class ImpersonationService:
         return True
 
     async def close_idle_sessions(self, idle_minutes: int = 30) -> int:
-        from datetime import timedelta
-
         cutoff = now() - timedelta(minutes=idle_minutes)
-        result = await self._db.execute(
-            t.admin_impersonation_sessions.update()
-            .where(
-                sa.and_(
-                    t.admin_impersonation_sessions.c.ended_at.is_(None),
-                    t.admin_impersonation_sessions.c.started_at < cutoff,
+        rows = (
+            await self._db.execute(
+                t.admin_impersonation_sessions.update()
+                .where(
+                    sa.and_(
+                        t.admin_impersonation_sessions.c.ended_at.is_(None),
+                        t.admin_impersonation_sessions.c.started_at < cutoff,
+                    )
                 )
+                .values(ended_at=now())
+                .returning(t.admin_impersonation_sessions.c.access_jti)
             )
-            .values(ended_at=now())
-        )
-        return result.rowcount
+        ).all()
+        # S7: revoke the access token for each closed session, matching end().
+        ttl = timedelta(seconds=get_settings().jwt.access_ttl_seconds)
+        for row in rows:
+            if row.access_jti is not None:
+                await tokens.deny_jti(row.access_jti, ttl=ttl)
+        return len(rows)
 
     async def list_active(self) -> list[ImpersonationSession]:
         rows = (

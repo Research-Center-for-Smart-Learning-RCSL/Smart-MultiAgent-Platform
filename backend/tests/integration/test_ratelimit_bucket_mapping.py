@@ -25,7 +25,6 @@ from shared_kernel.auth.ratelimit import Bucket, Scope, default_policies
         ("POST", "/api/auth/request-password-reset", Bucket.AUTH_RECOVERY),
         ("POST", "/api/auth/reset-password", Bucket.AUTH_RECOVERY),
         ("POST", "/api/auth/verify-email", Bucket.AUTH_RECOVERY),
-        ("GET", "/api/auth/verify-email", Bucket.AUTH_RECOVERY),
         # Chat-send — 60/min/user.
         ("POST", "/api/chatrooms/abc/messages", Bucket.CHAT),
         # Upload — 10/min/user for tus Creation + attachment POSTs.

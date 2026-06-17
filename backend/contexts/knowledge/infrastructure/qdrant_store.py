@@ -91,13 +91,11 @@ class QdrantStore:
         doc_ids: list[uuid.UUID] | None = None,
     ) -> list[QdrantHit]:
         must: list[FieldCondition] = []
-        if agent_id is not None:
-            must.append(
-                FieldCondition(
-                    key="agent_ids",
-                    match=MatchAny(any=[str(agent_id)]),
-                )
-            )
+        # NOTE: agent_id filtering is intentionally disabled. RAG configs are
+        # project-scoped (not agent-scoped) and ingest always writes
+        # agent_ids=[] — filtering by agent_id would always return 0 results.
+        # The parameter is kept for future use when per-agent scoping is
+        # implemented end-to-end (ingest + search).
         if doc_ids:
             must.append(
                 FieldCondition(

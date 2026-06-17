@@ -271,7 +271,9 @@ async def workflow_cron_scheduler(ctx: dict[str, Any]) -> str:
     async with async_session() as db:
         rows = (
             await db.execute(
-                sa.select(workflows).where(workflows.c.deleted_at.is_(None)),
+                sa.select(workflows.c.id, workflows.c.definition).where(
+                    workflows.c.deleted_at.is_(None),
+                ),
             )
         ).all()
 

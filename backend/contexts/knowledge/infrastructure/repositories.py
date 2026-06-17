@@ -152,6 +152,28 @@ class RagConfigRepository:
         ).all()
         return [_row_to_config(r) for r in rows]
 
+    async def update(
+        self,
+        config_id: uuid.UUID,
+        values: dict[str, Any],
+    ) -> RagConfig | None:
+        """Partial update of mutable fields. Returns the refreshed row."""
+        if not values:
+            return await self.get(config_id)
+        result = await self._db.execute(
+            t.rag_configs.update()
+            .where(
+                sa.and_(
+                    t.rag_configs.c.id == config_id,
+                    t.rag_configs.c.deleted_at.is_(None),
+                )
+            )
+            .values(**values)
+            .returning(t.rag_configs)
+        )
+        row = result.first()
+        return _row_to_config(row) if row else None
+
     async def soft_delete(self, config_id: uuid.UUID) -> None:
         await self._db.execute(
             t.rag_configs.update().where(t.rag_configs.c.id == config_id).values(deleted_at=now())

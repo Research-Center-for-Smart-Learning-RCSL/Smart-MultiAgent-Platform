@@ -17,6 +17,7 @@ raises into the loop — a missing search key or a sandbox fault surfaces as an
 from __future__ import annotations
 
 import json
+import logging
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
@@ -26,6 +27,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from contexts.agents.application.runtime.tool_registry import Tool, ToolResult
 from contexts.agents.domain.mcp import SearchResult
 from contexts.agents.domain.models import Agent, McpBinding, McpSource
+
+logger = logging.getLogger(__name__)
 
 # Per-tool output caps so a chatty tool can't blow the context window.
 _MAX_TOOL_OUTPUT = 16_000
@@ -262,8 +265,8 @@ async def _audit_mcp_invoke(
                 },
             ),
         )
-    except Exception:  # noqa: S110  # pragma: no cover - audit is best-effort
-        pass
+    except Exception:  # pragma: no cover - audit is best-effort
+        logger.warning("Failed to write MCP audit event", exc_info=True)
 
 
 def _unseal_binding_auth(binding: McpBinding) -> dict[str, Any] | None:
@@ -279,6 +282,7 @@ def _unseal_binding_auth(binding: McpBinding) -> dict[str, Any] | None:
 
         return unseal_auth(binding.id, sealed)
     except Exception:
+        logger.error("Failed to unseal MCP binding auth", exc_info=True)
         return None
 
 

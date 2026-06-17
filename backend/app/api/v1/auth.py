@@ -10,7 +10,7 @@ from __future__ import annotations
 import uuid
 from datetime import timedelta
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -111,7 +111,7 @@ class VerifyEmailIn(BaseModel):
 
 class LoginIn(BaseModel):
     email: EmailStr
-    password: str
+    password: str = Field(max_length=1024)
 
 
 class RefreshIn(BaseModel):
@@ -132,17 +132,17 @@ class PasswordResetIn(BaseModel):
 
 
 class ChangePasswordIn(BaseModel):
-    current_password: str
+    current_password: str = Field(max_length=1024)
     new_password: str = Field(min_length=10, max_length=1024)
 
 
 class ChangeEmailIn(BaseModel):
     new_email: EmailStr
-    password: str
+    password: str = Field(max_length=1024)
 
 
 class DeleteAccountIn(BaseModel):
-    password: str
+    password: str = Field(max_length=1024)
 
 
 class TokenPairOut(BaseModel):
@@ -239,21 +239,6 @@ async def verify_email(
     service = _service(db)
     user = await service.verify_email(
         body.token,
-        remote_ip=ctx.actor_ip,
-        request_id=ctx.request_id,
-    )
-    return {"id": str(user.id), "status": user.status.value}
-
-
-@router.get("/verify-email")
-async def verify_email_via_link(
-    token: str = Query(..., min_length=8),
-    ctx: RequestContext = Depends(current_context),
-    db: AsyncSession = Depends(db_session),
-) -> dict[str, str]:
-    service = _service(db)
-    user = await service.verify_email(
-        token,
         remote_ip=ctx.actor_ip,
         request_id=ctx.request_id,
     )

@@ -309,6 +309,7 @@ def _regex_match(text: str, pattern: str) -> bool:
     try:
         return re2.compile(pattern).search(text) is not None
     except Exception:
+        _log.warning("Invalid regex pattern in SEL expression: %s", pattern, exc_info=True)
         return False
 
 

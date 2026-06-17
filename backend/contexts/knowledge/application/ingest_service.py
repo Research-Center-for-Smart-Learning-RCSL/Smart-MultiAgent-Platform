@@ -291,7 +291,9 @@ class IngestService:
                 # every rag_chunks row; earlier batches' Qdrant points are left
                 # behind but are swept by the clear-then-index above on the next
                 # attempt (delete_document by doc_id), so they never accumulate.
-                for start in range(0, len(pieces), _EMBED_BATCH):
+                total_chunks = len(pieces)
+                pub = Publisher(rag_channel(cfg.id))
+                for start in range(0, total_chunks, _EMBED_BATCH):
                     batch = pieces[start : start + _EMBED_BATCH]
                     vectors = await self._embedder.embed_batch(batch)
                     if len(vectors) != len(batch):
@@ -302,6 +304,17 @@ class IngestService:
                             f"embedder returned {len(vectors)} vectors for "
                             f"{len(batch)} chunks; refusing partial index"
                         )
+                    # Emit progress so the frontend progress bar updates in
+                    # real time (P19 — ingestion.progress was never emitted).
+                    processed = min(start + len(batch), total_chunks)
+                    await pub.emit(
+                        "ingestion.progress",
+                        {
+                            "document_id": str(doc.id),
+                            "processed": processed,
+                            "total": total_chunks,
+                        },
+                    )
                     point_ids: list[uuid.UUID] = [uuid.uuid4() for _ in batch]
                     # Insert DB rows before the Qdrant upsert so a DB failure
                     # rolls back before Qdrant is touched.
@@ -315,6 +328,12 @@ class IngestService:
                             }
                             for i in range(len(batch))
                         ]
+                    )
+                    # Signal the transition from embedding to Qdrant upsert
+                    # (P19 — ingestion.indexing was never emitted).
+                    await pub.emit(
+                        "ingestion.indexing",
+                        {"document_id": str(doc.id), "batch_start": start},
                     )
                     await self._qdrant.upsert_chunks(
                         project_id=cfg.project_id,

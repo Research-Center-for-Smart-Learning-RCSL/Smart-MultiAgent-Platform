@@ -60,6 +60,12 @@ onMounted(load)
     >
       {{ $t('tenancy.invites.unverifiedBlock') }}
     </p>
+    <p
+      v-else-if="error"
+      class="error"
+    >
+      {{ $t('tenancy.invites.acceptError') }}
+    </p>
     <p v-if="invites.length === 0">
       {{ $t('tenancy.invites.empty') }}
     </p>

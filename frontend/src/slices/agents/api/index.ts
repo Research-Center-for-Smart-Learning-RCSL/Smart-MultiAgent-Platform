@@ -140,8 +140,10 @@ export const agentsApi = {
       headers: { 'If-Match': String(version) },
     }),
 
-  remove: (agentId: string) =>
-    http.delete(`/agents/${agentId}`),
+  remove: (agentId: string, version: number) =>
+    http.delete(`/agents/${agentId}`, {
+      headers: { 'If-Match': String(version) },
+    }),
 
   listRagConfigs: (projectId: string) =>
     http.get<RagConfig[]>(`/projects/${projectId}/rag-configs`),

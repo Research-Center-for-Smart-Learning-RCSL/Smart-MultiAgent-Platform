@@ -29,7 +29,7 @@ export const workflowRoutes: RouteRecordRaw[] = [
     path: '/workspaces/:workspaceId/workflows/:workflowId/backstage',
     name: 'workflow.backstage',
     component: () => import('./views/WorkflowBackstageView.vue'),
-    meta: { requiresAuth: true, requiresRole: ['admin', 'project_owner'] },
+    meta: { requiresAuth: true, requiredRoles: ['admin', 'project_owner'] },
   },
   {
     path: '/agents/:agentId/orchestration',

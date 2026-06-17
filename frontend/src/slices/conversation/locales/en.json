@@ -51,7 +51,10 @@
       "deleteFailed": "Failed to delete message.",
       "attachmentExpired": "[attachment expired] {name}",
       "attachmentQuarantined": "[attachment blocked] {name}",
-      "attachmentFailed": "Failed to open attachment."
+      "attachmentFailed": "Failed to open attachment.",
+      "loadEarlier": "Load earlier messages",
+      "loadingEarlier": "Loading…",
+      "loadEarlierFailed": "Failed to load earlier messages."
     },
     "settings": {
       "title": "Chatroom Settings",

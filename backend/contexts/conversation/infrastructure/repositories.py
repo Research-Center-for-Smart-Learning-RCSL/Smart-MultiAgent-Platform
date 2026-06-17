@@ -212,6 +212,9 @@ class ChatroomRepository:
     async def list_for_workspace(
         self,
         workspace_id: uuid.UUID,
+        *,
+        limit: int = 100,
+        offset: int = 0,
     ) -> Sequence[Chatroom]:
         rows = (
             await self._db.execute(
@@ -223,6 +226,8 @@ class ChatroomRepository:
                     )
                 )
                 .order_by(t.chatrooms.c.created_at)
+                .limit(limit)
+                .offset(offset)
             )
         ).all()
         return [_row_to_chatroom(r) for r in rows]
@@ -603,22 +608,29 @@ class MessageRepository:
     async def all_for_chatroom(
         self,
         chatroom_id: uuid.UUID,
+        *,
+        limit: int | None = None,
     ) -> Sequence[Message]:
         """Full dump of a room's live messages, ordered chronologically —
         used by the export worker. Always streams from the primary index so
-        a 10k-message export stays sub-second."""
-        rows = (
-            await self._db.execute(
-                t.messages.select()
-                .where(
-                    sa.and_(
-                        t.messages.c.chatroom_id == chatroom_id,
-                        t.messages.c.deleted_at.is_(None),
-                    )
+        a 10k-message export stays sub-second.
+
+        *limit* caps the result set to prevent unbounded memory usage in
+        large rooms.
+        """
+        q = (
+            t.messages.select()
+            .where(
+                sa.and_(
+                    t.messages.c.chatroom_id == chatroom_id,
+                    t.messages.c.deleted_at.is_(None),
                 )
-                .order_by(t.messages.c.created_at.asc())
             )
-        ).all()
+            .order_by(t.messages.c.created_at.asc())
+        )
+        if limit is not None:
+            q = q.limit(limit)
+        rows = (await self._db.execute(q)).all()
         return [_row_to_message(r) for r in rows]
 
 

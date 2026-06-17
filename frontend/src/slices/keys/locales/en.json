@@ -59,6 +59,13 @@
       "renameLabel": "Group name",
       "renameError": "Failed to rename group."
     },
+    "form": {
+      "provider": "Provider",
+      "name": "Display Name",
+      "namePlaceholder": "e.g. My OpenAI Key",
+      "secret": "API Secret",
+      "submit": "Upload Key"
+    },
     "search": {
       "title": "Search Keys",
       "provider": "Provider",

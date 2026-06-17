@@ -60,7 +60,7 @@ class OrchestrationFacade:
     async def a2a_call(
         self,
         *,
-        from_agent_id: uuid.UUID,
+        from_agent_id: uuid.UUID | None,
         to_agent_id: uuid.UUID,
         payload: dict[str, Any],
         workflow_run_id: uuid.UUID | None = None,

@@ -12,12 +12,16 @@ const router = useRouter()
 const toast = useToast()
 const project = ref<Project | null>(null)
 const loading = ref(false)
+const error = ref(false)
 
 async function load(): Promise<void> {
   loading.value = true
+  error.value = false
   try {
     const { data } = await projectsApi.get(route.params.id as string)
     project.value = data
+  } catch {
+    error.value = true
   } finally {
     loading.value = false
   }
@@ -65,6 +69,12 @@ onMounted(load)
   <main>
     <p v-if="loading">
       {{ $t('tenancy.projects.loading') }}
+    </p>
+    <p
+      v-else-if="error"
+      class="error"
+    >
+      {{ $t('tenancy.projects.loadError') }}
     </p>
     <template v-else-if="project">
       <h1 v-if="!rename.renaming.value">

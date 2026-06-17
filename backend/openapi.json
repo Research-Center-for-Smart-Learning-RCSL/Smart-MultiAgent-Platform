@@ -6806,51 +6806,6 @@
       }
     },
     "/api/auth/verify-email": {
-      "get": {
-        "operationId": "verify_email_via_link_api_auth_verify_email_get",
-        "parameters": [
-          {
-            "in": "query",
-            "name": "token",
-            "required": true,
-            "schema": {
-              "minLength": 8,
-              "title": "Token",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": {
-                    "type": "string"
-                  },
-                  "title": "Response Verify Email Via Link Api Auth Verify Email Get",
-                  "type": "object"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Verify Email Via Link",
-        "tags": [
-          "auth"
-        ]
-      },
       "post": {
         "operationId": "verify_email_api_auth_verify_email_post",
         "requestBody": {

@@ -45,10 +45,14 @@ export const router = createRouter({
 
 router.beforeEach((to: RouteLocationNormalized) => {
   const session = useSessionStore()
+  const isAdmin = session.me?.is_admin ?? false
+  const roles: string[] = []
+  if (isAdmin) roles.push('admin')
   const ctx: GuardContext = {
     isAuthenticated: session.isAuthenticated,
     isVerified: session.isVerified,
-    isAdmin: session.me?.is_admin ?? false,
+    isAdmin,
+    roles,
   }
   const meta: RouteMeta = {
     requiresAuth: to.meta.requiresAuth as boolean | undefined,

@@ -170,8 +170,16 @@ class AgentService:
             raise AgentNotFound(str(agent_id))
         return agent
 
-    async def list_for_project(self, project_id: uuid.UUID) -> Sequence[Agent]:
-        return await self._agents.list_for_project(project_id)
+    async def list_for_project(
+        self,
+        project_id: uuid.UUID,
+        *,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> Sequence[Agent]:
+        return await self._agents.list_for_project(
+            project_id, limit=limit, offset=offset,
+        )
 
     async def patch(
         self,

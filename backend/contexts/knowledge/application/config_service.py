@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Sequence
+from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -129,6 +130,63 @@ class RagConfigService:
             ),
         )
         return cfg
+
+    async def update(
+        self,
+        *,
+        config_id: uuid.UUID,
+        patch: dict[str, Any],
+        actor_user_id: uuid.UUID,
+        actor_ip: str | None,
+        request_id: uuid.UUID | None = None,
+    ) -> RagConfig:
+        """Apply a partial update to a RAG config (mutable fields only)."""
+        cfg = await self.get(config_id)  # 404 if missing
+
+        # Validate rerank key if being changed or enabled.
+        rerank_enabled = patch.get("rerank_enabled", cfg.rerank_enabled)
+        if rerank_enabled:
+            rerank_key_id = patch.get("rerank_key_id", cfg.rerank_key_id)
+            rerank_provider = patch.get("rerank_provider", cfg.rerank_provider)
+            if rerank_key_id is None or not rerank_provider:
+                raise CapabilityMismatch(
+                    "rerank_enabled=true requires rerank_key_id + rerank_provider"
+                )
+            if "rerank_key_id" in patch or "rerank_provider" in patch:
+                await self._validate_rerank_key(
+                    key_id=rerank_key_id, provider=rerank_provider
+                )
+
+        # Only allow mutable fields.
+        _MUTABLE = {
+            "name", "top_k", "chunk_params",
+            "rerank_enabled", "rerank_key_id", "rerank_provider", "rerank_model",
+        }
+        db_values: dict[str, Any] = {}
+        for k, v in patch.items():
+            if k in _MUTABLE:
+                db_values[k] = v
+
+        updated = await self._configs.update(config_id, db_values)
+        if updated is None:
+            raise RagConfigNotFound(str(config_id))
+
+        await audit.emit(
+            self._db,
+            audit.AuditEvent(
+                action="rag.config_updated",
+                actor_user_id=actor_user_id,
+                actor_ip=actor_ip,
+                resource_type="rag_config",
+                resource_id=config_id,
+                metadata={
+                    "project_id": str(cfg.project_id),
+                    "changed_fields": list(db_values.keys()),
+                },
+                request_id=request_id,
+            ),
+        )
+        return updated
 
     async def get(self, config_id: uuid.UUID) -> RagConfig:
         cfg = await self._configs.get(config_id)

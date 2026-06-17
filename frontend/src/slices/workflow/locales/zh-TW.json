@@ -38,6 +38,7 @@
       "retry": "重試",
       "valid": "工作流程驗證通過。",
       "validateFailed": "驗證請求失敗。",
+      "dryRunComingSoon": "後端尚未支援模擬執行功能，敬請期待。",
       "dryRunQueued": "模擬執行已排入佇列。",
       "dryRunFailed": "無法啟動模擬執行。",
       "loading": "正在載入工作流程…",

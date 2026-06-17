@@ -26,7 +26,12 @@ class AuditQueryService:
     ) -> AuditPage:
         return await self._repo.query(filters, cursor=cursor, limit=limit)
 
-    async def export_csv(self, filters: AuditFilter) -> bytes:
+    async def export_csv(
+        self,
+        filters: AuditFilter,
+        *,
+        max_rows: int | None = None,
+    ) -> bytes:
         buf = io.StringIO()
         writer = csv.writer(buf)
         writer.writerow(
@@ -51,6 +56,7 @@ class AuditQueryService:
         # DB operation precedes this call in the request handler.
         await self._db.execute(text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ"))
         cursor: int | None = None
+        total_rows = 0
         while True:
             page = await self._repo.query(filters, cursor=cursor, limit=500)
             for entry in page.items:
@@ -68,6 +74,11 @@ class AuditQueryService:
                         entry.created_at.isoformat(),
                     ]
                 )
+                total_rows += 1
+                if max_rows is not None and total_rows >= max_rows:
+                    break
+            if max_rows is not None and total_rows >= max_rows:
+                break
             if page.next_cursor is None:
                 break
             cursor = page.next_cursor

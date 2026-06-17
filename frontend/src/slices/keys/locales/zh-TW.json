@@ -59,6 +59,13 @@
       "renameLabel": "群組名稱",
       "renameError": "重新命名群組失敗。"
     },
+    "form": {
+      "provider": "提供者",
+      "name": "顯示名稱",
+      "namePlaceholder": "例如：我的 OpenAI 金鑰",
+      "secret": "API 密鑰",
+      "submit": "上傳金鑰"
+    },
     "search": {
       "title": "搜尋金鑰",
       "provider": "提供者",

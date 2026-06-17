@@ -215,20 +215,32 @@ async def evaluate_silence(ctx: dict[str, Any]) -> str:
     fired = 0
     checked = 0
 
+    _BATCH_SIZE = 500
     async with async_session() as db:
         svc = WakeupService(db)
-        pairs = (
-            await db.execute(
-                sa.select(chatroom_agents.c.agent_id, chatroom_agents.c.chatroom_id)
-                .select_from(
-                    chatroom_agents.join(
-                        chatrooms,
-                        chatrooms.c.id == chatroom_agents.c.chatroom_id,
+        # Paginate to avoid loading all bindings into memory at once.
+        offset = 0
+        pairs: list[Any] = []
+        while True:
+            batch = (
+                await db.execute(
+                    sa.select(chatroom_agents.c.agent_id, chatroom_agents.c.chatroom_id)
+                    .select_from(
+                        chatroom_agents.join(
+                            chatrooms,
+                            chatrooms.c.id == chatroom_agents.c.chatroom_id,
+                        )
                     )
+                    .where(chatrooms.c.deleted_at.is_(None))
+                    .order_by(chatroom_agents.c.chatroom_id, chatroom_agents.c.agent_id)
+                    .limit(_BATCH_SIZE)
+                    .offset(offset)
                 )
-                .where(chatrooms.c.deleted_at.is_(None))
-            )
-        ).all()
+            ).all()
+            pairs.extend(batch)
+            if len(batch) < _BATCH_SIZE:
+                break
+            offset += _BATCH_SIZE
 
         for agent_id, room_id in pairs:
             checked += 1

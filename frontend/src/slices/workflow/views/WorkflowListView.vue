@@ -63,7 +63,7 @@
           >
             <td class="py-2">
               <router-link
-                :to="{ name: 'workflow.editor', params: { workflowId: wf.id } }"
+                :to="{ name: 'workflow.editor', params: { workspaceId, workflowId: wf.id } }"
                 class="text-blue-600 hover:underline"
               >
                 {{ wf.name }}
@@ -77,7 +77,7 @@
             </td>
             <td class="py-2 flex gap-2 justify-end">
               <router-link
-                :to="{ name: 'workflow.runs', params: { workflowId: wf.id } }"
+                :to="{ name: 'workflow.runs', params: { workspaceId, workflowId: wf.id } }"
                 class="text-sm text-gray-600 hover:underline"
               >
                 {{ $t('workflow.list.runs') }}

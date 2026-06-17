@@ -169,7 +169,12 @@ async def _resolve_policy(bucket: Bucket) -> Policy:
 def _identity(scope: Scope, *, user_id: str | None, ip: str | None) -> str:
     match scope:
         case Scope.USER:
-            return f"u:{user_id or 'anon'}"
+            # S8: unauthenticated requests must not share a single bucket;
+            # include the client IP so each anonymous source is rate-limited
+            # independently.
+            if user_id:
+                return f"u:{user_id}"
+            return f"u:anon:{ip or 'unknown'}"
         case Scope.IP:
             return f"i:{ip or 'unknown'}"
         case Scope.USER_AND_IP:

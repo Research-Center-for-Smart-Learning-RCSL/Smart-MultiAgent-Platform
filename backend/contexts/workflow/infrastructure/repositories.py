@@ -95,6 +95,8 @@ class WorkflowRepository:
         workspace_id: uuid.UUID,
         *,
         include_deleted: bool = False,
+        limit: int = 100,
+        offset: int = 0,
     ) -> list[Workflow]:
         q = (
             sa.select(workflows)
@@ -103,6 +105,7 @@ class WorkflowRepository:
         )
         if not include_deleted:
             q = q.where(workflows.c.deleted_at.is_(None))
+        q = q.limit(limit).offset(offset)
         rows = (await self._db.execute(q)).all()
         return [_row_to_workflow(r) for r in rows]
 

@@ -94,8 +94,8 @@
 
           <button
             class="btn btn-sm"
-            :disabled="store.hasErrors || dryRunning"
-            @click="onDryRun"
+            disabled
+            :title="$t('workflow.editor.dryRunComingSoon')"
           >
             {{ $t('workflow.editor.dryRun') }}
           </button>
@@ -215,7 +215,6 @@ import { useBreakpoint } from '@shared/composables'
 import {
   listWorkflows,
   patchWorkflow,
-  triggerRun,
   validateWorkflow,
 } from '../api'
 import { wfKeys } from '../queries'
@@ -238,7 +237,6 @@ const store = useWorkflowStore()
 const { isDesktop } = useBreakpoint()
 const workflowId = route.params.workflowId as string
 const workspaceId = ref((route.params.workspaceId as string) || '')
-const dryRunning = ref(false)
 const paletteOpen = ref(false)
 const selectedEdgeId = ref<string | null>(null)
 let nodeCounter = 0
@@ -637,19 +635,6 @@ async function onValidate(): Promise<void> {
   }
 }
 
-// Dry-run simulator
-async function onDryRun(): Promise<void> {
-  if (!workflow.value) return
-  dryRunning.value = true
-  try {
-    await triggerRun(workflowId, { __dry_run: true })
-    toast.success(t('workflow.editor.dryRunQueued'))
-  } catch {
-    toast.error(t('workflow.editor.dryRunFailed'))
-  } finally {
-    dryRunning.value = false
-  }
-}
 </script>
 
 <style scoped>
