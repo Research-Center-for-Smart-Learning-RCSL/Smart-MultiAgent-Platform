@@ -81,6 +81,18 @@ async def agent_fs_gc(ctx: dict[str, Any]) -> dict[str, int]:
     return {"removed": removed}
 
 
+async def sandbox_orphan_cleanup(ctx: dict[str, Any]) -> dict[str, int]:
+    """B2-4 — periodic cleanup of orphaned sandbox containers."""
+    _ = ctx
+    from contexts.agents.infrastructure.sandbox.docker_runsc import (
+        docker_runsc_sandbox_from_settings,
+    )
+
+    sandbox = docker_runsc_sandbox_from_settings()
+    removed = await sandbox.cleanup_orphan_containers()
+    return {"removed": removed}
+
+
 async def key_usage_threshold_sample(ctx: dict[str, Any]) -> int:
     """D.8 — 80% hourly-limit sampler. Runs every 30 s via cron."""
     _ = ctx
@@ -226,6 +238,7 @@ class WorkerSettings:
         graphrag_reconcile,
         rag_ingest_document,
         agent_fs_gc,
+        sandbox_orphan_cleanup,
     ]
     on_startup = _startup
     on_shutdown = _shutdown
@@ -257,4 +270,6 @@ class WorkerSettings:
         # Every minute — heal GraphRAG 2PC drift (M.5.4 / R11.04): configs stuck
         # in FAILED_COMPENSATING. arq's cron lock keeps it singleton across replicas.
         cron(graphrag_reconcile, minute=set(range(60)), run_at_startup=False),
+        # Every 5 minutes — orphan sandbox container cleanup (B2-4).
+        cron(sandbox_orphan_cleanup, minute={0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55}, run_at_startup=False),
     ]

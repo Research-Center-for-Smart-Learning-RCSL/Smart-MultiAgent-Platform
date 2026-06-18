@@ -35,6 +35,7 @@ from hashlib import sha256
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
+import httpx
 from fastapi import FastAPI, Request
 from fastapi.responses import Response
 
@@ -166,15 +167,12 @@ def create_app(settings: EgressProxySettings) -> FastAPI:
 
     @asynccontextmanager
     async def _lifespan(app: FastAPI) -> Any:
-        import httpx
-
         app.state.httpx_client = httpx.AsyncClient(
             timeout=settings.upstream_timeout_s,
             follow_redirects=False,
             limits=httpx.Limits(
                 max_connections=100,
-                max_keepalive_connections=20,
-                keepalive_expiry=30,
+                max_keepalive_connections=0,
             ),
         )
         yield
@@ -300,6 +298,17 @@ def create_app(settings: EgressProxySettings) -> FastAPI:
             port=target_port,
         )
 
+        declared_req_len = request.headers.get("content-length")
+        if declared_req_len is not None:
+            try:
+                if int(declared_req_len) > settings.request_max_bytes:
+                    return _problem(
+                        413,
+                        "mcp-egress-denied",
+                        f"request body too large ({declared_req_len} > {settings.request_max_bytes})",
+                    )
+            except ValueError:
+                pass
         body = await request.body()
         if len(body) > settings.request_max_bytes:
             return _problem(
@@ -322,8 +331,6 @@ def create_app(settings: EgressProxySettings) -> FastAPI:
             "content-length",
             "content-encoding",
         }
-        import httpx
-
         client: httpx.AsyncClient = request.app.state.httpx_client
         try:
             req = client.build_request(

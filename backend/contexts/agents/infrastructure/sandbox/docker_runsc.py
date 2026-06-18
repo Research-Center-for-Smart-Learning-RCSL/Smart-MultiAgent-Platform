@@ -28,13 +28,14 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import datetime
 import hmac
 import json
 import logging
 import time
 import uuid
 from collections.abc import Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from hashlib import sha256
 from typing import Any, Literal
 
@@ -108,9 +109,17 @@ _log = logging.getLogger("smap.sandbox")
 
 _MAX_CONCURRENT_CONTAINERS = 8
 _CONTAINER_LABEL = "smap.sandbox"
+_container_semaphore: asyncio.Semaphore | None = None
 
 
-@dataclass(slots=True)
+def _get_semaphore() -> asyncio.Semaphore:
+    global _container_semaphore  # noqa: PLW0603
+    if _container_semaphore is None:
+        _container_semaphore = asyncio.Semaphore(_MAX_CONCURRENT_CONTAINERS)
+    return _container_semaphore
+
+
+@dataclass(frozen=True, slots=True)
 class DockerRunscSandbox:
     """Concrete :class:`SandboxRunner` backed by the local Docker daemon."""
 
@@ -119,11 +128,6 @@ class DockerRunscSandbox:
     egress_network: str = _EGRESS_NETWORK
     egress_proxy_url: str = ""
     egress_shared_secret: bytes = b""
-    _semaphore: asyncio.Semaphore = field(
-        default_factory=lambda: asyncio.Semaphore(_MAX_CONCURRENT_CONTAINERS),
-        init=False,
-        repr=False,
-    )
 
     def _client(self) -> Any:
         """Lazy-import the docker SDK so unit tests don't need it installed."""
@@ -239,7 +243,7 @@ class DockerRunscSandbox:
         as an entrypoint that prints JSON on stdout. Egress denial surfaces
         as a specific exit code the driver sets.
         """
-        async with self._semaphore:
+        async with _get_semaphore():
             client = self._client()
             host_config = self._base_host_config()
             env = {
@@ -297,7 +301,7 @@ class DockerRunscSandbox:
         auth: dict[str, Any] | None = None,
         timeout_s: float = 60.0,
     ) -> ToolCallResult:
-        async with self._semaphore:
+        async with _get_semaphore():
             client = self._client()
             host_config = self._base_host_config()
             env = {
@@ -359,7 +363,7 @@ class DockerRunscSandbox:
         data: bytes | None = None,
         timeout_s: float = 10.0,
     ) -> ToolCallResult:
-        async with self._semaphore:
+        async with _get_semaphore():
             client = self._client()
             volume = f"smap-agent-fs-{agent_id}"
             host_config = self._base_host_config()
@@ -439,7 +443,7 @@ class DockerRunscSandbox:
         stdin: str = "",
         timeout_s: float = 30.0,
     ) -> ToolCallResult:
-        async with self._semaphore:
+        async with _get_semaphore():
             client = self._client()
             host_config = self._base_host_config()
             env = {"SMAP_AGENT_ID": str(agent_id)}
@@ -512,8 +516,6 @@ class DockerRunscSandbox:
                 created = c.attrs.get("Created", "")
                 if not created:
                     continue
-                import datetime
-
                 ts = datetime.datetime.fromisoformat(created.replace("Z", "+00:00")).timestamp()
                 if ts < cutoff:
                     await asyncio.to_thread(c.remove, force=True)
