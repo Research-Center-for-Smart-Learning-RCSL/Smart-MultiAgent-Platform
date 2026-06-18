@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import time
 import uuid
 
 from fastapi import APIRouter, WebSocket
@@ -68,9 +69,17 @@ async def ws_chatroom(ws: WebSocket, chatroom_id: uuid.UUID) -> None:
     presence = PresenceTracker()
     publisher = Publisher(room_channel(chatroom_id))
 
+    _last_typing_ts: float = 0.0
+    _TYPING_THROTTLE_S: float = 2.0
+
     async def on_client_message(conn: ChannelConnection, msg: dict) -> None:  # type: ignore[type-arg]
+        nonlocal _last_typing_ts
         msg_type = msg.get("type")
         if msg_type in ("typing.start", "typing.stop"):
+            now = time.monotonic()
+            if now - _last_typing_ts < _TYPING_THROTTLE_S:
+                return
+            _last_typing_ts = now
             await publisher.emit(msg_type, {"user_id": str(conn.principal.user_id)})
 
     async def on_open(conn: ChannelConnection) -> None:

@@ -349,7 +349,7 @@ class AdminService:
         return True
 
     async def _invalidate_user_sessions(self, user_id: uuid.UUID) -> None:
-        sessions = await self._sessions.list_for_user(user_id)
+        sessions = await self._sessions.list_for_user(user_id, limit=10_000)
         for s in sessions:
             await tokens.kill_family(s.family_id)
             if s.last_jti is not None:

@@ -18,7 +18,7 @@ from typing import Any, Literal
 from fastapi import APIRouter, Depends, Header, HTTPException, Path, status
 
 from app.api.v1.deps import PaginationParams
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.agents.application.agent_service import AgentService
@@ -59,6 +59,14 @@ class AgentCreateIn(BaseModel):
     model_hint: Literal["claude", "openai", "gemini"]
     model_id: str | None = Field(default=None, max_length=200)
     key_group_id: uuid.UUID
+
+    @field_validator("model_id", mode="before")
+    @classmethod
+    def _strip_model_id(cls, v: str | None) -> str | None:
+        if isinstance(v, str):
+            v = v.strip()
+            return v if v else None
+        return v
     system_prompt: str = Field(default="", max_length=_MAX_SYSTEM_PROMPT)
     prompt_strategy: Literal["full", "lazy"] = "full"
     rag_config_id: uuid.UUID | None = None
@@ -80,6 +88,14 @@ class AgentPatchIn(BaseModel):
     model_hint: Literal["claude", "openai", "gemini"] | None = None
     model_id: str | None = Field(default=None, max_length=200)
     key_group_id: uuid.UUID | None = None
+
+    @field_validator("model_id", mode="before")
+    @classmethod
+    def _strip_model_id(cls, v: str | None) -> str | None:
+        if isinstance(v, str):
+            v = v.strip()
+            return v if v else None
+        return v
     system_prompt: str | None = Field(default=None, max_length=_MAX_SYSTEM_PROMPT)
     prompt_strategy: Literal["full", "lazy"] | None = None
     rag_config_id: uuid.UUID | None = None

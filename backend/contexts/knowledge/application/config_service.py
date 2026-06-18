@@ -217,7 +217,7 @@ class RagConfigService:
         """
         cfg = await self.get(config_id)  # 404 if missing
         docs_repo = RagDocumentRepository(self._db)
-        docs = list(await docs_repo.list_for_config(config_id))
+        docs = list(await docs_repo.list_for_config(config_id, limit=10_000))
         await self._configs.soft_delete(config_id)
         for doc in docs:
             await docs_repo.delete(doc.id)

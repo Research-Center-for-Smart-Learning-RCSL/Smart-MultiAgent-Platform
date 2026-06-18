@@ -14,6 +14,7 @@ export interface Agent {
   project_id: string
   name: string
   model_hint: string
+  model_id: string | null
   key_group_id: string
   system_prompt: string
   prompt_strategy: string
