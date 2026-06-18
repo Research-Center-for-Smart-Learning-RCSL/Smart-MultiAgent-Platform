@@ -42,6 +42,10 @@ def get_redis() -> Redis:
                 _redis_instance = Redis.from_url(
                     settings.redis.dsn,
                     decode_responses=True,
+                    socket_connect_timeout=settings.redis.socket_connect_timeout,
+                    socket_timeout=settings.redis.socket_timeout,
+                    health_check_interval=settings.redis.health_check_interval,
+                    retry_on_timeout=True,
                 )
     return _redis_instance
 

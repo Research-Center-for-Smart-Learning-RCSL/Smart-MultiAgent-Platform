@@ -1,45 +1,58 @@
 # Prometheus scrape configuration for SMAP.
 # Scrapes the /metrics endpoint exposed by backend-web (Nginx restricts
 # external access; Prometheus reaches it on the backend_net).
+#
+# IMPORTANT: only list targets that actually exist and expose Prometheus
+# metrics. Phantom targets log DNS/connection errors every scrape interval
+# and make `up{}` unreliable for alerting.
 
 global:
   scrape_interval: 15s
   evaluation_interval: 15s
 
 scrape_configs:
+  # Backend-web exposes /metrics on port 8000 (uvicorn).
   - job_name: smap-backend
     metrics_path: /metrics
     static_configs:
-      - targets: ["backend-web:8080"]
+      - targets: ["backend-web:8000"]
         labels:
           service: backend-web
 
-  - job_name: smap-worker
-    metrics_path: /healthz
-    static_configs:
-      - targets: ["backend-worker:8001"]
-        labels:
-          service: backend-worker
+  # Worker process metrics are served via the web process's /metrics endpoint
+  # (shared prometheus_client REGISTRY). The worker's own :8001 port exposes
+  # only a JSON /healthz — it is NOT a Prometheus endpoint. Worker-side
+  # counters (workflow_runs_total, retention_*, a2a_dlq_total) are currently
+  # only accessible if the worker pushes them to an OTEL collector; see
+  # docker-compose.obs.yml for the OTEL env-var injection.
 
-  - job_name: postgres
-    static_configs:
-      - targets: ["postgres-exporter:9187"]
-
-  - job_name: redis
-    static_configs:
-      - targets: ["redis-exporter:9121"]
-
+  # MinIO exposes cluster metrics natively.
   - job_name: minio
     metrics_path: /minio/v2/metrics/cluster
     static_configs:
       - targets: ["minio:9000"]
 
+  # Qdrant exposes /metrics natively on its HTTP port.
   - job_name: qdrant
     metrics_path: /metrics
     static_configs:
       - targets: ["qdrant:6333"]
 
-  - job_name: neo4j
-    metrics_path: /metrics
-    static_configs:
-      - targets: ["neo4j:2004"]
+  # ---------- Exporters (add when deployed) ----------
+  # To monitor Postgres, deploy prometheuscommunity/postgres-exporter in
+  # docker-compose.obs.yml and uncomment:
+  #   - job_name: postgres
+  #     static_configs:
+  #       - targets: ["postgres-exporter:9187"]
+  #
+  # To monitor Redis, deploy oliver006/redis_exporter and uncomment:
+  #   - job_name: redis
+  #     static_configs:
+  #       - targets: ["redis-exporter:9121"]
+  #
+  # To monitor Neo4j, enable the Prometheus plugin (env vars in compose)
+  # and uncomment:
+  #   - job_name: neo4j
+  #     metrics_path: /metrics
+  #     static_configs:
+  #       - targets: ["neo4j:2004"]
