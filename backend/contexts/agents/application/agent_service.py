@@ -132,6 +132,7 @@ class AgentService:
             project_id=project_id,
             name=draft.name.strip(),
             model_hint=draft.model_hint,
+            model_id=draft.model_id,
             key_group_id=draft.key_group_id,
             system_prompt=draft.system_prompt or "",
             prompt_strategy=draft.prompt_strategy or PromptStrategy.FULL,
@@ -219,6 +220,10 @@ class AgentService:
             values["name"] = draft.name.strip()
         if draft.model_hint is not None:
             values["model_hint"] = draft.model_hint.value
+        if draft.clear_model_id:
+            values["model_id"] = None
+        elif draft.model_id is not None:
+            values["model_id"] = draft.model_id
         if draft.key_group_id is not None:
             values["key_group_id"] = draft.key_group_id
         if draft.system_prompt is not None:

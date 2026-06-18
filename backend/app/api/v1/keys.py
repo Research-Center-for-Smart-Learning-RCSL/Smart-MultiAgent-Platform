@@ -11,6 +11,8 @@ from __future__ import annotations
 import uuid
 
 from fastapi import APIRouter, Depends, status
+
+from app.api.v1.deps import PaginationParams
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -69,12 +71,13 @@ class KeyOut(BaseModel):
 
 @router.get("", response_model=list[KeyOut])
 async def list_my_keys(
+    pagination: PaginationParams = Depends(),
     principal: Principal = Depends(current_principal),
     db: AsyncSession = Depends(db_session),
 ) -> list[KeyOut]:
     """List every key the caller owns (masked, no secrets)."""
     svc = KeyService(db)
-    keys = await svc.list_owned(principal.user_id)
+    keys = await svc.list_owned(principal.user_id, limit=pagination.limit, offset=pagination.offset)
     return [KeyOut.from_domain(k) for k in keys]
 
 

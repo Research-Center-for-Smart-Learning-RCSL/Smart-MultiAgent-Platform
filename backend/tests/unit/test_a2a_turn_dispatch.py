@@ -44,6 +44,7 @@ def _agent():
         system_prompt="prompt",
         prompt_strategy=SimpleNamespace(value="full"),
         model_hint=SimpleNamespace(value="claude"),
+        model_id=None,
     )
 
 

@@ -138,7 +138,13 @@ class ApiKeyRepository:
             return None
         return _row_to_api_key(row), _row_to_envelope(row)
 
-    async def list_owned(self, owner_user_id: uuid.UUID) -> list[ApiKey]:
+    async def list_owned(
+        self,
+        owner_user_id: uuid.UUID,
+        *,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[ApiKey]:
         rows = (
             await self._db.execute(
                 t.api_keys.select()
@@ -149,6 +155,8 @@ class ApiKeyRepository:
                     )
                 )
                 .order_by(t.api_keys.c.created_at.desc())
+                .limit(limit)
+                .offset(offset)
             )
         ).all()
         return [_row_to_api_key(r) for r in rows]

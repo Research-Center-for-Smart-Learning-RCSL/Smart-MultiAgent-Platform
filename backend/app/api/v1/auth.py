@@ -11,6 +11,8 @@ import uuid
 from datetime import timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+
+from app.api.v1.deps import PaginationParams
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -433,11 +435,16 @@ async def me(
 
 @router.get("/sessions")
 async def list_sessions(
+    pagination: PaginationParams = Depends(),
     principal: Principal = Depends(current_principal),
     db: AsyncSession = Depends(db_session),
 ) -> list[SessionOut]:
     service = _service(db)
-    sessions = await service.list_sessions(user_id=principal.user_id)
+    sessions = await service.list_sessions(
+        user_id=principal.user_id,
+        limit=pagination.limit,
+        offset=pagination.offset,
+    )
     return [
         SessionOut(
             id=s.id,

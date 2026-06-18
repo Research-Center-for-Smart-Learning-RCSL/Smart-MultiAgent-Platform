@@ -23,6 +23,8 @@
     "form": {
       "name": "名稱",
       "modelHint": "模型提供者",
+      "modelId": "模型",
+      "modelIdPlaceholder": "預設（留空）或如 claude-sonnet-4-6、gpt-4o-mini",
       "keyGroup": "金鑰群組",
       "keyGroupPlaceholder": "選擇金鑰群組…",
       "noKeyGroups": "此專案尚未建立任何金鑰群組。請先到金鑰頁面建立，才能新增代理人。",

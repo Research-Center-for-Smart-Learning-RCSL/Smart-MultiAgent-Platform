@@ -33,6 +33,7 @@ agents = sa.Table(
         sa.ForeignKey("key_groups.id", ondelete="RESTRICT"),
         nullable=False,
     ),
+    sa.Column("model_id", sa.Text, nullable=True),
     sa.Column("system_prompt", sa.Text, nullable=False, server_default=sa.text("''")),
     sa.Column(
         "prompt_strategy",

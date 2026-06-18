@@ -6,6 +6,8 @@ import uuid
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
+
+from app.api.v1.deps import PaginationParams
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -67,6 +69,7 @@ async def _resolve_profile(db: AsyncSession, user_id: uuid.UUID):
 @router.get("")
 async def list_inbox(
     state: Literal["pending", "accepted", "rejected"] = Query(default="pending"),
+    pagination: PaginationParams = Depends(),
     principal: Principal = Depends(current_principal),
     db: AsyncSession = Depends(db_session),
 ) -> list[InviteOut]:
@@ -76,6 +79,8 @@ async def list_inbox(
         caller_email=profile.email,
         caller_user_id=principal.user_id,
         states=[InviteState(state)],
+        limit=pagination.limit,
+        offset=pagination.offset,
     )
     names = await service.scope_names(invites)
     return [_to_out(i, names.get((i.scope_type.value, i.scope_id), str(i.scope_id))) for i in invites]

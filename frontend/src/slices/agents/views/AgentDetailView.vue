@@ -78,6 +78,7 @@ const { handleSubmit, errors, defineField, resetForm, setErrors } = useForm<Agen
 
 const [name] = defineField('name')
 const [modelHint] = defineField('model_hint')
+const [modelId] = defineField('model_id')
 const [keyGroupId] = defineField('key_group_id')
 const [systemPrompt] = defineField('system_prompt')
 const [promptStrategy] = defineField('prompt_strategy')
@@ -96,6 +97,7 @@ watch(
       values: {
         name: agent.name,
         model_hint: agent.model_hint as AgentCreateInput['model_hint'],
+        model_id: agent.model_id ?? null,
         key_group_id: agent.key_group_id,
         system_prompt: agent.system_prompt,
         prompt_strategy: agent.prompt_strategy as AgentCreateInput['prompt_strategy'],
@@ -206,6 +208,18 @@ const onSubmit = handleSubmit((values) => {
             Gemini
           </option>
         </select>
+      </FormField>
+
+      <FormField
+        :label="t('agents.form.modelId')"
+        name="model_id"
+        :error="errors.model_id"
+      >
+        <input
+          id="model_id"
+          v-model="modelId"
+          :placeholder="t('agents.form.modelIdPlaceholder')"
+        >
       </FormField>
 
       <FormField

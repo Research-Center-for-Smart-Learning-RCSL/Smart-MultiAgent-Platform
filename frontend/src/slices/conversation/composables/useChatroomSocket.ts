@@ -99,6 +99,13 @@ export function useChatroomSocket(roomId: string) {
         break
       case 'presence.left':
         store.leavePresence(roomId, ev.user_id as string)
+        store.removeTyping(roomId, ev.user_id as string)
+        break
+      case 'typing.start':
+        store.addTyping(roomId, ev.user_id as string)
+        break
+      case 'typing.stop':
+        store.removeTyping(roomId, ev.user_id as string)
         break
       case 'agent.thinking':
         store.setAgentThinking(roomId, true)

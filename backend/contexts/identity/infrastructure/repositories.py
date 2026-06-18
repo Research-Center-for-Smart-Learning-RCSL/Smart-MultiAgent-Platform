@@ -186,7 +186,13 @@ class SessionRepository:
         row = (await self._db.execute(stmt)).one()
         return _row_to_session(row)
 
-    async def list_for_user(self, user_id: uuid.UUID) -> Sequence[Session]:
+    async def list_for_user(
+        self,
+        user_id: uuid.UUID,
+        *,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> Sequence[Session]:
         rows = (
             await self._db.execute(
                 t.sessions.select()
@@ -198,6 +204,8 @@ class SessionRepository:
                     )
                 )
                 .order_by(t.sessions.c.last_used_at.desc())
+                .limit(limit)
+                .offset(offset)
             )
         ).all()
         return [_row_to_session(r) for r in rows]

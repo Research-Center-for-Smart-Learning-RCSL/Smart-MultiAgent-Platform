@@ -53,8 +53,11 @@ _MAX_ALLOWED_TOOLS = 200
 
 
 class AgentCreateIn(BaseModel):
+    model_config = {"protected_namespaces": ()}
+
     name: str = Field(min_length=1, max_length=200)
     model_hint: Literal["claude", "openai", "gemini"]
+    model_id: str | None = Field(default=None, max_length=200)
     key_group_id: uuid.UUID
     system_prompt: str = Field(default="", max_length=_MAX_SYSTEM_PROMPT)
     prompt_strategy: Literal["full", "lazy"] = "full"
@@ -71,10 +74,11 @@ class AgentPatchIn(BaseModel):
     # Every field is optional; missing → no change.
     # For nullable fields (`rag_config_id`, `graphrag_config_id`,
     # `context_token_cap`) send `null` explicitly to clear.
-    model_config = {"extra": "forbid"}
+    model_config = {"extra": "forbid", "protected_namespaces": ()}
 
     name: str | None = Field(default=None, min_length=1, max_length=200)
     model_hint: Literal["claude", "openai", "gemini"] | None = None
+    model_id: str | None = Field(default=None, max_length=200)
     key_group_id: uuid.UUID | None = None
     system_prompt: str | None = Field(default=None, max_length=_MAX_SYSTEM_PROMPT)
     prompt_strategy: Literal["full", "lazy"] | None = None
@@ -88,10 +92,13 @@ class AgentPatchIn(BaseModel):
 
 
 class AgentOut(BaseModel):
+    model_config = {"protected_namespaces": ()}
+
     id: uuid.UUID
     project_id: uuid.UUID
     name: str
     model_hint: str
+    model_id: str | None
     key_group_id: uuid.UUID
     system_prompt: str
     prompt_strategy: str
@@ -136,6 +143,7 @@ def _to_agent_out(a) -> AgentOut:
         project_id=a.project_id,
         name=a.name,
         model_hint=a.model_hint.value,
+        model_id=a.model_id,
         key_group_id=a.key_group_id,
         system_prompt=a.system_prompt,
         prompt_strategy=a.prompt_strategy.value,
@@ -213,6 +221,7 @@ async def create_agent(
     draft = AgentDraft(
         name=body.name,
         model_hint=AgentModelHint(body.model_hint),
+        model_id=body.model_id,
         key_group_id=body.key_group_id,
         system_prompt=body.system_prompt,
         prompt_strategy=PromptStrategy(body.prompt_strategy),
@@ -306,6 +315,7 @@ async def patch_agent(
     draft = AgentDraft(
         name=fields.get("name"),
         model_hint=AgentModelHint(fields["model_hint"]) if "model_hint" in fields else None,
+        model_id=fields.get("model_id"),
         key_group_id=fields.get("key_group_id"),
         system_prompt=fields.get("system_prompt"),
         prompt_strategy=(PromptStrategy(fields["prompt_strategy"]) if "prompt_strategy" in fields else None),
@@ -317,6 +327,7 @@ async def patch_agent(
         wakeup_config=fields.get("wakeup_config"),
         workflow_capabilities=fields.get("workflow_capabilities"),
         # Distinguish "explicit null" from "omitted".
+        clear_model_id="model_id" in fields and fields["model_id"] is None,
         clear_rag_config="rag_config_id" in fields and fields["rag_config_id"] is None,
         clear_graphrag_config=("graphrag_config_id" in fields and fields["graphrag_config_id"] is None),
         clear_context_token_cap=("context_token_cap" in fields and fields["context_token_cap"] is None),

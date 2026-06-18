@@ -49,8 +49,14 @@ class KeyService:
         self._db = db
         self._repo = ApiKeyRepository(db)
 
-    async def list_owned(self, owner_user_id: uuid.UUID) -> list[ApiKey]:
-        return await self._repo.list_owned(owner_user_id)
+    async def list_owned(
+        self,
+        owner_user_id: uuid.UUID,
+        *,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[ApiKey]:
+        return await self._repo.list_owned(owner_user_id, limit=limit, offset=offset)
 
     async def upload(
         self,

@@ -68,6 +68,11 @@ async def ws_chatroom(ws: WebSocket, chatroom_id: uuid.UUID) -> None:
     presence = PresenceTracker()
     publisher = Publisher(room_channel(chatroom_id))
 
+    async def on_client_message(conn: ChannelConnection, msg: dict) -> None:  # type: ignore[type-arg]
+        msg_type = msg.get("type")
+        if msg_type in ("typing.start", "typing.stop"):
+            await publisher.emit(msg_type, {"user_id": str(conn.principal.user_id)})
+
     async def on_open(conn: ChannelConnection) -> None:
         added = await presence.join(
             room_id=chatroom_id,
@@ -109,6 +114,7 @@ async def ws_chatroom(ws: WebSocket, chatroom_id: uuid.UUID) -> None:
         token_jti=auth.jti,
         on_open=on_open,
         on_close=on_close,
+        on_client_message=on_client_message,
     )
 
 

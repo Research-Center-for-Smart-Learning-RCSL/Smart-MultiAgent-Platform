@@ -631,8 +631,14 @@ class AuthService:
 
     # ----- session management (R6.08) -------------------------------------
 
-    async def list_sessions(self, *, user_id: uuid.UUID) -> Sequence[Session]:
-        return await self._sessions.list_for_user(user_id)
+    async def list_sessions(
+        self,
+        *,
+        user_id: uuid.UUID,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> Sequence[Session]:
+        return await self._sessions.list_for_user(user_id, limit=limit, offset=offset)
 
     async def revoke_session(
         self,

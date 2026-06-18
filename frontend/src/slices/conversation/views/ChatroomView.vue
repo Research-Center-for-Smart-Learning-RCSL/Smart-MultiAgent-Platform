@@ -180,6 +180,14 @@
       </p>
     </aside>
 
+    <p
+      v-if="typingList.length"
+      class="typing-indicator"
+    >
+      {{ typingList.map((uid) => uid.slice(0, 8)).join(', ') }}
+      {{ $t('conversation.chatroom.typing') }}
+    </p>
+
     <form
       class="composer"
       @submit.prevent="onSend"
@@ -188,6 +196,7 @@
         v-model="draft"
         :placeholder="$t('conversation.chatroom.composerPlaceholder')"
         :aria-label="$t('conversation.chatroom.composerPlaceholder')"
+        @input="emitTyping"
         @dragover.prevent
         @drop.prevent="onDrop"
       />
@@ -255,6 +264,7 @@ import {
   compactChatroom,
 } from '../api'
 import { tusUpload, resourceToAttachmentId } from '@shared/transport'
+import { wsManager } from '@shared/transport'
 import { useChatroomSocket } from '../composables/useChatroomSocket'
 import { enhanceRenderedMarkdown, renderMarkdown, sanitizeSnippet } from '../lib/renderMarkdown'
 import { convKeys } from '../queries'
@@ -381,6 +391,36 @@ watch(
 
 const { connected } = useChatroomSocket(chatroomId)
 const orchStore = useOrchestrationStore()
+
+const typingChannel = wsManager.channel(`/chatroom/${chatroomId}`)
+let typingTimer: ReturnType<typeof setTimeout> | null = null
+const TYPING_DEBOUNCE_MS = 3000
+
+function emitTyping(): void {
+  if (typingTimer === null) {
+    typingChannel.send({ type: 'typing.start' })
+  } else {
+    clearTimeout(typingTimer)
+  }
+  typingTimer = setTimeout(() => {
+    typingChannel.send({ type: 'typing.stop' })
+    typingTimer = null
+  }, TYPING_DEBOUNCE_MS)
+}
+
+onBeforeUnmount(() => {
+  if (typingTimer !== null) {
+    clearTimeout(typingTimer)
+    typingChannel.send({ type: 'typing.stop' })
+    typingTimer = null
+  }
+})
+
+const typingList = computed(() => {
+  const set = store.typingUsers[chatroomId]
+  if (!set) return []
+  return Array.from(set).filter((uid) => uid !== myId.value)
+})
 
 // Streaming draft bubble (agent.token accumulation) — sanitised exactly like
 // persisted messages.
@@ -729,5 +769,13 @@ onBeforeUnmount(() => {
 .load-earlier button:disabled {
   opacity: 0.5;
   cursor: default;
+}
+.typing-indicator {
+  grid-column: 1;
+  padding: 0 0.5rem;
+  font-size: 0.8rem;
+  color: var(--color-muted, #6b7280);
+  font-style: italic;
+  min-height: 1.2em;
 }
 </style>
