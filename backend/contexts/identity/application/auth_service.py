@@ -676,7 +676,7 @@ class AuthService:
     async def _invalidate_user_sessions(self, user_id: uuid.UUID, *, reason: str) -> None:
         # DB mirror is the index we need to find every Redis family this user
         # owns — kill families first, then mark rows revoked.
-        sessions = await self._sessions.list_for_user(user_id)
+        sessions = await self._sessions.list_for_user(user_id, limit=10_000)
         for s in sessions:
             await tokens.kill_family(s.family_id)
             if s.last_jti is not None:

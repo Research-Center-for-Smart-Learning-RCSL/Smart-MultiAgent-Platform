@@ -264,7 +264,6 @@ import {
   compactChatroom,
 } from '../api'
 import { tusUpload, resourceToAttachmentId } from '@shared/transport'
-import { wsManager } from '@shared/transport'
 import { useChatroomSocket } from '../composables/useChatroomSocket'
 import { enhanceRenderedMarkdown, renderMarkdown, sanitizeSnippet } from '../lib/renderMarkdown'
 import { convKeys } from '../queries'
@@ -389,21 +388,20 @@ watch(
   { immediate: true },
 )
 
-const { connected } = useChatroomSocket(chatroomId)
-const orchStore = useOrchestrationStore()
-
-const typingChannel = wsManager.channel(`/chatroom/${chatroomId}`)
 let typingTimer: ReturnType<typeof setTimeout> | null = null
 const TYPING_DEBOUNCE_MS = 3000
 
+const { connected, channel: wsChannel } = useChatroomSocket(chatroomId)
+const orchStore = useOrchestrationStore()
+
 function emitTyping(): void {
   if (typingTimer === null) {
-    typingChannel.send({ type: 'typing.start' })
+    wsChannel.send({ type: 'typing.start' })
   } else {
     clearTimeout(typingTimer)
   }
   typingTimer = setTimeout(() => {
-    typingChannel.send({ type: 'typing.stop' })
+    wsChannel.send({ type: 'typing.stop' })
     typingTimer = null
   }, TYPING_DEBOUNCE_MS)
 }
@@ -411,7 +409,6 @@ function emitTyping(): void {
 onBeforeUnmount(() => {
   if (typingTimer !== null) {
     clearTimeout(typingTimer)
-    typingChannel.send({ type: 'typing.stop' })
     typingTimer = null
   }
 })

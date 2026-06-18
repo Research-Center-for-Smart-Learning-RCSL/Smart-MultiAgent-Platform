@@ -180,6 +180,7 @@ export function useChatroomSocket(roomId: string) {
 
   onBeforeUnmount(() => {
     clearThinkingTimeout()
+    channel.send({ type: 'typing.stop' })
     unsubscribeEvent()
     unsubscribeStatus()
     wsManager.close(`/chatroom/${roomId}`)
@@ -196,5 +197,5 @@ export function useChatroomSocket(roomId: string) {
     { immediate: true },
   )
 
-  return { connected, lastSeenMessageId }
+  return { connected, lastSeenMessageId, channel }
 }

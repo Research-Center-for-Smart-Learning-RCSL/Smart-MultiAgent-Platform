@@ -7,7 +7,10 @@ import { z } from 'zod'
 export const agentCreateSchema = z.object({
   name: z.string().trim().min(1).max(200),
   model_hint: z.enum(['claude', 'openai', 'gemini']),
-  model_id: z.string().max(200).nullable().default(null),
+  model_id: z.preprocess(
+    (v) => (typeof v === 'string' && v.trim() === '' ? null : v),
+    z.string().trim().max(200).nullable().default(null),
+  ),
   key_group_id: z.string().uuid(),
   system_prompt: z.string().max(100_000).default(''),
   prompt_strategy: z.enum(['full', 'lazy']).default('full'),
