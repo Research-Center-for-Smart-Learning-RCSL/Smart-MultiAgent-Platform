@@ -26,13 +26,15 @@ this class.
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import hmac
 import json
+import logging
 import time
 import uuid
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from hashlib import sha256
 from typing import Any, Literal
 
@@ -102,21 +104,26 @@ _STDIN_SHIM = (
     "exec(compile(_src, '<code_exec>', 'exec'), {'__name__': '__main__'})\n"
 )
 
+_log = logging.getLogger("smap.sandbox")
 
-@dataclass(frozen=True, slots=True)
+_MAX_CONCURRENT_CONTAINERS = 8
+_CONTAINER_LABEL = "smap.sandbox"
+
+
+@dataclass(slots=True)
 class DockerRunscSandbox:
     """Concrete :class:`SandboxRunner` backed by the local Docker daemon."""
 
     mcp_image: str = _DEFAULT_MCP_IMAGE
     code_exec_image: str = _DEFAULT_CODE_IMAGE
     egress_network: str = _EGRESS_NETWORK
-    # K.5: how a URL-source MCP server reaches out. The egress proxy is a custom
-    # HMAC forwarder, not a transparent HTTP_PROXY — so we pre-sign the
-    # per-project HMAC here and pass it (with the proxy URL) into the container.
-    # The raw shared secret NEVER enters the sandbox; only the project-scoped
-    # signature does, so a sandbox cannot forge egress for another project.
     egress_proxy_url: str = ""
     egress_shared_secret: bytes = b""
+    _semaphore: asyncio.Semaphore = field(
+        default_factory=lambda: asyncio.Semaphore(_MAX_CONCURRENT_CONTAINERS),
+        init=False,
+        repr=False,
+    )
 
     def _client(self) -> Any:
         """Lazy-import the docker SDK so unit tests don't need it installed."""
@@ -138,30 +145,22 @@ class DockerRunscSandbox:
         }
 
     @staticmethod
-    def _assert_runsc(container: Any) -> None:
-        """Verify the freshly-created container actually landed on gVisor.
-
-        ``runtime: runsc`` in the host-config is only a request — if gVisor is
-        missing or misregistered the daemon silently falls back to ``runc``,
-        which shares the host kernel and voids the sandbox's isolation
-        assumption. We inspect the effective runtime and refuse to run the
-        workload on a mismatch (SEC-M5). Kill/remove here is best-effort —
-        every caller also removes the container in its own ``finally``.
-        """
+    async def _assert_runsc(container: Any) -> None:
+        """Verify the freshly-created container actually landed on gVisor."""
         try:
-            container.reload()
+            await asyncio.to_thread(container.reload)
             runtime = (container.attrs.get("HostConfig") or {}).get("Runtime")
         except Exception as exc:
             with contextlib.suppress(Exception):
-                container.kill()
+                await asyncio.to_thread(container.kill)
             raise SandboxRuntimeViolation(
                 "could not confirm sandbox container runtime",
             ) from exc
         if runtime != "runsc":
             with contextlib.suppress(Exception):
-                container.kill()
+                await asyncio.to_thread(container.kill)
             with contextlib.suppress(Exception):
-                container.remove(force=True)
+                await asyncio.to_thread(container.remove, force=True)
             raise SandboxRuntimeViolation(
                 f"sandbox container runtime is {runtime!r}, expected 'runsc'; "
                 "refusing to run untrusted workload without gVisor isolation",
@@ -178,17 +177,15 @@ class DockerRunscSandbox:
             "security_opt": ["no-new-privileges"],
             "cap_drop": ["ALL"],
             "ulimits": [{"Name": "nofile", "Soft": _NOFILE_LIMIT, "Hard": _NOFILE_LIMIT}],
-            # auto_remove=False on purpose: wait() + logs() race the daemon's
-            # auto-reaper and can lose output to NotFound (K.5 FIX 6). Every
-            # call path removes the container explicitly in a finally block.
             "auto_remove": False,
+            "labels": {_CONTAINER_LABEL: "1"},
         }
 
     @staticmethod
-    def _remove_quietly(container: Any) -> None:
+    async def _remove_quietly(container: Any) -> None:
         """Best-effort container removal — never masks the in-flight result."""
         with contextlib.suppress(Exception):
-            container.remove(force=True)
+            await asyncio.to_thread(container.remove, force=True)
 
     async def probe(
         self,
@@ -242,44 +239,40 @@ class DockerRunscSandbox:
         as an entrypoint that prints JSON on stdout. Egress denial surfaces
         as a specific exit code the driver sets.
         """
-        client = self._client()
-        host_config = self._base_host_config()
-        # Probe container: no volume, 100 MB tmpfs workspace.
-        env = {
-            "SMAP_AGENT_ID": str(agent_id),
-            "SMAP_PROJECT_ID": str(project_id),
-            "SMAP_MCP_SOURCE": source,
-            "SMAP_MCP_REFERENCE": reference,
-            "SMAP_MCP_AUTH_JSON": json.dumps(auth or {}),
-            **self._egress_env(project_id),
-        }
-        container = client.containers.run(
-            image=self.mcp_image,
-            command=["probe"],
-            environment=env,
-            user=_SANDBOX_UID,
-            tmpfs=_sandbox_tmpfs(),
-            detach=True,
-            **host_config,
-        )
-        try:
-            self._assert_runsc(container)
-            try:
-                exit_status = container.wait(timeout=timeout_s)
-            except Exception as exc:
-                # docker-py's wait(timeout=) raises requests.exceptions
-                # .ReadTimeout, NOT builtin TimeoutError — catch broadly, kill
-                # the hung container, and surface as a timeout (K.5 FIX 5).
-                with contextlib.suppress(Exception):
-                    container.kill()
-                raise TimeoutError(f"probe container did not exit within {timeout_s:.1f}s") from exc
-            status_code = int(exit_status.get("StatusCode", 1))
-            logs = container.logs(stdout=True, stderr=False).decode(
-                "utf-8",
-                errors="replace",
+        async with self._semaphore:
+            client = self._client()
+            host_config = self._base_host_config()
+            env = {
+                "SMAP_AGENT_ID": str(agent_id),
+                "SMAP_PROJECT_ID": str(project_id),
+                "SMAP_MCP_SOURCE": source,
+                "SMAP_MCP_REFERENCE": reference,
+                "SMAP_MCP_AUTH_JSON": json.dumps(auth or {}),
+                **self._egress_env(project_id),
+            }
+            container = await asyncio.to_thread(
+                client.containers.run,
+                image=self.mcp_image,
+                command=["probe"],
+                environment=env,
+                user=_SANDBOX_UID,
+                tmpfs=_sandbox_tmpfs(),
+                detach=True,
+                **host_config,
             )
-        finally:
-            self._remove_quietly(container)
+            try:
+                await self._assert_runsc(container)
+                try:
+                    exit_status = await asyncio.to_thread(container.wait, timeout=timeout_s)
+                except Exception as exc:
+                    with contextlib.suppress(Exception):
+                        await asyncio.to_thread(container.kill)
+                    raise TimeoutError(f"probe container did not exit within {timeout_s:.1f}s") from exc
+                status_code = int(exit_status.get("StatusCode", 1))
+                raw_logs = await asyncio.to_thread(container.logs, stdout=True, stderr=False)
+                logs = raw_logs.decode("utf-8", errors="replace")
+            finally:
+                await self._remove_quietly(container)
         if status_code == 42:
             raise McpEgressDenied("egress proxy denied MCP probe")
         if status_code != 0:
@@ -304,56 +297,49 @@ class DockerRunscSandbox:
         auth: dict[str, Any] | None = None,
         timeout_s: float = 60.0,
     ) -> ToolCallResult:
-        client = self._client()
-        host_config = self._base_host_config()
-        # The driver needs source/reference/auth to launch the same server it
-        # would for ``probe`` (the container has no DB to resolve binding_id),
-        # so they travel with the invoke env alongside the egress credentials.
-        env = {
-            "SMAP_AGENT_ID": str(agent_id),
-            "SMAP_PROJECT_ID": str(project_id),
-            "SMAP_BINDING_ID": str(binding_id),
-            "SMAP_TOOL_NAME": tool_name,
-            "SMAP_TOOL_ARGS_JSON": json.dumps(arguments),
-            "SMAP_MCP_SOURCE": source,
-            "SMAP_MCP_REFERENCE": reference,
-            "SMAP_MCP_AUTH_JSON": json.dumps(auth or {}),
-            **self._egress_env(project_id),
-        }
-        start = time.monotonic()
-        container = client.containers.run(
-            image=self.mcp_image,
-            command=["invoke"],
-            environment=env,
-            user=_SANDBOX_UID,
-            tmpfs=_sandbox_tmpfs(),
-            detach=True,
-            **host_config,
-        )
-        try:
-            self._assert_runsc(container)
+        async with self._semaphore:
+            client = self._client()
+            host_config = self._base_host_config()
+            env = {
+                "SMAP_AGENT_ID": str(agent_id),
+                "SMAP_PROJECT_ID": str(project_id),
+                "SMAP_BINDING_ID": str(binding_id),
+                "SMAP_TOOL_NAME": tool_name,
+                "SMAP_TOOL_ARGS_JSON": json.dumps(arguments),
+                "SMAP_MCP_SOURCE": source,
+                "SMAP_MCP_REFERENCE": reference,
+                "SMAP_MCP_AUTH_JSON": json.dumps(auth or {}),
+                **self._egress_env(project_id),
+            }
+            start = time.monotonic()
+            container = await asyncio.to_thread(
+                client.containers.run,
+                image=self.mcp_image,
+                command=["invoke"],
+                environment=env,
+                user=_SANDBOX_UID,
+                tmpfs=_sandbox_tmpfs(),
+                detach=True,
+                **host_config,
+            )
             try:
-                exit_status = container.wait(timeout=timeout_s)
-            except Exception as exc:
-                # wait(timeout=) raises requests' ReadTimeout, not TimeoutError;
-                # kill the hung container and map to McpTimeout (K.5 FIX 5).
-                with contextlib.suppress(Exception):
-                    container.kill()
-                raise McpTimeout(
-                    f"MCP tool invocation exceeded {timeout_s:.1f}s budget",
-                ) from exc
-            duration_ms = int((time.monotonic() - start) * 1000)
-            status_code = int(exit_status.get("StatusCode", 1))
-            stdout = container.logs(stdout=True, stderr=False).decode(
-                "utf-8",
-                errors="replace",
-            )
-            stderr = container.logs(stdout=False, stderr=True).decode(
-                "utf-8",
-                errors="replace",
-            )
-        finally:
-            self._remove_quietly(container)
+                await self._assert_runsc(container)
+                try:
+                    exit_status = await asyncio.to_thread(container.wait, timeout=timeout_s)
+                except Exception as exc:
+                    with contextlib.suppress(Exception):
+                        await asyncio.to_thread(container.kill)
+                    raise McpTimeout(
+                        f"MCP tool invocation exceeded {timeout_s:.1f}s budget",
+                    ) from exc
+                duration_ms = int((time.monotonic() - start) * 1000)
+                status_code = int(exit_status.get("StatusCode", 1))
+                raw_out = await asyncio.to_thread(container.logs, stdout=True, stderr=False)
+                stdout = raw_out.decode("utf-8", errors="replace")
+                raw_err = await asyncio.to_thread(container.logs, stdout=False, stderr=True)
+                stderr = raw_err.decode("utf-8", errors="replace")
+            finally:
+                await self._remove_quietly(container)
         if status_code == 42:
             raise McpEgressDenied("egress proxy denied MCP tool invocation")
         return ToolCallResult(
@@ -373,83 +359,69 @@ class DockerRunscSandbox:
         data: bytes | None = None,
         timeout_s: float = 10.0,
     ) -> ToolCallResult:
-        client = self._client()
-        volume = f"smap-agent-fs-{agent_id}"
-        host_config = self._base_host_config()
-        # ``file`` container gets the per-agent volume rw on /workspace.
-        host_config["volumes"] = {volume: {"bind": "/workspace", "mode": "rw"}}
-        # We drop tmpfs for /workspace since it's a real volume; read-only root
-        # still applies everywhere else.
-        env = {
-            "SMAP_AGENT_ID": str(agent_id),
-            "SMAP_FILE_OP": op,
-            "SMAP_FILE_PATH": path,
-        }
-        start = time.monotonic()
-        if op == "write":
-            if data is None:
-                raise ValueError("write requires data bytes")
-            # K.5 FIX 4: the payload travels as a tar archive copied into the
-            # per-agent volume via ``put_archive`` on the *created* (not yet
-            # started) container — `docker cp` semantics resolve the volume
-            # mount even before start. The previous env-var transport
-            # (SMAP_FILE_DATA_B64) hit Linux's ~128 KiB single-env cap, capping
-            # real writes at ~96 KB while the file tool advertised 10 MB. The
-            # driver atomically ``os.replace``s the staged file onto the target
-            # path (same volume → rename, no second copy).
-            stage_name = f".smap-stage-{uuid.uuid4().hex}"
-            env["SMAP_FILE_STAGING"] = f"/workspace/{stage_name}"
-            container = client.containers.create(
-                image=self.mcp_image,
-                command=["file"],
-                environment=env,
-                user=_SANDBOX_UID,
-                **host_config,
-            )
-            try:
-                container.put_archive("/workspace", _tar_single_file(stage_name, data))
-                container.start()
-            except Exception:
-                self._remove_quietly(container)
-                raise
-        else:
-            container = client.containers.run(
-                image=self.mcp_image,
-                command=["file"],
-                environment=env,
-                user=_SANDBOX_UID,
-                detach=True,
-                **host_config,
-            )
-        try:
-            self._assert_runsc(container)
-            try:
-                exit_status = container.wait(timeout=timeout_s)
-            except Exception as exc:
-                # See invoke_mcp_tool: wait raises requests' ReadTimeout. Kill
-                # and surface a timeout result like run_code_exec (K.5 FIX 5).
-                with contextlib.suppress(Exception):
-                    container.kill()
-                return ToolCallResult(
-                    ok=False,
-                    stdout="",
-                    stderr=f"timeout: {exc}",
-                    exit_code=124,
-                    duration_ms=int((time.monotonic() - start) * 1000),
-                    metadata={"volume": volume, "op": op},
+        async with self._semaphore:
+            client = self._client()
+            volume = f"smap-agent-fs-{agent_id}"
+            host_config = self._base_host_config()
+            host_config["volumes"] = {volume: {"bind": "/workspace", "mode": "rw"}}
+            env = {
+                "SMAP_AGENT_ID": str(agent_id),
+                "SMAP_FILE_OP": op,
+                "SMAP_FILE_PATH": path,
+            }
+            start = time.monotonic()
+            if op == "write":
+                if data is None:
+                    raise ValueError("write requires data bytes")
+                stage_name = f".smap-stage-{uuid.uuid4().hex}"
+                env["SMAP_FILE_STAGING"] = f"/workspace/{stage_name}"
+                container = await asyncio.to_thread(
+                    client.containers.create,
+                    image=self.mcp_image,
+                    command=["file"],
+                    environment=env,
+                    user=_SANDBOX_UID,
+                    **host_config,
                 )
-            duration_ms = int((time.monotonic() - start) * 1000)
-            status_code = int(exit_status.get("StatusCode", 1))
-            stdout = container.logs(stdout=True, stderr=False).decode(
-                "utf-8",
-                errors="replace",
-            )
-            stderr = container.logs(stdout=False, stderr=True).decode(
-                "utf-8",
-                errors="replace",
-            )
-        finally:
-            self._remove_quietly(container)
+                try:
+                    await asyncio.to_thread(container.put_archive, "/workspace", _tar_single_file(stage_name, data))
+                    await asyncio.to_thread(container.start)
+                except Exception:
+                    await self._remove_quietly(container)
+                    raise
+            else:
+                container = await asyncio.to_thread(
+                    client.containers.run,
+                    image=self.mcp_image,
+                    command=["file"],
+                    environment=env,
+                    user=_SANDBOX_UID,
+                    detach=True,
+                    **host_config,
+                )
+            try:
+                await self._assert_runsc(container)
+                try:
+                    exit_status = await asyncio.to_thread(container.wait, timeout=timeout_s)
+                except Exception as exc:
+                    with contextlib.suppress(Exception):
+                        await asyncio.to_thread(container.kill)
+                    return ToolCallResult(
+                        ok=False,
+                        stdout="",
+                        stderr=f"timeout: {exc}",
+                        exit_code=124,
+                        duration_ms=int((time.monotonic() - start) * 1000),
+                        metadata={"volume": volume, "op": op},
+                    )
+                duration_ms = int((time.monotonic() - start) * 1000)
+                status_code = int(exit_status.get("StatusCode", 1))
+                raw_out = await asyncio.to_thread(container.logs, stdout=True, stderr=False)
+                stdout = raw_out.decode("utf-8", errors="replace")
+                raw_err = await asyncio.to_thread(container.logs, stdout=False, stderr=True)
+                stderr = raw_err.decode("utf-8", errors="replace")
+            finally:
+                await self._remove_quietly(container)
         return ToolCallResult(
             ok=status_code == 0,
             stdout=stdout,
@@ -467,53 +439,47 @@ class DockerRunscSandbox:
         stdin: str = "",
         timeout_s: float = 30.0,
     ) -> ToolCallResult:
-        client = self._client()
-        host_config = self._base_host_config()
-        # Code exec gets an ephemeral tmpfs workspace, never a named volume.
-        env = {"SMAP_AGENT_ID": str(agent_id)}
-        # No stdin → run the source directly; with stdin → run the shim that
-        # feeds SMAP_CODE_EXEC_STDIN into sys.stdin first (see _STDIN_SHIM).
-        command = ["python", "-c", source]
-        if stdin:
-            env["SMAP_CODE_EXEC_STDIN"] = stdin
-            command = ["python", "-c", _STDIN_SHIM, source]
-        start = time.monotonic()
-        container = client.containers.run(
-            image=self.code_exec_image,
-            command=command,
-            environment=env,
-            user=_SANDBOX_UID,
-            tmpfs=_sandbox_tmpfs(),
-            detach=True,
-            **host_config,
-        )
-        try:
-            self._assert_runsc(container)
+        async with self._semaphore:
+            client = self._client()
+            host_config = self._base_host_config()
+            env = {"SMAP_AGENT_ID": str(agent_id)}
+            command = ["python", "-c", source]
+            if stdin:
+                env["SMAP_CODE_EXEC_STDIN"] = stdin
+                command = ["python", "-c", _STDIN_SHIM, source]
+            start = time.monotonic()
+            container = await asyncio.to_thread(
+                client.containers.run,
+                image=self.code_exec_image,
+                command=command,
+                environment=env,
+                user=_SANDBOX_UID,
+                tmpfs=_sandbox_tmpfs(),
+                detach=True,
+                **host_config,
+            )
             try:
-                exit_status = container.wait(timeout=min(timeout_s, 30.0))
-            except Exception as exc:
-                # Force-kill and surface as timeout result rather than raising.
-                with contextlib.suppress(Exception):
-                    container.kill()
-                return ToolCallResult(
-                    ok=False,
-                    stdout="",
-                    stderr=f"timeout: {exc}",
-                    exit_code=124,
-                    duration_ms=int((time.monotonic() - start) * 1000),
-                )
-            duration_ms = int((time.monotonic() - start) * 1000)
-            status_code = int(exit_status.get("StatusCode", 1))
-            stdout = container.logs(stdout=True, stderr=False).decode(
-                "utf-8",
-                errors="replace",
-            )
-            stderr = container.logs(stdout=False, stderr=True).decode(
-                "utf-8",
-                errors="replace",
-            )
-        finally:
-            self._remove_quietly(container)
+                await self._assert_runsc(container)
+                try:
+                    exit_status = await asyncio.to_thread(container.wait, timeout=min(timeout_s, 30.0))
+                except Exception as exc:
+                    with contextlib.suppress(Exception):
+                        await asyncio.to_thread(container.kill)
+                    return ToolCallResult(
+                        ok=False,
+                        stdout="",
+                        stderr=f"timeout: {exc}",
+                        exit_code=124,
+                        duration_ms=int((time.monotonic() - start) * 1000),
+                    )
+                duration_ms = int((time.monotonic() - start) * 1000)
+                status_code = int(exit_status.get("StatusCode", 1))
+                raw_out = await asyncio.to_thread(container.logs, stdout=True, stderr=False)
+                stdout = raw_out.decode("utf-8", errors="replace")
+                raw_err = await asyncio.to_thread(container.logs, stdout=False, stderr=True)
+                stderr = raw_err.decode("utf-8", errors="replace")
+            finally:
+                await self._remove_quietly(container)
         return ToolCallResult(
             ok=status_code == 0,
             stdout=stdout,
@@ -521,6 +487,41 @@ class DockerRunscSandbox:
             exit_code=status_code,
             duration_ms=duration_ms,
         )
+
+
+    async def cleanup_orphan_containers(self, *, max_age_s: float = 600) -> int:
+        """Remove sandbox containers older than *max_age_s* seconds.
+
+        Called periodically from the worker to catch containers whose parent
+        process crashed before the finally-block removal ran.
+        """
+        client = self._client()
+        removed = 0
+        try:
+            containers = await asyncio.to_thread(
+                client.containers.list,
+                all=True,
+                filters={"label": _CONTAINER_LABEL},
+            )
+        except Exception:
+            _log.warning("orphan cleanup: failed to list containers", exc_info=True)
+            return 0
+        cutoff = time.time() - max_age_s
+        for c in containers:
+            try:
+                created = c.attrs.get("Created", "")
+                if not created:
+                    continue
+                import datetime
+
+                ts = datetime.datetime.fromisoformat(created.replace("Z", "+00:00")).timestamp()
+                if ts < cutoff:
+                    await asyncio.to_thread(c.remove, force=True)
+                    removed += 1
+                    _log.info("orphan cleanup: removed container %s", c.short_id)
+            except Exception:
+                _log.debug("orphan cleanup: skip container %s", c.short_id, exc_info=True)
+        return removed
 
 
 def docker_runsc_sandbox_from_settings() -> DockerRunscSandbox:

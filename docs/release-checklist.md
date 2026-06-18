@@ -25,7 +25,7 @@ Source: `deploy/vault/README.md` §7.
 - [ ] `/healthz` returns 200.
 - [ ] `python -m smap.bootstrap all` is idempotent — second run produces no errors or side effects.
 - [ ] First admin account created and can log in.
-- [ ] All Alembic migrations applied cleanly (`alembic upgrade head` — 27 migrations, A through J).
+- [ ] All Alembic migrations applied cleanly (`alembic upgrade head` — 30 migrations, A through M).
 - [ ] `alembic downgrade base && alembic upgrade head` round-trip succeeds.
 - [ ] **SMTP smoke (K.6)**: with `SMTP_*` + Vault `secret/smap/config/smtp` configured, register a throwaway address on staging → verification mail **received** → link verifies → login succeeds. Run one password-reset round-trip and one invite to an unregistered address (sign-up → auto-enroll).
 - [ ] **SMTP fail-open guard**: a `env=prod` boot with no `SMTP_HOST` logs `event=smtp_unconfigured` exactly once and does not crash.
@@ -167,6 +167,39 @@ Verify each retention worker's last-run metric is within the expected window:
   - Known limitations
   - Minimum host requirements (16-core / 32 GB)
   - Link to `deploy/README.md` for operator instructions
+
+---
+
+## 10. Backup & restore
+
+- [ ] Postgres `pg_dump` tested — dump completes in < 10 min for staging data set.
+- [ ] Postgres restore round-trip verified: `pg_dump | pg_restore` into a clean DB, then `alembic upgrade head` succeeds (no-op).
+- [ ] MinIO bucket data (`chat-uploads`, `rag-sources`, `exports`) backed up via `mc mirror` or equivalent.
+- [ ] Vault disaster recovery tested per `deploy/vault/README.md` §6 — unseal keys + recovery snapshot.
+- [ ] Neo4j `neo4j-admin dump` completes; restore into fresh container succeeds.
+- [ ] Redis AOF integrity checked: `redis-check-aof --fix` on a copy of `appendonly.aof`.
+- [ ] Backup schedule documented: frequency, retention, offsite copy if applicable.
+
+---
+
+## 11. TLS & certificate verification
+
+- [ ] Nginx serves valid TLS cert on :443 (not the dev self-signed cert in staging/prod).
+- [ ] Vault internal TLS enabled — `vault status` shows `https` listener; backend connects via `SMAP_VAULT_ADDR=https://vault:8200`.
+- [ ] Certificate expiry ≥ 90 days from release date.
+- [ ] Certificate rotation procedure documented and tested (nginx reload, Vault restart).
+- [ ] No services communicate secrets over plaintext HTTP outside the Docker internal network.
+
+---
+
+## 12. Monitoring & alerting baseline
+
+- [ ] Prometheus scrapes `backend-web:8000/metrics` successfully (check Targets page).
+- [ ] Grafana SMAP dashboard loads without errors; all panels have data.
+- [ ] Key metrics have non-zero values: `http_requests_total`, `db_pool_available`, `workflow_runs_total`.
+- [ ] Loki receives logs from all compose services (query `{service=~".+"}` returns recent entries).
+- [ ] Tempo receives traces (if OTEL is enabled): query a recent trace ID in Grafana.
+- [ ] Promtail positions file persists across container restart (verify volume mount).
 
 ---
 

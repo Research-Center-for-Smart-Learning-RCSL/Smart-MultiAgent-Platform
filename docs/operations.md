@@ -63,7 +63,6 @@ Every long-running service MUST expose both a **liveness** (`/healthz`) and a **
 |---|---|---|
 | `backend-web` | Process responds, event loop not stuck | Postgres reachable, Redis reachable, Vault sealed=false+token valid, Qdrant ping OK, Neo4j bolt ping OK, MinIO HeadBucket OK |
 | `backend-worker` | Arq heartbeat in last 10 s | Same dependencies as backend-web |
-| `backend-ws` | Same as backend-web | Same as backend-web |
 | `egress-proxy` | Process responds | Nothing (stateless) |
 | `mcp-sandbox-supervisor` | Process responds | Docker socket reachable, gVisor runtime discoverable. Note: this service is a runtime *probe*, not a lifecycle supervisor — it only verifies that `runsc` is registered. Sandbox container lifecycle is owned by the backend MCP context. |
 | `postgres` | Docker `pg_isready -U smap` | Same |
@@ -100,23 +99,23 @@ The REQUIREMENTS NFR §20.03 gives rough memory budgets; the docker-compose file
 
 | Service | CPU (limit) | Memory (limit) | Memory (reservation) | Replicas |
 |---|---|---|---|---|
-| `nginx`              | 1.0  | 256 MB  | 128 MB  | 1 |
-| `backend-web`        | 2.0  | 2 GB    | 1 GB    | 2 (rolling) |
-| `backend-worker`     | 2.0  | 2 GB    | 1 GB    | 2 |
-| `backend-ws`         | 2.0  | 1 GB    | 512 MB  | 1 (can merge with backend-web if single-process) |
+| `nginx`              | 1.0  | 512 MB  | 256 MB  | 1 |
+| `backend-web`        | 4.0  | 4 GB    | 2 GB    | 3 (rolling) |
+| `backend-worker`     | 3.0  | 2 GB    | 1 GB    | 3 |
 | `frontend`           | 0.5  | 256 MB  | 128 MB  | 1 |
-| `postgres`           | 4.0  | 4 GB    | 2 GB    | 1 |
-| `redis`              | 1.0  | 2 GB    | 512 MB  | 1 |
-| `qdrant`             | 2.0  | 4 GB    | 2 GB    | 1 |
-| `neo4j`              | 2.0  | 4 GB    | 2 GB    | 1 |
-| `minio`              | 2.0  | 4 GB    | 1 GB    | 1 |
-| `vault`              | 0.5  | 1 GB    | 256 MB  | 1 |
+| `postgres`           | 6.0  | 8 GB    | 4 GB    | 1 |
+| `redis`              | 1.0  | 4 GB    | 1 GB    | 1 |
+| `qdrant`             | 4.0  | 8 GB    | 4 GB    | 1 |
+| `neo4j`              | 4.0  | 8 GB    | 4 GB    | 1 |
+| `minio`              | 2.0  | 5 GB    | 2 GB    | 1 |
+| `vault`              | 1.0  | 2 GB    | 512 MB  | 1 |
 | `egress-proxy`       | 1.0  | 512 MB  | 256 MB  | 1 |
-| `mcp-sandbox-*`      | 2.0  | 2 GB    | 512 MB  | 1 (ephemeral child containers respect R12.03 limits) |
+| `mcp-sandbox-supervisor` | 0.25  | 128 MB  | 64 MB  | 1 |
+| `docker-socket-proxy` | 0.25  | 128 MB  | 64 MB  | 1 |
 
-Total upper bound: ~16 vCPU, ~28 GB RAM, leaving headroom for the host OS and transient sandbox children.
+Tuning target: ≥16-core / 64 GB single host. Total hard-limit sum ≈ 56 GB; remaining ~8 GB reserved for OS + Docker daemon + transient sandbox containers.
 
-Operators running on smaller hosts may scale down by halving `backend-web` replicas and `postgres` memory, but below 8-core / 16 GB the R20.01 p95 target is not guaranteed.
+Operators running on smaller hosts (32 GB) may scale down by halving every memory value and dropping replicas by 1, but below 8-core / 16 GB the R20.01 p95 target is not guaranteed.
 
 ---
 
@@ -206,7 +205,7 @@ python -m alembic upgrade head
 python -m smap.bootstrap create-admin --email admin@example.com
 
 # 8. Start the application
-docker compose up -d backend-web backend-worker backend-ws nginx frontend
+docker compose up -d backend-web backend-worker nginx frontend
 ```
 
 ### 5.1 The `create-admin` command
@@ -287,7 +286,7 @@ Any extra fields beyond the core RFC 7807 set are documented per-type in this ca
 
 ## 7. CORS, rate-limit headers, and CSP
 
-- **CORS**: see REQUIREMENTS §19a.3. Same-origin deploy → nothing special. Operators splitting origins must edit `SMAP_ALLOWED_ORIGINS` in `.env` and understand the CSRF implications.
+- **CORS**: see REQUIREMENTS §19a.3. Same-origin deploy → nothing special. Operators splitting origins must edit `SMAP_SEC_CORS_ORIGINS` in `.env` and understand the CSRF implications.
 - **Rate-limit response headers**: see REQUIREMENTS §19 R19.06 and §19a — `Retry-After`, `X-RateLimit-Limit`, `X-RateLimit-Remaining`, `X-RateLimit-Reset` on all 200/429 responses from rate-limited endpoints.
 - **CSP**: see REQUIREMENTS §19a.2. Tune by editing `deploy/nginx/nginx.conf.d/csp.conf`.
 
@@ -420,10 +419,10 @@ Operators who want full OTel telemetry:
 | Loguru | ≥ 0.7 |
 | Postgres | 16 |
 | Redis | 7.2 |
-| Qdrant | 1.10 |
+| Qdrant | 1.12 |
 | Neo4j | 5 Community |
 | MinIO | RELEASE.2024-06 or later |
-| Vault | 1.15+ |
+| Vault | 1.18 |
 | Node | 20 LTS |
 | Vue | 3.4 |
 | Vite | 5 |
