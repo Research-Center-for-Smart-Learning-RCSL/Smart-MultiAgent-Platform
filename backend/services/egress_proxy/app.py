@@ -24,12 +24,15 @@ module without pulling the whole stack.
 
 from __future__ import annotations
 
+import asyncio
 import hmac
 import logging
 import socket
 import uuid
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from hashlib import sha256
+from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
 from fastapi import FastAPI, Request
@@ -56,6 +59,9 @@ _STRIPPED_INBOUND_HEADERS: frozenset[str] = frozenset(
 _DEFAULT_RESPONSE_CAP_BYTES = 16 * 1024 * 1024  # 16 MiB; see EgressProxySettings.
 
 
+_DEFAULT_REQUEST_CAP_BYTES = 1 * 1024 * 1024  # 1 MiB inbound body cap.
+
+
 @dataclass(frozen=True, slots=True)
 class EgressProxySettings:
     shared_secret: bytes
@@ -66,6 +72,7 @@ class EgressProxySettings:
     # enough for most JSON / HTML / model-doc payloads; larger transfers should
     # not flow through the egress proxy.
     response_max_bytes: int = _DEFAULT_RESPONSE_CAP_BYTES
+    request_max_bytes: int = _DEFAULT_REQUEST_CAP_BYTES
 
 
 class AllowlistChecker:
@@ -97,7 +104,7 @@ def _verify_hmac(*, secret: bytes, project_id: str, signature: str) -> bool:
     return hmac.compare_digest(expected, signature)
 
 
-def _resolve_ips(host: str) -> list[str]:
+def _resolve_ips_sync(host: str) -> list[str]:
     try:
         infos = socket.getaddrinfo(host, None)
     except socket.gaierror:
@@ -108,6 +115,10 @@ def _resolve_ips(host: str) -> list[str]:
         if sockaddr and isinstance(sockaddr[0], str):
             out.append(sockaddr[0])
     return out
+
+
+async def _resolve_ips(host: str) -> list[str]:
+    return await asyncio.to_thread(_resolve_ips_sync, host)
 
 
 _DEFAULT_PORTS: dict[str, int] = {"http": 80, "https": 443}
@@ -152,7 +163,29 @@ def _problem(status_code: int, slug: str, detail: str) -> Response:
 
 
 def create_app(settings: EgressProxySettings) -> FastAPI:
-    app = FastAPI(title="SMAP Egress Proxy", docs_url=None, redoc_url=None)
+
+    @asynccontextmanager
+    async def _lifespan(app: FastAPI) -> Any:
+        import httpx
+
+        app.state.httpx_client = httpx.AsyncClient(
+            timeout=settings.upstream_timeout_s,
+            follow_redirects=False,
+            limits=httpx.Limits(
+                max_connections=100,
+                max_keepalive_connections=20,
+                keepalive_expiry=30,
+            ),
+        )
+        yield
+        await app.state.httpx_client.aclose()
+
+    app = FastAPI(
+        title="SMAP Egress Proxy",
+        docs_url=None,
+        redoc_url=None,
+        lifespan=_lifespan,
+    )
 
     @app.get("/healthz")
     async def healthz() -> Response:
@@ -205,7 +238,7 @@ def create_app(settings: EgressProxySettings) -> FastAPI:
         #    the hostname at TCP-connect time. Pinning to a pre-validated
         #    address closes the DNS-rebinding / SSRF window structurally —
         #    there is no second, unscreened resolution to race.
-        ips = _resolve_ips(host)
+        ips = await _resolve_ips(host)
         if not ips:
             return _problem(502, "mcp-egress-denied", f"dns failure for {host}")
         if any(is_blocked_ip(ip) for ip in ips):
@@ -258,8 +291,6 @@ def create_app(settings: EgressProxySettings) -> FastAPI:
         #    own. The `Host` header (above) and the `sni_hostname` request
         #    extension preserve virtual-hosting and TLS certificate
         #    verification against the original hostname.
-        import httpx
-
         connect_ip = ips[0]
         pinned_url = _pin_url(
             scheme=scheme,
@@ -270,6 +301,12 @@ def create_app(settings: EgressProxySettings) -> FastAPI:
         )
 
         body = await request.body()
+        if len(body) > settings.request_max_bytes:
+            return _problem(
+                413,
+                "mcp-egress-denied",
+                f"request body too large ({len(body)} > {settings.request_max_bytes})",
+            )
         max_bytes = settings.response_max_bytes
         hop_by_hop = {
             "connection",
@@ -285,62 +322,53 @@ def create_app(settings: EgressProxySettings) -> FastAPI:
             "content-length",
             "content-encoding",
         }
+        import httpx
+
+        client: httpx.AsyncClient = request.app.state.httpx_client
         try:
-            async with httpx.AsyncClient(
-                timeout=settings.upstream_timeout_s,
-                follow_redirects=False,
-            ) as client:
-                req = client.build_request(
-                    method=request.method,
-                    url=pinned_url,
-                    headers=upstream_headers,
-                    content=body,
-                    extensions={"sni_hostname": host},
-                )
-                upstream = await client.send(req, stream=True)
-                try:
-                    declared = upstream.headers.get("content-length")
-                    if declared is not None:
-                        try:
-                            if int(declared) > max_bytes:
-                                return _problem(
-                                    502,
-                                    "mcp-egress-denied",
-                                    f"upstream response too large " f"({declared} > {max_bytes})",
-                                )
-                        except ValueError:
-                            pass
-                    chunks: list[bytes] = []
-                    received = 0
-                    truncated = False
-                    # `aiter_bytes` decompresses per `Content-Encoding`; we
-                    # strip the encoding header below so the sandbox sees
-                    # the same plaintext bytes the original code (.content)
-                    # surfaced.
-                    async for chunk in upstream.aiter_bytes():
-                        if not chunk:
-                            continue
-                        received += len(chunk)
-                        if received > max_bytes:
-                            truncated = True
-                            break
-                        chunks.append(chunk)
-                    if truncated:
-                        return _problem(
-                            502,
-                            "mcp-egress-denied",
-                            f"upstream response exceeded cap of {max_bytes} bytes",
-                        )
-                    upstream_body = b"".join(chunks)
-                    upstream_status = upstream.status_code
-                    # Snapshot headers as a list of (k, v) tuples so we can
-                    # filter out hop-by-hop entries below before handing
-                    # them to Starlette. Multi-valued headers (Set-Cookie)
-                    # are preserved via Response.raw_headers below.
-                    upstream_multi_headers: list[tuple[str, str]] = list(upstream.headers.multi_items())
-                    upstream_content_type = upstream.headers.get("content-type")
-                finally:
-                    await upstream.aclose()
+            req = client.build_request(
+                method=request.method,
+                url=pinned_url,
+                headers=upstream_headers,
+                content=body,
+                extensions={"sni_hostname": host},
+            )
+            upstream = await client.send(req, stream=True)
+            try:
+                declared = upstream.headers.get("content-length")
+                if declared is not None:
+                    try:
+                        if int(declared) > max_bytes:
+                            return _problem(
+                                502,
+                                "mcp-egress-denied",
+                                f"upstream response too large ({declared} > {max_bytes})",
+                            )
+                    except ValueError:
+                        pass
+                chunks: list[bytes] = []
+                received = 0
+                truncated = False
+                async for chunk in upstream.aiter_bytes():
+                    if not chunk:
+                        continue
+                    received += len(chunk)
+                    if received > max_bytes:
+                        truncated = True
+                        break
+                    chunks.append(chunk)
+                if truncated:
+                    return _problem(
+                        502,
+                        "mcp-egress-denied",
+                        f"upstream response exceeded cap of {max_bytes} bytes",
+                    )
+                upstream_body = b"".join(chunks)
+                upstream_status = upstream.status_code
+                upstream_multi_headers: list[tuple[str, str]] = list(upstream.headers.multi_items())
+                upstream_content_type = upstream.headers.get("content-type")
+            finally:
+                await upstream.aclose()
         except httpx.HTTPError as exc:
             return _problem(502, "mcp-egress-denied", f"upstream error: {exc}")
 

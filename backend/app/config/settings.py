@@ -102,6 +102,7 @@ class VaultSection(BaseSettings):
     role_id: str | None = None  # required in prod; dev uses root token below
     secret_id: str | None = None
     dev_token: str | None = None  # dev-only fallback for `vault -dev`; must be unset in prod
+    ca_cert: str | None = None  # path to internal CA PEM for TLS verification (B2-2)
     transit_key_provider: str = "smap-provider-secret"
     transit_key_guest: str = "smap-guest-link"
     transit_key_jwt: str = "smap-jwt-sign"
@@ -343,6 +344,11 @@ def _check_prod_secrets(s: Settings) -> None:
         problems.append("SMAP_SEC_CORS_ORIGINS must contain at least one origin in production")
     if not s.security.session_cookie_secure:
         problems.append("SMAP_SEC_SESSION_COOKIE_SECURE must be true in production (HTTPS required)")
+    if "://:@" not in s.redis.dsn and ":@" not in s.redis.dsn.split("://", 1)[-1]:
+        problems.append(
+            "SMAP_REDIS_DSN must include a password (redis://:PASSWORD@host:port/0)"
+            " — prod Redis requires --requirepass"
+        )
     if problems:
         raise ConfigError("Insecure defaults active in production:\n  - " + "\n  - ".join(problems))
 

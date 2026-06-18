@@ -20,6 +20,7 @@ jobs:
   # ──────────────────────────────────────────────
   backend-lint:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     defaults: { run: { working-directory: backend } }
     steps:
       - uses: actions/checkout@v6
@@ -37,6 +38,7 @@ jobs:
 
   backend-typecheck:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     defaults: { run: { working-directory: backend } }
     steps:
       - uses: actions/checkout@v6
@@ -50,6 +52,7 @@ jobs:
 
   backend-test:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     defaults: { run: { working-directory: backend } }
     steps:
       - uses: actions/checkout@v6
@@ -72,6 +75,7 @@ jobs:
   # is meaningful (K.7 deliverable 2).
   backend-integration:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     defaults: { run: { working-directory: backend } }
     steps:
       - uses: actions/checkout@v6
@@ -92,6 +96,7 @@ jobs:
   # deleting an executor import or the on_message_created wiring fails here.
   backend-wiring:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v6
       - name: Start data services
@@ -163,6 +168,7 @@ jobs:
   # SANDBOX_*_IMAGE pins can be updated from a reviewed build.
   sandbox-images:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v6
       - name: Build mcp-runtime image
@@ -203,6 +209,7 @@ jobs:
   # between bumps.
   dependency-audit:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
@@ -241,6 +248,7 @@ jobs:
   # Gates 1–5, 7, 11, 12: ESLint-based SoC gates
   frontend-lint:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     defaults: { run: { working-directory: frontend } }
     steps:
       - uses: actions/checkout@v6
@@ -264,6 +272,7 @@ jobs:
   # Gate 6: No global CSS outside shared/styles/
   frontend-gate-global-css:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     defaults: { run: { working-directory: frontend } }
     steps:
       - uses: actions/checkout@v6
@@ -273,6 +282,7 @@ jobs:
   # Gate 8: Every view has >= 1 integration test
   frontend-gate-view-tests:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     defaults: { run: { working-directory: frontend } }
     steps:
       - uses: actions/checkout@v6
@@ -282,6 +292,7 @@ jobs:
   # Gate 9: Bundle budget
   frontend-gate-bundle:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     defaults: { run: { working-directory: frontend } }
     steps:
       - uses: actions/checkout@v6
@@ -307,6 +318,7 @@ jobs:
   # Gate 10: Type coverage >= 95%
   frontend-gate-type-coverage:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     defaults: { run: { working-directory: frontend } }
     steps:
       - uses: actions/checkout@v6
@@ -330,6 +342,7 @@ jobs:
   # OpenAPI drift check
   frontend-gate-openapi-drift:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     defaults: { run: { working-directory: frontend } }
     steps:
       - uses: actions/checkout@v6
@@ -360,6 +373,7 @@ jobs:
   # Typecheck
   frontend-typecheck:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     defaults: { run: { working-directory: frontend } }
     steps:
       - uses: actions/checkout@v6
@@ -382,6 +396,7 @@ jobs:
   # Unit + integration tests (Vitest)
   frontend-test:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     defaults: { run: { working-directory: frontend } }
     steps:
       - uses: actions/checkout@v6
@@ -404,6 +419,7 @@ jobs:
   # E2E tests (Playwright) — runs against compose.test.yml
   frontend-e2e:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     defaults: { run: { working-directory: frontend } }
     steps:
@@ -503,3 +519,82 @@ jobs:
             -f deploy/compose/docker-compose.yml \
             -f deploy/compose/compose.test.yml \
             down -v
+
+  # ──────────────────────────────────────────────
+  # Gate — aggregates all checks (B2-6)
+  # ──────────────────────────────────────────────
+  # Branch protection should reference this single job instead of each
+  # individual job. `if: always()` ensures the gate runs even when upstream
+  # jobs are skipped (e.g. frontend-e2e on PRs).
+  gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    if: always()
+    needs:
+      - backend-lint
+      - backend-typecheck
+      - backend-test
+      - backend-integration
+      - backend-wiring
+      - sandbox-images
+      - dependency-audit
+      - frontend-lint
+      - frontend-gate-global-css
+      - frontend-gate-view-tests
+      - frontend-gate-bundle
+      - frontend-gate-type-coverage
+      - frontend-gate-openapi-drift
+      - frontend-typecheck
+      - frontend-test
+      - frontend-e2e
+    steps:
+      - name: Check all required jobs
+        run: |
+          echo "Results:"
+          echo "  backend-lint:               ${{ needs.backend-lint.result }}"
+          echo "  backend-typecheck:          ${{ needs.backend-typecheck.result }}"
+          echo "  backend-test:               ${{ needs.backend-test.result }}"
+          echo "  backend-integration:        ${{ needs.backend-integration.result }}"
+          echo "  backend-wiring:             ${{ needs.backend-wiring.result }}"
+          echo "  sandbox-images:             ${{ needs.sandbox-images.result }}"
+          echo "  dependency-audit:           ${{ needs.dependency-audit.result }}"
+          echo "  frontend-lint:              ${{ needs.frontend-lint.result }}"
+          echo "  frontend-gate-global-css:   ${{ needs.frontend-gate-global-css.result }}"
+          echo "  frontend-gate-view-tests:   ${{ needs.frontend-gate-view-tests.result }}"
+          echo "  frontend-gate-bundle:       ${{ needs.frontend-gate-bundle.result }}"
+          echo "  frontend-gate-type-coverage: ${{ needs.frontend-gate-type-coverage.result }}"
+          echo "  frontend-gate-openapi-drift: ${{ needs.frontend-gate-openapi-drift.result }}"
+          echo "  frontend-typecheck:         ${{ needs.frontend-typecheck.result }}"
+          echo "  frontend-test:              ${{ needs.frontend-test.result }}"
+          echo "  frontend-e2e:               ${{ needs.frontend-e2e.result }}"
+
+          # frontend-e2e is allowed to skip (only runs on push to main).
+          for result in \
+            "${{ needs.backend-lint.result }}" \
+            "${{ needs.backend-typecheck.result }}" \
+            "${{ needs.backend-test.result }}" \
+            "${{ needs.backend-integration.result }}" \
+            "${{ needs.backend-wiring.result }}" \
+            "${{ needs.sandbox-images.result }}" \
+            "${{ needs.dependency-audit.result }}" \
+            "${{ needs.frontend-lint.result }}" \
+            "${{ needs.frontend-gate-global-css.result }}" \
+            "${{ needs.frontend-gate-view-tests.result }}" \
+            "${{ needs.frontend-gate-bundle.result }}" \
+            "${{ needs.frontend-gate-type-coverage.result }}" \
+            "${{ needs.frontend-gate-openapi-drift.result }}" \
+            "${{ needs.frontend-typecheck.result }}" \
+            "${{ needs.frontend-test.result }}"; do
+            if [ "$result" != "success" ]; then
+              echo "FAIL: required job returned $result"
+              exit 1
+            fi
+          done
+
+          e2e="${{ needs.frontend-e2e.result }}"
+          if [ "$e2e" != "success" ] && [ "$e2e" != "skipped" ]; then
+            echo "FAIL: frontend-e2e returned $e2e"
+            exit 1
+          fi
+
+          echo "All gates passed."

@@ -70,7 +70,14 @@ def _build_app() -> FastAPI:
 
     timeout = float(os.environ.get("SMAP_EGRESS_UPSTREAM_TIMEOUT_S", "20.0"))
 
-    engine = create_async_engine(db_dsn, pool_size=3, max_overflow=2)
+    engine = create_async_engine(
+        db_dsn,
+        pool_size=3,
+        max_overflow=2,
+        pool_recycle=300,
+        pool_pre_ping=True,
+        connect_args={"timeout": 10},
+    )
     session_factory = async_sessionmaker(engine, expire_on_commit=False)
 
     settings = EgressProxySettings(

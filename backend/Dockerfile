@@ -58,10 +58,6 @@ FROM base AS runtime
 # Copy pre-built packages from builder stage (no build-essential in runtime).
 COPY --from=builder /install /usr/local
 
-COPY pyproject.toml ./
-# Install the project itself (metadata only — deps already installed from lock).
-RUN pip install --no-deps .
-
 COPY . .
 
 RUN addgroup --system --gid 1001 appgroup \

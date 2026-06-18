@@ -89,6 +89,12 @@ services:
       - ../../:/app
     networks: [frontend_net]
     logging: *log-rotation
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:5173/"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
 
   # ---------- Backend web ----------
   backend-web:

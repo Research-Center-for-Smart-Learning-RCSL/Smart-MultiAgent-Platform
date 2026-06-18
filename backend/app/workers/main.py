@@ -89,6 +89,22 @@ async def key_usage_threshold_sample(ctx: dict[str, Any]) -> int:
         return await _threshold_sample_once(session)
 
 
+def _arq_redis_settings() -> RedisSettings:
+    s = get_settings().redis
+    base = RedisSettings.from_dsn(s.dsn)
+    return RedisSettings(
+        host=base.host,
+        port=base.port,
+        unix_socket_path=base.unix_socket_path,
+        database=base.database,
+        password=base.password,
+        ssl=base.ssl,
+        conn_timeout=s.socket_connect_timeout,
+        conn_retries=3,
+        conn_retry_delay=1.0,
+    )
+
+
 def _redis_alive() -> bool:
     """Sync Redis PING — fails fast if Arq's broker is unreachable.
 
@@ -99,11 +115,16 @@ def _redis_alive() -> bool:
     try:
         import redis as _redis_sync
 
+        s = get_settings().redis
         client = _redis_sync.Redis.from_url(
-            get_settings().redis.dsn,
-            socket_timeout=2,
+            s.dsn,
+            socket_connect_timeout=s.socket_connect_timeout,
+            socket_timeout=s.socket_timeout,
         )
-        return bool(client.ping())
+        try:
+            return bool(client.ping())
+        finally:
+            client.close()
     except Exception:
         return False
 
@@ -208,7 +229,7 @@ class WorkerSettings:
     ]
     on_startup = _startup
     on_shutdown = _shutdown
-    redis_settings = RedisSettings.from_dsn(get_settings().redis.dsn)
+    redis_settings = _arq_redis_settings()
     job_timeout = 600
     max_jobs = 50
     keep_result = 3600

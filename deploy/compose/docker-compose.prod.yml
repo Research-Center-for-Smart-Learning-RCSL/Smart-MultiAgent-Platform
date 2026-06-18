@@ -62,7 +62,17 @@ services:
   # ---------- Edge ----------
   nginx:
     restart: unless-stopped
-    command: ["nginx", "-g", "daemon off;"]
+    command:
+      - sh
+      - -c
+      - |
+        if [ ! -f /etc/nginx/certs/smap.crt ]; then
+          echo "FATAL: /etc/nginx/certs/smap.crt not found."
+          echo "Mount real TLS certificates into the nginx_certs volume."
+          echo "See deploy/compose/nginx/README.md for instructions."
+          exit 1
+        fi
+        exec nginx -g 'daemon off;'
     deploy:
       resources:
         limits: { cpus: "1.0", memory: 512M }
@@ -79,8 +89,13 @@ services:
       SMAP_LOG_LEVEL: info
       # Route Docker API calls through the socket proxy instead of raw socket.
       DOCKER_HOST: tcp://docker-socket-proxy:2375
-    # Override base volumes to remove the raw Docker socket mount.
-    volumes: []
+      # Internal Vault TLS (B2-2).
+      SMAP_VAULT_ADDR: https://vault:8200
+      SMAP_VAULT_CA_CERT: /vault-tls/vault-internal-ca.pem
+    # Single volumes key: vault TLS certs only. This replaces the base file's
+    # docker.sock mount (compose merges by container-path, so the socket is gone).
+    volumes:
+      - ../vault/certs:/vault-tls:ro
     depends_on:
       postgres: { condition: service_healthy }
       redis: { condition: service_healthy }
@@ -97,7 +112,10 @@ services:
     environment:
       SMAP_APP_ENV: prod
       DOCKER_HOST: tcp://docker-socket-proxy:2375
-    volumes: []
+      SMAP_VAULT_ADDR: https://vault:8200
+      SMAP_VAULT_CA_CERT: /vault-tls/vault-internal-ca.pem
+    volumes:
+      - ../vault/certs:/vault-tls:ro
     depends_on:
       redis: { condition: service_healthy }
       postgres: { condition: service_healthy }
@@ -156,8 +174,10 @@ services:
       - "3500mb"
       - --maxmemory-policy
       - "allkeys-lru"
+    environment:
+      REDISCLI_AUTH: ${SMAP_REDIS_PASSWORD}
     healthcheck:
-      test: ["CMD", "redis-cli", "-a", "${SMAP_REDIS_PASSWORD}", "PING"]
+      test: ["CMD", "redis-cli", "PING"]
     deploy:
       resources:
         limits: { cpus: "1.0", memory: 4G }
@@ -173,10 +193,10 @@ services:
 
   neo4j:
     restart: unless-stopped
+    shm_size: 2g
     environment:
       NEO4J_server_memory_heap_initial__size: "3G"
       NEO4J_server_memory_heap_max__size: "5G"
-      # pagecache holds the graph on-disk pages; larger = fewer disk reads.
       NEO4J_server_memory_pagecache_size: "2G"
     deploy:
       resources:
@@ -204,11 +224,13 @@ services:
       # accidentally engage in prod even if the base file changes.
       VAULT_DEV_ROOT_TOKEN_ID: ""
       VAULT_DEV_LISTEN_ADDRESS: ""
-      VAULT_ADDR: http://0.0.0.0:8200
+      VAULT_ADDR: https://127.0.0.1:8200
+      VAULT_CACERT: /vault/tls/vault-internal-ca.pem
     volumes:
       # vault_data:/vault/file is inherited from docker-compose.yml; only
-      # the new config bind-mount and audit log volume need to be added here.
+      # the new config bind-mount, TLS certs, and audit log volume are added.
       - ../vault/vault.hcl:/vault/config/vault.hcl:ro
+      - ../vault/certs:/vault/tls:ro
       - vault_logs:/vault/logs
     deploy:
       resources:

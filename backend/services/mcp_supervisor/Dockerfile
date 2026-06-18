@@ -4,6 +4,11 @@
 # Uses docker:27-cli as the base (Alpine + docker CLI binary) and adds
 # Python 3 for the health-check HTTP server. No pip packages needed — only
 # stdlib + the docker CLI binary that is already in the image.
+#
+# NOTE: runs as root intentionally — the Docker CLI needs access to
+# /var/run/docker.sock (owned by root:docker). The supervisor only reads
+# `docker info`; it does not execute containers itself (that is done by
+# backend-web via the socket proxy in production).
 
 FROM docker:27-cli
 

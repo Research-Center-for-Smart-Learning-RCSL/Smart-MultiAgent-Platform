@@ -89,7 +89,7 @@ class VaultClient:
 
     def __init__(self, cfg: VaultSection) -> None:
         self._cfg = cfg
-        self._client = hvac.Client(url=cfg.addr)
+        self._client = hvac.Client(url=cfg.addr, verify=cfg.ca_cert or True)
         self._lock = threading.Lock()
         self._pubkey_cache: dict[int, RSAPublicKey] = {}
         self._pubkey_fetched_at: float = 0.0

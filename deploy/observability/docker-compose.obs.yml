@@ -88,6 +88,7 @@ services:
     volumes:
       - ./promtail/promtail.yml:/etc/promtail/config.yml:ro
       - /var/run/docker.sock:/var/run/docker.sock:ro
+      - promtail_positions:/promtail
     command: -config.file=/etc/promtail/config.yml
     networks:
       - backend_net
@@ -135,6 +136,9 @@ configs:
             protocols:
               grpc:
                 endpoint: 0.0.0.0:4317
+      compactor:
+        compaction:
+          block_retention: 168h
       storage:
         trace:
           backend: local
@@ -148,6 +152,7 @@ volumes:
   loki_data:
   tempo_data:
   grafana_data:
+  promtail_positions:
 
 networks:
   backend_net:
