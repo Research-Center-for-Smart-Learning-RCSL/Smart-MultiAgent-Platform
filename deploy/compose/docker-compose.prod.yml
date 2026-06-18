@@ -224,6 +224,14 @@ services:
       VAULT_DEV_LISTEN_ADDRESS: ""
       VAULT_ADDR: https://127.0.0.1:8200
       VAULT_CACERT: /vault/tls/vault-internal-ca.pem
+    healthcheck:
+      # Override base HTTP healthcheck — prod Vault listens on HTTPS only.
+      # `vault status` respects VAULT_ADDR + VAULT_CACERT env vars.
+      test: ["CMD", "vault", "status", "-format=json"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
     volumes:
       # vault_data:/vault/file is inherited from docker-compose.yml; only
       # the new config bind-mount, TLS certs, and audit log volume are added.
