@@ -34,29 +34,33 @@ class _FakeContainer:
         self.removed = True
 
 
-def test_runsc_runtime_passes() -> None:
+@pytest.mark.asyncio
+async def test_runsc_runtime_passes() -> None:
     container = _FakeContainer("runsc")
-    DockerRunscSandbox._assert_runsc(container)  # must not raise
+    await DockerRunscSandbox._assert_runsc(container)  # must not raise
     assert container.killed is False
 
 
-def test_runc_fallback_is_killed_and_rejected() -> None:
+@pytest.mark.asyncio
+async def test_runc_fallback_is_killed_and_rejected() -> None:
     container = _FakeContainer("runc")
     with pytest.raises(SandboxRuntimeViolation):
-        DockerRunscSandbox._assert_runsc(container)
+        await DockerRunscSandbox._assert_runsc(container)
     assert container.killed is True
     assert container.removed is True
 
 
-def test_missing_runtime_is_rejected() -> None:
+@pytest.mark.asyncio
+async def test_missing_runtime_is_rejected() -> None:
     container = _FakeContainer(None)
     with pytest.raises(SandboxRuntimeViolation):
-        DockerRunscSandbox._assert_runsc(container)
+        await DockerRunscSandbox._assert_runsc(container)
     assert container.killed is True
 
 
-def test_uninspectable_container_fails_closed() -> None:
+@pytest.mark.asyncio
+async def test_uninspectable_container_fails_closed() -> None:
     container = _FakeContainer("runsc", reload_raises=True)
     with pytest.raises(SandboxRuntimeViolation):
-        DockerRunscSandbox._assert_runsc(container)
+        await DockerRunscSandbox._assert_runsc(container)
     assert container.killed is True
