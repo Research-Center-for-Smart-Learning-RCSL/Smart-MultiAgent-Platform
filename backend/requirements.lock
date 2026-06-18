@@ -2,6 +2,8 @@ aiosmtplib==3.0.2
     # via smap-backend (pyproject.toml)
 alembic==1.13.3
     # via smap-backend (pyproject.toml)
+annotated-doc==0.0.4
+    # via fastapi
 annotated-types==0.7.0
     # via pydantic
 anyio==4.14.0
@@ -57,7 +59,7 @@ docker==7.1.0
     # via smap-backend (pyproject.toml)
 email-validator==2.3.0
     # via pydantic
-fastapi==0.115.14
+fastapi==0.137.2
     # via smap-backend (pyproject.toml)
 google-re2==1.1.20251105
     # via smap-backend (pyproject.toml)
@@ -193,8 +195,10 @@ sqlalchemy==2.0.51
     # via
     #   alembic
     #   smap-backend (pyproject.toml)
-starlette==0.46.2
-    # via fastapi
+starlette==1.3.1
+    # via
+    #   fastapi
+    #   smap-backend (pyproject.toml)
 typer==0.12.5
     # via smap-backend (pyproject.toml)
 typing-extensions==4.15.0
@@ -209,7 +213,11 @@ typing-extensions==4.15.0
     #   pydantic-core
     #   referencing
     #   sqlalchemy
+    #   starlette
     #   typer
+    #   typing-inspection
+typing-inspection==0.4.2
+    # via fastapi
 tzdata==2026.2
     # via psycopg
 urllib3==2.7.0
