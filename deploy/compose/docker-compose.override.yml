@@ -14,6 +14,7 @@ services:
       SMAP_LOG_LEVEL: info
     volumes:
       - ../../backend:/app
+      - /var/run/docker.sock:/var/run/docker.sock
     ports:
       - "8000:8000"
 
@@ -27,6 +28,7 @@ services:
       SMAP_APP_ENV: dev
     volumes:
       - ../../backend:/app
+      - /var/run/docker.sock:/var/run/docker.sock
 
   minio:
     ports:
