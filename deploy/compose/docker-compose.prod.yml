@@ -19,14 +19,56 @@
 # Total hard-limit sum ≈ 56 GB; remaining ~8 GB reserved for OS + Docker daemon.
 # If your host has only 32 GB, halve every memory value and drop replicas by 1.
 
+volumes:
+  vault_logs:
+
 services:
+  # ---------- Socket proxy ----------
+  # Intercepts Docker API calls from backend services. Only the operations
+  # needed by DockerRunscSandbox (containers, images, volumes) and agent_fs_gc
+  # (volumes) are allowed. Raw /var/run/docker.sock is no longer mounted into
+  # any service that processes untrusted HTTP requests.
+  docker-socket-proxy:
+    image: tecnativa/docker-socket-proxy:0.3
+    container_name: smap_docker_proxy
+    restart: unless-stopped
+    environment:
+      CONTAINERS: 1
+      IMAGES: 1
+      VOLUMES: 1
+      POST: 1
+      ALLOW_START: 1
+      ALLOW_STOP: 1
+      ALLOW_RESTARTS: 0
+      NETWORKS: 0
+      SERVICES: 0
+      SWARM: 0
+      NODES: 0
+      BUILD: 0
+      EXEC: 0
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks: [backend_net]
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
+    deploy:
+      resources:
+        limits: { cpus: "0.25", memory: 128M }
+        reservations: { cpus: "0.1", memory: 64M }
+
+  # ---------- Edge ----------
   nginx:
     restart: unless-stopped
+    command: ["nginx", "-g", "daemon off;"]
     deploy:
       resources:
         limits: { cpus: "1.0", memory: 512M }
         reservations: { cpus: "0.25", memory: 256M }
 
+  # ---------- Backend ----------
   backend-web:
     restart: unless-stopped
     # 4 uvicorn workers per process; 3 replicas → 12 workers total.
@@ -35,6 +77,15 @@ services:
       SMAP_APP_ENV: prod
       SMAP_APP_DOCS_ENABLED: "false"
       SMAP_LOG_LEVEL: info
+      # Route Docker API calls through the socket proxy instead of raw socket.
+      DOCKER_HOST: tcp://docker-socket-proxy:2375
+    # Override base volumes to remove the raw Docker socket mount.
+    volumes: []
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      vault: { condition: service_healthy }
+      docker-socket-proxy: { condition: service_started }
     deploy:
       replicas: 3
       resources:
@@ -45,14 +96,29 @@ services:
     restart: unless-stopped
     environment:
       SMAP_APP_ENV: prod
+      DOCKER_HOST: tcp://docker-socket-proxy:2375
+    volumes: []
+    depends_on:
+      redis: { condition: service_healthy }
+      postgres: { condition: service_healthy }
+      docker-socket-proxy: { condition: service_started }
     deploy:
       replicas: 3
       resources:
         limits: { cpus: "3.0", memory: 2G }
         reservations: { cpus: "1.0", memory: 1G }
 
+  # ---------- Data services ----------
+  # Credential overrides: the base compose uses DEV-ONLY hardcoded passwords.
+  # In production every data service MUST receive operator-supplied secrets.
+  # Variables use the :? syntax so compose refuses to start if unset.
+
   postgres:
     restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${SMAP_DB_USER:-smap}
+      POSTGRES_PASSWORD: ${SMAP_DB_PASSWORD:?SMAP_DB_PASSWORD must be set for production}
+    shm_size: 2g
     command:
       - postgres
       # shared_buffers = 25 % of postgres container limit (8 GB → 2 GB).
@@ -72,10 +138,6 @@ services:
       - max_connections=512
       - -c
       - wal_compression=on
-      # NB: no pg_cron. The pgvector image ships without it, so
-      # `shared_preload_libraries=pg_cron` made Postgres exit FATAL at boot —
-      # and nothing uses it (periodic work runs on the arq cron worker, and
-      # bootstrap db-init already skips the pg_cron extension).
     deploy:
       resources:
         limits: { cpus: "6.0", memory: 8G }
@@ -87,11 +149,15 @@ services:
       - redis-server
       - --appendonly
       - "yes"
+      - --requirepass
+      - ${SMAP_REDIS_PASSWORD:?SMAP_REDIS_PASSWORD must be set for production}
       # maxmemory = container limit minus ~500 MB overhead for AOF rewrite buffer.
       - --maxmemory
       - "3500mb"
       - --maxmemory-policy
       - "allkeys-lru"
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${SMAP_REDIS_PASSWORD}", "PING"]
     deploy:
       resources:
         limits: { cpus: "1.0", memory: 4G }
@@ -119,6 +185,9 @@ services:
 
   minio:
     restart: unless-stopped
+    environment:
+      MINIO_ROOT_USER: ${SMAP_MINIO_ROOT_USER:?SMAP_MINIO_ROOT_USER must be set for production}
+      MINIO_ROOT_PASSWORD: ${SMAP_MINIO_ROOT_PASSWORD:?SMAP_MINIO_ROOT_PASSWORD must be set for production}
     deploy:
       resources:
         limits: { cpus: "2.0", memory: 5G }
@@ -138,13 +207,15 @@ services:
       VAULT_ADDR: http://0.0.0.0:8200
     volumes:
       # vault_data:/vault/file is inherited from docker-compose.yml; only
-      # the new config bind-mount needs to be added here.
+      # the new config bind-mount and audit log volume need to be added here.
       - ../vault/vault.hcl:/vault/config/vault.hcl:ro
+      - vault_logs:/vault/logs
     deploy:
       resources:
         limits: { cpus: "1.0", memory: 2G }
         reservations: { cpus: "0.25", memory: 512M }
 
+  # ---------- MCP sandbox plane ----------
   egress-proxy:
     restart: unless-stopped
     deploy:
@@ -156,10 +227,12 @@ services:
     restart: unless-stopped
     deploy:
       resources:
-        # Each spawned gVisor container consumes memory here; 4 G gives ~4 concurrent tool calls.
-        limits: { cpus: "4.0", memory: 4G }
-        reservations: { cpus: "1.0", memory: 1G }
+        # The supervisor itself is lightweight (health-check HTTP server only);
+        # containers are spawned by backend-web via the socket proxy, not here.
+        limits: { cpus: "0.25", memory: 128M }
+        reservations: { cpus: "0.1", memory: 64M }
 
+  # ---------- Frontend ----------
   frontend:
     # Prod serves the BUILT SPA via nginx (frontend/Dockerfile stage 2), not the
     # base file's Vite dev server. image + build override the base

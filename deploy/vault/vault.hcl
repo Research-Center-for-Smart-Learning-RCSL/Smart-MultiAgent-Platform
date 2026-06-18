@@ -13,7 +13,7 @@
 // First-run bootstrap (`vault operator init` + unseal) is documented in
 // deploy/vault/README.md §2. The dev-mode root token is **not** used in prod.
 
-ui            = true
+ui            = false
 disable_mlock = true
 
 storage "file" {
@@ -27,3 +27,10 @@ listener "tcp" {
 
 api_addr     = "http://vault:8200"
 cluster_addr = "http://vault:8201"
+
+// Audit log — every secret read, token mint, and transit op is recorded.
+// Mount to a persistent volume so logs survive restarts; rotate externally.
+audit "file" {
+  file_path = "/vault/logs/audit.log"
+  log_raw   = false
+}

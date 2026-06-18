@@ -42,6 +42,9 @@ class DatabaseSection(BaseSettings):
     dsn: str = "postgresql+asyncpg://smap:smap@postgres:5432/smap"
     pool_size: int = 20
     max_overflow: int = 10
+    pool_timeout: int = 30
+    pool_recycle: int = 300
+    connect_timeout: int = 10
     statement_timeout_ms: int = 30_000
 
 
@@ -49,6 +52,9 @@ class RedisSection(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="SMAP_REDIS_", extra="ignore")
 
     dsn: str = "redis://redis:6379/0"
+    socket_connect_timeout: int = 5
+    socket_timeout: int = 5
+    health_check_interval: int = 30
 
 
 class QdrantSection(BaseSettings):
@@ -63,7 +69,7 @@ class Neo4jSection(BaseSettings):
 
     url: str = "bolt://neo4j:7687"
     user: str = "neo4j"
-    password: str = "neo4j"  # dev default; prod pulls from Vault KV
+    password: str = "neo4jneo4j"  # dev default matches compose; prod pulls from Vault KV
     database: str = "smap"
 
 
@@ -313,8 +319,8 @@ def _check_prod_secrets(s: Settings) -> None:
     if s.app.env != "prod":
         return
     problems: list[str] = []
-    if s.neo4j.password == "neo4j":  # noqa: S105 — comparing against the dev default
-        problems.append("SMAP_NEO4J_PASSWORD is the insecure default 'neo4j'")
+    if s.neo4j.password in ("neo4j", "neo4jneo4j"):  # noqa: S105 — comparing against the dev default
+        problems.append("SMAP_NEO4J_PASSWORD is the insecure default")
     if s.minio.root_access_key == "minioadmin":
         problems.append("SMAP_MINIO_ROOT_ACCESS_KEY is the insecure default 'minioadmin'")
     if s.minio.root_secret_key == "minioadmin":  # noqa: S105 — comparing against the dev default
@@ -335,6 +341,8 @@ def _check_prod_secrets(s: Settings) -> None:
     # http://localhost:8080 — refuse to start instead of shipping a broken origin.
     if not s.security.cors_origins:
         problems.append("SMAP_SEC_CORS_ORIGINS must contain at least one origin in production")
+    if not s.security.session_cookie_secure:
+        problems.append("SMAP_SEC_SESSION_COOKIE_SECURE must be true in production (HTTPS required)")
     if problems:
         raise ConfigError("Insecure defaults active in production:\n  - " + "\n  - ".join(problems))
 

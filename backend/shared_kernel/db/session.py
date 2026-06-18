@@ -41,11 +41,14 @@ def _build() -> tuple[AsyncEngine, async_sessionmaker[AsyncSession]]:
         settings.dsn,
         pool_size=settings.pool_size,
         max_overflow=settings.max_overflow,
+        pool_timeout=settings.pool_timeout,
+        pool_recycle=settings.pool_recycle,
         pool_pre_ping=True,
         connect_args={
+            "timeout": settings.connect_timeout,
             "server_settings": {
                 _STATEMENT_TIMEOUT_KEY: str(settings.statement_timeout_ms),
-            }
+            },
         },
     )
     sm = async_sessionmaker(engine, expire_on_commit=False)

@@ -95,6 +95,12 @@ openapi-types: ## Regenerate frontend API types from backend OpenAPI.
 	cd backend && python -m scripts.export_openapi > openapi.json
 	cd frontend && pnpm run gen:api
 
+# ---------- Lock ----------
+.PHONY: lock lock-backend
+lock: lock-backend ## Regenerate pinned lock files.
+lock-backend: ## Regenerate backend/requirements.lock from pyproject.toml.
+	cd backend && pip-compile --output-file=requirements.lock --strip-extras --no-header --quiet pyproject.toml
+
 # ---------- Install ----------
 .PHONY: install install-backend install-frontend
 install: install-backend install-frontend ## Install all deps.
