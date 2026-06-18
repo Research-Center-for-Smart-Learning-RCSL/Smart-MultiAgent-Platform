@@ -86,6 +86,8 @@ export type ChatroomEventType =
   | 'agent.finished'
   | 'presence.joined'
   | 'presence.left'
+  | 'typing.start'
+  | 'typing.stop'
   | 'approval.requested'
   | 'approval.resolved'
   | 'workflow.state_changed'

@@ -31,6 +31,8 @@ from fastapi import (
 )
 from pydantic import BaseModel, Field
 from qdrant_client import AsyncQdrantClient
+
+from app.api.v1.deps import PaginationParams
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config.settings import get_settings
@@ -433,6 +435,7 @@ async def delete_rag_config(
 @config_router.get("/{config_id}/documents")
 async def list_documents(
     config_id: uuid.UUID = Path(...),
+    pagination: PaginationParams = Depends(),
     principal: Principal = Depends(current_principal),
     db: AsyncSession = Depends(db_session),
 ) -> list[RagDocumentOut]:
@@ -450,7 +453,9 @@ async def list_documents(
         RagDocumentRepository,
     )
 
-    docs = await RagDocumentRepository(db).list_for_config(config_id)
+    docs = await RagDocumentRepository(db).list_for_config(
+        config_id, limit=pagination.limit, offset=pagination.offset,
+    )
     return [_to_document_out(d) for d in docs]
 
 

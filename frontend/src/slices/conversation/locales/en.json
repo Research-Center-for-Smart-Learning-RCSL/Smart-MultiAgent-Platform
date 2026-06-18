@@ -54,7 +54,8 @@
       "attachmentFailed": "Failed to open attachment.",
       "loadEarlier": "Load earlier messages",
       "loadingEarlier": "Loading…",
-      "loadEarlierFailed": "Failed to load earlier messages."
+      "loadEarlierFailed": "Failed to load earlier messages.",
+      "typing": "is typing…"
     },
     "settings": {
       "title": "Chatroom Settings",

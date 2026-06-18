@@ -37,6 +37,7 @@ class Agent:
     project_id: uuid.UUID
     name: str
     model_hint: AgentModelHint
+    model_id: str | None
     key_group_id: uuid.UUID
     system_prompt: str
     prompt_strategy: PromptStrategy
@@ -70,6 +71,7 @@ class AgentDraft:
 
     name: str | None = None
     model_hint: AgentModelHint | None = None
+    model_id: str | None = None
     key_group_id: uuid.UUID | None = None
     system_prompt: str | None = None
     prompt_strategy: PromptStrategy | None = None
@@ -83,6 +85,7 @@ class AgentDraft:
     # Sentinel fields explicitly clearing a nullable column. The patch API
     # cannot tell "omitted" from "null" via `None` alone, so the service
     # drives this via explicit booleans set by the router.
+    clear_model_id: bool = False
     clear_rag_config: bool = False
     clear_graphrag_config: bool = False
     clear_context_token_cap: bool = False

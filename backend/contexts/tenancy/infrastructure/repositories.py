@@ -534,6 +534,8 @@ class InviteRepository:
         email: str,
         user_id: uuid.UUID | None,
         states: Sequence[InviteState] | None = None,
+        limit: int = 100,
+        offset: int = 0,
     ) -> Sequence[Invite]:
         predicate: sa.ColumnElement[bool] = sa.or_(
             t.invites.c.invitee_email == email,
@@ -543,7 +545,11 @@ class InviteRepository:
             predicate = sa.and_(predicate, t.invites.c.state.in_([s.value for s in states]))
         rows = (
             await self._db.execute(
-                t.invites.select().where(predicate).order_by(t.invites.c.created_at.desc())
+                t.invites.select()
+                .where(predicate)
+                .order_by(t.invites.c.created_at.desc())
+                .limit(limit)
+                .offset(offset)
             )
         ).all()
         return [_row_to_invite(r) for r in rows]

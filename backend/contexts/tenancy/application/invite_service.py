@@ -241,11 +241,15 @@ class InviteService:
         caller_email: str,
         caller_user_id: uuid.UUID,
         states: Sequence[InviteState] | None = None,
+        limit: int = 100,
+        offset: int = 0,
     ) -> Sequence[Invite]:
         return await self._invites.list_for_user(
             email=caller_email,
             user_id=caller_user_id,
             states=states,
+            limit=limit,
+            offset=offset,
         )
 
     async def scope_names(self, invites: Sequence[Invite]) -> dict[tuple[str, uuid.UUID], str]:

@@ -86,15 +86,9 @@ AGENT_STREAM_TOKENS_TOTAL = Counter(
     registry=REGISTRY,
 )
 
-# The schema stores only a provider *hint* (`model_hint`), not a concrete model
-# id.  These are the turn-engine's caller-supplied chat-model defaults per
-# provider — passed to the adapter as a `models` map (not an adapter hardcode),
-# so whichever key the router rotates to gets a model.
-#
-# Schema gap (P16): ``AgentModelHint`` is a *provider* discriminator
-# (claude / openai / gemini), not a per-agent model selector.  When a
-# ``model_id`` column lands on the ``agents`` table, override the
-# corresponding entry in the ``models`` dict inside ``_resolve_models``.
+# Per-provider chat-model defaults — passed to the adapter as a ``models`` map.
+# When an agent has a ``model_id`` configured, ``_resolve_models`` overrides
+# the entry for that provider so the adapter uses the agent's chosen model.
 _DEFAULT_CHAT_MODELS: dict[str, str] = {
     "claude": "claude-sonnet-4-6",
     "openai": "gpt-4o",
@@ -108,18 +102,11 @@ _CONTEXT_LIMITS: dict[str, int] = {
 
 
 def _resolve_models(agent: Agent) -> dict[str, str]:
-    """Build the ``models`` map for a turn, applying agent-level overrides.
-
-    Today ``AgentModelHint`` is only a provider discriminator so the
-    returned dict is just a copy of the defaults.  When a ``model_id``
-    column is added to agents, slot the override here::
-
-        models = dict(_DEFAULT_CHAT_MODELS)
-        if agent.model_id:
-            models[agent.model_hint.value] = agent.model_id
-        return models
-    """
-    return dict(_DEFAULT_CHAT_MODELS)
+    """Build the ``models`` map for a turn, applying agent-level overrides."""
+    models = dict(_DEFAULT_CHAT_MODELS)
+    if agent.model_id:
+        models[agent.model_hint.value] = agent.model_id
+    return models
 
 # Default embedding model per provider for GraphRAG retrieval — mirrors the
 # builder's map in ``app.workers.tasks.graphrag`` (kept local: contexts must

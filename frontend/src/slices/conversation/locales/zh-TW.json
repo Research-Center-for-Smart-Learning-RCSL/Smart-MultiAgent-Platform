@@ -51,7 +51,11 @@
       "deleteFailed": "刪除訊息失敗。",
       "attachmentExpired": "［附件已過期］{name}",
       "attachmentQuarantined": "［附件已封鎖］{name}",
-      "attachmentFailed": "開啟附件失敗。"
+      "attachmentFailed": "開啟附件失敗。",
+      "loadEarlier": "載入更早的訊息",
+      "loadingEarlier": "載入中…",
+      "loadEarlierFailed": "載入更早的訊息失敗。",
+      "typing": "正在輸入…"
     },
     "settings": {
       "title": "聊天室設定",

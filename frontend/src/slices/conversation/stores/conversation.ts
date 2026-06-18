@@ -22,6 +22,20 @@ export const useConversationStore = defineStore('conversation', () => {
   // Last agent failure kind ('timeout' for the client-side watchdog, or the
   // backend's error kind from agent.finished). The view consumes + clears it.
   const agentError = ref<Record<string, string | null>>({})
+  const typingUsers = ref<Record<string, Set<string>>>({})
+
+  function addTyping(roomId: string, userId: string): void {
+    const set = typingUsers.value[roomId] ?? new Set<string>()
+    set.add(userId)
+    typingUsers.value = { ...typingUsers.value, [roomId]: set }
+  }
+
+  function removeTyping(roomId: string, userId: string): void {
+    const set = typingUsers.value[roomId]
+    if (!set) return
+    set.delete(userId)
+    typingUsers.value = { ...typingUsers.value, [roomId]: set }
+  }
 
   function joinPresence(roomId: string, userId: string): void {
     const set = presence.value[roomId] ?? new Set<string>()
@@ -69,6 +83,8 @@ export const useConversationStore = defineStore('conversation', () => {
     agentStream.value = restStream
     const { [roomId]: _e, ...restError } = agentError.value
     agentError.value = restError
+    const { [roomId]: _t, ...restTyping } = typingUsers.value
+    typingUsers.value = restTyping
   }
 
   function clearAll(): void {
@@ -76,6 +92,7 @@ export const useConversationStore = defineStore('conversation', () => {
     agentThinking.value = {}
     agentStream.value = {}
     agentError.value = {}
+    typingUsers.value = {}
     activeChatroomId.value = null
   }
 
@@ -85,6 +102,9 @@ export const useConversationStore = defineStore('conversation', () => {
     agentThinking,
     agentStream,
     agentError,
+    typingUsers,
+    addTyping,
+    removeTyping,
     joinPresence,
     leavePresence,
     setAgentThinking,

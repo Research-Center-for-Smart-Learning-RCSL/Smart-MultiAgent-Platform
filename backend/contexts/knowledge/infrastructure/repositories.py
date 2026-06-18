@@ -257,12 +257,20 @@ class RagDocumentRepository:
         """
         await self._db.execute(t.rag_documents.delete().where(t.rag_documents.c.id == document_id))
 
-    async def list_for_config(self, rag_config_id: uuid.UUID) -> Sequence[RagDocument]:
+    async def list_for_config(
+        self,
+        rag_config_id: uuid.UUID,
+        *,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> Sequence[RagDocument]:
         rows = (
             await self._db.execute(
                 t.rag_documents.select()
                 .where(t.rag_documents.c.rag_config_id == rag_config_id)
                 .order_by(t.rag_documents.c.uploaded_at.desc())
+                .limit(limit)
+                .offset(offset)
             )
         ).all()
         return [_row_to_document(r) for r in rows]

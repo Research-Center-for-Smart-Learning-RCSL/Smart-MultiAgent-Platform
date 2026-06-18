@@ -23,6 +23,8 @@
     "form": {
       "name": "Name",
       "modelHint": "Model Provider",
+      "modelId": "Model",
+      "modelIdPlaceholder": "Default (leave empty) or e.g. claude-sonnet-4-6, gpt-4o-mini",
       "keyGroup": "Key Group",
       "keyGroupPlaceholder": "Select a key group…",
       "noKeyGroups": "This project has no key groups yet. Create one in the Keys section before adding an agent.",

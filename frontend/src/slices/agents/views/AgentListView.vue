@@ -56,6 +56,7 @@ const { handleSubmit, errors, defineField, resetForm, setErrors } = useForm<Agen
   initialValues: {
     name: '',
     model_hint: 'claude',
+    model_id: null,
     key_group_id: '',
     system_prompt: '',
     prompt_strategy: 'full',
@@ -69,6 +70,7 @@ const { handleSubmit, errors, defineField, resetForm, setErrors } = useForm<Agen
 
 const [name] = defineField('name')
 const [modelHint] = defineField('model_hint')
+const [modelId] = defineField('model_id')
 const [keyGroupId] = defineField('key_group_id')
 const [systemPrompt] = defineField('system_prompt')
 const [promptStrategy] = defineField('prompt_strategy')
@@ -178,6 +180,18 @@ function goToAgent(agentId: string) {
             Gemini
           </option>
         </select>
+      </FormField>
+
+      <FormField
+        :label="t('agents.form.modelId')"
+        name="model_id"
+        :error="errors.model_id"
+      >
+        <input
+          id="model_id"
+          v-model="modelId"
+          :placeholder="t('agents.form.modelIdPlaceholder')"
+        >
       </FormField>
 
       <FormField
@@ -330,7 +344,7 @@ function goToAgent(agentId: string) {
         @keydown.enter="goToAgent(agent.id)"
       >
         <span class="agent-list__item-name">{{ agent.name }}</span>
-        <span class="agent-list__item-model">{{ agent.model_hint }}</span>
+        <span class="agent-list__item-model">{{ agent.model_id ?? agent.model_hint }}</span>
       </li>
     </ul>
 
