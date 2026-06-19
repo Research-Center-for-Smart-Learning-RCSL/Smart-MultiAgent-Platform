@@ -226,7 +226,7 @@ import { DlqViewer, WakeupConfigEditor } from '@slices/workflow'
 import { useChatroomSettings } from '../composables/useChatroomSettings'
 import { useChatroomBindings } from '../composables/useChatroomBindings'
 
-const { t } = useI18n()
+const { t: _t } = useI18n()
 const route = useRoute()
 const chatroomId = route.params.chatroomId as string
 

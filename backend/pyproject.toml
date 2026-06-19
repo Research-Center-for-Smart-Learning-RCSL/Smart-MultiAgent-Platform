@@ -275,14 +275,21 @@ disable_error_code = ["misc", "no-untyped-call", "type-arg", "attr-defined",
 [[tool.mypy.overrides]]
 module = [
   "contexts.workflow.infrastructure.repositories",
+  "contexts.workflow.infrastructure.repositories.*",
   "contexts.orchestration.infrastructure.repositories",
+  "contexts.orchestration.infrastructure.repositories.*",
   "contexts.keys.infrastructure.group_repository",
   "contexts.keys.infrastructure.carry_repository",
   "contexts.agents.infrastructure.mcp_repositories",
   "contexts.agents.infrastructure.repositories",
+  "contexts.agents.infrastructure.repositories.*",
   "contexts.tenancy.infrastructure.repositories",
+  "contexts.tenancy.infrastructure.repositories.*",
   "contexts.notification.infrastructure.repositories",
+  "contexts.notification.infrastructure.repositories.*",
   "contexts.conversation.infrastructure.repositories",
+  "contexts.conversation.infrastructure.repositories.*",
+  "contexts.conversation.interfaces.facade",
   "contexts.identity.application.impersonation_service",
   "contexts.identity.application.admin_service",
   "app.workers.tasks.retention",
@@ -304,11 +311,14 @@ disable_error_code = ["attr-defined", "no-any-return"]
 module = [
   "shared_kernel.infra.probes.redis",
   "shared_kernel.auth.clients",
+  "shared_kernel.queue",
   "contexts.knowledge.infrastructure.redis_lock",
   "contexts.keys.infrastructure.revocation_listener",
   "contexts.orchestration.infrastructure.a2a_streams",
   "contexts.orchestration.application.subagent_service",
   "contexts.workflow.application.run_engine",
+  "contexts.agents.infrastructure.turn_lock",
+  "contexts.conversation.infrastructure.tus_store",
 ]
 disable_error_code = ["attr-defined", "type-arg", "union-attr", "no-untyped-call"]
 

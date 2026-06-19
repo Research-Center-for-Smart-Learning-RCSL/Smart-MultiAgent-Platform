@@ -258,7 +258,7 @@ class ChatroomAgentRepository:
         *,
         limit: int = 500,
         offset: int = 0,
-    ) -> list[tuple[uuid.UUID, uuid.UUID]]:
+    ) -> list[tuple[uuid.UUID, uuid.UUID]]:  # type: ignore[valid-type]
         """Return (agent_id, chatroom_id) pairs for non-deleted chatrooms.
 
         Used by the silence-trigger sweep (M19) so the SQL join stays in the

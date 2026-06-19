@@ -117,7 +117,7 @@ def _arq_redis_settings() -> RedisSettings:
         ssl=base.ssl,
         conn_timeout=s.socket_connect_timeout,
         conn_retries=3,
-        conn_retry_delay=1.0,
+        conn_retry_delay=1,
     )
 
 
