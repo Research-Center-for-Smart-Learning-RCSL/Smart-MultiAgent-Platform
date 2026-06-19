@@ -17,7 +17,7 @@ from contextlib import suppress
 
 from contexts.keys.application.provider_router import DEK_CACHE
 from shared_kernel.auth.clients import get_redis
-from shared_kernel.events.key_revocation import (
+from contexts.keys.infrastructure.key_revocation_events import (
     CHANNEL_KEY_CARRY_REVOKED,
     CHANNEL_KEY_REVOKED,
 )

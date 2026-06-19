@@ -24,8 +24,7 @@ from contexts.agents.application.a2a_scope import (
     A2ACheckInput,
     evaluate,
 )
-from contexts.agents.domain.models import Agent
-from contexts.agents.interfaces.facade import AgentsFacade
+from contexts.agents.interfaces.facade import Agent, AgentsFacade
 from contexts.orchestration.domain.errors import A2ADeliveryFailed, A2AForbidden, A2ATimeout
 from contexts.orchestration.domain.models import A2AEnvelope, A2AMessageType
 from contexts.orchestration.infrastructure import a2a_rendezvous, a2a_streams

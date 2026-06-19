@@ -597,7 +597,7 @@ async def _scrub_stale_presence(session: AsyncSession) -> int:
     lives in ``shared_kernel.realtime.presence`` so the key layout stays in one
     place.
     """
-    from shared_kernel.realtime.presence import scrub_stale_presence
+    from contexts.conversation.infrastructure.presence import scrub_stale_presence
 
     removed = await scrub_stale_presence()
     await _emit_summary(session, "retention.presence.scrubbed", removed)

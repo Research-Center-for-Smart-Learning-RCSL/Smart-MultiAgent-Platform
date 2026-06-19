@@ -35,7 +35,9 @@ from contexts.orchestration.infrastructure.repositories import (
     ApprovalVoteRepository,
 )
 from shared_kernel import audit
-from shared_kernel.realtime.pubsub import Publisher, room_channel, workflow_channel
+from contexts.conversation.infrastructure.channels import room_channel
+from contexts.workflow.infrastructure.channels import workflow_channel
+from shared_kernel.realtime.pubsub import Publisher
 
 _log = logging.getLogger(__name__)
 

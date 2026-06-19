@@ -36,7 +36,8 @@ from contexts.knowledge.infrastructure.repositories import (
 )
 from shared_kernel import audit
 from shared_kernel.queue import enqueue
-from shared_kernel.realtime.pubsub import Publisher, rag_channel
+from contexts.knowledge.infrastructure.channels import rag_channel
+from shared_kernel.realtime.pubsub import Publisher
 from shared_kernel.storage import get_minio_client
 
 _SHA_BLOCK = 1024 * 1024  # 1 MiB streaming read — never loads the whole file

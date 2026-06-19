@@ -16,7 +16,8 @@ from contexts.workflow.domain.models import (
     StepState,
 )
 from contexts.workflow.sel.template import interpolate
-from shared_kernel.realtime.pubsub import Publisher, workflow_channel
+from contexts.workflow.infrastructure.channels import workflow_channel
+from shared_kernel.realtime.pubsub import Publisher
 
 
 @register(NodeType.APPROVAL_GATE)

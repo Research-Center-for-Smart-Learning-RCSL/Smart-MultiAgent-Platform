@@ -22,8 +22,7 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from contexts.agents.domain.models import Agent
-from contexts.agents.interfaces.facade import AgentsFacade
+from contexts.agents.interfaces.facade import Agent, AgentsFacade
 from contexts.orchestration.domain.errors import (
     SubagentConcurrencyExceeded,
     SubagentDepthExceeded,

@@ -16,7 +16,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from contexts.notification.domain.models import Notification, NotificationKind
 from contexts.notification.infrastructure.repositories import NotificationRepository
 from shared_kernel.auth.clients import now
-from shared_kernel.realtime.pubsub import Publisher, user_channel
+from contexts.identity.infrastructure.channels import user_channel
+from shared_kernel.realtime.pubsub import Publisher
 
 
 class NotificationService:

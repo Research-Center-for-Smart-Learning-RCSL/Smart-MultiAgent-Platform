@@ -47,7 +47,8 @@ from shared_kernel.observability.metrics import (
     WORKFLOW_STEP_DURATION_SECONDS,
     WORKFLOW_STEPS_TOTAL,
 )
-from shared_kernel.realtime.pubsub import Publisher, workflow_channel
+from contexts.workflow.infrastructure.channels import workflow_channel
+from shared_kernel.realtime.pubsub import Publisher
 
 logger = logging.getLogger(__name__)
 

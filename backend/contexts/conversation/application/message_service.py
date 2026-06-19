@@ -34,7 +34,8 @@ from contexts.conversation.infrastructure.repositories import (
 )
 from shared_kernel import audit
 from shared_kernel.auth.clients import now
-from shared_kernel.realtime.pubsub import Publisher, room_channel
+from contexts.conversation.infrastructure.channels import room_channel
+from shared_kernel.realtime.pubsub import Publisher
 
 _log = logging.getLogger(__name__)
 
@@ -106,6 +107,23 @@ class MessageService:
             if a.message_id is not None:
                 grouped.setdefault(a.message_id, []).append(a)
         return grouped
+
+    async def search(
+        self,
+        *,
+        chatroom_id: uuid.UUID,
+        query: str,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> Sequence[tuple[Message, float, str]]:
+        """Full-text search within a chatroom (F.10). Delegates to the
+        repository's ``search`` which uses ``plainto_tsquery``."""
+        return await self._messages.search(
+            chatroom_id=chatroom_id,
+            query=query,
+            limit=limit,
+            offset=offset,
+        )
 
     async def list_edits(
         self,

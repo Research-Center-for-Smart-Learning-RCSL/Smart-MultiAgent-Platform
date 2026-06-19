@@ -45,27 +45,31 @@ from app.workers.tasks.orchestration import (
 )
 from app.workers.tasks.rag import rag_ingest_document
 from app.workers.tasks.retention import retention_sweep
-from app.workers.tasks.workflow import (
-    retry_workflow_node,
-    run_triggered_workflow,
-    run_workflow_step,
-    workflow_cron_scheduler,
-    workflow_event_resume,
-    workflow_event_timeout,
+from app.workers.tasks.workflow_approvals import (
     workflow_instruct_timeout,
     workflow_resume_approval,
     workflow_resume_instruct,
+)
+from app.workers.tasks.workflow_cron import workflow_cron_scheduler
+from app.workers.tasks.workflow_signals import (
+    run_triggered_workflow,
+    workflow_event_resume,
+    workflow_event_timeout,
     workflow_signal,
+    workflow_variable_signal,
+)
+from app.workers.tasks.workflow_steps import (
+    retry_workflow_node,
+    run_workflow_step,
     workflow_subagent_complete,
     workflow_subagent_timeout,
-    workflow_variable_signal,
-    workflow_watchdog,
 )
+from app.workers.tasks.workflow_watchdog import workflow_watchdog
 from contexts.keys.application.threshold_worker import sample_once as _threshold_sample_once
 from contexts.keys.infrastructure import revocation_listener
 from contexts.orchestration.application.a2a_consumer import A2AConsumerSupervisor
 from contexts.orchestration.application.a2a_handler import handle_envelope
-from shared_kernel.db import registry as _db_registry  # noqa: F401 — table imports
+import app.db_registry as _db_registry  # noqa: F401 — table imports
 from shared_kernel.db.session import get_sessionmaker
 from shared_kernel.logging.setup import configure_logging
 
