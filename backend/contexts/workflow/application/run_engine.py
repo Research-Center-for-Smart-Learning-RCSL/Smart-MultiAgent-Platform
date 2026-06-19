@@ -581,11 +581,15 @@ class RunEngine:
 
         # Insert step record and emit started event
         step = await self._recorder.insert_step(
-            run_id=ctx.run_id, node_id=node_id, input_data=node.config,
+            run_id=ctx.run_id,
+            node_id=node_id,
+            input_data=node.config,
         )
         await self._recorder.emit_step_started(
-            run_id=ctx.run_id, step_id=step.id,
-            node_id=node_id, node_type=node.type.value,
+            run_id=ctx.run_id,
+            step_id=step.id,
+            node_id=node_id,
+            node_type=node.type.value,
         )
 
         # Execute
@@ -611,12 +615,16 @@ class RunEngine:
 
         # Update step record, observe metrics, flush, and emit event
         await self._recorder.update_step(
-            step.id, outcome=outcome,
-            node_type=node.type.value, step_start=step_start,
+            step.id,
+            outcome=outcome,
+            node_type=node.type.value,
+            step_start=step_start,
         )
         await self._recorder.emit_step_event(
-            run_id=ctx.run_id, step_id=step.id,
-            node_id=node_id, outcome=outcome,
+            run_id=ctx.run_id,
+            step_id=step.id,
+            node_id=node_id,
+            outcome=outcome,
         )
 
         # Update run variables

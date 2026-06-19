@@ -168,9 +168,7 @@ class InviteService:
         row = (
             await self._db.execute(
                 sa.text(
-                    "SELECT id FROM users"
-                    " WHERE LOWER(email) = LOWER(:email)"
-                    " AND deleted_at IS NULL"
+                    "SELECT id FROM users" " WHERE LOWER(email) = LOWER(:email)" " AND deleted_at IS NULL"
                 ).bindparams(email=invitee_email)
             )
         ).first()
@@ -224,7 +222,9 @@ class InviteService:
 
             accept_link = f"{self._public_origin}/invites/accept#token={token}"
             rendered = email_templates.invite(
-                scope_label=scope_label, scope_name=scope_name, accept_link=accept_link,
+                scope_label=scope_label,
+                scope_name=scope_name,
+                accept_link=accept_link,
             )
             await self._custom_emailer.send(
                 EmailMessage(

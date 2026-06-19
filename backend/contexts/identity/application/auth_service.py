@@ -707,6 +707,7 @@ class AuthService:
                 )
         await self._sessions.revoke_all_for_user(user_id)
 
+
 def _normalise_email(raw: str) -> str:
     e = raw.strip().lower()
     at = e.rfind("@")

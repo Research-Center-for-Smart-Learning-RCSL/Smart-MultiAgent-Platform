@@ -52,12 +52,12 @@ async def admin_metrics(
     _count = "SELECT count(*) FROM {0} WHERE deleted_at IS NULL"
     users_count = (await db.execute(sa.text(_count.format("users")))).scalar_one()
     orgs_count = (await db.execute(sa.text(_count.format("orgs")))).scalar_one()
-    projects_count = (
-        await db.execute(sa.text(_count.format("projects")))
-    ).scalar_one()
-    audit_count = (await db.execute(sa.text(
-        "SELECT COALESCE(reltuples, 0)::bigint FROM pg_class WHERE relname = 'audit_logs'"
-    ))).scalar_one_or_none() or 0
+    projects_count = (await db.execute(sa.text(_count.format("projects")))).scalar_one()
+    audit_count = (
+        await db.execute(
+            sa.text("SELECT COALESCE(reltuples, 0)::bigint FROM pg_class WHERE relname = 'audit_logs'")
+        )
+    ).scalar_one_or_none() or 0
     result = MetricsOut(
         total_users=users_count,
         total_orgs=orgs_count,

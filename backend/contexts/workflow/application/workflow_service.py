@@ -107,7 +107,9 @@ class WorkflowService:
         offset: int = 0,
     ) -> list[Workflow]:
         return await self._repo.list_for_workspace(
-            workspace_id, limit=limit, offset=offset,
+            workspace_id,
+            limit=limit,
+            offset=offset,
         )
 
     async def get(self, workflow_id: uuid.UUID) -> Workflow:

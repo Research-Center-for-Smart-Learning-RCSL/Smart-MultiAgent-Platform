@@ -202,9 +202,7 @@ class UsageAccountant:
                 chatroom_id=request.chatroom_id,
             )
             if provider is not None:
-                PROVIDER_CALL_TOTAL.labels(
-                    provider=provider.value, status=str(result.http_status)
-                ).inc()
+                PROVIDER_CALL_TOTAL.labels(provider=provider.value, status=str(result.http_status)).inc()
         else:
             await redis_buckets.record(key_id, requests=1)
             await record_usage_event(
@@ -404,9 +402,7 @@ class ProviderRouter:
             try:
                 elapsed_ms = int((time.monotonic() - t0) * 1000)
                 if complete is not None:
-                    error_code = classify_http(
-                        complete.result.http_status, em.member.rotation
-                    ).error_code
+                    error_code = classify_http(complete.result.http_status, em.member.rotation).error_code
                     await self._accountant.record_call(
                         key_id=em.key.id,
                         result=complete.result,

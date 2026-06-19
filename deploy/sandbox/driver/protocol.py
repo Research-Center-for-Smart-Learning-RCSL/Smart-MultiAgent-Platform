@@ -99,7 +99,9 @@ def safe_workspace_path(raw: str) -> str:
     return normed
 
 
-def egress_headers(*, project_id: str, hmac_signature: str, target_url: str) -> dict[str, str]:
+def egress_headers(
+    *, project_id: str, hmac_signature: str, target_url: str
+) -> dict[str, str]:
     """Build the custom egress-proxy headers (mirrors HttpxEgressProxyClient).
 
     The proxy is NOT a transparent forward proxy — it authenticates with a

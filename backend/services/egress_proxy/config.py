@@ -38,8 +38,7 @@ class EgressProxyEnvConfig(BaseSettings):
             decoded = bytes.fromhex(v)
         except ValueError as exc:
             raise ValueError(
-                "EGRESS_PROXY_SHARED_SECRET must be a hex string"
-                " (e.g. 64 hex chars = 32 bytes)"
+                "EGRESS_PROXY_SHARED_SECRET must be a hex string" " (e.g. 64 hex chars = 32 bytes)"
             ) from exc
         if len(decoded) < 32:
             raise ValueError(

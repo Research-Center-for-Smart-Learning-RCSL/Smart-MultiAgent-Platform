@@ -79,7 +79,9 @@ class GraphRagContextProvider:
     # -- internal wiring ------------------------------------------------
 
     async def _graphrag_query(
-        self, config_id: uuid.UUID, query: str,
+        self,
+        config_id: uuid.UUID,
+        query: str,
     ) -> Any:
         """Production GraphRAG retrieval wiring (E.8).
 
@@ -119,10 +121,12 @@ class GraphRagContextProvider:
             )
 
         driver = Neo4jAsyncDriver(
-            uri=neo4j_conf.url, auth=(neo4j_conf.user, neo4j_conf.password),
+            uri=neo4j_conf.url,
+            auth=(neo4j_conf.user, neo4j_conf.password),
         )
         qclient = AsyncQdrantClient(
-            url=self._qdrant_url, api_key=self._qdrant_api_key or None,
+            url=self._qdrant_url,
+            api_key=self._qdrant_api_key or None,
         )
         try:
             svc = GraphRagRetrieveService(
@@ -137,7 +141,8 @@ class GraphRagContextProvider:
             await driver.close()
 
     async def _resolve_embed_key(
-        self, builder_key_group_id: uuid.UUID,
+        self,
+        builder_key_group_id: uuid.UUID,
     ) -> tuple[str, str, uuid.UUID] | None:
         """First embedding-capable key in the builder group -> (provider, model, key_id).
 

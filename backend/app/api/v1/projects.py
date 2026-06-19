@@ -264,9 +264,7 @@ async def list_members(
 
         email_rows = (
             await db.execute(
-                sa.select(user_t.users.c.id, user_t.users.c.email).where(
-                    user_t.users.c.id.in_(user_ids)
-                )
+                sa.select(user_t.users.c.id, user_t.users.c.email).where(user_t.users.c.id.in_(user_ids))
             )
         ).all()
         emails: dict[uuid.UUID, str] = {r.id: r.email for r in email_rows}

@@ -114,9 +114,7 @@ class StepRecorder:
         outcome: StepOutcome,
     ) -> None:
         """Publish ``workflow.step_finished`` or ``workflow.step_failed`` WS event."""
-        action = (
-            "workflow.step_failed" if outcome.state == StepState.FAILED else "workflow.step_finished"
-        )
+        action = "workflow.step_failed" if outcome.state == StepState.FAILED else "workflow.step_finished"
         pub = Publisher(workflow_channel(run_id))
         await pub.emit(
             action,

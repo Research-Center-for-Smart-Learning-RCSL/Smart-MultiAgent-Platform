@@ -293,9 +293,7 @@ class WorkflowRunRepository:
         ended_at: datetime | None = None,
         variables: dict[str, Any] | None = None,
     ) -> bool:
-        allowed_from = [
-            k for k, v in self._VALID_TRANSITIONS.items() if state.value in v
-        ]
+        allowed_from = [k for k, v in self._VALID_TRANSITIONS.items() if state.value in v]
         if not allowed_from:
             return False
         values: dict[str, Any] = {"state": state.value}

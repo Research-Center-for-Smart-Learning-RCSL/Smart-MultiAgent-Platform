@@ -89,12 +89,12 @@ class RagContextProvider:
                     )
                 except TypeError:
                     _log.warning(
-                        "router-backed reranker unavailable for rag config %s; "
-                        "retrieving without rerank",
+                        "router-backed reranker unavailable for rag config %s; " "retrieving without rerank",
                         cfg.id,
                     )
             qclient = AsyncQdrantClient(
-                url=self._qdrant_url, api_key=self._qdrant_api_key or None,
+                url=self._qdrant_url,
+                api_key=self._qdrant_api_key or None,
             )
             try:
                 svc = RetrieveService(
@@ -118,7 +118,9 @@ class RagContextProvider:
                 await qclient.close()
         except Exception:
             _log.warning(
-                "RAG retrieval failed config=%s", rag_config_id, exc_info=True,
+                "RAG retrieval failed config=%s",
+                rag_config_id,
+                exc_info=True,
             )
             return None
 
