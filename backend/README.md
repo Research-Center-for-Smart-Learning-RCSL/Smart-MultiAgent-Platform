@@ -31,14 +31,16 @@ contexts/            # Ten bounded contexts (independent business domains)
 shared_kernel/       # Shared primitives across all contexts
   auth/              # Authentication and authorization (JWT, RBAC matrix, rate limiter, IP ban cache)
   db/                # SQLAlchemy engine, session factory, table registry
+  errors/            # Error handling (RFC 7807 Problem Details, custom error base)
+  events/            # In-process event bus for inter-context communication
+  i18n/              # Internationalization helpers
+  infra/             # Shared external service clients (Vault, Redis buckets)
+  logging/           # Structured logging via loguru with JSON + redaction
+  markdown/          # Markdown rendering and sanitization helpers
+  observability/     # Prometheus metrics and OpenTelemetry instrumentation
+  realtime/          # WebSocket connection management and pub/sub helpers
   security/          # Envelope encryption (DEK + Vault Transit)
   storage/           # MinIO client wrapper
-  audit/             # Audit event emitter (shared across contexts)
-  events/            # In-process event bus for inter-context communication
-  errors/            # Error handling (RFC 7807 Problem Details, custom error base)
-  i18n/              # Internationalization helpers
-  logging/           # Structured logging via loguru with JSON + redaction
-  infra/             # Shared external service clients (Vault, Redis buckets)
 tests/               # Test suites (unit, integration, end-to-end)
 ```
 
