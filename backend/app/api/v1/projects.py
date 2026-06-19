@@ -5,6 +5,7 @@ from __future__ import annotations
 import uuid
 from typing import Literal
 
+import sqlalchemy as sa
 from fastapi import APIRouter, Depends, Header, HTTPException, Path, Query, status
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -52,6 +53,7 @@ class ProjectOut(BaseModel):
 
 class ProjectMemberOut(BaseModel):
     user_id: uuid.UUID
+    email: str
     role: str
     joined_at: str
 
@@ -256,9 +258,24 @@ async def list_members(
 ) -> list[ProjectMemberOut]:
     service = ProjectService(db)
     members = await service.list_members(project_id)
+    user_ids = [m.user_id for m in members]
+    if user_ids:
+        from contexts.identity.infrastructure import tables as user_t
+
+        email_rows = (
+            await db.execute(
+                sa.select(user_t.users.c.id, user_t.users.c.email).where(
+                    user_t.users.c.id.in_(user_ids)
+                )
+            )
+        ).all()
+        emails: dict[uuid.UUID, str] = {r.id: r.email for r in email_rows}
+    else:
+        emails = {}
     return [
         ProjectMemberOut(
             user_id=m.user_id,
+            email=emails.get(m.user_id, ""),
             role=m.role.value,
             joined_at=m.joined_at.isoformat(),
         )

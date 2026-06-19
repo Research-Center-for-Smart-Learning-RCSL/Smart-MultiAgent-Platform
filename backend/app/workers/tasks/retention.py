@@ -381,7 +381,6 @@ async def _sweep_orphaned_subagent_roots(session: AsyncSession) -> int:
 
 
 async def _close_idle_impersonations(session: AsyncSession) -> int:
-    from app.config.settings import get_settings
     from shared_kernel.auth import tokens
 
     cutoff = now() - timedelta(minutes=30)
@@ -394,10 +393,9 @@ async def _close_idle_impersonations(session: AsyncSession) -> int:
     )
     rows = result.all()
     count = len(rows)
-    ttl = timedelta(seconds=get_settings().jwt.access_ttl_seconds)
     for row in rows:
         if row.access_jti is not None:
-            await tokens.deny_jti(row.access_jti, ttl=ttl)
+            await tokens.deny_access_jti(row.access_jti)
     # Re-sample the gauge after the sweep so dashboards reflect the post-close
     # value. Coarse (nightly) but cheap; fine-grained tracking would belong in
     # the impersonation start/end paths.

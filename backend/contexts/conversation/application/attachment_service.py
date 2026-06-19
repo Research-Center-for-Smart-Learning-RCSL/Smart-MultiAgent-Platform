@@ -315,19 +315,9 @@ async def _enqueue_scan(*, attachment_id: uuid.UUID) -> None:
     web-image import time. Silently no-ops if Redis can't be reached —
     scanning is best-effort (R22.15.07 explicitly allows unconfigured)."""
     try:
-        from arq.connections import RedisSettings, create_pool
+        from shared_kernel.queue import enqueue
 
-        from app.config.settings import get_settings
-
-        pool = await create_pool(RedisSettings.from_dsn(get_settings().redis.dsn))
-        try:
-            await pool.enqueue_job(
-                "file_scan_requested",
-                str(attachment_id),
-                _job_id=f"scan:{attachment_id}",
-            )
-        finally:
-            await pool.aclose(close_connection_pool=True)
+        await enqueue("file_scan_requested", str(attachment_id), _job_id=f"scan:{attachment_id}")
     except Exception:  # pragma: no cover — best-effort
         # The upload must not fail because of this, but we must alert so operators
         # know the file will not be scanned until a manual rescan is triggered.

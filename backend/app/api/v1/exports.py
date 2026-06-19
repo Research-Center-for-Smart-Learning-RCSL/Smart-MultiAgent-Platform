@@ -10,12 +10,10 @@ from __future__ import annotations
 import uuid
 from datetime import timedelta
 
-from arq.connections import RedisSettings, create_pool
 from fastapi import APIRouter, Depends, Path
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.config.settings import get_settings
 from contexts.conversation.application import export_service
 from contexts.conversation.application.access import (
     ensure_can_read,
@@ -68,16 +66,9 @@ async def create_export(
         chatroom_id=chatroom_id,
         owner_user_id=principal.user_id,
     )
-    pool = await create_pool(RedisSettings.from_dsn(get_settings().redis.dsn))
-    try:
-        await pool.enqueue_job(
-            "chat_export",
-            str(state.job_id),
-            str(chatroom_id),
-            str(principal.user_id),
-        )
-    finally:
-        await pool.aclose(close_connection_pool=True)
+    from shared_kernel.queue import enqueue
+
+    await enqueue("chat_export", str(state.job_id), str(chatroom_id), str(principal.user_id))
     EXPORT_JOBS.inc()
     _ = ctx
     return ExportCreateOut(job_id=state.job_id, status=state.status)
