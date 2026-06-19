@@ -6,8 +6,7 @@ import {
   wsManager,
 } from '@shared/transport'
 import { queryClient } from '@shared/query-client'
-import { useOrchestrationStore, useWorkflowStore } from '@slices/workflow'
-import { useConversationStore } from '@slices/conversation'
+import { runAllCleanups } from '@shared/stores/useAppCleanup'
 import { authApi, type Me, type TokenPair } from '../api/auth'
 
 export const useSessionStore = defineStore('identity/session', () => {
@@ -50,9 +49,7 @@ export const useSessionStore = defineStore('identity/session', () => {
     setRefreshToken(null)
     wsManager.closeAll()
     queryClient.clear()
-    useOrchestrationStore().clearAll()
-    useConversationStore().clearAll()
-    useWorkflowStore().clearAll()
+    runAllCleanups()
   }
 
   async function hydrate(): Promise<void> {

@@ -12,7 +12,7 @@
 import { onScopeDispose, watch } from 'vue'
 import { useQueryClient } from '@tanstack/vue-query'
 import { wsManager, type ChannelEvent } from '@shared/transport'
-import { useSessionStore } from '@slices/identity'
+import { useSessionStore } from '@shared/stores/session'
 import { notificationKeys } from '../queries'
 
 export function useNotificationsSocket(): void {

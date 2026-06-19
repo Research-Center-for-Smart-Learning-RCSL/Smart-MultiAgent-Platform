@@ -4,6 +4,7 @@ import zhTW from './locales/zh-TW.json'
 
 export { agentsRoutes } from './routes'
 export { agentKeys } from './queries'
+export { agentsApi } from './api'
 export type { Agent, RagConfig } from './api'
 export { useRagConfigSocket, type RagIngestionProgress } from './composables/useRagConfigSocket'
 export { agentCreateSchema, ragConfigCreateSchema } from './types/schemas'

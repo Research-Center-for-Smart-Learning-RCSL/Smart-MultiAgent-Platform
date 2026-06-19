@@ -251,7 +251,7 @@ import { ElMessageBox } from 'element-plus'
 import { useToast } from '@shared/composables'
 import { useI18n } from 'vue-i18n'
 import { useBreakpoint, usePolling } from '@shared/composables'
-import { useSessionStore } from '@slices/identity'
+import { useSessionStore } from '@shared/stores/session'
 import {
   createExport,
   deleteMessage,
@@ -269,7 +269,8 @@ import { enhanceRenderedMarkdown, renderMarkdown, sanitizeSnippet } from '../lib
 import { convKeys } from '../queries'
 import { useConversationStore } from '../stores/conversation'
 import type { Attachment, ExportStatus, Message, SearchHit } from '../types'
-import { ApprovalCard, useOrchestrationStore } from '@slices/workflow'
+import { ApprovalCard } from '@slices/workflow'
+import { useOrchestrationStore } from '@shared/stores/orchestration'
 
 const { t } = useI18n()
 const toast = useToast()

@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import { computed, reactive, ref, shallowRef } from 'vue'
+import { registerCleanup } from '@shared/stores/useAppCleanup'
 import type {
   LintIssue,
   WorkflowDefinition,
@@ -100,6 +101,10 @@ export const useWorkflowStore = defineStore('workflow', () => {
     undoStack.value = []
     redoStack.value = []
   }
+
+  // Register with the shared cleanup registry so session.clear() can
+  // reset workflow state without importing this store directly (H14).
+  registerCleanup(clearAll)
 
   return {
     dirty,

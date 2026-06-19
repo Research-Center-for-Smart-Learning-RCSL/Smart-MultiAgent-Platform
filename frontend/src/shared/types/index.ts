@@ -8,3 +8,13 @@ export interface Problem {
   instance?: string
   field_errors?: Array<{ loc: (string | number)[]; msg: string; type: string }>
 }
+
+export type {
+  Approval,
+  ApprovalMode,
+  ApprovalState,
+  ApprovalVote,
+  ApprovalWithVotes,
+  WakeupConfig,
+  WakeupTriggerConfig,
+} from './workflow'

@@ -3,7 +3,7 @@ import { onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useToast } from '@shared/composables'
 import { invitesApi, type Invite } from '../api/invites'
-import { useSessionStore } from '@slices/identity'
+import { useSessionStore } from '@shared/stores/session'
 import { isProblemWithType } from '@shared/transport'
 
 const { t } = useI18n()

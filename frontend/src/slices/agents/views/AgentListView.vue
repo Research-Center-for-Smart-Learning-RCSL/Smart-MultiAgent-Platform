@@ -8,7 +8,7 @@ import { computed, ref, watch } from 'vue'
 
 import { FormField } from '@shared/ui'
 import { useServerErrors, useToast } from '@shared/composables'
-import { keyGroupsApi, keysKeys } from '@slices/keys'
+import { keyGroupsApi, keysKeys } from '@shared/composables/useProjectKeys'
 import { agentsApi } from '../api'
 import { agentKeys } from '../queries'
 import { agentCreateSchema, type AgentCreateInput } from '../types/schemas'
