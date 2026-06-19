@@ -235,7 +235,7 @@ import {
   removeChatroomAgent,
 } from '../api'
 import { DlqViewer, WakeupConfigEditor, patchAgentWakeupConfig } from '@slices/workflow'
-import type { WakeupConfig } from '@slices/workflow'
+import type { WakeupConfig } from '@shared/types/workflow'
 import type { Agent } from '@slices/agents'
 import type { Chatroom } from '../types'
 

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { useSessionStore } from '@slices/identity'
+import { useSessionStore } from '@shared/stores/session'
 
 const props = defineProps<{
   cap: string

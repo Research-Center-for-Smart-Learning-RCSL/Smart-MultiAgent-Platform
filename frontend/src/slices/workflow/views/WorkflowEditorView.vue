@@ -344,11 +344,11 @@ async function loadWorkflow(): Promise<void> {
 
 async function loadContextData(): Promise<void> {
   try {
-    const { getWorkspace } = await import('@slices/conversation/api')
+    const { getWorkspace } = await import('@slices/conversation')
     const ws = await getWorkspace(workspaceId.value)
     const [{ agentsApi }, { listChatrooms }] = await Promise.all([
-      import('@slices/agents/api'),
-      import('@slices/conversation/api'),
+      import('@slices/agents'),
+      import('@slices/conversation'),
     ])
     const [agentRes, chatroomList] = await Promise.all([
       agentsApi.list(ws.project_id),

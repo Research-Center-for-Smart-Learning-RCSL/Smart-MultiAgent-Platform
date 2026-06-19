@@ -11,6 +11,7 @@
 
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
+import { registerCleanup } from '@shared/stores/useAppCleanup'
 
 export const useConversationStore = defineStore('conversation', () => {
   const activeChatroomId = ref<string | null>(null)
@@ -95,6 +96,10 @@ export const useConversationStore = defineStore('conversation', () => {
     typingUsers.value = {}
     activeChatroomId.value = null
   }
+
+  // Register with the shared cleanup registry so session.clear() can
+  // reset conversation state without importing this store directly (H14).
+  registerCleanup(clearAll)
 
   return {
     activeChatroomId,

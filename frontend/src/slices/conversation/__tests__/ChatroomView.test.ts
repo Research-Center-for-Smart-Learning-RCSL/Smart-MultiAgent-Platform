@@ -5,7 +5,7 @@ import { server } from '../../../../tests/mocks/server'
 import { renderView } from '../../../../tests/utils'
 import ChatroomView from '../views/ChatroomView.vue'
 import { useConversationStore } from '../stores/conversation'
-import { useSessionStore } from '@slices/identity'
+import { useSessionStore } from '@shared/stores/session'
 
 const mockToast = vi.hoisted(() => ({
   success: vi.fn(),

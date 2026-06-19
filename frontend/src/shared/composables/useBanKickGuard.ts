@@ -3,7 +3,7 @@
 import { watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { wsManager, type ChannelEvent } from '@shared/transport'
-import { useSessionStore } from '@slices/identity'
+import { useSessionStore } from '@shared/stores/session'
 
 export function useBanKickGuard(): void {
   const router = useRouter()

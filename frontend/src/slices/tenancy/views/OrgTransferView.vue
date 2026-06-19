@@ -3,7 +3,7 @@ import { computed, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useToast } from '@shared/composables'
-import { useSessionStore } from '@slices/identity'
+import { useSessionStore } from '@shared/stores/session'
 import { orgsApi, type OriginalCreatorTransfer } from '../api/orgs'
 
 const { t } = useI18n()

@@ -7,6 +7,7 @@ export { convKeys } from './queries'
 export { useConversationStore } from './stores/conversation'
 export { useChatroomSocket } from './composables/useChatroomSocket'
 export { renderMarkdown, enhanceRenderedMarkdown } from './lib/renderMarkdown'
+export { getWorkspace, listChatrooms } from './api'
 export type {
   Attachment,
   Chatroom,

@@ -9,7 +9,7 @@ import { ElMessageBox } from 'element-plus'
 
 import { FormField } from '@shared/ui'
 import { useServerErrors, useToast } from '@shared/composables'
-import { projectKeysApi, CAPABILITIES, keysKeys, type ApiKey } from '@slices/keys'
+import { projectKeysApi, CAPABILITIES, keysKeys, type ApiKey } from '@shared/composables/useProjectKeys'
 import { agentsApi, type RagConfig } from '../api'
 import { agentKeys } from '../queries'
 import { ragConfigCreateSchema, type RagConfigCreateInput } from '../types/schemas'

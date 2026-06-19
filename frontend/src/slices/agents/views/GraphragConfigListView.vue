@@ -9,7 +9,7 @@ import { ElMessageBox } from 'element-plus'
 
 import { FormField } from '@shared/ui'
 import { useServerErrors, usePolling, useToast } from '@shared/composables'
-import { keyGroupsApi, keysKeys } from '@slices/keys'
+import { keyGroupsApi, keysKeys } from '@shared/composables/useProjectKeys'
 import { agentsApi, type GraphragConfig } from '../api'
 import { agentKeys } from '../queries'
 import {
