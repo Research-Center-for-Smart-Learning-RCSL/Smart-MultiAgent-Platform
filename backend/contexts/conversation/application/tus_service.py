@@ -246,14 +246,14 @@ class TusService:
             )
         else:
             # rag_source (create() guarantees rag_config_id present). Cross-context
-            # into knowledge via lazy import (same pattern as project_service ->
-            # KeysFacade); the finaliser streams the staged blob into MinIO,
-            # registers the rag_documents row, and enqueues the rag_ingest_document
-            # worker that runs the embed pipeline off the request path (E.6).
+            # into knowledge via the KnowledgeFacade; the finaliser streams the
+            # staged blob into MinIO, registers the rag_documents row, and
+            # enqueues the rag_ingest_document worker that runs the embed
+            # pipeline off the request path (E.6).
             assert upload.rag_config_id is not None
-            from contexts.knowledge.application.rag_tus_finalizer import RagTusFinalizer
+            from contexts.knowledge.interfaces.facade import KnowledgeFacade
 
-            doc = await RagTusFinalizer(self._db).finalize(
+            doc = await KnowledgeFacade(self._db).finalize_rag_upload(
                 rag_config_id=upload.rag_config_id,
                 filename=upload.filename,
                 mime=upload.mime,

@@ -67,5 +67,53 @@ class IdentityFacade:
     async def list_ip_bans(self) -> Sequence[IpBan]:
         return await self._ip_bans.list_all()
 
+    async def send_invite_email(
+        self,
+        *,
+        to_email: str,
+        scope_label: str,
+        scope_name: str,
+        invite_token: str,
+        base_url: str,
+    ) -> None:
+        """Render the invite template and send via the configured transport.
+
+        Encapsulates the identity email infrastructure so callers in other
+        contexts (tenancy invite service) do not need to import email
+        templates, ``EmailMessage``, or the sender factory directly.
+        """
+        from contexts.identity.application.factory import (
+            LazyEmailSender,
+            email_sender_factory,
+        )
+        from contexts.identity.infrastructure import email_templates
+        from contexts.identity.infrastructure.email import EmailMessage
+
+        accept_link = f"{base_url.rstrip('/')}/invites/accept#token={invite_token}"
+        rendered = email_templates.invite(
+            scope_label=scope_label,
+            scope_name=scope_name,
+            accept_link=accept_link,
+        )
+        sender = LazyEmailSender(email_sender_factory)
+        await sender.send(
+            EmailMessage(
+                to=to_email,
+                subject=rendered.subject,
+                text_body=rendered.text_body,
+                html_body=rendered.html_body,
+                template="invite",
+            )
+        )
+
+    @staticmethod
+    def recipient_digest(addr: str) -> str:
+        """SHA-256 digest of a normalised recipient (re-exported for audit)."""
+        from contexts.identity.infrastructure.email import (
+            recipient_digest as _digest,
+        )
+
+        return _digest(addr)
+
 
 __all__ = ["IdentityFacade", "UserProfile"]

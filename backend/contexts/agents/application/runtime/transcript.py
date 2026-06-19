@@ -22,8 +22,7 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from contexts.conversation.domain.models import Message, SenderType
-from contexts.conversation.infrastructure.repositories import MessageRepository
+from contexts.conversation.interfaces.facade import ConversationFacade, Message, SenderType
 
 # How many recent rows to pull when assembling history. Compaction keeps the
 # live window bounded; this is the safety ceiling on a single turn's scan.
@@ -86,7 +85,7 @@ async def load_model_history(
     window: int = DEFAULT_HISTORY_WINDOW,
 ) -> list[HistoryMessage]:
     """Build the model-facing history for ``chatroom_id`` (compacted ranges elided)."""
-    rows = await MessageRepository(db).list(chatroom_id=chatroom_id, limit=window)
+    rows = await ConversationFacade(db).list_messages(chatroom_id, limit=window)
     chronological = list(reversed(rows))  # repo returns newest-first
 
     compacted: set[uuid.UUID] = set()
@@ -112,7 +111,7 @@ class MessagesTranscriptStore:
     """Production ``TranscriptStore`` — folds a range into a summary row."""
 
     def __init__(self, db: AsyncSession, *, chatroom_id: uuid.UUID) -> None:
-        self._repo = MessageRepository(db)
+        self._facade = ConversationFacade(db)
         self._chatroom_id = chatroom_id
 
     async def replace_range_with_summary(
@@ -121,7 +120,7 @@ class MessagesTranscriptStore:
         message_ids: list[Any],
         summary_text: str,
     ) -> uuid.UUID:
-        msg = await self._repo.create(
+        msg = await self._facade.create_message(
             chatroom_id=self._chatroom_id,
             sender_type=SenderType.SYSTEM,
             sender_id=None,

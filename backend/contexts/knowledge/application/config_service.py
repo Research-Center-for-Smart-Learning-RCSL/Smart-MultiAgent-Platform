@@ -2,26 +2,24 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import uuid
 from collections.abc import Sequence
 from typing import Any
 
-import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession
 
 _log = logging.getLogger(__name__)
 
-from contexts.keys.domain.errors import CapabilityMismatch as KeysCapabilityMismatch
-from contexts.keys.domain.models import ApiKey
-from contexts.keys.domain.providers import (
+from contexts.keys.interfaces.facade import (
     ApiKeyProvider,
     CapabilityRequirement,
+    KeysCapabilityMismatch,
+    KeysFacade,
     ProviderCapability,
     assert_capability,
 )
-from contexts.keys.infrastructure import tables as keys_t
-from contexts.keys.infrastructure.repositories import ApiKeyRepository
 from contexts.knowledge.domain.errors import (
     CapabilityMismatch,
     EmbedModelNotWhitelisted,
@@ -47,34 +45,15 @@ class RagConfigService:
     def __init__(self, db: AsyncSession) -> None:
         self._db = db
         self._configs = RagConfigRepository(db)
-        self._keys = ApiKeyRepository(db)
+        self._keys_facade = KeysFacade(db)
 
     async def _validate_embed_key(
         self, *, key_id: uuid.UUID, provider: str, project_id: uuid.UUID
-    ) -> ApiKey:
-        key = await self._keys.get_active(key_id)
+    ) -> None:
+        key = await self._keys_facade.get_key(key_id)
         if key is None:
             raise CapabilityMismatch(f"embed_key {key_id} missing or deleted")
-        scope_row = (
-            await self._db.execute(
-                sa.select(sa.literal(1))
-                .select_from(
-                    keys_t.key_group_members.join(
-                        keys_t.key_groups,
-                        keys_t.key_groups.c.id == keys_t.key_group_members.c.group_id,
-                    )
-                )
-                .where(
-                    sa.and_(
-                        keys_t.key_group_members.c.key_id == key_id,
-                        keys_t.key_groups.c.project_id == project_id,
-                        keys_t.key_groups.c.deleted_at.is_(None),
-                    )
-                )
-                .limit(1)
-            )
-        ).first()
-        if scope_row is None:
+        if not await self._keys_facade.is_key_in_project_scope(key_id, project_id):
             raise CapabilityMismatch(f"embed_key {key_id} does not belong to project")
         if key.provider.value != provider:
             raise CapabilityMismatch(
@@ -84,10 +63,9 @@ class RagConfigService:
             assert_capability(ApiKeyProvider(key.provider.value), _EMBED)
         except KeysCapabilityMismatch as exc:
             raise CapabilityMismatch(str(exc)) from exc
-        return key
 
-    async def _validate_rerank_key(self, *, key_id: uuid.UUID, provider: str) -> ApiKey:
-        key = await self._keys.get_active(key_id)
+    async def _validate_rerank_key(self, *, key_id: uuid.UUID, provider: str) -> None:
+        key = await self._keys_facade.get_key(key_id)
         if key is None:
             raise CapabilityMismatch(f"rerank_key {key_id} missing or deleted")
         if key.provider.value != provider:
@@ -96,7 +74,6 @@ class RagConfigService:
             assert_capability(ApiKeyProvider(key.provider.value), _RERANK)
         except KeysCapabilityMismatch as exc:
             raise CapabilityMismatch(str(exc)) from exc
-        return key
 
     async def create(
         self,
@@ -283,6 +260,141 @@ class RagConfigService:
             ),
         )
         return docs
+
+
+    # ---- infrastructure operations ----------------------------------------
+
+    @staticmethod
+    async def purge_documents_infra(
+        *,
+        project_id: uuid.UUID,
+        docs: Sequence[RagDocument],
+    ) -> dict[str, Any]:
+        """Best-effort removal of Qdrant points + MinIO blobs for ``docs``.
+
+        MUST be called only *after* the DB transaction that removed the
+        document rows has committed (DOM-4): infra deletes are irreversible,
+        so the audit trail has to be durable first. Every failure is
+        swallowed and reflected in the returned summary.
+        """
+        from qdrant_client import AsyncQdrantClient
+
+        from app.config.settings import get_settings
+        from contexts.knowledge.infrastructure.qdrant_store import QdrantStore
+
+        summary: dict[str, Any] = {
+            "documents": len(docs),
+            "qdrant_purged": True,
+            "blobs_removed": 0,
+            "blobs_failed": 0,
+        }
+        if not docs:
+            return summary
+
+        settings = get_settings()
+
+        # Qdrant points -- one batched delete keyed on doc_id.
+        try:
+            qclient = AsyncQdrantClient(
+                url=settings.qdrant.url,
+                api_key=settings.qdrant.api_key or None,
+            )
+            try:
+                await QdrantStore(qclient).delete_documents(
+                    project_id=project_id,
+                    document_ids=[d.id for d in docs],
+                )
+            finally:
+                await qclient.close()
+        except Exception:
+            summary["qdrant_purged"] = False
+            _log.exception(
+                "rag infra purge: qdrant delete failed for project %s",
+                project_id,
+            )
+
+        # MinIO blobs -- one remove_object per document.
+        minio_client = None
+        try:
+            from minio import Minio
+
+            minio_client = Minio(
+                settings.minio.endpoint,
+                access_key=settings.minio.root_access_key,
+                secret_key=settings.minio.root_secret_key,
+                secure=settings.minio.use_tls,
+                region=settings.minio.region,
+            )
+        except Exception:
+            _log.exception("rag infra purge: minio client init failed")
+
+        for d in docs:
+            if minio_client is None:
+                summary["blobs_failed"] += 1
+                continue
+            try:
+                bucket, _, key = d.minio_path.partition("/")
+                if bucket and key:
+                    await asyncio.to_thread(
+                        minio_client.remove_object, bucket, key,
+                    )
+                    summary["blobs_removed"] += 1
+                else:
+                    summary["blobs_failed"] += 1
+            except Exception:
+                summary["blobs_failed"] += 1
+                _log.exception(
+                    "rag infra purge: minio remove failed for doc %s", d.id,
+                )
+
+        return summary
+
+    @staticmethod
+    def build_ingest_service(
+        db: AsyncSession,
+        *,
+        embedder: Any,
+    ) -> tuple[Any, Any]:
+        """Construct an ``IngestService`` wired to real MinIO + Qdrant.
+
+        Returns ``(ingest_service, qclient)`` — the caller MUST close
+        ``qclient`` when done (typically via a try/finally block).
+        """
+        from qdrant_client import AsyncQdrantClient
+
+        from app.config.settings import get_settings
+        from contexts.knowledge.infrastructure.blob_store import MinioBlobStore
+        from contexts.knowledge.infrastructure.qdrant_store import QdrantStore
+
+        from .ingest_service import IngestService
+
+        settings = get_settings()
+
+        from minio import Minio
+
+        minio = Minio(
+            settings.minio.endpoint,
+            access_key=settings.minio.root_access_key,
+            secret_key=settings.minio.root_secret_key,
+            secure=settings.minio.use_tls,
+            region=settings.minio.region,
+        )
+        blob = MinioBlobStore(minio)
+
+        qclient = AsyncQdrantClient(
+            url=settings.qdrant.url,
+            api_key=settings.qdrant.api_key or None,
+        )
+        qdrant = QdrantStore(qclient)
+
+        ingest = IngestService(
+            db,
+            blob=blob,
+            embedder=embedder,
+            qdrant=qdrant,
+            bucket=settings.minio.bucket_rag_sources,
+        )
+        return ingest, qclient
 
 
 __all__ = ["RagConfigService"]

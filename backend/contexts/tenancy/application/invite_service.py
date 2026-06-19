@@ -18,17 +18,15 @@ import hashlib
 import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass
+from typing import Any
 
 import sqlalchemy as sa
 from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config.settings import get_settings
-from contexts.identity.application.factory import LazyEmailSender, email_sender_factory
-from contexts.identity.infrastructure import email_templates
-from contexts.identity.infrastructure.email import EmailMessage, EmailSender, recipient_digest
-from contexts.notification.application.notification_service import NotificationService
-from contexts.notification.domain.models import NotificationKind
+from contexts.identity.interfaces.facade import IdentityFacade
+from contexts.notification.interfaces.facade import NotificationFacade, NotificationKind
 from contexts.tenancy.domain.errors import (
     InviteExpired,
     InviteNotForCaller,
@@ -66,22 +64,28 @@ def _default_public_origin() -> str:
     return (origins[0] if origins else "http://localhost:8080").rstrip("/")
 
 
+def _recipient_digest(addr: str) -> str:
+    """Proxy to IdentityFacade.recipient_digest (avoids cross-context import)."""
+    return IdentityFacade.recipient_digest(addr)
+
+
 class InviteService:
     def __init__(
         self,
         db: AsyncSession,
         *,
-        email_sender: EmailSender | None = None,
+        email_sender: Any = None,
         public_origin: str | None = None,
     ) -> None:
         self._db = db
         self._invites = InviteRepository(db)
         self._org_members = OrgMemberRepository(db)
         self._project_members = ProjectMemberRepository(db)
-        # Defaults keep the zero-arg `InviteService(db)` call sites (routers,
-        # tests) working; production wires the same SMTP-or-logging sender the
-        # auth service uses, so invite mail is delivered the same way.
-        self._emailer = email_sender or LazyEmailSender(email_sender_factory)
+        self._identity = IdentityFacade(db)
+        # Legacy: tests may inject a custom sender (duck-typed ``EmailSender``
+        # protocol). When provided, ``_email_invite`` falls back to a direct
+        # template-render + send path using lazy imports.
+        self._custom_emailer = email_sender
         self._public_origin = (public_origin or _default_public_origin()).rstrip("/")
 
     async def create_org_invite(
@@ -110,7 +114,7 @@ class InviteService:
                 actor_ip=actor_ip,
                 resource_type="org",
                 resource_id=org_id,
-                metadata={"invitee_digest": recipient_digest(invitee_email), "role": role.value},
+                metadata={"invitee_digest": _recipient_digest(invitee_email), "role": role.value},
                 request_id=request_id,
             ),
         )
@@ -144,7 +148,7 @@ class InviteService:
                 actor_ip=actor_ip,
                 resource_type="project",
                 resource_id=project_id,
-                metadata={"invitee_digest": recipient_digest(invitee_email), "role": role.value},
+                metadata={"invitee_digest": _recipient_digest(invitee_email), "role": role.value},
                 request_id=request_id,
             ),
         )
@@ -171,7 +175,7 @@ class InviteService:
         if row is None:
             return
         scope_label = "org" if scope is InviteScope.ORG else "project"
-        await NotificationService(self._db).send(
+        await NotificationFacade(self._db).send(
             user_id=row.id,
             kind=NotificationKind.INVITE_RECEIVED,
             title=f"You have been invited to a {scope_label}",
@@ -200,7 +204,7 @@ class InviteService:
         # victim's inbox by re-POSTing invite-create with their address. Cap at
         # 5 / 10 min; over the limit we SKIP the mail (the invite row is already
         # created + audited) rather than failing invite creation.
-        digest = recipient_digest(invitee_email)
+        digest = _recipient_digest(invitee_email)
         rl_key = "rl:inv:e:" + hashlib.sha256(invitee_email.lower().encode()).hexdigest()[:24]
         rl = await ratelimit.check_raw(key=rl_key, window_sec=600, max_count=5)
         if not rl.allowed:
@@ -211,19 +215,33 @@ class InviteService:
 
         scope_label = "org" if scope is InviteScope.ORG else "project"
         scope_name = await self._scope_name(scope, scope_id)
-        accept_link = f"{self._public_origin}/invites/accept#token={token}"
-        rendered = email_templates.invite(
-            scope_label=scope_label, scope_name=scope_name, accept_link=accept_link
-        )
-        await self._emailer.send(
-            EmailMessage(
-                to=invitee_email,
-                subject=rendered.subject,
-                text_body=rendered.text_body,
-                html_body=rendered.html_body,
-                template="invite",
+        if self._custom_emailer is not None:
+            # Test-injected sender — render + send directly via lazy imports.
+            from contexts.identity.infrastructure import email_templates
+            from contexts.identity.infrastructure.email import EmailMessage
+
+            accept_link = f"{self._public_origin}/invites/accept#token={token}"
+            rendered = email_templates.invite(
+                scope_label=scope_label, scope_name=scope_name, accept_link=accept_link,
             )
-        )
+            await self._custom_emailer.send(
+                EmailMessage(
+                    to=invitee_email,
+                    subject=rendered.subject,
+                    text_body=rendered.text_body,
+                    html_body=rendered.html_body,
+                    template="invite",
+                )
+            )
+        else:
+            # Production path — delegate to IdentityFacade.
+            await self._identity.send_invite_email(
+                to_email=invitee_email,
+                scope_label=scope_label,
+                scope_name=scope_name,
+                invite_token=token,
+                base_url=self._public_origin,
+            )
         # email.sent audit with template + recipient digest (never plaintext).
         await audit.emit(
             self._db,
