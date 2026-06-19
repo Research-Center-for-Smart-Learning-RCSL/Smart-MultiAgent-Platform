@@ -142,7 +142,7 @@ from contexts.tenancy.interfaces import error_mapping as tenancy_errors
 from contexts.workflow.interfaces import error_mapping as workflow_errors
 from contexts.workflow.sel.evaluator import confirm_re2_available
 from shared_kernel.auth.clients import close_redis
-from shared_kernel.db import registry as _db_registry  # noqa: F401 side-effect: table imports
+import app.db_registry as _db_registry  # noqa: F401 — side-effect: table imports
 from shared_kernel.db.session import dispose as dispose_db
 from shared_kernel.errors.handlers import register_exception_handlers
 from shared_kernel.logging.setup import configure_logging

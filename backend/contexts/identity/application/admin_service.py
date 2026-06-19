@@ -22,12 +22,12 @@ from contexts.identity.infrastructure.repositories import (
     SessionRepository,
     UserRepository,
 )
-from contexts.notification.application.notification_service import NotificationService
-from contexts.notification.domain.models import NotificationKind
+from contexts.notification.interfaces.facade import NotificationFacade, NotificationKind
 from shared_kernel import audit
 from shared_kernel.auth import tokens
 from shared_kernel.auth.clients import now
-from shared_kernel.realtime.pubsub import Publisher, user_channel
+from contexts.identity.infrastructure.channels import user_channel
+from shared_kernel.realtime.pubsub import Publisher
 
 
 @dataclass(frozen=True, slots=True)
@@ -134,7 +134,7 @@ class AdminService:
                 request_id=request_id,
             ),
         )
-        await NotificationService(self._db).send(
+        await NotificationFacade(self._db).send(
             user_id=target_user_id,
             kind=NotificationKind.ADMIN_BAN_REASON,
             title="Your account has been suspended",

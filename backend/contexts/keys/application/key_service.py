@@ -26,10 +26,9 @@ from contexts.keys.domain.models import ApiKey, mask_preview
 from contexts.keys.domain.providers import ApiKeyProvider
 from contexts.keys.infrastructure.probes import ProbeStatus, probe
 from contexts.keys.infrastructure.repositories import ApiKeyRepository
-from contexts.notification.application.notification_service import NotificationService
-from contexts.notification.domain.models import NotificationKind
+from contexts.notification.interfaces.facade import NotificationFacade, NotificationKind
 from shared_kernel import audit
-from shared_kernel.events.key_revocation import publish_key_revoked
+from contexts.keys.infrastructure.key_revocation_events import publish_key_revoked
 from shared_kernel.security import envelope as env
 
 
@@ -138,7 +137,7 @@ class KeyService:
             ),
         )
         if probe_result.status is not ProbeStatus.OK:
-            await NotificationService(self._db).send(
+            await NotificationFacade(self._db).send(
                 user_id=owner_user_id,
                 kind=NotificationKind.KEY_TEST_FAILED,
                 title="API key test failed",
@@ -196,7 +195,7 @@ class KeyService:
             ),
         )
         if result.status is not ProbeStatus.OK:
-            await NotificationService(self._db).send(
+            await NotificationFacade(self._db).send(
                 user_id=caller_user_id,
                 kind=NotificationKind.KEY_TEST_FAILED,
                 title="API key retest failed",

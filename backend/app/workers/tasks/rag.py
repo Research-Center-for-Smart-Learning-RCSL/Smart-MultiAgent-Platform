@@ -29,7 +29,8 @@ from contexts.knowledge.infrastructure.repositories import (
     RagDocumentRepository,
 )
 from shared_kernel.db.session import get_sessionmaker
-from shared_kernel.realtime.pubsub import Publisher, rag_channel
+from contexts.knowledge.infrastructure.channels import rag_channel
+from shared_kernel.realtime.pubsub import Publisher
 
 _log = logging.getLogger(__name__)
 

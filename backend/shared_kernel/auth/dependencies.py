@@ -23,12 +23,12 @@ from fastapi import Depends, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette import status
 
-from contexts.tenancy.interfaces.role_resolver import TenancyRoleResolver
 from shared_kernel.auth.context import RequestContext
 from shared_kernel.auth.permissions import (
     Capability,
     Decision,
     Principal,
+    RoleResolver,
     Scope,
     decide,
 )
@@ -60,7 +60,13 @@ async def optional_principal(
 
 async def get_role_resolver(
     db: AsyncSession = Depends(db_session),
-) -> TenancyRoleResolver:
+) -> RoleResolver:
+    # Late import avoids a shared_kernel -> contexts.tenancy compile-time
+    # dependency.  The concrete class is the only implementation of the
+    # RoleResolver protocol; wiring it here (the app-layer dependency
+    # factory) keeps the protocol boundary clean.
+    from contexts.tenancy.interfaces.role_resolver import TenancyRoleResolver
+
     return TenancyRoleResolver(db)
 
 
@@ -73,7 +79,7 @@ def require(
     async def dep(
         request: Request,
         principal: Principal = Depends(current_principal),
-        resolver: TenancyRoleResolver = Depends(get_role_resolver),
+        resolver: RoleResolver = Depends(get_role_resolver),
     ) -> Decision:
         if scope_from is None:
             scope = Scope()
@@ -137,7 +143,7 @@ def require_membership(
     async def dep(
         request: Request,
         principal: Principal = Depends(current_principal),
-        resolver: TenancyRoleResolver = Depends(get_role_resolver),
+        resolver: RoleResolver = Depends(get_role_resolver),
     ) -> None:
         if principal.is_admin:
             return

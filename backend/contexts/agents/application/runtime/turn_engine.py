@@ -50,8 +50,9 @@ from contexts.keys.infrastructure.adapters import build_router
 from contexts.keys.infrastructure.group_repository import KeyGroupRepository
 from shared_kernel import audit
 from shared_kernel.observability.metrics import REGISTRY
-from shared_kernel.realtime.pubsub import Publisher, room_channel
-from shared_kernel.realtime.turn_lock import DEFAULT_TURN_TTL_S, turn_lock
+from contexts.conversation.infrastructure.channels import room_channel
+from shared_kernel.realtime.pubsub import Publisher
+from contexts.agents.infrastructure.turn_lock import DEFAULT_TURN_TTL_S, turn_lock
 
 _log = logging.getLogger(__name__)
 

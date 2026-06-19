@@ -10,8 +10,7 @@ Responsibilities:
 SoC:
 - WakeupConfig parsing → ``domain.models.WakeupConfig``
 - Redis counters/timers → ``infrastructure.wakeup_state``
-- Agent data → ``AgentsFacade`` (read-only)
-- Agent writes → ``AgentService`` (for wakeup_config patch)
+- Agent reads + writes → ``AgentsFacade``
 - Audit → ``shared_kernel.audit``
 """
 
@@ -24,10 +23,12 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from contexts.agents.application.agent_service import AgentService
-from contexts.agents.domain.errors import AgentVersionMismatch
-from contexts.agents.domain.models import Agent, AgentDraft
-from contexts.agents.interfaces.facade import AgentsFacade
+from contexts.agents.interfaces.facade import (
+    Agent,
+    AgentDraft,
+    AgentVersionMismatch,
+    AgentsFacade,
+)
 from contexts.orchestration.domain.models import (
     N_MAX,
     N_MIN,
@@ -39,7 +40,7 @@ from contexts.orchestration.domain.models import (
 from contexts.orchestration.infrastructure import wakeup_state
 from contexts.orchestration.infrastructure.metrics import WAKEUP_FIRES
 from shared_kernel import audit
-from shared_kernel.realtime.presence import PresenceTracker
+from contexts.conversation.infrastructure.presence import PresenceTracker
 
 logger = logging.getLogger(__name__)
 
@@ -50,7 +51,6 @@ class WakeupService:
     def __init__(self, db: AsyncSession) -> None:
         self._db = db
         self._agents_facade = AgentsFacade(db)
-        self._agent_svc = AgentService(db)
         self._presence = PresenceTracker()
 
     # ------------------------------------------------------------------
@@ -254,7 +254,7 @@ class WakeupService:
         for _attempt in range(2):
             draft = AgentDraft(wakeup_config=_build_new_dict(agent))
             try:
-                updated = await self._agent_svc.patch(
+                updated = await self._agents_facade.patch_agent(
                     agent_id=agent_id,
                     draft=draft,
                     expected_version=agent.version,
@@ -309,7 +309,7 @@ class WakeupService:
         draft = AgentDraft(wakeup_config=authored)
         for _attempt in range(2):
             try:
-                await self._agent_svc.patch(
+                await self._agents_facade.patch_agent(
                     agent_id=agent_id,
                     draft=draft,
                     expected_version=agent.version,

@@ -58,7 +58,8 @@ from contexts.knowledge.infrastructure.repositories import (
     RagDocumentRepository,
 )
 from shared_kernel import audit
-from shared_kernel.realtime.pubsub import Publisher, rag_channel
+from contexts.knowledge.infrastructure.channels import rag_channel
+from shared_kernel.realtime.pubsub import Publisher
 
 MAX_MULTIPART_BYTES = 32 * 1024 * 1024  # §22.7 — tus for anything larger
 

@@ -1,4 +1,4 @@
-"""Agents facade — public read surface for other contexts.
+"""Agents facade -- public read surface for other contexts.
 
 Conversation (F), Orchestration (G) and Workflow (H) contexts consult
 this facade instead of reaching into `contexts.agents.infrastructure`
@@ -11,15 +11,22 @@ import uuid
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from contexts.agents.domain.models import Agent, McpBinding
+from contexts.agents.domain.errors import AgentVersionMismatch
+from contexts.agents.domain.models import Agent, AgentDraft, McpBinding
 from contexts.agents.infrastructure.repositories import (
     AgentMcpBindingRepository,
     AgentRepository,
 )
 
+# Re-export domain types so consumers can ``from contexts.agents.interfaces.facade
+# import Agent, AgentDraft, AgentVersionMismatch`` instead of reaching into
+# ``agents.domain.*`` directly.
+__all__ = ["Agent", "AgentDraft", "AgentVersionMismatch", "AgentsFacade"]
+
 
 class AgentsFacade:
     def __init__(self, db: AsyncSession) -> None:
+        self._db = db
         self._agents = AgentRepository(db)
         self._bindings = AgentMcpBindingRepository(db)
 
@@ -39,5 +46,31 @@ class AgentsFacade:
     async def list_mcp_bindings(self, agent_id: uuid.UUID) -> list[McpBinding]:
         return list(await self._bindings.list(agent_id))
 
+    # ------------------------------------------------------------------
+    # Write surface exposed to orchestration (G.4 / G.5)
+    # ------------------------------------------------------------------
 
-__all__ = ["AgentsFacade"]
+    async def patch_agent(
+        self,
+        *,
+        agent_id: uuid.UUID,
+        draft: AgentDraft,
+        expected_version: int,
+        actor_user_id: uuid.UUID,
+        actor_ip: str | None,
+    ) -> Agent:
+        """Delegate to ``AgentService.patch`` for wakeup-config updates.
+
+        Lazy-imports ``AgentService`` to avoid circular dependency at
+        module level (AgentService depends on other contexts' facades).
+        """
+        from contexts.agents.application.agent_service import AgentService
+
+        svc = AgentService(self._db)
+        return await svc.patch(
+            agent_id=agent_id,
+            draft=draft,
+            expected_version=expected_version,
+            actor_user_id=actor_user_id,
+            actor_ip=actor_ip,
+        )

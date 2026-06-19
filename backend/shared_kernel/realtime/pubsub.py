@@ -27,24 +27,20 @@ from redis.asyncio.client import PubSub
 
 from shared_kernel.auth.clients import get_redis
 
-
-def user_channel(user_id: uuid.UUID) -> str:
-    return f"ws:user:{user_id}"
-
-
-def room_channel(chatroom_id: uuid.UUID) -> str:
-    return f"ws:room:{chatroom_id}"
-
-
-def workflow_channel(run_id: uuid.UUID) -> str:
-    return f"ws:wf:{run_id}"
-
-
-def rag_channel(config_id: uuid.UUID) -> str:
-    return f"ws:rag:{config_id}"
-
-
-AUDIT_TAIL_CHANNEL = "ws:audit:tail"
+# ---------------------------------------------------------------------------
+# Backward-compat re-exports (DEPRECATED).
+# Canonical locations:
+#   room_channel       -> contexts.conversation.infrastructure.channels
+#   workflow_channel   -> contexts.workflow.infrastructure.channels
+#   rag_channel        -> contexts.knowledge.infrastructure.channels
+#   AUDIT_TAIL_CHANNEL -> contexts.audit.infrastructure.channels
+#   user_channel       -> contexts.identity.infrastructure.channels
+# ---------------------------------------------------------------------------
+from contexts.audit.infrastructure.channels import AUDIT_TAIL_CHANNEL as AUDIT_TAIL_CHANNEL  # noqa: F401
+from contexts.conversation.infrastructure.channels import room_channel as room_channel  # noqa: F401
+from contexts.identity.infrastructure.channels import user_channel as user_channel  # noqa: F401
+from contexts.knowledge.infrastructure.channels import rag_channel as rag_channel  # noqa: F401
+from contexts.workflow.infrastructure.channels import workflow_channel as workflow_channel  # noqa: F401
 
 
 async def publish(channel: str, event: dict[str, Any]) -> int:
