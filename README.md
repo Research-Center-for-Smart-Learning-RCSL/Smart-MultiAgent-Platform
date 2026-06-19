@@ -62,7 +62,7 @@ Five WebSocket endpoints provide real-time push: per-user notifications, per-cha
 
 | Layer | Technology |
 |---|---|
-| API server | Python 3.12, FastAPI 0.115, Uvicorn 0.32 |
+| API server | Python 3.12, FastAPI 0.137, Uvicorn 0.32 |
 | Database ORM | SQLAlchemy 2.0 (async core), asyncpg 0.30 |
 | Migrations | Alembic 1.13 |
 | Cache / queue | Redis 5.2, ARQ 0.26 |
@@ -70,7 +70,7 @@ Five WebSocket endpoints provide real-time push: per-user notifications, per-cha
 | Graph store | Neo4j 5.24 |
 | Object storage | MinIO 7.2 (S3-compatible) |
 | Secrets | HashiCorp Vault 2.3 (HVAC) |
-| Auth | Argon2-cffi (passwords), python-jose (JWT, `shared_kernel/auth/jwt.py`), Vault Transit (key rotation) |
+| Auth | Argon2-cffi (passwords), Vault Transit RS256 (JWT signing in `shared_kernel/auth/jwt.py`) |
 | HTTP client | HTTPX 0.27 (async) |
 | Serialization | ORJSON 3.10, Pydantic 2.9 |
 | Logging | Loguru 0.7 (structured JSON) |
@@ -78,10 +78,10 @@ Five WebSocket endpoints provide real-time push: per-user notifications, per-cha
 | Tracing | OpenTelemetry SDK 1.27 |
 | Frontend | Vue 3.5, TypeScript 5.6, Vite 6.4 |
 | State | Pinia 2.2, TanStack Vue Query 5.59 |
-| UI | Element Plus 2.11 |
+| UI | Element Plus 2.11, Tailwind CSS 4.3, Heroicons 2.2 |
 | Forms | vee-validate 4.14, Zod 3.23 |
-| Linting | Ruff 0.7, MyPy 1.13, ESLint 9.16 |
-| Testing | Pytest 8.3, pytest-asyncio 0.24, Vitest 2.1, Playwright (Phase J) |
+| Linting | Ruff 0.7, MyPy 1.13, ESLint 9.28 |
+| Testing | Pytest 8.3, pytest-asyncio 0.24, Vitest 4.1, Playwright 1.56 |
 
 ---
 
@@ -109,20 +109,27 @@ backend/
   shared_kernel/
     auth/            JWT, RBAC matrix, rate limiter, IP ban cache, FastAPI deps
     db/              SQLAlchemy engine, session factory, table registry
+    errors/          Error handling (RFC 7807 Problem Details, custom error base)
+    events/          In-process event bus for inter-context communication
+    i18n/            Internationalization helpers
+    infra/           Shared external service clients (Vault, Redis buckets)
+    logging/         Structured logging via loguru with JSON + redaction
+    markdown/        Markdown rendering and sanitization helpers
+    observability/   Prometheus metrics and OpenTelemetry instrumentation
+    realtime/        WebSocket connection management and pub/sub helpers
     security/        Envelope encryption (DEK + Vault Transit)
     storage/         MinIO client wrapper
-    audit/           Audit event emitter (shared across contexts)
-  alembic/           Database migrations (versions 0000 through 0026)
+  alembic/           Database migrations (versions 0000 through 0030)
   alembic.ini
 
 frontend/
   src/
     app/             Root component, router, entry point
     shared/          API client (generated from OpenAPI), composables, transport, i18n, UI, errors
-    slices/          Seven feature slices: identity, tenancy, keys, agents, conversation, workflow, admin
+    slices/          Eight feature slices: identity, tenancy, keys, agents, conversation, workflow, notifications, admin
   tests/             Vitest setup, MSW mocks, render helpers, factories
-  e2e/               Playwright E2E specs (8 golden paths)
-  scripts/           CI gate scripts (global CSS, view tests, type coverage, bundle size)
+  e2e/               Playwright E2E specs (15 golden paths)
+  scripts/           CI gate scripts (global CSS, view tests, type coverage, bundle size, OpenAPI drift)
   Dockerfile         Multi-stage production build (node → nginx)
 
 deploy/
@@ -133,7 +140,7 @@ deploy/
   README.md          Operator walk-through (< 60 min bring-up)
 
 docs/
-  implement/         Per-phase construction plans (A through J)
+  implement/         Per-phase construction plans (A through O)
   operations.md      Operator manual
   release-checklist.md  Pre-release verification checklist
   frontend-exceptions.md  CI gate exception registry
@@ -151,7 +158,7 @@ Each bounded context follows a four-layer structure enforced by import-linter: `
 | Document | Purpose |
 |---|---|
 | `REQUIREMENTS.md` | Software Requirements Specification. Every requirement is tagged with an ID of the form `[Rxx.yy]`. If the implementation disagrees with this document, the SRS wins. |
-| `docs/implement/00-overview.md` | Ten-phase construction plan (A through J) with dependency graph and phase gate status. |
+| `docs/implement/00-overview.md` | Fifteen-phase construction plan (A through O) with dependency graph and phase gate status. |
 | `docs/workflow.schema.json` + `docs/workflow.schema.md` | Normative workflow JSON Schema and SMAP Expression Language (SEL v1) specification. |
 | `docs/operations.md` | Operator manual: structured logging fields, health check behavior, resource limits, Alembic migration policy, bootstrap CLI, RFC 7807 error catalog, runbooks. |
 | `deploy/vault/README.md` | Vault bootstrap procedure, key rotation SOP, disaster recovery scenarios. |
@@ -250,7 +257,12 @@ See `.env.example` for the full list with defaults.
 | G | Multi-Agent Orchestration | CODE complete | 2026-04-23 |
 | H | Workflow Engine | CODE complete | 2026-04-23 |
 | I | Admin, Audit, Notifications, Retention | CODE complete | 2026-04-23 |
-| J | Frontend Integration, E2E, and Release | CODE complete | 2026-04-24 |
+| J | Frontend Integration, E2E, and Release | UI incomplete (see M) | 2026-04-24 |
+| K | Agent Runtime and Critical Gap Remediation | CODE complete (gate pending) | 2026-06-13 |
+| L | Account Self-Delete and RAG Ingestion | CODE complete | 2026-06-14 |
+| M | Frontend Gap Remediation and Deferred-List Closure | CODE complete | 2026-06-15 |
+| N | Design System | CODE complete | 2026-06-15 |
+| O | Workflow Editor | CODE complete | 2026-06-16 |
 
 Full gate notes for each closed phase are in `docs/implement/00-overview.md`.
 
