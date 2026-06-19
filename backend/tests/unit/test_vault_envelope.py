@@ -59,7 +59,7 @@ def client(monkeypatch: pytest.MonkeyPatch) -> VaultClient:
     transit = _FakeTransitEnvelope()
 
     class _FakeClient:
-        def __init__(self, url: str) -> None:
+        def __init__(self, url: str, **_kw: Any) -> None:
             self.token = None
             self.secrets = SimpleNamespace(
                 transit=transit,

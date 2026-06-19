@@ -73,7 +73,7 @@ def vault_fixture(monkeypatch: pytest.MonkeyPatch) -> tuple[VaultClient, _FakeTr
     transit = _FakeTransit()
 
     class _FakeClient:
-        def __init__(self, url: str) -> None:
+        def __init__(self, url: str, **_kw: Any) -> None:
             self.token = None
             self.secrets = SimpleNamespace(
                 transit=transit,
@@ -158,7 +158,7 @@ def test_unknown_hmac_version_shape_rejected(monkeypatch: pytest.MonkeyPatch) ->
     )
 
     class _FakeClient:
-        def __init__(self, url: str) -> None:
+        def __init__(self, url: str, **_kw: Any) -> None:
             self.token = None
             self.secrets = SimpleNamespace(
                 transit=_FakeTransit(),
