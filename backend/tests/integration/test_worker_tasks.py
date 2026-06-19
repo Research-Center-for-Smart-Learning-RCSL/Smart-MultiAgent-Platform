@@ -71,7 +71,11 @@ async def test_advisory_snapshot_partial_failure_does_not_raise() -> None:
             svc.list_active_org_ids.return_value = [ok_id, bad_id]
         elif call_n["n"] == 2:
             svc.compute_org_snapshot.return_value = {
-                "users": 1, "chatrooms": 0, "agents": 0, "workflows": 0, "projects": 0,
+                "users": 1,
+                "chatrooms": 0,
+                "agents": 0,
+                "workflows": 0,
+                "projects": 0,
             }
             svc.cache_snapshot.return_value = None
         else:

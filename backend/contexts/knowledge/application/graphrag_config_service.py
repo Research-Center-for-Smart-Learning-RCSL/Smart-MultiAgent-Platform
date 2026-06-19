@@ -239,7 +239,6 @@ class GraphRagConfigService:
             "last_build_error": cfg.last_build_error,
         }
 
-
     # ---- infrastructure cascade -------------------------------------------
 
     @staticmethod

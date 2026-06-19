@@ -65,11 +65,7 @@ class AdvisoryService:
 
     async def list_active_org_ids(self) -> list[Any]:
         """Return all active (non-deleted) org ids."""
-        rows = (
-            await self._db.execute(
-                sa.text("SELECT id FROM orgs WHERE deleted_at IS NULL")
-            )
-        ).all()
+        rows = (await self._db.execute(sa.text("SELECT id FROM orgs WHERE deleted_at IS NULL"))).all()
         return [r[0] for r in rows]
 
     async def cache_snapshot(self, org_id: object, snapshot: dict[str, Any]) -> None:
@@ -95,10 +91,7 @@ class AdvisoryService:
         """Read operator-configurable soft advisory targets from rate_limit_policies."""
         rows = (
             await self._db.execute(
-                sa.text(
-                    "SELECT key, max_count FROM rate_limit_policies "
-                    "WHERE key LIKE 'advisory_%'"
-                )
+                sa.text("SELECT key, max_count FROM rate_limit_policies " "WHERE key LIKE 'advisory_%'")
             )
         ).all()
         targets: dict[str, int] = {}

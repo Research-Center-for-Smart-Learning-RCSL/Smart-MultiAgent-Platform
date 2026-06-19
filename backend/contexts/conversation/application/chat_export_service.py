@@ -155,8 +155,7 @@ class ChatExportService:
             )
         except TimeoutError as exc:
             raise TimeoutError(
-                f"chat export MinIO put timed out after "
-                f"{_EXPORT_PUT_TIMEOUT_SECONDS}s (job {job_id})"
+                f"chat export MinIO put timed out after " f"{_EXPORT_PUT_TIMEOUT_SECONDS}s (job {job_id})"
             ) from exc
 
         return client.exports_bucket, key

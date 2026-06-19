@@ -497,7 +497,6 @@ class DockerRunscSandbox:
             duration_ms=duration_ms,
         )
 
-
     async def cleanup_orphan_containers(self, *, max_age_s: float = 600) -> int:
         """Remove sandbox containers older than *max_age_s* seconds.
 

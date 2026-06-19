@@ -173,7 +173,9 @@ async def list_chatrooms(
             _raise_forbidden("caller is not a member of the project")
     service = ChatroomService(db)
     rows = await service.list_for_workspace(
-        workspace_id, limit=pagination.limit, offset=pagination.offset,
+        workspace_id,
+        limit=pagination.limit,
+        offset=pagination.offset,
     )
     return [_to_out(r) for r in rows]
 

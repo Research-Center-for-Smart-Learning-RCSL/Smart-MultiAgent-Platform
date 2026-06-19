@@ -312,7 +312,9 @@ async def list_workflows(
     await _require_member(principal, scope, resolver)
     svc = WorkflowService(db)
     workflows = await svc.list_for_workspace(
-        wid, limit=pagination.limit, offset=pagination.offset,
+        wid,
+        limit=pagination.limit,
+        offset=pagination.offset,
     )
     return [_to_workflow_out(w) for w in workflows]
 

@@ -46,8 +46,11 @@ class AuthMiddleware(BaseHTTPMiddleware):
             claims = jwt.verify_access_token(token)
         except jwt.JwtError as exc:
             return _deny(
-                "auth/token-expired", "Access token invalid or expired",
-                401, request, str(exc) or "token verification failed",
+                "auth/token-expired",
+                "Access token invalid or expired",
+                401,
+                request,
+                str(exc) or "token verification failed",
             )
 
         if await tokens.is_denied(claims.jti):

@@ -49,6 +49,7 @@ def __getattr__(name: str) -> Any:
     if name in _CHANNEL_REEXPORTS:
         mod_path, attr = _CHANNEL_REEXPORTS[name]
         import importlib
+
         return getattr(importlib.import_module(mod_path), attr)
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 

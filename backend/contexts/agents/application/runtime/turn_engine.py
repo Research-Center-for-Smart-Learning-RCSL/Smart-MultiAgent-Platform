@@ -179,12 +179,16 @@ class TurnEngine:
         self._qdrant_url = qdrant_url
         self._qdrant_api_key = qdrant_api_key
         self._rag_provider = RagContextProvider(
-            db, router=self._router,
-            qdrant_url=qdrant_url, qdrant_api_key=qdrant_api_key,
+            db,
+            router=self._router,
+            qdrant_url=qdrant_url,
+            qdrant_api_key=qdrant_api_key,
         )
         self._graphrag_provider = GraphRagContextProvider(
-            db, router=self._router,
-            qdrant_url=qdrant_url, qdrant_api_key=qdrant_api_key,
+            db,
+            router=self._router,
+            qdrant_url=qdrant_url,
+            qdrant_api_key=qdrant_api_key,
         )
         # Rooms whose one-shot POST /compact flag this engine consumed — used
         # to re-arm the flag if the turn that consumed it fails.

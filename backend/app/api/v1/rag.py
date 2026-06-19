@@ -331,7 +331,8 @@ async def delete_rag_config(
 
     # Best-effort purge of the cascaded documents' Qdrant points + blobs.
     outcome = await RagConfigService.purge_documents_infra(
-        project_id=cfg.project_id, docs=docs,
+        project_id=cfg.project_id,
+        docs=docs,
     )
     from shared_kernel import audit as _audit
 
@@ -372,7 +373,9 @@ async def list_documents(
     )
 
     docs = await RagDocumentRepository(db).list_for_config(
-        config_id, limit=pagination.limit, offset=pagination.offset,
+        config_id,
+        limit=pagination.limit,
+        offset=pagination.offset,
     )
     return [_to_document_out(d) for d in docs]
 
@@ -433,7 +436,8 @@ async def upload_document(
     )
 
     ingest, qclient = RagConfigService.build_ingest_service(
-        db, embedder=embedder,
+        db,
+        embedder=embedder,
     )
     try:
         doc = await ingest.ingest(
@@ -552,7 +556,8 @@ async def delete_rag_document(
     # Best-effort purge of Qdrant points + MinIO blob, recorded in a
     # follow-up audit row (committed by the db_session dependency).
     outcome = await RagConfigService.purge_documents_infra(
-        project_id=cfg.project_id, docs=[doc],
+        project_id=cfg.project_id,
+        docs=[doc],
     )
     await _audit.emit(
         db,

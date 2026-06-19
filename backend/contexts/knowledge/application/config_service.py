@@ -47,9 +47,7 @@ class RagConfigService:
         self._configs = RagConfigRepository(db)
         self._keys_facade = KeysFacade(db)
 
-    async def _validate_embed_key(
-        self, *, key_id: uuid.UUID, provider: str, project_id: uuid.UUID
-    ) -> None:
+    async def _validate_embed_key(self, *, key_id: uuid.UUID, provider: str, project_id: uuid.UUID) -> None:
         key = await self._keys_facade.get_key(key_id)
         if key is None:
             raise CapabilityMismatch(f"embed_key {key_id} missing or deleted")
@@ -155,18 +153,19 @@ class RagConfigService:
             rerank_key_id = patch.get("rerank_key_id", cfg.rerank_key_id)
             rerank_provider = patch.get("rerank_provider", cfg.rerank_provider)
             if rerank_key_id is None or not rerank_provider:
-                raise CapabilityMismatch(
-                    "rerank_enabled=true requires rerank_key_id + rerank_provider"
-                )
+                raise CapabilityMismatch("rerank_enabled=true requires rerank_key_id + rerank_provider")
             if "rerank_key_id" in patch or "rerank_provider" in patch:
-                await self._validate_rerank_key(
-                    key_id=rerank_key_id, provider=rerank_provider
-                )
+                await self._validate_rerank_key(key_id=rerank_key_id, provider=rerank_provider)
 
         # Only allow mutable fields.
         mutable = {
-            "name", "top_k", "chunk_params",
-            "rerank_enabled", "rerank_key_id", "rerank_provider", "rerank_model",
+            "name",
+            "top_k",
+            "chunk_params",
+            "rerank_enabled",
+            "rerank_key_id",
+            "rerank_provider",
+            "rerank_model",
         }
         db_values: dict[str, Any] = {}
         for k, v in patch.items():
@@ -261,7 +260,6 @@ class RagConfigService:
         )
         return docs
 
-
     # ---- infrastructure operations ----------------------------------------
 
     @staticmethod
@@ -336,7 +334,9 @@ class RagConfigService:
                 bucket, _, key = d.minio_path.partition("/")
                 if bucket and key:
                     await asyncio.to_thread(
-                        minio_client.remove_object, bucket, key,
+                        minio_client.remove_object,
+                        bucket,
+                        key,
                     )
                     summary["blobs_removed"] += 1
                 else:
@@ -344,7 +344,8 @@ class RagConfigService:
             except Exception:
                 summary["blobs_failed"] += 1
                 _log.exception(
-                    "rag infra purge: minio remove failed for doc %s", d.id,
+                    "rag infra purge: minio remove failed for doc %s",
+                    d.id,
                 )
 
         return summary

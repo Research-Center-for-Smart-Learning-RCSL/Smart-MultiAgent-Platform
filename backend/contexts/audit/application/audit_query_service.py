@@ -84,7 +84,6 @@ class AuditQueryService:
             cursor = page.next_cursor
         return buf.getvalue().encode("utf-8")
 
-
     async def purge_old_logs(self, *, retention_days: int = 365) -> int:
         """Hard-delete audit_logs older than *retention_days*.
 

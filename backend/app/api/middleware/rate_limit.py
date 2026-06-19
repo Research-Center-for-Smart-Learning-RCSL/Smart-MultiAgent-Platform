@@ -61,9 +61,7 @@ def _bucket_for(path: str, method: str) -> ratelimit.Bucket:
     # R19.02 + F.5 -- only the *Creation* POST and single-shot attachment POSTs
     # count against the 10/min/user upload bucket.
     if method == "POST" and (
-        path.startswith(_TUS_PREFIX)
-        or _ATTACHMENT_SEGMENT in path
-        or _DOCUMENT_SEGMENT in path
+        path.startswith(_TUS_PREFIX) or _ATTACHMENT_SEGMENT in path or _DOCUMENT_SEGMENT in path
     ):
         return ratelimit.Bucket.UPLOAD
     return ratelimit.Bucket.OTHER

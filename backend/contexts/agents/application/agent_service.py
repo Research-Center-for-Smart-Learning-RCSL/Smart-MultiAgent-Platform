@@ -179,7 +179,9 @@ class AgentService:
         offset: int = 0,
     ) -> Sequence[Agent]:
         return await self._agents.list_for_project(
-            project_id, limit=limit, offset=offset,
+            project_id,
+            limit=limit,
+            offset=offset,
         )
 
     async def patch(

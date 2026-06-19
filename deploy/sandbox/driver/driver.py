@@ -103,7 +103,9 @@ def _stdio_params(reference: str, auth: dict[str, Any]) -> Any:
     env_extra = auth.get("env") if isinstance(auth, dict) else None
     if isinstance(env_extra, dict):
         child_env.update({str(k): str(v) for k, v in env_extra.items()})
-    return StdioServerParameters(command=spec.command, args=list(spec.args), env=child_env)
+    return StdioServerParameters(
+        command=spec.command, args=list(spec.args), env=child_env
+    )
 
 
 async def _with_stdio_session(reference: str, auth: dict[str, Any], fn: Any) -> Any:
@@ -111,7 +113,9 @@ async def _with_stdio_session(reference: str, auth: dict[str, Any], fn: Any) -> 
     from mcp.client.stdio import stdio_client  # type: ignore[import-not-found]
 
     params = _stdio_params(reference, auth)
-    async with stdio_client(params) as (read, write), ClientSession(read, write) as session:
+    async with stdio_client(params) as (read, write), ClientSession(
+        read, write
+    ) as session:
         await session.initialize()
         return await fn(session)
 
@@ -121,7 +125,9 @@ async def _with_stdio_session(reference: str, auth: dict[str, Any], fn: Any) -> 
 # --------------------------------------------------------------------------- #
 
 
-async def _proxy_jsonrpc(method: str, params: dict[str, Any], *, request_id: int) -> dict[str, Any]:
+async def _proxy_jsonrpc(
+    method: str, params: dict[str, Any], *, request_id: int
+) -> dict[str, Any]:
     """Send one JSON-RPC request to a URL MCP server via the egress proxy.
 
     Stateless JSON-RPC-over-HTTP (POST) subset — enough for initialize /
@@ -137,7 +143,9 @@ async def _proxy_jsonrpc(method: str, params: dict[str, Any], *, request_id: int
     if not (proxy_url and target_url and hmac_sig):
         raise EgressDenied("egress proxy not configured for url-source MCP")
 
-    headers = egress_headers(project_id=project_id, hmac_signature=hmac_sig, target_url=target_url)
+    headers = egress_headers(
+        project_id=project_id, hmac_signature=hmac_sig, target_url=target_url
+    )
     headers["content-type"] = "application/json"
     body = {"jsonrpc": "2.0", "id": request_id, "method": method, "params": params}
 
@@ -147,7 +155,9 @@ async def _proxy_jsonrpc(method: str, params: dict[str, Any], *, request_id: int
     if is_egress_denied_response(resp.status_code, ctype, resp.content):
         raise EgressDenied(f"egress proxy denied url MCP request: {resp.text[:200]}")
     if resp.status_code >= 400:
-        raise RuntimeError(f"url MCP server returned {resp.status_code}: {resp.text[:200]}")
+        raise RuntimeError(
+            f"url MCP server returned {resp.status_code}: {resp.text[:200]}"
+        )
     parsed = resp.json()
     if "error" in parsed:
         raise RuntimeError(f"url MCP error: {parsed['error']}")
@@ -168,6 +178,7 @@ async def cmd_probe() -> int:
         result = await _proxy_jsonrpc("tools/list", {}, request_id=1)
         names = [str(t.get("name", "")) for t in result.get("tools", [])]
     else:  # package (and any stdio-style source)
+
         async def _list(session: Any) -> list[str]:
             listed = await session.list_tools()
             return [t.name for t in listed.tools]
@@ -186,7 +197,9 @@ async def cmd_invoke() -> int:
     arguments = json.loads(_env("SMAP_TOOL_ARGS_JSON", "{}") or "{}")
 
     if source == "url":
-        result = await _proxy_jsonrpc("tools/call", {"name": tool_name, "arguments": arguments}, request_id=1)
+        result = await _proxy_jsonrpc(
+            "tools/call", {"name": tool_name, "arguments": arguments}, request_id=1
+        )
         text = _render_tool_content(result.get("content", []))
         sys.stdout.write(text)
         return EXIT_OK if not result.get("isError") else EXIT_ERROR
@@ -226,7 +239,11 @@ def cmd_file() -> int:
     path = safe_workspace_path(_env("SMAP_FILE_PATH", "/workspace"))
 
     if op == "list":
-        entries = sorted(os.listdir(path)) if os.path.isdir(path) else [os.path.basename(path)]
+        entries = (
+            sorted(os.listdir(path))
+            if os.path.isdir(path)
+            else [os.path.basename(path)]
+        )
         sys.stdout.write("\n".join(entries))
         return EXIT_OK
     if op == "read":

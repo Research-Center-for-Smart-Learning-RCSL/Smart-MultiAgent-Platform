@@ -56,7 +56,9 @@ class ChatroomService:
         offset: int = 0,
     ) -> Sequence[Chatroom]:
         return await self._rooms.list_for_workspace(
-            workspace_id, limit=limit, offset=offset,
+            workspace_id,
+            limit=limit,
+            offset=offset,
         )
 
     async def list_agents(

@@ -66,6 +66,7 @@ class AgentCreateIn(BaseModel):
             v = v.strip()
             return v if v else None
         return v
+
     system_prompt: str = Field(default="", max_length=_MAX_SYSTEM_PROMPT)
     prompt_strategy: Literal["full", "lazy"] = "full"
     rag_config_id: uuid.UUID | None = None
@@ -95,6 +96,7 @@ class AgentPatchIn(BaseModel):
             v = v.strip()
             return v if v else None
         return v
+
     system_prompt: str | None = Field(default=None, max_length=_MAX_SYSTEM_PROMPT)
     prompt_strategy: Literal["full", "lazy"] | None = None
     rag_config_id: uuid.UUID | None = None
@@ -213,7 +215,9 @@ async def list_project_agents(
 ) -> list[AgentOut]:
     service = AgentService(db)
     rows = await service.list_for_project(
-        project_id, limit=pagination.limit, offset=pagination.offset,
+        project_id,
+        limit=pagination.limit,
+        offset=pagination.offset,
     )
     return [_to_agent_out(r) for r in rows]
 

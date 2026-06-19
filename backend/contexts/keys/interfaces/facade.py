@@ -90,7 +90,6 @@ class KeysFacade:
             request_id=request_id,
         )
 
-
     async def get_key(self, key_id: uuid.UUID) -> ApiKey | None:
         """Return the active (non-deleted) API key, or ``None``."""
         return await self._keys.get_active(key_id)
@@ -207,9 +206,7 @@ class KeysFacade:
         year = today.year
         month = today.month
         nm_year, nm_month = (year + 1, 1) if month == 12 else (year, month + 1)
-        nm_after_year, nm_after_month = (
-            (nm_year + 1, 1) if nm_month == 12 else (nm_year, nm_month + 1)
-        )
+        nm_after_year, nm_after_month = (nm_year + 1, 1) if nm_month == 12 else (nm_year, nm_month + 1)
         next_part_name = f"key_usage_events_{nm_year:04d}{nm_month:02d}"
         next_lower = f"{nm_year:04d}-{nm_month:02d}-01"
         next_upper = f"{nm_after_year:04d}-{nm_after_month:02d}-01"
@@ -224,9 +221,7 @@ class KeysFacade:
             f"FOR VALUES FROM ('{next_lower}') TO ('{next_upper}')"
         )
         before = await self._db.execute(
-            sa.text("SELECT 1 FROM pg_class WHERE relname = :rn").bindparams(
-                rn=next_part_name
-            )
+            sa.text("SELECT 1 FROM pg_class WHERE relname = :rn").bindparams(rn=next_part_name)
         )
         existed = before.scalar() is not None
         await self._db.execute(sa.text(create_sql))
@@ -255,11 +250,7 @@ class KeysFacade:
             except (IndexError, ValueError):
                 continue
             if upper <= cutoff_str:
-                await self._db.execute(
-                    sa.text(
-                        f'ALTER TABLE key_usage_events DETACH PARTITION "{relname}"'
-                    )
-                )
+                await self._db.execute(sa.text(f'ALTER TABLE key_usage_events DETACH PARTITION "{relname}"'))
                 await self._db.execute(sa.text(f'DROP TABLE "{relname}"'))
                 dropped += 1
 

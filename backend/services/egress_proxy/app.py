@@ -164,7 +164,6 @@ def _problem(status_code: int, slug: str, detail: str) -> Response:
 
 
 def create_app(settings: EgressProxySettings) -> FastAPI:
-
     @asynccontextmanager
     async def _lifespan(app: FastAPI) -> Any:
         app.state.httpx_client = httpx.AsyncClient(

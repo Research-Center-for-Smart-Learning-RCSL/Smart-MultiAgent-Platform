@@ -64,9 +64,7 @@ async def file_scan_requested(ctx: dict[str, Any], attachment_id: str) -> str:
 
     # TODO(P15): Implement real scan path when file_scan_enabled is True.
     # Fetch the blob, submit to ClamAV/VirusTotal, record the result.
-    raise NotImplementedError(
-        "file_scan_enabled is True but no AV adapter is configured"
-    )
+    raise NotImplementedError("file_scan_enabled is True but no AV adapter is configured")
 
 
 async def chat_export(
