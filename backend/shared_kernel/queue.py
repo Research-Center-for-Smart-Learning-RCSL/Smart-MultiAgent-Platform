@@ -30,4 +30,4 @@ async def enqueue(job_name: str, *args: Any, **kwargs: Any) -> None:
     try:
         await pool.enqueue_job(job_name, *args, **kwargs)
     finally:
-        await pool.close()
+        await pool.aclose(close_connection_pool=True)

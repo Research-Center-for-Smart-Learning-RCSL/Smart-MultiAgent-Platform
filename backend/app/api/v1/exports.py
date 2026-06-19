@@ -77,7 +77,7 @@ async def create_export(
             str(principal.user_id),
         )
     finally:
-        await pool.close()
+        await pool.aclose(close_connection_pool=True)
     EXPORT_JOBS.inc()
     _ = ctx
     return ExportCreateOut(job_id=state.job_id, status=state.status)

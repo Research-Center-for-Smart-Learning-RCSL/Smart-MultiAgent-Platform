@@ -166,6 +166,7 @@ class MessageService:
                 request_id=request_id,
             ),
         )
+        await self._db.flush()
         try:
             await Publisher(room_channel(chatroom_id)).emit(
                 "message.created",
@@ -276,6 +277,7 @@ class MessageService:
             edited_by_user_id=authority.actor_user_id,
         )
 
+        await self._db.flush()
         try:
             await Publisher(room_channel(existing.chatroom_id)).emit(
                 "message.updated",
@@ -357,6 +359,7 @@ class MessageService:
                 request_id=request_id,
             ),
         )
+        await self._db.flush()
         try:
             await Publisher(room_channel(existing.chatroom_id)).emit(
                 "message.deleted",

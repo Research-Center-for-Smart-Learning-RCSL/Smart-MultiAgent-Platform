@@ -65,6 +65,7 @@ class NotificationService:
         if not created:
             return notif
 
+        await self._db.flush()
         pub = Publisher(user_channel(user_id))
         await pub.emit(
             "notification.created",

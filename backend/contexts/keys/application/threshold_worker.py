@@ -84,11 +84,11 @@ async def _list_limited_members(db: AsyncSession) -> list[_LimitRow]:
 
 def _breached_axes(row: _LimitRow, used: redis_buckets.Usage) -> list[str]:
     axes: list[str] = []
-    if row.max_input and used.input_tokens * 100 >= row.max_input * _THRESHOLD_PCT:
+    if row.max_input is not None and used.input_tokens * 100 >= row.max_input * _THRESHOLD_PCT:
         axes.append("input_tokens")
-    if row.max_output and used.output_tokens * 100 >= row.max_output * _THRESHOLD_PCT:
+    if row.max_output is not None and used.output_tokens * 100 >= row.max_output * _THRESHOLD_PCT:
         axes.append("output_tokens")
-    if row.max_requests and used.requests * 100 >= row.max_requests * _THRESHOLD_PCT:
+    if row.max_requests is not None and used.requests * 100 >= row.max_requests * _THRESHOLD_PCT:
         axes.append("requests")
     return axes
 

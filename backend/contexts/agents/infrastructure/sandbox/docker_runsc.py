@@ -367,6 +367,8 @@ class DockerRunscSandbox:
             client = self._client()
             volume = f"smap-agent-fs-{agent_id}"
             host_config = self._base_host_config()
+            # M19: file_op needs no network — isolate completely.
+            host_config["network_mode"] = "none"
             host_config["volumes"] = {volume: {"bind": "/workspace", "mode": "rw"}}
             env = {
                 "SMAP_AGENT_ID": str(agent_id),
@@ -446,6 +448,8 @@ class DockerRunscSandbox:
         async with _get_semaphore():
             client = self._client()
             host_config = self._base_host_config()
+            # M19: code_exec needs no network — isolate completely.
+            host_config["network_mode"] = "none"
             env = {"SMAP_AGENT_ID": str(agent_id)}
             command = ["python", "-c", source]
             if stdin:

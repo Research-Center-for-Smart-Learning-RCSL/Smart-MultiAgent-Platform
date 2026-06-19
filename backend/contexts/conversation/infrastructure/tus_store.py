@@ -133,17 +133,37 @@ class TusUploadStore:
             metadata_raw=data["metadata_raw"],
         )
 
+    # Atomic CAS via Lua so two concurrent PATCHes cannot both read the same
+    # offset and silently overwrite each other (H11).
+    _CAS_SCRIPT = """
+local raw = redis.call('GET', KEYS[1])
+if not raw then return -1 end
+local data = cjson.decode(raw)
+if tostring(data['upload_offset']) ~= ARGV[1] then return 0 end
+data['upload_offset'] = tonumber(ARGV[2])
+redis.call('SET', KEYS[1], cjson.encode(data), 'EX', tonumber(ARGV[3]))
+return 1
+"""
+
     async def update_offset(
         self,
         upload_id: uuid.UUID,
+        expected_offset: int,
         new_offset: int,
-    ) -> None:
-        raw = await get_redis().get(_key(upload_id))
-        if raw is None:
-            return
-        data = json.loads(raw)
-        data["upload_offset"] = new_offset
-        await get_redis().set(_key(upload_id), json.dumps(data), ex=_TTL_SECONDS)
+    ) -> bool:
+        """Atomically advance offset only if it still equals *expected_offset*.
+
+        Returns ``True`` on success, ``False`` on mismatch (concurrent upload).
+        """
+        result = await get_redis().eval(
+            self._CAS_SCRIPT,
+            1,
+            _key(upload_id),
+            str(expected_offset),
+            str(new_offset),
+            str(_TTL_SECONDS),
+        )
+        return int(result) == 1
 
     async def delete(self, upload_id: uuid.UUID) -> None:
         await get_redis().delete(_key(upload_id))

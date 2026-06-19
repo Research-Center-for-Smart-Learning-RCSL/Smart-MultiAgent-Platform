@@ -305,11 +305,16 @@ class RagChunkRepository:
         """Batch lookup — used by the retrieval path to hydrate Qdrant hits."""
         if not qdrant_point_ids:
             return []
-        rows = (
-            await self._db.execute(
-                t.rag_chunks.select().where(t.rag_chunks.c.qdrant_point_id.in_(list(qdrant_point_ids)))
+        query = (
+            sa.select(t.rag_chunks)
+            .join(t.rag_documents, t.rag_chunks.c.document_id == t.rag_documents.c.id)
+            .where(
+                t.rag_chunks.c.qdrant_point_id.in_(list(qdrant_point_ids)),
+                t.rag_documents.c.status == "ready",
+                t.rag_documents.c.scan_status.in_(["clean", "skipped"]),
             )
-        ).all()
+        )
+        rows = (await self._db.execute(query)).all()
         return [_row_to_chunk(r) for r in rows]
 
 

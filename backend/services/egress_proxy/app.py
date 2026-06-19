@@ -379,7 +379,7 @@ def create_app(settings: EgressProxySettings) -> FastAPI:
         except httpx.HTTPError as exc:
             return _problem(502, "mcp-egress-denied", f"upstream error: {exc}")
 
-        _log.info(
+        _log.debug(
             "egress_forward project=%s host=%s method=%s path=%s status=%s " "req_body=%r resp_body=%r",
             project_id,
             host,

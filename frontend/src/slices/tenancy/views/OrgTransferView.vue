@@ -41,7 +41,7 @@ async function initiate(): Promise<void> {
     targetUserId.value = ''
     await load()
   } catch {
-    error.value = 'generic'
+    error.value = t('tenancy.errors.generic')
   }
 }
 

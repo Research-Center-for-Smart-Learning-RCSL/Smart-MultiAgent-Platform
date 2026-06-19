@@ -408,7 +408,7 @@ async def trigger_build(
             triggered_by="manual",
         )
     finally:
-        await pool.close()
+        await pool.aclose(close_connection_pool=True)
     return GraphRagBuildOut(
         accepted=True,
         build_id=None,

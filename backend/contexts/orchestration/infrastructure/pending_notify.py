@@ -81,7 +81,7 @@ async def requeue(agent_id: uuid.UUID, notes: list[dict[str, Any]]) -> None:
     pipe = r.pipeline(transaction=False)
     for note in reversed(notes):
         pipe.lpush(key, json.dumps(note, separators=(",", ":")))
-    pipe.ltrim(key, -_MAX_PENDING, -1)
+    pipe.ltrim(key, 0, _MAX_PENDING - 1)
     pipe.expire(key, _TTL_SECONDS)
     await pipe.execute()
 

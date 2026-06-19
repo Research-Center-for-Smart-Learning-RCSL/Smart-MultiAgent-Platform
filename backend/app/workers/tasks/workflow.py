@@ -107,9 +107,10 @@ async def retry_workflow_node(
         await db.commit()
         await engine.dispatch_enqueues(ctx["redis"])  # ASYNC-6: reuse worker pool
 
-    # Clean up the retry counter after the final retry attempt completes.
-    redis = get_redis()
-    await redis.delete(f"wf:retry:{run_id}:{node_id}")
+    # The retry counter (wf:retry:{run_id}:{node_id}) has a 1-hour TTL set by
+    # the engine when it increments it.  Do NOT delete it here — if the node
+    # failed again the engine already re-incremented and enqueued another retry;
+    # deleting it would reset the counter to 0 and cause an infinite retry loop.
 
     logger.bind(event="workflow_node_retried", run_id=run_id, node_id=node_id).info("workflow node retried")
     return "ok"

@@ -33,5 +33,5 @@ export const projectsApi = {
   setRole: (id: string, uid: string, role: 'owner' | 'member') =>
     http.patch(`/projects/${id}/members/${uid}`, { role }),
   invite: (id: string, email: string, role: 'owner' | 'member') =>
-    http.post(`/projects/${id}/invites`, { invitee_email: email, role }),
+    http.post(`/projects/${id}/invites`, { email, role }),
 }

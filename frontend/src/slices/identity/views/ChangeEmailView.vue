@@ -1,6 +1,9 @@
 <script setup lang="ts">
 import { ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { authApi } from '../api/auth'
+
+const { t } = useI18n()
 
 const newEmail = ref('')
 const password = ref('')
@@ -15,7 +18,7 @@ async function submit(): Promise<void> {
     await authApi.changeEmail({ new_email: newEmail.value, password: password.value })
     done.value = true
   } catch {
-    error.value = 'generic'
+    error.value = t('identity.errors.generic')
   } finally {
     submitting.value = false
   }

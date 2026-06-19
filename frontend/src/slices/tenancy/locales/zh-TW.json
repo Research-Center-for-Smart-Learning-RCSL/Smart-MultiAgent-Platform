@@ -1,5 +1,6 @@
 {
   "tenancy": {
+    "errors": { "generic": "發生未預期的錯誤，請再試一次。" },
     "orgs": {
       "listTitle": "組織",
       "createLabel": "新組織",

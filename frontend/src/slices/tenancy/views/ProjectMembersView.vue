@@ -98,7 +98,7 @@ onMounted(load)
         v-for="m in members"
         :key="m.user_id"
       >
-        {{ m.email }} — {{ m.role }}
+        {{ m.user_id }} — {{ m.role }}
         <button
           v-if="m.role === 'member'"
           @click="setRole(m.user_id, 'owner')"
