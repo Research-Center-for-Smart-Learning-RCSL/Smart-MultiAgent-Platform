@@ -28,7 +28,7 @@ from redis.asyncio.client import PubSub
 from shared_kernel.auth.clients import get_redis
 
 # ---------------------------------------------------------------------------
-# Backward-compat re-exports (DEPRECATED).
+# Backward-compat re-exports (DEPRECATED) — lazy to avoid circular imports.
 # Canonical locations:
 #   room_channel       -> contexts.conversation.infrastructure.channels
 #   workflow_channel   -> contexts.workflow.infrastructure.channels
@@ -36,11 +36,21 @@ from shared_kernel.auth.clients import get_redis
 #   AUDIT_TAIL_CHANNEL -> contexts.audit.infrastructure.channels
 #   user_channel       -> contexts.identity.infrastructure.channels
 # ---------------------------------------------------------------------------
-from contexts.audit.infrastructure.channels import AUDIT_TAIL_CHANNEL as AUDIT_TAIL_CHANNEL  # noqa: F401
-from contexts.conversation.infrastructure.channels import room_channel as room_channel  # noqa: F401
-from contexts.identity.infrastructure.channels import user_channel as user_channel  # noqa: F401
-from contexts.knowledge.infrastructure.channels import rag_channel as rag_channel  # noqa: F401
-from contexts.workflow.infrastructure.channels import workflow_channel as workflow_channel  # noqa: F401
+_CHANNEL_REEXPORTS: dict[str, tuple[str, str]] = {
+    "AUDIT_TAIL_CHANNEL": ("contexts.audit.infrastructure.channels", "AUDIT_TAIL_CHANNEL"),
+    "room_channel": ("contexts.conversation.infrastructure.channels", "room_channel"),
+    "user_channel": ("contexts.identity.infrastructure.channels", "user_channel"),
+    "rag_channel": ("contexts.knowledge.infrastructure.channels", "rag_channel"),
+    "workflow_channel": ("contexts.workflow.infrastructure.channels", "workflow_channel"),
+}
+
+
+def __getattr__(name: str) -> Any:
+    if name in _CHANNEL_REEXPORTS:
+        mod_path, attr = _CHANNEL_REEXPORTS[name]
+        import importlib
+        return getattr(importlib.import_module(mod_path), attr)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 async def publish(channel: str, event: dict[str, Any]) -> int:

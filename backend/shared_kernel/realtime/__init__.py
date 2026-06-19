@@ -10,7 +10,7 @@ contexts framework-free and lets `app/api/ws/*` stay thin.
 from __future__ import annotations
 
 from shared_kernel.realtime.connection import ChannelConnection, connection_loop
-from contexts.conversation.infrastructure.presence import PresenceTracker
+from shared_kernel.realtime.presence import PresenceTracker  # backward-compat re-export
 from shared_kernel.realtime.pubsub import Publisher, Subscriber, publish
 from shared_kernel.realtime.ws_auth import (
     WsAuthError,

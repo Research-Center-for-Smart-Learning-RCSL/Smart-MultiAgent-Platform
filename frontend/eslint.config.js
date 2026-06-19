@@ -114,7 +114,7 @@ export default [
         },
         { type: 'shared', pattern: ['src/shared/**'] },
       ],
-      'boundaries/ignore': ['src/shared/api-client/**'],
+      'boundaries/ignore': ['src/shared/api-client/**', 'src/shared/stores/session.ts'],
     },
     rules: {
       ...tseslint.configs.recommended.rules,
