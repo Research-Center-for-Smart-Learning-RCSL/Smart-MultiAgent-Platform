@@ -105,3 +105,7 @@ class LocalBgeReranker(Reranker):
         r.raise_for_status()
         payload = r.json().get("results", [])
         return [RerankResult(index=int(e["index"]), score=float(e["score"])) for e in payload]
+
+    async def close(self) -> None:
+        """Close the underlying httpx client to release connections."""
+        await self._http.aclose()

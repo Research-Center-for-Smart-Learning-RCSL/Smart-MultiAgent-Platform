@@ -274,6 +274,7 @@ class TurnEngine:
                 section_cache=section_cache,
                 extra=extra_tools,
             )
+            await self._db.flush()
             final_text, rounds = await self._stream_with_tools(
                 agent=agent,
                 chatroom_id=None,
@@ -684,6 +685,11 @@ class TurnEngine:
             await self._audit(agent, chatroom_id, "agent.compact_failed", {"error": str(exc)})
             return history
         if not did:
+            # Compaction was a no-op — restore the one-shot flag that
+            # _consume_compact_flag removed via GETDEL so a subsequent
+            # turn can retry (the user's POST /compact intent is preserved).
+            if forced:
+                await self._restore_compact_flag(chatroom_id)
             return history
         # Reload so the summary replaces the folded range.
         reloaded = await tx.load_model_history(self._db, chatroom_id=chatroom_id)

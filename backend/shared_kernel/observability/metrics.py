@@ -213,7 +213,7 @@ class _MetricsMiddleware(BaseHTTPMiddleware):
         finally:
             elapsed = time.monotonic() - started
             route = request.scope.get("route")
-            route_tpl = getattr(route, "path", request.url.path)
+            route_tpl = getattr(route, "path", None) or "__unmatched__"
             HTTP_REQUESTS.labels(
                 method=request.method,
                 route=route_tpl,

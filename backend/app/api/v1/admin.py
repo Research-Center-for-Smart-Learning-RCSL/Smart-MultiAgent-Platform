@@ -464,11 +464,13 @@ async def force_delete_org(
 
     from shared_kernel.auth.clients import now as _now
 
-    await db.execute(
+    result = await db.execute(
         sa.text("UPDATE orgs SET deleted_at = :now WHERE id = :id AND deleted_at IS NULL").bindparams(
             now=_now(), id=org_id
         )
     )
+    if result.rowcount == 0:  # type: ignore[attr-defined]
+        raise HTTPException(status_code=404, detail="Org not found or already deleted")
     await audit.emit(
         db,
         audit.AuditEvent(
@@ -727,9 +729,9 @@ async def admin_metrics(
         if now - cached_at < _METRICS_TTL_SECONDS:
             return cached_result
 
-    users_count = (await db.execute(sa.text("SELECT count(*) FROM users"))).scalar_one()
-    orgs_count = (await db.execute(sa.text("SELECT count(*) FROM orgs"))).scalar_one()
-    projects_count = (await db.execute(sa.text("SELECT count(*) FROM projects"))).scalar_one()
+    users_count = (await db.execute(sa.text("SELECT count(*) FROM users WHERE deleted_at IS NULL"))).scalar_one()
+    orgs_count = (await db.execute(sa.text("SELECT count(*) FROM orgs WHERE deleted_at IS NULL"))).scalar_one()
+    projects_count = (await db.execute(sa.text("SELECT count(*) FROM projects WHERE deleted_at IS NULL"))).scalar_one()
     audit_count = (await db.execute(sa.text("SELECT count(*) FROM audit_logs"))).scalar_one()
     result = MetricsOut(
         total_users=users_count,
