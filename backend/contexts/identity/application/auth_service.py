@@ -32,9 +32,10 @@ from contexts.identity.domain.errors import (
     TokenExpired,
     TokenInvalid,
 )
+from contexts.identity.application.auth_email_service import AuthEmailService
 from contexts.identity.domain.models import Session, User, UserStatus
-from contexts.identity.infrastructure import email_domain_policy, email_templates, lockouts
-from contexts.identity.infrastructure.email import EmailMessage, EmailSender, recipient_digest
+from contexts.identity.infrastructure import email_domain_policy, lockouts
+from contexts.identity.infrastructure.email import EmailSender, recipient_digest
 from contexts.identity.infrastructure.repositories import (
     AdminRepository,
     EmailVerifyTokenRepository,
@@ -107,6 +108,11 @@ class AuthService:
         self._reset = PasswordResetTokenRepository(db)
         self._admins = AdminRepository(db)
         self._public_origin = public_origin.rstrip("/")
+        self._notifier = AuthEmailService(
+            db=db,
+            email_sender=email_sender,
+            public_origin=public_origin,
+        )
 
     # ----- register / verify -----------------------------------------------
 
@@ -148,7 +154,7 @@ class AuthService:
             notice_key = "rl:reg:e:" + hashlib.sha256(email.encode()).hexdigest()[:24]
             rl = await ratelimit.check_raw(key=notice_key, window_sec=600, max_count=5)
             if rl.allowed:
-                await self._send_already_registered_notice(email, user_id=existing.id)
+                await self._notifier.send_already_registered_notice(email, user_id=existing.id)
                 await audit.emit(
                     self._db,
                     audit.AuditEvent(
@@ -169,7 +175,7 @@ class AuthService:
             status=UserStatus.PENDING,
         )
         token, _ = await self._verify.issue(user.id, _VERIFY_TTL)
-        await self._send_email_verification(email, token, user_id=user.id)
+        await self._notifier.send_email_verification(email, token, user_id=user.id)
 
         await audit.emit(
             self._db,
@@ -453,7 +459,7 @@ class AuthService:
             # Do not leak existence — quietly succeed.
             return
         token, _ = await self._reset.issue(user.id, _RESET_TTL)
-        await self._send_password_reset(email, token, user_id=user.id)
+        await self._notifier.send_password_reset(email, token, user_id=user.id)
         await audit.emit(
             self._db,
             audit.AuditEvent(
@@ -551,7 +557,7 @@ class AuthService:
             raise EmailAlreadyRegistered(new_email)
         await self._users.set_email(user_id, new_email)
         token, _ = await self._verify.issue(user_id, _VERIFY_TTL)
-        await self._send_email_change_reverify(new_email, token, user_id=user_id)
+        await self._notifier.send_email_change_reverify(new_email, token, user_id=user_id)
         await self._invalidate_user_sessions(user_id, reason="email_change")
         await audit.emit(
             self._db,
@@ -700,80 +706,6 @@ class AuthService:
                     ),
                 )
         await self._sessions.revoke_all_for_user(user_id)
-
-    async def _deliver(
-        self,
-        email: str,
-        rendered: email_templates.RenderedEmail,
-        *,
-        user_id: uuid.UUID,
-        template: str,
-    ) -> None:
-        await self._emailer.send(
-            EmailMessage(
-                to=email,
-                subject=rendered.subject,
-                text_body=rendered.text_body,
-                html_body=rendered.html_body,
-                correlation_id=user_id,
-                template=template,
-            )
-        )
-        # Audit the send with the template name + a recipient *digest* only —
-        # never the plaintext address (SEC: no PII in the audit log).
-        await audit.emit(
-            self._db,
-            audit.AuditEvent(
-                action="email.sent",
-                actor_user_id=user_id,
-                resource_type="user",
-                resource_id=user_id,
-                metadata={"template": template, "recipient": recipient_digest(email)},
-            ),
-        )
-
-    async def _send_email_verification(self, email: str, token: str, *, user_id: uuid.UUID) -> None:
-        # The token rides in the URL *fragment* (`#token=`), not the query
-        # string: fragments are never sent to the server, so the high-entropy
-        # single-use token stays out of access logs, `Referer` headers, and
-        # the browser-history query string. The SPA route reads `location.hash`
-        # and POSTs the token to `/api/auth/verify-email` (SEC-8).
-        link = f"{self._public_origin}/verify-email#token={token}"
-        await self._deliver(
-            email, email_templates.verify_email(link), user_id=user_id, template="verify_email"
-        )
-
-    async def _send_email_change_reverify(self, email: str, token: str, *, user_id: uuid.UUID) -> None:
-        # Same fragment-token discipline as verification; distinct copy so the
-        # new-address owner understands why they're receiving it (R6.06).
-        link = f"{self._public_origin}/verify-email#token={token}"
-        await self._deliver(
-            email,
-            email_templates.email_change_reverify(link),
-            user_id=user_id,
-            template="email_change_reverify",
-        )
-
-    async def _send_already_registered_notice(self, email: str, *, user_id: uuid.UUID) -> None:
-        # Sent when someone tries to register an address that already has an
-        # account (SEC-M4). It carries no token and grants no capability — it
-        # only informs the address owner so the registration attempt is not
-        # silent, while keeping the "already registered" fact off the HTTP path.
-        link = f"{self._public_origin}/login"
-        await self._deliver(
-            email,
-            email_templates.already_registered(link),
-            user_id=user_id,
-            template="already_registered",
-        )
-
-    async def _send_password_reset(self, email: str, token: str, *, user_id: uuid.UUID) -> None:
-        # Token in the URL fragment — see `_send_email_verification` (SEC-8).
-        link = f"{self._public_origin}/password-reset/confirm#token={token}"
-        await self._deliver(
-            email, email_templates.password_reset(link), user_id=user_id, template="password_reset"
-        )
-
 
 def _normalise_email(raw: str) -> str:
     e = raw.strip().lower()

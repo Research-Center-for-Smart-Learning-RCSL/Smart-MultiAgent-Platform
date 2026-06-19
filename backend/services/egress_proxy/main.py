@@ -1,24 +1,12 @@
 """Composition root for the SMAP Egress Proxy (R12.04).
 
-Reads environment variables, wires the AllowlistChecker against the main
-PostgreSQL database, and exposes the FastAPI application as ``app`` for
-uvicorn to serve.
-
-Required environment variables:
-    EGRESS_PROXY_SHARED_SECRET  — 64 hex chars (32 bytes).
-                                   Generate with: openssl rand -hex 32
-    SMAP_DB_DSN                 — PostgreSQL async DSN
-                                   (asyncpg dialect, e.g.
-                                    postgresql+asyncpg://smap:smap@postgres:5432/smap)
-
-Optional:
-    SMAP_EGRESS_UPSTREAM_TIMEOUT_S  — upstream forward timeout in seconds
-                                       (default: 20.0)
+Reads environment variables via ``EgressProxyEnvConfig`` (pydantic-settings),
+wires the AllowlistChecker against the main PostgreSQL database, and exposes
+the FastAPI application as ``app`` for uvicorn to serve.
 """
 
 from __future__ import annotations
 
-import os
 import uuid
 
 import sqlalchemy as sa
@@ -27,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from contexts.agents.infrastructure.mcp_tables import mcp_egress_allowlist
 from services.egress_proxy.app import AllowlistChecker, EgressProxySettings, create_app
+from services.egress_proxy.config import EgressProxyEnvConfig
 
 
 class _DbAllowlistChecker(AllowlistChecker):
@@ -51,27 +40,10 @@ class _DbAllowlistChecker(AllowlistChecker):
 
 
 def _build_app() -> FastAPI:
-    secret_hex = os.environ.get("EGRESS_PROXY_SHARED_SECRET", "")
-    try:
-        shared_secret = bytes.fromhex(secret_hex)
-    except ValueError as exc:
-        raise ValueError(
-            "EGRESS_PROXY_SHARED_SECRET must be a hex string" " (e.g. 64 hex chars = 32 bytes)"
-        ) from exc
-    if len(shared_secret) < 32:
-        raise ValueError(
-            "EGRESS_PROXY_SHARED_SECRET must be at least 32 bytes"
-            " (64 hex chars). Generate with: openssl rand -hex 32"
-        )
-
-    db_dsn = os.environ.get("SMAP_DB_DSN", "")
-    if not db_dsn:
-        raise ValueError("SMAP_DB_DSN is required")
-
-    timeout = float(os.environ.get("SMAP_EGRESS_UPSTREAM_TIMEOUT_S", "20.0"))
+    cfg = EgressProxyEnvConfig()  # type: ignore[call-arg]
 
     engine = create_async_engine(
-        db_dsn,
+        cfg.smap_db_dsn,
         pool_size=3,
         max_overflow=2,
         pool_recycle=300,
@@ -81,9 +53,9 @@ def _build_app() -> FastAPI:
     session_factory = async_sessionmaker(engine, expire_on_commit=False)
 
     settings = EgressProxySettings(
-        shared_secret=shared_secret,
+        shared_secret=cfg.shared_secret_bytes,
         allowlist_checker=_DbAllowlistChecker(session_factory),
-        upstream_timeout_s=timeout,
+        upstream_timeout_s=cfg.smap_egress_upstream_timeout_s,
     )
     return create_app(settings)
 

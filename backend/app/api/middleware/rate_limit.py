@@ -1,15 +1,23 @@
 """Path-prefix-based rate-limit middleware (R19.02 / R19.04 / R19.06).
 
 Bucket selection:
-  * `/api/auth/*` recovery   → auth-recovery (10 / min / IP)  [R19.02 / API-9]
-  * `/api/auth/*` other      → auth      (10 / min / IP)
-  * `POST /api/chatrooms/.../messages` → chat-send (60 / min / user)
-  * `POST /api/*attachments*|/api/tus*`→ upload (10 / min / user)
-  * everything else          → other     (300 / min / user)
+  * `/api/auth/*` recovery   -> auth-recovery (10 / min / IP)  [R19.02 / API-9]
+  * `/api/auth/*` other      -> auth      (10 / min / IP)
+  * `POST /api/chatrooms/.../messages` -> chat-send (60 / min / user)
+  * `POST /api/*attachments*|/api/tus*`-> upload (10 / min / user)
+  * everything else          -> other     (300 / min / user)
 
 The auth bucket is IP-scoped per R19.02; the others resolve the caller's
 `user_id` from the already-set `auth_ctx.principal` (so auth middleware must
 run earlier for those buckets).
+
+COUPLING NOTE (L2): Bucket selection uses hardcoded path prefixes rather
+than route tags/metadata. This is intentional -- the middleware runs
+before FastAPI resolves the route, so route metadata is not yet
+available. The path patterns below must be kept in sync with the router
+prefix definitions in ``app.api.v1``. If a route prefix changes, update
+the matching pattern here. The patterns are consolidated in this single
+``_bucket_for`` function so there is exactly one place to update.
 """
 
 from __future__ import annotations
@@ -23,6 +31,7 @@ from shared_kernel.errors.problem import Problem, problem_type
 
 # API-9: account-recovery paths get a dedicated IP bucket so reset-email
 # flooding cannot exhaust the shared `auth` counter that login also uses.
+# Sync with: app.api.v1.auth router paths.
 _RECOVERY_PATHS = frozenset(
     {
         "/api/auth/request-password-reset",
@@ -31,18 +40,31 @@ _RECOVERY_PATHS = frozenset(
     }
 )
 
+# Path prefixes and segment markers for bucket classification.
+# Sync with: app.api.v1 router prefix definitions.
+_AUTH_PREFIX = "/api/auth/"
+_CHATROOM_PREFIX = "/api/chatrooms/"
+_TUS_PREFIX = "/api/tus"
+_MESSAGE_SEGMENT = "/messages"
+_ATTACHMENT_SEGMENT = "/attachments"
+_DOCUMENT_SEGMENT = "/documents"
+
 
 def _bucket_for(path: str, method: str) -> ratelimit.Bucket:
-    if path.startswith("/api/auth/"):
+    if path.startswith(_AUTH_PREFIX):
         if path in _RECOVERY_PATHS:
             return ratelimit.Bucket.AUTH_RECOVERY
         return ratelimit.Bucket.AUTH
-    if method == "POST" and "/messages" in path and path.startswith("/api/chatrooms/"):
+    if method == "POST" and _MESSAGE_SEGMENT in path and path.startswith(_CHATROOM_PREFIX):
         return ratelimit.Bucket.CHAT
     # tus PATCH (resumable chunk uploads) is explicitly 300/min/user per
-    # R19.02 + F.5 — only the *Creation* POST and single-shot attachment POSTs
+    # R19.02 + F.5 -- only the *Creation* POST and single-shot attachment POSTs
     # count against the 10/min/user upload bucket.
-    if method == "POST" and (path.startswith("/api/tus") or "/attachments" in path or "/documents" in path):
+    if method == "POST" and (
+        path.startswith(_TUS_PREFIX)
+        or _ATTACHMENT_SEGMENT in path
+        or _DOCUMENT_SEGMENT in path
+    ):
         return ratelimit.Bucket.UPLOAD
     return ratelimit.Bucket.OTHER
 

@@ -1,12 +1,16 @@
-"""Access-token decode + jti denylist + ban check → Principal.
+"""Access-token decode + jti denylist + ban check -> Principal.
 
 Populates `request.state.auth_ctx.principal` for anonymous public endpoints
 the caller is optional; AuthZ is enforced by per-route `require(...)` deps.
 
-Public routes (R19.01) explicitly call `Depends(allow_anon)` instead — the
+Public routes (R19.01) explicitly call `Depends(allow_anon)` instead -- the
 middleware is non-fatal: missing / malformed / expired tokens leave the ctx
 unauthenticated; only an *affirmatively denied* token (ban / denylisted jti)
 returns 401 immediately.
+
+Impersonation policy enforcement (read-only + download-deny) is handled by
+the separate ``ImpersonationPolicyMiddleware`` which runs after this
+middleware has populated the auth context.
 """
 
 from __future__ import annotations
@@ -15,41 +19,13 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
+from contexts.identity.domain.models import UserStatus
 from contexts.identity.interfaces.facade import IdentityFacade
 from shared_kernel.auth import jwt, tokens
 from shared_kernel.auth.context import RequestContext
 from shared_kernel.auth.permissions import Principal
 from shared_kernel.db.session import get_sessionmaker
 from shared_kernel.errors.problem import Problem, problem_type
-
-# Status strings mirrored from `contexts.identity.domain.models.UserStatus`.
-# Kept as a constant here so the middleware does not import the domain layer
-# (import-linter rule 3). Any future value added to UserStatus should be
-# reflected here.
-_STATUS_ACTIVE = "active"
-_STATUS_BANNED = "banned"
-_STATUS_DELETED = "deleted"
-
-# Paths that return presigned download URLs — blocked even on GET when impersonating,
-# to prevent an admin from exfiltrating another user's files via an impersonation JWT.
-# Deny-list patterns: any GET whose path matches one of these segments is blocked,
-# so a newly-added /download or /export endpoint is gated by default and an
-# operator must explicitly route it differently to bypass.
-_IMPERSONATION_DOWNLOAD_SEGMENTS = (
-    "/download",
-    "/export",
-    "/exports",
-    "/presigned",
-    "/attachments",
-)
-
-
-def _is_impersonation_blocked(path: str) -> bool:
-    # Match path segments only — `/api/orgs/{id}/exports`, `/api/exports/{id}`,
-    # `/api/.../files/download`, etc. all match; `/api/exporters` does NOT.
-    parts = path.split("/")
-    return any(seg.lstrip("/") in parts for seg in _IMPERSONATION_DOWNLOAD_SEGMENTS)
-
 
 _PROBLEM_MEDIA = "application/problem+json"
 
@@ -68,7 +44,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
 
         try:
             claims = jwt.verify_access_token(token)
-        except jwt.JwtError as exc:
+        except jwt.JwtError:
             return _deny("auth/token-expired", "Access token invalid or expired", 401, request, "token verification failed")
 
         if await tokens.is_denied(claims.jti):
@@ -77,9 +53,9 @@ class AuthMiddleware(BaseHTTPMiddleware):
         sm = get_sessionmaker()
         async with sm() as session:
             profile = await IdentityFacade(session).get_profile(claims.sub)
-            if profile is None or profile.status.value == _STATUS_DELETED:
+            if profile is None or profile.status is UserStatus.DELETED:
                 return _deny("auth/invalid-credentials", "Account not found", 401, request, "user missing")
-            if profile.status.value == _STATUS_BANNED:
+            if profile.status is UserStatus.BANNED:
                 return _deny("auth/banned", "Account banned", 403, request, "banned")
 
         ctx.principal = Principal(
@@ -91,24 +67,6 @@ class AuthMiddleware(BaseHTTPMiddleware):
         ctx.access_jti = claims.jti
         ctx.access_exp = claims.exp
         ctx.impersonated_by = claims.impersonated_by
-
-        if claims.impersonated_by is not None:
-            if request.method not in ("GET", "HEAD", "OPTIONS"):
-                return _deny(
-                    "admin/impersonation-read-only",
-                    "Impersonation sessions are read-only",
-                    403,
-                    request,
-                    "non-GET request via impersonation JWT",
-                )
-            if _is_impersonation_blocked(request.url.path):
-                return _deny(
-                    "admin/impersonation-read-only",
-                    "Impersonation sessions cannot access download endpoints",
-                    403,
-                    request,
-                    "data-export path accessed via impersonation JWT",
-                )
 
         return await call_next(request)
 
