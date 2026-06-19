@@ -27,6 +27,7 @@ from contexts.conversation.domain.models import (
     MessageEdit,
     SenderType,
 )
+from contexts.conversation.infrastructure.channels import room_channel
 from contexts.conversation.infrastructure.repositories import (
     MessageAttachmentRepository,
     MessageEditRepository,
@@ -34,7 +35,6 @@ from contexts.conversation.infrastructure.repositories import (
 )
 from shared_kernel import audit
 from shared_kernel.auth.clients import now
-from contexts.conversation.infrastructure.channels import room_channel
 from shared_kernel.realtime.pubsub import Publisher
 
 _log = logging.getLogger(__name__)

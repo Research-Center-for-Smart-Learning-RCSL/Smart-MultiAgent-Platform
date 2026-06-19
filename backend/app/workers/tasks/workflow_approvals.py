@@ -14,7 +14,6 @@ from typing import Any
 from loguru import logger
 
 from app.workers.tasks.workflow_common import (
-    _CLAIM_RESTORE_TTL_S,
     _RESUME_RETRY_DELAY_S,
     _RESUME_RETRY_MAX_ATTEMPTS,
     _emit_resumed,

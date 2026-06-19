@@ -70,7 +70,7 @@ async def ws_chatroom(ws: WebSocket, chatroom_id: uuid.UUID) -> None:
     publisher = Publisher(room_channel(chatroom_id))
 
     _last_typing_ts: float = 0.0
-    _TYPING_THROTTLE_S: float = 2.0
+    _typing_throttle_s: float = 2.0
 
     async def on_client_message(conn: ChannelConnection, msg: dict) -> None:  # type: ignore[type-arg]
         nonlocal _last_typing_ts
@@ -78,7 +78,7 @@ async def ws_chatroom(ws: WebSocket, chatroom_id: uuid.UUID) -> None:
         if msg_type in ("typing.start", "typing.stop"):
             if msg_type == "typing.start":
                 now = time.monotonic()
-                if now - _last_typing_ts < _TYPING_THROTTLE_S:
+                if now - _last_typing_ts < _typing_throttle_s:
                     return
                 _last_typing_ts = now
             await publisher.emit(msg_type, {"user_id": str(conn.principal.user_id)})

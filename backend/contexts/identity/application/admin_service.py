@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config.settings import get_settings
 from contexts.identity.domain.models import User, UserStatus
 from contexts.identity.infrastructure import tables as t
+from contexts.identity.infrastructure.channels import user_channel
 from contexts.identity.infrastructure.repositories import (
     AdminRepository,
     SessionRepository,
@@ -26,7 +27,6 @@ from contexts.notification.interfaces.facade import NotificationFacade, Notifica
 from shared_kernel import audit
 from shared_kernel.auth import tokens
 from shared_kernel.auth.clients import now
-from contexts.identity.infrastructure.channels import user_channel
 from shared_kernel.realtime.pubsub import Publisher
 
 

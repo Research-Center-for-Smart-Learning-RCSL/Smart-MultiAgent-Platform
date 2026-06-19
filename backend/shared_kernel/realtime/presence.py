@@ -3,7 +3,7 @@
 DEPRECATED: import from contexts.conversation.infrastructure.presence instead.
 """
 
-from contexts.conversation.infrastructure.presence import (  # noqa: F401
+from contexts.conversation.infrastructure.presence import (
     PresenceTracker,
     scrub_stale_presence,
 )

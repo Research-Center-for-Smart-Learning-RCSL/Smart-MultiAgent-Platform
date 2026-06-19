@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from typing import Any
+from typing import Any, ClassVar
 
 import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -280,7 +280,7 @@ class WorkflowRunRepository:
 
     # H13: only legal state transitions are allowed; terminal states cannot be
     # overwritten.  The WHERE clause enforces this at the DB level.
-    _VALID_TRANSITIONS: dict[str, set[str]] = {
+    _VALID_TRANSITIONS: ClassVar[dict[str, set[str]]] = {
         "running": {"waiting", "succeeded", "failed", "cancelled"},
         "waiting": {"running", "failed", "cancelled"},
     }

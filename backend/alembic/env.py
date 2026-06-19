@@ -28,9 +28,9 @@ _BACKEND_ROOT = Path(__file__).resolve().parents[1]
 if str(_BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(_BACKEND_ROOT))
 
+import app.db_registry as _registry  # noqa: E402, F401 — side-effect import
 from app.config.settings import get_settings  # noqa: E402
 from shared_kernel.db import metadata as _metadata  # noqa: E402
-import app.db_registry as _registry  # noqa: E402, F401 — side-effect import
 
 config = context.config
 if config.config_file_name is not None:

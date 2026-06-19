@@ -82,7 +82,7 @@ class _DbDeltaLoader:
                 rows = (
                     await db.execute(
                         sa.text(
-                            "SELECT m.id, m.sender_type AS role, m.content_md AS content, "
+                            "SELECT m.id, m.sender_type AS role, m.content_md AS content, "  # noqa: S608
                             "m.created_at "
                             "FROM messages m "
                             "JOIN chatrooms cr ON cr.id = m.chatroom_id "

@@ -113,7 +113,7 @@ _container_semaphore: asyncio.Semaphore | None = None
 
 
 def _get_semaphore() -> asyncio.Semaphore:
-    global _container_semaphore  # noqa: PLW0603
+    global _container_semaphore
     if _container_semaphore is None:
         _container_semaphore = asyncio.Semaphore(_MAX_CONCURRENT_CONTAINERS)
     return _container_semaphore
@@ -390,7 +390,8 @@ class DockerRunscSandbox:
                     **host_config,
                 )
                 try:
-                    await asyncio.to_thread(container.put_archive, "/workspace", _tar_single_file(stage_name, data))
+                    archive = _tar_single_file(stage_name, data)
+                    await asyncio.to_thread(container.put_archive, "/workspace", archive)
                     await asyncio.to_thread(container.start)
                 except Exception:
                     await self._remove_quietly(container)

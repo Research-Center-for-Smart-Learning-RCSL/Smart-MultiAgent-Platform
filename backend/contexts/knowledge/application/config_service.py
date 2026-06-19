@@ -10,8 +10,6 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-_log = logging.getLogger(__name__)
-
 from contexts.keys.interfaces.facade import (
     ApiKeyProvider,
     CapabilityRequirement,
@@ -36,6 +34,8 @@ from contexts.knowledge.infrastructure.repositories import (
     RagDocumentRepository,
 )
 from shared_kernel import audit
+
+_log = logging.getLogger(__name__)
 
 _EMBED = CapabilityRequirement(capability=ProviderCapability.EMBEDDING)
 _RERANK = CapabilityRequirement(capability=ProviderCapability.RERANK)
@@ -164,13 +164,13 @@ class RagConfigService:
                 )
 
         # Only allow mutable fields.
-        _MUTABLE = {
+        mutable = {
             "name", "top_k", "chunk_params",
             "rerank_enabled", "rerank_key_id", "rerank_provider", "rerank_model",
         }
         db_values: dict[str, Any] = {}
         for k, v in patch.items():
-            if k in _MUTABLE:
+            if k in mutable:
                 db_values[k] = v
 
         updated = await self._configs.update(config_id, db_values)
@@ -226,16 +226,16 @@ class RagConfigService:
         # Drain all child documents in batches — an unbounded single fetch
         # would OOM on very large configs, and the previous limit=10_000 cap
         # silently left orphan documents behind.
-        _BATCH = 10_000
+        page_size = 10_000
         docs: list[RagDocument] = []
         while True:
-            batch = list(await docs_repo.list_for_config(config_id, limit=_BATCH))
+            batch = list(await docs_repo.list_for_config(config_id, limit=page_size))
             if not batch:
                 break
             docs.extend(batch)
             for doc in batch:
                 await docs_repo.delete(doc.id)
-            if len(batch) < _BATCH:
+            if len(batch) < page_size:
                 break
         if len(docs) >= 20_000:
             _log.warning(

@@ -320,7 +320,7 @@ def _check_prod_secrets(s: Settings) -> None:
     if s.app.env != "prod":
         return
     problems: list[str] = []
-    if s.neo4j.password in ("neo4j", "neo4jneo4j"):  # noqa: S105 — comparing against the dev default
+    if s.neo4j.password in ("neo4j", "neo4jneo4j"):
         problems.append("SMAP_NEO4J_PASSWORD is the insecure default")
     if s.minio.root_access_key == "minioadmin":
         problems.append("SMAP_MINIO_ROOT_ACCESS_KEY is the insecure default 'minioadmin'")

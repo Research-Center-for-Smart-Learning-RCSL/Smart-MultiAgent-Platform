@@ -24,11 +24,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from contexts.keys.domain.errors import KeyNotFound, KeyNotOwnedByCaller
 from contexts.keys.domain.models import ApiKey, mask_preview
 from contexts.keys.domain.providers import ApiKeyProvider
+from contexts.keys.infrastructure.key_revocation_events import publish_key_revoked
 from contexts.keys.infrastructure.probes import ProbeStatus, probe
 from contexts.keys.infrastructure.repositories import ApiKeyRepository
 from contexts.notification.interfaces.facade import NotificationFacade, NotificationKind
 from shared_kernel import audit
-from contexts.keys.infrastructure.key_revocation_events import publish_key_revoked
 from shared_kernel.security import envelope as env
 
 

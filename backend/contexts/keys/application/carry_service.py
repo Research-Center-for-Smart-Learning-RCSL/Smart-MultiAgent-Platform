@@ -24,9 +24,9 @@ from contexts.keys.domain.errors import KeyNotFound, KeyNotOwnedByCaller
 from contexts.keys.domain.models import ApiKey
 from contexts.keys.infrastructure import tables as t
 from contexts.keys.infrastructure.carry_repository import KeyProjectRepository
+from contexts.keys.infrastructure.key_revocation_events import publish_carry_revoked
 from contexts.keys.infrastructure.repositories import ApiKeyRepository
 from shared_kernel import audit
-from contexts.keys.infrastructure.key_revocation_events import publish_carry_revoked
 from shared_kernel.infra import redis_buckets
 
 _WINDOWS: dict[str, timedelta | None] = {

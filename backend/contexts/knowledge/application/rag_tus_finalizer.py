@@ -29,6 +29,7 @@ from contexts.knowledge.application.ingest_service import (
 )
 from contexts.knowledge.domain.errors import RagConfigNotFound, UnsupportedMime
 from contexts.knowledge.domain.models import DocumentStatus, RagDocument
+from contexts.knowledge.infrastructure.channels import rag_channel
 from contexts.knowledge.infrastructure.parsers import MIME_TO_PARSER
 from contexts.knowledge.infrastructure.repositories import (
     RagConfigRepository,
@@ -36,7 +37,6 @@ from contexts.knowledge.infrastructure.repositories import (
 )
 from shared_kernel import audit
 from shared_kernel.queue import enqueue
-from contexts.knowledge.infrastructure.channels import rag_channel
 from shared_kernel.realtime.pubsub import Publisher
 from shared_kernel.storage import get_minio_client
 

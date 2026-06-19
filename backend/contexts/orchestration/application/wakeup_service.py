@@ -26,9 +26,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from contexts.agents.interfaces.facade import (
     Agent,
     AgentDraft,
-    AgentVersionMismatch,
     AgentsFacade,
+    AgentVersionMismatch,
 )
+from contexts.conversation.infrastructure.presence import PresenceTracker
 from contexts.orchestration.domain.models import (
     N_MAX,
     N_MIN,
@@ -40,7 +41,6 @@ from contexts.orchestration.domain.models import (
 from contexts.orchestration.infrastructure import wakeup_state
 from contexts.orchestration.infrastructure.metrics import WAKEUP_FIRES
 from shared_kernel import audit
-from contexts.conversation.infrastructure.presence import PresenceTracker
 
 logger = logging.getLogger(__name__)
 

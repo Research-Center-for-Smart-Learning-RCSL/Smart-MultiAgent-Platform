@@ -49,6 +49,7 @@ from contexts.knowledge.domain.errors import (
     UnsupportedMime,
 )
 from contexts.knowledge.domain.models import DocumentStatus, RagConfig, RagDocument
+from contexts.knowledge.infrastructure.channels import rag_channel
 from contexts.knowledge.infrastructure.chunkers import chunk_text
 from contexts.knowledge.infrastructure.parsers import MIME_TO_PARSER
 from contexts.knowledge.infrastructure.qdrant_store import QdrantStore
@@ -58,7 +59,6 @@ from contexts.knowledge.infrastructure.repositories import (
     RagDocumentRepository,
 )
 from shared_kernel import audit
-from contexts.knowledge.infrastructure.channels import rag_channel
 from shared_kernel.realtime.pubsub import Publisher
 
 MAX_MULTIPART_BYTES = 32 * 1024 * 1024  # §22.7 — tus for anything larger
