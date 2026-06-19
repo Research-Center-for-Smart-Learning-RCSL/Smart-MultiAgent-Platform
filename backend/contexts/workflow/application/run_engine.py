@@ -695,11 +695,6 @@ class RunEngine:
         if outcome.skip_edges:
             return
 
-        # Failed with no recovery — fail the run
-        if outcome.state == StepState.FAILED:
-            await self._fail_run(ctx, outcome.error or "Step failed")
-            return
-
         # End node — finish the run
         if node.type == NodeType.END:
             end_status = node.config.get("status", "success")

@@ -19,9 +19,9 @@ WORKDIR /app
 # sqlalchemy[asyncio] + asyncpg for the allowlist DB query. No full backend
 # bloat (no arq, redis, neo4j, boto3, ...).
 RUN pip install \
-    "fastapi==0.115.*" \
+    "fastapi==0.137.*" \
     "uvicorn[standard]==0.32.*" \
-    "httpx==0.27.*" \
+    "httpx==0.28.*" \
     "sqlalchemy[asyncio]==2.0.*" \
     "asyncpg==0.30.*"
 

@@ -218,7 +218,8 @@ class TusService:
         await asyncio.to_thread(_append)
         TUS_UPLOAD_BYTES.inc(len(chunk))
 
-        await self._store.update_offset(upload_id, new_offset)
+        if not await self._store.update_offset(upload_id, offset, new_offset):
+            raise TusOffsetMismatch("concurrent upload detected")
 
         if new_offset < upload.upload_length:
             return TusPatchResult(

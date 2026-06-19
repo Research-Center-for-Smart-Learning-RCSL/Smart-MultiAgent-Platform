@@ -1,7 +1,10 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import { authApi } from '../api/auth'
+
+const { t } = useI18n()
 
 const router = useRouter()
 const newPassword = ref('')
@@ -13,7 +16,7 @@ async function submit(): Promise<void> {
   // of server logs and `Referer` headers — read it from the hash (SEC-8).
   const token = new URLSearchParams(window.location.hash.slice(1)).get('token')
   if (!token) {
-    error.value = 'missing-token'
+    error.value = t('identity.errors.generic')
     return
   }
   error.value = null
@@ -22,7 +25,7 @@ async function submit(): Promise<void> {
     await authApi.resetPassword({ token, new_password: newPassword.value })
     router.push({ name: 'identity.login' })
   } catch {
-    error.value = 'generic'
+    error.value = t('identity.errors.generic')
   } finally {
     submitting.value = false
   }

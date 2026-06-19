@@ -32,7 +32,7 @@ export interface Session {
   last_used_at: string
   user_agent: string | null
   ip_inet: string | null
-  is_current: boolean
+  expires_at: string
 }
 
 export const authApi = {
@@ -60,7 +60,7 @@ export const authApi = {
   resetPassword: (body: { token: string; new_password: string }) =>
     http.post('/auth/reset-password', body),
 
-  changePassword: (body: { current: string; new: string }) =>
+  changePassword: (body: { current_password: string; new_password: string }) =>
     http.post('/auth/change-password', body),
 
   changeEmail: (body: { new_email: string; password: string }) =>

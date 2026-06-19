@@ -17,7 +17,7 @@ async function submit(): Promise<void> {
   error.value = null
   submitting.value = true
   try {
-    await authApi.changePassword({ current: current.value, new: next.value })
+    await authApi.changePassword({ current_password: current.value, new_password: next.value })
     // R6.06 — server invalidated all sessions; force re-auth.
     session.clear()
     router.push({ name: 'identity.login' })

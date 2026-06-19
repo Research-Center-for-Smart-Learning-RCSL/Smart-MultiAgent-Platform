@@ -417,6 +417,10 @@ async def test_accept_by_token_finalizes_membership(monkeypatch) -> None:
     svc._invites.get_by_token.return_value = pending
     svc._invites.transition.return_value = accepted
     svc._org_members = AsyncMock()
+    scope_result = Mock()
+    scope_result.first.return_value = SimpleNamespace(id=pending.scope_id)
+    svc._db = AsyncMock()
+    svc._db.execute = AsyncMock(return_value=scope_result)
 
     caller = uuid.uuid4()
     out = await svc.accept_by_token(token="TOK", caller_user_id=caller, actor_ip=None)

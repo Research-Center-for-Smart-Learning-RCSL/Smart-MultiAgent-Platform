@@ -18,6 +18,6 @@ describe('PasswordResetConfirmView', () => {
     await wrapper.find('input[type="password"]').setValue('newpassword123')
     await wrapper.find('form').trigger('submit')
     expect(wrapper.find('.error').exists()).toBe(true)
-    expect(wrapper.find('.error').text()).toBe('missing-token')
+    expect(wrapper.find('.error').text()).toBe('identity.errors.generic')
   })
 })

@@ -251,7 +251,7 @@ class SubagentService:
         try:
             await pool.enqueue_job("workflow_subagent_complete", run_id, node_id, port)
         finally:
-            await pool.aclose()
+            await pool.aclose(close_connection_pool=True)
         await redis.delete(key)
 
     # ------------------------------------------------------------------

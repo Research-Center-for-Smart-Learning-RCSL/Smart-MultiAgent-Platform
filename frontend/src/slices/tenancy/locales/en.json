@@ -1,5 +1,6 @@
 {
   "tenancy": {
+    "errors": { "generic": "An unexpected error occurred. Please try again." },
     "orgs": {
       "listTitle": "Organisations",
       "createLabel": "New organisation",

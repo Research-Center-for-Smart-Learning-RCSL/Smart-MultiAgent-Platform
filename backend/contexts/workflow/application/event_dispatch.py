@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import json
 import logging
-import re
+import re2
 import uuid
 from typing import Any
 
@@ -43,8 +43,8 @@ def _regex_ok(pattern: str | None, content: str) -> bool:
     if not pattern:
         return True
     try:
-        return re.search(pattern, content) is not None
-    except re.error:
+        return re2.search(pattern, content) is not None
+    except re2.error:
         # A bad author-supplied regex never silently matches everything.
         logger.warning("workflow event dispatch: invalid content_regex %r", pattern)
         return False

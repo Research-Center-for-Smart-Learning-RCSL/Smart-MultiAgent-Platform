@@ -338,6 +338,9 @@ def _check_prod_secrets(s: Settings) -> None:
     # S6: OpenAPI/Swagger docs must not be exposed in production.
     if s.app.docs_enabled:
         problems.append("SMAP_APP_DOCS_ENABLED must be false in production")
+    # M17: wildcard CORS with credentials leaks tokens to any origin.
+    if "*" in s.security.cors_origins:
+        problems.append("SMAP_SEC_CORS_ORIGINS must not contain '*' in production (credentials leak)")
     # 2.10: empty CORS in prod silently lets the auth handler fall back to
     # http://localhost:8080 — refuse to start instead of shipping a broken origin.
     if not s.security.cors_origins:

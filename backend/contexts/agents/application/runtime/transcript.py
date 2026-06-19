@@ -49,8 +49,17 @@ class HistoryMessage:
 
 
 def estimate_tokens(text: str) -> int:
-    """Coarse token estimate (~4 chars/token); messages carry no token column."""
-    return max(1, len(text) // 4)
+    """Coarse token estimate; CJK characters count as 1 token each, Latin as
+    len//4 (M10). Messages carry no token column."""
+    cjk = 0
+    latin = 0
+    for ch in text:
+        cp = ord(ch)
+        if 0x4E00 <= cp <= 0x9FFF or 0x3400 <= cp <= 0x4DBF:
+            cjk += 1
+        else:
+            latin += 1
+    return max(1, cjk + latin // 4)
 
 
 def _is_summary(metadata: Any) -> bool:

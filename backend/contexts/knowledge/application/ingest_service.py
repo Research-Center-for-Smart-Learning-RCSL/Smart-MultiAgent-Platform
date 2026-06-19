@@ -425,6 +425,9 @@ async def emit_reupload_audit(
 
 def _normalise_mime(raw: str, filename: str) -> str:
     """Prefer the client-supplied MIME; fall back to filename sniff."""
+    # Strip MIME parameters (e.g. "; charset=utf-8") so downstream lookups
+    # match the bare media type (M6).
+    raw = raw.split(";")[0].strip()
     if raw and raw not in {"application/octet-stream", ""}:
         return raw
     guessed, _ = mimetypes.guess_type(filename)

@@ -11,7 +11,8 @@ from .base import ProbeResult
 
 async def probe_vault(settings: Settings) -> ProbeResult:
     url = settings.vault.addr.rstrip("/") + "/v1/sys/health?standbyok=true"
-    async with httpx.AsyncClient(timeout=1.5) as http:
+    verify = settings.vault.ca_cert or True
+    async with httpx.AsyncClient(timeout=1.5, verify=verify) as http:
         resp = await http.get(url)
     # Vault returns 200 for active, 429 for standby (both healthy with
     # standbyok=true). 503 = sealed/unhealthy.

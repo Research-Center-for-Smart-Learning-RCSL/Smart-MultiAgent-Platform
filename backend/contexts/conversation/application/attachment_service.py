@@ -327,7 +327,7 @@ async def _enqueue_scan(*, attachment_id: uuid.UUID) -> None:
                 _job_id=f"scan:{attachment_id}",
             )
         finally:
-            await pool.close()
+            await pool.aclose(close_connection_pool=True)
     except Exception:  # pragma: no cover — best-effort
         # The upload must not fail because of this, but we must alert so operators
         # know the file will not be scanned until a manual rescan is triggered.

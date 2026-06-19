@@ -351,15 +351,13 @@ class InviteService:
             raise InviteNotFound(str(invite_id))
         # Guard: refuse if the target org/project has been soft-deleted.
         scope_table = _t.orgs if invite.scope_type is InviteScope.ORG else _t.projects
-        scope_row = (
-            await self._db.execute(
-                scope_table.select().where(
-                    scope_table.c.id == invite.scope_id,
-                    scope_table.c.deleted_at.is_(None),
-                )
+        scope_result = await self._db.execute(
+            scope_table.select().where(
+                scope_table.c.id == invite.scope_id,
+                scope_table.c.deleted_at.is_(None),
             )
-        ).first()
-        if scope_row is None:
+        )
+        if scope_result.first() is None:
             raise InviteNotFound(str(invite_id))
 
         # Create the actual membership row in the correct scope.

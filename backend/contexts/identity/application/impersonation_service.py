@@ -58,11 +58,17 @@ class ImpersonationService:
             )
         ).first()
         if active is not None:
-            await self._db.execute(
-                t.admin_impersonation_sessions.update()
-                .where(t.admin_impersonation_sessions.c.id == active.id)
-                .values(ended_at=now())
-            )
+            old = (
+                await self._db.execute(
+                    t.admin_impersonation_sessions.update()
+                    .where(t.admin_impersonation_sessions.c.id == active.id)
+                    .values(ended_at=now())
+                    .returning(t.admin_impersonation_sessions.c.access_jti)
+                )
+            ).one()
+            if old.access_jti is not None:
+                ttl = timedelta(seconds=get_settings().jwt.access_ttl_seconds)
+                await tokens.deny_jti(old.access_jti, ttl=ttl)
 
         session_id = uuid.uuid4()
         access_token, claims = jwt.sign_access_token(

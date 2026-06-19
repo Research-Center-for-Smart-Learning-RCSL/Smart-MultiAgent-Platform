@@ -135,7 +135,8 @@ class SearchKeyService:
             ),
         )
         updated = await self._repo.get_active(key_id)
-        assert updated is not None
+        if updated is None:
+            raise KeyNotFound(str(key_id))
         return updated
 
     async def activate(

@@ -350,11 +350,11 @@ async function loadContextData(): Promise<void> {
       import('@slices/agents/api'),
       import('@slices/conversation/api'),
     ])
-    const [agentList, chatroomList] = await Promise.all([
+    const [agentRes, chatroomList] = await Promise.all([
       agentsApi.list(ws.project_id),
       listChatrooms(workspaceId.value),
     ])
-    agents.value = agentList.map((a: { id: string; name: string }) => ({ id: a.id, name: a.name }))
+    agents.value = agentRes.data.map((a: { id: string; name: string }) => ({ id: a.id, name: a.name }))
     chatrooms.value = chatroomList.map((c: { id: string; name: string }) => ({ id: c.id, name: c.name }))
   } catch {
     // Non-fatal — config pickers will just be empty

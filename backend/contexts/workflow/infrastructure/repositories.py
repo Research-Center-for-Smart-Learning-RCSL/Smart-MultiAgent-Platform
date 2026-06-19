@@ -278,6 +278,13 @@ class WorkflowRunRepository:
         assert row is not None
         return _row_to_run(row)
 
+    # H13: only legal state transitions are allowed; terminal states cannot be
+    # overwritten.  The WHERE clause enforces this at the DB level.
+    _VALID_TRANSITIONS: dict[str, set[str]] = {
+        "running": {"waiting", "succeeded", "failed", "cancelled"},
+        "waiting": {"running", "failed", "cancelled"},
+    }
+
     async def update_state(
         self,
         run_id: uuid.UUID,
@@ -286,13 +293,25 @@ class WorkflowRunRepository:
         ended_at: datetime | None = None,
         variables: dict[str, Any] | None = None,
     ) -> bool:
+        allowed_from = [
+            k for k, v in self._VALID_TRANSITIONS.items() if state.value in v
+        ]
+        if not allowed_from:
+            return False
         values: dict[str, Any] = {"state": state.value}
         if ended_at is not None:
             values["ended_at"] = ended_at
         if variables is not None:
             values["variables"] = variables
         result = await self._db.execute(
-            workflow_runs.update().where(workflow_runs.c.id == run_id).values(**values),
+            workflow_runs.update()
+            .where(
+                sa.and_(
+                    workflow_runs.c.id == run_id,
+                    workflow_runs.c.state.in_(allowed_from),
+                ),
+            )
+            .values(**values),
         )
         return result.rowcount > 0
 

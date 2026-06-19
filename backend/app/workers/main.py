@@ -97,7 +97,7 @@ async def key_usage_threshold_sample(ctx: dict[str, Any]) -> int:
     """D.8 — 80% hourly-limit sampler. Runs every 30 s via cron."""
     _ = ctx
     sm = get_sessionmaker()
-    async with sm() as session:
+    async with sm() as session, session.begin():
         return await _threshold_sample_once(session)
 
 

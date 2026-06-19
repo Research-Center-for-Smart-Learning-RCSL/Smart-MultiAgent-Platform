@@ -381,14 +381,23 @@ async def _sweep_orphaned_subagent_roots(session: AsyncSession) -> int:
 
 
 async def _close_idle_impersonations(session: AsyncSession) -> int:
+    from app.config.settings import get_settings
+    from shared_kernel.auth import tokens
+
     cutoff = now() - timedelta(minutes=30)
     result = await session.execute(
         sa.text(
             "UPDATE admin_impersonation_sessions SET ended_at = now() "
-            "WHERE ended_at IS NULL AND started_at < :cutoff"
+            "WHERE ended_at IS NULL AND started_at < :cutoff "
+            "RETURNING access_jti"
         ).bindparams(cutoff=cutoff)
     )
-    count = result.rowcount or 0  # type: ignore[attr-defined]
+    rows = result.all()
+    count = len(rows)
+    ttl = timedelta(seconds=get_settings().jwt.access_ttl_seconds)
+    for row in rows:
+        if row.access_jti is not None:
+            await tokens.deny_jti(row.access_jti, ttl=ttl)
     # Re-sample the gauge after the sweep so dashboards reflect the post-close
     # value. Coarse (nightly) but cheap; fine-grained tracking would belong in
     # the impersonation start/end paths.

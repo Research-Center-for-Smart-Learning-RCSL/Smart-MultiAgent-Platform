@@ -166,66 +166,67 @@ async def graphrag_build(
         url=settings.qdrant.url,
         api_key=settings.qdrant.api_key or None,
     )
-    vector_store = GraphRagVectorStore(qclient)
-    lock_store = RedisBuildLockStore()
-    snapshot_store = RedisSnapshotStore()
+    try:
+        vector_store = GraphRagVectorStore(qclient)
+        lock_store = RedisBuildLockStore()
+        snapshot_store = RedisSnapshotStore()
 
-    sm = get_sessionmaker()
-    async with sm() as db:
-        cfg = await GraphRagConfigRepository(db).get(cfg_id)
-        if cfg is None:
-            _log.warning("graphrag_build: config %s not found", config_id)
-            return f"config {config_id} not found"
+        sm = get_sessionmaker()
+        async with sm() as db:
+            cfg = await GraphRagConfigRepository(db).get(cfg_id)
+            if cfg is None:
+                _log.warning("graphrag_build: config %s not found", config_id)
+                return f"config {config_id} not found"
 
-        extractor = LlmTripleExtractor(router=build_router(db))
-        delta_loader = _DbDeltaLoader(agent_id=cfg.agent_id)
+            extractor = LlmTripleExtractor(router=build_router(db))
+            delta_loader = _DbDeltaLoader(agent_id=cfg.agent_id)
 
-        builder = GraphRagBuilder(
-            db=db,
-            neo4j=neo4j,
-            vector_store=vector_store,
-            extractor=extractor,
-            lock_store=lock_store,
-            snapshot_store=snapshot_store,
-            delta_loader=delta_loader,
-            embedder_factory=_make_embedder_factory(db),
-        )
-        cfg_id_str = str(cfg_id)
-
-        # One-hot per state — set the active label to 1 and zero the others so
-        # `graphrag_build_state{config_id="...", state="..."} == 1` is unique
-        # at any moment.
-        def _set_state(active: str) -> None:
-            for s in ("idle", "building", "ready", "failed"):
-                GRAPHRAG_BUILD_STATE.labels(
-                    config_id=cfg_id_str,
-                    state=s,
-                ).set(1.0 if s == active else 0.0)
-
-        _set_state("building")
-        try:
-            result = await builder.run(config_id=cfg_id, triggered_by=triggered_by)
-            await db.commit()
-            _set_state(result.state.value if result.state.value in ("ready", "failed") else "idle")
-            _log.info(
-                "graphrag_build done config=%s state=%s triples=%d entities=%d",
-                config_id,
-                result.state.value,
-                result.triples_written,
-                result.entities_written,
+            builder = GraphRagBuilder(
+                db=db,
+                neo4j=neo4j,
+                vector_store=vector_store,
+                extractor=extractor,
+                lock_store=lock_store,
+                snapshot_store=snapshot_store,
+                delta_loader=delta_loader,
+                embedder_factory=_make_embedder_factory(db),
             )
-            return (
-                f"state={result.state.value} "
-                f"triples={result.triples_written} "
-                f"entities={result.entities_written}"
-            )
-        except Exception:
-            _set_state("failed")
-            _log.exception("graphrag_build failed config=%s", config_id)
-            raise
-        finally:
-            await neo4j.close()
-            await qclient.close()
+            cfg_id_str = str(cfg_id)
+
+            # One-hot per state — set the active label to 1 and zero the others so
+            # `graphrag_build_state{config_id="...", state="..."} == 1` is unique
+            # at any moment.
+            def _set_state(active: str) -> None:
+                for s in ("idle", "building", "ready", "failed"):
+                    GRAPHRAG_BUILD_STATE.labels(
+                        config_id=cfg_id_str,
+                        state=s,
+                    ).set(1.0 if s == active else 0.0)
+
+            _set_state("building")
+            try:
+                result = await builder.run(config_id=cfg_id, triggered_by=triggered_by)
+                await db.commit()
+                _set_state(result.state.value if result.state.value in ("ready", "failed") else "idle")
+                _log.info(
+                    "graphrag_build done config=%s state=%s triples=%d entities=%d",
+                    config_id,
+                    result.state.value,
+                    result.triples_written,
+                    result.entities_written,
+                )
+                return (
+                    f"state={result.state.value} "
+                    f"triples={result.triples_written} "
+                    f"entities={result.entities_written}"
+                )
+            except Exception:
+                _set_state("failed")
+                _log.exception("graphrag_build failed config=%s", config_id)
+                raise
+    finally:
+        await neo4j.close()
+        await qclient.close()
 
 
 async def graphrag_reconcile(ctx: dict[str, Any]) -> int:

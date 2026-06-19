@@ -36,6 +36,9 @@ class _FakeDB:
     async def rollback(self) -> None:
         return None
 
+    async def flush(self) -> None:
+        return None
+
 
 def _agent():
     return SimpleNamespace(

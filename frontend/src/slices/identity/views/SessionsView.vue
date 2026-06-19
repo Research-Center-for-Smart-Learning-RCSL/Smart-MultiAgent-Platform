@@ -62,9 +62,7 @@ onMounted(load)
         :key="s.id"
       >
         <span>{{ s.user_agent || 'Unknown device' }} — {{ s.ip_inet }} — {{ s.last_used_at }}</span>
-        <span v-if="s.is_current"> {{ $t('identity.sessions.currentBadge') }}</span>
         <button
-          v-else
           @click="revoke(s.id)"
         >
           {{ $t('identity.sessions.revoke') }}

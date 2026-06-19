@@ -53,7 +53,7 @@ export const orgsApi = {
     http.patch(`/orgs/${id}/members/${uid}`, { role }),
 
   invite: (id: string, email: string, role: 'owner' | 'member') =>
-    http.post(`/orgs/${id}/invites`, { invitee_email: email, role }),
+    http.post(`/orgs/${id}/invites`, { email, role }),
 
   initiateTransfer: (id: string, target_user_id: string) =>
     http.post<OriginalCreatorTransfer>(
