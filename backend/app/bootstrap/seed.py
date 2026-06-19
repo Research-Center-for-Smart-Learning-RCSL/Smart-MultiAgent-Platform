@@ -7,6 +7,15 @@ flow.
 
 Never enabled in prod: gated on `app.env == "test"`. Even if an operator
 sets `SMAP_SEED_ON_STARTUP=true` in prod, the env check short-circuits.
+
+NOTE (SoC coupling): This module uses ``UserRepository`` and
+``PasswordHasher`` directly rather than going through ``IdentityFacade``
+because the facade does not expose a ``register`` method suitable for
+seeding (registration requires captcha verification and sends email).
+The direct usage is acceptable here since this is a test-only bootstrap
+helper that runs inside a managed transaction, not production business
+logic. If ``IdentityFacade`` gains a ``create_verified_user`` method in
+the future, this should be updated to use it.
 """
 
 from __future__ import annotations
