@@ -27,38 +27,31 @@ import pytest
 async def test_advisory_snapshot_raises_when_every_org_fails() -> None:
     from app.workers.tasks import advisory as adv
 
-    org_ids = [(uuid4(),), (uuid4(),), (uuid4(),)]
+    org_ids = [uuid4(), uuid4(), uuid4()]
+    call_n = {"n": 0}
 
-    fake_redis = AsyncMock()
-    list_session = AsyncMock()
-    # `.all()` is a *sync* SQLAlchemy Result method — an AsyncMock child would
-    # return a coroutine that `len()` cannot consume. Force a plain MagicMock.
-    list_session.execute.return_value.all = MagicMock(return_value=org_ids)
+    def _make_svc(_session):
+        call_n["n"] += 1
+        svc = AsyncMock()
+        if call_n["n"] == 1:
+            svc.list_active_org_ids.return_value = org_ids
+        else:
+            svc.compute_org_snapshot.side_effect = RuntimeError("postgres down")
+        return svc
 
-    class _ListCM:
+    class _SessionCM:
         async def __aenter__(self):
-            return list_session
+            return AsyncMock()
 
         async def __aexit__(self, *_a):
             return None
-
-    class _BoomCM:
-        async def __aenter__(self):
-            raise RuntimeError("postgres down")
-
-        async def __aexit__(self, *_a):
-            return None
-
-    sm_calls = {"n": 0}
-
-    def _sm():
-        sm_calls["n"] += 1
-        # First call lists orgs; subsequent calls compute snapshots and blow up.
-        return _ListCM() if sm_calls["n"] == 1 else _BoomCM()
 
     with (
-        patch.object(adv, "get_sessionmaker", return_value=_sm),
-        patch.object(adv, "get_redis", return_value=fake_redis),
+        patch.object(adv, "get_sessionmaker", return_value=lambda: _SessionCM()),
+        patch(
+            "contexts.tenancy.application.advisory_service.AdvisoryService",
+            side_effect=_make_svc,
+        ),
         pytest.raises(RuntimeError, match="all 3 orgs failed"),
     ):
         await adv.daily_org_advisory_snapshot({})
@@ -69,47 +62,35 @@ async def test_advisory_snapshot_partial_failure_does_not_raise() -> None:
     from app.workers.tasks import advisory as adv
 
     ok_id, bad_id = uuid4(), uuid4()
+    call_n = {"n": 0}
 
-    fake_redis = AsyncMock()
-    list_session = AsyncMock()
-    # `.all()` is sync (see test above) — keep it a MagicMock, not AsyncMock.
-    list_session.execute.return_value.all = MagicMock(return_value=[(ok_id,), (bad_id,)])
+    def _make_svc(_session):
+        call_n["n"] += 1
+        svc = AsyncMock()
+        if call_n["n"] == 1:
+            svc.list_active_org_ids.return_value = [ok_id, bad_id]
+        elif call_n["n"] == 2:
+            svc.compute_org_snapshot.return_value = {
+                "users": 1, "chatrooms": 0, "agents": 0, "workflows": 0, "projects": 0,
+            }
+            svc.cache_snapshot.return_value = None
+        else:
+            svc.compute_org_snapshot.side_effect = RuntimeError("compute failed")
+        return svc
 
-    class _ListCM:
+    class _SessionCM:
         async def __aenter__(self):
-            return list_session
-
-        async def __aexit__(self, *_a):
-            return None
-
-    class _SnapCM:
-        def __init__(self, ok: bool):
-            self.ok = ok
-
-        async def __aenter__(self):
-            if not self.ok:
-                raise RuntimeError("compute failed")
             return AsyncMock()
 
         async def __aexit__(self, *_a):
             return None
 
-    sm_calls = {"n": 0}
-
-    def _sm():
-        sm_calls["n"] += 1
-        if sm_calls["n"] == 1:
-            return _ListCM()
-        # Second iteration is the OK org, third is the BAD org.
-        return _SnapCM(ok=(sm_calls["n"] == 2))
-
-    async def _fake_compute(_session, _org_id):
-        return {"users": 1, "chatrooms": 0, "agents": 0, "workflows": 0, "projects": 0}
-
     with (
-        patch.object(adv, "get_sessionmaker", return_value=_sm),
-        patch.object(adv, "get_redis", return_value=fake_redis),
-        patch.object(adv, "_compute_org_snapshot", new=_fake_compute),
+        patch.object(adv, "get_sessionmaker", return_value=lambda: _SessionCM()),
+        patch(
+            "contexts.tenancy.application.advisory_service.AdvisoryService",
+            side_effect=_make_svc,
+        ),
     ):
         out = await adv.daily_org_advisory_snapshot({})
 

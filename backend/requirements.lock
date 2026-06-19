@@ -159,7 +159,7 @@ python-multipart==0.0.32
     # via smap-backend (pyproject.toml)
 pytz==2026.2
     # via neo4j
-pywin32==312
+pywin32==312 ; sys_platform == "win32"
     # via
     #   docker
     #   portalocker

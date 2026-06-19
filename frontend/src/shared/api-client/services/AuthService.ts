@@ -197,14 +197,14 @@ export class AuthService {
     }
     /**
      * Request Password Reset
-     * @returns null Successful Response
+     * @returns any Successful Response
      * @throws ApiError
      */
     public static requestPasswordResetApiAuthRequestPasswordResetPost({
         requestBody,
     }: {
         requestBody: PasswordResetRequestIn,
-    }): CancelablePromise<null> {
+    }): CancelablePromise<any> {
         return __request(OpenAPI, {
             method: 'POST',
             url: '/api/auth/request-password-reset',
@@ -240,10 +240,29 @@ export class AuthService {
      * @returns SessionOut Successful Response
      * @throws ApiError
      */
-    public static listSessionsApiAuthSessionsGet(): CancelablePromise<Array<SessionOut>> {
+    public static listSessionsApiAuthSessionsGet({
+        limit = 100,
+        offset,
+    }: {
+        /**
+         * Max items to return
+         */
+        limit?: number,
+        /**
+         * Number of items to skip
+         */
+        offset?: number,
+    }): CancelablePromise<Array<SessionOut>> {
         return __request(OpenAPI, {
             method: 'GET',
             url: '/api/auth/sessions',
+            query: {
+                'limit': limit,
+                'offset': offset,
+            },
+            errors: {
+                422: `Validation Error`,
+            },
         });
     }
     /**

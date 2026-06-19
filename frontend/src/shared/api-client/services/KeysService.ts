@@ -16,10 +16,29 @@ export class KeysService {
      * @returns KeyOut Successful Response
      * @throws ApiError
      */
-    public static listMyKeysApiKeysGet(): CancelablePromise<Array<KeyOut>> {
+    public static listMyKeysApiKeysGet({
+        limit = 100,
+        offset,
+    }: {
+        /**
+         * Max items to return
+         */
+        limit?: number,
+        /**
+         * Number of items to skip
+         */
+        offset?: number,
+    }): CancelablePromise<Array<KeyOut>> {
         return __request(OpenAPI, {
             method: 'GET',
             url: '/api/keys',
+            query: {
+                'limit': limit,
+                'offset': offset,
+            },
+            errors: {
+                422: `Validation Error`,
+            },
         });
     }
     /**
