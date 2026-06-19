@@ -9,7 +9,9 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Sequence
+from datetime import timedelta
 
+import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.conversation.domain.models import Chatroom, Message, SenderType, Workspace
@@ -19,10 +21,12 @@ from contexts.conversation.infrastructure.repositories import (
     MessageRepository,
     WorkspaceRepository,
 )
+from shared_kernel.auth.clients import now
 
 
 class ConversationFacade:
     def __init__(self, db: AsyncSession) -> None:
+        self._db = db
         self._workspaces = WorkspaceRepository(db)
         self._rooms = ChatroomRepository(db)
         self._messages = MessageRepository(db)
@@ -106,6 +110,33 @@ class ConversationFacade:
             content_md=content_md,
             metadata=metadata,
         )
+
+    # -- Retention helpers (H4) ------------------------------------------------
+
+    async def purge_old_attachments(self, *, max_age_days: int = 3) -> int:
+        """Delete orphaned message_attachments older than *max_age_days*.
+
+        Only removes attachments that were never linked to a message
+        (``message_id IS NULL``) and whose ``expires_at`` has passed.
+        """
+        from contexts.conversation.infrastructure import tables as t
+
+        cutoff = now() - timedelta(days=max_age_days)
+        batch = (
+            sa.select(t.message_attachments.c.id)
+            .where(t.message_attachments.c.expires_at.is_not(None))
+            .where(t.message_attachments.c.expires_at < cutoff)
+            .where(t.message_attachments.c.message_id.is_(None))
+            .limit(500)
+        )
+        result = await self._db.execute(
+            sa.delete(t.message_attachments)
+            .where(t.message_attachments.c.expires_at.is_not(None))
+            .where(t.message_attachments.c.expires_at < cutoff)
+            .where(t.message_attachments.c.message_id.is_(None))
+            .where(t.message_attachments.c.id.in_(batch))
+        )
+        return result.rowcount or 0
 
 
 __all__ = ["ConversationFacade", "Message", "SenderType"]

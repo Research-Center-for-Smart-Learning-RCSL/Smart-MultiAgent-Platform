@@ -32,12 +32,12 @@ from app.workers.tasks.advisory import daily_org_advisory_snapshot
 from app.workers.tasks.approvals import drive_approver_turn
 from app.workers.tasks.conversation import (
     chat_export,
+    compact_chatroom,
     file_scan_requested,
 )
 from app.workers.tasks.graphrag import graphrag_build, graphrag_reconcile
 from app.workers.tasks.orchestration import (
     approval_timeout,
-    compact_chatroom,
     evaluate_silence,
     make_dlq_audit_callback,
     wakeup_agent,

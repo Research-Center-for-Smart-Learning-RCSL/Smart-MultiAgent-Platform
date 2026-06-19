@@ -254,7 +254,13 @@ module = ["shared_kernel.auth.tokens", "shared_kernel.auth.ratelimit",
           "contexts.workflow.application.executors.wait_for_event",
           "contexts.workflow.application.executors.join",
           "contexts.orchestration.application.a2a_consumer",
-          "app.workers.tasks.workflow"]
+          "app.workers.tasks.workflow",
+          "app.workers.tasks.workflow_common",
+          "app.workers.tasks.workflow_steps",
+          "app.workers.tasks.workflow_cron",
+          "app.workers.tasks.workflow_signals",
+          "app.workers.tasks.workflow_approvals",
+          "app.workers.tasks.workflow_watchdog"]
 disable_error_code = ["misc", "no-untyped-call", "type-arg", "attr-defined",
                       "union-attr", "arg-type"]
 

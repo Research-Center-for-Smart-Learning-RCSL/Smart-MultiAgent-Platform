@@ -20,7 +20,6 @@ from fastapi import APIRouter, Depends, Path, status
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.config.settings import get_settings
 from contexts.knowledge.application.graphrag_config_service import (
     GraphRagConfigService,
 )
@@ -300,52 +299,11 @@ async def delete_config(
     # DOM-4: commit the soft delete + audit row before any external delete.
     await db.commit()
 
-    settings = get_settings()
-    neo4j_purged = True
-    qdrant_purged = True
-
-    # Cascade the Neo4j subgraph (§22.8).
-    from contexts.knowledge.infrastructure.neo4j_driver import (
-        Neo4jAsyncDriver,
+    # Best-effort cascade of Neo4j subgraph + Qdrant entity vectors.
+    outcome = await GraphRagConfigService.cascade_external_stores(
+        config_id=config_id,
+        project_id=cfg.project_id,
     )
-
-    neo4j_conf = getattr(settings, "neo4j", None)
-    if neo4j_conf is not None:
-        driver = Neo4jAsyncDriver(
-            uri=neo4j_conf.url,
-            auth=(neo4j_conf.user, neo4j_conf.password),
-        )
-        try:
-            await driver.delete_all(config_id=config_id)
-        except Exception:
-            neo4j_purged = False
-            _log.exception("graphrag delete: neo4j cascade failed for config %s", config_id)
-        finally:
-            await driver.close()
-
-    # DOM-2: delete this config's entity vectors from the shared Qdrant
-    # collection, scoped by the ``config_id`` payload tag.
-    try:
-        from qdrant_client import AsyncQdrantClient
-
-        from contexts.knowledge.infrastructure.graphrag_vector_store import (
-            GraphRagVectorStore,
-        )
-
-        qclient = AsyncQdrantClient(
-            url=settings.qdrant.url,
-            api_key=settings.qdrant.api_key or None,
-        )
-        try:
-            await GraphRagVectorStore(qclient).delete_by_config(
-                project_id=cfg.project_id,
-                config_id=config_id,
-            )
-        finally:
-            await qclient.close()
-    except Exception:
-        qdrant_purged = False
-        _log.exception("graphrag delete: qdrant cascade failed for config %s", config_id)
 
     # Follow-up audit row recording the infra outcome (DOM-4) — committed by
     # the db_session dependency.
@@ -361,8 +319,7 @@ async def delete_config(
             resource_id=config_id,
             metadata={
                 "project_id": str(cfg.project_id),
-                "neo4j_purged": neo4j_purged,
-                "qdrant_purged": qdrant_purged,
+                **outcome,
             },
             request_id=ctx.request_id,
         ),

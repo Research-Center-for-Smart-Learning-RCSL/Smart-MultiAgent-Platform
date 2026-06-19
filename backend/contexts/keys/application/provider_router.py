@@ -50,6 +50,7 @@ from contexts.keys.domain.models import ApiKey
 from contexts.keys.domain.providers import ApiKeyProvider, ProviderCapability, capabilities_of
 from contexts.keys.infrastructure.group_repository import KeyGroupMemberRepository
 from contexts.keys.infrastructure.repositories import ApiKeyRepository
+from contexts.keys.infrastructure.dek_cache import DEK_CACHE
 from contexts.keys.infrastructure.usage_events import record_usage_event
 from shared_kernel.infra import redis_buckets
 from shared_kernel.observability.metrics import KEY_GROUP_EXHAUSTED_TOTAL, PROVIDER_CALL_TOTAL
@@ -149,44 +150,75 @@ class _RotateStream(RuntimeError):
 
 
 # ---------------------------------------------------------------------------
-# DEK cache — per-process, short TTL, invalidated by pub/sub.
+# Usage accountant — unified recording for all provider call paths.
 # ---------------------------------------------------------------------------
 
 
-@dataclass
-class _DekCacheEntry:
-    plaintext: bytes
-    loaded_at: float
+class UsageAccountant:
+    """Unified usage recording: Redis bucket + ``key_usage_events`` row + Prometheus counter.
 
+    Replaces the duplicated accounting blocks formerly inlined in
+    ``_call_member``, ``call_single_key``, and ``_stream_member``.
+    """
 
-class _DekCache:
-    TTL_SECONDS = 60.0
+    def __init__(self, db: AsyncSession) -> None:
+        self._db = db
 
-    def __init__(self) -> None:
-        self._entries: dict[uuid.UUID, _DekCacheEntry] = {}
+    async def record_call(
+        self,
+        *,
+        key_id: uuid.UUID,
+        result: ProviderCallResult | None,
+        request: ProviderRequest,
+        elapsed_ms: int,
+        error_code: str | None = None,
+        provider: ApiKeyProvider | None = None,
+    ) -> None:
+        """Record one provider call (success or failure).
 
-    def get(self, key_id: uuid.UUID) -> bytes | None:
-        entry = self._entries.get(key_id)
-        if entry is None:
-            return None
-        if time.monotonic() - entry.loaded_at > self.TTL_SECONDS:
-            self._entries.pop(key_id, None)
-            return None
-        return entry.plaintext
-
-    def put(self, key_id: uuid.UUID, plaintext: bytes) -> None:
-        self._entries[key_id] = _DekCacheEntry(plaintext, time.monotonic())
-
-    def drop(self, key_id: uuid.UUID) -> None:
-        self._entries.pop(key_id, None)
-
-    def clear(self) -> None:
-        self._entries.clear()
-
-
-# Module singleton — the revocation listener (`revocation_listener.py`)
-# punches entries out in response to Redis pub/sub.
-DEK_CACHE = _DekCache()
+        *result* is ``None`` for transport errors / client aborts — the call
+        is still counted toward ``max_requests_per_hour`` but no token usage
+        is recorded.  *provider* is passed for the Prometheus counter label;
+        omit it to skip the counter (e.g. in a best-effort accounting path
+        that cannot resolve the provider).
+        """
+        if result is not None:
+            await redis_buckets.record(
+                key_id,
+                input_tokens=result.input_tokens,
+                output_tokens=result.output_tokens,
+                requests=1,
+            )
+            await record_usage_event(
+                self._db,
+                key_id=key_id,
+                input_tokens=result.input_tokens,
+                output_tokens=result.output_tokens,
+                request_ms=result.request_ms or elapsed_ms,
+                http_status=result.http_status,
+                error_code=error_code,
+                agent_id=request.agent_id,
+                parent_agent_id=request.parent_agent_id,
+                chatroom_id=request.chatroom_id,
+            )
+            if provider is not None:
+                PROVIDER_CALL_TOTAL.labels(
+                    provider=provider.value, status=str(result.http_status)
+                ).inc()
+        else:
+            await redis_buckets.record(key_id, requests=1)
+            await record_usage_event(
+                self._db,
+                key_id=key_id,
+                input_tokens=0,
+                output_tokens=0,
+                request_ms=elapsed_ms,
+                http_status=None,
+                error_code=error_code or "transport_error",
+                agent_id=request.agent_id,
+                parent_agent_id=request.parent_agent_id,
+                chatroom_id=request.chatroom_id,
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -228,6 +260,7 @@ class ProviderRouter:
         self._config = config or RouterConfig()
         self._members_repo = KeyGroupMemberRepository(db)
         self._keys_repo = ApiKeyRepository(db)
+        self._accountant = UsageAccountant(db)
 
     async def call(self, *, group_id: uuid.UUID, request: ProviderRequest) -> ProviderCallResult:
         """Execute the request against `group_id` with full rotation policy.
@@ -371,47 +404,29 @@ class ProviderRouter:
             try:
                 elapsed_ms = int((time.monotonic() - t0) * 1000)
                 if complete is not None:
-                    res = complete.result
-                    error_code = classify_http(res.http_status, em.member.rotation).error_code
-                    await redis_buckets.record(
-                        em.key.id,
-                        input_tokens=res.input_tokens,
-                        output_tokens=res.output_tokens,
-                        requests=1,
-                    )
-                    await record_usage_event(
-                        self._db,
+                    error_code = classify_http(
+                        complete.result.http_status, em.member.rotation
+                    ).error_code
+                    await self._accountant.record_call(
                         key_id=em.key.id,
-                        input_tokens=res.input_tokens,
-                        output_tokens=res.output_tokens,
-                        request_ms=res.request_ms or elapsed_ms,
-                        http_status=res.http_status,
+                        result=complete.result,
+                        request=request,
+                        elapsed_ms=elapsed_ms,
                         error_code=error_code,
-                        agent_id=request.agent_id,
-                        parent_agent_id=request.parent_agent_id,
-                        chatroom_id=request.chatroom_id,
+                        provider=em.key.provider,
                     )
-                    PROVIDER_CALL_TOTAL.labels(
-                        provider=em.key.provider.value, status=str(res.http_status)
-                    ).inc()
                 else:
                     # No terminal event: a provider transport error, or the
                     # consumer walked away mid-stream (token counts unknown).
                     # Still a request against the key — count it toward
                     # max_requests_per_hour (timeouts must not be free).
                     code = "transport_error" if transport_exc is not None else "client_abort"
-                    await redis_buckets.record(em.key.id, requests=1)
-                    await record_usage_event(
-                        self._db,
+                    await self._accountant.record_call(
                         key_id=em.key.id,
-                        input_tokens=0,
-                        output_tokens=0,
-                        request_ms=elapsed_ms,
-                        http_status=None,
+                        result=None,
+                        request=request,
+                        elapsed_ms=elapsed_ms,
                         error_code=code,
-                        agent_id=request.agent_id,
-                        parent_agent_id=request.parent_agent_id,
-                        chatroom_id=request.chatroom_id,
                     )
             except Exception:
                 _log.exception("stream usage accounting failed key=%s", em.key.id)
@@ -520,18 +535,12 @@ class ProviderRouter:
         except Exception:
             elapsed_ms = int((time.monotonic() - t0) * 1000)
             # Transport failures still count toward max_requests_per_hour.
-            await redis_buckets.record(key_id, requests=1)
-            await record_usage_event(
-                self._db,
+            await self._accountant.record_call(
                 key_id=key_id,
-                input_tokens=0,
-                output_tokens=0,
-                request_ms=elapsed_ms,
-                http_status=None,
+                result=None,
+                request=request,
+                elapsed_ms=elapsed_ms,
                 error_code="transport_error",
-                agent_id=request.agent_id,
-                parent_agent_id=request.parent_agent_id,
-                chatroom_id=request.chatroom_id,
             )
             raise
         finally:
@@ -547,25 +556,14 @@ class ProviderRouter:
             error_code = "provider_unauthorized"
         else:
             error_code = f"http_{status}"
-        await redis_buckets.record(
-            key_id,
-            input_tokens=result.input_tokens,
-            output_tokens=result.output_tokens,
-            requests=1,
-        )
-        await record_usage_event(
-            self._db,
+        await self._accountant.record_call(
             key_id=key_id,
-            input_tokens=result.input_tokens,
-            output_tokens=result.output_tokens,
-            request_ms=result.request_ms or elapsed_ms,
-            http_status=status,
+            result=result,
+            request=request,
+            elapsed_ms=elapsed_ms,
             error_code=error_code,
-            agent_id=request.agent_id,
-            parent_agent_id=request.parent_agent_id,
-            chatroom_id=request.chatroom_id,
+            provider=key.provider,
         )
-        PROVIDER_CALL_TOTAL.labels(provider=key.provider.value, status=str(status)).inc()
         return result
 
     # -----------------------------------------------------------------
@@ -617,18 +615,12 @@ class ProviderRouter:
             elapsed_ms = int((time.monotonic() - t0) * 1000)
             _log.warning("adapter transport error key=%s err=%s", em.key.id, exc)
             # Transport failures still count toward max_requests_per_hour.
-            await redis_buckets.record(em.key.id, requests=1)
-            await record_usage_event(
-                self._db,
+            await self._accountant.record_call(
                 key_id=em.key.id,
-                input_tokens=0,
-                output_tokens=0,
-                request_ms=elapsed_ms,
-                http_status=None,
+                result=None,
+                request=request,
+                elapsed_ms=elapsed_ms,
                 error_code="transport_error",
-                agent_id=request.agent_id,
-                parent_agent_id=request.parent_agent_id,
-                chatroom_id=request.chatroom_id,
             )
             return ErrorOutcome(RotationReason.RETRY, None, "transport_error"), None
         finally:
@@ -638,28 +630,14 @@ class ProviderRouter:
         elapsed_ms = int((time.monotonic() - t0) * 1000)
 
         outcome = classify_http(result.http_status, em.member.rotation)
-        await redis_buckets.record(
-            em.key.id,
-            input_tokens=result.input_tokens,
-            output_tokens=result.output_tokens,
-            requests=1,
-        )
-        await record_usage_event(
-            self._db,
+        await self._accountant.record_call(
             key_id=em.key.id,
-            input_tokens=result.input_tokens,
-            output_tokens=result.output_tokens,
-            request_ms=elapsed_ms,
-            http_status=result.http_status,
+            result=result,
+            request=request,
+            elapsed_ms=elapsed_ms,
             error_code=outcome.error_code,
-            agent_id=request.agent_id,
-            parent_agent_id=request.parent_agent_id,
-            chatroom_id=request.chatroom_id,
+            provider=em.key.provider,
         )
-        PROVIDER_CALL_TOTAL.labels(
-            provider=em.key.provider.value,
-            status=str(result.http_status),
-        ).inc()
         return outcome, (result if outcome.reason is RotationReason.OK else None)
 
     async def _unwrap_secret(self, key_id: uuid.UUID) -> bytes:
@@ -709,4 +687,5 @@ __all__ = [
     "StreamEvent",
     "StreamingAdapter",
     "TokenDelta",
+    "UsageAccountant",
 ]

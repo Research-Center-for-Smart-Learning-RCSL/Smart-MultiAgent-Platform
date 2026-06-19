@@ -58,9 +58,12 @@ class _FakeKeysRepo:
 
 
 def _router(members_repo: _FakeMembersRepo, keys_repo: _FakeKeysRepo) -> ProviderRouter:
+    from contexts.keys.application.provider_router import UsageAccountant
+
     router = ProviderRouter.__new__(ProviderRouter)
     router._members_repo = members_repo  # type: ignore[attr-defined]
     router._keys_repo = keys_repo  # type: ignore[attr-defined]
+    router._accountant = UsageAccountant(object())  # type: ignore[attr-defined,arg-type]
     return router
 
 

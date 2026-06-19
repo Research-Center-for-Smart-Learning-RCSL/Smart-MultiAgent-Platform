@@ -436,12 +436,8 @@ async def compact_chatroom(
     """
     project_id = await _project_id_for_chatroom(db, chatroom_id)
     await _require_project_cap(db, principal, project_id, Capability.CHAT_SEND)
-    from shared_kernel.auth.clients import get_redis
-
-    await get_redis().set(f"compact:pending:{chatroom_id}", "1", ex=3600)
-    from shared_kernel.queue import enqueue as enqueue_job
-
-    await enqueue_job("compact_chatroom", str(chatroom_id))
+    service = ChatroomService(db)
+    await service.request_compaction(chatroom_id)
     return {"status": "accepted", "chatroom_id": str(chatroom_id)}
 
 

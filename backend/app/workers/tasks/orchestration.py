@@ -7,6 +7,9 @@ Tasks:
 
 G.9 audit wiring: ``make_dlq_audit_callback`` is used by the consumer loop
 to emit ``a2a.dlq`` audit events whenever a message is moved to the DLQ.
+
+M19 refactor: ``compact_chatroom`` moved to ``conversation.py`` (conversation
+concern). ``evaluate_silence`` SQL queries extracted into a repository method.
 """
 
 from __future__ import annotations
@@ -126,48 +129,6 @@ async def wakeup_agent(
     return result.status
 
 
-async def compact_chatroom(ctx: dict[str, Any], chatroom_id: str) -> str:
-    """Run the forced compaction requested by POST /compact (G.10).
-
-    The endpoint sets the one-shot ``compact:pending:{room}`` flag *and*
-    enqueues this job, so compaction happens promptly even if no agent turn
-    fires within the flag's 1-hour TTL. Compaction is room-level (one summary
-    row in ``messages``), so the first live bound agent's config drives the
-    pass — the engine consumes the flag, summarises via the agent's key group,
-    and commits. If a racing turn already consumed the flag this run is a
-    cheap no-op (the engine's normal mode/cap check applies).
-    """
-    from app.config.settings import get_settings
-    from contexts.agents.application.runtime.turn_engine import TurnEngine
-    from contexts.conversation.infrastructure.repositories import (
-        ChatroomAgentRepository,
-        ChatroomRepository,
-    )
-
-    rid = uuid.UUID(chatroom_id)
-    async with async_session() as db:
-        room = await ChatroomRepository(db).get(rid)
-        if room is None:
-            logger.bind(room_id=chatroom_id).info("compact skipped: room gone")
-            return "skipped:room_gone"
-        bindings = await ChatroomAgentRepository(db).list(rid)
-        if not bindings:
-            logger.bind(room_id=chatroom_id).info("compact skipped: no bound agents")
-            return "skipped:no_agents"
-        settings = get_settings()
-        engine = TurnEngine(
-            db,
-            qdrant_url=settings.qdrant.url,
-            qdrant_api_key=settings.qdrant.api_key,
-        )
-        for binding in bindings:
-            ok = await engine.run_compaction(agent_id=binding.agent_id, chatroom_id=rid)
-            if ok:
-                logger.bind(room_id=chatroom_id, agent_id=str(binding.agent_id)).info("compact pass run")
-                return "completed"
-        return "failed"
-
-
 async def approval_timeout(
     ctx: dict[str, Any],
     approval_id: str,
@@ -196,18 +157,18 @@ async def approval_timeout(
 async def evaluate_silence(ctx: dict[str, Any]) -> str:
     """Periodic sweep: fire silence_minutes wake-ups for room-bound agents.
 
-    Runs every 30 s via Arq cron (G.3 / R15.02). Iterates every
-    ``chatroom_agents`` binding in a live (non-deleted) chatroom and asks
-    ``WakeupService.evaluate_silence_trigger`` whether the agent has been
-    silent long enough to wake. Each firing enqueues a ``wakeup_agent`` job.
+    Runs every 30 s via Arq cron (G.3 / R15.02). Uses the
+    ``ChatroomAgentRepository.list_live_bindings`` method to fetch active
+    bindings (M19: SQL extracted into repository). Each firing enqueues a
+    ``wakeup_agent`` job.
 
     After a firing the silence timestamp is reset so the trigger re-arms on
     the next T-minute window instead of re-firing on every 30 s sweep — an
     interim debounce until the Phase H agent runtime owns the timer.
     """
-    import sqlalchemy as sa
-
-    from contexts.conversation.infrastructure.tables import chatroom_agents, chatrooms
+    from contexts.conversation.infrastructure.repositories import (
+        ChatroomAgentRepository,
+    )
     from contexts.orchestration.application.wakeup_service import WakeupService
     from contexts.orchestration.infrastructure import wakeup_state
 
@@ -218,25 +179,12 @@ async def evaluate_silence(ctx: dict[str, Any]) -> str:
     _BATCH_SIZE = 500
     async with async_session() as db:
         svc = WakeupService(db)
+        repo = ChatroomAgentRepository(db)
         # Paginate to avoid loading all bindings into memory at once.
         offset = 0
         pairs: list[Any] = []
         while True:
-            batch = (
-                await db.execute(
-                    sa.select(chatroom_agents.c.agent_id, chatroom_agents.c.chatroom_id)
-                    .select_from(
-                        chatroom_agents.join(
-                            chatrooms,
-                            chatrooms.c.id == chatroom_agents.c.chatroom_id,
-                        )
-                    )
-                    .where(chatrooms.c.deleted_at.is_(None))
-                    .order_by(chatroom_agents.c.chatroom_id, chatroom_agents.c.agent_id)
-                    .limit(_BATCH_SIZE)
-                    .offset(offset)
-                )
-            ).all()
+            batch = await repo.list_live_bindings(limit=_BATCH_SIZE, offset=offset)
             pairs.extend(batch)
             if len(batch) < _BATCH_SIZE:
                 break
@@ -335,7 +283,6 @@ def make_dlq_audit_callback() -> Callable[[uuid.UUID, str, str, int], Awaitable[
 
 __all__ = [
     "approval_timeout",
-    "compact_chatroom",
     "evaluate_silence",
     "make_dlq_audit_callback",
     "wakeup_agent",
