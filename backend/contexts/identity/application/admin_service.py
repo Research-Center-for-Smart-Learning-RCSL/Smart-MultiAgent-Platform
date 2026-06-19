@@ -288,10 +288,9 @@ class AdminService:
                 .returning(t.admin_impersonation_sessions.c.access_jti)
             )
         ).all()
-        ttl = timedelta(seconds=get_settings().jwt.access_ttl_seconds)
         for row in imp_rows:
             if row.access_jti is not None:
-                await tokens.deny_jti(row.access_jti, ttl=ttl)
+                await tokens.deny_access_jti(row.access_jti)
         await audit.emit(
             self._db,
             audit.AuditEvent(

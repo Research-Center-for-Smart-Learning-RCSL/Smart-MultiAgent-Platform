@@ -382,9 +382,8 @@ async def trigger_build(
     service = GraphRagConfigService(db)
     cfg = await service.get(config_id)
     await _assert_edit(db=db, principal=principal, project_id=cfg.project_id)
-    from arq.connections import RedisSettings, create_pool
-
     from shared_kernel import audit as _audit
+    from shared_kernel.queue import enqueue
 
     await _audit.emit(
         db,
@@ -398,17 +397,7 @@ async def trigger_build(
             request_id=ctx.request_id,
         ),
     )
-    pool = await create_pool(
-        RedisSettings.from_dsn(get_settings().redis.dsn),
-    )
-    try:
-        await pool.enqueue_job(
-            "graphrag_build",
-            config_id=str(config_id),
-            triggered_by="manual",
-        )
-    finally:
-        await pool.aclose(close_connection_pool=True)
+    await enqueue("graphrag_build", config_id=str(config_id), triggered_by="manual")
     return GraphRagBuildOut(
         accepted=True,
         build_id=None,

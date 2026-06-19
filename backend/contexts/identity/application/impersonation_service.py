@@ -13,7 +13,6 @@ from datetime import datetime, timedelta
 import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.config.settings import get_settings
 from contexts.identity.infrastructure import tables as t
 from shared_kernel import audit
 from shared_kernel.auth import jwt, tokens
@@ -67,8 +66,7 @@ class ImpersonationService:
                 )
             ).one_or_none()
             if old is not None and old.access_jti is not None:
-                ttl = timedelta(seconds=get_settings().jwt.access_ttl_seconds)
-                await tokens.deny_jti(old.access_jti, ttl=ttl)
+                await tokens.deny_access_jti(old.access_jti)
 
         session_id = uuid.uuid4()
         access_token, claims = jwt.sign_access_token(
@@ -139,8 +137,7 @@ class ImpersonationService:
         if row is None:
             return False
         if row.access_jti is not None:
-            ttl = timedelta(seconds=get_settings().jwt.access_ttl_seconds)
-            await tokens.deny_jti(row.access_jti, ttl=ttl)
+            await tokens.deny_access_jti(row.access_jti)
         await audit.emit(
             self._db,
             audit.AuditEvent(
@@ -170,10 +167,9 @@ class ImpersonationService:
             )
         ).all()
         # S7: revoke the access token for each closed session, matching end().
-        ttl = timedelta(seconds=get_settings().jwt.access_ttl_seconds)
         for row in rows:
             if row.access_jti is not None:
-                await tokens.deny_jti(row.access_jti, ttl=ttl)
+                await tokens.deny_access_jti(row.access_jti)
         return len(rows)
 
     async def list_active(self) -> list[ImpersonationSession]:

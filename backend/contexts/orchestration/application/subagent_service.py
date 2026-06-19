@@ -243,15 +243,9 @@ class SubagentService:
             await redis.delete(key)
             return
 
-        from arq.connections import RedisSettings, create_pool
+        from shared_kernel.queue import enqueue
 
-        from app.config.settings import get_settings
-
-        pool = await create_pool(RedisSettings.from_dsn(get_settings().redis.dsn))
-        try:
-            await pool.enqueue_job("workflow_subagent_complete", run_id, node_id, port)
-        finally:
-            await pool.aclose(close_connection_pool=True)
+        await enqueue("workflow_subagent_complete", run_id, node_id, port)
         await redis.delete(key)
 
     # ------------------------------------------------------------------

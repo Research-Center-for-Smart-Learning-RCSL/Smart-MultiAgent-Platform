@@ -180,6 +180,12 @@ async def deny_jti(jti: uuid.UUID, *, ttl: timedelta) -> None:
     await get_redis().set(_DENYLIST_PREFIX + str(jti), "1", ex=seconds)
 
 
+async def deny_access_jti(jti: uuid.UUID) -> None:
+    """Denylist an access-token JTI using the configured access TTL."""
+    ttl = timedelta(seconds=get_settings().jwt.access_ttl_seconds)
+    await deny_jti(jti, ttl=ttl)
+
+
 async def is_denied(jti: uuid.UUID) -> bool:
     return bool(await get_redis().exists(_DENYLIST_PREFIX + str(jti)))
 
@@ -243,6 +249,7 @@ __all__ = [
     "RefreshRecord",
     "TokenReuseError",
     "create_session",
+    "deny_access_jti",
     "deny_jti",
     "get_record",
     "hash_refresh",

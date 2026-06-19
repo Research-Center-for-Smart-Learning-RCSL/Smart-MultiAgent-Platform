@@ -98,7 +98,7 @@ onMounted(load)
         v-for="m in members"
         :key="m.user_id"
       >
-        {{ m.user_id }} — {{ m.role }}
+        {{ m.email }} — {{ m.role }}
         <span v-if="m.is_original_creator">★ {{ $t('tenancy.orgs.originalCreator') }}</span>
         <template v-if="!m.is_original_creator">
           <button
