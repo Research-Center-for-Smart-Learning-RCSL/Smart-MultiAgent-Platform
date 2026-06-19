@@ -78,7 +78,7 @@ class ChatExportService:
 
         room = await rooms.get(chatroom_id)
         rows = await messages.all_for_chatroom(chatroom_id, limit=_EXPORT_MAX_MESSAGES)
-        serialized = []
+        serialized: list[dict[str, Any]] = []
         for m in rows:
             msg_edits = await edits.list_for_message(m.id)
             msg_atts = await attachments.list_for_message(m.id)
@@ -130,6 +130,17 @@ class ChatExportService:
             default=str,
         ).encode("utf-8")
 
+        # Release the DB connection before the (potentially slow) MinIO upload
+        # so we don't hold a pool slot for up to _EXPORT_PUT_TIMEOUT_SECONDS.
+        await self._db.flush()
+
+        return await self._upload_manifest(job_id, payload)
+
+    @staticmethod
+    async def _upload_manifest(
+        job_id: uuid.UUID,
+        payload: bytes,
+    ) -> tuple[str, str]:
         client = get_minio_client()
         key = export_key(job_id=job_id, filename="manifest.json")
         try:
