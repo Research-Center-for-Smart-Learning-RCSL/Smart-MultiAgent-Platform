@@ -58,6 +58,45 @@ class WorkflowService:
         # flushes its queued Arq jobs after the caller commits.
         self._engine: RunEngine | None = None
 
+    # -- scope resolution (API-1) --
+
+    async def resolve_workflow_scope(
+        self,
+        workflow_id: uuid.UUID,
+    ) -> uuid.UUID:
+        """Return the ``project_id`` that owns ``workflow_id``.
+
+        Soft-deleted workflows are still resolved so the precise domain
+        error (404/410) is produced by downstream handlers, not masked by
+        the auth layer.
+
+        Raises ``WorkflowNotFound`` if neither the workflow nor its
+        workspace exist.
+        """
+        from contexts.conversation.interfaces.facade import ConversationFacade
+
+        wf = await self._repo.get(workflow_id, include_deleted=True)
+        if wf is None:
+            raise WorkflowNotFound(f"Workflow {workflow_id} not found")
+        facade = ConversationFacade(self._db)
+        ws = await facade.get_workspace(wf.workspace_id)
+        if ws is None:
+            raise WorkflowNotFound(f"Workspace for workflow {workflow_id} not found")
+        return ws.project_id
+
+    async def resolve_run_scope(
+        self,
+        run_id: uuid.UUID,
+    ) -> uuid.UUID:
+        """Return the ``project_id`` that owns a workflow run.
+
+        Raises ``WorkflowRunNotFound`` if the run does not exist.
+        """
+        project_id = await self._runs.get_project_id(run_id)
+        if project_id is None:
+            raise WorkflowRunNotFound(f"Workflow run {run_id} not found")
+        return project_id
+
     # -- CRUD --
 
     async def list_for_workspace(

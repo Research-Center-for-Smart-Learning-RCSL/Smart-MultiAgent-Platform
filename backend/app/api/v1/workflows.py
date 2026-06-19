@@ -23,10 +23,8 @@ from contexts.conversation.interfaces.facade import ConversationFacade
 from contexts.workflow.application.workflow_service import WorkflowService
 from contexts.workflow.domain.errors import (
     WorkflowError,  # noqa: F401 — error_mapping catches these
-)
-from contexts.workflow.infrastructure.repositories import (
-    WorkflowRepository,
-    WorkflowRunRepository,
+    WorkflowNotFound,
+    WorkflowRunNotFound,
 )
 from shared_kernel.auth.dependencies import (
     current_principal,
@@ -77,14 +75,12 @@ async def _resolve_workflow(
     Soft-deleted workflows are still resolved so the precise domain error
     (404/410) is produced by the service, not masked by the auth layer.
     """
-    wf = await WorkflowRepository(db).get(workflow_id, include_deleted=True)
-    if wf is None:
+    svc = WorkflowService(db)
+    try:
+        project_id = await svc.resolve_workflow_scope(workflow_id)
+    except WorkflowNotFound:
         raise HTTPException(status_code=404, detail="Workflow not found")
-    facade = ConversationFacade(db)
-    ws = await facade.get_workspace(wf.workspace_id)
-    if ws is None:
-        raise HTTPException(status_code=404, detail="Workspace not found")
-    return Scope(project_id=ws.project_id)
+    return Scope(project_id=project_id)
 
 
 async def _resolve_run(
@@ -92,8 +88,10 @@ async def _resolve_run(
     db: AsyncSession = Depends(db_session),
 ) -> Scope:
     """Resolve run_id → its workflow run's project_id for the authz check."""
-    project_id = await WorkflowRunRepository(db).get_project_id(run_id)
-    if project_id is None:
+    svc = WorkflowService(db)
+    try:
+        project_id = await svc.resolve_run_scope(run_id)
+    except WorkflowRunNotFound:
         raise HTTPException(status_code=404, detail="Workflow run not found")
     return Scope(project_id=project_id)
 

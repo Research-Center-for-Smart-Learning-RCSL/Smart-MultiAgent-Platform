@@ -13,10 +13,8 @@ AuthZ:
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import uuid
-from collections.abc import Sequence
 from typing import Any, Literal
 
 from fastapi import (
@@ -30,28 +28,22 @@ from fastapi import (
     status,
 )
 from pydantic import BaseModel, Field
-from qdrant_client import AsyncQdrantClient
 
 from app.api.v1.deps import PaginationParams
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.config.settings import get_settings
 from contexts.keys.infrastructure.adapters import build_router
 from contexts.knowledge.application.config_service import RagConfigService
 from contexts.knowledge.application.ingest_service import (
     MAX_MULTIPART_BYTES,
     IngestInput,
-    IngestService,
 )
 from contexts.knowledge.domain.errors import DocumentTooLarge
 from contexts.knowledge.domain.models import (
     ChunkStrategy,
     RagConfigDraft,
-    RagDocument,
 )
-from contexts.knowledge.infrastructure.blob_store import MinioBlobStore
 from contexts.knowledge.infrastructure.embedders import router_embedder_for
-from contexts.knowledge.infrastructure.qdrant_store import QdrantStore
 from contexts.tenancy.interfaces.facade import TenancyFacade
 from shared_kernel.auth.context import RequestContext
 from shared_kernel.auth.dependencies import (
@@ -158,81 +150,6 @@ def _to_document_out(d) -> RagDocumentOut:
 
 
 _log = logging.getLogger(__name__)
-
-
-async def _purge_documents_infra(
-    *,
-    project_id: uuid.UUID,
-    docs: Sequence[RagDocument],
-) -> dict[str, Any]:
-    """Best-effort removal of Qdrant points + MinIO blobs for ``docs``.
-
-    MUST be called only *after* the DB transaction that removed the document
-    rows has committed (DOM-4): infra deletes are irreversible, so the audit
-    trail has to be durable first. Every failure is swallowed and reflected
-    in the returned summary, which the caller writes to a follow-up audit
-    row — so the destructive infra step is itself always recorded.
-    """
-    summary: dict[str, Any] = {
-        "documents": len(docs),
-        "qdrant_purged": True,
-        "blobs_removed": 0,
-        "blobs_failed": 0,
-    }
-    if not docs:
-        return summary
-
-    settings = get_settings()
-
-    # Qdrant points — one batched delete keyed on doc_id.
-    try:
-        qclient = AsyncQdrantClient(
-            url=settings.qdrant.url,
-            api_key=settings.qdrant.api_key or None,
-        )
-        try:
-            await QdrantStore(qclient).delete_documents(
-                project_id=project_id,
-                document_ids=[d.id for d in docs],
-            )
-        finally:
-            await qclient.close()
-    except Exception:
-        summary["qdrant_purged"] = False
-        _log.exception("rag infra purge: qdrant delete failed for project %s", project_id)
-
-    # MinIO blobs — one remove_object per document.
-    minio = None
-    try:
-        from minio import Minio
-
-        minio = Minio(
-            settings.minio.endpoint,
-            access_key=settings.minio.root_access_key,
-            secret_key=settings.minio.root_secret_key,
-            secure=settings.minio.use_tls,
-            region=settings.minio.region,
-        )
-    except Exception:
-        _log.exception("rag infra purge: minio client init failed")
-
-    for d in docs:
-        if minio is None:
-            summary["blobs_failed"] += 1
-            continue
-        try:
-            # minio_path is "<bucket>/<key>"; split on the first slash.
-            bucket, _, key = d.minio_path.partition("/")
-            if bucket and key:
-                await asyncio.to_thread(minio.remove_object, bucket, key)
-                summary["blobs_removed"] += 1
-            else:
-                summary["blobs_failed"] += 1
-        except Exception:
-            summary["blobs_failed"] += 1
-            _log.exception("rag infra purge: minio remove failed for doc %s", d.id)
-
-    return summary
 
 
 # ---------------------------------------------------------------------------
@@ -414,7 +331,9 @@ async def delete_rag_config(
     await db.commit()
 
     # Best-effort purge of the cascaded documents' Qdrant points + blobs.
-    outcome = await _purge_documents_infra(project_id=cfg.project_id, docs=docs)
+    outcome = await RagConfigService.purge_documents_infra(
+        project_id=cfg.project_id, docs=docs,
+    )
     from shared_kernel import audit as _audit
 
     await _audit.emit(
@@ -514,32 +433,10 @@ async def upload_document(
         model=cfg.embed_model,
     )
 
-    settings = get_settings()
-    from minio import Minio
-
-    minio = Minio(
-        settings.minio.endpoint,
-        access_key=settings.minio.root_access_key,
-        secret_key=settings.minio.root_secret_key,
-        secure=settings.minio.use_tls,
-        region=settings.minio.region,
-    )
-    blob = MinioBlobStore(minio)
-
-    qclient = AsyncQdrantClient(
-        url=settings.qdrant.url,
-        api_key=settings.qdrant.api_key or None,
+    ingest, qclient = RagConfigService.build_ingest_service(
+        db, embedder=embedder,
     )
     try:
-        qdrant = QdrantStore(qclient)
-
-        ingest = IngestService(
-            db,
-            blob=blob,
-            embedder=embedder,
-            qdrant=qdrant,
-            bucket=settings.minio.bucket_rag_sources,
-        )
         doc = await ingest.ingest(
             ipt=IngestInput(
                 rag_config_id=config_id,
@@ -655,7 +552,9 @@ async def delete_rag_document(
 
     # Best-effort purge of Qdrant points + MinIO blob, recorded in a
     # follow-up audit row (committed by the db_session dependency).
-    outcome = await _purge_documents_infra(project_id=cfg.project_id, docs=[doc])
+    outcome = await RagConfigService.purge_documents_infra(
+        project_id=cfg.project_id, docs=[doc],
+    )
     await _audit.emit(
         db,
         _audit.AuditEvent(

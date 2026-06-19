@@ -109,14 +109,9 @@ def _resolve_models(agent: Agent) -> dict[str, str]:
         models[agent.model_hint.value] = agent.model_id
     return models
 
-# Default embedding model per provider for GraphRAG retrieval — mirrors the
-# builder's map in ``app.workers.tasks.graphrag`` (kept local: contexts must
-# not import from ``app``).
-_GRAPHRAG_EMBED_MODELS: dict[str, str] = {
-    "openai": "text-embedding-3-small",
-    "gemini": "text-embedding-004",
-    "voyage": "voyage-3",
-}
+# -- RAG / GraphRAG context providers (extracted to knowledge context) ------
+from contexts.knowledge.application.rag_context_provider import RagContextProvider
+from contexts.knowledge.application.graphrag_context_provider import GraphRagContextProvider
 
 
 def _queued_trigger_key(agent_id: uuid.UUID, chatroom_id: uuid.UUID) -> str:
@@ -185,6 +180,14 @@ class TurnEngine:
         self._router = router or build_router(db)
         self._qdrant_url = qdrant_url
         self._qdrant_api_key = qdrant_api_key
+        self._rag_provider = RagContextProvider(
+            db, router=self._router,
+            qdrant_url=qdrant_url, qdrant_api_key=qdrant_api_key,
+        )
+        self._graphrag_provider = GraphRagContextProvider(
+            db, router=self._router,
+            qdrant_url=qdrant_url, qdrant_api_key=qdrant_api_key,
+        )
         # Rooms whose one-shot POST /compact flag this engine consumed — used
         # to re-arm the flag if the turn that consumed it fails.
         self._compact_forced_rooms: set[uuid.UUID] = set()
@@ -819,140 +822,19 @@ class TurnEngine:
         return last_text, MAX_TOOL_ROUNDS
 
     async def _rag_context(self, agent: Agent, query: str | None) -> str | None:
-        if agent.rag_config_id is None or self._qdrant_url is None or not query:
-            return None
-        try:
-            from qdrant_client import AsyncQdrantClient
-
-            from contexts.knowledge.application.ports import Reranker
-            from contexts.knowledge.application.retrieve import RetrieveService
-            from contexts.knowledge.infrastructure.embedders import router_embedder_for
-            from contexts.knowledge.infrastructure.qdrant_store import QdrantStore
-            from contexts.knowledge.infrastructure.repositories import RagConfigRepository
-
-            cfg = await RagConfigRepository(self._db).get(agent.rag_config_id)
-            if cfg is None or cfg.embed_key_id is None:
-                return None
-            embedder = router_embedder_for(
-                router=self._router,
-                key_id=cfg.embed_key_id,
-                provider=cfg.embed_provider,
-                model=cfg.embed_model,
-            )
-            reranker: Reranker | None = None
-            if cfg.rerank_enabled and cfg.rerank_key_id is not None:
-                try:
-                    from contexts.knowledge.infrastructure.rerankers import RouterReranker
-
-                    # Router-backed constructor (mirrors RouterEmbedder): the
-                    # caller never touches key plaintext — the router unwraps
-                    # the pinned rerank key on demand. If the reranker module
-                    # still has the legacy `api_key` constructor this raises
-                    # TypeError and we retrieve without rerank.
-                    reranker = RouterReranker(
-                        router=self._router,
-                        key_id=cfg.rerank_key_id,
-                        model=cfg.rerank_model or "rerank-3",
-                    )
-                except TypeError:
-                    _log.warning(
-                        "router-backed reranker unavailable for rag config %s; " "retrieving without rerank",
-                        cfg.id,
-                    )
-            qclient = AsyncQdrantClient(url=self._qdrant_url, api_key=self._qdrant_api_key or None)
-            try:
-                svc = RetrieveService(
-                    self._db, embedder=embedder, qdrant=QdrantStore(qclient), reranker=reranker
-                )
-                chunks = await svc.query(
-                    config_id=agent.rag_config_id,
-                    text=query,
-                    agent_id=agent.id,
-                    # rerank=None defers to cfg.rerank_enabled; without a
-                    # reranker instance force it off so query() stays cheap.
-                    rerank=None if reranker is not None else False,
-                )
-                if not chunks:
-                    return None
-                return str(svc.format_as_rag_message(chunks)["content"])
-            finally:
-                await qclient.close()
-        except Exception:
-            _log.warning("RAG retrieval failed agent=%s", agent.id, exc_info=True)
-            return None
+        """Delegate to the knowledge-context :class:`RagContextProvider`."""
+        return await self._rag_provider.query(
+            rag_config_id=agent.rag_config_id,
+            query_text=query,
+            agent_id=agent.id,
+        )
 
     async def _graphrag_context(self, agent: Agent, query: str | None) -> str | None:
-        """GraphRAG context block (R11.06) — mirrors :meth:`_rag_context`:
-        retrieval failure must never fail the turn."""
-        if agent.graphrag_config_id is None or not query:
-            return None
-        try:
-            bundle = await self._graphrag_query(agent.graphrag_config_id, query)
-            if bundle is None or not (bundle.entities or bundle.relations):
-                return None
-            return str(bundle.as_system_message()["content"])
-        except Exception:
-            _log.warning("GraphRAG retrieval failed agent=%s", agent.id, exc_info=True)
-            return None
-
-    async def _graphrag_query(self, config_id: uuid.UUID, query: str) -> Any:
-        """Production GraphRAG retrieval wiring (E.8). Seam for unit tests —
-        fakes replace this method to exercise :meth:`_graphrag_context`."""
-        from app.config.settings import get_settings
-
-        settings = get_settings()
-        neo4j_conf = getattr(settings, "neo4j", None)
-        if neo4j_conf is None or self._qdrant_url is None:
-            return None
-
-        from qdrant_client import AsyncQdrantClient
-
-        from contexts.knowledge.application.graphrag_retrieve import GraphRagRetrieveService
-        from contexts.knowledge.infrastructure.embedders import router_embedder_for
-        from contexts.knowledge.infrastructure.graphrag_vector_store import GraphRagVectorStore
-        from contexts.knowledge.infrastructure.neo4j_driver import Neo4jAsyncDriver
-
-        async def _embedder_factory(cfg: Any) -> Any:
-            resolved = await self._resolve_graphrag_embed_key(cfg.builder_key_group_id)
-            if resolved is None:
-                raise RuntimeError(f"builder key group {cfg.builder_key_group_id} has no embedding key")
-            provider, model, key_id = resolved
-            return router_embedder_for(router=self._router, key_id=key_id, provider=provider, model=model)
-
-        driver = Neo4jAsyncDriver(uri=neo4j_conf.url, auth=(neo4j_conf.user, neo4j_conf.password))
-        qclient = AsyncQdrantClient(url=self._qdrant_url, api_key=self._qdrant_api_key or None)
-        try:
-            svc = GraphRagRetrieveService(
-                self._db,
-                neo4j=driver,
-                vector_store=GraphRagVectorStore(qclient),
-                embedder_factory=_embedder_factory,
-            )
-            return await svc.query(config_id=config_id, text=query)
-        finally:
-            await qclient.close()
-            await driver.close()
-
-    async def _resolve_graphrag_embed_key(
-        self, builder_key_group_id: uuid.UUID
-    ) -> tuple[str, str, uuid.UUID] | None:
-        """First embedding-capable key in the builder group → (provider, model,
-        key_id). Mirrors the builder's resolution so retrieval embeds with the
-        same model family the build used."""
-        from contexts.keys.infrastructure.group_repository import KeyGroupMemberRepository
-        from contexts.keys.infrastructure.repositories import ApiKeyRepository
-
-        members = await KeyGroupMemberRepository(self._db).list_ordered(builder_key_group_id)
-        for m in members:
-            key = await ApiKeyRepository(self._db).get_active(m.key_id)
-            if key is None:
-                continue
-            provider = key.provider.value
-            model = _GRAPHRAG_EMBED_MODELS.get(provider)
-            if model is None:
-                continue
-            return provider, model, key.id
-        return None
+        """Delegate to the knowledge-context :class:`GraphRagContextProvider`."""
+        return await self._graphrag_provider.query(
+            graphrag_config_id=agent.graphrag_config_id,
+            query_text=query,
+        )
 
     async def _audit(
         self,

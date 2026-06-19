@@ -37,16 +37,13 @@ from contexts.workflow.domain.models import (
     StepOutcome,
     StepState,
 )
+from contexts.workflow.application.step_recorder import StepRecorder
 from contexts.workflow.infrastructure.repositories import (
     WorkflowRunRepository,
     WorkflowStepRepository,
 )
 from shared_kernel import audit
-from shared_kernel.observability.metrics import (
-    WORKFLOW_RUNS_TOTAL,
-    WORKFLOW_STEP_DURATION_SECONDS,
-    WORKFLOW_STEPS_TOTAL,
-)
+from shared_kernel.observability.metrics import WORKFLOW_RUNS_TOTAL
 from contexts.workflow.infrastructure.channels import workflow_channel
 from shared_kernel.realtime.pubsub import Publisher
 
@@ -112,6 +109,7 @@ class RunEngine:
         self._db = db
         self._runs = WorkflowRunRepository(db)
         self._steps = WorkflowStepRepository(db)
+        self._recorder = StepRecorder(db, self._steps)
         # W1/W3/W6/W10: collected during execution, dispatched after commit.
         self._pending_enqueues: list[_PendingEnqueue] = []
 
@@ -581,32 +579,13 @@ class RunEngine:
         node = _parse_node(dict(raw_node))  # copy to avoid mutating def
         executor = get_executor(node.type)
 
-        # Insert step record
-        step = await self._steps.insert(
-            run_id=ctx.run_id,
-            node_id=node_id,
-            state=StepState.RUNNING,
-            input_data=node.config,
+        # Insert step record and emit started event
+        step = await self._recorder.insert_step(
+            run_id=ctx.run_id, node_id=node_id, input_data=node.config,
         )
-
-        pub = Publisher(workflow_channel(ctx.run_id))
-        await pub.emit(
-            "workflow.step_started",
-            {
-                "step_id": str(step.id),
-                "node_id": node_id,
-                "node_type": node.type.value,
-            },
-        )
-
-        await audit.emit(
-            self._db,
-            audit.AuditEvent(
-                action="workflow.step_started",
-                resource_type="workflow_step",
-                resource_id=step.id,
-                metadata={"run_id": str(ctx.run_id), "node_id": node_id},
-            ),
+        await self._recorder.emit_step_started(
+            run_id=ctx.run_id, step_id=step.id,
+            node_id=node_id, node_type=node.type.value,
         )
 
         # Execute
@@ -630,37 +609,14 @@ class RunEngine:
             )
             outcome = await self._apply_on_error(ctx, node, outcome, step.id)
 
-        # Update step record
-        now = datetime.now(UTC)
-        await self._steps.update(
-            step.id,
-            state=outcome.state,
-            ended_at=now if outcome.state not in (StepState.RUNNING, StepState.PENDING) else None,
-            output=outcome.output,
-            error=outcome.error,
+        # Update step record, observe metrics, flush, and emit event
+        await self._recorder.update_step(
+            step.id, outcome=outcome,
+            node_type=node.type.value, step_start=step_start,
         )
-        _step_elapsed = time.monotonic() - step_start
-        WORKFLOW_STEP_DURATION_SECONDS.labels(node_type=node.type.value).observe(_step_elapsed)
-        if outcome.state not in (StepState.RUNNING, StepState.PENDING):
-            WORKFLOW_STEPS_TOTAL.labels(
-                node_type=node.type.value,
-                state=outcome.state.value,
-            ).inc()
-
-        # W12: flush step outcome durably before following edges so that if
-        # _advance_from raises, the step result is preserved in the eventual commit.
-        await self._db.flush()
-
-        event_action = (
-            "workflow.step_failed" if outcome.state == StepState.FAILED else "workflow.step_finished"
-        )
-        await pub.emit(
-            event_action,
-            {
-                "step_id": str(step.id),
-                "node_id": node_id,
-                "state": outcome.state.value,
-            },
+        await self._recorder.emit_step_event(
+            run_id=ctx.run_id, step_id=step.id,
+            node_id=node_id, outcome=outcome,
         )
 
         # Update run variables
@@ -700,10 +656,11 @@ class RunEngine:
         if node.type == NodeType.END:
             end_status = node.config.get("status", "success")
             final_state = RunState.SUCCEEDED if end_status == "success" else RunState.FAILED
+            end_now = datetime.now(UTC)
             await self._runs.update_state(
                 ctx.run_id,
                 state=final_state,
-                ended_at=now,
+                ended_at=end_now,
             )
             WORKFLOW_RUNS_TOTAL.labels(state=final_state.value).inc()
             action = "workflow.run_finished"
@@ -716,7 +673,7 @@ class RunEngine:
                     metadata={"final_state": final_state.value},
                 ),
             )
-            await pub.emit(
+            await Publisher(workflow_channel(ctx.run_id)).emit(
                 action,
                 {
                     "run_id": str(ctx.run_id),

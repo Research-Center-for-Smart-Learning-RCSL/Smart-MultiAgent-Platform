@@ -15,7 +15,7 @@ import logging
 import uuid
 from contextlib import suppress
 
-from contexts.keys.application.provider_router import DEK_CACHE
+from contexts.keys.infrastructure.dek_cache import DEK_CACHE
 from shared_kernel.auth.clients import get_redis
 from contexts.keys.infrastructure.key_revocation_events import (
     CHANNEL_KEY_CARRY_REVOKED,

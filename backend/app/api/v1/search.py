@@ -12,7 +12,7 @@ from contexts.conversation.application.access import (
     ensure_can_read,
     resolve_room_access,
 )
-from contexts.conversation.infrastructure.repositories import MessageRepository
+from contexts.conversation.application.message_service import MessageService
 from shared_kernel.auth.dependencies import current_principal
 from shared_kernel.auth.permissions import Principal
 from shared_kernel.db.session import db_session
@@ -49,8 +49,8 @@ async def search_messages(
         chatroom_id=chatroom_id,
     )
     ensure_can_read(access, is_admin=principal.is_admin)
-    repo = MessageRepository(db)
-    results = await repo.search(
+    service = MessageService(db)
+    results = await service.search(
         chatroom_id=chatroom_id,
         query=q,
         limit=limit,

@@ -9,6 +9,7 @@ explicit.
 from __future__ import annotations
 
 import uuid
+from datetime import timedelta
 
 import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -27,6 +28,7 @@ from contexts.keys.domain.providers import (
 from contexts.keys.infrastructure import tables as _t
 from contexts.keys.infrastructure.group_repository import KeyGroupRepository
 from contexts.keys.infrastructure.repositories import ApiKeyRepository
+from shared_kernel.auth.clients import now
 
 
 class KeysFacade:
@@ -156,6 +158,112 @@ class KeysFacade:
             if key is not None:
                 keys.append(key)
         return keys
+
+    # -- Retention helpers (H4) ------------------------------------------------
+
+    async def rollup_usage_events(self, *, retention_months: int = 13) -> int:
+        """Roll up old key_usage_events into key_usage_daily and delete originals.
+
+        Aggregates events older than *retention_months* months into daily
+        summaries (upsert) and removes the source rows.
+        """
+        cutoff = now() - timedelta(days=retention_months * 30)
+        result = await self._db.execute(
+            sa.text(
+                "WITH old AS ("
+                "  SELECT id, key_id, date_trunc('day', at) AS day, "
+                "         input_tokens, output_tokens "
+                "  FROM key_usage_events WHERE at < :cutoff LIMIT 1000"
+                "), agg AS ("
+                "  SELECT key_id, day, count(*) AS req_count, "
+                "         sum(input_tokens) AS sum_input, "
+                "         sum(output_tokens) AS sum_output "
+                "  FROM old GROUP BY key_id, day"
+                "), upserted AS ("
+                "  INSERT INTO key_usage_daily "
+                "  (key_id, day, requests, input_tokens, output_tokens) "
+                "  SELECT key_id, day, req_count, sum_input, sum_output "
+                "  FROM agg "
+                "  ON CONFLICT (key_id, day) DO UPDATE SET "
+                "    requests = key_usage_daily.requests + EXCLUDED.requests, "
+                "    input_tokens = key_usage_daily.input_tokens + EXCLUDED.input_tokens, "
+                "    output_tokens = key_usage_daily.output_tokens + EXCLUDED.output_tokens "
+                "  RETURNING 1"
+                ") "
+                "DELETE FROM key_usage_events WHERE id IN (SELECT id FROM old)"
+            ).bindparams(cutoff=cutoff)
+        )
+        return result.rowcount or 0  # type: ignore[attr-defined]
+
+    async def manage_partitions(self) -> int:
+        """Monthly-range partition manager for ``key_usage_events`` (B3).
+
+        Creates the partition for the *next* calendar month if absent, and
+        detaches + drops partitions whose upper bound is older than 13 months.
+
+        Returns the number of partitions created + dropped.
+        """
+        today = now().date()
+        year = today.year
+        month = today.month
+        nm_year, nm_month = (year + 1, 1) if month == 12 else (year, month + 1)
+        nm_after_year, nm_after_month = (
+            (nm_year + 1, 1) if nm_month == 12 else (nm_year, nm_month + 1)
+        )
+        next_part_name = f"key_usage_events_{nm_year:04d}{nm_month:02d}"
+        next_lower = f"{nm_year:04d}-{nm_month:02d}-01"
+        next_upper = f"{nm_after_year:04d}-{nm_after_month:02d}-01"
+
+        created = 0
+        dropped = 0
+
+        # 1. Create next month's partition if missing.
+        create_sql = (
+            f'CREATE TABLE IF NOT EXISTS "{next_part_name}" '
+            f"PARTITION OF key_usage_events "
+            f"FOR VALUES FROM ('{next_lower}') TO ('{next_upper}')"
+        )
+        before = await self._db.execute(
+            sa.text("SELECT 1 FROM pg_class WHERE relname = :rn").bindparams(
+                rn=next_part_name
+            )
+        )
+        existed = before.scalar() is not None
+        await self._db.execute(sa.text(create_sql))
+        if not existed:
+            created += 1
+
+        # 2. Detach + drop partitions older than 13 months.
+        cutoff = today - timedelta(days=13 * 30)
+        cutoff_str = cutoff.strftime("%Y-%m-%d")
+        rows = await self._db.execute(
+            sa.text(
+                "SELECT c.relname, pg_get_expr(c.relpartbound, c.oid) AS bound "
+                "FROM pg_inherits i "
+                "JOIN pg_class p ON p.oid = i.inhparent "
+                "JOIN pg_class c ON c.oid = i.inhrelid "
+                "WHERE p.relname = 'key_usage_events' "
+                "  AND c.relname ~ '^key_usage_events_[0-9]{6}$'"
+            )
+        )
+        for relname, bound in rows.fetchall():
+            if bound is None:
+                continue
+            try:
+                after_to = bound.split(" TO ", 1)[1]
+                upper = after_to.split("'", 2)[1]
+            except (IndexError, ValueError):
+                continue
+            if upper <= cutoff_str:
+                await self._db.execute(
+                    sa.text(
+                        f'ALTER TABLE key_usage_events DETACH PARTITION "{relname}"'
+                    )
+                )
+                await self._db.execute(sa.text(f'DROP TABLE "{relname}"'))
+                dropped += 1
+
+        return created + dropped
 
 
 # Re-export domain types so cross-context consumers need only one import path.

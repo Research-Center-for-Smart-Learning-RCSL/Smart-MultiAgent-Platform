@@ -3,6 +3,9 @@
 Each policy is a separate async function called by the master
 `retention_sweep` cron. Workers are idempotent, Redis-locked, and emit
 an audit summary with rows_affected.
+
+H4 refactor: cross-context raw SQL has been extracted into each context's
+facade or service. This module is a thin orchestrator.
 """
 
 from __future__ import annotations
@@ -100,131 +103,37 @@ async def _purge_messages(session: AsyncSession) -> int:
 
 
 async def _purge_message_attachments(session: AsyncSession) -> int:
-    cutoff = now() - timedelta(days=3)
-    result = await session.execute(
-        sa.text(
-            "DELETE FROM message_attachments "
-            "WHERE expires_at IS NOT NULL AND expires_at < :cutoff "
-            "AND message_id IS NULL "
-            "AND id IN ("
-            "  SELECT id FROM message_attachments "
-            "  WHERE expires_at IS NOT NULL AND expires_at < :cutoff "
-            "  AND message_id IS NULL "
-            "  LIMIT 500"
-            ")"
-        ).bindparams(cutoff=cutoff)
-    )
-    count = result.rowcount or 0  # type: ignore[attr-defined]
+    """Delete orphaned message_attachments via ConversationFacade."""
+    from contexts.conversation.interfaces.facade import ConversationFacade
+
+    count = await ConversationFacade(session).purge_old_attachments(max_age_days=3)
     await _emit_summary(session, "retention.message_attachments.swept", count)
     return count
 
 
 async def _purge_audit_logs(session: AsyncSession) -> int:
-    cutoff = now() - timedelta(days=365)
-    # Bypass the audit_logs append-only trigger by running as the retention
-    # role. SET ROLE requires membership, granted to the app/worker role by
-    # migration 0027_audit_retention_grant (DB-4).
-    await session.execute(sa.text("SET ROLE smap_audit_retention"))
-    try:
-        result = await session.execute(
-            sa.text(
-                "DELETE FROM audit_logs WHERE created_at < :cutoff "
-                "AND id IN (SELECT id FROM audit_logs WHERE created_at < :cutoff LIMIT 1000)"
-            ).bindparams(cutoff=cutoff)
-        )
-        count = result.rowcount or 0  # type: ignore[attr-defined]
-    finally:
-        await session.execute(sa.text("RESET ROLE"))
+    """Delete audit_logs older than 365 days via AuditFacade."""
+    from contexts.audit.interfaces.facade import AuditFacade
+
+    count = await AuditFacade(session).purge_old_logs(retention_days=365)
     await _emit_summary(session, "retention.audit_logs.swept", count)
     return count
 
 
 async def _archive_workflow_runs(session: AsyncSession) -> int:
-    """Archive workflow runs ended > 90 days ago into ``workflow_runs_archive``.
+    """Archive workflow runs ended > 90 days ago via WorkflowFacade."""
+    from contexts.workflow.interfaces.facade import WorkflowFacade
 
-    Writes the full archive row — ``trigger_type``, ``started_by_user_id`` and
-    a node-count / failure ``summary`` — and is idempotent: ``ON CONFLICT DO
-    NOTHING`` plus the ``NOT IN`` guard mean a re-run, or an overlap with a
-    previous partially-completed batch, can never raise a primary-key
-    violation on ``workflow_runs_archive``.
-    """
-    cutoff = now() - timedelta(days=90)
-    result = await session.execute(
-        sa.text(
-            "INSERT INTO workflow_runs_archive "
-            "(id, workflow_id, trigger_type, started_by_user_id, state, "
-            " started_at, ended_at, summary) "
-            "SELECT wr.id, wr.workflow_id, wr.trigger_type, wr.started_by_user_id, "
-            "       wr.state, wr.started_at, wr.ended_at, "
-            "       jsonb_build_object("
-            "         'node_count', "
-            "         (SELECT count(*) FROM workflow_steps ws WHERE ws.run_id = wr.id), "
-            "         'failures', "
-            "         (SELECT count(*) FROM workflow_steps ws "
-            "          WHERE ws.run_id = wr.id AND ws.state = 'failed')"
-            "       ) "
-            "FROM workflow_runs wr "
-            "WHERE wr.ended_at IS NOT NULL AND wr.ended_at < :cutoff "
-            "  AND wr.id NOT IN (SELECT id FROM workflow_runs_archive) "
-            "LIMIT 500 "
-            "ON CONFLICT (id) DO NOTHING"
-        ).bindparams(cutoff=cutoff)
-    )
-    archived = result.rowcount or 0  # type: ignore[attr-defined]
-    if archived > 0:
-        # Delete steps and source rows only for the runs that were just
-        # archived (joined against workflow_runs_archive), not a fresh LIMIT
-        # subquery that could select different rows than the archive batch.
-        await session.execute(
-            sa.text(
-                "DELETE FROM workflow_steps WHERE run_id IN ("
-                "  SELECT wr.id FROM workflow_runs wr"
-                "  JOIN workflow_runs_archive wra ON wra.id = wr.id"
-                "  WHERE wr.ended_at IS NOT NULL AND wr.ended_at < :cutoff"
-                ")"
-            ).bindparams(cutoff=cutoff)
-        )
-        await session.execute(
-            sa.text(
-                "DELETE FROM workflow_runs WHERE id IN ("
-                "  SELECT wr.id FROM workflow_runs wr"
-                "  JOIN workflow_runs_archive wra ON wra.id = wr.id"
-                "  WHERE wr.ended_at IS NOT NULL AND wr.ended_at < :cutoff"
-                ")"
-            ).bindparams(cutoff=cutoff)
-        )
+    archived = await WorkflowFacade(session).archive_old_runs(retention_days=90)
     await _emit_summary(session, "retention.workflow_runs.archived", archived)
     return archived
 
 
 async def _rollup_key_usage_events(session: AsyncSession) -> int:
-    cutoff = now() - timedelta(days=13 * 30)
-    result = await session.execute(
-        sa.text(
-            "WITH old AS ("
-            "  SELECT id, key_id, date_trunc('day', at) AS day, "
-            "         input_tokens, output_tokens "
-            "  FROM key_usage_events WHERE at < :cutoff LIMIT 1000"
-            "), agg AS ("
-            "  SELECT key_id, day, count(*) AS req_count, "
-            "         sum(input_tokens) AS sum_input, "
-            "         sum(output_tokens) AS sum_output "
-            "  FROM old GROUP BY key_id, day"
-            "), upserted AS ("
-            "  INSERT INTO key_usage_daily "
-            "  (key_id, day, requests, input_tokens, output_tokens) "
-            "  SELECT key_id, day, req_count, sum_input, sum_output "
-            "  FROM agg "
-            "  ON CONFLICT (key_id, day) DO UPDATE SET "
-            "    requests = key_usage_daily.requests + EXCLUDED.requests, "
-            "    input_tokens = key_usage_daily.input_tokens + EXCLUDED.input_tokens, "
-            "    output_tokens = key_usage_daily.output_tokens + EXCLUDED.output_tokens "
-            "  RETURNING 1"
-            ") "
-            "DELETE FROM key_usage_events WHERE id IN (SELECT id FROM old)"
-        ).bindparams(cutoff=cutoff)
-    )
-    count = result.rowcount or 0  # type: ignore[attr-defined]
+    """Roll up old key_usage_events into daily aggregates via KeysFacade."""
+    from contexts.keys.interfaces.facade import KeysFacade
+
+    count = await KeysFacade(session).rollup_usage_events(retention_months=13)
     await _emit_summary(session, "retention.key_usage_events.rolled_up", count)
     return count
 
@@ -340,10 +249,6 @@ async def _sweep_orphaned_subagent_roots(session: AsyncSession) -> int:
     ``ON DELETE SET NULL``, so deleting a root first would merely orphan the
     children (``parent_id`` → NULL) and leak them as parentless rows.
     """
-    # The synthetic-root rows are isolated in a CTE first so the ``::uuid``
-    # cast only ever runs on a value our own code wrote (always a valid uuid),
-    # never on some other run_context shape. The NOT EXISTS then probes the
-    # workflow_runs primary key directly.
     root_rows = await session.execute(
         sa.text(
             "WITH synth AS ("
@@ -409,10 +314,12 @@ async def _close_idle_impersonations(session: AsyncSession) -> int:
 
 
 async def _purge_exports_bucket(session: AsyncSession) -> int:
-    """Delete MinIO export objects older than 24 h (§21.5).
+    """Delete MinIO export objects older than 24 h (section 21.5).
 
     Per-object delete is retried with exponential backoff (3 attempts, base 0.5 s)
     so a transient network blip doesn't strand objects until the next sweep.
+
+    Kept in retention (infra concern) — not context-specific.
     """
     import time as _time
 
@@ -465,7 +372,7 @@ async def _purge_exports_bucket(session: AsyncSession) -> int:
 async def _sweep_instructions_chains(session: AsyncSession) -> int:
     """Hard-delete instruction chains whose every row reached a terminal state
     and whose most recent activity is older than the audit retention window
-    (365 d per R17.01 / §21.1).
+    (365 d per R17.01 / section 21.1).
     """
     cutoff = now() - timedelta(days=365)
     result = await session.execute(
@@ -486,81 +393,10 @@ async def _sweep_instructions_chains(session: AsyncSession) -> int:
 
 
 async def _manage_key_usage_partitions(session: AsyncSession) -> int:
-    """Monthly-range partition manager for ``key_usage_events`` (B3).
+    """Monthly-range partition manager for ``key_usage_events`` via KeysFacade."""
+    from contexts.keys.interfaces.facade import KeysFacade
 
-    Per ``alembic/versions/0008_key_usage_events.py``, the ``at`` column is the
-    range key. This worker:
-
-    1. Creates the partition for the *next* calendar month if absent.
-    2. Detaches and drops partitions whose upper bound is older than 13 months
-       (data already rolled up into ``key_usage_daily``).
-
-    A single ``DEFAULT`` partition is allowed to remain as a safety net for
-    rows whose ``at`` falls outside any explicit range.
-
-    Returned int = number of partitions created + dropped (for the sweep
-    summary; failures still raise to be counted by RETENTION_FAILURES).
-    """
-    today = now().date()
-    # Anchor on UTC month boundaries.
-    year = today.year
-    month = today.month
-    # next month
-    nm_year, nm_month = (year + 1, 1) if month == 12 else (year, month + 1)
-    nm_after_year, nm_after_month = (nm_year + 1, 1) if nm_month == 12 else (nm_year, nm_month + 1)
-    next_part_name = f"key_usage_events_{nm_year:04d}{nm_month:02d}"
-    next_lower = f"{nm_year:04d}-{nm_month:02d}-01"
-    next_upper = f"{nm_after_year:04d}-{nm_after_month:02d}-01"
-
-    created = 0
-    dropped = 0
-
-    # 1. Create next month's partition if missing. CREATE TABLE IF NOT EXISTS
-    #    PARTITION OF is supported in PostgreSQL 11+ and is idempotent.
-    create_sql = (
-        f'CREATE TABLE IF NOT EXISTS "{next_part_name}" '
-        f"PARTITION OF key_usage_events "
-        f"FOR VALUES FROM ('{next_lower}') TO ('{next_upper}')"
-    )
-    before = await session.execute(
-        sa.text("SELECT 1 FROM pg_class WHERE relname = :rn").bindparams(rn=next_part_name)
-    )
-    existed = before.scalar() is not None
-    await session.execute(sa.text(create_sql))
-    if not existed:
-        created += 1
-
-    # 2. Detach + drop partitions older than 13 months. We list partitions and
-    #    parse their upper-bound expression from pg_get_expr. Only drop named
-    #    partitions matching key_usage_events_YYYYMM; leave _default alone.
-    cutoff = today - timedelta(days=13 * 30)
-    cutoff_str = cutoff.strftime("%Y-%m-%d")
-    rows = await session.execute(
-        sa.text(
-            "SELECT c.relname, pg_get_expr(c.relpartbound, c.oid) AS bound "
-            "FROM pg_inherits i "
-            "JOIN pg_class p ON p.oid = i.inhparent "
-            "JOIN pg_class c ON c.oid = i.inhrelid "
-            "WHERE p.relname = 'key_usage_events' "
-            "  AND c.relname ~ '^key_usage_events_[0-9]{6}$'"
-        )
-    )
-    for relname, bound in rows.fetchall():
-        # bound looks like: FOR VALUES FROM ('2025-01-01') TO ('2025-02-01')
-        if bound is None:
-            continue
-        # extract the upper bound date
-        try:
-            after_to = bound.split(" TO ", 1)[1]
-            upper = after_to.split("'", 2)[1]
-        except (IndexError, ValueError):
-            continue
-        if upper <= cutoff_str:
-            await session.execute(sa.text(f'ALTER TABLE key_usage_events DETACH PARTITION "{relname}"'))
-            await session.execute(sa.text(f'DROP TABLE "{relname}"'))
-            dropped += 1
-
-    total = created + dropped
+    total = await KeysFacade(session).manage_partitions()
     await _emit_summary(session, "retention.key_usage_partitions.managed", total)
     return total
 

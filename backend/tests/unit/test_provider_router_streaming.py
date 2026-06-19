@@ -94,12 +94,15 @@ def _make_router(monkeypatch, adapters, members, keys) -> tuple[ProviderRouter, 
     monkeypatch.setattr(pr, "record_usage_event", _rec)
     monkeypatch.setattr(pr.redis_buckets, "record", _bucket)
 
+    from contexts.keys.application.provider_router import UsageAccountant
+
     r = ProviderRouter.__new__(ProviderRouter)
     r._db = object()  # type: ignore[attr-defined]
     r._adapters = adapters  # type: ignore[attr-defined]
     r._members_repo = _MembersRepo(members)  # type: ignore[attr-defined]
     r._keys_repo = _KeysRepo(keys)  # type: ignore[attr-defined]
     r._config = RouterConfig()  # type: ignore[attr-defined]
+    r._accountant = UsageAccountant(r._db)  # type: ignore[attr-defined]
 
     async def _no_quota(_em):
         return False

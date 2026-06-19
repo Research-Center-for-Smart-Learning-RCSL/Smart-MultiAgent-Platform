@@ -3,45 +3,24 @@
 Registered in `WorkerSettings.functions`. Each function opens its own DB
 session so handlers never share transactions — this matches the shape of
 other contexts' worker tasks.
+
+H19 refactor: export serialization, ACL checks, and MinIO upload have been
+extracted into ``ChatExportService``. The task is now a thin orchestrator
+that calls the service and handles job state transitions.
 """
 
 from __future__ import annotations
 
-import asyncio
-import json
 import uuid
-from datetime import timedelta
 from io import BytesIO
 from typing import Any
 
 from loguru import logger
 
 from contexts.conversation.application import export_service
-from contexts.conversation.application.access import (
-    ensure_can_read,
-    resolve_room_access,
-)
 from contexts.conversation.application.attachment_service import AttachmentService
 from contexts.conversation.domain.models import ScanStatus
-from contexts.conversation.infrastructure.repositories import (
-    ChatroomRepository,
-    MessageAttachmentRepository,
-    MessageEditRepository,
-    MessageRepository,
-)
-from contexts.identity.interfaces.facade import IdentityFacade
-from shared_kernel.auth.permissions import Principal
 from shared_kernel.db.session import get_sessionmaker
-from shared_kernel.markdown import render_safe_html
-from shared_kernel.storage import export_key, get_minio_client
-
-# Manifest writes to MinIO are bounded so a hung S3 connection cannot pin
-# an Arq worker indefinitely (R22.15 / I.4 — every worker call must be
-# bounded). 60 s is comfortably above the typical 50 MiB manifest at LAN
-# rates and far below the Arq job_timeout default.
-_EXPORT_PUT_TIMEOUT_SECONDS = 60
-# Cap messages per export to bound memory; 50 000 messages at ~2 KB each ≈ 100 MB.
-_EXPORT_MAX_MESSAGES = 50_000
 
 
 _file_scan_warned = False
@@ -97,16 +76,19 @@ async def chat_export(
     chatroom_id: str,
     owner_user_id: str,
 ) -> str:
-    """Write the manifest + sanitised HTML to the `exports` bucket."""
+    """Write the manifest + sanitised HTML to the `exports` bucket.
+
+    Job state transitions are managed here; the actual export build and
+    upload is delegated to ``ChatExportService.build_and_upload_export``.
+    """
+    from contexts.conversation.application.chat_export_service import ChatExportService
+
     jid = uuid.UUID(job_id)
     rid = uuid.UUID(chatroom_id)
     oid = uuid.UUID(owner_user_id)
-    _ = timedelta  # — hint for callers reading this module
 
     # Defence-in-depth: don't trust the enqueued args. Verify the job state
-    # in Redis matches what the API stored, then re-run the room ACL for the
-    # claimed owner. A malicious enqueue (bypassing the HTTP gate in
-    # exports.py) would otherwise let one user export another user's room.
+    # in Redis matches what the API stored.
     state = await export_service.get(jid)
     if state is None:
         raise PermissionError(f"export job {jid} has no state record")
@@ -123,105 +105,20 @@ async def chat_export(
     try:
         sm = get_sessionmaker()
         async with sm() as session, session.begin():
-            # Re-fetch admin status from DB so legitimate admin exports of
-            # rooms they aren't a member of still succeed; impersonated
-            # admins never reach this path because the export endpoint is
-            # in the impersonation deny-list (auth middleware).
-            is_admin = await IdentityFacade(session).is_admin(oid)
-            principal = Principal(
-                user_id=oid,
-                is_admin=is_admin,
-                email_verified=True,
+            enqueued = ctx.get("enqueue_time")
+            exported_at = (
+                enqueued.isoformat() if hasattr(enqueued, "isoformat") else (str(enqueued) if enqueued else None)  # type: ignore[union-attr]
             )
-            access = await resolve_room_access(
-                session,
-                principal=principal,
+            svc = ChatExportService(session)
+            bucket, key = await svc.build_and_upload_export(
+                job_id=jid,
                 chatroom_id=rid,
+                owner_user_id=oid,
+                exported_at=exported_at,
             )
-            ensure_can_read(access, is_admin=is_admin)
-
-            rooms = ChatroomRepository(session)
-            messages = MessageRepository(session)
-            edits = MessageEditRepository(session)
-            attachments = MessageAttachmentRepository(session)
-
-            room = await rooms.get(rid)
-            rows = await messages.all_for_chatroom(rid, limit=_EXPORT_MAX_MESSAGES)
-            serialized = []
-            for m in rows:
-                msg_edits = await edits.list_for_message(m.id)
-                msg_atts = await attachments.list_for_message(m.id)
-                serialized.append(
-                    {
-                        "id": str(m.id),
-                        "sender_type": m.sender_type.value,
-                        "sender_id": str(m.sender_id) if m.sender_id else None,
-                        "content_md": m.content_md,
-                        "content_html": render_safe_html(m.content_md),
-                        "metadata": m.metadata,
-                        "version": m.version,
-                        "created_at": m.created_at.isoformat() if m.created_at else None,
-                        "edited_at": m.edited_at.isoformat() if m.edited_at else None,
-                        "edits": [
-                            {
-                                "old_content_md": e.old_content_md,
-                                "edited_by_user_id": str(e.edited_by_user_id),
-                                "edited_at": e.edited_at.isoformat(),
-                            }
-                            for e in msg_edits
-                        ],
-                        "attachments": [
-                            {
-                                "id": str(a.id),
-                                "filename": a.filename,
-                                "mime": a.mime,
-                                "size_bytes": a.size_bytes,
-                                "minio_path": a.minio_path,
-                                "status": a.status.value,
-                            }
-                            for a in msg_atts
-                        ],
-                    }
-                )
-
-        enqueued = ctx.get("enqueue_time")
-        exported_at = (
-            enqueued.isoformat() if hasattr(enqueued, "isoformat") else (str(enqueued) if enqueued else None)  # type: ignore[union-attr]
-        )
-        manifest: dict[str, Any] = {
-            "schema_version": 1,
-            "chatroom": {
-                "id": str(rid),
-                "name": room.name if room else None,
-            },
-            "exported_at": exported_at,
-            "messages": serialized,
-        }
-        payload = json.dumps(
-            manifest,
-            separators=(",", ":"),
-            default=str,
-        ).encode("utf-8")
-
-        client = get_minio_client()
-        key = export_key(job_id=jid, filename="manifest.json")
-        try:
-            await asyncio.wait_for(
-                client.put_object(
-                    bucket=client.exports_bucket,
-                    key=key,
-                    data=payload,
-                    content_type="application/json",
-                ),
-                timeout=_EXPORT_PUT_TIMEOUT_SECONDS,
-            )
-        except TimeoutError as exc:
-            raise TimeoutError(
-                f"chat export MinIO put timed out after " f"{_EXPORT_PUT_TIMEOUT_SECONDS}s (job {jid})"
-            ) from exc
         await export_service.mark_ready(
             job_id=jid,
-            bucket=client.exports_bucket,
+            bucket=bucket,
             object_key=key,
         )
     except Exception as exc:  # pragma: no cover — operator-visible
@@ -234,6 +131,52 @@ async def chat_export(
     return "ok"
 
 
+async def compact_chatroom(ctx: dict[str, Any], chatroom_id: str) -> str:
+    """Run the forced compaction requested by POST /compact (G.10).
+
+    The endpoint sets the one-shot ``compact:pending:{room}`` flag *and*
+    enqueues this job, so compaction happens promptly even if no agent turn
+    fires within the flag's 1-hour TTL. Compaction is room-level (one summary
+    row in ``messages``), so the first live bound agent's config drives the
+    pass — the engine consumes the flag, summarises via the agent's key group,
+    and commits. If a racing turn already consumed the flag this run is a
+    cheap no-op (the engine's normal mode/cap check applies).
+
+    Moved here from orchestration.py (M19) — compaction is a conversation
+    context concern.
+    """
+    from app.config.settings import get_settings
+    from contexts.agents.application.runtime.turn_engine import TurnEngine
+    from contexts.conversation.infrastructure.repositories import (
+        ChatroomAgentRepository,
+        ChatroomRepository,
+    )
+    from shared_kernel.db.session import async_session
+
+    rid = uuid.UUID(chatroom_id)
+    async with async_session() as db:
+        room = await ChatroomRepository(db).get(rid)
+        if room is None:
+            logger.bind(room_id=chatroom_id).info("compact skipped: room gone")
+            return "skipped:room_gone"
+        bindings = await ChatroomAgentRepository(db).list(rid)
+        if not bindings:
+            logger.bind(room_id=chatroom_id).info("compact skipped: no bound agents")
+            return "skipped:no_agents"
+        settings = get_settings()
+        engine = TurnEngine(
+            db,
+            qdrant_url=settings.qdrant.url,
+            qdrant_api_key=settings.qdrant.api_key,
+        )
+        for binding in bindings:
+            ok = await engine.run_compaction(agent_id=binding.agent_id, chatroom_id=rid)
+            if ok:
+                logger.bind(room_id=chatroom_id, agent_id=str(binding.agent_id)).info("compact pass run")
+                return "completed"
+        return "failed"
+
+
 _ = BytesIO  # reserved for future streaming path
 
-__all__ = ["chat_export", "file_scan_requested"]
+__all__ = ["chat_export", "compact_chatroom", "file_scan_requested"]

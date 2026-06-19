@@ -211,6 +211,21 @@ class ChatroomService:
             return default_room
         return None
 
+    # ---- compaction -------------------------------------------------------
+
+    @staticmethod
+    async def request_compaction(chatroom_id: uuid.UUID) -> None:
+        """Record a one-shot compact intent flag (K.2) and enqueue a job.
+
+        The next agent turn in this room reads + clears the flag and forces
+        a compaction pass before its provider call.
+        """
+        from shared_kernel.auth.clients import get_redis
+        from shared_kernel.queue import enqueue as enqueue_job
+
+        await get_redis().set(f"compact:pending:{chatroom_id}", "1", ex=3600)
+        await enqueue_job("compact_chatroom", str(chatroom_id))
+
     # ---- agent registry --------------------------------------------------
 
     async def add_agent(

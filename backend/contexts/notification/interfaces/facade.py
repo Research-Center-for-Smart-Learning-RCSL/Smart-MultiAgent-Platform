@@ -51,4 +51,4 @@ class NotificationFacade:
         return await self._service.unread_count(user_id)
 
 
-__all__ = ["NotificationFacade"]
+__all__ = ["NotificationFacade", "NotificationKind"]

@@ -23,8 +23,7 @@ import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.keys.infrastructure import tables as t
-from contexts.notification.application.notification_service import NotificationService
-from contexts.notification.domain.models import NotificationKind
+from contexts.notification.interfaces.facade import NotificationFacade, NotificationKind
 from shared_kernel import audit
 from shared_kernel.auth.clients import get_redis, now
 from shared_kernel.infra import redis_buckets
@@ -147,7 +146,7 @@ async def sample_once(db: AsyncSession) -> int:
         if await redis.setnx(dedup_key, "1"):
             await redis.expire(dedup_key, 3600)
             user_ids = await _project_member_ids(db, row.project_id)
-            notif_svc = NotificationService(db)
+            notif_svc = NotificationFacade(db)
             for uid in user_ids:
                 await notif_svc.send(
                     user_id=uid,
