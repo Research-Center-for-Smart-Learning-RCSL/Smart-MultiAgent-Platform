@@ -40,7 +40,7 @@ class _DbAllowlistChecker(AllowlistChecker):
 
 
 def _build_app() -> FastAPI:
-    cfg = EgressProxyEnvConfig()  # type: ignore[call-arg]
+    cfg = EgressProxyEnvConfig()
 
     engine = create_async_engine(
         cfg.smap_db_dsn,

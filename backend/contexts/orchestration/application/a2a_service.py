@@ -256,6 +256,8 @@ class A2AService:
         Each target is scope-checked individually; targets that fail
         the check are silently skipped (not errors for broadcast).
         """
+        if envelope.from_agent is None:
+            raise A2AForbidden("broadcast requires a from_agent")
         caller = await self._require_agent(envelope.from_agent)
 
         # Guard: broadcast must not proceed from an agent in a soft-deleted project.

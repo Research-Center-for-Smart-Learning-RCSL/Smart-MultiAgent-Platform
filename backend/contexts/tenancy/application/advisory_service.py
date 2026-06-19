@@ -75,7 +75,7 @@ class AdvisoryService:
     async def cache_snapshot(self, org_id: object, snapshot: dict[str, Any]) -> None:
         """Store a computed snapshot in Redis with 25 h TTL."""
         redis = get_redis()
-        snapshot["computed_at"] = now().isoformat()  # type: ignore[assignment]
+        snapshot["computed_at"] = now().isoformat()
         await redis.setex(
             f"{_CACHE_PREFIX}{org_id}",
             _CACHE_TTL_SECONDS,
