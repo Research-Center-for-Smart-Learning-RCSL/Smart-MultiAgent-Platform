@@ -214,271 +214,59 @@
 </template>
 
 <script setup lang="ts">
-import { useQueryClient } from '@tanstack/vue-query'
-import { computed, onMounted, reactive, ref, watchEffect } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { onMounted, ref, watchEffect } from 'vue'
+import { useRoute } from 'vue-router'
 
-import { ElMessageBox } from 'element-plus'
-import { useToast } from '@shared/composables'
 import { useI18n } from 'vue-i18n'
-import { ApiError } from '@shared/errors'
 import {
-  addChatroomAgent,
-  deleteChatroom,
-  getChatroom,
   getGuestLink,
-  getWorkspace,
-  listChatroomAgents,
   listChatrooms,
-  listProjectAgents,
-  patchChatroom,
-  removeChatroomAgent,
 } from '../api'
-import { DlqViewer, WakeupConfigEditor, patchAgentWakeupConfig } from '@slices/workflow'
-import type { WakeupConfig } from '@shared/types/workflow'
-import type { Agent } from '@slices/agents'
-import type { Chatroom } from '../types'
+import { DlqViewer, WakeupConfigEditor } from '@slices/workflow'
+import { useChatroomSettings } from '../composables/useChatroomSettings'
+import { useChatroomBindings } from '../composables/useChatroomBindings'
 
 const { t } = useI18n()
-const toast = useToast()
 const route = useRoute()
-const router = useRouter()
-const qc = useQueryClient()
 const chatroomId = route.params.chatroomId as string
 
-const name = ref('')
-const flags = reactive({
-  allow_org_members: false,
-  allow_project_members: true,
-  allow_project_owners_only: false,
-  allow_guest_links: false,
-})
-const room = ref<Chatroom | null>(null)
 const guestUrl = ref('')
 
-const loading = ref(true)
-const loadError = ref(false)
-const saving = ref(false)
-// i18n key for the inline save error, or null when the form is clean.
-const saveError = ref<string | null>(null)
+// ---- room CRUD composable -------------------------------------------------
 
-// Agent bindings. Chatrooms only carry `workspace_id`, so we resolve the
-// parent project, list its agents, and intersect with the room's bound set.
-interface BoundAgent {
-  id: string
-  name?: string
-  wakeup_config?: WakeupConfig
-}
-// All agents in the room's parent project, and the ids currently bound.
-const projectAgents = ref<Agent[]>([])
-const boundAgentIds = ref<string[]>([])
-const selectedAgentId = ref('')
-const bindingBusy = ref(false)
-// i18n key for an inline binding error, or null when clean.
-const bindingError = ref<string | null>(null)
+const {
+  name,
+  flags,
+  room,
+  loading,
+  loadError,
+  saving,
+  saveError,
+  loadRoom: loadRoomBase,
+  onSave,
+  onDelete,
+} = useChatroomSettings(chatroomId)
 
-// WakeupConfigEditor dereferences `triggers.{every_n_messages,silence_minutes,
-// call_only}.enabled` at setup, so it only accepts a fully-formed config — a
-// partial one (e.g. `{triggers:{}}`) would crash the whole panel. Validate the
-// three trigger sub-objects are present before handing it over.
-function isFullWakeupConfig(raw: unknown): boolean {
-  if (!raw || typeof raw !== 'object') return false
-  const triggers = (raw as Record<string, unknown>).triggers
-  if (!triggers || typeof triggers !== 'object') return false
-  const t = triggers as Record<string, unknown>
-  return (
-    typeof t.every_n_messages === 'object'
-    && typeof t.silence_minutes === 'object'
-    && typeof t.call_only === 'object'
-  )
-}
+// ---- agent binding composable ---------------------------------------------
 
-// Return a plain deep clone when the shape is valid, else undefined so the
-// editor stays hidden. The source is a reactive proxy and the editor
-// structuredClones its model-value (which rejects proxies), so the JSON
-// round-trip both unwraps and deep-copies.
-function toEditableWakeup(raw: unknown): WakeupConfig | undefined {
-  return isFullWakeupConfig(raw)
-    ? (JSON.parse(JSON.stringify(raw)) as WakeupConfig)
-    : undefined
-}
+const {
+  selectedAgentId,
+  bindingBusy,
+  bindingError,
+  boundAgents,
+  availableAgents,
+  orphanAgentIds,
+  loadBindings,
+  onAddAgent,
+  onRemoveAgent,
+  saveWakeupConfig,
+} = useChatroomBindings(chatroomId, () => room.value)
 
-const boundAgents = computed<BoundAgent[]>(() =>
-  boundAgentIds.value
-    .map((id) => projectAgents.value.find((a) => a.id === id))
-    .filter((a): a is Agent => a != null)
-    .map((a) => ({
-      id: a.id,
-      name: a.name,
-      wakeup_config: toEditableWakeup(a.wakeup_config),
-    })),
-)
-
-// Agents bindable but not yet bound (active only).
-const availableAgents = computed<Agent[]>(() =>
-  projectAgents.value.filter(
-    (a) => !a.deleted_at && !boundAgentIds.value.includes(a.id),
-  ),
-)
-
-// Bound ids with no match in the project list (e.g. the agent was soft-deleted
-// after binding — the list endpoint omits it). Surfaced as removable rows so a
-// stale binding can still be cleaned up rather than becoming invisible.
-const orphanAgentIds = computed<string[]>(() =>
-  boundAgentIds.value.filter(
-    (id) => !projectAgents.value.some((a) => a.id === id),
-  ),
-)
-
-/** Resolve project, then load its agents + this room's bound set. */
-async function loadBindings(): Promise<void> {
-  if (!room.value) return
-  bindingError.value = null
-  try {
-    const ws = await getWorkspace(room.value.workspace_id)
-    const [agents, boundIds] = await Promise.all([
-      listProjectAgents(ws.project_id),
-      listChatroomAgents(chatroomId),
-    ])
-    projectAgents.value = agents
-    boundAgentIds.value = boundIds
-  } catch {
-    bindingError.value = 'conversation.settings.bindingsLoadFailed'
-  }
-}
-
-async function onAddAgent(): Promise<void> {
-  if (!selectedAgentId.value || bindingBusy.value) return
-  bindingBusy.value = true
-  bindingError.value = null
-  try {
-    await addChatroomAgent(chatroomId, selectedAgentId.value)
-    selectedAgentId.value = ''
-    await loadBindings()
-  } catch {
-    bindingError.value = 'conversation.settings.bindFailed'
-  } finally {
-    bindingBusy.value = false
-  }
-}
-
-async function onRemoveAgent(agentId: string): Promise<void> {
-  if (bindingBusy.value) return
-  bindingBusy.value = true
-  bindingError.value = null
-  try {
-    await removeChatroomAgent(chatroomId, agentId)
-    await loadBindings()
-  } catch {
-    bindingError.value = 'conversation.settings.unbindFailed'
-  } finally {
-    bindingBusy.value = false
-  }
-}
-
-async function saveWakeupConfig(agentId: string, config: WakeupConfig): Promise<void> {
-  try {
-    await patchAgentWakeupConfig(agentId, config)
-    toast.success(t('conversation.settings.wakeupConfigSaved'))
-  } catch {
-    toast.error(t('conversation.settings.wakeupConfigFailed'))
-  }
-}
-
-/** Copy a chatroom into the form fields. */
-function applyRoom(found: Chatroom): void {
-  room.value = found
-  name.value = found.name
-  flags.allow_org_members = found.allow_org_members
-  flags.allow_project_members = found.allow_project_members
-  flags.allow_project_owners_only = found.allow_project_owners_only
-  flags.allow_guest_links = found.allow_guest_links
-}
-
-/** Find this chatroom in any cached `['conversation','chatrooms']` list. */
-function findInCache(): Chatroom | null {
-  const caches = qc.getQueriesData<Chatroom[]>({
-    queryKey: ['conversation', 'chatrooms'],
-  })
-  for (const [, data] of caches) {
-    const found = data?.find((r) => r.id === chatroomId)
-    if (found) return found
-  }
-  return null
-}
+// ---- orchestrate load with bindings ---------------------------------------
 
 async function loadRoom(): Promise<void> {
-  loading.value = true
-  loadError.value = false
-  // Prefer a warm cache, but a deep link straight to settings has none —
-  // in that case fetch the single chatroom so `room` is never stuck null.
-  const cached = findInCache()
-  if (cached) {
-    applyRoom(cached)
-    loading.value = false
-    void loadBindings()
-    return
-  }
-  try {
-    applyRoom(await getChatroom(chatroomId))
-    void loadBindings()
-  } catch {
-    loadError.value = true
-  } finally {
-    loading.value = false
-  }
-}
-
-async function onSave(): Promise<void> {
-  if (!room.value || saving.value) return
-  saving.value = true
-  saveError.value = null
-  try {
-    applyRoom(
-      await patchChatroom(chatroomId, room.value.version, {
-        name: name.value,
-        ...flags,
-      }),
-    )
-    await qc.invalidateQueries({ queryKey: ['conversation', 'chatrooms'] })
-    toast.success(t('conversation.settings.saved'))
-  } catch (e) {
-    if (e instanceof ApiError && e.status === 409) {
-      // Stale optimistic-concurrency version (another writer won the race).
-      // Refresh only `version` so a retry carries the current one — the
-      // user's pending edits stay in the form rather than being clobbered.
-      saveError.value = 'conversation.settings.versionConflict'
-      try {
-        room.value = await getChatroom(chatroomId)
-      } catch {
-        /* keep the form as-is; the inline error already explains the retry */
-      }
-    } else {
-      saveError.value = 'conversation.settings.saveFailed'
-    }
-  } finally {
-    saving.value = false
-  }
-}
-
-async function onDelete(): Promise<void> {
-  try {
-    await ElMessageBox.confirm(
-      t('conversation.settings.deleteConfirm'),
-      t('conversation.settings.deleteConfirmTitle'),
-      { confirmButtonText: t('conversation.settings.delete'), cancelButtonText: t('app.cancel'), type: 'warning' },
-    )
-  } catch {
-    return
-  }
-  try {
-    await deleteChatroom(chatroomId)
-  } catch {
-    toast.error(t('conversation.settings.deleteFailed'))
-    return
-  }
-  await qc.invalidateQueries({ queryKey: ['conversation', 'chatrooms'] })
-  router.back()
+  await loadRoomBase()
+  if (room.value) void loadBindings()
 }
 
 function copyGuest(): void {

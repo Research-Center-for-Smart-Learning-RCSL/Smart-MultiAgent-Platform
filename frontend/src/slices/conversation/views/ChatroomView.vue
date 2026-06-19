@@ -233,161 +233,80 @@
 </template>
 
 <script setup lang="ts">
-import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import {
   computed,
-  nextTick,
   onBeforeUnmount,
   onMounted,
   onUpdated,
-  reactive,
-  ref,
   useTemplateRef,
   watch,
 } from 'vue'
 import { useRoute } from 'vue-router'
 
-import { ElMessageBox } from 'element-plus'
 import { useToast } from '@shared/composables'
 import { useI18n } from 'vue-i18n'
-import { useBreakpoint, usePolling } from '@shared/composables'
+import { useBreakpoint } from '@shared/composables'
 import { useSessionStore } from '@shared/stores/session'
-import {
-  createExport,
-  deleteMessage,
-  editMessage,
-  getAttachment,
-  getExport,
-  listMessages,
-  searchMessages,
-  sendMessage,
-  compactChatroom,
-} from '../api'
-import { tusUpload, resourceToAttachmentId } from '@shared/transport'
 import { useChatroomSocket } from '../composables/useChatroomSocket'
-import { enhanceRenderedMarkdown, renderMarkdown, sanitizeSnippet } from '../lib/renderMarkdown'
-import { convKeys } from '../queries'
+import { useChatroomMessages } from '../composables/useChatroomMessages'
+import { useChatroomSearch } from '../composables/useChatroomSearch'
+import { useChatroomExport } from '../composables/useChatroomExport'
+import { enhanceRenderedMarkdown, renderMarkdown } from '../lib/renderMarkdown'
 import { useConversationStore } from '../stores/conversation'
-import type { Attachment, ExportStatus, Message, SearchHit } from '../types'
 import { ApprovalCard } from '@slices/workflow'
 import { useOrchestrationStore } from '@shared/stores/orchestration'
 
 const { t } = useI18n()
 const toast = useToast()
 const route = useRoute()
-const qc = useQueryClient()
 const store = useConversationStore()
 const session = useSessionStore()
 const chatroomId = route.params.chatroomId as string
 const projectId = (route.params.projectId as string) || ''
 
-// R13.21/R13.23: an author may edit their OWN message within 5 minutes; beyond
-// that only Admin/Project Owner may. Agents never edit their own (R13.22). The
-// backend is authoritative (If-Match + server-side window) — these gate the UI
-// affordances only.
-const EDIT_WINDOW_MS = 5 * 60 * 1000
 const myId = computed(() => session.me?.id ?? null)
-const isAdmin = computed(() => session.me?.is_admin ?? false)
-
-function isOwnUserMessage(m: Message): boolean {
-  return m.sender_type === 'user' && !!myId.value && m.sender_id === myId.value
-}
-function canEdit(m: Message): boolean {
-  if (isAdmin.value) return true
-  return (
-    isOwnUserMessage(m) &&
-    Date.now() - new Date(m.created_at).getTime() < EDIT_WINDOW_MS
-  )
-}
-function canDelete(m: Message): boolean {
-  // R13.16: users delete within their scope; admins delete anything. We only
-  // surface the control for own messages or admins; the backend enforces the
-  // full scope (and a Project Owner deleting others' messages is allowed there).
-  return isAdmin.value || isOwnUserMessage(m)
-}
 
 const { isMobile } = useBreakpoint()
 store.setActive(chatroomId)
 
 const listRef = useTemplateRef<HTMLElement>('listRef')
-const draft = ref('')
-const searchQuery = ref('')
-const searchHits = ref<SearchHit[]>([])
-const renderedSnippets = computed<Record<string, string>>(() => {
-  const out: Record<string, string> = {}
-  for (const h of searchHits.value) out[h.message_id] = sanitizeSnippet(h.snippet)
-  return out
-})
 
-const PAGE_SIZE = 100
-const olderMessages = ref<Message[]>([])
-const hasOlderMessages = ref(true)
-const loadingOlder = ref(false)
+// ---- composables ----------------------------------------------------------
 
-const query = useQuery({
-  queryKey: convKeys.messages(chatroomId),
-  queryFn: () => listMessages(chatroomId, { limit: PAGE_SIZE }),
-})
-watch(() => query.data.value, (recent) => {
-  if (recent && recent.length < PAGE_SIZE && olderMessages.value.length === 0) {
-    hasOlderMessages.value = false
-  }
-}, { immediate: true })
-
-const messages = computed<Message[]>(() => {
-  const recent = query.data.value ?? []
-  return [...olderMessages.value, ...recent].sort((a, b) =>
-    a.created_at < b.created_at ? -1 : 1,
-  )
-})
-
-async function loadEarlier(): Promise<void> {
-  if (loadingOlder.value || !hasOlderMessages.value) return
-  const oldest = messages.value[0]
-  if (!oldest) return
-  loadingOlder.value = true
-  try {
-    const page = await listMessages(chatroomId, {
-      before: oldest.id,
-      limit: PAGE_SIZE,
-    })
-    if (page.length < PAGE_SIZE) hasOlderMessages.value = false
-    if (page.length === 0) return
-    // Deduplicate by id in case the first page overlaps.
-    const existing = new Set([
-      ...olderMessages.value.map((m) => m.id),
-      ...(query.data.value ?? []).map((m) => m.id),
-    ])
-    const fresh = page.filter((m) => !existing.has(m.id))
-    olderMessages.value = [...fresh, ...olderMessages.value]
-  } catch {
-    toast.error(t('conversation.chatroom.loadEarlierFailed'))
-  } finally {
-    loadingOlder.value = false
-  }
-}
-
-const rendered = reactive<Record<string, string>>({})
-const renderedSources = new Map<string, string>()
-watch(
+const {
   messages,
-  (list) => {
-    const seen = new Set<string>()
-    for (const m of list) {
-      seen.add(m.id)
-      if (renderedSources.get(m.id) === m.content_md) continue
-      rendered[m.id] = renderMarkdown(m.content_md)
-      renderedSources.set(m.id, m.content_md)
-    }
-    for (const id of Object.keys(rendered)) {
-      if (!seen.has(id)) {
-        delete rendered[id]
-        renderedSources.delete(id)
-      }
-    }
-  },
-  { immediate: true },
-)
+  hasOlderMessages,
+  loadingOlder,
+  loadEarlier,
+  rendered,
+  draft,
+  pendingUploads,
+  onDrop,
+  onSend,
+  editingId,
+  editDraft,
+  startEdit,
+  cancelEdit,
+  saveEdit,
+  confirmDelete,
+  downloadAttachment,
+  canEdit,
+  canDelete,
+} = useChatroomMessages(chatroomId, projectId, listRef)
+
+const {
+  searchQuery,
+  searchHits,
+  renderedSnippets,
+  runSearch,
+} = useChatroomSearch(chatroomId)
+
+const {
+  exportJob,
+  runExport,
+} = useChatroomExport(chatroomId)
+
+// ---- WebSocket + real-time state ------------------------------------------
 
 let typingTimer: ReturnType<typeof setTimeout> | null = null
 const TYPING_DEBOUNCE_MS = 3000
@@ -451,180 +370,13 @@ const presenceList = computed(() => {
 
 const liveApprovals = computed(() => orchStore.getApprovalsForRoom(chatroomId))
 
-interface PendingUpload {
-  id: string
-  filename: string
-  progress: number
-  attachmentId: string | null
-}
-const pendingUploads = ref<PendingUpload[]>([])
-
-async function onDrop(ev: DragEvent): Promise<void> {
-  const files = Array.from(ev.dataTransfer?.files ?? [])
-  for (const file of files) {
-    const record: PendingUpload = {
-      id: crypto.randomUUID(),
-      filename: file.name,
-      progress: 0,
-      attachmentId: null,
-    }
-    pendingUploads.value.push(record)
-    try {
-      const result = await tusUpload({
-        file,
-        purpose: 'chat_attachment',
-        projectId,
-        chatroomId,
-        onProgress: (done, total) => {
-          record.progress = total === 0 ? 1 : done / total
-        },
-      })
-      record.attachmentId = resourceToAttachmentId(result.resourceHeader)
-    } catch {
-      record.filename = t('conversation.chatroom.uploadFailed', { filename: record.filename })
-    }
-  }
-}
-
-async function onSend(): Promise<void> {
-  const text = draft.value.trim()
-  if (!text && pendingUploads.value.length === 0) return
-
-  // /compact slash command (G.10): forces compaction on active agent.
-  if (text === '/compact') {
-    draft.value = ''
-    await compactChatroom(chatroomId)
-    return
-  }
-
-  const attachmentIds = pendingUploads.value
-    .map((p) => p.attachmentId)
-    .filter((x): x is string => !!x)
-  try {
-    await sendMessage(chatroomId, {
-      content_md: text,
-      attachment_ids: attachmentIds,
-    })
-    draft.value = ''
-    pendingUploads.value = []
-    await qc.invalidateQueries({ queryKey: convKeys.messages(chatroomId) })
-    await nextTick()
-    listRef.value?.scrollTo({ top: listRef.value.scrollHeight })
-  } catch {
-    toast.error(t('conversation.chatroom.sendFailed'))
-  }
-}
-
-async function runSearch(): Promise<void> {
-  if (!searchQuery.value.trim()) {
-    searchHits.value = []
-    return
-  }
-  try {
-    const res = await searchMessages(chatroomId, searchQuery.value.trim())
-    searchHits.value = res.hits
-  } catch {
-    toast.error(t('conversation.chatroom.searchFailed'))
-  }
-}
-
-// ---- message edit / delete (R13.16 / R13.21) -----------------------------
-
-const editingId = ref<string | null>(null)
-const editDraft = ref('')
-const editVersion = ref(0)
-
-function startEdit(m: Message): void {
-  editingId.value = m.id
-  editDraft.value = m.content_md
-  editVersion.value = m.version
-}
-function cancelEdit(): void {
-  editingId.value = null
-  editDraft.value = ''
-}
-async function saveEdit(): Promise<void> {
-  const id = editingId.value
-  const text = editDraft.value.trim()
-  if (!id || !text) return
-  try {
-    await editMessage(id, editVersion.value, text)
-    cancelEdit()
-    await qc.invalidateQueries({ queryKey: convKeys.messages(chatroomId) })
-  } catch {
-    // 409 (stale If-Match) or 403 (past the 5-min window / not authorised).
-    toast.error(t('conversation.chatroom.editFailed'))
-  }
-}
-
-function downloadAttachment(att: Attachment): void {
-  // Open the tab synchronously inside the click gesture, THEN fetch the
-  // short-lived presigned URL and point the tab at it. window.open() after an
-  // await is treated as a programmatic popup and silently blocked (and returns
-  // null, so a try/catch around it never fires). The URL goes straight to object
-  // storage, so no bytes flow through the SPA.
-  const win = window.open('about:blank', '_blank')
-  getAttachment(att.id)
-    .then((dl) => {
-      if (win) win.location.href = dl.url
-      else window.location.href = dl.url // popup blocked → fall back to this tab
-    })
-    .catch(() => {
-      win?.close()
-      toast.error(t('conversation.chatroom.attachmentFailed'))
-    })
-}
-
-async function confirmDelete(m: Message): Promise<void> {
-  try {
-    await ElMessageBox.confirm(
-      t('conversation.chatroom.deleteConfirm'),
-      t('conversation.chatroom.deleteTitle'),
-      { type: 'warning' },
-    )
-  } catch {
-    return // dismissed
-  }
-  try {
-    await deleteMessage(m.id)
-    await qc.invalidateQueries({ queryKey: convKeys.messages(chatroomId) })
-  } catch {
-    toast.error(t('conversation.chatroom.deleteFailed'))
-  }
-}
-
-// ---- export with status polling + download (R13.17) ----------------------
-// The export runs in a worker; there is no WS channel for it, so poll the job
-// until it settles via the shared usePolling primitive (transient blips
-// reschedule rather than strand the UI; timers cleared on unmount).
-
-const EXPORT_TERMINAL = new Set<ExportStatus['status']>(['ready', 'failed'])
-const exportJob = ref<Pick<ExportStatus, 'status' | 'url'> | null>(null)
-
-const exportPoll = usePolling<ExportStatus>((jobId) => getExport(jobId), {
-  maxAttempts: 60, // ~3 min at 3 s/poll
-  isTerminal: (s) => EXPORT_TERMINAL.has(s.status),
-  onResult: (_jobId, s) => {
-    exportJob.value = { status: s.status, url: s.url }
-  },
-})
-
-async function runExport(): Promise<void> {
-  try {
-    const { job_id, status } = await createExport(chatroomId)
-    exportJob.value = { status: status as ExportStatus['status'], url: null }
-    exportPoll.start(job_id)
-  } catch {
-    toast.error(t('conversation.chatroom.exportFailed'))
-  }
-}
-
-// KaTeX/Mermaid post-processing (FE-12). `onUpdated` fires on every reactive
-// change — each presence blip, typing indicator, new message — and the
-// Mermaid pass is async, so naive invocation lets overlapping runs race over
-// the same DOM nodes. We debounce so a burst collapses to one pass, and an
-// in-flight guard serialises runs; a change arriving mid-pass queues exactly
-// one follow-up so the latest DOM is always reflected.
+// ---- KaTeX/Mermaid post-processing (FE-12) --------------------------------
+// `onUpdated` fires on every reactive change — each presence blip, typing
+// indicator, new message — and the Mermaid pass is async, so naive invocation
+// lets overlapping runs race over the same DOM nodes. We debounce so a burst
+// collapses to one pass, and an in-flight guard serialises runs; a change
+// arriving mid-pass queues exactly one follow-up so the latest DOM is always
+// reflected.
 const ENHANCE_DEBOUNCE_MS = 120
 let enhanceTimer: ReturnType<typeof setTimeout> | null = null
 let enhanceInFlight = false
