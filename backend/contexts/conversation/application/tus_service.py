@@ -208,18 +208,17 @@ class TusService:
                 f"chunk would overflow declared length {upload.upload_length}",
             )
 
-        # Append in a thread so the event loop is not blocked on fsync. We
-        # deliberately do NOT use aiofiles — the codebase avoids extra deps
-        # and the TUS hot-path is already bounded by 16 MB per call.
+        # CAS first — claim the offset atomically before touching the file so a
+        # concurrent PATCH with the same offset cannot append stale bytes.
+        if not await self._store.update_offset(upload_id, offset, new_offset):
+            raise TusOffsetMismatch("concurrent upload detected")
+
         def _append() -> None:
             with open(upload.staging_path, "ab") as fh:
                 fh.write(chunk)
 
         await asyncio.to_thread(_append)
         TUS_UPLOAD_BYTES.inc(len(chunk))
-
-        if not await self._store.update_offset(upload_id, offset, new_offset):
-            raise TusOffsetMismatch("concurrent upload detected")
 
         if new_offset < upload.upload_length:
             return TusPatchResult(
