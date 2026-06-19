@@ -12,6 +12,7 @@ export type AgentOut = {
     id: string;
     key_group_id: string;
     model_hint: string;
+    model_id: (string | null);
     name: string;
     project_id: string;
     prompt_strategy: string;

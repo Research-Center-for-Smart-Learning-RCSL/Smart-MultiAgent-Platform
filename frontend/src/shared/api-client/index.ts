@@ -91,6 +91,7 @@ export type { ProjectPatchIn } from './models/ProjectPatchIn';
 export type { ProjectSummaryOut } from './models/ProjectSummaryOut';
 export type { RagConfigCreateIn } from './models/RagConfigCreateIn';
 export type { RagConfigOut } from './models/RagConfigOut';
+export type { RagConfigPatchIn } from './models/RagConfigPatchIn';
 export type { RagDocumentOut } from './models/RagDocumentOut';
 export type { RateLimitPatchIn } from './models/RateLimitPatchIn';
 export type { RateLimitPolicyOut } from './models/RateLimitPolicyOut';

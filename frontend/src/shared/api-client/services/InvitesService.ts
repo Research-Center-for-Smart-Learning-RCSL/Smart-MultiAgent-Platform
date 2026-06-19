@@ -15,14 +15,26 @@ export class InvitesService {
      */
     public static listInboxApiInvitesGet({
         state = 'pending',
+        limit = 100,
+        offset,
     }: {
         state?: 'pending' | 'accepted' | 'rejected',
+        /**
+         * Max items to return
+         */
+        limit?: number,
+        /**
+         * Number of items to skip
+         */
+        offset?: number,
     }): CancelablePromise<Array<app__api__v1__invites__InviteOut>> {
         return __request(OpenAPI, {
             method: 'GET',
             url: '/api/invites',
             query: {
                 'state': state,
+                'limit': limit,
+                'offset': offset,
             },
             errors: {
                 422: `Validation Error`,

@@ -5,6 +5,7 @@
 import type { Body_upload_document_api_rag_configs__config_id__documents_post } from '../models/Body_upload_document_api_rag_configs__config_id__documents_post';
 import type { RagConfigCreateIn } from '../models/RagConfigCreateIn';
 import type { RagConfigOut } from '../models/RagConfigOut';
+import type { RagConfigPatchIn } from '../models/RagConfigPatchIn';
 import type { RagDocumentOut } from '../models/RagDocumentOut';
 import type { CancelablePromise } from '../core/CancelablePromise';
 import { OpenAPI } from '../core/OpenAPI';
@@ -107,20 +108,59 @@ export class RagService {
         });
     }
     /**
+     * Patch Rag Config
+     * @returns RagConfigOut Successful Response
+     * @throws ApiError
+     */
+    public static patchRagConfigApiRagConfigsConfigIdPatch({
+        configId,
+        requestBody,
+    }: {
+        configId: string,
+        requestBody: RagConfigPatchIn,
+    }): CancelablePromise<RagConfigOut> {
+        return __request(OpenAPI, {
+            method: 'PATCH',
+            url: '/api/rag-configs/{config_id}',
+            path: {
+                'config_id': configId,
+            },
+            body: requestBody,
+            mediaType: 'application/json',
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
      * List Documents
      * @returns RagDocumentOut Successful Response
      * @throws ApiError
      */
     public static listDocumentsApiRagConfigsConfigIdDocumentsGet({
         configId,
+        limit = 100,
+        offset,
     }: {
         configId: string,
+        /**
+         * Max items to return
+         */
+        limit?: number,
+        /**
+         * Number of items to skip
+         */
+        offset?: number,
     }): CancelablePromise<Array<RagDocumentOut>> {
         return __request(OpenAPI, {
             method: 'GET',
             url: '/api/rag-configs/{config_id}/documents',
             path: {
                 'config_id': configId,
+            },
+            query: {
+                'limit': limit,
+                'offset': offset,
             },
             errors: {
                 422: `Validation Error`,

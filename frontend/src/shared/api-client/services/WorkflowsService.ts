@@ -129,14 +129,28 @@ export class WorkflowsService {
      */
     public static listWorkflowsApiWorkspacesWidWorkflowsGet({
         wid,
+        limit = 100,
+        offset,
     }: {
         wid: string,
+        /**
+         * Max items to return
+         */
+        limit?: number,
+        /**
+         * Number of items to skip
+         */
+        offset?: number,
     }): CancelablePromise<Array<WorkflowOut>> {
         return __request(OpenAPI, {
             method: 'GET',
             url: '/api/workspaces/{wid}/workflows',
             path: {
                 'wid': wid,
+            },
+            query: {
+                'limit': limit,
+                'offset': offset,
             },
             errors: {
                 422: `Validation Error`,

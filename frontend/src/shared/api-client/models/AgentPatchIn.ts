@@ -9,6 +9,7 @@ export type AgentPatchIn = {
     graphrag_config_id?: (string | null);
     key_group_id?: (string | null);
     model_hint?: ('claude' | 'openai' | 'gemini' | null);
+    model_id?: (string | null);
     name?: (string | null);
     prompt_strategy?: ('full' | 'lazy' | null);
     rag_config_id?: (string | null);

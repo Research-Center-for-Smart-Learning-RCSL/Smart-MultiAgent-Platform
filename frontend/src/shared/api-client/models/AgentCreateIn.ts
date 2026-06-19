@@ -9,6 +9,7 @@ export type AgentCreateIn = {
     graphrag_config_id?: (string | null);
     key_group_id: string;
     model_hint: 'claude' | 'openai' | 'gemini';
+    model_id?: (string | null);
     name: string;
     prompt_strategy?: 'full' | 'lazy';
     rag_config_id?: (string | null);

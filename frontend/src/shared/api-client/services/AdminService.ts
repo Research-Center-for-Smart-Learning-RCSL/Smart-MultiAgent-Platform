@@ -127,7 +127,7 @@ export class AdminService {
     }
     /**
      * Export Audit
-     * Kick off audit CSV export → MinIO `exports/` bucket.
+     * Kick off audit CSV export -> MinIO `exports/` bucket.
      * @returns any Successful Response
      * @throws ApiError
      */
