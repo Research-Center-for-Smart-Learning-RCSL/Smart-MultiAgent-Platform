@@ -34,8 +34,10 @@ from contexts.agents.application.runtime.tool_registry import (
     build_registry,
 )
 from contexts.agents.domain.models import Agent
+from contexts.agents.infrastructure.turn_lock import DEFAULT_TURN_TTL_S, turn_lock
 from contexts.agents.interfaces.facade import AgentsFacade
 from contexts.conversation.application.message_service import MessageService
+from contexts.conversation.infrastructure.channels import room_channel
 from contexts.conversation.infrastructure.repositories import ChatroomAgentRepository
 from contexts.keys.application.provider_router import (
     ProviderRequest,
@@ -48,11 +50,11 @@ from contexts.keys.domain.errors import KeyGroupExhausted
 from contexts.keys.domain.providers import ProviderCapability
 from contexts.keys.infrastructure.adapters import build_router
 from contexts.keys.infrastructure.group_repository import KeyGroupRepository
+from contexts.knowledge.application.graphrag_context_provider import GraphRagContextProvider
+from contexts.knowledge.application.rag_context_provider import RagContextProvider
 from shared_kernel import audit
 from shared_kernel.observability.metrics import REGISTRY
-from contexts.conversation.infrastructure.channels import room_channel
 from shared_kernel.realtime.pubsub import Publisher
-from contexts.agents.infrastructure.turn_lock import DEFAULT_TURN_TTL_S, turn_lock
 
 _log = logging.getLogger(__name__)
 
@@ -108,10 +110,6 @@ def _resolve_models(agent: Agent) -> dict[str, str]:
     if agent.model_id:
         models[agent.model_hint.value] = agent.model_id
     return models
-
-# -- RAG / GraphRAG context providers (extracted to knowledge context) ------
-from contexts.knowledge.application.rag_context_provider import RagContextProvider
-from contexts.knowledge.application.graphrag_context_provider import GraphRagContextProvider
 
 
 def _queued_trigger_key(agent_id: uuid.UUID, chatroom_id: uuid.UUID) -> str:

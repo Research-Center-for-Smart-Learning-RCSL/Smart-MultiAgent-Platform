@@ -26,6 +26,7 @@ from typing import Any, ClassVar
 from arq import cron
 from arq.connections import RedisSettings
 
+import app.db_registry as _db_registry  # noqa: F401 — table imports
 from app.config.settings import get_settings
 from app.workers.agent_fs_gc import run_once as _agent_fs_gc_run_once
 from app.workers.tasks.advisory import daily_org_advisory_snapshot
@@ -69,7 +70,6 @@ from contexts.keys.application.threshold_worker import sample_once as _threshold
 from contexts.keys.infrastructure import revocation_listener
 from contexts.orchestration.application.a2a_consumer import A2AConsumerSupervisor
 from contexts.orchestration.application.a2a_handler import handle_envelope
-import app.db_registry as _db_registry  # noqa: F401 — table imports
 from shared_kernel.db.session import get_sessionmaker
 from shared_kernel.logging.setup import configure_logging
 
@@ -275,5 +275,9 @@ class WorkerSettings:
         # in FAILED_COMPENSATING. arq's cron lock keeps it singleton across replicas.
         cron(graphrag_reconcile, minute=set(range(60)), run_at_startup=False),
         # Every 5 minutes — orphan sandbox container cleanup (B2-4).
-        cron(sandbox_orphan_cleanup, minute={0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55}, run_at_startup=False),
+        cron(
+            sandbox_orphan_cleanup,
+            minute={0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55},
+            run_at_startup=False,
+        ),
     ]

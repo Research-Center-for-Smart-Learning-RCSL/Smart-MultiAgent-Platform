@@ -5,11 +5,10 @@ from __future__ import annotations
 import uuid
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Path, Request, status
-
-from app.api.v1.deps import PaginationParams
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.v1.deps import PaginationParams
 from contexts.agents.interfaces.facade import AgentsFacade
 from contexts.conversation.application.chatroom_service import (
     ChatroomFlagsPatch,

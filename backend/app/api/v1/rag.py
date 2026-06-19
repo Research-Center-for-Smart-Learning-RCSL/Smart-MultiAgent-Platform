@@ -28,10 +28,9 @@ from fastapi import (
     status,
 )
 from pydantic import BaseModel, Field
-
-from app.api.v1.deps import PaginationParams
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.v1.deps import PaginationParams
 from contexts.keys.infrastructure.adapters import build_router
 from contexts.knowledge.application.config_service import RagConfigService
 from contexts.knowledge.application.ingest_service import (

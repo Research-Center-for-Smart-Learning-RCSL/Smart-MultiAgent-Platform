@@ -25,10 +25,10 @@ from __future__ import annotations
 import json
 import logging
 import re
-import re2
 import uuid
 from typing import Any
 
+import re2
 import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession
 

@@ -48,9 +48,9 @@ from contexts.keys.domain.errors import CapabilityMismatch, KeyGroupExhausted, K
 from contexts.keys.domain.groups import HourlyLimits, KeyGroupMember
 from contexts.keys.domain.models import ApiKey
 from contexts.keys.domain.providers import ApiKeyProvider, ProviderCapability, capabilities_of
+from contexts.keys.infrastructure.dek_cache import DEK_CACHE
 from contexts.keys.infrastructure.group_repository import KeyGroupMemberRepository
 from contexts.keys.infrastructure.repositories import ApiKeyRepository
-from contexts.keys.infrastructure.dek_cache import DEK_CACHE
 from contexts.keys.infrastructure.usage_events import record_usage_event
 from shared_kernel.infra import redis_buckets
 from shared_kernel.observability.metrics import KEY_GROUP_EXHAUSTED_TOTAL, PROVIDER_CALL_TOTAL
@@ -595,7 +595,10 @@ class ProviderRouter:
         used = await redis_buckets.usage(em.key.id)
         if lim.max_input_tokens_per_hour is not None and used.input_tokens >= lim.max_input_tokens_per_hour:
             return True
-        if lim.max_output_tokens_per_hour is not None and used.output_tokens >= lim.max_output_tokens_per_hour:
+        if (
+            lim.max_output_tokens_per_hour is not None
+            and used.output_tokens >= lim.max_output_tokens_per_hour
+        ):
             return True
         if lim.max_requests_per_hour is not None and used.requests >= lim.max_requests_per_hour:  # noqa: SIM103 (guard-clause chain)
             return True

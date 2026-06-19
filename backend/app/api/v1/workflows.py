@@ -79,7 +79,7 @@ async def _resolve_workflow(
     try:
         project_id = await svc.resolve_workflow_scope(workflow_id)
     except WorkflowNotFound:
-        raise HTTPException(status_code=404, detail="Workflow not found")
+        raise HTTPException(status_code=404, detail="Workflow not found") from None
     return Scope(project_id=project_id)
 
 
@@ -92,7 +92,7 @@ async def _resolve_run(
     try:
         project_id = await svc.resolve_run_scope(run_id)
     except WorkflowRunNotFound:
-        raise HTTPException(status_code=404, detail="Workflow run not found")
+        raise HTTPException(status_code=404, detail="Workflow run not found") from None
     return Scope(project_id=project_id)
 
 

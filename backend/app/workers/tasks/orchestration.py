@@ -176,7 +176,7 @@ async def evaluate_silence(ctx: dict[str, Any]) -> str:
     fired = 0
     checked = 0
 
-    _BATCH_SIZE = 500
+    batch_size = 500
     async with async_session() as db:
         svc = WakeupService(db)
         repo = ChatroomAgentRepository(db)
@@ -184,11 +184,11 @@ async def evaluate_silence(ctx: dict[str, Any]) -> str:
         offset = 0
         pairs: list[Any] = []
         while True:
-            batch = await repo.list_live_bindings(limit=_BATCH_SIZE, offset=offset)
+            batch = await repo.list_live_bindings(limit=batch_size, offset=offset)
             pairs.extend(batch)
-            if len(batch) < _BATCH_SIZE:
+            if len(batch) < batch_size:
                 break
-            offset += _BATCH_SIZE
+            offset += batch_size
 
         for agent_id, room_id in pairs:
             checked += 1

@@ -3,7 +3,7 @@
 DEPRECATED: import from contexts.keys.infrastructure.key_revocation_events instead.
 """
 
-from contexts.keys.infrastructure.key_revocation_events import (  # noqa: F401
+from contexts.keys.infrastructure.key_revocation_events import (
     CHANNEL_KEY_CARRY_REVOKED,
     CHANNEL_KEY_REVOKED,
     publish_carry_revoked,

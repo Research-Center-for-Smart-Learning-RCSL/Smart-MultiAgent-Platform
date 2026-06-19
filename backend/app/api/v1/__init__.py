@@ -34,40 +34,100 @@ def _build_registry() -> list[RouterEntry]:
     """
     from app.api.v1 import (
         admin as admin_routes,
+    )
+    from app.api.v1 import (
         admin_ip_bans as admin_ip_ban_routes,
+    )
+    from app.api.v1 import (
         agents as agent_routes,
+    )
+    from app.api.v1 import (
         attachments as attachment_routes,
+    )
+    from app.api.v1 import (
         auth as auth_routes,
+    )
+    from app.api.v1 import (
         chatrooms as chatroom_routes,
+    )
+    from app.api.v1 import (
         csp_report as csp_routes,
+    )
+    from app.api.v1 import (
         exports as export_routes,
+    )
+    from app.api.v1 import (
         graphrag as graphrag_routes,
+    )
+    from app.api.v1 import (
         guests as guest_routes,
+    )
+    from app.api.v1 import (
         healthz,
-        invites as invite_routes,
-        key_groups as key_group_routes,
-        keys as key_routes,
-        mcp as mcp_routes,
-        messages as message_routes,
         metrics,
-        notifications as notification_routes,
-        orchestration as orchestration_routes,
-        orgs as org_routes,
-        project_keys as project_key_routes,
-        projects as project_routes,
-        rag as rag_routes,
         readyz,
+    )
+    from app.api.v1 import (
+        invites as invite_routes,
+    )
+    from app.api.v1 import (
+        key_groups as key_group_routes,
+    )
+    from app.api.v1 import (
+        keys as key_routes,
+    )
+    from app.api.v1 import (
+        mcp as mcp_routes,
+    )
+    from app.api.v1 import (
+        messages as message_routes,
+    )
+    from app.api.v1 import (
+        notifications as notification_routes,
+    )
+    from app.api.v1 import (
+        orchestration as orchestration_routes,
+    )
+    from app.api.v1 import (
+        orgs as org_routes,
+    )
+    from app.api.v1 import (
+        project_keys as project_key_routes,
+    )
+    from app.api.v1 import (
+        projects as project_routes,
+    )
+    from app.api.v1 import (
+        rag as rag_routes,
+    )
+    from app.api.v1 import (
         search as search_routes,
+    )
+    from app.api.v1 import (
         search_keys as search_key_routes,
+    )
+    from app.api.v1 import (
         tus as tus_routes,
+    )
+    from app.api.v1 import (
         workflows as workflow_routes,
+    )
+    from app.api.v1 import (
         workspaces as workspace_routes,
     )
     from app.api.ws import (
         admin_tail as ws_admin_tail,
+    )
+    from app.api.ws import (
         chatroom as ws_chatroom,
+    )
+    from app.api.ws import (
         rag_configs as ws_rag_configs,
+    )
+    from app.api.ws import (
         user as ws_user,
+    )
+    from app.api.ws import (
         workflow_runs as ws_workflow_runs,
     )
     from app.config.settings import get_settings

@@ -17,6 +17,7 @@ from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config.settings import get_settings
+from contexts.identity.application.auth_email_service import AuthEmailService
 from contexts.identity.domain.errors import (
     AccountBanned,
     AccountDeleted,
@@ -32,7 +33,6 @@ from contexts.identity.domain.errors import (
     TokenExpired,
     TokenInvalid,
 )
-from contexts.identity.application.auth_email_service import AuthEmailService
 from contexts.identity.domain.models import Session, User, UserStatus
 from contexts.identity.infrastructure import email_domain_policy, lockouts
 from contexts.identity.infrastructure.email import EmailSender, recipient_digest

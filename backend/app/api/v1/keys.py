@@ -11,11 +11,10 @@ from __future__ import annotations
 import uuid
 
 from fastapi import APIRouter, Depends, status
-
-from app.api.v1.deps import PaginationParams
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.v1.deps import PaginationParams
 from contexts.keys.application.key_service import KeyService
 from contexts.keys.domain.models import ApiKey
 from contexts.keys.domain.providers import ApiKeyProvider

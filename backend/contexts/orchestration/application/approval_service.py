@@ -20,6 +20,7 @@ import uuid
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from contexts.conversation.infrastructure.channels import room_channel
 from contexts.orchestration.domain.models import (
     Approval,
     ApprovalGateConfig,
@@ -34,9 +35,8 @@ from contexts.orchestration.infrastructure.repositories import (
     ApprovalRepository,
     ApprovalVoteRepository,
 )
-from shared_kernel import audit
-from contexts.conversation.infrastructure.channels import room_channel
 from contexts.workflow.infrastructure.channels import workflow_channel
+from shared_kernel import audit
 from shared_kernel.realtime.pubsub import Publisher
 
 _log = logging.getLogger(__name__)

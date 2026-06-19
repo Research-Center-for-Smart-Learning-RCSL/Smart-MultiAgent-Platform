@@ -10,8 +10,6 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
-from loguru import logger
-
 # ---------------------------------------------------------------------------
 # Claim-before-verify recovery (K remediation)
 #

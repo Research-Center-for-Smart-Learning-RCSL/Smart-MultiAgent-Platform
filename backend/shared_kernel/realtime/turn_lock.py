@@ -7,7 +7,7 @@ contexts.agents.infrastructure.turn_lock.
 DEPRECATED: import from contexts.agents.infrastructure.turn_lock instead.
 """
 
-from contexts.agents.infrastructure.turn_lock import (  # noqa: F401
+from contexts.agents.infrastructure.turn_lock import (
     DEFAULT_TURN_TTL_S,
     turn_lock,
     turn_lock_key,

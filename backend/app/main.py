@@ -24,6 +24,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import ORJSONResponse
 
+import app.db_registry as _db_registry  # noqa: F401 -- side-effect: table imports
 from app.api.middleware.auth import AuthMiddleware
 from app.api.middleware.impersonation import ImpersonationPolicyMiddleware
 from app.api.middleware.ip_ban import IpBanMiddleware
@@ -44,7 +45,6 @@ from contexts.orchestration.interfaces import error_mapping as orchestration_err
 from contexts.tenancy.interfaces import error_mapping as tenancy_errors
 from contexts.workflow.interfaces import error_mapping as workflow_errors
 from shared_kernel.auth.clients import close_redis
-import app.db_registry as _db_registry  # noqa: F401 -- side-effect: table imports
 from shared_kernel.db.session import dispose as dispose_db
 from shared_kernel.errors.handlers import register_exception_handlers
 from shared_kernel.observability.metrics import mount_metrics_middleware

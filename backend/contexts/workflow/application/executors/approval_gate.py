@@ -15,8 +15,8 @@ from contexts.workflow.domain.models import (
     StepOutcome,
     StepState,
 )
-from contexts.workflow.sel.template import interpolate
 from contexts.workflow.infrastructure.channels import workflow_channel
+from contexts.workflow.sel.template import interpolate
 from shared_kernel.realtime.pubsub import Publisher
 
 

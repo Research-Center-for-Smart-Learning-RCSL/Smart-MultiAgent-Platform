@@ -26,6 +26,7 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.workflow.application.executors import get_executor
+from contexts.workflow.application.step_recorder import StepRecorder
 from contexts.workflow.domain.models import (
     EdgeSpec,
     NodeSpec,
@@ -37,14 +38,13 @@ from contexts.workflow.domain.models import (
     StepOutcome,
     StepState,
 )
-from contexts.workflow.application.step_recorder import StepRecorder
+from contexts.workflow.infrastructure.channels import workflow_channel
 from contexts.workflow.infrastructure.repositories import (
     WorkflowRunRepository,
     WorkflowStepRepository,
 )
 from shared_kernel import audit
 from shared_kernel.observability.metrics import WORKFLOW_RUNS_TOTAL
-from contexts.workflow.infrastructure.channels import workflow_channel
 from shared_kernel.realtime.pubsub import Publisher
 
 logger = logging.getLogger(__name__)

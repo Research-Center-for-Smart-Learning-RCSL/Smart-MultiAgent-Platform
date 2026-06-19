@@ -167,9 +167,11 @@ class InviteService:
         # repository layer — raw query is intentional here.
         row = (
             await self._db.execute(
-                sa.text("SELECT id FROM users WHERE LOWER(email) = LOWER(:email) AND deleted_at IS NULL").bindparams(
-                    email=invitee_email
-                )
+                sa.text(
+                    "SELECT id FROM users"
+                    " WHERE LOWER(email) = LOWER(:email)"
+                    " AND deleted_at IS NULL"
+                ).bindparams(email=invitee_email)
             )
         ).first()
         if row is None:

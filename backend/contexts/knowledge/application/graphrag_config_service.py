@@ -15,8 +15,6 @@ from typing import Any
 import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession
 
-_log = logging.getLogger(__name__)
-
 from contexts.agents.infrastructure import tables as agents_t
 from contexts.knowledge.domain.errors import (
     GraphRagAgentProjectMismatch,
@@ -32,6 +30,8 @@ from contexts.knowledge.infrastructure.graphrag_repositories import (
     GraphRagConfigRepository,
 )
 from shared_kernel import audit
+
+_log = logging.getLogger(__name__)
 
 
 class GraphRagConfigService:

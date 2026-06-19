@@ -22,7 +22,6 @@ from contexts.conversation.application.attachment_service import AttachmentServi
 from contexts.conversation.domain.models import ScanStatus
 from shared_kernel.db.session import get_sessionmaker
 
-
 _file_scan_warned = False
 
 
@@ -39,7 +38,7 @@ async def file_scan_requested(ctx: dict[str, Any], attachment_id: str) -> str:
         3. Call ``service.record_scan_result(…, scan_status=ScanStatus.QUARANTINED)``
            if the engine reports a threat; ``CLEAN`` otherwise.
     """
-    global _file_scan_warned  # noqa: PLW0603
+    global _file_scan_warned
 
     from app.config.settings import get_settings
 
@@ -106,9 +105,10 @@ async def chat_export(
         sm = get_sessionmaker()
         async with sm() as session, session.begin():
             enqueued = ctx.get("enqueue_time")
-            exported_at = (
-                enqueued.isoformat() if hasattr(enqueued, "isoformat") else (str(enqueued) if enqueued else None)  # type: ignore[union-attr]
-            )
+            if hasattr(enqueued, "isoformat"):
+                exported_at = enqueued.isoformat()  # type: ignore[union-attr]
+            else:
+                exported_at = str(enqueued) if enqueued else None
             svc = ChatExportService(session)
             bucket, key = await svc.build_and_upload_export(
                 job_id=jid,

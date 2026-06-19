@@ -11,11 +11,10 @@ import uuid
 from datetime import timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
-
-from app.api.v1.deps import PaginationParams
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.v1.deps import PaginationParams
 from app.config.settings import get_settings
 from contexts.identity.application.auth_service import AuthService, TokenPair
 from contexts.identity.application.factory import create_auth_service

@@ -16,11 +16,10 @@ import uuid
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Path, status
-
-from app.api.v1.deps import PaginationParams
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.v1.deps import PaginationParams
 from contexts.agents.application.agent_service import AgentService
 from contexts.agents.domain.models import (
     AgentDraft,

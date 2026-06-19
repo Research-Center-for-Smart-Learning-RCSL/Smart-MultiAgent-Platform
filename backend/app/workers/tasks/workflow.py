@@ -18,15 +18,14 @@ from __future__ import annotations
 
 # Re-export everything so existing ``from app.workers.tasks.workflow import X``
 # and ``from app.workers.tasks import workflow as wf; wf.X`` keep working.
-
-from app.workers.tasks.workflow_approvals import (  # noqa: F401
+from app.workers.tasks.workflow_approvals import (
     _approval_port,
     _store_instruct_output,
     workflow_instruct_timeout,
     workflow_resume_approval,
     workflow_resume_instruct,
 )
-from app.workers.tasks.workflow_common import (  # noqa: F401
+from app.workers.tasks.workflow_common import (
     _CLAIM_RESTORE_TTL_S,
     _RESUME_RETRY_DELAY_S,
     _RESUME_RETRY_MAX_ATTEMPTS,
@@ -34,23 +33,23 @@ from app.workers.tasks.workflow_common import (  # noqa: F401
     _restore_claim,
     _run_is_terminal,
 )
-from app.workers.tasks.workflow_cron import (  # noqa: F401
+from app.workers.tasks.workflow_cron import (
     workflow_cron_scheduler,
 )
-from app.workers.tasks.workflow_signals import (  # noqa: F401
+from app.workers.tasks.workflow_signals import (
     run_triggered_workflow,
     workflow_event_resume,
     workflow_event_timeout,
     workflow_signal,
     workflow_variable_signal,
 )
-from app.workers.tasks.workflow_steps import (  # noqa: F401
+from app.workers.tasks.workflow_steps import (
     retry_workflow_node,
     run_workflow_step,
     workflow_subagent_complete,
     workflow_subagent_timeout,
 )
-from app.workers.tasks.workflow_watchdog import (  # noqa: F401
+from app.workers.tasks.workflow_watchdog import (
     workflow_watchdog,
 )
 
