@@ -12,7 +12,7 @@ from collections.abc import Sequence
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from contexts.conversation.domain.models import Chatroom, Message, Workspace
+from contexts.conversation.domain.models import Chatroom, Message, SenderType, Workspace
 from contexts.conversation.infrastructure.repositories import (
     ChatroomGuestRepository,
     ChatroomRepository,
@@ -70,5 +70,42 @@ class ConversationFacade:
     async def get_message(self, message_id: uuid.UUID) -> Message | None:
         return await self._messages.get(message_id)
 
+    async def list_messages(
+        self,
+        chatroom_id: uuid.UUID,
+        *,
+        limit: int = 100,
+        before_id: uuid.UUID | None = None,
+    ) -> list[Message]:
+        """Return messages for *chatroom_id* (newest-first).
 
-__all__ = ["ConversationFacade"]
+        Delegates to :pymethod:`MessageRepository.list`. The ``before_id``
+        cursor maps to the repository's ``before`` parameter.
+        """
+        rows = await self._messages.list(
+            chatroom_id=chatroom_id,
+            before=before_id,
+            limit=limit,
+        )
+        return list(rows)
+
+    async def create_message(
+        self,
+        *,
+        chatroom_id: uuid.UUID,
+        sender_type: SenderType,
+        sender_id: uuid.UUID | None,
+        content_md: str,
+        metadata: dict[str, object] | None = None,
+    ) -> Message:
+        """Insert a new message row (used by the transcript compaction store)."""
+        return await self._messages.create(
+            chatroom_id=chatroom_id,
+            sender_type=sender_type,
+            sender_id=sender_id,
+            content_md=content_md,
+            metadata=metadata,
+        )
+
+
+__all__ = ["ConversationFacade", "Message", "SenderType"]

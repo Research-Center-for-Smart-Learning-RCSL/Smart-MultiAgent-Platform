@@ -7,7 +7,7 @@ import uuid
 import pytest
 
 import contexts.agents.application.runtime.transcript as tx
-from contexts.conversation.domain.models import Message, SenderType
+from contexts.conversation.interfaces.facade import Message, SenderType
 
 
 def _msg(sender: SenderType, content: str, *, metadata: dict | None = None) -> Message:
@@ -34,14 +34,14 @@ async def test_load_model_history_elides_compacted_and_orders(monkeypatch) -> No
     # Repo returns newest-first; chronological is [m1, m2, summary, m3].
     newest_first = [m3, summary, m2, m1]
 
-    class _FakeRepo:
+    class _FakeFacade:
         def __init__(self, _db) -> None:
             pass
 
-        async def list(self, *, chatroom_id, limit=500):
+        async def list_messages(self, chatroom_id, *, limit=100, before_id=None):
             return newest_first
 
-    monkeypatch.setattr(tx, "MessageRepository", _FakeRepo)
+    monkeypatch.setattr(tx, "ConversationFacade", _FakeFacade)
 
     history = await tx.load_model_history(object(), chatroom_id=uuid.uuid4())
 

@@ -26,7 +26,7 @@ from contexts.conversation.infrastructure.repositories import (
     ChatroomRepository,
     WorkspaceRepository,
 )
-from contexts.tenancy.infrastructure.repositories import ProjectRepository
+from contexts.tenancy.interfaces.facade import TenancyFacade
 from contexts.tenancy.interfaces.role_resolver import TenancyRoleResolver
 from shared_kernel.auth.permissions import Principal, Role, Scope
 
@@ -58,7 +58,7 @@ async def resolve_room_access(
     and guest flag. Raises `ChatroomNotFound` if the room is missing."""
     chatrooms = ChatroomRepository(db)
     workspaces = WorkspaceRepository(db)
-    projects = ProjectRepository(db)
+    tenancy = TenancyFacade(db)
     guests = ChatroomGuestRepository(db)
 
     chatroom = await chatrooms.get(chatroom_id)
@@ -71,7 +71,7 @@ async def resolve_room_access(
 
     # Confirm the parent project exists and is not soft-deleted. If it is, the
     # room is effectively unreachable.
-    project = await projects.get(workspace.project_id)
+    project = await tenancy.get_project(workspace.project_id)
     if project is None:
         raise ChatroomNotFound(str(chatroom_id))
 

@@ -10,17 +10,29 @@ from __future__ import annotations
 
 import uuid
 
+import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.keys.application.carry_service import CarryService
+from contexts.keys.domain.errors import CapabilityMismatch as KeysCapabilityMismatch
 from contexts.keys.domain.groups import KeyGroup
 from contexts.keys.domain.models import ApiKey
+from contexts.keys.domain.providers import (
+    ApiKeyProvider,
+    CapabilityRequirement,
+    ProviderCapability,
+    assert_capability,
+    supports,
+)
+from contexts.keys.infrastructure import tables as _t
 from contexts.keys.infrastructure.group_repository import KeyGroupRepository
+from contexts.keys.infrastructure.repositories import ApiKeyRepository
 
 
 class KeysFacade:
     def __init__(self, db: AsyncSession) -> None:
         self._db = db
+        self._keys = ApiKeyRepository(db)
 
     async def list_keys_carried_in_project(self, project_id: uuid.UUID) -> list[ApiKey]:
         return await CarryService(self._db).list_in_project(project_id)
@@ -77,4 +89,81 @@ class KeysFacade:
         )
 
 
-__all__ = ["KeysFacade"]
+    async def get_key(self, key_id: uuid.UUID) -> ApiKey | None:
+        """Return the active (non-deleted) API key, or ``None``."""
+        return await self._keys.get_active(key_id)
+
+    async def validate_key_capability(
+        self,
+        key_id: uuid.UUID,
+        capability: ProviderCapability,
+    ) -> bool:
+        """Check whether the key's provider supports *capability*.
+
+        Returns ``False`` if the key is missing/deleted or if the provider
+        does not support the given capability.
+        """
+        key = await self._keys.get_active(key_id)
+        if key is None:
+            return False
+        return supports(ApiKeyProvider(key.provider.value), capability)
+
+    async def is_key_in_project_scope(
+        self,
+        key_id: uuid.UUID,
+        project_id: uuid.UUID,
+    ) -> bool:
+        """True if *key_id* is a member of any active key-group in *project_id*.
+
+        Encapsulates the ``key_group_members JOIN key_groups`` scope check that
+        the knowledge context uses when validating embed/rerank keys.
+        """
+        row = (
+            await self._db.execute(
+                sa.select(sa.literal(1))
+                .select_from(
+                    _t.key_group_members.join(
+                        _t.key_groups,
+                        _t.key_groups.c.id == _t.key_group_members.c.group_id,
+                    )
+                )
+                .where(
+                    sa.and_(
+                        _t.key_group_members.c.key_id == key_id,
+                        _t.key_groups.c.project_id == project_id,
+                        _t.key_groups.c.deleted_at.is_(None),
+                    )
+                )
+                .limit(1)
+            )
+        ).first()
+        return row is not None
+
+    async def list_keys_for_group(self, group_id: uuid.UUID) -> list[ApiKey]:
+        """Return every active API key that is a member of *group_id*."""
+        # Fetch member key_ids, then batch-resolve via the repository so the
+        # row-to-model mapping stays encapsulated inside ApiKeyRepository.
+        id_rows = (
+            await self._db.execute(
+                sa.select(_t.key_group_members.c.key_id).where(
+                    _t.key_group_members.c.group_id == group_id,
+                )
+            )
+        ).all()
+        keys: list[ApiKey] = []
+        for row in id_rows:
+            key = await self._keys.get_active(row.key_id)
+            if key is not None:
+                keys.append(key)
+        return keys
+
+
+# Re-export domain types so cross-context consumers need only one import path.
+__all__ = [
+    "ApiKeyProvider",
+    "CapabilityRequirement",
+    "KeysCapabilityMismatch",
+    "KeysFacade",
+    "ProviderCapability",
+    "assert_capability",
+]
