@@ -724,6 +724,11 @@ class RunEngine:
             )
             return
 
+        # Failed with no recovery — fail the run
+        if outcome.state == StepState.FAILED:
+            await self._fail_run(ctx, outcome.error or "Step failed")
+            return
+
         # Follow outgoing edges
         await self._advance_from(ctx, node_id, port=outcome.port)
 

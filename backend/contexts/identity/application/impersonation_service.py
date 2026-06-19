@@ -65,8 +65,8 @@ class ImpersonationService:
                     .values(ended_at=now())
                     .returning(t.admin_impersonation_sessions.c.access_jti)
                 )
-            ).one()
-            if old.access_jti is not None:
+            ).one_or_none()
+            if old is not None and old.access_jti is not None:
                 ttl = timedelta(seconds=get_settings().jwt.access_ttl_seconds)
                 await tokens.deny_jti(old.access_jti, ttl=ttl)
 

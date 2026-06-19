@@ -55,7 +55,9 @@ def estimate_tokens(text: str) -> int:
     latin = 0
     for ch in text:
         cp = ord(ch)
-        if 0x4E00 <= cp <= 0x9FFF or 0x3400 <= cp <= 0x4DBF:
+        if (0x4E00 <= cp <= 0x9FFF or 0x3400 <= cp <= 0x4DBF
+                or 0x3040 <= cp <= 0x30FF or 0xAC00 <= cp <= 0xD7AF
+                or 0xFF00 <= cp <= 0xFFEF):
             cjk += 1
         else:
             latin += 1
