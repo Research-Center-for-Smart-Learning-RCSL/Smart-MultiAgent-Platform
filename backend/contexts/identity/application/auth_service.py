@@ -238,17 +238,21 @@ class AuthService:
             # a real verify — denying the login timing oracle (SEC-M3).
             self._hasher.verify(DUMMY_HASH, password)
             fail = True
-        elif user.status is UserStatus.DELETED:
-            raise AccountDeleted()
-        elif user.status is UserStatus.BANNED:
-            raise AccountBanned(user.banned_reason or "banned")
         else:
+            # Always verify the password first — regardless of account status —
+            # so banned/deleted accounts cost the same Argon2id work as active
+            # ones, closing the timing oracle that previously let attackers
+            # distinguish banned accounts by response time (SEC-M3).
             verification = self._hasher.verify(user.password_hash, password)
             if not verification.ok:
                 fail = True
-            elif verification.rehashed:
+            elif verification.rehashed and user.status not in (
+                UserStatus.DELETED,
+                UserStatus.BANNED,
+            ):
                 # Only write if the hash hasn't changed since we read it —
                 # guards against two concurrent logins both attempting the rehash.
+                # Skip rehash for deleted/banned accounts (no point upgrading).
                 await self._users.set_password(
                     user.id, verification.rehashed, only_if_hash=user.password_hash
                 )
@@ -273,6 +277,15 @@ class AuthService:
 
         if user is None:
             raise RuntimeError("invariant violated: user is None after credential check passed")
+
+        # Status gates fire AFTER password verification — a wrong password
+        # always returns InvalidCredentials (with lockout accounting) regardless
+        # of account status, and the Argon2id work has already been performed,
+        # so no timing oracle leaks whether an account is banned vs non-existent.
+        if user.status is UserStatus.DELETED:
+            raise AccountDeleted()
+        if user.status is UserStatus.BANNED:
+            raise AccountBanned(user.banned_reason or "banned")
         await lockouts.clear_account(email)
 
         if not user.email_verified:

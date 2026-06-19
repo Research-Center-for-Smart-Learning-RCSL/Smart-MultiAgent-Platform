@@ -64,11 +64,12 @@ class AdminService:
         cursor: uuid.UUID | None = None,
         limit: int = 50,
     ) -> list[User]:
-        query = t.users.select().order_by(t.users.c.created_at.desc()).limit(limit)
+        query = t.users.select().order_by(t.users.c.id.desc()).limit(limit)
         if cursor is not None:
             query = query.where(t.users.c.id < cursor)
         if q:
-            query = query.where(t.users.c.email.ilike(f"%{q}%"))
+            escaped = q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            query = query.where(t.users.c.email.ilike(f"%{escaped}%", escape="\\"))
         if status:
             query = query.where(t.users.c.status == status)
         rows = (await self._db.execute(query)).all()
@@ -273,17 +274,24 @@ class AdminService:
         if len(admin_ids) <= 1 and target_user_id in admin_ids:
             raise LastAdminError()
         await self._admins.demote(target_user_id)
-        # Close active impersonation sessions for the demoted admin.
-        await self._db.execute(
-            t.admin_impersonation_sessions.update()
-            .where(
-                sa.and_(
-                    t.admin_impersonation_sessions.c.admin_user_id == target_user_id,
-                    t.admin_impersonation_sessions.c.ended_at.is_(None),
+        # Close active impersonation sessions for the demoted admin and revoke JWTs.
+        imp_rows = (
+            await self._db.execute(
+                t.admin_impersonation_sessions.update()
+                .where(
+                    sa.and_(
+                        t.admin_impersonation_sessions.c.admin_user_id == target_user_id,
+                        t.admin_impersonation_sessions.c.ended_at.is_(None),
+                    )
                 )
+                .values(ended_at=now())
+                .returning(t.admin_impersonation_sessions.c.access_jti)
             )
-            .values(ended_at=now())
-        )
+        ).all()
+        ttl = timedelta(seconds=get_settings().jwt.access_ttl_seconds)
+        for row in imp_rows:
+            if row.access_jti is not None:
+                await tokens.deny_jti(row.access_jti, ttl=ttl)
         await audit.emit(
             self._db,
             audit.AuditEvent(
@@ -330,7 +338,10 @@ class AdminService:
                 t.users.update()
                 .where(t.users.c.id == resource_id)
                 .values(
-                    status=UserStatus.ACTIVE.value,
+                    status=sa.case(
+                        (t.users.c.email_verified == True, UserStatus.ACTIVE.value),  # noqa: E712
+                        else_=UserStatus.PENDING.value,
+                    ),
                     banned_reason=None,
                     banned_at=None,
                 )

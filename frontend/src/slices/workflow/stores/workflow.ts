@@ -67,7 +67,7 @@ export const useWorkflowStore = defineStore('workflow', () => {
   const runEvents = ref<WorkflowRunEvent[]>([])
 
   function applyRunEvent(event: WorkflowRunEvent): void {
-    runEvents.value = [...runEvents.value, event]
+    runEvents.value.push(event)
     if (event.type === 'workflow.step_started' || event.type === 'workflow.step_finished' || event.type === 'workflow.step_failed') {
       const stepId = event.step_id as string
       const nodeId = event.node_id as string

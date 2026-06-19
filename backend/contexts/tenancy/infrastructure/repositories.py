@@ -538,7 +538,7 @@ class InviteRepository:
         offset: int = 0,
     ) -> Sequence[Invite]:
         predicate: sa.ColumnElement[bool] = sa.or_(
-            t.invites.c.invitee_email == email,
+            sa.func.lower(t.invites.c.invitee_email) == sa.func.lower(email),
             t.invites.c.invitee_user_id == user_id,
         )
         if states:

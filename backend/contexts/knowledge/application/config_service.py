@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+import logging
 import uuid
 from collections.abc import Sequence
 from typing import Any
 
+import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession
+
+_log = logging.getLogger(__name__)
 
 from contexts.keys.domain.errors import CapabilityMismatch as KeysCapabilityMismatch
 from contexts.keys.domain.models import ApiKey
@@ -16,6 +20,7 @@ from contexts.keys.domain.providers import (
     ProviderCapability,
     assert_capability,
 )
+from contexts.keys.infrastructure import tables as keys_t
 from contexts.keys.infrastructure.repositories import ApiKeyRepository
 from contexts.knowledge.domain.errors import (
     CapabilityMismatch,
@@ -44,10 +49,33 @@ class RagConfigService:
         self._configs = RagConfigRepository(db)
         self._keys = ApiKeyRepository(db)
 
-    async def _validate_embed_key(self, *, key_id: uuid.UUID, provider: str) -> ApiKey:
+    async def _validate_embed_key(
+        self, *, key_id: uuid.UUID, provider: str, project_id: uuid.UUID
+    ) -> ApiKey:
         key = await self._keys.get_active(key_id)
         if key is None:
             raise CapabilityMismatch(f"embed_key {key_id} missing or deleted")
+        scope_row = (
+            await self._db.execute(
+                sa.select(sa.literal(1))
+                .select_from(
+                    keys_t.key_group_members.join(
+                        keys_t.key_groups,
+                        keys_t.key_groups.c.id == keys_t.key_group_members.c.group_id,
+                    )
+                )
+                .where(
+                    sa.and_(
+                        keys_t.key_group_members.c.key_id == key_id,
+                        keys_t.key_groups.c.project_id == project_id,
+                        keys_t.key_groups.c.deleted_at.is_(None),
+                    )
+                )
+                .limit(1)
+            )
+        ).first()
+        if scope_row is None:
+            raise CapabilityMismatch(f"embed_key {key_id} does not belong to project")
         if key.provider.value != provider:
             raise CapabilityMismatch(
                 f"embed_key provider {key.provider.value!r} != config provider {provider!r}"
@@ -87,6 +115,7 @@ class RagConfigService:
             await self._validate_embed_key(
                 key_id=draft.embed_key_id,
                 provider=draft.embed_provider,
+                project_id=project_id,
             )
         if draft.rerank_enabled:
             if draft.rerank_key_id is None or not draft.rerank_provider:
@@ -217,10 +246,27 @@ class RagConfigService:
         """
         cfg = await self.get(config_id)  # 404 if missing
         docs_repo = RagDocumentRepository(self._db)
-        docs = list(await docs_repo.list_for_config(config_id, limit=10_000))
+        # Drain all child documents in batches — an unbounded single fetch
+        # would OOM on very large configs, and the previous limit=10_000 cap
+        # silently left orphan documents behind.
+        _BATCH = 10_000
+        docs: list[RagDocument] = []
+        while True:
+            batch = list(await docs_repo.list_for_config(config_id, limit=_BATCH))
+            if not batch:
+                break
+            docs.extend(batch)
+            for doc in batch:
+                await docs_repo.delete(doc.id)
+            if len(batch) < _BATCH:
+                break
+        if len(docs) >= 20_000:
+            _log.warning(
+                "soft_delete cascaded %d documents for config %s — consider async cleanup",
+                len(docs),
+                config_id,
+            )
         await self._configs.soft_delete(config_id)
-        for doc in docs:
-            await docs_repo.delete(doc.id)
         await audit.emit(
             self._db,
             audit.AuditEvent(

@@ -32,6 +32,9 @@ export function useWorkflowRunSocket(runId: string) {
       const steps = await listSteps(runId)
       // A newer reconnect superseded this sync while it was in flight — drop it.
       if (generation !== syncGeneration) return
+      // Clear stale events/steps before re-applying the authoritative snapshot
+      // — without this, duplicate entries accumulate on every reconnect.
+      wfStore.clearRunState()
       for (const s of steps) {
         wfStore.applyRunEvent({
           type: s.state === 'running' ? 'workflow.step_started'
