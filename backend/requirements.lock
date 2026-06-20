@@ -51,7 +51,7 @@ colorama==0.4.6
     #   uvicorn
 croniter==6.2.2
     # via smap-backend (pyproject.toml)
-cryptography==44.0.3
+cryptography==48.0.1
     # via smap-backend (pyproject.toml)
 dnspython==2.8.0
     # via email-validator
@@ -121,7 +121,7 @@ neo4j==5.24.0
     # via smap-backend (pyproject.toml)
 numpy==2.4.6
     # via qdrant-client
-orjson==3.10.18
+orjson==3.11.6
     # via smap-backend (pyproject.toml)
 portalocker==2.10.1
     # via qdrant-client
