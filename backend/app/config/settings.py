@@ -181,6 +181,7 @@ class SecuritySection(BaseSettings):
     file_scan_enabled: bool = False
     clamav_host: str | None = None
     clamav_port: int = 3310
+    clamav_max_scan_bytes: int = 100 * 1024 * 1024
 
 
 class LoggingSection(BaseSettings):

@@ -115,6 +115,8 @@ class MinioClient:
                 return resp.read()
             except S3Error as exc:
                 raise StorageError(f"get_object failed: {exc}") from exc
+            except Exception as exc:
+                raise StorageError(f"get_object read failed: {exc}") from exc
             finally:
                 if resp is not None:
                     resp.close()

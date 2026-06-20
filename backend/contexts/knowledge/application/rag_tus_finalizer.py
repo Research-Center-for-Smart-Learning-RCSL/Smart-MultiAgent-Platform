@@ -99,6 +99,9 @@ class RagTusFinalizer:
                 request_id=request_id,
             )
             await self._enqueue_index(existing.id, config_id=cfg.id)
+            from contexts.knowledge.application.ingest_service import enqueue_rag_scan
+
+            await enqueue_rag_scan(document_id=existing.id)
             return existing
 
         key = rag_source_object_key(project_id=cfg.project_id, config_id=cfg.id, sha256=sha)

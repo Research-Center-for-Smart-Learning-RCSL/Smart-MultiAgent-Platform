@@ -271,9 +271,11 @@ services:
   clamav:
     image: clamav/clamav:1.4
     container_name: smap_clamav
+    restart: unless-stopped
     networks: [backend_net]
     volumes:
       - clamav_db:/var/lib/clamav
+      - ./clamav/clamd.conf:/etc/clamav/clamd.conf:ro
     healthcheck:
       test: ["CMD", "clamdcheck"]
       interval: 60s

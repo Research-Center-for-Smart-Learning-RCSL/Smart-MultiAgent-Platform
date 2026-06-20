@@ -71,14 +71,26 @@ async def file_scan_requested(ctx: dict[str, Any], attachment_id: str) -> str:
             "file_scan_enabled is True but SMAP_SEC_CLAMAV_HOST is not set"
         )
 
+    settings = get_settings()
     aid = uuid.UUID(attachment_id)
     sm = get_sessionmaker()
     async with sm() as session, session.begin():
         service = AttachmentService(session)
-        attachment = await service._repo.get(aid)
+        attachment = await service.get_by_id(aid)
         if attachment is None:
             logger.warning("file_scan: attachment %s not found", attachment_id)
             return "not_found"
+
+    if attachment.size_bytes > settings.security.clamav_max_scan_bytes:
+        logger.warning(
+            "file_scan: attachment %s skipped — %d bytes exceeds scan limit %d",
+            attachment_id, attachment.size_bytes, settings.security.clamav_max_scan_bytes,
+        )
+        async with sm() as s2, s2.begin():
+            await AttachmentService(s2).record_scan_result(
+                attachment_id=aid, scan_status=ScanStatus.SKIPPED, actor_ip=None,
+            )
+        return "skipped:too_large"
 
     bucket, key = attachment.minio_path.split("/", 1)
     minio = get_minio_client()
@@ -88,6 +100,12 @@ async def file_scan_requested(ctx: dict[str, Any], attachment_id: str) -> str:
         result = await scanner.scan(data)
     except ScanError:
         logger.exception("file_scan: ClamAV error for attachment %s", attachment_id)
+        async with sm() as s2, s2.begin():
+            await AttachmentService(s2).record_scan_result(
+                attachment_id=aid,
+                scan_status=ScanStatus.SKIPPED,
+                actor_ip=None,
+            )
         raise
 
     scan_status = ScanStatus.CLEAN if result.clean else ScanStatus.QUARANTINED
@@ -105,8 +123,10 @@ async def file_scan_requested(ctx: dict[str, Any], attachment_id: str) -> str:
             scan_status=scan_status,
             actor_ip=None,
         )
-    _ = ctx
     return scan_status.value
+
+
+file_scan_requested.max_tries = 3  # type: ignore[attr-defined]
 
 
 async def chat_export(
