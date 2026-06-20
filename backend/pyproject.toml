@@ -30,8 +30,8 @@ dependencies = [
   "hvac==2.3.*",
   "redis==5.2.*",
   "python-multipart==0.0.32",  # SEC-DEP: 0.0.27+ fixes multipart DoS; 0.0.30+ fixes CVE-2026-53538/39/40
-  "orjson==3.10.*",
-  "cryptography==44.0.*",
+  "orjson==3.11.*",
+  "cryptography==48.0.*",
   "psycopg[binary]==3.2.*",
   "minio==7.2.*",
   "neo4j==5.24.*",
