@@ -42,9 +42,16 @@ if [ -f "$BACKUP_DIR/postgres.dump" ]; then
   # Drop and recreate the database, then restore.
   $COMPOSE exec -T postgres dropdb -U smap --if-exists smap
   $COMPOSE exec -T postgres createdb -U smap smap
+  # pg_restore emits non-fatal warnings (e.g., "relation already exists") on
+  # --clean --if-exists restores. Log stderr to a file so real errors are
+  # visible, but don't let non-zero exit (common with warnings) abort the script.
   cat "$BACKUP_DIR/postgres.dump" | \
     $COMPOSE exec -T postgres pg_restore \
-      -U smap -d smap --no-owner --no-privileges --clean --if-exists 2>/dev/null || true
+      -U smap -d smap --no-owner --no-privileges --clean --if-exists \
+      2>"$BACKUP_DIR/pg_restore.log" || true
+  if [ -s "$BACKUP_DIR/pg_restore.log" ]; then
+    echo "  ⚠ pg_restore warnings/errors logged to $BACKUP_DIR/pg_restore.log"
+  fi
   echo "  ✓ Postgres restored"
 else
   echo "[1/5] Skipping Postgres (no postgres.dump found)"
@@ -62,7 +69,9 @@ elif [ -d "$BACKUP_DIR/vault-file" ]; then
   echo "[2/5] Restoring Vault (file storage)..."
   cid=$($COMPOSE ps -q vault)
   $COMPOSE stop vault
-  docker cp "$BACKUP_DIR/vault-file/." "$cid:/vault/file"
+  if ! docker cp "$BACKUP_DIR/vault-file/." "$cid:/vault/file"; then
+    echo "  ERROR: docker cp failed for vault-file; restarting vault anyway"
+  fi
   $COMPOSE start vault
   echo "  ✓ Vault file storage restored (unseal required)"
 else
@@ -72,13 +81,13 @@ fi
 # ---------- 3. MinIO ----------
 if [ -d "$BACKUP_DIR/minio" ]; then
   echo "[3/5] Restoring MinIO buckets..."
+  cid=$($COMPOSE ps -q minio)
+  $COMPOSE exec -T minio mc alias set local http://localhost:9000 \
+    "${SMAP_MINIO_ROOT_USER:-minioadmin}" "${SMAP_MINIO_ROOT_PASSWORD:-minioadmin}" \
+    --quiet 2>/dev/null || true
   for bucket in chat-uploads rag-sources exports; do
     if [ -d "$BACKUP_DIR/minio/$bucket" ]; then
-      cid=$($COMPOSE ps -q minio)
       docker cp "$BACKUP_DIR/minio/$bucket" "$cid:/tmp/restore-$bucket"
-      $COMPOSE exec -T minio mc alias set local http://localhost:9000 \
-        "${MINIO_ROOT_USER:-minioadmin}" "${MINIO_ROOT_PASSWORD:-minioadmin}" \
-        --quiet 2>/dev/null || true
       $COMPOSE exec -T minio mc mirror --overwrite --quiet \
         "/tmp/restore-$bucket" "local/$bucket" 2>/dev/null || true
       $COMPOSE exec -T minio rm -rf "/tmp/restore-$bucket" 2>/dev/null || true
@@ -95,11 +104,14 @@ if [ -f "$BACKUP_DIR/neo4j.dump" ] || [ -d "$BACKUP_DIR/neo4j-dump" ]; then
   $COMPOSE stop neo4j
   cid=$($COMPOSE ps -q neo4j)
   if [ -f "$BACKUP_DIR/neo4j.dump" ]; then
-    docker cp "$BACKUP_DIR/neo4j.dump" "$cid:/tmp/neo4j.dump"
-    $COMPOSE run --rm --no-deps neo4j neo4j-admin database load \
-      --from-path=/tmp neo4j --overwrite-destination 2>/dev/null || \
-    $COMPOSE run --rm --no-deps neo4j neo4j-admin load \
-      --database=neo4j --from=/tmp/neo4j.dump --force 2>/dev/null || true
+    if ! docker cp "$BACKUP_DIR/neo4j.dump" "$cid:/tmp/neo4j.dump"; then
+      echo "  ERROR: docker cp failed for neo4j.dump; restarting neo4j anyway"
+    else
+      $COMPOSE run --rm --no-deps neo4j neo4j-admin database load \
+        --from-path=/tmp neo4j --overwrite-destination 2>/dev/null || \
+      $COMPOSE run --rm --no-deps neo4j neo4j-admin load \
+        --database=neo4j --from=/tmp/neo4j.dump --force 2>/dev/null || true
+    fi
   fi
   $COMPOSE start neo4j
   echo "  ✓ Neo4j restored"
@@ -112,7 +124,9 @@ if [ -f "$BACKUP_DIR/redis.rdb" ]; then
   echo "[5/5] Restoring Redis..."
   $COMPOSE stop redis
   cid=$($COMPOSE ps -q redis)
-  docker cp "$BACKUP_DIR/redis.rdb" "$cid:/data/dump.rdb"
+  if ! docker cp "$BACKUP_DIR/redis.rdb" "$cid:/data/dump.rdb"; then
+    echo "  ERROR: docker cp failed for redis.rdb; restarting redis anyway"
+  fi
   $COMPOSE start redis
   echo "  ✓ Redis restored"
 else

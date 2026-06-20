@@ -19,6 +19,8 @@ import os
 import uuid
 from pathlib import Path
 
+from sqlalchemy.exc import IntegrityError
+
 from contexts.agents.domain.models import (
     AgentModelHint,
     ContextMode,
@@ -123,7 +125,7 @@ async def seed_test_users(*, app_env: str) -> None:
             await admins.promote(user_id=admin_user_id, promoted_by=None)
             logger.info("seed: promoted admin user %s", seeds[1][0])
         except Exception:
-            logger.debug("seed: admin promotion skipped (already admin or table missing)")
+            logger.warning("seed: admin promotion failed for %s", seeds[1][0], exc_info=True)
 
         await _seed_fixtures(db, regular_user_id, seed_ids)
 
@@ -176,19 +178,33 @@ async def _seed_fixtures(
             if agent_list:
                 seed_ids["E2E_AGENT_ID"] = str(agent_list[0].id)
 
-        seed_ids["E2E_HAS_NOTIFICATIONS"] = "1"
-        return
+        required = {
+            "E2E_PROJECT_ID",
+            "E2E_WORKSPACE_ID",
+            "E2E_CHATROOM_ID",
+            "E2E_AGENT_ID",
+            "E2E_WORKFLOW_ID",
+        }
+        if required.issubset(seed_ids):
+            seed_ids["E2E_HAS_NOTIFICATIONS"] = "1"
+            return
 
-    org = await orgs.create(name="E2E Test Org", creator_user_id=user_id)
+        logger.warning(
+            "seed: org exists but intermediate fixtures missing (%s), recreating", required - seed_ids.keys()
+        )
+
+    if e2e_org is None:
+        org = await orgs.create(name="E2E Test Org", creator_user_id=user_id)
+        logger.info("seed: created org %s", org.id)
+        await org_members.add(
+            org_id=org.id,
+            user_id=user_id,
+            role=OrgMemberRole.OWNER,
+            is_original_creator=True,
+        )
+    else:
+        org = e2e_org
     seed_ids["E2E_ORG_ID"] = str(org.id)
-    logger.info("seed: created org %s", org.id)
-
-    await org_members.add(
-        org_id=org.id,
-        user_id=user_id,
-        role=OrgMemberRole.OWNER,
-        is_original_creator=True,
-    )
 
     project = await projects.create(
         name="E2E Test Project",
@@ -199,11 +215,14 @@ async def _seed_fixtures(
     seed_ids["E2E_PROJECT_ID"] = str(project.id)
     logger.info("seed: created project %s", project.id)
 
-    await project_members.add(
-        project_id=project.id,
-        user_id=user_id,
-        role=ProjectMemberRole.OWNER,
-    )
+    try:
+        await project_members.add(
+            project_id=project.id,
+            user_id=user_id,
+            role=ProjectMemberRole.OWNER,
+        )
+    except IntegrityError:
+        logger.debug("seed: project member already exists, skipping")
 
     workspace = await workspaces.create(
         project_id=project.id,
@@ -257,12 +276,13 @@ async def _seed_fixtures(
 
 def _write_seed_ids(seed_ids: dict[str, str]) -> None:
     """Write seed IDs as KEY=VALUE lines for shell sourcing."""
+    lines = [f"{k}={v}" for k, v in sorted(seed_ids.items())]
     try:
-        lines = [f"{k}={v}" for k, v in sorted(seed_ids.items())]
         _SEED_IDS_PATH.write_text("\n".join(lines) + "\n", encoding="utf-8")
         logger.info("seed: wrote %d IDs to %s", len(lines), _SEED_IDS_PATH)
     except OSError:
-        logger.warning("seed: could not write %s (non-fatal)", _SEED_IDS_PATH)
+        logger.error("seed: FAILED to write %s — E2E tests will skip", _SEED_IDS_PATH)
+        raise
 
 
 __all__ = ["seed_test_users"]
