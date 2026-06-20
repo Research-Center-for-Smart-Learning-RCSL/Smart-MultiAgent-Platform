@@ -491,6 +491,26 @@ jobs:
           done
           echo "backend never became ready"; exit 1
 
+      # The seed routine writes seeded entity IDs to /tmp/e2e-seed-ids.env
+      # inside the backend-web container. Extract them so Playwright specs
+      # can use them instead of skipping.
+      - name: Export seeded fixture IDs
+        id: seed-ids
+        working-directory: .
+        run: |
+          cid=$(docker compose \
+            -f deploy/compose/docker-compose.yml \
+            -f deploy/compose/compose.test.yml \
+            ps -q backend-web | head -1)
+          docker cp "$cid:/tmp/e2e-seed-ids.env" /tmp/e2e-seed-ids.env 2>/dev/null || true
+          if [ -f /tmp/e2e-seed-ids.env ]; then
+            echo "Seed IDs found:"
+            cat /tmp/e2e-seed-ids.env
+            cat /tmp/e2e-seed-ids.env >> "$GITHUB_ENV"
+          else
+            echo "No seed IDs file found — E2E tests will skip fixture-dependent specs"
+          fi
+
       - name: Run E2E tests
         run: pnpm run test:e2e
 
@@ -521,6 +541,37 @@ jobs:
             down -v
 
   # ──────────────────────────────────────────────
+  # Compose config validation — prod overlay (D4)
+  # ──────────────────────────────────────────────
+  # Validates that the production compose overlay renders without errors.
+  # Catches missing env-var references, invalid YAML, and service name typos
+  # that would only surface at deploy time.
+  compose-validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+      - name: Validate dev compose
+        run: docker compose -f deploy/compose/docker-compose.yml config > /dev/null
+      - name: Validate prod overlay
+        env:
+          SMAP_DB_PASSWORD: validate
+          SMAP_REDIS_PASSWORD: validate
+          SMAP_MINIO_ROOT_USER: validate
+          SMAP_MINIO_ROOT_PASSWORD: validate
+        run: |
+          docker compose \
+            -f deploy/compose/docker-compose.yml \
+            -f deploy/compose/docker-compose.prod.yml \
+            config > /dev/null
+      - name: Validate test overlay
+        run: |
+          docker compose \
+            -f deploy/compose/docker-compose.yml \
+            -f deploy/compose/compose.test.yml \
+            config > /dev/null
+
+  # ──────────────────────────────────────────────
   # Gate — aggregates all checks (B2-6)
   # ──────────────────────────────────────────────
   # Branch protection should reference this single job instead of each
@@ -538,6 +589,7 @@ jobs:
       - backend-wiring
       - sandbox-images
       - dependency-audit
+      - compose-validate
       - frontend-lint
       - frontend-gate-global-css
       - frontend-gate-view-tests
@@ -558,6 +610,7 @@ jobs:
           echo "  backend-wiring:             ${{ needs.backend-wiring.result }}"
           echo "  sandbox-images:             ${{ needs.sandbox-images.result }}"
           echo "  dependency-audit:           ${{ needs.dependency-audit.result }}"
+          echo "  compose-validate:           ${{ needs.compose-validate.result }}"
           echo "  frontend-lint:              ${{ needs.frontend-lint.result }}"
           echo "  frontend-gate-global-css:   ${{ needs.frontend-gate-global-css.result }}"
           echo "  frontend-gate-view-tests:   ${{ needs.frontend-gate-view-tests.result }}"
@@ -577,6 +630,7 @@ jobs:
             "${{ needs.backend-wiring.result }}" \
             "${{ needs.sandbox-images.result }}" \
             "${{ needs.dependency-audit.result }}" \
+            "${{ needs.compose-validate.result }}" \
             "${{ needs.frontend-lint.result }}" \
             "${{ needs.frontend-gate-global-css.result }}" \
             "${{ needs.frontend-gate-view-tests.result }}" \

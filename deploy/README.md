@@ -32,7 +32,7 @@ Key `.env` variables:
 **Dev (self-signed):** The compose stack auto-generates a self-signed cert on
 first boot. No action needed.
 
-**Production:** Mount real certificates into the `nginx_certs` volume:
+**Production — nginx (external):** Mount real certificates into the `nginx_certs` volume:
 
 ```bash
 docker volume create smap_nginx_certs
@@ -42,6 +42,20 @@ docker run --rm -v smap_nginx_certs:/certs -v /path/to/certs:/src:ro alpine \
 ```
 
 See `deploy/compose/nginx/README.md` for details.
+
+**Production — Vault internal TLS:** The prod overlay runs Vault on HTTPS.
+Generate the internal CA + cert pair **before** starting the prod stack:
+
+```bash
+cd deploy/vault
+bash gen-internal-tls.sh          # writes to deploy/vault/certs/
+ls certs/                         # vault-internal-ca.pem, vault-internal.crt, vault-internal.key
+```
+
+The prod overlay bind-mounts `deploy/vault/certs/` into both Vault and the
+backend containers. The CA PEM is set via `SMAP_VAULT_CA_CERT` so the backend
+trusts the self-signed Vault cert. These files are gitignored — regenerate
+them on each host.
 
 ---
 
@@ -269,6 +283,30 @@ pnpm run test:e2e
 
 The test compose uses Vault dev mode, a separate `smap_test` database, and
 seeds fixture data on startup. See `compose.test.yml` for details.
+
+---
+
+## 11. Backup and restore
+
+Scripts under `deploy/scripts/`:
+
+```bash
+# Create a timestamped backup of all stateful services:
+bash deploy/scripts/backup.sh                    # → ./backups/2026-06-20_143000/
+bash deploy/scripts/backup.sh /mnt/backups/smap  # custom path
+
+# Restore from a backup (DESTRUCTIVE — replaces all data):
+bash deploy/scripts/restore.sh ./backups/2026-06-20_143000/
+```
+
+**What is backed up:** Postgres (pg_dump), Vault (raft snapshot or file copy),
+MinIO (all 3 buckets), Neo4j (database dump), Redis (dump.rdb).
+
+**What is NOT backed up:** Vault unseal keys (operator responsibility — store
+offline per `deploy/vault/README.md` §2), Qdrant (re-indexed from RAG sources).
+
+Schedule backups via cron on the host — daily at minimum, hourly for
+production. Test restores quarterly.
 
 ---
 
