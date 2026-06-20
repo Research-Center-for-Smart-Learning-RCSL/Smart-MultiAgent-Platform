@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 export interface MemberItem {
@@ -9,8 +8,10 @@ export interface MemberItem {
   is_original_creator?: boolean
 }
 
-withDefaults(defineProps<{
+const props = withDefaults(defineProps<{
   members: MemberItem[]
+  inviteEmail: string
+  inviteRole: 'owner' | 'member'
   isLoading?: boolean
   invitePending?: boolean
   errors?: Record<string, string>
@@ -21,38 +22,41 @@ withDefaults(defineProps<{
 })
 
 const emit = defineEmits<{
-  invite: [payload: { email: string; role: 'owner' | 'member' }]
+  invite: []
   remove: [userId: string]
   'change-role': [payload: { userId: string; role: 'owner' | 'member' }]
+  'update:inviteEmail': [value: string]
+  'update:inviteRole': [value: 'owner' | 'member']
 }>()
 
 const { t } = useI18n()
-const inviteEmail = ref('')
-const inviteRole = ref<'owner' | 'member'>('member')
-
-function onInvite(): void {
-  if (!inviteEmail.value.trim()) return
-  emit('invite', { email: inviteEmail.value.trim(), role: inviteRole.value })
-  inviteEmail.value = ''
-}
 </script>
 
 <template>
   <section>
-    <form @submit.prevent="onInvite">
+    <form @submit.prevent="$emit('invite')">
       <label>
         {{ t('tenancy.members.inviteLabel') }}
         <input
-          v-model="inviteEmail"
+          :value="inviteEmail"
           type="email"
           required
           :disabled="invitePending"
+          @input="emit('update:inviteEmail', ($event.target as HTMLInputElement).value)"
         >
       </label>
+      <p
+        v-if="props.errors.email"
+        class="field-error"
+        role="alert"
+      >
+        {{ props.errors.email }}
+      </p>
       <select
-        v-model="inviteRole"
+        :value="inviteRole"
         :aria-label="t('tenancy.members.role')"
         :disabled="invitePending"
+        @change="emit('update:inviteRole', ($event.target as HTMLSelectElement).value as 'owner' | 'member')"
       >
         <option value="member">
           {{ t('tenancy.members.roleMember') }}
@@ -70,7 +74,7 @@ function onInvite(): void {
     </form>
 
     <p v-if="isLoading">
-      {{ t('app.loading') ?? 'Loading...' }}
+      {{ t('app.save') }}…
     </p>
 
     <ul v-else>

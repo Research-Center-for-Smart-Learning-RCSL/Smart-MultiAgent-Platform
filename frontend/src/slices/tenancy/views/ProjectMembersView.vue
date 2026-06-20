@@ -11,6 +11,9 @@ const route = useRoute()
 const toast = useToast()
 const { confirm } = useConfirmDialog()
 const members = ref<ProjectMember[]>([])
+const inviteEmail = ref('')
+const inviteRole = ref<'owner' | 'member'>('member')
+const invitePending = ref(false)
 
 function projectId(): string {
   return route.params.id as string
@@ -25,11 +28,17 @@ async function load(): Promise<void> {
   }
 }
 
-async function onInvite(payload: { email: string; role: 'owner' | 'member' }): Promise<void> {
+async function onInvite(): Promise<void> {
+  if (!inviteEmail.value.trim()) return
+  invitePending.value = true
   try {
-    await projectsApi.invite(projectId(), payload.email, payload.role)
+    await projectsApi.invite(projectId(), inviteEmail.value.trim(), inviteRole.value)
+    inviteEmail.value = ''
+    await load()
   } catch {
     toast.error(t('tenancy.members.inviteError'))
+  } finally {
+    invitePending.value = false
   }
 }
 
@@ -60,7 +69,10 @@ onMounted(load)
   <main>
     <h1>{{ $t('tenancy.members.title') }}</h1>
     <MemberListPanel
+      v-model:invite-email="inviteEmail"
+      v-model:invite-role="inviteRole"
       :members="members"
+      :invite-pending="invitePending"
       @invite="onInvite"
       @remove="onRemove"
       @change-role="onChangeRole"

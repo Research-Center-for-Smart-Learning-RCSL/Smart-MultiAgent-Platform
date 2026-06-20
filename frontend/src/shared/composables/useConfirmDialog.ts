@@ -1,11 +1,14 @@
-import { reactive } from 'vue'
+import { reactive, watch } from 'vue'
+import { useRouter } from 'vue-router'
+
+export type DialogVariant = 'warning' | 'error' | 'info'
 
 export interface ConfirmOptions {
   title: string
   message: string
   confirmLabel?: string
   cancelLabel?: string
-  variant?: 'warning' | 'error' | 'info'
+  variant?: DialogVariant
 }
 
 export interface PromptOptions extends ConfirmOptions {
@@ -19,13 +22,12 @@ interface DialogState {
   message: string
   confirmLabel: string
   cancelLabel: string
-  variant: 'warning' | 'error' | 'info'
+  variant: DialogVariant
   promptMode: boolean
   inputValue: string
   inputPattern: RegExp | null
   inputErrorMessage: string
   inputError: string
-  resolve: ((value: boolean | string | null) => void) | null
 }
 
 const state: DialogState = reactive({
@@ -40,20 +42,34 @@ const state: DialogState = reactive({
   inputPattern: null,
   inputErrorMessage: '',
   inputError: '',
-  resolve: null,
 })
+
+let pendingResolve: ((value: boolean | string | null) => void) | null = null
+
+function dismissPending() {
+  if (pendingResolve) {
+    const prev = pendingResolve
+    pendingResolve = null
+    prev(state.promptMode ? null : false)
+  }
+}
 
 function resetState() {
   state.open = false
+  state.title = ''
+  state.message = ''
+  state.confirmLabel = ''
+  state.cancelLabel = ''
+  state.variant = 'warning'
   state.promptMode = false
   state.inputValue = ''
   state.inputPattern = null
   state.inputErrorMessage = ''
   state.inputError = ''
-  state.resolve = null
 }
 
 function openDialog(options: ConfirmOptions) {
+  dismissPending()
   state.title = options.title
   state.message = options.message
   state.confirmLabel = options.confirmLabel ?? ''
@@ -66,7 +82,7 @@ function confirm(options: ConfirmOptions): Promise<boolean> {
   return new Promise((resolve) => {
     openDialog(options)
     state.promptMode = false
-    state.resolve = resolve as (value: boolean | string | null) => void
+    pendingResolve = resolve as (value: boolean | string | null) => void
   })
 }
 
@@ -78,7 +94,7 @@ function prompt(options: PromptOptions): Promise<string | null> {
     state.inputPattern = options.inputPattern ?? null
     state.inputErrorMessage = options.inputErrorMessage ?? ''
     state.inputError = ''
-    state.resolve = resolve as (value: boolean | string | null) => void
+    pendingResolve = resolve as (value: boolean | string | null) => void
   })
 }
 
@@ -88,18 +104,36 @@ function handleConfirm() {
       state.inputError = state.inputErrorMessage
       return
     }
-    state.resolve?.(state.inputValue)
+    pendingResolve?.(state.inputValue)
   } else {
-    state.resolve?.(true)
+    pendingResolve?.(true)
   }
+  pendingResolve = null
   resetState()
 }
 
 function handleCancel() {
-  state.resolve?.(state.promptMode ? null : false)
+  pendingResolve?.(state.promptMode ? null : false)
+  pendingResolve = null
   resetState()
 }
 
+let navGuardInstalled = false
+
 export function useConfirmDialog() {
+  if (!navGuardInstalled) {
+    navGuardInstalled = true
+    try {
+      const router = useRouter()
+      watch(() => router.currentRoute.value.path, () => {
+        if (state.open) {
+          dismissPending()
+          resetState()
+        }
+      })
+    } catch {
+      // called outside component context (e.g. errorHandler) — no nav guard needed
+    }
+  }
   return { state, confirm, prompt, handleConfirm, handleCancel }
 }

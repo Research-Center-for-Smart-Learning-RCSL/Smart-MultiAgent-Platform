@@ -4,10 +4,10 @@ test.describe('Org → invite → accept → transfer OC', () => {
   test('create an org', async ({ authedPage: page }) => {
     await page.goto('/orgs')
     // OrgListView labels the input "New organisation" (not "name"), and the
-    // create button opens an ElMessageBox confirm before the API call.
+    // create button opens a confirm dialog before the API call.
     await page.getByRole('textbox', { name: /organisation/i }).fill('E2E Org')
     await page.getByRole('button', { name: /create/i }).click()
-    await page.locator('.el-message-box').getByRole('button', { name: /create/i }).click()
+    await page.locator('dialog.confirm-dialog').getByRole('button', { name: /create/i }).click()
     await expect(page.getByText('E2E Org')).toBeVisible()
   })
 
