@@ -52,13 +52,13 @@ fi
 # ---------- 3. MinIO ----------
 echo "[3/5] MinIO bucket mirror..."
 mkdir -p "$BACKUP_ROOT/minio"
+$COMPOSE exec -T minio mc alias set local http://localhost:9000 \
+  "${SMAP_MINIO_ROOT_USER:-minioadmin}" "${SMAP_MINIO_ROOT_PASSWORD:-minioadmin}" \
+  --quiet 2>/dev/null || true
+cid=$($COMPOSE ps -q minio)
 for bucket in chat-uploads rag-sources exports; do
-  $COMPOSE exec -T minio mc alias set local http://localhost:9000 \
-    "${MINIO_ROOT_USER:-minioadmin}" "${MINIO_ROOT_PASSWORD:-minioadmin}" \
-    --quiet 2>/dev/null || true
   $COMPOSE exec -T minio mc mirror --quiet \
     "local/$bucket" "/tmp/backup-$bucket" 2>/dev/null || true
-  cid=$($COMPOSE ps -q minio)
   docker cp "$cid:/tmp/backup-$bucket" "$BACKUP_ROOT/minio/$bucket" 2>/dev/null || true
   $COMPOSE exec -T minio rm -rf "/tmp/backup-$bucket" 2>/dev/null || true
 done
