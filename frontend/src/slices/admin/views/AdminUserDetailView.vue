@@ -20,7 +20,8 @@
 
     <AdminUserActions
       :user="query.data.value"
-      @ban="onBan"
+      :is-pending="actionPending"
+      @ban="actions.promptBan(userId)"
       @unban="actions.unbanUser.mutate(userId)"
       @soft-delete="onSoftDelete"
       @hard-delete="onHardDelete"
@@ -30,6 +31,7 @@
 </template>
 
 <script setup lang="ts">
+import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useQuery } from '@tanstack/vue-query'
 import { useRoute } from 'vue-router'
@@ -41,7 +43,7 @@ import { useImpersonation } from '../composables/useImpersonation'
 import AdminUserActions from '../components/AdminUserActions.vue'
 
 const { t } = useI18n()
-const { confirm, prompt } = useConfirmDialog()
+const { confirm } = useConfirmDialog()
 const route = useRoute()
 const userId = route.params.userId as string
 
@@ -53,18 +55,13 @@ const query = useQuery({
 const actions = useAdminActions()
 const { startImpersonation } = useImpersonation()
 
-async function onBan(): Promise<void> {
-  const reason = await prompt({
-    title: t('admin.users.banDialogTitle'),
-    message: t('admin.users.banDialogMessage'),
-    confirmLabel: t('admin.users.banDialogConfirm'),
-    cancelLabel: t('app.cancel'),
-    inputPattern: /\S+/,
-    inputErrorMessage: t('admin.users.banDialogReasonRequired'),
-    variant: 'warning',
-  })
-  if (reason) actions.banUser.mutate({ userId, reason })
-}
+const actionPending = computed(() =>
+  actions.banUser.isPending.value
+  || actions.unbanUser.isPending.value
+  || actions.softDeleteUser.isPending.value
+  || actions.hardDeleteUser.isPending.value
+  || startImpersonation.isPending.value,
+)
 
 async function onSoftDelete(): Promise<void> {
   const ok = await confirm({

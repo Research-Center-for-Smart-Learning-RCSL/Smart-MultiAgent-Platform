@@ -93,7 +93,7 @@
             <button
               v-if="user.status === 'active'"
               class="btn btn-danger btn-sm"
-              @click="onBan(user.id)"
+              @click="actions.promptBan(user.id)"
             >
               {{ $t('admin.users.ban') }}
             </button>
@@ -119,15 +119,10 @@
 
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { useI18n } from 'vue-i18n'
 import { useQuery } from '@tanstack/vue-query'
-import { useConfirmDialog } from '@shared/composables'
 import { adminApi } from '../api/admin'
 import { adminKeys } from '../queries'
 import { useAdminActions } from '../composables/useAdminActions'
-
-const { t } = useI18n()
-const { prompt } = useConfirmDialog()
 
 const searchQuery = ref('')
 const statusFilter = ref('')
@@ -151,19 +146,6 @@ const query = useQuery({
 })
 
 const actions = useAdminActions()
-
-async function onBan(userId: string): Promise<void> {
-  const reason = await prompt({
-    title: t('admin.users.banDialogTitle'),
-    message: t('admin.users.banDialogMessage'),
-    confirmLabel: t('admin.users.banDialogConfirm'),
-    cancelLabel: t('app.cancel'),
-    inputPattern: /\S+/,
-    inputErrorMessage: t('admin.users.banDialogReasonRequired'),
-    variant: 'warning',
-  })
-  if (reason) actions.banUser.mutate({ userId, reason })
-}
 </script>
 
 <style scoped>

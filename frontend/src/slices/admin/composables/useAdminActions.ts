@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient } from '@tanstack/vue-query'
 import { useI18n } from 'vue-i18n'
-import { useToast } from '@shared/composables'
+import { useConfirmDialog, useToast } from '@shared/composables'
 import { adminApi } from '../api/admin'
 import { adminKeys } from '../queries'
 
@@ -8,6 +8,20 @@ export function useAdminActions() {
   const { t } = useI18n()
   const qc = useQueryClient()
   const toast = useToast()
+  const { prompt } = useConfirmDialog()
+
+  async function promptBan(userId: string): Promise<void> {
+    const reason = await prompt({
+      title: t('admin.users.banDialogTitle'),
+      message: t('admin.users.banDialogMessage'),
+      confirmLabel: t('admin.users.banDialogConfirm'),
+      cancelLabel: t('app.cancel'),
+      inputPattern: /\S+/,
+      inputErrorMessage: t('admin.users.banDialogReasonRequired'),
+      variant: 'warning',
+    })
+    if (reason) banUser.mutate({ userId, reason })
+  }
 
   const banUser = useMutation({
     mutationFn: ({ userId, reason }: { userId: string; reason: string }) =>
@@ -85,6 +99,7 @@ export function useAdminActions() {
   })
 
   return {
+    promptBan,
     banUser,
     unbanUser,
     softDeleteUser,

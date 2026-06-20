@@ -7,6 +7,7 @@
       :value="modelValue"
       :placeholder="t('conversation.chatroom.composerPlaceholder')"
       :aria-label="t('conversation.chatroom.composerPlaceholder')"
+      :disabled="disabled"
       @input="onInput"
       @dragover.prevent
       @drop.prevent="$emit('drop', $event)"
@@ -17,7 +18,10 @@
     >
       <slot name="pending-uploads" />
     </ul>
-    <button type="submit">
+    <button
+      type="submit"
+      :disabled="disabled"
+    >
       {{ t('conversation.chatroom.send') }}
     </button>
   </form>

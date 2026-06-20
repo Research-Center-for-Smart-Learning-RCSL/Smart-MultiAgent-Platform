@@ -40,10 +40,10 @@ test.describe('Message edit/delete: author 5-min rule + admin override (M.3)', (
     await expect(deleteBtn).toBeVisible({ timeout: 5000 })
     await deleteBtn.click()
 
-    // ElMessageBox.confirm renders OK/Cancel; wait for the dialog to appear.
-    const dialog = page.locator('.el-message-box')
+    // Confirm dialog renders Cancel/Confirm; wait for the dialog to appear.
+    const dialog = page.locator('dialog.confirm-dialog')
     await expect(dialog).toBeVisible({ timeout: 3000 })
-    await dialog.getByRole('button', { name: /ok|confirm/i }).click()
+    await dialog.getByRole('button', { name: /confirm/i }).click()
     await expect(page.locator('.messages').getByText(msg)).not.toBeVisible({ timeout: 5000 })
   })
 
