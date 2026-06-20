@@ -14,6 +14,7 @@ No third-party library needed — native ``asyncio.open_connection`` suffices.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import struct
 from dataclasses import dataclass
 from typing import Protocol, runtime_checkable
@@ -93,9 +94,7 @@ def _parse_response(raw: bytes) -> ScanResult:
     raise ScanError(f"unexpected clamd response: {text}")
 
 
-def _suppress_closed():
-    import contextlib
-
+def _suppress_closed() -> contextlib.AbstractContextManager[None]:
     return contextlib.suppress(OSError, ConnectionError)
 
 

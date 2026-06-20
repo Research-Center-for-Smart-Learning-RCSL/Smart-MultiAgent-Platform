@@ -121,6 +121,7 @@ async def rag_ingest_document(ctx: dict[str, Any], *, document_id: str) -> str:
 # from the function object at job dispatch time.
 rag_ingest_document.max_tries = 3  # type: ignore[attr-defined]
 
+
 async def rag_scan_document(ctx: dict[str, Any], *, document_id: str) -> str:
     """AV scan for a RAG document (R22.15.07). Mirrors file_scan_requested."""
     _ = ctx
@@ -143,9 +144,7 @@ async def rag_scan_document(ctx: dict[str, Any], *, document_id: str) -> str:
 
     scanner = get_scanner()
     if scanner is None:
-        raise RuntimeError(
-            "file_scan_enabled is True but SMAP_SEC_CLAMAV_HOST is not set"
-        )
+        raise RuntimeError("file_scan_enabled is True but SMAP_SEC_CLAMAV_HOST is not set")
 
     settings = get_settings()
     doc_id = uuid.UUID(document_id)
@@ -159,13 +158,17 @@ async def rag_scan_document(ctx: dict[str, Any], *, document_id: str) -> str:
     if doc.size_bytes > settings.security.clamav_max_scan_bytes:
         _log.warning(
             "rag_scan_document: document %s skipped — %d bytes exceeds scan limit %d",
-            document_id, doc.size_bytes, settings.security.clamav_max_scan_bytes,
+            document_id,
+            doc.size_bytes,
+            settings.security.clamav_max_scan_bytes,
         )
         from shared_kernel.auth.clients import now as _now2
 
         async with sm() as db2, db2.begin():
             await RagDocumentRepository(db2).mark_scan(
-                document_id=doc_id, scan_status=ScanStatus.SKIPPED, scan_at=_now2(),
+                document_id=doc_id,
+                scan_status=ScanStatus.SKIPPED,
+                scan_at=_now2(),
             )
         return "skipped:too_large"
 

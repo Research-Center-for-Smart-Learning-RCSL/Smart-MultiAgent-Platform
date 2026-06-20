@@ -18,6 +18,8 @@
 # Tuning target: ≥16-core / 64 GB single host.
 # Total hard-limit sum ≈ 56 GB; remaining ~8 GB reserved for OS + Docker daemon.
 # If your host has only 32 GB, halve every memory value and drop replicas by 1.
+# NOTE: per-container CPU limit must not exceed the host's CPU count (Docker
+# rejects `cpus > nproc`). Keep individual limits ≤ 4.0 so CI runners pass.
 
 volumes:
   vault_logs:
@@ -156,8 +158,8 @@ services:
       - wal_compression=on
     deploy:
       resources:
-        limits: { cpus: "6.0", memory: 8G }
-        reservations: { cpus: "3.0", memory: 4G }
+        limits: { cpus: "4.0", memory: 8G }
+        reservations: { cpus: "2.0", memory: 4G }
 
   redis:
     restart: unless-stopped

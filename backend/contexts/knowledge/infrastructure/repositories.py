@@ -272,9 +272,7 @@ class RagDocumentRepository:
         if scan_status is ScanStatus.QUARANTINED:
             values["status"] = DocumentStatus.QUARANTINED.value
         await self._db.execute(
-            t.rag_documents.update()
-            .where(t.rag_documents.c.id == document_id)
-            .values(**values),
+            t.rag_documents.update().where(t.rag_documents.c.id == document_id).values(**values),
         )
 
     async def list_for_config(

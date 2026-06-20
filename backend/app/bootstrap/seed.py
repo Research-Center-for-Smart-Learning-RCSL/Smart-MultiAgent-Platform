@@ -18,6 +18,7 @@ import logging
 import os
 import uuid
 from pathlib import Path
+from typing import Any
 
 from sqlalchemy.exc import IntegrityError
 
@@ -54,7 +55,7 @@ logger = logging.getLogger(__name__)
 
 _SEED_IDS_PATH = Path("/tmp/e2e-seed-ids.env")  # noqa: S108 — test-only fixture output
 
-_MINIMAL_WORKFLOW_DEFINITION: dict = {
+_MINIMAL_WORKFLOW_DEFINITION: dict[str, Any] = {
     "nodes": [
         {
             "id": "trigger",

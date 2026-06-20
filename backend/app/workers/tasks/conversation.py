@@ -67,9 +67,7 @@ async def file_scan_requested(ctx: dict[str, Any], attachment_id: str) -> str:
 
     scanner = get_scanner()
     if scanner is None:
-        raise RuntimeError(
-            "file_scan_enabled is True but SMAP_SEC_CLAMAV_HOST is not set"
-        )
+        raise RuntimeError("file_scan_enabled is True but SMAP_SEC_CLAMAV_HOST is not set")
 
     settings = get_settings()
     aid = uuid.UUID(attachment_id)
@@ -84,11 +82,15 @@ async def file_scan_requested(ctx: dict[str, Any], attachment_id: str) -> str:
     if attachment.size_bytes > settings.security.clamav_max_scan_bytes:
         logger.warning(
             "file_scan: attachment %s skipped — %d bytes exceeds scan limit %d",
-            attachment_id, attachment.size_bytes, settings.security.clamav_max_scan_bytes,
+            attachment_id,
+            attachment.size_bytes,
+            settings.security.clamav_max_scan_bytes,
         )
         async with sm() as s2, s2.begin():
             await AttachmentService(s2).record_scan_result(
-                attachment_id=aid, scan_status=ScanStatus.SKIPPED, actor_ip=None,
+                attachment_id=aid,
+                scan_status=ScanStatus.SKIPPED,
+                actor_ip=None,
             )
         return "skipped:too_large"
 
