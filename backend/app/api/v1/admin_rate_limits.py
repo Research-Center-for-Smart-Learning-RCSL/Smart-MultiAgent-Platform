@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.admin_deps import require_admin
+from app.api.v1.deps import PaginationParams
 from shared_kernel import audit
 from shared_kernel.auth.context import RequestContext
 from shared_kernel.auth.dependencies import current_context
@@ -44,6 +45,7 @@ class RateLimitPatchIn(BaseModel):
 
 @router.get("/rate-limits")
 async def list_rate_limits(
+    pagination: PaginationParams = Depends(),
     _: Principal = Depends(require_admin),
     db: AsyncSession = Depends(db_session),
 ) -> list[RateLimitPolicyOut]:
@@ -53,8 +55,9 @@ async def list_rate_limits(
         await db.execute(
             sa.text(
                 "SELECT key, window_sec, max_count, scope, updated_at "
-                "FROM rate_limit_policies ORDER BY key"
-            )
+                "FROM rate_limit_policies ORDER BY key "
+                "LIMIT :limit OFFSET :offset"
+            ).bindparams(limit=pagination.limit, offset=pagination.offset)
         )
     ).all()
     return [

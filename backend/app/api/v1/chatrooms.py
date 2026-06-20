@@ -301,6 +301,7 @@ async def delete_chatroom(
 @chatroom_router.get("/{chatroom_id}/agents")
 async def list_chatroom_agents(
     chatroom_id: uuid.UUID = Path(...),
+    pagination: PaginationParams = Depends(),
     principal: Principal = Depends(current_principal),
     db: AsyncSession = Depends(db_session),
 ) -> list[AgentRef]:
@@ -314,6 +315,7 @@ async def list_chatroom_agents(
             _raise_forbidden("not a member of the project")
     service = ChatroomService(db)
     rows = await service.list_agents(chatroom_id)
+    rows = rows[pagination.offset : pagination.offset + pagination.limit]
     return [AgentRef(agent_id=r.agent_id) for r in rows]
 
 

@@ -164,11 +164,13 @@ project_router = APIRouter(
 @project_router.get("")
 async def list_rag_configs(
     project_id: uuid.UUID = Path(...),
+    pagination: PaginationParams = Depends(),
     _=Depends(require_membership(project_param="project_id")),
     db: AsyncSession = Depends(db_session),
 ) -> list[RagConfigOut]:
     service = RagConfigService(db)
     rows = await service.list_for_project(project_id)
+    rows = rows[pagination.offset : pagination.offset + pagination.limit]
     return [_to_config_out(r) for r in rows]
 
 

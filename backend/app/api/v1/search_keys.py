@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, status
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.v1.deps import PaginationParams
 from contexts.keys.application.search_service import SearchKeyService
 from contexts.keys.domain.search import SearchKey, SearchProvider
 from shared_kernel.auth.context import RequestContext
@@ -66,10 +67,13 @@ class SearchKeyOut(BaseModel):
 )
 async def list_search_keys(
     project_id: uuid.UUID,
+    pagination: PaginationParams = Depends(),
     db: AsyncSession = Depends(db_session),
 ) -> list[SearchKeyOut]:
     svc = SearchKeyService(db)
-    return [SearchKeyOut.from_domain(sk) for sk in await svc.list_for_project(project_id)]
+    rows = await svc.list_for_project(project_id)
+    rows = rows[pagination.offset : pagination.offset + pagination.limit]
+    return [SearchKeyOut.from_domain(sk) for sk in rows]
 
 
 @router.post(

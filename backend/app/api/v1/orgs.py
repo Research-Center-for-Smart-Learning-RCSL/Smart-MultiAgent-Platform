@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Path, status
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.v1.deps import PaginationParams
 from contexts.tenancy.application.invite_service import InviteService
 from contexts.tenancy.application.oc_transfer_service import OCTransferService
 
@@ -105,11 +106,13 @@ class TransferOut(BaseModel):
 
 @router.get("")
 async def list_orgs(
+    pagination: PaginationParams = Depends(),
     principal: Principal = Depends(current_principal),
     db: AsyncSession = Depends(db_session),
 ) -> list[OrgOut]:
     service = OrgService(db)
-    orgs = await service.list_for_user(principal.user_id)
+    all_orgs = await service.list_for_user(principal.user_id)
+    orgs = all_orgs[pagination.offset : pagination.offset + pagination.limit]
     return [
         OrgOut(
             id=o.id,
@@ -273,11 +276,13 @@ async def restore_org(
 @router.get("/{org_id}/members")
 async def list_members(
     org_id: uuid.UUID = Path(...),
+    pagination: PaginationParams = Depends(),
     _=Depends(require_membership(org_param="org_id")),
     db: AsyncSession = Depends(db_session),
 ) -> list[OrgMemberOut]:
     service = OrgService(db)
-    members = await service.list_members(org_id)
+    all_members = await service.list_members(org_id)
+    members = all_members[pagination.offset : pagination.offset + pagination.limit]
     user_ids = [m.user_id for m in members]
     if user_ids:
         from contexts.identity.infrastructure import tables as user_t
@@ -405,11 +410,14 @@ async def transfer_initiate(
 @router.get("/{org_id}/original-creator-transfers")
 async def transfer_list(
     org_id: uuid.UUID = Path(...),
+    pagination: PaginationParams = Depends(),
     _=Depends(require_membership(org_param="org_id")),
     db: AsyncSession = Depends(db_session),
 ) -> list[TransferOut]:
     service = OCTransferService(db)
-    return [_transfer_out(t) for t in await service.list_pending(org_id)]
+    rows = await service.list_pending(org_id)
+    rows = rows[pagination.offset : pagination.offset + pagination.limit]
+    return [_transfer_out(t) for t in rows]
 
 
 @router.post(

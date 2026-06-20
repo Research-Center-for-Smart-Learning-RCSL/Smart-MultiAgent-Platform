@@ -22,6 +22,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Path, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.v1.deps import PaginationParams
 from contexts.orchestration.application.approval_service import ApprovalService
 from contexts.orchestration.application.instruct_service import InstructService
 from contexts.orchestration.application.subagent_service import SubagentService
@@ -159,6 +160,7 @@ async def get_approval(
 )
 async def list_approvals_for_run(
     workflow_run_id: uuid.UUID = Path(...),
+    pagination: PaginationParams = Depends(),
     db: AsyncSession = Depends(db_session),
     principal: Principal = Depends(current_principal),
     resolver: RoleResolver = Depends(get_role_resolver),
@@ -169,6 +171,7 @@ async def list_approvals_for_run(
         raise _not_found("workflow run")
     await _assert_project_member(principal, project_id, resolver)
     approvals = await svc.list_for_run(workflow_run_id)
+    approvals = approvals[pagination.offset : pagination.offset + pagination.limit]
     return [_approval_out(a) for a in approvals]
 
 
@@ -200,12 +203,14 @@ async def get_instruction(
 )
 async def list_instructions_for_chain(
     chain_id: uuid.UUID = Path(...),
+    pagination: PaginationParams = Depends(),
     db: AsyncSession = Depends(db_session),
     principal: Principal = Depends(current_principal),
 ) -> list[dict[str, Any]]:
     _assert_admin(principal)
     svc = InstructService(db)
     instructions = await svc.list_for_chain(chain_id)
+    instructions = instructions[pagination.offset : pagination.offset + pagination.limit]
     return [_instruction_out(i) for i in instructions]
 
 
@@ -220,6 +225,7 @@ async def list_instructions_for_chain(
 )
 async def list_subagent_children(
     parent_instance_id: uuid.UUID = Path(...),
+    pagination: PaginationParams = Depends(),
     db: AsyncSession = Depends(db_session),
     principal: Principal = Depends(current_principal),
     resolver: RoleResolver = Depends(get_role_resolver),
@@ -230,6 +236,7 @@ async def list_subagent_children(
         raise _not_found("agent instance")
     await _assert_project_member(principal, project_id, resolver)
     children = await svc.list_children(parent_instance_id)
+    children = children[pagination.offset : pagination.offset + pagination.limit]
     return [_instance_out(c) for c in children]
 
 

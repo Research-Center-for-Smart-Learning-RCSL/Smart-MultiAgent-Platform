@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, Path, status
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.v1.deps import PaginationParams
 from contexts.conversation.application.workspace_service import WorkspaceService
 from contexts.conversation.domain.errors import WorkspaceNotFound
 from contexts.conversation.interfaces.facade import ConversationFacade
@@ -56,11 +57,13 @@ def _to_out(ws) -> WorkspaceOut:
 @project_router.get("/{project_id}/workspaces")
 async def list_workspaces(
     project_id: uuid.UUID = Path(...),
+    pagination: PaginationParams = Depends(),
     _=Depends(require_membership(project_param="project_id")),
     db: AsyncSession = Depends(db_session),
 ) -> list[WorkspaceOut]:
     service = WorkspaceService(db)
     rows = await service.list_for_project(project_id)
+    rows = rows[pagination.offset : pagination.offset + pagination.limit]
     return [_to_out(r) for r in rows]
 
 
