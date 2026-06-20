@@ -179,6 +179,8 @@ class SecuritySection(BaseSettings):
     # ``file_scan_requested`` worker marks every attachment CLEAN (no-op
     # pass). Set to True once a ClamAV or VirusTotal adapter is wired in.
     file_scan_enabled: bool = False
+    clamav_host: str | None = None
+    clamav_port: int = 3310
 
 
 class LoggingSection(BaseSettings):

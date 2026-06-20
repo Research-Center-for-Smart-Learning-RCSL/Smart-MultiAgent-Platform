@@ -62,9 +62,51 @@ async def file_scan_requested(ctx: dict[str, Any], attachment_id: str) -> str:
         _ = ctx
         return "clean"
 
-    # TODO(P15): Implement real scan path when file_scan_enabled is True.
-    # Fetch the blob, submit to ClamAV/VirusTotal, record the result.
-    raise NotImplementedError("file_scan_enabled is True but no AV adapter is configured")
+    from shared_kernel.scanning import ScanError, get_scanner
+    from shared_kernel.storage.minio_client import get_minio_client
+
+    scanner = get_scanner()
+    if scanner is None:
+        raise RuntimeError(
+            "file_scan_enabled is True but SMAP_SEC_CLAMAV_HOST is not set"
+        )
+
+    aid = uuid.UUID(attachment_id)
+    sm = get_sessionmaker()
+    async with sm() as session, session.begin():
+        service = AttachmentService(session)
+        attachment = await service._repo.get(aid)
+        if attachment is None:
+            logger.warning("file_scan: attachment %s not found", attachment_id)
+            return "not_found"
+
+    bucket, key = attachment.minio_path.split("/", 1)
+    minio = get_minio_client()
+    data = await minio.get_object(bucket=bucket, key=key)
+
+    try:
+        result = await scanner.scan(data)
+    except ScanError:
+        logger.exception("file_scan: ClamAV error for attachment %s", attachment_id)
+        raise
+
+    scan_status = ScanStatus.CLEAN if result.clean else ScanStatus.QUARANTINED
+    if not result.clean:
+        logger.warning(
+            "file_scan: attachment %s quarantined — threat=%s",
+            attachment_id,
+            result.threat_name,
+        )
+
+    async with sm() as session, session.begin():
+        service = AttachmentService(session)
+        await service.record_scan_result(
+            attachment_id=aid,
+            scan_status=scan_status,
+            actor_ip=None,
+        )
+    _ = ctx
+    return scan_status.value
 
 
 async def chat_export(

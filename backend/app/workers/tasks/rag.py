@@ -20,7 +20,7 @@ from qdrant_client import AsyncQdrantClient
 from app.config.settings import get_settings
 from contexts.keys.infrastructure.adapters import build_router
 from contexts.knowledge.application.ingest_service import IngestService
-from contexts.knowledge.domain.models import DocumentStatus
+from contexts.knowledge.domain.models import DocumentStatus, ScanStatus
 from contexts.knowledge.infrastructure.blob_store import MinioBlobStore
 from contexts.knowledge.infrastructure.channels import rag_channel
 from contexts.knowledge.infrastructure.embedders import router_embedder_for
@@ -121,4 +121,81 @@ async def rag_ingest_document(ctx: dict[str, Any], *, document_id: str) -> str:
 # from the function object at job dispatch time.
 rag_ingest_document.max_tries = 3  # type: ignore[attr-defined]
 
-__all__ = ["rag_ingest_document"]
+async def rag_scan_document(ctx: dict[str, Any], *, document_id: str) -> str:
+    """AV scan for a RAG document (R22.15.07). Mirrors file_scan_requested."""
+    _ = ctx
+
+    if not get_settings().security.file_scan_enabled:
+        doc_id = uuid.UUID(document_id)
+        sm = get_sessionmaker()
+        async with sm() as db, db.begin():
+            from shared_kernel.auth.clients import now
+
+            await RagDocumentRepository(db).mark_scan(
+                document_id=doc_id,
+                scan_status=ScanStatus.CLEAN,
+                scan_at=now(),
+            )
+        return "clean"
+
+    from shared_kernel.scanning import ScanError, get_scanner
+    from shared_kernel.storage.minio_client import get_minio_client
+
+    scanner = get_scanner()
+    if scanner is None:
+        raise RuntimeError(
+            "file_scan_enabled is True but SMAP_SEC_CLAMAV_HOST is not set"
+        )
+
+    doc_id = uuid.UUID(document_id)
+    sm = get_sessionmaker()
+    async with sm() as db:
+        doc = await RagDocumentRepository(db).get(doc_id)
+        if doc is None:
+            _log.warning("rag_scan_document: document %s not found", document_id)
+            return "not_found"
+
+    bucket, key = doc.minio_path.split("/", 1)
+    minio = get_minio_client()
+    data = await minio.get_object(bucket=bucket, key=key)
+
+    try:
+        result = await scanner.scan(data)
+    except ScanError:
+        _log.exception("rag_scan_document: ClamAV error for document %s", document_id)
+        raise
+
+    from shared_kernel import audit
+    from shared_kernel.auth.clients import now
+
+    scan_status = ScanStatus.CLEAN if result.clean else ScanStatus.QUARANTINED
+    if not result.clean:
+        _log.warning(
+            "rag_scan_document: document %s quarantined — threat=%s",
+            document_id,
+            result.threat_name,
+        )
+
+    async with sm() as db, db.begin():
+        await RagDocumentRepository(db).mark_scan(
+            document_id=doc_id,
+            scan_status=scan_status,
+            scan_at=now(),
+        )
+        if scan_status is ScanStatus.QUARANTINED:
+            await audit.emit(
+                db,
+                audit.AuditEvent(
+                    action="rag.document.quarantined",
+                    resource_type="rag_document",
+                    resource_id=doc_id,
+                    metadata={
+                        "scan_status": scan_status.value,
+                        "threat_name": result.threat_name,
+                    },
+                ),
+            )
+    return scan_status.value
+
+
+__all__ = ["rag_ingest_document", "rag_scan_document"]

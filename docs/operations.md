@@ -442,7 +442,39 @@ Operators who want full OTel telemetry:
 
 ---
 
-## 10. Version matrix (at v1.0 release)
+## 10. File scanning (ClamAV)
+
+SMAP supports optional AV scanning of uploaded files (R22.15.07). When
+disabled (default), all attachments and RAG documents are auto-approved as
+`clean`. Enable it by deploying ClamAV and setting three env vars:
+
+```bash
+# 1. Start ClamAV alongside the stack (uses Docker Compose profile)
+docker compose --profile scanning up -d
+
+# 2. Set env vars (backend-web + backend-worker)
+SMAP_SEC_FILE_SCAN_ENABLED=true
+SMAP_SEC_CLAMAV_HOST=clamav
+SMAP_SEC_CLAMAV_PORT=3310       # default, can be omitted
+```
+
+**How it works:**
+
+- Every file upload (chat attachment or RAG document) enqueues a scan task.
+- The worker fetches the blob from MinIO, sends it to ClamAV via the clamd
+  INSTREAM protocol (TCP 3310), and records the result.
+- If a threat is detected: `scan_status` is set to `quarantined`, the parent
+  resource status is set to `quarantined`, and an audit event is emitted
+  (`attachment.quarantined` / `rag.document.quarantined`).
+- Quarantined attachments return HTTP 403 on download. Quarantined RAG
+  documents are excluded from retrieval.
+
+**ClamAV resource usage:** The `clamav/clamav:1.4` image bundles both `clamd`
+and `freshclam`. Signature updates run automatically. Expect ~1 GB RAM for
+the signature database. The `clamav_db` volume persists signatures across
+restarts so cold starts don't re-download the full database.
+
+## 11. Version matrix (at v1.0 release)
 
 | Component | Pinned version |
 |---|---|

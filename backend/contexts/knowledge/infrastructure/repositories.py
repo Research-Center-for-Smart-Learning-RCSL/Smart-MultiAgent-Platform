@@ -257,6 +257,25 @@ class RagDocumentRepository:
         """
         await self._db.execute(t.rag_documents.delete().where(t.rag_documents.c.id == document_id))
 
+    async def mark_scan(
+        self,
+        *,
+        document_id: uuid.UUID,
+        scan_status: ScanStatus,
+        scan_at: Any,
+    ) -> None:
+        values: dict[str, Any] = {
+            "scan_status": scan_status.value,
+            "scan_at": scan_at,
+        }
+        if scan_status is ScanStatus.QUARANTINED:
+            values["status"] = DocumentStatus.QUARANTINED.value
+        await self._db.execute(
+            t.rag_documents.update()
+            .where(t.rag_documents.c.id == document_id)
+            .values(**values),
+        )
+
     async def list_for_config(
         self,
         rag_config_id: uuid.UUID,
