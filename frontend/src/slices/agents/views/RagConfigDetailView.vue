@@ -3,9 +3,7 @@ import { ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/vue-query'
-import { ElMessageBox } from 'element-plus'
-
-import { useToast } from '@shared/composables'
+import { useConfirmDialog, useToast } from '@shared/composables'
 import { tusUpload } from '@shared/transport'
 import { agentsApi, RAG_MULTIPART_MAX, type RagDocument } from '../api'
 import { agentKeys } from '../queries'
@@ -17,6 +15,7 @@ const qc = useQueryClient()
 const projectId = route.params.projectId as string
 const configId = route.params.configId as string
 const toast = useToast()
+const { confirm } = useConfirmDialog()
 
 // Live ingestion status (ws:rag-configs/{id}) — drives the in-flight badge and
 // refetches the document list when the worker reaches a terminal state.
@@ -88,15 +87,8 @@ const deleteMutation = useMutation({
 })
 
 async function confirmDelete(doc: RagDocument): Promise<void> {
-  try {
-    await ElMessageBox.confirm(
-      t('agents.rag.deleteConfirm', { name: doc.filename }),
-      t('agents.rag.deleteTitle'),
-      { type: 'warning' },
-    )
-  } catch {
-    return // user dismissed the confirm
-  }
+  const ok = await confirm({ title: t('agents.rag.deleteTitle'), message: t('agents.rag.deleteConfirm', { name: doc.filename }), variant: 'warning' })
+  if (!ok) return
   deleteMutation.mutate(doc.id)
 }
 

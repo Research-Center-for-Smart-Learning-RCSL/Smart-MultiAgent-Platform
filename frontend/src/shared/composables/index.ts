@@ -1,5 +1,6 @@
 export { useBanKickGuard } from './useBanKickGuard'
 export { useBreakpoint, type Breakpoint } from './useBreakpoint'
+export { useConfirmDialog, type ConfirmOptions, type PromptOptions } from './useConfirmDialog'
 export { useCsrfToken } from './useCsrfToken'
 export { useServerErrors } from './useServerErrors'
 export { useTheme, type Theme } from './useTheme'

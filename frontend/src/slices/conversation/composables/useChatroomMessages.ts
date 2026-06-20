@@ -5,9 +5,8 @@
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import { computed, nextTick, reactive, ref, watch } from 'vue'
 
-import { useToast } from '@shared/composables'
+import { useConfirmDialog, useToast } from '@shared/composables'
 import { useI18n } from 'vue-i18n'
-import { ElMessageBox } from 'element-plus'
 import { useSessionStore } from '@shared/stores/session'
 import {
   deleteMessage as apiDeleteMessage,
@@ -18,7 +17,7 @@ import {
   getAttachment,
 } from '../api'
 import { tusUpload, resourceToAttachmentId } from '@shared/transport'
-import { renderMarkdown } from '../lib/renderMarkdown'
+import { renderMarkdown } from '../utils/renderMarkdown'
 import { convKeys } from '../queries'
 import type { Attachment, Message } from '../types'
 
@@ -44,6 +43,7 @@ export function useChatroomMessages(
   const toast = useToast()
   const qc = useQueryClient()
   const session = useSessionStore()
+  const { confirm } = useConfirmDialog()
 
   const myId = computed(() => session.me?.id ?? null)
   const isAdmin = computed(() => session.me?.is_admin ?? false)
@@ -239,15 +239,12 @@ export function useChatroomMessages(
   // ---------- delete -------------------------------------------------------
 
   async function confirmDelete(m: Message): Promise<void> {
-    try {
-      await ElMessageBox.confirm(
-        t('conversation.chatroom.deleteConfirm'),
-        t('conversation.chatroom.deleteTitle'),
-        { type: 'warning' },
-      )
-    } catch {
-      return // dismissed
-    }
+    const ok = await confirm({
+      title: t('conversation.chatroom.deleteTitle'),
+      message: t('conversation.chatroom.deleteConfirm'),
+      variant: 'warning',
+    })
+    if (!ok) return
     try {
       await apiDeleteMessage(m.id)
       await qc.invalidateQueries({ queryKey: convKeys.messages(chatroomId) })

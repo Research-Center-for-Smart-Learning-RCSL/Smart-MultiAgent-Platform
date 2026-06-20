@@ -121,12 +121,13 @@
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useQuery } from '@tanstack/vue-query'
-import { ElMessageBox } from 'element-plus'
+import { useConfirmDialog } from '@shared/composables'
 import { adminApi } from '../api/admin'
 import { adminKeys } from '../queries'
 import { useAdminActions } from '../composables/useAdminActions'
 
 const { t } = useI18n()
+const { prompt } = useConfirmDialog()
 
 const searchQuery = ref('')
 const statusFilter = ref('')
@@ -152,16 +153,16 @@ const query = useQuery({
 const actions = useAdminActions()
 
 async function onBan(userId: string): Promise<void> {
-  try {
-    const { value: reason } = await ElMessageBox.prompt(
-      t('admin.users.banDialogMessage'),
-      t('admin.users.banDialogTitle'),
-      { confirmButtonText: t('admin.users.banDialogConfirm'), cancelButtonText: t('app.cancel'), inputPattern: /\S+/, inputErrorMessage: t('admin.users.banDialogReasonRequired') },
-    )
-    if (reason) actions.banUser.mutate({ userId, reason })
-  } catch {
-    // cancelled
-  }
+  const reason = await prompt({
+    title: t('admin.users.banDialogTitle'),
+    message: t('admin.users.banDialogMessage'),
+    confirmLabel: t('admin.users.banDialogConfirm'),
+    cancelLabel: t('app.cancel'),
+    inputPattern: /\S+/,
+    inputErrorMessage: t('admin.users.banDialogReasonRequired'),
+    variant: 'warning',
+  })
+  if (reason) actions.banUser.mutate({ userId, reason })
 }
 </script>
 

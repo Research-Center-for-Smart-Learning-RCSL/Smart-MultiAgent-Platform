@@ -1,5 +1,5 @@
 import type { App } from 'vue'
-import { ElMessage } from 'element-plus'
+import { toast } from 'vue-sonner'
 import { AuthError, PermissionError, ValidationError, RateLimitError, NetworkError } from '@shared/errors'
 import { router } from './router'
 
@@ -9,7 +9,7 @@ function handleError(err: unknown): boolean {
     return true
   }
   if (err instanceof PermissionError) {
-    ElMessage.error(err.detail ?? err.title)
+    toast.error(err.detail ?? err.title)
     return true
   }
   if (err instanceof ValidationError) {
@@ -17,11 +17,11 @@ function handleError(err: unknown): boolean {
   }
   if (err instanceof RateLimitError) {
     const seconds = Math.ceil(err.retryAfterMs / 1000)
-    ElMessage.warning(`Rate limited. Please retry in ${seconds}s.`)
+    toast.warning(`Rate limited. Please retry in ${seconds}s.`)
     return true
   }
   if (err instanceof NetworkError) {
-    ElMessage.error(err.detail ?? 'Network error. Please check your connection.')
+    toast.error(err.detail ?? 'Network error. Please check your connection.')
     return true
   }
   return false
@@ -31,7 +31,7 @@ export function installErrorHandler(app: App): void {
   app.config.errorHandler = (err) => {
     if (handleError(err)) return
 
-    ElMessage.error('An unexpected error occurred. Please try again.')
+    toast.error('An unexpected error occurred. Please try again.')
 
     if (import.meta.env.PROD) {
       reportError(err)

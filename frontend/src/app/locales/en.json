@@ -5,6 +5,7 @@
     "notFound": "Page not found.",
     "backToHome": "Back to home",
     "cancel": "Cancel",
+    "confirm": "Confirm",
     "save": "Save",
     "errorBoundary": {
       "title": "Something went wrong",

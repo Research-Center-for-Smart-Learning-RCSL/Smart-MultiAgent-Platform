@@ -2,14 +2,14 @@
 import { onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { ElMessageBox } from 'element-plus'
-import { useInlineRename, useToast } from '@shared/composables'
+import { useConfirmDialog, useInlineRename, useToast } from '@shared/composables'
 import { orgsApi, type Org, type OrgQuotas } from '../api/orgs'
 
 const { t } = useI18n()
 const route = useRoute()
 const router = useRouter()
 const toast = useToast()
+const { confirm } = useConfirmDialog()
 const org = ref<Org | null>(null)
 const quotas = ref<OrgQuotas | null>(null)
 const loading = ref(false)
@@ -62,15 +62,8 @@ const rename = useInlineRename({
 
 async function remove(): Promise<void> {
   if (!org.value) return
-  try {
-    await ElMessageBox.confirm(
-      t('tenancy.orgs.deleteConfirm'),
-      t('tenancy.orgs.deleteConfirmTitle'),
-      { confirmButtonText: t('tenancy.orgs.delete'), cancelButtonText: t('app.cancel'), type: 'warning' },
-    )
-  } catch {
-    return
-  }
+  const ok = await confirm({ title: t('tenancy.orgs.deleteConfirmTitle'), message: t('tenancy.orgs.deleteConfirm'), variant: 'warning', confirmLabel: t('tenancy.orgs.delete'), cancelLabel: t('app.cancel') })
+  if (!ok) return
   try {
     await orgsApi.remove(org.value.id)
     router.push({ name: 'tenancy.orgList' })

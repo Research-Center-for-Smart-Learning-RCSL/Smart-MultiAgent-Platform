@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
 import { useConfigModel } from '../../composables/useConfigModel'
-import FormField from '@shared/ui/FormField.vue'
+import FormField from '@shared/ui/SFormField.vue'
 import type { OnErrorConfig, OnErrorStrategy } from '../../types'
 
 const { t } = useI18n()

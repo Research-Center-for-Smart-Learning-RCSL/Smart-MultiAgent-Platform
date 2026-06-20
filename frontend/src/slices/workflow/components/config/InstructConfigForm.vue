@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
 import { useConfigModel, safeNumber } from '../../composables/useConfigModel'
-import FormField from '@shared/ui/FormField.vue'
+import FormField from '@shared/ui/SFormField.vue'
 import OnErrorConfigForm from './OnErrorConfigForm.vue'
 import type { OnErrorConfig } from '../../types'
 

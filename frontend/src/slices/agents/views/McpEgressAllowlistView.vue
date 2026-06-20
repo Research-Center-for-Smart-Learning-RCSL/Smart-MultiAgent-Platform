@@ -5,10 +5,8 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/vue-query'
 import { useForm } from 'vee-validate'
 import { toTypedSchema } from '@vee-validate/zod'
 import { z } from 'zod'
-import { ElMessageBox } from 'element-plus'
-
 import { FormField } from '@shared/ui'
-import { useServerErrors, useToast } from '@shared/composables'
+import { useConfirmDialog, useServerErrors, useToast } from '@shared/composables'
 import { agentsApi, type EgressAllowlistEntry } from '../api'
 import { agentKeys } from '../queries'
 
@@ -17,6 +15,7 @@ const route = useRoute()
 const qc = useQueryClient()
 const projectId = route.params.projectId as string
 const toast = useToast()
+const { confirm } = useConfirmDialog()
 
 const allowlistQuery = useQuery({
   queryKey: agentKeys.egressAllowlist(projectId),
@@ -64,15 +63,8 @@ const removeMutation = useMutation({
 })
 
 async function confirmRemove(entry: EgressAllowlistEntry): Promise<void> {
-  try {
-    await ElMessageBox.confirm(
-      t('agents.egress.removeConfirm', { host: entry.hostname }),
-      t('agents.egress.removeTitle'),
-      { type: 'warning' },
-    )
-  } catch {
-    return // dismissed
-  }
+  const ok = await confirm({ title: t('agents.egress.removeTitle'), message: t('agents.egress.removeConfirm', { host: entry.hostname }), variant: 'warning' })
+  if (!ok) return
   removeMutation.mutate(entry.hostname)
 }
 </script>

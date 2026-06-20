@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { ElMessageBox } from 'element-plus'
+import { useConfirmDialog } from '@shared/composables'
 import { orgsApi, type Org } from '../api/orgs'
 
 const { t } = useI18n()
+const { confirm } = useConfirmDialog()
 
 const orgs = ref<Org[]>([])
 const name = ref('')
@@ -30,19 +31,8 @@ async function create(): Promise<void> {
   const trimmed = name.value.trim()
   if (!trimmed || creating.value) return
 
-  try {
-    await ElMessageBox.confirm(
-      t('tenancy.orgs.createConfirm', { name: trimmed }),
-      t('tenancy.orgs.createConfirmTitle'),
-      {
-        confirmButtonText: t('tenancy.orgs.create'),
-        cancelButtonText: t('tenancy.orgs.cancel'),
-        type: 'info',
-      },
-    )
-  } catch {
-    return
-  }
+  const ok = await confirm({ title: t('tenancy.orgs.createConfirmTitle'), message: t('tenancy.orgs.createConfirm', { name: trimmed }), variant: 'info', confirmLabel: t('tenancy.orgs.create'), cancelLabel: t('tenancy.orgs.cancel') })
+  if (!ok) return
 
   createError.value = null
   creating.value = true

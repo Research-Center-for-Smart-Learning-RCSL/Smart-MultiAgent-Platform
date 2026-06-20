@@ -9,8 +9,7 @@ import type {
 } from '@vue-flow/core'
 import { computed, ref } from 'vue'
 
-import { ElMessageBox } from 'element-plus'
-import { useToast } from '@shared/composables'
+import { useConfirmDialog, useToast } from '@shared/composables'
 import { useI18n } from 'vue-i18n'
 import { NODE_DEFAULTS } from '../constants'
 import { useWorkflowStore } from '../stores/workflow'
@@ -19,6 +18,7 @@ import type { NodeType, WorkflowDefinition, WorkflowNode } from '../types'
 export function useWorkflowEditor() {
   const { t } = useI18n()
   const toast = useToast()
+  const { confirm } = useConfirmDialog()
   const store = useWorkflowStore()
 
   const definition = ref<WorkflowDefinition>({
@@ -127,15 +127,13 @@ export function useWorkflowEditor() {
       toast.error(t('workflow.config.cannotDeleteTrigger'))
       return
     }
-    try {
-      await ElMessageBox.confirm(
-        t('workflow.config.deleteConfirm'),
-        t('workflow.config.deleteConfirmTitle'),
-        { confirmButtonText: t('workflow.config.deleteNode'), type: 'warning' },
-      )
-    } catch {
-      return
-    }
+    const ok = await confirm({
+      title: t('workflow.config.deleteConfirmTitle'),
+      message: t('workflow.config.deleteConfirm'),
+      confirmLabel: t('workflow.config.deleteNode'),
+      variant: 'warning',
+    })
+    if (!ok) return
     store.pushUndo(flowToDef())
     flowNodes.value = flowNodes.value.filter((n) => n.id !== nodeId)
     flowEdges.value = flowEdges.value.filter((e) => e.source !== nodeId && e.target !== nodeId)

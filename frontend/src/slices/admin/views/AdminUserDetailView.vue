@@ -18,43 +18,14 @@
       <dt>{{ $t('admin.userDetail.projects') }}</dt><dd>{{ query.data.value.project_ids.length }}</dd>
     </dl>
 
-    <div class="admin-user-detail__actions">
-      <button
-        v-if="query.data.value.status === 'active'"
-        class="btn btn-danger"
-        @click="onBan"
-      >
-        {{ $t('admin.users.ban') }}
-      </button>
-      <button
-        v-if="query.data.value.status === 'banned'"
-        class="btn"
-        @click="actions.unbanUser.mutate(userId)"
-      >
-        {{ $t('admin.users.unban') }}
-      </button>
-      <button
-        v-if="query.data.value.status === 'active'"
-        class="btn btn-danger"
-        @click="onSoftDelete"
-      >
-        {{ $t('admin.userDetail.softDelete') }}
-      </button>
-      <button
-        v-if="query.data.value.deleted_at"
-        class="btn btn-danger"
-        @click="onHardDelete"
-      >
-        {{ $t('admin.userDetail.hardDelete') }}
-      </button>
-      <button
-        v-if="query.data.value.status === 'active'"
-        class="btn"
-        @click="onImpersonate"
-      >
-        {{ $t('admin.userDetail.impersonate') }}
-      </button>
-    </div>
+    <AdminUserActions
+      :user="query.data.value"
+      @ban="onBan"
+      @unban="actions.unbanUser.mutate(userId)"
+      @soft-delete="onSoftDelete"
+      @hard-delete="onHardDelete"
+      @impersonate="onImpersonate"
+    />
   </section>
 </template>
 
@@ -62,13 +33,15 @@
 import { useI18n } from 'vue-i18n'
 import { useQuery } from '@tanstack/vue-query'
 import { useRoute } from 'vue-router'
-import { ElMessageBox } from 'element-plus'
+import { useConfirmDialog } from '@shared/composables'
 import { adminApi } from '../api/admin'
 import { adminKeys } from '../queries'
 import { useAdminActions } from '../composables/useAdminActions'
 import { useImpersonation } from '../composables/useImpersonation'
+import AdminUserActions from '../components/AdminUserActions.vue'
 
 const { t } = useI18n()
+const { confirm, prompt } = useConfirmDialog()
 const route = useRoute()
 const userId = route.params.userId as string
 
@@ -81,60 +54,56 @@ const actions = useAdminActions()
 const { startImpersonation } = useImpersonation()
 
 async function onBan(): Promise<void> {
-  try {
-    const { value: reason } = await ElMessageBox.prompt(
-      t('admin.users.banDialogMessage'),
-      t('admin.users.banDialogTitle'),
-      { confirmButtonText: t('admin.users.banDialogConfirm'), cancelButtonText: t('app.cancel'), inputPattern: /\S+/, inputErrorMessage: t('admin.users.banDialogReasonRequired') },
-    )
-    if (reason) actions.banUser.mutate({ userId, reason })
-  } catch {
-    // cancelled
-  }
+  const reason = await prompt({
+    title: t('admin.users.banDialogTitle'),
+    message: t('admin.users.banDialogMessage'),
+    confirmLabel: t('admin.users.banDialogConfirm'),
+    cancelLabel: t('app.cancel'),
+    inputPattern: /\S+/,
+    inputErrorMessage: t('admin.users.banDialogReasonRequired'),
+    variant: 'warning',
+  })
+  if (reason) actions.banUser.mutate({ userId, reason })
 }
 
 async function onSoftDelete(): Promise<void> {
-  try {
-    await ElMessageBox.confirm(
-      t('admin.userDetail.softDeleteMessage'),
-      t('admin.userDetail.softDeleteTitle'),
-      { confirmButtonText: t('admin.userDetail.softDeleteConfirm'), cancelButtonText: t('app.cancel'), type: 'warning' },
-    )
-    actions.softDeleteUser.mutate(userId)
-  } catch {
-    // cancelled
-  }
+  const ok = await confirm({
+    title: t('admin.userDetail.softDeleteTitle'),
+    message: t('admin.userDetail.softDeleteMessage'),
+    confirmLabel: t('admin.userDetail.softDeleteConfirm'),
+    cancelLabel: t('app.cancel'),
+    variant: 'warning',
+  })
+  if (!ok) return
+  actions.softDeleteUser.mutate(userId)
 }
 
 async function onHardDelete(): Promise<void> {
-  try {
-    await ElMessageBox.confirm(
-      t('admin.userDetail.hardDeleteMessage'),
-      t('admin.userDetail.hardDeleteTitle'),
-      { confirmButtonText: t('admin.userDetail.hardDeleteConfirm'), cancelButtonText: t('app.cancel'), type: 'error' },
-    )
-    actions.hardDeleteUser.mutate(userId)
-  } catch {
-    // cancelled
-  }
+  const ok = await confirm({
+    title: t('admin.userDetail.hardDeleteTitle'),
+    message: t('admin.userDetail.hardDeleteMessage'),
+    confirmLabel: t('admin.userDetail.hardDeleteConfirm'),
+    cancelLabel: t('app.cancel'),
+    variant: 'error',
+  })
+  if (!ok) return
+  actions.hardDeleteUser.mutate(userId)
 }
 
 async function onImpersonate(): Promise<void> {
-  try {
-    await ElMessageBox.confirm(
-      t('admin.userDetail.impersonateMessage'),
-      t('admin.userDetail.impersonateTitle'),
-      { confirmButtonText: t('admin.userDetail.impersonateConfirm'), cancelButtonText: t('app.cancel'), type: 'warning' },
-    )
-    startImpersonation.mutate(userId)
-  } catch {
-    // cancelled
-  }
+  const ok = await confirm({
+    title: t('admin.userDetail.impersonateTitle'),
+    message: t('admin.userDetail.impersonateMessage'),
+    confirmLabel: t('admin.userDetail.impersonateConfirm'),
+    cancelLabel: t('app.cancel'),
+    variant: 'warning',
+  })
+  if (!ok) return
+  startImpersonation.mutate(userId)
 }
 </script>
 
 <style scoped>
 dl { display: grid; grid-template-columns: 12rem 1fr; gap: 0.25rem 1rem; }
 dt { font-weight: 600; }
-.admin-user-detail__actions { display: flex; gap: 0.5rem; margin-top: 1rem; }
 </style>

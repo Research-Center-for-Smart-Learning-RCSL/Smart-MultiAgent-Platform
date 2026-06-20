@@ -6,7 +6,7 @@ import { computed, ref } from 'vue'
 import { useToast } from '@shared/composables'
 import { useI18n } from 'vue-i18n'
 import { searchMessages } from '../api'
-import { sanitizeSnippet } from '../lib/renderMarkdown'
+import { sanitizeSnippet } from '../utils/renderMarkdown'
 import type { SearchHit } from '../types'
 
 export function useChatroomSearch(chatroomId: string) {

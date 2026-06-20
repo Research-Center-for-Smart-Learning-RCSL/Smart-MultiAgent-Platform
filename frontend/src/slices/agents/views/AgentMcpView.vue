@@ -5,10 +5,8 @@ import { useI18n } from 'vue-i18n'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/vue-query'
 import { useForm } from 'vee-validate'
 import { toTypedSchema } from '@vee-validate/zod'
-import { ElMessageBox } from 'element-plus'
-
 import { FormField } from '@shared/ui'
-import { useServerErrors, useToast } from '@shared/composables'
+import { useConfirmDialog, useServerErrors, useToast } from '@shared/composables'
 import { agentsApi, type McpBinding, type McpTestResult } from '../api'
 import { agentKeys } from '../queries'
 import { mcpBindingCreateSchema, type McpBindingCreateInput } from '../types/schemas'
@@ -17,6 +15,7 @@ const { t } = useI18n()
 const route = useRoute()
 const qc = useQueryClient()
 const toast = useToast()
+const { confirm } = useConfirmDialog()
 const agentId = route.params.agentId as string
 
 // The three built-in tool names a `builtin`-source binding can reference.
@@ -121,15 +120,8 @@ const deleteMutation = useMutation({
 })
 
 async function confirmDelete(b: McpBinding): Promise<void> {
-  try {
-    await ElMessageBox.confirm(
-      t('agents.mcp.deleteConfirm', { ref: b.reference }),
-      t('agents.mcp.deleteTitle'),
-      { type: 'warning' },
-    )
-  } catch {
-    return // dismissed
-  }
+  const ok = await confirm({ title: t('agents.mcp.deleteTitle'), message: t('agents.mcp.deleteConfirm', { ref: b.reference }), variant: 'warning' })
+  if (!ok) return
   deleteMutation.mutate(b.id)
 }
 </script>

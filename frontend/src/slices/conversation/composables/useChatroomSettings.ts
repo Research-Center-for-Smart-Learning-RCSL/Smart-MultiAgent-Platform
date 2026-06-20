@@ -5,8 +5,7 @@ import { useQueryClient } from '@tanstack/vue-query'
 import { reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 
-import { ElMessageBox } from 'element-plus'
-import { useToast } from '@shared/composables'
+import { useConfirmDialog, useToast } from '@shared/composables'
 import { useI18n } from 'vue-i18n'
 import { ApiError } from '@shared/errors'
 import {
@@ -19,6 +18,7 @@ import type { Chatroom } from '../types'
 export function useChatroomSettings(chatroomId: string) {
   const { t } = useI18n()
   const toast = useToast()
+  const { confirm } = useConfirmDialog()
   const router = useRouter()
   const qc = useQueryClient()
 
@@ -106,19 +106,14 @@ export function useChatroomSettings(chatroomId: string) {
   }
 
   async function onDelete(): Promise<void> {
-    try {
-      await ElMessageBox.confirm(
-        t('conversation.settings.deleteConfirm'),
-        t('conversation.settings.deleteConfirmTitle'),
-        {
-          confirmButtonText: t('conversation.settings.delete'),
-          cancelButtonText: t('app.cancel'),
-          type: 'warning',
-        },
-      )
-    } catch {
-      return
-    }
+    const ok = await confirm({
+      title: t('conversation.settings.deleteConfirmTitle'),
+      message: t('conversation.settings.deleteConfirm'),
+      confirmLabel: t('conversation.settings.delete'),
+      cancelLabel: t('app.cancel'),
+      variant: 'warning',
+    })
+    if (!ok) return
     try {
       await deleteChatroom(chatroomId)
     } catch {

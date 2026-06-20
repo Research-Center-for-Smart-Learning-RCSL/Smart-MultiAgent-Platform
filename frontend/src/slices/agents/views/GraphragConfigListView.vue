@@ -5,11 +5,9 @@ import { useI18n } from 'vue-i18n'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/vue-query'
 import { useForm } from 'vee-validate'
 import { toTypedSchema } from '@vee-validate/zod'
-import { ElMessageBox } from 'element-plus'
-
 import { FormField } from '@shared/ui'
-import { useServerErrors, usePolling, useToast } from '@shared/composables'
-import { keyGroupsApi, keysKeys } from '@shared/composables/useProjectKeys'
+import { useConfirmDialog, useServerErrors, usePolling, useToast } from '@shared/composables'
+import { keyGroupsApi, keysKeys } from '@slices/keys'
 import { agentsApi, type GraphragConfig } from '../api'
 import { agentKeys } from '../queries'
 import {
@@ -22,6 +20,7 @@ const route = useRoute()
 const qc = useQueryClient()
 const projectId = route.params.projectId as string
 const toast = useToast()
+const { confirm } = useConfirmDialog()
 
 const showForm = ref(false)
 
@@ -165,15 +164,8 @@ const deleteMutation = useMutation({
 
 async function confirmDelete(cfg: GraphragConfig): Promise<void> {
   const label = agentById.value.get(cfg.agent_id)?.name ?? cfg.agent_id
-  try {
-    await ElMessageBox.confirm(
-      t('agents.graphragList.deleteConfirm', { name: label }),
-      t('agents.graphragList.deleteTitle'),
-      { type: 'warning' },
-    )
-  } catch {
-    return // dismissed
-  }
+  const ok = await confirm({ title: t('agents.graphragList.deleteTitle'), message: t('agents.graphragList.deleteConfirm', { name: label }), variant: 'warning' })
+  if (!ok) return
   deleteMutation.mutate(cfg.id)
 }
 

@@ -1,8 +1,9 @@
 <script setup lang="ts">
+import { Toaster } from 'vue-sonner'
 import { ImpersonationBanner } from '@slices/admin'
 import { NotificationBell } from '@slices/notifications'
 import { useBanKickGuard } from '@shared/composables'
-import { ThemeToggle } from '@shared/ui'
+import { SConfirmDialog, ThemeToggle } from '@shared/ui'
 import ErrorBoundary from './ErrorBoundary.vue'
 
 useBanKickGuard()
@@ -31,6 +32,12 @@ useBanKickGuard()
   <ErrorBoundary>
     <router-view :key="$route.path" />
   </ErrorBoundary>
+  <Toaster
+    position="top-right"
+    :duration="4000"
+    rich-colors
+  />
+  <SConfirmDialog />
 </template>
 
 <style scoped>
