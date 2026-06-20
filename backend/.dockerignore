@@ -1,7 +1,9 @@
 __pycache__
 *.py[cod]
+*.egg-info
 .venv
 venv
+.git
 .pytest_cache
 .mypy_cache
 .ruff_cache
@@ -9,3 +11,6 @@ venv
 htmlcov
 tests
 alembic/versions/*.pyc
+Dockerfile
+.dockerignore
+.env*
