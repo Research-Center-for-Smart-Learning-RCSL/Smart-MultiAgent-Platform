@@ -628,18 +628,29 @@ jobs:
             -f deploy/compose/docker-compose.prod.yml \
             up -d vault
 
+          VAULT_READY=false
           for i in $(seq 1 30); do
-            if docker compose \
+            STATUS=$(docker compose \
               -f deploy/compose/docker-compose.yml \
               -f deploy/compose/docker-compose.prod.yml \
-              exec -T vault vault status -format=json 2>/dev/null \
-              | jq -e '.sealed' >/dev/null 2>&1; then
+              exec -T vault vault status -format=json 2>/dev/null) || true
+            if echo "$STATUS" | jq -e '.sealed' >/dev/null 2>&1; then
               echo "Vault is responding (sealed)"
+              VAULT_READY=true
               break
             fi
             echo "Waiting for Vault ($i/30)…"
             sleep 2
           done
+
+          if [ "$VAULT_READY" != "true" ]; then
+            echo "FAIL: Vault never became ready after 60s"
+            docker compose \
+              -f deploy/compose/docker-compose.yml \
+              -f deploy/compose/docker-compose.prod.yml \
+              logs --no-color --tail=30 vault 2>&1 || true
+            exit 1
+          fi
 
           INIT=$(docker compose \
             -f deploy/compose/docker-compose.yml \
@@ -647,7 +658,12 @@ jobs:
             exec -T vault vault operator init \
             -key-shares=1 -key-threshold=1 -format=json)
 
-          UNSEAL_KEY=$(echo "$INIT" | jq -r '.unseal_keys_b64[0]')
+          UNSEAL_KEY=$(echo "$INIT" | jq -re '.unseal_keys_b64[0]')
+          if [ -z "$UNSEAL_KEY" ]; then
+            echo "FAIL: vault operator init did not return an unseal key"
+            echo "$INIT"
+            exit 1
+          fi
 
           docker compose \
             -f deploy/compose/docker-compose.yml \
@@ -672,12 +688,16 @@ jobs:
             -f deploy/compose/docker-compose.prod.yml \
             ps --format "table {{.Name}}\t{{.Status}}"
 
-          EXITED=$(docker compose \
+          FAILED=$(docker compose \
             -f deploy/compose/docker-compose.yml \
             -f deploy/compose/docker-compose.prod.yml \
-            ps --status exited -q)
-          if [ -n "$EXITED" ]; then
-            echo "FAIL: services have exited"
+            ps --status exited --status restarting -q)
+          if [ -n "$FAILED" ]; then
+            echo "FAIL: services have exited or are crash-looping"
+            docker compose \
+              -f deploy/compose/docker-compose.yml \
+              -f deploy/compose/docker-compose.prod.yml \
+              ps --status exited --status restarting
             docker compose \
               -f deploy/compose/docker-compose.yml \
               -f deploy/compose/docker-compose.prod.yml \

@@ -67,8 +67,8 @@ Every long-running service MUST expose both a **liveness** (`/healthz`) and a **
 | `mcp-sandbox-supervisor` | Process responds | Docker socket reachable, gVisor runtime discoverable. Note: this service is a runtime *probe*, not a lifecycle supervisor — it only verifies that `runsc` is registered. Sandbox container lifecycle is owned by the backend MCP context. |
 | `postgres` | Docker `pg_isready -U smap` | Same |
 | `redis` | Docker `redis-cli ping` | Same |
-| `qdrant` | Docker HTTP `GET /healthz` | Same |
-| `neo4j` | Docker HTTP `GET /` returns 200 | Same |
+| `qdrant` | Docker TCP probe `exec 3<>/dev/tcp/127.0.0.1/6333` | Same |
+| `neo4j` | Docker `cypher-shell 'RETURN 1'` (bolt connection) | Same |
 | `minio` | Docker HTTP `GET /minio/health/live` | `/minio/health/cluster` |
 | `vault` | Docker HTTP `GET /v1/sys/health?standbyok=true` | Same (requires unsealed) |
 | `nginx` | Docker `wget -qO- http://127.0.0.1/healthz` | Same |
