@@ -137,6 +137,9 @@ class RagTusFinalizer:
             ),
         )
         await self._enqueue_index(doc.id, config_id=cfg.id)
+        from contexts.knowledge.application.ingest_service import enqueue_rag_scan
+
+        await enqueue_rag_scan(document_id=doc.id)
         return doc
 
     async def _enqueue_index(self, document_id: uuid.UUID, *, config_id: uuid.UUID) -> None:

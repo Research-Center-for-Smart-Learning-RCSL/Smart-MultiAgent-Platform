@@ -44,7 +44,7 @@ from app.workers.tasks.orchestration import (
     wakeup_agent,
     wakeup_refresh,
 )
-from app.workers.tasks.rag import rag_ingest_document
+from app.workers.tasks.rag import rag_ingest_document, rag_scan_document
 from app.workers.tasks.retention import retention_sweep
 from app.workers.tasks.workflow_approvals import (
     workflow_instruct_timeout,
@@ -241,6 +241,7 @@ class WorkerSettings:
         graphrag_build,
         graphrag_reconcile,
         rag_ingest_document,
+        rag_scan_document,
         agent_fs_gc,
         sandbox_orphan_cleanup,
     ]

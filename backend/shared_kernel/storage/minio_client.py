@@ -107,6 +107,21 @@ class MinioClient:
 
         await asyncio.to_thread(_put)
 
+    async def get_object(self, *, bucket: str, key: str) -> bytes:
+        def _get() -> bytes:
+            resp = None
+            try:
+                resp = self._client.get_object(bucket, key)
+                return resp.read()
+            except S3Error as exc:
+                raise StorageError(f"get_object failed: {exc}") from exc
+            finally:
+                if resp is not None:
+                    resp.close()
+                    resp.release_conn()
+
+        return await asyncio.to_thread(_get)
+
     async def stat(self, *, bucket: str, key: str) -> ObjectStat | None:
         def _stat() -> ObjectStat | None:
             try:

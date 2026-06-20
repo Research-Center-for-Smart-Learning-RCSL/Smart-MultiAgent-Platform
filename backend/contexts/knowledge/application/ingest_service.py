@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import contextlib
 import hashlib
+import logging
 import mimetypes
 import uuid
 from dataclasses import dataclass
@@ -60,6 +61,8 @@ from contexts.knowledge.infrastructure.repositories import (
 )
 from shared_kernel import audit
 from shared_kernel.realtime.pubsub import Publisher
+
+_log = logging.getLogger(__name__)
 
 MAX_MULTIPART_BYTES = 32 * 1024 * 1024  # §22.7 — tus for anything larger
 
@@ -201,7 +204,7 @@ class IngestService:
             "ingestion.started", {"document_id": str(doc.id), "total": 1}
         )
 
-        return await self._index_document(
+        result = await self._index_document(
             doc=doc,
             cfg=cfg,
             data=ipt.data,
@@ -209,6 +212,8 @@ class IngestService:
             actor_ip=actor_ip,
             request_id=request_id,
         )
+        await enqueue_rag_scan(document_id=result.id)
+        return result
 
     async def process_document(
         self,
@@ -435,4 +440,17 @@ def _normalise_mime(raw: str, filename: str) -> str:
     return guessed or "application/octet-stream"
 
 
-__all__ = ["IngestInput", "IngestService", "MAX_MULTIPART_BYTES"]
+async def enqueue_rag_scan(*, document_id: uuid.UUID) -> None:
+    try:
+        from shared_kernel.queue import enqueue
+
+        await enqueue("rag_scan_document", document_id=str(document_id), _job_id=f"rag-scan:{document_id}")
+    except Exception:
+        _log.warning(
+            "scan enqueue failed for rag document %s; file will not be scanned automatically",
+            document_id,
+            exc_info=True,
+        )
+
+
+__all__ = ["IngestInput", "IngestService", "MAX_MULTIPART_BYTES", "enqueue_rag_scan"]
