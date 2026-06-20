@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Sequence
+from datetime import datetime
 from typing import Any
 
 import sqlalchemy as sa
@@ -262,7 +263,7 @@ class RagDocumentRepository:
         *,
         document_id: uuid.UUID,
         scan_status: ScanStatus,
-        scan_at: Any,
+        scan_at: datetime,
     ) -> None:
         values: dict[str, Any] = {
             "scan_status": scan_status.value,

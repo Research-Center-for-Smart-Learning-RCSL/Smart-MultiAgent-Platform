@@ -150,7 +150,7 @@ class IngestService:
             await Publisher(rag_channel(cfg.id)).emit(
                 "ingestion.started", {"document_id": str(existing.id), "total": 1}
             )
-            return await self._index_document(
+            reindexed = await self._index_document(
                 doc=existing,
                 cfg=cfg,
                 data=ipt.data,
@@ -158,6 +158,9 @@ class IngestService:
                 actor_ip=actor_ip,
                 request_id=request_id,
             )
+            await self._db.commit()
+            await enqueue_rag_scan(document_id=reindexed.id)
+            return reindexed
 
         # Persist bytes first so a crash mid-pipeline never leaves a DB row
         # pointing at a missing blob.
@@ -212,6 +215,7 @@ class IngestService:
             actor_ip=actor_ip,
             request_id=request_id,
         )
+        await self._db.commit()
         await enqueue_rag_scan(document_id=result.id)
         return result
 

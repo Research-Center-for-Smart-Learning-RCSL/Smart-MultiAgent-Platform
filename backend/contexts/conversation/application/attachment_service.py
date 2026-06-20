@@ -95,6 +95,9 @@ class AttachmentService:
         self._repo = MessageAttachmentRepository(db)
         self._minio = minio or get_minio_client()
 
+    async def get_by_id(self, attachment_id: uuid.UUID) -> MessageAttachment | None:
+        return await self._repo.get(attachment_id)
+
     # ---- single-shot ------------------------------------------------------
 
     async def ingest_single_shot(

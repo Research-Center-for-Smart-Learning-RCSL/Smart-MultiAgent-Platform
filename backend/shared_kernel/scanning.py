@@ -67,7 +67,10 @@ class ClamAVScanner:
             writer.write(struct.pack(">I", 0))
             await writer.drain()
 
-            response = await asyncio.wait_for(reader.read(4096), timeout=self._timeout)
+            try:
+                response = await asyncio.wait_for(reader.read(4096), timeout=self._timeout)
+            except TimeoutError as exc:
+                raise ScanError(f"clamd read timeout after {self._timeout}s") from exc
             return _parse_response(response)
         finally:
             writer.close()
