@@ -15,6 +15,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.v1.deps import PaginationParams
 from contexts.keys.application.group_service import KeyGroupService, MemberPatchInput
 from contexts.keys.domain.errors import KeyNotFound
 from contexts.keys.domain.groups import KeyGroup, KeyGroupMember
@@ -151,9 +152,12 @@ class GroupPatchIn(BaseModel):
 )
 async def list_groups(
     project_id: uuid.UUID,
+    pagination: PaginationParams = Depends(),
     db: AsyncSession = Depends(db_session),
 ) -> list[GroupOut]:
-    return [GroupOut.from_domain(g) for g in await KeyGroupService(db).list_for_project(project_id)]
+    rows = await KeyGroupService(db).list_for_project(project_id)
+    rows = rows[pagination.offset : pagination.offset + pagination.limit]
+    return [GroupOut.from_domain(g) for g in rows]
 
 
 @project_router.post(

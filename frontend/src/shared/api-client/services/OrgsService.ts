@@ -21,10 +21,29 @@ export class OrgsService {
      * @returns OrgOut Successful Response
      * @throws ApiError
      */
-    public static listOrgsApiOrgsGet(): CancelablePromise<Array<OrgOut>> {
+    public static listOrgsApiOrgsGet({
+        limit = 100,
+        offset,
+    }: {
+        /**
+         * Max items to return
+         */
+        limit?: number,
+        /**
+         * Number of items to skip
+         */
+        offset?: number,
+    }): CancelablePromise<Array<OrgOut>> {
         return __request(OpenAPI, {
             method: 'GET',
             url: '/api/orgs',
+            query: {
+                'limit': limit,
+                'offset': offset,
+            },
+            errors: {
+                422: `Validation Error`,
+            },
         });
     }
     /**
@@ -151,14 +170,28 @@ export class OrgsService {
      */
     public static listMembersApiOrgsOrgIdMembersGet({
         orgId,
+        limit = 100,
+        offset,
     }: {
         orgId: string,
+        /**
+         * Max items to return
+         */
+        limit?: number,
+        /**
+         * Number of items to skip
+         */
+        offset?: number,
     }): CancelablePromise<Array<OrgMemberOut>> {
         return __request(OpenAPI, {
             method: 'GET',
             url: '/api/orgs/{org_id}/members',
             path: {
                 'org_id': orgId,
+            },
+            query: {
+                'limit': limit,
+                'offset': offset,
             },
             errors: {
                 422: `Validation Error`,
@@ -224,14 +257,28 @@ export class OrgsService {
      */
     public static transferListApiOrgsOrgIdOriginalCreatorTransfersGet({
         orgId,
+        limit = 100,
+        offset,
     }: {
         orgId: string,
+        /**
+         * Max items to return
+         */
+        limit?: number,
+        /**
+         * Number of items to skip
+         */
+        offset?: number,
     }): CancelablePromise<Array<TransferOut>> {
         return __request(OpenAPI, {
             method: 'GET',
             url: '/api/orgs/{org_id}/original-creator-transfers',
             path: {
                 'org_id': orgId,
+            },
+            query: {
+                'limit': limit,
+                'offset': offset,
             },
             errors: {
                 422: `Validation Error`,

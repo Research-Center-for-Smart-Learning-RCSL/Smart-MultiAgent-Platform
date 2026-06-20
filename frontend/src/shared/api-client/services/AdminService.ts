@@ -321,10 +321,29 @@ export class AdminService {
      * @returns RateLimitPolicyOut Successful Response
      * @throws ApiError
      */
-    public static listRateLimitsApiAdminRateLimitsGet(): CancelablePromise<Array<RateLimitPolicyOut>> {
+    public static listRateLimitsApiAdminRateLimitsGet({
+        limit = 100,
+        offset,
+    }: {
+        /**
+         * Max items to return
+         */
+        limit?: number,
+        /**
+         * Number of items to skip
+         */
+        offset?: number,
+    }): CancelablePromise<Array<RateLimitPolicyOut>> {
         return __request(OpenAPI, {
             method: 'GET',
             url: '/api/admin/rate-limits',
+            query: {
+                'limit': limit,
+                'offset': offset,
+            },
+            errors: {
+                422: `Validation Error`,
+            },
         });
     }
     /**

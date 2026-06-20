@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Path, Query, stat
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.v1.deps import PaginationParams
 from contexts.tenancy.application.invite_service import InviteService
 from contexts.tenancy.application.project_service import (
     ProjectMemberRole,
@@ -86,6 +87,7 @@ def _to_out(p) -> ProjectOut:
 async def list_projects(
     scope: Literal["user", "org"] = Query(...),
     owner_id: uuid.UUID = Query(..., alias="id"),
+    pagination: PaginationParams = Depends(),
     principal: Principal = Depends(current_principal),
     db: AsyncSession = Depends(db_session),
 ) -> list[ProjectOut]:
@@ -111,6 +113,7 @@ async def list_projects(
                 detail="caller is not a member of this org",
             )
         rows = await service.list_by_org(owner_id)
+    rows = rows[pagination.offset : pagination.offset + pagination.limit]
     return [_to_out(r) for r in rows]
 
 
@@ -253,11 +256,13 @@ async def restore_project(
 @router.get("/{project_id}/members")
 async def list_members(
     project_id: uuid.UUID = Path(...),
+    pagination: PaginationParams = Depends(),
     _=Depends(require_membership(project_param="project_id")),
     db: AsyncSession = Depends(db_session),
 ) -> list[ProjectMemberOut]:
     service = ProjectService(db)
-    members = await service.list_members(project_id)
+    all_members = await service.list_members(project_id)
+    members = all_members[pagination.offset : pagination.offset + pagination.limit]
     user_ids = [m.user_id for m in members]
     if user_ids:
         from contexts.identity.infrastructure import tables as user_t

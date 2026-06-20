@@ -14,6 +14,7 @@ from fastapi import APIRouter, Depends, Query, status
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.v1.deps import PaginationParams
 from app.api.v1.keys import KeyOut
 from contexts.keys.application.carry_service import CarryService, UsageSummary
 from contexts.keys.domain.errors import KeyNotFound
@@ -64,10 +65,12 @@ class CarryIn(BaseModel):
 )
 async def list_carried_keys(
     project_id: uuid.UUID,
+    pagination: PaginationParams = Depends(),
     db: AsyncSession = Depends(db_session),
 ) -> list[KeyOut]:
     svc = CarryService(db)
     keys = await svc.list_in_project(project_id)
+    keys = keys[pagination.offset : pagination.offset + pagination.limit]
     return [KeyOut.from_domain(k) for k in keys]
 
 

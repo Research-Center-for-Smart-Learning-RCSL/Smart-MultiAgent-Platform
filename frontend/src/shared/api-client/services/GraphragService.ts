@@ -141,14 +141,28 @@ export class GraphragService {
      */
     public static listConfigsApiProjectsProjectIdGraphragConfigsGet({
         projectId,
+        limit = 100,
+        offset,
     }: {
         projectId: string,
+        /**
+         * Max items to return
+         */
+        limit?: number,
+        /**
+         * Number of items to skip
+         */
+        offset?: number,
     }): CancelablePromise<Array<GraphRagConfigOut>> {
         return __request(OpenAPI, {
             method: 'GET',
             url: '/api/projects/{project_id}/graphrag-configs',
             path: {
                 'project_id': projectId,
+            },
+            query: {
+                'limit': limit,
+                'offset': offset,
             },
             errors: {
                 422: `Validation Error`,

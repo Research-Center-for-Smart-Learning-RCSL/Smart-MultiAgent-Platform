@@ -55,14 +55,28 @@ export class OrchestrationService {
      */
     public static listInstructionsForChainApiOrchestrationChainsChainIdInstructionsGet({
         chainId,
+        limit = 100,
+        offset,
     }: {
         chainId: string,
+        /**
+         * Max items to return
+         */
+        limit?: number,
+        /**
+         * Number of items to skip
+         */
+        offset?: number,
     }): CancelablePromise<Array<Record<string, any>>> {
         return __request(OpenAPI, {
             method: 'GET',
             url: '/api/orchestration/chains/{chain_id}/instructions',
             path: {
                 'chain_id': chainId,
+            },
+            query: {
+                'limit': limit,
+                'offset': offset,
             },
             errors: {
                 422: `Validation Error`,
@@ -76,14 +90,28 @@ export class OrchestrationService {
      */
     public static listSubagentChildrenApiOrchestrationInstancesParentInstanceIdChildrenGet({
         parentInstanceId,
+        limit = 100,
+        offset,
     }: {
         parentInstanceId: string,
+        /**
+         * Max items to return
+         */
+        limit?: number,
+        /**
+         * Number of items to skip
+         */
+        offset?: number,
     }): CancelablePromise<Array<Record<string, any>>> {
         return __request(OpenAPI, {
             method: 'GET',
             url: '/api/orchestration/instances/{parent_instance_id}/children',
             path: {
                 'parent_instance_id': parentInstanceId,
+            },
+            query: {
+                'limit': limit,
+                'offset': offset,
             },
             errors: {
                 422: `Validation Error`,
@@ -118,14 +146,28 @@ export class OrchestrationService {
      */
     public static listApprovalsForRunApiOrchestrationWorkflowRunsWorkflowRunIdApprovalsGet({
         workflowRunId,
+        limit = 100,
+        offset,
     }: {
         workflowRunId: string,
+        /**
+         * Max items to return
+         */
+        limit?: number,
+        /**
+         * Number of items to skip
+         */
+        offset?: number,
     }): CancelablePromise<Array<Record<string, any>>> {
         return __request(OpenAPI, {
             method: 'GET',
             url: '/api/orchestration/workflow-runs/{workflow_run_id}/approvals',
             path: {
                 'workflow_run_id': workflowRunId,
+            },
+            query: {
+                'limit': limit,
+                'offset': offset,
             },
             errors: {
                 422: `Validation Error`,

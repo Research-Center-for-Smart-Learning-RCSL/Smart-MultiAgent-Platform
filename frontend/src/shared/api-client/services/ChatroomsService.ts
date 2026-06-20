@@ -90,14 +90,28 @@ export class ChatroomsService {
      */
     public static listChatroomAgentsApiChatroomsChatroomIdAgentsGet({
         chatroomId,
+        limit = 100,
+        offset,
     }: {
         chatroomId: string,
+        /**
+         * Max items to return
+         */
+        limit?: number,
+        /**
+         * Number of items to skip
+         */
+        offset?: number,
     }): CancelablePromise<Array<AgentRef>> {
         return __request(OpenAPI, {
             method: 'GET',
             url: '/api/chatrooms/{chatroom_id}/agents',
             path: {
                 'chatroom_id': chatroomId,
+            },
+            query: {
+                'limit': limit,
+                'offset': offset,
             },
             errors: {
                 422: `Validation Error`,

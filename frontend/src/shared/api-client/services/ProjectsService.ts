@@ -20,9 +20,19 @@ export class ProjectsService {
     public static listProjectsApiProjectsGet({
         scope,
         id,
+        limit = 100,
+        offset,
     }: {
         scope: 'user' | 'org',
         id: string,
+        /**
+         * Max items to return
+         */
+        limit?: number,
+        /**
+         * Number of items to skip
+         */
+        offset?: number,
     }): CancelablePromise<Array<ProjectOut>> {
         return __request(OpenAPI, {
             method: 'GET',
@@ -30,6 +40,8 @@ export class ProjectsService {
             query: {
                 'scope': scope,
                 'id': id,
+                'limit': limit,
+                'offset': offset,
             },
             errors: {
                 422: `Validation Error`,
@@ -160,14 +172,28 @@ export class ProjectsService {
      */
     public static listMembersApiProjectsProjectIdMembersGet({
         projectId,
+        limit = 100,
+        offset,
     }: {
         projectId: string,
+        /**
+         * Max items to return
+         */
+        limit?: number,
+        /**
+         * Number of items to skip
+         */
+        offset?: number,
     }): CancelablePromise<Array<ProjectMemberOut>> {
         return __request(OpenAPI, {
             method: 'GET',
             url: '/api/projects/{project_id}/members',
             path: {
                 'project_id': projectId,
+            },
+            query: {
+                'limit': limit,
+                'offset': offset,
             },
             errors: {
                 422: `Validation Error`,
