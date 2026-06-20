@@ -572,6 +572,144 @@ jobs:
             config > /dev/null
 
   # ──────────────────────────────────────────────
+  # Prod overlay boot test (B2-5)
+  # ──────────────────────────────────────────────
+  # Builds all prod images and boots the prod overlay to verify the stack
+  # actually starts — catches Dockerfile failures, config mismatches, and
+  # runtime crashes (e.g. the pg_cron FATAL that made prod unbootable).
+  # Only runs on push to main (expensive: image builds + full data plane).
+  # Skips backend-web/worker/nginx (they need full bootstrap + migrations).
+  compose-boot-prod:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    env:
+      SMAP_DB_PASSWORD: ci_test_pwd
+      SMAP_REDIS_PASSWORD: ci_test_pwd
+      SMAP_MINIO_ROOT_USER: ci_minio
+      SMAP_MINIO_ROOT_PASSWORD: ci_minio_pwd
+      EGRESS_PROXY_SHARED_SECRET: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Generate Vault internal TLS certs
+        run: bash deploy/vault/gen-internal-tls.sh deploy/vault/certs
+
+      - name: Build prod images
+        run: |
+          docker compose \
+            -f deploy/compose/docker-compose.yml \
+            -f deploy/compose/docker-compose.prod.yml \
+            build --parallel
+
+      - name: Pre-populate Nginx TLS volume
+        run: |
+          openssl req -x509 -newkey rsa:2048 -nodes -days 1 \
+            -keyout /tmp/smap.key -out /tmp/smap.crt \
+            -subj "/CN=localhost"
+          docker volume create smap_nginx_certs
+          docker run --rm \
+            -v smap_nginx_certs:/certs \
+            -v /tmp:/src:ro \
+            alpine sh -c "cp /src/smap.crt /src/smap.key /certs/ && chmod 600 /certs/smap.key"
+
+      - name: Start data services
+        run: |
+          docker compose \
+            -f deploy/compose/docker-compose.yml \
+            -f deploy/compose/docker-compose.prod.yml \
+            up -d --wait --wait-timeout 120 \
+            postgres redis qdrant neo4j minio docker-socket-proxy
+
+      - name: Start and unseal Vault
+        run: |
+          docker compose \
+            -f deploy/compose/docker-compose.yml \
+            -f deploy/compose/docker-compose.prod.yml \
+            up -d vault
+
+          for i in $(seq 1 30); do
+            if docker compose \
+              -f deploy/compose/docker-compose.yml \
+              -f deploy/compose/docker-compose.prod.yml \
+              exec -T vault vault status -format=json 2>/dev/null \
+              | jq -e '.sealed' >/dev/null 2>&1; then
+              echo "Vault is responding (sealed)"
+              break
+            fi
+            echo "Waiting for Vault ($i/30)…"
+            sleep 2
+          done
+
+          INIT=$(docker compose \
+            -f deploy/compose/docker-compose.yml \
+            -f deploy/compose/docker-compose.prod.yml \
+            exec -T vault vault operator init \
+            -key-shares=1 -key-threshold=1 -format=json)
+
+          UNSEAL_KEY=$(echo "$INIT" | jq -r '.unseal_keys_b64[0]')
+
+          docker compose \
+            -f deploy/compose/docker-compose.yml \
+            -f deploy/compose/docker-compose.prod.yml \
+            exec -T vault vault operator unseal "$UNSEAL_KEY"
+
+          echo "Vault initialized and unsealed"
+
+      - name: Start supporting services
+        run: |
+          docker compose \
+            -f deploy/compose/docker-compose.yml \
+            -f deploy/compose/docker-compose.prod.yml \
+            up -d --wait --wait-timeout 60 \
+            frontend egress-proxy mcp-sandbox-supervisor
+
+      - name: Verify no crashed services
+        run: |
+          echo "=== Service status ==="
+          docker compose \
+            -f deploy/compose/docker-compose.yml \
+            -f deploy/compose/docker-compose.prod.yml \
+            ps --format "table {{.Name}}\t{{.Status}}"
+
+          EXITED=$(docker compose \
+            -f deploy/compose/docker-compose.yml \
+            -f deploy/compose/docker-compose.prod.yml \
+            ps --status exited -q)
+          if [ -n "$EXITED" ]; then
+            echo "FAIL: services have exited"
+            docker compose \
+              -f deploy/compose/docker-compose.yml \
+              -f deploy/compose/docker-compose.prod.yml \
+              logs --no-color --tail=50 2>&1
+            exit 1
+          fi
+
+          echo "All prod services running."
+
+      - name: Dump logs on failure
+        if: failure()
+        run: |
+          docker compose \
+            -f deploy/compose/docker-compose.yml \
+            -f deploy/compose/docker-compose.prod.yml \
+            logs --no-color --tail=100 > prod-boot.log 2>&1 || true
+      - uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: prod-boot-logs
+          path: prod-boot.log
+          retention-days: 7
+
+      - name: Tear down
+        if: always()
+        run: |
+          docker compose \
+            -f deploy/compose/docker-compose.yml \
+            -f deploy/compose/docker-compose.prod.yml \
+            down -v --remove-orphans
+
+  # ──────────────────────────────────────────────
   # Gate — aggregates all checks (B2-6)
   # ──────────────────────────────────────────────
   # Branch protection should reference this single job instead of each
@@ -590,6 +728,7 @@ jobs:
       - sandbox-images
       - dependency-audit
       - compose-validate
+      - compose-boot-prod
       - frontend-lint
       - frontend-gate-global-css
       - frontend-gate-view-tests
@@ -611,6 +750,7 @@ jobs:
           echo "  sandbox-images:             ${{ needs.sandbox-images.result }}"
           echo "  dependency-audit:           ${{ needs.dependency-audit.result }}"
           echo "  compose-validate:           ${{ needs.compose-validate.result }}"
+          echo "  compose-boot-prod:          ${{ needs.compose-boot-prod.result }}"
           echo "  frontend-lint:              ${{ needs.frontend-lint.result }}"
           echo "  frontend-gate-global-css:   ${{ needs.frontend-gate-global-css.result }}"
           echo "  frontend-gate-view-tests:   ${{ needs.frontend-gate-view-tests.result }}"
@@ -621,7 +761,7 @@ jobs:
           echo "  frontend-test:              ${{ needs.frontend-test.result }}"
           echo "  frontend-e2e:               ${{ needs.frontend-e2e.result }}"
 
-          # frontend-e2e is allowed to skip (only runs on push to main).
+          # Required jobs — must all succeed.
           for result in \
             "${{ needs.backend-lint.result }}" \
             "${{ needs.backend-typecheck.result }}" \
@@ -645,10 +785,15 @@ jobs:
             fi
           done
 
-          e2e="${{ needs.frontend-e2e.result }}"
-          if [ "$e2e" != "success" ] && [ "$e2e" != "skipped" ]; then
-            echo "FAIL: frontend-e2e returned $e2e"
-            exit 1
-          fi
+          # compose-boot-prod and frontend-e2e are allowed to skip
+          # (only run on push to main).
+          for optional in \
+            "${{ needs.compose-boot-prod.result }}" \
+            "${{ needs.frontend-e2e.result }}"; do
+            if [ "$optional" != "success" ] && [ "$optional" != "skipped" ]; then
+              echo "FAIL: optional job returned $optional"
+              exit 1
+            fi
+          done
 
           echo "All gates passed."
