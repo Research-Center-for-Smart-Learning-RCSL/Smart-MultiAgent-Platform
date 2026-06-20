@@ -71,20 +71,21 @@ Every long-running service MUST expose both a **liveness** (`/healthz`) and a **
 | `neo4j` | Docker HTTP `GET /` returns 200 | Same |
 | `minio` | Docker HTTP `GET /minio/health/live` | `/minio/health/cluster` |
 | `vault` | Docker HTTP `GET /v1/sys/health?standbyok=true` | Same (requires unsealed) |
-| `nginx` | Docker HTTP `GET /nginx_health` (private upstream) | Same |
+| `nginx` | Docker `wget -qO- http://127.0.0.1/healthz` | Same |
 
 ### 2.2 docker-compose healthcheck snippet (backend-web)
 
 ```yaml
 healthcheck:
-  test: ["CMD", "curl", "-fsS", "http://localhost:8080/readyz"]
+  test: ["CMD", "python", "-c",
+    "import urllib.request,sys;sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/readyz', timeout=5).status==200 else 1)"]
   interval: 10s
   timeout: 5s
-  retries: 3
+  retries: 12
   start_period: 30s
 ```
 
-Every service in the compose file has its own healthcheck block sized for its startup cost. Neo4j gets 60 s `start_period`; Vault gets 20 s; Postgres gets 20 s; others 10–30 s.
+The prod image has no `curl` — use Python `urllib` instead. Every service in the compose file has its own healthcheck block sized for its startup cost. Neo4j gets 15 s interval × 10 retries; Vault gets 5 s interval × 10 retries + 10 s start_period; Postgres gets 5 s interval × 10 retries; others 10–30 s start_period.
 
 ### 2.3 Shallow vs deep checks
 
@@ -93,29 +94,29 @@ Every service in the compose file has its own healthcheck block sized for its st
 
 ---
 
-## 3. Per-service resource limits (16-core / 32 GB baseline)
+## 3. Per-service resource limits (16-core / 64 GB baseline)
 
-The REQUIREMENTS NFR §20.03 gives rough memory budgets; the docker-compose file encodes them as hard caps:
+The REQUIREMENTS NFR §20.03 gives rough memory budgets; `docker-compose.prod.yml` encodes them as hard caps:
 
-| Service | CPU (limit) | Memory (limit) | Memory (reservation) | Replicas |
-|---|---|---|---|---|
-| `nginx`              | 1.0  | 512 MB  | 256 MB  | 1 |
-| `backend-web`        | 4.0  | 4 GB    | 2 GB    | 3 (rolling) |
-| `backend-worker`     | 3.0  | 2 GB    | 1 GB    | 3 |
-| `frontend`           | 0.5  | 256 MB  | 128 MB  | 1 |
-| `postgres`           | 6.0  | 8 GB    | 4 GB    | 1 |
-| `redis`              | 1.0  | 4 GB    | 1 GB    | 1 |
-| `qdrant`             | 4.0  | 8 GB    | 4 GB    | 1 |
-| `neo4j`              | 4.0  | 8 GB    | 4 GB    | 1 |
-| `minio`              | 2.0  | 5 GB    | 2 GB    | 1 |
-| `vault`              | 1.0  | 2 GB    | 512 MB  | 1 |
-| `egress-proxy`       | 1.0  | 512 MB  | 256 MB  | 1 |
-| `mcp-sandbox-supervisor` | 0.25  | 128 MB  | 64 MB  | 1 |
-| `docker-socket-proxy` | 0.25  | 128 MB  | 64 MB  | 1 |
+| Service | CPU (limit) | Memory (limit) | Memory (reservation) | Replicas | Notes |
+|---|---|---|---|---|---|
+| `nginx`              | 1.0  | 512 MB  | 256 MB  | 1 | TLS termination |
+| `backend-web`        | 4.0  | 4 GB    | 2 GB    | 3 (rolling) | 4 uvicorn workers each |
+| `backend-worker`     | 3.0  | 2 GB    | 1 GB    | 3 | Arq task workers |
+| `frontend`           | 0.5  | 256 MB  | 128 MB  | 1 | Nginx serving SPA |
+| `postgres`           | 6.0  | 8 GB    | 4 GB    | 1 | shm_size=2g, max_conn=512 |
+| `redis`              | 1.0  | 4 GB    | 1 GB    | 1 | maxmemory=3500mb, allkeys-lru |
+| `qdrant`             | 4.0  | 8 GB    | 4 GB    | 1 | mmap-based; more RAM → page cache |
+| `neo4j`              | 4.0  | 8 GB    | 4 GB    | 1 | shm_size=2g, heap=5G, pagecache=2G |
+| `minio`              | 2.0  | 5 GB    | 2 GB    | 1 | |
+| `vault`              | 1.0  | 2 GB    | 512 MB  | 1 | file storage; TLS internal |
+| `egress-proxy`       | 1.0  | 512 MB  | 256 MB  | 1 | |
+| `mcp-sandbox-supervisor` | 0.25  | 128 MB  | 64 MB  | 1 | Health-check probe only |
+| `docker-socket-proxy` | 0.25  | 128 MB  | 64 MB  | 1 | Prod only; SEC-C1 isolation |
 
 Tuning target: ≥16-core / 64 GB single host. Total hard-limit sum ≈ 56 GB; remaining ~8 GB reserved for OS + Docker daemon + transient sandbox containers.
 
-Operators running on smaller hosts (32 GB) may scale down by halving every memory value and dropping replicas by 1, but below 8-core / 16 GB the R20.01 p95 target is not guaranteed.
+Operators running on smaller hosts (32 GB) should halve every memory value and drop replicas to 1, but below 8-core / 16 GB the R20.01 p95 target is not guaranteed.
 
 ---
 
@@ -286,7 +287,7 @@ Any extra fields beyond the core RFC 7807 set are documented per-type in this ca
 
 ## 7. CORS, rate-limit headers, and CSP
 
-- **CORS**: see REQUIREMENTS §19a.3. Same-origin deploy → nothing special. Operators splitting origins must edit `SMAP_SEC_CORS_ORIGINS` in `.env` and understand the CSRF implications.
+- **CORS**: see REQUIREMENTS §19a.3. Same-origin deploy → nothing special. Operators splitting origins must set `SMAP_SEC_CORS_ORIGINS` in `.env` (comma-separated list of allowed origins, e.g. `https://app.example.com,https://admin.example.com`) and understand the CSRF implications. The default when unset is same-origin only.
 - **Rate-limit response headers**: see REQUIREMENTS §19 R19.06 and §19a — `Retry-After`, `X-RateLimit-Limit`, `X-RateLimit-Remaining`, `X-RateLimit-Reset` on all 200/429 responses from rate-limited endpoints.
 - **CSP**: see REQUIREMENTS §19a.2. Tune by editing `deploy/nginx/nginx.conf.d/csp.conf`.
 
@@ -393,6 +394,41 @@ Common culprits and their cleanup targets:
 | Postgres WAL | PG data volume | Check `archive_mode` off in dev; tune `wal_keep_size`. |
 | Workflow runs | `workflow_runs` table | 90-day retention; verify nightly job is running. |
 | Audit logs | `audit_logs` table | 365-day retention (REQUIREMENTS §17 R17.01); verify nightly job. |
+
+---
+
+## 8a. Backup and restore
+
+Scripts in `deploy/scripts/` automate backup and restore for all five datastores.
+
+### 8a.1 Backup
+
+```bash
+# Full backup (Postgres + Vault + MinIO + Neo4j + Redis)
+bash deploy/scripts/backup.sh /path/to/backup/dir
+```
+
+Creates timestamped files: `pg_dump.sql.gz`, `vault-snapshot.snap`, MinIO mirror, `neo4j-dump.dump`, `redis-dump.rdb`.
+
+Schedule via cron on the Docker host:
+
+```
+0 3 * * * /opt/smap/deploy/scripts/backup.sh /backups/smap >> /var/log/smap-backup.log 2>&1
+```
+
+### 8a.2 Restore
+
+```bash
+bash deploy/scripts/restore.sh /path/to/backup/dir
+```
+
+The restore script:
+1. Stops application services (backend-web, backend-worker, nginx)
+2. Restores each datastore (pg_restore, Vault snapshot restore, mc mirror, Neo4j load, Redis BGSAVE copy)
+3. Restarts application services
+4. Logs pg_restore stderr to a file for review
+
+An abort window of 5 seconds is provided before destructive operations begin.
 
 ---
 
