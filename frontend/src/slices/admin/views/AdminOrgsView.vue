@@ -52,8 +52,7 @@
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/vue-query'
-import { ElMessageBox } from 'element-plus'
-import { useToast } from '@shared/composables'
+import { useConfirmDialog, useToast } from '@shared/composables'
 
 import { adminApi } from '../api/admin'
 import { adminKeys } from '../queries'
@@ -62,6 +61,7 @@ import { useAdminActions } from '../composables/useAdminActions'
 const { t } = useI18n()
 const qc = useQueryClient()
 const toast = useToast()
+const { confirm, prompt } = useConfirmDialog()
 
 const query = useQuery({
   queryKey: adminKeys.orgs(),
@@ -78,29 +78,28 @@ const transferMutation = useMutation({
 })
 
 async function onForceDelete(orgId: string, orgName: string): Promise<void> {
-  try {
-    await ElMessageBox.confirm(
-      t('admin.orgs.forceDeleteMessage', { name: orgName }),
-      t('admin.orgs.forceDeleteTitle'),
-      { confirmButtonText: t('admin.orgs.forceDeleteConfirm'), cancelButtonText: t('app.cancel'), type: 'error' },
-    )
-    actions.forceDeleteOrg.mutate(orgId)
-  } catch {
-    // cancelled
-  }
+  const ok = await confirm({
+    title: t('admin.orgs.forceDeleteTitle'),
+    message: t('admin.orgs.forceDeleteMessage', { name: orgName }),
+    confirmLabel: t('admin.orgs.forceDeleteConfirm'),
+    cancelLabel: t('app.cancel'),
+    variant: 'error',
+  })
+  if (!ok) return
+  actions.forceDeleteOrg.mutate(orgId)
 }
 
 async function onTransfer(orgId: string): Promise<void> {
-  try {
-    const { value: targetUserId } = await ElMessageBox.prompt(
-      t('admin.orgs.forceTransferMessage'),
-      t('admin.orgs.forceTransferTitle'),
-      { confirmButtonText: t('admin.orgs.forceTransferConfirm'), cancelButtonText: t('app.cancel'), inputPattern: /\S+/, inputErrorMessage: t('admin.orgs.forceTransferUserIdRequired') },
-    )
-    if (targetUserId) transferMutation.mutate({ orgId, targetUserId })
-  } catch {
-    // cancelled
-  }
+  const targetUserId = await prompt({
+    title: t('admin.orgs.forceTransferTitle'),
+    message: t('admin.orgs.forceTransferMessage'),
+    confirmLabel: t('admin.orgs.forceTransferConfirm'),
+    cancelLabel: t('app.cancel'),
+    inputPattern: /\S+/,
+    inputErrorMessage: t('admin.orgs.forceTransferUserIdRequired'),
+    variant: 'warning',
+  })
+  if (targetUserId) transferMutation.mutate({ orgId, targetUserId })
 }
 </script>
 

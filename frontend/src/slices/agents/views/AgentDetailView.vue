@@ -6,10 +6,10 @@ import { useForm } from 'vee-validate'
 import { toTypedSchema } from '@vee-validate/zod'
 import { computed, watch } from 'vue'
 
-import { ElMessageBox } from 'element-plus'
 import { FormField } from '@shared/ui'
-import { useServerErrors, useToast } from '@shared/composables'
-import { keyGroupsApi, keysKeys } from '@shared/composables/useProjectKeys'
+import { useConfirmDialog, useServerErrors, useToast } from '@shared/composables'
+import AgentFormFields from '../components/AgentFormFields.vue'
+import { keyGroupsApi, keysKeys } from '@slices/keys'
 import { agentsApi } from '../api'
 import { agentKeys } from '../queries'
 import { agentCreateSchema, type AgentCreateInput } from '../types/schemas'
@@ -19,6 +19,7 @@ const route = useRoute()
 const router = useRouter()
 const qc = useQueryClient()
 const toast = useToast()
+const { confirm } = useConfirmDialog()
 const agentId = route.params.agentId as string
 
 const query = useQuery({
@@ -139,15 +140,8 @@ const deleteMutation = useMutation({
 })
 
 async function onDelete(): Promise<void> {
-  try {
-    await ElMessageBox.confirm(
-      t('agents.detail.deleteConfirm'),
-      t('agents.detail.deleteConfirmTitle'),
-      { confirmButtonText: t('agents.detail.delete'), cancelButtonText: t('app.cancel'), type: 'warning' },
-    )
-  } catch {
-    return
-  }
+  const ok = await confirm({ title: t('agents.detail.deleteConfirmTitle'), message: t('agents.detail.deleteConfirm'), variant: 'warning', confirmLabel: t('agents.detail.delete'), cancelLabel: t('app.cancel') })
+  if (!ok) return
   deleteMutation.mutate()
 }
 
@@ -174,228 +168,93 @@ const onSubmit = handleSubmit((values) => {
       class="agent-detail__form"
       @submit.prevent="onSubmit"
     >
-      <FormField
-        :label="t('agents.form.name')"
-        name="name"
-        :error="errors.name"
-        required
+      <AgentFormFields
+        v-model:name="name"
+        v-model:model-hint="modelHint"
+        v-model:model-id="modelId"
+        v-model:key-group-id="keyGroupId"
+        v-model:system-prompt="systemPrompt"
+        v-model:prompt-strategy="promptStrategy"
+        v-model:context-mode="contextMode"
+        v-model:rag-config-id="ragConfigId"
+        v-model:a2a-enabled="a2aEnabled"
+        :errors="errors"
+        :key-groups="keyGroupsQuery.data.value ?? []"
+        :rag-configs="ragConfigsQuery.data.value ?? []"
+        :textarea-rows="6"
       >
-        <input
-          id="name"
-          v-model="name"
-          :aria-describedby="errors.name ? 'name-error' : undefined"
-          :aria-invalid="!!errors.name"
-        >
-      </FormField>
-
-      <FormField
-        :label="t('agents.form.modelHint')"
-        name="model_hint"
-        :error="errors.model_hint"
-        required
-      >
-        <select
-          id="model_hint"
-          v-model="modelHint"
-        >
-          <option value="claude">
-            Claude
-          </option>
-          <option value="openai">
-            OpenAI
-          </option>
-          <option value="gemini">
-            Gemini
-          </option>
-        </select>
-      </FormField>
-
-      <FormField
-        :label="t('agents.form.modelId')"
-        name="model_id"
-        :error="errors.model_id"
-      >
-        <input
-          id="model_id"
-          v-model="modelId"
-          :placeholder="t('agents.form.modelIdPlaceholder')"
-        >
-      </FormField>
-
-      <FormField
-        :label="t('agents.form.keyGroup')"
-        name="key_group_id"
-        :error="errors.key_group_id"
-        required
-      >
-        <select
-          id="key_group_id"
-          v-model="keyGroupId"
-        >
-          <option
-            value=""
-            disabled
+        <template #after-rag>
+          <RouterLink
+            v-if="ragConfigId"
+            class="agent-detail__rag-manage"
+            :to="{
+              name: 'agents.ragConfig',
+              params: { projectId: pickerProjectId, configId: ragConfigId },
+            }"
           >
-            {{ t('agents.form.keyGroupPlaceholder') }}
-          </option>
-          <option
-            v-for="g in keyGroupsQuery.data.value ?? []"
-            :key="g.id"
-            :value="g.id"
+            {{ t('agents.rag.manageLink') }}
+          </RouterLink>
+          <RouterLink
+            class="agent-detail__rag-manage"
+            :to="{ name: 'agents.ragConfigs', params: { projectId: pickerProjectId } }"
           >
-            {{ g.name }}
-          </option>
-        </select>
-      </FormField>
+            {{ t('agents.form.manageRagConfigs') }}
+          </RouterLink>
+        </template>
 
-      <FormField
-        :label="t('agents.form.systemPrompt')"
-        name="system_prompt"
-        :error="errors.system_prompt"
-      >
-        <textarea
-          id="system_prompt"
-          v-model="systemPrompt"
-          rows="6"
-        />
-      </FormField>
-
-      <FormField
-        :label="t('agents.form.promptStrategy')"
-        name="prompt_strategy"
-        :error="errors.prompt_strategy"
-      >
-        <select
-          id="prompt_strategy"
-          v-model="promptStrategy"
-        >
-          <option value="full">
-            {{ t('agents.form.promptStrategyFull') }}
-          </option>
-          <option value="lazy">
-            {{ t('agents.form.promptStrategyLazy') }}
-          </option>
-        </select>
-      </FormField>
-
-      <FormField
-        :label="t('agents.form.contextMode')"
-        name="context_mode"
-        :error="errors.context_mode"
-      >
-        <select
-          id="context_mode"
-          v-model="contextMode"
-        >
-          <option value="general">
-            {{ t('agents.form.contextModeGeneral') }}
-          </option>
-          <option value="compact">
-            {{ t('agents.form.contextModeCompact') }}
-          </option>
-        </select>
-      </FormField>
-
-      <FormField
-        :label="t('agents.form.ragConfig')"
-        name="rag_config_id"
-        :error="errors.rag_config_id"
-      >
-        <select
-          id="rag_config_id"
-          v-model="ragConfigId"
-        >
-          <option :value="null">
-            {{ t('agents.form.ragConfigNone') }}
-          </option>
-          <option
-            v-for="rc in ragConfigsQuery.data.value ?? []"
-            :key="rc.id"
-            :value="rc.id"
+        <template #extra-fields>
+          <FormField
+            :label="t('agents.form.graphragConfig')"
+            name="graphrag_config_id"
+            :error="errors.graphrag_config_id"
           >
-            {{ rc.name }}
-          </option>
-        </select>
-        <RouterLink
-          v-if="ragConfigId"
-          class="agent-detail__rag-manage"
-          :to="{
-            name: 'agents.ragConfig',
-            params: { projectId: pickerProjectId, configId: ragConfigId },
-          }"
-        >
-          {{ t('agents.rag.manageLink') }}
-        </RouterLink>
-        <RouterLink
-          class="agent-detail__rag-manage"
-          :to="{ name: 'agents.ragConfigs', params: { projectId: pickerProjectId } }"
-        >
-          {{ t('agents.form.manageRagConfigs') }}
-        </RouterLink>
-      </FormField>
+            <select
+              id="graphrag_config_id"
+              v-model="graphragConfigId"
+            >
+              <option :value="null">
+                {{ t('agents.form.graphragConfigNone') }}
+              </option>
+              <option
+                v-if="thisAgentGraphrag"
+                :value="thisAgentGraphrag.id"
+              >
+                {{ t('agents.form.graphragConfigThis') }}
+              </option>
+            </select>
+            <RouterLink
+              class="agent-detail__rag-manage"
+              :to="{ name: 'agents.graphragConfigs', params: { projectId: pickerProjectId } }"
+            >
+              {{ t('agents.form.manageGraphragConfigs') }}
+            </RouterLink>
+          </FormField>
 
-      <FormField
-        :label="t('agents.form.graphragConfig')"
-        name="graphrag_config_id"
-        :error="errors.graphrag_config_id"
-      >
-        <select
-          id="graphrag_config_id"
-          v-model="graphragConfigId"
-        >
-          <option :value="null">
-            {{ t('agents.form.graphragConfigNone') }}
-          </option>
-          <option
-            v-if="thisAgentGraphrag"
-            :value="thisAgentGraphrag.id"
+          <FormField
+            :label="t('agents.form.mcp')"
+            name="mcp"
           >
-            {{ t('agents.form.graphragConfigThis') }}
-          </option>
-        </select>
-        <RouterLink
-          class="agent-detail__rag-manage"
-          :to="{ name: 'agents.graphragConfigs', params: { projectId: pickerProjectId } }"
-        >
-          {{ t('agents.form.manageGraphragConfigs') }}
-        </RouterLink>
-      </FormField>
+            <RouterLink
+              class="agent-detail__rag-manage"
+              :to="{ name: 'agents.mcp', params: { agentId } }"
+            >
+              {{ t('agents.form.manageMcp') }}
+            </RouterLink>
+          </FormField>
 
-      <FormField
-        :label="t('agents.form.mcp')"
-        name="mcp"
-      >
-        <RouterLink
-          class="agent-detail__rag-manage"
-          :to="{ name: 'agents.mcp', params: { agentId } }"
-        >
-          {{ t('agents.form.manageMcp') }}
-        </RouterLink>
-      </FormField>
-
-      <FormField
-        :label="t('agents.form.orchestration')"
-        name="orchestration"
-      >
-        <RouterLink
-          class="agent-detail__rag-manage"
-          :to="{ name: 'workflow.agentOrchestration', params: { agentId } }"
-        >
-          {{ t('agents.form.manageOrchestration') }}
-        </RouterLink>
-      </FormField>
-
-      <FormField
-        :label="t('agents.form.a2aEnabled')"
-        name="a2a_enabled"
-        :error="errors.a2a_enabled"
-      >
-        <input
-          id="a2a_enabled"
-          v-model="a2aEnabled"
-          type="checkbox"
-        >
-      </FormField>
+          <FormField
+            :label="t('agents.form.orchestration')"
+            name="orchestration"
+          >
+            <RouterLink
+              class="agent-detail__rag-manage"
+              :to="{ name: 'workflow.agentOrchestration', params: { agentId } }"
+            >
+              {{ t('agents.form.manageOrchestration') }}
+            </RouterLink>
+          </FormField>
+        </template>
+      </AgentFormFields>
 
       <div class="agent-detail__actions">
         <button

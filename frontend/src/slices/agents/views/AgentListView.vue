@@ -6,9 +6,9 @@ import { useForm } from 'vee-validate'
 import { toTypedSchema } from '@vee-validate/zod'
 import { computed, ref, watch } from 'vue'
 
-import { FormField } from '@shared/ui'
 import { useServerErrors, useToast } from '@shared/composables'
-import { keyGroupsApi, keysKeys } from '@shared/composables/useProjectKeys'
+import AgentFormFields from '../components/AgentFormFields.vue'
+import { keyGroupsApi, keysKeys } from '@slices/keys'
 import { agentsApi } from '../api'
 import { agentKeys } from '../queries'
 import { agentCreateSchema, type AgentCreateInput } from '../types/schemas'
@@ -146,173 +146,35 @@ function goToAgent(agentId: string) {
         {{ t('agents.form.noKeyGroups') }}
       </p>
 
-      <FormField
-        :label="t('agents.form.name')"
-        name="name"
-        :error="errors.name"
-        required
+      <AgentFormFields
+        v-model:name="name"
+        v-model:model-hint="modelHint"
+        v-model:model-id="modelId"
+        v-model:key-group-id="keyGroupId"
+        v-model:system-prompt="systemPrompt"
+        v-model:prompt-strategy="promptStrategy"
+        v-model:context-mode="contextMode"
+        v-model:rag-config-id="ragConfigId"
+        v-model:a2a-enabled="a2aEnabled"
+        :errors="errors"
+        :key-groups="keyGroupsQuery.data.value ?? []"
+        :rag-configs="ragConfigsQuery.data.value ?? []"
       >
-        <input
-          id="name"
-          v-model="name"
-          :aria-describedby="errors.name ? 'name-error' : undefined"
-          :aria-invalid="!!errors.name"
-        >
-      </FormField>
-
-      <FormField
-        :label="t('agents.form.modelHint')"
-        name="model_hint"
-        :error="errors.model_hint"
-        required
-      >
-        <select
-          id="model_hint"
-          v-model="modelHint"
-        >
-          <option value="claude">
-            Claude
-          </option>
-          <option value="openai">
-            OpenAI
-          </option>
-          <option value="gemini">
-            Gemini
-          </option>
-        </select>
-      </FormField>
-
-      <FormField
-        :label="t('agents.form.modelId')"
-        name="model_id"
-        :error="errors.model_id"
-      >
-        <input
-          id="model_id"
-          v-model="modelId"
-          :placeholder="t('agents.form.modelIdPlaceholder')"
-        >
-      </FormField>
-
-      <FormField
-        :label="t('agents.form.keyGroup')"
-        name="key_group_id"
-        :error="errors.key_group_id"
-        required
-      >
-        <select
-          id="key_group_id"
-          v-model="keyGroupId"
-        >
-          <option
-            value=""
-            disabled
+        <template #after-rag>
+          <RouterLink
+            class="agent-list__rag-manage"
+            :to="{ name: 'agents.ragConfigs', params: { projectId } }"
           >
-            {{ t('agents.form.keyGroupPlaceholder') }}
-          </option>
-          <option
-            v-for="g in keyGroupsQuery.data.value ?? []"
-            :key="g.id"
-            :value="g.id"
+            {{ t('agents.form.manageRagConfigs') }}
+          </RouterLink>
+          <RouterLink
+            class="agent-list__rag-manage"
+            :to="{ name: 'agents.graphragConfigs', params: { projectId } }"
           >
-            {{ g.name }}
-          </option>
-        </select>
-      </FormField>
-
-      <FormField
-        :label="t('agents.form.systemPrompt')"
-        name="system_prompt"
-        :error="errors.system_prompt"
-      >
-        <textarea
-          id="system_prompt"
-          v-model="systemPrompt"
-          rows="4"
-        />
-      </FormField>
-
-      <FormField
-        :label="t('agents.form.promptStrategy')"
-        name="prompt_strategy"
-        :error="errors.prompt_strategy"
-      >
-        <select
-          id="prompt_strategy"
-          v-model="promptStrategy"
-        >
-          <option value="full">
-            {{ t('agents.form.promptStrategyFull') }}
-          </option>
-          <option value="lazy">
-            {{ t('agents.form.promptStrategyLazy') }}
-          </option>
-        </select>
-      </FormField>
-
-      <FormField
-        :label="t('agents.form.contextMode')"
-        name="context_mode"
-        :error="errors.context_mode"
-      >
-        <select
-          id="context_mode"
-          v-model="contextMode"
-        >
-          <option value="general">
-            {{ t('agents.form.contextModeGeneral') }}
-          </option>
-          <option value="compact">
-            {{ t('agents.form.contextModeCompact') }}
-          </option>
-        </select>
-      </FormField>
-
-      <FormField
-        :label="t('agents.form.ragConfig')"
-        name="rag_config_id"
-        :error="errors.rag_config_id"
-      >
-        <select
-          id="rag_config_id"
-          v-model="ragConfigId"
-        >
-          <option :value="null">
-            {{ t('agents.form.ragConfigNone') }}
-          </option>
-          <option
-            v-for="rc in ragConfigsQuery.data.value ?? []"
-            :key="rc.id"
-            :value="rc.id"
-          >
-            {{ rc.name }}
-          </option>
-        </select>
-        <RouterLink
-          class="agent-list__rag-manage"
-          :to="{ name: 'agents.ragConfigs', params: { projectId } }"
-        >
-          {{ t('agents.form.manageRagConfigs') }}
-        </RouterLink>
-        <RouterLink
-          class="agent-list__rag-manage"
-          :to="{ name: 'agents.graphragConfigs', params: { projectId } }"
-        >
-          {{ t('agents.form.manageGraphragConfigs') }}
-        </RouterLink>
-      </FormField>
-
-      <FormField
-        :label="t('agents.form.a2aEnabled')"
-        name="a2a_enabled"
-        :error="errors.a2a_enabled"
-      >
-        <input
-          id="a2a_enabled"
-          v-model="a2aEnabled"
-          type="checkbox"
-        >
-      </FormField>
+            {{ t('agents.form.manageGraphragConfigs') }}
+          </RouterLink>
+        </template>
+      </AgentFormFields>
 
       <button
         type="submit"

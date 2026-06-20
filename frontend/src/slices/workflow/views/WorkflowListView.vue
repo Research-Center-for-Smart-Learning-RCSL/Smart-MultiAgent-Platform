@@ -108,15 +108,15 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/vue-query'
 import { ref } from 'vue'
 import { useRoute } from 'vue-router'
 
-import { ElMessageBox } from 'element-plus'
 import { useI18n } from 'vue-i18n'
 import { SPageHeader } from '@shared/ui'
-import { useToast } from '@shared/composables'
+import { useConfirmDialog, useToast } from '@shared/composables'
 import { createWorkflow, deleteWorkflow, listWorkflows } from '../api'
 import { wfKeys } from '../queries'
 
 const { t } = useI18n()
 const toast = useToast()
+const { confirm } = useConfirmDialog()
 const route = useRoute()
 const qc = useQueryClient()
 const workspaceId = route.params.workspaceId as string
@@ -154,15 +154,14 @@ async function onCreate(): Promise<void> {
 }
 
 async function onDelete(id: string): Promise<void> {
-  try {
-    await ElMessageBox.confirm(
-      t('workflow.list.deleteConfirm'),
-      t('workflow.list.deleteConfirmTitle'),
-      { confirmButtonText: t('workflow.list.delete'), cancelButtonText: t('app.cancel'), type: 'warning' },
-    )
-  } catch {
-    return
-  }
+  const ok = await confirm({
+    title: t('workflow.list.deleteConfirmTitle'),
+    message: t('workflow.list.deleteConfirm'),
+    confirmLabel: t('workflow.list.delete'),
+    cancelLabel: t('app.cancel'),
+    variant: 'warning',
+  })
+  if (!ok) return
   try {
     await deleteWorkflow(id)
     qc.invalidateQueries({ queryKey: wfKeys.workflows(workspaceId) })

@@ -44,6 +44,6 @@ describe('AdminUserDetailView', () => {
     })
     await new Promise(r => setTimeout(r, 50))
     expect(wrapper.text()).toContain('admin@example.com')
-    expect(wrapper.findAll('.admin-user-detail__actions button').length).toBeGreaterThanOrEqual(1)
+    expect(wrapper.findAll('.admin-user-actions button').length).toBeGreaterThanOrEqual(1)
   })
 })

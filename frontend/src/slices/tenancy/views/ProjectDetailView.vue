@@ -2,14 +2,14 @@
 import { onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { ElMessageBox } from 'element-plus'
-import { useInlineRename, useToast } from '@shared/composables'
+import { useConfirmDialog, useInlineRename, useToast } from '@shared/composables'
 import { projectsApi, type Project } from '../api/projects'
 
 const { t } = useI18n()
 const route = useRoute()
 const router = useRouter()
 const toast = useToast()
+const { confirm } = useConfirmDialog()
 const project = ref<Project | null>(null)
 const loading = ref(false)
 const error = ref(false)
@@ -45,15 +45,8 @@ const rename = useInlineRename({
 
 async function remove(): Promise<void> {
   if (!project.value) return
-  try {
-    await ElMessageBox.confirm(
-      t('tenancy.projects.deleteConfirm'),
-      t('tenancy.projects.deleteConfirmTitle'),
-      { confirmButtonText: t('tenancy.orgs.delete'), cancelButtonText: t('app.cancel'), type: 'warning' },
-    )
-  } catch {
-    return
-  }
+  const ok = await confirm({ title: t('tenancy.projects.deleteConfirmTitle'), message: t('tenancy.projects.deleteConfirm'), variant: 'warning', confirmLabel: t('tenancy.orgs.delete'), cancelLabel: t('app.cancel') })
+  if (!ok) return
   try {
     await projectsApi.remove(project.value.id)
     router.push({ name: 'tenancy.projectList' })

@@ -5,6 +5,7 @@
     "notFound": "找不到頁面。",
     "backToHome": "返回首頁",
     "cancel": "取消",
+    "confirm": "確認",
     "save": "儲存",
     "errorBoundary": {
       "title": "發生錯誤",

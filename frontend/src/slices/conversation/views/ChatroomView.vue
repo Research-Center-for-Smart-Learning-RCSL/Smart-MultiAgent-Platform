@@ -162,23 +162,11 @@
       </li>
     </ol>
 
-    <aside
+    <ChatroomPresence
       v-if="!isMobile"
-      class="presence"
-    >
-      <h4>{{ $t('conversation.chatroom.online') }}</h4>
-      <ul>
-        <li
-          v-for="uid in presenceList"
-          :key="uid"
-        >
-          {{ uid.slice(0, 8) }}
-        </li>
-      </ul>
-      <p v-if="store.agentThinking[chatroomId]">
-        {{ $t('conversation.chatroom.agentThinking') }}
-      </p>
-    </aside>
+      :presence-list="presenceList"
+      :agent-thinking="store.agentThinking[chatroomId] ?? null"
+    />
 
     <p
       v-if="typingList.length"
@@ -188,33 +176,22 @@
       {{ $t('conversation.chatroom.typing') }}
     </p>
 
-    <form
-      class="composer"
-      @submit.prevent="onSend"
+    <ChatroomComposer
+      v-model="draft"
+      :pending-uploads="pendingUploads.length"
+      @submit="onSend"
+      @typing="emitTyping"
+      @drop="onDrop"
     >
-      <textarea
-        v-model="draft"
-        :placeholder="$t('conversation.chatroom.composerPlaceholder')"
-        :aria-label="$t('conversation.chatroom.composerPlaceholder')"
-        @input="emitTyping"
-        @dragover.prevent
-        @drop.prevent="onDrop"
-      />
-      <ul
-        v-if="pendingUploads.length"
-        class="attachments"
-      >
+      <template #pending-uploads>
         <li
           v-for="a in pendingUploads"
           :key="a.id"
         >
           {{ a.filename }} ({{ Math.round(a.progress * 100) }}%)
         </li>
-      </ul>
-      <button type="submit">
-        {{ $t('conversation.chatroom.send') }}
-      </button>
-    </form>
+      </template>
+    </ChatroomComposer>
 
     <section
       v-if="searchHits.length"
@@ -251,10 +228,12 @@ import { useChatroomSocket } from '../composables/useChatroomSocket'
 import { useChatroomMessages } from '../composables/useChatroomMessages'
 import { useChatroomSearch } from '../composables/useChatroomSearch'
 import { useChatroomExport } from '../composables/useChatroomExport'
-import { enhanceRenderedMarkdown, renderMarkdown } from '../lib/renderMarkdown'
+import { enhanceRenderedMarkdown, renderMarkdown } from '../utils/renderMarkdown'
 import { useConversationStore } from '../stores/conversation'
 import { ApprovalCard } from '@slices/workflow'
 import { useOrchestrationStore } from '@shared/stores/orchestration'
+import ChatroomComposer from '../components/ChatroomComposer.vue'
+import ChatroomPresence from '../components/ChatroomPresence.vue'
 
 const { t } = useI18n()
 const toast = useToast()

@@ -1,13 +1,14 @@
 <script setup lang="ts">
 import { onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { ElMessageBox } from 'element-plus'
+import { useConfirmDialog } from '@shared/composables'
 import { useMyKeys } from '../composables/useMyKeys'
 import KeyUploadForm from '../components/KeyUploadForm.vue'
 import CapabilityChip from '../components/CapabilityChip.vue'
 import type { ApiKeyProvider } from '../api/keys'
 
 const { t } = useI18n()
+const { confirm } = useConfirmDialog()
 const { keys, loading, error, reload, upload, retest, remove } = useMyKeys()
 
 async function onUpload(p: { provider: ApiKeyProvider; name: string; secret: string }) {
@@ -15,15 +16,14 @@ async function onUpload(p: { provider: ApiKeyProvider; name: string; secret: str
 }
 
 async function onRemove(id: string): Promise<void> {
-  try {
-    await ElMessageBox.confirm(
-      t('keys.list.deleteConfirm'),
-      t('keys.list.deleteConfirmTitle'),
-      { confirmButtonText: t('keys.list.delete'), cancelButtonText: t('app.cancel'), type: 'warning' },
-    )
-  } catch {
-    return
-  }
+  const ok = await confirm({
+    title: t('keys.list.deleteConfirmTitle'),
+    message: t('keys.list.deleteConfirm'),
+    confirmLabel: t('keys.list.delete'),
+    cancelLabel: t('app.cancel'),
+    variant: 'warning',
+  })
+  if (!ok) return
   await remove(id)
 }
 

@@ -24,6 +24,7 @@ Each slice directory contains:
 | `queries/`   | TanStack Query `useQuery`/`useMutation` hooks. |
 | `composables/` | UI-adjacent reactive helpers. |
 | `components/`  | Presentational + smart components scoped to the slice. |
+| `utils/`       | Pure utility functions (non-composable, non-component). Optional. |
 | `views/`       | Route-level page components. |
 | `routes.ts`    | `RouteRecordRaw[]`; meta flags (`requiresAuth`, `requiresVerifiedEmail`, `requiredRoles`). |
 | `locales/`     | `en.json` + `zh-TW.json` — slice-local messages. |
@@ -35,5 +36,5 @@ Each slice directory contains:
 1. **One-way imports.** Use `eslint-plugin-boundaries` with the direction above.
 2. **Public-surface only.** Cross-slice imports go through `@slices/<name>` (the slice `index.ts`), never deep paths.
 3. **Store ↔ API boundary.** Stores never import `api/` directly — they subscribe to `queries/` or accept values from views.
-4. **Single v-html site.** Only `slices/conversation/lib/renderMarkdown.ts` is allowed to render sanitised HTML.
+4. **Single v-html site.** Only `slices/conversation/utils/renderMarkdown.ts` is allowed to render sanitised HTML.
 5. **No global CSS.** Component `<style scoped>` only. Design tokens and component classes live in `@shared/styles/main.css` (Tailwind v4 + `@theme`).

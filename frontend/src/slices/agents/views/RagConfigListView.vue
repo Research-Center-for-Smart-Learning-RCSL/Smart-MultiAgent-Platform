@@ -5,11 +5,9 @@ import { useI18n } from 'vue-i18n'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/vue-query'
 import { useForm } from 'vee-validate'
 import { toTypedSchema } from '@vee-validate/zod'
-import { ElMessageBox } from 'element-plus'
-
 import { FormField } from '@shared/ui'
-import { useServerErrors, useToast } from '@shared/composables'
-import { projectKeysApi, CAPABILITIES, keysKeys, type ApiKey } from '@shared/composables/useProjectKeys'
+import { useConfirmDialog, useServerErrors, useToast } from '@shared/composables'
+import { projectKeysApi, CAPABILITIES, keysKeys, type ApiKey } from '@slices/keys'
 import { agentsApi, type RagConfig } from '../api'
 import { agentKeys } from '../queries'
 import { ragConfigCreateSchema, type RagConfigCreateInput } from '../types/schemas'
@@ -19,6 +17,7 @@ const route = useRoute()
 const qc = useQueryClient()
 const projectId = route.params.projectId as string
 const toast = useToast()
+const { confirm } = useConfirmDialog()
 
 const showForm = ref(false)
 
@@ -175,15 +174,8 @@ const deleteMutation = useMutation({
 })
 
 async function confirmDelete(cfg: RagConfig): Promise<void> {
-  try {
-    await ElMessageBox.confirm(
-      t('agents.ragList.deleteConfirm', { name: cfg.name }),
-      t('agents.ragList.deleteTitle'),
-      { type: 'warning' },
-    )
-  } catch {
-    return // user dismissed
-  }
+  const ok = await confirm({ title: t('agents.ragList.deleteTitle'), message: t('agents.ragList.deleteConfirm', { name: cfg.name }), variant: 'warning' })
+  if (!ok) return
   deleteMutation.mutate(cfg.id)
 }
 

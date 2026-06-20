@@ -208,8 +208,7 @@ import { useMutation, useQueryClient } from '@tanstack/vue-query'
 import { markRaw, ref } from 'vue'
 import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute } from 'vue-router'
 
-import { ElMessageBox } from 'element-plus'
-import { useToast } from '@shared/composables'
+import { useConfirmDialog, useToast } from '@shared/composables'
 import { useI18n } from 'vue-i18n'
 import { useBreakpoint } from '@shared/composables'
 import {
@@ -232,6 +231,7 @@ import '@vue-flow/controls/dist/style.css'
 
 const { t } = useI18n()
 const toast = useToast()
+const { confirm } = useConfirmDialog()
 const route = useRoute()
 const qc = useQueryClient()
 const store = useWorkflowStore()
@@ -360,20 +360,14 @@ void loadWorkflow().then(() => {
 
 async function confirmUnsaved(): Promise<boolean> {
   if (!store.dirty) return true
-  try {
-    await ElMessageBox.confirm(
-      t('workflow.editor.unsavedConfirm'),
-      t('workflow.editor.unsavedConfirmTitle'),
-      {
-        confirmButtonText: t('workflow.editor.leaveAnyway'),
-        cancelButtonText: t('app.cancel'),
-        type: 'warning',
-      },
-    )
-    return true
-  } catch {
-    return false
-  }
+  const ok = await confirm({
+    title: t('workflow.editor.unsavedConfirmTitle'),
+    message: t('workflow.editor.unsavedConfirm'),
+    confirmLabel: t('workflow.editor.leaveAnyway'),
+    cancelLabel: t('app.cancel'),
+    variant: 'warning',
+  })
+  return ok
 }
 onBeforeRouteLeave(confirmUnsaved)
 onBeforeRouteUpdate(confirmUnsaved)

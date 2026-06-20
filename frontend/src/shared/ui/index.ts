@@ -1,5 +1,6 @@
-export { default as FormField } from './FormField.vue'
-export { default as PermissionGate } from './PermissionGate.vue'
+export { default as SFormField } from './SFormField.vue'
+export { default as FormField } from './SFormField.vue'
+export { default as SConfirmDialog } from './SConfirmDialog.vue'
 export { default as SPageHeader } from './SPageHeader.vue'
 export { default as SEmptyState } from './SEmptyState.vue'
 export { default as SStatusBadge } from './SStatusBadge.vue'
