@@ -7,7 +7,7 @@ their own Table/DeclarativeBase bindings against it.
 SoC guard: this module MUST NOT import any context; `alembic/env.py` relies
 on being able to import it without loading the application graph. The
 per-context table modules are registered via side-effect imports from
-`shared_kernel.db.registry`, which Phase C introduces.
+`app.db_registry`.
 """
 
 from __future__ import annotations

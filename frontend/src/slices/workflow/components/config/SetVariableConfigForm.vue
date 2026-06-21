@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
 import { useConfigModel } from '../../composables/useConfigModel'
-import SFormField from '@shared/ui/SFormField.vue'
+import { SFormField } from '@shared/ui'
 
 const { t } = useI18n()
 

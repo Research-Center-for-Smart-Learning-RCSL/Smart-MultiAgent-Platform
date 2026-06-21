@@ -11,7 +11,7 @@ import uuid
 
 from fastapi import APIRouter, WebSocket
 
-from contexts.knowledge.infrastructure.channels import rag_channel
+from contexts.knowledge.interfaces import rag_channel
 from contexts.knowledge.interfaces.facade import KnowledgeFacade
 from contexts.tenancy.interfaces.role_resolver import TenancyRoleResolver
 from shared_kernel.auth.permissions import Scope

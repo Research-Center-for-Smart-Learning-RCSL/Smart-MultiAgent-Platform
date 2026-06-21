@@ -12,7 +12,7 @@ import uuid
 from fastapi import APIRouter, WebSocket
 
 from contexts.tenancy.interfaces.facade import TenancyFacade
-from contexts.workflow.infrastructure.channels import workflow_channel
+from contexts.workflow.interfaces import workflow_channel
 from contexts.workflow.interfaces.facade import WorkflowFacade
 from shared_kernel.db.session import get_sessionmaker
 from shared_kernel.realtime import (

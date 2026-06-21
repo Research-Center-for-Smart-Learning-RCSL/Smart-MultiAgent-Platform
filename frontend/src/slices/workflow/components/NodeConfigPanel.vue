@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import SFormField from '@shared/ui/SFormField.vue'
+import { SFormField } from '@shared/ui'
 import type { WorkflowNode, NodeType } from '../types'
 
 import TriggerConfigForm from './config/TriggerConfigForm.vue'

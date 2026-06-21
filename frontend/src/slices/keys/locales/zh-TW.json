@@ -79,7 +79,11 @@
       "cx": "CX（自訂搜尋 ID）",
       "searchDepth": "搜尋深度",
       "depthBasic": "基本",
-      "depthAdvanced": "進階"
+      "depthAdvanced": "進階",
+      "providerBrave": "Brave",
+      "providerSerper": "Serper",
+      "providerTavily": "Tavily",
+      "providerGoogleCse": "Google CSE"
     }
   }
 }

@@ -41,12 +41,12 @@ from contexts.agents.domain.models import AgentModelHint, ContextMode, PromptStr
 from contexts.agents.infrastructure.repositories import AgentRepository
 from contexts.conversation.application.message_service import MessageService
 from contexts.conversation.application.triggers import evaluate_message_wakeups
-from contexts.conversation.infrastructure.channels import room_channel
 from contexts.conversation.infrastructure.repositories import (
     ChatroomAgentRepository,
     ChatroomRepository,
     WorkspaceRepository,
 )
+from contexts.conversation.interfaces import room_channel
 from contexts.identity.infrastructure.repositories import UserRepository
 from contexts.keys.application.provider_router import (
     ProviderCallResult,

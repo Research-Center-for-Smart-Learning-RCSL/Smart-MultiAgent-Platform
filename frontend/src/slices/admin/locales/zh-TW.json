@@ -47,6 +47,7 @@
       "banDialogReasonRequired": "原因為必填"
     },
     "userDetail": {
+      "id": "ID",
       "isAdmin": "管理員",
       "bannedReason": "封鎖原因",
       "bannedAt": "封鎖時間",
@@ -78,6 +79,7 @@
     },
     "ipBans": {
       "title": "IP 封鎖",
+      "cidr": "CIDR",
       "cidrPlaceholder": "192.168.1.0/24",
       "reason": "原因",
       "add": "新增封鎖",
@@ -108,6 +110,7 @@
     },
     "audit": {
       "title": "稽核日誌",
+      "id": "ID",
       "action": "操作",
       "actorUserId": "執行者 ID",
       "resourceType": "資源類型",
