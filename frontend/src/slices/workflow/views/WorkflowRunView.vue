@@ -62,37 +62,22 @@
       v-else-if="steps.length"
       class="overflow-x-auto"
     >
-      <table class="w-full text-sm">
+      <table class="table">
         <thead>
-          <tr class="border-b text-left">
-            <th
-              scope="col"
-              class="py-1"
-            >
+          <tr>
+            <th scope="col">
               {{ $t('workflow.run.nodeId') }}
             </th>
-            <th
-              scope="col"
-              class="py-1"
-            >
+            <th scope="col">
               {{ $t('workflow.run.state') }}
             </th>
-            <th
-              scope="col"
-              class="py-1"
-            >
+            <th scope="col">
               {{ $t('workflow.run.started') }}
             </th>
-            <th
-              scope="col"
-              class="py-1"
-            >
+            <th scope="col">
               {{ $t('workflow.run.ended') }}
             </th>
-            <th
-              scope="col"
-              class="py-1"
-            >
+            <th scope="col">
               {{ $t('workflow.run.error') }}
             </th>
           </tr>
@@ -101,21 +86,20 @@
           <tr
             v-for="step in steps"
             :key="step.id"
-            class="border-b"
           >
-            <td class="py-1 font-mono text-xs">
+            <td class="font-mono text-xs">
               {{ step.node_id }}
             </td>
-            <td class="py-1">
+            <td>
               <SStatusBadge :status="step.state" />
             </td>
-            <td class="py-1 text-muted">
+            <td class="text-muted">
               {{ new Date(step.started_at).toLocaleTimeString() }}
             </td>
-            <td class="py-1 text-muted">
+            <td class="text-muted">
               {{ step.ended_at ? new Date(step.ended_at).toLocaleTimeString() : '—' }}
             </td>
-            <td class="py-1 text-danger text-xs truncate max-w-[200px]">
+            <td class="text-danger text-xs truncate max-w-[200px]">
               {{ step.error ?? '' }}
             </td>
           </tr>

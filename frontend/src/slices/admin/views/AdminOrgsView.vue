@@ -1,7 +1,10 @@
 <template>
   <section class="admin-orgs">
     <h1>{{ $t('admin.orgs.title') }}</h1>
-    <table v-if="query.data.value">
+    <table
+      v-if="query.data.value"
+      class="table"
+    >
       <thead>
         <tr>
           <th>{{ $t('admin.orgs.name') }}</th>
@@ -104,7 +107,5 @@ async function onTransfer(orgId: string): Promise<void> {
 </script>
 
 <style scoped>
-table { width: 100%; border-collapse: collapse; }
-th, td { padding: 0.5rem; border-bottom: 1px solid var(--color-border); text-align: left; }
 td button + button { margin-left: 0.25rem; }
 </style>

@@ -35,7 +35,7 @@ function cycle(): void {
   justify-content: center;
   width: 36px;
   height: 36px;
-  border-radius: 9999px;
+  border-radius: var(--radius-full);
   border: 1px solid var(--color-border);
   background: var(--color-surface);
   color: var(--color-fg);

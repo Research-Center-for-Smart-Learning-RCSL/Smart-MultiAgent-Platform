@@ -40,28 +40,27 @@
       v-else-if="query.data.value?.length"
       class="overflow-x-auto"
     >
-      <table class="w-full text-sm">
+      <table class="table">
         <thead>
-          <tr class="border-b text-left">
-            <th class="py-2">
+          <tr>
+            <th>
               {{ $t('workflow.list.name') }}
             </th>
-            <th class="py-2">
+            <th>
               {{ $t('workflow.list.version') }}
             </th>
-            <th class="py-2">
+            <th>
               {{ $t('workflow.list.created') }}
             </th>
-            <th class="py-2" />
+            <th />
           </tr>
         </thead>
         <tbody>
           <tr
             v-for="wf in query.data.value"
             :key="wf.id"
-            class="border-b"
           >
-            <td class="py-2">
+            <td>
               <router-link
                 :to="{ name: 'workflow.editor', params: { workspaceId, workflowId: wf.id } }"
                 class="text-accent hover:underline"
@@ -69,13 +68,13 @@
                 {{ wf.name }}
               </router-link>
             </td>
-            <td class="py-2 text-muted">
+            <td class="text-muted">
               v{{ wf.version }}
             </td>
-            <td class="py-2 text-muted">
+            <td class="text-muted">
               {{ new Date(wf.created_at).toLocaleDateString() }}
             </td>
-            <td class="py-2 flex gap-2 justify-end">
+            <td class="flex gap-2 justify-end">
               <router-link
                 :to="{ name: 'workflow.runs', params: { workspaceId, workflowId: wf.id } }"
                 class="text-sm text-muted hover:underline"

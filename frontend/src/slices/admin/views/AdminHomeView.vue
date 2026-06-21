@@ -69,7 +69,7 @@ const metricsQuery = useQuery({
 .admin-home__nav a {
   padding: 0.5rem 1rem;
   border: 1px solid var(--color-border);
-  border-radius: 4px;
+  border-radius: var(--radius-md);
   text-decoration: none;
 }
 .admin-home__stats dl {

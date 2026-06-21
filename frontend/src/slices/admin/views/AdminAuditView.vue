@@ -55,7 +55,10 @@
       </button>
     </form>
 
-    <table v-if="allItems.length">
+    <table
+      v-if="allItems.length"
+      class="table"
+    >
       <thead>
         <tr>
           <th>{{ $t('admin.audit.id') }}</th>
@@ -175,7 +178,5 @@ async function onExport(): Promise<void> {
   margin: 1rem 0;
 }
 .admin-audit__filters input { max-width: 14rem; }
-table { width: 100%; border-collapse: collapse; }
-th, td { padding: 0.5rem; border-bottom: 1px solid var(--color-border); text-align: left; font-size: 0.875rem; }
 .admin-audit__pagination { margin: 1rem 0; }
 </style>

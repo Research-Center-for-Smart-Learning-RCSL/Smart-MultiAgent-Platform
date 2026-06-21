@@ -5,7 +5,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/vue-query'
 import { useForm } from 'vee-validate'
 import { toTypedSchema } from '@vee-validate/zod'
 import { z } from 'zod'
-import { SFormField } from '@shared/ui'
+import { SCard, SFormField } from '@shared/ui'
 import { useConfirmDialog, useServerErrors, useToast } from '@shared/composables'
 import { agentsApi, type EgressAllowlistEntry } from '../api'
 import { agentKeys } from '../queries'
@@ -78,8 +78,8 @@ async function confirmRemove(entry: EgressAllowlistEntry): Promise<void> {
       {{ t('agents.egress.subtitle') }}
     </p>
 
+    <SCard class="max-w-[480px] mb-6">
     <form
-      class="egress__form"
       @submit.prevent="onSubmit"
     >
       <SFormField
@@ -113,13 +113,14 @@ async function confirmRemove(entry: EgressAllowlistEntry): Promise<void> {
         {{ t('agents.egress.add') }}
       </button>
     </form>
+    </SCard>
 
     <p v-if="allowlistQuery.isLoading.value">
       {{ t('agents.egress.loading') }}
     </p>
     <table
       v-else
-      class="egress__table"
+      class="table"
     >
       <thead>
         <tr>
@@ -160,23 +161,6 @@ async function confirmRemove(entry: EgressAllowlistEntry): Promise<void> {
 <style scoped>
 .egress__subtitle {
   color: var(--color-muted);
-}
-.egress__form {
-  max-width: 480px;
-  margin-bottom: 1.5rem;
-  padding: 1rem;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-}
-.egress__table {
-  width: 100%;
-  border-collapse: collapse;
-}
-.egress__table th,
-.egress__table td {
-  text-align: left;
-  padding: 0.5rem 0.75rem;
-  border-bottom: 1px solid var(--color-border);
 }
 .egress__host {
   font-family: var(--font-mono, monospace);

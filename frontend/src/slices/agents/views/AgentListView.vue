@@ -7,6 +7,7 @@ import { toTypedSchema } from '@vee-validate/zod'
 import { computed, ref, watch } from 'vue'
 
 import { useServerErrors, useToast } from '@shared/composables'
+import { SCard } from '@shared/ui'
 import AgentFormFields from '../components/AgentFormFields.vue'
 import { keyGroupsApi, keysKeys } from '@slices/keys'
 import { agentsApi } from '../api'
@@ -133,9 +134,11 @@ function goToAgent(agentId: string) {
       </button>
     </div>
 
-    <form
+    <SCard
       v-if="showForm"
-      class="agent-list__form"
+      class="max-w-[480px] mb-6"
+    >
+    <form
       @submit.prevent="onSubmit"
     >
       <p
@@ -184,6 +187,7 @@ function goToAgent(agentId: string) {
         {{ t('agents.form.submit') }}
       </button>
     </form>
+    </SCard>
 
     <div
       v-if="query.isLoading.value"
@@ -224,13 +228,6 @@ function goToAgent(agentId: string) {
   display: flex;
   align-items: center;
   justify-content: space-between;
-}
-.agent-list__form {
-  max-width: 480px;
-  margin-bottom: 1.5rem;
-  padding: 1rem;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
 }
 .agent-list__warning {
   color: var(--color-danger);

@@ -56,7 +56,10 @@
         {{ $t('admin.users.retry') }}
       </button>
     </p>
-    <table v-else-if="query.data.value && query.data.value.length">
+    <table
+      v-else-if="query.data.value && query.data.value.length"
+      class="table"
+    >
       <thead>
         <tr>
           <th scope="col">
@@ -154,6 +157,4 @@ const actions = useAdminActions()
   gap: 0.5rem;
   margin: 1rem 0;
 }
-table { width: 100%; border-collapse: collapse; }
-th, td { padding: 0.5rem; border-bottom: 1px solid var(--color-border); text-align: left; }
 </style>

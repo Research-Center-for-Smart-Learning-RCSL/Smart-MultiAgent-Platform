@@ -37,31 +37,30 @@
       v-else-if="runsList.length"
       class="overflow-x-auto"
     >
-      <table class="w-full text-sm">
+      <table class="table">
         <thead>
-          <tr class="border-b text-left">
-            <th class="py-1">
+          <tr>
+            <th>
               {{ $t('workflow.runs.state') }}
             </th>
-            <th class="py-1">
+            <th>
               {{ $t('workflow.runs.trigger') }}
             </th>
-            <th class="py-1">
+            <th>
               {{ $t('workflow.runs.started') }}
             </th>
-            <th class="py-1">
+            <th>
               {{ $t('workflow.runs.ended') }}
             </th>
-            <th class="py-1" />
+            <th />
           </tr>
         </thead>
         <tbody>
           <tr
             v-for="r in runsList"
             :key="r.id"
-            class="border-b"
           >
-            <td class="py-1">
+            <td>
               <SStatusBadge :status="r.state" />
               <span
                 v-if="r.archived"
@@ -70,16 +69,16 @@
                 ({{ $t('workflow.runs.archived') }})
               </span>
             </td>
-            <td class="py-1">
+            <td>
               {{ r.trigger_type }}
             </td>
-            <td class="py-1 text-muted">
+            <td class="text-muted">
               {{ new Date(r.started_at).toLocaleString() }}
             </td>
-            <td class="py-1 text-muted">
+            <td class="text-muted">
               {{ r.ended_at ? new Date(r.ended_at).toLocaleString() : '—' }}
             </td>
-            <td class="py-1">
+            <td>
               <router-link
                 :to="{ name: 'workflow.run', params: { runId: r.id } }"
                 class="text-accent hover:underline text-xs"

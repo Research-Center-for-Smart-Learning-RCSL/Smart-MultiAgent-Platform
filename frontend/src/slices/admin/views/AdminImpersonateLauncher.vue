@@ -75,7 +75,7 @@ form { display: flex; gap: 0.5rem; margin: 1rem 0; }
   margin: 1rem 0;
   padding: 0.75rem;
   border: 2px solid var(--color-warning);
-  border-radius: 4px;
+  border-radius: var(--radius-md);
 }
 .admin-impersonate__error { color: var(--color-danger); }
 </style>

@@ -49,7 +49,7 @@ const query = useQuery({
   align-items: center;
   padding: 1.5rem;
   border: 1px solid var(--color-border);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
 }
 .admin-metrics__value { font-size: 2rem; font-weight: 700; }
 .admin-metrics__label { font-size: 0.875rem; color: var(--color-muted); }
