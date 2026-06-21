@@ -137,7 +137,7 @@ onMounted(load)
           <li>{{ $t('tenancy.orgs.quotas.agents') }}: {{ quotas.agents }} / {{ quotas.advisory_targets.agents ?? '—' }}</li>
           <li>{{ $t('tenancy.orgs.quotas.workflows') }}: {{ quotas.workflows }} / {{ quotas.advisory_targets.workflows ?? '—' }}</li>
         </ul>
-        <p class="muted">
+        <p class="text-muted text-sm">
           {{ $t('tenancy.orgs.quotas.advisoryNote') }}
         </p>
       </section>
