@@ -1,7 +1,7 @@
 """SQLAlchemy Core tables for the keys context.
 
 DDL is owned by `alembic/versions/0005_api_keys.py`; this module exists so
-application queries can target typed columns and so `shared_kernel.db.registry`
+application queries can target typed columns and so `app.db_registry`
 can import the table bindings on boot.
 
 SoC: domain layer does not import this file.

@@ -2,7 +2,7 @@
 
 Each sub-directory is an **independent** bounded context per `REQUIREMENTS.md` §23. Contexts never import each other; they communicate via:
 
-- `shared_kernel.events` — domain-event bus for async fan-out (e.g. `user.registered` → notification context reacts).
+- Domain events published via `shared_kernel.realtime.pubsub` for async fan-out.
 - Direct calls **only** from `app.api` routers into `contexts.{X}.interfaces` facades.
 
 ## Layer rules (enforced by import-linter)

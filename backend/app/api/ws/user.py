@@ -6,7 +6,7 @@ import uuid
 
 from fastapi import APIRouter, WebSocket
 
-from contexts.identity.infrastructure.channels import user_channel
+from contexts.identity.interfaces import user_channel
 from shared_kernel.realtime import (
     WsAuthError,
     authenticate_subprotocol,

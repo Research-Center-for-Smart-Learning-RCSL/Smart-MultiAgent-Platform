@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, WebSocket
 
-from contexts.audit.infrastructure.channels import AUDIT_TAIL_CHANNEL
+from contexts.audit.interfaces import AUDIT_TAIL_CHANNEL
 from shared_kernel.realtime import (
     WsAuthError,
     authenticate_subprotocol,
