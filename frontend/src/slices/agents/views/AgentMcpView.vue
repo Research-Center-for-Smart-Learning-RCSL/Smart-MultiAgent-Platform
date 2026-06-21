@@ -5,7 +5,7 @@ import { useI18n } from 'vue-i18n'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/vue-query'
 import { useForm } from 'vee-validate'
 import { toTypedSchema } from '@vee-validate/zod'
-import { FormField } from '@shared/ui'
+import { SFormField } from '@shared/ui'
 import { useConfirmDialog, useServerErrors, useToast } from '@shared/composables'
 import { agentsApi, type McpBinding, type McpTestResult } from '../api'
 import { agentKeys } from '../queries'
@@ -154,7 +154,7 @@ async function confirmDelete(b: McpBinding): Promise<void> {
       class="agent-mcp__form"
       @submit.prevent="onSubmit"
     >
-      <FormField
+      <SFormField
         :label="t('agents.mcp.source')"
         name="source"
         :error="errors.source"
@@ -174,9 +174,9 @@ async function confirmDelete(b: McpBinding): Promise<void> {
             {{ t('agents.mcp.sourceBuiltin') }}
           </option>
         </select>
-      </FormField>
+      </SFormField>
 
-      <FormField
+      <SFormField
         :label="t('agents.mcp.reference')"
         name="reference"
         :error="errors.reference"
@@ -210,9 +210,9 @@ async function confirmDelete(b: McpBinding): Promise<void> {
             : t('agents.mcp.referencePlaceholderPackage')"
           :aria-invalid="!!errors.reference"
         >
-      </FormField>
+      </SFormField>
 
-      <FormField
+      <SFormField
         :label="t('agents.mcp.allowedTools')"
         name="allowed_tools"
       >
@@ -222,7 +222,7 @@ async function confirmDelete(b: McpBinding): Promise<void> {
           :placeholder="t('agents.mcp.allowedToolsPlaceholder')"
         >
         <span class="agent-mcp__hint">{{ t('agents.mcp.allowedToolsHint') }}</span>
-      </FormField>
+      </SFormField>
 
       <button
         type="submit"

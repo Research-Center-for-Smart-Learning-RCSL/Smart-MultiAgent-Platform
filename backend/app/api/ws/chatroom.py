@@ -14,6 +14,7 @@ from contexts.conversation.application.access import (
 )
 from contexts.conversation.application.triggers import evaluate_presence_change
 from contexts.conversation.domain.errors import ChatroomNotFound, ForbiddenInRoom
+from contexts.conversation.infrastructure.channels import room_channel
 from shared_kernel.db.session import async_session, get_sessionmaker
 from shared_kernel.realtime import (
     ChannelConnection,
@@ -22,7 +23,7 @@ from shared_kernel.realtime import (
     authenticate_subprotocol,
     connection_loop,
 )
-from shared_kernel.realtime.pubsub import Publisher, room_channel
+from shared_kernel.realtime.pubsub import Publisher
 
 _log = logging.getLogger(__name__)
 

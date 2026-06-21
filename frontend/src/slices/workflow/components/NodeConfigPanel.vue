@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import FormField from '@shared/ui/SFormField.vue'
+import SFormField from '@shared/ui/SFormField.vue'
 import type { WorkflowNode, NodeType } from '../types'
 
 import TriggerConfigForm from './config/TriggerConfigForm.vue'
@@ -68,7 +68,7 @@ const configComponent = computed(() => CONFIG_FORM_MAP[props.node.type] ?? null)
     </div>
 
     <!-- Label (editable) -->
-    <FormField
+    <SFormField
       :label="t('workflow.config.label')"
       name="node-label"
     >
@@ -79,7 +79,7 @@ const configComponent = computed(() => CONFIG_FORM_MAP[props.node.type] ?? null)
         class="w-full text-sm border rounded px-2 py-1 bg-bg"
         @input="$emit('update:label', localLabel)"
       >
-    </FormField>
+    </SFormField>
 
     <!-- Type-specific config form (dynamic component) -->
     <component

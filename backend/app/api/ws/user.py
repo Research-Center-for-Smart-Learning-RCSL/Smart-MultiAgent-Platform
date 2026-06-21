@@ -6,12 +6,12 @@ import uuid
 
 from fastapi import APIRouter, WebSocket
 
+from contexts.identity.infrastructure.channels import user_channel
 from shared_kernel.realtime import (
     WsAuthError,
     authenticate_subprotocol,
     connection_loop,
 )
-from shared_kernel.realtime.pubsub import user_channel
 
 router = APIRouter(tags=["ws"])
 

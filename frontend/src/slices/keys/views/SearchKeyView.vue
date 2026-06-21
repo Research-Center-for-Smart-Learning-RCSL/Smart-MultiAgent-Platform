@@ -46,10 +46,10 @@ watch(projectId, reload)
           v-model="provider"
           data-testid="search-provider"
         >
-          <option value="brave">Brave</option>
-          <option value="serper">Serper</option>
-          <option value="tavily">Tavily</option>
-          <option value="google_cse">Google CSE</option>
+          <option value="brave">{{ $t('keys.search.providerBrave') }}</option>
+          <option value="serper">{{ $t('keys.search.providerSerper') }}</option>
+          <option value="tavily">{{ $t('keys.search.providerTavily') }}</option>
+          <option value="google_cse">{{ $t('keys.search.providerGoogleCse') }}</option>
         </select>
       </label>
       <label>

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
-import { FormField } from '@shared/ui'
+import { SFormField } from '@shared/ui'
 import type { KeyGroup } from '@slices/keys'
 
 interface RagConfigOption {
@@ -40,7 +40,7 @@ const { t } = useI18n()
 </script>
 
 <template>
-  <FormField
+  <SFormField
     :label="t('agents.form.name')"
     name="name"
     :error="errors.name"
@@ -53,9 +53,9 @@ const { t } = useI18n()
       :aria-invalid="!!errors.name"
       @input="emit('update:name', ($event.target as HTMLInputElement).value)"
     >
-  </FormField>
+  </SFormField>
 
-  <FormField
+  <SFormField
     :label="t('agents.form.modelHint')"
     name="model_hint"
     :error="errors.model_hint"
@@ -76,9 +76,9 @@ const { t } = useI18n()
         Gemini
       </option>
     </select>
-  </FormField>
+  </SFormField>
 
-  <FormField
+  <SFormField
     :label="t('agents.form.modelId')"
     name="model_id"
     :error="errors.model_id"
@@ -89,9 +89,9 @@ const { t } = useI18n()
       :placeholder="t('agents.form.modelIdPlaceholder')"
       @input="emit('update:modelId', ($event.target as HTMLInputElement).value || null)"
     >
-  </FormField>
+  </SFormField>
 
-  <FormField
+  <SFormField
     :label="t('agents.form.keyGroup')"
     name="key_group_id"
     :error="errors.key_group_id"
@@ -116,9 +116,9 @@ const { t } = useI18n()
         {{ g.name }}
       </option>
     </select>
-  </FormField>
+  </SFormField>
 
-  <FormField
+  <SFormField
     :label="t('agents.form.systemPrompt')"
     name="system_prompt"
     :error="errors.system_prompt"
@@ -129,9 +129,9 @@ const { t } = useI18n()
       :rows="textareaRows ?? 4"
       @input="emit('update:systemPrompt', ($event.target as HTMLTextAreaElement).value)"
     />
-  </FormField>
+  </SFormField>
 
-  <FormField
+  <SFormField
     :label="t('agents.form.promptStrategy')"
     name="prompt_strategy"
     :error="errors.prompt_strategy"
@@ -148,9 +148,9 @@ const { t } = useI18n()
         {{ t('agents.form.promptStrategyLazy') }}
       </option>
     </select>
-  </FormField>
+  </SFormField>
 
-  <FormField
+  <SFormField
     :label="t('agents.form.contextMode')"
     name="context_mode"
     :error="errors.context_mode"
@@ -167,9 +167,9 @@ const { t } = useI18n()
         {{ t('agents.form.contextModeCompact') }}
       </option>
     </select>
-  </FormField>
+  </SFormField>
 
-  <FormField
+  <SFormField
     :label="t('agents.form.ragConfig')"
     name="rag_config_id"
     :error="errors.rag_config_id"
@@ -191,11 +191,11 @@ const { t } = useI18n()
       </option>
     </select>
     <slot name="after-rag" />
-  </FormField>
+  </SFormField>
 
   <slot name="extra-fields" />
 
-  <FormField
+  <SFormField
     :label="t('agents.form.a2aEnabled')"
     name="a2a_enabled"
     :error="errors.a2a_enabled"
@@ -206,5 +206,5 @@ const { t } = useI18n()
       type="checkbox"
       @change="emit('update:a2aEnabled', ($event.target as HTMLInputElement).checked)"
     >
-  </FormField>
+  </SFormField>
 </template>

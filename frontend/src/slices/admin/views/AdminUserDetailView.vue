@@ -5,7 +5,7 @@
   >
     <h1>{{ query.data.value.email }}</h1>
     <dl>
-      <dt>ID</dt><dd>{{ query.data.value.id }}</dd>
+      <dt>{{ $t('admin.userDetail.id') }}</dt><dd>{{ query.data.value.id }}</dd>
       <dt>{{ $t('admin.users.status') }}</dt><dd>{{ query.data.value.status }}</dd>
       <dt>{{ $t('admin.users.verified') }}</dt><dd>{{ query.data.value.email_verified ? $t('admin.common.yes') : $t('admin.common.no') }}</dd>
       <dt>{{ $t('admin.userDetail.isAdmin') }}</dt><dd>{{ query.data.value.is_admin ? $t('admin.common.yes') : $t('admin.common.no') }}</dd>

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
 import { useConfigModel, safeNumber } from '../../composables/useConfigModel'
-import FormField from '@shared/ui/SFormField.vue'
+import SFormField from '@shared/ui/SFormField.vue'
 
 const { t } = useI18n()
 
@@ -24,7 +24,7 @@ const { local, update } = useConfigModel(props, emit)
 <template>
   <div class="space-y-4">
     <!-- Mode -->
-    <FormField
+    <SFormField
       :label="t('workflow.config.mode')"
       name="join-mode"
     >
@@ -42,10 +42,10 @@ const { local, update } = useConfigModel(props, emit)
           {{ m }}
         </option>
       </select>
-    </FormField>
+    </SFormField>
 
     <!-- Count (only when mode === 'count') -->
-    <FormField
+    <SFormField
       v-if="local.mode === 'count'"
       :label="t('workflow.config.count')"
       name="join-count"
@@ -59,10 +59,10 @@ const { local, update } = useConfigModel(props, emit)
         class="w-full text-sm border rounded px-2 py-1 bg-bg"
         @input="update('count', safeNumber(($event.target as HTMLInputElement).value, 1))"
       >
-    </FormField>
+    </SFormField>
 
     <!-- Timeout -->
-    <FormField
+    <SFormField
       :label="t('workflow.config.timeoutSeconds')"
       name="join-timeout"
     >
@@ -75,6 +75,6 @@ const { local, update } = useConfigModel(props, emit)
         class="w-full text-sm border rounded px-2 py-1 bg-bg"
         @input="update('timeout_seconds', safeNumber(($event.target as HTMLInputElement).value, 1))"
       >
-    </FormField>
+    </SFormField>
   </div>
 </template>

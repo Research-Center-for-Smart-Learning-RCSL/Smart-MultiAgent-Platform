@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
 import { useConfigModel, safeNumber } from '../../composables/useConfigModel'
-import FormField from '@shared/ui/SFormField.vue'
+import SFormField from '@shared/ui/SFormField.vue'
 
 const { t } = useI18n()
 
@@ -45,7 +45,7 @@ function toggleType(type: string) {
 <template>
   <div class="space-y-4">
     <!-- Event type -->
-    <FormField
+    <SFormField
       :label="t('workflow.config.eventType')"
       name="wait-event-type"
     >
@@ -63,10 +63,10 @@ function toggleType(type: string) {
           {{ et }}
         </option>
       </select>
-    </FormField>
+    </SFormField>
 
     <!-- Timeout -->
-    <FormField
+    <SFormField
       :label="t('workflow.config.timeoutSeconds')"
       name="wait-timeout"
     >
@@ -79,11 +79,11 @@ function toggleType(type: string) {
         class="w-full text-sm border rounded px-2 py-1 bg-bg"
         @input="update('timeout_seconds', safeNumber(($event.target as HTMLInputElement).value, 1))"
       >
-    </FormField>
+    </SFormField>
 
     <!-- message_in_room fields -->
     <template v-if="(local.event_type ?? 'message_in_room') === 'message_in_room'">
-      <FormField
+      <SFormField
         :label="t('workflow.config.chatroomId')"
         name="wait-chatroom"
       >
@@ -104,9 +104,9 @@ function toggleType(type: string) {
             {{ room.name }}
           </option>
         </select>
-      </FormField>
+      </SFormField>
 
-      <FormField
+      <SFormField
         :label="t('workflow.config.senderFilter')"
         name="wait-sender-filter"
       >
@@ -124,9 +124,9 @@ function toggleType(type: string) {
             {{ sf }}
           </option>
         </select>
-      </FormField>
+      </SFormField>
 
-      <FormField
+      <SFormField
         :label="t('workflow.config.contentRegex')"
         name="wait-content-regex"
       >
@@ -137,12 +137,12 @@ function toggleType(type: string) {
           class="w-full text-sm border rounded px-2 py-1 bg-bg"
           @input="update('content_regex', ($event.target as HTMLInputElement).value)"
         >
-      </FormField>
+      </SFormField>
     </template>
 
     <!-- a2a_message fields -->
     <template v-if="local.event_type === 'a2a_message'">
-      <FormField
+      <SFormField
         :label="t('workflow.config.agentId')"
         name="wait-agent"
       >
@@ -163,9 +163,9 @@ function toggleType(type: string) {
             {{ agent.name }}
           </option>
         </select>
-      </FormField>
+      </SFormField>
 
-      <FormField
+      <SFormField
         :label="t('workflow.config.types')"
         name="wait-a2a-types"
       >
@@ -183,12 +183,12 @@ function toggleType(type: string) {
             <span class="text-sm">{{ at }}</span>
           </label>
         </div>
-      </FormField>
+      </SFormField>
     </template>
 
     <!-- timer fields -->
     <template v-if="local.event_type === 'timer'">
-      <FormField
+      <SFormField
         :label="t('workflow.config.delaySeconds')"
         name="wait-delay"
       >
@@ -201,12 +201,12 @@ function toggleType(type: string) {
           class="w-full text-sm border rounded px-2 py-1 bg-bg"
           @input="update('delay_seconds', safeNumber(($event.target as HTMLInputElement).value, 1))"
         >
-      </FormField>
+      </SFormField>
     </template>
 
     <!-- variable_matches fields -->
     <template v-if="local.event_type === 'variable_matches'">
-      <FormField
+      <SFormField
         :label="t('workflow.config.expression')"
         name="wait-expression"
       >
@@ -216,7 +216,7 @@ function toggleType(type: string) {
           class="w-full text-sm border rounded px-2 py-1 bg-bg min-h-[60px] font-mono"
           @input="update('expression', ($event.target as HTMLTextAreaElement).value)"
         />
-      </FormField>
+      </SFormField>
     </template>
   </div>
 </template>

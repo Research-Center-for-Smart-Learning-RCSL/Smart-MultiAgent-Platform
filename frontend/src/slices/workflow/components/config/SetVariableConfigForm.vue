@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
 import { useConfigModel } from '../../composables/useConfigModel'
-import FormField from '@shared/ui/SFormField.vue'
+import SFormField from '@shared/ui/SFormField.vue'
 
 const { t } = useI18n()
 
@@ -61,7 +61,7 @@ function removeAssignment(index: number) {
 
 <template>
   <div class="space-y-4">
-    <FormField
+    <SFormField
       :label="t('workflow.config.assignments')"
       name="set-var-assignments"
     >
@@ -122,6 +122,6 @@ function removeAssignment(index: number) {
       >
         + {{ t('workflow.config.addAssignment') }}
       </button>
-    </FormField>
+    </SFormField>
   </div>
 </template>

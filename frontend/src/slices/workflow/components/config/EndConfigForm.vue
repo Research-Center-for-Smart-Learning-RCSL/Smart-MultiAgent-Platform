@@ -2,7 +2,7 @@
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useConfigModel } from '../../composables/useConfigModel'
-import FormField from '@shared/ui/SFormField.vue'
+import SFormField from '@shared/ui/SFormField.vue'
 
 const { t } = useI18n()
 
@@ -42,7 +42,7 @@ function onReturnVariablesInput(event: Event) {
 <template>
   <div class="space-y-4">
     <!-- Status -->
-    <FormField
+    <SFormField
       :label="t('workflow.config.status')"
       name="end-status"
     >
@@ -60,10 +60,10 @@ function onReturnVariablesInput(event: Event) {
           {{ s }}
         </option>
       </select>
-    </FormField>
+    </SFormField>
 
     <!-- Return variables -->
-    <FormField
+    <SFormField
       :label="t('workflow.config.returnVariables')"
       :help="t('workflow.config.returnVariablesHelp')"
       name="end-return-vars"
@@ -75,10 +75,10 @@ function onReturnVariablesInput(event: Event) {
         class="w-full text-sm border rounded px-2 py-1 bg-bg"
         @input="onReturnVariablesInput"
       >
-    </FormField>
+    </SFormField>
 
     <!-- Failure reason (only when status === 'failure') -->
-    <FormField
+    <SFormField
       v-if="(local.status ?? 'success') === 'failure'"
       :label="t('workflow.config.failureReason')"
       name="end-failure-reason"
@@ -89,6 +89,6 @@ function onReturnVariablesInput(event: Event) {
         class="w-full text-sm border rounded px-2 py-1 bg-bg min-h-[60px] font-mono"
         @input="update('failure_reason', ($event.target as HTMLTextAreaElement).value)"
       />
-    </FormField>
+    </SFormField>
   </div>
 </template>

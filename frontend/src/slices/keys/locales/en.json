@@ -79,7 +79,11 @@
       "cx": "CX (Custom Search ID)",
       "searchDepth": "Search Depth",
       "depthBasic": "Basic",
-      "depthAdvanced": "Advanced"
+      "depthAdvanced": "Advanced",
+      "providerBrave": "Brave",
+      "providerSerper": "Serper",
+      "providerTavily": "Tavily",
+      "providerGoogleCse": "Google CSE"
     }
   }
 }

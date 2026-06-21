@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
 import { useConfigModel, safeNumber } from '../../composables/useConfigModel'
-import FormField from '@shared/ui/SFormField.vue'
+import SFormField from '@shared/ui/SFormField.vue'
 import OnErrorConfigForm from './OnErrorConfigForm.vue'
 import type { OnErrorConfig } from '../../types'
 
@@ -41,7 +41,7 @@ function isApprover(agentId: string): boolean {
 <template>
   <div class="space-y-3">
     <!-- Mode -->
-    <FormField
+    <SFormField
       :label="t('workflow.config.mode')"
       name="approval-mode"
       required
@@ -60,10 +60,10 @@ function isApprover(agentId: string): boolean {
           {{ m }}
         </option>
       </select>
-    </FormField>
+    </SFormField>
 
     <!-- Leader Agent -->
-    <FormField
+    <SFormField
       :label="t('workflow.config.leaderAgentId')"
       name="leader-agent-id"
       required
@@ -88,10 +88,10 @@ function isApprover(agentId: string): boolean {
           {{ agent.name }}
         </option>
       </select>
-    </FormField>
+    </SFormField>
 
     <!-- Approvers (checkbox per agent) -->
-    <FormField
+    <SFormField
       :label="t('workflow.config.approvers')"
       name="approvers"
     >
@@ -109,10 +109,10 @@ function isApprover(agentId: string): boolean {
           <span class="text-sm">{{ agent.name }}</span>
         </label>
       </div>
-    </FormField>
+    </SFormField>
 
     <!-- Timeout Seconds -->
-    <FormField
+    <SFormField
       :label="t('workflow.config.timeoutSeconds')"
       name="timeout-seconds"
     >
@@ -125,10 +125,10 @@ function isApprover(agentId: string): boolean {
         class="w-full text-sm border rounded px-2 py-1 bg-bg"
         @input="update('timeout_seconds', safeNumber(($event.target as HTMLInputElement).value, 1))"
       >
-    </FormField>
+    </SFormField>
 
     <!-- Question Template -->
-    <FormField
+    <SFormField
       :label="t('workflow.config.questionTemplate')"
       name="question-template"
       required
@@ -139,7 +139,7 @@ function isApprover(agentId: string): boolean {
         class="w-full text-sm border rounded px-2 py-1 bg-bg min-h-[60px] font-mono"
         @input="update('question_template', ($event.target as HTMLTextAreaElement).value)"
       />
-    </FormField>
+    </SFormField>
 
     <!-- On Error -->
     <OnErrorConfigForm

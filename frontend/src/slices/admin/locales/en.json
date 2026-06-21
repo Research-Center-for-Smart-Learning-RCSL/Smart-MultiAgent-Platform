@@ -47,6 +47,7 @@
       "banDialogReasonRequired": "Reason is required"
     },
     "userDetail": {
+      "id": "ID",
       "isAdmin": "Is Admin",
       "bannedReason": "Ban Reason",
       "bannedAt": "Banned At",
@@ -78,6 +79,7 @@
     },
     "ipBans": {
       "title": "IP Bans",
+      "cidr": "CIDR",
       "cidrPlaceholder": "192.168.1.0/24",
       "reason": "Reason",
       "add": "Add Ban",
@@ -108,6 +110,7 @@
     },
     "audit": {
       "title": "Audit Log",
+      "id": "ID",
       "action": "Action",
       "actorUserId": "Actor User ID",
       "resourceType": "Resource Type",

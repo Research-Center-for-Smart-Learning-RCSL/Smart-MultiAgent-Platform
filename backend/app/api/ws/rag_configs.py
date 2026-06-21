@@ -11,6 +11,7 @@ import uuid
 
 from fastapi import APIRouter, WebSocket
 
+from contexts.knowledge.infrastructure.channels import rag_channel
 from contexts.knowledge.interfaces.facade import KnowledgeFacade
 from contexts.tenancy.interfaces.role_resolver import TenancyRoleResolver
 from shared_kernel.auth.permissions import Scope
@@ -20,7 +21,6 @@ from shared_kernel.realtime import (
     authenticate_subprotocol,
     connection_loop,
 )
-from shared_kernel.realtime.pubsub import rag_channel
 
 router = APIRouter(tags=["ws"])
 
