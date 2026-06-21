@@ -149,7 +149,7 @@
 
         <p
           v-if="!availableAgents.length && !boundAgents.length && !orphanAgentIds.length"
-          class="muted text-sm text-muted"
+          class="text-sm text-muted"
         >
           {{ $t('conversation.settings.noAgents') }}
         </p>

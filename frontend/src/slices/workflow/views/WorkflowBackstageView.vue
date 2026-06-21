@@ -137,6 +137,7 @@ import { useQuery } from '@tanstack/vue-query'
 import { computed, ref } from 'vue'
 import { useRoute } from 'vue-router'
 
+import { STATUS_BG_MAP } from '@shared/ui'
 import { listApprovalsForRun, listRuns, listSteps } from '../api'
 import { wfKeys } from '../queries'
 import ApprovalCard from '../components/ApprovalCard.vue'
@@ -178,19 +179,12 @@ function stepBorderClass(state: string): string {
     case 'running': return 'border-accent'
     case 'succeeded': return 'border-success'
     case 'failed': return 'border-danger'
-    case 'cancelled': return 'border-border'
+    case 'cancelled': return 'border-muted'
     default: return 'border-border'
   }
 }
 
 function stepBgClass(state: string): string {
-  switch (state) {
-    case 'running': return 'bg-info-tint text-info-on'
-    case 'succeeded': return 'bg-success-tint text-success-on'
-    case 'failed': return 'bg-danger-tint text-danger-on'
-    case 'cancelled': return 'bg-neutral-tint text-neutral-on'
-    case 'pending': return 'bg-neutral-tint text-muted'
-    default: return ''
-  }
+  return STATUS_BG_MAP[state] ?? ''
 }
 </script>
