@@ -366,19 +366,19 @@ function refresh(): void {
 }
 .graphrag-list__form {
   max-width: 480px;
-  margin-bottom: var(--space-6);
-  padding: var(--space-4);
+  margin-bottom: 1.5rem;
+  padding: 1rem;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
 }
 .graphrag-list__hint {
   color: var(--color-muted);
   font-size: 0.875rem;
-  margin-bottom: var(--space-3);
+  margin-bottom: 0.75rem;
 }
 .graphrag-list__warning {
-  color: var(--color-danger, #b91c1c);
-  margin-bottom: var(--space-3);
+  color: var(--color-danger);
+  margin-bottom: 0.75rem;
 }
 .graphrag-list__table {
   width: 100%;
@@ -387,11 +387,11 @@ function refresh(): void {
 .graphrag-list__table th,
 .graphrag-list__table td {
   text-align: left;
-  padding: var(--space-2) var(--space-3);
+  padding: 0.5rem 0.75rem;
   border-bottom: 1px solid var(--color-border);
 }
 .graphrag-list__error {
-  color: var(--color-danger, #b91c1c);
+  color: var(--color-danger);
   cursor: help;
 }
 </style>

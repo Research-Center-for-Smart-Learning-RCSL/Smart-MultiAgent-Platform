@@ -48,8 +48,8 @@ defineProps<{
 .form-field {
   display: flex;
   flex-direction: column;
-  gap: var(--space-1);
-  margin-bottom: var(--space-4);
+  gap: 0.25rem;
+  margin-bottom: 1rem;
 }
 .form-field__label {
   font-size: 0.875rem;

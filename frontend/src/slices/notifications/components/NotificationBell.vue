@@ -56,9 +56,9 @@ const badge = computed(() => (count.value > 99 ? '99+' : String(count.value)))
   width: 40px;
   height: 40px;
   border-radius: 9999px;
-  color: var(--color-text, #1f2937);
-  background: var(--color-surface, #fff);
-  border: 1px solid var(--color-border, #e5e7eb);
+  color: var(--color-fg);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
 }
 .notif-bell__icon {
   width: 22px;
@@ -75,9 +75,9 @@ const badge = computed(() => (count.value > 99 ? '99+' : String(count.value)))
   height: 18px;
   padding: 0 4px;
   border-radius: 9999px;
-  background: var(--color-danger, #dc2626);
+  background: var(--color-danger);
   color: #fff;
-  font-size: 0.7rem;
+  font-size: 0.75rem;
   line-height: 18px;
   text-align: center;
 }

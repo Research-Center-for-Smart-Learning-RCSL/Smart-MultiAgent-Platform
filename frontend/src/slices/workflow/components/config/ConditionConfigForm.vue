@@ -78,7 +78,7 @@ function removeBranch(index: number) {
             </span>
             <button
               type="button"
-              class="text-xs text-red-600 hover:text-red-800"
+              class="text-xs text-danger hover:underline"
               @click="removeBranch(idx)"
             >
               {{ t('workflow.config.removeBranch') }}
@@ -118,7 +118,7 @@ function removeBranch(index: number) {
 
       <button
         type="button"
-        class="mt-2 text-sm text-blue-600 hover:text-blue-800"
+        class="mt-2 text-sm text-accent hover:underline"
         @click="addBranch"
       >
         + {{ t('workflow.config.addBranch') }}

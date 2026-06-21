@@ -445,7 +445,7 @@ onBeforeUnmount(() => {
   gap: 0.5rem;
 }
 .edited {
-  color: var(--color-muted, #6b7280);
+  color: var(--color-muted);
   font-size: 0.75rem;
 }
 .msg-actions {
@@ -457,12 +457,12 @@ onBeforeUnmount(() => {
   background: none;
   border: none;
   padding: 0;
-  font-size: 0.8rem;
-  color: var(--color-primary, #2563eb);
+  font-size: 0.875rem;
+  color: var(--color-accent);
   cursor: pointer;
 }
 .link-btn--danger {
-  color: var(--color-danger, #b91c1c);
+  color: var(--color-danger);
 }
 .md-edit textarea {
   width: 100%;
@@ -475,22 +475,22 @@ onBeforeUnmount(() => {
 }
 .export-status {
   margin-left: 0.5rem;
-  font-size: 0.85rem;
+  font-size: 0.875rem;
 }
 .attachment-gone {
-  color: var(--color-muted, #6b7280);
+  color: var(--color-muted);
   font-style: italic;
-  font-size: 0.85rem;
+  font-size: 0.875rem;
 }
 .load-earlier {
   text-align: center;
   padding: 0.5rem 0;
 }
 .load-earlier button {
-  font-size: 0.85rem;
-  color: var(--color-primary, #2563eb);
+  font-size: 0.875rem;
+  color: var(--color-accent);
   background: none;
-  border: 1px solid var(--color-primary, #2563eb);
+  border: 1px solid var(--color-accent);
   border-radius: 4px;
   padding: 0.25rem 0.75rem;
   cursor: pointer;
@@ -502,8 +502,8 @@ onBeforeUnmount(() => {
 .typing-indicator {
   grid-column: 1;
   padding: 0 0.5rem;
-  font-size: 0.8rem;
-  color: var(--color-muted, #6b7280);
+  font-size: 0.875rem;
+  color: var(--color-muted);
   font-style: italic;
   min-height: 1.2em;
 }

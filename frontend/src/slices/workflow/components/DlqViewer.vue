@@ -41,7 +41,7 @@ function toggle(): void {
 <template>
   <div class="dlq-viewer my-2">
     <button
-      class="text-sm font-medium text-gray-600 hover:text-gray-900 flex items-center gap-1"
+      class="text-sm font-medium text-muted hover:text-fg flex items-center gap-1"
       @click="toggle"
     >
       <span
@@ -53,7 +53,7 @@ function toggle(): void {
       {{ t('workflow.dlq.title') }}
       <span
         v-if="entries.length"
-        class="text-xs bg-red-100 text-red-700 px-1 rounded ml-1"
+        class="text-xs bg-danger-tint text-danger-on px-1 rounded ml-1"
       >
         {{ entries.length }}
       </span>
@@ -65,19 +65,19 @@ function toggle(): void {
     >
       <div
         v-if="loading"
-        class="text-xs text-gray-400"
+        class="text-xs text-muted"
       >
         {{ t('workflow.dlq.loading') }}
       </div>
       <div
         v-else-if="error"
-        class="text-xs text-red-500"
+        class="text-xs text-danger"
       >
         {{ error }}
       </div>
       <div
         v-else-if="entries.length === 0"
-        class="text-xs text-gray-400"
+        class="text-xs text-muted"
       >
         {{ t('workflow.dlq.empty') }}
       </div>
@@ -86,7 +86,7 @@ function toggle(): void {
         class="w-full text-xs border-collapse"
       >
         <thead>
-          <tr class="border-b text-left text-gray-500">
+          <tr class="border-b text-left text-muted">
             <th class="py-1 pr-2">
               {{ t('workflow.dlq.streamId') }}
             </th>
@@ -113,17 +113,17 @@ function toggle(): void {
             <td class="py-1 pr-2">
               {{ entry.attempt_count }}
             </td>
-            <td class="py-1 pr-2 text-red-600 truncate max-w-64">
+            <td class="py-1 pr-2 text-danger truncate max-w-64">
               {{ entry.last_error }}
             </td>
-            <td class="py-1 pr-2 text-gray-500">
+            <td class="py-1 pr-2 text-muted">
               {{ entry.moved_at }}
             </td>
           </tr>
         </tbody>
       </table>
       <button
-        class="mt-1 text-xs text-blue-600 hover:underline"
+        class="mt-1 text-xs text-accent hover:underline"
         @click="refresh"
       >
         {{ t('workflow.dlq.refresh') }}

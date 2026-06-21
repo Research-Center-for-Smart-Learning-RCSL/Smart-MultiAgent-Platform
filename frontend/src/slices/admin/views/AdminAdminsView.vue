@@ -103,7 +103,7 @@ async function onDemote(userId: string): Promise<void> {
 
 <style scoped>
 .admin-admins__promote { display: flex; gap: 0.5rem; margin: 1rem 0; }
-.admin-admins__error { color: var(--color-danger, #dc2626); }
+.admin-admins__error { color: var(--color-danger); }
 table { width: 100%; border-collapse: collapse; }
-th, td { padding: 0.5rem; border-bottom: 1px solid var(--color-border, #eee); text-align: left; }
+th, td { padding: 0.5rem; border-bottom: 1px solid var(--color-border); text-align: left; }
 </style>

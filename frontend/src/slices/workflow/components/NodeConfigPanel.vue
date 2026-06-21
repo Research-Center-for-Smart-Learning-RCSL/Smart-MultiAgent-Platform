@@ -60,10 +60,7 @@ const configComponent = computed(() => CONFIG_FORM_MAP[props.node.type] ?? null)
 <template>
   <div class="space-y-3">
     <!-- Node ID (read-only) -->
-    <div
-      class="text-xs"
-      style="color: var(--color-muted)"
-    >
+    <div class="text-xs text-muted">
       ID: {{ node.id }}
     </div>
 
@@ -94,7 +91,7 @@ const configComponent = computed(() => CONFIG_FORM_MAP[props.node.type] ?? null)
     <!-- Delete button -->
     <button
       v-if="node.type !== 'trigger'"
-      class="w-full mt-4 px-3 py-1.5 text-sm rounded bg-red-600 text-white hover:bg-red-700"
+      class="btn btn-danger w-full mt-4"
       @click="$emit('delete')"
     >
       {{ t('workflow.config.deleteNode') }}

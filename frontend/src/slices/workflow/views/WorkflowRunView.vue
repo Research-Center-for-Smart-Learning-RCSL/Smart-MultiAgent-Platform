@@ -4,7 +4,7 @@
       <button
         v-if="run"
         type="button"
-        class="text-sm text-gray-500 hover:underline"
+        class="text-sm text-muted hover:underline"
         @click="onBackToRuns"
       >
         &larr; {{ $t('workflow.run.backToRuns') }}
@@ -18,7 +18,7 @@
       />
       <span
         v-if="connected"
-        class="ml-2 w-2 h-2 rounded-full bg-green-500 inline-block"
+        class="ml-2 w-2 h-2 rounded-full bg-success inline-block"
         :title="$t('workflow.run.liveConnected')"
       />
     </header>
@@ -29,7 +29,7 @@
       class="mb-4"
     >
       <button
-        class="btn btn-sm text-red-600"
+        class="btn btn-sm text-danger"
         @click="onCancel"
       >
         {{ $t('workflow.run.cancel') }}
@@ -54,7 +54,7 @@
     </h2>
     <p
       v-if="stepsQuery.isLoading.value"
-      class="text-gray-500"
+      class="text-muted"
     >
       …
     </p>
@@ -109,13 +109,13 @@
             <td class="py-1">
               <SStatusBadge :status="step.state" />
             </td>
-            <td class="py-1 text-gray-500">
+            <td class="py-1 text-muted">
               {{ new Date(step.started_at).toLocaleTimeString() }}
             </td>
-            <td class="py-1 text-gray-500">
+            <td class="py-1 text-muted">
               {{ step.ended_at ? new Date(step.ended_at).toLocaleTimeString() : '—' }}
             </td>
-            <td class="py-1 text-red-600 text-xs truncate max-w-[200px]">
+            <td class="py-1 text-danger text-xs truncate max-w-[200px]">
               {{ step.error ?? '' }}
             </td>
           </tr>
@@ -124,7 +124,7 @@
     </div>
     <p
       v-else
-      class="text-gray-400"
+      class="text-muted"
     >
       {{ $t('workflow.run.noSteps') }}
     </p>

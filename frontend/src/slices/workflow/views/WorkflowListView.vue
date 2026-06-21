@@ -25,13 +25,13 @@
 
     <p
       v-if="query.isLoading.value"
-      class="text-gray-500"
+      class="text-muted"
     >
       …
     </p>
     <p
       v-else-if="query.isError.value"
-      class="text-red-600"
+      class="text-danger"
     >
       {{ $t('workflow.list.loadError') }}
     </p>
@@ -64,26 +64,26 @@
             <td class="py-2">
               <router-link
                 :to="{ name: 'workflow.editor', params: { workspaceId, workflowId: wf.id } }"
-                class="text-blue-600 hover:underline"
+                class="text-accent hover:underline"
               >
                 {{ wf.name }}
               </router-link>
             </td>
-            <td class="py-2 text-gray-500">
+            <td class="py-2 text-muted">
               v{{ wf.version }}
             </td>
-            <td class="py-2 text-gray-500">
+            <td class="py-2 text-muted">
               {{ new Date(wf.created_at).toLocaleDateString() }}
             </td>
             <td class="py-2 flex gap-2 justify-end">
               <router-link
                 :to="{ name: 'workflow.runs', params: { workspaceId, workflowId: wf.id } }"
-                class="text-sm text-gray-600 hover:underline"
+                class="text-sm text-muted hover:underline"
               >
                 {{ $t('workflow.list.runs') }}
               </router-link>
               <button
-                class="text-sm text-red-600 hover:underline"
+                class="text-sm text-danger hover:underline"
                 @click="onDelete(wf.id)"
               >
                 {{ $t('workflow.list.delete') }}
@@ -96,7 +96,7 @@
 
     <p
       v-else
-      class="text-gray-400"
+      class="text-muted"
     >
       {{ $t('workflow.list.empty') }}
     </p>

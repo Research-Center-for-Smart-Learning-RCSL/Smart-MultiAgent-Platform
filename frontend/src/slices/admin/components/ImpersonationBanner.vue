@@ -26,8 +26,8 @@ const { isImpersonating, impersonatedBy } = useImpersonation()
   justify-content: center;
   gap: 1rem;
   padding: 0.5rem 1rem;
-  background: var(--color-warning, #f59e0b);
-  color: var(--color-warning-text, #000);
+  background: var(--color-warning);
+  color: var(--color-warning-text);
   font-weight: 600;
   font-size: 0.875rem;
 }

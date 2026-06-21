@@ -74,8 +74,8 @@ form { display: flex; gap: 0.5rem; margin: 1rem 0; }
 .admin-impersonate__active {
   margin: 1rem 0;
   padding: 0.75rem;
-  border: 2px solid var(--color-warning, #f59e0b);
+  border: 2px solid var(--color-warning);
   border-radius: 4px;
 }
-.admin-impersonate__error { color: var(--color-danger, #dc2626); }
+.admin-impersonate__error { color: var(--color-danger); }
 </style>

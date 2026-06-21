@@ -33,30 +33,30 @@ function agentName(id: string): string {
 
 function stateClass(state: string): string {
   switch (state) {
-    case 'completed': return 'text-green-600'
-    case 'rejected_loop': return 'text-red-600'
-    case 'timeout': return 'text-orange-600'
-    case 'delivered': return 'text-blue-600'
-    default: return 'text-gray-500'
+    case 'completed': return 'text-success'
+    case 'rejected_loop': return 'text-danger'
+    case 'timeout': return 'text-warning'
+    case 'delivered': return 'text-accent'
+    default: return 'text-muted'
   }
 }
 </script>
 
 <template>
   <div class="instruct-chain-view space-y-1">
-    <div class="text-xs font-medium text-gray-500 mb-1">
+    <div class="text-xs font-medium text-muted mb-1">
       {{ t('workflow.instructChain.title', { id: chainId.slice(0, 8) }) }}
     </div>
 
     <div
       v-if="loading"
-      class="text-xs text-gray-400"
+      class="text-xs text-muted"
     >
       {{ t('workflow.instructChain.loading') }}
     </div>
     <div
       v-else-if="steps.length === 0"
-      class="text-xs text-gray-400"
+      class="text-xs text-muted"
     >
       {{ t('workflow.instructChain.empty') }}
     </div>
@@ -64,14 +64,14 @@ function stateClass(state: string): string {
     <div
       v-for="(step, idx) in steps"
       :key="step.id"
-      class="flex items-start gap-2 text-xs border-l-2 border-gray-200 pl-2 py-1"
+      class="flex items-start gap-2 text-xs border-l-2 border-border pl-2 py-1"
       :style="{ marginLeft: `${step.depth * 12}px` }"
     >
-      <span class="text-gray-400 font-mono w-4">{{ idx + 1 }}</span>
+      <span class="text-muted font-mono w-4">{{ idx + 1 }}</span>
       <div class="flex-1 min-w-0">
         <div class="flex items-center gap-1">
           <span class="font-mono">{{ agentName(step.issuer_agent_id) }}</span>
-          <span class="text-gray-400">&rarr;</span>
+          <span class="text-muted">&rarr;</span>
           <span class="font-mono">{{ agentName(step.target_agent_id) }}</span>
           <span
             :class="stateClass(step.state)"
@@ -80,7 +80,7 @@ function stateClass(state: string): string {
             {{ step.state }}
           </span>
         </div>
-        <div class="text-gray-400">
+        <div class="text-muted">
           {{ t('workflow.instructChain.depth', { n: step.depth }) }} &middot; {{ step.issued_at }}
         </div>
       </div>

@@ -9,12 +9,12 @@ const { t } = useI18n()
     <h1 class="text-4xl font-bold mb-4">
       404
     </h1>
-    <p class="text-gray-600 mb-6">
+    <p class="text-muted mb-6">
       {{ t('app.notFound') }}
     </p>
     <router-link
       to="/"
-      class="text-blue-600 hover:underline"
+      class="text-accent hover:underline"
     >
       {{ t('app.backToHome') }}
     </router-link>

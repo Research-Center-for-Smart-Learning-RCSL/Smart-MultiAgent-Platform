@@ -118,15 +118,14 @@ function handleLeftPercent(index: number, total: number): string {
     :class="[
       borderColorClass,
       stateBgClass,
-      isSelected ? 'ring-2 ring-blue-400' : '',
+      isSelected ? 'ring-2 ring-accent' : '',
     ]"
   >
     <div class="font-semibold leading-tight truncate max-w-[180px]">
       {{ data.label || id }}
     </div>
     <div
-      class="text-[11px] mt-0.5"
-      style="color: var(--color-muted)"
+      class="text-[11px] mt-0.5 text-muted"
     >
       {{ data.nodeType }}
     </div>
@@ -198,7 +197,7 @@ function handleLeftPercent(index: number, total: number): string {
   position: absolute;
   top: 10px;
   transform: translateX(-50%);
-  font-size: 9px;
+  font-size: 0.5625rem;
   color: var(--color-muted);
   white-space: nowrap;
   pointer-events: none;

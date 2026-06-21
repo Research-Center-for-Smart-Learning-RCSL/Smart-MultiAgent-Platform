@@ -212,7 +212,7 @@ function goToAgent(agentId: string) {
 
     <p
       v-else
-      class="text-gray-500"
+      class="text-muted"
     >
       {{ t('agents.list.empty') }}
     </p>
@@ -227,14 +227,14 @@ function goToAgent(agentId: string) {
 }
 .agent-list__form {
   max-width: 480px;
-  margin-bottom: var(--space-6);
-  padding: var(--space-4);
+  margin-bottom: 1.5rem;
+  padding: 1rem;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
 }
 .agent-list__warning {
-  color: var(--color-danger, #b91c1c);
-  margin-bottom: var(--space-3);
+  color: var(--color-danger);
+  margin-bottom: 0.75rem;
 }
 .agent-list__items {
   list-style: none;
@@ -244,10 +244,10 @@ function goToAgent(agentId: string) {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: var(--space-3) var(--space-4);
+  padding: 0.75rem 1rem;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
-  margin-bottom: var(--space-2);
+  margin-bottom: 0.5rem;
   cursor: pointer;
   min-height: var(--touch-min);
 }

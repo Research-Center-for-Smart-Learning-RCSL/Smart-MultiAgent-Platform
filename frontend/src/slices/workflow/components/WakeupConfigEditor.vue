@@ -42,7 +42,7 @@ const isInert = computed(() =>
   <div class="wakeup-editor space-y-3 text-sm">
     <div
       v-if="isInert"
-      class="text-xs text-yellow-600 bg-yellow-50 px-2 py-1 rounded"
+      class="text-xs text-warning-on bg-warning-tint px-2 py-1 rounded"
     >
       {{ t('workflow.wakeup.inert') }}
     </div>

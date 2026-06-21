@@ -43,8 +43,8 @@ useBanKickGuard()
 <style scoped>
 .app-chrome {
   position: fixed;
-  top: var(--space-3, 0.75rem);
-  right: var(--space-3, 0.75rem);
+  top: 0.75rem;
+  right: 0.75rem;
   z-index: 10000;
   display: flex;
   gap: 0.5rem;

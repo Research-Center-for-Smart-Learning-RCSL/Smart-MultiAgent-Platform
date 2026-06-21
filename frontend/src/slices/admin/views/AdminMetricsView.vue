@@ -48,9 +48,9 @@ const query = useQuery({
   flex-direction: column;
   align-items: center;
   padding: 1.5rem;
-  border: 1px solid var(--color-border, #ccc);
+  border: 1px solid var(--color-border);
   border-radius: 8px;
 }
 .admin-metrics__value { font-size: 2rem; font-weight: 700; }
-.admin-metrics__label { font-size: 0.875rem; color: var(--color-text-muted, #666); }
+.admin-metrics__label { font-size: 0.875rem; color: var(--color-muted); }
 </style>

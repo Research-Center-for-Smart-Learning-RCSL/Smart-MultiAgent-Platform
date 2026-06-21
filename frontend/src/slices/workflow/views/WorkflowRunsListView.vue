@@ -4,7 +4,7 @@
       <template #prepend>
         <router-link
           :to="{ name: 'workflow.list', params: { workspaceId: route.params.workspaceId } }"
-          class="text-sm text-gray-500 hover:underline"
+          class="text-sm text-muted hover:underline"
         >
           &larr; {{ $t('workflow.runs.backToList') }}
         </router-link>
@@ -18,7 +18,7 @@
     </SPageHeader>
 
     <div class="mb-3">
-      <label class="text-xs text-gray-500 flex items-center gap-1">
+      <label class="text-xs text-muted flex items-center gap-1">
         <input
           v-model="showArchive"
           type="checkbox"
@@ -29,7 +29,7 @@
 
     <p
       v-if="query.isLoading.value"
-      class="text-gray-500"
+      class="text-muted"
     >
       …
     </p>
@@ -65,7 +65,7 @@
               <SStatusBadge :status="r.state" />
               <span
                 v-if="r.archived"
-                class="ml-1 text-[10px] text-gray-400"
+                class="ml-1 text-[10px] text-muted"
               >
                 ({{ $t('workflow.runs.archived') }})
               </span>
@@ -73,16 +73,16 @@
             <td class="py-1">
               {{ r.trigger_type }}
             </td>
-            <td class="py-1 text-gray-500">
+            <td class="py-1 text-muted">
               {{ new Date(r.started_at).toLocaleString() }}
             </td>
-            <td class="py-1 text-gray-500">
+            <td class="py-1 text-muted">
               {{ r.ended_at ? new Date(r.ended_at).toLocaleString() : '—' }}
             </td>
             <td class="py-1">
               <router-link
                 :to="{ name: 'workflow.run', params: { runId: r.id } }"
-                class="text-blue-600 hover:underline text-xs"
+                class="text-accent hover:underline text-xs"
               >
                 {{ $t('workflow.runs.inspect') }}
               </router-link>
@@ -93,7 +93,7 @@
     </div>
     <p
       v-else
-      class="text-gray-400"
+      class="text-muted"
     >
       {{ $t('workflow.runs.empty') }}
     </p>
