@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
 import { useConfigModel } from '../../composables/useConfigModel'
-import FormField from '@shared/ui/SFormField.vue'
+import SFormField from '@shared/ui/SFormField.vue'
 import type { OnErrorConfig, OnErrorStrategy } from '../../types'
 
 const { t } = useI18n()
@@ -64,7 +64,7 @@ function onStrategyChange(event: Event): void {
     </summary>
 
     <div class="mt-2 space-y-2">
-      <FormField
+      <SFormField
         :label="t('workflow.config.errorStrategy')"
         name="on-error-strategy"
       >
@@ -82,11 +82,11 @@ function onStrategyChange(event: Event): void {
             {{ t(`workflow.config.errorStrategy_${s}`) }}
           </option>
         </select>
-      </FormField>
+      </SFormField>
 
       <!-- Retry fields -->
       <template v-if="local.strategy === 'retry'">
-        <FormField
+        <SFormField
           :label="t('workflow.config.retryMax')"
           name="on-error-retry-max"
         >
@@ -99,9 +99,9 @@ function onStrategyChange(event: Event): void {
             class="w-full text-sm border rounded px-2 py-1 bg-bg"
             @input="emitUpdate"
           >
-        </FormField>
+        </SFormField>
 
-        <FormField
+        <SFormField
           :label="t('workflow.config.retryBackoffMs')"
           name="on-error-retry-backoff"
         >
@@ -115,11 +115,11 @@ function onStrategyChange(event: Event): void {
             class="w-full text-sm border rounded px-2 py-1 bg-bg"
             @input="emitUpdate"
           >
-        </FormField>
+        </SFormField>
       </template>
 
       <!-- Fallback field -->
-      <FormField
+      <SFormField
         v-if="local.strategy === 'fallback'"
         :label="t('workflow.config.fallbackNodeId')"
         name="on-error-fallback-node"
@@ -141,7 +141,7 @@ function onStrategyChange(event: Event): void {
             {{ nodeId }}
           </option>
         </select>
-      </FormField>
+      </SFormField>
     </div>
   </details>
 </template>

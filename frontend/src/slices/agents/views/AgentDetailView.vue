@@ -6,7 +6,7 @@ import { useForm } from 'vee-validate'
 import { toTypedSchema } from '@vee-validate/zod'
 import { computed, watch } from 'vue'
 
-import { FormField } from '@shared/ui'
+import { SFormField } from '@shared/ui'
 import { useConfirmDialog, useServerErrors, useToast } from '@shared/composables'
 import AgentFormFields from '../components/AgentFormFields.vue'
 import { keyGroupsApi, keysKeys } from '@slices/keys'
@@ -203,7 +203,7 @@ const onSubmit = handleSubmit((values) => {
         </template>
 
         <template #extra-fields>
-          <FormField
+          <SFormField
             :label="t('agents.form.graphragConfig')"
             name="graphrag_config_id"
             :error="errors.graphrag_config_id"
@@ -228,9 +228,9 @@ const onSubmit = handleSubmit((values) => {
             >
               {{ t('agents.form.manageGraphragConfigs') }}
             </RouterLink>
-          </FormField>
+          </SFormField>
 
-          <FormField
+          <SFormField
             :label="t('agents.form.mcp')"
             name="mcp"
           >
@@ -240,9 +240,9 @@ const onSubmit = handleSubmit((values) => {
             >
               {{ t('agents.form.manageMcp') }}
             </RouterLink>
-          </FormField>
+          </SFormField>
 
-          <FormField
+          <SFormField
             :label="t('agents.form.orchestration')"
             name="orchestration"
           >
@@ -252,7 +252,7 @@ const onSubmit = handleSubmit((values) => {
             >
               {{ t('agents.form.manageOrchestration') }}
             </RouterLink>
-          </FormField>
+          </SFormField>
         </template>
       </AgentFormFields>
 

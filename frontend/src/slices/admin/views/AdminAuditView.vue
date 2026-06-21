@@ -58,7 +58,7 @@
     <table v-if="allItems.length">
       <thead>
         <tr>
-          <th>ID</th>
+          <th>{{ $t('admin.audit.id') }}</th>
           <th>{{ $t('admin.audit.action') }}</th>
           <th>{{ $t('admin.audit.actorUserId') }}</th>
           <th>{{ $t('admin.audit.resourceType') }}</th>

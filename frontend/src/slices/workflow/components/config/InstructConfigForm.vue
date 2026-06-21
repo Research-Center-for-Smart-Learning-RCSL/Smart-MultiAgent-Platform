@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
 import { useConfigModel, safeNumber } from '../../composables/useConfigModel'
-import FormField from '@shared/ui/SFormField.vue'
+import SFormField from '@shared/ui/SFormField.vue'
 import OnErrorConfigForm from './OnErrorConfigForm.vue'
 import type { OnErrorConfig } from '../../types'
 
@@ -24,7 +24,7 @@ const { local, update } = useConfigModel(props, emit)
 <template>
   <div class="space-y-4">
     <!-- Issuer Agent -->
-    <FormField
+    <SFormField
       :label="t('workflow.config.issuerAgentId')"
       name="instruct-issuer-agent"
     >
@@ -45,10 +45,10 @@ const { local, update } = useConfigModel(props, emit)
           {{ agent.name }}
         </option>
       </select>
-    </FormField>
+    </SFormField>
 
     <!-- Target Agent -->
-    <FormField
+    <SFormField
       :label="t('workflow.config.targetAgentId')"
       name="instruct-target-agent"
     >
@@ -69,10 +69,10 @@ const { local, update } = useConfigModel(props, emit)
           {{ agent.name }}
         </option>
       </select>
-    </FormField>
+    </SFormField>
 
     <!-- Instruction Template -->
-    <FormField
+    <SFormField
       :label="t('workflow.config.instructionTemplate')"
       name="instruct-template"
     >
@@ -82,10 +82,10 @@ const { local, update } = useConfigModel(props, emit)
         class="w-full text-sm border rounded px-2 py-1 bg-bg min-h-[60px] font-mono"
         @input="update('instruction_template', ($event.target as HTMLTextAreaElement).value)"
       />
-    </FormField>
+    </SFormField>
 
     <!-- Wait for completion -->
-    <FormField
+    <SFormField
       :label="t('workflow.config.waitForCompletion')"
       name="instruct-wait"
     >
@@ -98,10 +98,10 @@ const { local, update } = useConfigModel(props, emit)
         >
         <span class="text-sm">{{ t('workflow.config.waitForCompletion') }}</span>
       </label>
-    </FormField>
+    </SFormField>
 
     <!-- Completion Timeout (only when wait_for_completion) -->
-    <FormField
+    <SFormField
       v-if="local.wait_for_completion !== false"
       :label="t('workflow.config.completionTimeoutSeconds')"
       name="instruct-timeout"
@@ -115,10 +115,10 @@ const { local, update } = useConfigModel(props, emit)
         class="w-full text-sm border rounded px-2 py-1 bg-bg"
         @input="update('completion_timeout_seconds', safeNumber(($event.target as HTMLInputElement).value, 1))"
       >
-    </FormField>
+    </SFormField>
 
     <!-- Output Variable -->
-    <FormField
+    <SFormField
       :label="t('workflow.config.outputVariable')"
       name="instruct-output-var"
     >
@@ -129,7 +129,7 @@ const { local, update } = useConfigModel(props, emit)
         class="w-full text-sm border rounded px-2 py-1 bg-bg"
         @input="update('output_variable', ($event.target as HTMLInputElement).value)"
       >
-    </FormField>
+    </SFormField>
 
     <!-- On Error -->
     <OnErrorConfigForm

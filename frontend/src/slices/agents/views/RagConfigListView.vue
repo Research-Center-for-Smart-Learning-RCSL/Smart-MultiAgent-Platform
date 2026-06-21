@@ -5,7 +5,7 @@ import { useI18n } from 'vue-i18n'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/vue-query'
 import { useForm } from 'vee-validate'
 import { toTypedSchema } from '@vee-validate/zod'
-import { FormField } from '@shared/ui'
+import { SFormField } from '@shared/ui'
 import { useConfirmDialog, useServerErrors, useToast } from '@shared/composables'
 import { projectKeysApi, CAPABILITIES, keysKeys, type ApiKey } from '@slices/keys'
 import { agentsApi, type RagConfig } from '../api'
@@ -212,7 +212,7 @@ function keyLabel(k: ApiKey): string {
       class="rag-list__form"
       @submit.prevent="onSubmit"
     >
-      <FormField
+      <SFormField
         :label="t('agents.ragForm.name')"
         name="name"
         :error="errors.name"
@@ -223,9 +223,9 @@ function keyLabel(k: ApiKey): string {
           v-model="name"
           :aria-invalid="!!errors.name"
         >
-      </FormField>
+      </SFormField>
 
-      <FormField
+      <SFormField
         :label="t('agents.ragForm.embedKey')"
         name="embed_key_id"
         :error="errors.embed_key_id"
@@ -249,9 +249,9 @@ function keyLabel(k: ApiKey): string {
             {{ keyLabel(k) }}
           </option>
         </select>
-      </FormField>
+      </SFormField>
 
-      <FormField
+      <SFormField
         :label="t('agents.ragForm.embedModel')"
         name="embed_model"
         :error="errors.embed_model"
@@ -263,9 +263,9 @@ function keyLabel(k: ApiKey): string {
           :placeholder="t('agents.ragForm.embedModelHint')"
           :aria-invalid="!!errors.embed_model"
         >
-      </FormField>
+      </SFormField>
 
-      <FormField
+      <SFormField
         :label="t('agents.ragForm.chunkStrategy')"
         name="chunk_strategy"
         :error="errors.chunk_strategy"
@@ -281,10 +281,10 @@ function keyLabel(k: ApiKey): string {
             {{ t('agents.ragForm.chunkSemantic') }}
           </option>
         </select>
-      </FormField>
+      </SFormField>
 
       <template v-if="values.chunk_strategy === 'fixed'">
-        <FormField
+        <SFormField
           :label="t('agents.ragForm.chunkSize')"
           name="chunk_size_tokens"
         >
@@ -294,8 +294,8 @@ function keyLabel(k: ApiKey): string {
             type="number"
             min="1"
           >
-        </FormField>
-        <FormField
+        </SFormField>
+        <SFormField
           :label="t('agents.ragForm.chunkOverlap')"
           name="chunk_overlap_tokens"
         >
@@ -305,9 +305,9 @@ function keyLabel(k: ApiKey): string {
             type="number"
             min="0"
           >
-        </FormField>
+        </SFormField>
       </template>
-      <FormField
+      <SFormField
         v-else
         :label="t('agents.ragForm.similarityThreshold')"
         name="similarity_threshold"
@@ -320,9 +320,9 @@ function keyLabel(k: ApiKey): string {
           max="1"
           step="0.05"
         >
-      </FormField>
+      </SFormField>
 
-      <FormField
+      <SFormField
         :label="t('agents.ragForm.topK')"
         name="top_k"
         :error="errors.top_k"
@@ -334,9 +334,9 @@ function keyLabel(k: ApiKey): string {
           min="1"
           max="100"
         >
-      </FormField>
+      </SFormField>
 
-      <FormField
+      <SFormField
         :label="t('agents.ragForm.rerankEnabled')"
         name="rerank_enabled"
         :error="errors.rerank_enabled"
@@ -351,10 +351,10 @@ function keyLabel(k: ApiKey): string {
           v-if="!hasRerankKeys"
           class="rag-list__hint"
         >{{ t('agents.ragForm.noRerankKeys') }}</span>
-      </FormField>
+      </SFormField>
 
       <template v-if="rerankEnabled">
-        <FormField
+        <SFormField
           :label="t('agents.ragForm.rerankKey')"
           name="rerank_key_id"
           :error="errors.rerank_key_id"
@@ -377,8 +377,8 @@ function keyLabel(k: ApiKey): string {
               {{ keyLabel(k) }}
             </option>
           </select>
-        </FormField>
-        <FormField
+        </SFormField>
+        <SFormField
           :label="t('agents.ragForm.rerankModel')"
           name="rerank_model"
           :error="errors.rerank_model"
@@ -387,7 +387,7 @@ function keyLabel(k: ApiKey): string {
             id="rerank_model"
             v-model="rerankModel"
           >
-        </FormField>
+        </SFormField>
       </template>
 
       <button

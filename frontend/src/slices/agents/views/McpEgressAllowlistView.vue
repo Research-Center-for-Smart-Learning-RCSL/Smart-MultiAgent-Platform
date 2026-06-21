@@ -5,7 +5,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/vue-query'
 import { useForm } from 'vee-validate'
 import { toTypedSchema } from '@vee-validate/zod'
 import { z } from 'zod'
-import { FormField } from '@shared/ui'
+import { SFormField } from '@shared/ui'
 import { useConfirmDialog, useServerErrors, useToast } from '@shared/composables'
 import { agentsApi, type EgressAllowlistEntry } from '../api'
 import { agentKeys } from '../queries'
@@ -82,7 +82,7 @@ async function confirmRemove(entry: EgressAllowlistEntry): Promise<void> {
       class="egress__form"
       @submit.prevent="onSubmit"
     >
-      <FormField
+      <SFormField
         :label="t('agents.egress.hostname')"
         name="hostname"
         :error="errors.hostname"
@@ -94,8 +94,8 @@ async function confirmRemove(entry: EgressAllowlistEntry): Promise<void> {
           :placeholder="t('agents.egress.hostnamePlaceholder')"
           :aria-invalid="!!errors.hostname"
         >
-      </FormField>
-      <FormField
+      </SFormField>
+      <SFormField
         :label="t('agents.egress.note')"
         name="note"
         :error="errors.note"
@@ -104,7 +104,7 @@ async function confirmRemove(entry: EgressAllowlistEntry): Promise<void> {
           id="note"
           v-model="note"
         >
-      </FormField>
+      </SFormField>
       <button
         type="submit"
         class="btn btn-primary"

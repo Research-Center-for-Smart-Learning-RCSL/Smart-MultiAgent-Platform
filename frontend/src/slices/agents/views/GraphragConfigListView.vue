@@ -5,7 +5,7 @@ import { useI18n } from 'vue-i18n'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/vue-query'
 import { useForm } from 'vee-validate'
 import { toTypedSchema } from '@vee-validate/zod'
-import { FormField } from '@shared/ui'
+import { SFormField } from '@shared/ui'
 import { useConfirmDialog, useServerErrors, usePolling, useToast } from '@shared/composables'
 import { keyGroupsApi, keysKeys } from '@slices/keys'
 import { agentsApi, type GraphragConfig } from '../api'
@@ -229,7 +229,7 @@ function refresh(): void {
         {{ t('agents.graphragList.builderHint') }}
       </p>
 
-      <FormField
+      <SFormField
         :label="t('agents.graphragForm.agent')"
         name="agent_id"
         :error="errors.agent_id"
@@ -253,9 +253,9 @@ function refresh(): void {
             {{ a.name }}
           </option>
         </select>
-      </FormField>
+      </SFormField>
 
-      <FormField
+      <SFormField
         :label="t('agents.graphragForm.builderKeyGroup')"
         name="builder_key_group_id"
         :error="errors.builder_key_group_id"
@@ -280,7 +280,7 @@ function refresh(): void {
             {{ g.name }}
           </option>
         </select>
-      </FormField>
+      </SFormField>
 
       <button
         type="submit"

@@ -28,7 +28,7 @@
     <table v-if="query.data.value">
       <thead>
         <tr>
-          <th>CIDR</th>
+          <th>{{ $t('admin.ipBans.cidr') }}</th>
           <th>{{ $t('admin.ipBans.reason') }}</th>
           <th>{{ $t('admin.users.created') }}</th>
           <th>{{ $t('admin.users.actions') }}</th>

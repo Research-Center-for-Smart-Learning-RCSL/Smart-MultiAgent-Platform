@@ -41,6 +41,7 @@ from contexts.agents.domain.models import AgentModelHint, ContextMode, PromptStr
 from contexts.agents.infrastructure.repositories import AgentRepository
 from contexts.conversation.application.message_service import MessageService
 from contexts.conversation.application.triggers import evaluate_message_wakeups
+from contexts.conversation.infrastructure.channels import room_channel
 from contexts.conversation.infrastructure.repositories import (
     ChatroomAgentRepository,
     ChatroomRepository,
@@ -78,7 +79,7 @@ from contexts.workflow.infrastructure.repositories import (
 from shared_kernel.auth.clients import get_redis
 from shared_kernel.db.session import async_session
 from shared_kernel.infra.vault import EnvelopeRecord
-from shared_kernel.realtime.pubsub import Subscriber, room_channel
+from shared_kernel.realtime.pubsub import Subscriber
 
 pytestmark = pytest.mark.wiring
 

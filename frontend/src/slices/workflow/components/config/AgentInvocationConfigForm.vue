@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
 import { useConfigModel, safeNumber } from '../../composables/useConfigModel'
-import FormField from '@shared/ui/SFormField.vue'
+import SFormField from '@shared/ui/SFormField.vue'
 import OnErrorConfigForm from './OnErrorConfigForm.vue'
 import type { OnErrorConfig } from '../../types'
 
@@ -32,7 +32,7 @@ if (local.timeout_seconds === undefined) {
 <template>
   <div class="space-y-3">
     <!-- Agent ID (required) -->
-    <FormField
+    <SFormField
       :label="t('workflow.config.agentId')"
       name="agent-id"
       required
@@ -57,10 +57,10 @@ if (local.timeout_seconds === undefined) {
           {{ agent.name }}
         </option>
       </select>
-    </FormField>
+    </SFormField>
 
     <!-- Input Template (required) -->
-    <FormField
+    <SFormField
       :label="t('workflow.config.inputTemplate')"
       name="input-template"
       required
@@ -71,10 +71,10 @@ if (local.timeout_seconds === undefined) {
         class="w-full text-sm border rounded px-2 py-1 bg-bg min-h-[60px] font-mono"
         @input="update('input_template', ($event.target as HTMLTextAreaElement).value)"
       />
-    </FormField>
+    </SFormField>
 
     <!-- Output Variable -->
-    <FormField
+    <SFormField
       :label="t('workflow.config.outputVariable')"
       name="output-variable"
     >
@@ -85,10 +85,10 @@ if (local.timeout_seconds === undefined) {
         class="w-full text-sm border rounded px-2 py-1 bg-bg"
         @input="update('output_variable', ($event.target as HTMLInputElement).value)"
       >
-    </FormField>
+    </SFormField>
 
     <!-- Target Chatroom (optional, with Default option) -->
-    <FormField
+    <SFormField
       :label="t('workflow.config.targetChatroomId')"
       name="target-chatroom-id"
     >
@@ -109,10 +109,10 @@ if (local.timeout_seconds === undefined) {
           {{ room.name }}
         </option>
       </select>
-    </FormField>
+    </SFormField>
 
     <!-- Stream to Chatroom -->
-    <FormField
+    <SFormField
       :label="t('workflow.config.streamToChatroom')"
       name="stream-to-chatroom"
     >
@@ -124,10 +124,10 @@ if (local.timeout_seconds === undefined) {
         >
         <span class="text-sm">{{ t('workflow.config.streamToChatroom') }}</span>
       </label>
-    </FormField>
+    </SFormField>
 
     <!-- Timeout Seconds -->
-    <FormField
+    <SFormField
       :label="t('workflow.config.timeoutSeconds')"
       name="timeout-seconds"
     >
@@ -140,7 +140,7 @@ if (local.timeout_seconds === undefined) {
         class="w-full text-sm border rounded px-2 py-1 bg-bg"
         @input="update('timeout_seconds', safeNumber(($event.target as HTMLInputElement).value, 1))"
       >
-    </FormField>
+    </SFormField>
 
     <!-- On Error -->
     <OnErrorConfigForm

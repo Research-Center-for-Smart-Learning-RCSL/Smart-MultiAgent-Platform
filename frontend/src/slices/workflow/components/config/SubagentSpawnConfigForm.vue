@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
 import { useConfigModel, safeNumber } from '../../composables/useConfigModel'
-import FormField from '@shared/ui/SFormField.vue'
+import SFormField from '@shared/ui/SFormField.vue'
 import OnErrorConfigForm from './OnErrorConfigForm.vue'
 import type { OnErrorConfig } from '../../types'
 
@@ -24,7 +24,7 @@ const { local, update } = useConfigModel(props, emit)
 <template>
   <div class="space-y-4">
     <!-- Parent Agent -->
-    <FormField
+    <SFormField
       :label="t('workflow.config.parentAgentId')"
       name="subagent-parent-agent"
     >
@@ -45,10 +45,10 @@ const { local, update } = useConfigModel(props, emit)
           {{ agent.name }}
         </option>
       </select>
-    </FormField>
+    </SFormField>
 
     <!-- Task Template -->
-    <FormField
+    <SFormField
       :label="t('workflow.config.taskTemplate')"
       name="subagent-task-template"
     >
@@ -58,10 +58,10 @@ const { local, update } = useConfigModel(props, emit)
         class="w-full text-sm border rounded px-2 py-1 bg-bg min-h-[60px] font-mono"
         @input="update('task_template', ($event.target as HTMLTextAreaElement).value)"
       />
-    </FormField>
+    </SFormField>
 
     <!-- Max Alive Simultaneously -->
-    <FormField
+    <SFormField
       :label="t('workflow.config.maxAliveSimultaneously')"
       name="subagent-max-alive"
     >
@@ -74,10 +74,10 @@ const { local, update } = useConfigModel(props, emit)
         class="w-full text-sm border rounded px-2 py-1 bg-bg"
         @input="update('max_alive_simultaneously', safeNumber(($event.target as HTMLInputElement).value, 1))"
       >
-    </FormField>
+    </SFormField>
 
     <!-- Wait for All -->
-    <FormField
+    <SFormField
       :label="t('workflow.config.waitForAll')"
       name="subagent-wait-all"
     >
@@ -90,10 +90,10 @@ const { local, update } = useConfigModel(props, emit)
         >
         <span class="text-sm">{{ t('workflow.config.waitForAll') }}</span>
       </label>
-    </FormField>
+    </SFormField>
 
     <!-- Timeout Seconds -->
-    <FormField
+    <SFormField
       :label="t('workflow.config.timeoutSeconds')"
       name="subagent-timeout"
     >
@@ -106,10 +106,10 @@ const { local, update } = useConfigModel(props, emit)
         class="w-full text-sm border rounded px-2 py-1 bg-bg"
         @input="update('timeout_seconds', safeNumber(($event.target as HTMLInputElement).value, 1))"
       >
-    </FormField>
+    </SFormField>
 
     <!-- Output Variable -->
-    <FormField
+    <SFormField
       :label="t('workflow.config.outputVariable')"
       name="subagent-output-var"
     >
@@ -120,7 +120,7 @@ const { local, update } = useConfigModel(props, emit)
         class="w-full text-sm border rounded px-2 py-1 bg-bg"
         @input="update('output_variable', ($event.target as HTMLInputElement).value)"
       >
-    </FormField>
+    </SFormField>
 
     <!-- On Error -->
     <OnErrorConfigForm

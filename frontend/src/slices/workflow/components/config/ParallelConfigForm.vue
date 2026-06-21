@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
 import { useConfigModel } from '../../composables/useConfigModel'
-import FormField from '@shared/ui/SFormField.vue'
+import SFormField from '@shared/ui/SFormField.vue'
 
 const { t } = useI18n()
 
@@ -21,7 +21,7 @@ const { local, update } = useConfigModel(props, emit)
 
 <template>
   <div class="space-y-4">
-    <FormField
+    <SFormField
       :label="t('workflow.config.description')"
       name="parallel-description"
     >
@@ -31,6 +31,6 @@ const { local, update } = useConfigModel(props, emit)
         class="w-full text-sm border rounded px-2 py-1 bg-bg min-h-[60px]"
         @input="update('description', ($event.target as HTMLTextAreaElement).value)"
       />
-    </FormField>
+    </SFormField>
   </div>
 </template>

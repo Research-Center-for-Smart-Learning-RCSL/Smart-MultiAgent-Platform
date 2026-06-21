@@ -4,12 +4,12 @@ from __future__ import annotations
 
 from fastapi import APIRouter, WebSocket
 
+from contexts.audit.infrastructure.channels import AUDIT_TAIL_CHANNEL
 from shared_kernel.realtime import (
     WsAuthError,
     authenticate_subprotocol,
     connection_loop,
 )
-from shared_kernel.realtime.pubsub import AUDIT_TAIL_CHANNEL
 
 router = APIRouter(tags=["ws"])
 

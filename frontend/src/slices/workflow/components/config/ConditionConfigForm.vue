@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
 import { useConfigModel } from '../../composables/useConfigModel'
-import FormField from '@shared/ui/SFormField.vue'
+import SFormField from '@shared/ui/SFormField.vue'
 
 const { t } = useI18n()
 
@@ -62,7 +62,7 @@ function removeBranch(index: number) {
 <template>
   <div class="space-y-4">
     <!-- Branches -->
-    <FormField
+    <SFormField
       :label="t('workflow.config.branches')"
       name="condition-branches"
     >
@@ -123,10 +123,10 @@ function removeBranch(index: number) {
       >
         + {{ t('workflow.config.addBranch') }}
       </button>
-    </FormField>
+    </SFormField>
 
     <!-- Default port -->
-    <FormField
+    <SFormField
       :label="t('workflow.config.defaultPort')"
       name="condition-default-port"
     >
@@ -137,6 +137,6 @@ function removeBranch(index: number) {
         class="w-full text-sm border rounded px-2 py-1 bg-bg"
         @input="update('default_port', ($event.target as HTMLInputElement).value)"
       >
-    </FormField>
+    </SFormField>
   </div>
 </template>
