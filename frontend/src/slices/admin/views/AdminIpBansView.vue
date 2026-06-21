@@ -87,5 +87,5 @@ async function onCreate(): Promise<void> {
 <style scoped>
 .admin-ip-bans__create { display: flex; gap: 0.5rem; margin: 1rem 0; }
 table { width: 100%; border-collapse: collapse; }
-th, td { padding: 0.5rem; border-bottom: 1px solid var(--color-border, #eee); text-align: left; }
+th, td { padding: 0.5rem; border-bottom: 1px solid var(--color-border); text-align: left; }
 </style>

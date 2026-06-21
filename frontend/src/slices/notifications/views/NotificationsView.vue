@@ -133,7 +133,7 @@ function fmt(iso: string): string {
     </ul>
     <p
       v-else
-      class="text-gray-500"
+      class="text-muted"
     >
       {{ t('notifications.empty') }}
     </p>
@@ -163,32 +163,32 @@ function fmt(iso: string): string {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: var(--space-3);
-  padding: var(--space-3) var(--space-4);
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
-  margin-bottom: var(--space-2);
+  margin-bottom: 0.5rem;
 }
 .notifications__item--unread {
-  border-left: 3px solid var(--color-primary, #2563eb);
-  background: var(--color-surface, #f9fafb);
+  border-left: 3px solid var(--color-accent);
+  background: var(--color-surface);
 }
 .notifications__main {
   display: flex;
   flex-direction: column;
-  gap: var(--space-1);
+  gap: 0.25rem;
 }
 .notifications__title {
   font-weight: 600;
 }
 .notifications__body {
-  color: var(--color-text, #374151);
+  color: var(--color-fg);
 }
 .notifications__meta {
   color: var(--color-muted);
-  font-size: 0.8rem;
+  font-size: 0.875rem;
 }
 .notifications__more {
-  margin-top: var(--space-3);
+  margin-top: 0.75rem;
 }
 </style>

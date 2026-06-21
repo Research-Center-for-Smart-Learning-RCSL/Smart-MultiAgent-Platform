@@ -4,27 +4,27 @@ defineProps<{
 }>()
 
 const colorMap: Record<string, string> = {
-  running: 'bg-blue-100 text-blue-700',
-  waiting: 'bg-yellow-100 text-yellow-700',
-  succeeded: 'bg-green-100 text-green-700',
-  completed: 'bg-green-100 text-green-700',
-  approved: 'bg-green-100 text-green-700',
-  failed: 'bg-red-100 text-red-700',
-  rejected: 'bg-red-100 text-red-700',
-  error: 'bg-red-100 text-red-700',
-  cancelled: 'bg-gray-100 text-gray-600',
-  skipped: 'bg-gray-100 text-gray-600',
-  pending: 'bg-gray-50 text-gray-400',
-  idle: 'bg-gray-50 text-gray-400',
-  timeout: 'bg-orange-100 text-orange-600',
-  timeout_leader: 'bg-orange-100 text-orange-600',
+  running: 'bg-info-tint text-info-on',
+  waiting: 'bg-warning-tint text-warning-on',
+  succeeded: 'bg-success-tint text-success-on',
+  completed: 'bg-success-tint text-success-on',
+  approved: 'bg-success-tint text-success-on',
+  failed: 'bg-danger-tint text-danger-on',
+  rejected: 'bg-danger-tint text-danger-on',
+  error: 'bg-danger-tint text-danger-on',
+  cancelled: 'bg-neutral-tint text-neutral-on',
+  skipped: 'bg-neutral-tint text-neutral-on',
+  pending: 'bg-neutral-tint text-muted',
+  idle: 'bg-neutral-tint text-muted',
+  timeout: 'bg-warning-tint text-warning-on',
+  timeout_leader: 'bg-warning-tint text-warning-on',
 }
 </script>
 
 <template>
   <span
     class="inline-flex items-center px-1.5 py-0.5 text-xs font-medium rounded"
-    :class="colorMap[status] ?? 'bg-gray-100 text-gray-600'"
+    :class="colorMap[status] ?? 'bg-neutral-tint text-neutral-on'"
   >
     <slot>{{ status }}</slot>
   </span>

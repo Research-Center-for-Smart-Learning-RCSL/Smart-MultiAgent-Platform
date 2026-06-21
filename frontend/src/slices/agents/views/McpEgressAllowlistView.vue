@@ -163,8 +163,8 @@ async function confirmRemove(entry: EgressAllowlistEntry): Promise<void> {
 }
 .egress__form {
   max-width: 480px;
-  margin-bottom: var(--space-6);
-  padding: var(--space-4);
+  margin-bottom: 1.5rem;
+  padding: 1rem;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
 }
@@ -175,7 +175,7 @@ async function confirmRemove(entry: EgressAllowlistEntry): Promise<void> {
 .egress__table th,
 .egress__table td {
   text-align: left;
-  padding: var(--space-2) var(--space-3);
+  padding: 0.5rem 0.75rem;
   border-bottom: 1px solid var(--color-border);
 }
 .egress__host {

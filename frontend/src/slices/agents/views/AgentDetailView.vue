@@ -283,7 +283,7 @@ const onSubmit = handleSubmit((values) => {
 }
 .agent-detail__actions {
   display: flex;
-  gap: var(--space-3);
-  margin-top: var(--space-4);
+  gap: 0.75rem;
+  margin-top: 1rem;
 }
 </style>

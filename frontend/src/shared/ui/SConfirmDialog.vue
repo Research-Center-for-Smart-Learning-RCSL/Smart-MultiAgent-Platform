@@ -102,24 +102,24 @@ const variantClasses: Record<string, string> = {
 }
 
 .confirm-dialog__content {
-  padding: var(--space-6);
+  padding: 1.5rem;
 }
 
 .confirm-dialog__title {
   font-size: 1rem;
   font-weight: 600;
-  margin: 0 0 var(--space-2) 0;
+  margin: 0 0 0.5rem 0;
 }
 
 .confirm-dialog__message {
   font-size: 0.875rem;
   color: var(--color-muted);
-  margin: 0 0 var(--space-6) 0;
+  margin: 0 0 1.5rem 0;
   line-height: 1.5;
 }
 
 .confirm-dialog__input {
-  margin-bottom: var(--space-4);
+  margin-bottom: 1rem;
 }
 .confirm-dialog__input input {
   width: 100%;
@@ -127,11 +127,11 @@ const variantClasses: Record<string, string> = {
 .confirm-dialog__input-error {
   font-size: 0.75rem;
   color: var(--color-danger);
-  margin: var(--space-1) 0 0;
+  margin: 0.25rem 0 0;
 }
 .confirm-dialog__actions {
   display: flex;
   justify-content: flex-end;
-  gap: var(--space-2);
+  gap: 0.5rem;
 }
 </style>

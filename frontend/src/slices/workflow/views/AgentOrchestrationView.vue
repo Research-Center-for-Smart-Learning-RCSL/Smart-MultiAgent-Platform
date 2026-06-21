@@ -84,7 +84,7 @@ async function save(): Promise<void> {
       <h1 class="text-xl font-semibold">
         {{ t('workflow.agentOps.title') }}
       </h1>
-      <p class="text-sm text-gray-500">
+      <p class="text-sm text-muted">
         {{ t('workflow.agentOps.subtitle') }}
       </p>
     </header>

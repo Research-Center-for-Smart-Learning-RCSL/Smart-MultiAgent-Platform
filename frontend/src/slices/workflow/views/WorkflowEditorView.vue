@@ -4,7 +4,7 @@
     <header class="flex items-center gap-3 px-4 py-2 border-b bg-bg shrink-0">
       <router-link
         :to="{ name: 'workflow.list', params: { workspaceId } }"
-        class="text-sm text-gray-500 hover:underline"
+        class="text-sm text-muted hover:underline"
       >
         &larr; {{ $t('workflow.editor.backToList') }}
       </router-link>
@@ -18,7 +18,7 @@
 
       <span
         v-if="store.dirty"
-        class="text-xs text-orange-500"
+        class="text-xs text-warning"
       >
         {{ $t('workflow.editor.unsaved') }}
       </span>
@@ -41,13 +41,13 @@
                 v-for="group in NODE_PALETTE_GROUPS"
                 :key="group.label"
               >
-                <div class="px-3 py-1 text-[10px] font-semibold text-gray-400 uppercase tracking-wide">
+                <div class="px-3 py-1 text-[10px] font-semibold text-muted uppercase tracking-wide">
                   {{ $t(group.label) }}
                 </div>
                 <button
                   v-for="nt in group.types"
                   :key="nt"
-                  class="block w-full text-left px-3 py-1.5 text-sm hover:bg-blue-50 dark:hover:bg-blue-900/30"
+                  class="block w-full text-left px-3 py-1.5 text-sm hover:bg-accent/10"
                   @click="addNode(nt)"
                 >
                   {{ $t(NODE_TYPE_LABELS[nt]) }}
@@ -107,7 +107,7 @@
     <div
       v-if="loadError"
       role="alert"
-      class="px-4 py-2 bg-red-50 text-red-700 text-sm border-b"
+      class="px-4 py-2 bg-danger-tint text-danger-on text-sm border-b"
     >
       {{ loadError }}
       <button
@@ -122,7 +122,7 @@
     <div
       v-if="store.lintErrors.length || store.lintWarnings.length"
       class="px-4 py-1 text-xs border-b"
-      :class="store.lintErrors.length ? 'bg-red-50 text-red-700' : 'bg-yellow-50 text-yellow-700'"
+      :class="store.lintErrors.length ? 'bg-danger-tint text-danger-on' : 'bg-warning-tint text-warning-on'"
     >
       <span v-if="store.lintErrors.length">
         {{ store.lintErrors.length }} {{ $t('workflow.editor.errors') }}
@@ -136,7 +136,7 @@
     <!-- Read-only notice on small screens (R24.33) -->
     <div
       v-if="!isDesktop"
-      class="px-4 py-3 bg-blue-50 text-blue-700 text-sm border-b"
+      class="px-4 py-3 bg-info-tint text-info-on text-sm border-b"
     >
       {{ $t('workflow.editor.readOnlyNotice') }}
     </div>
@@ -150,14 +150,14 @@
       >
         <div
           v-if="!workflow && !loadError"
-          class="absolute inset-0 flex items-center justify-center text-sm text-gray-500"
+          class="absolute inset-0 flex items-center justify-center text-sm text-muted"
           role="status"
         >
           {{ $t('workflow.editor.loading') }}
         </div>
         <div
           v-else-if="workflow && !flowNodes.length"
-          class="absolute inset-0 flex items-center justify-center text-sm text-gray-500"
+          class="absolute inset-0 flex items-center justify-center text-sm text-muted"
         >
           {{ $t('workflow.editor.emptyCanvas') }}
         </div>

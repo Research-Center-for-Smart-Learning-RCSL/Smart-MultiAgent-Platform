@@ -149,7 +149,7 @@
 
         <p
           v-if="!availableAgents.length && !boundAgents.length && !orphanAgentIds.length"
-          class="muted text-sm text-gray-500"
+          class="muted text-sm text-muted"
         >
           {{ $t('conversation.settings.noAgents') }}
         </p>
@@ -196,7 +196,7 @@
           :key="id"
           class="agent-head flex items-center justify-between gap-2 mb-4"
         >
-          <p class="font-medium text-sm text-gray-500">
+          <p class="font-medium text-sm text-muted">
             {{ id.slice(0, 8) }} · {{ $t('conversation.settings.unknownAgent') }}
           </p>
           <button

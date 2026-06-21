@@ -38,10 +38,10 @@ function stateIcon(state: string): string {
 
 function stateClass(state: string): string {
   switch (state) {
-    case 'running': return 'text-blue-600'
-    case 'completed': return 'text-green-600'
-    case 'error': return 'text-red-600'
-    default: return 'text-gray-500'
+    case 'running': return 'text-accent'
+    case 'completed': return 'text-success'
+    case 'error': return 'text-danger'
+    default: return 'text-muted'
   }
 }
 
@@ -51,20 +51,20 @@ function agentName(id: string): string {
 </script>
 
 <template>
-  <div class="subagent-tree ml-4 border-l-2 border-gray-200 pl-3 my-2">
-    <div class="text-xs text-gray-500 mb-1 font-medium">
+  <div class="subagent-tree ml-4 border-l-2 border-border pl-3 my-2">
+    <div class="text-xs text-muted mb-1 font-medium">
       {{ t('workflow.subagent.title') }}
     </div>
 
     <div
       v-if="loading"
-      class="text-xs text-gray-400"
+      class="text-xs text-muted"
     >
       {{ t('workflow.subagent.loading') }}
     </div>
     <div
       v-else-if="children.length === 0"
-      class="text-xs text-gray-400"
+      class="text-xs text-muted"
     >
       {{ t('workflow.subagent.empty') }}
     </div>
@@ -83,15 +83,15 @@ function agentName(id: string): string {
       <div class="flex-1 min-w-0">
         <div class="flex items-center gap-1">
           <span class="font-mono text-xs">{{ agentName(child.agent_id) }}</span>
-          <span class="text-xs text-gray-400">{{ child.id.slice(0, 8) }}</span>
+          <span class="text-xs text-muted">{{ child.id.slice(0, 8) }}</span>
         </div>
         <div
           v-if="child.task_description"
-          class="text-xs text-gray-600 truncate"
+          class="text-xs text-muted truncate"
         >
           {{ child.task_description }}
         </div>
-        <div class="text-xs text-gray-400">
+        <div class="text-xs text-muted">
           {{ t('workflow.subagent.spawned', { time: child.spawned_at }) }}
           <template v-if="child.destroyed_at">
             &middot; {{ t('workflow.subagent.destroyed', { time: child.destroyed_at }) }}

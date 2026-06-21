@@ -4,7 +4,7 @@
       <h1 class="text-xl font-semibold">
         {{ $t('workflow.backstage.title') }}
       </h1>
-      <p class="text-sm text-gray-500">
+      <p class="text-sm text-muted">
         {{ $t('workflow.backstage.subtitle') }}
       </p>
     </header>
@@ -40,7 +40,7 @@
         </h2>
         <p
           v-if="stepsQuery.isLoading.value"
-          class="text-gray-500"
+          class="text-muted"
         >
           …
         </p>
@@ -61,13 +61,13 @@
             >
               {{ step.state }}
             </span>
-            <span class="text-gray-400">
+            <span class="text-muted">
               {{ new Date(step.started_at).toLocaleTimeString() }}
               {{ step.ended_at ? '→ ' + new Date(step.ended_at).toLocaleTimeString() : '' }}
             </span>
             <span
               v-if="step.error"
-              class="text-red-600 truncate max-w-[300px]"
+              class="text-danger truncate max-w-[300px]"
             >
               {{ step.error }}
             </span>
@@ -75,7 +75,7 @@
         </div>
         <p
           v-else
-          class="text-gray-400 text-sm"
+          class="text-muted text-sm"
         >
           {{ $t('workflow.backstage.noSteps') }}
         </p>
@@ -123,7 +123,7 @@
         </div>
         <p
           v-else
-          class="text-gray-400 text-sm"
+          class="text-muted text-sm"
         >
           {{ $t('workflow.backstage.noApprovals') }}
         </p>
@@ -175,21 +175,21 @@ function onRunSelected(): void {
 
 function stepBorderClass(state: string): string {
   switch (state) {
-    case 'running': return 'border-blue-400'
-    case 'succeeded': return 'border-green-400'
-    case 'failed': return 'border-red-400'
-    case 'cancelled': return 'border-gray-300'
-    default: return 'border-gray-200'
+    case 'running': return 'border-accent'
+    case 'succeeded': return 'border-success'
+    case 'failed': return 'border-danger'
+    case 'cancelled': return 'border-border'
+    default: return 'border-border'
   }
 }
 
 function stepBgClass(state: string): string {
   switch (state) {
-    case 'running': return 'bg-blue-100 text-blue-700'
-    case 'succeeded': return 'bg-green-100 text-green-700'
-    case 'failed': return 'bg-red-100 text-red-700'
-    case 'cancelled': return 'bg-gray-100 text-gray-600'
-    case 'pending': return 'bg-gray-50 text-gray-400'
+    case 'running': return 'bg-info-tint text-info-on'
+    case 'succeeded': return 'bg-success-tint text-success-on'
+    case 'failed': return 'bg-danger-tint text-danger-on'
+    case 'cancelled': return 'bg-neutral-tint text-neutral-on'
+    case 'pending': return 'bg-neutral-tint text-muted'
     default: return ''
   }
 }

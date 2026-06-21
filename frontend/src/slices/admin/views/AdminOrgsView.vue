@@ -105,6 +105,6 @@ async function onTransfer(orgId: string): Promise<void> {
 
 <style scoped>
 table { width: 100%; border-collapse: collapse; }
-th, td { padding: 0.5rem; border-bottom: 1px solid var(--color-border, #eee); text-align: left; }
+th, td { padding: 0.5rem; border-bottom: 1px solid var(--color-border); text-align: left; }
 td button + button { margin-left: 0.25rem; }
 </style>

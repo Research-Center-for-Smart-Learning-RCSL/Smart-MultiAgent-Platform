@@ -308,8 +308,8 @@ async function confirmDelete(b: McpBinding): Promise<void> {
 }
 .agent-mcp__form {
   max-width: 480px;
-  margin-bottom: var(--space-6);
-  padding: var(--space-4);
+  margin-bottom: 1.5rem;
+  padding: 1rem;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
 }
@@ -317,7 +317,7 @@ async function confirmDelete(b: McpBinding): Promise<void> {
   display: block;
   color: var(--color-muted);
   font-size: 0.875rem;
-  margin-top: var(--space-1);
+  margin-top: 0.25rem;
 }
 .agent-mcp__table {
   width: 100%;
@@ -326,7 +326,7 @@ async function confirmDelete(b: McpBinding): Promise<void> {
 .agent-mcp__table th,
 .agent-mcp__table td {
   text-align: left;
-  padding: var(--space-2) var(--space-3);
+  padding: 0.5rem 0.75rem;
   border-bottom: 1px solid var(--color-border);
 }
 .agent-mcp__ref {
@@ -334,12 +334,12 @@ async function confirmDelete(b: McpBinding): Promise<void> {
   word-break: break-all;
 }
 .agent-mcp__ok {
-  color: var(--color-success, #15803d);
-  margin-left: var(--space-2);
+  color: var(--color-success);
+  margin-left: 0.5rem;
 }
 .agent-mcp__error {
-  color: var(--color-danger, #b91c1c);
-  margin-left: var(--space-2);
+  color: var(--color-danger);
+  margin-left: 0.5rem;
   cursor: help;
 }
 </style>

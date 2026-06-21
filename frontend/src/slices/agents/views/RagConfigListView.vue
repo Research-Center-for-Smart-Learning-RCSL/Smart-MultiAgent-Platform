@@ -454,20 +454,20 @@ function keyLabel(k: ApiKey): string {
 }
 .rag-list__form {
   max-width: 480px;
-  margin-bottom: var(--space-6);
-  padding: var(--space-4);
+  margin-bottom: 1.5rem;
+  padding: 1rem;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
 }
 .rag-list__warning {
-  color: var(--color-danger, #b91c1c);
-  margin-bottom: var(--space-3);
+  color: var(--color-danger);
+  margin-bottom: 0.75rem;
 }
 .rag-list__hint {
   display: block;
   color: var(--color-muted);
   font-size: 0.875rem;
-  margin-top: var(--space-1);
+  margin-top: 0.25rem;
 }
 .rag-list__table {
   width: 100%;
@@ -476,7 +476,7 @@ function keyLabel(k: ApiKey): string {
 .rag-list__table th,
 .rag-list__table td {
   text-align: left;
-  padding: var(--space-2) var(--space-3);
+  padding: 0.5rem 0.75rem;
   border-bottom: 1px solid var(--color-border);
 }
 </style>

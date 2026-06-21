@@ -77,7 +77,7 @@ function removeAssignment(index: number) {
             </span>
             <button
               type="button"
-              class="text-xs text-red-600 hover:text-red-800"
+              class="text-xs text-danger hover:underline"
               @click="removeAssignment(idx)"
             >
               {{ t('workflow.config.removeAssignment') }}
@@ -117,7 +117,7 @@ function removeAssignment(index: number) {
 
       <button
         type="button"
-        class="mt-2 text-sm text-blue-600 hover:text-blue-800"
+        class="mt-2 text-sm text-accent hover:underline"
         @click="addAssignment"
       >
         + {{ t('workflow.config.addAssignment') }}
