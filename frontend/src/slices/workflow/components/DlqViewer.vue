@@ -83,20 +83,20 @@ function toggle(): void {
       </div>
       <table
         v-else
-        class="w-full text-xs border-collapse"
+        class="table text-xs"
       >
         <thead>
-          <tr class="border-b text-left text-muted">
-            <th class="py-1 pr-2">
+          <tr class="text-muted">
+            <th class="pr-2">
               {{ t('workflow.dlq.streamId') }}
             </th>
-            <th class="py-1 pr-2">
+            <th class="pr-2">
               {{ t('workflow.dlq.attempts') }}
             </th>
-            <th class="py-1 pr-2">
+            <th class="pr-2">
               {{ t('workflow.dlq.error') }}
             </th>
-            <th class="py-1 pr-2">
+            <th class="pr-2">
               {{ t('workflow.dlq.movedAt') }}
             </th>
           </tr>
@@ -105,18 +105,17 @@ function toggle(): void {
           <tr
             v-for="entry in entries"
             :key="entry.stream_entry_id"
-            class="border-b"
           >
-            <td class="py-1 pr-2 font-mono">
+            <td class="pr-2 font-mono">
               {{ entry.stream_id }}
             </td>
-            <td class="py-1 pr-2">
+            <td class="pr-2">
               {{ entry.attempt_count }}
             </td>
-            <td class="py-1 pr-2 text-danger truncate max-w-64">
+            <td class="pr-2 text-danger truncate max-w-64">
               {{ entry.last_error }}
             </td>
-            <td class="py-1 pr-2 text-muted">
+            <td class="pr-2 text-muted">
               {{ entry.moved_at }}
             </td>
           </tr>

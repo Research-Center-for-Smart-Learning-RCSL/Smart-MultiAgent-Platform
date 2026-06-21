@@ -1,7 +1,10 @@
 <template>
   <section class="admin-rate-limits">
     <h1>{{ $t('admin.rateLimits.title') }}</h1>
-    <table v-if="query.data.value">
+    <table
+      v-if="query.data.value"
+      class="table"
+    >
       <thead>
         <tr>
           <th>{{ $t('admin.rateLimits.key') }}</th>
@@ -97,7 +100,5 @@ function onPatch(key: string): void {
 </script>
 
 <style scoped>
-table { width: 100%; border-collapse: collapse; }
-th, td { padding: 0.5rem; border-bottom: 1px solid var(--color-border); text-align: left; }
 .admin-rate-limits__input { width: 5rem; }
 </style>

@@ -133,7 +133,7 @@ function humanSize(bytes: number): string {
     </p>
     <table
       v-else
-      class="rag-config__docs"
+      class="table"
     >
       <thead>
         <tr>

@@ -491,7 +491,7 @@ onBeforeUnmount(() => {
   color: var(--color-accent);
   background: none;
   border: 1px solid var(--color-accent);
-  border-radius: 4px;
+  border-radius: var(--radius-md);
   padding: 0.25rem 0.75rem;
   cursor: pointer;
 }

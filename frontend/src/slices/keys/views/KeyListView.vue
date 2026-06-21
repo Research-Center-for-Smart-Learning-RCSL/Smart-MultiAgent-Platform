@@ -49,6 +49,7 @@ onMounted(reload)
     </p>
     <table
       v-else
+      class="table"
       data-testid="key-list"
     >
       <thead>

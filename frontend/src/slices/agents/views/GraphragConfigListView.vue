@@ -5,7 +5,7 @@ import { useI18n } from 'vue-i18n'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/vue-query'
 import { useForm } from 'vee-validate'
 import { toTypedSchema } from '@vee-validate/zod'
-import { SFormField } from '@shared/ui'
+import { SCard, SFormField } from '@shared/ui'
 import { useConfirmDialog, useServerErrors, usePolling, useToast } from '@shared/composables'
 import { keyGroupsApi, keysKeys } from '@slices/keys'
 import { agentsApi, type GraphragConfig } from '../api'
@@ -220,9 +220,11 @@ function refresh(): void {
       {{ t('agents.graphragList.allConfigured') }}
     </p>
 
-    <form
+    <SCard
       v-if="showForm"
-      class="graphrag-list__form"
+      class="max-w-[480px] mb-6"
+    >
+    <form
       @submit.prevent="onSubmit"
     >
       <p class="graphrag-list__hint">
@@ -290,13 +292,14 @@ function refresh(): void {
         {{ t('agents.graphragForm.submit') }}
       </button>
     </form>
+    </SCard>
 
     <p v-if="configsQuery.isLoading.value">
       {{ t('agents.graphragList.loading') }}
     </p>
     <table
       v-else
-      class="graphrag-list__table"
+      class="table"
     >
       <thead>
         <tr>
@@ -364,13 +367,6 @@ function refresh(): void {
   align-items: center;
   justify-content: space-between;
 }
-.graphrag-list__form {
-  max-width: 480px;
-  margin-bottom: 1.5rem;
-  padding: 1rem;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-}
 .graphrag-list__hint {
   color: var(--color-muted);
   font-size: 0.875rem;
@@ -379,16 +375,6 @@ function refresh(): void {
 .graphrag-list__warning {
   color: var(--color-danger);
   margin-bottom: 0.75rem;
-}
-.graphrag-list__table {
-  width: 100%;
-  border-collapse: collapse;
-}
-.graphrag-list__table th,
-.graphrag-list__table td {
-  text-align: left;
-  padding: 0.5rem 0.75rem;
-  border-bottom: 1px solid var(--color-border);
 }
 .graphrag-list__error {
   color: var(--color-danger);

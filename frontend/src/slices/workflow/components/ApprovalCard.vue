@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onActivated, onBeforeUnmount, onDeactivated, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { SCard } from '@shared/ui'
 import type { ApprovalWithVotes } from '../types'
 
 const { t } = useI18n()
@@ -74,7 +75,7 @@ function voteForAgent(agentId: string) {
 </script>
 
 <template>
-  <div class="approval-card rounded border p-3 my-2 bg-surface">
+  <SCard variant="surface" padding="compact" class="my-2">
     <div class="flex items-center justify-between mb-2">
       <span class="font-semibold text-sm">
         {{ t('workflow.approval.gate') }}
@@ -128,5 +129,5 @@ function voteForAgent(agentId: string) {
         >{{ t('workflow.approval.pending') }}</span>
       </li>
     </ul>
-  </div>
+  </SCard>
 </template>

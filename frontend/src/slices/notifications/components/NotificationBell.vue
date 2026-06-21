@@ -55,7 +55,7 @@ const badge = computed(() => (count.value > 99 ? '99+' : String(count.value)))
   justify-content: center;
   width: 40px;
   height: 40px;
-  border-radius: 9999px;
+  border-radius: var(--radius-full);
   color: var(--color-fg);
   background: var(--color-surface);
   border: 1px solid var(--color-border);
@@ -74,7 +74,7 @@ const badge = computed(() => (count.value > 99 ? '99+' : String(count.value)))
   min-width: 18px;
   height: 18px;
   padding: 0 4px;
-  border-radius: 9999px;
+  border-radius: var(--radius-full);
   background: var(--color-danger);
   color: #fff;
   font-size: 0.75rem;

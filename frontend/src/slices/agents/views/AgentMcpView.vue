@@ -5,7 +5,7 @@ import { useI18n } from 'vue-i18n'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/vue-query'
 import { useForm } from 'vee-validate'
 import { toTypedSchema } from '@vee-validate/zod'
-import { SFormField } from '@shared/ui'
+import { SCard, SFormField } from '@shared/ui'
 import { useConfirmDialog, useServerErrors, useToast } from '@shared/composables'
 import { agentsApi, type McpBinding, type McpTestResult } from '../api'
 import { agentKeys } from '../queries'
@@ -149,9 +149,11 @@ async function confirmDelete(b: McpBinding): Promise<void> {
       </RouterLink>
     </p>
 
-    <form
+    <SCard
       v-if="showForm"
-      class="agent-mcp__form"
+      class="max-w-[480px] mb-6"
+    >
+    <form
       @submit.prevent="onSubmit"
     >
       <SFormField
@@ -232,13 +234,14 @@ async function confirmDelete(b: McpBinding): Promise<void> {
         {{ t('agents.mcp.submit') }}
       </button>
     </form>
+    </SCard>
 
     <p v-if="bindingsQuery.isLoading.value">
       {{ t('agents.mcp.loading') }}
     </p>
     <table
       v-else
-      class="agent-mcp__table"
+      class="table"
     >
       <thead>
         <tr>
@@ -306,28 +309,11 @@ async function confirmDelete(b: McpBinding): Promise<void> {
 .agent-mcp__subtitle {
   color: var(--color-muted);
 }
-.agent-mcp__form {
-  max-width: 480px;
-  margin-bottom: 1.5rem;
-  padding: 1rem;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-}
 .agent-mcp__hint {
   display: block;
   color: var(--color-muted);
   font-size: 0.875rem;
   margin-top: 0.25rem;
-}
-.agent-mcp__table {
-  width: 100%;
-  border-collapse: collapse;
-}
-.agent-mcp__table th,
-.agent-mcp__table td {
-  text-align: left;
-  padding: 0.5rem 0.75rem;
-  border-bottom: 1px solid var(--color-border);
 }
 .agent-mcp__ref {
   font-family: var(--font-mono, monospace);

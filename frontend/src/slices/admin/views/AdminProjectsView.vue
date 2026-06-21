@@ -1,7 +1,10 @@
 <template>
   <section class="admin-projects">
     <h1>{{ $t('admin.projects.title') }}</h1>
-    <table v-if="query.data.value">
+    <table
+      v-if="query.data.value"
+      class="table"
+    >
       <thead>
         <tr>
           <th>{{ $t('admin.projects.name') }}</th>
@@ -38,7 +41,3 @@ const query = useQuery({
 })
 </script>
 
-<style scoped>
-table { width: 100%; border-collapse: collapse; }
-th, td { padding: 0.5rem; border-bottom: 1px solid var(--color-border); text-align: left; }
-</style>

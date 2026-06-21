@@ -5,7 +5,7 @@ import { useI18n } from 'vue-i18n'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/vue-query'
 import { useForm } from 'vee-validate'
 import { toTypedSchema } from '@vee-validate/zod'
-import { SFormField } from '@shared/ui'
+import { SCard, SFormField } from '@shared/ui'
 import { useConfirmDialog, useServerErrors, useToast } from '@shared/composables'
 import { projectKeysApi, CAPABILITIES, keysKeys, type ApiKey } from '@slices/keys'
 import { agentsApi, type RagConfig } from '../api'
@@ -207,9 +207,11 @@ function keyLabel(k: ApiKey): string {
       {{ t('agents.ragList.noEmbedKeys') }}
     </p>
 
-    <form
+    <SCard
       v-if="showForm"
-      class="rag-list__form"
+      class="max-w-[480px] mb-6"
+    >
+    <form
       @submit.prevent="onSubmit"
     >
       <SFormField
@@ -398,13 +400,14 @@ function keyLabel(k: ApiKey): string {
         {{ t('agents.ragForm.submit') }}
       </button>
     </form>
+    </SCard>
 
     <p v-if="configsQuery.isLoading.value">
       {{ t('agents.ragList.loading') }}
     </p>
     <table
       v-else
-      class="rag-list__table"
+      class="table"
     >
       <thead>
         <tr>
@@ -452,13 +455,6 @@ function keyLabel(k: ApiKey): string {
   align-items: center;
   justify-content: space-between;
 }
-.rag-list__form {
-  max-width: 480px;
-  margin-bottom: 1.5rem;
-  padding: 1rem;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-}
 .rag-list__warning {
   color: var(--color-danger);
   margin-bottom: 0.75rem;
@@ -468,15 +464,5 @@ function keyLabel(k: ApiKey): string {
   color: var(--color-muted);
   font-size: 0.875rem;
   margin-top: 0.25rem;
-}
-.rag-list__table {
-  width: 100%;
-  border-collapse: collapse;
-}
-.rag-list__table th,
-.rag-list__table td {
-  text-align: left;
-  padding: 0.5rem 0.75rem;
-  border-bottom: 1px solid var(--color-border);
 }
 </style>

@@ -83,7 +83,7 @@ watch(projectId, reload)
       </button>
     </form>
 
-    <table data-testid="search-list">
+    <table class="table" data-testid="search-list">
       <thead>
         <tr>
           <th>{{ $t('keys.search.provider') }}</th>
