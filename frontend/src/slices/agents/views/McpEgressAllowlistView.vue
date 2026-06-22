@@ -77,40 +77,40 @@ async function confirmRemove(entry: EgressAllowlistEntry): Promise<void> {
     </p>
 
     <SCard class="max-w-[480px] mb-6">
-    <form
-      @submit.prevent="onSubmit"
-    >
-      <SFormField
-        :label="t('agents.egress.hostname')"
-        name="hostname"
-        :error="errors.hostname"
-        required
+      <form
+        @submit.prevent="onSubmit"
       >
-        <input
-          id="hostname"
-          v-model="hostname"
-          :placeholder="t('agents.egress.hostnamePlaceholder')"
-          :aria-invalid="!!errors.hostname"
+        <SFormField
+          :label="t('agents.egress.hostname')"
+          name="hostname"
+          :error="errors.hostname"
+          required
         >
-      </SFormField>
-      <SFormField
-        :label="t('agents.egress.note')"
-        name="note"
-        :error="errors.note"
-      >
-        <input
-          id="note"
-          v-model="note"
+          <input
+            id="hostname"
+            v-model="hostname"
+            :placeholder="t('agents.egress.hostnamePlaceholder')"
+            :aria-invalid="!!errors.hostname"
+          >
+        </SFormField>
+        <SFormField
+          :label="t('agents.egress.note')"
+          name="note"
+          :error="errors.note"
         >
-      </SFormField>
-      <button
-        type="submit"
-        class="btn btn-primary"
-        :disabled="addMutation.isPending.value"
-      >
-        {{ t('agents.egress.add') }}
-      </button>
-    </form>
+          <input
+            id="note"
+            v-model="note"
+          >
+        </SFormField>
+        <button
+          type="submit"
+          class="btn btn-primary"
+          :disabled="addMutation.isPending.value"
+        >
+          {{ t('agents.egress.add') }}
+        </button>
+      </form>
     </SCard>
 
     <p v-if="allowlistQuery.isLoading.value">
@@ -120,40 +120,46 @@ async function confirmRemove(entry: EgressAllowlistEntry): Promise<void> {
       v-else
       class="overflow-x-auto"
     >
-    <table class="table">
-      <thead>
-        <tr>
-          <th scope="col">{{ t('agents.egress.colHost') }}</th>
-          <th scope="col">{{ t('agents.egress.colNote') }}</th>
-          <th scope="col">{{ t('agents.egress.colActions') }}</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr
-          v-for="e in allowlistQuery.data.value ?? []"
-          :key="e.id"
-        >
-          <td class="egress__host">
-            {{ e.hostname }}
-          </td>
-          <td>{{ e.note ?? '—' }}</td>
-          <td>
-            <button
-              class="btn btn-danger"
-              type="button"
-              @click="confirmRemove(e)"
-            >
-              {{ t('agents.egress.remove') }}
-            </button>
-          </td>
-        </tr>
-        <tr v-if="(allowlistQuery.data.value ?? []).length === 0">
-          <td colspan="3">
-            {{ t('agents.egress.empty') }}
-          </td>
-        </tr>
-      </tbody>
-    </table>
+      <table class="table">
+        <thead>
+          <tr>
+            <th scope="col">
+              {{ t('agents.egress.colHost') }}
+            </th>
+            <th scope="col">
+              {{ t('agents.egress.colNote') }}
+            </th>
+            <th scope="col">
+              {{ t('agents.egress.colActions') }}
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr
+            v-for="e in allowlistQuery.data.value ?? []"
+            :key="e.id"
+          >
+            <td class="egress__host">
+              {{ e.hostname }}
+            </td>
+            <td>{{ e.note ?? '—' }}</td>
+            <td>
+              <button
+                class="btn btn-danger"
+                type="button"
+                @click="confirmRemove(e)"
+              >
+                {{ t('agents.egress.remove') }}
+              </button>
+            </td>
+          </tr>
+          <tr v-if="(allowlistQuery.data.value ?? []).length === 0">
+            <td colspan="3">
+              {{ t('agents.egress.empty') }}
+            </td>
+          </tr>
+        </tbody>
+      </table>
     </div>
   </section>
 </template>

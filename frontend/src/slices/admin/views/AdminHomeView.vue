@@ -30,8 +30,12 @@
         {{ $t('admin.nav.metrics') }}
       </router-link>
     </nav>
+    <SLoadingSpinner
+      v-if="metricsQuery.isLoading.value"
+      class="my-4"
+    />
     <div
-      v-if="metricsQuery.data.value"
+      v-else-if="metricsQuery.data.value"
       class="admin-home__stats"
     >
       <dl>
@@ -49,7 +53,7 @@
 </template>
 
 <script setup lang="ts">
-import { SPageHeader } from '@shared/ui'
+import { SPageHeader, SLoadingSpinner } from '@shared/ui'
 import { useQuery } from '@tanstack/vue-query'
 import { adminApi } from '../api/admin'
 import { adminKeys } from '../queries'

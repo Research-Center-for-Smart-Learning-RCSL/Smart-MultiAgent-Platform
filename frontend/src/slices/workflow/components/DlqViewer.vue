@@ -81,46 +81,48 @@ function toggle(): void {
       >
         {{ t('workflow.dlq.empty') }}
       </div>
-      <table
+      <div
         v-else
-        class="table text-xs"
+        class="overflow-x-auto"
       >
-        <thead>
-          <tr class="text-muted">
-            <th>
-              {{ t('workflow.dlq.streamId') }}
-            </th>
-            <th>
-              {{ t('workflow.dlq.attempts') }}
-            </th>
-            <th>
-              {{ t('workflow.dlq.error') }}
-            </th>
-            <th>
-              {{ t('workflow.dlq.movedAt') }}
-            </th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr
-            v-for="entry in entries"
-            :key="entry.stream_entry_id"
-          >
-            <td class="font-mono">
-              {{ entry.stream_id }}
-            </td>
-            <td>
-              {{ entry.attempt_count }}
-            </td>
-            <td class="text-danger truncate max-w-64">
-              {{ entry.last_error }}
-            </td>
-            <td class="text-muted">
-              {{ entry.moved_at }}
-            </td>
-          </tr>
-        </tbody>
-      </table>
+        <table class="table text-xs">
+          <thead>
+            <tr class="text-muted">
+              <th>
+                {{ t('workflow.dlq.streamId') }}
+              </th>
+              <th>
+                {{ t('workflow.dlq.attempts') }}
+              </th>
+              <th>
+                {{ t('workflow.dlq.error') }}
+              </th>
+              <th>
+                {{ t('workflow.dlq.movedAt') }}
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr
+              v-for="entry in entries"
+              :key="entry.stream_entry_id"
+            >
+              <td class="font-mono">
+                {{ entry.stream_id }}
+              </td>
+              <td>
+                {{ entry.attempt_count }}
+              </td>
+              <td class="text-danger truncate max-w-xs sm:max-w-sm">
+                {{ entry.last_error }}
+              </td>
+              <td class="text-muted">
+                {{ entry.moved_at }}
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
       <button
         class="mt-1 text-xs text-accent hover:underline"
         @click="refresh"

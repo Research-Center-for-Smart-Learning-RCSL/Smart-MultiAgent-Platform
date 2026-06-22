@@ -52,61 +52,69 @@ onMounted(reload)
       v-else
       class="overflow-x-auto"
     >
-    <table
-      class="table"
-      data-testid="key-list"
-    >
-      <thead>
-        <tr>
-          <th scope="col">{{ $t('keys.list.provider') }}</th>
-          <th scope="col">{{ $t('keys.list.name') }}</th>
-          <th scope="col">{{ $t('keys.list.preview') }}</th>
-          <th scope="col">{{ $t('keys.list.status') }}</th>
-          <th />
-        </tr>
-      </thead>
-      <tbody>
-        <tr
-          v-for="k in keys"
-          :key="k.id"
-          :data-testid="`key-row-${k.id}`"
-        >
-          <td><CapabilityChip :provider="k.provider" /></td>
-          <td>{{ k.name }}</td>
-          <!-- `masked_preview` is backend-generated; plaintext never exists on
-               the client after the upload form submits, so nothing to redact. -->
-          <td><code>{{ k.masked_preview }}</code></td>
-          <td :class="`status-${k.test_status}`">
-            {{ k.test_status }}
-            <small v-if="k.test_error"> — {{ k.test_error }}</small>
-          </td>
-          <td>
-            <button
-              class="btn btn-sm"
-              data-testid="retest"
-              @click="retest(k.id)"
-            >
-              {{ $t('keys.list.retest') }}
-            </button>
-            <button
-              class="btn btn-danger btn-sm"
-              data-testid="delete"
-              @click="onRemove(k.id)"
-            >
-              {{ $t('keys.list.delete') }}
-            </button>
-          </td>
-        </tr>
-        <tr v-if="keys.length === 0">
-          <td
-            colspan="5"
-            class="empty"
+      <table
+        class="table"
+        data-testid="key-list"
+      >
+        <thead>
+          <tr>
+            <th scope="col">
+              {{ $t('keys.list.provider') }}
+            </th>
+            <th scope="col">
+              {{ $t('keys.list.name') }}
+            </th>
+            <th scope="col">
+              {{ $t('keys.list.preview') }}
+            </th>
+            <th scope="col">
+              {{ $t('keys.list.status') }}
+            </th>
+            <th />
+          </tr>
+        </thead>
+        <tbody>
+          <tr
+            v-for="k in keys"
+            :key="k.id"
+            :data-testid="`key-row-${k.id}`"
           >
-            {{ $t('keys.list.empty') }}
-          </td>
-        </tr>
-      </tbody>
-    </table>
+            <td><CapabilityChip :provider="k.provider" /></td>
+            <td>{{ k.name }}</td>
+            <!-- `masked_preview` is backend-generated; plaintext never exists on
+               the client after the upload form submits, so nothing to redact. -->
+            <td><code>{{ k.masked_preview }}</code></td>
+            <td :class="`status-${k.test_status}`">
+              {{ k.test_status }}
+              <small v-if="k.test_error"> — {{ k.test_error }}</small>
+            </td>
+            <td>
+              <button
+                class="btn btn-sm"
+                data-testid="retest"
+                @click="retest(k.id)"
+              >
+                {{ $t('keys.list.retest') }}
+              </button>
+              <button
+                class="btn btn-danger btn-sm"
+                data-testid="delete"
+                @click="onRemove(k.id)"
+              >
+                {{ $t('keys.list.delete') }}
+              </button>
+            </td>
+          </tr>
+          <tr v-if="keys.length === 0">
+            <td
+              colspan="5"
+              class="empty"
+            >
+              {{ $t('keys.list.empty') }}
+            </td>
+          </tr>
+        </tbody>
+      </table>
     </div>
   </main>
 </template>

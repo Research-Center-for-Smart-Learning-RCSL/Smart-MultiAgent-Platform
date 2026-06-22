@@ -60,58 +60,58 @@
       v-else-if="query.data.value && query.data.value.length"
       class="overflow-x-auto"
     >
-    <table class="table">
-      <thead>
-        <tr>
-          <th scope="col">
-            {{ $t('admin.users.email') }}
-          </th>
-          <th scope="col">
-            {{ $t('admin.users.status') }}
-          </th>
-          <th scope="col">
-            {{ $t('admin.users.verified') }}
-          </th>
-          <th scope="col">
-            {{ $t('admin.users.created') }}
-          </th>
-          <th scope="col">
-            {{ $t('admin.users.actions') }}
-          </th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr
-          v-for="user in query.data.value"
-          :key="user.id"
-        >
-          <td>
-            <router-link :to="{ name: 'admin.userDetail', params: { userId: user.id } }">
-              {{ user.email }}
-            </router-link>
-          </td>
-          <td>{{ user.status }}</td>
-          <td>{{ user.email_verified ? $t('admin.common.yes') : $t('admin.common.no') }}</td>
-          <td>{{ new Date(user.created_at).toLocaleDateString() }}</td>
-          <td>
-            <button
-              v-if="user.status === 'active'"
-              class="btn btn-danger btn-sm"
-              @click="actions.promptBan(user.id)"
-            >
-              {{ $t('admin.users.ban') }}
-            </button>
-            <button
-              v-if="user.status === 'banned'"
-              class="btn btn-sm"
-              @click="actions.unbanUser.mutate(user.id)"
-            >
-              {{ $t('admin.users.unban') }}
-            </button>
-          </td>
-        </tr>
-      </tbody>
-    </table>
+      <table class="table">
+        <thead>
+          <tr>
+            <th scope="col">
+              {{ $t('admin.users.email') }}
+            </th>
+            <th scope="col">
+              {{ $t('admin.users.status') }}
+            </th>
+            <th scope="col">
+              {{ $t('admin.users.verified') }}
+            </th>
+            <th scope="col">
+              {{ $t('admin.users.created') }}
+            </th>
+            <th scope="col">
+              {{ $t('admin.users.actions') }}
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr
+            v-for="user in query.data.value"
+            :key="user.id"
+          >
+            <td>
+              <router-link :to="{ name: 'admin.userDetail', params: { userId: user.id } }">
+                {{ user.email }}
+              </router-link>
+            </td>
+            <td>{{ user.status }}</td>
+            <td>{{ user.email_verified ? $t('admin.common.yes') : $t('admin.common.no') }}</td>
+            <td>{{ new Date(user.created_at).toLocaleDateString() }}</td>
+            <td>
+              <button
+                v-if="user.status === 'active'"
+                class="btn btn-danger btn-sm"
+                @click="actions.promptBan(user.id)"
+              >
+                {{ $t('admin.users.ban') }}
+              </button>
+              <button
+                v-if="user.status === 'banned'"
+                class="btn btn-sm"
+                @click="actions.unbanUser.mutate(user.id)"
+              >
+                {{ $t('admin.users.unban') }}
+              </button>
+            </td>
+          </tr>
+        </tbody>
+      </table>
     </div>
     <p
       v-else

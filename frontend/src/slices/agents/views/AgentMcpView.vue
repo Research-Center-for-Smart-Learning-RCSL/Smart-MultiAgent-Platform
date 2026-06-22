@@ -150,87 +150,87 @@ async function confirmDelete(b: McpBinding): Promise<void> {
       v-if="showForm"
       class="max-w-[480px] mb-6"
     >
-    <form
-      @submit.prevent="onSubmit"
-    >
-      <SFormField
-        :label="t('agents.mcp.source')"
-        name="source"
-        :error="errors.source"
-        required
+      <form
+        @submit.prevent="onSubmit"
       >
-        <select
-          id="source"
-          v-model="source"
+        <SFormField
+          :label="t('agents.mcp.source')"
+          name="source"
+          :error="errors.source"
+          required
         >
-          <option value="url">
-            {{ t('agents.mcp.sourceUrl') }}
-          </option>
-          <option value="package">
-            {{ t('agents.mcp.sourcePackage') }}
-          </option>
-          <option value="builtin">
-            {{ t('agents.mcp.sourceBuiltin') }}
-          </option>
-        </select>
-      </SFormField>
-
-      <SFormField
-        :label="t('agents.mcp.reference')"
-        name="reference"
-        :error="errors.reference"
-        required
-      >
-        <select
-          v-if="source === 'builtin'"
-          id="reference"
-          v-model="reference"
-        >
-          <option
-            value=""
-            disabled
+          <select
+            id="source"
+            v-model="source"
           >
-            {{ t('agents.mcp.referencePlaceholderBuiltin') }}
-          </option>
-          <option
-            v-for="tool in BUILTIN_TOOLS"
-            :key="tool"
-            :value="tool"
+            <option value="url">
+              {{ t('agents.mcp.sourceUrl') }}
+            </option>
+            <option value="package">
+              {{ t('agents.mcp.sourcePackage') }}
+            </option>
+            <option value="builtin">
+              {{ t('agents.mcp.sourceBuiltin') }}
+            </option>
+          </select>
+        </SFormField>
+
+        <SFormField
+          :label="t('agents.mcp.reference')"
+          name="reference"
+          :error="errors.reference"
+          required
+        >
+          <select
+            v-if="source === 'builtin'"
+            id="reference"
+            v-model="reference"
           >
-            {{ tool }}
-          </option>
-        </select>
-        <input
-          v-else
-          id="reference"
-          v-model="reference"
-          :placeholder="source === 'url'
-            ? t('agents.mcp.referencePlaceholderUrl')
-            : t('agents.mcp.referencePlaceholderPackage')"
-          :aria-invalid="!!errors.reference"
-        >
-      </SFormField>
+            <option
+              value=""
+              disabled
+            >
+              {{ t('agents.mcp.referencePlaceholderBuiltin') }}
+            </option>
+            <option
+              v-for="tool in BUILTIN_TOOLS"
+              :key="tool"
+              :value="tool"
+            >
+              {{ tool }}
+            </option>
+          </select>
+          <input
+            v-else
+            id="reference"
+            v-model="reference"
+            :placeholder="source === 'url'
+              ? t('agents.mcp.referencePlaceholderUrl')
+              : t('agents.mcp.referencePlaceholderPackage')"
+            :aria-invalid="!!errors.reference"
+          >
+        </SFormField>
 
-      <SFormField
-        :label="t('agents.mcp.allowedTools')"
-        name="allowed_tools"
-      >
-        <input
-          id="allowed_tools"
-          v-model="allowedToolsRaw"
-          :placeholder="t('agents.mcp.allowedToolsPlaceholder')"
+        <SFormField
+          :label="t('agents.mcp.allowedTools')"
+          name="allowed_tools"
         >
-        <span class="agent-mcp__hint">{{ t('agents.mcp.allowedToolsHint') }}</span>
-      </SFormField>
+          <input
+            id="allowed_tools"
+            v-model="allowedToolsRaw"
+            :placeholder="t('agents.mcp.allowedToolsPlaceholder')"
+          >
+          <span class="agent-mcp__hint">{{ t('agents.mcp.allowedToolsHint') }}</span>
+        </SFormField>
 
-      <button
-        type="submit"
-        class="btn btn-primary"
-        :disabled="createMutation.isPending.value"
-      >
-        {{ t('agents.mcp.submit') }}
-      </button>
-    </form>
+        <button
+          type="submit"
+          class="btn btn-primary"
+          :disabled="createMutation.isPending.value"
+        >
+          {{ t('agents.mcp.submit') }}
+        </button>
+      </form>
     </SCard>
 
     <p v-if="bindingsQuery.isLoading.value">
@@ -240,61 +240,69 @@ async function confirmDelete(b: McpBinding): Promise<void> {
       v-else
       class="overflow-x-auto"
     >
-    <table class="table">
-      <thead>
-        <tr>
-          <th scope="col">{{ t('agents.mcp.colSource') }}</th>
-          <th scope="col">{{ t('agents.mcp.colReference') }}</th>
-          <th scope="col">{{ t('agents.mcp.colTools') }}</th>
-          <th scope="col">{{ t('agents.mcp.colActions') }}</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr
-          v-for="b in bindingsQuery.data.value ?? []"
-          :key="b.id"
-        >
-          <td>{{ b.source }}</td>
-          <td class="agent-mcp__ref">
-            {{ b.reference }}
-          </td>
-          <td>
-            {{ b.allowed_tools.length ? b.allowed_tools.join(', ') : '—' }}
-            <span
-              v-if="testResults[b.id]"
-              :class="testResults[b.id]!.ok ? 'agent-mcp__ok' : 'agent-mcp__error'"
-              :title="testResults[b.id]!.error ?? testResults[b.id]!.tool_names.join(', ')"
-            >
-              {{ testResults[b.id]!.ok
-                ? t('agents.mcp.testOk', { count: testResults[b.id]!.tool_names.length, ms: testResults[b.id]!.duration_ms })
-                : t('agents.mcp.testBad') }}
-            </span>
-          </td>
-          <td>
-            <button
-              class="btn"
-              type="button"
-              :disabled="isTesting(b.id)"
-              @click="runTest(b.id)"
-            >
-              {{ t('agents.mcp.test') }}
-            </button>
-            <button
-              class="btn btn-danger"
-              type="button"
-              @click="confirmDelete(b)"
-            >
-              {{ t('agents.mcp.delete') }}
-            </button>
-          </td>
-        </tr>
-        <tr v-if="(bindingsQuery.data.value ?? []).length === 0">
-          <td colspan="4">
-            {{ t('agents.mcp.empty') }}
-          </td>
-        </tr>
-      </tbody>
-    </table>
+      <table class="table">
+        <thead>
+          <tr>
+            <th scope="col">
+              {{ t('agents.mcp.colSource') }}
+            </th>
+            <th scope="col">
+              {{ t('agents.mcp.colReference') }}
+            </th>
+            <th scope="col">
+              {{ t('agents.mcp.colTools') }}
+            </th>
+            <th scope="col">
+              {{ t('agents.mcp.colActions') }}
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr
+            v-for="b in bindingsQuery.data.value ?? []"
+            :key="b.id"
+          >
+            <td>{{ b.source }}</td>
+            <td class="agent-mcp__ref">
+              {{ b.reference }}
+            </td>
+            <td>
+              {{ b.allowed_tools.length ? b.allowed_tools.join(', ') : '—' }}
+              <span
+                v-if="testResults[b.id]"
+                :class="testResults[b.id]!.ok ? 'agent-mcp__ok' : 'agent-mcp__error'"
+                :title="testResults[b.id]!.error ?? testResults[b.id]!.tool_names.join(', ')"
+              >
+                {{ testResults[b.id]!.ok
+                  ? t('agents.mcp.testOk', { count: testResults[b.id]!.tool_names.length, ms: testResults[b.id]!.duration_ms })
+                  : t('agents.mcp.testBad') }}
+              </span>
+            </td>
+            <td>
+              <button
+                class="btn"
+                type="button"
+                :disabled="isTesting(b.id)"
+                @click="runTest(b.id)"
+              >
+                {{ t('agents.mcp.test') }}
+              </button>
+              <button
+                class="btn btn-danger"
+                type="button"
+                @click="confirmDelete(b)"
+              >
+                {{ t('agents.mcp.delete') }}
+              </button>
+            </td>
+          </tr>
+          <tr v-if="(bindingsQuery.data.value ?? []).length === 0">
+            <td colspan="4">
+              {{ t('agents.mcp.empty') }}
+            </td>
+          </tr>
+        </tbody>
+      </table>
     </div>
   </section>
 </template>

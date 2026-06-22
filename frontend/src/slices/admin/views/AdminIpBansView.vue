@@ -29,34 +29,42 @@
       v-if="query.data.value"
       class="overflow-x-auto"
     >
-    <table class="table">
-      <thead>
-        <tr>
-          <th scope="col">{{ $t('admin.ipBans.cidr') }}</th>
-          <th scope="col">{{ $t('admin.ipBans.reason') }}</th>
-          <th scope="col">{{ $t('admin.users.created') }}</th>
-          <th scope="col">{{ $t('admin.users.actions') }}</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr
-          v-for="ban in query.data.value"
-          :key="ban.id"
-        >
-          <td><code>{{ ban.cidr }}</code></td>
-          <td>{{ ban.reason }}</td>
-          <td>{{ new Date(ban.created_at).toLocaleDateString() }}</td>
-          <td>
-            <button
-              class="btn btn-danger btn-sm"
-              @click="actions.deleteIpBan.mutate(ban.id)"
-            >
-              {{ $t('admin.ipBans.remove') }}
-            </button>
-          </td>
-        </tr>
-      </tbody>
-    </table>
+      <table class="table">
+        <thead>
+          <tr>
+            <th scope="col">
+              {{ $t('admin.ipBans.cidr') }}
+            </th>
+            <th scope="col">
+              {{ $t('admin.ipBans.reason') }}
+            </th>
+            <th scope="col">
+              {{ $t('admin.users.created') }}
+            </th>
+            <th scope="col">
+              {{ $t('admin.users.actions') }}
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr
+            v-for="ban in query.data.value"
+            :key="ban.id"
+          >
+            <td><code>{{ ban.cidr }}</code></td>
+            <td>{{ ban.reason }}</td>
+            <td>{{ new Date(ban.created_at).toLocaleDateString() }}</td>
+            <td>
+              <button
+                class="btn btn-danger btn-sm"
+                @click="actions.deleteIpBan.mutate(ban.id)"
+              >
+                {{ $t('admin.ipBans.remove') }}
+              </button>
+            </td>
+          </tr>
+        </tbody>
+      </table>
     </div>
   </section>
 </template>

@@ -5,54 +5,66 @@
       v-if="query.data.value"
       class="overflow-x-auto"
     >
-    <table class="table">
-      <thead>
-        <tr>
-          <th scope="col">{{ $t('admin.rateLimits.key') }}</th>
-          <th scope="col">{{ $t('admin.rateLimits.window') }}</th>
-          <th scope="col">{{ $t('admin.rateLimits.maxCount') }}</th>
-          <th scope="col">{{ $t('admin.rateLimits.scope') }}</th>
-          <th scope="col">{{ $t('admin.rateLimits.updated') }}</th>
-          <th scope="col">{{ $t('admin.users.actions') }}</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr
-          v-for="policy in query.data.value"
-          :key="policy.key"
-        >
-          <td><code>{{ policy.key }}</code></td>
-          <td>
-            <input
-              v-model.number="edits[policy.key].window_sec"
-              type="number"
-              min="1"
-              class="admin-rate-limits__input"
-              :aria-label="$t('admin.rateLimits.window')"
-            >
-          </td>
-          <td>
-            <input
-              v-model.number="edits[policy.key].max_count"
-              type="number"
-              min="1"
-              class="admin-rate-limits__input"
-              :aria-label="$t('admin.rateLimits.maxCount')"
-            >
-          </td>
-          <td>{{ policy.scope }}</td>
-          <td>{{ new Date(policy.updated_at).toLocaleString() }}</td>
-          <td>
-            <button
-              class="btn btn-primary btn-sm"
-              @click="onPatch(policy.key)"
-            >
-              {{ $t('admin.rateLimits.save') }}
-            </button>
-          </td>
-        </tr>
-      </tbody>
-    </table>
+      <table class="table">
+        <thead>
+          <tr>
+            <th scope="col">
+              {{ $t('admin.rateLimits.key') }}
+            </th>
+            <th scope="col">
+              {{ $t('admin.rateLimits.window') }}
+            </th>
+            <th scope="col">
+              {{ $t('admin.rateLimits.maxCount') }}
+            </th>
+            <th scope="col">
+              {{ $t('admin.rateLimits.scope') }}
+            </th>
+            <th scope="col">
+              {{ $t('admin.rateLimits.updated') }}
+            </th>
+            <th scope="col">
+              {{ $t('admin.users.actions') }}
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr
+            v-for="policy in query.data.value"
+            :key="policy.key"
+          >
+            <td><code>{{ policy.key }}</code></td>
+            <td>
+              <input
+                v-model.number="edits[policy.key].window_sec"
+                type="number"
+                min="1"
+                class="admin-rate-limits__input"
+                :aria-label="$t('admin.rateLimits.window')"
+              >
+            </td>
+            <td>
+              <input
+                v-model.number="edits[policy.key].max_count"
+                type="number"
+                min="1"
+                class="admin-rate-limits__input"
+                :aria-label="$t('admin.rateLimits.maxCount')"
+              >
+            </td>
+            <td>{{ policy.scope }}</td>
+            <td>{{ new Date(policy.updated_at).toLocaleString() }}</td>
+            <td>
+              <button
+                class="btn btn-primary btn-sm"
+                @click="onPatch(policy.key)"
+              >
+                {{ $t('admin.rateLimits.save') }}
+              </button>
+            </td>
+          </tr>
+        </tbody>
+      </table>
     </div>
   </section>
 </template>

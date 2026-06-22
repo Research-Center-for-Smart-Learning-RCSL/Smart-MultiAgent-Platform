@@ -219,74 +219,74 @@ function refresh(): void {
       v-if="showForm"
       class="max-w-[480px] mb-6"
     >
-    <form
-      @submit.prevent="onSubmit"
-    >
-      <p class="graphrag-list__hint">
-        {{ t('agents.graphragList.builderHint') }}
-      </p>
-
-      <SFormField
-        :label="t('agents.graphragForm.agent')"
-        name="agent_id"
-        :error="errors.agent_id"
-        required
+      <form
+        @submit.prevent="onSubmit"
       >
-        <select
-          id="agent_id"
-          v-model="agentId"
+        <p class="graphrag-list__hint">
+          {{ t('agents.graphragList.builderHint') }}
+        </p>
+
+        <SFormField
+          :label="t('agents.graphragForm.agent')"
+          name="agent_id"
+          :error="errors.agent_id"
+          required
         >
-          <option
-            value=""
-            disabled
+          <select
+            id="agent_id"
+            v-model="agentId"
           >
-            {{ t('agents.graphragForm.agentPlaceholder') }}
-          </option>
-          <option
-            v-for="a in availableAgents"
-            :key="a.id"
-            :value="a.id"
-          >
-            {{ a.name }}
-          </option>
-        </select>
-      </SFormField>
+            <option
+              value=""
+              disabled
+            >
+              {{ t('agents.graphragForm.agentPlaceholder') }}
+            </option>
+            <option
+              v-for="a in availableAgents"
+              :key="a.id"
+              :value="a.id"
+            >
+              {{ a.name }}
+            </option>
+          </select>
+        </SFormField>
 
-      <SFormField
-        :label="t('agents.graphragForm.builderKeyGroup')"
-        name="builder_key_group_id"
-        :error="errors.builder_key_group_id"
-        required
-      >
-        <select
-          id="builder_key_group_id"
-          v-model="builderKeyGroupId"
-          :disabled="!agentId"
+        <SFormField
+          :label="t('agents.graphragForm.builderKeyGroup')"
+          name="builder_key_group_id"
+          :error="errors.builder_key_group_id"
+          required
         >
-          <option
-            value=""
-            disabled
+          <select
+            id="builder_key_group_id"
+            v-model="builderKeyGroupId"
+            :disabled="!agentId"
           >
-            {{ t('agents.graphragForm.builderKeyGroupPlaceholder') }}
-          </option>
-          <option
-            v-for="g in builderKeyGroups"
-            :key="g.id"
-            :value="g.id"
-          >
-            {{ g.name }}
-          </option>
-        </select>
-      </SFormField>
+            <option
+              value=""
+              disabled
+            >
+              {{ t('agents.graphragForm.builderKeyGroupPlaceholder') }}
+            </option>
+            <option
+              v-for="g in builderKeyGroups"
+              :key="g.id"
+              :value="g.id"
+            >
+              {{ g.name }}
+            </option>
+          </select>
+        </SFormField>
 
-      <button
-        type="submit"
-        class="btn btn-primary"
-        :disabled="createMutation.isPending.value"
-      >
-        {{ t('agents.graphragForm.submit') }}
-      </button>
-    </form>
+        <button
+          type="submit"
+          class="btn btn-primary"
+          :disabled="createMutation.isPending.value"
+        >
+          {{ t('agents.graphragForm.submit') }}
+        </button>
+      </form>
     </SCard>
 
     <p v-if="configsQuery.isLoading.value">
@@ -296,64 +296,74 @@ function refresh(): void {
       v-else
       class="overflow-x-auto"
     >
-    <table class="table">
-      <thead>
-        <tr>
-          <th scope="col">{{ t('agents.graphragList.colAgent') }}</th>
-          <th scope="col">{{ t('agents.graphragList.colBuilder') }}</th>
-          <th scope="col">{{ t('agents.graphragList.colBinding') }}</th>
-          <th scope="col">{{ t('agents.graphragList.colState') }}</th>
-          <th scope="col">{{ t('agents.graphragList.colActions') }}</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr
-          v-for="c in configsQuery.data.value ?? []"
-          :key="c.id"
-        >
-          <td>{{ agentById.get(c.agent_id)?.name ?? c.agent_id }}</td>
-          <td>{{ keyGroupName(c.builder_key_group_id) }}</td>
-          <td>
-            <span v-if="isBound(c)">{{ t('agents.graphragList.bound') }}</span>
-            <span
-              v-else
-              class="graphrag-list__error"
-              :title="t('agents.graphragList.unboundHint')"
-            >{{ t('agents.graphragList.unbound') }}</span>
-          </td>
-          <td>
-            {{ effectiveState(c) }}
-            <span
-              v-if="c.last_build_error"
-              class="graphrag-list__error"
-              :title="c.last_build_error"
-            >{{ t('agents.graphragList.errorFlag') }}</span>
-          </td>
-          <td>
-            <button
-              class="btn"
-              type="button"
-              :disabled="isBuilding(c)"
-              @click="startBuild(c.id)"
-            >
-              {{ t('agents.graphragList.build') }}
-            </button>
-            <button
-              class="btn btn-danger"
-              type="button"
-              @click="confirmDelete(c)"
-            >
-              {{ t('agents.graphragList.delete') }}
-            </button>
-          </td>
-        </tr>
-        <tr v-if="(configsQuery.data.value ?? []).length === 0">
-          <td colspan="5">
-            {{ t('agents.graphragList.empty') }}
-          </td>
-        </tr>
-      </tbody>
-    </table>
+      <table class="table">
+        <thead>
+          <tr>
+            <th scope="col">
+              {{ t('agents.graphragList.colAgent') }}
+            </th>
+            <th scope="col">
+              {{ t('agents.graphragList.colBuilder') }}
+            </th>
+            <th scope="col">
+              {{ t('agents.graphragList.colBinding') }}
+            </th>
+            <th scope="col">
+              {{ t('agents.graphragList.colState') }}
+            </th>
+            <th scope="col">
+              {{ t('agents.graphragList.colActions') }}
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr
+            v-for="c in configsQuery.data.value ?? []"
+            :key="c.id"
+          >
+            <td>{{ agentById.get(c.agent_id)?.name ?? c.agent_id }}</td>
+            <td>{{ keyGroupName(c.builder_key_group_id) }}</td>
+            <td>
+              <span v-if="isBound(c)">{{ t('agents.graphragList.bound') }}</span>
+              <span
+                v-else
+                class="graphrag-list__error"
+                :title="t('agents.graphragList.unboundHint')"
+              >{{ t('agents.graphragList.unbound') }}</span>
+            </td>
+            <td>
+              {{ effectiveState(c) }}
+              <span
+                v-if="c.last_build_error"
+                class="graphrag-list__error"
+                :title="c.last_build_error"
+              >{{ t('agents.graphragList.errorFlag') }}</span>
+            </td>
+            <td>
+              <button
+                class="btn"
+                type="button"
+                :disabled="isBuilding(c)"
+                @click="startBuild(c.id)"
+              >
+                {{ t('agents.graphragList.build') }}
+              </button>
+              <button
+                class="btn btn-danger"
+                type="button"
+                @click="confirmDelete(c)"
+              >
+                {{ t('agents.graphragList.delete') }}
+              </button>
+            </td>
+          </tr>
+          <tr v-if="(configsQuery.data.value ?? []).length === 0">
+            <td colspan="5">
+              {{ t('agents.graphragList.empty') }}
+            </td>
+          </tr>
+        </tbody>
+      </table>
     </div>
   </section>
 </template>

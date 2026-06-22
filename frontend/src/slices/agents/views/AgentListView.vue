@@ -135,55 +135,55 @@ function goToAgent(agentId: string) {
       v-if="showForm"
       class="max-w-[480px] mb-6"
     >
-    <form
-      @submit.prevent="onSubmit"
-    >
-      <p
-        v-if="!keyGroupsQuery.isLoading.value && !hasKeyGroups"
-        class="agent-list__warning"
-        role="alert"
+      <form
+        @submit.prevent="onSubmit"
       >
-        {{ t('agents.form.noKeyGroups') }}
-      </p>
+        <p
+          v-if="!keyGroupsQuery.isLoading.value && !hasKeyGroups"
+          class="agent-list__warning"
+          role="alert"
+        >
+          {{ t('agents.form.noKeyGroups') }}
+        </p>
 
-      <AgentFormFields
-        v-model:name="name"
-        v-model:model-hint="modelHint"
-        v-model:model-id="modelId"
-        v-model:key-group-id="keyGroupId"
-        v-model:system-prompt="systemPrompt"
-        v-model:prompt-strategy="promptStrategy"
-        v-model:context-mode="contextMode"
-        v-model:rag-config-id="ragConfigId"
-        v-model:a2a-enabled="a2aEnabled"
-        :errors="errors"
-        :key-groups="keyGroupsQuery.data.value ?? []"
-        :rag-configs="ragConfigsQuery.data.value ?? []"
-      >
-        <template #after-rag>
-          <RouterLink
-            class="agent-list__rag-manage"
-            :to="{ name: 'agents.ragConfigs', params: { projectId } }"
-          >
-            {{ t('agents.form.manageRagConfigs') }}
-          </RouterLink>
-          <RouterLink
-            class="agent-list__rag-manage"
-            :to="{ name: 'agents.graphragConfigs', params: { projectId } }"
-          >
-            {{ t('agents.form.manageGraphragConfigs') }}
-          </RouterLink>
-        </template>
-      </AgentFormFields>
+        <AgentFormFields
+          v-model:name="name"
+          v-model:model-hint="modelHint"
+          v-model:model-id="modelId"
+          v-model:key-group-id="keyGroupId"
+          v-model:system-prompt="systemPrompt"
+          v-model:prompt-strategy="promptStrategy"
+          v-model:context-mode="contextMode"
+          v-model:rag-config-id="ragConfigId"
+          v-model:a2a-enabled="a2aEnabled"
+          :errors="errors"
+          :key-groups="keyGroupsQuery.data.value ?? []"
+          :rag-configs="ragConfigsQuery.data.value ?? []"
+        >
+          <template #after-rag>
+            <RouterLink
+              class="agent-list__rag-manage"
+              :to="{ name: 'agents.ragConfigs', params: { projectId } }"
+            >
+              {{ t('agents.form.manageRagConfigs') }}
+            </RouterLink>
+            <RouterLink
+              class="agent-list__rag-manage"
+              :to="{ name: 'agents.graphragConfigs', params: { projectId } }"
+            >
+              {{ t('agents.form.manageGraphragConfigs') }}
+            </RouterLink>
+          </template>
+        </AgentFormFields>
 
-      <button
-        type="submit"
-        class="btn btn-primary"
-        :disabled="createMutation.isPending.value || !hasKeyGroups"
-      >
-        {{ t('agents.form.submit') }}
-      </button>
-    </form>
+        <button
+          type="submit"
+          class="btn btn-primary"
+          :disabled="createMutation.isPending.value || !hasKeyGroups"
+        >
+          {{ t('agents.form.submit') }}
+        </button>
+      </form>
     </SCard>
 
     <div

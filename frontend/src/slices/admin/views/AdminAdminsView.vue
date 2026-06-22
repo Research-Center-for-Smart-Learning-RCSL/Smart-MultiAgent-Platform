@@ -30,34 +30,42 @@
       v-if="query.data.value"
       class="overflow-x-auto"
     >
-    <table class="table">
-      <thead>
-        <tr>
-          <th scope="col">{{ $t('admin.admins.userId') }}</th>
-          <th scope="col">{{ $t('admin.admins.promotedBy') }}</th>
-          <th scope="col">{{ $t('admin.admins.promotedAt') }}</th>
-          <th scope="col">{{ $t('admin.users.actions') }}</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr
-          v-for="admin in query.data.value"
-          :key="admin.user_id"
-        >
-          <td>{{ admin.user_id }}</td>
-          <td>{{ admin.promoted_by_user_id ?? '-' }}</td>
-          <td>{{ new Date(admin.promoted_at).toLocaleDateString() }}</td>
-          <td>
-            <button
-              class="btn btn-danger btn-sm"
-              @click="onDemote(admin.user_id)"
-            >
-              {{ $t('admin.admins.demote') }}
-            </button>
-          </td>
-        </tr>
-      </tbody>
-    </table>
+      <table class="table">
+        <thead>
+          <tr>
+            <th scope="col">
+              {{ $t('admin.admins.userId') }}
+            </th>
+            <th scope="col">
+              {{ $t('admin.admins.promotedBy') }}
+            </th>
+            <th scope="col">
+              {{ $t('admin.admins.promotedAt') }}
+            </th>
+            <th scope="col">
+              {{ $t('admin.users.actions') }}
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr
+            v-for="admin in query.data.value"
+            :key="admin.user_id"
+          >
+            <td>{{ admin.user_id }}</td>
+            <td>{{ admin.promoted_by_user_id ?? '-' }}</td>
+            <td>{{ new Date(admin.promoted_at).toLocaleDateString() }}</td>
+            <td>
+              <button
+                class="btn btn-danger btn-sm"
+                @click="onDemote(admin.user_id)"
+              >
+                {{ $t('admin.admins.demote') }}
+              </button>
+            </td>
+          </tr>
+        </tbody>
+      </table>
     </div>
   </section>
 </template>
