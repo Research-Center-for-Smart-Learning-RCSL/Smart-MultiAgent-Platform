@@ -5,51 +5,61 @@
       v-if="query.data.value"
       class="overflow-x-auto"
     >
-    <table class="table">
-      <thead>
-        <tr>
-          <th scope="col">{{ $t('admin.orgs.name') }}</th>
-          <th scope="col">{{ $t('admin.orgs.creator') }}</th>
-          <th scope="col">{{ $t('admin.users.created') }}</th>
-          <th scope="col">{{ $t('admin.orgs.deleted') }}</th>
-          <th scope="col">{{ $t('admin.users.actions') }}</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr
-          v-for="org in query.data.value"
-          :key="org.id"
-        >
-          <td>{{ org.name }}</td>
-          <td>{{ org.creator_user_id }}</td>
-          <td>{{ new Date(org.created_at).toLocaleDateString() }}</td>
-          <td>{{ org.deleted_at ? new Date(org.deleted_at).toLocaleDateString() : '-' }}</td>
-          <td>
-            <button
-              v-if="!org.deleted_at"
-              class="btn btn-danger btn-sm"
-              @click="onForceDelete(org.id, org.name)"
-            >
-              {{ $t('admin.orgs.forceDelete') }}
-            </button>
-            <button
-              v-if="org.deleted_at"
-              class="btn btn-sm"
-              @click="actions.restoreResource.mutate({ type: 'org', id: org.id })"
-            >
-              {{ $t('admin.orgs.restore') }}
-            </button>
-            <button
-              v-if="!org.deleted_at"
-              class="btn btn-sm"
-              @click="onTransfer(org.id)"
-            >
-              {{ $t('admin.orgs.forceTransfer') }}
-            </button>
-          </td>
-        </tr>
-      </tbody>
-    </table>
+      <table class="table">
+        <thead>
+          <tr>
+            <th scope="col">
+              {{ $t('admin.orgs.name') }}
+            </th>
+            <th scope="col">
+              {{ $t('admin.orgs.creator') }}
+            </th>
+            <th scope="col">
+              {{ $t('admin.users.created') }}
+            </th>
+            <th scope="col">
+              {{ $t('admin.orgs.deleted') }}
+            </th>
+            <th scope="col">
+              {{ $t('admin.users.actions') }}
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr
+            v-for="org in query.data.value"
+            :key="org.id"
+          >
+            <td>{{ org.name }}</td>
+            <td>{{ org.creator_user_id }}</td>
+            <td>{{ new Date(org.created_at).toLocaleDateString() }}</td>
+            <td>{{ org.deleted_at ? new Date(org.deleted_at).toLocaleDateString() : '-' }}</td>
+            <td>
+              <button
+                v-if="!org.deleted_at"
+                class="btn btn-danger btn-sm"
+                @click="onForceDelete(org.id, org.name)"
+              >
+                {{ $t('admin.orgs.forceDelete') }}
+              </button>
+              <button
+                v-if="org.deleted_at"
+                class="btn btn-sm"
+                @click="actions.restoreResource.mutate({ type: 'org', id: org.id })"
+              >
+                {{ $t('admin.orgs.restore') }}
+              </button>
+              <button
+                v-if="!org.deleted_at"
+                class="btn btn-sm"
+                @click="onTransfer(org.id)"
+              >
+                {{ $t('admin.orgs.forceTransfer') }}
+              </button>
+            </td>
+          </tr>
+        </tbody>
+      </table>
     </div>
   </section>
 </template>

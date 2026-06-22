@@ -208,168 +208,40 @@ function keyLabel(k: ApiKey): string {
       v-if="showForm"
       class="max-w-[480px] mb-6"
     >
-    <form
-      @submit.prevent="onSubmit"
-    >
-      <SFormField
-        :label="t('agents.ragForm.name')"
-        name="name"
-        :error="errors.name"
-        required
+      <form
+        @submit.prevent="onSubmit"
       >
-        <input
-          id="name"
-          v-model="name"
-          :aria-invalid="!!errors.name"
-        >
-      </SFormField>
-
-      <SFormField
-        :label="t('agents.ragForm.embedKey')"
-        name="embed_key_id"
-        :error="errors.embed_key_id"
-        required
-      >
-        <select
-          id="embed_key_id"
-          v-model="embedKeyId"
-        >
-          <option
-            value=""
-            disabled
-          >
-            {{ t('agents.ragForm.embedKeyPlaceholder') }}
-          </option>
-          <option
-            v-for="k in embedKeys"
-            :key="k.id"
-            :value="k.id"
-          >
-            {{ keyLabel(k) }}
-          </option>
-        </select>
-      </SFormField>
-
-      <SFormField
-        :label="t('agents.ragForm.embedModel')"
-        name="embed_model"
-        :error="errors.embed_model"
-        required
-      >
-        <input
-          id="embed_model"
-          v-model="embedModel"
-          :placeholder="t('agents.ragForm.embedModelHint')"
-          :aria-invalid="!!errors.embed_model"
-        >
-      </SFormField>
-
-      <SFormField
-        :label="t('agents.ragForm.chunkStrategy')"
-        name="chunk_strategy"
-        :error="errors.chunk_strategy"
-      >
-        <select
-          id="chunk_strategy"
-          v-model="chunkStrategy"
-        >
-          <option value="fixed">
-            {{ t('agents.ragForm.chunkFixed') }}
-          </option>
-          <option value="semantic">
-            {{ t('agents.ragForm.chunkSemantic') }}
-          </option>
-        </select>
-      </SFormField>
-
-      <template v-if="values.chunk_strategy === 'fixed'">
         <SFormField
-          :label="t('agents.ragForm.chunkSize')"
-          name="chunk_size_tokens"
+          :label="t('agents.ragForm.name')"
+          name="name"
+          :error="errors.name"
+          required
         >
           <input
-            id="chunk_size_tokens"
-            v-model.number="chunkSizeTokens"
-            type="number"
-            min="1"
+            id="name"
+            v-model="name"
+            :aria-invalid="!!errors.name"
           >
         </SFormField>
+
         <SFormField
-          :label="t('agents.ragForm.chunkOverlap')"
-          name="chunk_overlap_tokens"
-        >
-          <input
-            id="chunk_overlap_tokens"
-            v-model.number="chunkOverlapTokens"
-            type="number"
-            min="0"
-          >
-        </SFormField>
-      </template>
-      <SFormField
-        v-else
-        :label="t('agents.ragForm.similarityThreshold')"
-        name="similarity_threshold"
-      >
-        <input
-          id="similarity_threshold"
-          v-model.number="similarityThreshold"
-          type="number"
-          min="0"
-          max="1"
-          step="0.05"
-        >
-      </SFormField>
-
-      <SFormField
-        :label="t('agents.ragForm.topK')"
-        name="top_k"
-        :error="errors.top_k"
-      >
-        <input
-          id="top_k"
-          v-model.number="topK"
-          type="number"
-          min="1"
-          max="100"
-        >
-      </SFormField>
-
-      <SFormField
-        :label="t('agents.ragForm.rerankEnabled')"
-        name="rerank_enabled"
-        :error="errors.rerank_enabled"
-      >
-        <input
-          id="rerank_enabled"
-          v-model="rerankEnabled"
-          type="checkbox"
-          :disabled="!hasRerankKeys"
-        >
-        <span
-          v-if="!hasRerankKeys"
-          class="rag-list__hint"
-        >{{ t('agents.ragForm.noRerankKeys') }}</span>
-      </SFormField>
-
-      <template v-if="rerankEnabled">
-        <SFormField
-          :label="t('agents.ragForm.rerankKey')"
-          name="rerank_key_id"
-          :error="errors.rerank_key_id"
+          :label="t('agents.ragForm.embedKey')"
+          name="embed_key_id"
+          :error="errors.embed_key_id"
+          required
         >
           <select
-            id="rerank_key_id"
-            v-model="rerankKeyId"
+            id="embed_key_id"
+            v-model="embedKeyId"
           >
             <option
-              :value="null"
+              value=""
               disabled
             >
-              {{ t('agents.ragForm.rerankKeyPlaceholder') }}
+              {{ t('agents.ragForm.embedKeyPlaceholder') }}
             </option>
             <option
-              v-for="k in rerankKeys"
+              v-for="k in embedKeys"
               :key="k.id"
               :value="k.id"
             >
@@ -377,26 +249,154 @@ function keyLabel(k: ApiKey): string {
             </option>
           </select>
         </SFormField>
+
         <SFormField
-          :label="t('agents.ragForm.rerankModel')"
-          name="rerank_model"
-          :error="errors.rerank_model"
+          :label="t('agents.ragForm.embedModel')"
+          name="embed_model"
+          :error="errors.embed_model"
+          required
         >
           <input
-            id="rerank_model"
-            v-model="rerankModel"
+            id="embed_model"
+            v-model="embedModel"
+            :placeholder="t('agents.ragForm.embedModelHint')"
+            :aria-invalid="!!errors.embed_model"
           >
         </SFormField>
-      </template>
 
-      <button
-        type="submit"
-        class="btn btn-primary"
-        :disabled="createMutation.isPending.value || !hasEmbedKeys || rerankIncomplete"
-      >
-        {{ t('agents.ragForm.submit') }}
-      </button>
-    </form>
+        <SFormField
+          :label="t('agents.ragForm.chunkStrategy')"
+          name="chunk_strategy"
+          :error="errors.chunk_strategy"
+        >
+          <select
+            id="chunk_strategy"
+            v-model="chunkStrategy"
+          >
+            <option value="fixed">
+              {{ t('agents.ragForm.chunkFixed') }}
+            </option>
+            <option value="semantic">
+              {{ t('agents.ragForm.chunkSemantic') }}
+            </option>
+          </select>
+        </SFormField>
+
+        <template v-if="values.chunk_strategy === 'fixed'">
+          <SFormField
+            :label="t('agents.ragForm.chunkSize')"
+            name="chunk_size_tokens"
+          >
+            <input
+              id="chunk_size_tokens"
+              v-model.number="chunkSizeTokens"
+              type="number"
+              min="1"
+            >
+          </SFormField>
+          <SFormField
+            :label="t('agents.ragForm.chunkOverlap')"
+            name="chunk_overlap_tokens"
+          >
+            <input
+              id="chunk_overlap_tokens"
+              v-model.number="chunkOverlapTokens"
+              type="number"
+              min="0"
+            >
+          </SFormField>
+        </template>
+        <SFormField
+          v-else
+          :label="t('agents.ragForm.similarityThreshold')"
+          name="similarity_threshold"
+        >
+          <input
+            id="similarity_threshold"
+            v-model.number="similarityThreshold"
+            type="number"
+            min="0"
+            max="1"
+            step="0.05"
+          >
+        </SFormField>
+
+        <SFormField
+          :label="t('agents.ragForm.topK')"
+          name="top_k"
+          :error="errors.top_k"
+        >
+          <input
+            id="top_k"
+            v-model.number="topK"
+            type="number"
+            min="1"
+            max="100"
+          >
+        </SFormField>
+
+        <SFormField
+          :label="t('agents.ragForm.rerankEnabled')"
+          name="rerank_enabled"
+          :error="errors.rerank_enabled"
+        >
+          <input
+            id="rerank_enabled"
+            v-model="rerankEnabled"
+            type="checkbox"
+            :disabled="!hasRerankKeys"
+          >
+          <span
+            v-if="!hasRerankKeys"
+            class="rag-list__hint"
+          >{{ t('agents.ragForm.noRerankKeys') }}</span>
+        </SFormField>
+
+        <template v-if="rerankEnabled">
+          <SFormField
+            :label="t('agents.ragForm.rerankKey')"
+            name="rerank_key_id"
+            :error="errors.rerank_key_id"
+          >
+            <select
+              id="rerank_key_id"
+              v-model="rerankKeyId"
+            >
+              <option
+                :value="null"
+                disabled
+              >
+                {{ t('agents.ragForm.rerankKeyPlaceholder') }}
+              </option>
+              <option
+                v-for="k in rerankKeys"
+                :key="k.id"
+                :value="k.id"
+              >
+                {{ keyLabel(k) }}
+              </option>
+            </select>
+          </SFormField>
+          <SFormField
+            :label="t('agents.ragForm.rerankModel')"
+            name="rerank_model"
+            :error="errors.rerank_model"
+          >
+            <input
+              id="rerank_model"
+              v-model="rerankModel"
+            >
+          </SFormField>
+        </template>
+
+        <button
+          type="submit"
+          class="btn btn-primary"
+          :disabled="createMutation.isPending.value || !hasEmbedKeys || rerankIncomplete"
+        >
+          {{ t('agents.ragForm.submit') }}
+        </button>
+      </form>
     </SCard>
 
     <p v-if="configsQuery.isLoading.value">
@@ -406,44 +406,50 @@ function keyLabel(k: ApiKey): string {
       v-else
       class="overflow-x-auto"
     >
-    <table class="table">
-      <thead>
-        <tr>
-          <th scope="col">{{ t('agents.ragList.colName') }}</th>
-          <th scope="col">{{ t('agents.ragList.colEmbed') }}</th>
-          <th scope="col">{{ t('agents.ragList.colActions') }}</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr
-          v-for="c in configsQuery.data.value ?? []"
-          :key="c.id"
-        >
-          <td>
-            <RouterLink
-              :to="{ name: 'agents.ragConfig', params: { projectId, configId: c.id } }"
-            >
-              {{ c.name }}
-            </RouterLink>
-          </td>
-          <td>{{ c.embed_provider }} / {{ c.embed_model }}</td>
-          <td>
-            <button
-              class="btn btn-danger"
-              type="button"
-              @click="confirmDelete(c)"
-            >
-              {{ t('agents.ragList.delete') }}
-            </button>
-          </td>
-        </tr>
-        <tr v-if="(configsQuery.data.value ?? []).length === 0">
-          <td colspan="3">
-            {{ t('agents.ragList.empty') }}
-          </td>
-        </tr>
-      </tbody>
-    </table>
+      <table class="table">
+        <thead>
+          <tr>
+            <th scope="col">
+              {{ t('agents.ragList.colName') }}
+            </th>
+            <th scope="col">
+              {{ t('agents.ragList.colEmbed') }}
+            </th>
+            <th scope="col">
+              {{ t('agents.ragList.colActions') }}
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr
+            v-for="c in configsQuery.data.value ?? []"
+            :key="c.id"
+          >
+            <td>
+              <RouterLink
+                :to="{ name: 'agents.ragConfig', params: { projectId, configId: c.id } }"
+              >
+                {{ c.name }}
+              </RouterLink>
+            </td>
+            <td>{{ c.embed_provider }} / {{ c.embed_model }}</td>
+            <td>
+              <button
+                class="btn btn-danger"
+                type="button"
+                @click="confirmDelete(c)"
+              >
+                {{ t('agents.ragList.delete') }}
+              </button>
+            </td>
+          </tr>
+          <tr v-if="(configsQuery.data.value ?? []).length === 0">
+            <td colspan="3">
+              {{ t('agents.ragList.empty') }}
+            </td>
+          </tr>
+        </tbody>
+      </table>
     </div>
   </section>
 </template>

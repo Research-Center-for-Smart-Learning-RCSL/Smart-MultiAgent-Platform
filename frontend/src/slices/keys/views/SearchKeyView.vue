@@ -86,53 +86,64 @@ watch(projectId, reload)
     </form>
 
     <div class="overflow-x-auto">
-    <table class="table" data-testid="search-list">
-      <thead>
-        <tr>
-          <th scope="col">{{ $t('keys.search.provider') }}</th>
-          <th scope="col">{{ $t('keys.search.preview') }}</th>
-          <th scope="col">{{ $t('keys.search.status') }}</th>
-          <th scope="col">{{ $t('keys.search.active') }}</th>
-          <th />
-        </tr>
-      </thead>
-      <tbody>
-        <tr
-          v-for="k in keys"
-          :key="k.id"
-        >
-          <td>{{ k.provider }}</td>
-          <td><code>{{ k.masked_preview }}</code></td>
-          <td :class="`status-${k.test_status}`">
-            {{ k.test_status }}
-          </td>
-          <td>
-            <input
-              type="radio"
-              :checked="k.is_active"
-              name="active"
-              :data-testid="`activate-${k.id}`"
-              :aria-label="$t('keys.search.active')"
-              @change="activate(k.id)"
-            >
-          </td>
-          <td>
-            <button
-              class="btn btn-sm"
-              @click="retest(k.id)"
-            >
-              {{ $t('keys.search.retest') }}
-            </button>
-            <button
-              class="btn btn-danger btn-sm"
-              @click="remove(k.id)"
-            >
-              {{ $t('keys.search.delete') }}
-            </button>
-          </td>
-        </tr>
-      </tbody>
-    </table>
+      <table
+        class="table"
+        data-testid="search-list"
+      >
+        <thead>
+          <tr>
+            <th scope="col">
+              {{ $t('keys.search.provider') }}
+            </th>
+            <th scope="col">
+              {{ $t('keys.search.preview') }}
+            </th>
+            <th scope="col">
+              {{ $t('keys.search.status') }}
+            </th>
+            <th scope="col">
+              {{ $t('keys.search.active') }}
+            </th>
+            <th />
+          </tr>
+        </thead>
+        <tbody>
+          <tr
+            v-for="k in keys"
+            :key="k.id"
+          >
+            <td>{{ k.provider }}</td>
+            <td><code>{{ k.masked_preview }}</code></td>
+            <td :class="`status-${k.test_status}`">
+              {{ k.test_status }}
+            </td>
+            <td>
+              <input
+                type="radio"
+                :checked="k.is_active"
+                name="active"
+                :data-testid="`activate-${k.id}`"
+                :aria-label="$t('keys.search.active')"
+                @change="activate(k.id)"
+              >
+            </td>
+            <td>
+              <button
+                class="btn btn-sm"
+                @click="retest(k.id)"
+              >
+                {{ $t('keys.search.retest') }}
+              </button>
+              <button
+                class="btn btn-danger btn-sm"
+                @click="remove(k.id)"
+              >
+                {{ $t('keys.search.delete') }}
+              </button>
+            </td>
+          </tr>
+        </tbody>
+      </table>
     </div>
   </main>
 </template>

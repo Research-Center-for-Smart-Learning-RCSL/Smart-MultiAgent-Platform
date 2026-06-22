@@ -11,7 +11,7 @@
 
       <h2
         v-if="workflow"
-        class="font-semibold truncate max-w-[300px]"
+        class="font-semibold truncate max-w-[180px] sm:max-w-[300px]"
       >
         {{ workflow.name }}
       </h2>

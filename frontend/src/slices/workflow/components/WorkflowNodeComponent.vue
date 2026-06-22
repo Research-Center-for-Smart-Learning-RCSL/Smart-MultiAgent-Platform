@@ -153,7 +153,7 @@ function handleLeftPercent(index: number, total: number): string {
 }
 
 .wf-node:hover {
-  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.3);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-accent) 30%, transparent);
 }
 
 /* Node-type left-border colours */

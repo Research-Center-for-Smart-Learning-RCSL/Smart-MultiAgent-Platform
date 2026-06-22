@@ -134,40 +134,48 @@ function humanSize(bytes: number): string {
       v-else
       class="overflow-x-auto"
     >
-    <table class="table">
-      <thead>
-        <tr>
-          <th scope="col">{{ t('agents.rag.colName') }}</th>
-          <th scope="col">{{ t('agents.rag.colSize') }}</th>
-          <th scope="col">{{ t('agents.rag.colStatus') }}</th>
-          <th scope="col">{{ t('agents.rag.colActions') }}</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr
-          v-for="d in docsQuery.data.value ?? []"
-          :key="d.id"
-        >
-          <td>{{ d.filename }}</td>
-          <td>{{ humanSize(d.size_bytes) }}</td>
-          <td>{{ t(`agents.rag.statusLabel.${d.status}`) }}</td>
-          <td>
-            <button
-              class="btn btn-danger"
-              type="button"
-              @click="confirmDelete(d)"
-            >
-              {{ t('agents.rag.delete') }}
-            </button>
-          </td>
-        </tr>
-        <tr v-if="(docsQuery.data.value ?? []).length === 0">
-          <td colspan="4">
-            {{ t('agents.rag.empty') }}
-          </td>
-        </tr>
-      </tbody>
-    </table>
+      <table class="table">
+        <thead>
+          <tr>
+            <th scope="col">
+              {{ t('agents.rag.colName') }}
+            </th>
+            <th scope="col">
+              {{ t('agents.rag.colSize') }}
+            </th>
+            <th scope="col">
+              {{ t('agents.rag.colStatus') }}
+            </th>
+            <th scope="col">
+              {{ t('agents.rag.colActions') }}
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr
+            v-for="d in docsQuery.data.value ?? []"
+            :key="d.id"
+          >
+            <td>{{ d.filename }}</td>
+            <td>{{ humanSize(d.size_bytes) }}</td>
+            <td>{{ t(`agents.rag.statusLabel.${d.status}`) }}</td>
+            <td>
+              <button
+                class="btn btn-danger"
+                type="button"
+                @click="confirmDelete(d)"
+              >
+                {{ t('agents.rag.delete') }}
+              </button>
+            </td>
+          </tr>
+          <tr v-if="(docsQuery.data.value ?? []).length === 0">
+            <td colspan="4">
+              {{ t('agents.rag.empty') }}
+            </td>
+          </tr>
+        </tbody>
+      </table>
     </div>
   </section>
 </template>

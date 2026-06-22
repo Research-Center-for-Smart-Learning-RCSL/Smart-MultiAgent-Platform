@@ -67,7 +67,7 @@
             </span>
             <span
               v-if="step.error"
-              class="text-danger truncate max-w-[300px]"
+              class="text-danger truncate max-w-[180px] sm:max-w-[300px]"
             >
               {{ step.error }}
             </span>

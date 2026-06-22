@@ -59,33 +59,47 @@
       v-if="allItems.length"
       class="overflow-x-auto"
     >
-    <table class="table">
-      <thead>
-        <tr>
-          <th scope="col">{{ $t('admin.audit.id') }}</th>
-          <th scope="col">{{ $t('admin.audit.action') }}</th>
-          <th scope="col">{{ $t('admin.audit.actorUserId') }}</th>
-          <th scope="col">{{ $t('admin.audit.resourceType') }}</th>
-          <th scope="col">{{ $t('admin.audit.resourceId') }}</th>
-          <th scope="col">{{ $t('admin.audit.ipPrefix') }}</th>
-          <th scope="col">{{ $t('admin.users.created') }}</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr
-          v-for="entry in allItems"
-          :key="entry.id"
-        >
-          <td>{{ entry.id }}</td>
-          <td>{{ entry.action }}</td>
-          <td>{{ entry.actor_user_id ?? '-' }}</td>
-          <td>{{ entry.resource_type ?? '-' }}</td>
-          <td>{{ entry.resource_id ?? '-' }}</td>
-          <td>{{ entry.actor_ip ?? '-' }}</td>
-          <td>{{ new Date(entry.created_at).toLocaleString() }}</td>
-        </tr>
-      </tbody>
-    </table>
+      <table class="table">
+        <thead>
+          <tr>
+            <th scope="col">
+              {{ $t('admin.audit.id') }}
+            </th>
+            <th scope="col">
+              {{ $t('admin.audit.action') }}
+            </th>
+            <th scope="col">
+              {{ $t('admin.audit.actorUserId') }}
+            </th>
+            <th scope="col">
+              {{ $t('admin.audit.resourceType') }}
+            </th>
+            <th scope="col">
+              {{ $t('admin.audit.resourceId') }}
+            </th>
+            <th scope="col">
+              {{ $t('admin.audit.ipPrefix') }}
+            </th>
+            <th scope="col">
+              {{ $t('admin.users.created') }}
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr
+            v-for="entry in allItems"
+            :key="entry.id"
+          >
+            <td>{{ entry.id }}</td>
+            <td>{{ entry.action }}</td>
+            <td>{{ entry.actor_user_id ?? '-' }}</td>
+            <td>{{ entry.resource_type ?? '-' }}</td>
+            <td>{{ entry.resource_id ?? '-' }}</td>
+            <td>{{ entry.actor_ip ?? '-' }}</td>
+            <td>{{ new Date(entry.created_at).toLocaleString() }}</td>
+          </tr>
+        </tbody>
+      </table>
     </div>
 
     <div

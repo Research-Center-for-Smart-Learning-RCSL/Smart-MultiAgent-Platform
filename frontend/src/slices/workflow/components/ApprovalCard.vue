@@ -75,7 +75,11 @@ function voteForAgent(agentId: string) {
 </script>
 
 <template>
-  <SCard variant="surface" padding="compact" class="my-2">
+  <SCard
+    variant="surface"
+    padding="compact"
+    class="my-2"
+  >
     <div class="flex items-center justify-between mb-2">
       <span class="font-semibold text-sm">
         {{ t('workflow.approval.gate') }}
