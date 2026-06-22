@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { SPageHeader } from '@shared/ui'
-import { onMounted } from 'vue'
+import { onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useConfirmDialog } from '@shared/composables'
 import { useMyKeys } from '../composables/useMyKeys'
@@ -11,6 +11,7 @@ import type { ApiKeyProvider } from '../api/keys'
 const { t } = useI18n()
 const { confirm } = useConfirmDialog()
 const { keys, loading, error, reload, upload, retest, remove } = useMyKeys()
+const removingId = ref<string | null>(null)
 
 async function onUpload(p: { provider: ApiKeyProvider; name: string; secret: string }) {
   await upload(p.provider, p.name, p.secret)
@@ -25,7 +26,8 @@ async function onRemove(id: string): Promise<void> {
     variant: 'warning',
   })
   if (!ok) return
-  await remove(id)
+  removingId.value = id
+  try { await remove(id) } finally { removingId.value = null }
 }
 
 onMounted(reload)
@@ -99,6 +101,7 @@ onMounted(reload)
               <button
                 class="btn btn-danger btn-sm"
                 data-testid="delete"
+                :disabled="removingId === k.id"
                 @click="onRemove(k.id)"
               >
                 {{ $t('keys.list.delete') }}

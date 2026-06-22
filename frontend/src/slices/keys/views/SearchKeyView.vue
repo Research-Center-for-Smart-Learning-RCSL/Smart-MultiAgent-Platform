@@ -14,7 +14,7 @@ const projectId = computed(() => route.params.projectId as string)
 const { keys, error, reload, upload, retest, activate, remove } = useSearchKeys(
   () => projectId.value,
 )
-const busy = ref(false)
+const removingId = ref<string | null>(null)
 
 const provider = ref<SearchProvider>('brave')
 const secret = ref('')
@@ -38,8 +38,8 @@ async function onRemove(id: string): Promise<void> {
     variant: 'error',
   })
   if (!ok) return
-  busy.value = true
-  try { await remove(id) } finally { busy.value = false }
+  removingId.value = id
+  try { await remove(id) } finally { removingId.value = null }
 }
 
 onMounted(reload)
@@ -153,7 +153,7 @@ watch(projectId, reload)
               </button>
               <button
                 class="btn btn-danger btn-sm"
-                :disabled="busy"
+                :disabled="removingId === k.id"
                 @click="onRemove(k.id)"
               >
                 {{ $t('keys.search.delete') }}

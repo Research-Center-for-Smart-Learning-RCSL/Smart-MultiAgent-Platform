@@ -11,7 +11,7 @@ const route = useRoute()
 const router = useRouter()
 const { confirm } = useConfirmDialog()
 const keyId = computed(() => route.params.id as string)
-const { keys, reload, retest, remove } = useMyKeys()
+const { keys, error, reload, retest, remove } = useMyKeys()
 const busy = ref(false)
 
 const current = computed(() => keys.value.find((k) => k.id === keyId.value))
@@ -27,7 +27,9 @@ async function onRemove(id: string): Promise<void> {
   busy.value = true
   try {
     await remove(id)
-    router.back()
+    if (!error.value) {
+      await router.replace({ name: 'keys.list' })
+    }
   } finally {
     busy.value = false
   }
@@ -39,10 +41,17 @@ onMounted(reload)
 <template>
   <main class="key-detail-view">
     <h1>{{ $t('keys.detail.title') }}</h1>
-    <p v-if="!current">
+    <p
+      v-if="error"
+      class="error"
+      role="alert"
+    >
+      {{ error }}
+    </p>
+    <p v-if="!current && !busy">
       {{ $t('keys.detail.notFound') }}
     </p>
-    <section v-else>
+    <section v-if="current">
       <dl>
         <dt>{{ $t('keys.detail.provider') }}</dt>
         <dd><CapabilityChip :provider="current.provider" /></dd>

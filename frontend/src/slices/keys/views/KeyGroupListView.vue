@@ -12,7 +12,7 @@ const { confirm } = useConfirmDialog()
 const projectId = computed(() => route.params.projectId as string)
 const { groups, error, reload, create, remove } = useKeyGroups(() => projectId.value)
 const newName = ref('')
-const busy = ref(false)
+const removingId = ref<string | null>(null)
 
 async function onCreate() {
   const n = newName.value.trim()
@@ -29,8 +29,8 @@ async function onRemove(id: string): Promise<void> {
     variant: 'error',
   })
   if (!ok) return
-  busy.value = true
-  try { await remove(id) } finally { busy.value = false }
+  removingId.value = id
+  try { await remove(id) } finally { removingId.value = null }
 }
 
 onMounted(reload)
@@ -73,7 +73,7 @@ watch(projectId, reload)
         </router-link>
         <button
           class="btn btn-danger btn-sm"
-          :disabled="busy"
+          :disabled="removingId === g.id"
           @click="onRemove(g.id)"
         >
           {{ $t('keys.groups.delete') }}

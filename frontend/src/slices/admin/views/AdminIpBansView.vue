@@ -58,7 +58,7 @@
               <button
                 class="btn btn-danger btn-sm"
                 :disabled="actions.deleteIpBan.isPending.value"
-                @click="actions.deleteIpBan.mutate(ban.id)"
+                @click="onDeleteBan(ban.id)"
               >
                 {{ $t('admin.ipBans.remove') }}
               </button>
@@ -73,11 +73,15 @@
 <script setup lang="ts">
 import { SPageHeader } from '@shared/ui'
 import { ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useQuery } from '@tanstack/vue-query'
+import { useConfirmDialog } from '@shared/composables'
 import { adminApi } from '../api/admin'
 import { adminKeys } from '../queries'
 import { useAdminActions } from '../composables/useAdminActions'
 
+const { t } = useI18n()
+const { confirm } = useConfirmDialog()
 const cidr = ref('')
 const reason = ref('')
 
@@ -87,6 +91,17 @@ const query = useQuery({
 })
 
 const actions = useAdminActions()
+
+async function onDeleteBan(id: string): Promise<void> {
+  const ok = await confirm({
+    title: t('admin.ipBans.removeConfirmTitle'),
+    message: t('admin.ipBans.removeConfirm'),
+    confirmLabel: t('admin.ipBans.remove'),
+    variant: 'error',
+  })
+  if (!ok) return
+  actions.deleteIpBan.mutate(id)
+}
 
 async function onCreate(): Promise<void> {
   try {

@@ -1,7 +1,8 @@
 {
   "admin": {
     "home": {
-      "title": "Admin Console"
+      "title": "Admin Console",
+      "metricsError": "Failed to load metrics."
     },
     "common": {
       "yes": "Yes",
@@ -83,7 +84,9 @@
       "cidrPlaceholder": "192.168.1.0/24",
       "reason": "Reason",
       "add": "Add Ban",
-      "remove": "Remove"
+      "remove": "Remove",
+      "removeConfirmTitle": "Remove IP Ban",
+      "removeConfirm": "Remove this IP ban? The blocked range will regain access immediately."
     },
     "orgs": {
       "title": "Organisations",

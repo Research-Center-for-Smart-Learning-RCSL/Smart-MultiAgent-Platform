@@ -1,7 +1,8 @@
 {
   "admin": {
     "home": {
-      "title": "管理控制台"
+      "title": "管理控制台",
+      "metricsError": "載入指標失敗。"
     },
     "common": {
       "yes": "是",
@@ -83,7 +84,9 @@
       "cidrPlaceholder": "192.168.1.0/24",
       "reason": "原因",
       "add": "新增封鎖",
-      "remove": "移除"
+      "remove": "移除",
+      "removeConfirmTitle": "移除 IP 封鎖",
+      "removeConfirm": "移除此 IP 封鎖？被封鎖的範圍將立即恢復存取權限。"
     },
     "orgs": {
       "title": "組織",

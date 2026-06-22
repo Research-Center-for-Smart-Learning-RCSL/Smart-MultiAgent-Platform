@@ -27,6 +27,9 @@
   --color-neutral-tint: #f3f4f6;
   --color-neutral-on: #4b5563;
 
+  --shadow-dialog: 0 8px 30px rgba(0, 0, 0, 0.2);
+  --overlay-backdrop: rgba(0, 0, 0, 0.45);
+
   --radius-md: 6px;
   --radius-full: 9999px;
 
@@ -95,6 +98,8 @@
     --color-danger-on: #fca5a5;
     --color-neutral-tint: #374151;
     --color-neutral-on: #d1d5db;
+    --shadow-dialog: 0 8px 30px rgba(0, 0, 0, 0.5);
+    --overlay-backdrop: rgba(0, 0, 0, 0.65);
   }
 
   /* Restore Preflight-stripped form element chrome */
