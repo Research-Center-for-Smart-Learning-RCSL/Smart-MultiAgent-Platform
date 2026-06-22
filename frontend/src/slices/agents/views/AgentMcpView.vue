@@ -5,7 +5,7 @@ import { useI18n } from 'vue-i18n'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/vue-query'
 import { useForm } from 'vee-validate'
 import { toTypedSchema } from '@vee-validate/zod'
-import { SCard, SFormField } from '@shared/ui'
+import { SCard, SFormField, SPageHeader } from '@shared/ui'
 import { useConfirmDialog, useServerErrors, useToast } from '@shared/composables'
 import { agentsApi, type McpBinding, type McpTestResult } from '../api'
 import { agentKeys } from '../queries'
@@ -127,18 +127,15 @@ async function confirmDelete(b: McpBinding): Promise<void> {
 </script>
 
 <template>
-  <section class="agent-mcp p-6">
-    <div class="agent-mcp__header">
-      <h1 class="text-xl font-semibold mb-1">
-        {{ t('agents.mcp.title') }}
-      </h1>
+  <section class="agent-mcp px-4 py-4 sm:p-6">
+    <SPageHeader :title="t('agents.mcp.title')">
       <button
         class="btn btn-primary"
         @click="showForm = !showForm"
       >
         {{ showForm ? t('agents.mcp.cancel') : t('agents.mcp.add') }}
       </button>
-    </div>
+    </SPageHeader>
     <p class="agent-mcp__subtitle mb-4">
       {{ t('agents.mcp.subtitle', { name: agentQuery.data.value?.name ?? '' }) }}
       <RouterLink
@@ -239,16 +236,17 @@ async function confirmDelete(b: McpBinding): Promise<void> {
     <p v-if="bindingsQuery.isLoading.value">
       {{ t('agents.mcp.loading') }}
     </p>
-    <table
+    <div
       v-else
-      class="table"
+      class="overflow-x-auto"
     >
+    <table class="table">
       <thead>
         <tr>
-          <th>{{ t('agents.mcp.colSource') }}</th>
-          <th>{{ t('agents.mcp.colReference') }}</th>
-          <th>{{ t('agents.mcp.colTools') }}</th>
-          <th>{{ t('agents.mcp.colActions') }}</th>
+          <th scope="col">{{ t('agents.mcp.colSource') }}</th>
+          <th scope="col">{{ t('agents.mcp.colReference') }}</th>
+          <th scope="col">{{ t('agents.mcp.colTools') }}</th>
+          <th scope="col">{{ t('agents.mcp.colActions') }}</th>
         </tr>
       </thead>
       <tbody>
@@ -297,15 +295,11 @@ async function confirmDelete(b: McpBinding): Promise<void> {
         </tr>
       </tbody>
     </table>
+    </div>
   </section>
 </template>
 
 <style scoped>
-.agent-mcp__header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
 .agent-mcp__subtitle {
   color: var(--color-muted);
 }

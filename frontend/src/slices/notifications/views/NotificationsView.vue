@@ -88,7 +88,7 @@ function fmt(iso: string): string {
 </script>
 
 <template>
-  <section class="notifications p-6">
+  <section class="notifications px-4 py-4 sm:p-6">
     <SPageHeader :title="t('notifications.title')">
       <button
         class="btn"

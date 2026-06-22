@@ -1,6 +1,6 @@
 <template>
   <section class="admin-metrics">
-    <h1>{{ $t('admin.metrics.title') }}</h1>
+    <SPageHeader :title="$t('admin.metrics.title')" />
     <div
       v-if="query.data.value"
       class="admin-metrics__grid"
@@ -26,6 +26,7 @@
 </template>
 
 <script setup lang="ts">
+import { SPageHeader } from '@shared/ui'
 import { useQuery } from '@tanstack/vue-query'
 import { adminApi } from '../api/admin'
 import { adminKeys } from '../queries'

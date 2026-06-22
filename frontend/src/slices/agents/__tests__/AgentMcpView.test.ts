@@ -78,8 +78,7 @@ describe('AgentMcpView', () => {
       initialRoute: '/agents/agent_1/mcp',
     })
     await settle(wrapper)
-    expect(wrapper.find('.agent-mcp__table').exists()).toBe(true)
-    // The add button is always present.
-    expect(wrapper.find('.agent-mcp__header .btn-primary').exists()).toBe(true)
+    expect(wrapper.find('.table').exists()).toBe(true)
+    expect(wrapper.find('header .btn-primary').exists()).toBe(true)
   })
 })

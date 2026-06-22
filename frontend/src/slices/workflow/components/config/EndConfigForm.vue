@@ -49,7 +49,7 @@ function onReturnVariablesInput(event: Event) {
       <select
         id="end-status"
         :value="local.status ?? 'success'"
-        class="w-full text-sm border rounded px-2 py-1 bg-bg"
+        class="wf-input"
         @change="update('status', ($event.target as HTMLSelectElement).value)"
       >
         <option
@@ -57,7 +57,7 @@ function onReturnVariablesInput(event: Event) {
           :key="s"
           :value="s"
         >
-          {{ s }}
+          {{ t('workflow.config.endStatus_' + s) }}
         </option>
       </select>
     </SFormField>
@@ -72,7 +72,7 @@ function onReturnVariablesInput(event: Event) {
         id="end-return-vars"
         :value="returnVariablesDisplay"
         type="text"
-        class="w-full text-sm border rounded px-2 py-1 bg-bg"
+        class="wf-input"
         @input="onReturnVariablesInput"
       >
     </SFormField>
@@ -86,7 +86,7 @@ function onReturnVariablesInput(event: Event) {
       <textarea
         id="end-failure-reason"
         :value="(local.failure_reason as string) ?? ''"
-        class="w-full text-sm border rounded px-2 py-1 bg-bg min-h-[60px] font-mono"
+        class="wf-input-code"
         @input="update('failure_reason', ($event.target as HTMLTextAreaElement).value)"
       />
     </SFormField>

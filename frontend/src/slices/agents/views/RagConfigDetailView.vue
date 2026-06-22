@@ -3,6 +3,7 @@ import { ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/vue-query'
+import { SPageHeader } from '@shared/ui'
 import { useConfirmDialog, useToast } from '@shared/composables'
 import { tusUpload } from '@shared/transport'
 import { agentsApi, RAG_MULTIPART_MAX, type RagDocument } from '../api'
@@ -100,10 +101,8 @@ function humanSize(bytes: number): string {
 </script>
 
 <template>
-  <section class="rag-config p-6">
-    <h1 class="text-xl font-semibold mb-2">
-      {{ configQuery.data.value?.name ?? t('agents.rag.title') }}
-    </h1>
+  <section class="rag-config px-4 py-4 sm:p-6">
+    <SPageHeader :title="configQuery.data.value?.name ?? t('agents.rag.title')" />
     <p class="rag-config__subtitle mb-4">
       {{ t('agents.rag.subtitle') }}
     </p>
@@ -131,16 +130,17 @@ function humanSize(bytes: number): string {
     <p v-if="docsQuery.isLoading.value">
       {{ t('agents.rag.loading') }}
     </p>
-    <table
+    <div
       v-else
-      class="table"
+      class="overflow-x-auto"
     >
+    <table class="table">
       <thead>
         <tr>
-          <th>{{ t('agents.rag.colName') }}</th>
-          <th>{{ t('agents.rag.colSize') }}</th>
-          <th>{{ t('agents.rag.colStatus') }}</th>
-          <th>{{ t('agents.rag.colActions') }}</th>
+          <th scope="col">{{ t('agents.rag.colName') }}</th>
+          <th scope="col">{{ t('agents.rag.colSize') }}</th>
+          <th scope="col">{{ t('agents.rag.colStatus') }}</th>
+          <th scope="col">{{ t('agents.rag.colActions') }}</th>
         </tr>
       </thead>
       <tbody>
@@ -168,5 +168,6 @@ function humanSize(bytes: number): string {
         </tr>
       </tbody>
     </table>
+    </div>
   </section>
 </template>

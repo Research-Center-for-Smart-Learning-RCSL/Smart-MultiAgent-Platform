@@ -37,6 +37,8 @@
   --breakpoint-md: 768px;
   --breakpoint-lg: 1024px;
   --breakpoint-xl: 1280px;
+
+  --font-size-2xs: 0.625rem;
 }
 
 /* ─── Base layer ──────────────────────────────────────────────── */
@@ -227,6 +229,17 @@
     gap: 0.75rem;
     margin-top: 1rem;
     font-size: 0.875rem;
+  }
+
+  /* Workflow config form inputs */
+  .wf-input {
+    width: 100%;
+  }
+
+  .wf-input-code {
+    width: 100%;
+    min-height: 60px;
+    font-family: var(--font-mono, monospace);
   }
 
   /* Data tables — use class="table" on <table> */

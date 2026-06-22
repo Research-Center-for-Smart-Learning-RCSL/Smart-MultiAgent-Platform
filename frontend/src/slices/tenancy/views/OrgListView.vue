@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { SPageHeader } from '@shared/ui'
 import { onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useConfirmDialog } from '@shared/composables'
@@ -52,7 +53,7 @@ onMounted(load)
 
 <template>
   <main>
-    <h1>{{ $t('tenancy.orgs.listTitle') }}</h1>
+    <SPageHeader :title="$t('tenancy.orgs.listTitle')" />
     <form @submit.prevent="create">
       <label for="org-name-input">
         {{ $t('tenancy.orgs.createLabel') }}
@@ -69,6 +70,7 @@ onMounted(load)
       </small>
       <button
         type="submit"
+        class="btn btn-primary"
         :disabled="creating || !name.trim()"
       >
         {{ creating ? $t('tenancy.orgs.creating') : $t('tenancy.orgs.create') }}

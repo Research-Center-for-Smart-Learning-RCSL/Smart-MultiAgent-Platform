@@ -1,18 +1,19 @@
 <template>
   <section class="admin-rate-limits">
-    <h1>{{ $t('admin.rateLimits.title') }}</h1>
-    <table
+    <SPageHeader :title="$t('admin.rateLimits.title')" />
+    <div
       v-if="query.data.value"
-      class="table"
+      class="overflow-x-auto"
     >
+    <table class="table">
       <thead>
         <tr>
-          <th>{{ $t('admin.rateLimits.key') }}</th>
-          <th>{{ $t('admin.rateLimits.window') }}</th>
-          <th>{{ $t('admin.rateLimits.maxCount') }}</th>
-          <th>{{ $t('admin.rateLimits.scope') }}</th>
-          <th>{{ $t('admin.rateLimits.updated') }}</th>
-          <th>{{ $t('admin.users.actions') }}</th>
+          <th scope="col">{{ $t('admin.rateLimits.key') }}</th>
+          <th scope="col">{{ $t('admin.rateLimits.window') }}</th>
+          <th scope="col">{{ $t('admin.rateLimits.maxCount') }}</th>
+          <th scope="col">{{ $t('admin.rateLimits.scope') }}</th>
+          <th scope="col">{{ $t('admin.rateLimits.updated') }}</th>
+          <th scope="col">{{ $t('admin.users.actions') }}</th>
         </tr>
       </thead>
       <tbody>
@@ -52,10 +53,12 @@
         </tr>
       </tbody>
     </table>
+    </div>
   </section>
 </template>
 
 <script setup lang="ts">
+import { SPageHeader } from '@shared/ui'
 import { reactive, watch } from 'vue'
 import { useQuery } from '@tanstack/vue-query'
 import { adminApi } from '../api/admin'

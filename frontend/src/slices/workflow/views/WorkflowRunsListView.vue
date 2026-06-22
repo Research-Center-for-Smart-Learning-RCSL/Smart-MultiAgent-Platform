@@ -40,16 +40,16 @@
       <table class="table">
         <thead>
           <tr>
-            <th>
+            <th scope="col">
               {{ $t('workflow.runs.state') }}
             </th>
-            <th>
+            <th scope="col">
               {{ $t('workflow.runs.trigger') }}
             </th>
-            <th>
+            <th scope="col">
               {{ $t('workflow.runs.started') }}
             </th>
-            <th>
+            <th scope="col">
               {{ $t('workflow.runs.ended') }}
             </th>
             <th />
@@ -64,7 +64,7 @@
               <SStatusBadge :status="r.state" />
               <span
                 v-if="r.archived"
-                class="ml-1 text-[10px] text-muted"
+                class="ml-1 text-2xs text-muted"
               >
                 ({{ $t('workflow.runs.archived') }})
               </span>

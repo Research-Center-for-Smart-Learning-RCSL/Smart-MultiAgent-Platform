@@ -1,6 +1,6 @@
 <template>
   <section class="admin-home">
-    <h1>{{ $t('admin.home.title') }}</h1>
+    <SPageHeader :title="$t('admin.home.title')" />
     <nav class="admin-home__nav">
       <router-link :to="{ name: 'admin.users' }">
         {{ $t('admin.nav.users') }}
@@ -49,6 +49,7 @@
 </template>
 
 <script setup lang="ts">
+import { SPageHeader } from '@shared/ui'
 import { useQuery } from '@tanstack/vue-query'
 import { adminApi } from '../api/admin'
 import { adminKeys } from '../queries'

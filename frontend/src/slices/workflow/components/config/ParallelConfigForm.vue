@@ -28,7 +28,7 @@ const { local, update } = useConfigModel(props, emit)
       <textarea
         id="parallel-description"
         :value="(local.description as string) ?? ''"
-        class="w-full text-sm border rounded px-2 py-1 bg-bg min-h-[60px]"
+        class="wf-input min-h-[60px]"
         @input="update('description', ($event.target as HTMLTextAreaElement).value)"
       />
     </SFormField>

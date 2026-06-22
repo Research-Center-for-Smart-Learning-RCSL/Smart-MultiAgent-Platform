@@ -31,7 +31,7 @@ const { local, update } = useConfigModel(props, emit)
       <select
         id="subagent-parent-agent"
         :value="local.parent_agent_id ?? ''"
-        class="w-full text-sm border rounded px-2 py-1 bg-bg"
+        class="wf-input"
         @change="update('parent_agent_id', ($event.target as HTMLSelectElement).value)"
       >
         <option value="">
@@ -55,7 +55,7 @@ const { local, update } = useConfigModel(props, emit)
       <textarea
         id="subagent-task-template"
         :value="(local.task_template as string) ?? ''"
-        class="w-full text-sm border rounded px-2 py-1 bg-bg min-h-[60px] font-mono"
+        class="wf-input-code"
         @input="update('task_template', ($event.target as HTMLTextAreaElement).value)"
       />
     </SFormField>
@@ -71,7 +71,7 @@ const { local, update } = useConfigModel(props, emit)
         type="number"
         min="1"
         max="20"
-        class="w-full text-sm border rounded px-2 py-1 bg-bg"
+        class="wf-input"
         @input="update('max_alive_simultaneously', safeNumber(($event.target as HTMLInputElement).value, 1))"
       >
     </SFormField>
@@ -103,7 +103,7 @@ const { local, update } = useConfigModel(props, emit)
         type="number"
         min="1"
         max="600"
-        class="w-full text-sm border rounded px-2 py-1 bg-bg"
+        class="wf-input"
         @input="update('timeout_seconds', safeNumber(($event.target as HTMLInputElement).value, 1))"
       >
     </SFormField>
@@ -117,7 +117,7 @@ const { local, update } = useConfigModel(props, emit)
         id="subagent-output-var"
         :value="(local.output_variable as string) ?? ''"
         type="text"
-        class="w-full text-sm border rounded px-2 py-1 bg-bg"
+        class="wf-input"
         @input="update('output_variable', ($event.target as HTMLInputElement).value)"
       >
     </SFormField>

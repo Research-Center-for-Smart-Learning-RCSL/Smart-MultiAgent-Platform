@@ -49,7 +49,7 @@ function isApprover(agentId: string): boolean {
       <select
         id="approval-mode"
         :value="local.mode ?? 'single'"
-        class="w-full text-sm border rounded px-2 py-1 bg-bg"
+        class="wf-input"
         @change="update('mode', ($event.target as HTMLSelectElement).value)"
       >
         <option
@@ -57,7 +57,7 @@ function isApprover(agentId: string): boolean {
           :key="m"
           :value="m"
         >
-          {{ m }}
+          {{ t('workflow.config.approvalMode_' + m) }}
         </option>
       </select>
     </SFormField>
@@ -71,7 +71,7 @@ function isApprover(agentId: string): boolean {
       <select
         id="leader-agent-id"
         :value="local.leader_agent_id ?? ''"
-        class="w-full text-sm border rounded px-2 py-1 bg-bg"
+        class="wf-input"
         @change="update('leader_agent_id', ($event.target as HTMLSelectElement).value)"
       >
         <option
@@ -122,7 +122,7 @@ function isApprover(agentId: string): boolean {
         :value="local.timeout_seconds ?? 3600"
         min="1"
         max="86400"
-        class="w-full text-sm border rounded px-2 py-1 bg-bg"
+        class="wf-input"
         @input="update('timeout_seconds', safeNumber(($event.target as HTMLInputElement).value, 1))"
       >
     </SFormField>
@@ -136,7 +136,7 @@ function isApprover(agentId: string): boolean {
       <textarea
         id="question-template"
         :value="(local.question_template as string) ?? ''"
-        class="w-full text-sm border rounded px-2 py-1 bg-bg min-h-[60px] font-mono"
+        class="wf-input-code"
         @input="update('question_template', ($event.target as HTMLTextAreaElement).value)"
       />
     </SFormField>

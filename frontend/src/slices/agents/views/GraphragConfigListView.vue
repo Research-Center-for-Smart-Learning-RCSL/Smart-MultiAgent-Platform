@@ -5,7 +5,7 @@ import { useI18n } from 'vue-i18n'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/vue-query'
 import { useForm } from 'vee-validate'
 import { toTypedSchema } from '@vee-validate/zod'
-import { SCard, SFormField } from '@shared/ui'
+import { SCard, SFormField, SPageHeader } from '@shared/ui'
 import { useConfirmDialog, useServerErrors, usePolling, useToast } from '@shared/composables'
 import { keyGroupsApi, keysKeys } from '@slices/keys'
 import { agentsApi, type GraphragConfig } from '../api'
@@ -175,28 +175,23 @@ function refresh(): void {
 </script>
 
 <template>
-  <section class="graphrag-list p-6">
-    <div class="graphrag-list__header">
-      <h1 class="text-xl font-semibold mb-4">
-        {{ t('agents.graphragList.title') }}
-      </h1>
-      <div>
-        <button
-          class="btn"
-          type="button"
-          @click="refresh"
-        >
-          {{ t('agents.graphragList.refresh') }}
-        </button>
-        <button
-          class="btn btn-primary"
-          :disabled="!canCreate"
-          @click="showForm = !showForm"
-        >
-          {{ showForm ? t('agents.graphragList.cancel') : t('agents.graphragList.create') }}
-        </button>
-      </div>
-    </div>
+  <section class="graphrag-list px-4 py-4 sm:p-6">
+    <SPageHeader :title="t('agents.graphragList.title')">
+      <button
+        class="btn"
+        type="button"
+        @click="refresh"
+      >
+        {{ t('agents.graphragList.refresh') }}
+      </button>
+      <button
+        class="btn btn-primary"
+        :disabled="!canCreate"
+        @click="showForm = !showForm"
+      >
+        {{ showForm ? t('agents.graphragList.cancel') : t('agents.graphragList.create') }}
+      </button>
+    </SPageHeader>
 
     <p
       v-if="!agentsQuery.isLoading.value && (agentsQuery.data.value?.length ?? 0) === 0"
@@ -297,17 +292,18 @@ function refresh(): void {
     <p v-if="configsQuery.isLoading.value">
       {{ t('agents.graphragList.loading') }}
     </p>
-    <table
+    <div
       v-else
-      class="table"
+      class="overflow-x-auto"
     >
+    <table class="table">
       <thead>
         <tr>
-          <th>{{ t('agents.graphragList.colAgent') }}</th>
-          <th>{{ t('agents.graphragList.colBuilder') }}</th>
-          <th>{{ t('agents.graphragList.colBinding') }}</th>
-          <th>{{ t('agents.graphragList.colState') }}</th>
-          <th>{{ t('agents.graphragList.colActions') }}</th>
+          <th scope="col">{{ t('agents.graphragList.colAgent') }}</th>
+          <th scope="col">{{ t('agents.graphragList.colBuilder') }}</th>
+          <th scope="col">{{ t('agents.graphragList.colBinding') }}</th>
+          <th scope="col">{{ t('agents.graphragList.colState') }}</th>
+          <th scope="col">{{ t('agents.graphragList.colActions') }}</th>
         </tr>
       </thead>
       <tbody>
@@ -358,15 +354,11 @@ function refresh(): void {
         </tr>
       </tbody>
     </table>
+    </div>
   </section>
 </template>
 
 <style scoped>
-.graphrag-list__header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
 .graphrag-list__hint {
   color: var(--color-muted);
   font-size: 0.875rem;

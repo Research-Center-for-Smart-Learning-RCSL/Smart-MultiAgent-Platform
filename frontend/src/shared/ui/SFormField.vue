@@ -24,7 +24,11 @@ defineProps<{
       >*</span>
     </label>
     <div class="form-field__control">
-      <slot :id="name" />
+      <slot
+        :id="name"
+        :aria-describedby="error ? `${name}-error` : help ? `${name}-help` : undefined"
+        :aria-invalid="!!error || undefined"
+      />
     </div>
     <p
       v-if="error"

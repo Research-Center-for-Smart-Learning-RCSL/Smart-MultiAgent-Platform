@@ -31,7 +31,7 @@ const { local, update } = useConfigModel(props, emit)
       <select
         id="join-mode"
         :value="local.mode ?? 'all'"
-        class="w-full text-sm border rounded px-2 py-1 bg-bg"
+        class="wf-input"
         @change="update('mode', ($event.target as HTMLSelectElement).value)"
       >
         <option
@@ -39,7 +39,7 @@ const { local, update } = useConfigModel(props, emit)
           :key="m"
           :value="m"
         >
-          {{ m }}
+          {{ t('workflow.config.joinMode_' + m) }}
         </option>
       </select>
     </SFormField>
@@ -56,7 +56,7 @@ const { local, update } = useConfigModel(props, emit)
         type="number"
         min="1"
         max="50"
-        class="w-full text-sm border rounded px-2 py-1 bg-bg"
+        class="wf-input"
         @input="update('count', safeNumber(($event.target as HTMLInputElement).value, 1))"
       >
     </SFormField>
@@ -72,7 +72,7 @@ const { local, update } = useConfigModel(props, emit)
         type="number"
         min="1"
         max="86400"
-        class="w-full text-sm border rounded px-2 py-1 bg-bg"
+        class="wf-input"
         @input="update('timeout_seconds', safeNumber(($event.target as HTMLInputElement).value, 1))"
       >
     </SFormField>

@@ -94,7 +94,7 @@ function removeBranch(index: number) {
           <textarea
             :id="`condition-when-${idx}`"
             :value="branch.when"
-            class="w-full text-sm border rounded px-2 py-1 bg-bg min-h-[60px] font-mono"
+            class="wf-input-code"
             :placeholder="t('workflow.config.when')"
             @input="updateBranchField(idx, 'when', ($event.target as HTMLTextAreaElement).value)"
           />
@@ -109,7 +109,7 @@ function removeBranch(index: number) {
             :id="`condition-port-${idx}`"
             :value="branch.port"
             type="text"
-            class="w-full text-sm border rounded px-2 py-1 bg-bg"
+            class="wf-input"
             :placeholder="t('workflow.config.port')"
             @input="updateBranchField(idx, 'port', ($event.target as HTMLInputElement).value)"
           >
@@ -134,7 +134,7 @@ function removeBranch(index: number) {
         id="condition-default-port"
         :value="local.default_port ?? 'default'"
         type="text"
-        class="w-full text-sm border rounded px-2 py-1 bg-bg"
+        class="wf-input"
         @input="update('default_port', ($event.target as HTMLInputElement).value)"
       >
     </SFormField>

@@ -5,7 +5,7 @@ import { useI18n } from 'vue-i18n'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/vue-query'
 import { useForm } from 'vee-validate'
 import { toTypedSchema } from '@vee-validate/zod'
-import { SCard, SFormField } from '@shared/ui'
+import { SCard, SFormField, SPageHeader } from '@shared/ui'
 import { useConfirmDialog, useServerErrors, useToast } from '@shared/composables'
 import { projectKeysApi, CAPABILITIES, keysKeys, type ApiKey } from '@slices/keys'
 import { agentsApi, type RagConfig } from '../api'
@@ -185,11 +185,8 @@ function keyLabel(k: ApiKey): string {
 </script>
 
 <template>
-  <section class="rag-list p-6">
-    <div class="rag-list__header">
-      <h1 class="text-xl font-semibold mb-4">
-        {{ t('agents.ragList.title') }}
-      </h1>
+  <section class="rag-list px-4 py-4 sm:p-6">
+    <SPageHeader :title="t('agents.ragList.title')">
       <button
         class="btn btn-primary"
         :disabled="!hasEmbedKeys"
@@ -197,7 +194,7 @@ function keyLabel(k: ApiKey): string {
       >
         {{ showForm ? t('agents.ragList.cancel') : t('agents.ragList.create') }}
       </button>
-    </div>
+    </SPageHeader>
 
     <p
       v-if="!projectKeysQuery.isLoading.value && !hasEmbedKeys"
@@ -405,15 +402,16 @@ function keyLabel(k: ApiKey): string {
     <p v-if="configsQuery.isLoading.value">
       {{ t('agents.ragList.loading') }}
     </p>
-    <table
+    <div
       v-else
-      class="table"
+      class="overflow-x-auto"
     >
+    <table class="table">
       <thead>
         <tr>
-          <th>{{ t('agents.ragList.colName') }}</th>
-          <th>{{ t('agents.ragList.colEmbed') }}</th>
-          <th>{{ t('agents.ragList.colActions') }}</th>
+          <th scope="col">{{ t('agents.ragList.colName') }}</th>
+          <th scope="col">{{ t('agents.ragList.colEmbed') }}</th>
+          <th scope="col">{{ t('agents.ragList.colActions') }}</th>
         </tr>
       </thead>
       <tbody>
@@ -446,15 +444,11 @@ function keyLabel(k: ApiKey): string {
         </tr>
       </tbody>
     </table>
+    </div>
   </section>
 </template>
 
 <style scoped>
-.rag-list__header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
 .rag-list__warning {
   color: var(--color-danger);
   margin-bottom: 0.75rem;

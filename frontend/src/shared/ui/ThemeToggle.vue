@@ -1,7 +1,9 @@
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
 import { useTheme, type Theme } from '@shared/composables/useTheme'
 import { SunIcon, MoonIcon, ComputerDesktopIcon } from '@heroicons/vue/24/outline'
 
+const { t } = useI18n()
 const { theme, setTheme } = useTheme()
 
 const icons = { light: SunIcon, dark: MoonIcon, system: ComputerDesktopIcon } as const
@@ -17,7 +19,7 @@ function cycle(): void {
   <button
     type="button"
     class="theme-toggle"
-    :aria-label="'Theme: ' + theme"
+    :aria-label="t('app.themeLabel', { theme })"
     @click="cycle"
   >
     <component

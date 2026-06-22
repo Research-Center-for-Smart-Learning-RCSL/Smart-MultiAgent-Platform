@@ -43,13 +43,13 @@
       <table class="table">
         <thead>
           <tr>
-            <th>
+            <th scope="col">
               {{ $t('workflow.list.name') }}
             </th>
-            <th>
+            <th scope="col">
               {{ $t('workflow.list.version') }}
             </th>
-            <th>
+            <th scope="col">
               {{ $t('workflow.list.created') }}
             </th>
             <th />

@@ -5,7 +5,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/vue-query'
 import { useForm } from 'vee-validate'
 import { toTypedSchema } from '@vee-validate/zod'
 import { z } from 'zod'
-import { SCard, SFormField } from '@shared/ui'
+import { SCard, SFormField, SPageHeader } from '@shared/ui'
 import { useConfirmDialog, useServerErrors, useToast } from '@shared/composables'
 import { agentsApi, type EgressAllowlistEntry } from '../api'
 import { agentKeys } from '../queries'
@@ -70,10 +70,8 @@ async function confirmRemove(entry: EgressAllowlistEntry): Promise<void> {
 </script>
 
 <template>
-  <section class="egress p-6">
-    <h1 class="text-xl font-semibold mb-1">
-      {{ t('agents.egress.title') }}
-    </h1>
+  <section class="egress px-4 py-4 sm:p-6">
+    <SPageHeader :title="t('agents.egress.title')" />
     <p class="egress__subtitle mb-4">
       {{ t('agents.egress.subtitle') }}
     </p>
@@ -118,15 +116,16 @@ async function confirmRemove(entry: EgressAllowlistEntry): Promise<void> {
     <p v-if="allowlistQuery.isLoading.value">
       {{ t('agents.egress.loading') }}
     </p>
-    <table
+    <div
       v-else
-      class="table"
+      class="overflow-x-auto"
     >
+    <table class="table">
       <thead>
         <tr>
-          <th>{{ t('agents.egress.colHost') }}</th>
-          <th>{{ t('agents.egress.colNote') }}</th>
-          <th>{{ t('agents.egress.colActions') }}</th>
+          <th scope="col">{{ t('agents.egress.colHost') }}</th>
+          <th scope="col">{{ t('agents.egress.colNote') }}</th>
+          <th scope="col">{{ t('agents.egress.colActions') }}</th>
         </tr>
       </thead>
       <tbody>
@@ -155,6 +154,7 @@ async function confirmRemove(entry: EgressAllowlistEntry): Promise<void> {
         </tr>
       </tbody>
     </table>
+    </div>
   </section>
 </template>
 

@@ -18,24 +18,6 @@ const isSelected = computed(() => store.selectedNodeId === props.id)
 
 const stepState = computed(() => store.liveSteps[props.id]?.state)
 
-/* ---------- left border colour per node type ---------- */
-const borderColorClass = computed(() => {
-  const map: Record<string, string> = {
-    trigger: 'border-l-purple-400',
-    agent_invocation: 'border-l-blue-400',
-    approval_gate: 'border-l-orange-400',
-    condition: 'border-l-amber-400',
-    instruct: 'border-l-cyan-400',
-    subagent_spawn: 'border-l-emerald-400',
-    wait_for_event: 'border-l-rose-400',
-    parallel: 'border-l-teal-400',
-    join: 'border-l-teal-400',
-    set_variable: 'border-l-indigo-400',
-    end: 'border-l-gray-500',
-  }
-  return map[props.data.nodeType] ?? 'border-l-gray-300'
-})
-
 /* ---------- live-step state background ---------- */
 const stateBgClass = computed(() => {
   switch (stepState.value) {
@@ -116,16 +98,16 @@ function handleLeftPercent(index: number, total: number): string {
   <div
     class="wf-node rounded border-l-4 px-3 py-2 text-xs min-w-[140px]"
     :class="[
-      borderColorClass,
       stateBgClass,
       isSelected ? 'ring-2 ring-accent' : '',
     ]"
+    :data-node-type="data.nodeType"
   >
     <div class="font-semibold leading-tight truncate max-w-[180px]">
       {{ data.label || id }}
     </div>
     <div
-      class="text-[11px] mt-0.5 text-muted"
+      class="text-2xs mt-0.5 text-muted"
     >
       {{ data.nodeType }}
     </div>
@@ -173,6 +155,19 @@ function handleLeftPercent(index: number, total: number): string {
 .wf-node:hover {
   box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.3);
 }
+
+/* Node-type left-border colours */
+.wf-node[data-node-type="trigger"] { border-left-color: #c084fc; }
+.wf-node[data-node-type="agent_invocation"] { border-left-color: #60a5fa; }
+.wf-node[data-node-type="approval_gate"] { border-left-color: #fb923c; }
+.wf-node[data-node-type="condition"] { border-left-color: #fbbf24; }
+.wf-node[data-node-type="instruct"] { border-left-color: #22d3ee; }
+.wf-node[data-node-type="subagent_spawn"] { border-left-color: #34d399; }
+.wf-node[data-node-type="wait_for_event"] { border-left-color: #fb7185; }
+.wf-node[data-node-type="parallel"] { border-left-color: #2dd4bf; }
+.wf-node[data-node-type="join"] { border-left-color: #2dd4bf; }
+.wf-node[data-node-type="set_variable"] { border-left-color: #818cf8; }
+.wf-node[data-node-type="end"] { border-left-color: #6b7280; }
 
 /* Live-step state backgrounds — semi-transparent so left border shows through */
 .wf-node--running {

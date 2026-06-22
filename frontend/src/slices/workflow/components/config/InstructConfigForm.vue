@@ -31,7 +31,7 @@ const { local, update } = useConfigModel(props, emit)
       <select
         id="instruct-issuer-agent"
         :value="local.issuer_agent_id ?? ''"
-        class="w-full text-sm border rounded px-2 py-1 bg-bg"
+        class="wf-input"
         @change="update('issuer_agent_id', ($event.target as HTMLSelectElement).value)"
       >
         <option value="">
@@ -55,7 +55,7 @@ const { local, update } = useConfigModel(props, emit)
       <select
         id="instruct-target-agent"
         :value="local.target_agent_id ?? ''"
-        class="w-full text-sm border rounded px-2 py-1 bg-bg"
+        class="wf-input"
         @change="update('target_agent_id', ($event.target as HTMLSelectElement).value)"
       >
         <option value="">
@@ -79,7 +79,7 @@ const { local, update } = useConfigModel(props, emit)
       <textarea
         id="instruct-template"
         :value="(local.instruction_template as string) ?? ''"
-        class="w-full text-sm border rounded px-2 py-1 bg-bg min-h-[60px] font-mono"
+        class="wf-input-code"
         @input="update('instruction_template', ($event.target as HTMLTextAreaElement).value)"
       />
     </SFormField>
@@ -112,7 +112,7 @@ const { local, update } = useConfigModel(props, emit)
         type="number"
         min="1"
         max="600"
-        class="w-full text-sm border rounded px-2 py-1 bg-bg"
+        class="wf-input"
         @input="update('completion_timeout_seconds', safeNumber(($event.target as HTMLInputElement).value, 1))"
       >
     </SFormField>
@@ -126,7 +126,7 @@ const { local, update } = useConfigModel(props, emit)
         id="instruct-output-var"
         :value="(local.output_variable as string) ?? ''"
         type="text"
-        class="w-full text-sm border rounded px-2 py-1 bg-bg"
+        class="wf-input"
         @input="update('output_variable', ($event.target as HTMLInputElement).value)"
       >
     </SFormField>

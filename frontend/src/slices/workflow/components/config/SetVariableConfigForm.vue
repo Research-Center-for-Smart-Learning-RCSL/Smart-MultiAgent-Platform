@@ -94,7 +94,7 @@ function removeAssignment(index: number) {
             :id="`set-var-variable-${idx}`"
             :value="assignment.variable"
             type="text"
-            class="w-full text-sm border rounded px-2 py-1 bg-bg"
+            class="wf-input"
             :placeholder="t('workflow.config.variable')"
             @input="updateAssignment(idx, 'variable', ($event.target as HTMLInputElement).value)"
           >
@@ -108,7 +108,7 @@ function removeAssignment(index: number) {
           <textarea
             :id="`set-var-expression-${idx}`"
             :value="assignment.expression"
-            class="w-full text-sm border rounded px-2 py-1 bg-bg min-h-[60px] font-mono"
+            class="wf-input-code"
             :placeholder="t('workflow.config.expression')"
             @input="updateAssignment(idx, 'expression', ($event.target as HTMLTextAreaElement).value)"
           />

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { SPageHeader } from '@shared/ui'
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useKeyGroups } from '../composables/useKeyGroups'
@@ -21,7 +22,7 @@ watch(projectId, reload)
 
 <template>
   <main class="key-group-list-view">
-    <h1>{{ $t('keys.groups.listTitle') }}</h1>
+    <SPageHeader :title="$t('keys.groups.listTitle')" />
     <p
       v-if="error"
       class="error"
@@ -37,6 +38,7 @@ watch(projectId, reload)
       >
       <button
         type="submit"
+        class="btn btn-primary"
         data-testid="group-create"
       >
         {{ $t('keys.groups.create') }}
@@ -52,7 +54,10 @@ watch(projectId, reload)
         >
           {{ g.name }}
         </router-link>
-        <button @click="remove(g.id)">
+        <button
+          class="btn btn-danger btn-sm"
+          @click="remove(g.id)"
+        >
           {{ $t('keys.groups.delete') }}
         </button>
       </li>
