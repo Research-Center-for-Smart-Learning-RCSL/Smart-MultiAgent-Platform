@@ -25,8 +25,9 @@ async def run_workflow_step(
 
     The engine's parallel fan-out enqueues one of these per outgoing edge. The
     task must *run* ``node_id`` itself — ``RunEngine.run_step`` does that —
-    rather than advance past it (the earlier ``resume_step`` call skipped the
-    branch's first node entirely). ``from_edge`` is the spawning edge id (ASYNC-9).
+    rather than advance past it (``resume_at_port`` advances FROM a finished
+    node, so it would skip the branch's first node). ``from_edge`` is the
+    spawning edge id (ASYNC-9).
     """
     from shared_kernel.db.session import async_session
 
