@@ -22,15 +22,18 @@ test.describe('Upload LLM key → validate → carry into project → key group'
 
   test('retest uploaded key', async ({ authedPage: page }) => {
     await page.goto('/keys')
+    // Wait for the key list table to finish async loading before checking buttons.
+    const keyList = page.locator('[data-testid="key-list"]')
+    await expect(keyList).toBeVisible({ timeout: 10_000 })
+
     const retestBtn = page.locator('[data-testid="retest"]').first()
-    test.skip(!(await retestBtn.isVisible().catch(() => false)), 'no keys to retest')
+    test.skip((await retestBtn.count()) === 0, 'no keys to retest')
 
     await retestBtn.click()
-    // Status cell should update (valid, invalid, or error — any change means the
-    // retest round-tripped).
+    // Status cell has a dynamic class like "status-valid" or "status-failed".
     await expect(
-      page.locator('[data-testid="key-list"] tbody tr').first().locator('td').nth(3),
-    ).not.toHaveText('', { timeout: 5000 })
+      keyList.locator('tbody tr').first().locator('td[class*="status-"]'),
+    ).toBeVisible({ timeout: 5000 })
   })
 
   test('carry key into project via key groups', async ({ authedPage: page }) => {
@@ -41,11 +44,12 @@ test.describe('Upload LLM key → validate → carry into project → key group'
     await page.goto(`/projects/${projectId}/key-groups`)
     await expect(page).toHaveURL(/key-groups/)
 
-    // If no group exists, create one.
     const groupList = page.locator('[data-testid="group-list"]')
     await expect(groupList).toBeVisible({ timeout: 10_000 })
-    const items = groupList.locator('li')
-    if ((await items.count()) === 0 || (await items.first().locator('.empty').isVisible().catch(() => false))) {
+
+    // If no group exists, create one.
+    const hasGroups = (await groupList.locator('a').count()) > 0
+    if (!hasGroups) {
       await page.locator('[data-testid="group-name"]').fill(`e2e-group-${Date.now()}`)
       await page.locator('[data-testid="group-create"]').click()
       await expect(groupList.locator('a').first()).toBeVisible({ timeout: 5000 })
