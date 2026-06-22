@@ -181,36 +181,6 @@ class RunEngine:
 
         return run.id
 
-    async def resume_step(
-        self,
-        run_id: uuid.UUID,
-        node_id: str,
-    ) -> None:
-        """Resume a parked run by advancing FROM an already-finished node.
-
-        Used after an unpark (wait_for_event / approval): the node's work is
-        done, so the engine follows its outgoing edges. To *execute* a node —
-        e.g. a parallel fan-out branch — use :meth:`run_step` instead.
-        """
-        ctx = await self._prepare_continuation(run_id)
-        if ctx is None:
-            return
-
-        # W11: on an unexpected error the caller rolls back this resume's
-        # pending writes, leaving the run stuck RUNNING/WAITING. Persist FAILED
-        # on an independent session so the marker survives that rollback, then
-        # re-raise for the caller to roll back and log.
-        try:
-            await self._advance_from(ctx, node_id)
-        except Exception:
-            logger.exception(
-                "run %s failed unexpectedly while resuming at node %s",
-                run_id,
-                node_id,
-            )
-            await self._mark_run_failed_isolated(run_id)
-            raise
-
     async def run_step(
         self,
         run_id: uuid.UUID,
@@ -220,12 +190,11 @@ class RunEngine:
         """Execute ``node_id`` as a parallel fan-out branch, then follow its edges.
 
         The parallel fan-out (W1) enqueues one ``run_workflow_step`` per outgoing
-        edge; each must *run* its target node. This differs from
-        :meth:`resume_step`, which advances FROM a node that already finished — a
-        branch's first node has not run yet, so ``resume_step`` would skip it.
-        ``from_edge`` is the spawning edge id, threaded so a join sitting
-        immediately after the parallel node can dedupe arrivals per branch
-        (ASYNC-9).
+        edge; each must *run* its target node — the branch's first node has not
+        executed yet, so :meth:`resume_at_port` (which advances FROM a finished
+        node) would skip it. ``from_edge`` is the spawning edge id, threaded so
+        a join sitting immediately after the parallel node can dedupe arrivals
+        per branch (ASYNC-9).
         """
         ctx = await self._prepare_continuation(run_id)
         if ctx is None:
@@ -248,7 +217,7 @@ class RunEngine:
     ) -> RunContext | None:
         """Load a RUNNING/WAITING run and build its RunContext.
 
-        Shared by :meth:`resume_step` and :meth:`run_step`. Returns ``None`` when
+        Shared by :meth:`resume_at_port` and :meth:`run_step`. Returns ``None`` when
         the run is gone or no longer continuable; if the workflow definition was
         deleted the run is marked FAILED here (W8). DB-1: the caller owns commit.
         """
