@@ -2,14 +2,19 @@
 import { SPageHeader } from '@shared/ui'
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
+import { useI18n } from 'vue-i18n'
+import { useConfirmDialog } from '@shared/composables'
 import { useSearchKeys } from '../composables/useSearchKeys'
 import type { SearchProvider } from '../api/search-keys'
 
+const { t } = useI18n()
 const route = useRoute()
+const { confirm } = useConfirmDialog()
 const projectId = computed(() => route.params.projectId as string)
 const { keys, error, reload, upload, retest, activate, remove } = useSearchKeys(
   () => projectId.value,
 )
+const busy = ref(false)
 
 const provider = ref<SearchProvider>('brave')
 const secret = ref('')
@@ -23,6 +28,18 @@ async function onUpload() {
   if (provider.value === 'tavily') config.search_depth = depth.value
   await upload(provider.value, secret.value, config)
   secret.value = ''
+}
+
+async function onRemove(id: string): Promise<void> {
+  const ok = await confirm({
+    title: t('keys.search.deleteConfirmTitle'),
+    message: t('keys.search.deleteConfirm'),
+    confirmLabel: t('keys.search.delete'),
+    variant: 'error',
+  })
+  if (!ok) return
+  busy.value = true
+  try { await remove(id) } finally { busy.value = false }
 }
 
 onMounted(reload)
@@ -136,7 +153,8 @@ watch(projectId, reload)
               </button>
               <button
                 class="btn btn-danger btn-sm"
-                @click="remove(k.id)"
+                :disabled="busy"
+                @click="onRemove(k.id)"
               >
                 {{ $t('keys.search.delete') }}
               </button>

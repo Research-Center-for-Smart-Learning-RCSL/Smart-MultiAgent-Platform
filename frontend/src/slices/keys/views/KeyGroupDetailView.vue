@@ -2,13 +2,14 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { useInlineRename, useToast } from '@shared/composables'
+import { useInlineRename, useToast, useConfirmDialog } from '@shared/composables'
 import { useKeyGroupDetail } from '../composables/useKeyGroups'
 import { useProjectKeys } from '../composables/useProjectKeys'
 import { keyGroupsApi } from '../api/key-groups'
 
 const { t } = useI18n()
 const toast = useToast()
+const { confirm } = useConfirmDialog()
 const route = useRoute()
 const projectId = computed(() => route.params.projectId as string)
 const groupId = computed(() => route.params.id as string)
@@ -33,6 +34,17 @@ const rename = useInlineRename({
     void reload().catch(() => {})
   },
 })
+
+async function onRemoveMember(keyId: string): Promise<void> {
+  const ok = await confirm({
+    title: t('keys.groups.removeConfirmTitle'),
+    message: t('keys.groups.removeConfirm'),
+    confirmLabel: t('keys.groups.remove'),
+    variant: 'warning',
+  })
+  if (!ok) return
+  await removeMember(keyId)
+}
 
 async function onAdd() {
   if (!selectedKeyId.value) return
@@ -139,7 +151,7 @@ watch([groupId, projectId], async () => {
           <code>{{ maskedFor(m.key_id) }}</code>
           <button
             data-testid="member-remove"
-            @click="removeMember(m.key_id)"
+            @click="onRemoveMember(m.key_id)"
           >
             {{ $t('keys.groups.remove') }}
           </button>

@@ -57,6 +57,7 @@
             <td>
               <button
                 class="btn btn-danger btn-sm"
+                :disabled="actions.deleteIpBan.isPending.value"
                 @click="actions.deleteIpBan.mutate(ban.id)"
               >
                 {{ $t('admin.ipBans.remove') }}
