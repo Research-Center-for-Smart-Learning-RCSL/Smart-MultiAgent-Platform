@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { SPageHeader } from '@shared/ui'
 import { onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useConfirmDialog } from '@shared/composables'
@@ -32,7 +33,7 @@ onMounted(reload)
 
 <template>
   <main class="key-list-view">
-    <h1>{{ $t('keys.list.title') }}</h1>
+    <SPageHeader :title="$t('keys.list.title')" />
     <p
       v-if="error"
       class="error"
@@ -47,17 +48,20 @@ onMounted(reload)
     <p v-if="loading">
       {{ $t('keys.list.loading') }}
     </p>
-    <table
+    <div
       v-else
+      class="overflow-x-auto"
+    >
+    <table
       class="table"
       data-testid="key-list"
     >
       <thead>
         <tr>
-          <th>{{ $t('keys.list.provider') }}</th>
-          <th>{{ $t('keys.list.name') }}</th>
-          <th>{{ $t('keys.list.preview') }}</th>
-          <th>{{ $t('keys.list.status') }}</th>
+          <th scope="col">{{ $t('keys.list.provider') }}</th>
+          <th scope="col">{{ $t('keys.list.name') }}</th>
+          <th scope="col">{{ $t('keys.list.preview') }}</th>
+          <th scope="col">{{ $t('keys.list.status') }}</th>
           <th />
         </tr>
       </thead>
@@ -78,12 +82,14 @@ onMounted(reload)
           </td>
           <td>
             <button
+              class="btn btn-sm"
               data-testid="retest"
               @click="retest(k.id)"
             >
               {{ $t('keys.list.retest') }}
             </button>
             <button
+              class="btn btn-danger btn-sm"
               data-testid="delete"
               @click="onRemove(k.id)"
             >
@@ -101,5 +107,6 @@ onMounted(reload)
         </tr>
       </tbody>
     </table>
+    </div>
   </main>
 </template>

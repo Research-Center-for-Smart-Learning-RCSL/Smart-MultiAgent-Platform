@@ -40,7 +40,7 @@ if (local.timeout_seconds === undefined) {
       <select
         id="agent-id"
         :value="local.agent_id ?? ''"
-        class="w-full text-sm border rounded px-2 py-1 bg-bg"
+        class="wf-input"
         @change="update('agent_id', ($event.target as HTMLSelectElement).value)"
       >
         <option
@@ -68,7 +68,7 @@ if (local.timeout_seconds === undefined) {
       <textarea
         id="input-template"
         :value="(local.input_template as string) ?? ''"
-        class="w-full text-sm border rounded px-2 py-1 bg-bg min-h-[60px] font-mono"
+        class="wf-input-code"
         @input="update('input_template', ($event.target as HTMLTextAreaElement).value)"
       />
     </SFormField>
@@ -82,7 +82,7 @@ if (local.timeout_seconds === undefined) {
         id="output-variable"
         type="text"
         :value="(local.output_variable as string) ?? ''"
-        class="w-full text-sm border rounded px-2 py-1 bg-bg"
+        class="wf-input"
         @input="update('output_variable', ($event.target as HTMLInputElement).value)"
       >
     </SFormField>
@@ -95,7 +95,7 @@ if (local.timeout_seconds === undefined) {
       <select
         id="target-chatroom-id"
         :value="local.target_chatroom_id ?? ''"
-        class="w-full text-sm border rounded px-2 py-1 bg-bg"
+        class="wf-input"
         @change="update('target_chatroom_id', ($event.target as HTMLSelectElement).value || null)"
       >
         <option value="">
@@ -137,7 +137,7 @@ if (local.timeout_seconds === undefined) {
         :value="local.timeout_seconds ?? 120"
         min="1"
         max="600"
-        class="w-full text-sm border rounded px-2 py-1 bg-bg"
+        class="wf-input"
         @input="update('timeout_seconds', safeNumber(($event.target as HTMLInputElement).value, 1))"
       >
     </SFormField>

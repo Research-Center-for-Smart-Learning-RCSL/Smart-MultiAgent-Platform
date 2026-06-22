@@ -1,17 +1,18 @@
 <template>
   <section class="admin-projects">
-    <h1>{{ $t('admin.projects.title') }}</h1>
-    <table
+    <SPageHeader :title="$t('admin.projects.title')" />
+    <div
       v-if="query.data.value"
-      class="table"
+      class="overflow-x-auto"
     >
+    <table class="table">
       <thead>
         <tr>
-          <th>{{ $t('admin.projects.name') }}</th>
-          <th>{{ $t('admin.projects.ownerUser') }}</th>
-          <th>{{ $t('admin.projects.ownerOrg') }}</th>
-          <th>{{ $t('admin.users.created') }}</th>
-          <th>{{ $t('admin.orgs.deleted') }}</th>
+          <th scope="col">{{ $t('admin.projects.name') }}</th>
+          <th scope="col">{{ $t('admin.projects.ownerUser') }}</th>
+          <th scope="col">{{ $t('admin.projects.ownerOrg') }}</th>
+          <th scope="col">{{ $t('admin.users.created') }}</th>
+          <th scope="col">{{ $t('admin.orgs.deleted') }}</th>
         </tr>
       </thead>
       <tbody>
@@ -27,10 +28,12 @@
         </tr>
       </tbody>
     </table>
+    </div>
   </section>
 </template>
 
 <script setup lang="ts">
+import { SPageHeader } from '@shared/ui'
 import { useQuery } from '@tanstack/vue-query'
 import { adminApi } from '../api/admin'
 import { adminKeys } from '../queries'

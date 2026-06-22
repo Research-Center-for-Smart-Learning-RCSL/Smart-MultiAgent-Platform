@@ -1,6 +1,6 @@
 <template>
   <section class="admin-admins">
-    <h1>{{ $t('admin.admins.title') }}</h1>
+    <SPageHeader :title="$t('admin.admins.title')" />
 
     <form
       class="admin-admins__promote"
@@ -26,16 +26,17 @@
       {{ promoteError }}
     </p>
 
-    <table
+    <div
       v-if="query.data.value"
-      class="table"
+      class="overflow-x-auto"
     >
+    <table class="table">
       <thead>
         <tr>
-          <th>{{ $t('admin.admins.userId') }}</th>
-          <th>{{ $t('admin.admins.promotedBy') }}</th>
-          <th>{{ $t('admin.admins.promotedAt') }}</th>
-          <th>{{ $t('admin.users.actions') }}</th>
+          <th scope="col">{{ $t('admin.admins.userId') }}</th>
+          <th scope="col">{{ $t('admin.admins.promotedBy') }}</th>
+          <th scope="col">{{ $t('admin.admins.promotedAt') }}</th>
+          <th scope="col">{{ $t('admin.users.actions') }}</th>
         </tr>
       </thead>
       <tbody>
@@ -57,10 +58,12 @@
         </tr>
       </tbody>
     </table>
+    </div>
   </section>
 </template>
 
 <script setup lang="ts">
+import { SPageHeader } from '@shared/ui'
 import { ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useQuery } from '@tanstack/vue-query'

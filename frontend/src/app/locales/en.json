@@ -7,6 +7,7 @@
     "cancel": "Cancel",
     "confirm": "Confirm",
     "save": "Save",
+    "themeLabel": "Theme: {theme}",
     "errorBoundary": {
       "title": "Something went wrong",
       "message": "This page hit an unexpected error. You can retry, or navigate elsewhere.",

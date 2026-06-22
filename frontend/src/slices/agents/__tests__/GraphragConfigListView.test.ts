@@ -87,7 +87,7 @@ describe('GraphragConfigListView', () => {
       initialRoute: '/projects/proj_1/graphrag-configs',
     })
     await settle(wrapper)
-    const createBtn = wrapper.find('.graphrag-list__header .btn-primary')
+    const createBtn = wrapper.find('header .btn-primary')
     expect(createBtn.attributes('disabled')).toBeUndefined()
   })
 
@@ -100,7 +100,7 @@ describe('GraphragConfigListView', () => {
     await settle(wrapper)
     expect(wrapper.find('.graphrag-list__warning').exists()).toBe(true)
     expect(
-      wrapper.find('.graphrag-list__header .btn-primary').attributes('disabled'),
+      wrapper.find('header .btn-primary').attributes('disabled'),
     ).toBeDefined()
   })
 

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { SPageHeader } from '@shared/ui'
 import { onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
@@ -47,7 +48,7 @@ onMounted(load)
 
 <template>
   <main>
-    <h1>{{ $t('tenancy.projects.listTitle') }}</h1>
+    <SPageHeader :title="$t('tenancy.projects.listTitle')" />
     <label>
       {{ $t('tenancy.projects.scope') }}
       <select v-model="scope">
@@ -64,7 +65,10 @@ onMounted(load)
         v-model="name"
         :placeholder="$t('tenancy.projects.namePlaceholder')"
       >
-      <button type="submit">
+      <button
+        type="submit"
+        class="btn btn-primary"
+      >
         {{ $t('tenancy.projects.create') }}
       </button>
     </form>

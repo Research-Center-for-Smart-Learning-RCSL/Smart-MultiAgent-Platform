@@ -7,7 +7,7 @@ import { toTypedSchema } from '@vee-validate/zod'
 import { computed, ref, watch } from 'vue'
 
 import { useServerErrors, useToast } from '@shared/composables'
-import { SCard } from '@shared/ui'
+import { SCard, SPageHeader } from '@shared/ui'
 import AgentFormFields from '../components/AgentFormFields.vue'
 import { keyGroupsApi, keysKeys } from '@slices/keys'
 import { agentsApi } from '../api'
@@ -121,18 +121,15 @@ function goToAgent(agentId: string) {
 </script>
 
 <template>
-  <section class="agent-list p-6">
-    <div class="agent-list__header">
-      <h1 class="text-xl font-semibold mb-4">
-        {{ t('agents.list.title') }}
-      </h1>
+  <section class="agent-list px-4 py-4 sm:p-6">
+    <SPageHeader :title="t('agents.list.title')">
       <button
         class="btn btn-primary"
         @click="showForm = !showForm"
       >
         {{ showForm ? t('agents.list.cancel') : t('agents.list.create') }}
       </button>
-    </div>
+    </SPageHeader>
 
     <SCard
       v-if="showForm"
@@ -224,11 +221,6 @@ function goToAgent(agentId: string) {
 </template>
 
 <style scoped>
-.agent-list__header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
 .agent-list__warning {
   color: var(--color-danger);
   margin-bottom: 0.75rem;

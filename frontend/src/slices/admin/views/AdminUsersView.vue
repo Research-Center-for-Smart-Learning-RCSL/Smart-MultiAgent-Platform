@@ -1,6 +1,6 @@
 <template>
   <section class="admin-users">
-    <h1>{{ $t('admin.users.title') }}</h1>
+    <SPageHeader :title="$t('admin.users.title')" />
     <form
       class="admin-users__filters"
       @submit.prevent="applySearch"
@@ -56,10 +56,11 @@
         {{ $t('admin.users.retry') }}
       </button>
     </p>
-    <table
+    <div
       v-else-if="query.data.value && query.data.value.length"
-      class="table"
+      class="overflow-x-auto"
     >
+    <table class="table">
       <thead>
         <tr>
           <th scope="col">
@@ -111,6 +112,7 @@
         </tr>
       </tbody>
     </table>
+    </div>
     <p
       v-else
       class="admin-users__status"
@@ -121,6 +123,7 @@
 </template>
 
 <script setup lang="ts">
+import { SPageHeader } from '@shared/ui'
 import { computed, ref } from 'vue'
 import { useQuery } from '@tanstack/vue-query'
 import { adminApi } from '../api/admin'

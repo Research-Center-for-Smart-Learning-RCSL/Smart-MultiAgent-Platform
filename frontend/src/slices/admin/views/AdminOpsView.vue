@@ -1,6 +1,6 @@
 <template>
   <section class="admin-ops">
-    <h1>{{ $t('admin.ops.title') }}</h1>
+    <SPageHeader :title="$t('admin.ops.title')" />
 
     <div class="admin-ops__section">
       <h2>{{ $t('admin.ops.graphragReset') }}</h2>
@@ -10,7 +10,10 @@
           :placeholder="$t('admin.ops.configIdPlaceholder')"
           required
         >
-        <button type="submit">
+        <button
+          type="submit"
+          class="btn btn-primary"
+        >
           {{ $t('admin.ops.reset') }}
         </button>
       </form>
@@ -50,7 +53,10 @@
           :placeholder="$t('admin.ops.resourceIdPlaceholder')"
           required
         >
-        <button type="submit">
+        <button
+          type="submit"
+          class="btn btn-primary"
+        >
           {{ $t('admin.ops.restoreAction') }}
         </button>
       </form>
@@ -62,6 +68,7 @@
 </template>
 
 <script setup lang="ts">
+import { SPageHeader } from '@shared/ui'
 import { ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAdminActions } from '../composables/useAdminActions'

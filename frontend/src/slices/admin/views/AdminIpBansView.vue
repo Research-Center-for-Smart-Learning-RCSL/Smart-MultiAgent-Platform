@@ -1,6 +1,6 @@
 <template>
   <section class="admin-ip-bans">
-    <h1>{{ $t('admin.ipBans.title') }}</h1>
+    <SPageHeader :title="$t('admin.ipBans.title')" />
 
     <form
       class="admin-ip-bans__create"
@@ -25,16 +25,17 @@
       </button>
     </form>
 
-    <table
+    <div
       v-if="query.data.value"
-      class="table"
+      class="overflow-x-auto"
     >
+    <table class="table">
       <thead>
         <tr>
-          <th>{{ $t('admin.ipBans.cidr') }}</th>
-          <th>{{ $t('admin.ipBans.reason') }}</th>
-          <th>{{ $t('admin.users.created') }}</th>
-          <th>{{ $t('admin.users.actions') }}</th>
+          <th scope="col">{{ $t('admin.ipBans.cidr') }}</th>
+          <th scope="col">{{ $t('admin.ipBans.reason') }}</th>
+          <th scope="col">{{ $t('admin.users.created') }}</th>
+          <th scope="col">{{ $t('admin.users.actions') }}</th>
         </tr>
       </thead>
       <tbody>
@@ -56,10 +57,12 @@
         </tr>
       </tbody>
     </table>
+    </div>
   </section>
 </template>
 
 <script setup lang="ts">
+import { SPageHeader } from '@shared/ui'
 import { ref } from 'vue'
 import { useQuery } from '@tanstack/vue-query'
 import { adminApi } from '../api/admin'

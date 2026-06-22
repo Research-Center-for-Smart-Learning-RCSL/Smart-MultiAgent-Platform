@@ -51,7 +51,7 @@ describe('McpEgressAllowlistView', () => {
       initialRoute: '/projects/proj_1/mcp/egress-allowlist',
     })
     await settle(wrapper)
-    expect(wrapper.find('.egress__table').exists()).toBe(true)
-    expect(wrapper.find('.egress__form').exists()).toBe(true)
+    expect(wrapper.find('.table').exists()).toBe(true)
+    expect(wrapper.find('form').exists()).toBe(true)
   })
 })

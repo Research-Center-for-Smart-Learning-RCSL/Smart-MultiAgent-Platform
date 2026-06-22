@@ -7,6 +7,7 @@
     "cancel": "取消",
     "confirm": "確認",
     "save": "儲存",
+    "themeLabel": "主題：{theme}",
     "errorBoundary": {
       "title": "發生錯誤",
       "message": "此頁面發生未預期的錯誤。您可以重試，或前往其他頁面。",

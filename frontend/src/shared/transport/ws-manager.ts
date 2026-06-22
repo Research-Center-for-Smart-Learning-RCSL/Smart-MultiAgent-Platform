@@ -274,7 +274,7 @@ class WsManager {
     let ch = this.channels.get(path)
     if (!ch) {
       if (this.channels.size >= MAX_CHANNELS) {
-        console.warn(`[WsManager] ${this.channels.size} open channels — possible leak. Check that all channels are closed on unmount.`)
+        if (import.meta.env.DEV) console.warn(`[WsManager] ${this.channels.size} open channels — possible leak. Check that all channels are closed on unmount.`)
       }
       ch = new Channel(path)
       this.channels.set(path, ch)

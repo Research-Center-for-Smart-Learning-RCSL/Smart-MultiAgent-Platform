@@ -52,7 +52,7 @@ function toggleType(type: string) {
       <select
         id="wait-event-type"
         :value="local.event_type ?? 'message_in_room'"
-        class="w-full text-sm border rounded px-2 py-1 bg-bg"
+        class="wf-input"
         @change="update('event_type', ($event.target as HTMLSelectElement).value)"
       >
         <option
@@ -60,7 +60,7 @@ function toggleType(type: string) {
           :key="et"
           :value="et"
         >
-          {{ et }}
+          {{ t('workflow.config.eventType_' + et) }}
         </option>
       </select>
     </SFormField>
@@ -76,7 +76,7 @@ function toggleType(type: string) {
         type="number"
         min="1"
         max="86400"
-        class="w-full text-sm border rounded px-2 py-1 bg-bg"
+        class="wf-input"
         @input="update('timeout_seconds', safeNumber(($event.target as HTMLInputElement).value, 1))"
       >
     </SFormField>
@@ -90,7 +90,7 @@ function toggleType(type: string) {
         <select
           id="wait-chatroom"
           :value="local.chatroom_id ?? ''"
-          class="w-full text-sm border rounded px-2 py-1 bg-bg"
+          class="wf-input"
           @change="update('chatroom_id', ($event.target as HTMLSelectElement).value)"
         >
           <option value="">
@@ -113,7 +113,7 @@ function toggleType(type: string) {
         <select
           id="wait-sender-filter"
           :value="local.sender_filter ?? 'any'"
-          class="w-full text-sm border rounded px-2 py-1 bg-bg"
+          class="wf-input"
           @change="update('sender_filter', ($event.target as HTMLSelectElement).value)"
         >
           <option
@@ -121,7 +121,7 @@ function toggleType(type: string) {
             :key="sf"
             :value="sf"
           >
-            {{ sf }}
+            {{ t('workflow.config.senderFilter_' + sf) }}
           </option>
         </select>
       </SFormField>
@@ -134,7 +134,7 @@ function toggleType(type: string) {
           id="wait-content-regex"
           :value="local.content_regex ?? ''"
           type="text"
-          class="w-full text-sm border rounded px-2 py-1 bg-bg"
+          class="wf-input"
           @input="update('content_regex', ($event.target as HTMLInputElement).value)"
         >
       </SFormField>
@@ -149,7 +149,7 @@ function toggleType(type: string) {
         <select
           id="wait-agent"
           :value="local.agent_id ?? ''"
-          class="w-full text-sm border rounded px-2 py-1 bg-bg"
+          class="wf-input"
           @change="update('agent_id', ($event.target as HTMLSelectElement).value)"
         >
           <option value="">
@@ -180,7 +180,7 @@ function toggleType(type: string) {
               :checked="getTypes().includes(at)"
               @change="toggleType(at)"
             >
-            <span class="text-sm">{{ at }}</span>
+            <span class="text-sm">{{ t('workflow.config.eventType_' + at) }}</span>
           </label>
         </div>
       </SFormField>
@@ -198,7 +198,7 @@ function toggleType(type: string) {
           type="number"
           min="1"
           max="86400"
-          class="w-full text-sm border rounded px-2 py-1 bg-bg"
+          class="wf-input"
           @input="update('delay_seconds', safeNumber(($event.target as HTMLInputElement).value, 1))"
         >
       </SFormField>
@@ -213,7 +213,7 @@ function toggleType(type: string) {
         <textarea
           id="wait-expression"
           :value="(local.expression as string) ?? ''"
-          class="w-full text-sm border rounded px-2 py-1 bg-bg min-h-[60px] font-mono"
+          class="wf-input-code"
           @input="update('expression', ($event.target as HTMLTextAreaElement).value)"
         />
       </SFormField>

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { SPageHeader } from '@shared/ui'
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useSearchKeys } from '../composables/useSearchKeys'
@@ -30,7 +31,7 @@ watch(projectId, reload)
 
 <template>
   <main class="search-key-view">
-    <h1>{{ $t('keys.search.title') }}</h1>
+    <SPageHeader :title="$t('keys.search.title')" />
     <p
       v-if="error"
       class="error"
@@ -77,19 +78,21 @@ watch(projectId, reload)
       </label>
       <button
         type="submit"
+        class="btn btn-primary"
         data-testid="search-upload"
       >
         {{ $t('keys.search.upload') }}
       </button>
     </form>
 
+    <div class="overflow-x-auto">
     <table class="table" data-testid="search-list">
       <thead>
         <tr>
-          <th>{{ $t('keys.search.provider') }}</th>
-          <th>{{ $t('keys.search.preview') }}</th>
-          <th>{{ $t('keys.search.status') }}</th>
-          <th>{{ $t('keys.search.active') }}</th>
+          <th scope="col">{{ $t('keys.search.provider') }}</th>
+          <th scope="col">{{ $t('keys.search.preview') }}</th>
+          <th scope="col">{{ $t('keys.search.status') }}</th>
+          <th scope="col">{{ $t('keys.search.active') }}</th>
           <th />
         </tr>
       </thead>
@@ -114,15 +117,22 @@ watch(projectId, reload)
             >
           </td>
           <td>
-            <button @click="retest(k.id)">
+            <button
+              class="btn btn-sm"
+              @click="retest(k.id)"
+            >
               {{ $t('keys.search.retest') }}
             </button>
-            <button @click="remove(k.id)">
+            <button
+              class="btn btn-danger btn-sm"
+              @click="remove(k.id)"
+            >
               {{ $t('keys.search.delete') }}
             </button>
           </td>
         </tr>
       </tbody>
     </table>
+    </div>
   </main>
 </template>

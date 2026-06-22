@@ -71,7 +71,7 @@ function onStrategyChange(event: Event): void {
         <select
           id="on-error-strategy"
           :value="local.strategy"
-          class="w-full text-sm border rounded px-2 py-1 bg-bg"
+          class="wf-input"
           @change="onStrategyChange"
         >
           <option
@@ -96,7 +96,7 @@ function onStrategyChange(event: Event): void {
             type="number"
             min="0"
             max="10"
-            class="w-full text-sm border rounded px-2 py-1 bg-bg"
+            class="wf-input"
             @input="emitUpdate"
           >
         </SFormField>
@@ -112,7 +112,7 @@ function onStrategyChange(event: Event): void {
             min="0"
             max="60000"
             step="100"
-            class="w-full text-sm border rounded px-2 py-1 bg-bg"
+            class="wf-input"
             @input="emitUpdate"
           >
         </SFormField>
@@ -127,7 +127,7 @@ function onStrategyChange(event: Event): void {
         <select
           id="on-error-fallback-node"
           v-model="local.fallback_node_id"
-          class="w-full text-sm border rounded px-2 py-1 bg-bg"
+          class="wf-input"
           @change="emitUpdate"
         >
           <option :value="null">

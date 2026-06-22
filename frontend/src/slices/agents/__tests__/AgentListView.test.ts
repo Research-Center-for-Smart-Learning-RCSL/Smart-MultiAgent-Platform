@@ -21,11 +21,9 @@ describe('AgentListView', () => {
       routes,
       initialRoute: '/projects/proj_1/agents',
     })
-    // Form should be hidden initially
-    expect(wrapper.find('.agent-list__form').exists()).toBe(false)
-    // Click the create/toggle button
+    expect(wrapper.find('form').exists()).toBe(false)
     await wrapper.find('.btn.btn-primary').trigger('click')
-    expect(wrapper.find('.agent-list__form').exists()).toBe(true)
+    expect(wrapper.find('form').exists()).toBe(true)
     // The form should contain the real backend-contract fields.
     expect(wrapper.find('#name').exists()).toBe(true)
     expect(wrapper.find('#model_hint').exists()).toBe(true)

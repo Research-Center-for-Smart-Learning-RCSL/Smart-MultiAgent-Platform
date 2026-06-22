@@ -41,7 +41,7 @@
                 v-for="group in NODE_PALETTE_GROUPS"
                 :key="group.label"
               >
-                <div class="px-3 py-1 text-[10px] font-semibold text-muted uppercase tracking-wide">
+                <div class="px-3 py-1 text-2xs font-semibold text-muted uppercase tracking-wide">
                   {{ $t(group.label) }}
                 </div>
                 <button

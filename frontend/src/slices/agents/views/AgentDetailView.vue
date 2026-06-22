@@ -151,7 +151,7 @@ const onSubmit = handleSubmit((values) => {
 </script>
 
 <template>
-  <section class="agent-detail p-6">
+  <section class="agent-detail px-4 py-4 sm:p-6">
     <h1 class="text-xl font-semibold mb-4">
       {{ query.data.value?.name ?? t('agents.detail.title') }}
     </h1>

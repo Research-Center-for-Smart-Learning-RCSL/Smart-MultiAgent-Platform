@@ -1,6 +1,6 @@
 <template>
   <section class="admin-audit">
-    <h1>{{ $t('admin.audit.title') }}</h1>
+    <SPageHeader :title="$t('admin.audit.title')" />
 
     <form
       class="admin-audit__filters"
@@ -55,19 +55,20 @@
       </button>
     </form>
 
-    <table
+    <div
       v-if="allItems.length"
-      class="table"
+      class="overflow-x-auto"
     >
+    <table class="table">
       <thead>
         <tr>
-          <th>{{ $t('admin.audit.id') }}</th>
-          <th>{{ $t('admin.audit.action') }}</th>
-          <th>{{ $t('admin.audit.actorUserId') }}</th>
-          <th>{{ $t('admin.audit.resourceType') }}</th>
-          <th>{{ $t('admin.audit.resourceId') }}</th>
-          <th>{{ $t('admin.audit.ipPrefix') }}</th>
-          <th>{{ $t('admin.users.created') }}</th>
+          <th scope="col">{{ $t('admin.audit.id') }}</th>
+          <th scope="col">{{ $t('admin.audit.action') }}</th>
+          <th scope="col">{{ $t('admin.audit.actorUserId') }}</th>
+          <th scope="col">{{ $t('admin.audit.resourceType') }}</th>
+          <th scope="col">{{ $t('admin.audit.resourceId') }}</th>
+          <th scope="col">{{ $t('admin.audit.ipPrefix') }}</th>
+          <th scope="col">{{ $t('admin.users.created') }}</th>
         </tr>
       </thead>
       <tbody>
@@ -85,6 +86,7 @@
         </tr>
       </tbody>
     </table>
+    </div>
 
     <div
       v-if="nextCursor"
@@ -101,6 +103,7 @@
 </template>
 
 <script setup lang="ts">
+import { SPageHeader } from '@shared/ui'
 import { reactive, ref, computed, watch } from 'vue'
 import { useQuery } from '@tanstack/vue-query'
 import { useI18n } from 'vue-i18n'

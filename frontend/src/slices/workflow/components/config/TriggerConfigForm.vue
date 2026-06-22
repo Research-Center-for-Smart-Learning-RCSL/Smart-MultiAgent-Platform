@@ -62,7 +62,7 @@ function isInArray(field: string, item: string): boolean {
       <select
         id="trigger-type"
         :value="local.trigger_type ?? 'manual'"
-        class="w-full text-sm border rounded px-2 py-1 bg-bg"
+        class="wf-input"
         @change="update('trigger_type', ($event.target as HTMLSelectElement).value)"
       >
         <option
@@ -70,7 +70,7 @@ function isInArray(field: string, item: string): boolean {
           :key="tt"
           :value="tt"
         >
-          {{ tt }}
+          {{ t('workflow.config.triggerType_' + tt) }}
         </option>
       </select>
     </SFormField>
@@ -92,7 +92,7 @@ function isInArray(field: string, item: string): boolean {
               :checked="isInArray('allowed_roles', role)"
               @change="toggleArrayItem('allowed_roles', role)"
             >
-            <span class="text-sm">{{ role }}</span>
+            <span class="text-sm">{{ t('workflow.config.role_' + role) }}</span>
           </label>
         </div>
       </SFormField>
@@ -112,7 +112,7 @@ function isInArray(field: string, item: string): boolean {
           id="cron-expression"
           type="text"
           :value="local.cron_expression ?? ''"
-          class="w-full text-sm border rounded px-2 py-1 bg-bg"
+          class="wf-input"
           :placeholder="CRON_PLACEHOLDER"
           @input="update('cron_expression', ($event.target as HTMLInputElement).value)"
         >
@@ -126,7 +126,7 @@ function isInArray(field: string, item: string): boolean {
           id="timezone"
           type="text"
           :value="local.timezone ?? 'UTC'"
-          class="w-full text-sm border rounded px-2 py-1 bg-bg"
+          class="wf-input"
           :placeholder="TIMEZONE_PLACEHOLDER"
           @input="update('timezone', ($event.target as HTMLInputElement).value)"
         >
@@ -145,7 +145,7 @@ function isInArray(field: string, item: string): boolean {
         <select
           id="chatroom-id"
           :value="local.chatroom_id ?? ''"
-          class="w-full text-sm border rounded px-2 py-1 bg-bg"
+          class="wf-input"
           @change="update('chatroom_id', ($event.target as HTMLSelectElement).value)"
         >
           <option value="">
@@ -168,7 +168,7 @@ function isInArray(field: string, item: string): boolean {
         <select
           id="sender-filter"
           :value="local.sender_filter ?? 'any'"
-          class="w-full text-sm border rounded px-2 py-1 bg-bg"
+          class="wf-input"
           @change="update('sender_filter', ($event.target as HTMLSelectElement).value)"
         >
           <option
@@ -176,7 +176,7 @@ function isInArray(field: string, item: string): boolean {
             :key="sf"
             :value="sf"
           >
-            {{ sf }}
+            {{ t('workflow.config.senderFilter_' + sf) }}
           </option>
         </select>
       </SFormField>
@@ -189,7 +189,7 @@ function isInArray(field: string, item: string): boolean {
           id="content-regex"
           type="text"
           :value="local.content_regex ?? ''"
-          class="w-full text-sm border rounded px-2 py-1 bg-bg"
+          class="wf-input"
           placeholder=".*"
           @input="update('content_regex', ($event.target as HTMLInputElement).value)"
         >
@@ -208,7 +208,7 @@ function isInArray(field: string, item: string): boolean {
         <select
           id="a2a-agent-id"
           :value="local.agent_id ?? ''"
-          class="w-full text-sm border rounded px-2 py-1 bg-bg"
+          class="wf-input"
           @change="update('agent_id', ($event.target as HTMLSelectElement).value)"
         >
           <option value="">
@@ -239,7 +239,7 @@ function isInArray(field: string, item: string): boolean {
               :checked="isInArray('event_types', et)"
               @change="toggleArrayItem('event_types', et)"
             >
-            <span class="text-sm">{{ et }}</span>
+            <span class="text-sm">{{ t('workflow.config.eventType_' + et) }}</span>
           </label>
         </div>
       </SFormField>
@@ -254,7 +254,7 @@ function isInArray(field: string, item: string): boolean {
         <select
           id="wakeup-agent-id"
           :value="local.agent_id ?? ''"
-          class="w-full text-sm border rounded px-2 py-1 bg-bg"
+          class="wf-input"
           @change="update('agent_id', ($event.target as HTMLSelectElement).value)"
         >
           <option value="">
