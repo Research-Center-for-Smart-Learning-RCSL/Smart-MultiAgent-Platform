@@ -34,6 +34,13 @@
       v-if="metricsQuery.isLoading.value"
       class="my-4"
     />
+    <p
+      v-else-if="metricsQuery.isError.value"
+      class="error my-4"
+      role="alert"
+    >
+      {{ $t('admin.home.metricsError') }}
+    </p>
     <div
       v-else-if="metricsQuery.data.value"
       class="admin-home__stats"

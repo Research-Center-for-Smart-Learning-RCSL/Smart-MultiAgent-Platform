@@ -19,6 +19,7 @@ const { detail, error, reload, addMember, removeMember, patchMember, reorder } =
 const { carried, reload: reloadCarried } = useProjectKeys(() => projectId.value)
 
 const selectedKeyId = ref<string>('')
+const removingMemberId = ref<string | null>(null)
 
 // Key-group rename takes no version (no If-Match), so refresh the detail after
 // the PATCH; the reload is best-effort and must not mask a successful rename.
@@ -43,7 +44,12 @@ async function onRemoveMember(keyId: string): Promise<void> {
     variant: 'warning',
   })
   if (!ok) return
-  await removeMember(keyId)
+  removingMemberId.value = keyId
+  try {
+    await removeMember(keyId)
+  } finally {
+    removingMemberId.value = null
+  }
 }
 
 async function onAdd() {
@@ -151,6 +157,7 @@ watch([groupId, projectId], async () => {
           <code>{{ maskedFor(m.key_id) }}</code>
           <button
             data-testid="member-remove"
+            :disabled="removingMemberId === m.key_id"
             @click="onRemoveMember(m.key_id)"
           >
             {{ $t('keys.groups.remove') }}

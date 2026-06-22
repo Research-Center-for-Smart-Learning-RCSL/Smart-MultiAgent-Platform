@@ -94,19 +94,11 @@ const variantClasses: Record<string, string> = {
   width: calc(100% - 2rem);
   background: var(--color-bg);
   color: var(--color-fg);
-  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.2);
-}
-
-:root[data-theme="dark"] .confirm-dialog {
-  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
+  box-shadow: var(--shadow-dialog);
 }
 
 .confirm-dialog::backdrop {
-  background: rgba(0, 0, 0, 0.45);
-}
-
-:root[data-theme="dark"] .confirm-dialog::backdrop {
-  background: rgba(0, 0, 0, 0.65);
+  background: var(--overlay-backdrop);
 }
 
 .confirm-dialog__content {
