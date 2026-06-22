@@ -1,11 +1,28 @@
 <script setup lang="ts">
-defineProps<{
+import { ref, watch, onMounted, nextTick } from 'vue'
+
+const props = defineProps<{
   label: string
   name: string
   error?: string
   help?: string
   required?: boolean
 }>()
+
+const controlRef = ref<HTMLElement | null>(null)
+
+function syncAria() {
+  const el = controlRef.value?.querySelector('input, select, textarea') as HTMLElement | null
+  if (!el) return
+  const describedBy = props.error ? `${props.name}-error` : props.help ? `${props.name}-help` : null
+  if (describedBy) el.setAttribute('aria-describedby', describedBy)
+  else el.removeAttribute('aria-describedby')
+  if (props.error) el.setAttribute('aria-invalid', 'true')
+  else el.removeAttribute('aria-invalid')
+}
+
+onMounted(syncAria)
+watch(() => [props.error, props.help], () => nextTick(syncAria))
 </script>
 
 <template>
@@ -23,12 +40,11 @@ defineProps<{
         aria-hidden="true"
       >*</span>
     </label>
-    <div class="form-field__control">
-      <slot
-        :id="name"
-        :aria-describedby="error ? `${name}-error` : help ? `${name}-help` : undefined"
-        :aria-invalid="!!error || undefined"
-      />
+    <div
+      ref="controlRef"
+      class="form-field__control"
+    >
+      <slot />
     </div>
     <p
       v-if="error"

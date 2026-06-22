@@ -73,7 +73,7 @@ const configComponent = computed(() => CONFIG_FORM_MAP[props.node.type] ?? null)
         id="node-label"
         v-model="localLabel"
         type="text"
-        class="w-full text-sm border rounded px-2 py-1 bg-bg"
+        class="wf-input"
         @input="$emit('update:label', localLabel)"
       >
     </SFormField>
