@@ -22,7 +22,9 @@
       "lastTest": "最後測試",
       "notFound": "找不到金鑰。",
       "retest": "重新測試",
-      "delete": "刪除"
+      "delete": "刪除",
+      "deleteConfirmTitle": "刪除金鑰",
+      "deleteConfirm": "刪除此 API 金鑰？此操作無法復原。"
     },
     "project": {
       "title": "專案金鑰",
@@ -45,9 +47,13 @@
       "namePlaceholder": "群組名稱",
       "create": "建立",
       "delete": "刪除",
+      "deleteConfirmTitle": "刪除金鑰群組",
+      "deleteConfirm": "刪除此金鑰群組？所有成員將被解除關聯。",
       "empty": "尚無金鑰群組。",
       "members": "成員",
       "remove": "移除",
+      "removeConfirmTitle": "移除成員",
+      "removeConfirm": "從群組中移除此金鑰？",
       "limits": "限制",
       "maxInputPerHour": "每小時最大輸入 Token 數",
       "maxOutputPerHour": "每小時最大輸出 Token 數",
@@ -76,6 +82,8 @@
       "active": "啟用",
       "retest": "重新測試",
       "delete": "刪除",
+      "deleteConfirmTitle": "刪除搜尋金鑰",
+      "deleteConfirm": "刪除此搜尋金鑰？此操作無法復原。",
       "cx": "CX（自訂搜尋 ID）",
       "searchDepth": "搜尋深度",
       "depthBasic": "基本",

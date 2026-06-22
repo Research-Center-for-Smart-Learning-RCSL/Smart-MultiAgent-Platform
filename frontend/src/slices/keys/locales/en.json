@@ -22,7 +22,9 @@
       "lastTest": "Last Tested",
       "notFound": "Key not found.",
       "retest": "Retest",
-      "delete": "Delete"
+      "delete": "Delete",
+      "deleteConfirmTitle": "Delete Key",
+      "deleteConfirm": "Delete this API key? This cannot be undone."
     },
     "project": {
       "title": "Project Keys",
@@ -45,9 +47,13 @@
       "namePlaceholder": "Group name",
       "create": "Create",
       "delete": "Delete",
+      "deleteConfirmTitle": "Delete Key Group",
+      "deleteConfirm": "Delete this key group? All members will be unlinked.",
       "empty": "No key groups yet.",
       "members": "Members",
       "remove": "Remove",
+      "removeConfirmTitle": "Remove Member",
+      "removeConfirm": "Remove this key from the group?",
       "limits": "Limits",
       "maxInputPerHour": "Max input tokens/h",
       "maxOutputPerHour": "Max output tokens/h",
@@ -76,6 +82,8 @@
       "active": "Active",
       "retest": "Retest",
       "delete": "Delete",
+      "deleteConfirmTitle": "Delete Search Key",
+      "deleteConfirm": "Delete this search key? This cannot be undone.",
       "cx": "CX (Custom Search ID)",
       "searchDepth": "Search Depth",
       "depthBasic": "Basic",
