@@ -231,13 +231,15 @@
     font-size: 0.875rem;
   }
 
-  /* Workflow config form inputs */
+  /* Workflow config form inputs — compact variant of base input */
   .wf-input {
     width: 100%;
+    padding: 0.25rem 0.5rem;
   }
 
   .wf-input-code {
     width: 100%;
+    padding: 0.25rem 0.5rem;
     min-height: 60px;
     font-family: var(--font-mono, monospace);
   }

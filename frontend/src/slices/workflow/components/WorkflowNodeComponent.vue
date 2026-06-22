@@ -107,7 +107,7 @@ function handleLeftPercent(index: number, total: number): string {
       {{ data.label || id }}
     </div>
     <div
-      class="text-2xs mt-0.5 text-muted"
+      class="text-[11px] mt-0.5 text-muted"
     >
       {{ data.nodeType }}
     </div>
