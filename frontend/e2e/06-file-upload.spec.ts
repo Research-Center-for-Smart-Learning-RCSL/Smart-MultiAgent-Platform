@@ -20,6 +20,7 @@ test.describe('tus file upload with progress tracking', () => {
     })
 
     await textarea.dispatchEvent('drop', { dataTransfer })
+    await dataTransfer.dispose()
 
     // Progress indicator should appear in the attachments list.
     const attachments = composer.locator('ul.attachments li')
@@ -27,7 +28,7 @@ test.describe('tus file upload with progress tracking', () => {
     await expect(attachments.first()).toContainText('e2e-upload.txt')
   })
 
-  test('send message with attachment', async ({ authedPage: page }) => {
+  test('send a text message', async ({ authedPage: page }) => {
     test.skip(!process.env.E2E_CHATROOM_ID, 'needs seeded chatroom')
     const chatroomId = process.env.E2E_CHATROOM_ID!
     await page.goto(`/chatrooms/${chatroomId}`)
@@ -35,28 +36,12 @@ test.describe('tus file upload with progress tracking', () => {
     const composer = page.locator('form.composer')
     await expect(composer).toBeVisible({ timeout: 10_000 })
 
-    // Type a message.
-    const textarea = composer.locator('textarea')
-    await textarea.fill('E2E attachment test message')
-
-    // Submit the message.
+    await composer.locator('textarea').fill('E2E test message')
     await composer.locator('button[type="submit"]').click()
 
     // Message should appear in the list.
-    await expect(page.locator('.messages li').last()).toContainText('E2E attachment test message', {
+    await expect(page.locator('.messages li').last()).toContainText('E2E test message', {
       timeout: 5000,
     })
-  })
-
-  test('composer is functional', async ({ authedPage: page }) => {
-    test.skip(!process.env.E2E_CHATROOM_ID, 'needs seeded chatroom')
-    const chatroomId = process.env.E2E_CHATROOM_ID!
-    await page.goto(`/chatrooms/${chatroomId}`)
-
-    // Verify composer elements are present and interactive.
-    const composer = page.locator('form.composer')
-    await expect(composer).toBeVisible({ timeout: 10_000 })
-    await expect(composer.locator('textarea')).toBeEnabled()
-    await expect(composer.locator('button[type="submit"]')).toBeEnabled()
   })
 })

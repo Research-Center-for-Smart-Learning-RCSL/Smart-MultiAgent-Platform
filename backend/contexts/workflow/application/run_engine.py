@@ -217,7 +217,7 @@ class RunEngine:
     ) -> RunContext | None:
         """Load a RUNNING/WAITING run and build its RunContext.
 
-        Shared by :meth:`resume_at_port` and :meth:`run_step`. Returns ``None`` when
+        Used by :meth:`run_step`. Returns ``None`` when
         the run is gone or no longer continuable; if the workflow definition was
         deleted the run is marked FAILED here (W8). DB-1: the caller owns commit.
         """
