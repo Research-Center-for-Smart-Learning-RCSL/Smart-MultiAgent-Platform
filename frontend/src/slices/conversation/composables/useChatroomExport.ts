@@ -30,6 +30,7 @@ export function useChatroomExport(chatroomId: string) {
       exportJob.value = { status: status as ExportStatus['status'], url: null }
       exportPoll.start(job_id)
     } catch {
+      exportJob.value = { status: 'failed', url: null }
       toast.error(t('conversation.chatroom.exportFailed'))
     }
   }

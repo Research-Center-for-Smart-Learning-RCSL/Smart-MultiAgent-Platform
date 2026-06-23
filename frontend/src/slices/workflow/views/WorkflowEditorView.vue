@@ -118,13 +118,20 @@
       </button>
     </div>
 
-    <!-- Lint status bar -->
+    <!-- Lint status bar — visible after any validation run -->
     <div
-      v-if="store.lintErrors.length || store.lintWarnings.length"
+      v-if="store.lintRan"
       data-testid="lint-status"
       class="px-4 py-1 text-xs border-b"
-      :class="store.lintErrors.length ? 'bg-danger-tint text-danger-on' : 'bg-warning-tint text-warning-on'"
+      :class="store.lintErrors.length
+        ? 'bg-danger-tint text-danger-on'
+        : store.lintWarnings.length
+          ? 'bg-warning-tint text-warning-on'
+          : 'bg-success-tint text-success-on'"
     >
+      <span v-if="!store.lintErrors.length && !store.lintWarnings.length">
+        {{ $t('workflow.editor.valid') }}
+      </span>
       <span v-if="store.lintErrors.length">
         {{ store.lintErrors.length }} {{ $t('workflow.editor.errors') }}
       </span>

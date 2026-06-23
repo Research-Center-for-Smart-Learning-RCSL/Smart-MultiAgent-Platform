@@ -11,9 +11,14 @@ test.describe('RAG config: create → appears in agent picker → attach (M.1)',
     test.skip(!process.env.E2E_PROJECT_ID, 'needs seeded project')
     const projectId = process.env.E2E_PROJECT_ID!
     await page.goto(`/projects/${projectId}/rag-configs`)
+    // Wait for the page to settle (both configs and embed-keys queries).
+    await page.waitForLoadState('networkidle', { timeout: 10_000 })
 
     // Open the create form; the toggle button says "New Configuration".
-    await page.getByRole('button', { name: /new configuration/i }).click()
+    // The button is disabled when the project has no embedding-capable keys.
+    const newConfigBtn = page.getByRole('button', { name: /new configuration/i })
+    test.skip(await newConfigBtn.isDisabled(), 'no embed keys in project')
+    await newConfigBtn.click()
     await page.locator('#name').fill(`e2e-rag-${Date.now()}`)
     await page.locator('#embed_model').fill('text-embedding-3-small')
     await page.locator('#chunk_strategy').selectOption('fixed')
