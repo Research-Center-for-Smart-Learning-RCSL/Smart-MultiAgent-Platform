@@ -303,7 +303,7 @@ services:
       EGRESS_PROXY_SHARED_SECRET: ${EGRESS_PROXY_SHARED_SECRET}
     depends_on:
       postgres: { condition: service_healthy }
-    networks: [backend_net, egress_net]
+    networks: [backend_net, egress_net, data_net]
     logging: *log-rotation
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request,sys;sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8080/healthz',timeout=3).status==200 else 1)"]

@@ -13,6 +13,12 @@ name: smap-staging
 # without SMAP_DB_PASSWORD, SMAP_REDIS_PASSWORD, SMAP_MINIO_ROOT_USER/PASSWORD).
 # This prevents accidentally running staging with dev-only hardcoded passwords.
 #
+# The backend _check_prod_secrets also runs for staging. Your .env MUST set:
+#   SMAP_SEC_CORS_ORIGINS=https://staging.example.com  (at least one origin)
+#   SMAP_REDIS_DSN=redis://:$SMAP_REDIS_PASSWORD@redis:6379/0  (password in DSN)
+#   SMAP_NEO4J_PASSWORD=<non-default>
+#   SMAP_VAULT_ROLE_ID / SMAP_VAULT_SECRET_ID  (AppRole credentials)
+#
 # Tuning target: 4-core / 16 GB single host.
 # Total hard-limit sum ≈ 13.5 GB; remaining ~2.5 GB for OS + Docker daemon.
 
@@ -67,6 +73,7 @@ services:
   # ---------- Edge ----------
   nginx:
     <<: *security-defaults
+    cap_add: [NET_BIND_SERVICE]
     restart: unless-stopped
     command:
       - sh
@@ -131,6 +138,7 @@ services:
   # ---------- Data services ----------
   postgres:
     <<: *security-defaults
+    cap_add: [CHOWN, SETUID, SETGID, FOWNER, DAC_OVERRIDE]
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${SMAP_DB_USER:-smap}
@@ -157,6 +165,7 @@ services:
 
   redis:
     <<: *security-defaults
+    cap_add: [CHOWN, SETUID, SETGID]
     restart: unless-stopped
     command:
       - redis-server
