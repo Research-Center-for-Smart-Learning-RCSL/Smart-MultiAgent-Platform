@@ -8,6 +8,21 @@ operator access to unseal keys (or first-time init).
 
 ---
 
+## 0. Preflight check
+
+Run the preflight script **before** starting any services. It validates
+Docker version, required env vars, TLS certs, host resources, and port
+availability in one pass:
+
+```bash
+bash deploy/scripts/preflight.sh --staging   # or --prod
+```
+
+Fix all FATAL items before proceeding. Warnings are non-blocking but
+should be reviewed.
+
+---
+
 ## 1. Clone and configure
 
 ```bash
@@ -171,7 +186,10 @@ Requirements and notes:
 # Dev (with hot reload, exposed ports):
 docker compose up -d
 
-# Production (with resource limits, replicas, tuned Postgres):
+# Staging (single replica, 16 GB host, real Vault TLS):
+docker compose -f docker-compose.yml -f docker-compose.staging.yml up -d
+
+# Production (with resource limits, 3 replicas, tuned Postgres):
 docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 ```
 
