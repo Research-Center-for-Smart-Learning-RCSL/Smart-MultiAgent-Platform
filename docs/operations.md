@@ -499,3 +499,51 @@ restarts so cold starts don't re-download the full database.
 | gVisor | latest release channel |
 
 The exact digests are pinned in `docker-compose.yml` and `requirements.lock`.
+
+---
+
+## 12. Alerting
+
+Prometheus alert rules live in `deploy/observability/prometheus/alerts.yml` and
+are auto-loaded when the observability stack is running.
+
+### 12.1 Alert severity levels
+
+| Severity | Response time | Channel |
+|----------|--------------|---------|
+| critical | Immediate (< 5 min) | PagerDuty / phone |
+| high | < 15 min | Slack #smap-alerts |
+| warning | < 4 hours | Slack #smap-ops |
+
+### 12.2 Configured alerts
+
+**Critical:** BackendDown, ReadyzFailing, VaultSealed, PostgresDown.
+
+**High:** DbPoolExhausted, DbPoolWaiters, RedisDown, HighErrorRate, TlsCertExpiringSoon (< 7d), VaultTlsCertExpiringSoon (< 7d).
+
+**Warning:** TlsCertExpiring30d, HighLatencyP95, DiskSpaceLow, QdrantDown, MinioDown, WorkerQueueBacklog, WorkflowRunStuck.
+
+### 12.3 TLS certificate monitoring
+
+Two mechanisms:
+
+1. **Prometheus alerts** — `smap_tls_cert_expiry_seconds` and `smap_vault_tls_cert_expiry_seconds` gauges trigger at 30d (warning) and 7d (high).
+2. **Manual check** — `bash deploy/scripts/check-tls-expiry.sh` outputs a human-readable table or `--metrics` for textfile collector integration.
+
+Recommended cron for the textfile collector approach:
+
+```
+*/6 * * * * bash /opt/smap/deploy/scripts/check-tls-expiry.sh --metrics \
+  > /var/lib/prometheus/node-exporter/smap_tls.prom
+```
+
+---
+
+## 13. Upgrades
+
+See `docs/runbook-upgrade.md` for the full procedure. Key points:
+
+- Migrations are N-1 compatible (old code works on new schema).
+- Rolling restart: frontend → worker → web (maintains availability).
+- Rollback: `git checkout <old-tag>` + `alembic downgrade -1` + rebuild.
+- Full restore from backup is the last resort for irreversible migrations.

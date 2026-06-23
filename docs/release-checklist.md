@@ -5,6 +5,20 @@ Tag format: `vYYYY.MM.DD` (date-based) or `v1.0.0` (semver at launch).
 
 ---
 
+## 0. Pre-deploy gate
+
+Complete before touching the target environment:
+
+- [ ] Preflight passes: `bash deploy/scripts/preflight.sh --prod` (or `--staging`) — zero FATAL.
+- [ ] Full backup taken: `bash deploy/scripts/backup.sh` — verify backup file size is non-trivial.
+- [ ] TLS certs checked: `bash deploy/scripts/check-tls-expiry.sh` — all certs ≥ 30 days remaining.
+- [ ] No active workflow runs in progress (`/api/admin/workflow-runs?status=running` returns empty).
+- [ ] Rollback plan reviewed: operator knows which tag to revert to and whether migrations are reversible.
+- [ ] Upgrade runbook open: `docs/runbook-upgrade.md` — follow §1 step-by-step.
+- [ ] Incident channel ready (Slack / chat / phone) in case rollback is needed.
+
+---
+
 ## 1. Vault — 7-point verification
 
 Source: `deploy/vault/README.md` §7.
@@ -200,6 +214,32 @@ Verify each retention worker's last-run metric is within the expected window:
 - [ ] Loki receives logs from all compose services (query `{service=~".+"}` returns recent entries).
 - [ ] Tempo receives traces (if OTEL is enabled): query a recent trace ID in Grafana.
 - [ ] Promtail positions file persists across container restart (verify volume mount).
+
+---
+
+## 13. Post-deploy go / no-go
+
+Evaluate within **15 minutes** of deployment completing. If any FATAL criterion
+fails, trigger rollback per `docs/runbook-upgrade.md` §2.
+
+**Go criteria (all must hold):**
+
+- [ ] `/readyz` returns 200 with all dependencies green.
+- [ ] Error rate < 1% over the first 5 minutes (check Prometheus or `docker compose logs`).
+- [ ] No OOMKilled or CrashLoopBackOff containers in `docker compose ps`.
+- [ ] TLS handshake succeeds on :10443 (or configured nginx port).
+- [ ] At least one end-to-end user action succeeds (login → chatroom → send message).
+
+**No-go triggers (any one → immediate rollback):**
+
+- `/readyz` stays 503 for > 3 minutes after deploy.
+- Error rate > 10% sustained for > 2 minutes.
+- Vault sealed and cannot be unsealed (key loss or version incompatibility).
+- Data corruption evidence (500s on reads, integrity constraint violations in logs).
+
+**Stabilization period:** Monitor for 30 minutes after go decision. If a delayed
+issue surfaces, rollback is still safe within the first 24 hours (assuming no
+irreversible migrations — see runbook §2.1).
 
 ---
 

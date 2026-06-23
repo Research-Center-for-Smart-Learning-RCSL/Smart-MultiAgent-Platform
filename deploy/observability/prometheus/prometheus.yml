@@ -10,6 +10,9 @@ global:
   scrape_interval: 15s
   evaluation_interval: 15s
 
+rule_files:
+  - /etc/prometheus/alerts.yml
+
 scrape_configs:
   # Backend-web exposes /metrics on port 8000 (uvicorn).
   - job_name: smap-backend
