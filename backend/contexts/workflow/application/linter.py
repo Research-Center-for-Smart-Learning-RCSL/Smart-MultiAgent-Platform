@@ -591,24 +591,38 @@ def rule_14_parallel_join(defn: dict[str, Any]) -> list[LintIssue]:
                     )
                 )
 
-            # A join in mode=all (default) following a condition node will
-            # deadlock: condition routes flow to exactly one branch, so the
-            # join can never collect all incoming edges.
+            # A join in mode=all (default) fed (directly or through a chain
+            # of single-input passthrough nodes) by a condition will deadlock:
+            # condition routes flow to exactly one branch, so the join can
+            # never collect all incoming edges.
             join_mode = n.get("config", {}).get("mode", "all")
             if join_mode == "all":
                 for edge in incoming.get(nid, []):
-                    pred = nodes_by_id.get(edge.get("from", ""))
-                    if pred and pred.get("type") == "condition":
-                        issues.append(
-                            LintIssue(
-                                14,
-                                "error",
-                                f"join node '{nid}' (mode=all) has incoming edge from "
-                                f"condition node '{pred['id']}' — condition routes to "
-                                f"only one branch, so the join will deadlock",
-                                node_id=nid,
+                    cursor = edge.get("from", "")
+                    visited: set[str] = set()
+                    while cursor and cursor not in visited:
+                        visited.add(cursor)
+                        pred = nodes_by_id.get(cursor)
+                        if not pred:
+                            break
+                        if pred.get("type") == "condition":
+                            issues.append(
+                                LintIssue(
+                                    14,
+                                    "error",
+                                    f"join node '{nid}' (mode=all) is fed by "
+                                    f"condition node '{pred['id']}' — condition "
+                                    f"routes to only one branch, so the join "
+                                    f"will deadlock",
+                                    node_id=nid,
+                                )
                             )
-                        )
+                            break
+                        cursor_inc = incoming.get(cursor, [])
+                        if len(cursor_inc) == 1:
+                            cursor = cursor_inc[0].get("from", "")
+                        else:
+                            break
     return issues
 
 
@@ -668,6 +682,16 @@ def rule_16_fallback_node_exists(defn: dict[str, Any]) -> list[LintIssue]:
                     16,
                     "error",
                     f"Node '{n['id']}' has on_error.strategy=fallback but no fallback_node_id",
+                    node_id=n["id"],
+                )
+            )
+        elif fid == n["id"]:
+            issues.append(
+                LintIssue(
+                    16,
+                    "error",
+                    f"Node '{n['id']}' has fallback_node_id pointing to itself "
+                    f"(causes recursive retry storm until loop guard fires)",
                     node_id=n["id"],
                 )
             )

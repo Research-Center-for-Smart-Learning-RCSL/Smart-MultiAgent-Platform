@@ -17,11 +17,14 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import logging
 import os
 import tempfile
 import uuid
 from dataclasses import dataclass
 from typing import Final
+
+_log = logging.getLogger(__name__)
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -223,7 +226,13 @@ class TusService:
             # Disk write failed (full, permissions, …).  Roll back the Redis
             # offset so the client can retry this PATCH instead of being stuck
             # with an advanced offset and a short file.
-            await self._store.update_offset(upload_id, new_offset, offset)
+            rolled_back = await self._store.update_offset(upload_id, new_offset, offset)
+            if not rolled_back:
+                _log.error(
+                    "TUS upload %s: disk write failed AND offset rollback failed "
+                    "(expected=%d, target=%d) — upload is now unrecoverable",
+                    upload_id, new_offset, offset,
+                )
             raise
         TUS_UPLOAD_BYTES.inc(len(chunk))
 

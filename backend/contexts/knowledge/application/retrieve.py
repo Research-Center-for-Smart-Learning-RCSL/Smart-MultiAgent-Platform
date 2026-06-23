@@ -26,9 +26,12 @@ SoC:
 
 from __future__ import annotations
 
+import logging
 import uuid
 from dataclasses import dataclass
 from typing import Any
+
+_log = logging.getLogger(__name__)
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -131,16 +134,23 @@ class RetrieveService:
                 candidates=[c.text for c in candidates],
                 top_k=effective_top_k,
             )
-            return [
-                RetrievedChunk(
-                    document_id=candidates[r.index].document_id,
-                    chunk_idx=candidates[r.index].chunk_idx,
-                    text=candidates[r.index].text,
-                    score=r.score,
-                )
-                for r in rr
-                if 0 <= r.index < len(candidates)
-            ]
+            reranked: list[RetrievedChunk] = []
+            for r in rr:
+                if 0 <= r.index < len(candidates):
+                    reranked.append(
+                        RetrievedChunk(
+                            document_id=candidates[r.index].document_id,
+                            chunk_idx=candidates[r.index].chunk_idx,
+                            text=candidates[r.index].text,
+                            score=r.score,
+                        )
+                    )
+                else:
+                    _log.warning(
+                        "reranker returned out-of-bounds index %d (candidates=%d) — dropped",
+                        r.index, len(candidates),
+                    )
+            return reranked
 
         return candidates[:effective_top_k]
 
