@@ -228,7 +228,14 @@ class AdminService:
         rows = (
             await self._db.execute(
                 t.admins.select()
-                .where(t.admins.c.revoked_at.is_(None))
+                .join(t.users, t.admins.c.user_id == t.users.c.id)
+                .where(
+                    sa.and_(
+                        t.admins.c.revoked_at.is_(None),
+                        t.users.c.status == "active",
+                        t.users.c.deleted_at.is_(None),
+                    )
+                )
                 .order_by(t.admins.c.promoted_at.desc())
             )
         ).all()
