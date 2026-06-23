@@ -31,6 +31,7 @@ export default defineConfig({
   },
   build: {
     sourcemap: 'hidden',
+    chunkSizeWarningLimit: 600,
     rollupOptions: {
       output: {
         manualChunks: (id) => {

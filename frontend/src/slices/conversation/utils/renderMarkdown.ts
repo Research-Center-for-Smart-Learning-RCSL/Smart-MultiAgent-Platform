@@ -12,36 +12,20 @@
 // `onMounted` / `onUpdated`.
 
 import DOMPurify from 'dompurify'
-import hljs from 'highlight.js'
-import katex from 'katex'
 import MarkdownIt from 'markdown-it'
-import mermaid from 'mermaid'
 
 let mermaidInited = false
-
-function ensureMermaid(): void {
-  if (mermaidInited) return
-  mermaid.initialize({ startOnLoad: false, securityLevel: 'strict' })
-  mermaidInited = true
-}
 
 const md = new MarkdownIt({
   html: true,
   linkify: true,
   breaks: false,
   highlight(str, lang) {
-    if (lang && hljs.getLanguage(lang)) {
-      try {
-        return (
-          `<pre class="hljs"><code class="language-${lang}">` +
-          hljs.highlight(str, { language: lang, ignoreIllegals: true }).value +
-          '</code></pre>'
-        )
-      } catch {
-        /* fall through */
-      }
+    const escaped = md.utils.escapeHtml(str)
+    if (lang) {
+      return `<pre class="hljs"><code class="language-${md.utils.escapeHtml(lang)}">${escaped}</code></pre>`
     }
-    return `<pre class="hljs"><code>${md.utils.escapeHtml(str)}</code></pre>`
+    return `<pre class="hljs"><code>${escaped}</code></pre>`
   },
 })
 
@@ -99,9 +83,27 @@ export function sanitizeSnippet(html: string): string {
   return DOMPurify.sanitize(html ?? '', PURIFY_CONFIG) as unknown as string
 }
 
-/** KaTeX pass — replaces `$$...$$` blocks that survived sanitisation. */
-export function katexInDom(root: HTMLElement): void {
-  root.querySelectorAll('code.language-math, code.language-latex').forEach((node) => {
+/** Syntax-highlight pass — lazy-loads highlight.js/lib/common on first use. */
+async function hljsInDom(root: HTMLElement): Promise<void> {
+  const blocks = Array.from(
+    root.querySelectorAll<HTMLElement>('pre code[class*="language-"]'),
+  ).filter(
+    (el) =>
+      !el.classList.contains('language-mermaid') &&
+      !el.classList.contains('language-math') &&
+      !el.classList.contains('language-latex'),
+  )
+  if (!blocks.length) return
+  const hljs = (await import('highlight.js/lib/common')).default
+  blocks.forEach((block) => hljs.highlightElement(block))
+}
+
+/** KaTeX pass — lazy-loads katex on first use. */
+async function katexInDom(root: HTMLElement): Promise<void> {
+  const nodes = root.querySelectorAll('code.language-math, code.language-latex')
+  if (!nodes.length) return
+  const katex = (await import('katex')).default
+  nodes.forEach((node) => {
     try {
       const rendered = katex.renderToString(node.textContent ?? '', {
         displayMode: true,
@@ -117,20 +119,23 @@ export function katexInDom(root: HTMLElement): void {
   })
 }
 
-/** Mermaid pass — renders `code.language-mermaid` blocks in place. */
-export async function mermaidInDom(root: HTMLElement): Promise<void> {
-  ensureMermaid()
+/** Mermaid pass — lazy-loads mermaid on first use. */
+async function mermaidInDom(root: HTMLElement): Promise<void> {
   const nodes = Array.from(
     root.querySelectorAll<HTMLElement>('code.language-mermaid'),
   )
+  if (!nodes.length) return
+  const mermaid = (await import('mermaid')).default
+  if (!mermaidInited) {
+    mermaid.initialize({ startOnLoad: false, securityLevel: 'strict' })
+    mermaidInited = true
+  }
   for (const [i, node] of nodes.entries()) {
     const id = `smap-mermaid-${Date.now()}-${i}`
     try {
       const { svg } = await mermaid.render(id, node.textContent ?? '')
       const wrapper = document.createElement('div')
       wrapper.className = 'smap-mermaid'
-      // Sanitize Mermaid's SVG output before inserting into the DOM — the
-      // mermaid renderer's strict mode does not guarantee XSS-free output.
       wrapper.innerHTML = DOMPurify.sanitize(svg, {
         USE_PROFILES: { svg: true, svgFilters: true },
       }) as unknown as string
@@ -141,8 +146,8 @@ export async function mermaidInDom(root: HTMLElement): Promise<void> {
   }
 }
 
-/** Drive all three passes in sequence. Safe to call on onMounted/onUpdated. */
+/** Drive all three passes. Safe to call on onMounted/onUpdated. */
 export async function enhanceRenderedMarkdown(root: HTMLElement): Promise<void> {
-  katexInDom(root)
+  await Promise.all([hljsInDom(root), katexInDom(root)])
   await mermaidInDom(root)
 }
