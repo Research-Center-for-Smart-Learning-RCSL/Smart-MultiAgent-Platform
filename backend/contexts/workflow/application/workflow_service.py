@@ -298,6 +298,45 @@ class WorkflowService:
             trigger_payload=trigger_payload,
         )
 
+    async def dry_run(
+        self,
+        workflow_id: uuid.UUID,
+        *,
+        started_by_user_id: uuid.UUID,
+        trigger_payload: dict[str, Any] | None = None,
+        project_id: uuid.UUID | None = None,
+    ) -> uuid.UUID:
+        """Simulate workflow execution without side effects (R14.06)."""
+        wf = await self.get(workflow_id)
+        defn = wf.definition
+
+        result = self.validate(defn)
+        if result.errors:
+            from contexts.workflow.domain.errors import WorkflowValidationFailed
+
+            raise WorkflowValidationFailed(
+                f"{len(result.errors)} validation error(s): {result.errors[0].message}"
+            )
+
+        pid = project_id
+        if pid is None:
+            pid = await self._repo.resolve_project_id(workflow_id)
+            if pid is None:
+                raise WorkflowNotFound(
+                    f"Cannot resolve project for workflow {workflow_id}"
+                )
+
+        self._engine = RunEngine(self._db)
+        return await self._engine.start_run(
+            project_id=pid,
+            workflow_id=workflow_id,
+            definition=defn,
+            trigger_type="dry_run",
+            started_by_user_id=started_by_user_id,
+            trigger_payload=trigger_payload,
+            is_dry_run=True,
+        )
+
     async def dispatch_pending(self, pool: Any | None = None) -> None:
         """Enqueue the Arq jobs queued by the last ``trigger_run`` (DB-1).
 

@@ -124,6 +124,7 @@ class RunEngine:
         trigger_type: str,
         started_by_user_id: uuid.UUID | None = None,
         trigger_payload: dict[str, Any] | None = None,
+        is_dry_run: bool = False,
     ) -> uuid.UUID:
         """Create a new workflow run and execute the entry node."""
         variables = {}
@@ -165,6 +166,7 @@ class RunEngine:
             workflow_def=definition,
             variables=variables,
             trigger_payload=trigger_payload or {},
+            is_dry_run=is_dry_run,
         )
 
         entry_node_id = definition.get("entry_node_id", "")
@@ -561,10 +563,24 @@ class RunEngine:
             node_type=node.type.value,
         )
 
-        # Execute
+        # Execute — dry-run mode mocks side-effect-producing node types.
         step_start = time.monotonic()
+        _DRY_RUN_MOCK_TYPES = {
+            NodeType.AGENT_INVOCATION,
+            NodeType.APPROVAL_GATE,
+            NodeType.WAIT_FOR_EVENT,
+            NodeType.INSTRUCT,
+            NodeType.SUBAGENT_SPAWN,
+        }
         try:
-            outcome = await executor(ctx, node, self._db)
+            if ctx.is_dry_run and node.type in _DRY_RUN_MOCK_TYPES:
+                outcome = StepOutcome(
+                    state=StepState.SUCCEEDED,
+                    output={"_dry_run": True, "node_type": node.type.value},
+                    port="default",
+                )
+            else:
+                outcome = await executor(ctx, node, self._db)
         except Exception as exc:
             outcome = StepOutcome(
                 state=StepState.FAILED,

@@ -94,8 +94,9 @@
 
           <button
             class="btn btn-sm"
-            disabled
-            :title="$t('workflow.editor.dryRunComingSoon')"
+            :disabled="dryRunBusy || store.dirty"
+            :title="store.dirty ? $t('workflow.editor.saveBeforeDryRun') : ''"
+            @click="onDryRun"
           >
             {{ $t('workflow.editor.dryRun') }}
           </button>
@@ -214,12 +215,13 @@ import { Background } from '@vue-flow/background'
 import { Controls } from '@vue-flow/controls'
 import { useMutation, useQueryClient } from '@tanstack/vue-query'
 import { markRaw, ref } from 'vue'
-import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute } from 'vue-router'
+import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute, useRouter } from 'vue-router'
 
 import { useConfirmDialog, useToast } from '@shared/composables'
 import { useI18n } from 'vue-i18n'
 import { useBreakpoint } from '@shared/composables'
 import {
+  dryRun,
   listWorkflows,
   patchWorkflow,
   validateWorkflow,
@@ -241,6 +243,7 @@ const { t } = useI18n()
 const toast = useToast()
 const { confirm } = useConfirmDialog()
 const route = useRoute()
+const router = useRouter()
 const qc = useQueryClient()
 const store = useWorkflowStore()
 
@@ -403,6 +406,26 @@ const saveMutation = useMutation({
 function onSave(): void {
   store.pushUndo(flowToDef())
   saveMutation.mutate()
+}
+
+// ---- dry run --------------------------------------------------------------
+
+const dryRunBusy = ref(false)
+
+async function onDryRun(): Promise<void> {
+  dryRunBusy.value = true
+  try {
+    const result = await dryRun(workflowId)
+    toast.success(t('workflow.editor.dryRunQueued'))
+    router.push({
+      name: 'workflow.run',
+      params: { workspaceId: workspaceId.value, workflowId, runId: result.run_id },
+    })
+  } catch {
+    toast.error(t('workflow.editor.dryRunFailed'))
+  } finally {
+    dryRunBusy.value = false
+  }
 }
 
 // ---- validate -------------------------------------------------------------

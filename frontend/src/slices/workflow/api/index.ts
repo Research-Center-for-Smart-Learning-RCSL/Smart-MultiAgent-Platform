@@ -76,6 +76,17 @@ export async function triggerRun(
   return data
 }
 
+export async function dryRun(
+  workflowId: string,
+  triggerPayload: Record<string, unknown> = {},
+): Promise<{ run_id: string }> {
+  const { data } = await http.post<{ run_id: string }>(
+    `/workflows/${workflowId}/dry-run`,
+    { trigger_payload: triggerPayload },
+  )
+  return data
+}
+
 export async function listRuns(
   workflowId: string,
   opts: { limit?: number; offset?: number; includeArchive?: boolean } = {},

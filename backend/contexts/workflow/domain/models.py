@@ -38,6 +38,7 @@ class TriggerType(str, enum.Enum):
     MESSAGE_RECEIVED = "message_received"
     A2A_EVENT = "a2a_event"
     WAKEUP_SIGNAL = "wakeup_signal"
+    DRY_RUN = "dry_run"
 
 
 class RunState(str, enum.Enum):
@@ -183,6 +184,7 @@ class RunContext:
     node_visit_counts: dict[str, int] = field(default_factory=dict)
     active_branches: int = 1
     cancelled: bool = False
+    is_dry_run: bool = False
     # ASYNC-9: id of the edge traversed to reach the node currently executing;
     # the join executor reads it to dedupe fan-in arrivals per incoming branch.
     arrived_via: str | None = None
