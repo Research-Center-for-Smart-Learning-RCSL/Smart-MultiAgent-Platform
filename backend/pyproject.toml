@@ -121,9 +121,9 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 # Tests: bandit (assert, hardcoded test secrets), pylint refactor caps,
-# and the pytest.raises-must-have-match / fixture-naming style rules are
-# all noise in fixtures and parametrised tests.
-"tests/**/*" = ["S", "PLR", "PT011", "PT004", "E501"]
+# pytest.raises-must-have-match / fixture-naming style rules, and PascalCase
+# mock parameter naming (N803/N806/PT019) are all noise in test files.
+"tests/**/*" = ["S", "PLR", "PT011", "PT004", "PT019", "N803", "N806", "E501"]
 "**/__init__.py" = ["F401"]
 
 [tool.ruff.lint.isort]

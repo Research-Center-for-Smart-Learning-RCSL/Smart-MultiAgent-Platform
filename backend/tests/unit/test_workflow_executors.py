@@ -9,10 +9,7 @@ from __future__ import annotations
 import uuid
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
-
 from contexts.workflow.domain.models import (
-    JoinMode,
     NodeSpec,
     NodeType,
     RunContext,
@@ -211,7 +208,7 @@ class TestSetVariableExecutor:
             {"assignments": [{"variable": "doubled", "expression": "{{ base }} * 2"}]},
         )
 
-        outcome = await execute(ctx, node, AsyncMock())
+        await execute(ctx, node, AsyncMock())
 
         assert ctx.variables["doubled"] == 200
 

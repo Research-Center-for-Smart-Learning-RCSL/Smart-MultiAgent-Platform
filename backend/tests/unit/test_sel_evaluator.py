@@ -17,7 +17,6 @@ from contexts.workflow.domain.errors import (
 from contexts.workflow.sel.evaluator import evaluate, validate
 from contexts.workflow.sel.template import interpolate
 
-
 # ---------------------------------------------------------------------------
 # Literals + variable resolution
 # ---------------------------------------------------------------------------

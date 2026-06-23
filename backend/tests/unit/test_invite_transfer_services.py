@@ -351,7 +351,7 @@ class TestInviteAcceptProject:
         scope_row.first.return_value = MagicMock()
         svc._db.execute.return_value = scope_row
 
-        result = await svc.accept(
+        await svc.accept(
             invite_id=_INVITE,
             caller_email="bob@example.com",
             caller_user_id=_TARGET,

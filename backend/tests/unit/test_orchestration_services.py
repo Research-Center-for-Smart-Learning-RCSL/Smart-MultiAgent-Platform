@@ -10,7 +10,7 @@ with depth guard + concurrency cap + inherited context + workflow callback.
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -26,12 +26,12 @@ from contexts.orchestration.domain.errors import (
 )
 from contexts.orchestration.domain.models import (
     SUBAGENT_MAX_CONCURRENT_HARD,
+    AgentInstance,
     Approval,
     ApprovalGateConfig,
     ApprovalMode,
     ApprovalState,
     ApprovalVote,
-    AgentInstance,
     Instruction,
     InstructionState,
 )
