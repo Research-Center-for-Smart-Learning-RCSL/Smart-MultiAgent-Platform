@@ -8,7 +8,6 @@ exercise the service-layer orchestration logic that stitches them together.
 from __future__ import annotations
 
 import uuid
-from dataclasses import replace
 from datetime import datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -31,11 +30,12 @@ from contexts.identity.domain.errors import (
     TokenInvalid,
 )
 from contexts.identity.domain.models import User, UserStatus
-from shared_kernel.auth.password import PasswordHasher, PasswordVerification
+from shared_kernel.auth.password import PasswordHasher
 
 _NOW = datetime(2026, 6, 22, 12, 0, 0)
 _VALID_PASSWORD = "Str0ng!Pass#1"
 _HASHER = PasswordHasher()
+_PRECOMPUTED_HASH = _HASHER.hash(_VALID_PASSWORD)
 
 
 def _make_user(
@@ -48,7 +48,7 @@ def _make_user(
     return User(
         id=uuid.uuid4(),
         email=email,
-        password_hash=_HASHER.hash(_VALID_PASSWORD),
+        password_hash=_PRECOMPUTED_HASH,
         email_verified=email_verified,
         status=status,
         banned_reason=banned_reason,
