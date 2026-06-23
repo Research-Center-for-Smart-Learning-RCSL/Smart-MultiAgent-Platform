@@ -82,8 +82,22 @@ class SearchActivationConflict(KeysError):
     code = "search/activation-conflict"
 
 
+class GroupWrongProject(KeysError):
+    """Caller tried to attach a key not carried into this group's project."""
+
+    code = "keys/not-carried"
+
+
+class GroupMemberConflict(KeysError):
+    """Key is already a member of this group or a priority collision occurred."""
+
+    code = "keys/member-conflict"
+
+
 __all__ = [
     "CapabilityMismatch",
+    "GroupMemberConflict",
+    "GroupWrongProject",
     "KeyGroupExhausted",
     "KeyNotFound",
     "KeyNotOwnedByCaller",

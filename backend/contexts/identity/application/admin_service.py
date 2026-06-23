@@ -195,6 +195,8 @@ class AdminService:
         actor_ip: str | None,
         request_id: uuid.UUID | None = None,
     ) -> None:
+        from contexts.tenancy.interfaces.facade import TenancyFacade
+
         user = await self._users.get_by_id(target_user_id)
         if user is None:
             raise ValueError(f"user {target_user_id} not found")
@@ -203,6 +205,11 @@ class AdminService:
         grace_days = (now() - user.deleted_at).days
         if grace_days < 60:
             raise ValueError(f"60-day grace period not elapsed ({grace_days}d)")
+        await TenancyFacade(self._db).cascade_account_deletion(
+            user_id=target_user_id,
+            actor_ip=actor_ip,
+            request_id=request_id,
+        )
         await self._db.execute(t.users.delete().where(t.users.c.id == target_user_id))
         await audit.emit(
             self._db,
@@ -270,7 +277,7 @@ class AdminService:
         actor_ip: str | None,
         request_id: uuid.UUID | None = None,
     ) -> None:
-        admin_ids = await self._admins.list_admin_ids()
+        admin_ids = await self._admins.list_active_admin_ids(for_update=True)
         if len(admin_ids) <= 1 and target_user_id in admin_ids:
             raise LastAdminError()
         await self._admins.demote(target_user_id)

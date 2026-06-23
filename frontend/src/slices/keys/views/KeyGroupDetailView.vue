@@ -171,7 +171,7 @@ watch([groupId, projectId], async () => {
                 :value="m.limits.max_input_tokens_per_hour ?? ''"
                 @change="
                   patchMember(m.key_id, {
-                    max_input_tokens_per_hour: Number(($event.target as HTMLInputElement).value) || null,
+                    max_input_tokens_per_hour: ($event.target as HTMLInputElement).value === '' ? null : Number(($event.target as HTMLInputElement).value),
                   })
                 "
               >
@@ -183,7 +183,7 @@ watch([groupId, projectId], async () => {
                 :value="m.limits.max_output_tokens_per_hour ?? ''"
                 @change="
                   patchMember(m.key_id, {
-                    max_output_tokens_per_hour: Number(($event.target as HTMLInputElement).value) || null,
+                    max_output_tokens_per_hour: ($event.target as HTMLInputElement).value === '' ? null : Number(($event.target as HTMLInputElement).value),
                   })
                 "
               >
@@ -195,7 +195,7 @@ watch([groupId, projectId], async () => {
                 :value="m.limits.max_requests_per_hour ?? ''"
                 @change="
                   patchMember(m.key_id, {
-                    max_requests_per_hour: Number(($event.target as HTMLInputElement).value) || null,
+                    max_requests_per_hour: ($event.target as HTMLInputElement).value === '' ? null : Number(($event.target as HTMLInputElement).value),
                   })
                 "
               >

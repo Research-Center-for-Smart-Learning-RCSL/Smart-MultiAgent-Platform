@@ -3,9 +3,13 @@ import { useMutation } from '@tanstack/vue-query'
 import { accessTokenClaims, getAccessToken, setAccessToken } from '@shared/transport'
 import { adminApi } from '../api/admin'
 
+const _STORAGE_KEY = 'smap:impersonation:admin_token'
+
 /** Saved admin token to restore after impersonation ends (B5).
- *  Module-scoped so all callers of useImpersonation() share the same ref. */
-const savedAdminToken = ref<string | null>(null)
+ *  Backed by sessionStorage so the value survives page refreshes. */
+const savedAdminToken = ref<string | null>(
+  sessionStorage.getItem(_STORAGE_KEY),
+)
 
 export function useImpersonation() {
   // Both derive from the reactive `accessTokenClaims`, so they recompute the
@@ -26,7 +30,9 @@ export function useImpersonation() {
   const startImpersonation = useMutation({
     mutationFn: (userId: string) => adminApi.impersonate(userId),
     onSuccess: (res) => {
-      savedAdminToken.value = getAccessToken()
+      const adminToken = getAccessToken()
+      savedAdminToken.value = adminToken
+      if (adminToken) sessionStorage.setItem(_STORAGE_KEY, adminToken)
       setAccessToken(res.data.access_token)
     },
   })
@@ -36,6 +42,7 @@ export function useImpersonation() {
     onSuccess: () => {
       setAccessToken(savedAdminToken.value)
       savedAdminToken.value = null
+      sessionStorage.removeItem(_STORAGE_KEY)
     },
   })
 

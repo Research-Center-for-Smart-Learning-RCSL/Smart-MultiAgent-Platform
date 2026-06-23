@@ -29,23 +29,14 @@
           v-model="restoreType"
           :aria-label="$t('admin.ops.resourceType')"
         >
+          <option value="user">
+            {{ $t('admin.ops.typeUser') }}
+          </option>
           <option value="org">
             {{ $t('admin.ops.typeOrg') }}
           </option>
           <option value="project">
             {{ $t('admin.ops.typeProject') }}
-          </option>
-          <option value="agent">
-            {{ $t('admin.ops.typeAgent') }}
-          </option>
-          <option value="workflow">
-            {{ $t('admin.ops.typeWorkflow') }}
-          </option>
-          <option value="chatroom">
-            {{ $t('admin.ops.typeChatroom') }}
-          </option>
-          <option value="user">
-            {{ $t('admin.ops.typeUser') }}
           </option>
         </select>
         <input

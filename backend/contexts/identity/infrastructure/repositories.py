@@ -361,10 +361,21 @@ class AdminRepository:
         ).first()
         return row is not None
 
-    async def list_admin_ids(self) -> set[uuid.UUID]:
-        rows = (
-            await self._db.execute(sa.select(t.admins.c.user_id).where(t.admins.c.revoked_at.is_(None)))
-        ).all()
+    async def list_active_admin_ids(self, *, for_update: bool = False) -> set[uuid.UUID]:
+        stmt = (
+            sa.select(t.admins.c.user_id)
+            .join(t.users, t.admins.c.user_id == t.users.c.id)
+            .where(
+                sa.and_(
+                    t.admins.c.revoked_at.is_(None),
+                    t.users.c.status == "active",
+                    t.users.c.deleted_at.is_(None),
+                )
+            )
+        )
+        if for_update:
+            stmt = stmt.with_for_update()
+        rows = (await self._db.execute(stmt)).all()
         return {r.user_id for r in rows}
 
     async def promote(

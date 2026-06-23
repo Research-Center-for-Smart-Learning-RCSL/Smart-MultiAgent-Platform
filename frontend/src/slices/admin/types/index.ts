@@ -101,7 +101,7 @@ export interface IpBan {
   cidr: string
   reason: string
   created_by_user_id: string
-  created_at: string
+  banned_at: string
 }
 
 export interface OrgQuotas {

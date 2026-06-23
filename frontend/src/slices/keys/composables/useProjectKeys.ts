@@ -32,10 +32,10 @@ export function useProjectKeys(projectId: () => string) {
     if (!pid) return
     try {
       await projectKeysApi.carry(pid, keyId)
+      await reload()
     } catch (e) {
       error.value = errorMessage(e)
     }
-    await reload()
   }
 
   async function withdraw(keyId: string): Promise<void> {
@@ -43,10 +43,10 @@ export function useProjectKeys(projectId: () => string) {
     if (!pid) return
     try {
       await projectKeysApi.withdraw(pid, keyId)
+      await reload()
     } catch (e) {
       error.value = errorMessage(e)
     }
-    await reload()
   }
 
   return { carried, loading, error, isError, reload, carry, withdraw }

@@ -48,13 +48,13 @@ class KeysFacade:
         """
         return await KeyGroupRepository(self._db).get_active(group_id)
 
-    async def unwrap_api_key_plaintext(self, key_id: uuid.UUID) -> bytes:
+    async def unwrap_api_key_plaintext(self, key_id: uuid.UUID) -> bytearray:
         """Decrypt an `api_keys` row's envelope and return the plaintext.
 
         Used by the knowledge context (E.5 / E.6) so embedder + reranker
         adapters can sign outbound provider calls without re-implementing
-        the envelope unwrap. Caller is responsible for *zeroising* the
-        returned bytes after use.
+        the envelope unwrap. Caller is responsible for zeroising the
+        returned bytearray after use (``plaintext[:] = b"\\x00" * len(plaintext)``).
         """
         from contexts.keys.domain.errors import KeyNotFound
         from contexts.keys.infrastructure.repositories import (
@@ -67,7 +67,7 @@ class KeysFacade:
         if loaded is None:
             raise KeyNotFound(str(key_id))
         _key, record = loaded
-        return env.decrypt_envelope(record, env.api_key_aad(key_id))
+        return bytearray(env.decrypt_envelope(record, env.api_key_aad(key_id)))
 
     async def revoke_carries_for_user_leaving_project(
         self,

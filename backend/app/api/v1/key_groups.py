@@ -16,7 +16,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.deps import PaginationParams
-from contexts.keys.application.group_service import KeyGroupService, MemberPatchInput
+from contexts.keys.application.group_service import KeyGroupService
 from contexts.keys.domain.errors import KeyNotFound
 from contexts.keys.domain.groups import KeyGroup, KeyGroupMember
 from contexts.tenancy.interfaces.role_resolver import TenancyRoleResolver
@@ -314,25 +314,16 @@ async def patch_member(
     ctx: RequestContext = Depends(current_context),
     db: AsyncSession = Depends(db_session),
 ) -> None:
+    col_updates: dict[str, object] = {}
+    for field_name in payload.model_fields_set:
+        value = getattr(payload, field_name)
+        if field_name == "rotate_on_error_codes" and value is not None:
+            value = list(value)
+        col_updates[field_name] = value
     await KeyGroupService(db).patch_member(
         group_id=group_id,
         key_id=key_id,
-        updates=MemberPatchInput(
-            priority=payload.priority,
-            rotate_on_error_codes=(
-                tuple(payload.rotate_on_error_codes) if payload.rotate_on_error_codes is not None else None
-            ),
-            rotate_on_token_quota=payload.rotate_on_token_quota,
-            retry_on_error=payload.retry_on_error,
-            retry_initial_delay_ms=payload.retry_initial_delay_ms,
-            retry_multiplier=payload.retry_multiplier,
-            retry_max_delay_ms=payload.retry_max_delay_ms,
-            retry_max=payload.retry_max,
-            retry_jitter_pct=payload.retry_jitter_pct,
-            max_input_tokens_per_hour=payload.max_input_tokens_per_hour,
-            max_output_tokens_per_hour=payload.max_output_tokens_per_hour,
-            max_requests_per_hour=payload.max_requests_per_hour,
-        ),
+        col_updates=col_updates,
         actor_user_id=principal.user_id,
         request_id=ctx.request_id,
     )
