@@ -196,6 +196,7 @@ services:
 
   neo4j:
     <<: *security-defaults
+    cap_add: [CHOWN, SETUID, SETGID, FOWNER, DAC_OVERRIDE]
     restart: unless-stopped
     shm_size: 512m
     environment:
