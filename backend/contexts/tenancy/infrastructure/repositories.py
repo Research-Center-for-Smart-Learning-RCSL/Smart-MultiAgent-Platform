@@ -459,6 +459,21 @@ class ProjectMemberRepository:
             )
         )
 
+    async def remove_user_from_projects(
+        self, *, user_id: uuid.UUID, project_ids: list[uuid.UUID]
+    ) -> int:
+        if not project_ids:
+            return 0
+        result = await self._db.execute(
+            t.project_members.delete().where(
+                sa.and_(
+                    t.project_members.c.user_id == user_id,
+                    t.project_members.c.project_id.in_(project_ids),
+                )
+            )
+        )
+        return result.rowcount
+
     async def change_role(
         self, *, project_id: uuid.UUID, user_id: uuid.UUID, new_role: ProjectMemberRole
     ) -> int:

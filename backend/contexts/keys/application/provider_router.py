@@ -586,10 +586,15 @@ class ProviderRouter:
 
     async def _quota_exceeded(self, em: _EligibleMember) -> bool:
         lim = em.member.limits
-        if _limits_unbounded(lim):
+        check_tokens = em.member.rotation.rotate_on_token_quota and (
+            lim.max_input_tokens_per_hour is not None
+            or lim.max_output_tokens_per_hour is not None
+        )
+        check_requests = lim.max_requests_per_hour is not None
+        if not check_tokens and not check_requests:
             return False
         used = await redis_buckets.usage(em.key.id)
-        if em.member.rotation.rotate_on_token_quota:
+        if check_tokens:
             if lim.max_input_tokens_per_hour is not None and used.input_tokens >= lim.max_input_tokens_per_hour:
                 return True
             if (
@@ -597,7 +602,7 @@ class ProviderRouter:
                 and used.output_tokens >= lim.max_output_tokens_per_hour
             ):
                 return True
-        if lim.max_requests_per_hour is not None and used.requests >= lim.max_requests_per_hour:  # noqa: SIM103 (guard-clause chain)
+        if check_requests and used.requests >= lim.max_requests_per_hour:  # type: ignore[operator]
             return True
         return False
 
@@ -665,13 +670,6 @@ class _KeyVanished(RuntimeError):
 # `contexts.keys.domain.providers` (no duplicated capability matrix here).
 _CAPS: dict[ApiKeyProvider, frozenset[ProviderCapability]] = {p: capabilities_of(p) for p in ApiKeyProvider}
 
-
-def _limits_unbounded(lim: HourlyLimits) -> bool:
-    return (
-        lim.max_input_tokens_per_hour is None
-        and lim.max_output_tokens_per_hour is None
-        and lim.max_requests_per_hour is None
-    )
 
 
 __all__ = [

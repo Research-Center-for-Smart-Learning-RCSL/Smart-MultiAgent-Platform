@@ -265,5 +265,30 @@ class CarryService:
                 await publish_carry_revoked(key_id=key_id, project_id=project_id)
         return revoked
 
+    async def revoke_for_user_in_projects(
+        self,
+        *,
+        user_id: uuid.UUID,
+        project_ids: list[uuid.UUID],
+    ) -> int:
+        """Batch-withdraw all carries of ``user_id`` across multiple projects."""
+        if not project_ids:
+            return 0
+        now = datetime.now(tz=UTC)
+        result = await self._db.execute(
+            t.key_projects.update()
+            .where(
+                sa.and_(
+                    t.key_projects.c.project_id.in_(project_ids),
+                    t.key_projects.c.carried.is_(True),
+                    t.key_projects.c.key_id.in_(
+                        sa.select(t.api_keys.c.id).where(t.api_keys.c.owner_user_id == user_id)
+                    ),
+                )
+            )
+            .values(carried=False, withdrawn_at=now)
+        )
+        return result.rowcount
+
 
 __all__ = ["CarryService", "UsageSummary"]

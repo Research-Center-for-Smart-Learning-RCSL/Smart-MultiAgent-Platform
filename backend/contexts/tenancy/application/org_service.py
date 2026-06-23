@@ -195,16 +195,17 @@ class OrgService:
             raise OriginalCreatorConflict("Original Creator cannot be removed")
         await self._members.remove(org_id=org_id, user_id=target_user_id)
         org_projects = await self._projects.list_by_org(org_id)
-        proj_members = ProjectMemberRepository(self._db)
+        project_ids = [p.id for p in org_projects]
         from contexts.keys.interfaces.facade import KeysFacade
 
-        keys_facade = KeysFacade(self._db)
-        for proj in org_projects:
-            await keys_facade.revoke_carries_for_user_leaving_project(
-                user_id=target_user_id,
-                project_id=proj.id,
-            )
-            await proj_members.remove(project_id=proj.id, user_id=target_user_id)
+        revoked = await KeysFacade(self._db).revoke_carries_for_user_in_projects(
+            user_id=target_user_id,
+            project_ids=project_ids,
+        )
+        removed = await ProjectMemberRepository(self._db).remove_user_from_projects(
+            user_id=target_user_id,
+            project_ids=project_ids,
+        )
         await audit.emit(
             self._db,
             audit.AuditEvent(
@@ -215,7 +216,9 @@ class OrgService:
                 resource_id=org_id,
                 metadata={
                     "target_user_id": str(target_user_id),
-                    "cascade_projects": len(org_projects),
+                    "cascade_projects": len(project_ids),
+                    "carries_revoked": revoked,
+                    "memberships_removed": removed,
                 },
                 request_id=request_id,
             ),
