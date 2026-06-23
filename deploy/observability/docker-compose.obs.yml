@@ -33,12 +33,17 @@ services:
       - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - ./prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
       - prometheus_data:/prometheus
+      # Vault TLS CA so Prometheus can scrape vault:8200/v1/sys/metrics.
+      # The token file must be provisioned by the operator (see docs/operations.md).
+      - ../vault/certs/vault-internal-ca.pem:/etc/prometheus/vault-ca.pem:ro
     command:
       - "--config.file=/etc/prometheus/prometheus.yml"
       - "--storage.tsdb.retention.time=15d"
       - "--web.enable-remote-write-receiver"
     ports:
       - "9090:9090"
+    depends_on:
+      - alertmanager
     networks:
       - backend_net
     logging:
@@ -99,6 +104,66 @@ services:
         max-size: "25m"
         max-file: "3"
 
+  # ─── Alertmanager — alert routing to email / Slack / webhook ────
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    container_name: smap_alertmanager
+    volumes:
+      - ./alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - alertmanager_data:/alertmanager
+    command:
+      - "--config.file=/etc/alertmanager/alertmanager.yml"
+      - "--storage.path=/alertmanager"
+    ports:
+      - "9093:9093"
+    networks:
+      - backend_net
+    logging:
+      driver: json-file
+      options:
+        max-size: "25m"
+        max-file: "3"
+
+  # ─── DB exporters — Postgres, Redis, Neo4j metrics ─────────
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:v0.15.0
+    container_name: smap_postgres_exporter
+    environment:
+      DATA_SOURCE_NAME: "postgresql://${SMAP_DB_USER:-smap}:${SMAP_DB_PASSWORD:?}@postgres:5432/${SMAP_DB_NAME:-smap}?sslmode=disable"
+    networks:
+      - backend_net
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "2"
+
+  redis-exporter:
+    image: oliver006/redis_exporter:v1.61.0
+    container_name: smap_redis_exporter
+    environment:
+      REDIS_ADDR: "redis://redis:6379"
+      REDIS_PASSWORD: "${SMAP_REDIS_PASSWORD:?}"
+    networks:
+      - backend_net
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "2"
+
+  neo4j-exporter:
+    image: neo4j:5.20-community
+    container_name: smap_neo4j_exporter
+    entrypoint: ["sh", "-c", "echo 'Neo4j metrics via plugin — see compose env vars'; sleep infinity"]
+    # Neo4j exposes Prometheus metrics natively when the plugin is enabled.
+    # This placeholder documents the dependency; the actual metrics come
+    # from the core neo4j service with NEO4J_METRICS_* env vars.
+    profiles:
+      - never
+    networks:
+      - backend_net
+
   grafana:
     image: grafana/grafana:11.1.0
     container_name: smap_grafana
@@ -154,6 +219,7 @@ volumes:
   tempo_data:
   grafana_data:
   promtail_positions:
+  alertmanager_data:
 
 networks:
   backend_net:
