@@ -218,8 +218,6 @@ services:
       NEO4J_AUTH: neo4j/${SMAP_NEO4J_PASSWORD:-neo4jneo4j}   # DEV ONLY — set SMAP_NEO4J_PASSWORD in prod
       NEO4J_server_memory_heap_initial__size: "1G"
       NEO4J_server_memory_heap_max__size: "2G"
-      NEO4J_server_metrics_prometheus_enabled: "true"
-      NEO4J_server_metrics_prometheus_endpoint: "0.0.0.0:2004"
     volumes:
       - neo4j_data:/data
     networks: [data_net]
