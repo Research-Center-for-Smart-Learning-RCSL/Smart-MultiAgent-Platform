@@ -25,6 +25,7 @@ from contexts.orchestration.domain.errors import (
     SubagentDepthExceeded,
 )
 from contexts.orchestration.domain.models import (
+    SUBAGENT_MAX_CONCURRENT_HARD,
     Approval,
     ApprovalGateConfig,
     ApprovalMode,
@@ -252,6 +253,34 @@ class TestEvaluateVotesConsensus:
     def test_not_all_voted_returns_none(self) -> None:
         ap = _approval(mode=ApprovalMode.CONSENSUS)
         votes = [_vote(_AGENT_A, True), _vote(_AGENT_B, True)]
+        assert ApprovalService._evaluate_votes(ap, votes) is None
+
+
+class TestEvaluateVotesNonApprover:
+    def test_non_approver_vote_is_ignored_in_single(self) -> None:
+        outsider = uuid.uuid4()
+        ap = _approval(mode=ApprovalMode.SINGLE, leader=_AGENT_A)
+        votes = [_vote(outsider, True)]
+        assert ApprovalService._evaluate_votes(ap, votes) is None
+
+    def test_non_approver_vote_does_not_count_in_majority(self) -> None:
+        outsider = uuid.uuid4()
+        ap = _approval(
+            mode=ApprovalMode.MAJORITY,
+            approvers=(_AGENT_A, _AGENT_B),
+            leader=_AGENT_A,
+        )
+        votes = [_vote(_AGENT_A, True), _vote(outsider, True)]
+        assert ApprovalService._evaluate_votes(ap, votes) is None
+
+    def test_non_approver_vote_does_not_count_in_consensus(self) -> None:
+        outsider = uuid.uuid4()
+        ap = _approval(
+            mode=ApprovalMode.CONSENSUS,
+            approvers=(_AGENT_A, _AGENT_B),
+            leader=_AGENT_A,
+        )
+        votes = [_vote(_AGENT_A, True), _vote(outsider, True)]
         assert ApprovalService._evaluate_votes(ap, votes) is None
 
 
@@ -558,7 +587,7 @@ class TestSubagentSpawn:
         parent = _instance(parent_id=None)
         instances = AsyncMock()
         instances.get.return_value = parent
-        instances.count_alive_children.return_value = 20
+        instances.count_alive_children.return_value = SUBAGENT_MAX_CONCURRENT_HARD
         svc = _make_subagent_service(instances=instances)
 
         with pytest.raises(SubagentConcurrencyExceeded):
@@ -566,7 +595,7 @@ class TestSubagentSpawn:
                 parent_instance_id=parent.id,
                 parent_agent_id=_AGENT_A,
                 task_description="nope",
-                max_concurrent=100,
+                max_concurrent=SUBAGENT_MAX_CONCURRENT_HARD * 5,
             )
 
 

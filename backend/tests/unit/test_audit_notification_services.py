@@ -10,8 +10,8 @@ from __future__ import annotations
 import csv
 import io
 import uuid
-from datetime import datetime, timedelta
-from unittest.mock import AsyncMock, MagicMock, call, patch
+from datetime import datetime
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -189,12 +189,11 @@ class TestAuditPurge:
     @patch("shared_kernel.auth.clients.now", return_value=_NOW)
     async def test_purge_resets_role_on_error(self, _now) -> None:
         db = AsyncMock()
-        call_count = 0
+        executed_sql: list[str] = []
 
         async def execute_side(sql, **kwargs):
-            nonlocal call_count
-            call_count += 1
             text = str(sql)
+            executed_sql.append(text)
             if "DELETE FROM" in text:
                 raise RuntimeError("simulated DB error")
             return MagicMock()
@@ -204,6 +203,11 @@ class TestAuditPurge:
 
         with pytest.raises(RuntimeError):
             await svc.purge_old_logs()
+
+        assert any("smap_audit_retention" in s for s in executed_sql)
+        assert any("RESET ROLE" in s for s in executed_sql), (
+            "RESET ROLE must execute even when DELETE fails"
+        )
 
 
 # ===========================================================================
