@@ -136,16 +136,20 @@ export function useChatroomSocket(roomId: string) {
         clearThinkingTimeout()
         if (agentId) {
           store.setAgentThinking(roomId, agentId, false)
-          // On success the backend emits message.created BEFORE
-          // agent.finished (turn_engine L564→L573), so the message.created
-          // handler already cleared the stream.  Only clear here when no
-          // message.created preceded us (error / empty_reply / empty input).
-          if (!ev.message_id) {
-            store.clearAgentStream(roomId, agentId)
-          }
+          // Always clear — on success the persisted message has already
+          // arrived via message.created so the clear is harmless; on
+          // error/empty_reply this is the only cleanup site. Clearing
+          // unconditionally is safer than relying on message.created
+          // delivery which can be lost during reconnect races (R7).
+          store.clearAgentStream(roomId, agentId)
         }
         if (typeof ev.error === 'string' && ev.error) {
           store.setAgentError(roomId, ev.error)
+        }
+        // Re-arm the watchdog if other agents are still active so a
+        // second agent's stuck turn still gets timed out (R1).
+        if (store.isAnyAgentThinking(roomId)) {
+          armThinkingTimeout()
         }
         break
       case 'approval.requested': {

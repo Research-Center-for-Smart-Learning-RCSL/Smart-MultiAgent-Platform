@@ -146,6 +146,11 @@ export async function sendMessage(
   return data
 }
 
+export async function getMessage(messageId: string): Promise<Message> {
+  const { data } = await http.get<Message>(`/messages/${messageId}`)
+  return data
+}
+
 export async function editMessage(
   messageId: string,
   version: number,

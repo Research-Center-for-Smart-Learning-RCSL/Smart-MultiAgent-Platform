@@ -11,6 +11,7 @@ import { useSessionStore } from '@shared/stores/session'
 import {
   deleteMessage as apiDeleteMessage,
   editMessage as apiEditMessage,
+  getMessage,
   listMessages,
   sendMessage,
   compactChatroom,
@@ -90,7 +91,9 @@ export function useChatroomMessages(
 
   const messages = computed<Message[]>(() => {
     const recent = query.data.value ?? []
-    return [...olderMessages.value, ...recent].sort((a, b) =>
+    const recentIds = new Set(recent.map((m) => m.id))
+    const deduped = olderMessages.value.filter((m) => !recentIds.has(m.id))
+    return [...deduped, ...recent].sort((a, b) =>
       a.created_at < b.created_at ? -1 : 1,
     )
   })
@@ -271,9 +274,19 @@ export function useChatroomMessages(
   // ---------- remote mutation sync (BUG-7) ----------------------------------
 
   function dropOlderMessage(messageId: string): void {
+    olderMessages.value = olderMessages.value.filter((m) => m.id !== messageId)
+  }
+
+  async function refreshOlderMessage(messageId: string): Promise<void> {
     const idx = olderMessages.value.findIndex((m) => m.id === messageId)
-    if (idx !== -1) {
-      olderMessages.value = olderMessages.value.filter((m) => m.id !== messageId)
+    if (idx === -1) return
+    try {
+      const fresh = await getMessage(messageId)
+      olderMessages.value = olderMessages.value.map((m) => (m.id === messageId ? fresh : m))
+    } catch {
+      // Message may have been deleted between the event and the fetch —
+      // drop it so the stale version doesn't linger.
+      dropOlderMessage(messageId)
     }
   }
 
@@ -305,5 +318,6 @@ export function useChatroomMessages(
     canDelete,
     // remote mutation sync
     dropOlderMessage,
+    refreshOlderMessage,
   }
 }

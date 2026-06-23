@@ -22,7 +22,7 @@ describe('AdminIpBansView', () => {
     server.use(
       http.get('/api/admin/ip-bans', () =>
         HttpResponse.json([
-          { id: 'ban_1', cidr: '192.168.0.0/16', reason: 'Abuse', created_at: '2026-01-01T00:00:00Z' },
+          { id: 'ban_1', cidr: '192.168.0.0/16', reason: 'Abuse', created_by_user_id: 'u1', banned_at: '2026-01-01T00:00:00Z' },
         ]),
       ),
     )

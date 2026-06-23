@@ -273,6 +273,7 @@ const {
   canEdit,
   canDelete,
   dropOlderMessage,
+  refreshOlderMessage,
 } = useChatroomMessages(chatroomId, projectId, listRef)
 
 const {
@@ -298,7 +299,7 @@ const orchStore = useOrchestrationStore()
 // BUG-7: sync the older-messages page cache on remote edits/deletes so stale
 // entries don't linger. The TanStack query invalidation only refetches the
 // latest page; `olderMessages` is a local ref that must be patched manually.
-wsChannel.subscribe('message.updated', (ev) => dropOlderMessage(ev.message_id as string))
+wsChannel.subscribe('message.updated', (ev) => void refreshOlderMessage(ev.message_id as string))
 wsChannel.subscribe('message.deleted', (ev) => dropOlderMessage(ev.message_id as string))
 
 function emitTyping(): void {
@@ -326,13 +327,34 @@ const typingList = computed(() => {
   return Array.from(set).filter((uid) => uid !== myId.value)
 })
 
-// Per-agent streaming draft bubbles — sanitised exactly like persisted messages.
+// Per-agent streaming draft bubbles — memoised so only the agent whose text
+// changed gets re-rendered (renderMarkdown + DOMPurify is expensive at token
+// frequency). The cache maps agentId → {source, html}.
+const _streamCache = new Map<string, { source: string; html: string }>()
 const streamingEntries = computed<[string, string][]>(() => {
   const roomStreams = store.agentStreams[chatroomId]
-  if (!roomStreams) return []
-  return Object.entries(roomStreams)
-    .filter(([, text]) => !!text)
-    .map(([agentId, text]) => [agentId, renderMarkdown(text)])
+  if (!roomStreams) {
+    _streamCache.clear()
+    return []
+  }
+  const activeIds = new Set<string>()
+  const entries: [string, string][] = []
+  for (const [agentId, text] of Object.entries(roomStreams)) {
+    if (!text) continue
+    activeIds.add(agentId)
+    const cached = _streamCache.get(agentId)
+    if (cached && cached.source === text) {
+      entries.push([agentId, cached.html])
+    } else {
+      const html = renderMarkdown(text)
+      _streamCache.set(agentId, { source: text, html })
+      entries.push([agentId, html])
+    }
+  }
+  for (const key of _streamCache.keys()) {
+    if (!activeIds.has(key)) _streamCache.delete(key)
+  }
+  return entries
 })
 
 // Agent failure surfaced by the socket layer: backend agent.finished{error}
