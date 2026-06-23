@@ -752,9 +752,10 @@ class RunEngine:
 
             redis = get_redis()
             redis_key = f"wf:retry:{ctx.run_id}:{node.id}"
-            new_count = await redis.incr(redis_key)
-            if new_count == 1:
-                await redis.expire(redis_key, 3600)
+            pipe = redis.pipeline(transaction=False)
+            pipe.incr(redis_key)
+            pipe.expire(redis_key, 3600)
+            new_count = (await pipe.execute())[0]
 
             if new_count <= node.on_error.retry_max:
                 backoff_ms = min(node.on_error.retry_backoff_ms * new_count, 60_000)

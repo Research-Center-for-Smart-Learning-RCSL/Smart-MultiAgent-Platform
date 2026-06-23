@@ -232,6 +232,10 @@ async def _dispatch_message_wakeups(db: AsyncSession, chatroom_id: uuid.UUID) ->
             chatroom_id,
             exc_info=True,
         )
+        try:
+            await db.rollback()
+        except Exception:
+            pass
 
 
 async def _dispatch_message_workflow_signal(chatroom_id: uuid.UUID, content: str) -> None:
@@ -295,14 +299,19 @@ async def edit_message(
     msg, access = await _load_message_with_access(db, principal, message_id)
     ensure_can_read(access, is_admin=principal.is_admin)
     expected = _parse_if_match(if_match)
+    authority = _authority_from(access, principal)
     service = MessageService(db)
     updated = await service.edit(
         message_id=message_id,
         expected_version=expected,
         new_content_md=body.content_md,
-        authority=_authority_from(access, principal),
+        authority=authority,
         actor_ip=ctx.actor_ip,
         request_id=ctx.request_id,
+    )
+    by_moderator = (
+        (authority.is_admin or authority.is_moderator)
+        and authority.actor_user_id != msg.sender_id
     )
     await db.commit()
     try:
@@ -312,10 +321,7 @@ async def edit_message(
                 "message_id": str(message_id),
                 "version": updated.version,
                 "edited_at": updated.edited_at.isoformat() if updated.edited_at else None,
-                "by_moderator": (
-                    (principal.is_admin or access.is_moderator)
-                    and principal.user_id != msg.sender_id
-                ),
+                "by_moderator": by_moderator,
             },
         )
     except Exception:

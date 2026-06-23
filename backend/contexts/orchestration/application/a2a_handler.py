@@ -81,10 +81,7 @@ async def _handle_call(envelope: A2AEnvelope) -> None:
         result = await _run_turn(to_id, envelope)
     except Exception:  # fail-fast: the caller is blocking on the rendezvous
         logger.exception("a2a call %s turn raised", envelope.correlation_id)
-        try:
-            await _deliver_error(envelope, "agent turn failed")
-        except Exception:
-            logger.exception("a2a call %s: error delivery also failed", envelope.correlation_id)
+        await _deliver_error(envelope, "agent turn failed")
         return
 
     if result.status != "completed":
@@ -212,18 +209,23 @@ async def _dispatch_a2a_workflow_signal(envelope: A2AEnvelope) -> None:
 
 
 async def _deliver_error(envelope: A2AEnvelope, detail: str) -> None:
-    error_reply = {
-        "type": A2AMessageType.REPLY.value,
-        "from_agent": envelope.to_agent,
-        "to_agent": str(envelope.from_agent) if envelope.from_agent else None,
-        "correlation_id": str(envelope.correlation_id),
-        "payload": {
-            a2a_rendezvous.A2A_ERROR_KEY: "agent call failed",
-            "detail": detail,
-        },
-    }
-    await a2a_rendezvous.deliver_reply(envelope.correlation_id, error_reply)
-    logger.info("a2a call %s answered with error reply: %s", envelope.correlation_id, detail)
+    """Best-effort error reply — must never raise so callers can return
+    normally and ACK the envelope (preventing infinite consumer retries)."""
+    try:
+        error_reply = {
+            "type": A2AMessageType.REPLY.value,
+            "from_agent": envelope.to_agent,
+            "to_agent": str(envelope.from_agent) if envelope.from_agent else None,
+            "correlation_id": str(envelope.correlation_id),
+            "payload": {
+                a2a_rendezvous.A2A_ERROR_KEY: "agent call failed",
+                "detail": detail,
+            },
+        }
+        await a2a_rendezvous.deliver_reply(envelope.correlation_id, error_reply)
+        logger.info("a2a call %s answered with error reply: %s", envelope.correlation_id, detail)
+    except Exception:
+        logger.exception("a2a call %s: error delivery failed (detail: %s)", envelope.correlation_id, detail)
 
 
 __all__ = ["handle_envelope"]
