@@ -16,7 +16,7 @@ services:
       - ../../backend:/app
       - /var/run/docker.sock:/var/run/docker.sock
     ports:
-      - "8000:8000"
+      - "28000:8000"
 
   backend-worker:
     container_name: smap_backend_worker
@@ -32,26 +32,26 @@ services:
 
   minio:
     ports:
-      - "9000:9000"
-      - "9001:9001"
+      - "29000:9000"
+      - "29001:9001"
 
   postgres:
     ports:
-      - "5432:5432"
+      - "25432:5432"
 
   redis:
     ports:
-      - "6379:6379"
+      - "26379:6379"
 
   vault:
     ports:
-      - "8200:8200"
+      - "28200:8200"
 
   qdrant:
     ports:
-      - "6333:6333"
+      - "26333:6333"
 
   neo4j:
     ports:
-      - "7474:7474"
-      - "7687:7687"
+      - "27474:7474"
+      - "27687:7687"

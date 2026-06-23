@@ -247,8 +247,8 @@ check_port() {
   fi
 }
 
-check_port 80 "nginx HTTP"
-check_port 443 "nginx HTTPS"
+check_port 10080 "nginx HTTP"
+check_port 10443 "nginx HTTPS"
 
 # ─── Summary ─────────────────────────────────────────────
 echo ""
