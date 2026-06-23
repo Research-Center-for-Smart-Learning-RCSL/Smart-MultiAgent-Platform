@@ -23,6 +23,7 @@ from typing import Final
 from shared_kernel.auth.clients import get_redis
 
 _HEARTBEAT_TTL_SECONDS: Final = 60
+_SET_TTL_SECONDS: Final = 300  # 5× heartbeat — volatile-lru safety net
 
 
 def _room_key(room_id: uuid.UUID) -> str:
@@ -48,8 +49,11 @@ class PresenceTracker:
         room (caller should publish a `presence.joined` event in that
         case), False if already present."""
         r = get_redis()
-        added = await r.sadd(_room_key(room_id), str(user_id))
-        await r.sadd(_user_rooms_key(user_id), str(room_id))
+        rk, uk = _room_key(room_id), _user_rooms_key(user_id)
+        added = await r.sadd(rk, str(user_id))
+        await r.sadd(uk, str(room_id))
+        await r.expire(rk, _SET_TTL_SECONDS)
+        await r.expire(uk, _SET_TTL_SECONDS)
         await r.set(_heartbeat_key(room_id, user_id), "1", ex=_HEARTBEAT_TTL_SECONDS)
         return bool(added)
 
@@ -59,11 +63,14 @@ class PresenceTracker:
         room_id: uuid.UUID,
         user_id: uuid.UUID,
     ) -> None:
-        await get_redis().set(
+        r = get_redis()
+        await r.set(
             _heartbeat_key(room_id, user_id),
             "1",
             ex=_HEARTBEAT_TTL_SECONDS,
         )
+        await r.expire(_room_key(room_id), _SET_TTL_SECONDS)
+        await r.expire(_user_rooms_key(user_id), _SET_TTL_SECONDS)
 
     async def leave(
         self,

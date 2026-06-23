@@ -53,6 +53,7 @@ services:
       - alertmanager
     networks:
       - backend_net
+      - data_net
     logging:
       driver: json-file
       options:

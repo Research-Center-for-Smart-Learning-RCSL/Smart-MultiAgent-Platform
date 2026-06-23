@@ -232,7 +232,7 @@ fi
 
 # Redis
 echo -n "  Redis:    "
-_redis_reply=$($COMPOSE exec -T redis redis-cli PING 2>/dev/null || echo "FAIL")
+_redis_reply=$($COMPOSE exec -T redis redis-cli -a "${SMAP_REDIS_PASSWORD:-}" PING 2>/dev/null || echo "FAIL")
 if [ "$_redis_reply" = "PONG" ]; then
   echo "✓ PONG"
   _healthy=$((_healthy + 1))
@@ -259,7 +259,7 @@ _vault_status=$($COMPOSE exec -T vault vault status -format=json 2>/dev/null) &&
 
 # Neo4j
 echo -n "  Neo4j:    "
-if $COMPOSE exec -T neo4j cypher-shell -u neo4j -p "${NEO4J_AUTH_PASSWORD:-neo4j}" "RETURN 1" >/dev/null 2>&1; then
+if $COMPOSE exec -T neo4j cypher-shell -u neo4j -p "${SMAP_NEO4J_PASSWORD:-neo4jneo4j}" "RETURN 1" >/dev/null 2>&1; then
   echo "✓ responding"
   _healthy=$((_healthy + 1))
 else

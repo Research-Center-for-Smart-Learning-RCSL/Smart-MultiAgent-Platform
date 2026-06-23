@@ -26,11 +26,22 @@ from shared_kernel.auth.password import PasswordHasher
 
 from ._common import BootstrapReport
 
-_PASSWORD_ALPHABET = string.ascii_letters + string.digits + "!@#%^*-_"
+_PASSWORD_SYMBOLS = "!@#%^*-_"
+_PASSWORD_ALPHABET = string.ascii_letters + string.digits + _PASSWORD_SYMBOLS
 
 
 def _generate_password(length: int = 24) -> str:
-    return "".join(secrets.choice(_PASSWORD_ALPHABET) for _ in range(length))
+    # Guarantee at least one of each required class so validate_password() never rejects.
+    mandatory = [
+        secrets.choice(string.ascii_uppercase),
+        secrets.choice(string.ascii_lowercase),
+        secrets.choice(string.digits),
+        secrets.choice(_PASSWORD_SYMBOLS),
+    ]
+    rest = [secrets.choice(_PASSWORD_ALPHABET) for _ in range(length - len(mandatory))]
+    pool = mandatory + rest
+    secrets.SystemRandom().shuffle(pool)
+    return "".join(pool)
 
 
 def _tables_exist(conn: object) -> bool:

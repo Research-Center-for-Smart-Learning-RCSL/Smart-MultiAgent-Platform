@@ -79,7 +79,9 @@ echo "  → neo4j.dump"
 
 # ---------- 5. Redis ----------
 echo "[5/5] Redis BGSAVE..."
-$COMPOSE exec -T redis redis-cli -a "${SMAP_REDIS_PASSWORD:?SMAP_REDIS_PASSWORD must be set}" BGSAVE 2>/dev/null
+# BGSAVE may return non-zero if a save is already in progress — the existing
+# dump.rdb is still valid, so do not let this abort the script.
+$COMPOSE exec -T redis redis-cli -a "${SMAP_REDIS_PASSWORD:?SMAP_REDIS_PASSWORD must be set}" BGSAVE 2>/dev/null || true
 sleep 2
 cid=$($COMPOSE ps -q redis)
 docker cp "$cid:/data/dump.rdb" "$BACKUP_ROOT/redis.rdb" 2>/dev/null || true

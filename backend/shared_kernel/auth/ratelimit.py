@@ -104,10 +104,10 @@ async def mirror_policy(key: str, *, window_sec: int, max_count: int, scope: str
     by startup priming and the admin PATCH so the two can never write a different
     field set. ``_resolve_policy`` reads exactly these fields.
     """
-    await get_redis().hset(
-        f"config:ratelimit:{key}",
-        mapping={"window_sec": int(window_sec), "max_count": int(max_count), "scope": scope},
-    )
+    r = get_redis()
+    rk = f"config:ratelimit:{key}"
+    await r.hset(rk, mapping={"window_sec": int(window_sec), "max_count": int(max_count), "scope": scope})
+    await r.expire(rk, 86400)  # 24 h — refreshed on next prime_policies() / admin PATCH
 
 
 async def prime_policies() -> None:
