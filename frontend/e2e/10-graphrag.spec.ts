@@ -12,7 +12,8 @@ test.describe('GraphRAG: create → bind → build → terminal state (M.1)', ()
     const projectId = process.env.E2E_PROJECT_ID!
     await page.goto(`/projects/${projectId}/graphrag-configs`)
 
-    await page.getByRole('button', { name: /create/i }).click()
+    // Open the create form; the toggle button says "New Configuration".
+    await page.getByRole('button', { name: /new configuration/i }).click()
 
     const agentSelect = page.locator('#agent_id')
     const agentOpts = agentSelect.locator('option:not([value=""])')
@@ -24,7 +25,7 @@ test.describe('GraphRAG: create → bind → build → terminal state (M.1)', ()
     test.skip((await kgOpts.count()) === 0, 'needs key groups')
     await kgSelect.selectOption({ index: 1 })
 
-    await page.locator('button[type="submit"], .btn-primary').click()
+    await page.locator('button[type="submit"]').click()
     // On success the form closes and the new config appears in the table.
     await expect(page.locator('table, [role="table"]')).toBeVisible({ timeout: 5000 })
   })
@@ -32,7 +33,8 @@ test.describe('GraphRAG: create → bind → build → terminal state (M.1)', ()
   test('list shows Bound/Not-bound status', async ({ authedPage: page }) => {
     test.skip(!process.env.E2E_PROJECT_ID, 'needs seeded project')
     await page.goto(`/projects/${process.env.E2E_PROJECT_ID}/graphrag-configs`)
-    await expect(page.locator('table, [role="table"]').or(page.getByText(/no.*config/i))).toBeVisible()
+    // The table always renders (with empty-state row when no configs exist).
+    await expect(page.locator('table').first()).toBeVisible()
   })
 
   test('build triggers status change', async ({ authedPage: page }) => {

@@ -94,7 +94,7 @@ test.describe('Tenancy/keys mgmt: roles, rename, key-group, usage (M.4)', () => 
     await page.goto(`/orgs/${process.env.E2E_ORG_ID}`)
     // Quotas panel loads non-blocking; check for quota-related text.
     await expect(
-      page.getByText(/quota|limit|users|projects/i),
+      page.getByText(/quota|limit|users|projects/i).first(),
     ).toBeVisible({ timeout: 5000 })
   })
 })

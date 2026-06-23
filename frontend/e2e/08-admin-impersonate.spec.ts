@@ -6,7 +6,7 @@ test.describe('Admin impersonate → target notified → audit visible', () => {
     await page.goto('/admin/impersonate')
     await page.getByLabel(/user.*id/i).fill(process.env.E2E_TARGET_USER_ID!)
     await page.getByRole('button', { name: /start|impersonate/i }).click()
-    await expect(page.getByText(/impersonating/i)).toBeVisible()
+    await expect(page.locator('.admin-impersonate__active')).toBeVisible()
   })
 
   test('impersonation visible in audit log', async ({ adminPage: page }) => {

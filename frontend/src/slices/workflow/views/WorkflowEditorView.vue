@@ -121,6 +121,7 @@
     <!-- Lint status bar -->
     <div
       v-if="store.lintErrors.length || store.lintWarnings.length"
+      data-testid="lint-status"
       class="px-4 py-1 text-xs border-b"
       :class="store.lintErrors.length ? 'bg-danger-tint text-danger-on' : 'bg-warning-tint text-warning-on'"
     >
