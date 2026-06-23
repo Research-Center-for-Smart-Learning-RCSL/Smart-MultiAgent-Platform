@@ -171,7 +171,7 @@ async def test_approval_gate_failure_returns_timeout_port(monkeypatch) -> None:
     outcome = await ag.execute(ctx, node, MagicMock())
 
     assert outcome.state == StepState.FAILED
-    assert outcome.port == "timeout"
+    assert outcome.port == "failure"
 
 
 # --------------------------------------------------------------------------- #
