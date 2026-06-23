@@ -3,19 +3,10 @@ import { useMutation } from '@tanstack/vue-query'
 import { accessTokenClaims, getAccessToken, setAccessToken } from '@shared/transport'
 import { adminApi } from '../api/admin'
 
-const _STORAGE_KEY = 'smap:impersonation:admin_token'
-
-function _readStorage(): string | null {
-  try { return sessionStorage.getItem(_STORAGE_KEY) } catch { return null }
-}
-function _writeStorage(v: string) {
-  try { sessionStorage.setItem(_STORAGE_KEY, v) } catch { /* restricted */ }
-}
-function _clearStorage() {
-  try { sessionStorage.removeItem(_STORAGE_KEY) } catch { /* restricted */ }
-}
-
-const savedAdminToken = ref<string | null>(_readStorage())
+/** Saved admin token to restore after impersonation ends (B5).
+ *  Memory-only — page refresh ends the impersonation session. Storing the
+ *  admin JWT in sessionStorage/localStorage would widen the XSS surface. */
+const savedAdminToken = ref<string | null>(null)
 
 export function useImpersonation() {
   // Both derive from the reactive `accessTokenClaims`, so they recompute the
@@ -36,9 +27,7 @@ export function useImpersonation() {
   const startImpersonation = useMutation({
     mutationFn: (userId: string) => adminApi.impersonate(userId),
     onSuccess: (res) => {
-      const adminToken = getAccessToken()
-      savedAdminToken.value = adminToken
-      if (adminToken) _writeStorage(adminToken)
+      savedAdminToken.value = getAccessToken()
       setAccessToken(res.data.access_token)
     },
   })
@@ -48,7 +37,6 @@ export function useImpersonation() {
     onSuccess: () => {
       setAccessToken(savedAdminToken.value)
       savedAdminToken.value = null
-      _clearStorage()
     },
   })
 

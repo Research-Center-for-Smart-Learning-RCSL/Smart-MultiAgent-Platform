@@ -90,6 +90,18 @@ class KeysFacade:
             request_id=request_id,
         )
 
+    async def revoke_carries_for_user_in_projects(
+        self,
+        *,
+        user_id: uuid.UUID,
+        project_ids: list[uuid.UUID],
+    ) -> int:
+        """Batch revoke all carries for a user across multiple projects."""
+        return await CarryService(self._db).revoke_for_user_in_projects(
+            user_id=user_id,
+            project_ids=project_ids,
+        )
+
     async def get_key(self, key_id: uuid.UUID) -> ApiKey | None:
         """Return the active (non-deleted) API key, or ``None``."""
         return await self._keys.get_active(key_id)
