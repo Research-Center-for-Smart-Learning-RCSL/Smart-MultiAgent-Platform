@@ -188,6 +188,8 @@ services:
 
   vault:
     restart: unless-stopped
+    user: "0"
+    entrypoint: ["vault"]
     command: server -config=/vault/config/vault.hcl
     environment:
       VAULT_DEV_ROOT_TOKEN_ID: ""

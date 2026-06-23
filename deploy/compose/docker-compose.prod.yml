@@ -215,9 +215,13 @@ services:
 
   vault:
     restart: unless-stopped
-    # Override the dev-mode command from docker-compose.yml. In prod the
-    # server runs against a real config file (file or raft storage) and is
-    # initialized + unsealed manually per deploy/vault/README.md §2.
+    # Run vault directly as root, bypassing the image's docker-entrypoint.sh
+    # su-exec drop. The entrypoint would drop to uid=100 (vault user), which
+    # cannot read the TLS key generated on the host (chmod 600, owned by the
+    # operator/CI runner). Root bypasses DAC checks. disable_mlock=true in
+    # vault.hcl makes IPC_LOCK unnecessary; cap_add is kept for completeness.
+    user: "0"
+    entrypoint: ["vault"]
     command: server -config=/vault/config/vault.hcl
     environment:
       # Unset the dev-token + dev-listener envs so the dev path can never
