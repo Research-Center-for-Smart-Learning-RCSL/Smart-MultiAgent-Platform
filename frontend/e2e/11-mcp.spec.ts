@@ -39,10 +39,12 @@ test.describe('MCP: bind server → test → egress allowlist (M.1)', () => {
     await page.locator('#hostname').fill(hostname)
     await page.locator('#note').fill('E2E test')
     await page.getByRole('button', { name: /add/i }).click()
-    await expect(page.getByText(hostname)).toBeVisible()
+    await expect(page.getByRole('cell', { name: hostname })).toBeVisible()
 
     await page.getByRole('row', { name: hostname })
       .getByRole('button', { name: /remove/i }).click()
-    await expect(page.getByText(hostname)).not.toBeVisible()
+    // Confirm the deletion dialog before asserting the row is gone.
+    await page.getByRole('button', { name: /confirm/i }).click()
+    await expect(page.getByRole('cell', { name: hostname })).not.toBeVisible({ timeout: 5000 })
   })
 })

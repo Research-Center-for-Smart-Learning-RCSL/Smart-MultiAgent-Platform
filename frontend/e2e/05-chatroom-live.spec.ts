@@ -7,7 +7,7 @@ test.describe('Two-browser chatroom live; edit window; moderator edit', () => {
     await page.goto(`/chatrooms/${chatroomId}`)
     const composer = page.getByRole('textbox')
     await composer.fill('Hello E2E')
-    await composer.press('Enter')
+    await page.getByRole('button', { name: /send/i }).click()
     await expect(page.getByText('Hello E2E')).toBeVisible({ timeout: 10_000 })
   })
 
@@ -18,7 +18,7 @@ test.describe('Two-browser chatroom live; edit window; moderator edit', () => {
     await adminPage.goto(`/chatrooms/${chatroomId}`)
     const msg = `sync-${Date.now()}`
     await authedPage.getByRole('textbox').fill(msg)
-    await authedPage.getByRole('textbox').press('Enter')
+    await authedPage.getByRole('button', { name: /send/i }).click()
     await expect(adminPage.getByText(msg)).toBeVisible({ timeout: 10_000 })
   })
 })

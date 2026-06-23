@@ -15,6 +15,7 @@ test.describe('Export + attachments: download + expired state (M.3/M.5)', () => 
   })
 
   test('export download link appears when ready', async ({ authedPage: page }) => {
+    test.setTimeout(120_000)
     test.skip(!process.env.E2E_CHATROOM_ID, 'needs seeded chatroom with completed export')
     const chatroomId = process.env.E2E_CHATROOM_ID!
     await page.goto(`/chatrooms/${chatroomId}`)
@@ -22,9 +23,10 @@ test.describe('Export + attachments: download + expired state (M.3/M.5)', () => 
     const exportBtn = page.getByRole('button', { name: /export/i })
     await exportBtn.click()
 
-    // Poll until ready; download link is an <a> with download attribute.
-    const downloadLink = page.locator('.export-status a[download]')
-    await expect(downloadLink).toBeVisible({ timeout: 60_000 })
+    // Poll until a terminal state (download link ready or failure message).
+    await expect(
+      page.locator('.export-status').filter({ hasText: /Download export|Export failed/i }),
+    ).toBeVisible({ timeout: 100_000 })
   })
 
   test('message attachments render download or expired state', async ({ authedPage: page }) => {

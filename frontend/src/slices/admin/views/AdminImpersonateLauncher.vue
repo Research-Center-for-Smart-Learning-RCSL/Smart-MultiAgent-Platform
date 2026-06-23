@@ -7,6 +7,7 @@
       <input
         v-model="targetUserId"
         :placeholder="$t('admin.impersonation.targetPlaceholder')"
+        :aria-label="$t('admin.impersonation.targetPlaceholder')"
         required
       >
       <button
