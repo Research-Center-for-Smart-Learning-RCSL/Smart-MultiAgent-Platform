@@ -1,4 +1,5 @@
 import { test, expect } from './fixtures/auth'
+import { env } from './fixtures/seed'
 
 test.describe('Org → invite → accept → transfer OC', () => {
   test('create an org', async ({ authedPage: page }) => {
@@ -18,11 +19,11 @@ test.describe('Org → invite → accept → transfer OC', () => {
   })
 
   test('invite a member to org', async ({ authedPage: page }) => {
-    test.skip(!process.env.E2E_INVITE_TARGET, 'needs second user')
+    test.skip(!env('E2E_INVITE_TARGET'), 'needs second user')
     await page.goto('/orgs')
     await page.getByText('E2E Org').click()
     await page.getByRole('link', { name: /members/i }).click()
-    await page.getByLabel(/email/i).fill(process.env.E2E_INVITE_TARGET!)
+    await page.getByLabel(/email/i).fill(env('E2E_INVITE_TARGET')!)
     await page.getByRole('button', { name: /invite/i }).click()
     await expect(page.getByText(/invited/i)).toBeVisible()
   })

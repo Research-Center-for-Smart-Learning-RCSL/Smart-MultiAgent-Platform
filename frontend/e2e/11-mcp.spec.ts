@@ -1,15 +1,16 @@
 import { test, expect } from './fixtures/auth'
+import { env } from './fixtures/seed'
 
 test.describe('MCP: bind server → test → egress allowlist (M.1)', () => {
   test('navigate to agent MCP bindings', async ({ authedPage: page }) => {
-    test.skip(!process.env.E2E_AGENT_ID, 'needs seeded agent')
-    await page.goto(`/agents/${process.env.E2E_AGENT_ID}/mcp`)
+    test.skip(!env('E2E_AGENT_ID'), 'needs seeded agent')
+    await page.goto(`/agents/${env('E2E_AGENT_ID')}/mcp`)
     await expect(page).toHaveURL(/mcp/)
   })
 
   test('add a builtin MCP binding', async ({ authedPage: page }) => {
-    test.skip(!process.env.E2E_AGENT_ID, 'needs seeded agent')
-    await page.goto(`/agents/${process.env.E2E_AGENT_ID}/mcp`)
+    test.skip(!env('E2E_AGENT_ID'), 'needs seeded agent')
+    await page.goto(`/agents/${env('E2E_AGENT_ID')}/mcp`)
     await page.getByRole('button', { name: /add/i }).click()
 
     await page.locator('#source').selectOption('builtin')
@@ -21,8 +22,8 @@ test.describe('MCP: bind server → test → egress allowlist (M.1)', () => {
   })
 
   test('test an MCP binding', async ({ authedPage: page }) => {
-    test.skip(!process.env.E2E_AGENT_ID, 'needs seeded agent with MCP binding')
-    await page.goto(`/agents/${process.env.E2E_AGENT_ID}/mcp`)
+    test.skip(!env('E2E_AGENT_ID'), 'needs seeded agent with MCP binding')
+    await page.goto(`/agents/${env('E2E_AGENT_ID')}/mcp`)
     const testBtn = page.getByRole('button', { name: /test/i }).first()
     test.skip(!(await testBtn.isVisible()), 'no MCP binding to test')
     await testBtn.click()
@@ -32,8 +33,8 @@ test.describe('MCP: bind server → test → egress allowlist (M.1)', () => {
   })
 
   test('add and remove an egress allowlist host', async ({ authedPage: page }) => {
-    test.skip(!process.env.E2E_PROJECT_ID, 'needs seeded project')
-    await page.goto(`/projects/${process.env.E2E_PROJECT_ID}/mcp/egress-allowlist`)
+    test.skip(!env('E2E_PROJECT_ID'), 'needs seeded project')
+    await page.goto(`/projects/${env('E2E_PROJECT_ID')}/mcp/egress-allowlist`)
     const hostname = `e2e-${Date.now()}.example.com`
 
     await page.locator('#hostname').fill(hostname)

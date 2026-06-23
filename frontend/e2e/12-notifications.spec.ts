@@ -1,4 +1,5 @@
 import { test, expect } from './fixtures/auth'
+import { env } from './fixtures/seed'
 
 test.describe('Notifications: bell badge → list → mark-read (M.2)', () => {
   test('notification bell is visible in the layout', async ({ authedPage: page }) => {
@@ -17,7 +18,7 @@ test.describe('Notifications: bell badge → list → mark-read (M.2)', () => {
   })
 
   test('bell badge updates after mark-read', async ({ authedPage: page }) => {
-    test.skip(!process.env.E2E_HAS_NOTIFICATIONS, 'needs seeded notifications')
+    test.skip(!env('E2E_HAS_NOTIFICATIONS'), 'needs seeded notifications')
     await page.goto('/notifications')
     const markAll = page.getByRole('button', { name: /mark.*all/i })
     test.skip(!(await markAll.isEnabled()), 'no unread notifications')

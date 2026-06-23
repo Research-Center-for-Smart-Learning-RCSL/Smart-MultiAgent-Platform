@@ -1,9 +1,10 @@
 import { test, expect } from './fixtures/auth'
+import { env } from './fixtures/seed'
 
 test.describe('Message edit/delete: author 5-min rule + admin override (M.3)', () => {
   test('send a message then edit it', async ({ authedPage: page }) => {
-    test.skip(!process.env.E2E_CHATROOM_ID, 'needs seeded chatroom')
-    const chatroomId = process.env.E2E_CHATROOM_ID!
+    test.skip(!env('E2E_CHATROOM_ID'), 'needs seeded chatroom')
+    const chatroomId = env('E2E_CHATROOM_ID')!
     await page.goto(`/chatrooms/${chatroomId}`)
 
     const msg = `edit-me-${Date.now()}`
@@ -26,8 +27,8 @@ test.describe('Message edit/delete: author 5-min rule + admin override (M.3)', (
   })
 
   test('delete a message', async ({ authedPage: page }) => {
-    test.skip(!process.env.E2E_CHATROOM_ID, 'needs seeded chatroom')
-    const chatroomId = process.env.E2E_CHATROOM_ID!
+    test.skip(!env('E2E_CHATROOM_ID'), 'needs seeded chatroom')
+    const chatroomId = env('E2E_CHATROOM_ID')!
     await page.goto(`/chatrooms/${chatroomId}`)
 
     const msg = `delete-me-${Date.now()}`
@@ -48,8 +49,8 @@ test.describe('Message edit/delete: author 5-min rule + admin override (M.3)', (
   })
 
   test('admin can edit another user message', async ({ authedPage, adminPage }) => {
-    test.skip(!process.env.E2E_CHATROOM_ID, 'needs seeded chatroom')
-    const chatroomId = process.env.E2E_CHATROOM_ID!
+    test.skip(!env('E2E_CHATROOM_ID'), 'needs seeded chatroom')
+    const chatroomId = env('E2E_CHATROOM_ID')!
     await authedPage.goto(`/chatrooms/${chatroomId}`)
 
     const msg = `admin-edit-${Date.now()}`

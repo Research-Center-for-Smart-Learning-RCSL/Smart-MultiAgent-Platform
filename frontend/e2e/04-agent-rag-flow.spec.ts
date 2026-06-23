@@ -1,9 +1,10 @@
 import { test, expect } from './fixtures/auth'
+import { env } from './fixtures/seed'
 
 test.describe('Create Agent → attach RAG → ingest doc → grounded answer', () => {
   test('create an agent', async ({ authedPage: page }) => {
-    test.skip(!process.env.E2E_PROJECT_ID, 'needs seeded project')
-    const projectId = process.env.E2E_PROJECT_ID!
+    test.skip(!env('E2E_PROJECT_ID'), 'needs seeded project')
+    const projectId = env('E2E_PROJECT_ID')!
     await page.goto(`/projects/${projectId}/agents`)
     await expect(page).toHaveURL(/agents/)
 
@@ -26,8 +27,8 @@ test.describe('Create Agent → attach RAG → ingest doc → grounded answer', 
   })
 
   test('configure RAG on agent', async ({ authedPage: page }) => {
-    test.skip(!process.env.E2E_AGENT_ID, 'needs seeded agent')
-    await page.goto(`/agents/${process.env.E2E_AGENT_ID}`)
+    test.skip(!env('E2E_AGENT_ID'), 'needs seeded agent')
+    await page.goto(`/agents/${env('E2E_AGENT_ID')}`)
 
     // Wait for the agent detail form to load (async query).
     const ragSelect = page.locator('#rag_config_id')
@@ -44,8 +45,8 @@ test.describe('Create Agent → attach RAG → ingest doc → grounded answer', 
   })
 
   test('navigate to RAG ingest', async ({ authedPage: page }) => {
-    test.skip(!process.env.E2E_PROJECT_ID, 'needs seeded project')
-    const projectId = process.env.E2E_PROJECT_ID!
+    test.skip(!env('E2E_PROJECT_ID'), 'needs seeded project')
+    const projectId = env('E2E_PROJECT_ID')!
     await page.goto(`/projects/${projectId}/rag-configs`)
     await expect(page).toHaveURL(/rag-configs/)
 

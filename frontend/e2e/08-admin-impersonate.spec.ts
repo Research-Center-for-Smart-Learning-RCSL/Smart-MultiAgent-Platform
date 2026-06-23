@@ -1,10 +1,11 @@
 import { test, expect } from './fixtures/auth'
+import { env } from './fixtures/seed'
 
 test.describe('Admin impersonate → target notified → audit visible', () => {
   test('impersonate a user', async ({ adminPage: page }) => {
-    test.skip(!process.env.E2E_TARGET_USER_ID, 'needs target user')
+    test.skip(!env('E2E_TARGET_USER_ID'), 'needs target user')
     await page.goto('/admin/impersonate')
-    await page.getByLabel(/user.*id/i).fill(process.env.E2E_TARGET_USER_ID!)
+    await page.getByLabel(/user.*id/i).fill(env('E2E_TARGET_USER_ID')!)
     await page.getByRole('button', { name: /start|impersonate/i }).click()
     await expect(page.locator('.admin-impersonate__active')).toBeVisible()
   })

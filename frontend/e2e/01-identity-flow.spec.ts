@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test'
 import { seedUser } from './fixtures/auth'
+import { env } from './fixtures/seed'
 
 test.describe('Identity flow: Register → verify → login', () => {
   test('register a new account', async ({ page }) => {
@@ -22,9 +23,9 @@ test.describe('Identity flow: Register → verify → login', () => {
   test('verify email via token', async ({ page }) => {
     // The seed routine pre-verifies the fixture user; this test only runs
     // when an out-of-band token is supplied (e.g. extracted from a test mailer).
-    test.skip(!process.env.E2E_VERIFY_TOKEN, 'needs seeded verify token')
+    test.skip(!env('E2E_VERIFY_TOKEN'), 'needs seeded verify token')
     // Token rides in the URL fragment, not the query string (SEC-8).
-    await page.goto(`/verify-email#token=${process.env.E2E_VERIFY_TOKEN}`)
+    await page.goto(`/verify-email#token=${env('E2E_VERIFY_TOKEN')}`)
     await expect(page.getByText(/verified|success/i)).toBeVisible()
   })
 

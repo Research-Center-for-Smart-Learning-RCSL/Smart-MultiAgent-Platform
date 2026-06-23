@@ -1,15 +1,16 @@
 import { test, expect } from './fixtures/auth'
+import { env } from './fixtures/seed'
 
 test.describe('RAG config: create → appears in agent picker → attach (M.1)', () => {
   test('navigate to RAG config list', async ({ authedPage: page }) => {
-    test.skip(!process.env.E2E_PROJECT_ID, 'needs seeded project')
-    await page.goto(`/projects/${process.env.E2E_PROJECT_ID}/rag-configs`)
+    test.skip(!env('E2E_PROJECT_ID'), 'needs seeded project')
+    await page.goto(`/projects/${env('E2E_PROJECT_ID')}/rag-configs`)
     await expect(page).toHaveURL(/rag-configs/)
   })
 
   test('create a RAG config', async ({ authedPage: page }) => {
-    test.skip(!process.env.E2E_PROJECT_ID, 'needs seeded project')
-    const projectId = process.env.E2E_PROJECT_ID!
+    test.skip(!env('E2E_PROJECT_ID'), 'needs seeded project')
+    const projectId = env('E2E_PROJECT_ID')!
     await page.goto(`/projects/${projectId}/rag-configs`)
     // Wait for the page to settle (both configs and embed-keys queries).
     await page.waitForLoadState('networkidle', { timeout: 10_000 })
@@ -36,8 +37,8 @@ test.describe('RAG config: create → appears in agent picker → attach (M.1)',
   })
 
   test('RAG config appears in agent picker', async ({ authedPage: page }) => {
-    test.skip(!process.env.E2E_AGENT_ID, 'needs seeded agent')
-    await page.goto(`/agents/${process.env.E2E_AGENT_ID}`)
+    test.skip(!env('E2E_AGENT_ID'), 'needs seeded agent')
+    await page.goto(`/agents/${env('E2E_AGENT_ID')}`)
     const ragSelect = page.locator('#rag_config_id')
     await expect(ragSelect).toBeVisible()
     const options = ragSelect.locator('option')
