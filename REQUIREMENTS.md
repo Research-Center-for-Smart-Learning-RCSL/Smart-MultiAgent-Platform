@@ -1433,7 +1433,8 @@ This section enumerates endpoints. Unless noted, all require a valid JWT and res
 
 | Method | Path | Description |
 |---|---|---|
-| POST | `/api/agents/{id}/graphrag` | Create config. |
+| GET | `/api/projects/{pid}/graphrag-configs` | List configs in project. |
+| POST | `/api/projects/{pid}/graphrag-configs` | Create config (`agent_id` in body). |
 | PATCH | `/api/graphrag/{id}` | Edit trigger, key-group. |
 | POST | `/api/graphrag/{id}/build` | Manually trigger build. |
 | GET | `/api/graphrag/{id}/status` | Last build status, size. |
