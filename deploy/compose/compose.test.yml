@@ -59,7 +59,7 @@ services:
       # NB: a real concern for prod multi-tab/reload-heavy users; tracked for the
       # operator, but the prod budget is an R19.02 stakeholder decision.
       SMAP_LIMIT_AUTH_PER_MIN_IP: "2000"
-      # E2E/Playwright drives the app over plain HTTP (Vite :5173 proxy to :8000),
+      # E2E/Playwright drives the app over plain HTTP (Vite :5173 proxy to :28000),
       # so the refresh-token cookie must NOT be Secure or the browser drops it and
       # every hard navigation bounces back to /login (silent refresh has nothing
       # to send). Prod keeps the default (secure=true) behind TLS.

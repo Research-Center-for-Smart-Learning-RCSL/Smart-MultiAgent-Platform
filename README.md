@@ -183,9 +183,9 @@ make dev-backend              # start uvicorn with hot reload on :8000
 make dev-frontend             # start Vite dev server on :5173
 ```
 
-After the stack is running, `https://localhost/healthz` (via Nginx to the backend) confirms liveness. `https://localhost/readyz` confirms that all downstream dependencies (Postgres, Redis, Qdrant, Neo4j, MinIO, Vault) are reachable.
+After the stack is running, `https://localhost:10443/healthz` (via Nginx to the backend) confirms liveness. `https://localhost:10443/readyz` confirms that all downstream dependencies (Postgres, Redis, Qdrant, Neo4j, MinIO, Vault) are reachable.
 
-The OpenAPI documentation is available at `https://localhost/api/docs` when `SMAP_APP_DOCS_ENABLED=true` (default in dev).
+The OpenAPI documentation is available at `https://localhost:10443/api/docs` when `SMAP_APP_DOCS_ENABLED=true` (default in dev).
 
 ### Production deployment
 

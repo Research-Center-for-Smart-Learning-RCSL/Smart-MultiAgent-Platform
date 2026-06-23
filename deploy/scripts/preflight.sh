@@ -74,6 +74,9 @@ else
     if grep -qE "^\s*${var}=" "$ENV_FILE" && ! grep -qE "^\s*#\s*${var}=" "$ENV_FILE"; then
       local val
       val=$(grep -E "^\s*${var}=" "$ENV_FILE" | head -1 | cut -d= -f2-)
+      # Strip surrounding quotes (single or double) that .env files often use
+      val="${val#\"}" ; val="${val%\"}"
+      val="${val#\'}" ; val="${val%\'}"
       if [ -z "$val" ] || [[ "$val" == *"changeme"* ]]; then
         if [ "$required" = "fatal" ]; then
           fatal "$var is empty or placeholder"
@@ -100,6 +103,8 @@ else
 
   # Verify egress secret is not the dev placeholder
   EGRESS_VAL=$(grep -E "^\s*EGRESS_PROXY_SHARED_SECRET=" "$ENV_FILE" | head -1 | cut -d= -f2- || echo "")
+  EGRESS_VAL="${EGRESS_VAL#\"}" ; EGRESS_VAL="${EGRESS_VAL%\"}"
+  EGRESS_VAL="${EGRESS_VAL#\'}" ; EGRESS_VAL="${EGRESS_VAL%\'}"
   if [[ "$EGRESS_VAL" == "0000000000000000000000000000000000000000000000000000000000000001" ]]; then
     fatal "EGRESS_PROXY_SHARED_SECRET is the dev placeholder — generate with: openssl rand -hex 32"
   fi
@@ -121,7 +126,6 @@ echo ""
 echo "▸ TLS certificates"
 
 VAULT_CERTS_DIR="$REPO_ROOT/deploy/vault/certs"
-NGINX_CERT_VOLUME=false
 
 if [ -d "$VAULT_CERTS_DIR" ]; then
   if [ -f "$VAULT_CERTS_DIR/vault-internal-ca.pem" ] && \
@@ -137,7 +141,6 @@ fi
 
 if docker volume inspect smap_nginx_certs &>/dev/null; then
   pass "nginx_certs Docker volume exists"
-  NGINX_CERT_VOLUME=true
 else
   warn "nginx_certs volume not found — TLS cert must be mounted before starting nginx"
 fi
@@ -180,8 +183,9 @@ if [ "$MEM_GB" -gt 0 ]; then
   fi
 fi
 
-DISK_AVAIL=$(df -BG / 2>/dev/null | tail -1 | awk '{print $4}' | tr -d 'G' || echo "0")
-if [ "$DISK_AVAIL" -gt 0 ]; then
+# Use -P (POSIX) to prevent LVM device names from wrapping to a second line
+DISK_AVAIL=$(df -PBG / 2>/dev/null | awk 'NR==2 {print $4}' | tr -d 'G' || echo "0")
+if [ "$DISK_AVAIL" -gt 0 ] 2>/dev/null; then
   if [ "$DISK_AVAIL" -lt 40 ]; then
     warn "Only ${DISK_AVAIL}GB disk free; recommend 40GB+"
   else
