@@ -18,7 +18,15 @@ export default defineConfig({
     port: 5173,
     proxy: {
       '/api': { target: 'http://localhost:28000', changeOrigin: false },
-      '/ws': { target: 'ws://localhost:28000', ws: true, changeOrigin: false },
+      '/ws': {
+        target: 'ws://localhost:28000',
+        ws: true,
+        changeOrigin: false,
+        configure: (proxy) => {
+          // Suppress ECONNRESET noise when the backend WS isn't yet ready.
+          proxy.on('error', () => { /* intentionally swallowed */ })
+        },
+      },
     },
   },
   build: {

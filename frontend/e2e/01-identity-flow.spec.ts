@@ -29,11 +29,20 @@ test.describe('Identity flow: Register → verify → login', () => {
   })
 
   test('login with seeded verified account', async ({ page }) => {
+    // Gate on the boot refresh — same pattern as auth.ts. On Vite cold start the
+    // app mounts only after hydrate() resolves; clicking before that means no
+    // /api/auth/login fires and we silently stay on /login.
+    const bootRefresh = page
+      .waitForResponse((r) => r.url().includes('/api/auth/refresh'), { timeout: 30_000 })
+      .catch(() => undefined)
     await page.goto('/login')
+    await bootRefresh
     await page.getByLabel(/email/i).fill(seedUser.email)
     await page.getByLabel(/password/i).fill(seedUser.password)
     await page.getByRole('button', { name: /log\s*in|sign\s*in|submit/i }).click()
-    await page.waitForURL(/(?!.*login).*/)
+    // /(?!.*login).*/ is vacuously true (matches empty string at end of any URL)
+    // and resolves before the redirect fires. Use a predicate instead.
+    await page.waitForURL((url) => !url.pathname.includes('/login'))
     await expect(page).not.toHaveURL(/login/)
   })
 })
