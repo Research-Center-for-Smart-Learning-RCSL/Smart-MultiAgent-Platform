@@ -225,6 +225,11 @@ services:
     restart: unless-stopped
     cap_add:
       - IPC_LOCK
+      - CHOWN
+      - DAC_OVERRIDE
+      - FOWNER
+      - SETUID
+      - SETGID
     user: "0"
     entrypoint: ["vault"]
     command: server -config=/vault/config/vault.hcl
