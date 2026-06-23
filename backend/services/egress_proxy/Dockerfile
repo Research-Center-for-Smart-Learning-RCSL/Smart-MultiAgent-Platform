@@ -23,7 +23,8 @@ RUN pip install \
     "uvicorn[standard]==0.32.*" \
     "httpx==0.28.*" \
     "sqlalchemy[asyncio]==2.0.*" \
-    "asyncpg==0.30.*"
+    "asyncpg==0.30.*" \
+    "pydantic-settings>=2.0,<3"
 
 # Copy entire backend source tree. The proxy imports two thin modules beyond
 # its own package:
