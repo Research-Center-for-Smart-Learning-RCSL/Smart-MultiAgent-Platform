@@ -53,7 +53,7 @@
           >
             <td><code>{{ ban.cidr }}</code></td>
             <td>{{ ban.reason }}</td>
-            <td>{{ new Date(ban.created_at).toLocaleDateString() }}</td>
+            <td>{{ new Date(ban.banned_at).toLocaleDateString() }}</td>
             <td>
               <button
                 class="btn btn-danger btn-sm"

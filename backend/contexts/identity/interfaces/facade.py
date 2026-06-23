@@ -62,7 +62,7 @@ class IdentityFacade:
         return await self._admins.is_admin(user_id)
 
     async def admin_ids(self) -> set[uuid.UUID]:
-        return await self._admins.list_admin_ids()
+        return await self._admins.list_active_admin_ids()
 
     async def list_ip_bans(self) -> Sequence[IpBan]:
         return await self._ip_bans.list_all()

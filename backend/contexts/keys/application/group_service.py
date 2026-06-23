@@ -17,9 +17,10 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from contexts.keys.domain.errors import KeyNotFound, KeysError
+from contexts.keys.domain.errors import GroupMemberConflict, GroupWrongProject, KeyNotFound
 from contexts.keys.domain.groups import (
     HourlyLimits,
     KeyGroup,
@@ -42,11 +43,6 @@ from shared_kernel import audit
 
 _LLM_CHAT = CapabilityRequirement(capability=ProviderCapability.LLM_CHAT)
 
-
-class GroupWrongProject(KeysError):
-    """Caller tried to attach a key not carried into this group's project."""
-
-    code = "keys/not-carried"
 
 
 @dataclass(frozen=True, slots=True)
@@ -179,7 +175,10 @@ class KeyGroupService:
             raise GroupWrongProject(f"key {key_id} is not carried into project {group.project_id}")
 
         priority = await self._members.next_priority(group_id)
-        await self._members.add(group_id=group_id, key_id=key_id, priority=priority)
+        try:
+            await self._members.add(group_id=group_id, key_id=key_id, priority=priority)
+        except IntegrityError:
+            raise GroupMemberConflict(f"key {key_id} already in group {group_id}")
 
         await audit.emit(
             self._db,
@@ -209,32 +208,10 @@ class KeyGroupService:
         *,
         group_id: uuid.UUID,
         key_id: uuid.UUID,
-        updates: MemberPatchInput,
+        col_updates: dict[str, Any],
         actor_user_id: uuid.UUID,
         request_id: uuid.UUID | None = None,
     ) -> None:
-        # Build the column-name dict the repo expects; only propagate fields
-        # the caller actually set.
-        col_updates: dict[str, Any] = {}
-        for field_name in (
-            "priority",
-            "rotate_on_token_quota",
-            "retry_on_error",
-            "retry_initial_delay_ms",
-            "retry_multiplier",
-            "retry_max_delay_ms",
-            "retry_max",
-            "retry_jitter_pct",
-            "max_input_tokens_per_hour",
-            "max_output_tokens_per_hour",
-            "max_requests_per_hour",
-        ):
-            value = getattr(updates, field_name)
-            if value is not None:
-                col_updates[field_name] = value
-        if updates.rotate_on_error_codes is not None:
-            col_updates["rotate_on_error_codes"] = list(updates.rotate_on_error_codes)
-
         await self._members.patch(group_id=group_id, key_id=key_id, updates=col_updates)
         await audit.emit(
             self._db,

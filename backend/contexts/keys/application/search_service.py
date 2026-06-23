@@ -106,11 +106,11 @@ class SearchKeyService:
         # project B could retest a key belonging to project A.
         if sk.project_id != project_id:
             raise KeyNotFound(str(key_id))
-        plaintext = env.decrypt_envelope(record, env.search_key_aad(key_id))
+        plaintext = bytearray(env.decrypt_envelope(record, env.search_key_aad(key_id)))
         try:
             result = await probe_search(sk.provider, plaintext.decode("utf-8"), sk.config)
         finally:
-            plaintext = b"\x00" * len(plaintext)
+            plaintext[:] = b"\x00" * len(plaintext)
         await self._repo.update_probe(
             key_id=key_id,
             test_status=result.status,

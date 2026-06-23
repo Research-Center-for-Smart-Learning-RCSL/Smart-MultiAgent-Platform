@@ -589,13 +589,14 @@ class ProviderRouter:
         if _limits_unbounded(lim):
             return False
         used = await redis_buckets.usage(em.key.id)
-        if lim.max_input_tokens_per_hour is not None and used.input_tokens >= lim.max_input_tokens_per_hour:
-            return True
-        if (
-            lim.max_output_tokens_per_hour is not None
-            and used.output_tokens >= lim.max_output_tokens_per_hour
-        ):
-            return True
+        if em.member.rotation.rotate_on_token_quota:
+            if lim.max_input_tokens_per_hour is not None and used.input_tokens >= lim.max_input_tokens_per_hour:
+                return True
+            if (
+                lim.max_output_tokens_per_hour is not None
+                and used.output_tokens >= lim.max_output_tokens_per_hour
+            ):
+                return True
         if lim.max_requests_per_hour is not None and used.requests >= lim.max_requests_per_hour:  # noqa: SIM103 (guard-clause chain)
             return True
         return False

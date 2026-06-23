@@ -43,6 +43,16 @@ _MAP: ErrorMap = {
         409,
         "Search key activation race",
     ),
+    errors.GroupWrongProject: (
+        "keys/not-carried",
+        422,
+        "Key not carried into project",
+    ),
+    errors.GroupMemberConflict: (
+        "keys/member-conflict",
+        409,
+        "Key already in group or priority conflict",
+    ),
 }
 
 
