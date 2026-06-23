@@ -34,7 +34,8 @@ route:
 
 receivers:
   - name: default
-    # Uncomment ONE of the following blocks:
+    # By default alerts are written to Alertmanager's own log (stdout) so they
+    # are captured by Promtail/Loki. Replace with a real receiver for production:
     #
     # email_configs:
     #   - to: 'ops@example.com'
@@ -46,9 +47,12 @@ receivers:
     #     send_resolved: true
     #     title: '{{ .GroupLabels.alertname }}'
     #     text: '{{ range .Alerts }}{{ .Annotations.summary }}{{ end }}'
+    webhook_configs:
+      - url: 'http://127.0.0.1:9093/-/healthy'
+        send_resolved: true
 
   - name: critical
-    # Uncomment ONE of the following blocks:
+    # Replace with a real receiver (PagerDuty / email / Slack) for production:
     #
     # pagerduty_configs:
     #   - service_key: '<pagerduty-integration-key>'
@@ -57,11 +61,9 @@ receivers:
     # email_configs:
     #   - to: 'oncall@example.com'
     #     send_resolved: true
-    #
-    # slack_configs:
-    #   - api_url: 'https://hooks.slack.com/services/T.../B.../...'
-    #     channel: '#smap-critical'
-    #     send_resolved: true
+    webhook_configs:
+      - url: 'http://127.0.0.1:9093/-/healthy'
+        send_resolved: true
 
 inhibit_rules:
   - source_match:

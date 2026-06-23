@@ -30,7 +30,7 @@ class ConfigError(RuntimeError):
 class AppSection(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="SMAP_APP_", extra="ignore")
 
-    env: Literal["dev", "test", "prod"] = "dev"
+    env: Literal["dev", "test", "staging", "prod"] = "dev"
     version: str = "0.0.0"
     docs_enabled: bool = True  # disabled in prod via env
     problem_url_base: str = "https://smap.local/problems"
@@ -168,7 +168,6 @@ class SecuritySection(BaseSettings):
         ),
     )
     cors_origins: list[str] = Field(default_factory=list)
-    session_cookie_name: str = "smap_session"
     session_cookie_secure: bool = True
     # Intentionally restricted to "lax" / "strict": the v1 deploy is
     # same-origin (SPA + API behind nginx) and we ship no CSRF middleware,
@@ -318,10 +317,14 @@ class Settings(BaseSettings):
     email: EmailSection = Field(default_factory=EmailSection)
 
 
+_EGRESS_DEV_DEFAULT = "0" * 63 + "1"  # noqa: S105 — known dev sentinel
+
+
 def _check_prod_secrets(s: Settings) -> None:
-    """Raise ConfigError if insecure dev defaults are active in production."""
-    if s.app.env != "prod":
+    """Raise ConfigError if insecure dev defaults are active in prod/staging."""
+    if s.app.env not in ("prod", "staging"):
         return
+    is_prod = s.app.env == "prod"
     problems: list[str] = []
     if s.neo4j.password in ("neo4j", "neo4jneo4j"):
         problems.append("SMAP_NEO4J_PASSWORD is the insecure default")
@@ -329,32 +332,36 @@ def _check_prod_secrets(s: Settings) -> None:
         problems.append("SMAP_MINIO_ROOT_ACCESS_KEY is the insecure default 'minioadmin'")
     if s.minio.root_secret_key == "minioadmin":  # noqa: S105 — comparing against the dev default
         problems.append("SMAP_MINIO_ROOT_SECRET_KEY is the insecure default 'minioadmin'")
-    # 2.9: treat empty-string and unset as equivalent — both must be falsy in prod.
     if s.vault.dev_token is not None and s.vault.dev_token != "":
         problems.append("SMAP_VAULT_DEV_TOKEN must not be set in production")
     if not (s.vault.role_id and s.vault.secret_id):
         problems.append("SMAP_VAULT_ROLE_ID and SMAP_VAULT_SECRET_ID must be set in production")
-    # S2: empty egress shared_secret in prod allows unsigned requests to the
-    # egress proxy — any backend caller could bypass the HMAC gate.
     if not s.egress.shared_secret:
         problems.append("EGRESS_PROXY_SHARED_SECRET must not be empty in production")
-    # S6: OpenAPI/Swagger docs must not be exposed in production.
-    if s.app.docs_enabled:
+    if s.egress.shared_secret == _EGRESS_DEV_DEFAULT:
+        problems.append("EGRESS_PROXY_SHARED_SECRET is the insecure dev default — generate a real key")
+    # S6: docs allowed in staging for debugging, but not in prod.
+    if is_prod and s.app.docs_enabled:
         problems.append("SMAP_APP_DOCS_ENABLED must be false in production")
-    # M17: wildcard CORS with credentials leaks tokens to any origin.
     if "*" in s.security.cors_origins:
         problems.append("SMAP_SEC_CORS_ORIGINS must not contain '*' in production (credentials leak)")
-    # 2.10: empty CORS in prod silently lets the auth handler fall back to
-    # http://localhost:8080 — refuse to start instead of shipping a broken origin.
     if not s.security.cors_origins:
         problems.append("SMAP_SEC_CORS_ORIGINS must contain at least one origin in production")
     if not s.security.session_cookie_secure:
         problems.append("SMAP_SEC_SESSION_COOKIE_SECURE must be true in production (HTTPS required)")
-    if "://:@" not in s.redis.dsn and ":@" not in s.redis.dsn.split("://", 1)[-1]:
-        problems.append(
-            "SMAP_REDIS_DSN must include a password (redis://:PASSWORD@host:port/0)"
-            " — prod Redis requires --requirepass"
-        )
+    # Parse the DSN properly: a password-bearing Redis URL has a non-empty
+    # password component between the scheme separator and the @ sign.
+    try:
+        from urllib.parse import urlparse
+
+        parsed = urlparse(s.redis.dsn)
+        if not parsed.password:
+            problems.append(
+                "SMAP_REDIS_DSN must include a password (redis://:PASSWORD@host:port/0)"
+                " — prod Redis requires --requirepass"
+            )
+    except Exception:
+        problems.append("SMAP_REDIS_DSN is not a valid URL")
     if problems:
         raise ConfigError("Insecure defaults active in production:\n  - " + "\n  - ".join(problems))
 

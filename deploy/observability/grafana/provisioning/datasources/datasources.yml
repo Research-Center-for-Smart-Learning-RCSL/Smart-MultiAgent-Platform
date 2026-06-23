@@ -13,6 +13,10 @@ datasources:
     access: proxy
     url: http://loki:3100
     editable: false
+    jsonData:
+      httpHeaderName1: X-Scope-OrgID
+    secureJsonData:
+      httpHeaderValue1: smap
 
   - name: Tempo
     type: tempo

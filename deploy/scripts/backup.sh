@@ -53,8 +53,9 @@ fi
 echo "[3/5] MinIO bucket mirror..."
 mkdir -p "$BACKUP_ROOT/minio"
 $COMPOSE exec -T minio mc alias set local http://localhost:9000 \
-  "${SMAP_MINIO_ROOT_USER:-minioadmin}" "${SMAP_MINIO_ROOT_PASSWORD:-minioadmin}" \
-  --quiet 2>/dev/null || true
+  "${SMAP_MINIO_ROOT_USER:?SMAP_MINIO_ROOT_USER must be set}" \
+  "${SMAP_MINIO_ROOT_PASSWORD:?SMAP_MINIO_ROOT_PASSWORD must be set}" \
+  --quiet 2>/dev/null
 cid=$($COMPOSE ps -q minio)
 for bucket in chat-uploads rag-sources exports; do
   $COMPOSE exec -T minio mc mirror --quiet \
@@ -78,8 +79,7 @@ echo "  → neo4j.dump"
 
 # ---------- 5. Redis ----------
 echo "[5/5] Redis BGSAVE..."
-$COMPOSE exec -T redis redis-cli BGSAVE 2>/dev/null || \
-$COMPOSE exec -T redis redis-cli -a "${REDIS_PASSWORD:-}" BGSAVE 2>/dev/null || true
+$COMPOSE exec -T redis redis-cli -a "${SMAP_REDIS_PASSWORD:?SMAP_REDIS_PASSWORD must be set}" BGSAVE 2>/dev/null
 sleep 2
 cid=$($COMPOSE ps -q redis)
 docker cp "$cid:/data/dump.rdb" "$BACKUP_ROOT/redis.rdb" 2>/dev/null || true

@@ -18,11 +18,11 @@ from __future__ import annotations
 import secrets
 import string
 
-from argon2 import PasswordHasher
 from sqlalchemy import create_engine, text
 from sqlalchemy.exc import OperationalError, ProgrammingError
 
 from app.config.settings import Settings
+from shared_kernel.auth.password import PasswordHasher
 
 from ._common import BootstrapReport
 
