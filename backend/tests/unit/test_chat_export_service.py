@@ -86,7 +86,7 @@ def _make_chat_export_service(
     messages: list[Message] | None = None,
     edits: list[MessageEdit] | None = None,
     attachments: list[MessageAttachment] | None = None,
-) -> tuple[ChatExportService, AsyncMock]:
+) -> tuple[ChatExportService, dict[str, AsyncMock | MagicMock]]:
     db = AsyncMock()
     svc = ChatExportService(db)
 

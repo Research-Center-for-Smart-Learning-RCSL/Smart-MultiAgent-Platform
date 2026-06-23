@@ -186,7 +186,7 @@ class TestSetVariableExecutor:
         outcome = await execute(ctx, node, AsyncMock())
 
         assert outcome.state == StepState.FAILED
-        assert "evil_func" in outcome.error
+        assert "evil_func" in (outcome.error or "")
 
     async def test_empty_assignments_succeeds(self) -> None:
         from contexts.workflow.application.executors.set_variable import execute
@@ -323,7 +323,7 @@ class TestTriggerExecutor:
         outcome = await execute(ctx, node, AsyncMock())
 
         assert outcome.state == StepState.FAILED
-        assert "non-empty" in outcome.error
+        assert "non-empty" in (outcome.error or "")
 
     async def test_cron_trigger_invalid_expression_fails(self) -> None:
         from contexts.workflow.application.executors.trigger import execute
@@ -337,7 +337,7 @@ class TestTriggerExecutor:
         outcome = await execute(ctx, node, AsyncMock())
 
         assert outcome.state == StepState.FAILED
-        assert "invalid" in outcome.error
+        assert "invalid" in (outcome.error or "")
 
     async def test_default_trigger_type_is_manual(self) -> None:
         from contexts.workflow.application.executors.trigger import execute
@@ -511,7 +511,7 @@ class TestInstructExecutor:
 
         assert outcome.state == StepState.FAILED
         assert outcome.port == "failure"
-        assert "connection lost" in outcome.error
+        assert "connection lost" in (outcome.error or "")
 
 
 # ===========================================================================
@@ -571,7 +571,7 @@ class TestAgentInvocationExecutor:
 
         assert outcome.state == StepState.FAILED
         assert outcome.port == "failure"
-        assert "timeout" in outcome.error
+        assert "timeout" in (outcome.error or "")
 
     @patch("contexts.workflow.application.executors.agent_invocation.interpolate", return_value="hi")
     @patch("contexts.workflow.application.executors.agent_invocation.audit.emit", new_callable=AsyncMock)

@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
+from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -137,7 +138,7 @@ class RetrieveService:
 
         return candidates[:effective_top_k]
 
-    def format_as_rag_message(self, chunks: list[RetrievedChunk]) -> dict[str, object]:
+    def format_as_rag_message(self, chunks: list[RetrievedChunk]) -> dict[str, Any]:
         """Build the {"type":"rag"} system message payload (R10.09).
 
         Callers attach this verbatim to `messages.metadata` right before
