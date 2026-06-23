@@ -10,6 +10,11 @@ global:
   scrape_interval: 15s
   evaluation_interval: 15s
 
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ["alertmanager:9093"]
+
 rule_files:
   - /etc/prometheus/alerts.yml
 
@@ -60,20 +65,23 @@ scrape_configs:
         labels:
           service: vault
 
-  # ---------- Exporters (add when deployed) ----------
-  # To monitor Postgres, deploy prometheuscommunity/postgres-exporter in
-  # docker-compose.obs.yml and uncomment:
-  #   - job_name: postgres
-  #     static_configs:
-  #       - targets: ["postgres-exporter:9187"]
-  #
-  # To monitor Redis, deploy oliver006/redis_exporter and uncomment:
-  #   - job_name: redis
-  #     static_configs:
-  #       - targets: ["redis-exporter:9121"]
-  #
-  # To monitor Neo4j, enable the Prometheus plugin (env vars in compose)
-  # and uncomment:
+  # ---------- DB exporters ----------
+  - job_name: postgres
+    static_configs:
+      - targets: ["postgres-exporter:9187"]
+        labels:
+          service: postgres
+
+  - job_name: redis
+    static_configs:
+      - targets: ["redis-exporter:9121"]
+        labels:
+          service: redis
+
+  # Neo4j Prometheus metrics require the metrics plugin enabled via env
+  # vars on the neo4j service (NEO4J_server_metrics_prometheus_enabled=true,
+  # NEO4J_server_metrics_prometheus_endpoint=0.0.0.0:2004). Uncomment
+  # when enabled:
   #   - job_name: neo4j
   #     metrics_path: /metrics
   #     static_configs:
