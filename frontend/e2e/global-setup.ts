@@ -85,13 +85,16 @@ async function globalSetup(): Promise<void> {
       }
     }
 
-    // Get or create workspace
-    const wsListResp = await api.get('/api/workspaces', { headers: userAuth })
-    if (wsListResp.ok()) {
+    // Get or create workspace (project-scoped)
+    const projectId = seed.E2E_PROJECT_ID
+    const wsListResp = projectId
+      ? await api.get(`/api/projects/${projectId}/workspaces`, { headers: userAuth })
+      : null
+    if (wsListResp?.ok()) {
       const workspaces = await wsListResp.json()
       let ws = workspaces[0]
       if (!ws) {
-        const wsResp = await api.post('/api/workspaces', {
+        const wsResp = await api.post(`/api/projects/${projectId}/workspaces`, {
           headers: userAuth,
           data: { name: `e2e-workspace-${Date.now()}` },
         })

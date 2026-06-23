@@ -95,7 +95,13 @@ async function hljsInDom(root: HTMLElement): Promise<void> {
   )
   if (!blocks.length) return
   const hljs = (await import('highlight.js/lib/common')).default
-  blocks.forEach((block) => hljs.highlightElement(block))
+  blocks.forEach((block) => {
+    try {
+      hljs.highlightElement(block)
+    } catch {
+      /* keep unhighlighted */
+    }
+  })
 }
 
 /** KaTeX pass — lazy-loads katex on first use. */
@@ -148,6 +154,5 @@ async function mermaidInDom(root: HTMLElement): Promise<void> {
 
 /** Drive all three passes. Safe to call on onMounted/onUpdated. */
 export async function enhanceRenderedMarkdown(root: HTMLElement): Promise<void> {
-  await Promise.all([hljsInDom(root), katexInDom(root)])
-  await mermaidInDom(root)
+  await Promise.allSettled([hljsInDom(root), katexInDom(root), mermaidInDom(root)])
 }

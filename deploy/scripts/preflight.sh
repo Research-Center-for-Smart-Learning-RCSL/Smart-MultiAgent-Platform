@@ -119,7 +119,8 @@ else
     COOKIE_SECURE=$(grep -E "^\s*SMAP_SEC_SESSION_COOKIE_SECURE=" "$ENV_FILE" | head -1 | cut -d= -f2- || echo "")
     COOKIE_SECURE="${COOKIE_SECURE#\"}" ; COOKIE_SECURE="${COOKIE_SECURE%\"}"
     COOKIE_SECURE="${COOKIE_SECURE#\'}" ; COOKIE_SECURE="${COOKIE_SECURE%\'}"
-    if [ "$COOKIE_SECURE" != "true" ] && [ "$COOKIE_SECURE" != "True" ] && [ "$COOKIE_SECURE" != "1" ]; then
+    COOKIE_SECURE_LC=$(echo "$COOKIE_SECURE" | tr '[:upper:]' '[:lower:]')
+    if [[ ! "$COOKIE_SECURE_LC" =~ ^(true|1|yes|on|t|y)$ ]]; then
       fatal "SMAP_SEC_SESSION_COOKIE_SECURE must be 'true' in prod (browsers drop refresh tokens without Secure flag over HTTPS)"
     else
       pass "SMAP_SEC_SESSION_COOKIE_SECURE=true"

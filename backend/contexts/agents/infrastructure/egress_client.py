@@ -24,6 +24,7 @@ import uuid
 from dataclasses import dataclass
 from hashlib import sha256
 from typing import Any
+from urllib.parse import urlencode, urlsplit, urlunsplit
 
 from contexts.agents.domain.errors import McpEgressDenied
 
@@ -72,7 +73,13 @@ class HttpxEgressProxyClient:
         }
         out_headers[_PROJECT_ID_HEADER] = str(project_id)
         out_headers[_HMAC_HEADER] = self._sign(project_id)
-        out_headers[_EGRESS_URL_HEADER] = url
+        target_url = url
+        if params:
+            parts = urlsplit(url)
+            sep = "&" if parts.query else ""
+            merged_query = parts.query + sep + urlencode(params)
+            target_url = urlunsplit((parts.scheme, parts.netloc, parts.path, merged_query, parts.fragment))
+        out_headers[_EGRESS_URL_HEADER] = target_url
 
         try:
             async with httpx.AsyncClient(timeout=timeout_s) as client:
@@ -80,7 +87,6 @@ class HttpxEgressProxyClient:
                     method.upper(),
                     self.proxy_base_url,
                     headers=out_headers,
-                    params=params,
                     json=json_body,
                 )
         except httpx.HTTPError as exc:

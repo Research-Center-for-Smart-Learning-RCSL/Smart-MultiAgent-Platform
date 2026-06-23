@@ -103,6 +103,19 @@ def _build_outgoing(edges: list[EdgeSpec]) -> dict[str, list[EdgeSpec]]:
 # every other task type carries None.
 _PendingEnqueue = tuple[str, str, str, int, str | None]
 
+# Node types that are safe to execute in dry-run mode (no external side effects).
+# Everything NOT in this set is mocked. This is intentionally a safe-list: adding
+# a new side-effect node type to NodeType will be mocked by default rather than
+# silently executing with real effects.
+_DRY_RUN_SAFE_TYPES = frozenset({
+    NodeType.TRIGGER,
+    NodeType.CONDITION,
+    NodeType.SET_VARIABLE,
+    NodeType.PARALLEL,
+    NodeType.JOIN,
+    NodeType.END,
+})
+
 
 class RunEngine:
     def __init__(self, db: AsyncSession) -> None:
@@ -255,6 +268,7 @@ class RunEngine:
             workflow_def=workflow.definition,
             variables=dict(run.variables),
             trigger_payload=run.context.get("trigger_payload", {}),
+            is_dry_run=(run.trigger_type == "dry_run"),
         )
 
     async def retry_node(self, run_id: uuid.UUID, node_id: str) -> None:
@@ -295,6 +309,7 @@ class RunEngine:
             workflow_def=workflow.definition,
             variables=dict(run.variables),
             trigger_payload=run.context.get("trigger_payload", {}),
+            is_dry_run=(run.trigger_type == "dry_run"),
         )
 
         await self._execute_node(ctx, node_id)
@@ -342,6 +357,7 @@ class RunEngine:
             workflow_def=workflow.definition,
             variables=dict(run.variables),
             trigger_payload=run.context.get("trigger_payload", {}),
+            is_dry_run=(run.trigger_type == "dry_run"),
         )
 
         await self._runs.update_state(run_id, state=RunState.RUNNING)
@@ -563,17 +579,10 @@ class RunEngine:
             node_type=node.type.value,
         )
 
-        # Execute — dry-run mode mocks side-effect-producing node types.
+        # Execute — dry-run mode mocks everything outside _DRY_RUN_SAFE_TYPES.
         step_start = time.monotonic()
-        _DRY_RUN_MOCK_TYPES = {
-            NodeType.AGENT_INVOCATION,
-            NodeType.APPROVAL_GATE,
-            NodeType.WAIT_FOR_EVENT,
-            NodeType.INSTRUCT,
-            NodeType.SUBAGENT_SPAWN,
-        }
         try:
-            if ctx.is_dry_run and node.type in _DRY_RUN_MOCK_TYPES:
+            if ctx.is_dry_run and node.type not in _DRY_RUN_SAFE_TYPES:
                 outcome = StepOutcome(
                     state=StepState.SUCCEEDED,
                     output={"_dry_run": True, "node_type": node.type.value},
