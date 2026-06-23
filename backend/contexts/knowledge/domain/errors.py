@@ -83,6 +83,12 @@ class GraphRagAgentProjectMismatch(KnowledgeError):
     code = "knowledge/graphrag-agent-project-mismatch"
 
 
+class GraphRagBuilderKeyGroupProjectMismatch(KnowledgeError):
+    """Builder key group does not belong to the target project."""
+
+    code = "knowledge/graphrag-builder-key-group-project-mismatch"
+
+
 __all__ = [
     "CapabilityMismatch",
     "ChunkParamsInvalid",
@@ -92,6 +98,7 @@ __all__ = [
     "GraphRagBuildBusy",
     "GraphRagBuildFailed",
     "GraphRagBuilderKeyGroupConflict",
+    "GraphRagBuilderKeyGroupProjectMismatch",
     "GraphRagConfigAlreadyExists",
     "GraphRagConfigNotFound",
     "IngestFailed",

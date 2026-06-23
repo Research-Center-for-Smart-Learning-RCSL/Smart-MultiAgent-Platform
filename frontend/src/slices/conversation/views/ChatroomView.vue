@@ -296,9 +296,6 @@ const TYPING_DEBOUNCE_MS = 3000
 const { connected, channel: wsChannel } = useChatroomSocket(chatroomId)
 const orchStore = useOrchestrationStore()
 
-// BUG-7: sync the older-messages page cache on remote edits/deletes so stale
-// entries don't linger. The TanStack query invalidation only refetches the
-// latest page; `olderMessages` is a local ref that must be patched manually.
 wsChannel.subscribe('message.updated', (ev) => void refreshOlderMessage(ev.message_id as string))
 wsChannel.subscribe('message.deleted', (ev) => dropOlderMessage(ev.message_id as string))
 

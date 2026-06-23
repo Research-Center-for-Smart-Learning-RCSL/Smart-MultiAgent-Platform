@@ -16,9 +16,11 @@ import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.agents.infrastructure import tables as agents_t
+from contexts.keys.infrastructure import tables as keys_t
 from contexts.knowledge.domain.errors import (
     GraphRagAgentProjectMismatch,
     GraphRagBuilderKeyGroupConflict,
+    GraphRagBuilderKeyGroupProjectMismatch,
     GraphRagConfigNotFound,
 )
 from contexts.knowledge.domain.graphrag import (
@@ -74,6 +76,22 @@ class GraphRagConfigService:
         if agent_row.key_group_id == draft.builder_key_group_id:
             raise GraphRagBuilderKeyGroupConflict(
                 f"builder_key_group_id must differ from agent's key_group_id " f"({agent_row.key_group_id})"
+            )
+
+        builder_group = (
+            await self._db.execute(
+                sa.select(keys_t.key_groups.c.project_id).where(
+                    sa.and_(
+                        keys_t.key_groups.c.id == draft.builder_key_group_id,
+                        keys_t.key_groups.c.deleted_at.is_(None),
+                    )
+                )
+            )
+        ).first()
+        if builder_group is None or builder_group.project_id != project_id:
+            raise GraphRagBuilderKeyGroupProjectMismatch(
+                f"builder_key_group_id {draft.builder_key_group_id} "
+                f"does not belong to project {project_id}"
             )
 
         cfg = await self._configs.create(
@@ -163,6 +181,21 @@ class GraphRagConfigService:
             if agent_row is not None and agent_row.key_group_id == builder_key_group_id:
                 raise GraphRagBuilderKeyGroupConflict(
                     "builder_key_group_id must differ from agent's key_group_id"
+                )
+            builder_group = (
+                await self._db.execute(
+                    sa.select(keys_t.key_groups.c.project_id).where(
+                        sa.and_(
+                            keys_t.key_groups.c.id == builder_key_group_id,
+                            keys_t.key_groups.c.deleted_at.is_(None),
+                        )
+                    )
+                )
+            ).first()
+            if builder_group is None or builder_group.project_id != cfg.project_id:
+                raise GraphRagBuilderKeyGroupProjectMismatch(
+                    f"builder_key_group_id {builder_key_group_id} "
+                    f"does not belong to project {cfg.project_id}"
                 )
 
         await self._configs.update(

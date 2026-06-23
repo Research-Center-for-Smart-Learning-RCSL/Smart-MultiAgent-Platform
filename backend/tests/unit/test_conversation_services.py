@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timedelta
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -371,15 +371,13 @@ class TestMessageList:
 
 
 class TestMessageSend:
-    @patch("contexts.conversation.application.message_service.Publisher")
     @patch("contexts.conversation.application.message_service.audit.emit", new_callable=AsyncMock)
-    async def test_send_user_message(self, _audit, _pub_cls) -> None:
+    async def test_send_user_message(self, _audit) -> None:
         msg = _message()
         msgs = AsyncMock()
         msgs.create.return_value = msg
         atts = AsyncMock()
         atts.bind_to_message.return_value = 0
-        _pub_cls.return_value = AsyncMock()
         svc = _make_message_service(messages=msgs, attachments=atts)
 
         result = await svc.send(
@@ -394,16 +392,14 @@ class TestMessageSend:
         create_kwargs = msgs.create.call_args.kwargs
         assert create_kwargs["sender_type"] is SenderType.USER
 
-    @patch("contexts.conversation.application.message_service.Publisher")
     @patch("contexts.conversation.application.message_service.audit.emit", new_callable=AsyncMock)
-    async def test_send_with_attachments(self, _audit, _pub_cls) -> None:
+    async def test_send_with_attachments(self, _audit) -> None:
         msg = _message()
         msgs = AsyncMock()
         msgs.create.return_value = msg
         atts = AsyncMock()
         atts.bind_to_message.return_value = 2
         att_ids = [uuid.uuid4(), uuid.uuid4()]
-        _pub_cls.return_value = AsyncMock()
         svc = _make_message_service(messages=msgs, attachments=atts)
 
         await svc.send(
@@ -440,17 +436,15 @@ class TestMessageSendAgent:
 
 
 class TestMessageEdit:
-    @patch("contexts.conversation.application.message_service.Publisher")
     @patch("contexts.conversation.application.message_service.audit.emit", new_callable=AsyncMock)
     @patch("contexts.conversation.application.message_service.now", return_value=_NOW)
-    async def test_self_edit_within_window(self, _now, _audit, _pub_cls) -> None:
+    async def test_self_edit_within_window(self, _now, _audit) -> None:
         existing = _message(created_at=_NOW)
         updated = _message(version=2)
         msgs = AsyncMock()
         msgs.get.return_value = existing
         msgs.update_content.return_value = updated
         edits = AsyncMock()
-        _pub_cls.return_value = AsyncMock()
         svc = _make_message_service(messages=msgs, edits=edits)
 
         result = await svc.edit(
@@ -514,10 +508,9 @@ class TestMessageEdit:
                 actor_ip=None,
             )
 
-    @patch("contexts.conversation.application.message_service.Publisher")
     @patch("contexts.conversation.application.message_service.audit.emit", new_callable=AsyncMock)
     @patch("contexts.conversation.application.message_service.now", return_value=_NOW + timedelta(hours=1))
-    async def test_moderator_can_edit_past_window(self, _now, _audit, _pub_cls) -> None:
+    async def test_moderator_can_edit_past_window(self, _now, _audit) -> None:
         other_user = uuid.uuid4()
         existing = _message(sender_id=other_user, created_at=_NOW)
         updated = _message(version=2)
@@ -525,7 +518,6 @@ class TestMessageEdit:
         msgs.get.return_value = existing
         msgs.update_content.return_value = updated
         edits = AsyncMock()
-        _pub_cls.return_value = AsyncMock()
         svc = _make_message_service(messages=msgs, edits=edits)
 
         result = await svc.edit(
@@ -557,15 +549,17 @@ class TestMessageEdit:
 
 
 class TestMessageDelete:
-    @patch("contexts.conversation.application.message_service.Publisher")
     @patch("contexts.conversation.application.message_service.audit.emit", new_callable=AsyncMock)
-    async def test_delete_success(self, _audit, _pub_cls) -> None:
+    async def test_delete_success(self, _audit) -> None:
         existing = _message()
         msgs = AsyncMock()
         msgs.get.return_value = existing
         msgs.hard_delete.return_value = 1
-        _pub_cls.return_value = AsyncMock()
         svc = _make_message_service(messages=msgs)
+        # db.execute(...) returns a result whose .all() is a plain list
+        exec_result = MagicMock()
+        exec_result.all.return_value = []
+        svc._db.execute.return_value = exec_result
 
         await svc.delete(
             message_id=_MSG,

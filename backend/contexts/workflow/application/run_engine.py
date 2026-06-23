@@ -752,16 +752,12 @@ class RunEngine:
 
             redis = get_redis()
             redis_key = f"wf:retry:{ctx.run_id}:{node.id}"
-            # get_redis() uses decode_responses=True, so ``raw`` is already a
-            # str — calling .decode() on it raised AttributeError and failed
-            # the whole run on the first retryable error (K remediation).
-            raw = await redis.get(redis_key)
-            retry_count = int(raw) if raw else 0
+            new_count = await redis.incr(redis_key)
+            if new_count == 1:
+                await redis.expire(redis_key, 3600)
 
-            if retry_count < node.on_error.retry_max:
-                new_count = retry_count + 1
+            if new_count <= node.on_error.retry_max:
                 backoff_ms = min(node.on_error.retry_backoff_ms * new_count, 60_000)
-                await redis.set(redis_key, str(new_count), ex=3600)
                 self._pending_enqueues.append(
                     ("retry_workflow_node", str(ctx.run_id), node.id, backoff_ms, None),
                 )
