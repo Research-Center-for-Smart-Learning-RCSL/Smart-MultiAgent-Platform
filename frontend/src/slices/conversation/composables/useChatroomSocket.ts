@@ -41,12 +41,15 @@ export function useChatroomSocket(roomId: string) {
     const generation = ++replayGeneration
     try {
       const delta = await listMessages(roomId, { since: lastSeenMessageId.value })
-      // A newer reconnect superseded this replay while it was in flight — drop
-      // it so lastSeenMessageId cannot move backwards.
       if (generation !== replayGeneration) return
       for (const m of delta) applyMessageCreated(m)
     } catch {
-      // Non-fatal — the user can refresh manually.
+      // BUG-8: the cursor message may have been hard-deleted → 422.
+      // Fall back to a full query invalidation so TanStack refetches the
+      // latest page instead of silently losing messages.
+      if (generation === replayGeneration) {
+        qc.invalidateQueries({ queryKey: ['conversation', 'messages', roomId] })
+      }
     }
   }
 
@@ -73,21 +76,28 @@ export function useChatroomSocket(roomId: string) {
     clearThinkingTimeout()
     thinkingTimer = setTimeout(() => {
       thinkingTimer = null
-      store.setAgentThinking(roomId, false)
+      // Watchdog fires — clear ALL thinking agents in this room (we don't
+      // know which specific agent is stuck when the backend is silent).
+      store.clearAllAgentThinking(roomId)
       store.clearAgentStream(roomId)
       store.setAgentError(roomId, 'timeout')
     }, AGENT_THINKING_TIMEOUT_MS)
   }
 
   function handleEvent(ev: ChannelEvent): void {
+    const agentId = (ev.agent_id as string) || (ev.sender_id as string) || ''
+
     switch (ev.type) {
       case 'message.created': {
         const mid = ev.message_id as string
         qc.invalidateQueries({ queryKey: ['conversation', 'messages', roomId] })
         lastSeenMessageId.value = mid
-        // The persisted reply has landed — drop the transient streaming draft
-        // so the bubble is replaced by the real message, never doubled.
-        store.clearAgentStream(roomId)
+        // Only clear the streaming draft for the specific agent whose
+        // persisted reply just landed — a user message must not wipe an
+        // in-progress agent stream (BUG-4).
+        if (ev.sender_type === 'agent' && agentId) {
+          store.clearAgentStream(roomId, agentId)
+        }
         break
       }
       case 'message.updated':
@@ -108,25 +118,33 @@ export function useChatroomSocket(roomId: string) {
         store.removeTyping(roomId, ev.user_id as string)
         break
       case 'agent.thinking':
-        store.setAgentThinking(roomId, true)
-        store.clearAgentStream(roomId)
+        if (agentId) {
+          store.setAgentThinking(roomId, agentId, true)
+          store.clearAgentStream(roomId, agentId)
+        }
         store.setAgentError(roomId, null)
         armThinkingTimeout()
         break
-      // Per-token stream from the turn engine; payload is {"text": "<delta>"}.
+      // Per-token stream from the turn engine; payload is {"text", "agent_id"}.
       case 'agent.token':
-        if (typeof ev.text === 'string' && ev.text) {
-          store.appendAgentToken(roomId, ev.text)
+        if (typeof ev.text === 'string' && ev.text && agentId) {
+          store.appendAgentToken(roomId, agentId, ev.text)
         }
         armThinkingTimeout()
         break
       case 'agent.finished':
         clearThinkingTimeout()
-        store.setAgentThinking(roomId, false)
+        if (agentId) {
+          store.setAgentThinking(roomId, agentId, false)
+          // On success the backend emits message.created BEFORE
+          // agent.finished (turn_engine L564→L573), so the message.created
+          // handler already cleared the stream.  Only clear here when no
+          // message.created preceded us (error / empty_reply / empty input).
+          if (!ev.message_id) {
+            store.clearAgentStream(roomId, agentId)
+          }
+        }
         if (typeof ev.error === 'string' && ev.error) {
-          // Failed turn — no message.created will follow, so clear the draft
-          // here and surface the error kind for the view to toast.
-          store.clearAgentStream(roomId)
           store.setAgentError(roomId, ev.error)
         }
         break
@@ -162,7 +180,16 @@ export function useChatroomSocket(roomId: string) {
   const unsubscribeEvent = channel.subscribe('*', handleEvent)
   const unsubscribeStatus = channel.onStatus((isConnected) => {
     connected.value = isConnected
-    if (isConnected) void replayDelta()
+    if (isConnected) {
+      // Clear stale thinking state from a prior session: if the agent
+      // finished while we were disconnected (KeepAlive deactivation or
+      // network drop), no agent.finished event was received and the
+      // spinner would stick forever without this reset.
+      store.clearAllAgentThinking(roomId)
+      store.clearAgentStream(roomId)
+      clearThinkingTimeout()
+      void replayDelta()
+    }
   })
 
   onMounted(() => {
