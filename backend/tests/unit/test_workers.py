@@ -124,9 +124,7 @@ class TestRetentionSweep:
         with patch("app.workers.tasks.retention._POLICIES") as mock_policies:
             policy1 = AsyncMock(return_value=1)
             policy2 = AsyncMock(return_value=2)
-            mock_policies.__iter__ = MagicMock(
-                return_value=iter([("p1", policy1), ("p2", policy2)])
-            )
+            mock_policies.__iter__ = MagicMock(return_value=iter([("p1", policy1), ("p2", policy2)]))
 
             report = await retention_sweep({})
 
@@ -148,9 +146,7 @@ class TestRetentionSweep:
         boom = AsyncMock(side_effect=RuntimeError("db down"))
 
         with patch("app.workers.tasks.retention._POLICIES") as mock_policies:
-            mock_policies.__iter__ = MagicMock(
-                return_value=iter([("broken", boom)])
-            )
+            mock_policies.__iter__ = MagicMock(return_value=iter([("broken", boom)]))
 
             report = await retention_sweep({})
 

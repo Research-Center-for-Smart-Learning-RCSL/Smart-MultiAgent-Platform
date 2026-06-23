@@ -312,7 +312,7 @@ class TestFuncJsonGet:
 
     def test_bracket_string_key(self) -> None:
         data = {"a": {"b-c": 42}}
-        assert evaluate('json_get({{ x }}, "a[\'b-c\']")', {"x": data}) == 42
+        assert evaluate("json_get({{ x }}, \"a['b-c']\")", {"x": data}) == 42
 
     def test_missing_path(self) -> None:
         assert evaluate('json_get({{ x }}, "a.b")', {"x": {"a": {}}}) is None

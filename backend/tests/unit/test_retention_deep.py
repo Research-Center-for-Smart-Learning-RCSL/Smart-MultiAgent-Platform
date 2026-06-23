@@ -158,9 +158,7 @@ class TestPurgeMessages:
         chunk_session = AsyncMock()
         chunk_session.__aenter__ = AsyncMock(return_value=chunk_session)
         chunk_session.__aexit__ = AsyncMock(return_value=False)
-        chunk_session.begin = MagicMock(
-            return_value=AsyncMock(__aenter__=AsyncMock(), __aexit__=AsyncMock())
-        )
+        chunk_session.begin = MagicMock(return_value=AsyncMock(__aenter__=AsyncMock(), __aexit__=AsyncMock()))
         mock_sm.return_value = MagicMock(return_value=chunk_session)
 
         call_count = 0
@@ -190,9 +188,7 @@ class TestPurgeMessages:
         chunk_session = AsyncMock()
         chunk_session.__aenter__ = AsyncMock(return_value=chunk_session)
         chunk_session.__aexit__ = AsyncMock(return_value=False)
-        chunk_session.begin = MagicMock(
-            return_value=AsyncMock(__aenter__=AsyncMock(), __aexit__=AsyncMock())
-        )
+        chunk_session.begin = MagicMock(return_value=AsyncMock(__aenter__=AsyncMock(), __aexit__=AsyncMock()))
         mock_sm.return_value = MagicMock(return_value=chunk_session)
 
         with patch(
@@ -363,9 +359,7 @@ class TestFacadeDelegatingPolicies:
         from app.workers.tasks.retention import _purge_message_attachments
 
         session = AsyncMock()
-        with patch(
-            "contexts.conversation.interfaces.facade.ConversationFacade"
-        ) as MockFacade:
+        with patch("contexts.conversation.interfaces.facade.ConversationFacade") as MockFacade:
             facade = AsyncMock()
             facade.purge_old_attachments.return_value = 15
             MockFacade.return_value = facade
@@ -395,9 +389,7 @@ class TestFacadeDelegatingPolicies:
         from app.workers.tasks.retention import _archive_workflow_runs
 
         session = AsyncMock()
-        with patch(
-            "contexts.workflow.interfaces.facade.WorkflowFacade"
-        ) as MockFacade:
+        with patch("contexts.workflow.interfaces.facade.WorkflowFacade") as MockFacade:
             facade = AsyncMock()
             facade.archive_old_runs.return_value = 50
             MockFacade.return_value = facade

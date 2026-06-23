@@ -28,6 +28,7 @@ _USER = uuid.uuid4()
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _entry(*, entry_id: int = 1, action: str = "test.action") -> AuditEntry:
     return AuditEntry(
         id=entry_id,
@@ -205,9 +206,7 @@ class TestAuditPurge:
             await svc.purge_old_logs()
 
         assert any("smap_audit_retention" in s for s in executed_sql)
-        assert any("RESET ROLE" in s for s in executed_sql), (
-            "RESET ROLE must execute even when DELETE fails"
-        )
+        assert any("RESET ROLE" in s for s in executed_sql), "RESET ROLE must execute even when DELETE fails"
 
 
 # ===========================================================================
