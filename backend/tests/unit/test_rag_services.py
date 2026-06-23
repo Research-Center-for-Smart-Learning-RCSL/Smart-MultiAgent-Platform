@@ -28,7 +28,6 @@ from contexts.knowledge.domain.errors import (
 from contexts.knowledge.domain.models import (
     ChunkStrategy,
     DocumentStatus,
-    RagChunk,
     RagConfig,
     RagDocument,
     ScanStatus,

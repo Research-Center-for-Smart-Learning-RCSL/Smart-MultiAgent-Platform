@@ -64,7 +64,7 @@ class TestRetentionPolicies:
 
     @patch("app.workers.tasks.retention.audit.emit", new_callable=AsyncMock)
     async def test_purge_expired_tokens(self, _audit) -> None:
-        from app.workers.tasks.retention import _purge_expired_tokens
+        from app.workers.tasks.retention import _TOKEN_TABLES, _purge_expired_tokens
 
         session = AsyncMock()
         result = MagicMock()
@@ -73,8 +73,7 @@ class TestRetentionPolicies:
 
         count = await _purge_expired_tokens(session)
 
-        # 2 token tables × 10 each = 20
-        assert count == 20
+        assert count == 10 * len(_TOKEN_TABLES)
 
     @patch("app.workers.tasks.retention.audit.emit", new_callable=AsyncMock)
     @patch("app.workers.tasks.retention.now")
