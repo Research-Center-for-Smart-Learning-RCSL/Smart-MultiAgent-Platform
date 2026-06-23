@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timedelta
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -465,6 +465,8 @@ class TestMessageEdit:
         assert result.version == 2
         edits.record.assert_awaited_once()
         assert _audit.call_args[0][1].action == "message.edited"
+        update_kwargs = msgs.update_content.call_args.kwargs
+        assert update_kwargs["max_age"] == SELF_EDIT_WINDOW
 
     @patch("contexts.conversation.application.message_service.now")
     async def test_self_edit_past_window_raises(self, _now) -> None:
@@ -537,6 +539,8 @@ class TestMessageEdit:
 
         assert result.version == 2
         assert _audit.call_args[0][1].action == "message.edited_by_moderator"
+        update_kwargs = msgs.update_content.call_args.kwargs
+        assert update_kwargs["max_age"] is None
 
     async def test_edit_not_found(self) -> None:
         msgs = AsyncMock()
@@ -619,6 +623,7 @@ class TestAttachmentSingleShot:
         repo.create.assert_awaited_once()
         _scan.assert_awaited_once()
 
+    @patch("contexts.conversation.application.attachment_service.SINGLE_SHOT_MAX_BYTES", 1024)
     async def test_ingest_too_large_raises(self) -> None:
         svc = _make_attachment_service()
 
@@ -629,7 +634,7 @@ class TestAttachmentSingleShot:
                 uploader_user_id=_USER,
                 filename="huge.bin",
                 mime="application/octet-stream",
-                data=b"x" * (SINGLE_SHOT_MAX_BYTES + 1),
+                data=b"x" * 1025,
                 actor_ip=None,
                 request_id=None,
             )

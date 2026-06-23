@@ -32,7 +32,6 @@ from contexts.tenancy.domain.models import (
     OCTransferState,
     OrgMember,
     OrgMemberRole,
-    ProjectMemberRole,
 )
 
 _NOW = datetime(2026, 6, 23, 12, 0, 0)
@@ -274,6 +273,32 @@ class TestInviteAcceptById:
             )
 
 
+class TestInviteAcceptSoftDeletedScope:
+    @patch("contexts.tenancy.application.invite_service.now", return_value=_NOW)
+    @patch("contexts.tenancy.application.invite_service.audit.emit", new_callable=AsyncMock)
+    async def test_accept_org_invite_into_soft_deleted_org_raises(self, _audit, _now) -> None:
+        inv = _invite()
+        updated = _invite(state=InviteState.ACCEPTED)
+        invites = AsyncMock()
+        invites.get.return_value = inv
+        invites.transition.return_value = updated
+        org_members = AsyncMock()
+        svc = _make_invite_service(invites=invites, org_members=org_members)
+        scope_row = MagicMock()
+        scope_row.first.return_value = None
+        svc._db.execute.return_value = scope_row
+
+        with pytest.raises(InviteNotFound):
+            await svc.accept(
+                invite_id=_INVITE,
+                caller_email="bob@example.com",
+                caller_user_id=_TARGET,
+                actor_ip=None,
+            )
+
+        org_members.add.assert_not_awaited()
+
+
 class TestInviteAcceptByToken:
     @patch("contexts.tenancy.application.invite_service.now", return_value=_NOW)
     @patch("contexts.tenancy.application.invite_service.audit.emit", new_callable=AsyncMock)
@@ -296,6 +321,7 @@ class TestInviteAcceptByToken:
         )
 
         assert result.state is InviteState.ACCEPTED
+        org_members.add.assert_awaited_once()
 
     async def test_token_not_found(self) -> None:
         invites = AsyncMock()
@@ -527,7 +553,6 @@ class TestOCTransferAccept:
             )
 
     async def test_accept_already_resolved_raises(self) -> None:
-        xfer = _transfer()
         xfer = OCTransfer(
             id=_TRANSFER, org_id=_ORG, initiator_user_id=_USER,
             target_user_id=_TARGET, state=OCTransferState.ACCEPTED,
@@ -556,6 +581,26 @@ class TestOCTransferAccept:
         svc = _make_transfer_service(transfers=transfers, org_members=org_members)
 
         with pytest.raises(TransferConflict, match="no longer an OrgOwner"):
+            await svc.accept(
+                org_id=_ORG,
+                transfer_id=_TRANSFER,
+                caller_user_id=_TARGET,
+                actor_ip=None,
+            )
+
+    @patch("contexts.tenancy.application.oc_transfer_service.now", return_value=_NOW)
+    async def test_accept_initiator_lost_oc_raises(self, _now) -> None:
+        xfer = _transfer()
+        transfers = AsyncMock()
+        transfers.get.return_value = xfer
+        org_members = AsyncMock()
+        org_members.get.side_effect = [
+            _org_member(user_id=_TARGET, role=OrgMemberRole.OWNER),
+            _org_member(user_id=_USER, is_oc=False),
+        ]
+        svc = _make_transfer_service(transfers=transfers, org_members=org_members)
+
+        with pytest.raises(TransferConflict, match="no longer the Original Creator"):
             await svc.accept(
                 org_id=_ORG,
                 transfer_id=_TRANSFER,
