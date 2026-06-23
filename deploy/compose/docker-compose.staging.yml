@@ -30,6 +30,9 @@ x-security-defaults: &security-defaults
 
 volumes:
   vault_logs:
+  nginx_certs:
+    external: true
+    name: smap-staging_nginx_certs
 
 services:
   # ---------- Socket proxy ----------
