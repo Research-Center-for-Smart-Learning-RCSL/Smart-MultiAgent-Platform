@@ -41,6 +41,25 @@ scrape_configs:
     static_configs:
       - targets: ["qdrant:6333"]
 
+  # Vault exposes /v1/sys/metrics when `telemetry { prometheus_retention_time }`
+  # is configured in vault.hcl. Requires a valid Vault token with
+  # `sys/metrics` policy — use the backend AppRole token or create a
+  # dedicated read-only token. Pass via VAULT_TOKEN env var on Prometheus
+  # or use `bearer_token_file`.
+  - job_name: vault
+    metrics_path: /v1/sys/metrics
+    params:
+      format: ["prometheus"]
+    scheme: https
+    tls_config:
+      ca_file: /etc/prometheus/vault-ca.pem
+      insecure_skip_verify: false
+    bearer_token_file: /etc/prometheus/vault-token
+    static_configs:
+      - targets: ["vault:8200"]
+        labels:
+          service: vault
+
   # ---------- Exporters (add when deployed) ----------
   # To monitor Postgres, deploy prometheuscommunity/postgres-exporter in
   # docker-compose.obs.yml and uncomment:

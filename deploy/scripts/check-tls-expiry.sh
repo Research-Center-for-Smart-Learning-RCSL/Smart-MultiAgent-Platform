@@ -29,8 +29,31 @@ NC='\033[0m'
 declare -a CERTS=()
 declare -a LABELS=()
 
-# --- Nginx external TLS cert ---
-# Check inside the Docker volume if accessible, or fall back to openssl s_client
+# Parse a certificate's expiry into epoch seconds.
+# Returns via the PARSED_EPOCH variable; sets to empty string on failure.
+parse_cert_expiry() {
+  local cert="$1"
+  PARSED_EPOCH=""
+
+  local expiry_date
+  expiry_date=$(echo "$cert" | openssl x509 -noout -enddate 2>/dev/null | cut -d= -f2)
+  if [ -z "$expiry_date" ]; then return; fi
+
+  # Force C locale — openssl always emits English month abbreviations but
+  # the system date command may parse %b according to LC_TIME.
+  local epoch
+  epoch=$(LC_ALL=C date -d "$expiry_date" +%s 2>/dev/null) || \
+  epoch=$(LC_ALL=C date -j -f "%b %d %T %Y %Z" "$expiry_date" +%s 2>/dev/null) || \
+  epoch=""
+
+  if [ -n "$epoch" ] && [ "$epoch" -gt 0 ] 2>/dev/null; then
+    PARSED_EPOCH="$epoch"
+  fi
+}
+
+# --- Collect certificates ---
+
+# Nginx external TLS cert — read from volume or probe live
 NGINX_CERT=""
 if docker volume inspect smap_nginx_certs &>/dev/null; then
   NGINX_CERT=$(docker run --rm -v smap_nginx_certs:/certs:ro alpine cat /certs/smap.crt 2>/dev/null || echo "")
@@ -40,27 +63,25 @@ if [ -n "$NGINX_CERT" ]; then
   CERTS+=("$NGINX_CERT")
   LABELS+=("nginx_external")
 else
-  # Try connecting to the local nginx to get the cert
-  LIVE_CERT=$(echo | openssl s_client -connect localhost:10443 -servername localhost 2>/dev/null | openssl x509 2>/dev/null || echo "")
+  # Probe live nginx with a 5-second connect timeout
+  LIVE_CERT=$(echo | timeout 5 openssl s_client -connect localhost:10443 -servername localhost 2>/dev/null | openssl x509 2>/dev/null || echo "")
   if [ -n "$LIVE_CERT" ]; then
     CERTS+=("$LIVE_CERT")
     LABELS+=("nginx_external")
   fi
 fi
 
-# --- Vault internal TLS cert ---
+# Vault internal TLS cert
 VAULT_CERT_PATH="$REPO_ROOT/deploy/vault/certs/vault-internal.crt"
 if [ -f "$VAULT_CERT_PATH" ]; then
-  VAULT_CERT=$(cat "$VAULT_CERT_PATH")
-  CERTS+=("$VAULT_CERT")
+  CERTS+=("$(cat "$VAULT_CERT_PATH")")
   LABELS+=("vault_internal")
 fi
 
-# --- Vault internal CA cert ---
+# Vault internal CA cert
 VAULT_CA_PATH="$REPO_ROOT/deploy/vault/certs/vault-internal-ca.pem"
 if [ -f "$VAULT_CA_PATH" ]; then
-  VAULT_CA=$(cat "$VAULT_CA_PATH")
-  CERTS+=("$VAULT_CA")
+  CERTS+=("$(cat "$VAULT_CA_PATH")")
   LABELS+=("vault_ca")
 fi
 
@@ -76,11 +97,10 @@ if [ "$MODE" = "--metrics" ]; then
     LABEL="${LABELS[$i]}"
     CERT="${CERTS[$i]}"
 
-    EXPIRY_DATE=$(echo "$CERT" | openssl x509 -noout -enddate 2>/dev/null | cut -d= -f2)
-    if [ -z "$EXPIRY_DATE" ]; then continue; fi
+    parse_cert_expiry "$CERT"
+    if [ -z "$PARSED_EPOCH" ]; then continue; fi
 
-    EXPIRY_EPOCH=$(date -d "$EXPIRY_DATE" +%s 2>/dev/null || date -j -f "%b %d %T %Y %Z" "$EXPIRY_DATE" +%s 2>/dev/null || echo "0")
-    REMAINING=$((EXPIRY_EPOCH - NOW))
+    REMAINING=$((PARSED_EPOCH - NOW))
 
     if [[ "$LABEL" == vault_* ]]; then
       echo "smap_vault_tls_cert_expiry_seconds{domain=\"$LABEL\"} $REMAINING"
@@ -109,15 +129,17 @@ elif [ "$MODE" = "--human" ]; then
     LABEL="${LABELS[$i]}"
     CERT="${CERTS[$i]}"
 
-    EXPIRY_DATE=$(echo "$CERT" | openssl x509 -noout -enddate 2>/dev/null | cut -d= -f2)
-    if [ -z "$EXPIRY_DATE" ]; then
+    parse_cert_expiry "$CERT"
+    if [ -z "$PARSED_EPOCH" ]; then
       printf "  %-20s %-24s %-12s %b\n" "$LABEL" "PARSE ERROR" "-" "${RED}ERROR${NC}"
       continue
     fi
 
-    EXPIRY_EPOCH=$(date -d "$EXPIRY_DATE" +%s 2>/dev/null || date -j -f "%b %d %T %Y %Z" "$EXPIRY_DATE" +%s 2>/dev/null || echo "0")
-    REMAINING=$((EXPIRY_EPOCH - NOW))
+    REMAINING=$((PARSED_EPOCH - NOW))
     DAYS=$((REMAINING / 86400))
+
+    # Recover the human-readable date for display
+    EXPIRY_DATE=$(echo "$CERT" | openssl x509 -noout -enddate 2>/dev/null | cut -d= -f2)
 
     if [ "$DAYS" -lt 7 ]; then
       STATUS="${RED}CRITICAL${NC}"

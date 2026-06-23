@@ -14,16 +14,9 @@ groups:
           description: "Prometheus cannot scrape backend-web:8000/metrics. All API traffic is likely failing."
           runbook: "Check `docker compose ps backend-web` — restart if OOMKilled, check logs if CrashLoopBackOff."
 
-      - alert: ReadyzFailing
-        expr: smap_readyz_status != 1
-        for: 2m
-        labels:
-          severity: critical
-        annotations:
-          summary: "/readyz reports unhealthy for >2m"
-          description: "At least one backend dependency (Postgres, Redis, Qdrant, Neo4j, MinIO, Vault) is failing health checks."
-          runbook: "curl /readyz to identify which dependency is down. Check that service's container logs."
-
+      # Vault alerting requires:
+      #   1. A `telemetry` stanza in deploy/vault/vault.hcl (added by this commit).
+      #   2. A `vault` scrape target in prometheus.yml (added by this commit).
       - alert: VaultSealed
         expr: vault_core_unsealed == 0
         for: 30s
@@ -34,6 +27,9 @@ groups:
           description: "Vault has been sealed for >30s. All key operations (JWT signing, encryption, secret reads) are blocked. Backend will return 503 on auth endpoints."
           runbook: "Unseal with 3-of-5 keys: `docker compose exec vault vault operator unseal $KEY`. See deploy/vault/README.md §6."
 
+      # Requires postgres-exporter (see prometheus.yml commented section).
+      # Alert is inert until the exporter is deployed — this is intentional;
+      # it will auto-activate once the scrape target exists.
       - alert: PostgresDown
         expr: up{job="postgres"} == 0
         for: 1m
@@ -41,7 +37,7 @@ groups:
           severity: critical
         annotations:
           summary: "Postgres exporter unreachable"
-          description: "If postgres-exporter is deployed, this means Postgres is down or the exporter crashed."
+          description: "Requires postgres-exporter to be deployed (see prometheus.yml). If deployed, this means Postgres is down or the exporter crashed."
           runbook: "Check `docker compose ps postgres` and `docker compose logs postgres --tail 50`."
 
   # ─────────────────────────────────────────────────────────
@@ -50,7 +46,7 @@ groups:
   - name: smap-high
     rules:
       - alert: DbPoolExhausted
-        expr: smap_db_pool_available <= 2
+        expr: db_pool_available <= 2
         for: 3m
         labels:
           severity: high
@@ -60,15 +56,16 @@ groups:
           runbook: "1. Check active queries: `SELECT * FROM pg_stat_activity WHERE state='active'`. 2. Check for long-running transactions. 3. If leak, restart backend-web."
 
       - alert: DbPoolWaiters
-        expr: smap_db_pool_checkedout >= (smap_db_pool_size * 0.9)
+        expr: db_pool_in_use >= (db_pool_size * 0.9)
         for: 2m
         labels:
           severity: high
         annotations:
           summary: "DB pool >90% checked out for >2m"
-          description: "{{ $value }} connections checked out. Pool exhaustion imminent."
+          description: "{{ $value }} connections in use. Pool exhaustion imminent."
           runbook: "Same as DbPoolExhausted. Consider increasing SMAP_DB_POOL_SIZE if traffic is legitimate."
 
+      # Requires redis-exporter (see prometheus.yml commented section).
       - alert: RedisDown
         expr: up{job="redis"} == 0
         for: 1m
@@ -76,15 +73,15 @@ groups:
           severity: high
         annotations:
           summary: "Redis exporter unreachable"
-          description: "Redis may be down. Affects: session storage, rate limiting, arq task queue, pub/sub."
+          description: "Requires redis-exporter to be deployed (see prometheus.yml). If deployed, Redis may be down."
           runbook: "Check `docker compose ps redis`. If OOMKilled, check maxmemory settings."
 
       - alert: HighErrorRate
         expr: |
           (
-            sum(rate(smap_http_requests_total{status=~"5.."}[5m]))
+            sum(rate(http_requests_total{status=~"5.."}[5m]))
             /
-            sum(rate(smap_http_requests_total[5m]))
+            sum(rate(http_requests_total[5m]))
           ) > 0.05
         for: 3m
         labels:
@@ -129,7 +126,7 @@ groups:
           description: "Certificate for {{ $labels.domain }} expires in {{ $value | humanizeDuration }}. Plan renewal."
 
       - alert: HighLatencyP95
-        expr: histogram_quantile(0.95, rate(smap_http_request_duration_seconds_bucket[5m])) > 5
+        expr: histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m])) > 5
         for: 5m
         labels:
           severity: warning
@@ -138,6 +135,7 @@ groups:
           description: "Slow responses indicate DB pressure, lock contention, or upstream (LLM) timeouts."
           runbook: "Check slow queries in Postgres and backend logs for timeout/deadline errors."
 
+      # Requires node-exporter (not deployed by default).
       - alert: DiskSpaceLow
         expr: node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"} < 0.15
         for: 10m
@@ -146,7 +144,7 @@ groups:
         annotations:
           summary: "Root filesystem <15% free"
           description: "{{ $value | humanizePercentage }} free. Docker images, logs, and DB WAL can fill disk quickly."
-          runbook: "1. `docker system prune`. 2. Rotate logs. 3. Check pg_wal size. 4. Run retention workers manually."
+          runbook: "1. `docker system prune`. 2. Rotate logs. 3. Check pg_wal size. 4. Run retention workers manually. Requires node-exporter to be deployed."
 
       - alert: QdrantDown
         expr: up{job="qdrant"} == 0
@@ -168,22 +166,12 @@ groups:
           description: "File uploads, downloads, and exports are failing."
           runbook: "Check `docker compose ps minio`. Verify disk space on minio_data volume."
 
-      - alert: WorkerQueueBacklog
-        expr: smap_arq_queue_length > 100
-        for: 5m
-        labels:
-          severity: warning
-        annotations:
-          summary: "Worker task queue backlog >100 for >5m"
-          description: "{{ $value }} tasks queued. Workers may be stuck or under-provisioned."
-          runbook: "Check worker logs, verify Redis connectivity, consider scaling worker replicas."
-
-      - alert: WorkflowRunStuck
-        expr: smap_workflow_run_stuck_count > 0
+      - alert: HighRetentionFailures
+        expr: rate(retention_failures_total[15m]) > 0
         for: 10m
         labels:
           severity: warning
         annotations:
-          summary: "Workflow run(s) stuck for >10m"
-          description: "{{ $value }} workflow runs have not progressed. Watchdog should recover these."
-          runbook: "Check backend-worker logs for watchdog errors. Manual: PATCH /api/admin/workflow-runs/{id}/cancel."
+          summary: "Retention worker failing for >10m"
+          description: "Worker {{ $labels.worker }} is throwing exceptions. Data may accumulate beyond policy."
+          runbook: "Check backend-worker logs for the failing worker. Manual trigger: run the retention task via arq CLI."

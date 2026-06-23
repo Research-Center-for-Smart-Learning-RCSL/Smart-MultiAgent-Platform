@@ -521,7 +521,7 @@ are auto-loaded when the observability stack is running.
 
 **High:** DbPoolExhausted, DbPoolWaiters, RedisDown, HighErrorRate, TlsCertExpiringSoon (< 7d), VaultTlsCertExpiringSoon (< 7d).
 
-**Warning:** TlsCertExpiring30d, HighLatencyP95, DiskSpaceLow, QdrantDown, MinioDown, WorkerQueueBacklog, WorkflowRunStuck.
+**Warning:** TlsCertExpiring30d, HighLatencyP95, DiskSpaceLow, QdrantDown, MinioDown, HighRetentionFailures.
 
 ### 12.3 TLS certificate monitoring
 

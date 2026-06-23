@@ -444,7 +444,7 @@ jobs:
       # Bring up the FULL data plane backend-web's /readyz probes (Postgres,
       # Redis, Qdrant, Neo4j, MinIO, Vault) — not just postgres/redis/vault, or
       # backend-web never becomes healthy and the stack-start step below times
-      # out. The test overlay maps backend-web to host :8000 so Vite's dev proxy
+      # out. The test overlay maps backend-web to host :28000 so Vite's dev proxy
       # can reach it after backend-web finally starts.
       - name: Start data services
         working-directory: .

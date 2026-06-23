@@ -227,17 +227,17 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 
 ```bash
 # 1. Health check
-curl -sk https://localhost/healthz   # → {"status": "ok"}
-curl -sk https://localhost/readyz    # → {"status": "ok", "dependencies": {...}}
+curl -sk https://localhost:10443/healthz   # → {"status": "ok"}
+curl -sk https://localhost:10443/readyz    # → {"status": "ok", "dependencies": {...}}
 
 # 2. Admin login (use credentials from step 5)
-curl -sk https://localhost/api/auth/login \
+curl -sk https://localhost:10443/api/auth/login \
   -H 'Content-Type: application/json' \
   -d '{"email": "<admin-email>", "password": "<admin-password>"}'
 # → {"access_token": "...", ...}
 
 # 3. Open browser
-#    https://localhost (accept self-signed cert warning in dev)
+#    https://localhost:10443 (accept self-signed cert warning in dev)
 ```
 
 ---

@@ -29,6 +29,14 @@ listener "tcp" {
 api_addr     = "https://vault:8200"
 cluster_addr = "https://vault:8201"
 
+// Telemetry — expose Prometheus metrics on /v1/sys/metrics for scraping.
+// The prometheus_retention_time keeps metrics in memory for one scrape
+// interval (15s) plus buffer. No external agent required.
+telemetry {
+  prometheus_retention_time = "30s"
+  disable_hostname         = true
+}
+
 // Audit log — every secret read, token mint, and transit op is recorded.
 // Mount to a persistent volume so logs survive restarts; rotate externally.
 audit "file" {
