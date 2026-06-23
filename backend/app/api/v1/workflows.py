@@ -478,6 +478,31 @@ async def trigger_run(
     return {"run_id": str(run_id)}
 
 
+@workflow_router.post(
+    "/{workflow_id}/dry-run",
+    status_code=status.HTTP_201_CREATED,
+)
+async def dry_run(
+    payload: RunTriggerIn,
+    workflow_id: uuid.UUID = Path(...),
+    scope: Scope = Depends(_resolve_workflow),
+    principal: Principal = Depends(current_principal),
+    resolver: RoleResolver = Depends(get_role_resolver),
+    db: AsyncSession = Depends(db_session),
+) -> dict[str, str]:
+    await _require_chat_create(principal, scope, resolver)
+    svc = WorkflowService(db)
+    run_id = await svc.dry_run(
+        workflow_id,
+        started_by_user_id=principal.user_id,
+        trigger_payload=payload.trigger_payload,
+        project_id=scope.project_id,
+    )
+    await db.commit()
+    await svc.dispatch_pending()
+    return {"run_id": str(run_id)}
+
+
 @workflow_router.get("/{workflow_id}/runs")
 async def list_runs(
     workflow_id: uuid.UUID = Path(...),
