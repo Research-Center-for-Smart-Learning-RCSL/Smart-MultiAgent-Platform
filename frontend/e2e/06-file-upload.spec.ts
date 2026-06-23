@@ -1,9 +1,10 @@
 import { test, expect } from './fixtures/auth'
+import { env } from './fixtures/seed'
 
 test.describe('tus file upload with progress tracking', () => {
   test('upload a file via drag-and-drop', async ({ authedPage: page }) => {
-    test.skip(!process.env.E2E_CHATROOM_ID, 'needs seeded chatroom')
-    const chatroomId = process.env.E2E_CHATROOM_ID!
+    test.skip(!env('E2E_CHATROOM_ID'), 'needs seeded chatroom')
+    const chatroomId = env('E2E_CHATROOM_ID')!
     await page.goto(`/chatrooms/${chatroomId}`)
 
     const composer = page.locator('form.composer')
@@ -29,8 +30,8 @@ test.describe('tus file upload with progress tracking', () => {
   })
 
   test('send a text message', async ({ authedPage: page }) => {
-    test.skip(!process.env.E2E_CHATROOM_ID, 'needs seeded chatroom')
-    const chatroomId = process.env.E2E_CHATROOM_ID!
+    test.skip(!env('E2E_CHATROOM_ID'), 'needs seeded chatroom')
+    const chatroomId = env('E2E_CHATROOM_ID')!
     await page.goto(`/chatrooms/${chatroomId}`)
 
     const composer = page.locator('form.composer')

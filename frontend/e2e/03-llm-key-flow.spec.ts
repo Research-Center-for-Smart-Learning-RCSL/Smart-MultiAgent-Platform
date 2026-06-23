@@ -1,4 +1,5 @@
 import { test, expect } from './fixtures/auth'
+import { env } from './fixtures/seed'
 
 test.describe('Upload LLM key → validate → carry into project → key group', () => {
   test('upload an API key', async ({ authedPage: page }) => {
@@ -37,8 +38,8 @@ test.describe('Upload LLM key → validate → carry into project → key group'
   })
 
   test('carry key into project via key groups', async ({ authedPage: page }) => {
-    test.skip(!process.env.E2E_PROJECT_ID, 'needs seeded project')
-    const projectId = process.env.E2E_PROJECT_ID!
+    test.skip(!env('E2E_PROJECT_ID'), 'needs seeded project')
+    const projectId = env('E2E_PROJECT_ID')!
 
     // Navigate to project key groups.
     await page.goto(`/projects/${projectId}/key-groups`)
@@ -61,8 +62,8 @@ test.describe('Upload LLM key → validate → carry into project → key group'
   })
 
   test('project keys page loads', async ({ authedPage: page }) => {
-    test.skip(!process.env.E2E_PROJECT_ID, 'needs seeded project')
-    await page.goto(`/projects/${process.env.E2E_PROJECT_ID}/keys`)
+    test.skip(!env('E2E_PROJECT_ID'), 'needs seeded project')
+    await page.goto(`/projects/${env('E2E_PROJECT_ID')}/keys`)
     await expect(page).toHaveURL(/keys/)
   })
 })

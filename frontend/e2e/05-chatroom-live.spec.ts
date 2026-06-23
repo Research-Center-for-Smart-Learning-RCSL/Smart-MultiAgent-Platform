@@ -1,9 +1,10 @@
 import { test, expect } from './fixtures/auth'
+import { env } from './fixtures/seed'
 
 test.describe('Two-browser chatroom live; edit window; moderator edit', () => {
   test('send and receive a message', async ({ authedPage: page }) => {
-    test.skip(!process.env.E2E_CHATROOM_ID, 'needs seeded chatroom')
-    const chatroomId = process.env.E2E_CHATROOM_ID!
+    test.skip(!env('E2E_CHATROOM_ID'), 'needs seeded chatroom')
+    const chatroomId = env('E2E_CHATROOM_ID')!
     await page.goto(`/chatrooms/${chatroomId}`)
     const composer = page.getByRole('textbox', { name: /type a message/i })
     await composer.fill('Hello E2E')
@@ -12,8 +13,8 @@ test.describe('Two-browser chatroom live; edit window; moderator edit', () => {
   })
 
   test('two-browser live sync', async ({ authedPage, adminPage }) => {
-    test.skip(!process.env.E2E_CHATROOM_ID, 'needs seeded chatroom')
-    const chatroomId = process.env.E2E_CHATROOM_ID!
+    test.skip(!env('E2E_CHATROOM_ID'), 'needs seeded chatroom')
+    const chatroomId = env('E2E_CHATROOM_ID')!
     await authedPage.goto(`/chatrooms/${chatroomId}`)
     await adminPage.goto(`/chatrooms/${chatroomId}`)
     const msg = `sync-${Date.now()}`

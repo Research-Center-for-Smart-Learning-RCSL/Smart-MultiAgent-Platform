@@ -1,15 +1,16 @@
 import { test, expect } from './fixtures/auth'
+import { env } from './fixtures/seed'
 
 test.describe('GraphRAG: create → bind → build → terminal state (M.1)', () => {
   test('navigate to GraphRAG config list', async ({ authedPage: page }) => {
-    test.skip(!process.env.E2E_PROJECT_ID, 'needs seeded project')
-    await page.goto(`/projects/${process.env.E2E_PROJECT_ID}/graphrag-configs`)
+    test.skip(!env('E2E_PROJECT_ID'), 'needs seeded project')
+    await page.goto(`/projects/${env('E2E_PROJECT_ID')}/graphrag-configs`)
     await expect(page).toHaveURL(/graphrag-configs/)
   })
 
   test('create a GraphRAG config', async ({ authedPage: page }) => {
-    test.skip(!process.env.E2E_PROJECT_ID, 'needs seeded project')
-    const projectId = process.env.E2E_PROJECT_ID!
+    test.skip(!env('E2E_PROJECT_ID'), 'needs seeded project')
+    const projectId = env('E2E_PROJECT_ID')!
     await page.goto(`/projects/${projectId}/graphrag-configs`)
 
     // Open the create form; the toggle button says "New Configuration".
@@ -31,16 +32,16 @@ test.describe('GraphRAG: create → bind → build → terminal state (M.1)', ()
   })
 
   test('list shows Bound/Not-bound status', async ({ authedPage: page }) => {
-    test.skip(!process.env.E2E_PROJECT_ID, 'needs seeded project')
-    await page.goto(`/projects/${process.env.E2E_PROJECT_ID}/graphrag-configs`)
+    test.skip(!env('E2E_PROJECT_ID'), 'needs seeded project')
+    await page.goto(`/projects/${env('E2E_PROJECT_ID')}/graphrag-configs`)
     // The table always renders (with empty-state row when no configs exist).
     await expect(page.locator('table').first()).toBeVisible()
   })
 
   test('build triggers status change', async ({ authedPage: page }) => {
-    test.skip(!process.env.E2E_PROJECT_ID, 'needs seeded project')
-    test.skip(!process.env.E2E_GRAPHRAG_CONFIG_ID, 'needs seeded GraphRAG config')
-    await page.goto(`/projects/${process.env.E2E_PROJECT_ID}/graphrag-configs`)
+    test.skip(!env('E2E_PROJECT_ID'), 'needs seeded project')
+    test.skip(!env('E2E_GRAPHRAG_CONFIG_ID'), 'needs seeded GraphRAG config')
+    await page.goto(`/projects/${env('E2E_PROJECT_ID')}/graphrag-configs`)
     const buildBtn = page.getByRole('button', { name: /build/i }).first()
     test.skip(!(await buildBtn.isVisible()), 'no buildable config on the page')
     await buildBtn.click()

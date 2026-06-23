@@ -1,9 +1,10 @@
 import { test, expect } from './fixtures/auth'
+import { env } from './fixtures/seed'
 
 test.describe('Export + attachments: download + expired state (M.3/M.5)', () => {
   test('trigger an export and see status', async ({ authedPage: page }) => {
-    test.skip(!process.env.E2E_CHATROOM_ID, 'needs seeded chatroom')
-    const chatroomId = process.env.E2E_CHATROOM_ID!
+    test.skip(!env('E2E_CHATROOM_ID'), 'needs seeded chatroom')
+    const chatroomId = env('E2E_CHATROOM_ID')!
     await page.goto(`/chatrooms/${chatroomId}`)
 
     const exportBtn = page.getByRole('button', { name: /export/i })
@@ -16,8 +17,8 @@ test.describe('Export + attachments: download + expired state (M.3/M.5)', () => 
 
   test('export download link appears when ready', async ({ authedPage: page }) => {
     test.setTimeout(120_000)
-    test.skip(!process.env.E2E_CHATROOM_ID, 'needs seeded chatroom with completed export')
-    const chatroomId = process.env.E2E_CHATROOM_ID!
+    test.skip(!env('E2E_CHATROOM_ID'), 'needs seeded chatroom with completed export')
+    const chatroomId = env('E2E_CHATROOM_ID')!
     await page.goto(`/chatrooms/${chatroomId}`)
 
     const exportBtn = page.getByRole('button', { name: /export/i })
@@ -30,8 +31,8 @@ test.describe('Export + attachments: download + expired state (M.3/M.5)', () => 
   })
 
   test('message attachments render download or expired state', async ({ authedPage: page }) => {
-    test.skip(!process.env.E2E_CHATROOM_ID, 'needs seeded chatroom with attachments')
-    const chatroomId = process.env.E2E_CHATROOM_ID!
+    test.skip(!env('E2E_CHATROOM_ID'), 'needs seeded chatroom with attachments')
+    const chatroomId = env('E2E_CHATROOM_ID')!
     await page.goto(`/chatrooms/${chatroomId}`)
 
     // At least one attachment element should be visible (download button or gone label).
