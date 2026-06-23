@@ -18,6 +18,7 @@ import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.conversation.domain.errors import (
+    AttachmentBindingFailed,
     MessageEditWindowExceeded,
     MessageImmutable,
     MessageNotFound,
@@ -170,6 +171,11 @@ class MessageService:
                 chatroom_id=chatroom_id,
                 uploaded_by_user_id=sender_user_id,
             )
+            if bound < len(attachment_ids):
+                raise AttachmentBindingFailed(
+                    f"{len(attachment_ids) - bound} of {len(attachment_ids)} "
+                    f"attachments could not be bound (wrong room, user, or expired)"
+                )
         await audit.emit(
             self._db,
             audit.AuditEvent(

@@ -80,6 +80,12 @@ class TusUploadNotFound(ConversationError):
     code = "conversation/tus-upload-not-found"
 
 
+class AttachmentBindingFailed(ConversationError):
+    """Some requested attachment_ids could not be bound (wrong room, wrong user, or expired)."""
+
+    code = "conversation/attachment-binding-failed"
+
+
 class TusMetadataInvalid(ConversationError):
     code = "conversation/tus-metadata-invalid"
 
@@ -96,6 +102,7 @@ class ExportJobNotReady(ConversationError):
 
 
 __all__ = [
+    "AttachmentBindingFailed",
     "AttachmentNotFound",
     "AttachmentQuarantined",
     "AttachmentTooLarge",

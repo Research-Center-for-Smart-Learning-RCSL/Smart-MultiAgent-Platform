@@ -462,7 +462,7 @@ class TurnEngine:
             # Emitted inside the try so any failure still routes to the
             # finished/turn_failed path — the room never stays "thinking".
             await self._audit(agent, chatroom_id, "agent.turn_started", {"trigger": trigger})
-            await Publisher(room).emit("agent.thinking")
+            await Publisher(room).emit("agent.thinking", {"agent_id": str(agent.id)})
 
             # Prompt resolution (R9.04–R9.08).
             base_system, lazy_prompt, section_cache = self._resolve_prompt(agent)
@@ -501,7 +501,7 @@ class TurnEngine:
             if input_text:
                 messages.append({"role": "user", "content": input_text})
             if not messages:
-                await Publisher(room).emit("agent.finished")
+                await Publisher(room).emit("agent.finished", {"agent_id": str(agent.id)})
                 await self._audit(agent, chatroom_id, "agent.turn_finished", {"empty": True})
                 await self._db.commit()
                 # The drained notifications were folded into a prompt that will
@@ -545,7 +545,7 @@ class TurnEngine:
                 )
                 await self._db.commit()
                 self._compact_forced_rooms.discard(chatroom_id)
-                await Publisher(room).emit("agent.finished", {"reason": "empty_reply"})
+                await Publisher(room).emit("agent.finished", {"reason": "empty_reply", "agent_id": str(agent.id)})
                 return TurnResult(status="skipped", reason="empty_reply", tool_rounds=rounds)
 
             msg = await MessageService(self._db).send_agent(
@@ -570,7 +570,7 @@ class TurnEngine:
                     "created_at": msg.created_at.isoformat() if msg.created_at else None,
                 },
             )
-            await pub.emit("agent.finished", {"message_id": str(msg.id)})
+            await pub.emit("agent.finished", {"message_id": str(msg.id), "agent_id": str(agent.id)})
             # K.4: agent replies feed workflow `message` triggers/waits exactly
             # like user sends do (sender_filter agent/any). Best-effort,
             # post-commit — never fails the turn.
@@ -584,7 +584,7 @@ class TurnEngine:
             # audit row are independently guarded: a Redis outage must not
             # swallow the agent.turn_failed audit (DB), and vice versa.
             try:
-                await Publisher(room).emit("agent.finished", {"error": _err_kind(exc)})
+                await Publisher(room).emit("agent.finished", {"error": _err_kind(exc), "agent_id": str(agent.id)})
             except Exception:
                 _log.exception("agent turn failure-path WS emit failed")
             try:
@@ -799,7 +799,7 @@ class TurnEngine:
                 if isinstance(ev, TokenDelta):
                     AGENT_STREAM_TOKENS_TOTAL.inc()
                     if room is not None:
-                        await Publisher(room).emit("agent.token", {"text": ev.text})
+                        await Publisher(room).emit("agent.token", {"text": ev.text, "agent_id": str(agent.id)})
                 elif isinstance(ev, StreamComplete):
                     body = ev.result.body
 

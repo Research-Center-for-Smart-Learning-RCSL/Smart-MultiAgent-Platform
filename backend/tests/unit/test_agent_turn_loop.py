@@ -105,9 +105,10 @@ async def test_stream_with_tools_runs_one_tool_round(monkeypatch) -> None:
     assert messages[2]["tool_call_id"] == "t1"
     assert messages[2]["name"] == "update_wakeup"
 
-    # Streamed deltas were published.
-    assert ("agent.token", {"text": "think"}) in events
-    assert ("agent.token", {"text": "done"}) in events
+    # Streamed deltas were published (payloads carry the agent_id).
+    aid = str(agent.id)
+    assert ("agent.token", {"text": "think", "agent_id": aid}) in events
+    assert ("agent.token", {"text": "done", "agent_id": aid}) in events
 
     # The second request carried the tool result back to the provider.
     assert engine._router.rounds == 2  # type: ignore[attr-defined]

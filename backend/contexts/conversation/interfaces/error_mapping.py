@@ -56,6 +56,11 @@ _MAP: ErrorMap = {
         404,
         "Guest token invalid",
     ),
+    errors.AttachmentBindingFailed: (
+        "conversation/attachment-binding-failed",
+        422,
+        "Some attachments could not be bound to the message",
+    ),
     errors.AttachmentNotFound: (
         "conversation/attachment-not-found",
         404,

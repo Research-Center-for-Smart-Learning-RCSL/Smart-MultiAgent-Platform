@@ -5,8 +5,8 @@
 // store only holds:
 //   - presence sets keyed by chatroom_id
 //   - the active chatroom id (navigation convenience)
-//   - per-room "agent is thinking" flag surfaced by agent.thinking/.finished
-//   - per-room streaming draft accumulated from agent.token deltas
+//   - per-room per-agent "agent is thinking" flag surfaced by agent.thinking/.finished
+//   - per-room per-agent streaming draft accumulated from agent.token deltas
 //   - per-room transient agent error kind (agent.finished{error} / timeout)
 
 import { defineStore } from 'pinia'
@@ -16,10 +16,10 @@ import { registerCleanup } from '@shared/stores/useAppCleanup'
 export const useConversationStore = defineStore('conversation', () => {
   const activeChatroomId = ref<string | null>(null)
   const presence = ref<Record<string, Set<string>>>({})
-  const agentThinking = ref<Record<string, boolean>>({})
-  // Transient per-token stream of the in-progress agent reply. Cleared when
-  // the persisted message arrives (message.created) or the turn errors out.
-  const agentStream = ref<Record<string, string>>({})
+  // Per-room set of agent IDs that are currently running a turn.
+  const agentThinking = ref<Record<string, Set<string>>>({})
+  // Per-room per-agent streaming draft accumulated from agent.token deltas.
+  const agentStreams = ref<Record<string, Record<string, string>>>({})
   // Last agent failure kind ('timeout' for the client-side watchdog, or the
   // backend's error kind from agent.finished). The view consumes + clears it.
   const agentError = ref<Record<string, string | null>>({})
@@ -51,20 +51,49 @@ export const useConversationStore = defineStore('conversation', () => {
     presence.value = { ...presence.value, [roomId]: set }
   }
 
-  function setAgentThinking(roomId: string, value: boolean): void {
-    agentThinking.value = { ...agentThinking.value, [roomId]: value }
+  function setAgentThinking(roomId: string, agentId: string, value: boolean): void {
+    const set = agentThinking.value[roomId] ?? new Set<string>()
+    if (value) {
+      set.add(agentId)
+    } else {
+      set.delete(agentId)
+    }
+    agentThinking.value = { ...agentThinking.value, [roomId]: set }
   }
 
-  function appendAgentToken(roomId: string, text: string): void {
-    agentStream.value = {
-      ...agentStream.value,
-      [roomId]: (agentStream.value[roomId] ?? '') + text,
+  function clearAllAgentThinking(roomId: string): void {
+    const { [roomId]: _, ...rest } = agentThinking.value
+    agentThinking.value = rest
+  }
+
+  function isAnyAgentThinking(roomId: string): boolean {
+    const set = agentThinking.value[roomId]
+    return !!set && set.size > 0
+  }
+
+  function appendAgentToken(roomId: string, agentId: string, text: string): void {
+    const roomStreams = agentStreams.value[roomId] ?? {}
+    agentStreams.value = {
+      ...agentStreams.value,
+      [roomId]: { ...roomStreams, [agentId]: (roomStreams[agentId] ?? '') + text },
     }
   }
 
-  function clearAgentStream(roomId: string): void {
-    const { [roomId]: _s, ...rest } = agentStream.value
-    agentStream.value = rest
+  function clearAgentStream(roomId: string, agentId?: string): void {
+    if (agentId) {
+      const roomStreams = agentStreams.value[roomId]
+      if (!roomStreams) return
+      const { [agentId]: _, ...rest } = roomStreams
+      if (Object.keys(rest).length === 0) {
+        const { [roomId]: _r, ...roomsRest } = agentStreams.value
+        agentStreams.value = roomsRest
+      } else {
+        agentStreams.value = { ...agentStreams.value, [roomId]: rest }
+      }
+    } else {
+      const { [roomId]: _, ...rest } = agentStreams.value
+      agentStreams.value = rest
+    }
   }
 
   function setAgentError(roomId: string, kind: string | null): void {
@@ -80,8 +109,8 @@ export const useConversationStore = defineStore('conversation', () => {
     presence.value = rest
     const { [roomId]: _a, ...restAgent } = agentThinking.value
     agentThinking.value = restAgent
-    const { [roomId]: _s, ...restStream } = agentStream.value
-    agentStream.value = restStream
+    const { [roomId]: _s, ...restStream } = agentStreams.value
+    agentStreams.value = restStream
     const { [roomId]: _e, ...restError } = agentError.value
     agentError.value = restError
     const { [roomId]: _t, ...restTyping } = typingUsers.value
@@ -91,7 +120,7 @@ export const useConversationStore = defineStore('conversation', () => {
   function clearAll(): void {
     presence.value = {}
     agentThinking.value = {}
-    agentStream.value = {}
+    agentStreams.value = {}
     agentError.value = {}
     typingUsers.value = {}
     activeChatroomId.value = null
@@ -105,7 +134,7 @@ export const useConversationStore = defineStore('conversation', () => {
     activeChatroomId,
     presence,
     agentThinking,
-    agentStream,
+    agentStreams,
     agentError,
     typingUsers,
     addTyping,
@@ -113,6 +142,8 @@ export const useConversationStore = defineStore('conversation', () => {
     joinPresence,
     leavePresence,
     setAgentThinking,
+    clearAllAgentThinking,
+    isAnyAgentThinking,
     appendAgentToken,
     clearAgentStream,
     setAgentError,

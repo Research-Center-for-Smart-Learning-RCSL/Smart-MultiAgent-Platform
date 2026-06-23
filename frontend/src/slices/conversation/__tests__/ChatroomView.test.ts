@@ -168,15 +168,15 @@ describe('ChatroomView', () => {
     const store = useConversationStore()
     expect(wrapper.find('[data-testid="streaming-draft"]').exists()).toBe(false)
 
-    store.appendAgentToken('cr_1', 'Hello **wor')
-    store.appendAgentToken('cr_1', 'ld**')
+    store.appendAgentToken('cr_1', 'a1', 'Hello **wor')
+    store.appendAgentToken('cr_1', 'a1', 'ld**')
     await nextTick()
     const bubble = wrapper.find('[data-testid="streaming-draft"]')
     expect(bubble.exists()).toBe(true)
     expect(bubble.find('.md').html()).toContain('<strong>world</strong>')
 
     // Cleared when the persisted message arrives (socket calls this).
-    store.clearAgentStream('cr_1')
+    store.clearAgentStream('cr_1', 'a1')
     await nextTick()
     expect(wrapper.find('[data-testid="streaming-draft"]').exists()).toBe(false)
   })
