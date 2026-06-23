@@ -554,9 +554,13 @@ class TestOCTransferAccept:
 
     async def test_accept_already_resolved_raises(self) -> None:
         xfer = OCTransfer(
-            id=_TRANSFER, org_id=_ORG, initiator_user_id=_USER,
-            target_user_id=_TARGET, state=OCTransferState.ACCEPTED,
-            created_at=_NOW, expires_at=_NOW + timedelta(days=7),
+            id=_TRANSFER,
+            org_id=_ORG,
+            initiator_user_id=_USER,
+            target_user_id=_TARGET,
+            state=OCTransferState.ACCEPTED,
+            created_at=_NOW,
+            expires_at=_NOW + timedelta(days=7),
             resolved_at=_NOW,
         )
         transfers = AsyncMock()

@@ -228,7 +228,9 @@ class TestIngestHappyPath:
     @patch("contexts.knowledge.application.ingest_service.audit.emit", new_callable=AsyncMock)
     @patch("contexts.knowledge.application.ingest_service.Publisher")
     @patch("contexts.knowledge.application.ingest_service.chunk_text", return_value=["chunk1", "chunk2"])
-    @patch("contexts.knowledge.application.ingest_service.MIME_TO_PARSER", {"text/plain": lambda d: d.decode()})
+    @patch(
+        "contexts.knowledge.application.ingest_service.MIME_TO_PARSER", {"text/plain": lambda d: d.decode()}
+    )
     async def test_new_doc_ingested(self, _chunk, mock_pub, _audit, _scan) -> None:
         mock_pub.return_value = AsyncMock()
         cfg = _make_config()
@@ -285,7 +287,9 @@ class TestIngestFailure:
     @patch("contexts.knowledge.application.ingest_service.audit.emit", new_callable=AsyncMock)
     @patch("contexts.knowledge.application.ingest_service.Publisher")
     @patch("contexts.knowledge.application.ingest_service.chunk_text", return_value=["c1"])
-    @patch("contexts.knowledge.application.ingest_service.MIME_TO_PARSER", {"text/plain": lambda d: d.decode()})
+    @patch(
+        "contexts.knowledge.application.ingest_service.MIME_TO_PARSER", {"text/plain": lambda d: d.decode()}
+    )
     async def test_embed_failure_raises_ingest_failed(self, _chunk, mock_pub, _audit) -> None:
         mock_pub.return_value = AsyncMock()
         cfg = _make_config()
@@ -333,7 +337,9 @@ class TestIngestVectorMismatch:
     @patch("contexts.knowledge.application.ingest_service.audit.emit", new_callable=AsyncMock)
     @patch("contexts.knowledge.application.ingest_service.Publisher")
     @patch("contexts.knowledge.application.ingest_service.chunk_text", return_value=["c1", "c2"])
-    @patch("contexts.knowledge.application.ingest_service.MIME_TO_PARSER", {"text/plain": lambda d: d.decode()})
+    @patch(
+        "contexts.knowledge.application.ingest_service.MIME_TO_PARSER", {"text/plain": lambda d: d.decode()}
+    )
     async def test_short_vector_list_raises(self, _chunk, mock_pub, _audit, _scan) -> None:
         mock_pub.return_value = AsyncMock()
         cfg = _make_config()

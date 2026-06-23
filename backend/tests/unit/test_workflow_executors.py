@@ -367,10 +367,7 @@ class TestJoinExecutor:
     ):
         from contexts.workflow.application.executors.join import execute
 
-        edges = [
-            {"id": f"e{i}", "from": f"src{i}", "to": "join1"}
-            for i in range(incoming_edges)
-        ]
+        edges = [{"id": f"e{i}", "from": f"src{i}", "to": "join1"} for i in range(incoming_edges)]
         ctx = _make_ctx(
             workflow_def={"nodes": [], "edges": edges},
             arrived_via=arrived_via,

@@ -136,8 +136,15 @@ class TestChatExportBuildAndUpload:
     @patch("contexts.conversation.application.chat_export_service.resolve_room_access")
     @patch("contexts.conversation.application.chat_export_service.IdentityFacade")
     async def test_builds_manifest_with_messages(
-        self, MockIdentity, mock_resolve, mock_ensure, MockMsgs, MockEdits, MockAtts,
-        MockRooms, mock_minio_fn,
+        self,
+        MockIdentity,
+        mock_resolve,
+        mock_ensure,
+        MockMsgs,
+        MockEdits,
+        MockAtts,
+        MockRooms,
+        mock_minio_fn,
     ) -> None:
         identity = AsyncMock()
         identity.is_admin.return_value = False
@@ -207,8 +214,15 @@ class TestChatExportBuildAndUpload:
     @patch("contexts.conversation.application.chat_export_service.resolve_room_access")
     @patch("contexts.conversation.application.chat_export_service.IdentityFacade")
     async def test_admin_can_export(
-        self, MockIdentity, mock_resolve, mock_ensure, MockMsgs, MockEdits, MockAtts,
-        MockRooms, mock_minio_fn,
+        self,
+        MockIdentity,
+        mock_resolve,
+        mock_ensure,
+        MockMsgs,
+        MockEdits,
+        MockAtts,
+        MockRooms,
+        mock_minio_fn,
     ) -> None:
         identity = AsyncMock()
         identity.is_admin.return_value = True
@@ -271,8 +285,15 @@ class TestChatExportBuildAndUpload:
     @patch("contexts.conversation.application.chat_export_service.resolve_room_access")
     @patch("contexts.conversation.application.chat_export_service.IdentityFacade")
     async def test_empty_export(
-        self, MockIdentity, mock_resolve, mock_ensure, MockMsgs, MockEdits, MockAtts,
-        MockRooms, mock_minio_fn,
+        self,
+        MockIdentity,
+        mock_resolve,
+        mock_ensure,
+        MockMsgs,
+        MockEdits,
+        MockAtts,
+        MockRooms,
+        mock_minio_fn,
     ) -> None:
         identity = AsyncMock()
         identity.is_admin.return_value = False
@@ -314,8 +335,15 @@ class TestChatExportBuildAndUpload:
     @patch("contexts.conversation.application.chat_export_service.resolve_room_access")
     @patch("contexts.conversation.application.chat_export_service.IdentityFacade")
     async def test_message_cap_applied(
-        self, MockIdentity, mock_resolve, mock_ensure, MockMsgs, MockEdits, MockAtts,
-        MockRooms, mock_minio_fn,
+        self,
+        MockIdentity,
+        mock_resolve,
+        mock_ensure,
+        MockMsgs,
+        MockEdits,
+        MockAtts,
+        MockRooms,
+        mock_minio_fn,
     ) -> None:
         identity = AsyncMock()
         identity.is_admin.return_value = False
@@ -340,7 +368,9 @@ class TestChatExportBuildAndUpload:
         svc = ChatExportService(db)
 
         await svc.build_and_upload_export(
-            job_id=_JOB, chatroom_id=_ROOM, owner_user_id=_USER,
+            job_id=_JOB,
+            chatroom_id=_ROOM,
+            owner_user_id=_USER,
         )
 
         call_kwargs = msgs_repo.all_for_chatroom.call_args

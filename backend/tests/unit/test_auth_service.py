@@ -123,7 +123,11 @@ class TestNormaliseEmail:
 
 class TestRegister:
     @patch("contexts.identity.application.auth_service.captcha.verify", new_callable=AsyncMock)
-    @patch("contexts.identity.application.auth_service.email_domain_policy.is_allowed", new_callable=AsyncMock, return_value=True)
+    @patch(
+        "contexts.identity.application.auth_service.email_domain_policy.is_allowed",
+        new_callable=AsyncMock,
+        return_value=True,
+    )
     @patch("contexts.identity.application.auth_service.audit.emit", new_callable=AsyncMock)
     async def test_new_user_inserted(self, _audit, _domain, _captcha) -> None:
         users = AsyncMock()
@@ -161,7 +165,11 @@ class TestRegister:
             )
 
     @patch("contexts.identity.application.auth_service.captcha.verify", new_callable=AsyncMock)
-    @patch("contexts.identity.application.auth_service.email_domain_policy.is_allowed", new_callable=AsyncMock, return_value=False)
+    @patch(
+        "contexts.identity.application.auth_service.email_domain_policy.is_allowed",
+        new_callable=AsyncMock,
+        return_value=False,
+    )
     async def test_denied_domain_raises(self, _domain, _captcha) -> None:
         svc = _make_service()
         with pytest.raises(EmailDomainDenied):
@@ -173,7 +181,11 @@ class TestRegister:
             )
 
     @patch("contexts.identity.application.auth_service.captcha.verify", new_callable=AsyncMock)
-    @patch("contexts.identity.application.auth_service.email_domain_policy.is_allowed", new_callable=AsyncMock, return_value=True)
+    @patch(
+        "contexts.identity.application.auth_service.email_domain_policy.is_allowed",
+        new_callable=AsyncMock,
+        return_value=True,
+    )
     async def test_weak_password_raises(self, _domain, _captcha) -> None:
         svc = _make_service()
         with pytest.raises(PasswordPolicyViolation):
@@ -185,7 +197,11 @@ class TestRegister:
             )
 
     @patch("contexts.identity.application.auth_service.captcha.verify", new_callable=AsyncMock)
-    @patch("contexts.identity.application.auth_service.email_domain_policy.is_allowed", new_callable=AsyncMock, return_value=True)
+    @patch(
+        "contexts.identity.application.auth_service.email_domain_policy.is_allowed",
+        new_callable=AsyncMock,
+        return_value=True,
+    )
     @patch("contexts.identity.application.auth_service.ratelimit.check_raw", new_callable=AsyncMock)
     @patch("contexts.identity.application.auth_service.audit.emit", new_callable=AsyncMock)
     async def test_existing_email_sends_notice_silently(self, _audit, mock_rl, _domain, _captcha) -> None:
@@ -306,7 +322,9 @@ class TestLogin:
             )
 
     @patch("contexts.identity.application.auth_service.lockouts.check_only", new_callable=AsyncMock)
-    @patch("contexts.identity.application.auth_service.lockouts.check_and_record_failure", new_callable=AsyncMock)
+    @patch(
+        "contexts.identity.application.auth_service.lockouts.check_and_record_failure", new_callable=AsyncMock
+    )
     @patch("contexts.identity.application.auth_service.audit.emit", new_callable=AsyncMock)
     async def test_wrong_password_raises(self, _audit, mock_record, mock_check) -> None:
         mock_check.return_value = MagicMock(locked=False)
@@ -325,7 +343,9 @@ class TestLogin:
             )
 
     @patch("contexts.identity.application.auth_service.lockouts.check_only", new_callable=AsyncMock)
-    @patch("contexts.identity.application.auth_service.lockouts.check_and_record_failure", new_callable=AsyncMock)
+    @patch(
+        "contexts.identity.application.auth_service.lockouts.check_and_record_failure", new_callable=AsyncMock
+    )
     @patch("contexts.identity.application.auth_service.audit.emit", new_callable=AsyncMock)
     async def test_nonexistent_user_raises(self, _audit, mock_record, mock_check) -> None:
         mock_check.return_value = MagicMock(locked=False)
@@ -633,7 +653,11 @@ class TestChangePassword:
 
 
 class TestChangeEmail:
-    @patch("contexts.identity.application.auth_service.email_domain_policy.is_allowed", new_callable=AsyncMock, return_value=True)
+    @patch(
+        "contexts.identity.application.auth_service.email_domain_policy.is_allowed",
+        new_callable=AsyncMock,
+        return_value=True,
+    )
     @patch("contexts.identity.application.auth_service.audit.emit", new_callable=AsyncMock)
     @patch("contexts.identity.application.auth_service.tokens.kill_family", new_callable=AsyncMock)
     @patch("contexts.identity.application.auth_service.tokens.deny_jti", new_callable=AsyncMock)
@@ -657,7 +681,11 @@ class TestChangeEmail:
 
         users.set_email.assert_awaited_once_with(user.id, "new@example.com")
 
-    @patch("contexts.identity.application.auth_service.email_domain_policy.is_allowed", new_callable=AsyncMock, return_value=True)
+    @patch(
+        "contexts.identity.application.auth_service.email_domain_policy.is_allowed",
+        new_callable=AsyncMock,
+        return_value=True,
+    )
     async def test_email_already_taken(self, _domain) -> None:
         user = _make_user()
         users = AsyncMock()
@@ -673,7 +701,11 @@ class TestChangeEmail:
                 remote_ip=None,
             )
 
-    @patch("contexts.identity.application.auth_service.email_domain_policy.is_allowed", new_callable=AsyncMock, return_value=False)
+    @patch(
+        "contexts.identity.application.auth_service.email_domain_policy.is_allowed",
+        new_callable=AsyncMock,
+        return_value=False,
+    )
     async def test_denied_domain(self, _domain) -> None:
         svc = _make_service()
         with pytest.raises(EmailDomainDenied):

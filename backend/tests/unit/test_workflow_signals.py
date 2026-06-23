@@ -587,7 +587,9 @@ class TestRunTriggeredWorkflow:
             "contexts.workflow.application.workflow_service.WorkflowService",
             return_value=svc,
         ):
-            result = await run_triggered_workflow({"redis": pool}, wf_id, {"trigger_type": "message_received"})
+            result = await run_triggered_workflow(
+                {"redis": pool}, wf_id, {"trigger_type": "message_received"}
+            )
 
         assert result == str(run_id)
         svc.trigger_run.assert_awaited_once()

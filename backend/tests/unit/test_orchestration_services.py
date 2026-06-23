@@ -48,6 +48,7 @@ _ROOM = uuid.uuid4()
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _vote(agent: uuid.UUID, vote: bool) -> ApprovalVote:
     return ApprovalVote(
         approval_id=uuid.uuid4(),
@@ -290,7 +291,10 @@ class TestEvaluateVotesNonApprover:
 
 
 class TestApprovalCreateGate:
-    @patch("contexts.orchestration.application.approval_service.ApprovalService._notify_and_arm", new_callable=AsyncMock)
+    @patch(
+        "contexts.orchestration.application.approval_service.ApprovalService._notify_and_arm",
+        new_callable=AsyncMock,
+    )
     @patch("contexts.orchestration.application.approval_service.Publisher")
     @patch("contexts.orchestration.application.approval_service.audit.emit", new_callable=AsyncMock)
     async def test_create_gate(self, _audit, _pub_cls, _notify) -> None:
@@ -317,8 +321,14 @@ class TestApprovalCreateGate:
 
 
 class TestApprovalCastVote:
-    @patch("contexts.orchestration.application.approval_service.ApprovalService._enqueue_workflow_resume", new_callable=AsyncMock)
-    @patch("contexts.orchestration.application.approval_service.ApprovalService._publish_resolved", new_callable=AsyncMock)
+    @patch(
+        "contexts.orchestration.application.approval_service.ApprovalService._enqueue_workflow_resume",
+        new_callable=AsyncMock,
+    )
+    @patch(
+        "contexts.orchestration.application.approval_service.ApprovalService._publish_resolved",
+        new_callable=AsyncMock,
+    )
     @patch("contexts.orchestration.application.approval_service.APPROVAL_RESOLUTIONS", new_callable=MagicMock)
     @patch("contexts.orchestration.application.approval_service.audit.emit", new_callable=AsyncMock)
     async def test_cast_resolves_single(self, _audit, _metrics, _publish, _resume) -> None:
@@ -357,8 +367,14 @@ class TestApprovalCastVote:
 
 
 class TestApprovalTimeout:
-    @patch("contexts.orchestration.application.approval_service.ApprovalService._enqueue_workflow_resume", new_callable=AsyncMock)
-    @patch("contexts.orchestration.application.approval_service.ApprovalService._publish_resolved", new_callable=AsyncMock)
+    @patch(
+        "contexts.orchestration.application.approval_service.ApprovalService._enqueue_workflow_resume",
+        new_callable=AsyncMock,
+    )
+    @patch(
+        "contexts.orchestration.application.approval_service.ApprovalService._publish_resolved",
+        new_callable=AsyncMock,
+    )
     @patch("contexts.orchestration.application.approval_service.APPROVAL_RESOLUTIONS", new_callable=MagicMock)
     @patch("contexts.orchestration.application.approval_service.audit.emit", new_callable=AsyncMock)
     async def test_timeout_resolves_to_timeout_leader(self, _audit, _metrics, _publish, _resume) -> None:
@@ -600,7 +616,10 @@ class TestSubagentSpawn:
 
 
 class TestSubagentDestroy:
-    @patch("contexts.orchestration.application.subagent_service.SubagentService._fire_workflow_callback", new_callable=AsyncMock)
+    @patch(
+        "contexts.orchestration.application.subagent_service.SubagentService._fire_workflow_callback",
+        new_callable=AsyncMock,
+    )
     @patch("contexts.orchestration.application.subagent_service.SUBAGENT_CONCURRENCY", new_callable=MagicMock)
     @patch("contexts.orchestration.application.subagent_service.audit.emit", new_callable=AsyncMock)
     async def test_destroy_success(self, _audit, _metric, _callback) -> None:

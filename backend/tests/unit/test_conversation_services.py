@@ -273,9 +273,7 @@ class TestChatroomSoftDelete:
         rooms.create.return_value = default_room
         svc = _make_chatroom_service(rooms=rooms)
 
-        result = await svc.soft_delete(
-            chatroom_id=_ROOM, actor_user_id=_USER, actor_ip=None
-        )
+        result = await svc.soft_delete(chatroom_id=_ROOM, actor_user_id=_USER, actor_ip=None)
 
         assert result is not None
         assert result.id == default_room.id
@@ -291,9 +289,7 @@ class TestChatroomSoftDelete:
         rooms.count_active_in_workspace.return_value = 2
         svc = _make_chatroom_service(rooms=rooms)
 
-        result = await svc.soft_delete(
-            chatroom_id=_ROOM, actor_user_id=_USER, actor_ip=None
-        )
+        result = await svc.soft_delete(chatroom_id=_ROOM, actor_user_id=_USER, actor_ip=None)
 
         assert result is None
         rooms.create.assert_not_awaited()
@@ -306,8 +302,10 @@ class TestChatroomAgentRegistry:
         svc = _make_chatroom_service(agents=agents_repo)
 
         await svc.add_agent(
-            chatroom_id=_ROOM, agent_id=_AGENT,
-            actor_user_id=_USER, actor_ip=None,
+            chatroom_id=_ROOM,
+            agent_id=_AGENT,
+            actor_user_id=_USER,
+            actor_ip=None,
         )
 
         agents_repo.add.assert_awaited_once()
@@ -319,8 +317,10 @@ class TestChatroomAgentRegistry:
         svc = _make_chatroom_service(agents=agents_repo)
 
         await svc.remove_agent(
-            chatroom_id=_ROOM, agent_id=_AGENT,
-            actor_user_id=_USER, actor_ip=None,
+            chatroom_id=_ROOM,
+            agent_id=_AGENT,
+            actor_user_id=_USER,
+            actor_ip=None,
         )
 
         agents_repo.remove.assert_awaited_once()
