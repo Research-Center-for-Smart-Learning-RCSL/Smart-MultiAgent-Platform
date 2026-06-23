@@ -114,6 +114,16 @@ else
     check_env_var "SMAP_VAULT_SECRET_ID" "fatal"
     check_env_var "SMAP_SEC_CORS_ORIGINS" "fatal"
     check_env_var "SMTP_HOST" "warn"
+
+    # Session cookie must be Secure in prod (HTTPS) to avoid silent logouts
+    COOKIE_SECURE=$(grep -E "^\s*SMAP_SEC_SESSION_COOKIE_SECURE=" "$ENV_FILE" | head -1 | cut -d= -f2- || echo "")
+    COOKIE_SECURE="${COOKIE_SECURE#\"}" ; COOKIE_SECURE="${COOKIE_SECURE%\"}"
+    COOKIE_SECURE="${COOKIE_SECURE#\'}" ; COOKIE_SECURE="${COOKIE_SECURE%\'}"
+    if [ "$COOKIE_SECURE" != "true" ] && [ "$COOKIE_SECURE" != "True" ] && [ "$COOKIE_SECURE" != "1" ]; then
+      fatal "SMAP_SEC_SESSION_COOKIE_SECURE must be 'true' in prod (browsers drop refresh tokens without Secure flag over HTTPS)"
+    else
+      pass "SMAP_SEC_SESSION_COOKIE_SECURE=true"
+    fi
   else
     check_env_var "SMAP_VAULT_ROLE_ID" "warn"
     check_env_var "SMAP_VAULT_SECRET_ID" "warn"
