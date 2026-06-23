@@ -10,7 +10,7 @@
 # `docker info`; it does not execute containers itself (that is done by
 # backend-web via the socket proxy in production).
 
-FROM docker:27.4.1-cli
+FROM docker:29.6.0-cli
 
 RUN apk add --no-cache python3
 
