@@ -109,6 +109,7 @@ class SearchAdapter(Protocol):
         api_key: bytes,
         proxy: EgressProxyClient,
         project_id: uuid.UUID,
+        config: dict[str, Any] | None = None,
     ) -> list[SearchResult]: ...
 
 

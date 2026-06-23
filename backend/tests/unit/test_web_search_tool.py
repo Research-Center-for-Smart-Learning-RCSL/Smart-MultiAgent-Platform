@@ -36,6 +36,7 @@ class _FakeAdapter:
         api_key: bytes,
         proxy: Any,
         project_id: uuid.UUID,
+        config: dict[str, Any] | None = None,
     ) -> list[SearchResult]:
         self.calls.append(
             {

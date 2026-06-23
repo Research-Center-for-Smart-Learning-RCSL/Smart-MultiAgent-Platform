@@ -150,6 +150,7 @@ class WebSearchTool:
                 api_key=plaintext,
                 proxy=self.proxy,
                 project_id=self.project_id,
+                config=key.config,
             )
         finally:
             # Best-effort zeroisation — bytes are immutable so swap reference.
