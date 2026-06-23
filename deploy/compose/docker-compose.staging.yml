@@ -1,0 +1,235 @@
+# Staging overlay — between dev and prod. Single replica per service, half the
+# resource limits, Vault in prod mode (real TLS + file storage), but relaxed
+# enough to run on a 4-core / 16 GB host (or share a host with other workloads).
+#
+# Usage:
+#   docker compose \
+#     -f deploy/compose/docker-compose.yml \
+#     -f deploy/compose/docker-compose.staging.yml up -d
+#
+# Credential requirements are identical to prod (compose refuses to start
+# without SMAP_DB_PASSWORD, SMAP_REDIS_PASSWORD, SMAP_MINIO_ROOT_USER/PASSWORD).
+# This prevents accidentally running staging with dev-only hardcoded passwords.
+#
+# Tuning target: 4-core / 16 GB single host.
+# Total hard-limit sum ≈ 13.5 GB; remaining ~2.5 GB for OS + Docker daemon.
+
+volumes:
+  vault_logs:
+
+services:
+  # ---------- Socket proxy ----------
+  docker-socket-proxy:
+    image: tecnativa/docker-socket-proxy:0.3
+    container_name: smap_docker_proxy
+    restart: unless-stopped
+    environment:
+      CONTAINERS: 1
+      IMAGES: 1
+      VOLUMES: 1
+      POST: 1
+      ALLOW_START: 1
+      ALLOW_STOP: 1
+      ALLOW_RESTARTS: 0
+      NETWORKS: 0
+      SERVICES: 0
+      SWARM: 0
+      NODES: 0
+      BUILD: 0
+      EXEC: 0
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks: [backend_net]
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits: { cpus: "0.25", memory: 128M }
+
+  # ---------- Edge ----------
+  nginx:
+    restart: unless-stopped
+    command:
+      - sh
+      - -c
+      - |
+        if [ ! -f /etc/nginx/certs/smap.crt ]; then
+          echo "FATAL: /etc/nginx/certs/smap.crt not found."
+          echo "Mount real TLS certificates into the nginx_certs volume."
+          echo "See deploy/compose/nginx/README.md for instructions."
+          exit 1
+        fi
+        exec nginx -g 'daemon off;'
+    deploy:
+      resources:
+        limits: { cpus: "0.5", memory: 256M }
+
+  # ---------- Backend ----------
+  backend-web:
+    restart: unless-stopped
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 2
+    environment:
+      SMAP_APP_ENV: staging
+      SMAP_APP_DOCS_ENABLED: "true"
+      SMAP_LOG_LEVEL: info
+      DOCKER_HOST: tcp://docker-socket-proxy:2375
+      SMAP_VAULT_ADDR: https://vault:8200
+      SMAP_VAULT_CA_CERT: /vault-tls/vault-internal-ca.pem
+    volumes:
+      - ../vault/certs:/vault-tls:ro
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      vault: { condition: service_healthy }
+      docker-socket-proxy: { condition: service_started }
+    deploy:
+      replicas: 1
+      resources:
+        limits: { cpus: "2.0", memory: 2G }
+        reservations: { cpus: "0.5", memory: 1G }
+
+  backend-worker:
+    restart: unless-stopped
+    environment:
+      SMAP_APP_ENV: staging
+      DOCKER_HOST: tcp://docker-socket-proxy:2375
+      SMAP_VAULT_ADDR: https://vault:8200
+      SMAP_VAULT_CA_CERT: /vault-tls/vault-internal-ca.pem
+    volumes:
+      - ../vault/certs:/vault-tls:ro
+    depends_on:
+      redis: { condition: service_healthy }
+      postgres: { condition: service_healthy }
+      docker-socket-proxy: { condition: service_started }
+    deploy:
+      replicas: 1
+      resources:
+        limits: { cpus: "2.0", memory: 1G }
+        reservations: { cpus: "0.5", memory: 512M }
+
+  # ---------- Data services ----------
+  postgres:
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${SMAP_DB_USER:-smap}
+      POSTGRES_PASSWORD: ${SMAP_DB_PASSWORD:?SMAP_DB_PASSWORD must be set for staging}
+    shm_size: 512m
+    command:
+      - postgres
+      - -c
+      - shared_buffers=512MB
+      - -c
+      - effective_cache_size=1536MB
+      - -c
+      - work_mem=16MB
+      - -c
+      - maintenance_work_mem=128MB
+      - -c
+      - max_connections=128
+      - -c
+      - wal_compression=on
+    deploy:
+      resources:
+        limits: { cpus: "2.0", memory: 3G }
+        reservations: { cpus: "0.5", memory: 1G }
+
+  redis:
+    restart: unless-stopped
+    command:
+      - redis-server
+      - --appendonly
+      - "yes"
+      - --requirepass
+      - ${SMAP_REDIS_PASSWORD:?SMAP_REDIS_PASSWORD must be set for staging}
+      - --maxmemory
+      - "768mb"
+      - --maxmemory-policy
+      - "allkeys-lru"
+    environment:
+      REDISCLI_AUTH: ${SMAP_REDIS_PASSWORD}
+    healthcheck:
+      test: ["CMD", "redis-cli", "PING"]
+    deploy:
+      resources:
+        limits: { cpus: "0.5", memory: 1G }
+        reservations: { cpus: "0.25", memory: 256M }
+
+  qdrant:
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits: { cpus: "2.0", memory: 2G }
+        reservations: { cpus: "0.5", memory: 1G }
+
+  neo4j:
+    restart: unless-stopped
+    shm_size: 512m
+    environment:
+      NEO4J_server_memory_heap_initial__size: "512M"
+      NEO4J_server_memory_heap_max__size: "1G"
+      NEO4J_server_memory_pagecache_size: "512M"
+    deploy:
+      resources:
+        limits: { cpus: "2.0", memory: 2G }
+        reservations: { cpus: "0.5", memory: 1G }
+
+  minio:
+    restart: unless-stopped
+    environment:
+      MINIO_ROOT_USER: ${SMAP_MINIO_ROOT_USER:?SMAP_MINIO_ROOT_USER must be set for staging}
+      MINIO_ROOT_PASSWORD: ${SMAP_MINIO_ROOT_PASSWORD:?SMAP_MINIO_ROOT_PASSWORD must be set for staging}
+    deploy:
+      resources:
+        limits: { cpus: "1.0", memory: 1G }
+        reservations: { cpus: "0.25", memory: 512M }
+
+  vault:
+    restart: unless-stopped
+    command: server -config=/vault/config/vault.hcl
+    environment:
+      VAULT_DEV_ROOT_TOKEN_ID: ""
+      VAULT_DEV_LISTEN_ADDRESS: ""
+      VAULT_ADDR: https://127.0.0.1:8200
+      VAULT_CACERT: /vault/tls/vault-internal-ca.pem
+    healthcheck:
+      test: ["CMD", "vault", "status", "-format=json"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+    volumes:
+      - ../vault/vault.hcl:/vault/config/vault.hcl:ro
+      - ../vault/certs:/vault/tls:ro
+      - vault_logs:/vault/logs
+    deploy:
+      resources:
+        limits: { cpus: "0.5", memory: 512M }
+        reservations: { cpus: "0.1", memory: 256M }
+
+  # ---------- MCP sandbox plane ----------
+  egress-proxy:
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits: { cpus: "0.5", memory: 256M }
+
+  mcp-sandbox-supervisor:
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits: { cpus: "0.25", memory: 128M }
+
+  # ---------- Frontend ----------
+  frontend:
+    image: smap-frontend:staging
+    build:
+      context: ../../
+      dockerfile: frontend/Dockerfile
+    command: ["nginx", "-g", "daemon off;"]
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits: { cpus: "0.25", memory: 128M }

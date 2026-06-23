@@ -564,6 +564,17 @@ jobs:
             -f deploy/compose/docker-compose.yml \
             -f deploy/compose/docker-compose.prod.yml \
             config > /dev/null
+      - name: Validate staging overlay
+        env:
+          SMAP_DB_PASSWORD: validate
+          SMAP_REDIS_PASSWORD: validate
+          SMAP_MINIO_ROOT_USER: validate
+          SMAP_MINIO_ROOT_PASSWORD: validate
+        run: |
+          docker compose \
+            -f deploy/compose/docker-compose.yml \
+            -f deploy/compose/docker-compose.staging.yml \
+            config > /dev/null
       - name: Validate test overlay
         run: |
           docker compose \
