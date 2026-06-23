@@ -16,7 +16,7 @@ test.describe('MCP: bind server → test → egress allowlist (M.1)', () => {
     const refSelect = page.locator('select#reference')
     await expect(refSelect).toBeVisible()
     await refSelect.selectOption({ index: 1 })
-    await page.locator('button[type="submit"], .btn-primary').click()
+    await page.locator('button[type="submit"]').click()
     await expect(page.locator('table, [role="table"]')).toBeVisible()
   })
 

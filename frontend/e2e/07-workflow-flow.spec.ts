@@ -9,15 +9,17 @@ test.describe('Workflow editor → validate → run → live steps', () => {
   })
 
   test('validate workflow shows inline errors', async ({ authedPage: page }) => {
+    test.skip(!process.env.E2E_WORKSPACE_ID, 'needs seeded workspace')
     test.skip(!process.env.E2E_WORKFLOW_ID, 'needs seeded workflow')
-    await page.goto(`/workflows/${process.env.E2E_WORKFLOW_ID}/edit`)
+    await page.goto(`/workspaces/${process.env.E2E_WORKSPACE_ID}/workflows/${process.env.E2E_WORKFLOW_ID}/edit`)
     await page.getByRole('button', { name: /validate/i }).click()
     await expect(page.locator('[data-testid="lint-status"]')).toBeVisible({ timeout: 5000 })
   })
 
   test('trigger run and observe live steps', async ({ authedPage: page }) => {
+    test.skip(!process.env.E2E_WORKSPACE_ID, 'needs seeded workspace')
     test.skip(!process.env.E2E_WORKFLOW_ID, 'needs seeded workflow')
-    await page.goto(`/workflows/${process.env.E2E_WORKFLOW_ID}/runs`)
+    await page.goto(`/workspaces/${process.env.E2E_WORKSPACE_ID}/workflows/${process.env.E2E_WORKFLOW_ID}/runs`)
     await page.getByRole('button', { name: /trigger|run/i }).click()
     await expect(page.getByText(/running|completed|waiting/i)).toBeVisible({ timeout: 30_000 })
   })

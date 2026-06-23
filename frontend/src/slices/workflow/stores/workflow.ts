@@ -14,6 +14,7 @@ export const useWorkflowStore = defineStore('workflow', () => {
   const currentVersion = ref(0)
   const lintErrors = ref<LintIssue[]>([])
   const lintWarnings = ref<LintIssue[]>([])
+  const lintRan = ref(false)
   const selectedNodeId = ref<string | null>(null)
   const undoStack = shallowRef<WorkflowDefinition[]>([])
   const redoStack = shallowRef<WorkflowDefinition[]>([])
@@ -21,6 +22,7 @@ export const useWorkflowStore = defineStore('workflow', () => {
   function setLintResult(errors: LintIssue[], warnings: LintIssue[]): void {
     lintErrors.value = errors
     lintWarnings.value = warnings
+    lintRan.value = true
   }
 
   function markDirty(): void {
@@ -97,6 +99,7 @@ export const useWorkflowStore = defineStore('workflow', () => {
     currentVersion.value = 0
     lintErrors.value = []
     lintWarnings.value = []
+    lintRan.value = false
     selectedNodeId.value = null
     undoStack.value = []
     redoStack.value = []
@@ -111,6 +114,7 @@ export const useWorkflowStore = defineStore('workflow', () => {
     currentVersion,
     lintErrors,
     lintWarnings,
+    lintRan,
     selectedNodeId,
     canUndo,
     canRedo,
