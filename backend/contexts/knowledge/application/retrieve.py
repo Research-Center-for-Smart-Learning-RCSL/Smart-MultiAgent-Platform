@@ -87,7 +87,12 @@ class RetrieveService:
         effective_top_k = top_k or cfg.top_k or 8
         do_rerank = cfg.rerank_enabled if rerank is None else rerank
 
-        query_vec = (await self._embedder.embed_batch([text]))[0]
+        vecs = await self._embedder.embed_batch([text])
+        if not vecs:
+            from contexts.knowledge.infrastructure.embedders import EmbeddingError
+
+            raise EmbeddingError(0, "embedder returned no vectors for query")
+        query_vec = vecs[0]
 
         # Over-fetch when reranking so the reranker has headroom (R10.08).
         fetch_k = effective_top_k * 4 if do_rerank else effective_top_k
@@ -134,6 +139,7 @@ class RetrieveService:
                     score=r.score,
                 )
                 for r in rr
+                if 0 <= r.index < len(candidates)
             ]
 
         return candidates[:effective_top_k]

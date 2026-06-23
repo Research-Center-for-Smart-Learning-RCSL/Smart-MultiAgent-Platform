@@ -217,7 +217,14 @@ class TusService:
             with open(upload.staging_path, "ab") as fh:
                 fh.write(chunk)
 
-        await asyncio.to_thread(_append)
+        try:
+            await asyncio.to_thread(_append)
+        except OSError:
+            # Disk write failed (full, permissions, …).  Roll back the Redis
+            # offset so the client can retry this PATCH instead of being stuck
+            # with an advanced offset and a short file.
+            await self._store.update_offset(upload_id, new_offset, offset)
+            raise
         TUS_UPLOAD_BYTES.inc(len(chunk))
 
         if new_offset < upload.upload_length:
@@ -227,49 +234,45 @@ class TusService:
                 attachment=None,
             )
 
-        # Final PATCH — finalize + clean up.
+        # Final PATCH — finalize + clean up.  Cleanup runs in `finally` so a
+        # failing finalize never orphans the staging file or Redis state.
         attachment = None
         rag_document_id: uuid.UUID | None = None
-        if upload.purpose == "chat_attachment":
-            assert upload.chatroom_id is not None  # guaranteed by create()
-            attachment = await self._attachments.finalize_tus(
-                attachment_id=upload_id,
-                project_id=upload.project_id,
-                chatroom_id=upload.chatroom_id,
-                uploader_user_id=user_id,
-                filename=upload.filename,
-                mime=upload.mime,
-                staging_path=upload.staging_path,
-                size_bytes=upload.upload_length,
-                actor_ip=actor_ip,
-                request_id=request_id,
-            )
-        else:
-            # rag_source (create() guarantees rag_config_id present). Cross-context
-            # into knowledge via the KnowledgeFacade; the finaliser streams the
-            # staged blob into MinIO, registers the rag_documents row, and
-            # enqueues the rag_ingest_document worker that runs the embed
-            # pipeline off the request path (E.6).
-            assert upload.rag_config_id is not None
-            from contexts.knowledge.interfaces.facade import KnowledgeFacade
+        try:
+            if upload.purpose == "chat_attachment":
+                assert upload.chatroom_id is not None  # guaranteed by create()
+                attachment = await self._attachments.finalize_tus(
+                    attachment_id=upload_id,
+                    project_id=upload.project_id,
+                    chatroom_id=upload.chatroom_id,
+                    uploader_user_id=user_id,
+                    filename=upload.filename,
+                    mime=upload.mime,
+                    staging_path=upload.staging_path,
+                    size_bytes=upload.upload_length,
+                    actor_ip=actor_ip,
+                    request_id=request_id,
+                )
+            else:
+                assert upload.rag_config_id is not None
+                from contexts.knowledge.interfaces.facade import KnowledgeFacade
 
-            doc = await KnowledgeFacade(self._db).finalize_rag_upload(
-                rag_config_id=upload.rag_config_id,
-                filename=upload.filename,
-                mime=upload.mime,
-                staging_path=upload.staging_path,
-                size_bytes=upload.upload_length,
-                uploaded_by=user_id,
-                actor_ip=actor_ip,
-                request_id=request_id,
-            )
-            rag_document_id = doc.id
+                doc = await KnowledgeFacade(self._db).finalize_rag_upload(
+                    rag_config_id=upload.rag_config_id,
+                    filename=upload.filename,
+                    mime=upload.mime,
+                    staging_path=upload.staging_path,
+                    size_bytes=upload.upload_length,
+                    uploaded_by=user_id,
+                    actor_ip=actor_ip,
+                    request_id=request_id,
+                )
+                rag_document_id = doc.id
+        finally:
+            with contextlib.suppress(OSError):
+                os.remove(upload.staging_path)
+            await self._store.delete(upload_id)
 
-        # Cleanup: staging + state. Best-effort on the file so a missing
-        # inode after a crash doesn't wedge the API.
-        with contextlib.suppress(OSError):  # pragma: no cover
-            os.remove(upload.staging_path)
-        await self._store.delete(upload_id)
         return TusPatchResult(
             new_offset=new_offset,
             completed=True,

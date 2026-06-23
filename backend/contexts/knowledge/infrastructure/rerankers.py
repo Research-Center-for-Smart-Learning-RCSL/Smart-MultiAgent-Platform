@@ -72,10 +72,13 @@ class RouterReranker(Reranker):
         )
         if result.http_status != 200:
             raise RerankError(result.http_status, result.body.get("error"))
-        return [
-            RerankResult(index=int(e["index"]), score=float(e["relevance_score"]))
-            for e in result.body.get("results") or []
-        ]
+        out: list[RerankResult] = []
+        for e in result.body.get("results") or []:
+            try:
+                out.append(RerankResult(index=int(e["index"]), score=float(e["relevance_score"])))
+            except (KeyError, TypeError, ValueError) as exc:
+                raise RerankError(200, f"malformed rerank result entry: {exc}") from exc
+        return out
 
 
 class LocalBgeReranker(Reranker):
@@ -104,7 +107,13 @@ class LocalBgeReranker(Reranker):
         )
         r.raise_for_status()
         payload = r.json().get("results", [])
-        return [RerankResult(index=int(e["index"]), score=float(e["score"])) for e in payload]
+        out: list[RerankResult] = []
+        for e in payload:
+            try:
+                out.append(RerankResult(index=int(e["index"]), score=float(e["score"])))
+            except (KeyError, TypeError, ValueError) as exc:
+                raise RerankError(200, f"malformed local rerank result entry: {exc}") from exc
+        return out
 
     async def close(self) -> None:
         """Close the underlying httpx client to release connections."""
