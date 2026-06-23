@@ -312,8 +312,6 @@ class WorkflowService:
 
         result = self.validate(defn)
         if result.errors:
-            from contexts.workflow.domain.errors import WorkflowValidationFailed
-
             raise WorkflowValidationFailed(
                 f"{len(result.errors)} validation error(s): {result.errors[0].message}"
             )
