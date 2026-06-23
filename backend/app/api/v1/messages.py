@@ -14,7 +14,7 @@ from collections.abc import Sequence
 from typing import Any
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Path, Query, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.attachments import AttachmentOut, to_attachment_out
@@ -59,10 +59,16 @@ _MAX_ATTACHMENT_IDS = 100
 
 
 class MessageSendIn(BaseModel):
-    content_md: str = Field(min_length=1, max_length=_MAX_CONTENT_MD)
+    content_md: str = Field(default="", max_length=_MAX_CONTENT_MD)
     attachment_ids: list[uuid.UUID] = Field(default_factory=list, max_length=_MAX_ATTACHMENT_IDS)
     # `metadata` is system-populated (rag_chunks, tool_calls, compact_summary,
     # etc. — §21.1) and deliberately not accepted from clients.
+
+    @model_validator(mode="after")
+    def _require_content_or_attachments(self) -> "MessageSendIn":
+        if not self.content_md and not self.attachment_ids:
+            raise ValueError("message must have content_md or attachment_ids")
+        return self
 
 
 class MessagePatchIn(BaseModel):

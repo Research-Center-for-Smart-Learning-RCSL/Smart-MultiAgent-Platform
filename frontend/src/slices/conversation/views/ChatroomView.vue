@@ -144,11 +144,12 @@
           </li>
         </ul>
       </li>
-      <!-- Transient streaming draft: agent.token deltas accumulate here until
-           the persisted reply arrives via message.created (also rendered
-           through renderMarkdown → DOMPurify, same XSS contract). -->
+      <!-- Transient streaming drafts: per-agent agent.token deltas accumulate
+           here until the persisted reply arrives via message.created (also
+           rendered through renderMarkdown → DOMPurify, same XSS contract). -->
       <li
-        v-if="streamingHtml"
+        v-for="[agentId, html] in streamingEntries"
+        :key="`stream-${agentId}`"
         class="streaming"
         data-testid="streaming-draft"
       >
@@ -157,7 +158,7 @@
         </div>
         <div
           class="md"
-          v-html="streamingHtml"
+          v-html="html"
         />
       </li>
     </ol>
@@ -165,7 +166,7 @@
     <ChatroomPresence
       v-if="!isMobile"
       :presence-list="presenceList"
-      :agent-thinking="store.agentThinking[chatroomId] ?? null"
+      :agent-thinking="store.isAnyAgentThinking(chatroomId) ? 'yes' : null"
     />
 
     <p
@@ -271,6 +272,7 @@ const {
   downloadAttachment,
   canEdit,
   canDelete,
+  dropOlderMessage,
 } = useChatroomMessages(chatroomId, projectId, listRef)
 
 const {
@@ -292,6 +294,12 @@ const TYPING_DEBOUNCE_MS = 3000
 
 const { connected, channel: wsChannel } = useChatroomSocket(chatroomId)
 const orchStore = useOrchestrationStore()
+
+// BUG-7: sync the older-messages page cache on remote edits/deletes so stale
+// entries don't linger. The TanStack query invalidation only refetches the
+// latest page; `olderMessages` is a local ref that must be patched manually.
+wsChannel.subscribe('message.updated', (ev) => dropOlderMessage(ev.message_id as string))
+wsChannel.subscribe('message.deleted', (ev) => dropOlderMessage(ev.message_id as string))
 
 function emitTyping(): void {
   if (typingTimer === null) {
@@ -318,11 +326,13 @@ const typingList = computed(() => {
   return Array.from(set).filter((uid) => uid !== myId.value)
 })
 
-// Streaming draft bubble (agent.token accumulation) — sanitised exactly like
-// persisted messages.
-const streamingHtml = computed(() => {
-  const text = store.agentStream[chatroomId]
-  return text ? renderMarkdown(text) : ''
+// Per-agent streaming draft bubbles — sanitised exactly like persisted messages.
+const streamingEntries = computed<[string, string][]>(() => {
+  const roomStreams = store.agentStreams[chatroomId]
+  if (!roomStreams) return []
+  return Object.entries(roomStreams)
+    .filter(([, text]) => !!text)
+    .map(([agentId, text]) => [agentId, renderMarkdown(text)])
 })
 
 // Agent failure surfaced by the socket layer: backend agent.finished{error}

@@ -268,6 +268,15 @@ export function useChatroomMessages(
       })
   }
 
+  // ---------- remote mutation sync (BUG-7) ----------------------------------
+
+  function dropOlderMessage(messageId: string): void {
+    const idx = olderMessages.value.findIndex((m) => m.id === messageId)
+    if (idx !== -1) {
+      olderMessages.value = olderMessages.value.filter((m) => m.id !== messageId)
+    }
+  }
+
   return {
     // pagination
     messages,
@@ -294,5 +303,7 @@ export function useChatroomMessages(
     // permissions
     canEdit,
     canDelete,
+    // remote mutation sync
+    dropOlderMessage,
   }
 }

@@ -89,7 +89,8 @@ class WakeupService:
             if sender_is_user:
                 await wakeup_state.reset_autostop(agent_id, room_id)
 
-            # every_n_messages: count ALL messages (user + agent).
+            # every_n_messages: counts user-sent messages only (agent replies
+            # don't flow through evaluate_message_wakeups to avoid self-trigger loops).
             if cfg.triggers.every_n_messages.enabled:
                 count = await wakeup_state.increment_message_count(agent_id, room_id)
                 n = cfg.triggers.every_n_messages.n
