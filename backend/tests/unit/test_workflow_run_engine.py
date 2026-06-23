@@ -116,13 +116,21 @@ async def test_on_error_fail_returns_original_outcome() -> None:
 # ---------------------------------------------------------------------------
 
 
+def _mock_redis_pipeline(incr_result: int = 1) -> MagicMock:
+    """Return a mock Redis whose pipeline().execute() returns [incr_result, True]."""
+    mock_redis = MagicMock()
+    mock_pipe = MagicMock()
+    mock_pipe.execute = AsyncMock(return_value=[incr_result, True])
+    mock_redis.pipeline.return_value = mock_pipe
+    return mock_redis
+
+
 async def test_on_error_retry_schedules_when_budget_remains() -> None:
     engine = _engine()
     ctx = _make_ctx()
     node = _make_node(strategy=OnErrorStrategy.RETRY, retry_max=3, retry_backoff_ms=100)
 
-    mock_redis = AsyncMock()
-    mock_redis.get.return_value = None  # no prior retries
+    mock_redis = _mock_redis_pipeline(incr_result=1)
 
     with patch("shared_kernel.auth.clients.get_redis", return_value=mock_redis):
         result = await engine._apply_on_error(ctx, node, _failed_outcome(), uuid.uuid4())
@@ -143,8 +151,7 @@ async def test_on_error_retry_backoff_grows_with_attempt() -> None:
     ctx = _make_ctx()
     node = _make_node(strategy=OnErrorStrategy.RETRY, retry_max=5, retry_backoff_ms=200)
 
-    mock_redis = AsyncMock()
-    mock_redis.get.return_value = b"2"  # already retried twice
+    mock_redis = _mock_redis_pipeline(incr_result=3)  # third attempt
 
     with patch("shared_kernel.auth.clients.get_redis", return_value=mock_redis):
         result = await engine._apply_on_error(ctx, node, _failed_outcome(), uuid.uuid4())
@@ -159,8 +166,7 @@ async def test_on_error_retry_exhausted_returns_failed() -> None:
     ctx = _make_ctx()
     node = _make_node(strategy=OnErrorStrategy.RETRY, retry_max=2)
 
-    mock_redis = AsyncMock()
-    mock_redis.get.return_value = b"2"  # already at max
+    mock_redis = _mock_redis_pipeline(incr_result=3)  # exceeds max
 
     with patch("shared_kernel.auth.clients.get_redis", return_value=mock_redis):
         original = _failed_outcome()
@@ -175,8 +181,7 @@ async def test_on_error_retry_exhausted_emits_warning() -> None:
     ctx = _make_ctx()
     node = _make_node(strategy=OnErrorStrategy.RETRY, retry_max=1)
 
-    mock_redis = AsyncMock()
-    mock_redis.get.return_value = b"1"  # at the limit
+    mock_redis = _mock_redis_pipeline(incr_result=2)  # exceeds max
 
     with (
         patch("shared_kernel.auth.clients.get_redis", return_value=mock_redis),

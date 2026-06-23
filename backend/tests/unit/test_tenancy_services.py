@@ -234,13 +234,19 @@ class TestOrgSoftDeleteRestore:
 
 
 class TestOrgMemberOps:
+    @patch("contexts.tenancy.application.org_service.ProjectMemberRepository")
+    @patch("contexts.keys.interfaces.facade.KeysFacade")
     @patch("contexts.tenancy.application.org_service.audit.emit", new_callable=AsyncMock)
-    async def test_remove_member(self, _audit) -> None:
+    async def test_remove_member(self, _audit, mock_keys_cls, mock_pm_cls) -> None:
         target = uuid.uuid4()
         member = _make_org_member(user_id=target, is_original_creator=False)
         members = AsyncMock()
         members.get.return_value = member
-        svc = _make_org_service(member_repo=members)
+        projects = AsyncMock()
+        projects.list_by_org.return_value = []
+        mock_keys_cls.return_value = AsyncMock()
+        mock_pm_cls.return_value = AsyncMock()
+        svc = _make_org_service(member_repo=members, project_repo=projects)
 
         await svc.remove_member(
             org_id=_ORG_ID,

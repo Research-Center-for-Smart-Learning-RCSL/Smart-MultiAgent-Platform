@@ -106,5 +106,6 @@ async def execute(ctx: RunContext, node: NodeSpec, db: AsyncSession) -> StepOutc
         return StepOutcome(
             state=StepState.FAILED,
             output={},
+            port="failure",
             error=str(exc),
         )
