@@ -219,14 +219,8 @@ jobs:
       - name: Install backend (+ pip-audit)
         working-directory: backend
         run: pip install -e '.[dev]'
-      # Backend scan is REPORT-ONLY for now: the audit's pip-audit run was
-      # against a polluted interpreter, not the pinned image, so the clean
-      # baseline must be triaged in the built image before this can block
-      # (see docs/security-audit-2026-05-29.md §DEP caveat). Flip to blocking
-      # once that baseline is green.
-      - name: "pip-audit (backend, report-only)"
+      - name: "pip-audit (backend)"
         working-directory: backend
-        continue-on-error: true
         run: python -m pip_audit --desc on --progress-spinner off
       - uses: pnpm/action-setup@v6
         with: { version: "${{ env.PNPM_VERSION }}" }
