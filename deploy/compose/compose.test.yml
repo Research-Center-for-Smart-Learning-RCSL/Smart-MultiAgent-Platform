@@ -23,7 +23,7 @@ services:
   # rather than running Vite dev.
   #
   # CI does NOT bring this service up: Playwright runs Vite on the host and
-  # proxies to backend-web at localhost:8000 (see backend-web.ports below).
+  # proxies to backend-web at localhost:28000 (see backend-web.ports below).
   # The CI workflow only `docker compose up backend-web` (and its deps), so
   # this build is skipped.
   frontend:
@@ -35,10 +35,10 @@ services:
   # ---------- Backend web ----------
   backend-web:
     # Expose to host so the host-side Vite dev proxy (used by Playwright in CI)
-    # can reach /api at localhost:8000. The base compose file leaves backend-web
+    # can reach /api at localhost:28000. The base compose file leaves backend-web
     # unexposed because production fronts it with nginx.
     ports:
-      - "8000:8000"
+      - "28000:8000"
     environment:
       SMAP_APP_ENV: test
       SMAP_LOG_LEVEL: warning

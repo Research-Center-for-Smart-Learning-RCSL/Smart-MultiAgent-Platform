@@ -11,7 +11,7 @@ Each drill is executed against a scratch SMAP environment (`docker compose up` o
 **Procedure:**
 
 1. `docker compose restart vault` — simulates host restart.
-2. Confirm symptom: `curl -s http://localhost:8080/readyz | jq .` → `dependency: vault`, status 503.
+2. Confirm symptom: `curl -s http://localhost:28000/readyz | jq .` → `dependency: vault`, status 503.
 3. Unseal with three of five keys:
    ```bash
    docker compose exec vault vault operator unseal "$KEY_1"
@@ -19,7 +19,7 @@ Each drill is executed against a scratch SMAP environment (`docker compose up` o
    docker compose exec vault vault operator unseal "$KEY_3"
    ```
 4. Wait for backend AppRole re-login (automatic on next `/readyz` cycle).
-5. Confirm recovery: `curl -s http://localhost:8080/readyz` → 200.
+5. Confirm recovery: `curl -s http://localhost:28000/readyz` → 200.
 
 **Observed timings:**
 
