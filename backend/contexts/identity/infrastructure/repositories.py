@@ -374,7 +374,7 @@ class AdminRepository:
             )
         )
         if for_update:
-            stmt = stmt.with_for_update()
+            stmt = stmt.with_for_update(of=t.admins)
         rows = (await self._db.execute(stmt)).all()
         return {r.user_id for r in rows}
 

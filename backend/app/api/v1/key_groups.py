@@ -314,9 +314,17 @@ async def patch_member(
     ctx: RequestContext = Depends(current_context),
     db: AsyncSession = Depends(db_session),
 ) -> None:
+    _NULLABLE = frozenset({
+        "max_input_tokens_per_hour",
+        "max_output_tokens_per_hour",
+        "max_requests_per_hour",
+        "rotate_on_error_codes",
+    })
     col_updates: dict[str, object] = {}
     for field_name in payload.model_fields_set:
         value = getattr(payload, field_name)
+        if value is None and field_name not in _NULLABLE:
+            continue
         if field_name == "rotate_on_error_codes" and value is not None:
             value = list(value)
         col_updates[field_name] = value

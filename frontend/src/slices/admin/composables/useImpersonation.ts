@@ -5,11 +5,17 @@ import { adminApi } from '../api/admin'
 
 const _STORAGE_KEY = 'smap:impersonation:admin_token'
 
-/** Saved admin token to restore after impersonation ends (B5).
- *  Backed by sessionStorage so the value survives page refreshes. */
-const savedAdminToken = ref<string | null>(
-  sessionStorage.getItem(_STORAGE_KEY),
-)
+function _readStorage(): string | null {
+  try { return sessionStorage.getItem(_STORAGE_KEY) } catch { return null }
+}
+function _writeStorage(v: string) {
+  try { sessionStorage.setItem(_STORAGE_KEY, v) } catch { /* restricted */ }
+}
+function _clearStorage() {
+  try { sessionStorage.removeItem(_STORAGE_KEY) } catch { /* restricted */ }
+}
+
+const savedAdminToken = ref<string | null>(_readStorage())
 
 export function useImpersonation() {
   // Both derive from the reactive `accessTokenClaims`, so they recompute the
@@ -32,7 +38,7 @@ export function useImpersonation() {
     onSuccess: (res) => {
       const adminToken = getAccessToken()
       savedAdminToken.value = adminToken
-      if (adminToken) sessionStorage.setItem(_STORAGE_KEY, adminToken)
+      if (adminToken) _writeStorage(adminToken)
       setAccessToken(res.data.access_token)
     },
   })
@@ -42,7 +48,7 @@ export function useImpersonation() {
     onSuccess: () => {
       setAccessToken(savedAdminToken.value)
       savedAdminToken.value = null
-      sessionStorage.removeItem(_STORAGE_KEY)
+      _clearStorage()
     },
   })
 
