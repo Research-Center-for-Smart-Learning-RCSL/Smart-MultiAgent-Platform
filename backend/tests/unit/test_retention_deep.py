@@ -14,13 +14,9 @@ from __future__ import annotations
 import os
 import uuid
 from datetime import UTC, datetime, timedelta
-from unittest.mock import AsyncMock, MagicMock, call, patch
-
-import pytest
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from contexts.conversation.application.retention_service import (
-    PURGE_CHUNK,
-    RETENTION,
     PurgeReport,
     RetentionService,
 )

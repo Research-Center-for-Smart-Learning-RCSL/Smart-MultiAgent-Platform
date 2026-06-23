@@ -13,7 +13,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from contexts.agents.application.agent_service import AgentService, _AGENT_CAP_PER_PROJECT
+from contexts.agents.application.agent_service import _AGENT_CAP_PER_PROJECT, AgentService
 from contexts.agents.domain.errors import (
     AgentCapExceeded,
     AgentNotFound,
@@ -69,11 +69,11 @@ def _make_agent(
 
 
 def _make_draft(**overrides) -> AgentDraft:
-    defaults = dict(
-        name="New Agent",
-        model_hint=AgentModelHint.CLAUDE,
-        key_group_id=_KEY_GROUP_ID,
-    )
+    defaults = {
+        "name": "New Agent",
+        "model_hint": AgentModelHint.CLAUDE,
+        "key_group_id": _KEY_GROUP_ID,
+    }
     defaults.update(overrides)
     return AgentDraft(**defaults)
 

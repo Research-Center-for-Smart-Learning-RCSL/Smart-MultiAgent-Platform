@@ -16,9 +16,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from contexts.conversation.application.chat_export_service import (
-    ChatExportService,
     _EXPORT_MAX_MESSAGES,
-    _EXPORT_PUT_TIMEOUT_SECONDS,
+    ChatExportService,
 )
 from contexts.conversation.domain.models import (
     AttachmentStatus,
@@ -366,6 +365,6 @@ class TestUploadManifest:
                 "contexts.conversation.application.chat_export_service._EXPORT_PUT_TIMEOUT_SECONDS",
                 0.01,
             ),
+            pytest.raises(TimeoutError, match="timed out"),
         ):
-            with pytest.raises(TimeoutError, match="timed out"):
-                await ChatExportService._upload_manifest(_JOB, b'{"test": true}')
+            await ChatExportService._upload_manifest(_JOB, b'{"test": true}')

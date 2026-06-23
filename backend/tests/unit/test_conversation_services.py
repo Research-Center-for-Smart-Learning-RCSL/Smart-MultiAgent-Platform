@@ -15,6 +15,10 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
+from contexts.conversation.application.attachment_service import (
+    AttachmentPointer,
+    AttachmentService,
+)
 from contexts.conversation.application.chatroom_service import (
     ChatroomFlagsPatch,
     ChatroomService,
@@ -23,11 +27,6 @@ from contexts.conversation.application.message_service import (
     SELF_EDIT_WINDOW,
     EditAuthority,
     MessageService,
-)
-from contexts.conversation.application.attachment_service import (
-    SINGLE_SHOT_MAX_BYTES,
-    AttachmentPointer,
-    AttachmentService,
 )
 from contexts.conversation.domain.errors import (
     AttachmentNotFound,
@@ -806,7 +805,6 @@ class TestExportService:
         from contexts.conversation.application.export_service import (
             create,
             get,
-            mark_failed,
             mark_ready,
             mark_running,
         )

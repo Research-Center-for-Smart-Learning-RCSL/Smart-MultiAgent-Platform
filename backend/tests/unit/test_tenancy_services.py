@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -405,7 +405,7 @@ class TestProjectCreate:
         members = AsyncMock()
         svc = _make_project_service(project_repo=projects, member_repo=members)
 
-        result = await svc.create(
+        await svc.create(
             owner_type=ProjectOwnerType.ORG,
             owner_id=_ORG_ID,
             name="Org Project",

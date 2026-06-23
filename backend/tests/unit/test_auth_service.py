@@ -24,7 +24,6 @@ from contexts.identity.domain.errors import (
     InvalidCredentials,
     InvalidEmailFormat,
     Lockout,
-    OriginalCreatorSelfDeleteBlocked,
     PasswordPolicyViolation,
     TokenExpired,
     TokenInvalid,

@@ -13,9 +13,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from contexts.knowledge.application.ingest_service import (
+    MAX_MULTIPART_BYTES,
     IngestInput,
     IngestService,
-    MAX_MULTIPART_BYTES,
     _normalise_mime,
 )
 from contexts.knowledge.application.retrieve import RetrievedChunk, RetrieveService

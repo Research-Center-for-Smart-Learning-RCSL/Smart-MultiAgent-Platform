@@ -12,10 +12,8 @@ from __future__ import annotations
 
 import json
 import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
-
-import pytest
 
 from contexts.workflow.application.event_dispatch import (
     _regex_ok,
@@ -25,7 +23,6 @@ from contexts.workflow.application.event_dispatch import (
     matches_message,
     matches_variable,
 )
-
 
 _NOW = datetime(2026, 6, 23, 12, 0, 0, tzinfo=UTC)
 _ROOM = str(uuid.uuid4())
