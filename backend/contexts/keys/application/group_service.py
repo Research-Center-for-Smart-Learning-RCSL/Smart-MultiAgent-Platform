@@ -13,7 +13,6 @@ The service owns:
 from __future__ import annotations
 
 import uuid
-from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
@@ -44,23 +43,6 @@ from shared_kernel import audit
 _LLM_CHAT = CapabilityRequirement(capability=ProviderCapability.LLM_CHAT)
 
 
-
-@dataclass(frozen=True, slots=True)
-class MemberPatchInput:
-    """Mutable subset of `key_group_members`. Any field left `None` is untouched."""
-
-    priority: int | None = None
-    rotate_on_error_codes: tuple[int, ...] | None = None
-    rotate_on_token_quota: bool | None = None
-    retry_on_error: bool | None = None
-    retry_initial_delay_ms: int | None = None
-    retry_multiplier: float | None = None
-    retry_max_delay_ms: int | None = None
-    retry_max: int | None = None
-    retry_jitter_pct: int | None = None
-    max_input_tokens_per_hour: int | None = None
-    max_output_tokens_per_hour: int | None = None
-    max_requests_per_hour: int | None = None
 
 
 class KeyGroupService:
@@ -177,8 +159,10 @@ class KeyGroupService:
         priority = await self._members.next_priority(group_id)
         try:
             await self._members.add(group_id=group_id, key_id=key_id, priority=priority)
-        except IntegrityError:
-            raise GroupMemberConflict(f"key {key_id} already in group {group_id}")
+        except IntegrityError as exc:
+            if hasattr(exc.orig, "pgcode") and exc.orig.pgcode == "23505":
+                raise GroupMemberConflict(f"key {key_id} already in group {group_id}") from None
+            raise
 
         await audit.emit(
             self._db,
@@ -275,4 +259,4 @@ class KeyGroupService:
         )
 
 
-__all__ = ["GroupWrongProject", "KeyGroupService", "MemberPatchInput"]
+__all__ = ["KeyGroupService"]
