@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from datetime import timedelta
 from typing import Any
 
+import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.conversation.domain.errors import (
@@ -33,9 +34,11 @@ from contexts.conversation.infrastructure.repositories import (
     MessageEditRepository,
     MessageRepository,
 )
+from contexts.conversation.infrastructure import tables as t
 from shared_kernel import audit
 from shared_kernel.auth.clients import now
 from shared_kernel.realtime.pubsub import Publisher
+from shared_kernel.storage import get_minio_client
 
 _log = logging.getLogger(__name__)
 
@@ -357,9 +360,29 @@ class MessageService:
         if existing is None:
             raise MessageNotFound(str(message_id))
 
+        # Pull MinIO paths BEFORE the cascade-delete drops attachment rows —
+        # mirrors RetentionService.purge_once() (the FK cascade removes the DB
+        # rows but leaves the blobs orphaned unless we clean them here).
+        att_rows = (
+            await self._db.execute(
+                sa.select(t.message_attachments.c.minio_path).where(
+                    t.message_attachments.c.message_id == message_id,
+                )
+            )
+        ).all()
+
         rowcount = await self._messages.hard_delete(message_id)
         if rowcount == 0:  # pragma: no cover — re-entrant race
             raise MessageNotFound(str(message_id))
+
+        if att_rows:
+            minio = get_minio_client()
+            for att in att_rows:
+                bucket, _, key = att.minio_path.partition("/")
+                try:
+                    await minio.remove(bucket=bucket, key=key)
+                except Exception:
+                    _log.warning("MinIO cleanup failed for %s", att.minio_path, exc_info=True)
 
         await audit.emit(
             self._db,

@@ -172,7 +172,7 @@ async def rag_scan_document(ctx: dict[str, Any], *, document_id: str) -> str:
             )
         return "skipped:too_large"
 
-    bucket, key = doc.minio_path.split("/", 1)
+    bucket, _, key = doc.minio_path.partition("/")
     minio = get_minio_client()
     data = await minio.get_object(bucket=bucket, key=key)
 

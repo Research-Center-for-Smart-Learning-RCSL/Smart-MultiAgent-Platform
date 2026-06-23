@@ -1,4 +1,4 @@
-"""Semantic linter — 15 blocking rules + 6 advisory warnings (§5).
+"""Semantic linter — 16 blocking rules + 6 advisory warnings (§5).
 
 Rule 15 (SEC-L5) parses every SEL expression at save time so invalid or
 non-whitelisted expressions are rejected up front instead of failing silently
@@ -563,6 +563,7 @@ def rule_13_port_coverage(defn: dict[str, Any]) -> list[LintIssue]:
 def rule_14_parallel_join(defn: dict[str, Any]) -> list[LintIssue]:
     issues: list[LintIssue] = []
     outgoing, incoming = _build_adjacency(defn)
+    nodes_by_id = _nodes_by_id(defn)
 
     for n in defn.get("nodes", []):
         nid = n["id"]
@@ -589,6 +590,25 @@ def rule_14_parallel_join(defn: dict[str, Any]) -> list[LintIssue]:
                         node_id=nid,
                     )
                 )
+
+            # A join in mode=all (default) following a condition node will
+            # deadlock: condition routes flow to exactly one branch, so the
+            # join can never collect all incoming edges.
+            join_mode = n.get("config", {}).get("mode", "all")
+            if join_mode == "all":
+                for edge in incoming.get(nid, []):
+                    pred = nodes_by_id.get(edge.get("from", ""))
+                    if pred and pred.get("type") == "condition":
+                        issues.append(
+                            LintIssue(
+                                14,
+                                "error",
+                                f"join node '{nid}' (mode=all) has incoming edge from "
+                                f"condition node '{pred['id']}' — condition routes to "
+                                f"only one branch, so the join will deadlock",
+                                node_id=nid,
+                            )
+                        )
     return issues
 
 
@@ -626,6 +646,40 @@ def rule_15_sel_expressions(defn: dict[str, Any]) -> list[LintIssue]:
                 issues.append(
                     LintIssue(15, "error", f"Invalid SEL expression {expr!r}: {exc}", node_id=n["id"]),
                 )
+    return issues
+
+
+# ---------------------------------------------------------------------------
+# Rule 16: fallback_node_id references an existing node
+# ---------------------------------------------------------------------------
+
+
+def rule_16_fallback_node_exists(defn: dict[str, Any]) -> list[LintIssue]:
+    issues: list[LintIssue] = []
+    node_ids = {n["id"] for n in defn.get("nodes", [])}
+    for n in defn.get("nodes", []):
+        on_error = n.get("config", {}).get("on_error") or {}
+        if on_error.get("strategy") != "fallback":
+            continue
+        fid = on_error.get("fallback_node_id")
+        if not fid:
+            issues.append(
+                LintIssue(
+                    16,
+                    "error",
+                    f"Node '{n['id']}' has on_error.strategy=fallback but no fallback_node_id",
+                    node_id=n["id"],
+                )
+            )
+        elif fid not in node_ids:
+            issues.append(
+                LintIssue(
+                    16,
+                    "error",
+                    f"Node '{n['id']}' references fallback_node_id '{fid}' which does not exist",
+                    node_id=n["id"],
+                )
+            )
     return issues
 
 
@@ -719,7 +773,7 @@ def validate_definition(
     valid_chatroom_ids: frozenset[str] = frozenset(),
     subagent_parent_ids: frozenset[str] = frozenset(),
 ) -> ValidationResult:
-    """Run all 14 blocking rules + advisory warnings. Returns aggregate result."""
+    """Run all 16 blocking rules + advisory warnings. Returns aggregate result."""
     all_issues: list[LintIssue] = []
 
     # Structural rules (no DB needed)
@@ -738,6 +792,7 @@ def validate_definition(
     all_issues.extend(rule_13_port_coverage(defn))
     all_issues.extend(rule_14_parallel_join(defn))
     all_issues.extend(rule_15_sel_expressions(defn))
+    all_issues.extend(rule_16_fallback_node_exists(defn))
 
     # Advisory
     all_issues.extend(advisory_warnings(defn))

@@ -115,16 +115,18 @@ def chunk_text(
     """Dispatch with sane defaults for missing params."""
     if strategy is ChunkStrategy.FIXED:
         merged = {**DEFAULT_FIXED_CHUNK_PARAMS, **(params or {})}
-        return chunk_fixed(
-            text,
-            chunk_size_tokens=int(merged["chunk_size_tokens"]),
-            chunk_overlap_tokens=int(merged["chunk_overlap_tokens"]),
-        )
+        try:
+            size = int(merged["chunk_size_tokens"])
+            overlap = int(merged["chunk_overlap_tokens"])
+        except (ValueError, TypeError) as exc:
+            raise ChunkParamsInvalid(f"invalid fixed chunk params: {exc}") from exc
+        return chunk_fixed(text, chunk_size_tokens=size, chunk_overlap_tokens=overlap)
     if strategy is ChunkStrategy.SEMANTIC:
         merged = {**DEFAULT_SEMANTIC_CHUNK_PARAMS, **(params or {})}
-        return chunk_semantic(
-            text,
-            max_tokens_per_chunk=int(merged["max_tokens_per_chunk"]),
-            similarity_threshold=float(merged["similarity_threshold"]),
-        )
+        try:
+            max_tok = int(merged["max_tokens_per_chunk"])
+            sim_thresh = float(merged["similarity_threshold"])
+        except (ValueError, TypeError) as exc:
+            raise ChunkParamsInvalid(f"invalid semantic chunk params: {exc}") from exc
+        return chunk_semantic(text, max_tokens_per_chunk=max_tok, similarity_threshold=sim_thresh)
     raise ChunkParamsInvalid(f"unknown chunk strategy {strategy!r}")

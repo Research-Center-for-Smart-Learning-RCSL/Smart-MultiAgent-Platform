@@ -43,13 +43,19 @@ async def execute(ctx: RunContext, node: NodeSpec, db: AsyncSession) -> StepOutc
         # ``# type: ignore[call-arg]`` was masking). ``__post_init__`` also
         # requires the leader to be among the approvers, so fold it in: a schema
         # may legitimately list the leader only in ``leader_agent_id``.
-        leader_id = uuid.UUID(config["leader_agent_id"])
+        raw_leader = config.get("leader_agent_id")
+        if not raw_leader:
+            raise ValueError("approval_gate requires leader_agent_id in config")
+        leader_id = uuid.UUID(raw_leader)
         approvers = [uuid.UUID(a) for a in config.get("approvers", [])]
         if leader_id not in approvers:
             approvers.append(leader_id)
+        raw_mode = config.get("mode")
+        if not raw_mode:
+            raise ValueError("approval_gate requires mode in config")
         timeout_seconds = config.get("timeout_seconds", 1800)
         gate_config = ApprovalGateConfig(
-            mode=ApprovalMode(config["mode"]),
+            mode=ApprovalMode(raw_mode),
             leader_agent_id=leader_id,
             approvers=tuple(approvers),
             timeout_seconds=timeout_seconds,
@@ -100,6 +106,5 @@ async def execute(ctx: RunContext, node: NodeSpec, db: AsyncSession) -> StepOutc
         return StepOutcome(
             state=StepState.FAILED,
             output={},
-            port="timeout",
             error=str(exc),
         )

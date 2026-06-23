@@ -75,7 +75,12 @@ class GraphRagRetrieveService:
         cfg = await self._load(config_id)
 
         embedder = await self._embedder_factory(cfg)
-        query_vec = (await embedder.embed_batch([text]))[0]
+        vecs = await embedder.embed_batch([text])
+        if not vecs:
+            from contexts.knowledge.infrastructure.embedders import EmbeddingError
+
+            raise EmbeddingError(0, "embedder returned no vectors for query")
+        query_vec = vecs[0]
 
         # Scope the vector search to this config's entity points (DOM-2).
         # ``graphrag_{project_id}`` is shared by every config in the project;
