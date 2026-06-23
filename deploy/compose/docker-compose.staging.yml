@@ -1,3 +1,5 @@
+name: smap-staging
+
 # Staging overlay — between dev and prod. Single replica per service, half the
 # resource limits, Vault in prod mode (real TLS + file storage), but relaxed
 # enough to run on a 4-core / 16 GB host (or share a host with other workloads).
@@ -14,15 +16,28 @@
 # Tuning target: 4-core / 16 GB single host.
 # Total hard-limit sum ≈ 13.5 GB; remaining ~2.5 GB for OS + Docker daemon.
 
+x-security-defaults: &security-defaults
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+
 volumes:
   vault_logs:
 
 services:
   # ---------- Socket proxy ----------
   docker-socket-proxy:
-    image: tecnativa/docker-socket-proxy:0.3
+    <<: *security-defaults
+    image: tecnativa/docker-socket-proxy:0.3.0
     container_name: smap_docker_proxy
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:2375/_ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
     environment:
       CONTAINERS: 1
       IMAGES: 1
@@ -51,6 +66,7 @@ services:
 
   # ---------- Edge ----------
   nginx:
+    <<: *security-defaults
     restart: unless-stopped
     command:
       - sh
@@ -69,6 +85,7 @@ services:
 
   # ---------- Backend ----------
   backend-web:
+    <<: *security-defaults
     restart: unless-stopped
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 2
     environment:
@@ -84,7 +101,7 @@ services:
       postgres: { condition: service_healthy }
       redis: { condition: service_healthy }
       vault: { condition: service_healthy }
-      docker-socket-proxy: { condition: service_started }
+      docker-socket-proxy: { condition: service_healthy }
     deploy:
       replicas: 1
       resources:
@@ -92,6 +109,7 @@ services:
         reservations: { cpus: "0.5", memory: 1G }
 
   backend-worker:
+    <<: *security-defaults
     restart: unless-stopped
     environment:
       SMAP_APP_ENV: staging
@@ -103,7 +121,7 @@ services:
     depends_on:
       redis: { condition: service_healthy }
       postgres: { condition: service_healthy }
-      docker-socket-proxy: { condition: service_started }
+      docker-socket-proxy: { condition: service_healthy }
     deploy:
       replicas: 1
       resources:
@@ -112,6 +130,7 @@ services:
 
   # ---------- Data services ----------
   postgres:
+    <<: *security-defaults
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${SMAP_DB_USER:-smap}
@@ -137,6 +156,7 @@ services:
         reservations: { cpus: "0.5", memory: 1G }
 
   redis:
+    <<: *security-defaults
     restart: unless-stopped
     command:
       - redis-server
@@ -147,7 +167,7 @@ services:
       - --maxmemory
       - "768mb"
       - --maxmemory-policy
-      - "allkeys-lru"
+      - "volatile-lru"
     environment:
       REDISCLI_AUTH: ${SMAP_REDIS_PASSWORD}
     healthcheck:
@@ -158,6 +178,7 @@ services:
         reservations: { cpus: "0.25", memory: 256M }
 
   qdrant:
+    <<: *security-defaults
     restart: unless-stopped
     deploy:
       resources:
@@ -165,9 +186,11 @@ services:
         reservations: { cpus: "0.5", memory: 1G }
 
   neo4j:
+    <<: *security-defaults
     restart: unless-stopped
     shm_size: 512m
     environment:
+      NEO4J_AUTH: neo4j/${SMAP_NEO4J_PASSWORD:?SMAP_NEO4J_PASSWORD must be set for staging}
       NEO4J_server_memory_heap_initial__size: "512M"
       NEO4J_server_memory_heap_max__size: "1G"
       NEO4J_server_memory_pagecache_size: "512M"
@@ -177,6 +200,7 @@ services:
         reservations: { cpus: "0.5", memory: 1G }
 
   minio:
+    <<: *security-defaults
     restart: unless-stopped
     environment:
       MINIO_ROOT_USER: ${SMAP_MINIO_ROOT_USER:?SMAP_MINIO_ROOT_USER must be set for staging}
@@ -187,7 +211,10 @@ services:
         reservations: { cpus: "0.25", memory: 512M }
 
   vault:
+    <<: *security-defaults
     restart: unless-stopped
+    cap_add:
+      - IPC_LOCK
     user: "0"
     entrypoint: ["vault"]
     command: server -config=/vault/config/vault.hcl
@@ -213,12 +240,14 @@ services:
 
   # ---------- MCP sandbox plane ----------
   egress-proxy:
+    <<: *security-defaults
     restart: unless-stopped
     deploy:
       resources:
         limits: { cpus: "0.5", memory: 256M }
 
   mcp-sandbox-supervisor:
+    <<: *security-defaults
     restart: unless-stopped
     deploy:
       resources:
@@ -226,6 +255,7 @@ services:
 
   # ---------- Frontend ----------
   frontend:
+    <<: *security-defaults
     image: smap-frontend:staging
     build:
       context: ../../

@@ -21,6 +21,12 @@
 # NOTE: per-container CPU limit must not exceed the host's CPU count (Docker
 # rejects `cpus > nproc`). Keep individual limits ≤ 4.0 so CI runners pass.
 
+x-security-defaults: &security-defaults
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+
 volumes:
   vault_logs:
 
@@ -31,9 +37,16 @@ services:
   # (volumes) are allowed. Raw /var/run/docker.sock is no longer mounted into
   # any service that processes untrusted HTTP requests.
   docker-socket-proxy:
-    image: tecnativa/docker-socket-proxy:0.3
+    <<: *security-defaults
+    image: tecnativa/docker-socket-proxy:0.3.0
     container_name: smap_docker_proxy
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:2375/_ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
     environment:
       CONTAINERS: 1
       IMAGES: 1
@@ -63,6 +76,7 @@ services:
 
   # ---------- Edge ----------
   nginx:
+    <<: *security-defaults
     restart: unless-stopped
     command:
       - sh
@@ -82,6 +96,7 @@ services:
 
   # ---------- Backend ----------
   backend-web:
+    <<: *security-defaults
     restart: unless-stopped
     # 4 uvicorn workers per process; 3 replicas → 12 workers total.
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4
@@ -100,7 +115,7 @@ services:
       postgres: { condition: service_healthy }
       redis: { condition: service_healthy }
       vault: { condition: service_healthy }
-      docker-socket-proxy: { condition: service_started }
+      docker-socket-proxy: { condition: service_healthy }
     deploy:
       replicas: 3
       resources:
@@ -108,6 +123,7 @@ services:
         reservations: { cpus: "2.0", memory: 2G }
 
   backend-worker:
+    <<: *security-defaults
     restart: unless-stopped
     environment:
       SMAP_APP_ENV: prod
@@ -119,7 +135,7 @@ services:
     depends_on:
       redis: { condition: service_healthy }
       postgres: { condition: service_healthy }
-      docker-socket-proxy: { condition: service_started }
+      docker-socket-proxy: { condition: service_healthy }
     deploy:
       replicas: 3
       resources:
@@ -132,6 +148,7 @@ services:
   # Variables use the :? syntax so compose refuses to start if unset.
 
   postgres:
+    <<: *security-defaults
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${SMAP_DB_USER:-smap}
@@ -162,6 +179,7 @@ services:
         reservations: { cpus: "2.0", memory: 4G }
 
   redis:
+    <<: *security-defaults
     restart: unless-stopped
     command:
       - redis-server
@@ -173,7 +191,7 @@ services:
       - --maxmemory
       - "3500mb"
       - --maxmemory-policy
-      - "allkeys-lru"
+      - "volatile-lru"
     environment:
       REDISCLI_AUTH: ${SMAP_REDIS_PASSWORD}
     healthcheck:
@@ -184,6 +202,7 @@ services:
         reservations: { cpus: "0.25", memory: 1G }
 
   qdrant:
+    <<: *security-defaults
     restart: unless-stopped
     deploy:
       resources:
@@ -192,9 +211,11 @@ services:
         reservations: { cpus: "2.0", memory: 4G }
 
   neo4j:
+    <<: *security-defaults
     restart: unless-stopped
     shm_size: 2g
     environment:
+      NEO4J_AUTH: neo4j/${SMAP_NEO4J_PASSWORD:?SMAP_NEO4J_PASSWORD must be set for production}
       NEO4J_server_memory_heap_initial__size: "3G"
       NEO4J_server_memory_heap_max__size: "5G"
       NEO4J_server_memory_pagecache_size: "2G"
@@ -204,6 +225,7 @@ services:
         reservations: { cpus: "2.0", memory: 4G }
 
   minio:
+    <<: *security-defaults
     restart: unless-stopped
     environment:
       MINIO_ROOT_USER: ${SMAP_MINIO_ROOT_USER:?SMAP_MINIO_ROOT_USER must be set for production}
@@ -214,7 +236,10 @@ services:
         reservations: { cpus: "0.5", memory: 2G }
 
   vault:
+    <<: *security-defaults
     restart: unless-stopped
+    cap_add:
+      - IPC_LOCK
     # Run vault directly as root, bypassing the image's docker-entrypoint.sh
     # su-exec drop. The entrypoint would drop to uid=100 (vault user), which
     # cannot read the TLS key generated on the host (chmod 600, owned by the
@@ -251,6 +276,7 @@ services:
 
   # ---------- MCP sandbox plane ----------
   egress-proxy:
+    <<: *security-defaults
     restart: unless-stopped
     deploy:
       resources:
@@ -258,6 +284,7 @@ services:
         reservations: { cpus: "0.25", memory: 256M }
 
   mcp-sandbox-supervisor:
+    <<: *security-defaults
     restart: unless-stopped
     deploy:
       resources:
@@ -268,11 +295,10 @@ services:
 
   # ---------- Frontend ----------
   frontend:
+    <<: *security-defaults
     # Prod serves the BUILT SPA via nginx (frontend/Dockerfile stage 2), not the
     # base file's Vite dev server. image + build override the base
-    # node:20-alpine; command overrides the base `vite dev`. The base's
-    # ../../:/app bind-mount leaks through (compose concatenates `volumes`) but
-    # is inert — nginx serves from /usr/share/nginx/html and never reads /app.
+    # node:20-alpine; command overrides the base `vite dev`.
     image: smap-frontend:prod
     build:
       context: ../../

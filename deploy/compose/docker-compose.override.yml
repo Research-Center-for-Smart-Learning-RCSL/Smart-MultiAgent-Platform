@@ -51,6 +51,10 @@ services:
     ports:
       - "26333:6333"
 
+  frontend:
+    volumes:
+      - ../../:/app
+
   neo4j:
     ports:
       - "27474:7474"

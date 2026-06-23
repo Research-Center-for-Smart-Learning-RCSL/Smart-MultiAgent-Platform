@@ -1,6 +1,6 @@
 # Loki configuration — single-process mode for self-hosted SMAP.
 
-auth_enabled: false
+auth_enabled: true
 
 server:
   http_listen_port: 3100

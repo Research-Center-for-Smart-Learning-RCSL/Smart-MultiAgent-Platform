@@ -17,6 +17,9 @@ networks:
   backend_net:
     name: smap_backend_net
     internal: false
+  data_net:
+    name: smap_data_net
+    internal: true
   egress_net:
     name: smap_egress_net
     # SEC-C1: the MCP sandbox plane. `internal: true` removes this network's
@@ -45,7 +48,7 @@ volumes:
 services:
   # ---------- Edge ----------
   nginx:
-    image: nginx:1.27-alpine
+    image: nginx:1.27.3-alpine
     container_name: smap_nginx
     depends_on:
       backend-web:
@@ -82,12 +85,10 @@ services:
 
   # ---------- Frontend (dev: node + vite HMR; prod/test: multi-stage Dockerfile → nginx) ----------
   frontend:
-    image: node:20-alpine
+    image: node:20.18.1-alpine
     container_name: smap_frontend
     working_dir: /app
     command: sh -c "corepack enable && pnpm install && pnpm --filter @smap/frontend run dev -- --host 0.0.0.0"
-    volumes:
-      - ../../:/app
     networks: [frontend_net]
     logging: *log-rotation
     healthcheck:
@@ -115,7 +116,7 @@ services:
     # Docker socket for DockerRunscSandbox is mounted in the dev overlay
     # (docker-compose.override.yml). In prod the socket-proxy provides access
     # via DOCKER_HOST env var — see docker-compose.prod.yml.
-    networks: [frontend_net, backend_net]
+    networks: [frontend_net, backend_net, data_net]
     logging: *log-rotation
     healthcheck:
       # /readyz, not /healthz: nginx and dependents must wait until the backend
@@ -143,7 +144,7 @@ services:
       postgres: { condition: service_healthy }
     # Docker socket for agent_fs_gc is mounted in the dev overlay.
     # In prod the socket-proxy provides access via DOCKER_HOST.
-    networks: [backend_net]
+    networks: [backend_net, data_net]
     logging: *log-rotation
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request,sys;sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8001/healthz').status==200 else 1)"]
@@ -154,7 +155,7 @@ services:
 
   # ---------- Data services ----------
   postgres:
-    image: pgvector/pgvector:pg16
+    image: pgvector/pgvector:0.8.0-pg16
     container_name: smap_postgres
     environment:
       POSTGRES_USER: smap
@@ -163,7 +164,7 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./postgres/init:/docker-entrypoint-initdb.d:ro
-    networks: [backend_net]
+    networks: [data_net]
     logging: *log-rotation
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U smap -d smap"]
@@ -172,7 +173,7 @@ services:
       retries: 10
 
   redis:
-    image: redis:7-alpine
+    image: redis:7.4.2-alpine
     container_name: smap_redis
     command:
       - redis-server
@@ -184,7 +185,7 @@ services:
       - "allkeys-lru"
     volumes:
       - redis_data:/data
-    networks: [backend_net]
+    networks: [data_net]
     logging: *log-rotation
     healthcheck:
       test: ["CMD", "redis-cli", "PING"]
@@ -197,7 +198,7 @@ services:
     container_name: smap_qdrant
     volumes:
       - qdrant_data:/qdrant/storage
-    networks: [backend_net]
+    networks: [data_net]
     logging: *log-rotation
     healthcheck:
       # The qdrant image ships neither wget nor curl, so the old wget probe
@@ -217,9 +218,11 @@ services:
       NEO4J_AUTH: neo4j/${SMAP_NEO4J_PASSWORD:-neo4jneo4j}   # DEV ONLY — set SMAP_NEO4J_PASSWORD in prod
       NEO4J_server_memory_heap_initial__size: "1G"
       NEO4J_server_memory_heap_max__size: "2G"
+      NEO4J_server_metrics_prometheus_enabled: "true"
+      NEO4J_server_metrics_prometheus_endpoint: "0.0.0.0:2004"
     volumes:
       - neo4j_data:/data
-    networks: [backend_net]
+    networks: [data_net]
     logging: *log-rotation
     healthcheck:
       test: ["CMD-SHELL", "cypher-shell -u neo4j -p \"${SMAP_NEO4J_PASSWORD:-neo4jneo4j}\" 'RETURN 1' || exit 1"]
@@ -236,7 +239,7 @@ services:
       MINIO_ROOT_PASSWORD: minioadmin   # DEV ONLY — rotate root creds before production
     volumes:
       - minio_data:/data
-    networks: [backend_net]
+    networks: [data_net]
     logging: *log-rotation
     healthcheck:
       test: ["CMD", "mc", "ready", "local"]
@@ -245,7 +248,7 @@ services:
       retries: 5
 
   vault:
-    image: hashicorp/vault:1.18
+    image: hashicorp/vault:1.18.3
     container_name: smap_vault
     cap_add: [IPC_LOCK]
     environment:
@@ -269,7 +272,7 @@ services:
 
   # ---------- AV scanning (optional) ----------
   clamav:
-    image: clamav/clamav:1.4
+    image: clamav/clamav:1.4.2
     container_name: smap_clamav
     restart: unless-stopped
     networks: [backend_net]
@@ -318,7 +321,7 @@ services:
       # Docker socket required for gVisor container spawning (R12.05).
       # gVisor (runsc) must be installed on the Docker host before starting.
       # Install guide: https://gvisor.dev/docs/user_guide/install/
-      - /var/run/docker.sock:/var/run/docker.sock
+      - /var/run/docker.sock:/var/run/docker.sock:ro
     networks: [backend_net]
     logging: *log-rotation
     healthcheck:
