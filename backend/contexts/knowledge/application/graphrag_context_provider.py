@@ -154,7 +154,7 @@ class GraphRagContextProvider:
         )
         from contexts.keys.infrastructure.repositories import ApiKeyRepository
 
-        members = await KeyGroupMemberRepository(self._db).list_ordered(
+        members = await KeyGroupMemberRepository(self._db).list_ordered_carried(
             builder_key_group_id,
         )
         for m in members:

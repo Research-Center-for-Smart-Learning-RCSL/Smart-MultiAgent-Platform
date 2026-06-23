@@ -30,6 +30,8 @@ from contexts.conversation.application.message_service import (
 )
 from contexts.conversation.application.triggers import evaluate_message_wakeups
 from contexts.conversation.domain.models import Message
+from contexts.conversation.infrastructure.channels import room_channel
+from shared_kernel.realtime.pubsub import Publisher
 from shared_kernel.auth.context import RequestContext
 from shared_kernel.auth.dependencies import (
     _raise_forbidden,
@@ -194,6 +196,18 @@ async def send_message(
     # turn loads room history on a separate connection and must see this row
     # (db_session's trailing commit is then a no-op). K.3 link (a).
     await db.commit()
+    try:
+        await Publisher(room_channel(chatroom_id)).emit(
+            "message.created",
+            {
+                "message_id": str(msg.id),
+                "sender_type": msg.sender_type.value,
+                "sender_id": str(msg.sender_id) if msg.sender_id else None,
+                "created_at": msg.created_at.isoformat() if msg.created_at else None,
+            },
+        )
+    except Exception:
+        _log.error("realtime publish failed for message.created %s", msg.id, exc_info=True)
     await _dispatch_message_wakeups(db, chatroom_id)
     await _dispatch_message_workflow_signal(chatroom_id, body.content_md)
     return _to_out(msg, await service.list_attachments(msg.id))
@@ -290,7 +304,22 @@ async def edit_message(
         actor_ip=ctx.actor_ip,
         request_id=ctx.request_id,
     )
-    _ = msg  # preserved for clarity; service re-reads before updating
+    await db.commit()
+    try:
+        await Publisher(room_channel(msg.chatroom_id)).emit(
+            "message.updated",
+            {
+                "message_id": str(message_id),
+                "version": updated.version,
+                "edited_at": updated.edited_at.isoformat() if updated.edited_at else None,
+                "by_moderator": (
+                    (principal.is_admin or access.is_moderator)
+                    and principal.user_id != msg.sender_id
+                ),
+            },
+        )
+    except Exception:
+        _log.error("realtime publish failed for message.updated %s", message_id, exc_info=True)
     return _to_out(updated, await service.list_attachments(updated.id))
 
 
@@ -322,6 +351,14 @@ async def delete_message(
         actor_ip=ctx.actor_ip,
         request_id=ctx.request_id,
     )
+    await db.commit()
+    try:
+        await Publisher(room_channel(msg.chatroom_id)).emit(
+            "message.deleted",
+            {"message_id": str(message_id)},
+        )
+    except Exception:
+        _log.error("realtime publish failed for message.deleted %s", message_id, exc_info=True)
 
 
 __all__ = ["chatroom_router", "message_router"]

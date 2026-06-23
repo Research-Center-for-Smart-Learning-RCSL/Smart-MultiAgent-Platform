@@ -81,7 +81,10 @@ async def _handle_call(envelope: A2AEnvelope) -> None:
         result = await _run_turn(to_id, envelope)
     except Exception:  # fail-fast: the caller is blocking on the rendezvous
         logger.exception("a2a call %s turn raised", envelope.correlation_id)
-        await _deliver_error(envelope, "agent turn failed")
+        try:
+            await _deliver_error(envelope, "agent turn failed")
+        except Exception:
+            logger.exception("a2a call %s: error delivery also failed", envelope.correlation_id)
         return
 
     if result.status != "completed":

@@ -44,6 +44,9 @@ async def execute(ctx: RunContext, node: NodeSpec, db: AsyncSession) -> StepOutc
 
         result_output = {"instruction_id": str(instruction.id)}
 
+        if output_variable:
+            ctx.variables[output_variable] = str(instruction.id)
+
         if config.get("wait_for_completion", True):
             # Park until the instruction completes. Register the resume claim key
             # (instruction_id → run+node) so the A2A handler's mark_completed /
@@ -80,9 +83,6 @@ async def execute(ctx: RunContext, node: NodeSpec, db: AsyncSession) -> StepOutc
                 port="success",
                 park=True,
             )
-
-        if output_variable:
-            ctx.variables[output_variable] = str(instruction.id)
 
         return StepOutcome(
             state=StepState.SUCCEEDED,

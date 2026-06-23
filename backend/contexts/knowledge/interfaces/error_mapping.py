@@ -86,6 +86,11 @@ _MAP: ErrorMap = {
         422,
         "Agent does not belong to the target project",
     ),
+    errors.GraphRagBuilderKeyGroupProjectMismatch: (
+        "knowledge/graphrag-builder-key-group-project-mismatch",
+        422,
+        "Builder key group does not belong to the target project",
+    ),
 }
 
 

@@ -29,7 +29,6 @@ from contexts.conversation.domain.models import (
     MessageEdit,
     SenderType,
 )
-from contexts.conversation.infrastructure.channels import room_channel
 from contexts.conversation.infrastructure.repositories import (
     MessageAttachmentRepository,
     MessageEditRepository,
@@ -38,7 +37,6 @@ from contexts.conversation.infrastructure.repositories import (
 from contexts.conversation.infrastructure import tables as t
 from shared_kernel import audit
 from shared_kernel.auth.clients import now
-from shared_kernel.realtime.pubsub import Publisher
 from shared_kernel.storage import get_minio_client
 
 _log = logging.getLogger(__name__)
@@ -194,18 +192,6 @@ class MessageService:
             ),
         )
         await self._db.flush()
-        try:
-            await Publisher(room_channel(chatroom_id)).emit(
-                "message.created",
-                {
-                    "message_id": str(msg.id),
-                    "sender_type": msg.sender_type.value,
-                    "sender_id": str(msg.sender_id) if msg.sender_id else None,
-                    "created_at": msg.created_at.isoformat() if msg.created_at else None,
-                },
-            )
-        except Exception:
-            _log.error("realtime publish failed for message.created %s", msg.id, exc_info=True)
         return msg
 
     async def send_agent(
@@ -305,18 +291,6 @@ class MessageService:
         )
 
         await self._db.flush()
-        try:
-            await Publisher(room_channel(existing.chatroom_id)).emit(
-                "message.updated",
-                {
-                    "message_id": str(message_id),
-                    "version": updated.version,
-                    "edited_at": updated.edited_at.isoformat() if updated.edited_at else None,
-                    "by_moderator": (moderator_path and authority.actor_user_id != existing.sender_id),
-                },
-            )
-        except Exception:
-            _log.error("realtime publish failed for message.updated %s", message_id, exc_info=True)
         if moderator_path and authority.actor_user_id != existing.sender_id:
             # R13.23 — moderator-on-other-user edit gets its own audit slug.
             await audit.emit(
@@ -407,13 +381,6 @@ class MessageService:
             ),
         )
         await self._db.flush()
-        try:
-            await Publisher(room_channel(existing.chatroom_id)).emit(
-                "message.deleted",
-                {"message_id": str(message_id)},
-            )
-        except Exception:
-            _log.error("realtime publish failed for message.deleted %s", message_id, exc_info=True)
 
 
 __all__ = ["EditAuthority", "MessageService", "SELF_EDIT_WINDOW"]

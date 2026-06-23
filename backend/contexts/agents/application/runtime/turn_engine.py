@@ -504,6 +504,7 @@ class TurnEngine:
                 await Publisher(room).emit("agent.finished", {"agent_id": str(agent.id)})
                 await self._audit(agent, chatroom_id, "agent.turn_finished", {"empty": True})
                 await self._db.commit()
+                self._compact_forced_rooms.discard(chatroom_id)
                 # The drained notifications were folded into a prompt that will
                 # never reach the provider — restore them for the next turn.
                 await self._requeue_notifications(agent, pending_notes)
