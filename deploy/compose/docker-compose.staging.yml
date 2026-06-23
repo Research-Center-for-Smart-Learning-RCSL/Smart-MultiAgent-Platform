@@ -73,7 +73,7 @@ services:
   # ---------- Edge ----------
   nginx:
     <<: *security-defaults
-    cap_add: [NET_BIND_SERVICE]
+    cap_add: [NET_BIND_SERVICE, CHOWN, SETUID, SETGID, DAC_OVERRIDE]
     restart: unless-stopped
     command:
       - sh
