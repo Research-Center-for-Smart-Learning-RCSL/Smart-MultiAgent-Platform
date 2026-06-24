@@ -23,6 +23,7 @@ from contexts.tenancy.domain.errors import (
     OriginalCreatorConflict,
 )
 from contexts.tenancy.domain.models import (
+    InviteScope,
     Org,
     OrgMember,
     Project,
@@ -32,6 +33,8 @@ from contexts.tenancy.domain.models import (
     OrgMemberRole as OrgMemberRole,
 )
 from contexts.tenancy.infrastructure.repositories import (
+    InviteRepository,
+    OCTransferRepository,
     OrgMemberRepository,
     OrgRepository,
     ProjectMemberRepository,
@@ -142,6 +145,13 @@ class OrgService:
         actor_ip: str | None,
         request_id: uuid.UUID | None = None,
     ) -> None:
+        org_projects = await self._projects.list_by_org(org_id)
+        for project in org_projects:
+            await self._projects.soft_delete(project.id)
+        invites_revoked = await InviteRepository(self._db).revoke_pending_for_scope(
+            scope_type=InviteScope.ORG, scope_id=org_id,
+        )
+        transfers_cancelled = await OCTransferRepository(self._db).cancel_pending_for_org(org_id)
         await self._orgs.soft_delete(org_id)
         await audit.emit(
             self._db,
@@ -151,6 +161,11 @@ class OrgService:
                 actor_ip=actor_ip,
                 resource_type="org",
                 resource_id=org_id,
+                metadata={
+                    "projects_deleted": len(org_projects),
+                    "invites_revoked": invites_revoked,
+                    "transfers_cancelled": transfers_cancelled,
+                },
                 request_id=request_id,
             ),
         )
@@ -201,6 +216,7 @@ class OrgService:
         revoked = await KeysFacade(self._db).revoke_carries_for_user_in_projects(
             user_id=target_user_id,
             project_ids=project_ids,
+            actor_user_id=actor_user_id,
         )
         removed = await ProjectMemberRepository(self._db).remove_user_from_projects(
             user_id=target_user_id,

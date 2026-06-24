@@ -12,6 +12,7 @@ from app.api.v1.admin_deps import require_admin
 from contexts.identity.application.admin_service import (
     AdminService,
     LastAdminError,
+    SelfTargetError,
 )
 from shared_kernel.auth.context import RequestContext
 from shared_kernel.auth.dependencies import current_context
@@ -136,6 +137,8 @@ async def ban_user(
             actor_ip=ctx.actor_ip,
             request_id=ctx.request_id,
         )
+    except SelfTargetError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
@@ -174,6 +177,8 @@ async def soft_delete_user(
             actor_ip=ctx.actor_ip,
             request_id=ctx.request_id,
         )
+    except SelfTargetError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
@@ -193,6 +198,8 @@ async def hard_delete_user(
             actor_ip=ctx.actor_ip,
             request_id=ctx.request_id,
         )
+    except SelfTargetError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except ValueError as exc:
         msg = str(exc)
         code = 404 if "not found" in msg else 409

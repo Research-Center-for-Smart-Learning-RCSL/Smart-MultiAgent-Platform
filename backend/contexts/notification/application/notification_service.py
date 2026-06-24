@@ -93,5 +93,11 @@ class NotificationService:
     async def unread_count(self, user_id: uuid.UUID) -> int:
         return await self._repo.unread_count(user_id)
 
+    async def purge_old_read(self, *, retention_days: int = 90) -> int:
+        from datetime import timedelta
+
+        cutoff = now() - timedelta(days=retention_days)
+        return await self._repo.purge_old_read(cutoff=cutoff)
+
 
 __all__ = ["NotificationService"]

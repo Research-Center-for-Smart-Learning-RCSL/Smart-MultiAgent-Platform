@@ -279,33 +279,34 @@ class CarryService:
         *,
         user_id: uuid.UUID,
         project_ids: list[uuid.UUID],
+        actor_user_id: uuid.UUID | None = None,
     ) -> int:
         """Batch-withdraw all carries of ``user_id`` across multiple projects."""
         if not project_ids:
             return 0
         now = datetime.now(tz=UTC)
-        condition = sa.and_(
-            t.key_projects.c.project_id.in_(project_ids),
-            t.key_projects.c.carried.is_(True),
-            t.key_projects.c.key_id.in_(
-                sa.select(t.api_keys.c.id).where(t.api_keys.c.owner_user_id == user_id)
-            ),
-        )
         affected = (
             await self._db.execute(
-                sa.select(t.key_projects.c.key_id, t.key_projects.c.project_id).where(condition)
+                t.key_projects.update()
+                .where(
+                    sa.and_(
+                        t.key_projects.c.project_id.in_(project_ids),
+                        t.key_projects.c.carried.is_(True),
+                        t.key_projects.c.key_id.in_(
+                            sa.select(t.api_keys.c.id).where(t.api_keys.c.owner_user_id == user_id)
+                        ),
+                    )
+                )
+                .values(carried=False, withdrawn_at=now)
+                .returning(t.key_projects.c.key_id, t.key_projects.c.project_id)
             )
         ).all()
-        if not affected:
-            return 0
-        await self._db.execute(
-            t.key_projects.update().where(condition).values(carried=False, withdrawn_at=now)
-        )
         for row in affected:
             await audit.emit(
                 self._db,
                 audit.AuditEvent(
                     action="key.withdrawn_from_project",
+                    actor_user_id=actor_user_id,
                     resource_type="api_key",
                     resource_id=row.key_id,
                     metadata={

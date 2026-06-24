@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Sequence
+from datetime import datetime
 from typing import Any
 
 import sqlalchemy as sa
@@ -166,6 +167,22 @@ class NotificationRepository:
             )
         )
         return result.scalar_one()
+
+    async def purge_old_read(self, *, cutoff: datetime, batch_size: int = 1000) -> int:
+        batch = (
+            sa.select(t.notifications.c.id)
+            .where(
+                sa.and_(
+                    t.notifications.c.read_at.isnot(None),
+                    t.notifications.c.created_at < cutoff,
+                )
+            )
+            .limit(batch_size)
+        )
+        result = await self._db.execute(
+            sa.delete(t.notifications).where(t.notifications.c.id.in_(batch))
+        )
+        return result.rowcount or 0
 
 
 __all__ = ["NotificationRepository"]

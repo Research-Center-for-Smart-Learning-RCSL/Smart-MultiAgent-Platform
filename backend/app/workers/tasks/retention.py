@@ -441,18 +441,10 @@ async def _scrub_stale_presence(session: AsyncSession) -> int:
 
 
 async def _purge_read_notifications(session: AsyncSession) -> int:
-    """Hard-delete read notifications older than 90 days."""
-    cutoff = now() - timedelta(days=90)
-    result = await session.execute(
-        sa.text(
-            "DELETE FROM notifications WHERE read_at IS NOT NULL AND created_at < :cutoff "
-            "AND id IN ("
-            "  SELECT id FROM notifications "
-            "  WHERE read_at IS NOT NULL AND created_at < :cutoff LIMIT 1000"
-            ")"
-        ).bindparams(cutoff=cutoff)
-    )
-    count = result.rowcount or 0  # type: ignore[attr-defined]
+    """Hard-delete read notifications older than 90 days via NotificationFacade."""
+    from contexts.notification.interfaces.facade import NotificationFacade
+
+    count = await NotificationFacade(session).purge_old_read(retention_days=90)
     await _emit_summary(session, "retention.notifications.swept", count)
     return count
 
@@ -496,6 +488,8 @@ async def retention_sweep(ctx: dict[str, Any]) -> dict[str, int]:
         try:
             async with sm() as session, session.begin():
                 count = await func(session)
+            from shared_kernel.audit import flush_tail_events
+            await flush_tail_events(session)
             report[name] = count
             RETENTION_LAST_RUN_TIMESTAMP.labels(worker=name).set(_time.time())
             RETENTION_LAST_ROWS.labels(worker=name).set(count)

@@ -49,6 +49,10 @@ class LastAdminError(Exception):
     pass
 
 
+class SelfTargetError(ValueError):
+    pass
+
+
 class AdminService:
     def __init__(self, db: AsyncSession) -> None:
         self._db = db
@@ -115,7 +119,7 @@ class AdminService:
         request_id: uuid.UUID | None = None,
     ) -> None:
         if admin_user_id == target_user_id:
-            raise ValueError("Cannot ban yourself")
+            raise SelfTargetError("Cannot ban yourself")
         await self._require_user(target_user_id)
         await self._users.ban(target_user_id, reason)
         await self._invalidate_user_sessions(target_user_id)
@@ -142,7 +146,7 @@ class AdminService:
             title="Your account has been suspended",
             body=reason,
             metadata={"reason": reason},
-            dedup_key=f"ban:{target_user_id}:{request_id or uuid.uuid4()}",
+            dedup_key=f"ban:{target_user_id}:{request_id}" if request_id else None,
         )
 
     async def unban_user(
@@ -176,10 +180,20 @@ class AdminService:
         request_id: uuid.UUID | None = None,
     ) -> None:
         if admin_user_id == target_user_id:
-            raise ValueError("Cannot delete yourself")
+            raise SelfTargetError("Cannot delete yourself")
         await self._require_user(target_user_id)
+        from contexts.tenancy.interfaces.facade import TenancyFacade
+
+        cascade_counts = await TenancyFacade(self._db).cascade_account_deletion(
+            user_id=target_user_id,
+            actor_ip=actor_ip,
+            request_id=request_id,
+        )
         await self._users.soft_delete(target_user_id)
         await self._invalidate_user_sessions(target_user_id)
+        await Publisher(user_channel(target_user_id)).emit(
+            "account-deleted", {"by": "admin"},
+        )
         await audit.emit(
             self._db,
             audit.AuditEvent(
@@ -188,6 +202,7 @@ class AdminService:
                 actor_ip=actor_ip,
                 resource_type="user",
                 resource_id=target_user_id,
+                metadata=cascade_counts,
                 request_id=request_id,
             ),
         )
@@ -201,7 +216,7 @@ class AdminService:
         request_id: uuid.UUID | None = None,
     ) -> None:
         if admin_user_id == target_user_id:
-            raise ValueError("Cannot delete yourself")
+            raise SelfTargetError("Cannot delete yourself")
         from contexts.tenancy.interfaces.facade import TenancyFacade
 
         user = await self._users.get_by_id(target_user_id)
@@ -218,6 +233,15 @@ class AdminService:
                 f"user is Original Creator of org(s) with active members: "
                 f"{', '.join(str(o) for o in blocked)}; transfer OC first"
             )
+        tenancy = TenancyFacade(self._db)
+        await tenancy.prepare_hard_delete(
+            user_id=target_user_id,
+            reassign_to_user_id=admin_user_id,
+        )
+        await self._db.execute(
+            sa.text("DELETE FROM message_edits WHERE edited_by_user_id = :uid"),
+            {"uid": target_user_id},
+        )
         await self._db.execute(t.users.delete().where(t.users.c.id == target_user_id))
         await audit.emit(
             self._db,
@@ -410,4 +434,4 @@ def _row_to_user(row: Any) -> User:
     )
 
 
-__all__ = ["AdminEntry", "AdminService", "LastAdminError", "UserDetail"]
+__all__ = ["AdminEntry", "AdminService", "LastAdminError", "SelfTargetError", "UserDetail"]

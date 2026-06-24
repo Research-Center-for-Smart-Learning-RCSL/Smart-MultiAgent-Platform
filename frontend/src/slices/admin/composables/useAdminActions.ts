@@ -95,13 +95,16 @@ export function useAdminActions() {
     mutationFn: ({ type, id }: { type: string; id: string }) =>
       adminApi.restoreResource(type, id),
     onSuccess: (_data, { type }) => {
-      const keyMap: Record<string, unknown[]> = {
-        user: adminKeys.users(),
-        org: adminKeys.orgs(),
-        project: adminKeys.projects(),
+      if (type === 'user') {
+        _invalidateUserQueries()
+      } else {
+        const keyMap: Record<string, unknown[]> = {
+          org: adminKeys.orgs(),
+          project: adminKeys.projects(),
+        }
+        const key = keyMap[type]
+        if (key) qc.invalidateQueries({ queryKey: key })
       }
-      const key = keyMap[type]
-      if (key) qc.invalidateQueries({ queryKey: key })
     },
     onError: () => toast.error(t('admin.actionErrors.restoreFailed')),
   })

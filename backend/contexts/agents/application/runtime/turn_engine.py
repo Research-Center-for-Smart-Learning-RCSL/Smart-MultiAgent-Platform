@@ -838,15 +838,19 @@ class TurnEngine:
             parent_agent_id=parent_agent_id,
             chatroom_id=chatroom_id,
         )
-        final_body: dict[str, Any] = {}
-        async for ev in self._router.call_stream(group_id=agent.key_group_id, request=final_request):
-            if isinstance(ev, TokenDelta):
-                AGENT_STREAM_TOKENS_TOTAL.inc()
-                if room is not None:
-                    await Publisher(room).emit("agent.token", {"text": ev.text, "agent_id": str(agent.id)})
-            elif isinstance(ev, StreamComplete):
-                final_body = ev.result.body
-        return str(final_body.get("text", last_text)), MAX_TOOL_ROUNDS
+        try:
+            final_body: dict[str, Any] = {}
+            async for ev in self._router.call_stream(group_id=agent.key_group_id, request=final_request):
+                if isinstance(ev, TokenDelta):
+                    AGENT_STREAM_TOKENS_TOTAL.inc()
+                    if room is not None:
+                        await Publisher(room).emit("agent.token", {"text": ev.text, "agent_id": str(agent.id)})
+                elif isinstance(ev, StreamComplete):
+                    final_body = ev.result.body
+            return str(final_body.get("text", last_text)), MAX_TOOL_ROUNDS
+        except Exception:
+            _log.warning("final no-tools call failed; falling back to last tool-round text")
+            return last_text, MAX_TOOL_ROUNDS
 
     async def _rag_context(self, agent: Agent, query: str | None) -> str | None:
         """Delegate to the knowledge-context :class:`RagContextProvider`."""

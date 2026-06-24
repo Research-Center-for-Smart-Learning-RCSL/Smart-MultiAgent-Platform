@@ -95,11 +95,13 @@ class KeysFacade:
         *,
         user_id: uuid.UUID,
         project_ids: list[uuid.UUID],
+        actor_user_id: uuid.UUID | None = None,
     ) -> int:
         """Batch revoke all carries for a user across multiple projects."""
         return await CarryService(self._db).revoke_for_user_in_projects(
             user_id=user_id,
             project_ids=project_ids,
+            actor_user_id=actor_user_id,
         )
 
     async def get_key(self, key_id: uuid.UUID) -> ApiKey | None:
