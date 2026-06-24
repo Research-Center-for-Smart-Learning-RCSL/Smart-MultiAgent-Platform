@@ -1,36 +1,32 @@
 <script setup lang="ts">
+import { computed } from 'vue'
+import { useRoute } from 'vue-router'
 import { Toaster } from 'vue-sonner'
 import { ImpersonationBanner } from '@slices/admin'
-import { NotificationBell } from '@slices/notifications'
 import { useBanKickGuard } from '@shared/composables'
-import { SConfirmDialog, ThemeToggle } from '@shared/ui'
+import { SConfirmDialog } from '@shared/ui'
 import ErrorBoundary from './ErrorBoundary.vue'
+import AuthLayout from './layouts/AuthLayout.vue'
+import AppShell from './layouts/AppShell.vue'
 
 useBanKickGuard()
+
+const route = useRoute()
+
+const layoutComponent = computed(() => {
+  const layout = route.meta.layout as string | undefined
+  if (layout === 'auth') return AuthLayout
+  if (layout === 'app') return AppShell
+  return route.meta.requiresAuth ? AppShell : AuthLayout
+})
 </script>
 
 <template>
   <ImpersonationBanner />
-  <div class="app-chrome">
-    <ErrorBoundary>
-      <ThemeToggle />
-    </ErrorBoundary>
-    <ErrorBoundary>
-      <NotificationBell />
-    </ErrorBoundary>
-  </div>
-  <!--
-    ErrorBoundary contains a render-time throw in any view to a retry
-    fallback, instead of letting Vue blank the entire app (FE-11).
-
-    Key by path so a dynamic-segment view (e.g. /chatrooms/A → /chatrooms/B)
-    is fully remounted instead of reused — otherwise `setup()` does not re-run
-    and route-param constants captured there stay stale. Keyed on `path`, not
-    `fullPath`, so pure query-string changes (filters/pagination) don't force
-    a needless remount.
-  -->
   <ErrorBoundary>
-    <router-view :key="$route.path" />
+    <component :is="layoutComponent">
+      <router-view :key="$route.path" />
+    </component>
   </ErrorBoundary>
   <Toaster
     position="top-right"
@@ -39,15 +35,3 @@ useBanKickGuard()
   />
   <SConfirmDialog />
 </template>
-
-<style scoped>
-.app-chrome {
-  position: fixed;
-  bottom: 0.75rem;
-  right: 0.75rem;
-  z-index: 10000;
-  display: flex;
-  gap: 0.5rem;
-  align-items: center;
-}
-</style>

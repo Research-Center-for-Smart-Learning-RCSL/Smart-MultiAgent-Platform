@@ -8,9 +8,15 @@ describe('Landing', () => {
     expect(wrapper.exists()).toBe(true)
   })
 
-  it('displays the i18n title and message', async () => {
+  it('displays a headline and subtitle', async () => {
     const wrapper = await renderView(Landing)
     expect(wrapper.find('h1').exists()).toBe(true)
     expect(wrapper.find('p').exists()).toBe(true)
+  })
+
+  it('has links to register and login', async () => {
+    const wrapper = await renderView(Landing)
+    expect(wrapper.text()).toContain('app.landing.getStarted')
+    expect(wrapper.text()).toContain('app.landing.logIn')
   })
 })
