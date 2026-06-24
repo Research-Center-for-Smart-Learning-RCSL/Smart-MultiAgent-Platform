@@ -5,24 +5,24 @@ import ProjectListView from '../views/ProjectListView.vue'
 const routes = [
   { path: '/projects', name: 'tenancy.projectList', component: ProjectListView },
   { path: '/projects/:id', name: 'tenancy.projectDetail', component: { template: '<div />' } },
+  { path: '/orgs', name: 'tenancy.orgList', component: { template: '<div />' } },
 ]
 
 describe('ProjectListView', () => {
   it('renders without errors', async () => {
     const wrapper = await renderView(ProjectListView, {
       routes,
-      initialRoute: '/projects?scope=user&id=u_test',
+      initialRoute: '/projects',
     })
     expect(wrapper.exists()).toBe(true)
   })
 
-  it('has a scope selector and create form', async () => {
+  it('shows tabs and a create button', async () => {
     const wrapper = await renderView(ProjectListView, {
       routes,
-      initialRoute: '/projects?scope=user&id=u_test',
+      initialRoute: '/projects',
     })
-    expect(wrapper.find('select').exists()).toBe(true)
-    expect(wrapper.find('form').exists()).toBe(true)
-    expect(wrapper.find('button[type="submit"]').exists()).toBe(true)
+    expect(wrapper.text()).toContain('All')
+    expect(wrapper.find('button').exists()).toBe(true)
   })
 })
