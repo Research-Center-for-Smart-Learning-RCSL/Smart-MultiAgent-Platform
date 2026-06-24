@@ -5,19 +5,7 @@ import { useI18n } from 'vue-i18n'
 import { useQuery } from '@tanstack/vue-query'
 import { ChatBubbleLeftIcon } from '@heroicons/vue/24/outline'
 import { useWorkspaceStore } from '@shared/stores/workspace'
-import { http } from '@shared/transport'
-
-interface Workspace {
-  id: string
-  name: string
-}
-
-interface Chatroom {
-  id: string
-  name: string
-  workspace_id: string
-  created_at: string
-}
+import { listWorkspaces, listChatrooms, type Chatroom } from '@slices/conversation'
 
 const { t } = useI18n()
 const route = useRoute()
@@ -27,16 +15,13 @@ const workspace = useWorkspaceStore()
 const chatroomsQuery = useQuery({
   queryKey: ['sidebar', 'chatrooms', computed(() => workspace.projectId)],
   queryFn: async () => {
-    const { data: workspaces } = await http.get<Workspace[]>(
-      `/projects/${workspace.projectId}/workspaces`,
+    const workspaces = await listWorkspaces(workspace.projectId!)
+    const settled = await Promise.allSettled(
+      workspaces.map((ws) => listChatrooms(ws.id)),
     )
-    const results = await Promise.all(
-      workspaces.map((ws) =>
-        http.get<Chatroom[]>(`/workspaces/${ws.id}/chatrooms`).then((r) => r.data),
-      ),
-    )
-    return results
-      .flat()
+    return settled
+      .filter((r): r is PromiseFulfilledResult<Chatroom[]> => r.status === 'fulfilled')
+      .flatMap((r) => r.value)
       .sort((a, b) => b.created_at.localeCompare(a.created_at))
       .slice(0, 10)
   },
@@ -70,6 +55,13 @@ function navigateTo(chatroomId: string): void {
       <div class="skeleton-line" />
       <div class="skeleton-line" />
       <div class="skeleton-line" />
+    </div>
+
+    <div
+      v-else-if="chatroomsQuery.isError.value"
+      class="empty-state"
+    >
+      {{ t('app.sidebar.loadError') }}
     </div>
 
     <template v-else-if="chatroomsQuery.data.value?.length">

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, type Component } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import {
@@ -21,7 +21,7 @@ const menuItems = computed(() => {
   const items: Array<{
     key: string
     label: string
-    icon?: object
+    icon?: Component
     danger?: boolean
     disabled?: boolean
     divider?: boolean

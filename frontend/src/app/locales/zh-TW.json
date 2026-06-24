@@ -1,8 +1,6 @@
 {
   "app": {
     "title": "SMAP",
-    "landingMessage": "歡迎使用 SMAP。",
-    "notFound": "找不到頁面。",
     "notFoundTitle": "找不到頁面",
     "notFoundText": "您要找的頁面不存在或已被移動。",
     "backToHome": "返回首頁",
@@ -29,8 +27,7 @@
       "logIn": "登入"
     },
     "topbar": {
-      "toggleSidebar": "切換側邊欄",
-      "home": "SMAP"
+      "toggleSidebar": "切換側邊欄"
     },
     "sidebar": {
       "orgs": "組織",
@@ -48,6 +45,7 @@
       "mcpAllowlist": "MCP 允許清單",
       "recentChatrooms": "最近聊天室",
       "noChatrooms": "尚無聊天室",
+      "loadError": "載入失敗",
       "admin": "管理控制台"
     },
     "switcher": {
@@ -56,7 +54,7 @@
       "projects": "專案",
       "createOrg": "建立組織",
       "createProject": "建立專案",
-      "noProjects": "尚無專案"
+      "loadError": "載入失敗"
     },
     "userMenu": {
       "account": "帳號設定",

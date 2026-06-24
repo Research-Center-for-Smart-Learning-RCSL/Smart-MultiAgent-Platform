@@ -9,25 +9,7 @@ import {
   PlusIcon,
 } from '@heroicons/vue/24/outline'
 import { useWorkspaceStore } from '@shared/stores/workspace'
-import { http } from '@shared/transport'
-import { tenancyKeys } from '@slices/tenancy'
-
-interface Org {
-  id: string
-  name: string
-  creator_user_id: string
-  version: number
-  created_at: string
-}
-
-interface Project {
-  id: string
-  name: string
-  owner_type: string
-  owner_id: string
-  version: number
-  created_at: string
-}
+import { tenancyKeys, orgsApi, projectsApi, type Org, type Project } from '@slices/tenancy'
 
 const { t } = useI18n()
 const router = useRouter()
@@ -37,23 +19,25 @@ const isOpen = ref(false)
 const panelRef = ref<HTMLElement | null>(null)
 const triggerRef = ref<HTMLElement | null>(null)
 
-const { data: orgs } = useQuery<Org[]>({
+const orgsQuery = useQuery({
   queryKey: tenancyKeys.orgs(),
-  queryFn: () => http.get('/orgs').then((r) => r.data),
+  queryFn: () => orgsApi.list().then((r) => r.data),
 })
+
+const orgs = computed(() => orgsQuery.data.value ?? [])
 
 const projectsEnabled = computed(() => !!workspace.orgId)
 
-const { data: projects } = useQuery<Project[]>({
+const projectsQuery = useQuery({
   queryKey: computed(() =>
     tenancyKeys.projects('org', workspace.orgId ?? ''),
   ),
   queryFn: () =>
-    http
-      .get('/projects', { params: { scope: 'org', id: workspace.orgId } })
-      .then((r) => r.data),
+    projectsApi.list('org', workspace.orgId!).then((r) => r.data),
   enabled: projectsEnabled,
 })
+
+const projects = computed(() => projectsQuery.data.value ?? [])
 
 const displayText = computed(() => {
   if (!workspace.hasOrg) return ''
@@ -136,7 +120,7 @@ onBeforeUnmount(() => {
       :class="{ 'switcher__trigger--empty': !workspace.hasOrg }"
       type="button"
       :aria-expanded="isOpen"
-      :aria-label="t('app.switcher.label')"
+      :aria-label="t('app.switcher.placeholder')"
       @click.stop="toggle"
     >
       <span class="switcher__text">
@@ -157,9 +141,16 @@ onBeforeUnmount(() => {
       >
         <!-- Organizations section -->
         <div class="switcher__section-header">
-          {{ t('app.switcher.organizations') }}
+          {{ t('app.switcher.orgs') }}
+        </div>
+        <div
+          v-if="orgsQuery.isError.value"
+          class="switcher__error"
+        >
+          {{ t('app.switcher.loadError') }}
         </div>
         <ul
+          v-else
           class="switcher__list"
           role="listbox"
         >
@@ -305,7 +296,7 @@ onBeforeUnmount(() => {
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-lg);
-  z-index: 300;
+  z-index: var(--z-dropdown);
   padding: 4px 0;
 }
 
@@ -389,6 +380,12 @@ onBeforeUnmount(() => {
   width: 16px;
   height: 16px;
   flex-shrink: 0;
+}
+
+.switcher__error {
+  padding: 8px 16px;
+  font-size: 0.8125rem;
+  color: var(--color-danger);
 }
 
 .switcher__divider {

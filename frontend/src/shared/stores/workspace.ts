@@ -19,7 +19,9 @@ function loadFromStorage(): PersistedState {
 }
 
 function saveToStorage(state: PersistedState): void {
-  localStorage.setItem(LS_KEY, JSON.stringify(state))
+  try {
+    localStorage.setItem(LS_KEY, JSON.stringify(state))
+  } catch { /* QuotaExceededError or SecurityError in private browsing */ }
 }
 
 export const useWorkspaceStore = defineStore('workspace', () => {
