@@ -24,7 +24,7 @@ function cycle(): void {
   >
     <component
       :is="icons[theme]"
-      class="w-5 h-5"
+      class="theme-toggle__icon"
       aria-hidden="true"
     />
   </button>
@@ -37,13 +37,26 @@ function cycle(): void {
   justify-content: center;
   width: 36px;
   height: 36px;
-  border-radius: var(--radius-full);
-  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  border: none;
+  background: transparent;
+  color: var(--color-muted);
+  cursor: pointer;
+  transition: color var(--transition-fast), background var(--transition-fast);
+}
+
+.theme-toggle:hover {
   background: var(--color-surface);
   color: var(--color-fg);
-  cursor: pointer;
 }
-.theme-toggle:hover {
-  background: var(--color-border);
+
+.theme-toggle:focus-visible {
+  box-shadow: var(--focus-ring);
+  outline: none;
+}
+
+.theme-toggle__icon {
+  width: 20px;
+  height: 20px;
 }
 </style>

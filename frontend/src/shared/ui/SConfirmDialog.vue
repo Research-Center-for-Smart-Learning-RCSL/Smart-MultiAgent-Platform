@@ -1,137 +1,225 @@
 <script setup lang="ts">
-import { watch, ref } from 'vue'
+import { watch, ref, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useConfirmDialog } from '@shared/composables/useConfirmDialog'
 
 const { t } = useI18n()
 const { state, handleConfirm, handleCancel } = useConfirmDialog()
 
-const dialogRef = ref<HTMLDialogElement | null>(null)
+const inputRef = ref<HTMLInputElement | null>(null)
 
-watch(() => state.open, (open) => {
-  if (open) {
-    dialogRef.value?.showModal()
-  } else {
-    dialogRef.value?.close()
+watch(() => state.open, async (open) => {
+  if (open && state.promptMode) {
+    await nextTick()
+    inputRef.value?.focus()
   }
 })
-
-function onDialogCancel(e: Event) {
-  e.preventDefault()
-  handleCancel()
-}
-
-const variantClasses: Record<string, string> = {
-  warning: 'confirm-dialog--warning',
-  error: 'confirm-dialog--error',
-  info: 'confirm-dialog--info',
-}
 </script>
 
 <template>
-  <dialog
-    ref="dialogRef"
-    class="confirm-dialog"
-    :class="variantClasses[state.variant]"
-    @cancel="onDialogCancel"
-  >
-    <div class="confirm-dialog__content">
-      <h2 class="confirm-dialog__title">
-        {{ state.title }}
-      </h2>
-      <p class="confirm-dialog__message">
-        {{ state.message }}
-      </p>
+  <Teleport to="body">
+    <Transition name="s-confirm">
       <div
-        v-if="state.promptMode"
-        class="confirm-dialog__input"
+        v-if="state.open"
+        class="s-confirm-backdrop"
+        role="none"
+        @click.self="handleCancel"
+        @keydown.escape="handleCancel"
       >
-        <label
-          for="confirm-dialog-input"
-          class="sr-only"
-        >{{ state.title }}</label>
-        <input
-          id="confirm-dialog-input"
-          v-model="state.inputValue"
-          type="text"
-          @keydown.enter.prevent="handleConfirm"
+        <div
+          class="s-confirm-panel"
+          role="alertdialog"
+          :aria-label="state.title"
+          tabindex="-1"
         >
-        <p
-          v-if="state.inputError"
-          class="confirm-dialog__input-error"
-        >
-          {{ state.inputError }}
-        </p>
+          <h2 class="s-confirm-panel__title">
+            {{ state.title }}
+          </h2>
+          <p class="s-confirm-panel__message">
+            {{ state.message }}
+          </p>
+          <div
+            v-if="state.promptMode"
+            class="s-confirm-panel__input"
+          >
+            <label
+              for="confirm-dialog-input"
+              class="visually-hidden"
+            >{{ state.title }}</label>
+            <input
+              id="confirm-dialog-input"
+              ref="inputRef"
+              v-model="state.inputValue"
+              type="text"
+              class="s-confirm-panel__input-field"
+              @keydown.enter.prevent="handleConfirm"
+            >
+            <p
+              v-if="state.inputError"
+              class="s-confirm-panel__input-error"
+            >
+              {{ state.inputError }}
+            </p>
+          </div>
+          <div class="s-confirm-panel__actions">
+            <button
+              type="button"
+              class="s-confirm-panel__btn s-confirm-panel__btn--cancel"
+              @click="handleCancel"
+            >
+              {{ state.cancelLabel || t('app.cancel') }}
+            </button>
+            <button
+              type="button"
+              class="s-confirm-panel__btn"
+              :class="state.variant === 'error'
+                ? 's-confirm-panel__btn--danger'
+                : 's-confirm-panel__btn--primary'"
+              @click="handleConfirm"
+            >
+              {{ state.confirmLabel || t('app.confirm') }}
+            </button>
+          </div>
+        </div>
       </div>
-      <div class="confirm-dialog__actions">
-        <button
-          class="btn"
-          @click="handleCancel"
-        >
-          {{ state.cancelLabel || t('app.cancel') }}
-        </button>
-        <button
-          class="btn"
-          :class="{
-            'btn-danger': state.variant === 'error',
-            'btn-primary': state.variant !== 'error',
-          }"
-          @click="handleConfirm"
-        >
-          {{ state.confirmLabel || t('app.confirm') }}
-        </button>
-      </div>
-    </div>
-  </dialog>
+    </Transition>
+  </Teleport>
 </template>
 
 <style scoped>
-.confirm-dialog {
-  border: none;
-  border-radius: var(--radius-md);
-  padding: 0;
-  max-width: 28rem;
-  width: calc(100% - 2rem);
+.s-confirm-backdrop {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-overlay);
+  z-index: var(--z-modal);
+}
+
+.s-confirm-panel {
   background: var(--color-bg);
   color: var(--color-fg);
-  box-shadow: var(--shadow-dialog);
-}
-
-.confirm-dialog::backdrop {
-  background: var(--overlay-backdrop);
-}
-
-.confirm-dialog__content {
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-xl);
   padding: 1.5rem;
+  max-width: 28rem;
+  width: calc(100% - 2rem);
 }
 
-.confirm-dialog__title {
+.s-confirm-panel__title {
   font-size: 1rem;
   font-weight: 600;
   margin: 0 0 0.5rem 0;
 }
 
-.confirm-dialog__message {
+.s-confirm-panel__message {
   font-size: 0.875rem;
   color: var(--color-muted);
   margin: 0 0 1.5rem 0;
   line-height: 1.5;
 }
 
-.confirm-dialog__input {
+.s-confirm-panel__input {
   margin-bottom: 1rem;
 }
-.confirm-dialog__input input {
+
+.s-confirm-panel__input-field {
   width: 100%;
+  padding: 8px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  font-size: 0.875rem;
+  background: var(--color-bg);
+  color: var(--color-fg);
 }
-.confirm-dialog__input-error {
+
+.s-confirm-panel__input-field:focus {
+  outline: 2px solid var(--color-accent);
+  outline-offset: -1px;
+}
+
+.s-confirm-panel__input-error {
   font-size: 0.75rem;
   color: var(--color-danger);
   margin: 0.25rem 0 0;
 }
-.confirm-dialog__actions {
+
+.s-confirm-panel__actions {
   display: flex;
   justify-content: flex-end;
   gap: 0.5rem;
+}
+
+.s-confirm-panel__btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 16px;
+  font-size: 0.875rem;
+  font-weight: 500;
+  border-radius: var(--radius-md);
+  border: none;
+  cursor: pointer;
+  transition: background var(--transition-fast);
+  min-height: 40px;
+}
+
+.s-confirm-panel__btn--cancel {
+  background: var(--color-surface);
+  color: var(--color-fg);
+  border: 1px solid var(--color-border);
+}
+
+.s-confirm-panel__btn--cancel:hover {
+  background: var(--color-border);
+}
+
+.s-confirm-panel__btn--primary {
+  background: var(--color-accent);
+  color: #fff;
+}
+
+.s-confirm-panel__btn--primary:hover {
+  background: var(--color-accent-hover);
+}
+
+.s-confirm-panel__btn--danger {
+  background: var(--color-danger);
+  color: #fff;
+}
+
+.s-confirm-panel__btn--danger:hover {
+  background: color-mix(in srgb, var(--color-danger), black 12%);
+}
+
+.s-confirm-panel__btn:focus-visible {
+  box-shadow: var(--focus-ring);
+  outline: none;
+}
+
+.s-confirm-enter-active,
+.s-confirm-leave-active {
+  transition: opacity var(--transition-normal);
+}
+
+.s-confirm-enter-active .s-confirm-panel,
+.s-confirm-leave-active .s-confirm-panel {
+  transition: transform var(--transition-normal), opacity var(--transition-normal);
+}
+
+.s-confirm-enter-from,
+.s-confirm-leave-to {
+  opacity: 0;
+}
+
+.s-confirm-enter-from .s-confirm-panel {
+  transform: scale(0.95);
+  opacity: 0;
+}
+
+.s-confirm-leave-to .s-confirm-panel {
+  transform: scale(0.95);
+  opacity: 0;
 }
 </style>

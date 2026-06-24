@@ -12,6 +12,13 @@
       "title": "Something went wrong",
       "message": "This page hit an unexpected error. You can retry, or navigate elsewhere.",
       "retry": "Retry"
+    },
+    "pagination": {
+      "showing": "Showing {start}-{end} of {total}",
+      "label": "Pagination",
+      "prev": "Previous page",
+      "next": "Next page",
+      "page": "Page {page}"
     }
   }
 }

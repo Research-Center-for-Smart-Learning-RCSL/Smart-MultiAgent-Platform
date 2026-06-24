@@ -1,16 +1,40 @@
 <script setup lang="ts">
-import { STATUS_BG_MAP, STATUS_BG_DEFAULT } from './statusColors'
+import SBadge from './SBadge.vue'
 
-defineProps<{
+const props = defineProps<{
   status: string
 }>()
+
+type BadgeVariant = 'info' | 'success' | 'warning' | 'danger' | 'neutral'
+
+const VARIANT_MAP: Record<string, BadgeVariant> = {
+  running: 'info',
+  waiting: 'warning',
+  succeeded: 'success',
+  completed: 'success',
+  approved: 'success',
+  failed: 'danger',
+  rejected: 'danger',
+  error: 'danger',
+  cancelled: 'neutral',
+  skipped: 'neutral',
+  pending: 'neutral',
+  idle: 'neutral',
+  timeout: 'warning',
+  timeout_leader: 'warning',
+}
+
+function getVariant(): BadgeVariant {
+  return VARIANT_MAP[props.status] ?? 'neutral'
+}
 </script>
 
 <template>
-  <span
-    class="inline-flex items-center px-1.5 py-0.5 text-xs font-medium rounded"
-    :class="STATUS_BG_MAP[status] ?? STATUS_BG_DEFAULT"
+  <SBadge
+    :variant="getVariant()"
+    size="sm"
+    dot
   >
     <slot>{{ status }}</slot>
-  </span>
+  </SBadge>
 </template>
