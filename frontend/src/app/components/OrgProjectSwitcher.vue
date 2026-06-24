@@ -188,7 +188,14 @@ onBeforeUnmount(() => {
           <div class="switcher__section-header">
             {{ t('app.switcher.projects') }}
           </div>
+          <div
+            v-if="projectsQuery.isError.value"
+            class="switcher__error"
+          >
+            {{ t('app.switcher.loadError') }}
+          </div>
           <ul
+            v-else
             class="switcher__list"
             role="listbox"
           >
