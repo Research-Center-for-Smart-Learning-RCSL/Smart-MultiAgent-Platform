@@ -83,7 +83,15 @@
       "retry": "重試",
       "empty": "沒有其他連線。",
       "lastUsed": "最後使用 {time}",
-      "created": "建立於 {date}"
+      "created": "建立於 {date}",
+      "timeJustNow": "剛剛",
+      "timeMinutesAgo": "{n} 分鐘前",
+      "timeHoursAgo": "{n} 小時前",
+      "timeDaysAgo": "{n} 天前",
+      "unknownDevice": "未知裝置",
+      "browserOnOs": "{browser} / {os}",
+      "unknownBrowser": "未知瀏覽器",
+      "unknownOs": "未知系統"
     },
     "deleteAccount": {
       "title": "刪除帳號",

@@ -6,6 +6,7 @@ import {
   SPageHeader, SCard, SButton, SBadge,
   SAlert, SSkeleton, SEmptyState,
 } from '@shared/ui'
+import { accessTokenClaims } from '@shared/transport'
 import { useConfirmDialog, useToast } from '@shared/composables'
 import { authApi, type Session } from '../api/auth'
 
@@ -18,19 +19,31 @@ const loading = ref(true)
 const loadError = ref(false)
 const revokingId = ref<string | null>(null)
 
+const currentSessionId = computed<string | null>(() => {
+  const sid = accessTokenClaims.value?.sid
+  return typeof sid === 'string' ? sid : null
+})
+
 const sortedSessions = computed(() => {
+  const current = currentSessionId.value
   return [...sessions.value].sort((a, b) => {
+    if (a.id === current) return -1
+    if (b.id === current) return 1
     return new Date(b.last_used_at).getTime() - new Date(a.last_used_at).getTime()
   })
 })
 
+function isCurrent(s: Session): boolean {
+  return s.id === currentSessionId.value
+}
+
 function parseUserAgent(ua: string | null): string {
-  if (!ua) return 'Unknown device'
+  if (!ua) return t('identity.sessions.unknownDevice')
   const browserMatch = ua.match(/(Chrome|Firefox|Safari|Edge|Opera|Brave)\/[\d.]+/)
   const osMatch = ua.match(/(Windows|macOS|Mac OS X|Linux|Android|iOS|iPhone|iPad)/)
-  const browser = browserMatch ? browserMatch[1] : 'Unknown browser'
-  const os = osMatch ? osMatch[1].replace('Mac OS X', 'macOS') : 'Unknown OS'
-  return `${browser} on ${os}`
+  const browser = browserMatch ? browserMatch[1] : t('identity.sessions.unknownBrowser')
+  const os = osMatch ? osMatch[1].replace('Mac OS X', 'macOS') : t('identity.sessions.unknownOs')
+  return t('identity.sessions.browserOnOs', { browser, os })
 }
 
 function timeAgo(dateStr: string): string {
@@ -42,17 +55,19 @@ function timeAgo(dateStr: string): string {
   const diffHour = Math.floor(diffMin / 60)
   const diffDay = Math.floor(diffHour / 24)
 
-  if (diffMin < 1) return 'just now'
-  if (diffMin < 60) return `${diffMin} min ago`
-  if (diffHour < 24) return `${diffHour}h ago`
-  return `${diffDay}d ago`
+  if (diffMin < 1) return t('identity.sessions.timeJustNow')
+  if (diffMin < 60) return t('identity.sessions.timeMinutesAgo', { n: diffMin })
+  if (diffHour < 24) return t('identity.sessions.timeHoursAgo', { n: diffHour })
+  return t('identity.sessions.timeDaysAgo', { n: diffDay })
 }
 
+const dateFormatter = new Intl.DateTimeFormat(undefined, {
+  dateStyle: 'medium',
+  timeStyle: 'short',
+})
+
 function formatDate(dateStr: string): string {
-  return new Intl.DateTimeFormat(undefined, {
-    dateStyle: 'medium',
-    timeStyle: 'short',
-  }).format(new Date(dateStr))
+  return dateFormatter.format(new Date(dateStr))
 }
 
 async function load(): Promise<void> {
@@ -169,7 +184,7 @@ onMounted(load)
           </div>
           <div class="session-actions">
             <SBadge
-              v-if="idx === 0"
+              v-if="isCurrent(s)"
               variant="success"
               size="sm"
               :aria-label="$t('identity.sessions.currentLabel')"
@@ -177,7 +192,7 @@ onMounted(load)
               {{ $t('identity.sessions.currentBadge') }}
             </SBadge>
             <SButton
-              v-if="idx !== 0"
+              v-if="!isCurrent(s)"
               variant="danger"
               size="sm"
               :loading="revokingId === s.id"

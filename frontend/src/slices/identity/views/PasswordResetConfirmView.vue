@@ -6,6 +6,7 @@ import { ExclamationTriangleIcon } from '@heroicons/vue/24/outline'
 import { SFormField, SInput, SButton, SAlert } from '@shared/ui'
 import { isProblemWithType } from '@shared/transport'
 import { authApi } from '../api/auth'
+import { passwordSchema, validateField, validatePasswordMatch } from '../validation'
 
 const { t } = useI18n()
 const router = useRouter()
@@ -15,36 +16,21 @@ const confirmPassword = ref('')
 const serverError = ref<string | null>(null)
 const submitting = ref(false)
 const tokenMissing = ref(false)
+const showNewLinkAction = ref(false)
 const passwordRef = ref<InstanceType<typeof SInput> | null>(null)
 
-const fieldErrors = ref<{ newPassword?: string; confirmPassword?: string }>({})
+const fieldErrors = ref<Record<string, string | undefined>>({})
 
 let token: string | null = null
 
 function validateNewPassword(): boolean {
-  if (!newPassword.value) {
-    fieldErrors.value.newPassword = t('identity.validation.passwordRequired')
-    return false
-  }
-  if (newPassword.value.length < 10) {
-    fieldErrors.value.newPassword = t('identity.validation.passwordMinLength')
-    return false
-  }
-  fieldErrors.value.newPassword = undefined
-  return true
+  return validateField(passwordSchema, newPassword.value, fieldErrors, 'newPassword')
 }
 
 function validateConfirmPassword(): boolean {
-  if (!confirmPassword.value) {
-    fieldErrors.value.confirmPassword = t('identity.validation.passwordRequired')
-    return false
-  }
-  if (confirmPassword.value !== newPassword.value) {
-    fieldErrors.value.confirmPassword = t('identity.validation.passwordMismatch')
-    return false
-  }
-  fieldErrors.value.confirmPassword = undefined
-  return true
+  return validatePasswordMatch(
+    newPassword.value, confirmPassword.value, fieldErrors, 'confirmPassword',
+  )
 }
 
 onMounted(async () => {
@@ -59,6 +45,7 @@ onMounted(async () => {
 
 async function submit(): Promise<void> {
   serverError.value = null
+  showNewLinkAction.value = false
   const pwValid = validateNewPassword()
   const confirmValid = validateConfirmPassword()
   if (!pwValid || !confirmValid) return
@@ -74,8 +61,10 @@ async function submit(): Promise<void> {
   } catch (e: unknown) {
     if (isProblemWithType(e, '/auth/token-invalid')) {
       serverError.value = t('identity.passwordReset.invalidToken')
+      showNewLinkAction.value = true
     } else if (isProblemWithType(e, '/auth/token-expired')) {
       serverError.value = t('identity.passwordReset.expiredToken')
+      showNewLinkAction.value = true
     } else if (isProblemWithType(e, '/auth/password-weak')) {
       serverError.value = t('identity.errors.weakPassword')
       newPassword.value = ''
@@ -124,6 +113,7 @@ async function submit(): Promise<void> {
       </h1>
 
       <form
+        class="auth-form"
         aria-labelledby="reset-confirm-heading"
         @submit.prevent="submit"
       >
@@ -164,11 +154,10 @@ async function submit(): Promise<void> {
         <SAlert
           v-if="serverError"
           variant="danger"
-          class="form-alert"
         >
           {{ serverError }}
           <template
-            v-if="serverError === t('identity.passwordReset.invalidToken') || serverError === t('identity.passwordReset.expiredToken')"
+            v-if="showNewLinkAction"
             #actions
           >
             <SButton
@@ -199,27 +188,6 @@ async function submit(): Promise<void> {
 </template>
 
 <style scoped>
-.auth-heading {
-  font-size: 1.5rem;
-  font-weight: 600;
-  color: var(--color-fg);
-  margin: 0 0 24px;
-}
-
-form {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-
-.form-alert {
-  margin: 0;
-}
-
-.form-submit {
-  width: 100%;
-}
-
 .token-error {
   display: flex;
   flex-direction: column;

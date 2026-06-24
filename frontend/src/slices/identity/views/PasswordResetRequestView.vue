@@ -5,6 +5,7 @@ import { EnvelopeIcon } from '@heroicons/vue/24/outline'
 import { SFormField, SInput, SButton, SAlert } from '@shared/ui'
 import { RateLimitError } from '@shared/errors'
 import { authApi } from '../api/auth'
+import { emailSchema, validateField } from '../validation'
 
 const { t } = useI18n()
 
@@ -12,21 +13,12 @@ const email = ref('')
 const sent = ref(false)
 const submitting = ref(false)
 const serverError = ref<string | null>(null)
+const isRateLimited = ref(false)
 const emailRef = ref<InstanceType<typeof SInput> | null>(null)
-const fieldErrors = ref<{ email?: string }>({})
+const fieldErrors = ref<Record<string, string | undefined>>({})
 
 function validateEmail(): boolean {
-  if (!email.value.trim()) {
-    fieldErrors.value.email = t('identity.validation.emailRequired')
-    return false
-  }
-  const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
-  if (!emailPattern.test(email.value)) {
-    fieldErrors.value.email = t('identity.validation.emailFormat')
-    return false
-  }
-  fieldErrors.value.email = undefined
-  return true
+  return validateField(emailSchema, email.value, fieldErrors, 'email')
 }
 
 onMounted(async () => {
@@ -36,6 +28,7 @@ onMounted(async () => {
 
 async function submit(): Promise<void> {
   serverError.value = null
+  isRateLimited.value = false
   if (!validateEmail()) return
 
   submitting.value = true
@@ -46,6 +39,7 @@ async function submit(): Promise<void> {
   } catch (e: unknown) {
     if (e instanceof RateLimitError) {
       serverError.value = t('identity.errors.resetRateLimit')
+      isRateLimited.value = true
     } else {
       serverError.value = t('identity.errors.generic')
     }
@@ -70,6 +64,7 @@ async function submit(): Promise<void> {
       </p>
 
       <form
+        class="auth-form"
         aria-labelledby="reset-heading"
         @submit.prevent="submit"
       >
@@ -92,8 +87,7 @@ async function submit(): Promise<void> {
 
         <SAlert
           v-if="serverError"
-          :variant="serverError === t('identity.errors.resetRateLimit') ? 'warning' : 'danger'"
-          class="form-alert"
+          :variant="isRateLimited ? 'warning' : 'danger'"
         >
           {{ serverError }}
         </SAlert>
@@ -150,31 +144,10 @@ async function submit(): Promise<void> {
 </template>
 
 <style scoped>
-.auth-heading {
-  font-size: 1.5rem;
-  font-weight: 600;
-  color: var(--color-fg);
-  margin: 0 0 8px;
-}
-
 .description {
   font-size: 0.875rem;
   color: var(--color-muted);
   margin: 0 0 24px;
-}
-
-form {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-
-.form-alert {
-  margin: 0;
-}
-
-.form-submit {
-  width: 100%;
 }
 
 .sent-content {
