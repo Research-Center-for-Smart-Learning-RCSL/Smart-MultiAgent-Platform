@@ -13,10 +13,6 @@ import {
   SPageHeader,
   STable,
   SButton,
-  SModal,
-  SFormField,
-  SSelect,
-  SInput,
   SRadio,
   SStatusBadge,
   SBadge,
@@ -27,7 +23,9 @@ import {
 } from '@shared/ui'
 import { useConfirmDialog, useToast } from '@shared/composables'
 import { useSearchKeys } from '../composables/useSearchKeys'
+import SearchKeyUploadForm from '../components/SearchKeyUploadForm.vue'
 import type { SearchProvider } from '../api/search-keys'
+import MaskedPreview from '../components/MaskedPreview.vue'
 import type { Column } from '@shared/ui/STable.vue'
 
 const { t } = useI18n()
@@ -40,12 +38,7 @@ const { keys, error, reload, upload, retest, activate, remove } = useSearchKeys(
 )
 
 const showAdd = ref(false)
-const provider = ref<SearchProvider>('brave')
-const secret = ref('')
-const cx = ref('')
-const depth = ref<'basic' | 'advanced'>('basic')
-const uploading = ref(false)
-const uploadError = ref('')
+const uploadFormRef = ref<InstanceType<typeof SearchKeyUploadForm> | null>(null)
 
 const columns = computed<Column[]>(() => [
   { key: 'provider', label: t('keys.search.provider'), width: '160px' },
@@ -53,18 +46,6 @@ const columns = computed<Column[]>(() => [
   { key: 'test_status', label: t('keys.search.status'), width: '120px', align: 'center' },
   { key: 'is_active', label: t('keys.search.active'), width: '80px', align: 'center' },
   { key: 'actions', label: '', width: '80px', align: 'right' },
-])
-
-const providerSelectOptions = computed(() => [
-  { value: 'brave', label: t('keys.search.brave') },
-  { value: 'serper', label: t('keys.search.serper') },
-  { value: 'tavily', label: t('keys.search.tavily') },
-  { value: 'google_cse', label: t('keys.search.googleCse') },
-])
-
-const depthOptions = computed(() => [
-  { value: 'basic', label: t('keys.search.depthBasic') },
-  { value: 'advanced', label: t('keys.search.depthAdvanced') },
 ])
 
 const PROVIDER_DISPLAY: Record<SearchProvider, string> = {
@@ -79,24 +60,14 @@ const actionItems = computed(() => [
   { key: 'delete', label: t('keys.search.delete'), icon: TrashIcon, danger: true },
 ])
 
-async function onUpload() {
-  if (!secret.value.trim()) return
-  uploading.value = true
-  uploadError.value = ''
-  const config: Record<string, unknown> = {}
-  if (provider.value === 'google_cse') config.cx = cx.value.trim()
-  if (provider.value === 'tavily') config.search_depth = depth.value
+async function onUpload(payload: { provider: SearchProvider; secret: string; config: Record<string, unknown> }) {
   try {
-    await upload(provider.value, secret.value, config)
+    await upload(payload.provider, payload.secret, payload.config)
     showAdd.value = false
-    secret.value = ''
-    cx.value = ''
-    depth.value = 'basic'
+    uploadFormRef.value?.reset()
     toast.success(t('keys.search.uploaded'))
   } catch {
-    uploadError.value = t('keys.search.uploadFailed')
-  } finally {
-    uploading.value = false
+    uploadFormRef.value?.setError(t('keys.search.uploadFailed'))
   }
 }
 
@@ -146,14 +117,6 @@ function onAction(key: string, row: { id: string }) {
   } else if (key === 'delete') {
     void onDelete(row.id)
   }
-}
-
-function closeAddModal() {
-  showAdd.value = false
-  secret.value = ''
-  cx.value = ''
-  depth.value = 'basic'
-  uploadError.value = ''
 }
 
 onMounted(reload)
@@ -217,7 +180,7 @@ watch(projectId, reload)
       </template>
 
       <template #cell-masked_preview="{ row }">
-        <code class="text-[13px] font-mono text-[var(--color-muted)]">{{ row.masked_preview }}</code>
+        <MaskedPreview :value="row.masked_preview" />
       </template>
 
       <template #cell-test_status="{ row }">
@@ -291,91 +254,11 @@ watch(projectId, reload)
       </template>
     </STable>
 
-    <!-- Add Search Key Modal -->
-    <SModal
+    <SearchKeyUploadForm
+      ref="uploadFormRef"
       :open="showAdd"
-      :title="$t('keys.search.addTitle')"
-      size="md"
-      @close="closeAddModal"
-    >
-      <form
-        id="add-search-key-form"
-        @submit.prevent="onUpload"
-      >
-        <div class="flex flex-col gap-4">
-          <SFormField
-            :label="$t('keys.search.providerLabel')"
-            name="provider"
-            required
-          >
-            <SSelect
-              v-model="provider"
-              :options="providerSelectOptions"
-              data-testid="search-provider"
-            />
-          </SFormField>
-
-          <SFormField
-            :label="$t('keys.search.secret')"
-            name="secret"
-            :error="uploadError"
-            required
-          >
-            <SInput
-              v-model="secret"
-              type="password"
-              autocomplete="off"
-              :error="!!uploadError"
-              data-testid="search-secret"
-            />
-          </SFormField>
-
-          <!-- Google CSE specific -->
-          <SFormField
-            v-if="provider === 'google_cse'"
-            :label="$t('keys.search.cx')"
-            name="cx"
-            required
-          >
-            <SInput
-              v-model="cx"
-              data-testid="search-cx"
-            />
-          </SFormField>
-
-          <!-- Tavily specific -->
-          <SFormField
-            v-if="provider === 'tavily'"
-            :label="$t('keys.search.searchDepth')"
-            name="depth"
-          >
-            <SSelect
-              v-model="depth"
-              :options="depthOptions"
-            />
-          </SFormField>
-        </div>
-      </form>
-
-      <template #footer>
-        <div class="flex justify-end gap-3">
-          <SButton
-            variant="secondary"
-            @click="closeAddModal"
-          >
-            {{ $t('app.cancel') }}
-          </SButton>
-          <SButton
-            variant="primary"
-            type="submit"
-            form="add-search-key-form"
-            :loading="uploading"
-            data-testid="search-upload"
-          >
-            {{ $t('keys.search.upload') }}
-          </SButton>
-        </div>
-      </template>
-    </SModal>
+      @close="showAdd = false"
+      @submit="onUpload"
+    />
   </main>
 </template>
