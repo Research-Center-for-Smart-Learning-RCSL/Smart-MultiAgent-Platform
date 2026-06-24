@@ -184,7 +184,14 @@ class AdminService:
         await self._require_user(target_user_id)
         from contexts.tenancy.interfaces.facade import TenancyFacade
 
-        cascade_counts = await TenancyFacade(self._db).cascade_account_deletion(
+        tenancy = TenancyFacade(self._db)
+        blocked = await tenancy.orgs_blocking_self_delete(target_user_id)
+        if blocked:
+            raise ValueError(
+                f"user is Original Creator of org(s) with active members: "
+                f"{', '.join(str(o) for o in blocked)}; transfer OC first"
+            )
+        cascade_counts = await tenancy.cascade_account_deletion(
             user_id=target_user_id,
             actor_ip=actor_ip,
             request_id=request_id,
@@ -227,20 +234,24 @@ class AdminService:
         grace_days = (now() - user.deleted_at).days
         if grace_days < 60:
             raise ValueError(f"60-day grace period not elapsed ({grace_days}d)")
-        blocked = await TenancyFacade(self._db).orgs_blocking_self_delete(target_user_id)
+        tenancy = TenancyFacade(self._db)
+        blocked = await tenancy.orgs_blocking_self_delete(target_user_id)
         if blocked:
             raise ValueError(
                 f"user is Original Creator of org(s) with active members: "
                 f"{', '.join(str(o) for o in blocked)}; transfer OC first"
             )
-        tenancy = TenancyFacade(self._db)
         await tenancy.prepare_hard_delete(
             user_id=target_user_id,
             reassign_to_user_id=admin_user_id,
         )
+        _message_edits = sa.table(
+            "message_edits", sa.column("edited_by_user_id"),
+        )
         await self._db.execute(
-            sa.text("DELETE FROM message_edits WHERE edited_by_user_id = :uid"),
-            {"uid": target_user_id},
+            _message_edits.delete().where(
+                _message_edits.c.edited_by_user_id == target_user_id
+            )
         )
         await self._db.execute(t.users.delete().where(t.users.c.id == target_user_id))
         await audit.emit(
