@@ -6,8 +6,8 @@ import { renderView } from '../../../../tests/utils'
 import SessionsView from '../views/SessionsView.vue'
 
 const mockSessions = [
-  { id: 's1', user_agent: 'Chrome', ip_inet: '1.2.3.4', last_used_at: '2026-01-01', expires_at: '2026-02-01' },
-  { id: 's2', user_agent: 'Firefox', ip_inet: '5.6.7.8', last_used_at: '2026-01-02', expires_at: '2026-02-02' },
+  { id: 's1', user_agent: 'Chrome', ip_inet: '1.2.3.4', last_used_at: '2026-01-02T00:00:00Z', created_at: '2025-12-01T00:00:00Z', expires_at: '2026-02-01T00:00:00Z' },
+  { id: 's2', user_agent: 'Firefox', ip_inet: '5.6.7.8', last_used_at: '2026-01-01T00:00:00Z', created_at: '2025-12-02T00:00:00Z', expires_at: '2026-02-02T00:00:00Z' },
 ]
 
 describe('SessionsView', () => {
@@ -23,7 +23,9 @@ describe('SessionsView', () => {
     await flushPromises()
     const items = wrapper.findAll('li')
     expect(items.length).toBe(2)
-    expect(items[0].find('button').exists()).toBe(true)
+    // First item (most recently used) is treated as current -- no revoke button
+    expect(items[0].find('button').exists()).toBe(false)
+    // Second item has a revoke button
     expect(items[1].find('button').exists()).toBe(true)
   })
 })

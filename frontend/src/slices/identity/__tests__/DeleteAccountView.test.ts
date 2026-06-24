@@ -14,13 +14,18 @@ describe('DeleteAccountView', () => {
     expect(wrapper.find('input[type="checkbox"]').exists()).toBe(true)
   })
 
-  it('keeps the delete button disabled until the action is confirmed', async () => {
+  it('keeps the delete button disabled until password and checkbox are both set', async () => {
     const wrapper = await renderView(DeleteAccountView)
     const button = wrapper.find('button[type="submit"]')
     expect(button.exists()).toBe(true)
     expect(button.attributes('disabled')).toBeDefined()
 
     await wrapper.find('input[type="checkbox"]').setValue(true)
+    // Still disabled because password is empty
+    expect(button.attributes('disabled')).toBeDefined()
+
+    await wrapper.find('input[type="password"]').setValue('mypassword')
+    // Now both conditions are met
     expect(button.attributes('disabled')).toBeUndefined()
   })
 })

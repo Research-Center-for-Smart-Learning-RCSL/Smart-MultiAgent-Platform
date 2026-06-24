@@ -4,68 +4,128 @@
       "title": "建立帳號",
       "email": "電子郵件",
       "password": "密碼",
-      "submit": "註冊",
-      "captcha": "完成 CAPTCHA",
-      "captchaPlaceholder": "在此貼上 CAPTCHA token",
-      "loginLink": "已有帳號？前往登入"
+      "passwordHelp": "至少 10 個字元，含字母、數字及符號。",
+      "submit": "建立帳號",
+      "submitting": "建立帳號中...",
+      "loginPrompt": "已有帳號？",
+      "loginLink": "登入",
+      "captchaLoading": "載入安全驗證中...",
+      "captchaLabel": "安全驗證",
+      "captchaFallback": "安全驗證無法使用，請稍後再試。"
     },
     "login": {
       "title": "登入",
       "email": "電子郵件",
       "password": "密碼",
       "submit": "登入",
-      "registerLink": "建立帳號",
-      "forgot": "忘記密碼？"
+      "submitting": "登入中...",
+      "forgot": "忘記密碼？",
+      "registerPrompt": "還沒有帳號？",
+      "registerLink": "註冊",
+      "pendingVerify": "請先查看電子郵件，點擊驗證連結後再登入。",
+      "passwordResetSuccess": "密碼已重設。請使用新密碼登入。",
+      "passwordChangedSuccess": "密碼已變更。請使用新密碼登入。"
     },
     "verifyEmail": {
       "title": "驗證電子郵件",
-      "verifying": "驗證中…",
-      "success": "信箱已驗證。可以建立組織了。",
-      "failure": "驗證失敗，連結可能已過期。"
+      "verifying": "驗證中...",
+      "success": "您的電子郵件已驗證。",
+      "continue": "繼續",
+      "invalidToken": "此驗證連結無效。",
+      "expiredToken": "此驗證連結已過期。請重新註冊。",
+      "failure": "驗證失敗。"
     },
     "passwordReset": {
       "requestTitle": "重設密碼",
+      "requestDescription": "輸入您的電子郵件，我們將寄送重設連結。",
+      "email": "電子郵件",
       "requestSubmit": "寄送重設連結",
+      "sentTitle": "請查看電子郵件",
+      "sentDescription": "若該電子郵件已註冊帳號，我們已寄送密碼重設連結。",
       "confirmTitle": "設定新密碼",
       "newPassword": "新密碼",
-      "confirmSubmit": "更新密碼"
+      "confirmPassword": "確認密碼",
+      "confirmSubmit": "重設密碼",
+      "invalidLink": "此重設連結無效或遺失。",
+      "invalidToken": "此重設連結無效。",
+      "expiredToken": "此重設連結已過期。",
+      "requestNewLink": "申請新連結"
     },
     "changePassword": {
       "title": "變更密碼",
       "current": "目前密碼",
       "new": "新密碼",
-      "submit": "變更密碼"
+      "confirm": "確認新密碼",
+      "submit": "變更密碼",
+      "warning": "變更密碼將登出所有作用中的連線。"
     },
     "changeEmail": {
       "title": "變更信箱",
+      "currentLabel": "目前信箱",
       "newEmail": "新信箱",
-      "password": "目前密碼",
-      "submit": "變更信箱"
+      "password": "密碼",
+      "passwordHelp": "確認您的身份",
+      "submit": "更新信箱",
+      "sentTitle": "驗證信已寄出",
+      "sentDescription": "我們已將驗證連結寄至 {email}。請點擊連結確認新信箱。"
     },
     "sessions": {
       "title": "作用中連線",
-      "currentBadge": "（目前裝置）",
+      "currentBadge": "目前",
+      "currentLabel": "這是您目前的連線",
       "revoke": "撤銷",
+      "revokeLabel": "撤銷 {device} 上的連線",
+      "revokeConfirm": "此操作將立即登出該裝置。",
+      "revokeSuccess": "連線已撤銷。",
       "revokeError": "撤銷連線失敗。",
+      "alreadyRevoked": "連線已被撤銷。",
       "loadError": "載入連線失敗。",
-      "retry": "重試"
+      "retry": "重試",
+      "empty": "沒有其他連線。",
+      "lastUsed": "最後使用 {time}",
+      "created": "建立於 {date}"
     },
     "deleteAccount": {
       "title": "刪除帳號",
-      "warning": "這將永久關閉您的帳號。您的個人專案與資料會被移除，且僅由管理員在 60 天內可復原。您本人無法復原此操作。",
-      "password": "目前密碼",
-      "confirm": "我了解這會刪除我的帳號及其資料。",
+      "warning": "此操作不可復原。您的所有資料，包括您建立的組織、專案、代理及對話，都將被永久刪除。",
+      "password": "密碼",
+      "passwordHelp": "確認您的身份",
+      "confirm": "我了解此操作不可復原",
       "submit": "刪除我的帳號",
-      "blocked": "您是下列組織的原始建立者，且這些組織仍有其他成員。請先轉移原始建立者角色或刪除各該組織，才能刪除帳號。"
+      "deleting": "刪除帳號中...",
+      "finalConfirm": "您確定嗎？此操作無法復原。",
+      "finalConfirmButton": "永久刪除",
+      "blocked": "刪除帳號前，您必須先轉移以下組織的擁有權："
+    },
+    "common": {
+      "showPassword": "顯示密碼",
+      "hidePassword": "隱藏密碼",
+      "passwordPolicy": "至少 10 個字元，含字母、數字及符號。",
+      "backToLogin": "返回登入"
     },
     "errors": {
       "generic": "發生錯誤，請再試一次。",
-      "invalid": "電子郵件或密碼不正確。",
-      "lockout": "帳號已暫時鎖定，請稍後再試。",
-      "unverified": "請先驗證您的電子郵件後再登入。",
-      "captcha": "請完成 CAPTCHA 驗證。",
-      "weakPassword": "密碼不符合最低安全要求。",
-      "domain": "此電子郵件網域不允許註冊。"
+      "invalidCredentials": "電子郵件或密碼不正確。",
+      "emailTaken": "此電子郵件已被註冊。",
+      "domainDenied": "此電子郵件網域不允許註冊。",
+      "emailInvalid": "請輸入有效的電子郵件地址。",
+      "weakPassword": "密碼不符合要求。",
+      "captchaRequired": "請完成安全驗證。",
+      "emailUnverified": "請先驗證您的電子郵件後再登入。",
+      "lockout": "嘗試次數過多，請在 {seconds} 秒後重試。",
+      "rateLimit": "請求過於頻繁，請稍後再試。",
+      "resetRateLimit": "重設請求過於頻繁，請稍後再試。",
+      "banned": "此帳號已被停用。",
+      "accountDeleted": "此帳號已被刪除。"
+    },
+    "validation": {
+      "emailRequired": "電子郵件為必填。",
+      "emailFormat": "請輸入有效的電子郵件地址。",
+      "passwordRequired": "密碼為必填。",
+      "passwordMinLength": "密碼至少需要 10 個字元。",
+      "passwordMismatch": "密碼不一致。",
+      "passwordSame": "新密碼不能與目前密碼相同。",
+      "emailSame": "新信箱不能與目前信箱相同。"
     }
   }
 }

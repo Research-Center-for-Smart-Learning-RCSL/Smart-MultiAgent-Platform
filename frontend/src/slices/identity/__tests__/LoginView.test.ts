@@ -18,7 +18,7 @@ describe('LoginView', () => {
     const wrapper = await renderView(LoginView, {
       initialRoute: '/login?pendingVerify=1',
     })
-    expect(wrapper.text()).toContain('identity.verifyEmail.verifying')
+    expect(wrapper.text()).toContain('identity.login.pendingVerify')
   })
 
   it('submit button is present and enabled', async () => {

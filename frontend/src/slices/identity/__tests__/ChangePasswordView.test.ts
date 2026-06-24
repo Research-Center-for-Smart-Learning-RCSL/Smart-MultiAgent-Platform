@@ -8,10 +8,10 @@ describe('ChangePasswordView', () => {
     expect(wrapper.exists()).toBe(true)
   })
 
-  it('shows current and new password fields', async () => {
+  it('shows current, new, and confirm password fields', async () => {
     const wrapper = await renderView(ChangePasswordView)
     const inputs = wrapper.findAll('input[type="password"]')
-    expect(inputs.length).toBe(2)
+    expect(inputs.length).toBe(3)
   })
 
   it('submit button is present', async () => {
