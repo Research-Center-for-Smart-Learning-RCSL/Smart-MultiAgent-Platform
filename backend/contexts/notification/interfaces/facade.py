@@ -50,5 +50,8 @@ class NotificationFacade:
     async def unread_count(self, user_id: uuid.UUID) -> int:
         return await self._service.unread_count(user_id)
 
+    async def purge_old_read(self, *, retention_days: int = 90) -> int:
+        return await self._service.purge_old_read(retention_days=retention_days)
+
 
 __all__ = ["NotificationFacade", "NotificationKind"]

@@ -9,6 +9,7 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.admin_deps import require_admin
+from contexts.identity.application.admin_service import SelfTargetError
 from contexts.identity.application.impersonation_service import ImpersonationService
 from shared_kernel.auth.context import RequestContext
 from shared_kernel.auth.dependencies import current_context
@@ -48,6 +49,8 @@ async def impersonate(
             actor_ip=ctx.actor_ip,
             request_id=ctx.request_id,
         )
+    except SelfTargetError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     return ImpersonateOut(session_id=session.id, access_token=access_token)

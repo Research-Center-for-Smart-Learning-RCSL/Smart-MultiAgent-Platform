@@ -105,11 +105,14 @@ async def db_session() -> AsyncIterator[AsyncSession]:
     issued a second commit and raised on every request where the endpoint (or a
     service it called) had already committed mid-request (DB-1).
     """
+    from shared_kernel.audit import flush_tail_events
+
     sm = get_sessionmaker()
     async with sm() as session:
         try:
             yield session
             await session.commit()
+            await flush_tail_events(session)
         except Exception:
             await session.rollback()
             raise

@@ -19,6 +19,7 @@ the shared MetaData only. No FastAPI, no contexts.
 
 from __future__ import annotations
 
+import logging
 import re
 import uuid
 from collections.abc import Mapping
@@ -31,6 +32,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from shared_kernel.db import metadata
 from shared_kernel.realtime.pubsub import Publisher
+
+_log = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Table
@@ -131,18 +134,37 @@ async def emit(session: AsyncSession, event: AuditEvent) -> None:
             request_id=event.request_id,
         ),
     )
-    try:
-        await Publisher(_AUDIT_TAIL_CHANNEL).emit(
-            "audit_event",
-            {
-                "action": event.action,
-                "actor_user_id": str(event.actor_user_id) if event.actor_user_id else None,
-                "resource_type": event.resource_type,
-                "resource_id": str(event.resource_id) if event.resource_id else None,
-            },
-        )
-    except Exception:  # noqa: BLE001
-        pass
+    _queue_tail_event(session, {
+        "action": event.action,
+        "actor_user_id": str(event.actor_user_id) if event.actor_user_id else None,
+        "resource_type": event.resource_type,
+        "resource_id": str(event.resource_id) if event.resource_id else None,
+    })
 
 
-__all__ = ["AuditEvent", "audit_logs", "emit", "redact"]
+_TAIL_QUEUE_KEY = "_audit_tail_queue"
+
+
+def _queue_tail_event(session: AsyncSession, payload: dict[str, Any]) -> None:
+    info = getattr(session, "info", None)
+    if not isinstance(info, dict):
+        return
+    info.setdefault(_TAIL_QUEUE_KEY, []).append(payload)
+
+
+async def flush_tail_events(session: AsyncSession) -> None:
+    """Publish queued audit-tail events. Call AFTER commit so subscribers never
+    see phantom events for rolled-back transactions."""
+    info = getattr(session, "info", None)
+    if not isinstance(info, dict):
+        return
+    events: list[dict[str, Any]] = info.pop(_TAIL_QUEUE_KEY, [])
+    pub = Publisher(_AUDIT_TAIL_CHANNEL)
+    for payload in events:
+        try:
+            await pub.emit("audit_event", payload)
+        except Exception:  # noqa: BLE001
+            _log.warning("audit tail publish failed for action=%s", payload.get("action"), exc_info=True)
+
+
+__all__ = ["AuditEvent", "audit_logs", "emit", "flush_tail_events", "redact"]
