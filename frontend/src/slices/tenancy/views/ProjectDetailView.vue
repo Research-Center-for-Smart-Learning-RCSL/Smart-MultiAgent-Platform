@@ -8,12 +8,13 @@ import {
   SLoadingSpinner, STooltip,
 } from '@shared/ui'
 import { useInlineRename, useToast } from '@shared/composables'
+import { useSessionStore } from '@shared/stores/session'
 import { isProblemWithType } from '@shared/transport'
 import {
   PencilIcon, UserGroupIcon, ClipboardIcon,
   TrashIcon, ArrowPathIcon, UserIcon, BuildingOffice2Icon,
 } from '@heroicons/vue/24/outline'
-import { projectsApi, type Project } from '../api/projects'
+import { projectsApi, type Project, type ProjectMember } from '../api/projects'
 import { tenancyKeys } from '../queries'
 import { formatDateTime } from '../utils/formatters'
 import { useEntityLifecycle } from '../composables/useEntityLifecycle'
@@ -21,6 +22,7 @@ import { useEntityLifecycle } from '../composables/useEntityLifecycle'
 const { t } = useI18n()
 const route = useRoute()
 const toast = useToast()
+const session = useSessionStore()
 const qc = useQueryClient()
 
 const projectId = computed(() => route.params.id as string)
@@ -30,6 +32,17 @@ const { data: project, isLoading, isError, refetch } = useQuery({
   queryFn: () => projectsApi.get(projectId.value).then(r => r.data),
 })
 
+const { data: members } = useQuery({
+  queryKey: computed(() => tenancyKeys.projectMembers(projectId.value)),
+  queryFn: () => projectsApi.listMembers(projectId.value).then(r => r.data),
+})
+
+const myMembership = computed<ProjectMember | null>(() => {
+  if (!members.value || !session.me) return null
+  return members.value.find(m => m.user_id === session.me!.id) ?? null
+})
+
+const isOwner = computed(() => myMembership.value?.role === 'owner')
 const isDeleted = computed(() => !!project.value?.deleted_at)
 
 const rename = useInlineRename({
@@ -123,7 +136,7 @@ const breadcrumbs = computed(() => [
         <template #actions>
           <template v-if="!isDeleted">
             <SButton
-              v-if="!rename.renaming.value"
+              v-if="isOwner && !rename.renaming.value"
               variant="ghost"
               size="sm"
               @click="rename.start"
@@ -135,6 +148,7 @@ const breadcrumbs = computed(() => [
             </SButton>
 
             <SButton
+              v-if="isOwner"
               variant="secondary"
               as="router-link"
               :to="{ name: 'tenancy.projectMembers', params: { id: project.id } }"
@@ -147,7 +161,7 @@ const breadcrumbs = computed(() => [
           </template>
 
           <SButton
-            v-if="isDeleted"
+            v-if="isDeleted && isOwner"
             variant="primary"
             @click="lifecycle.restoreEntity(project.id)"
           >
@@ -262,7 +276,7 @@ const breadcrumbs = computed(() => [
 
       <!-- Danger zone -->
       <SCard
-        v-if="!isDeleted"
+        v-if="isOwner && !isDeleted"
         variant="bordered"
         class="danger-zone"
       >
