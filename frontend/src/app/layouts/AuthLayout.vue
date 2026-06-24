@@ -49,37 +49,3 @@
   }
 }
 </style>
-
-<style>
-.auth-card {
-  background: var(--color-bg);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-md);
-  padding: 32px;
-}
-
-.auth-footer {
-  text-align: center;
-  color: var(--color-muted);
-  font-size: 0.875rem;
-  margin-top: 24px;
-}
-
-.auth-footer a {
-  color: var(--color-accent);
-  text-decoration: none;
-  font-weight: 500;
-}
-
-.auth-footer a:hover {
-  text-decoration: underline;
-}
-
-@media (max-width: 480px) {
-  .auth-card {
-    border-radius: 0;
-    box-shadow: none;
-    padding: 24px 0;
-  }
-}
-</style>

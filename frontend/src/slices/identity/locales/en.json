@@ -83,7 +83,15 @@
       "retry": "Retry",
       "empty": "No other sessions found.",
       "lastUsed": "Last used {time}",
-      "created": "Created {date}"
+      "created": "Created {date}",
+      "timeJustNow": "just now",
+      "timeMinutesAgo": "{n} min ago",
+      "timeHoursAgo": "{n}h ago",
+      "timeDaysAgo": "{n}d ago",
+      "unknownDevice": "Unknown device",
+      "browserOnOs": "{browser} on {os}",
+      "unknownBrowser": "Unknown browser",
+      "unknownOs": "Unknown OS"
     },
     "deleteAccount": {
       "title": "Delete Account",

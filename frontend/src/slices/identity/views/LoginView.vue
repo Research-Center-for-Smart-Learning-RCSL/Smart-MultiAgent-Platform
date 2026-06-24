@@ -1,26 +1,28 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, nextTick } from 'vue'
+import { ref, onMounted, nextTick } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { SFormField, SInput, SButton, SAlert } from '@shared/ui'
 import { isProblemWithType } from '@shared/transport'
 import { RateLimitError } from '@shared/errors'
+import { useRateLimitCountdown } from '@shared/composables'
 import { useSessionStore } from '../stores/session'
+import { emailSchema, validateField } from '../validation'
 
 const { t } = useI18n()
 const router = useRouter()
 const route = useRoute()
 const session = useSessionStore()
+const rateLimit = useRateLimitCountdown()
 
 const email = ref('')
 const password = ref('')
 const serverError = ref<string | null>(null)
 const submitting = ref(false)
-const lockoutSeconds = ref(0)
 const emailRef = ref<InstanceType<typeof SInput> | null>(null)
-let lockoutTimer: ReturnType<typeof setInterval> | undefined
+const passwordRef = ref<InstanceType<typeof SInput> | null>(null)
 
-const fieldErrors = ref<{ email?: string; password?: string }>({})
+const fieldErrors = ref<Record<string, string | undefined>>({})
 
 const flashVariant = ref<'info' | 'success' | null>(null)
 const flashMessage = ref<string | null>(null)
@@ -37,7 +39,8 @@ function initFlash(): void {
     flashMessage.value = t('identity.login.passwordChangedSuccess')
   }
   if (flashMessage.value) {
-    router.replace({ ...route, query: {} })
+    const { pendingVerify: _pv, passwordReset: _pr, passwordChanged: _pc, ...rest } = route.query
+    router.replace({ ...route, query: rest })
   }
 }
 
@@ -53,12 +56,7 @@ function safeRedirect(raw: string): string {
 }
 
 function validateEmail(): boolean {
-  if (!email.value.trim()) {
-    fieldErrors.value.email = t('identity.validation.emailRequired')
-    return false
-  }
-  fieldErrors.value.email = undefined
-  return true
+  return validateField(emailSchema, email.value, fieldErrors, 'email')
 }
 
 function validatePassword(): boolean {
@@ -70,19 +68,6 @@ function validatePassword(): boolean {
   return true
 }
 
-function startLockout(seconds: number): void {
-  lockoutSeconds.value = seconds
-  clearInterval(lockoutTimer)
-  lockoutTimer = setInterval(() => {
-    lockoutSeconds.value--
-    if (lockoutSeconds.value <= 0) {
-      clearInterval(lockoutTimer)
-      lockoutTimer = undefined
-      serverError.value = null
-    }
-  }, 1000)
-}
-
 onMounted(async () => {
   initFlash()
   if (session.isAuthenticated) {
@@ -91,10 +76,6 @@ onMounted(async () => {
   }
   await nextTick()
   emailRef.value?.$el?.querySelector('input')?.focus()
-})
-
-onUnmounted(() => {
-  clearInterval(lockoutTimer)
 })
 
 async function submit(): Promise<void> {
@@ -113,15 +94,19 @@ async function submit(): Promise<void> {
     if (e instanceof RateLimitError) {
       const seconds = Math.ceil(e.retryAfterMs / 1000)
       serverError.value = t('identity.errors.lockout', { seconds })
-      startLockout(seconds)
+      rateLimit.start(seconds)
     } else if (isProblemWithType(e, '/auth/invalid-credentials')) {
       serverError.value = t('identity.errors.invalidCredentials')
       password.value = ''
       await nextTick()
-      document.querySelector<HTMLInputElement>('input[type="password"]')?.focus()
+      passwordRef.value?.$el?.querySelector('input')?.focus()
     } else if (isProblemWithType(e, '/auth/lockout')) {
-      serverError.value = t('identity.errors.lockout', { seconds: 60 })
-      startLockout(60)
+      let seconds = 60
+      if (e instanceof RateLimitError) {
+        seconds = Math.ceil(e.retryAfterMs / 1000)
+      }
+      serverError.value = t('identity.errors.lockout', { seconds })
+      rateLimit.start(seconds)
     } else if (isProblemWithType(e, '/auth/email-unverified')) {
       serverError.value = t('identity.errors.emailUnverified')
     } else if (isProblemWithType(e, '/auth/banned')) {
@@ -158,6 +143,7 @@ async function submit(): Promise<void> {
     </h1>
 
     <form
+      class="auth-form"
       aria-labelledby="login-heading"
       @submit.prevent="submit"
     >
@@ -172,7 +158,7 @@ async function submit(): Promise<void> {
           v-model="email"
           type="email"
           autocomplete="email"
-          :disabled="submitting || lockoutSeconds > 0"
+          :disabled="submitting || rateLimit.active.value"
           :error="!!fieldErrors.email"
           @blur="validateEmail"
         />
@@ -185,10 +171,11 @@ async function submit(): Promise<void> {
         required
       >
         <SInput
+          ref="passwordRef"
           v-model="password"
           type="password"
           autocomplete="current-password"
-          :disabled="submitting || lockoutSeconds > 0"
+          :disabled="submitting || rateLimit.active.value"
           :error="!!fieldErrors.password"
           @blur="validatePassword"
         />
@@ -203,13 +190,12 @@ async function submit(): Promise<void> {
       <SAlert
         v-if="serverError"
         variant="danger"
-        class="form-alert"
       >
         <span
-          v-if="lockoutSeconds > 0"
+          v-if="rateLimit.active.value"
           aria-live="polite"
         >
-          {{ $t('identity.errors.lockout', { seconds: lockoutSeconds }) }}
+          {{ $t('identity.errors.lockout', { seconds: rateLimit.seconds.value }) }}
         </span>
         <span v-else>{{ serverError }}</span>
       </SAlert>
@@ -219,7 +205,7 @@ async function submit(): Promise<void> {
         variant="primary"
         size="md"
         :loading="submitting"
-        :disabled="submitting || lockoutSeconds > 0"
+        :disabled="submitting || rateLimit.active.value"
         :aria-busy="submitting"
         class="form-submit"
       >
@@ -237,19 +223,6 @@ async function submit(): Promise<void> {
 </template>
 
 <style scoped>
-.auth-heading {
-  font-size: 1.5rem;
-  font-weight: 600;
-  color: var(--color-fg);
-  margin: 0 0 24px;
-}
-
-form {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-
 .flash-alert {
   margin-bottom: 16px;
 }
@@ -267,13 +240,5 @@ form {
 
 .forgot-link a:hover {
   text-decoration: underline;
-}
-
-.form-alert {
-  margin: 0;
-}
-
-.form-submit {
-  width: 100%;
 }
 </style>

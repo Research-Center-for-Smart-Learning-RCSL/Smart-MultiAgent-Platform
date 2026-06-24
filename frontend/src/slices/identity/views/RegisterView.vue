@@ -5,11 +5,14 @@ import { useI18n } from 'vue-i18n'
 import { SFormField, SInput, SButton, SAlert } from '@shared/ui'
 import { isProblemWithType } from '@shared/transport'
 import { RateLimitError } from '@shared/errors'
+import { useRateLimitCountdown } from '@shared/composables'
 import { authApi, type CaptchaConfig } from '../api/auth'
+import { emailSchema, passwordSchema, validateField } from '../validation'
 import CaptchaWidget from '../components/CaptchaWidget.vue'
 
 const { t } = useI18n()
 const router = useRouter()
+const rateLimit = useRateLimitCountdown()
 
 const email = ref('')
 const password = ref('')
@@ -18,60 +21,28 @@ const captcha = ref<CaptchaConfig>({ mode: 'off', provider: 'off', sitekey: '' }
 const serverError = ref<string | null>(null)
 const submitting = ref(false)
 const emailRef = ref<InstanceType<typeof SInput> | null>(null)
-const rateLimitSeconds = ref(0)
-let rateLimitTimer: ReturnType<typeof setInterval> | undefined
 
-const fieldErrors = ref<{ email?: string; password?: string; captcha?: string }>({})
+const fieldErrors = ref<Record<string, string | undefined>>({})
 
 function validateEmail(): boolean {
-  if (!email.value.trim()) {
-    fieldErrors.value.email = t('identity.validation.emailRequired')
-    return false
-  }
-  const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
-  if (!emailPattern.test(email.value)) {
-    fieldErrors.value.email = t('identity.validation.emailFormat')
-    return false
-  }
-  fieldErrors.value.email = undefined
-  return true
+  return validateField(emailSchema, email.value, fieldErrors, 'email')
 }
 
 function validatePassword(): boolean {
-  if (!password.value) {
-    fieldErrors.value.password = t('identity.validation.passwordRequired')
-    return false
-  }
-  if (password.value.length < 10) {
-    fieldErrors.value.password = t('identity.validation.passwordMinLength')
-    return false
-  }
-  fieldErrors.value.password = undefined
-  return true
-}
-
-function startRateLimitCountdown(seconds: number): void {
-  rateLimitSeconds.value = seconds
-  clearInterval(rateLimitTimer)
-  rateLimitTimer = setInterval(() => {
-    rateLimitSeconds.value--
-    if (rateLimitSeconds.value <= 0) {
-      clearInterval(rateLimitTimer)
-      rateLimitTimer = undefined
-      serverError.value = null
-    }
-  }, 1000)
+  return validateField(passwordSchema, password.value, fieldErrors, 'password')
 }
 
 onMounted(async () => {
+  const focusPromise = nextTick().then(() => {
+    emailRef.value?.$el?.querySelector('input')?.focus()
+  })
   try {
     const { data } = await authApi.captchaConfig()
     captcha.value = data
   } catch {
     // Config unreachable -- fail-open per backend design
   }
-  await nextTick()
-  emailRef.value?.$el?.querySelector('input')?.focus()
+  await focusPromise
 })
 
 async function submit(): Promise<void> {
@@ -98,7 +69,7 @@ async function submit(): Promise<void> {
     if (e instanceof RateLimitError) {
       const seconds = Math.ceil(e.retryAfterMs / 1000)
       serverError.value = t('identity.errors.rateLimit')
-      startRateLimitCountdown(seconds)
+      rateLimit.start(seconds)
     } else if (isProblemWithType(e, '/auth/email-taken')) {
       serverError.value = t('identity.errors.emailTaken')
       email.value = ''
@@ -134,6 +105,7 @@ async function submit(): Promise<void> {
     </h1>
 
     <form
+      class="auth-form"
       aria-labelledby="register-heading"
       @submit.prevent="submit"
     >
@@ -148,7 +120,7 @@ async function submit(): Promise<void> {
           v-model="email"
           type="email"
           autocomplete="email"
-          :disabled="submitting || rateLimitSeconds > 0"
+          :disabled="submitting || rateLimit.active.value"
           :error="!!fieldErrors.email"
           @blur="validateEmail"
         />
@@ -165,7 +137,7 @@ async function submit(): Promise<void> {
           v-model="password"
           type="password"
           autocomplete="new-password"
-          :disabled="submitting || rateLimitSeconds > 0"
+          :disabled="submitting || rateLimit.active.value"
           :error="!!fieldErrors.password"
           @blur="validatePassword"
         />
@@ -188,7 +160,6 @@ async function submit(): Promise<void> {
       <SAlert
         v-if="serverError"
         variant="danger"
-        class="form-alert"
       >
         {{ serverError }}
       </SAlert>
@@ -198,7 +169,7 @@ async function submit(): Promise<void> {
         variant="primary"
         size="md"
         :loading="submitting"
-        :disabled="submitting || rateLimitSeconds > 0"
+        :disabled="submitting || rateLimit.active.value"
         :aria-busy="submitting"
         class="form-submit"
       >
@@ -216,27 +187,6 @@ async function submit(): Promise<void> {
 </template>
 
 <style scoped>
-.auth-heading {
-  font-size: 1.5rem;
-  font-weight: 600;
-  color: var(--color-fg);
-  margin: 0 0 24px;
-}
-
-form {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-
-.form-alert {
-  margin: 0;
-}
-
-.form-submit {
-  width: 100%;
-}
-
 .field-error {
   font-size: 0.75rem;
   color: var(--color-danger);

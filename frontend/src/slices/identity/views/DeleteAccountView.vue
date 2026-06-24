@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onUnmounted } from 'vue'
+import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import {
@@ -8,7 +8,7 @@ import {
 } from '@shared/ui'
 import { isProblemWithType } from '@shared/transport'
 import { ApiError, RateLimitError } from '@shared/errors'
-import { useConfirmDialog } from '@shared/composables'
+import { useConfirmDialog, useRateLimitCountdown } from '@shared/composables'
 import { authApi } from '../api/auth'
 import { useSessionStore } from '../stores/session'
 
@@ -16,33 +16,15 @@ const { t } = useI18n()
 const router = useRouter()
 const session = useSessionStore()
 const { confirm } = useConfirmDialog()
+const rateLimit = useRateLimitCountdown()
 
 const password = ref('')
 const confirmed = ref(false)
 const serverError = ref<string | null>(null)
 const blockedOrgIds = ref<string[]>([])
 const submitting = ref(false)
-const rateLimitSeconds = ref(0)
-let rateLimitTimer: ReturnType<typeof setInterval> | undefined
 
-const fieldErrors = ref<{ password?: string }>({})
-
-function startRateLimitCountdown(seconds: number): void {
-  rateLimitSeconds.value = seconds
-  clearInterval(rateLimitTimer)
-  rateLimitTimer = setInterval(() => {
-    rateLimitSeconds.value--
-    if (rateLimitSeconds.value <= 0) {
-      clearInterval(rateLimitTimer)
-      rateLimitTimer = undefined
-      serverError.value = null
-    }
-  }, 1000)
-}
-
-onUnmounted(() => {
-  clearInterval(rateLimitTimer)
-})
+const fieldErrors = ref<Record<string, string | undefined>>({})
 
 async function submit(): Promise<void> {
   serverError.value = null
@@ -71,7 +53,7 @@ async function submit(): Promise<void> {
     if (e instanceof RateLimitError) {
       const seconds = Math.ceil(e.retryAfterMs / 1000)
       serverError.value = t('identity.errors.rateLimit')
-      startRateLimitCountdown(seconds)
+      rateLimit.start(seconds)
     } else if (e instanceof ApiError && e.status === 409) {
       const ids = e.extra.blocked_org_ids
       blockedOrgIds.value = Array.isArray(ids) ? (ids as string[]) : []
@@ -97,12 +79,13 @@ async function submit(): Promise<void> {
         variant="danger"
         class="warning-banner"
       >
-        <template #default>
-          {{ $t('identity.deleteAccount.warning') }}
-        </template>
+        {{ $t('identity.deleteAccount.warning') }}
       </SAlert>
 
-      <form @submit.prevent="submit">
+      <form
+        class="auth-form"
+        @submit.prevent="submit"
+      >
         <SFormField
           :label="$t('identity.deleteAccount.password')"
           name="password"
@@ -114,7 +97,7 @@ async function submit(): Promise<void> {
             v-model="password"
             type="password"
             autocomplete="current-password"
-            :disabled="submitting || rateLimitSeconds > 0"
+            :disabled="submitting || rateLimit.active.value"
             :error="!!fieldErrors.password"
           />
         </SFormField>
@@ -126,7 +109,7 @@ async function submit(): Promise<void> {
         >
           <SCheckbox
             v-model="confirmed"
-            :disabled="submitting || rateLimitSeconds > 0"
+            :disabled="submitting || rateLimit.active.value"
           >
             {{ $t('identity.deleteAccount.confirm') }}
           </SCheckbox>
@@ -135,7 +118,6 @@ async function submit(): Promise<void> {
         <SAlert
           v-if="serverError"
           variant="danger"
-          class="form-alert"
         >
           {{ serverError }}
           <ul
@@ -156,7 +138,7 @@ async function submit(): Promise<void> {
           variant="danger"
           size="md"
           :loading="submitting"
-          :disabled="submitting || !confirmed || !password || rateLimitSeconds > 0"
+          :disabled="submitting || !confirmed || !password || rateLimit.active.value"
           :aria-disabled="!confirmed || !password ? true : undefined"
           :aria-busy="submitting"
           class="form-submit"
@@ -175,16 +157,6 @@ async function submit(): Promise<void> {
 
 .warning-banner {
   margin-bottom: 20px;
-}
-
-form {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-
-.form-alert {
-  margin: 0;
 }
 
 .form-submit {
