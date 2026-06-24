@@ -246,10 +246,10 @@ class TestEvaluateVotesConsensus:
         votes = [_vote(_AGENT_A, False), _vote(_AGENT_B, False), _vote(_AGENT_C, False)]
         assert ApprovalService._evaluate_votes(ap, votes) is ApprovalState.REJECTED
 
-    def test_mixed_returns_none(self) -> None:
+    def test_mixed_resolves_to_timeout_leader(self) -> None:
         ap = _approval(mode=ApprovalMode.CONSENSUS)
         votes = [_vote(_AGENT_A, True), _vote(_AGENT_B, False), _vote(_AGENT_C, True)]
-        assert ApprovalService._evaluate_votes(ap, votes) is None
+        assert ApprovalService._evaluate_votes(ap, votes) is ApprovalState.TIMEOUT_LEADER
 
     def test_not_all_voted_returns_none(self) -> None:
         ap = _approval(mode=ApprovalMode.CONSENSUS)

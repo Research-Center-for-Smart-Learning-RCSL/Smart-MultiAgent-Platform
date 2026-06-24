@@ -167,11 +167,18 @@ class CarryService:
             raise KeyNotFound(f"carry {key_id}→{project_id}")
 
         delta = _WINDOWS[window]
+        # Scope DB queries to agents within the requesting project so usage
+        # numbers reflect THIS project's consumption, not cross-project totals.
+        _agents_in_project = t.key_usage_events.c.agent_id.in_(
+            sa.text(
+                "SELECT id FROM agents WHERE project_id = :pid AND deleted_at IS NULL"
+            ).bindparams(pid=project_id)
+        )
         if delta is None:
             used = await redis_buckets.usage(key_id)
             # Token/request counts come from the Redis sliding window (accurate
-            # to the minute). Redis does not track errors, so fall back to a
-            # targeted DB query for the error count only.
+            # to the minute, global per key). Error count is scoped to this
+            # project's agents via a targeted DB query.
             since_1h = datetime.now(tz=UTC) - timedelta(hours=1)
             err_count = (
                 await self._db.execute(
@@ -187,6 +194,7 @@ class CarryService:
                         sa.and_(
                             t.key_usage_events.c.key_id == key_id,
                             t.key_usage_events.c.at >= since_1h,
+                            _agents_in_project,
                         )
                     )
                 )
@@ -215,6 +223,7 @@ class CarryService:
             sa.and_(
                 t.key_usage_events.c.key_id == key_id,
                 t.key_usage_events.c.at >= since,
+                _agents_in_project,
             )
         )
         row = (await self._db.execute(stmt)).one()
@@ -275,20 +284,39 @@ class CarryService:
         if not project_ids:
             return 0
         now = datetime.now(tz=UTC)
-        result = await self._db.execute(
-            t.key_projects.update()
-            .where(
-                sa.and_(
-                    t.key_projects.c.project_id.in_(project_ids),
-                    t.key_projects.c.carried.is_(True),
-                    t.key_projects.c.key_id.in_(
-                        sa.select(t.api_keys.c.id).where(t.api_keys.c.owner_user_id == user_id)
-                    ),
-                )
-            )
-            .values(carried=False, withdrawn_at=now)
+        condition = sa.and_(
+            t.key_projects.c.project_id.in_(project_ids),
+            t.key_projects.c.carried.is_(True),
+            t.key_projects.c.key_id.in_(
+                sa.select(t.api_keys.c.id).where(t.api_keys.c.owner_user_id == user_id)
+            ),
         )
-        return result.rowcount
+        affected = (
+            await self._db.execute(
+                sa.select(t.key_projects.c.key_id, t.key_projects.c.project_id).where(condition)
+            )
+        ).all()
+        if not affected:
+            return 0
+        await self._db.execute(
+            t.key_projects.update().where(condition).values(carried=False, withdrawn_at=now)
+        )
+        for row in affected:
+            await audit.emit(
+                self._db,
+                audit.AuditEvent(
+                    action="key.withdrawn_from_project",
+                    resource_type="api_key",
+                    resource_id=row.key_id,
+                    metadata={
+                        "project_id": str(row.project_id),
+                        "reason": "user_account_deleted",
+                        "owner_user_id": str(user_id),
+                    },
+                ),
+            )
+            await publish_carry_revoked(key_id=row.key_id, project_id=row.project_id)
+        return len(affected)
 
 
 __all__ = ["CarryService", "UsageSummary"]
