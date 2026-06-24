@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
@@ -10,7 +10,7 @@ import {
 import { useConfirmDialog, useToast } from '@shared/composables'
 import { useSessionStore } from '@shared/stores/session'
 import { isProblemWithType } from '@shared/transport'
-import { orgsApi, type OriginalCreatorTransfer } from '../api/orgs'
+import { orgsApi, type OriginalCreatorTransfer, type OrgMember } from '../api/orgs'
 import { tenancyKeys } from '../queries'
 import { formatDateTime } from '../utils/formatters'
 
@@ -29,9 +29,28 @@ const { data: org } = useQuery({
   queryFn: () => orgsApi.get(orgId.value).then(r => r.data),
 })
 
+const { data: members } = useQuery({
+  queryKey: computed(() => tenancyKeys.orgMembers(orgId.value)),
+  queryFn: () => orgsApi.listMembers(orgId.value).then(r => r.data),
+})
+
 const { data: transfers, isLoading, isError, refetch } = useQuery({
   queryKey: computed(() => tenancyKeys.orgTransfers(orgId.value)),
   queryFn: () => orgsApi.listTransfers(orgId.value).then(r => r.data),
+})
+
+const myMembership = computed<OrgMember | null>(() => {
+  if (!members.value || !session.me) return null
+  return members.value.find(m => m.user_id === session.me!.id) ?? null
+})
+
+const isOC = computed(() => myMembership.value?.is_original_creator === true)
+const isMemberOnly = computed(() =>
+  myMembership.value !== null && !myMembership.value.is_original_creator && myMembership.value.role === 'member',
+)
+
+watch(isMemberOnly, (v) => {
+  if (v) router.replace({ name: 'tenancy.orgDetail', params: { id: orgId.value } })
 })
 
 const pending = computed<OriginalCreatorTransfer | null>(() =>
@@ -50,9 +69,16 @@ const targetUserId = ref('')
 const fieldError = ref<string | null>(null)
 const submitting = ref(false)
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
 async function initiate(): Promise<void> {
   const trimmed = targetUserId.value.trim()
   if (!trimmed || submitting.value) return
+
+  if (!UUID_RE.test(trimmed)) {
+    fieldError.value = t('tenancy.transfer.targetNotOwner')
+    return
+  }
 
   const ok = await confirm({
     title: t('tenancy.transfer.initiateTitle'),
@@ -170,9 +196,17 @@ const breadcrumbs = computed(() => [
       </template>
     </SAlert>
 
+    <!-- Members cannot access this view — redirect to org detail -->
+    <SAlert
+      v-else-if="isMemberOnly"
+      variant="warning"
+    >
+      {{ t('tenancy.transfer.loadError') }}
+    </SAlert>
+
     <template v-else>
       <!-- No pending transfer: show initiate form (OC only) -->
-      <template v-if="!pending">
+      <template v-if="!pending && isOC">
         <SAlert
           variant="info"
           class="transfer-info"
@@ -313,6 +347,14 @@ const breadcrumbs = computed(() => [
           </div>
         </dl>
       </SCard>
+
+      <!-- No pending transfer, non-OC owner: read-only -->
+      <SAlert
+        v-if="!pending && !isOC"
+        variant="info"
+      >
+        {{ t('tenancy.transfer.infoText') }}
+      </SAlert>
     </template>
   </div>
 </template>
