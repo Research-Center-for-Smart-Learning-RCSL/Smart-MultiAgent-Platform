@@ -92,5 +92,6 @@ deploy/vault/certs/
 .$*.drawio.bkp
 
 # Claude Code
-.claude/
+.claude/*
+!.claude/skills/
 .sixth/
