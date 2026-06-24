@@ -8,10 +8,9 @@ describe('NotFound', () => {
     expect(wrapper.exists()).toBe(true)
   })
 
-  it('displays 404 heading and a link back to home', async () => {
+  it('displays a not-found message and a link home', async () => {
     const wrapper = await renderView(NotFound)
-    expect(wrapper.text()).toContain('404')
-    const homeLink = wrapper.find('a[href="/"]')
-    expect(homeLink.exists()).toBe(true)
+    expect(wrapper.text()).toContain('app.notFoundTitle')
+    expect(wrapper.text()).toContain('app.backToHome')
   })
 })

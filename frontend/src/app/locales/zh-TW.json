@@ -3,6 +3,8 @@
     "title": "SMAP",
     "landingMessage": "歡迎使用 SMAP。",
     "notFound": "找不到頁面。",
+    "notFoundTitle": "找不到頁面",
+    "notFoundText": "您要找的頁面不存在或已被移動。",
     "backToHome": "返回首頁",
     "cancel": "取消",
     "confirm": "確認",
@@ -19,6 +21,48 @@
       "prev": "上一頁",
       "next": "下一頁",
       "page": "第 {page} 頁"
+    },
+    "landing": {
+      "headline": "智慧多代理平台",
+      "subtitle": "組合、編排並與多 LLM 代理群組對話。",
+      "getStarted": "立即開始",
+      "logIn": "登入"
+    },
+    "topbar": {
+      "toggleSidebar": "切換側邊欄",
+      "home": "SMAP"
+    },
+    "sidebar": {
+      "orgs": "組織",
+      "projects": "專案",
+      "keys": "我的金鑰",
+      "notifications": "通知",
+      "invites": "邀請",
+      "projectContext": "專案",
+      "agents": "代理",
+      "ragConfigs": "RAG 設定",
+      "graphrag": "GraphRAG",
+      "keyGroups": "金鑰群組",
+      "searchKeys": "搜尋金鑰",
+      "workspaces": "工作區",
+      "mcpAllowlist": "MCP 允許清單",
+      "recentChatrooms": "最近聊天室",
+      "noChatrooms": "尚無聊天室",
+      "admin": "管理控制台"
+    },
+    "switcher": {
+      "placeholder": "選擇工作區...",
+      "orgs": "組織",
+      "projects": "專案",
+      "createOrg": "建立組織",
+      "createProject": "建立專案",
+      "noProjects": "尚無專案"
+    },
+    "userMenu": {
+      "account": "帳號設定",
+      "sessions": "工作階段",
+      "admin": "管理控制台",
+      "logout": "登出"
     }
   }
 }

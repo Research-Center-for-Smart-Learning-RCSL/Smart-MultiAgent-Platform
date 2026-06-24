@@ -3,7 +3,9 @@
     "title": "SMAP",
     "landingMessage": "Welcome to SMAP.",
     "notFound": "Page not found.",
-    "backToHome": "Back to home",
+    "notFoundTitle": "Page Not Found",
+    "notFoundText": "The page you're looking for doesn't exist or has been moved.",
+    "backToHome": "Go Home",
     "cancel": "Cancel",
     "confirm": "Confirm",
     "save": "Save",
@@ -19,6 +21,48 @@
       "prev": "Previous page",
       "next": "Next page",
       "page": "Page {page}"
+    },
+    "landing": {
+      "headline": "Smart Multi-Agent Platform",
+      "subtitle": "Compose, orchestrate, and chat with multi-LLM agent groups.",
+      "getStarted": "Get Started",
+      "logIn": "Log In"
+    },
+    "topbar": {
+      "toggleSidebar": "Toggle sidebar",
+      "home": "SMAP"
+    },
+    "sidebar": {
+      "orgs": "Organizations",
+      "projects": "Projects",
+      "keys": "My Keys",
+      "notifications": "Notifications",
+      "invites": "Invites",
+      "projectContext": "Project",
+      "agents": "Agents",
+      "ragConfigs": "RAG Configs",
+      "graphrag": "GraphRAG",
+      "keyGroups": "Key Groups",
+      "searchKeys": "Search Keys",
+      "workspaces": "Workspaces",
+      "mcpAllowlist": "MCP Allowlist",
+      "recentChatrooms": "Recent Chatrooms",
+      "noChatrooms": "No chatrooms yet",
+      "admin": "Admin Console"
+    },
+    "switcher": {
+      "placeholder": "Select workspace...",
+      "orgs": "Organizations",
+      "projects": "Projects",
+      "createOrg": "Create Organization",
+      "createProject": "Create Project",
+      "noProjects": "No projects yet"
+    },
+    "userMenu": {
+      "account": "Account Settings",
+      "sessions": "Sessions",
+      "admin": "Admin Console",
+      "logout": "Log Out"
     }
   }
 }

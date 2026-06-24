@@ -1,0 +1,150 @@
+<script setup lang="ts">
+import { ref, computed, watch } from 'vue'
+import { useRoute } from 'vue-router'
+import { SDrawer } from '@shared/ui'
+import { useBreakpoint } from '@shared/composables/useBreakpoint'
+import AppTopBar from '../components/AppTopBar.vue'
+import AppSidebar from '../components/AppSidebar.vue'
+
+const route = useRoute()
+const { isDesktop } = useBreakpoint()
+
+const manualCollapsed = ref(false)
+
+const autoCollapsed = computed(() => {
+  const path = route.path
+  if (/^\/chatrooms\/[^/]+$/.test(path)) return true
+  if (/\/workflows\/[^/]+\/edit$/.test(path)) return true
+  return false
+})
+
+const sidebarCollapsed = computed(
+  () => !isDesktop.value || autoCollapsed.value || manualCollapsed.value,
+)
+
+const sidebarDrawerOpen = ref(false)
+
+function toggleSidebar(): void {
+  if (isDesktop.value) {
+    manualCollapsed.value = !manualCollapsed.value
+  } else {
+    sidebarDrawerOpen.value = !sidebarDrawerOpen.value
+  }
+}
+
+watch(
+  () => route.path,
+  () => {
+    sidebarDrawerOpen.value = false
+  },
+)
+
+const noPadding = computed(() => {
+  if (route.meta.contentPadding === 'none') return true
+  if (/^\/chatrooms\/[^/]+$/.test(route.path)) return true
+  if (/\/workflows\/[^/]+\/edit$/.test(route.path)) return true
+  return false
+})
+</script>
+
+<template>
+  <div
+    class="app-shell"
+    :class="{ 'app-shell--sidebar-collapsed': sidebarCollapsed }"
+  >
+    <AppTopBar
+      class="app-shell__topbar"
+      :sidebar-open="!sidebarCollapsed || sidebarDrawerOpen"
+      @toggle-sidebar="toggleSidebar"
+    />
+
+    <aside
+      v-if="isDesktop && !sidebarCollapsed"
+      class="app-shell__sidebar"
+    >
+      <AppSidebar />
+    </aside>
+
+    <SDrawer
+      v-if="!isDesktop"
+      :open="sidebarDrawerOpen"
+      side="left"
+      size="sm"
+      @close="sidebarDrawerOpen = false"
+    >
+      <AppSidebar />
+    </SDrawer>
+
+    <main
+      class="app-shell__content"
+      :class="{ 'app-shell__content--no-pad': noPadding }"
+    >
+      <slot />
+    </main>
+  </div>
+</template>
+
+<style scoped>
+.app-shell {
+  display: grid;
+  grid-template-columns: var(--sidebar-width) 1fr;
+  grid-template-rows: var(--topbar-height) 1fr;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.app-shell--sidebar-collapsed {
+  grid-template-columns: 0 1fr;
+}
+
+.app-shell__topbar {
+  grid-column: 1 / -1;
+  grid-row: 1;
+}
+
+.app-shell__sidebar {
+  grid-column: 1;
+  grid-row: 2;
+  overflow-y: auto;
+  overflow-x: hidden;
+  background: var(--color-sidebar-bg);
+  border-right: 1px solid var(--color-border);
+  transition: width var(--transition-slow);
+}
+
+.app-shell__content {
+  grid-column: 2;
+  grid-row: 2;
+  overflow-y: auto;
+  background: var(--color-bg);
+  padding: 24px;
+}
+
+.app-shell__content--no-pad {
+  padding: 0;
+}
+
+@media (max-width: 1023px) {
+  .app-shell {
+    grid-template-columns: 0 1fr;
+  }
+
+  .app-shell__content {
+    padding: 16px;
+  }
+
+  .app-shell__content--no-pad {
+    padding: 0;
+  }
+}
+
+@media (max-width: 479px) {
+  .app-shell__content {
+    padding: 8px;
+  }
+
+  .app-shell__content--no-pad {
+    padding: 0;
+  }
+}
+</style>

@@ -29,7 +29,7 @@ export const conversationRoutes: RouteRecordRaw[] = [
     path: '/g/:chatroomId/:guestToken',
     name: 'conversation.guest',
     component: () => import('./views/GuestLandingView.vue'),
-    meta: { requiresAuth: true },
+    meta: { requiresAuth: true, layout: 'auth' },
   },
   {
     path: '/c/:chatroomId',
