@@ -8,17 +8,19 @@ import {
   SFormField, SInput, SSelect, SDropdown, SAlert, SEmptyState,
   STooltip,
 } from '@shared/ui'
-import { useConfirmDialog, useToast } from '@shared/composables'
+import { useToast } from '@shared/composables'
 import { useSessionStore } from '@shared/stores/session'
 import { isProblemWithType } from '@shared/transport'
 import { UserGroupIcon, EllipsisVerticalIcon } from '@heroicons/vue/24/outline'
 import { projectsApi, type ProjectMember } from '../api/projects'
 import { tenancyKeys } from '../queries'
+import { formatRelative } from '../utils/formatters'
+import { roleLabel } from '../utils/roles'
+import { useMemberActions } from '../composables/useMemberActions'
 
 const { t } = useI18n()
 const route = useRoute()
 const toast = useToast()
-const { confirm } = useConfirmDialog()
 const session = useSessionStore()
 const qc = useQueryClient()
 
@@ -59,18 +61,17 @@ const columns = computed(() => [
   { key: 'actions', label: '', width: '48px' },
 ])
 
-function roleLabel(member: ProjectMember): string {
-  return member.role === 'owner' ? t('tenancy.role.owner') : t('tenancy.role.member')
-}
-
-function formatRelative(d: string): string {
-  const diff = Date.now() - new Date(d).getTime()
-  const days = Math.floor(diff / 86400000)
-  if (days < 1) return t('tenancy.settings.created')
-  if (days < 30) return `${days}d`
-  const months = Math.floor(days / 30)
-  return `${months}mo`
-}
+const { getRowActions, onAction } = useMemberActions({
+  api: { setRole: projectsApi.setRole, removeMember: projectsApi.removeMember },
+  queryKey: () => tenancyKeys.projectMembers(projectId.value),
+  qc,
+  currentUserId: () => session.me?.id,
+  canPromote: () => isOwner.value,
+  canDemote: () => isOwner.value,
+  canRemove: () => isOwner.value,
+  removeMessage: () => t('tenancy.member.removeBodyProject'),
+  errorMessage: () => t('tenancy.project.loadError'),
+})
 
 function isMe(member: ProjectMember): boolean {
   return session.me?.id === member.user_id
@@ -78,20 +79,6 @@ function isMe(member: ProjectMember): boolean {
 
 function isInherited(member: ProjectMember): boolean {
   return member.is_inherited === true
-}
-
-function getRowActions(member: ProjectMember): Array<{ key: string; label: string; danger?: boolean }> {
-  if (isMe(member) || isInherited(member) || !isOwner.value) return []
-  const items: Array<{ key: string; label: string; danger?: boolean }> = []
-
-  if (member.role === 'member') {
-    items.push({ key: 'promote', label: t('tenancy.role.owner') })
-  }
-  if (member.role === 'owner') {
-    items.push({ key: 'demote', label: t('tenancy.role.member') })
-  }
-  items.push({ key: 'remove', label: t('tenancy.member.removeConfirm'), danger: true })
-  return items
 }
 
 async function onInvite(): Promise<void> {
@@ -113,53 +100,6 @@ async function onInvite(): Promise<void> {
     }
   } finally {
     invitePending.value = false
-  }
-}
-
-async function onAction(key: string, member: ProjectMember): Promise<void> {
-  if (key === 'promote') {
-    const ok = await confirm({
-      title: t('tenancy.member.changeRoleTitle'),
-      message: t('tenancy.member.changeRoleBody', { email: member.email, role: t('tenancy.role.owner') }),
-      variant: 'info',
-    })
-    if (!ok) return
-    try {
-      await projectsApi.setRole(projectId.value, member.user_id, 'owner')
-      qc.invalidateQueries({ queryKey: tenancyKeys.projectMembers(projectId.value) })
-      toast.success(t('tenancy.member.roleChanged'))
-    } catch {
-      toast.error(t('tenancy.project.loadError'))
-    }
-  } else if (key === 'demote') {
-    const ok = await confirm({
-      title: t('tenancy.member.changeRoleTitle'),
-      message: t('tenancy.member.changeRoleBody', { email: member.email, role: t('tenancy.role.member') }),
-      variant: 'info',
-    })
-    if (!ok) return
-    try {
-      await projectsApi.setRole(projectId.value, member.user_id, 'member')
-      qc.invalidateQueries({ queryKey: tenancyKeys.projectMembers(projectId.value) })
-      toast.success(t('tenancy.member.roleChanged'))
-    } catch {
-      toast.error(t('tenancy.project.loadError'))
-    }
-  } else if (key === 'remove') {
-    const ok = await confirm({
-      title: t('tenancy.member.removeTitle'),
-      message: t('tenancy.member.removeBodyProject'),
-      variant: 'error',
-      confirmLabel: t('tenancy.member.removeConfirm'),
-    })
-    if (!ok) return
-    try {
-      await projectsApi.removeMember(projectId.value, member.user_id)
-      qc.invalidateQueries({ queryKey: tenancyKeys.projectMembers(projectId.value) })
-      toast.success(t('tenancy.member.removed'))
-    } catch {
-      toast.error(t('tenancy.project.loadError'))
-    }
   }
 }
 
@@ -273,7 +213,7 @@ const breadcrumbs = computed(() => [
       <template #cell-role="{ row }">
         <span class="role-badges">
           <SBadge variant="neutral">
-            {{ roleLabel(row as ProjectMember) }}
+            {{ roleLabel(row as ProjectMember, t) }}
           </SBadge>
           <STooltip
             v-if="isInherited(row as ProjectMember)"
@@ -294,7 +234,7 @@ const breadcrumbs = computed(() => [
         <SDropdown
           v-if="getRowActions(row as ProjectMember).length > 0"
           :items="getRowActions(row as ProjectMember)"
-          @select="(key: string) => onAction(key, row as ProjectMember)"
+          @select="(key: string) => onAction(projectId, key, row as ProjectMember)"
         >
           <template #trigger>
             <SButton
@@ -319,48 +259,11 @@ const breadcrumbs = computed(() => [
 </template>
 
 <style scoped>
-.invite-card {
-  margin-bottom: 24px;
-}
-
-.invite-form {
-  display: flex;
-  align-items: flex-end;
-  gap: 12px;
-}
-
-.invite-email {
-  flex: 1;
-}
-
-.invite-role {
-  width: 160px;
-}
-
-.invite-btn {
-  flex-shrink: 0;
-}
-
-.you-label {
-  color: var(--color-muted);
-  font-size: 0.875rem;
-  margin-left: 4px;
-}
+@import '../styles/member-form.css';
 
 .role-badges {
   display: inline-flex;
   gap: 4px;
   align-items: center;
-}
-
-@media (max-width: 768px) {
-  .invite-form {
-    flex-direction: column;
-    align-items: stretch;
-  }
-
-  .invite-role {
-    width: 100%;
-  }
 }
 </style>

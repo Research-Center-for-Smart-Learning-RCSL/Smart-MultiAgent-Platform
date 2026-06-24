@@ -1,13 +1,13 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import {
   SPageHeader, SCard, SButton, SInput, SBadge, SAlert,
   SLoadingSpinner, STooltip,
 } from '@shared/ui'
-import { useConfirmDialog, useInlineRename, useToast } from '@shared/composables'
+import { useInlineRename, useToast } from '@shared/composables'
 import { isProblemWithType } from '@shared/transport'
 import {
   PencilIcon, UserGroupIcon, ClipboardIcon,
@@ -15,12 +15,12 @@ import {
 } from '@heroicons/vue/24/outline'
 import { projectsApi, type Project } from '../api/projects'
 import { tenancyKeys } from '../queries'
+import { formatDateTime } from '../utils/formatters'
+import { useEntityLifecycle } from '../composables/useEntityLifecycle'
 
 const { t } = useI18n()
 const route = useRoute()
-const router = useRouter()
 const toast = useToast()
-const { confirm, prompt } = useConfirmDialog()
 const qc = useQueryClient()
 
 const projectId = computed(() => route.params.id as string)
@@ -53,54 +53,23 @@ const rename = useInlineRename({
   },
 })
 
-async function deleteProject(): Promise<void> {
-  if (!project.value) return
-  const name = await prompt({
-    title: t('tenancy.project.deleteTitle'),
-    message: t('tenancy.project.deleteBody'),
-    variant: 'error',
-    confirmLabel: t('tenancy.project.deleteConfirm'),
-    inputPattern: new RegExp(`^${project.value.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`),
-    inputErrorMessage: t('tenancy.project.deleteConfirm'),
-  })
-  if (name === null) return
-  try {
-    await projectsApi.remove(project.value.id)
-    toast.success(t('tenancy.project.deleted'))
-    router.push({ name: 'tenancy.projectList' })
-  } catch {
-    toast.error(t('tenancy.project.loadError'))
-  }
-}
-
-async function restoreProject(): Promise<void> {
-  if (!project.value) return
-  const ok = await confirm({
-    title: t('tenancy.project.restoreTitle'),
-    message: t('tenancy.project.restoreBody'),
-    variant: 'info',
-    confirmLabel: t('tenancy.project.restoreConfirm'),
-  })
-  if (!ok) return
-  try {
-    await projectsApi.restore(project.value.id)
-    qc.invalidateQueries({ queryKey: tenancyKeys.project(projectId.value) })
-    toast.success(t('tenancy.project.restored'))
-  } catch {
-    toast.error(t('tenancy.project.loadError'))
-  }
-}
-
-function copyId(): void {
-  if (project.value) {
-    navigator.clipboard.writeText(project.value.id)
-  }
-}
-
-function formatDateTime(d: string | undefined): string {
-  if (!d) return ''
-  return d.replace('T', ' ').slice(0, 16)
-}
+const lifecycle = useEntityLifecycle({
+  entityName: () => project.value?.name ?? '',
+  deleteTitle: () => t('tenancy.project.deleteTitle'),
+  deleteBody: () => t('tenancy.project.deleteBody'),
+  deleteConfirmLabel: () => t('tenancy.project.deleteConfirm'),
+  deletedToast: () => t('tenancy.project.deleted'),
+  restoreTitle: () => t('tenancy.project.restoreTitle'),
+  restoreBody: () => t('tenancy.project.restoreBody'),
+  restoreConfirmLabel: () => t('tenancy.project.restoreConfirm'),
+  restoredToast: () => t('tenancy.project.restored'),
+  errorToast: () => t('tenancy.project.loadError'),
+  removeApi: (id) => projectsApi.remove(id),
+  restoreApi: (id) => projectsApi.restore(id),
+  queryKey: () => tenancyKeys.project(projectId.value),
+  qc,
+  listRoute: 'tenancy.projectList',
+})
 
 function ownerDisplay(p: Project): string {
   if (p.owner_type === 'user') return t('tenancy.project.personal')
@@ -180,7 +149,7 @@ const breadcrumbs = computed(() => [
           <SButton
             v-if="isDeleted"
             variant="primary"
-            @click="restoreProject"
+            @click="lifecycle.restoreEntity(project.id)"
           >
             <template #icon-left>
               <ArrowPathIcon class="w-4 h-4" />
@@ -227,7 +196,7 @@ const breadcrumbs = computed(() => [
         class="deleted-alert"
       >
         {{ t('tenancy.project.deletedBanner', {
-          date: formatDateTime(project.deleted_at!),
+          date: formatDateTime(project.deleted_at),
           permanentDate: '—',
         }) }}
       </SAlert>
@@ -248,7 +217,7 @@ const breadcrumbs = computed(() => [
               <STooltip :content="project.id">
                 <button
                   class="copy-btn"
-                  @click="copyId"
+                  @click="lifecycle.copyToClipboard(project.id)"
                 >
                   <ClipboardIcon class="w-4 h-4" />
                 </button>
@@ -311,7 +280,7 @@ const breadcrumbs = computed(() => [
           </div>
           <SButton
             variant="danger"
-            @click="deleteProject"
+            @click="lifecycle.deleteEntity(project.id)"
           >
             <template #icon-left>
               <TrashIcon class="w-4 h-4" />
@@ -325,77 +294,10 @@ const breadcrumbs = computed(() => [
 </template>
 
 <style scoped>
-.rename-bar {
-  margin-bottom: 24px;
-}
-
-.rename-form {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.rename-input {
-  max-width: 360px;
-}
-
-.deleted-alert {
-  margin-bottom: 24px;
-}
+@import '../styles/detail-cards.css';
 
 .settings-card {
   margin-bottom: 24px;
-}
-
-.card-title {
-  font-size: 1.125rem;
-  font-weight: 600;
-  margin-bottom: 16px;
-}
-
-.settings-list {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.settings-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.settings-row dt {
-  font-size: 0.875rem;
-  color: var(--color-muted);
-}
-
-.settings-row dd {
-  font-size: 0.875rem;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.mono-value {
-  font-family: "SF Mono", "Cascadia Code", "Fira Code", Consolas, monospace;
-  font-size: 0.8125rem;
-}
-
-.copy-btn {
-  display: inline-flex;
-  align-items: center;
-  padding: 2px;
-  border: none;
-  background: none;
-  color: var(--color-muted);
-  cursor: pointer;
-  border-radius: 4px;
-}
-
-.copy-btn:hover {
-  color: var(--color-accent);
-  background: var(--color-surface);
 }
 
 .owner-cell {
@@ -406,41 +308,5 @@ const breadcrumbs = computed(() => [
 
 .owner-icon {
   color: var(--color-muted);
-}
-
-.danger-zone {
-  border-top: 2px solid var(--color-danger);
-}
-
-.danger-title {
-  font-size: 1.125rem;
-  font-weight: 600;
-  color: var(--color-danger);
-  margin-bottom: 16px;
-}
-
-.danger-content {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 16px;
-}
-
-.danger-heading {
-  font-size: 0.875rem;
-  font-weight: 600;
-  margin-bottom: 4px;
-}
-
-.danger-description {
-  font-size: 0.875rem;
-  color: var(--color-muted);
-}
-
-@media (max-width: 480px) {
-  .danger-content {
-    flex-direction: column;
-    align-items: flex-start;
-  }
 }
 </style>

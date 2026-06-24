@@ -12,6 +12,7 @@ import { useSessionStore } from '@shared/stores/session'
 import { isProblemWithType } from '@shared/transport'
 import { orgsApi, type OriginalCreatorTransfer } from '../api/orgs'
 import { tenancyKeys } from '../queries'
+import { formatDateTime } from '../utils/formatters'
 
 const { t } = useI18n()
 const route = useRoute()
@@ -48,10 +49,6 @@ const isTarget = computed(() =>
 const targetUserId = ref('')
 const fieldError = ref<string | null>(null)
 const submitting = ref(false)
-
-function formatDateTime(d: string): string {
-  return d.replace('T', ' ').slice(0, 16)
-}
 
 async function initiate(): Promise<void> {
   const trimmed = targetUserId.value.trim()

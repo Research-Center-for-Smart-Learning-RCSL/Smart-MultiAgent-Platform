@@ -17,6 +17,7 @@ import {
 import { projectsApi, type Project, type ProjectOwnerType } from '../api/projects'
 import { orgsApi } from '../api/orgs'
 import { tenancyKeys } from '../queries'
+import { formatDate } from '../utils/formatters'
 
 const { t } = useI18n()
 const route = useRoute()
@@ -89,10 +90,6 @@ const columns = computed(() => [
 function ownerDisplay(project: Project): string {
   if (project.owner_type === 'user') return t('tenancy.project.personal')
   return project.owner_name ?? project.owner_id.slice(0, 8)
-}
-
-function formatDate(d: string): string {
-  return d.slice(0, 10)
 }
 
 function emptyText(): string {

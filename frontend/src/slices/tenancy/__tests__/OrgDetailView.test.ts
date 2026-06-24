@@ -1,7 +1,5 @@
 import { describe, it, expect } from 'vitest'
 import { flushPromises } from '@vue/test-utils'
-import { http, HttpResponse } from 'msw'
-import { server } from '../../../../tests/mocks/server'
 import { renderView } from '../../../../tests/utils'
 import OrgDetailView from '../views/OrgDetailView.vue'
 

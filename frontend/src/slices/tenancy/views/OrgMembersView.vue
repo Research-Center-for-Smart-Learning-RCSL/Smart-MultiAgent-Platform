@@ -7,17 +7,19 @@ import {
   SPageHeader, SCard, STable, SAvatar, SBadge, SButton,
   SFormField, SInput, SSelect, SDropdown, SAlert, SEmptyState,
 } from '@shared/ui'
-import { useConfirmDialog, useToast } from '@shared/composables'
+import { useToast } from '@shared/composables'
 import { useSessionStore } from '@shared/stores/session'
 import { isProblemWithType } from '@shared/transport'
 import { UserGroupIcon, EllipsisVerticalIcon } from '@heroicons/vue/24/outline'
 import { orgsApi, type OrgMember } from '../api/orgs'
 import { tenancyKeys } from '../queries'
+import { formatRelative } from '../utils/formatters'
+import { roleBadgeVariant, roleLabel } from '../utils/roles'
+import { useMemberActions } from '../composables/useMemberActions'
 
 const { t } = useI18n()
 const route = useRoute()
 const toast = useToast()
-const { confirm } = useConfirmDialog()
 const session = useSessionStore()
 const qc = useQueryClient()
 
@@ -59,42 +61,20 @@ const columns = computed(() => [
   { key: 'actions', label: '', width: '48px' },
 ])
 
-function roleBadgeVariant(member: OrgMember): 'info' | 'neutral' {
-  return member.is_original_creator ? 'info' : 'neutral'
-}
-
-function roleLabel(member: OrgMember): string {
-  if (member.is_original_creator) return t('tenancy.role.originalCreator')
-  return member.role === 'owner' ? t('tenancy.role.owner') : t('tenancy.role.member')
-}
-
-function formatRelative(d: string): string {
-  const diff = Date.now() - new Date(d).getTime()
-  const days = Math.floor(diff / 86400000)
-  if (days < 1) return t('tenancy.settings.created')
-  if (days < 30) return `${days}d`
-  const months = Math.floor(days / 30)
-  return `${months}mo`
-}
+const { getRowActions, onAction } = useMemberActions({
+  api: { setRole: orgsApi.setRole, removeMember: orgsApi.removeMember },
+  queryKey: () => tenancyKeys.orgMembers(orgId.value),
+  qc,
+  currentUserId: () => session.me?.id,
+  canPromote: () => isOwnerOrOC.value,
+  canDemote: () => isOC.value,
+  canRemove: () => isOwnerOrOC.value,
+  removeMessage: () => t('tenancy.member.removeBody'),
+  errorMessage: () => t('tenancy.org.loadError'),
+})
 
 function isMe(member: OrgMember): boolean {
   return session.me?.id === member.user_id
-}
-
-function getRowActions(member: OrgMember): Array<{ key: string; label: string; danger?: boolean }> {
-  if (member.is_original_creator || isMe(member)) return []
-  const items: Array<{ key: string; label: string; danger?: boolean }> = []
-
-  if (member.role === 'member' && isOwnerOrOC.value) {
-    items.push({ key: 'promote', label: t('tenancy.role.owner') })
-  }
-  if (member.role === 'owner' && !member.is_original_creator && isOC.value) {
-    items.push({ key: 'demote', label: t('tenancy.role.member') })
-  }
-  if (!member.is_original_creator && isOwnerOrOC.value) {
-    items.push({ key: 'remove', label: t('tenancy.member.removeConfirm'), danger: true })
-  }
-  return items
 }
 
 async function onInvite(): Promise<void> {
@@ -116,57 +96,6 @@ async function onInvite(): Promise<void> {
     }
   } finally {
     invitePending.value = false
-  }
-}
-
-async function onAction(key: string, member: OrgMember): Promise<void> {
-  if (key === 'promote') {
-    const ok = await confirm({
-      title: t('tenancy.member.changeRoleTitle'),
-      message: t('tenancy.member.changeRoleBody', { email: member.email, role: t('tenancy.role.owner') }),
-      variant: 'info',
-    })
-    if (!ok) return
-    try {
-      await orgsApi.setRole(orgId.value, member.user_id, 'owner')
-      qc.invalidateQueries({ queryKey: tenancyKeys.orgMembers(orgId.value) })
-      toast.success(t('tenancy.member.roleChanged'))
-    } catch {
-      toast.error(t('tenancy.org.loadError'))
-    }
-  } else if (key === 'demote') {
-    const ok = await confirm({
-      title: t('tenancy.member.changeRoleTitle'),
-      message: t('tenancy.member.changeRoleBody', { email: member.email, role: t('tenancy.role.member') }),
-      variant: 'info',
-    })
-    if (!ok) return
-    try {
-      await orgsApi.setRole(orgId.value, member.user_id, 'member')
-      qc.invalidateQueries({ queryKey: tenancyKeys.orgMembers(orgId.value) })
-      toast.success(t('tenancy.member.roleChanged'))
-    } catch {
-      toast.error(t('tenancy.org.loadError'))
-    }
-  } else if (key === 'remove') {
-    const ok = await confirm({
-      title: t('tenancy.member.removeTitle'),
-      message: t('tenancy.member.removeBody'),
-      variant: 'error',
-      confirmLabel: t('tenancy.member.removeConfirm'),
-    })
-    if (!ok) return
-    try {
-      await orgsApi.removeMember(orgId.value, member.user_id)
-      qc.invalidateQueries({ queryKey: tenancyKeys.orgMembers(orgId.value) })
-      toast.success(t('tenancy.member.removed'))
-    } catch (e: unknown) {
-      if (isProblemWithType(e, '/tenancy/original-creator-conflict')) {
-        toast.error(t('tenancy.member.cannotRemoveOC'))
-      } else {
-        toast.error(t('tenancy.org.loadError'))
-      }
-    }
   }
 }
 
@@ -279,7 +208,7 @@ const breadcrumbs = computed(() => [
 
       <template #cell-role="{ row }">
         <SBadge :variant="roleBadgeVariant(row as OrgMember)">
-          {{ roleLabel(row as OrgMember) }}
+          {{ roleLabel(row as OrgMember, t) }}
         </SBadge>
       </template>
 
@@ -291,7 +220,7 @@ const breadcrumbs = computed(() => [
         <SDropdown
           v-if="getRowActions(row as OrgMember).length > 0"
           :items="getRowActions(row as OrgMember)"
-          @select="(key: string) => onAction(key, row as OrgMember)"
+          @select="(key: string) => onAction(orgId, key, row as OrgMember)"
         >
           <template #trigger>
             <SButton
@@ -316,42 +245,5 @@ const breadcrumbs = computed(() => [
 </template>
 
 <style scoped>
-.invite-card {
-  margin-bottom: 24px;
-}
-
-.invite-form {
-  display: flex;
-  align-items: flex-end;
-  gap: 12px;
-}
-
-.invite-email {
-  flex: 1;
-}
-
-.invite-role {
-  width: 160px;
-}
-
-.invite-btn {
-  flex-shrink: 0;
-}
-
-.you-label {
-  color: var(--color-muted);
-  font-size: 0.875rem;
-  margin-left: 4px;
-}
-
-@media (max-width: 768px) {
-  .invite-form {
-    flex-direction: column;
-    align-items: stretch;
-  }
-
-  .invite-role {
-    width: 100%;
-  }
-}
+@import '../styles/member-form.css';
 </style>

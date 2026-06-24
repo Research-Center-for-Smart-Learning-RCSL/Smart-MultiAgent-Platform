@@ -14,6 +14,7 @@ import {
 } from '@heroicons/vue/24/outline'
 import { invitesApi, type Invite } from '../api/invites'
 import { tenancyKeys } from '../queries'
+import { formatDate } from '../utils/formatters'
 
 const { t } = useI18n()
 const toast = useToast()
@@ -40,7 +41,7 @@ function roleBadgeVariant(invite: Invite): 'info' | 'neutral' {
   return invite.role === 'owner' ? 'info' : 'neutral'
 }
 
-function roleLabel(invite: Invite): string {
+function inviteRoleLabel(invite: Invite): string {
   return invite.role === 'owner' ? t('tenancy.role.owner') : t('tenancy.role.member')
 }
 
@@ -50,10 +51,6 @@ function expiryClass(invite: Invite): string {
   if (hours <= 24) return 'expiry-danger'
   if (hours <= 48) return 'expiry-warning'
   return ''
-}
-
-function formatDate(d: string): string {
-  return d.slice(0, 10)
 }
 
 async function accept(invite: Invite): Promise<void> {
@@ -184,7 +181,7 @@ const breadcrumbs = computed(() => [
           <div class="invite-role-row">
             <span class="meta-label">{{ t('tenancy.invite.invitedAs') }}:</span>
             <SBadge :variant="roleBadgeVariant(invite)">
-              {{ roleLabel(invite) }}
+              {{ inviteRoleLabel(invite) }}
             </SBadge>
           </div>
           <div class="invite-expiry-row">
