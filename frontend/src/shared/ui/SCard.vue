@@ -1,18 +1,48 @@
 <script setup lang="ts">
 defineProps<{
-  padding?: 'compact' | 'default'
-  variant?: 'default' | 'surface'
+  variant?: 'default' | 'elevated' | 'bordered' | 'flat'
+  padding?: 'none' | 'sm' | 'md' | 'lg'
 }>()
 </script>
 
 <template>
   <div
-    class="rounded-md border border-border"
+    class="s-card"
     :class="[
-      (padding ?? 'default') === 'compact' ? 'p-3' : 'p-4',
-      (variant ?? 'default') === 'surface' ? 'bg-surface' : 'bg-bg',
+      `s-card--${variant ?? 'default'}`,
+      `s-card--pad-${padding ?? 'md'}`,
     ]"
   >
     <slot />
   </div>
 </template>
+
+<style scoped>
+.s-card {
+  border-radius: var(--radius-md);
+}
+
+.s-card--default {
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+}
+
+.s-card--elevated {
+  background: var(--color-bg);
+  box-shadow: var(--shadow-sm);
+}
+
+.s-card--bordered {
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+}
+
+.s-card--flat {
+  background: var(--color-surface);
+}
+
+.s-card--pad-none { padding: 0; }
+.s-card--pad-sm { padding: 12px; }
+.s-card--pad-md { padding: 16px; }
+.s-card--pad-lg { padding: 24px; }
+</style>
