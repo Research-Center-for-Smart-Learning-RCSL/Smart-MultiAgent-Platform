@@ -99,7 +99,7 @@ services:
     restart: unless-stopped
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 2
     environment:
-      SMAP_APP_ENV: staging
+      SMAP_APP_ENV: prod
       SMAP_APP_DOCS_ENABLED: "true"
       SMAP_LOG_LEVEL: info
       DOCKER_HOST: tcp://docker-socket-proxy:2375
@@ -122,7 +122,7 @@ services:
     <<: *security-defaults
     restart: unless-stopped
     environment:
-      SMAP_APP_ENV: staging
+      SMAP_APP_ENV: prod
       DOCKER_HOST: tcp://docker-socket-proxy:2375
       SMAP_VAULT_ADDR: https://vault:8200
       SMAP_VAULT_CA_CERT: /vault-tls/vault-internal-ca.pem
