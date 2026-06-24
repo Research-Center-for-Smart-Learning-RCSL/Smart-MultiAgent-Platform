@@ -104,9 +104,13 @@ async def query_audit(
 async def export_audit(
     actor_user_id: uuid.UUID | None = Query(None),
     resource_type: str | None = Query(None),
+    resource_id: uuid.UUID | None = Query(None),
     action: str | None = Query(None),
     from_ts: datetime | None = Query(None, alias="from"),
     to_ts: datetime | None = Query(None, alias="to"),
+    ip_prefix: str | None = Query(None),
+    session_id: uuid.UUID | None = Query(None),
+    request_id: uuid.UUID | None = Query(None),
     admin: Principal = Depends(require_admin),
     ctx: RequestContext = Depends(current_context),
     db: AsyncSession = Depends(db_session),
@@ -121,9 +125,13 @@ async def export_audit(
     filters = AuditFilter(
         actor_user_id=actor_user_id,
         resource_type=resource_type,
+        resource_id=resource_id,
         action=action,
         from_ts=from_ts,
         to_ts=to_ts,
+        ip_prefix=ip_prefix,
+        session_id=session_id,
+        request_id=request_id,
     )
     facade = AuditFacade(db)
     csv_bytes = await facade.export_csv(filters, max_rows=_MAX_EXPORT_ROWS)

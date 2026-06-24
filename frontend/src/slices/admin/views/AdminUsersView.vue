@@ -21,6 +21,9 @@
         <option value="active">
           {{ $t('admin.users.statusActive') }}
         </option>
+        <option value="pending">
+          {{ $t('admin.users.statusPending') }}
+        </option>
         <option value="banned">
           {{ $t('admin.users.statusBanned') }}
         </option>
