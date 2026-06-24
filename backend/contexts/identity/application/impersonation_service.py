@@ -40,6 +40,8 @@ class ImpersonationService:
         actor_ip: str | None,
         request_id: uuid.UUID | None = None,
     ) -> tuple[ImpersonationSession, str]:
+        if admin_user_id == target_user_id:
+            raise ValueError("Cannot impersonate yourself")
         target_exists = (
             await self._db.execute(t.users.select().where(t.users.c.id == target_user_id))
         ).first()

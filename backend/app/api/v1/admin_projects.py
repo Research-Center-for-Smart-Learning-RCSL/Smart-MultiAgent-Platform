@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query
 from pydantic import BaseModel
@@ -84,7 +85,7 @@ async def list_projects(
 
 @router.post("/restore/{resource_type}/{resource_id}")
 async def restore_resource(
-    resource_type: str = Path(...),
+    resource_type: Literal["user", "org", "project"] = Path(...),
     resource_id: uuid.UUID = Path(...),
     admin: Principal = Depends(require_admin),
     ctx: RequestContext = Depends(current_context),

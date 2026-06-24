@@ -53,9 +53,7 @@ async def list_orgs(
         q = sa.text(
             "SELECT id, name, creator_user_id, deleted_at, created_at "
             "FROM orgs "
-            "WHERE created_at < COALESCE("
-            "  (SELECT created_at FROM orgs WHERE id = :cursor), '1970-01-01'::timestamptz"
-            ") "
+            "WHERE created_at < (SELECT created_at FROM orgs WHERE id = :cursor) "
             "OR (created_at = (SELECT created_at FROM orgs WHERE id = :cursor) AND id < :cursor) "
             "ORDER BY created_at DESC, id DESC LIMIT :limit"
         ).bindparams(limit=limit, cursor=cursor)

@@ -114,6 +114,8 @@ class AdminService:
         actor_ip: str | None,
         request_id: uuid.UUID | None = None,
     ) -> None:
+        if admin_user_id == target_user_id:
+            raise ValueError("Cannot ban yourself")
         await self._require_user(target_user_id)
         await self._users.ban(target_user_id, reason)
         await self._invalidate_user_sessions(target_user_id)
@@ -140,6 +142,7 @@ class AdminService:
             title="Your account has been suspended",
             body=reason,
             metadata={"reason": reason},
+            dedup_key=f"ban:{target_user_id}:{request_id or uuid.uuid4()}",
         )
 
     async def unban_user(
@@ -172,6 +175,8 @@ class AdminService:
         actor_ip: str | None,
         request_id: uuid.UUID | None = None,
     ) -> None:
+        if admin_user_id == target_user_id:
+            raise ValueError("Cannot delete yourself")
         await self._require_user(target_user_id)
         await self._users.soft_delete(target_user_id)
         await self._invalidate_user_sessions(target_user_id)
@@ -195,6 +200,8 @@ class AdminService:
         actor_ip: str | None,
         request_id: uuid.UUID | None = None,
     ) -> None:
+        if admin_user_id == target_user_id:
+            raise ValueError("Cannot delete yourself")
         from contexts.tenancy.interfaces.facade import TenancyFacade
 
         user = await self._users.get_by_id(target_user_id)

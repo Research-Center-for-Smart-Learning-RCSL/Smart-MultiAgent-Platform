@@ -440,9 +440,27 @@ async def _scrub_stale_presence(session: AsyncSession) -> int:
     return removed
 
 
+async def _purge_read_notifications(session: AsyncSession) -> int:
+    """Hard-delete read notifications older than 90 days."""
+    cutoff = now() - timedelta(days=90)
+    result = await session.execute(
+        sa.text(
+            "DELETE FROM notifications WHERE read_at IS NOT NULL AND created_at < :cutoff "
+            "AND id IN ("
+            "  SELECT id FROM notifications "
+            "  WHERE read_at IS NOT NULL AND created_at < :cutoff LIMIT 1000"
+            ")"
+        ).bindparams(cutoff=cutoff)
+    )
+    count = result.rowcount or 0  # type: ignore[attr-defined]
+    await _emit_summary(session, "retention.notifications.swept", count)
+    return count
+
+
 _POLICIES = [
     ("messages", _purge_messages),
     ("message_attachments", _purge_message_attachments),
+    ("notifications", _purge_read_notifications),
     ("audit_logs", _purge_audit_logs),
     ("workflow_runs", _archive_workflow_runs),
     ("key_usage_events", _rollup_key_usage_events),

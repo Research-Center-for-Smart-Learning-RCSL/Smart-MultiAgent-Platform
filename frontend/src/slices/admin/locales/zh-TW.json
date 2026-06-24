@@ -24,6 +24,7 @@
       "searchPlaceholder": "以 email 搜尋...",
       "allStatuses": "所有狀態",
       "statusActive": "啟用",
+      "statusPending": "待驗證",
       "statusBanned": "已封鎖",
       "statusDeleted": "已刪除",
       "search": "搜尋",

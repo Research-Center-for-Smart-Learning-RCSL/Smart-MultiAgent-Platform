@@ -30,6 +30,7 @@ from sqlalchemy.dialects import postgresql as pg
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from shared_kernel.db import metadata
+from shared_kernel.realtime.pubsub import Publisher
 
 # ---------------------------------------------------------------------------
 # Table
@@ -68,6 +69,7 @@ _SECRET_SHAPE_RES: Final[tuple[re.Pattern[str], ...]] = (
 )
 
 _REDACTED: Final = "<redacted>"
+_AUDIT_TAIL_CHANNEL: Final = "ws:audit:tail"
 
 
 def redact(value: Any) -> Any:
@@ -129,6 +131,18 @@ async def emit(session: AsyncSession, event: AuditEvent) -> None:
             request_id=event.request_id,
         ),
     )
+    try:
+        await Publisher(_AUDIT_TAIL_CHANNEL).emit(
+            "audit_event",
+            {
+                "action": event.action,
+                "actor_user_id": str(event.actor_user_id) if event.actor_user_id else None,
+                "resource_type": event.resource_type,
+                "resource_id": str(event.resource_id) if event.resource_id else None,
+            },
+        )
+    except Exception:  # noqa: BLE001
+        pass
 
 
 __all__ = ["AuditEvent", "audit_logs", "emit", "redact"]

@@ -23,28 +23,33 @@ export function useAdminActions() {
     if (reason) banUser.mutate({ userId, reason })
   }
 
+  const _invalidateUserQueries = () => {
+    qc.invalidateQueries({ queryKey: ['admin', 'users'] })
+    qc.invalidateQueries({ queryKey: ['admin', 'user'] })
+  }
+
   const banUser = useMutation({
     mutationFn: ({ userId, reason }: { userId: string; reason: string }) =>
       adminApi.banUser(userId, reason),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['admin', 'users'] }),
+    onSuccess: _invalidateUserQueries,
     onError: () => toast.error(t('admin.actionErrors.banFailed')),
   })
 
   const unbanUser = useMutation({
     mutationFn: (userId: string) => adminApi.unbanUser(userId),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['admin', 'users'] }),
+    onSuccess: _invalidateUserQueries,
     onError: () => toast.error(t('admin.actionErrors.unbanFailed')),
   })
 
   const softDeleteUser = useMutation({
     mutationFn: (userId: string) => adminApi.softDeleteUser(userId),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['admin', 'users'] }),
+    onSuccess: _invalidateUserQueries,
     onError: () => toast.error(t('admin.actionErrors.deleteFailed')),
   })
 
   const hardDeleteUser = useMutation({
     mutationFn: (userId: string) => adminApi.hardDeleteUser(userId),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['admin', 'users'] }),
+    onSuccess: _invalidateUserQueries,
     onError: () => toast.error(t('admin.actionErrors.hardDeleteFailed')),
   })
 
