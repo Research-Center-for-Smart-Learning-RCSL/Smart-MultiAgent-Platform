@@ -11,12 +11,16 @@ const { isDesktop } = useBreakpoint()
 
 const manualCollapsed = ref(false)
 
-const autoCollapsed = computed(() => {
+const isImmersiveRoute = computed(() => {
   const path = route.path
   if (/^\/chatrooms\/[^/]+$/.test(path)) return true
   if (/\/workflows\/[^/]+\/edit$/.test(path)) return true
   return false
 })
+
+const autoCollapsed = computed(() =>
+  isImmersiveRoute.value || route.meta.sidebarCollapsed === true,
+)
 
 const sidebarCollapsed = computed(
   () => !isDesktop.value || autoCollapsed.value || manualCollapsed.value,
@@ -39,12 +43,9 @@ watch(
   },
 )
 
-const noPadding = computed(() => {
-  if (route.meta.contentPadding === 'none') return true
-  if (/^\/chatrooms\/[^/]+$/.test(route.path)) return true
-  if (/\/workflows\/[^/]+\/edit$/.test(route.path)) return true
-  return false
-})
+const noPadding = computed(() =>
+  route.meta.contentPadding === 'none' || isImmersiveRoute.value,
+)
 </script>
 
 <template>

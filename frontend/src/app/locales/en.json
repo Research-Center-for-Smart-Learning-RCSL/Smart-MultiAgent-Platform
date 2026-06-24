@@ -1,8 +1,6 @@
 {
   "app": {
     "title": "SMAP",
-    "landingMessage": "Welcome to SMAP.",
-    "notFound": "Page not found.",
     "notFoundTitle": "Page Not Found",
     "notFoundText": "The page you're looking for doesn't exist or has been moved.",
     "backToHome": "Go Home",
@@ -29,8 +27,7 @@
       "logIn": "Log In"
     },
     "topbar": {
-      "toggleSidebar": "Toggle sidebar",
-      "home": "SMAP"
+      "toggleSidebar": "Toggle sidebar"
     },
     "sidebar": {
       "orgs": "Organizations",
@@ -48,6 +45,7 @@
       "mcpAllowlist": "MCP Allowlist",
       "recentChatrooms": "Recent Chatrooms",
       "noChatrooms": "No chatrooms yet",
+      "loadError": "Failed to load",
       "admin": "Admin Console"
     },
     "switcher": {
@@ -56,7 +54,7 @@
       "projects": "Projects",
       "createOrg": "Create Organization",
       "createProject": "Create Project",
-      "noProjects": "No projects yet"
+      "loadError": "Failed to load"
     },
     "userMenu": {
       "account": "Account Settings",
