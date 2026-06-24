@@ -4,8 +4,10 @@ export interface Org {
   id: string
   name: string
   creator_user_id: string
+  default_project_id?: string | null
   version: number
   created_at: string
+  deleted_at?: string | null
 }
 
 export interface OrgMember {
@@ -45,6 +47,7 @@ export const orgsApi = {
   rename: (id: string, name: string, version: number) =>
     http.patch<Org>(`/orgs/${id}`, { name }, { headers: { 'If-Match': String(version) } }),
   remove: (id: string) => http.delete(`/orgs/${id}`),
+  restore: (id: string) => http.post<Org>(`/orgs/${id}/restore`),
   quotas: (id: string) => http.get<OrgQuotas>(`/orgs/${id}/quotas`),
 
   listMembers: (id: string) => http.get<OrgMember[]>(`/orgs/${id}/members`),
