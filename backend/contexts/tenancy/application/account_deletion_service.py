@@ -11,6 +11,7 @@ import uuid
 import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from contexts.tenancy.domain.errors import MemberNotFound, OriginalCreatorConflict
 from contexts.tenancy.domain.models import Project
 from contexts.tenancy.infrastructure import tables as t
 from contexts.tenancy.infrastructure.repositories import (
@@ -112,6 +113,9 @@ class AccountDeletionService:
             )
             projects_left += 1
 
+        invites_revoked = await self._invites.revoke_pending_by_inviter(user_id)
+        transfers_cancelled = await self._transfers.cancel_pending_for_user(user_id)
+
         for org_id, projects in solo_org_projects.items():
             for project in projects:
                 await proj_svc.soft_delete(
@@ -136,11 +140,8 @@ class AccountDeletionService:
                     actor_ip=actor_ip,
                     request_id=request_id,
                 )
-            except Exception:
+            except (MemberNotFound, OriginalCreatorConflict):
                 await self._org_members.remove(org_id=org_id, user_id=user_id)
-
-        invites_revoked = await self._invites.revoke_pending_by_inviter(user_id)
-        transfers_cancelled = await self._transfers.cancel_pending_for_user(user_id)
 
         return {
             "projects_deleted": len(owned),
@@ -160,16 +161,27 @@ class AccountDeletionService:
     ) -> None:
         """Remove all FK RESTRICT references to the user before hard-delete.
 
-        Reassigns historical creator/created_by references to *reassign_to_user_id*
-        (typically the admin performing the hard-delete) so the referencing rows
-        remain valid.  OC transfer records are deleted outright since they carry
-        no business value after both soft-delete + 60-day grace.
+        Soft-deleted orgs/projects are hard-deleted outright (GDPR purge);
+        their FK CASCADE constraints clean up child rows automatically.
+        Active rows that still reference the user (edge case if cascade was
+        incomplete) are reassigned to *reassign_to_user_id*.
         """
         await self._db.execute(
             t.original_creator_transfers.delete().where(
                 sa.or_(
                     t.original_creator_transfers.c.initiator_user_id == user_id,
                     t.original_creator_transfers.c.target_user_id == user_id,
+                )
+            )
+        )
+        await self._db.execute(
+            t.projects.delete().where(
+                sa.and_(
+                    sa.or_(
+                        t.projects.c.owner_user_id == user_id,
+                        t.projects.c.created_by_user_id == user_id,
+                    ),
+                    t.projects.c.deleted_at.isnot(None),
                 )
             )
         )
@@ -182,6 +194,14 @@ class AccountDeletionService:
             t.projects.update()
             .where(t.projects.c.created_by_user_id == user_id)
             .values(created_by_user_id=reassign_to_user_id)
+        )
+        await self._db.execute(
+            t.orgs.delete().where(
+                sa.and_(
+                    t.orgs.c.creator_user_id == user_id,
+                    t.orgs.c.deleted_at.isnot(None),
+                )
+            )
         )
         await self._db.execute(
             t.orgs.update()

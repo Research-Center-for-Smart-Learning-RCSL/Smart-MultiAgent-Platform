@@ -82,4 +82,17 @@ class TenancyFacade:
         )
 
 
+    async def prepare_hard_delete(
+        self,
+        *,
+        user_id: uuid.UUID,
+        reassign_to_user_id: uuid.UUID,
+    ) -> None:
+        """Remove FK RESTRICT references before hard-deleting a user row."""
+        await self._account_deletion.prepare_hard_delete(
+            user_id=user_id,
+            reassign_to_user_id=reassign_to_user_id,
+        )
+
+
 __all__ = ["TenancyFacade"]

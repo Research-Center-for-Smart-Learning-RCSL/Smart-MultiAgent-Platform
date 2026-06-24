@@ -145,10 +145,18 @@ class OrgService:
         actor_ip: str | None,
         request_id: uuid.UUID | None = None,
     ) -> None:
+        from contexts.tenancy.application.project_service import ProjectService
+
+        proj_svc = ProjectService(self._db)
         org_projects = await self._projects.list_by_org(org_id)
         invite_repo = InviteRepository(self._db)
         for project in org_projects:
-            await self._projects.soft_delete(project.id)
+            await proj_svc.soft_delete(
+                project_id=project.id,
+                actor_user_id=actor_user_id,
+                actor_ip=actor_ip,
+                request_id=request_id,
+            )
             await invite_repo.revoke_pending_for_scope(
                 scope_type=InviteScope.PROJECT, scope_id=project.id,
             )
