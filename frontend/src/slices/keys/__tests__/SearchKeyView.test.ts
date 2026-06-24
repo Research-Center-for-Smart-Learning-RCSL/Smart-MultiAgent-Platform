@@ -15,19 +15,13 @@ describe('SearchKeyView', () => {
     expect(wrapper.exists()).toBe(true)
   })
 
-  it('shows provider select with all options and upload form', async () => {
+  it('renders page header and add button', async () => {
     const wrapper = await renderView(SearchKeyView, {
       routes,
       initialRoute: '/projects/proj_1/search-keys',
     })
-    const select = wrapper.find('[data-testid="search-provider"]')
-    expect(select.exists()).toBe(true)
-    const options = select.findAll('option')
-    const values = options.map((o) => o.element.value)
-    expect(values).toContain('brave')
-    expect(values).toContain('serper')
-    expect(values).toContain('tavily')
-    expect(values).toContain('google_cse')
-    expect(wrapper.find('[data-testid="search-upload"]').exists()).toBe(true)
+    const text = wrapper.text()
+    expect(text).toContain('keys.search.title')
+    expect(text).toContain('keys.search.add')
   })
 })

@@ -1,123 +1,213 @@
 <script setup lang="ts">
-import { SPageHeader } from '@shared/ui'
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { useConfirmDialog } from '@shared/composables'
+import {
+  PlusIcon,
+  EyeIcon,
+  ArrowPathIcon,
+  TrashIcon,
+  KeyIcon,
+  EllipsisVerticalIcon,
+} from '@heroicons/vue/24/outline'
+import {
+  SPageHeader,
+  STable,
+  SButton,
+  SDropdown,
+  SStatusBadge,
+  SEmptyState,
+  SAlert,
+} from '@shared/ui'
+import { useConfirmDialog, useToast } from '@shared/composables'
 import { useMyKeys } from '../composables/useMyKeys'
 import KeyUploadForm from '../components/KeyUploadForm.vue'
 import CapabilityChip from '../components/CapabilityChip.vue'
 import type { ApiKeyProvider } from '../api/keys'
+import type { Column } from '@shared/ui/STable.vue'
 
 const { t } = useI18n()
+const router = useRouter()
+const toast = useToast()
 const { confirm } = useConfirmDialog()
 const { keys, loading, error, reload, upload, retest, remove } = useMyKeys()
-const removingId = ref<string | null>(null)
+
+const showUpload = ref(false)
+const retestingId = ref<string | null>(null)
+
+const columns = computed<Column[]>(() => [
+  { key: 'provider', label: t('keys.list.provider'), width: '160px' },
+  { key: 'name', label: t('keys.list.name') },
+  { key: 'masked_preview', label: t('keys.list.preview'), width: '120px' },
+  { key: 'test_status', label: t('keys.list.status'), width: '120px', align: 'center' },
+  { key: 'actions', label: '', width: '80px', align: 'right' },
+])
+
+const actionItems = computed(() => [
+  { key: 'detail', label: t('keys.list.viewDetail'), icon: EyeIcon },
+  { key: 'retest', label: t('keys.list.retest'), icon: ArrowPathIcon },
+  { key: 'delete', label: t('keys.list.delete'), icon: TrashIcon, danger: true },
+])
 
 async function onUpload(p: { provider: ApiKeyProvider; name: string; secret: string }) {
-  await upload(p.provider, p.name, p.secret)
+  const result = await upload(p.provider, p.name, p.secret)
+  if (result) {
+    showUpload.value = false
+    toast.success(t('keys.form.uploaded'))
+  }
 }
 
-async function onRemove(id: string): Promise<void> {
+async function onRetest(id: string) {
+  retestingId.value = id
+  try {
+    await retest(id)
+    const key = keys.value.find((k) => k.id === id)
+    if (key?.test_status === 'ok') {
+      toast.success(t('keys.list.retestValid'))
+    } else if (key?.test_status === 'failed') {
+      toast.warning(t('keys.list.retestInvalid'))
+    }
+  } catch {
+    toast.error(t('keys.list.retestFailed'))
+  } finally {
+    retestingId.value = null
+  }
+}
+
+async function onDelete(id: string) {
+  const key = keys.value.find((k) => k.id === id)
   const ok = await confirm({
-    title: t('keys.list.deleteConfirmTitle'),
-    message: t('keys.list.deleteConfirm'),
-    confirmLabel: t('keys.list.delete'),
-    cancelLabel: t('app.cancel'),
-    variant: 'warning',
+    title: t('keys.list.deleteTitle'),
+    message: t('keys.list.deleteBody', { name: key?.name ?? '' }),
+    confirmLabel: t('keys.list.deleteConfirm'),
+    cancelLabel: t('keys.list.deleteCancel'),
+    variant: 'error',
   })
   if (!ok) return
-  removingId.value = id
-  try { await remove(id) } finally { removingId.value = null }
+  try {
+    await remove(id)
+    toast.success(t('keys.list.deleted'))
+  } catch {
+    toast.error(t('keys.list.deleteFailed'))
+  }
+}
+
+function onAction(key: string, row: { id: string }) {
+  if (key === 'detail') {
+    router.push({ name: 'keys.detail', params: { id: row.id } })
+  } else if (key === 'retest') {
+    void onRetest(row.id)
+  } else if (key === 'delete') {
+    void onDelete(row.id)
+  }
 }
 
 onMounted(reload)
 </script>
 
 <template>
-  <main class="key-list-view">
-    <SPageHeader :title="$t('keys.list.title')" />
-    <p
+  <main class="p-6">
+    <SPageHeader :title="$t('keys.list.title')">
+      <template #description>
+        {{ $t('keys.list.description') }}
+      </template>
+      <template #actions>
+        <SButton
+          variant="primary"
+          @click="showUpload = true"
+        >
+          <template #icon-left>
+            <PlusIcon class="w-4 h-4" />
+          </template>
+          {{ $t('keys.form.submit') }}
+        </SButton>
+      </template>
+    </SPageHeader>
+
+    <SAlert
       v-if="error"
-      class="error"
-      role="alert"
-      data-testid="key-error"
+      variant="danger"
+      class="mt-4"
     >
-      {{ error }}
-    </p>
+      {{ $t('keys.list.fetchError') }}
+    </SAlert>
 
-    <KeyUploadForm @submit="onUpload" />
-
-    <p v-if="loading">
-      {{ $t('keys.list.loading') }}
-    </p>
-    <div
-      v-else
-      class="overflow-x-auto"
+    <STable
+      :columns="columns"
+      :data="keys"
+      :loading="loading"
+      row-key="id"
+      class="mt-6"
     >
-      <table
-        class="table"
-        data-testid="key-list"
-      >
-        <thead>
-          <tr>
-            <th scope="col">
-              {{ $t('keys.list.provider') }}
-            </th>
-            <th scope="col">
-              {{ $t('keys.list.name') }}
-            </th>
-            <th scope="col">
-              {{ $t('keys.list.preview') }}
-            </th>
-            <th scope="col">
-              {{ $t('keys.list.status') }}
-            </th>
-            <th />
-          </tr>
-        </thead>
-        <tbody>
-          <tr
-            v-for="k in keys"
-            :key="k.id"
-            :data-testid="`key-row-${k.id}`"
-          >
-            <td><CapabilityChip :provider="k.provider" /></td>
-            <td>{{ k.name }}</td>
-            <!-- `masked_preview` is backend-generated; plaintext never exists on
-               the client after the upload form submits, so nothing to redact. -->
-            <td><code>{{ k.masked_preview }}</code></td>
-            <td :class="`status-${k.test_status}`">
-              {{ k.test_status }}
-              <small v-if="k.test_error"> — {{ k.test_error }}</small>
-            </td>
-            <td>
-              <button
-                class="btn btn-sm"
-                data-testid="retest"
-                @click="retest(k.id)"
-              >
-                {{ $t('keys.list.retest') }}
-              </button>
-              <button
-                class="btn btn-danger btn-sm"
-                data-testid="delete"
-                :disabled="removingId === k.id"
-                @click="onRemove(k.id)"
-              >
-                {{ $t('keys.list.delete') }}
-              </button>
-            </td>
-          </tr>
-          <tr v-if="keys.length === 0">
-            <td
-              colspan="5"
-              class="empty"
+      <template #cell-provider="{ row }">
+        <CapabilityChip :provider="row.provider" />
+      </template>
+
+      <template #cell-name="{ row }">
+        <span class="truncate max-w-[40ch] inline-block">{{ row.name }}</span>
+      </template>
+
+      <template #cell-masked_preview="{ row }">
+        <code
+          class="text-[13px] font-mono text-[var(--color-muted)]"
+          :aria-label="$t('keys.list.maskedKey')"
+        >{{ row.masked_preview }}</code>
+      </template>
+
+      <template #cell-test_status="{ row }">
+        <SStatusBadge
+          :status="row.test_status"
+          :aria-label="`${$t('keys.list.status')}: ${row.test_status}`"
+        />
+        <small
+          v-if="row.test_status === 'failed' && row.test_error"
+          class="block text-xs text-[var(--color-muted)] truncate max-w-[60ch]"
+          :title="row.test_error"
+        >
+          {{ row.test_error }}
+        </small>
+      </template>
+
+      <template #actions="{ row }">
+        <SDropdown
+          :items="actionItems"
+          placement="bottom-end"
+          @select="onAction($event, row)"
+        >
+          <template #trigger>
+            <SButton
+              variant="ghost"
+              icon-only
+              :aria-label="$t('keys.list.actions')"
             >
-              {{ $t('keys.list.empty') }}
-            </td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
+              <EllipsisVerticalIcon class="w-4 h-4" />
+            </SButton>
+          </template>
+        </SDropdown>
+      </template>
+
+      <template #empty>
+        <SEmptyState
+          :icon="KeyIcon"
+          :title="$t('keys.list.emptyTitle')"
+          :text="$t('keys.list.emptyDescription')"
+        >
+          <template #action>
+            <SButton
+              variant="primary"
+              @click="showUpload = true"
+            >
+              {{ $t('keys.form.submit') }}
+            </SButton>
+          </template>
+        </SEmptyState>
+      </template>
+    </STable>
+
+    <KeyUploadForm
+      :open="showUpload"
+      @close="showUpload = false"
+      @submit="onUpload"
+    />
   </main>
 </template>

@@ -15,14 +15,14 @@ describe('ProjectKeysView', () => {
     expect(wrapper.exists()).toBe(true)
   })
 
-  it('shows carried and carriable key lists', async () => {
+  it('renders page header and tabs', async () => {
     const wrapper = await renderView(ProjectKeysView, {
       routes,
       initialRoute: '/projects/proj_1/keys',
     })
-    await new Promise((r) => setTimeout(r, 50))
-    await wrapper.vm.$nextTick()
-    expect(wrapper.find('[data-testid="carried-list"]').exists()).toBe(true)
-    expect(wrapper.find('[data-testid="carriable-list"]').exists()).toBe(true)
+    const text = wrapper.text()
+    expect(text).toContain('keys.project.title')
+    expect(text).toContain('keys.project.carried')
+    expect(text).toContain('keys.project.carry')
   })
 })

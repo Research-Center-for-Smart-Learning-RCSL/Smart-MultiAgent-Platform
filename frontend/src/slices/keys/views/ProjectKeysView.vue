@@ -1,55 +1,98 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
-import { useToast } from '@shared/composables'
 import { useI18n } from 'vue-i18n'
+import {
+  KeyIcon,
+  PlusCircleIcon,
+  ChartBarIcon,
+  ArrowUturnLeftIcon,
+  InboxIcon,
+  CheckCircleIcon,
+} from '@heroicons/vue/24/outline'
+import {
+  SPageHeader,
+  STabs,
+  STable,
+  SButton,
+  SStatusBadge,
+  SEmptyState,
+  SAlert,
+} from '@shared/ui'
+import { useConfirmDialog, useToast } from '@shared/composables'
 import { useMyKeys } from '../composables/useMyKeys'
 import { useProjectKeys } from '../composables/useProjectKeys'
-import { projectKeysApi, type KeyUsage, type UsageWindow } from '../api/project-keys'
 import CapabilityChip from '../components/CapabilityChip.vue'
+import UsageDashboard from '../components/UsageDashboard.vue'
+import type { Column } from '@shared/ui/STable.vue'
 
 const { t } = useI18n()
 const toast = useToast()
 const route = useRoute()
+const { confirm } = useConfirmDialog()
 const projectId = computed(() => route.params.projectId as string)
 
 const { keys: myKeys, reload: reloadMine } = useMyKeys()
-const { carried, error, reload, carry, withdraw } = useProjectKeys(
+const { carried, loading, error, reload, carry, withdraw } = useProjectKeys(
   () => projectId.value,
 )
+
+const activeTab = ref('carried')
+const expandedKeyId = ref<string | null>(null)
 
 const carriable = computed(() =>
   myKeys.value.filter((m) => !carried.value.some((c) => c.id === m.id)),
 )
 
-// Per-key usage panel (R7.05): a window selector + the aggregate counts. One map
-// owns both the selected window and its loaded result so they can't drift; the
-// counts are loaded on demand and cleared when the window changes (so stale
-// numbers are never shown against a different window).
-const WINDOWS: UsageWindow[] = ['1h', '24h', '7d', '30d']
-interface UsageState {
-  window: UsageWindow
-  usage?: KeyUsage
-}
-const usageState = ref<Record<string, UsageState>>({})
+const tabs = computed(() => [
+  { key: 'carried', label: t('keys.project.carried'), icon: KeyIcon, badge: String(carried.value.length) },
+  { key: 'available', label: t('keys.project.carry'), icon: PlusCircleIcon, badge: String(carriable.value.length) },
+])
 
-function windowOf(keyId: string): UsageWindow {
-  return usageState.value[keyId]?.window ?? '1h'
+const carriedColumns = computed<Column[]>(() => [
+  { key: 'provider', label: t('keys.project.provider'), width: '140px' },
+  { key: 'name', label: t('keys.project.name') },
+  { key: 'masked_preview', label: t('keys.project.preview'), width: '110px' },
+  { key: 'test_status', label: t('keys.project.status'), width: '100px', align: 'center' },
+  { key: 'usage', label: t('keys.project.usage'), width: '120px', align: 'center' },
+  { key: 'actions', label: '', width: '100px', align: 'right' },
+])
+
+const availableColumns = computed<Column[]>(() => [
+  { key: 'provider', label: t('keys.project.provider'), width: '140px' },
+  { key: 'name', label: t('keys.project.name') },
+  { key: 'masked_preview', label: t('keys.project.preview'), width: '110px' },
+  { key: 'test_status', label: t('keys.project.status'), width: '100px', align: 'center' },
+  { key: 'actions', label: '', width: '100px', align: 'right' },
+])
+
+function toggleUsage(keyId: string) {
+  expandedKeyId.value = expandedKeyId.value === keyId ? null : keyId
 }
 
-function onWindowChange(keyId: string, ev: Event): void {
-  const w = (ev.target as HTMLSelectElement).value as UsageWindow
-  // Drop any previously-loaded counts so they aren't shown against the new window.
-  usageState.value = { ...usageState.value, [keyId]: { window: w } }
-}
-
-async function loadUsage(keyId: string): Promise<void> {
-  const w = windowOf(keyId)
+async function onWithdraw(keyId: string) {
+  const ok = await confirm({
+    title: t('keys.project.withdrawTitle'),
+    message: t('keys.project.withdrawBody'),
+    confirmLabel: t('keys.project.withdraw'),
+    variant: 'warning',
+  })
+  if (!ok) return
   try {
-    const { data } = await projectKeysApi.usage(projectId.value, keyId, w)
-    usageState.value = { ...usageState.value, [keyId]: { window: w, usage: data } }
+    await withdraw(keyId)
+    toast.success(t('keys.project.withdrawn'))
+    if (expandedKeyId.value === keyId) expandedKeyId.value = null
   } catch {
-    toast.error(t('keys.project.usageError'))
+    toast.error(t('keys.project.withdrawFailed'))
+  }
+}
+
+async function onCarry(keyId: string) {
+  try {
+    await carry(keyId)
+    toast.success(t('keys.project.carried'))
+  } catch {
+    toast.error(t('keys.project.carryFailed'))
   }
 }
 
@@ -62,95 +105,150 @@ watch(projectId, async () => {
 </script>
 
 <template>
-  <main class="project-keys-view">
-    <h1>{{ $t('keys.project.title') }}</h1>
-    <p
+  <main class="p-6">
+    <SPageHeader :title="$t('keys.project.title')">
+      <template #description>
+        {{ $t('keys.project.description') }}
+      </template>
+    </SPageHeader>
+
+    <SAlert
       v-if="error"
-      class="error"
-      role="alert"
+      variant="danger"
+      class="mt-4"
     >
-      {{ error }}
-    </p>
+      {{ $t('keys.project.fetchError') }}
+    </SAlert>
 
-    <section>
-      <h2>{{ $t('keys.project.carried') }}</h2>
-      <ul data-testid="carried-list">
-        <li
-          v-for="k in carried"
-          :key="k.id"
+    <STabs
+      v-model="activeTab"
+      :tabs="tabs"
+      class="mt-6"
+    >
+      <!-- Carried Keys tab -->
+      <template #tab-carried>
+        <STable
+          :columns="carriedColumns"
+          :data="carried"
+          :loading="loading"
+          row-key="id"
         >
-          <CapabilityChip :provider="k.provider" />
-          {{ k.name }}
-          <code>{{ k.masked_preview }}</code>
-          <button
-            data-testid="withdraw"
-            @click="withdraw(k.id)"
-          >
-            {{ $t('keys.project.withdraw') }}
-          </button>
-          <span class="usage-controls">
-            <select
-              :value="windowOf(k.id)"
-              :aria-label="$t('keys.project.usageWindow')"
-              @change="onWindowChange(k.id, $event)"
-            >
-              <option
-                v-for="w in WINDOWS"
-                :key="w"
-                :value="w"
-              >
-                {{ w }}
-              </option>
-            </select>
-            <button
-              data-testid="usage"
-              @click="loadUsage(k.id)"
-            >
-              {{ $t('keys.project.usage') }}
-            </button>
-          </span>
-          <span
-            v-if="usageState[k.id]?.usage"
-            class="usage"
-          >
-            {{ $t('keys.project.usageReq') }}: {{ usageState[k.id]!.usage!.requests }} ·
-            {{ $t('keys.project.usageIn') }}: {{ usageState[k.id]!.usage!.input_tokens }} ·
-            {{ $t('keys.project.usageOut') }}: {{ usageState[k.id]!.usage!.output_tokens }} ·
-            {{ $t('keys.project.usageErr') }}: {{ usageState[k.id]!.usage!.errors }}
-          </span>
-        </li>
-        <li
-          v-if="carried.length === 0"
-          class="empty"
-        >
-          {{ $t('keys.project.noneCarried') }}
-        </li>
-      </ul>
-    </section>
+          <template #cell-provider="{ row }">
+            <CapabilityChip :provider="row.provider" />
+          </template>
 
-    <section>
-      <h2>{{ $t('keys.project.carryNew') }}</h2>
-      <ul data-testid="carriable-list">
-        <li
-          v-for="k in carriable"
-          :key="k.id"
+          <template #cell-masked_preview="{ row }">
+            <code class="text-[13px] font-mono text-[var(--color-muted)]">{{ row.masked_preview }}</code>
+          </template>
+
+          <template #cell-test_status="{ row }">
+            <SStatusBadge :status="row.test_status" />
+          </template>
+
+          <template #cell-usage="{ row }">
+            <SButton
+              variant="ghost"
+              size="sm"
+              icon-only
+              :aria-label="$t('keys.project.usage')"
+              @click="toggleUsage(row.id)"
+            >
+              <ChartBarIcon class="w-4 h-4" />
+            </SButton>
+          </template>
+
+          <template #actions="{ row }">
+            <SButton
+              variant="ghost"
+              size="sm"
+              @click="onWithdraw(row.id)"
+            >
+              <template #icon-left>
+                <ArrowUturnLeftIcon class="w-4 h-4" />
+              </template>
+              {{ $t('keys.project.withdraw') }}
+            </SButton>
+          </template>
+
+          <template #empty>
+            <SEmptyState
+              :icon="InboxIcon"
+              :title="$t('keys.project.emptyCarried')"
+              :text="$t('keys.project.emptyCarriedDescription')"
+            >
+              <template #action>
+                <SButton
+                  variant="primary"
+                  @click="activeTab = 'available'"
+                >
+                  {{ $t('keys.project.carry') }}
+                </SButton>
+              </template>
+            </SEmptyState>
+          </template>
+        </STable>
+
+        <!-- Inline usage expansion -->
+        <div
+          v-if="expandedKeyId"
+          class="border border-[var(--color-border)] border-t-0 bg-[var(--color-surface)] rounded-b-[var(--radius-md)] px-6 py-4"
         >
-          <CapabilityChip :provider="k.provider" />
-          {{ k.name }}
-          <button
-            data-testid="carry"
-            @click="carry(k.id)"
-          >
-            {{ $t('keys.project.carry') }}
-          </button>
-        </li>
-        <li
-          v-if="carriable.length === 0"
-          class="empty"
+          <UsageDashboard
+            :project-id="projectId"
+            :key-id="expandedKeyId"
+            compact
+          />
+        </div>
+      </template>
+
+      <!-- Available Keys tab -->
+      <template #tab-available>
+        <STable
+          :columns="availableColumns"
+          :data="carriable"
+          row-key="id"
         >
-          {{ $t('keys.project.noneCarriable') }}
-        </li>
-      </ul>
-    </section>
+          <template #cell-provider="{ row }">
+            <CapabilityChip :provider="row.provider" />
+          </template>
+
+          <template #cell-masked_preview="{ row }">
+            <code class="text-[13px] font-mono text-[var(--color-muted)]">{{ row.masked_preview }}</code>
+          </template>
+
+          <template #cell-test_status="{ row }">
+            <SStatusBadge :status="row.test_status" />
+          </template>
+
+          <template #actions="{ row }">
+            <SButton
+              variant="primary"
+              size="sm"
+              @click="onCarry(row.id)"
+            >
+              {{ $t('keys.project.carryAction') }}
+            </SButton>
+          </template>
+
+          <template #empty>
+            <SEmptyState
+              :icon="CheckCircleIcon"
+              :title="$t('keys.project.emptyAvailable')"
+              :text="$t('keys.project.emptyAvailableDescription')"
+            >
+              <template #action>
+                <SButton
+                  variant="secondary"
+                  :to="{ name: 'keys.list' }"
+                  as="router-link"
+                >
+                  {{ $t('keys.form.submit') }}
+                </SButton>
+              </template>
+            </SEmptyState>
+          </template>
+        </STable>
+      </template>
+    </STabs>
   </main>
 </template>
