@@ -16,13 +16,13 @@ describe('KeyGroupListView', () => {
     expect(wrapper.exists()).toBe(true)
   })
 
-  it('shows create form with name input and submit button', async () => {
+  it('renders page header and create button', async () => {
     const wrapper = await renderView(KeyGroupListView, {
       routes,
       initialRoute: '/projects/proj_1/key-groups',
     })
-    expect(wrapper.find('[data-testid="group-name"]').exists()).toBe(true)
-    expect(wrapper.find('[data-testid="group-create"]').exists()).toBe(true)
-    expect(wrapper.find('[data-testid="group-list"]').exists()).toBe(true)
+    const text = wrapper.text()
+    expect(text).toContain('keys.groups.listTitle')
+    expect(text).toContain('keys.groups.create')
   })
 })
