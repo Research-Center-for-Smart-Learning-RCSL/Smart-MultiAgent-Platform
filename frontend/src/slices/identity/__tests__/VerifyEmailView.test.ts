@@ -19,7 +19,7 @@ describe('VerifyEmailView', () => {
   it('shows failure when no token is provided', async () => {
     const wrapper = await renderView(VerifyEmailView)
     await flushPromises()
-    expect(wrapper.find('.error').exists()).toBe(true)
+    expect(wrapper.text()).toContain('identity.verifyEmail.invalidToken')
   })
 
   it('shows success when token is valid', async () => {

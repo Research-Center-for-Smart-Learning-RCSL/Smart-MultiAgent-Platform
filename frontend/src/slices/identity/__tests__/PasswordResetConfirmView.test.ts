@@ -1,23 +1,26 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, beforeEach } from 'vitest'
 import { renderView } from '../../../../tests/utils'
 import PasswordResetConfirmView from '../views/PasswordResetConfirmView.vue'
 
 describe('PasswordResetConfirmView', () => {
+  beforeEach(() => {
+    window.location.hash = ''
+  })
+
   it('renders without errors', async () => {
     const wrapper = await renderView(PasswordResetConfirmView)
     expect(wrapper.exists()).toBe(true)
   })
 
-  it('shows password input field', async () => {
+  it('shows password input fields when token is present', async () => {
+    window.location.hash = '#token=test-token'
     const wrapper = await renderView(PasswordResetConfirmView)
-    expect(wrapper.find('input[type="password"]').exists()).toBe(true)
+    const inputs = wrapper.findAll('input[type="password"]')
+    expect(inputs.length).toBe(2)
   })
 
-  it('shows error when submitting without token', async () => {
+  it('shows invalid link message when no token is provided', async () => {
     const wrapper = await renderView(PasswordResetConfirmView)
-    await wrapper.find('input[type="password"]').setValue('newpassword123')
-    await wrapper.find('form').trigger('submit')
-    expect(wrapper.find('.error').exists()).toBe(true)
-    expect(wrapper.find('.error').text()).toBe('identity.errors.generic')
+    expect(wrapper.text()).toContain('identity.passwordReset.invalidLink')
   })
 })

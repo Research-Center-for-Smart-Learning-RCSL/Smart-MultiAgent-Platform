@@ -1,5 +1,9 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted, watch, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
+import { SLoadingSpinner } from '@shared/ui'
+
+const { t } = useI18n()
 
 const props = defineProps<{
   provider: 'hcaptcha' | 'turnstile' | 'off'
@@ -8,12 +12,15 @@ const props = defineProps<{
 const emit = defineEmits<{ (e: 'update:token', token: string): void }>()
 
 const container = ref<HTMLElement | null>(null)
+const scriptLoading = ref(false)
+const scriptFailed = ref(false)
 
 interface CaptchaApi {
   render: (
     el: HTMLElement,
     opts: {
       sitekey: string
+      theme?: string
       callback: (token: string) => void
       'expired-callback'?: () => void
       'error-callback'?: () => void
@@ -31,14 +38,15 @@ const SCRIPTS: Record<string, { src: string; global: string }> = {
   },
 }
 
-// The id returned by render(), plus the global whose .remove() can clean it up.
-// Tracking both lets us tear the widget down before re-rendering — otherwise the
-// provider throws "captcha already rendered into this element".
 let widgetId: string | number | null = null
 let widgetGlobal: string | null = null
 
 function getApi(global: string): CaptchaApi | undefined {
   return (window as unknown as Record<string, CaptchaApi | undefined>)[global]
+}
+
+function isDarkMode(): boolean {
+  return document.documentElement.getAttribute('data-theme') === 'dark'
 }
 
 function destroyWidget(): void {
@@ -47,8 +55,7 @@ function destroyWidget(): void {
   try {
     api?.remove?.(widgetId)
   } catch {
-    // Best-effort: the provider may have already torn it down (e.g. on script
-    // reload). Fall through to clearing the container so a re-render is clean.
+    // Best-effort cleanup
   }
   if (container.value) container.value.innerHTML = ''
   widgetId = null
@@ -56,21 +63,25 @@ function destroyWidget(): void {
 }
 
 async function renderWidget(): Promise<void> {
-  // Always tear down any prior widget first so a provider/sitekey change (or an
-  // async config arrival) re-renders cleanly instead of stacking widgets.
   destroyWidget()
+  scriptFailed.value = false
   if (props.provider === 'off' || !props.sitekey || !container.value) return
   const meta = SCRIPTS[props.provider]
   if (!meta) return
+  scriptLoading.value = true
   try {
     await loadScript(meta.src)
   } catch {
-    return // network/CSP failure — leave the slot empty rather than throwing
+    scriptLoading.value = false
+    scriptFailed.value = true
+    return
   }
+  scriptLoading.value = false
   const api = getApi(meta.global)
   if (!api || !container.value) return
   widgetId = api.render(container.value, {
     sitekey: props.sitekey,
+    theme: isDarkMode() ? 'dark' : 'light',
     callback: (token: string) => emit('update:token', token),
     'expired-callback': () => emit('update:token', ''),
     'error-callback': () => emit('update:token', ''),
@@ -95,23 +106,50 @@ function loadScript(src: string): Promise<void> {
 }
 
 onMounted(renderWidget)
-// Re-render if the config arrives asynchronously after first paint, or if the
-// provider/sitekey changes — destroyWidget() inside renderWidget handles teardown.
 watch(
   () => [props.provider, props.sitekey],
-  () => {
-    void renderWidget()
-  },
+  () => { void renderWidget() },
 )
-// Clean up on unmount so leaving the page doesn't leak the widget/iframe.
 onUnmounted(destroyWidget)
 </script>
 
 <template>
   <div
     v-if="provider !== 'off'"
-    ref="container"
-    class="captcha-widget"
+    class="captcha-container"
+    :aria-label="t('identity.register.captchaLabel')"
     data-testid="captcha-widget"
-  />
+  >
+    <SLoadingSpinner
+      v-if="scriptLoading"
+      size="sm"
+      :text="t('identity.register.captchaLoading')"
+    />
+    <p
+      v-else-if="scriptFailed"
+      class="captcha-fallback"
+    >
+      {{ t('identity.register.captchaFallback') }}
+    </p>
+    <div
+      v-show="!scriptLoading && !scriptFailed"
+      ref="container"
+      class="captcha-widget"
+    />
+  </div>
 </template>
+
+<style scoped>
+.captcha-container {
+  display: flex;
+  justify-content: center;
+  min-height: 78px;
+  align-items: center;
+}
+
+.captcha-fallback {
+  font-size: 0.75rem;
+  color: var(--color-muted);
+  text-align: center;
+}
+</style>

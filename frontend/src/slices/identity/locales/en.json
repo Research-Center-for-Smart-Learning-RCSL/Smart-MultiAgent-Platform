@@ -1,71 +1,131 @@
 {
   "identity": {
     "register": {
-      "title": "Create account",
+      "title": "Create Account",
       "email": "Email",
       "password": "Password",
-      "submit": "Register",
-      "captcha": "Complete CAPTCHA",
-      "captchaPlaceholder": "Paste CAPTCHA token here",
-      "loginLink": "Already have an account? Log in"
+      "passwordHelp": "At least 10 characters with a letter, digit, and symbol.",
+      "submit": "Create Account",
+      "submitting": "Creating account...",
+      "loginPrompt": "Already have an account?",
+      "loginLink": "Log in",
+      "captchaLoading": "Loading security check...",
+      "captchaLabel": "Security verification",
+      "captchaFallback": "Security check unavailable. Please try again later."
     },
     "login": {
-      "title": "Log in",
+      "title": "Log In",
       "email": "Email",
       "password": "Password",
-      "submit": "Log in",
-      "registerLink": "Create account",
-      "forgot": "Forgot password?"
+      "submit": "Log In",
+      "submitting": "Logging in...",
+      "forgot": "Forgot password?",
+      "registerPrompt": "Don't have an account?",
+      "registerLink": "Register",
+      "pendingVerify": "Check your email and click the verification link before logging in.",
+      "passwordResetSuccess": "Password reset successfully. Log in with your new password.",
+      "passwordChangedSuccess": "Password changed. Please log in with your new password."
     },
     "verifyEmail": {
-      "title": "Verify email",
-      "verifying": "Verifying…",
-      "success": "Email verified. You can now create organisations.",
-      "failure": "Verification failed. The link may have expired."
+      "title": "Verify Email",
+      "verifying": "Verifying your email...",
+      "success": "Your email has been verified.",
+      "continue": "Continue",
+      "invalidToken": "This verification link is invalid.",
+      "expiredToken": "This verification link has expired. Please register again.",
+      "failure": "Verification failed."
     },
     "passwordReset": {
-      "requestTitle": "Reset password",
-      "requestSubmit": "Send reset link",
-      "confirmTitle": "Choose new password",
-      "newPassword": "New password",
-      "confirmSubmit": "Update password"
+      "requestTitle": "Reset Password",
+      "requestDescription": "Enter your email and we'll send a reset link.",
+      "email": "Email",
+      "requestSubmit": "Send Reset Link",
+      "sentTitle": "Check Your Email",
+      "sentDescription": "If an account with that email exists, we sent a password reset link.",
+      "confirmTitle": "Set New Password",
+      "newPassword": "New Password",
+      "confirmPassword": "Confirm Password",
+      "confirmSubmit": "Reset Password",
+      "invalidLink": "This reset link is invalid or missing.",
+      "invalidToken": "This reset link is invalid.",
+      "expiredToken": "This reset link has expired.",
+      "requestNewLink": "Request New Link"
     },
     "changePassword": {
-      "title": "Change password",
-      "current": "Current password",
-      "new": "New password",
-      "submit": "Change password"
+      "title": "Change Password",
+      "current": "Current Password",
+      "new": "New Password",
+      "confirm": "Confirm New Password",
+      "submit": "Change Password",
+      "warning": "Changing your password will sign you out of all active sessions."
     },
     "changeEmail": {
-      "title": "Change email",
-      "newEmail": "New email",
-      "password": "Current password",
-      "submit": "Change email"
+      "title": "Change Email",
+      "currentLabel": "Current email",
+      "newEmail": "New Email",
+      "password": "Password",
+      "passwordHelp": "Confirm your identity",
+      "submit": "Update Email",
+      "sentTitle": "Verification Email Sent",
+      "sentDescription": "We sent a verification link to {email}. Click the link to confirm your new email."
     },
     "sessions": {
-      "title": "Active sessions",
-      "currentBadge": "(this device)",
+      "title": "Active Sessions",
+      "currentBadge": "Current",
+      "currentLabel": "This is your current session",
       "revoke": "Revoke",
+      "revokeLabel": "Revoke session on {device}",
+      "revokeConfirm": "This will immediately sign out that device.",
+      "revokeSuccess": "Session revoked.",
       "revokeError": "Failed to revoke session.",
+      "alreadyRevoked": "Session was already revoked.",
       "loadError": "Failed to load sessions.",
-      "retry": "Retry"
+      "retry": "Retry",
+      "empty": "No other sessions found.",
+      "lastUsed": "Last used {time}",
+      "created": "Created {date}"
     },
     "deleteAccount": {
-      "title": "Delete account",
-      "warning": "This permanently closes your account. Your individual projects and data are removed and recoverable by an administrator for 60 days only. This cannot be undone by you.",
-      "password": "Current password",
-      "confirm": "I understand this deletes my account and its data.",
-      "submit": "Delete my account",
-      "blocked": "You are the Original Creator of the organisation(s) below, which still have other members. Transfer the Original-Creator role or delete each organisation before deleting your account."
+      "title": "Delete Account",
+      "warning": "This action is permanent and cannot be undone. All your data, including organizations you created, projects, agents, and conversations will be permanently deleted.",
+      "password": "Password",
+      "passwordHelp": "Confirm your identity",
+      "confirm": "I understand this action is permanent",
+      "submit": "Delete My Account",
+      "deleting": "Deleting account...",
+      "finalConfirm": "Are you sure? This cannot be undone.",
+      "finalConfirmButton": "Delete permanently",
+      "blocked": "You must transfer ownership of the following organizations before deleting your account:"
+    },
+    "common": {
+      "showPassword": "Show password",
+      "hidePassword": "Hide password",
+      "passwordPolicy": "At least 10 characters with a letter, digit, and symbol.",
+      "backToLogin": "Back to Log In"
     },
     "errors": {
       "generic": "Something went wrong. Please try again.",
-      "invalid": "Invalid email or password.",
-      "lockout": "Account is temporarily locked. Please try again later.",
-      "unverified": "Please verify your email before logging in.",
-      "captcha": "Please complete the CAPTCHA.",
-      "weakPassword": "Password does not meet the minimum security requirements.",
-      "domain": "Registration from this email domain is not allowed."
+      "invalidCredentials": "Incorrect email or password.",
+      "emailTaken": "An account with this email already exists.",
+      "domainDenied": "This email domain is not allowed.",
+      "emailInvalid": "Please enter a valid email address.",
+      "weakPassword": "Password does not meet the requirements.",
+      "captchaRequired": "Please complete the security check.",
+      "emailUnverified": "Please verify your email before logging in.",
+      "lockout": "Too many failed attempts. Try again in {seconds}s.",
+      "rateLimit": "Too many requests. Please try again later.",
+      "resetRateLimit": "Too many reset requests. Please try again later.",
+      "banned": "This account has been suspended.",
+      "accountDeleted": "This account has been deleted."
+    },
+    "validation": {
+      "emailRequired": "Email is required.",
+      "emailFormat": "Please enter a valid email address.",
+      "passwordRequired": "Password is required.",
+      "passwordMinLength": "Password must be at least 10 characters.",
+      "passwordMismatch": "Passwords do not match.",
+      "passwordSame": "New password must be different from current password.",
+      "emailSame": "New email must be different from current email."
     }
   }
 }

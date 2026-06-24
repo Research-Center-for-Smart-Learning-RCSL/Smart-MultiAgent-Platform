@@ -1,41 +1,86 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { ApiError } from '@shared/errors'
+import {
+  SPageHeader, SCard, SFormField, SInput,
+  SCheckbox, SButton, SAlert,
+} from '@shared/ui'
+import { isProblemWithType } from '@shared/transport'
+import { ApiError, RateLimitError } from '@shared/errors'
+import { useConfirmDialog } from '@shared/composables'
 import { authApi } from '../api/auth'
 import { useSessionStore } from '../stores/session'
 
 const { t } = useI18n()
+const router = useRouter()
+const session = useSessionStore()
+const { confirm } = useConfirmDialog()
+
 const password = ref('')
 const confirmed = ref(false)
-const error = ref<string | null>(null)
-// Org IDs returned by a 409 (R8.18): the caller is the Original Creator of
-// these Orgs and must transfer the role or delete each Org before self-deleting.
+const serverError = ref<string | null>(null)
 const blockedOrgIds = ref<string[]>([])
 const submitting = ref(false)
-const session = useSessionStore()
-const router = useRouter()
+const rateLimitSeconds = ref(0)
+let rateLimitTimer: ReturnType<typeof setInterval> | undefined
+
+const fieldErrors = ref<{ password?: string }>({})
+
+function startRateLimitCountdown(seconds: number): void {
+  rateLimitSeconds.value = seconds
+  clearInterval(rateLimitTimer)
+  rateLimitTimer = setInterval(() => {
+    rateLimitSeconds.value--
+    if (rateLimitSeconds.value <= 0) {
+      clearInterval(rateLimitTimer)
+      rateLimitTimer = undefined
+      serverError.value = null
+    }
+  }, 1000)
+}
+
+onUnmounted(() => {
+  clearInterval(rateLimitTimer)
+})
 
 async function submit(): Promise<void> {
-  error.value = null
+  serverError.value = null
   blockedOrgIds.value = []
+
+  if (!password.value) {
+    fieldErrors.value.password = t('identity.validation.passwordRequired')
+    return
+  }
+  fieldErrors.value.password = undefined
+
+  const proceed = await confirm({
+    title: t('identity.deleteAccount.title'),
+    message: t('identity.deleteAccount.finalConfirm'),
+    confirmLabel: t('identity.deleteAccount.finalConfirmButton'),
+    variant: 'error',
+  })
+  if (!proceed) return
+
   submitting.value = true
   try {
     await authApi.deleteAccount(password.value)
-    // Server soft-deleted the account and killed every session; drop local
-    // auth state and land on the login page.
     session.clear()
     router.push({ name: 'identity.login' })
-  } catch (e) {
-    if (e instanceof ApiError && e.status === 409) {
+  } catch (e: unknown) {
+    if (e instanceof RateLimitError) {
+      const seconds = Math.ceil(e.retryAfterMs / 1000)
+      serverError.value = t('identity.errors.rateLimit')
+      startRateLimitCountdown(seconds)
+    } else if (e instanceof ApiError && e.status === 409) {
       const ids = e.extra.blocked_org_ids
       blockedOrgIds.value = Array.isArray(ids) ? (ids as string[]) : []
-      error.value = t('identity.deleteAccount.blocked')
-    } else if (e instanceof ApiError && e.status === 401) {
-      error.value = t('identity.errors.invalid')
+      serverError.value = t('identity.deleteAccount.blocked')
+    } else if (isProblemWithType(e, '/auth/invalid-credentials')) {
+      fieldErrors.value.password = t('identity.errors.invalidCredentials')
+      password.value = ''
     } else {
-      error.value = t('identity.errors.generic')
+      serverError.value = t('identity.errors.generic')
     }
   } finally {
     submitting.value = false
@@ -44,53 +89,121 @@ async function submit(): Promise<void> {
 </script>
 
 <template>
-  <main class="form-page">
-    <h1>{{ $t('identity.deleteAccount.title') }}</h1>
-    <p class="warning">
-      {{ $t('identity.deleteAccount.warning') }}
-    </p>
-    <form @submit.prevent="submit">
-      <label>
-        {{ $t('identity.deleteAccount.password') }}
-        <input
-          v-model="password"
-          type="password"
+  <div>
+    <SPageHeader :title="$t('identity.deleteAccount.title')" />
+
+    <SCard class="form-card">
+      <SAlert
+        variant="danger"
+        class="warning-banner"
+      >
+        <template #default>
+          {{ $t('identity.deleteAccount.warning') }}
+        </template>
+      </SAlert>
+
+      <form @submit.prevent="submit">
+        <SFormField
+          :label="$t('identity.deleteAccount.password')"
+          name="password"
+          :error="fieldErrors.password"
+          :help="$t('identity.deleteAccount.passwordHelp')"
           required
         >
-      </label>
-      <label class="confirm">
-        <input
-          v-model="confirmed"
-          type="checkbox"
+          <SInput
+            v-model="password"
+            type="password"
+            autocomplete="current-password"
+            :disabled="submitting || rateLimitSeconds > 0"
+            :error="!!fieldErrors.password"
+          />
+        </SFormField>
+
+        <SFormField
+          :label="$t('identity.deleteAccount.confirm')"
+          name="confirmed"
           required
         >
-        {{ $t('identity.deleteAccount.confirm') }}
-      </label>
-      <p
-        v-if="error"
-        class="error"
-        role="alert"
-      >
-        {{ error }}
-      </p>
-      <ul
-        v-if="blockedOrgIds.length"
-        class="blocked-orgs"
-      >
-        <li
-          v-for="id in blockedOrgIds"
-          :key="id"
+          <SCheckbox
+            v-model="confirmed"
+            :disabled="submitting || rateLimitSeconds > 0"
+          >
+            {{ $t('identity.deleteAccount.confirm') }}
+          </SCheckbox>
+        </SFormField>
+
+        <SAlert
+          v-if="serverError"
+          variant="danger"
+          class="form-alert"
         >
-          {{ id }}
-        </li>
-      </ul>
-      <button
-        type="submit"
-        class="btn btn-danger"
-        :disabled="submitting || !confirmed"
-      >
-        {{ $t('identity.deleteAccount.submit') }}
-      </button>
-    </form>
-  </main>
+          {{ serverError }}
+          <ul
+            v-if="blockedOrgIds.length"
+            class="blocked-list"
+          >
+            <li
+              v-for="id in blockedOrgIds"
+              :key="id"
+            >
+              {{ id }}
+            </li>
+          </ul>
+        </SAlert>
+
+        <SButton
+          type="submit"
+          variant="danger"
+          size="md"
+          :loading="submitting"
+          :disabled="submitting || !confirmed || !password || rateLimitSeconds > 0"
+          :aria-disabled="!confirmed || !password ? true : undefined"
+          :aria-busy="submitting"
+          class="form-submit"
+        >
+          {{ submitting ? $t('identity.deleteAccount.deleting') : $t('identity.deleteAccount.submit') }}
+        </SButton>
+      </form>
+    </SCard>
+  </div>
 </template>
+
+<style scoped>
+.form-card {
+  max-width: 480px;
+}
+
+.warning-banner {
+  margin-bottom: 20px;
+}
+
+form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.form-alert {
+  margin: 0;
+}
+
+.form-submit {
+  width: 100%;
+}
+
+.blocked-list {
+  margin: 8px 0 0;
+  padding-left: 20px;
+  font-size: 0.75rem;
+}
+
+.blocked-list li {
+  font-family: var(--font-mono, monospace);
+}
+
+@media (max-width: 768px) {
+  .form-card {
+    max-width: none;
+  }
+}
+</style>
