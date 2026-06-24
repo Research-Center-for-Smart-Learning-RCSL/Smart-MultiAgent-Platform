@@ -1,0 +1,38 @@
+.invite-card {
+  margin-bottom: 24px;
+}
+
+.invite-form {
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+}
+
+.invite-email {
+  flex: 1;
+}
+
+.invite-role {
+  width: 160px;
+}
+
+.invite-btn {
+  flex-shrink: 0;
+}
+
+.you-label {
+  color: var(--color-muted);
+  font-size: 0.875rem;
+  margin-left: 4px;
+}
+
+@media (max-width: 768px) {
+  .invite-form {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .invite-role {
+    width: 100%;
+  }
+}

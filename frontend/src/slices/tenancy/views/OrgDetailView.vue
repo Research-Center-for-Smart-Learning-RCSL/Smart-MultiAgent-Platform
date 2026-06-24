@@ -1,13 +1,13 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import {
   SPageHeader, SCard, SButton, SInput, SBadge, SAlert,
   SLoadingSpinner, STooltip,
 } from '@shared/ui'
-import { useConfirmDialog, useInlineRename, useToast } from '@shared/composables'
+import { useInlineRename, useToast } from '@shared/composables'
 import { useSessionStore } from '@shared/stores/session'
 import { isProblemWithType } from '@shared/transport'
 import {
@@ -16,12 +16,12 @@ import {
 } from '@heroicons/vue/24/outline'
 import { orgsApi, type OrgMember } from '../api/orgs'
 import { tenancyKeys } from '../queries'
+import { formatDateTime } from '../utils/formatters'
+import { useEntityLifecycle } from '../composables/useEntityLifecycle'
 
 const { t } = useI18n()
 const route = useRoute()
-const router = useRouter()
 const toast = useToast()
-const { confirm, prompt } = useConfirmDialog()
 const session = useSessionStore()
 const qc = useQueryClient()
 
@@ -38,7 +38,7 @@ const { data: quotas } = useQuery({
   retry: false,
 })
 
-const { data: members } = useQuery({
+const { data: members, isError: membersError } = useQuery({
   queryKey: computed(() => tenancyKeys.orgMembers(orgId.value)),
   queryFn: () => orgsApi.listMembers(orgId.value).then(r => r.data),
 })
@@ -73,54 +73,23 @@ const rename = useInlineRename({
   },
 })
 
-async function deleteOrg(): Promise<void> {
-  if (!org.value) return
-  const name = await prompt({
-    title: t('tenancy.org.deleteTitle'),
-    message: t('tenancy.org.deleteBody'),
-    variant: 'error',
-    confirmLabel: t('tenancy.org.deleteConfirm'),
-    inputPattern: new RegExp(`^${org.value.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`),
-    inputErrorMessage: t('tenancy.org.deleteConfirm'),
-  })
-  if (name === null) return
-  try {
-    await orgsApi.remove(org.value.id)
-    toast.success(t('tenancy.org.deleted'))
-    router.push({ name: 'tenancy.orgList' })
-  } catch {
-    toast.error(t('tenancy.org.loadError'))
-  }
-}
-
-async function restoreOrg(): Promise<void> {
-  if (!org.value) return
-  const ok = await confirm({
-    title: t('tenancy.org.restoreTitle'),
-    message: t('tenancy.org.restoreBody'),
-    variant: 'info',
-    confirmLabel: t('tenancy.org.restoreConfirm'),
-  })
-  if (!ok) return
-  try {
-    await orgsApi.restore(org.value.id)
-    qc.invalidateQueries({ queryKey: tenancyKeys.org(orgId.value) })
-    toast.success(t('tenancy.org.restored'))
-  } catch {
-    toast.error(t('tenancy.org.loadError'))
-  }
-}
-
-function copyId(): void {
-  if (org.value) {
-    navigator.clipboard.writeText(org.value.id)
-  }
-}
-
-function formatDateTime(d: string | undefined | null): string {
-  if (!d) return ''
-  return d.replace('T', ' ').slice(0, 16)
-}
+const lifecycle = useEntityLifecycle({
+  entityName: () => org.value?.name ?? '',
+  deleteTitle: () => t('tenancy.org.deleteTitle'),
+  deleteBody: () => t('tenancy.org.deleteBody'),
+  deleteConfirmLabel: () => t('tenancy.org.deleteConfirm'),
+  deletedToast: () => t('tenancy.org.deleted'),
+  restoreTitle: () => t('tenancy.org.restoreTitle'),
+  restoreBody: () => t('tenancy.org.restoreBody'),
+  restoreConfirmLabel: () => t('tenancy.org.restoreConfirm'),
+  restoredToast: () => t('tenancy.org.restored'),
+  errorToast: () => t('tenancy.org.loadError'),
+  removeApi: (id) => orgsApi.remove(id),
+  restoreApi: (id) => orgsApi.restore(id),
+  queryKey: () => tenancyKeys.org(orgId.value),
+  qc,
+  listRoute: 'tenancy.orgList',
+})
 
 function quotaColor(count: number, target: number): string {
   const pct = count / target
@@ -175,19 +144,17 @@ const breadcrumbs = computed(() => [
 
         <template #actions>
           <template v-if="!isDeleted">
-            <template v-if="!rename.renaming.value">
-              <SButton
-                v-if="isOwner"
-                variant="ghost"
-                size="sm"
-                @click="rename.start"
-              >
-                <template #icon-left>
-                  <PencilIcon class="w-4 h-4" />
-                </template>
-                {{ t('app.save') }}
-              </SButton>
-            </template>
+            <SButton
+              v-if="isOwner && !rename.renaming.value"
+              variant="ghost"
+              size="sm"
+              @click="rename.start"
+            >
+              <template #icon-left>
+                <PencilIcon class="w-4 h-4" />
+              </template>
+              {{ t('app.save') }}
+            </SButton>
 
             <SButton
               variant="secondary"
@@ -216,7 +183,7 @@ const breadcrumbs = computed(() => [
           <SButton
             v-if="isDeleted && isOC"
             variant="primary"
-            @click="restoreOrg"
+            @click="lifecycle.restoreEntity(org.id)"
           >
             <template #icon-left>
               <ArrowPathIcon class="w-4 h-4" />
@@ -263,9 +230,17 @@ const breadcrumbs = computed(() => [
         class="deleted-alert"
       >
         {{ t('tenancy.org.deletedBanner', {
-          date: formatDateTime(org.deleted_at!),
+          date: formatDateTime(org.deleted_at),
           permanentDate: '—',
         }) }}
+      </SAlert>
+
+      <!-- Members query error -->
+      <SAlert
+        v-if="membersError"
+        variant="warning"
+      >
+        {{ t('tenancy.org.loadError') }}
       </SAlert>
 
       <div class="detail-grid">
@@ -282,7 +257,7 @@ const breadcrumbs = computed(() => [
                 <STooltip :content="org.id">
                   <button
                     class="copy-btn"
-                    @click="copyId"
+                    @click="lifecycle.copyToClipboard(org.id)"
                   >
                     <ClipboardIcon class="w-4 h-4" />
                   </button>
@@ -389,7 +364,7 @@ const breadcrumbs = computed(() => [
           </div>
           <SButton
             variant="danger"
-            @click="deleteOrg"
+            @click="lifecycle.deleteEntity(org.id)"
           >
             <template #icon-left>
               <TrashIcon class="w-4 h-4" />
@@ -403,80 +378,13 @@ const breadcrumbs = computed(() => [
 </template>
 
 <style scoped>
-.rename-bar {
-  margin-bottom: 24px;
-}
-
-.rename-form {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.rename-input {
-  max-width: 360px;
-}
-
-.deleted-alert {
-  margin-bottom: 24px;
-}
+@import '../styles/detail-cards.css';
 
 .detail-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 24px;
   margin-bottom: 24px;
-}
-
-.card-title {
-  font-size: 1.125rem;
-  font-weight: 600;
-  margin-bottom: 16px;
-}
-
-.settings-list {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.settings-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.settings-row dt {
-  font-size: 0.875rem;
-  color: var(--color-muted);
-}
-
-.settings-row dd {
-  font-size: 0.875rem;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.mono-value {
-  font-family: "SF Mono", "Cascadia Code", "Fira Code", Consolas, monospace;
-  font-size: 0.8125rem;
-}
-
-.copy-btn {
-  display: inline-flex;
-  align-items: center;
-  padding: 2px;
-  border: none;
-  background: none;
-  color: var(--color-muted);
-  cursor: pointer;
-  border-radius: 4px;
-}
-
-.copy-btn:hover {
-  color: var(--color-accent);
-  background: var(--color-surface);
 }
 
 .quotas-grid {
@@ -503,35 +411,6 @@ const breadcrumbs = computed(() => [
   font-weight: 600;
 }
 
-.danger-zone {
-  border-top: 2px solid var(--color-danger);
-}
-
-.danger-title {
-  font-size: 1.125rem;
-  font-weight: 600;
-  color: var(--color-danger);
-  margin-bottom: 16px;
-}
-
-.danger-content {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 16px;
-}
-
-.danger-heading {
-  font-size: 0.875rem;
-  font-weight: 600;
-  margin-bottom: 4px;
-}
-
-.danger-description {
-  font-size: 0.875rem;
-  color: var(--color-muted);
-}
-
 @media (max-width: 768px) {
   .detail-grid {
     grid-template-columns: 1fr;
@@ -541,11 +420,6 @@ const breadcrumbs = computed(() => [
 @media (max-width: 480px) {
   .quotas-grid {
     grid-template-columns: 1fr;
-  }
-
-  .danger-content {
-    flex-direction: column;
-    align-items: flex-start;
   }
 }
 </style>

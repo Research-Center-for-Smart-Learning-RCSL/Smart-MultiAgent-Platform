@@ -12,6 +12,7 @@ import { isProblemWithType } from '@shared/transport'
 import { BuildingOffice2Icon, PlusIcon, ChevronRightIcon } from '@heroicons/vue/24/outline'
 import { orgsApi, type Org } from '../api/orgs'
 import { tenancyKeys } from '../queries'
+import { formatDate } from '../utils/formatters'
 
 const { t } = useI18n()
 const router = useRouter()
@@ -37,10 +38,6 @@ const columns = computed(() => [
 
 function roleBadgeVariant(org: Org): 'info' | 'neutral' {
   return org.creator_user_id ? 'info' : 'neutral'
-}
-
-function formatDate(d: string): string {
-  return d.slice(0, 10)
 }
 
 function openCreate(): void {
@@ -178,13 +175,6 @@ const breadcrumbs = computed(() => [
             :disabled="creating"
           />
         </SFormField>
-
-        <SAlert
-          v-if="createError && !isProblemWithType"
-          variant="danger"
-        >
-          {{ createError }}
-        </SAlert>
       </form>
 
       <template #footer>
