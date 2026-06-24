@@ -146,9 +146,13 @@ class OrgService:
         request_id: uuid.UUID | None = None,
     ) -> None:
         org_projects = await self._projects.list_by_org(org_id)
+        invite_repo = InviteRepository(self._db)
         for project in org_projects:
             await self._projects.soft_delete(project.id)
-        invites_revoked = await InviteRepository(self._db).revoke_pending_for_scope(
+            await invite_repo.revoke_pending_for_scope(
+                scope_type=InviteScope.PROJECT, scope_id=project.id,
+            )
+        invites_revoked = await invite_repo.revoke_pending_for_scope(
             scope_type=InviteScope.ORG, scope_id=org_id,
         )
         transfers_cancelled = await OCTransferRepository(self._db).cancel_pending_for_org(org_id)
@@ -179,6 +183,9 @@ class OrgService:
         request_id: uuid.UUID | None = None,
     ) -> None:
         await self._orgs.restore(org_id)
+        for project in await self._projects.list_by_org(org_id, include_deleted=True):
+            if project.deleted_at is not None:
+                await self._projects.restore(project.id)
         await audit.emit(
             self._db,
             audit.AuditEvent(

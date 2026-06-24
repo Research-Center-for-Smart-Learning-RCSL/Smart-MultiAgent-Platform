@@ -19,7 +19,7 @@ from app.config.settings import get_settings
 from contexts.identity.application.auth_service import AuthService, TokenPair
 from contexts.identity.application.factory import create_auth_service
 from contexts.identity.interfaces.facade import IdentityFacade
-from shared_kernel.auth import captcha, ratelimit
+from shared_kernel.auth import captcha, ratelimit, tokens
 from shared_kernel.auth.context import RequestContext
 from shared_kernel.auth.dependencies import (
     current_context,
@@ -297,16 +297,17 @@ async def logout(
     db: AsyncSession = Depends(db_session),
 ) -> None:
     refresh_token = request.cookies.get(_REFRESH_COOKIE) or body.refresh_token
-    _clear_refresh_cookie(response)
-    if refresh_token is None:
-        return
-    service = _service(db)
-    ttl_seconds = get_settings().jwt.access_ttl_seconds
     if ctx.access_jti is None:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Missing access JTI in authenticated context",
         )
+    if refresh_token is None:
+        await tokens.deny_access_jti(ctx.access_jti)
+        _clear_refresh_cookie(response)
+        return
+    service = _service(db)
+    ttl_seconds = get_settings().jwt.access_ttl_seconds
     await service.logout(
         refresh_token=refresh_token,
         access_jti=ctx.access_jti,
@@ -314,6 +315,7 @@ async def logout(
         remote_ip=ctx.actor_ip,
         request_id=ctx.request_id,
     )
+    _clear_refresh_cookie(response)
 
 
 @router.post("/request-password-reset", status_code=status.HTTP_202_ACCEPTED)

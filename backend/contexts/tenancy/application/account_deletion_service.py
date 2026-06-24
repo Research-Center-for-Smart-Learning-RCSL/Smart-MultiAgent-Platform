@@ -8,10 +8,14 @@ from __future__ import annotations
 
 import uuid
 
+import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.tenancy.domain.models import Project
+from contexts.tenancy.infrastructure import tables as t
 from contexts.tenancy.infrastructure.repositories import (
+    InviteRepository,
+    OCTransferRepository,
     OrgMemberRepository,
     OrgRepository,
     ProjectMemberRepository,
@@ -26,6 +30,8 @@ class AccountDeletionService:
         self._projects = ProjectRepository(db)
         self._org_members = OrgMemberRepository(db)
         self._project_members = ProjectMemberRepository(db)
+        self._invites = InviteRepository(db)
+        self._transfers = OCTransferRepository(db)
 
     async def orgs_blocking_self_delete(self, user_id: uuid.UUID) -> list[uuid.UUID]:
         """R8.18: Orgs where the user is Original Creator AND >= 2 active members.
@@ -84,7 +90,8 @@ class AccountDeletionService:
         surviving_orgs: list[uuid.UUID] = []
         for org in await self._orgs.list_for_user(user_id):
             oc = await self._org_members.original_creator(org.id)
-            if oc is not None and oc.user_id == user_id:
+            member_count = await self._org_members.count_active_members(org.id)
+            if oc is not None and oc.user_id == user_id and member_count <= 1:
                 solo_org_projects[org.id] = list(await self._projects.list_by_org(org.id))
             else:
                 surviving_orgs.append(org.id)
@@ -121,14 +128,66 @@ class AccountDeletionService:
             )
 
         for org_id in surviving_orgs:
-            await self._org_members.remove(org_id=org_id, user_id=user_id)
+            try:
+                await org_svc.remove_member(
+                    org_id=org_id,
+                    target_user_id=user_id,
+                    actor_user_id=user_id,
+                    actor_ip=actor_ip,
+                    request_id=request_id,
+                )
+            except Exception:
+                await self._org_members.remove(org_id=org_id, user_id=user_id)
+
+        invites_revoked = await self._invites.revoke_pending_by_inviter(user_id)
+        transfers_cancelled = await self._transfers.cancel_pending_for_user(user_id)
 
         return {
             "projects_deleted": len(owned),
             "projects_left": projects_left,
             "orgs_left": len(surviving_orgs),
             "solo_orgs_deleted": len(solo_org_projects),
+            "invites_revoked": invites_revoked,
+            "transfers_cancelled": transfers_cancelled,
         }
+
+
+    async def prepare_hard_delete(
+        self,
+        *,
+        user_id: uuid.UUID,
+        reassign_to_user_id: uuid.UUID,
+    ) -> None:
+        """Remove all FK RESTRICT references to the user before hard-delete.
+
+        Reassigns historical creator/created_by references to *reassign_to_user_id*
+        (typically the admin performing the hard-delete) so the referencing rows
+        remain valid.  OC transfer records are deleted outright since they carry
+        no business value after both soft-delete + 60-day grace.
+        """
+        await self._db.execute(
+            t.original_creator_transfers.delete().where(
+                sa.or_(
+                    t.original_creator_transfers.c.initiator_user_id == user_id,
+                    t.original_creator_transfers.c.target_user_id == user_id,
+                )
+            )
+        )
+        await self._db.execute(
+            t.projects.update()
+            .where(t.projects.c.owner_user_id == user_id)
+            .values(owner_user_id=None)
+        )
+        await self._db.execute(
+            t.projects.update()
+            .where(t.projects.c.created_by_user_id == user_id)
+            .values(created_by_user_id=reassign_to_user_id)
+        )
+        await self._db.execute(
+            t.orgs.update()
+            .where(t.orgs.c.creator_user_id == user_id)
+            .values(creator_user_id=reassign_to_user_id)
+        )
 
 
 __all__ = ["AccountDeletionService"]

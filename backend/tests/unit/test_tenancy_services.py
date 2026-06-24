@@ -214,10 +214,16 @@ class TestOrgRename:
 
 
 class TestOrgSoftDeleteRestore:
+    @patch("contexts.tenancy.application.org_service.OCTransferRepository")
+    @patch("contexts.tenancy.application.org_service.InviteRepository")
     @patch("contexts.tenancy.application.org_service.audit.emit", new_callable=AsyncMock)
-    async def test_soft_delete(self, _audit) -> None:
+    async def test_soft_delete(self, _audit, mock_invite_cls, mock_oct_cls) -> None:
         orgs = AsyncMock()
-        svc = _make_org_service(org_repo=orgs)
+        projects = AsyncMock()
+        projects.list_by_org.return_value = []
+        mock_invite_cls.return_value = AsyncMock()
+        mock_oct_cls.return_value = AsyncMock()
+        svc = _make_org_service(org_repo=orgs, project_repo=projects)
 
         await svc.soft_delete(org_id=_ORG_ID, actor_user_id=_USER_ID, actor_ip=None)
 
@@ -226,11 +232,14 @@ class TestOrgSoftDeleteRestore:
     @patch("contexts.tenancy.application.org_service.audit.emit", new_callable=AsyncMock)
     async def test_restore(self, _audit) -> None:
         orgs = AsyncMock()
-        svc = _make_org_service(org_repo=orgs)
+        projects = AsyncMock()
+        projects.list_by_org.return_value = []
+        svc = _make_org_service(org_repo=orgs, project_repo=projects)
 
         await svc.restore(org_id=_ORG_ID, admin_user_id=_USER_ID, actor_ip=None)
 
         orgs.restore.assert_awaited_once_with(_ORG_ID)
+        projects.list_by_org.assert_awaited_once_with(_ORG_ID, include_deleted=True)
 
 
 class TestOrgMemberOps:

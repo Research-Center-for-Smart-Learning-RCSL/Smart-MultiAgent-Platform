@@ -825,10 +825,31 @@ class TurnEngine:
         # tools so it can formulate a coherent reply from the accumulated tool
         # results instead of returning the partial text from the last tool-use
         # response (which is typically "let me check…" or empty).
+        #
+        # Strip tool_calls / role:tool from the history so the provider API
+        # doesn't require a `tools` field (Anthropic rejects tool_use/tool_result
+        # content blocks when `tools` is absent).
+        final_messages: list[dict[str, Any]] = []
+        for m in messages:
+            role = m.get("role", "")
+            if role == "tool":
+                final_messages.append({
+                    "role": "user",
+                    "content": f"[Tool result: {m.get('name', 'unknown')}]\n{m.get('content', '')}",
+                })
+            elif role == "assistant" and m.get("tool_calls"):
+                text = m.get("content") or ""
+                names = [tc.get("name", "?") for tc in m["tool_calls"]]
+                final_messages.append({
+                    "role": "assistant",
+                    "content": f"{text}\n[Used tools: {', '.join(names)}]".strip(),
+                })
+            else:
+                final_messages.append(m)
         final_payload: dict[str, Any] = {
             "models": models,
             "system": system_text,
-            "messages": messages,
+            "messages": final_messages,
             "max_tokens": _DEFAULT_MAX_TOKENS,
         }
         final_request = ProviderRequest(
