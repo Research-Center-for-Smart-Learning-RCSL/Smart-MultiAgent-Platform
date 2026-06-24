@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import logging
 import uuid
+from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -297,18 +298,28 @@ class ApprovalService:
             outcome=resolved_state.value,
         ).inc()
 
+        meta: dict[str, Any] = {
+            "state": resolved_state.value,
+            "vote_count": len(votes),
+            "approve_count": sum(1 for v in votes if v.vote),
+            "reject_count": sum(1 for v in votes if not v.vote),
+        }
+        if resolved_state == ApprovalState.TIMEOUT_LEADER:
+            leader_votes = [v for v in votes if v.voter_agent_id == approval.leader_agent_id]
+            if leader_votes and leader_votes[-1].vote:
+                meta["leader_verdict"] = "approved"
+            elif leader_votes:
+                meta["leader_verdict"] = "rejected"
+            else:
+                meta["leader_verdict"] = "no_vote"
+            meta["reason"] = "consensus_diverged"
         await audit.emit(
             self._db,
             audit.AuditEvent(
                 action="approval.resolved",
                 resource_type="approval",
                 resource_id=approval.id,
-                metadata={
-                    "state": resolved_state.value,
-                    "vote_count": len(votes),
-                    "approve_count": sum(1 for v in votes if v.vote),
-                    "reject_count": sum(1 for v in votes if not v.vote),
-                },
+                metadata=meta,
             ),
         )
 

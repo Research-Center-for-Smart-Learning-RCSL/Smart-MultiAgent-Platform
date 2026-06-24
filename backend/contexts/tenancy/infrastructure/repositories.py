@@ -331,17 +331,13 @@ class ProjectRepository:
         ).all()
         return [_row_to_project(r) for r in rows]
 
-    async def list_by_org(self, org_id: uuid.UUID) -> Sequence[Project]:
-        rows = (
-            await self._db.execute(
-                t.projects.select().where(
-                    sa.and_(
-                        t.projects.c.owner_org_id == org_id,
-                        t.projects.c.deleted_at.is_(None),
-                    )
-                )
-            )
-        ).all()
+    async def list_by_org(
+        self, org_id: uuid.UUID, *, include_deleted: bool = False
+    ) -> Sequence[Project]:
+        predicate = t.projects.c.owner_org_id == org_id
+        if not include_deleted:
+            predicate = sa.and_(predicate, t.projects.c.deleted_at.is_(None))
+        rows = (await self._db.execute(t.projects.select().where(predicate))).all()
         return [_row_to_project(r) for r in rows]
 
     async def rename(self, *, project_id: uuid.UUID, new_name: str, expected_version: int) -> Project:
@@ -583,6 +579,40 @@ class InviteRepository:
         row = (await self._db.execute(t.invites.select().where(t.invites.c.token_hash == token_hash))).first()
         return _row_to_invite(row) if row else None
 
+    async def revoke_pending_for_scope(
+        self,
+        *,
+        scope_type: InviteScope,
+        scope_id: uuid.UUID,
+    ) -> int:
+        """Bulk-revoke all pending invites targeting a given scope."""
+        result = await self._db.execute(
+            t.invites.update()
+            .where(
+                sa.and_(
+                    t.invites.c.scope_type == scope_type.value,
+                    t.invites.c.scope_id == scope_id,
+                    t.invites.c.state == InviteState.PENDING.value,
+                )
+            )
+            .values(state=InviteState.REVOKED.value, resolved_at=now())
+        )
+        return result.rowcount or 0
+
+    async def revoke_pending_by_inviter(self, inviter_user_id: uuid.UUID) -> int:
+        """Bulk-revoke all pending invites created by a given user."""
+        result = await self._db.execute(
+            t.invites.update()
+            .where(
+                sa.and_(
+                    t.invites.c.inviter_user_id == inviter_user_id,
+                    t.invites.c.state == InviteState.PENDING.value,
+                )
+            )
+            .values(state=InviteState.REVOKED.value, resolved_at=now())
+        )
+        return result.rowcount or 0
+
     async def transition(
         self,
         *,
@@ -695,6 +725,43 @@ class OCTransferRepository:
         )
         row = (await self._db.execute(stmt)).first()
         return _row_to_oc(row) if row else None
+
+    async def cancel_pending_for_org(self, org_id: uuid.UUID) -> int:
+        """Cancel all pending OC transfers for the given org."""
+        result = await self._db.execute(
+            t.original_creator_transfers.update()
+            .where(
+                sa.and_(
+                    t.original_creator_transfers.c.org_id == org_id,
+                    t.original_creator_transfers.c.resolved_at.is_(None),
+                )
+            )
+            .values(
+                state=OCTransferState.CANCELLED.value,
+                resolved_at=now(),
+            )
+        )
+        return result.rowcount or 0
+
+    async def cancel_pending_for_user(self, user_id: uuid.UUID) -> int:
+        """Cancel all pending OC transfers where user is initiator or target."""
+        result = await self._db.execute(
+            t.original_creator_transfers.update()
+            .where(
+                sa.and_(
+                    t.original_creator_transfers.c.resolved_at.is_(None),
+                    sa.or_(
+                        t.original_creator_transfers.c.initiator_user_id == user_id,
+                        t.original_creator_transfers.c.target_user_id == user_id,
+                    ),
+                )
+            )
+            .values(
+                state=OCTransferState.CANCELLED.value,
+                resolved_at=now(),
+            )
+        )
+        return result.rowcount or 0
 
     async def expire_due(self) -> int:
         """Set state='expired' on any pending transfer past its `expires_at`."""

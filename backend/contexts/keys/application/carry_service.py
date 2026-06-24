@@ -13,6 +13,7 @@ Two call paths converge here:
 
 from __future__ import annotations
 
+import logging
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -28,6 +29,8 @@ from contexts.keys.infrastructure.key_revocation_events import publish_carry_rev
 from contexts.keys.infrastructure.repositories import ApiKeyRepository
 from shared_kernel import audit
 from shared_kernel.infra import redis_buckets
+
+_log = logging.getLogger(__name__)
 
 _WINDOWS: dict[str, timedelta | None] = {
     "1h": None,  # served from Redis (sliding bucket, accurate to the minute).
@@ -271,7 +274,13 @@ class CarryService:
                         request_id=request_id,
                     ),
                 )
-                await publish_carry_revoked(key_id=key_id, project_id=project_id)
+                try:
+                    await publish_carry_revoked(key_id=key_id, project_id=project_id)
+                except Exception:
+                    _log.warning(
+                        "carry revocation pubsub failed key=%s project=%s",
+                        key_id, project_id, exc_info=True,
+                    )
         return revoked
 
     async def revoke_for_user_in_projects(
@@ -316,7 +325,13 @@ class CarryService:
                     },
                 ),
             )
-            await publish_carry_revoked(key_id=row.key_id, project_id=row.project_id)
+            try:
+                await publish_carry_revoked(key_id=row.key_id, project_id=row.project_id)
+            except Exception:
+                _log.warning(
+                    "carry revocation pubsub failed key=%s project=%s",
+                    row.key_id, row.project_id, exc_info=True,
+                )
         return len(affected)
 
 

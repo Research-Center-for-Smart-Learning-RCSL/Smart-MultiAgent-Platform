@@ -65,7 +65,10 @@ async def execute(ctx: RunContext, node: NodeSpec, db: AsyncSession) -> StepOutc
         )
 
         raw_room = config.get("chatroom_id") or ctx.trigger_payload.get("chatroom_id")
-        room_id = uuid.UUID(raw_room) if raw_room else None
+        try:
+            room_id = uuid.UUID(raw_room) if raw_room else None
+        except (ValueError, AttributeError):
+            room_id = None
 
         approval = await facade.create_approval_gate(
             workflow_run_id=ctx.run_id,
