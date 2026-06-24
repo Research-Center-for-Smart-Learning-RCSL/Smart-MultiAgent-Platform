@@ -99,6 +99,19 @@ export function useKeyGroupDetail(groupId: () => string) {
     await reload()
   }
 
+  async function rename(name: string): Promise<void> {
+    const id = groupId()
+    if (!id) return
+    await keyGroupsApi.rename(id, name)
+    await reload()
+  }
+
+  async function remove(): Promise<void> {
+    const id = groupId()
+    if (!id) return
+    await keyGroupsApi.remove(id)
+  }
+
   async function reorder(priorities: Record<string, number>): Promise<void> {
     const id = groupId()
     if (!id) return
@@ -123,6 +136,8 @@ export function useKeyGroupDetail(groupId: () => string) {
     detail: detailData,
     error,
     reload,
+    rename,
+    remove,
     addMember,
     removeMember,
     patchMember,

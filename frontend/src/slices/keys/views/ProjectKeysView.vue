@@ -24,6 +24,7 @@ import { useMyKeys } from '../composables/useMyKeys'
 import { useProjectKeys } from '../composables/useProjectKeys'
 import CapabilityChip from '../components/CapabilityChip.vue'
 import UsageDashboard from '../components/UsageDashboard.vue'
+import MaskedPreview from '../components/MaskedPreview.vue'
 import type { Column } from '@shared/ui/STable.vue'
 
 const { t } = useI18n()
@@ -138,7 +139,7 @@ watch(projectId, async () => {
           </template>
 
           <template #cell-masked_preview="{ row }">
-            <code class="text-[13px] font-mono text-[var(--color-muted)]">{{ row.masked_preview }}</code>
+            <MaskedPreview :value="row.masked_preview" />
           </template>
 
           <template #cell-test_status="{ row }">
@@ -213,7 +214,7 @@ watch(projectId, async () => {
           </template>
 
           <template #cell-masked_preview="{ row }">
-            <code class="text-[13px] font-mono text-[var(--color-muted)]">{{ row.masked_preview }}</code>
+            <MaskedPreview :value="row.masked_preview" />
           </template>
 
           <template #cell-test_status="{ row }">

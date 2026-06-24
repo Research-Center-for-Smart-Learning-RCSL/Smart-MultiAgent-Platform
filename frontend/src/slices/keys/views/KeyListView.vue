@@ -24,6 +24,7 @@ import { useMyKeys } from '../composables/useMyKeys'
 import KeyUploadForm from '../components/KeyUploadForm.vue'
 import CapabilityChip from '../components/CapabilityChip.vue'
 import type { ApiKeyProvider } from '../api/keys'
+import MaskedPreview from '../components/MaskedPreview.vue'
 import type { Column } from '@shared/ui/STable.vue'
 
 const { t } = useI18n()
@@ -148,10 +149,10 @@ onMounted(reload)
       </template>
 
       <template #cell-masked_preview="{ row }">
-        <code
-          class="text-[13px] font-mono text-[var(--color-muted)]"
+        <MaskedPreview
+          :value="row.masked_preview"
           :aria-label="$t('keys.list.maskedKey')"
-        >{{ row.masked_preview }}</code>
+        />
       </template>
 
       <template #cell-test_status="{ row }">
