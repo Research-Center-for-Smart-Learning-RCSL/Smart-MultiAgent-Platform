@@ -294,15 +294,12 @@ class TestWorkflowSteps:
     @patch("shared_kernel.db.session.async_session")
     async def test_subagent_timeout_fails_waiting_run(self, mock_session_cm) -> None:
         from app.workers.tasks.workflow_steps import workflow_subagent_timeout
-        from contexts.workflow.domain.models import RunState
 
         db = AsyncMock()
         mock_session_cm.return_value.__aenter__ = AsyncMock(return_value=db)
         mock_session_cm.return_value.__aexit__ = AsyncMock(return_value=False)
         engine = AsyncMock()
-        run = MagicMock()
-        run.state = RunState.WAITING
-        engine._runs.get.return_value = run
+        engine.force_fail.return_value = True
 
         with patch(
             "contexts.workflow.application.run_engine.RunEngine",
@@ -315,7 +312,7 @@ class TestWorkflowSteps:
             )
 
         assert result == "timed_out"
-        engine._runs.update_state.assert_awaited_once()
+        engine.force_fail.assert_awaited_once()
         db.commit.assert_awaited_once()
 
     @patch("shared_kernel.db.session.async_session")

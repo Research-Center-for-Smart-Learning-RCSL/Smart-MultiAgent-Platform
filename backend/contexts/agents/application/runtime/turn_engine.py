@@ -821,8 +821,32 @@ class TurnEngine:
                         "is_error": result.is_error,
                     }
                 )
-        # Tool-round budget exhausted — return the latest text we have.
-        return last_text, MAX_TOOL_ROUNDS
+        # Tool-round budget exhausted — give the model one final turn WITHOUT
+        # tools so it can formulate a coherent reply from the accumulated tool
+        # results instead of returning the partial text from the last tool-use
+        # response (which is typically "let me check…" or empty).
+        final_payload: dict[str, Any] = {
+            "models": models,
+            "system": system_text,
+            "messages": messages,
+            "max_tokens": _DEFAULT_MAX_TOKENS,
+        }
+        final_request = ProviderRequest(
+            capability=ProviderCapability.LLM_CHAT,
+            payload=final_payload,
+            agent_id=agent.id,
+            parent_agent_id=parent_agent_id,
+            chatroom_id=chatroom_id,
+        )
+        final_body: dict[str, Any] = {}
+        async for ev in self._router.call_stream(group_id=agent.key_group_id, request=final_request):
+            if isinstance(ev, TokenDelta):
+                AGENT_STREAM_TOKENS_TOTAL.inc()
+                if room is not None:
+                    await Publisher(room).emit("agent.token", {"text": ev.text, "agent_id": str(agent.id)})
+            elif isinstance(ev, StreamComplete):
+                final_body = ev.result.body
+        return str(final_body.get("text", last_text)), MAX_TOOL_ROUNDS
 
     async def _rag_context(self, agent: Agent, query: str | None) -> str | None:
         """Delegate to the knowledge-context :class:`RagContextProvider`."""

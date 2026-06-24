@@ -64,9 +64,13 @@ async def execute(ctx: RunContext, node: NodeSpec, db: AsyncSession) -> StepOutc
             question=question or None,
         )
 
+        raw_room = config.get("chatroom_id") or ctx.trigger_payload.get("chatroom_id")
+        room_id = uuid.UUID(raw_room) if raw_room else None
+
         approval = await facade.create_approval_gate(
             workflow_run_id=ctx.run_id,
             config=gate_config,
+            chatroom_id=room_id,
         )
 
         # Register the resume claim key so approval resolution (vote or timeout)

@@ -371,7 +371,10 @@ class ApprovalService:
                 return ApprovalState.APPROVED
             if all_reject:
                 return ApprovalState.REJECTED
-            return None
+            # All voted but no consensus — agents cannot re-converge (notifications
+            # are one-shot), so resolve immediately via the leader's verdict
+            # instead of waiting for the full timeout period.
+            return ApprovalState.TIMEOUT_LEADER
 
         return None  # type: ignore[unreachable]
 
