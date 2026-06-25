@@ -130,6 +130,8 @@
       "memberUpdateFailed": "儲存成員設定失敗。",
       "noAvailableKeys": "沒有可用金鑰。請先將金鑰攜入專案。",
       "reorderHandle": "拖曳以重新排序",
+      "moveUp": "上移",
+      "moveDown": "下移",
       "reorderFailed": "成員排序失敗。"
     },
     "form": {

@@ -3,6 +3,7 @@ import { http, HttpResponse } from 'msw'
 import { server } from '../../../../tests/mocks/server'
 import { renderView } from '../../../../tests/utils'
 import AdminHomeView from '../views/AdminHomeView.vue'
+import AdminNav from '../components/AdminNav.vue'
 
 describe('AdminHomeView', () => {
   it('renders without errors', async () => {
@@ -11,7 +12,9 @@ describe('AdminHomeView', () => {
   })
 
   it('displays nav links for all admin sections', async () => {
-    const wrapper = await renderView(AdminHomeView)
+    // The section nav moved into the shared AdminNav (rendered as a sidebar at
+    // desktop widths, which is jsdom's default 1024px).
+    const wrapper = await renderView(AdminNav)
     const links = wrapper.findAll('nav a')
     expect(links.length).toBeGreaterThanOrEqual(9)
   })

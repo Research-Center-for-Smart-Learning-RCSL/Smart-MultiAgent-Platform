@@ -53,6 +53,11 @@ const noPadding = computed(() =>
     class="app-shell"
     :class="{ 'app-shell--sidebar-collapsed': sidebarCollapsed }"
   >
+    <a
+      class="skip-link"
+      href="#main-content"
+    >{{ $t('app.skipToContent') }}</a>
+
     <AppTopBar
       class="app-shell__topbar"
       :sidebar-open="!sidebarCollapsed || sidebarDrawerOpen"
@@ -77,6 +82,8 @@ const noPadding = computed(() =>
     </SDrawer>
 
     <main
+      id="main-content"
+      tabindex="-1"
       class="app-shell__content"
       :class="{ 'app-shell__content--no-pad': noPadding }"
     >
@@ -123,6 +130,13 @@ const noPadding = computed(() =>
 
 .app-shell__content--no-pad {
   padding: 0;
+}
+
+/* The content region is a skip-link target (tabindex="-1"); it should not
+   show a focus ring when focused programmatically. */
+.app-shell__content:focus-visible {
+  box-shadow: none;
+  outline: none;
 }
 
 @media (max-width: 1023px) {

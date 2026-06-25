@@ -1,6 +1,8 @@
 <script setup lang="ts">
-import { watch, ref, nextTick, onBeforeUnmount, useSlots } from 'vue'
-import { XMarkIcon } from '@heroicons/vue/24/outline'
+import { ref, useSlots, useId, computed } from 'vue'
+import { useI18n } from 'vue-i18n'
+import { XMarkIcon, ArrowLeftIcon } from '@heroicons/vue/24/outline'
+import { useBreakpoint, useFocusTrap } from '@shared/composables'
 
 const props = withDefaults(defineProps<{
   open?: boolean
@@ -23,46 +25,21 @@ const emit = defineEmits<{
 }>()
 
 const slots = useSlots()
+const { t } = useI18n()
+const { isMobile } = useBreakpoint()
+
+const titleId = useId()
+// Only label by the rendered <h2>; a custom header slot owns its own labelling.
+const labelledBy = computed(() => (props.title && !slots.header ? titleId : undefined))
 
 const panelRef = ref<HTMLElement | null>(null)
-let previouslyFocused: HTMLElement | null = null
-
-function getFocusableElements(): HTMLElement[] {
-  if (!panelRef.value) return []
-  return Array.from(
-    panelRef.value.querySelectorAll<HTMLElement>(
-      'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])',
-    ),
-  )
-}
-
-function trapFocus(e: KeyboardEvent) {
-  if (e.key !== 'Tab') return
-  const focusable = getFocusableElements()
-  if (focusable.length === 0) {
-    e.preventDefault()
-    return
-  }
-  const first = focusable[0]
-  const last = focusable[focusable.length - 1]
-  if (e.shiftKey) {
-    if (document.activeElement === first) {
-      e.preventDefault()
-      last.focus()
-    }
-  } else {
-    if (document.activeElement === last) {
-      e.preventDefault()
-      first.focus()
-    }
-  }
-}
+const { trapTab } = useFocusTrap(panelRef, () => props.open)
 
 function onKeydown(e: KeyboardEvent) {
   if (e.key === 'Escape' && !props.persistent) {
     emit('close')
   }
-  trapFocus(e)
+  trapTab(e)
 }
 
 function onBackdropClick() {
@@ -70,30 +47,6 @@ function onBackdropClick() {
     emit('close')
   }
 }
-
-watch(() => props.open, async (isOpen) => {
-  if (isOpen) {
-    previouslyFocused = document.activeElement as HTMLElement | null
-    document.body.style.overflow = 'hidden'
-    await nextTick()
-    const focusable = getFocusableElements()
-    if (focusable.length > 0) {
-      focusable[0].focus()
-    } else {
-      panelRef.value?.focus()
-    }
-  } else {
-    document.body.style.overflow = ''
-    if (previouslyFocused) {
-      previouslyFocused.focus()
-      previouslyFocused = null
-    }
-  }
-})
-
-onBeforeUnmount(() => {
-  document.body.style.overflow = ''
-})
 </script>
 
 <template>
@@ -117,12 +70,14 @@ onBeforeUnmount(() => {
           :class="`s-modal__panel--${size}`"
           :role="role"
           aria-modal="true"
+          :aria-labelledby="labelledBy"
           tabindex="-1"
         >
           <div class="s-modal__header">
             <slot name="header">
               <h2
                 v-if="title"
+                :id="titleId"
                 class="s-modal__title"
               >
                 {{ title }}
@@ -132,10 +87,17 @@ onBeforeUnmount(() => {
               v-if="closable"
               class="s-modal__close"
               type="button"
-              aria-label="Close"
+              :aria-label="isMobile ? t('app.back') : t('app.close')"
               @click="emit('close')"
             >
-              <XMarkIcon class="s-modal__close-icon" />
+              <ArrowLeftIcon
+                v-if="isMobile"
+                class="s-modal__close-icon"
+              />
+              <XMarkIcon
+                v-else
+                class="s-modal__close-icon"
+              />
             </button>
           </div>
           <div class="s-modal__body">
@@ -282,5 +244,44 @@ onBeforeUnmount(() => {
 .s-modal-leave-to .s-modal__panel {
   transform: scale(0.95);
   opacity: 0;
+}
+
+/* Mobile: every modal becomes a full-page view with a back arrow (left of
+   the title) instead of a close X, regardless of the `size` prop. */
+@media (max-width: 767px) {
+  .s-modal {
+    align-items: stretch;
+    justify-content: stretch;
+  }
+
+  .s-modal__panel,
+  .s-modal__panel--sm,
+  .s-modal__panel--md,
+  .s-modal__panel--lg,
+  .s-modal__panel--xl,
+  .s-modal__panel--full {
+    max-width: 100%;
+    width: 100%;
+    height: 100%;
+    border-radius: 0;
+  }
+
+  .s-modal__body {
+    max-height: none;
+    flex: 1;
+  }
+
+  .s-modal__header {
+    padding-top: 16px;
+    /* Back arrow then title, both left-aligned. */
+    justify-content: flex-start;
+    gap: 8px;
+  }
+
+  .s-modal__close {
+    order: -1;
+    margin-left: 0;
+    margin-right: 0;
+  }
 }
 </style>

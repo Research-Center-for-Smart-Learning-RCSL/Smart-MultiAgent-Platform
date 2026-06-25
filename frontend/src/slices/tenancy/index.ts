@@ -1,6 +1,4 @@
-import { registerMessages } from '@shared/i18n'
-import enMessages from './locales/en.json'
-import zhMessages from './locales/zh-TW.json'
+import { registerLocaleLoaders } from '@shared/i18n'
 
 export { tenancyRoutes } from './routes'
 export { tenancyKeys } from './queries'
@@ -10,6 +8,8 @@ export { projectsApi } from './api/projects'
 export type { Project } from './api/projects'
 
 export function installTenancySlice(): void {
-  registerMessages('en', enMessages)
-  registerMessages('zh-TW', zhMessages)
+  registerLocaleLoaders({
+    en: () => import('./locales/en.json'),
+    'zh-TW': () => import('./locales/zh-TW.json'),
+  })
 }

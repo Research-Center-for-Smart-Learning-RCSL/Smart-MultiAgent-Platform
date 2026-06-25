@@ -5,6 +5,8 @@ import {
   ChevronUpIcon,
   ChevronDownIcon,
 } from '@heroicons/vue/20/solid'
+import { useBreakpoint, BP } from '@shared/composables'
+import STableCards from './STableCards.vue'
 
 export interface Column {
   key: string
@@ -12,6 +14,9 @@ export interface Column {
   sortable?: boolean
   width?: string
   align?: 'left' | 'center' | 'right'
+  /** Hide this column when the viewport is narrower than the given breakpoint
+      (only applies when responsiveMode === 'hide-columns'). */
+  hideBelow?: 'sm' | 'md' | 'lg' | 'xl'
 }
 
 type RowData = Record<string, unknown>
@@ -30,6 +35,7 @@ const props = withDefaults(
     rowKey?: string
     stickyHeader?: boolean
     loadingLabel?: string
+    responsiveMode?: 'hide-columns' | 'card-list'
   }>(),
   {
     data: () => [],
@@ -43,6 +49,7 @@ const props = withDefaults(
     rowKey: 'id',
     stickyHeader: false,
     loadingLabel: 'Loading',
+    responsiveMode: 'card-list',
   },
 )
 
@@ -53,11 +60,38 @@ const emit = defineEmits<{
 }>()
 
 const slots = useSlots()
+const { width, isMobile } = useBreakpoint()
 
 const hasActionsSlot = computed(() => !!slots['actions'])
 
+// Render a stacked card list (instead of a table) below md when enabled.
+const isCardList = computed(
+  () => props.responsiveMode === 'card-list' && isMobile.value,
+)
+
+// In hide-columns mode, drop columns whose hideBelow threshold isn't met.
+const visibleColumns = computed(() =>
+  props.responsiveMode === 'hide-columns'
+    ? props.columns.filter((c) => !c.hideBelow || width.value >= BP[c.hideBelow])
+    : props.columns,
+)
+
+// Columns passed to the mobile card list. Only hideBelow filtering happens here;
+// STableCards itself decides which columns render a labeled field vs. an
+// unlabeled cell (e.g. an in-column actions menu or avatar) so that empty-label
+// columns with real cell content are NOT dropped.
+const cardColumns = computed(() =>
+  props.columns.filter((c) => !c.hideBelow || width.value >= BP[c.hideBelow]),
+)
+
+function ariaSort(col: Column): 'ascending' | 'descending' | 'none' | undefined {
+  if (!col.sortable) return undefined
+  if (props.sortBy !== col.key) return 'none'
+  return props.sortOrder === 'asc' ? 'ascending' : 'descending'
+}
+
 const totalColumns = computed(() => {
-  let count = props.columns.length
+  let count = visibleColumns.value.length
   if (props.selectable) count++
   if (hasActionsSlot.value) count++
   return count
@@ -139,6 +173,7 @@ const skeletonRows = 5
     </div>
 
     <table
+      v-if="!isCardList"
       class="s-table"
       :aria-busy="loading"
     >
@@ -161,7 +196,7 @@ const skeletonRows = 5
           </th>
           <!-- Column headers -->
           <th
-            v-for="col in columns"
+            v-for="col in visibleColumns"
             :key="col.key"
             class="s-table__th"
             :class="{
@@ -172,6 +207,7 @@ const skeletonRows = 5
               width: col.width,
               textAlign: col.align || 'left',
             }"
+            :aria-sort="ariaSort(col)"
             @click="handleSort(col)"
           >
             <span class="s-table__th-content">
@@ -223,7 +259,7 @@ const skeletonRows = 5
               />
             </td>
             <td
-              v-for="col in columns"
+              v-for="col in visibleColumns"
               :key="`skel-${r}-${col.key}`"
               class="s-table__td"
               :style="{ textAlign: col.align || 'left' }"
@@ -298,7 +334,7 @@ const skeletonRows = 5
             </td>
             <!-- Data cells -->
             <td
-              v-for="col in columns"
+              v-for="col in visibleColumns"
               :key="col.key"
               class="s-table__td"
               :style="{ textAlign: col.align || 'left' }"
@@ -328,6 +364,32 @@ const skeletonRows = 5
         </template>
       </tbody>
     </table>
+
+    <!-- Mobile card list (responsiveMode === 'card-list', below md).
+         Slots are forwarded so cell-*/actions/mobile-card/empty work in cards. -->
+    <STableCards
+      v-else
+      :columns="cardColumns"
+      :data="data"
+      :loading="loading"
+      :selectable="selectable"
+      :selected="selected"
+      :row-key="rowKey"
+      :empty-title="emptyTitle"
+      :empty-description="emptyDescription"
+      @row-click="onRowClick"
+      @toggle-select="toggleRow"
+    >
+      <template
+        v-for="(_, name) in $slots"
+        #[name]="slotProps"
+      >
+        <slot
+          :name="name"
+          v-bind="slotProps ?? {}"
+        />
+      </template>
+    </STableCards>
   </div>
 </template>
 

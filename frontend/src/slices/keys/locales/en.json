@@ -130,6 +130,8 @@
       "memberUpdateFailed": "Failed to save member configuration.",
       "noAvailableKeys": "No available keys. Carry keys into the project first.",
       "reorderHandle": "Drag to reorder",
+      "moveUp": "Move up",
+      "moveDown": "Move down",
       "reorderFailed": "Failed to reorder members."
     },
     "form": {

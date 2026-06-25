@@ -1,13 +1,15 @@
 <template>
   <section
     class="chatroom"
-    :class="{ 'chatroom--mobile': isMobile }"
+    :class="{ 'chatroom--mobile': isMobile, 'chatroom--tablet': isTablet }"
+    :style="isMobile ? { '--kb-inset': `${keyboardInset}px` } : undefined"
   >
     <ChatroomHeader
       class="chatroom__header"
       :room-name="roomName"
       :connection-state="connectionState"
       :is-mobile="isMobile"
+      :is-desktop="isDesktop"
       @back="goBack"
       @search="searchOpen = true"
       @settings="goSettings"
@@ -38,6 +40,10 @@
       <ol
         ref="listRef"
         class="messages"
+        role="log"
+        aria-live="polite"
+        aria-relevant="additions"
+        :aria-label="t('conversation.chatroom.messageList')"
       >
         <li v-if="hasOlderMessages">
           <ChatroomLoadEarlier
@@ -81,6 +87,7 @@
           :key="`stream-${agentId}`"
           :html="html"
           :agent-name="agentId.slice(0, 8)"
+          aria-live="off"
         />
 
         <li v-if="!messages.length && !streamingEntries.length && !liveApprovals.length">
@@ -121,13 +128,13 @@
     />
 
     <ChatroomPresence
-      v-if="!isMobile"
+      v-if="isDesktop"
       class="chatroom__presence"
       :online-users="onlineUsers"
       :agents="agentList"
     />
 
-    <!-- Mobile drawers -->
+    <!-- Agents drawer: mobile only (tablet keeps the agents rail). -->
     <SDrawer
       v-if="isMobile"
       :open="agentsDrawerOpen"
@@ -137,8 +144,9 @@
     >
       <ChatroomAgentSidebar :agents="agentList" />
     </SDrawer>
+    <!-- Presence drawer: mobile + tablet (presence rail only exists at lg+). -->
     <SDrawer
-      v-if="isMobile"
+      v-if="!isDesktop"
       :open="peopleDrawerOpen"
       side="right"
       :title="t('conversation.chatroom.people')"
@@ -165,7 +173,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useQuery } from '@tanstack/vue-query'
 import { useI18n } from 'vue-i18n'
 
-import { useToast, useBreakpoint } from '@shared/composables'
+import { useToast, useBreakpoint, useVisualViewport } from '@shared/composables'
 import { SDrawer, SEmptyState } from '@shared/ui'
 import { ChatBubbleLeftRightIcon } from '@heroicons/vue/24/outline'
 import { useSessionStore } from '@shared/stores/session'
@@ -210,7 +218,8 @@ const chatroomId = route.params.chatroomId as string
 const projectId = (route.params.projectId as string) || ''
 
 const myId = computed(() => session.me?.id ?? null)
-const { isMobile } = useBreakpoint()
+const { isMobile, isTablet, isDesktop } = useBreakpoint()
+const { keyboardInset } = useVisualViewport(() => isMobile.value)
 store.setActive(chatroomId)
 
 const listRef = useTemplateRef<HTMLElement>('listRef')
@@ -492,10 +501,17 @@ function onExportSubmit(opts: ExportOptions): void {
   transform: translateX(-50%);
 }
 
-/* Mobile: single column; side panels become drawers. */
+/* Tablet (768-1023): 2-column — agents rail + feed. Presence is a drawer. */
+.chatroom--tablet {
+  grid-template-columns: 200px 1fr;
+}
+
+/* Mobile: single column; side panels become drawers. The grid shrinks by the
+   keyboard overlap so the composer stays visible above the virtual keyboard. */
 .chatroom--mobile {
   grid-template-columns: 1fr;
   grid-template-rows: 48px 1fr auto auto;
+  height: calc(100% - var(--kb-inset, 0px));
 }
 
 .chatroom--mobile .chatroom__feed,

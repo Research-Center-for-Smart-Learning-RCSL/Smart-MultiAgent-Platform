@@ -1,5 +1,5 @@
 export { useBanKickGuard } from './useBanKickGuard'
-export { useBreakpoint, type Breakpoint } from './useBreakpoint'
+export { useBreakpoint, BP, type Breakpoint } from './useBreakpoint'
 export { useConfirmDialog, type ConfirmOptions, type PromptOptions } from './useConfirmDialog'
 export { useCsrfToken } from './useCsrfToken'
 export { useServerErrors } from './useServerErrors'
@@ -10,3 +10,5 @@ export { usePolling, type UsePollingOptions, type PollingController } from './us
 export { useInlineRename, type InlineRename } from './useInlineRename'
 export { useRateLimitCountdown, type RateLimitCountdown } from './useRateLimitCountdown'
 export { useClientPagination, type ClientPagination } from './useClientPagination'
+export { useVisualViewport } from './useVisualViewport'
+export { useFocusTrap } from './useFocusTrap'

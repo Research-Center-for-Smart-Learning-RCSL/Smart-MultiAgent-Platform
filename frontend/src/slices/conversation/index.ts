@@ -6,7 +6,6 @@ export { conversationRoutes } from './routes'
 export { convKeys } from './queries'
 export { useConversationStore } from './stores/conversation'
 export { useChatroomSocket } from './composables/useChatroomSocket'
-export { renderMarkdown, enhanceRenderedMarkdown } from './utils/renderMarkdown'
 export { getWorkspace, listChatrooms, listWorkspaces } from './api'
 export type {
   Attachment,
@@ -21,11 +20,11 @@ export type {
   Workspace,
 } from './types'
 
-import { registerMessages } from '@shared/i18n'
-import enMessages from './locales/en.json'
-import zhMessages from './locales/zh-TW.json'
+import { registerLocaleLoaders } from '@shared/i18n'
 
 export function installConversationSlice(): void {
-  registerMessages('en', enMessages)
-  registerMessages('zh-TW', zhMessages)
+  registerLocaleLoaders({
+    en: () => import('./locales/en.json'),
+    'zh-TW': () => import('./locales/zh-TW.json'),
+  })
 }

@@ -142,21 +142,45 @@
       </span>
     </div>
 
-    <!-- Read-only notice on small screens (R24.33) -->
+    <!-- Read-only notice on tablets (768-1023): canvas is view-only here. -->
     <div
-      v-if="!isDesktop"
+      v-if="!isMobile && !isDesktop"
       class="px-4 py-3 bg-info-tint text-info-on text-sm border-b"
     >
       {{ $t('workflow.editor.readOnlyNotice') }}
     </div>
 
-    <!-- Canvas + node inspector sidebar -->
-    <div class="flex flex-1 min-h-0">
+    <!-- Mobile (<768): no canvas at all — info card + open-on-desktop message. -->
+    <div
+      v-if="isMobile"
+      class="flex-1 min-h-0 overflow-y-auto p-4"
+    >
+      <div class="max-w-md mx-auto mt-8 rounded-lg border bg-surface p-6 text-center">
+        <h3 class="font-semibold mb-2">
+          {{ workflow?.name ?? $t('workflow.editor.loading') }}
+        </h3>
+        <p
+          v-if="workflow"
+          class="text-xs text-muted mb-4"
+        >
+          {{ $t('workflow.editor.mobileNodeCount', { count: flowNodes.length }) }}
+        </p>
+        <p class="text-sm font-medium mb-1">
+          {{ $t('workflow.editor.mobileTitle') }}
+        </p>
+        <p class="text-sm text-muted">
+          {{ $t('workflow.editor.mobileBody') }}
+        </p>
+      </div>
+    </div>
+
+    <!-- Canvas + node inspector sidebar (tablet read-only, desktop interactive) -->
+    <div
+      v-else
+      class="flex flex-1 min-h-0"
+    >
       <!-- Vue Flow canvas -->
-      <div
-        ref="canvasEl"
-        class="flex-1 relative"
-      >
+      <div class="flex-1 relative">
         <div
           v-if="!workflow && !loadError"
           class="absolute inset-0 flex items-center justify-center text-sm text-muted"
@@ -177,6 +201,9 @@
           :node-types="nodeTypes"
           :default-viewport="{ x: 50, y: 50, zoom: 0.85 }"
           fit-view-on-init
+          :nodes-draggable="isDesktop"
+          :nodes-connectable="isDesktop"
+          :elements-selectable="isDesktop"
           @nodes-change="onNodesChange"
           @edges-change="onEdgesChange"
           @node-click="onNodeClick"
@@ -248,7 +275,7 @@ const router = useRouter()
 const qc = useQueryClient()
 const store = useWorkflowStore()
 
-const { isDesktop } = useBreakpoint()
+const { isMobile, isDesktop } = useBreakpoint()
 const workflowId = route.params.workflowId as string
 const workspaceId = ref((route.params.workspaceId as string) || '')
 

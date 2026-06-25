@@ -7,6 +7,8 @@
     "cancel": "Cancel",
     "confirm": "Confirm",
     "save": "Save",
+    "close": "Close",
+    "back": "Back",
     "themeLabel": "Theme: {theme}",
     "errorBoundary": {
       "title": "Something went wrong",
@@ -26,6 +28,7 @@
       "getStarted": "Get Started",
       "logIn": "Log In"
     },
+    "skipToContent": "Skip to main content",
     "topbar": {
       "toggleSidebar": "Toggle sidebar"
     },
