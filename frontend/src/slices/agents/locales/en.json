@@ -147,6 +147,7 @@
       "rerankProvider": "Rerank Provider",
       "rerankModel": "Rerank Model",
       "noRerankKeys": "No Cohere (rerank) key in this project -- carry one in the Keys section to enable reranking.",
+      "immutableHint": "Embedding provider, model, and chunk strategy are fixed at creation and cannot be changed.",
       "submit": "Create Configuration"
     },
     "graphragList": {
@@ -217,6 +218,8 @@
       "add": "Add Binding",
       "cancel": "Cancel",
       "created": "MCP server bound.",
+      "updated": "MCP binding updated.",
+      "save": "Save Changes",
       "createFailed": "Failed to bind MCP server.",
       "deleted": "MCP binding removed.",
       "deleteFailed": "Failed to remove MCP binding.",
@@ -285,6 +288,8 @@
       "colHost": "Hostname",
       "colNote": "Note",
       "colAdded": "Added",
+      "addedToday": "Today",
+      "addedDaysAgo": "{days}d ago",
       "colActions": "Actions",
       "emptyTitle": "No hostnames allowed",
       "emptyDescription": "Add hostnames that MCP servers in this project are allowed to connect to. Without entries, all MCP egress is blocked."

@@ -108,6 +108,26 @@ export interface McpBinding {
   created_at: string
 }
 
+// Mirrors backend `RagConfigPatchIn`. Embedding provider/model/key and the
+// chunk strategy are immutable post-creation (an indexed corpus can't switch
+// embedding space), so only these fields are patchable.
+export interface RagConfigPatchInput {
+  name?: string
+  top_k?: number
+  chunk_params?: Record<string, unknown>
+  rerank_enabled?: boolean
+  rerank_key_id?: string | null
+  rerank_provider?: 'cohere' | null
+  rerank_model?: string | null
+}
+
+// Mirrors backend `McpBindingPatchIn`. `source` and `reference` are immutable;
+// only the tool allowlist and advanced config may be edited.
+export interface McpBindingPatchInput {
+  allowed_tools?: string[]
+  config?: Record<string, unknown>
+}
+
 // Mirrors backend `McpTestOut` — the sandbox probe result.
 export interface McpTestResult {
   ok: boolean
@@ -158,6 +178,9 @@ export const agentsApi = {
   getRagConfig: (configId: string) =>
     http.get<RagConfig>(`/rag-configs/${configId}`),
 
+  patchRagConfig: (configId: string, payload: RagConfigPatchInput) =>
+    http.patch<RagConfig>(`/rag-configs/${configId}`, payload),
+
   listDocuments: (configId: string) =>
     http.get<RagDocument[]>(`/rag-configs/${configId}/documents`),
 
@@ -195,6 +218,9 @@ export const agentsApi = {
 
   addMcpBinding: (agentId: string, payload: McpBindingCreateInput) =>
     http.post<McpBinding>(`/agents/${agentId}/mcp`, payload),
+
+  patchMcpBinding: (agentId: string, bindingId: string, payload: McpBindingPatchInput) =>
+    http.patch<McpBinding>(`/agents/${agentId}/mcp/${bindingId}`, payload),
 
   deleteMcpBinding: (agentId: string, bindingId: string) =>
     http.delete(`/agents/${agentId}/mcp/${bindingId}`),
