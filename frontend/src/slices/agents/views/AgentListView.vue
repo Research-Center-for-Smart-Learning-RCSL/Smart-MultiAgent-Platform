@@ -1,253 +1,368 @@
 <script setup lang="ts">
-import { useI18n } from 'vue-i18n'
+import { computed, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/vue-query'
-import { useForm } from 'vee-validate'
-import { toTypedSchema } from '@vee-validate/zod'
-import { computed, ref, watch } from 'vue'
-
-import { useServerErrors, useToast } from '@shared/composables'
-import { SCard, SPageHeader } from '@shared/ui'
-import AgentFormFields from '../components/AgentFormFields.vue'
-import { keyGroupsApi, keysKeys } from '@slices/keys'
-import { agentsApi } from '../api'
+import {
+  PlusIcon,
+  PencilSquareIcon,
+  DocumentDuplicateIcon,
+  TrashIcon,
+  CpuChipIcon,
+  EllipsisVerticalIcon,
+} from '@heroicons/vue/24/outline'
+import {
+  SPageHeader,
+  SSearchInput,
+  SSelect,
+  STable,
+  SBadge,
+  SButton,
+  SDropdown,
+  SEmptyState,
+  SAlert,
+  SPagination,
+  SCard,
+} from '@shared/ui'
+import {
+  useConfirmDialog,
+  useToast,
+  useClientPagination,
+  useBreakpoint,
+} from '@shared/composables'
+import { keyGroupsApi, keysKeys, type KeyGroup } from '@slices/keys'
+import { agentsApi, type Agent } from '../api'
 import { agentKeys } from '../queries'
-import { agentCreateSchema, type AgentCreateInput } from '../types/schemas'
+import type { Column } from '@shared/ui/STable.vue'
 
 const { t } = useI18n()
 const route = useRoute()
 const router = useRouter()
 const qc = useQueryClient()
 const toast = useToast()
+const { confirm } = useConfirmDialog()
+const { isMobile } = useBreakpoint()
 const projectId = route.params.projectId as string
 
-const showForm = ref(false)
+const search = ref('')
+const modelFilter = ref<string>('')
+const statusFilter = ref<string>('')
 
 const query = useQuery({
   queryKey: agentKeys.agents(projectId),
-  queryFn: async () => {
-    const { data } = await agentsApi.list(projectId)
-    return data
-  },
+  queryFn: async () => (await agentsApi.list(projectId)).data,
 })
 
-// Key groups are the BYO-key routing target — an agent cannot be created
-// without one, so the picker is required and we block submit when empty.
 const keyGroupsQuery = useQuery({
   queryKey: keysKeys.keyGroups(projectId),
-  queryFn: async () => {
-    const { data } = await keyGroupsApi.listForProject(projectId)
-    return data
-  },
+  queryFn: async () => (await keyGroupsApi.listForProject(projectId)).data,
 })
 
 const ragConfigsQuery = useQuery({
   queryKey: agentKeys.ragConfigs(projectId),
-  queryFn: async () => {
-    const { data } = await agentsApi.listRagConfigs(projectId)
-    return data
-  },
+  queryFn: async () => (await agentsApi.listRagConfigs(projectId)).data,
 })
 
-const hasKeyGroups = computed(() => (keyGroupsQuery.data.value?.length ?? 0) > 0)
+const agents = computed<Agent[]>(() => query.data.value ?? [])
+const loading = computed(() => query.isLoading.value)
+const error = computed(() => query.error.value)
 
-const schema = toTypedSchema(agentCreateSchema)
-const { handleSubmit, errors, defineField, resetForm, setErrors } = useForm<AgentCreateInput>({
-  validationSchema: schema,
-  initialValues: {
-    name: '',
-    model_hint: 'claude',
-    model_id: null,
-    key_group_id: '',
-    system_prompt: '',
-    prompt_strategy: 'full',
-    rag_config_id: null,
-    graphrag_config_id: null,
-    context_mode: 'general',
-    context_token_cap: null,
-    a2a_enabled: false,
-  },
-})
-
-const [name] = defineField('name')
-const [modelHint] = defineField('model_hint')
-const [modelId] = defineField('model_id')
-const [keyGroupId] = defineField('key_group_id')
-const [systemPrompt] = defineField('system_prompt')
-const [promptStrategy] = defineField('prompt_strategy')
-const [contextMode] = defineField('context_mode')
-const [ragConfigId] = defineField('rag_config_id')
-const [a2aEnabled] = defineField('a2a_enabled')
-
-// Default the required picker to the first available group once loaded so the
-// common single-group case needs no manual selection.
-watch(
-  () => keyGroupsQuery.data.value,
-  (groups) => {
-    if (groups && groups.length && !keyGroupId.value) {
-      keyGroupId.value = groups[0]!.id
-    }
-  },
-  { immediate: true },
+const keyGroupById = computed(() =>
+  new Map((keyGroupsQuery.data.value ?? []).map((g: KeyGroup) => [g.id, g.name])),
+)
+const ragConfigById = computed(() =>
+  new Map((ragConfigsQuery.data.value ?? []).map((c) => [c.id, c.name])),
 )
 
-const { applyServerErrors } = useServerErrors(setErrors)
+const filteredAgents = computed(() => {
+  let items = agents.value
+  if (search.value) {
+    const q = search.value.toLowerCase()
+    items = items.filter((a) => a.name.toLowerCase().includes(q))
+  }
+  if (modelFilter.value) {
+    items = items.filter((a) => a.model_hint === modelFilter.value)
+  }
+  if (statusFilter.value === 'active') {
+    items = items.filter((a) => !a.deleted_at)
+  } else if (statusFilter.value === 'deleted') {
+    items = items.filter((a) => !!a.deleted_at)
+  }
+  return items
+})
 
-const createMutation = useMutation({
-  mutationFn: async (values: AgentCreateInput) => {
-    const { data } = await agentsApi.create(projectId, values)
-    return data
-  },
+const { currentPage, totalPages, paginatedItems, pageSize } =
+  useClientPagination(filteredAgents)
+
+const modelOptions = computed(() => [
+  { value: '', label: t('agents.list.filterAll') },
+  { value: 'claude', label: t('agents.form.modelHints.claude') },
+  { value: 'openai', label: t('agents.form.modelHints.openai') },
+  { value: 'gemini', label: t('agents.form.modelHints.gemini') },
+])
+
+const columns = computed<Column[]>(() => [
+  { key: 'name', label: t('agents.form.name') },
+  { key: 'model_hint', label: t('agents.form.modelHint'), width: '100px' },
+  { key: 'key_group_id', label: t('agents.form.keyGroup'), width: '140px' },
+  { key: 'rag_config_id', label: t('agents.form.ragConfig'), width: '100px' },
+  { key: 'a2a_enabled', label: 'A2A', width: '60px' },
+  { key: 'actions', label: '', width: '48px', align: 'right' },
+])
+
+const actionItems = computed(() => [
+  { key: 'edit', label: t('common.edit', 'Edit'), icon: PencilSquareIcon },
+  { key: 'duplicate', label: t('agents.list.duplicate'), icon: DocumentDuplicateIcon },
+  { key: 'divider', label: '', divider: true },
+  { key: 'delete', label: t('common.delete', 'Delete'), icon: TrashIcon, danger: true },
+])
+
+function goToAgent(agentId: string): void {
+  router.push({ name: 'agents.detail', params: { agentId } })
+}
+
+function goToCreate(): void {
+  router.push({ name: 'agents.detail', params: { agentId: 'new' }, query: { projectId } })
+}
+
+const deleteMutation = useMutation({
+  mutationFn: (agent: Agent) => agentsApi.remove(agent.id, agent.version),
   onSuccess: () => {
     qc.invalidateQueries({ queryKey: agentKeys.agents(projectId) })
-    resetForm()
-    showForm.value = false
+    toast.success(t('agents.list.deleted'))
+  },
+  onError: () => toast.error(t('agents.list.deleteFailed')),
+})
+
+async function confirmDelete(agent: Agent): Promise<void> {
+  const ok = await confirm({
+    title: t('agents.detail.deleteConfirmTitle'),
+    message: t('agents.list.confirmDelete'),
+    variant: 'error',
+    confirmLabel: t('agents.detail.delete'),
+  })
+  if (!ok) return
+  deleteMutation.mutate(agent)
+}
+
+async function duplicateAgent(agent: Agent): Promise<void> {
+  try {
+    await agentsApi.create(projectId, {
+      name: `${agent.name} (copy)`,
+      model_hint: agent.model_hint as 'claude' | 'openai' | 'gemini',
+      model_id: agent.model_id ?? null,
+      key_group_id: agent.key_group_id,
+      system_prompt: agent.system_prompt,
+      prompt_strategy: agent.prompt_strategy as 'full' | 'lazy',
+      rag_config_id: agent.rag_config_id,
+      graphrag_config_id: null,
+      context_mode: agent.context_mode as 'general' | 'compact',
+      context_token_cap: agent.context_token_cap,
+      a2a_enabled: agent.a2a_enabled,
+    })
+    qc.invalidateQueries({ queryKey: agentKeys.agents(projectId) })
     toast.success(t('agents.list.created'))
-  },
-  onError: (err) => {
-    if (!applyServerErrors(err)) {
-      toast.error(t('agents.list.createFailed'))
-    }
-  },
-})
+  } catch {
+    toast.error(t('agents.list.createFailed'))
+  }
+}
 
-const onSubmit = handleSubmit((values) => {
-  createMutation.mutate(values)
-})
+function onAction(key: string, row: Agent): void {
+  if (key === 'edit') goToAgent(row.id)
+  else if (key === 'duplicate') void duplicateAgent(row)
+  else if (key === 'delete') void confirmDelete(row)
+}
 
-function goToAgent(agentId: string) {
-  router.push({ name: 'agents.detail', params: { agentId } })
+function onRowClick(row: Agent): void {
+  goToAgent(row.id)
 }
 </script>
 
 <template>
-  <section class="agent-list px-4 py-4 sm:p-6">
+  <main class="p-6">
     <SPageHeader :title="t('agents.list.title')">
-      <button
-        class="btn btn-primary"
-        @click="showForm = !showForm"
-      >
-        {{ showForm ? t('agents.list.cancel') : t('agents.list.create') }}
-      </button>
+      <template #actions>
+        <SButton
+          variant="primary"
+          @click="goToCreate"
+        >
+          <template #icon-left>
+            <PlusIcon class="w-4 h-4" />
+          </template>
+          {{ t('agents.list.create') }}
+        </SButton>
+      </template>
     </SPageHeader>
 
-    <SCard
-      v-if="showForm"
-      class="max-w-[480px] mb-6"
-    >
-      <form
-        @submit.prevent="onSubmit"
-      >
-        <p
-          v-if="!keyGroupsQuery.isLoading.value && !hasKeyGroups"
-          class="agent-list__warning"
-          role="alert"
-        >
-          {{ t('agents.form.noKeyGroups') }}
-        </p>
-
-        <AgentFormFields
-          v-model:name="name"
-          v-model:model-hint="modelHint"
-          v-model:model-id="modelId"
-          v-model:key-group-id="keyGroupId"
-          v-model:system-prompt="systemPrompt"
-          v-model:prompt-strategy="promptStrategy"
-          v-model:context-mode="contextMode"
-          v-model:rag-config-id="ragConfigId"
-          v-model:a2a-enabled="a2aEnabled"
-          :errors="errors"
-          :key-groups="keyGroupsQuery.data.value ?? []"
-          :rag-configs="ragConfigsQuery.data.value ?? []"
-        >
-          <template #after-rag>
-            <RouterLink
-              class="agent-list__rag-manage"
-              :to="{ name: 'agents.ragConfigs', params: { projectId } }"
-            >
-              {{ t('agents.form.manageRagConfigs') }}
-            </RouterLink>
-            <RouterLink
-              class="agent-list__rag-manage"
-              :to="{ name: 'agents.graphragConfigs', params: { projectId } }"
-            >
-              {{ t('agents.form.manageGraphragConfigs') }}
-            </RouterLink>
-          </template>
-        </AgentFormFields>
-
-        <button
-          type="submit"
-          class="btn btn-primary"
-          :disabled="createMutation.isPending.value || !hasKeyGroups"
-        >
-          {{ t('agents.form.submit') }}
-        </button>
-      </form>
-    </SCard>
-
-    <div
-      v-if="query.isLoading.value"
-      class="agent-list__loading"
-    >
-      {{ t('agents.list.loading') }}
+    <div class="flex flex-wrap items-center gap-4 mt-6">
+      <SSearchInput
+        v-model="search"
+        :placeholder="t('agents.list.searchPlaceholder')"
+        class="w-64"
+      />
+      <SSelect
+        v-model="modelFilter"
+        :options="modelOptions"
+        size="sm"
+        class="w-36"
+      />
     </div>
 
-    <ul
-      v-else-if="query.data.value?.length"
-      class="agent-list__items"
+    <SAlert
+      v-if="error"
+      variant="danger"
+      class="mt-4"
     >
-      <li
-        v-for="agent in query.data.value"
+      {{ t('agents.list.loadError') }}
+      <template #actions>
+        <SButton
+          variant="ghost"
+          size="sm"
+          @click="query.refetch()"
+        >
+          {{ t('agents.detail.reload') }}
+        </SButton>
+      </template>
+    </SAlert>
+
+    <!-- Mobile: card layout -->
+    <div
+      v-if="isMobile && !loading && filteredAgents.length > 0"
+      class="mt-6 space-y-3"
+    >
+      <SCard
+        v-for="agent in paginatedItems"
         :key="agent.id"
-        class="agent-list__item"
-        role="button"
-        tabindex="0"
+        class="cursor-pointer"
         @click="goToAgent(agent.id)"
-        @keydown.enter="goToAgent(agent.id)"
       >
-        <span class="agent-list__item-name">{{ agent.name }}</span>
-        <span class="agent-list__item-model">{{ agent.model_id ?? agent.model_hint }}</span>
-      </li>
-    </ul>
+        <div class="flex items-center justify-between">
+          <div>
+            <p class="font-medium">
+              {{ agent.name }}
+            </p>
+            <SBadge
+              variant="neutral"
+              size="sm"
+              class="mt-1"
+            >
+              {{ agent.model_hint }}
+            </SBadge>
+          </div>
+          <SDropdown
+            :items="actionItems"
+            placement="bottom-end"
+            @select="onAction($event, agent)"
+          >
+            <template #trigger>
+              <SButton
+                variant="ghost"
+                icon-only
+                size="sm"
+                @click.stop
+              >
+                <EllipsisVerticalIcon class="w-4 h-4" />
+              </SButton>
+            </template>
+          </SDropdown>
+        </div>
+      </SCard>
+    </div>
 
-    <p
-      v-else
-      class="text-muted"
+    <!-- Desktop: table layout -->
+    <STable
+      v-if="!isMobile"
+      :columns="columns"
+      :data="paginatedItems"
+      :loading="loading"
+      row-key="id"
+      sticky-header
+      class="mt-6"
+      @row-click="onRowClick"
     >
-      {{ t('agents.list.empty') }}
-    </p>
-  </section>
-</template>
+      <template #cell-name="{ row }">
+        <span class="font-medium cursor-pointer text-[var(--color-accent)]">
+          {{ row.name }}
+        </span>
+      </template>
 
-<style scoped>
-.agent-list__warning {
-  color: var(--color-danger);
-  margin-bottom: 0.75rem;
-}
-.agent-list__items {
-  list-style: none;
-  padding: 0;
-}
-.agent-list__item {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0.75rem 1rem;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  margin-bottom: 0.5rem;
-  cursor: pointer;
-  min-height: var(--touch-min);
-}
-.agent-list__item:hover {
-  background: var(--color-surface);
-}
-.agent-list__item-name {
-  font-weight: 500;
-}
-.agent-list__item-model {
-  color: var(--color-muted);
-  font-size: 0.875rem;
-}
-</style>
+      <template #cell-model_hint="{ row }">
+        <SBadge variant="neutral">
+          {{ row.model_hint }}
+        </SBadge>
+      </template>
+
+      <template #cell-key_group_id="{ row }">
+        {{ keyGroupById.get(row.key_group_id) ?? '--' }}
+      </template>
+
+      <template #cell-rag_config_id="{ row }">
+        <template v-if="row.rag_config_id">
+          {{ ragConfigById.get(row.rag_config_id) ?? '--' }}
+        </template>
+        <span
+          v-else
+          class="text-[var(--color-muted)]"
+        >--</span>
+      </template>
+
+      <template #cell-a2a_enabled="{ row }">
+        <SBadge
+          v-if="row.a2a_enabled"
+          variant="success"
+        >
+          {{ t('agents.list.a2aOn') }}
+        </SBadge>
+        <span
+          v-else
+          class="text-[var(--color-muted)]"
+        >--</span>
+      </template>
+
+      <template #actions="{ row }">
+        <SDropdown
+          :items="actionItems"
+          placement="bottom-end"
+          @select="onAction($event, row)"
+        >
+          <template #trigger>
+            <SButton
+              variant="ghost"
+              icon-only
+              size="sm"
+            >
+              <EllipsisVerticalIcon class="w-4 h-4" />
+            </SButton>
+          </template>
+        </SDropdown>
+      </template>
+
+      <template #empty>
+        <SEmptyState
+          :icon="CpuChipIcon"
+          :title="t('agents.list.emptyTitle')"
+          :text="t('agents.list.emptyDescription')"
+        >
+          <template #action>
+            <SButton
+              variant="primary"
+              @click="goToCreate"
+            >
+              {{ t('agents.list.create') }}
+            </SButton>
+          </template>
+        </SEmptyState>
+      </template>
+    </STable>
+
+    <SPagination
+      v-if="filteredAgents.length > pageSize"
+      :page="currentPage"
+      :total-pages="totalPages"
+      :total-items="filteredAgents.length"
+      :page-size="pageSize"
+      class="mt-4"
+      @update:page="currentPage = $event"
+    />
+  </main>
+</template>
