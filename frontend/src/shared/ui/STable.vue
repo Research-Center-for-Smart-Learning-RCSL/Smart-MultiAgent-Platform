@@ -1,4 +1,4 @@
-<script setup lang="ts">
+<script setup lang="ts" generic="T extends Record<string, unknown> = Record<string, unknown>">
 import { computed, useSlots } from 'vue'
 import {
   ChevronUpDownIcon,
@@ -19,7 +19,7 @@ type RowData = Record<string, unknown>
 const props = withDefaults(
   defineProps<{
     columns: Column[]
-    data?: RowData[]
+    data?: T[]
     loading?: boolean
     emptyTitle?: string
     emptyDescription?: string
@@ -47,7 +47,7 @@ const props = withDefaults(
 const emit = defineEmits<{
   sort: [payload: { key: string; order: 'asc' | 'desc' }]
   'update:selected': [payload: unknown[]]
-  'row-click': [row: RowData]
+  'row-click': [row: T]
 }>()
 
 const slots = useSlots()
@@ -107,7 +107,7 @@ function isRowSelected(row: RowData): boolean {
   return props.selected.includes(row[props.rowKey])
 }
 
-function onRowClick(row: RowData) {
+function onRowClick(row: T) {
   emit('row-click', row)
 }
 

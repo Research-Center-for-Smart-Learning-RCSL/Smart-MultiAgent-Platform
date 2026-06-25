@@ -1,48 +1,64 @@
 <template>
   <section class="admin-impersonate">
-    <h1>{{ $t('admin.impersonation.title') }}</h1>
-    <p>{{ $t('admin.impersonation.description') }}</p>
+    <SPageHeader :title="$t('admin.impersonation.title')">
+      <template #description>
+        {{ $t('admin.impersonation.description') }}
+      </template>
+    </SPageHeader>
 
-    <form @submit.prevent="onStart">
-      <input
+    <form
+      class="admin-impersonate__form"
+      @submit.prevent="onStart"
+    >
+      <SInput
         v-model="targetUserId"
+        class="admin-impersonate__input"
         :placeholder="$t('admin.impersonation.targetPlaceholder')"
         :aria-label="$t('admin.impersonation.targetPlaceholder')"
-        required
-      >
-      <button
+      />
+      <SButton
         type="submit"
-        :disabled="startImpersonation.isPending.value"
+        variant="primary"
+        :loading="startImpersonation.isPending.value"
       >
         {{ $t('admin.impersonation.start') }}
-      </button>
+      </SButton>
     </form>
 
-    <div
+    <SCard
       v-if="isImpersonating"
       class="admin-impersonate__active"
     >
-      <p>{{ $t('admin.impersonation.activeSession') }}</p>
-      <button
-        :disabled="endImpersonation.isPending.value"
-        @click="onEnd"
-      >
-        {{ $t('admin.impersonation.end') }}
-      </button>
-    </div>
+      <div class="admin-impersonate__active-row">
+        <span class="admin-impersonate__active-text">
+          {{ $t('admin.impersonation.activeSession') }}
+        </span>
+        <SButton
+          variant="danger"
+          size="sm"
+          :loading="endImpersonation.isPending.value"
+          @click="onEnd"
+        >
+          {{ $t('admin.impersonation.end') }}
+        </SButton>
+      </div>
+    </SCard>
 
-    <p
+    <SAlert
       v-if="error"
-      class="admin-impersonate__error"
+      variant="danger"
+      class="mt-2"
+      role="alert"
     >
       {{ error }}
-    </p>
+    </SAlert>
   </section>
 </template>
 
 <script setup lang="ts">
 import { ref } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { SPageHeader, SInput, SButton, SCard, SAlert } from '@shared/ui'
 import { useImpersonation } from '../composables/useImpersonation'
 
 const { t } = useI18n()
@@ -71,12 +87,29 @@ async function onEnd(): Promise<void> {
 </script>
 
 <style scoped>
-form { display: flex; gap: 0.5rem; margin: 1rem 0; }
+.admin-impersonate__form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin: 1rem 0;
+  align-items: center;
+}
+.admin-impersonate__input {
+  flex: 1 1 20rem;
+  max-width: 28rem;
+}
 .admin-impersonate__active {
   margin: 1rem 0;
-  padding: 0.75rem;
   border: 2px solid var(--color-warning);
-  border-radius: var(--radius-md);
 }
-.admin-impersonate__error { color: var(--color-danger); }
+.admin-impersonate__active-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+.admin-impersonate__active-text {
+  font-weight: 600;
+}
 </style>

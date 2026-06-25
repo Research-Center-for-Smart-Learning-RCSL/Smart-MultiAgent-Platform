@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
+import { SButton } from '@shared/ui'
 import type { UserDetail } from '../types'
 
 defineProps<{
@@ -20,49 +21,54 @@ const { t } = useI18n()
 
 <template>
   <div class="admin-user-actions">
-    <button
+    <SButton
       v-if="user.status === 'active'"
-      class="btn btn-danger"
+      variant="danger"
       :disabled="isPending"
       @click="$emit('ban')"
     >
       {{ t('admin.users.ban') }}
-    </button>
-    <button
+    </SButton>
+    <SButton
       v-if="user.status === 'banned'"
-      class="btn"
+      variant="secondary"
       :disabled="isPending"
       @click="$emit('unban')"
     >
       {{ t('admin.users.unban') }}
-    </button>
-    <button
+    </SButton>
+    <SButton
       v-if="user.status === 'active'"
-      class="btn btn-danger"
+      variant="danger"
       :disabled="isPending"
       @click="$emit('soft-delete')"
     >
       {{ t('admin.userDetail.softDelete') }}
-    </button>
-    <button
+    </SButton>
+    <SButton
       v-if="user.deleted_at"
-      class="btn btn-danger"
+      variant="danger"
       :disabled="isPending"
       @click="$emit('hard-delete')"
     >
       {{ t('admin.userDetail.hardDelete') }}
-    </button>
-    <button
+    </SButton>
+    <SButton
       v-if="user.status === 'active'"
-      class="btn"
+      variant="secondary"
       :disabled="isPending"
       @click="$emit('impersonate')"
     >
       {{ t('admin.userDetail.impersonate') }}
-    </button>
+    </SButton>
   </div>
 </template>
 
 <style scoped>
-.admin-user-actions { display: flex; gap: 0.5rem; margin-top: 1rem; }
+.admin-user-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 1rem;
+}
 </style>

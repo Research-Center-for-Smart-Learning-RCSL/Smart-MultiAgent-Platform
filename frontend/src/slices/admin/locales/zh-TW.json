@@ -6,7 +6,10 @@
     },
     "common": {
       "yes": "是",
-      "no": "否"
+      "no": "否",
+      "loading": "載入中…",
+      "retry": "重試",
+      "loadError": "載入資料失敗。"
     },
     "nav": {
       "users": "使用者",
@@ -68,7 +71,8 @@
       "hardDeleteConfirm": "永久刪除",
       "impersonateMessage": "啟動此使用者的唯讀模擬工作階段？",
       "impersonateTitle": "模擬使用者",
-      "impersonateConfirm": "開始"
+      "impersonateConfirm": "開始",
+      "notFound": "找不到使用者。"
     },
     "admins": {
       "title": "管理員",
@@ -77,7 +81,8 @@
       "promotedAt": "提升時間",
       "userIdPlaceholder": "要提升的使用者 ID",
       "promote": "提升",
-      "demote": "降級"
+      "demote": "降級",
+      "empty": "尚無管理員。"
     },
     "ipBans": {
       "title": "IP 封鎖",
@@ -87,7 +92,8 @@
       "add": "新增封鎖",
       "remove": "移除",
       "removeConfirmTitle": "移除 IP 封鎖",
-      "removeConfirm": "移除此 IP 封鎖？被封鎖的範圍將立即恢復存取權限。"
+      "removeConfirm": "移除此 IP 封鎖？被封鎖的範圍將立即恢復存取權限。",
+      "empty": "尚無 IP 封鎖。"
     },
     "orgs": {
       "title": "組織",
@@ -104,13 +110,15 @@
       "forceTransferTitle": "強制轉移 OC",
       "forceTransferConfirm": "轉移",
       "forceTransferUserIdRequired": "使用者 ID 為必填",
-      "transferFailed": "OC 轉移失敗。"
+      "transferFailed": "OC 轉移失敗。",
+      "empty": "尚無組織。"
     },
     "projects": {
       "title": "專案",
       "name": "名稱",
       "ownerUser": "擁有者(使用者)",
-      "ownerOrg": "擁有者(組織)"
+      "ownerOrg": "擁有者(組織)",
+      "empty": "尚無專案。"
     },
     "audit": {
       "title": "稽核日誌",
@@ -126,7 +134,9 @@
       "export": "匯出 CSV",
       "exportDateRequired": "匯出前請設定起始與結束時間。",
       "exportFailed": "匯出失敗，請重試。",
-      "loadMore": "載入更多"
+      "loadMore": "載入更多",
+      "empty": "沒有符合篩選條件的稽核記錄。",
+      "loadError": "載入稽核日誌失敗。"
     },
     "ops": {
       "title": "營運操作",
@@ -157,14 +167,16 @@
       "maxCount": "最大次數",
       "scope": "範圍",
       "updated": "更新時間",
-      "save": "儲存"
+      "save": "儲存",
+      "empty": "尚無速率限制原則。"
     },
     "metrics": {
       "title": "平台指標",
       "totalUsers": "使用者總數",
       "totalOrgs": "組織總數",
       "totalProjects": "專案總數",
-      "totalAuditEntries": "稽核記錄總數"
+      "totalAuditEntries": "稽核記錄總數",
+      "error": "載入指標失敗。"
     },
     "impersonation": {
       "title": "模擬登入",

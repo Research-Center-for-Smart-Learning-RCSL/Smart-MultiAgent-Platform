@@ -1,32 +1,72 @@
 <template>
-  <section
-    v-if="query.data.value"
-    class="admin-user-detail"
-  >
-    <h1>{{ query.data.value.email }}</h1>
-    <dl>
-      <dt>{{ $t('admin.userDetail.id') }}</dt><dd>{{ query.data.value.id }}</dd>
-      <dt>{{ $t('admin.users.status') }}</dt><dd>{{ query.data.value.status }}</dd>
-      <dt>{{ $t('admin.users.verified') }}</dt><dd>{{ query.data.value.email_verified ? $t('admin.common.yes') : $t('admin.common.no') }}</dd>
-      <dt>{{ $t('admin.userDetail.isAdmin') }}</dt><dd>{{ query.data.value.is_admin ? $t('admin.common.yes') : $t('admin.common.no') }}</dd>
-      <dt>{{ $t('admin.userDetail.bannedReason') }}</dt><dd>{{ query.data.value.banned_reason ?? '-' }}</dd>
-      <dt>{{ $t('admin.userDetail.bannedAt') }}</dt><dd>{{ query.data.value.banned_at ?? '-' }}</dd>
-      <dt>{{ $t('admin.userDetail.deletedAt') }}</dt><dd>{{ query.data.value.deleted_at ?? '-' }}</dd>
-      <dt>{{ $t('admin.userDetail.lastLogin') }}</dt><dd>{{ query.data.value.last_login_at ?? '-' }}</dd>
-      <dt>{{ $t('admin.users.created') }}</dt><dd>{{ query.data.value.created_at }}</dd>
-      <dt>{{ $t('admin.userDetail.orgs') }}</dt><dd>{{ query.data.value.org_ids.length }}</dd>
-      <dt>{{ $t('admin.userDetail.projects') }}</dt><dd>{{ query.data.value.project_ids.length }}</dd>
-    </dl>
-
-    <AdminUserActions
-      :user="query.data.value"
-      :is-pending="actionPending"
-      @ban="actions.promptBan(userId)"
-      @unban="actions.unbanUser.mutate(userId)"
-      @soft-delete="onSoftDelete"
-      @hard-delete="onHardDelete"
-      @impersonate="onImpersonate"
+  <section class="admin-user-detail">
+    <SLoadingSpinner
+      v-if="query.isPending.value"
+      class="my-4"
+      :label="$t('admin.common.loading')"
     />
+    <SAlert
+      v-else-if="query.isError.value || !query.data.value"
+      variant="danger"
+      class="my-4"
+      role="alert"
+    >
+      {{ $t('admin.userDetail.notFound') }}
+    </SAlert>
+    <template v-else>
+      <SPageHeader :title="query.data.value.email" />
+
+      <SCard class="mt-4">
+        <dl class="admin-user-detail__fields">
+          <dt>{{ $t('admin.userDetail.id') }}</dt>
+          <dd><code class="font-mono text-[0.8125rem]">{{ query.data.value.id }}</code></dd>
+
+          <dt>{{ $t('admin.users.status') }}</dt>
+          <dd>
+            <SBadge :variant="userStatusVariant(query.data.value.status)">
+              {{ query.data.value.status }}
+            </SBadge>
+          </dd>
+
+          <dt>{{ $t('admin.users.verified') }}</dt>
+          <dd>{{ query.data.value.email_verified ? $t('admin.common.yes') : $t('admin.common.no') }}</dd>
+
+          <dt>{{ $t('admin.userDetail.isAdmin') }}</dt>
+          <dd>{{ query.data.value.is_admin ? $t('admin.common.yes') : $t('admin.common.no') }}</dd>
+
+          <dt>{{ $t('admin.userDetail.bannedReason') }}</dt>
+          <dd>{{ query.data.value.banned_reason ?? '-' }}</dd>
+
+          <dt>{{ $t('admin.userDetail.bannedAt') }}</dt>
+          <dd>{{ query.data.value.banned_at ?? '-' }}</dd>
+
+          <dt>{{ $t('admin.userDetail.deletedAt') }}</dt>
+          <dd>{{ query.data.value.deleted_at ?? '-' }}</dd>
+
+          <dt>{{ $t('admin.userDetail.lastLogin') }}</dt>
+          <dd>{{ query.data.value.last_login_at ?? '-' }}</dd>
+
+          <dt>{{ $t('admin.users.created') }}</dt>
+          <dd>{{ query.data.value.created_at }}</dd>
+
+          <dt>{{ $t('admin.userDetail.orgs') }}</dt>
+          <dd>{{ query.data.value.org_ids.length }}</dd>
+
+          <dt>{{ $t('admin.userDetail.projects') }}</dt>
+          <dd>{{ query.data.value.project_ids.length }}</dd>
+        </dl>
+
+        <AdminUserActions
+          :user="query.data.value"
+          :is-pending="actionPending"
+          @ban="actions.promptBan(userId)"
+          @unban="actions.unbanUser.mutate(userId)"
+          @soft-delete="onSoftDelete"
+          @hard-delete="onHardDelete"
+          @impersonate="onImpersonate"
+        />
+      </SCard>
+    </template>
   </section>
 </template>
 
@@ -36,10 +76,12 @@ import { useI18n } from 'vue-i18n'
 import { useQuery } from '@tanstack/vue-query'
 import { useRoute } from 'vue-router'
 import { useConfirmDialog } from '@shared/composables'
+import { SPageHeader, SCard, SBadge, SLoadingSpinner, SAlert } from '@shared/ui'
 import { adminApi } from '../api/admin'
 import { adminKeys } from '../queries'
 import { useAdminActions } from '../composables/useAdminActions'
 import { useImpersonation } from '../composables/useImpersonation'
+import { userStatusVariant } from '../utils/userStatus'
 import AdminUserActions from '../components/AdminUserActions.vue'
 
 const { t } = useI18n()
@@ -49,7 +91,7 @@ const userId = route.params.userId as string
 
 const query = useQuery({
   queryKey: adminKeys.user(userId),
-  queryFn: () => adminApi.getUser(userId).then(r => r.data),
+  queryFn: () => adminApi.getUser(userId),
 })
 
 const actions = useAdminActions()
@@ -101,6 +143,18 @@ async function onImpersonate(): Promise<void> {
 </script>
 
 <style scoped>
-dl { display: grid; grid-template-columns: 12rem 1fr; gap: 0.25rem 1rem; }
-dt { font-weight: 600; }
+.admin-user-detail__fields {
+  display: grid;
+  grid-template-columns: 12rem 1fr;
+  gap: 0.5rem 1rem;
+  align-items: center;
+}
+.admin-user-detail__fields dt {
+  font-weight: 600;
+  color: var(--color-muted);
+}
+.admin-user-detail__fields dd {
+  margin: 0;
+  word-break: break-all;
+}
 </style>

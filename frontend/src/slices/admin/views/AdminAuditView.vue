@@ -6,121 +6,131 @@
       class="admin-audit__filters"
       @submit.prevent="applyFilters"
     >
-      <input
+      <SInput
         v-model="filters.action"
+        class="admin-audit__field"
         :placeholder="$t('admin.audit.action')"
-      >
-      <input
+        :aria-label="$t('admin.audit.action')"
+      />
+      <SInput
         v-model="filters.actor_user_id"
+        class="admin-audit__field"
         :placeholder="$t('admin.audit.actorUserId')"
-      >
-      <input
+        :aria-label="$t('admin.audit.actorUserId')"
+      />
+      <SInput
         v-model="filters.resource_type"
+        class="admin-audit__field"
         :placeholder="$t('admin.audit.resourceType')"
-      >
-      <input
+        :aria-label="$t('admin.audit.resourceType')"
+      />
+      <SInput
         v-model="filters.resource_id"
+        class="admin-audit__field"
         :placeholder="$t('admin.audit.resourceId')"
-      >
-      <input
+        :aria-label="$t('admin.audit.resourceId')"
+      />
+      <SInput
         v-model="filters.ip_prefix"
+        class="admin-audit__field"
         :placeholder="$t('admin.audit.ipPrefix')"
-      >
-      <input
+        :aria-label="$t('admin.audit.ipPrefix')"
+      />
+      <SInput
         v-model="filters.session_id"
+        class="admin-audit__field"
         :placeholder="$t('admin.audit.sessionId')"
-      >
-      <input
+        :aria-label="$t('admin.audit.sessionId')"
+      />
+      <SInput
         v-model="filters.from"
         type="datetime-local"
+        class="admin-audit__field"
         :aria-label="$t('admin.audit.from')"
-      >
-      <input
+      />
+      <SInput
         v-model="filters.to"
         type="datetime-local"
+        class="admin-audit__field"
         :aria-label="$t('admin.audit.to')"
-      >
-      <button
+      />
+      <SButton
         type="submit"
-        class="btn"
+        variant="primary"
       >
         {{ $t('admin.users.search') }}
-      </button>
-      <button
+      </SButton>
+      <SButton
         type="button"
-        class="btn"
+        variant="secondary"
         @click="onExport"
       >
         {{ $t('admin.audit.export') }}
-      </button>
+      </SButton>
     </form>
 
-    <div
-      v-if="allItems.length"
-      class="overflow-x-auto"
+    <SAlert
+      v-if="query.isError.value"
+      variant="danger"
+      class="mt-2"
+      role="alert"
     >
-      <table class="table">
-        <thead>
-          <tr>
-            <th scope="col">
-              {{ $t('admin.audit.id') }}
-            </th>
-            <th scope="col">
-              {{ $t('admin.audit.action') }}
-            </th>
-            <th scope="col">
-              {{ $t('admin.audit.actorUserId') }}
-            </th>
-            <th scope="col">
-              {{ $t('admin.audit.resourceType') }}
-            </th>
-            <th scope="col">
-              {{ $t('admin.audit.resourceId') }}
-            </th>
-            <th scope="col">
-              {{ $t('admin.audit.ipPrefix') }}
-            </th>
-            <th scope="col">
-              {{ $t('admin.users.created') }}
-            </th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr
-            v-for="entry in allItems"
-            :key="entry.id"
-          >
-            <td>{{ entry.id }}</td>
-            <td>{{ entry.action }}</td>
-            <td>{{ entry.actor_user_id ?? '-' }}</td>
-            <td>{{ entry.resource_type ?? '-' }}</td>
-            <td>{{ entry.resource_id ?? '-' }}</td>
-            <td>{{ entry.actor_ip ?? '-' }}</td>
-            <td>{{ new Date(entry.created_at).toLocaleString() }}</td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
+      {{ $t('admin.audit.loadError') }}
+    </SAlert>
+
+    <STable
+      class="mt-4"
+      :columns="columns"
+      :data="allItems"
+      :loading="query.isPending.value && allItems.length === 0"
+      row-key="id"
+    >
+      <template #cell-actor_user_id="{ row }">
+        {{ row.actor_user_id ?? '-' }}
+      </template>
+      <template #cell-resource_type="{ row }">
+        {{ row.resource_type ?? '-' }}
+      </template>
+      <template #cell-resource_id="{ row }">
+        {{ row.resource_id ?? '-' }}
+      </template>
+      <template #cell-actor_ip="{ row }">
+        {{ row.actor_ip ?? '-' }}
+      </template>
+      <template #cell-created_at="{ row }">
+        {{ new Date(row.created_at).toLocaleString() }}
+      </template>
+
+      <template #empty>
+        <SEmptyState
+          v-if="!query.isError.value"
+          :icon="ClipboardDocumentListIcon"
+          :text="$t('admin.audit.empty')"
+        />
+      </template>
+    </STable>
 
     <div
       v-if="nextCursor"
       class="admin-audit__pagination"
     >
-      <button
-        class="btn"
+      <SButton
+        variant="secondary"
         @click="loadMore"
       >
         {{ $t('admin.audit.loadMore') }}
-      </button>
+      </SButton>
     </div>
   </section>
 </template>
 
 <script setup lang="ts">
-import { SPageHeader } from '@shared/ui'
 import { reactive, ref, computed, watch } from 'vue'
 import { useQuery } from '@tanstack/vue-query'
 import { useI18n } from 'vue-i18n'
+import { ClipboardDocumentListIcon } from '@heroicons/vue/24/outline'
+import { SPageHeader, STable, SButton, SInput, SAlert, SEmptyState } from '@shared/ui'
+import type { Column } from '@shared/ui/STable.vue'
 import { useToast } from '@shared/composables'
 import { adminApi } from '../api/admin'
 import { adminKeys } from '../queries'
@@ -133,6 +143,16 @@ const filters = reactive<AuditFilter>({})
 const appliedFilters = ref<AuditFilter>({})
 const allItems = ref<AuditEntry[]>([])
 const nextCursor = ref<number | null>(null)
+
+const columns = computed<Column[]>(() => [
+  { key: 'id', label: t('admin.audit.id'), width: '80px' },
+  { key: 'action', label: t('admin.audit.action') },
+  { key: 'actor_user_id', label: t('admin.audit.actorUserId') },
+  { key: 'resource_type', label: t('admin.audit.resourceType'), width: '120px' },
+  { key: 'resource_id', label: t('admin.audit.resourceId') },
+  { key: 'actor_ip', label: t('admin.audit.ipPrefix'), width: '120px' },
+  { key: 'created_at', label: t('admin.users.created'), width: '180px' },
+])
 
 function applyFilters(): void {
   const clean: AuditFilter = {}
@@ -151,7 +171,7 @@ function applyFilters(): void {
 
 const query = useQuery({
   queryKey: computed(() => adminKeys.audit(appliedFilters.value)),
-  queryFn: () => adminApi.queryAudit(appliedFilters.value).then(r => r.data),
+  queryFn: () => adminApi.queryAudit(appliedFilters.value),
   refetchOnWindowFocus: false,
 })
 
@@ -179,8 +199,8 @@ async function onExport(): Promise<void> {
     return
   }
   try {
-    const { data } = await adminApi.exportAudit(appliedFilters.value)
-    window.open(data.url, '_blank')
+    const result = await adminApi.exportAudit(appliedFilters.value)
+    window.open(result.url, '_blank')
   } catch {
     toast.error(t('admin.audit.exportFailed'))
   }
@@ -193,7 +213,14 @@ async function onExport(): Promise<void> {
   flex-wrap: wrap;
   gap: 0.5rem;
   margin: 1rem 0;
+  align-items: center;
 }
-.admin-audit__filters input { max-width: 14rem; }
-.admin-audit__pagination { margin: 1rem 0; }
+.admin-audit__field {
+  max-width: 14rem;
+}
+.admin-audit__pagination {
+  margin: 1rem 0;
+  display: flex;
+  justify-content: center;
+}
 </style>

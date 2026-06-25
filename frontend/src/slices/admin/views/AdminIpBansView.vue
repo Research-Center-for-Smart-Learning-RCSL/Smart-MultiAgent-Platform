@@ -6,74 +6,95 @@
       class="admin-ip-bans__create"
       @submit.prevent="onCreate"
     >
-      <input
+      <SInput
         v-model="cidr"
+        class="admin-ip-bans__cidr"
         :placeholder="$t('admin.ipBans.cidrPlaceholder')"
-        required
-      >
-      <input
+        :aria-label="$t('admin.ipBans.cidr')"
+      />
+      <SInput
         v-model="reason"
+        class="admin-ip-bans__reason"
         :placeholder="$t('admin.ipBans.reason')"
-        required
-      >
-      <button
+        :aria-label="$t('admin.ipBans.reason')"
+      />
+      <SButton
         type="submit"
-        class="btn btn-primary"
-        :disabled="actions.createIpBan.isPending.value"
+        variant="primary"
+        :loading="actions.createIpBan.isPending.value"
       >
         {{ $t('admin.ipBans.add') }}
-      </button>
+      </SButton>
     </form>
 
-    <div
-      v-if="query.data.value"
-      class="overflow-x-auto"
+    <SAlert
+      v-if="query.isError.value"
+      variant="danger"
+      class="mt-4"
+      role="alert"
     >
-      <table class="table">
-        <thead>
-          <tr>
-            <th scope="col">
-              {{ $t('admin.ipBans.cidr') }}
-            </th>
-            <th scope="col">
-              {{ $t('admin.ipBans.reason') }}
-            </th>
-            <th scope="col">
-              {{ $t('admin.users.created') }}
-            </th>
-            <th scope="col">
-              {{ $t('admin.users.actions') }}
-            </th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr
-            v-for="ban in query.data.value"
-            :key="ban.id"
-          >
-            <td><code>{{ ban.cidr }}</code></td>
-            <td>{{ ban.reason }}</td>
-            <td>{{ new Date(ban.banned_at).toLocaleDateString() }}</td>
-            <td>
-              <button
-                class="btn btn-danger btn-sm"
-                :disabled="actions.deleteIpBan.isPending.value"
-                @click="onDeleteBan(ban.id)"
-              >
-                {{ $t('admin.ipBans.remove') }}
-              </button>
-            </td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
+      {{ $t('admin.common.loadError') }}
+      <template #actions>
+        <SButton
+          size="sm"
+          variant="secondary"
+          @click="query.refetch()"
+        >
+          {{ $t('admin.common.retry') }}
+        </SButton>
+      </template>
+    </SAlert>
+
+    <STable
+      v-else
+      class="mt-4"
+      :columns="columns"
+      :data="query.data.value ?? []"
+      :loading="query.isPending.value"
+      row-key="id"
+    >
+      <template #cell-cidr="{ row }">
+        <code class="font-mono text-[0.8125rem]">{{ row.cidr }}</code>
+      </template>
+
+      <template #cell-banned_at="{ row }">
+        {{ new Date(row.banned_at).toLocaleDateString() }}
+      </template>
+
+      <template #actions="{ row }">
+        <SButton
+          variant="danger"
+          size="sm"
+          :loading="actions.deleteIpBan.isPending.value"
+          @click="onDeleteBan(row.id)"
+        >
+          {{ $t('admin.ipBans.remove') }}
+        </SButton>
+      </template>
+
+      <template #empty>
+        <SEmptyState
+          :icon="NoSymbolIcon"
+          :text="$t('admin.ipBans.empty')"
+        />
+      </template>
+    </STable>
   </section>
 </template>
 
 <script setup lang="ts">
-import { SPageHeader } from '@shared/ui'
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { NoSymbolIcon } from '@heroicons/vue/24/outline'
+import {
+  SPageHeader,
+  STable,
+  SButton,
+  SInput,
+  SAlert,
+  SEmptyState,
+} from '@shared/ui'
+import type { Column } from '@shared/ui/STable.vue'
 import { useQuery } from '@tanstack/vue-query'
 import { useConfirmDialog } from '@shared/composables'
 import { adminApi } from '../api/admin'
@@ -85,9 +106,16 @@ const { confirm } = useConfirmDialog()
 const cidr = ref('')
 const reason = ref('')
 
+const columns = computed<Column[]>(() => [
+  { key: 'cidr', label: t('admin.ipBans.cidr'), width: '200px' },
+  { key: 'reason', label: t('admin.ipBans.reason') },
+  { key: 'banned_at', label: t('admin.users.created'), width: '140px' },
+  { key: 'actions', label: t('admin.users.actions'), width: '120px', align: 'right' },
+])
+
 const query = useQuery({
   queryKey: adminKeys.ipBans(),
-  queryFn: () => adminApi.listIpBans().then(r => r.data),
+  queryFn: () => adminApi.listIpBans(),
 })
 
 const actions = useAdminActions()
@@ -115,5 +143,17 @@ async function onCreate(): Promise<void> {
 </script>
 
 <style scoped>
-.admin-ip-bans__create { display: flex; gap: 0.5rem; margin: 1rem 0; }
+.admin-ip-bans__create {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin: 1rem 0;
+  align-items: center;
+}
+.admin-ip-bans__cidr {
+  flex: 0 1 16rem;
+}
+.admin-ip-bans__reason {
+  flex: 1 1 20rem;
+}
 </style>

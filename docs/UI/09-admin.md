@@ -903,7 +903,7 @@ Rendered when `isImpersonating` is true (computed from JWT claims).
 - **Message**: `$t('admin.impersonation.activeSession')` -- "Impersonation session is active. All write operations are blocked."
 - **End button**: `SButton` label `$t('admin.impersonation.end')`, disabled during `endImpersonation.isPending`.
 - On click (`onEnd`): calls `endImpersonation.mutateAsync(activeSessionTarget)`.
-- **API**: `POST /api/admin/impersonate/stop`
+- **API**: `POST /api/admin/users/{uid}/end-impersonate`
 
 ### 12.4 Impersonation Security Model
 
@@ -1112,7 +1112,7 @@ All endpoints require `require_admin` dependency (checks `principal.is_admin`, r
 | POST | `/api/admin/users/{uid}/delete` | -- | 204 | Soft delete (60-day grace) |
 | POST | `/api/admin/users/{uid}/hard-delete` | -- | 204 | Permanent delete (after grace period) |
 | POST | `/api/admin/users/{uid}/impersonate` | -- | `ImpersonateOut { session_id, access_token }` | Start impersonation |
-| POST | `/api/admin/impersonate/stop` | -- | 204 | End impersonation |
+| POST | `/api/admin/users/{uid}/end-impersonate` | -- | 204 | End impersonation |
 
 ### 18.2 Admin Management
 

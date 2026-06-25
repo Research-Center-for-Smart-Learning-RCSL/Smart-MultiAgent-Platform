@@ -1,81 +1,96 @@
 <template>
   <section class="admin-rate-limits">
     <SPageHeader :title="$t('admin.rateLimits.title')" />
-    <div
-      v-if="query.data.value"
-      class="overflow-x-auto"
+
+    <SAlert
+      v-if="query.isError.value"
+      variant="danger"
+      class="mt-4"
+      role="alert"
     >
-      <table class="table">
-        <thead>
-          <tr>
-            <th scope="col">
-              {{ $t('admin.rateLimits.key') }}
-            </th>
-            <th scope="col">
-              {{ $t('admin.rateLimits.window') }}
-            </th>
-            <th scope="col">
-              {{ $t('admin.rateLimits.maxCount') }}
-            </th>
-            <th scope="col">
-              {{ $t('admin.rateLimits.scope') }}
-            </th>
-            <th scope="col">
-              {{ $t('admin.rateLimits.updated') }}
-            </th>
-            <th scope="col">
-              {{ $t('admin.users.actions') }}
-            </th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr
-            v-for="policy in query.data.value"
-            :key="policy.key"
-          >
-            <td><code>{{ policy.key }}</code></td>
-            <td>
-              <input
-                v-model.number="edits[policy.key].window_sec"
-                type="number"
-                min="1"
-                class="admin-rate-limits__input"
-                :aria-label="$t('admin.rateLimits.window')"
-              >
-            </td>
-            <td>
-              <input
-                v-model.number="edits[policy.key].max_count"
-                type="number"
-                min="1"
-                class="admin-rate-limits__input"
-                :aria-label="$t('admin.rateLimits.maxCount')"
-              >
-            </td>
-            <td>{{ policy.scope }}</td>
-            <td>{{ new Date(policy.updated_at).toLocaleString() }}</td>
-            <td>
-              <button
-                class="btn btn-primary btn-sm"
-                @click="onPatch(policy.key)"
-              >
-                {{ $t('admin.rateLimits.save') }}
-              </button>
-            </td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
+      {{ $t('admin.common.loadError') }}
+      <template #actions>
+        <SButton
+          size="sm"
+          variant="secondary"
+          @click="query.refetch()"
+        >
+          {{ $t('admin.common.retry') }}
+        </SButton>
+      </template>
+    </SAlert>
+
+    <STable
+      v-else
+      class="mt-4"
+      :columns="columns"
+      :data="query.data.value ?? []"
+      :loading="query.isPending.value"
+      row-key="key"
+    >
+      <template #cell-key="{ row }">
+        <code class="font-mono text-[0.8125rem]">{{ row.key }}</code>
+      </template>
+
+      <template #cell-window_sec="{ row }">
+        <SInput
+          v-if="edits[row.key]"
+          v-model="edits[row.key].window_sec"
+          type="number"
+          size="sm"
+          class="admin-rate-limits__input"
+          :aria-label="$t('admin.rateLimits.window')"
+        />
+      </template>
+
+      <template #cell-max_count="{ row }">
+        <SInput
+          v-if="edits[row.key]"
+          v-model="edits[row.key].max_count"
+          type="number"
+          size="sm"
+          class="admin-rate-limits__input"
+          :aria-label="$t('admin.rateLimits.maxCount')"
+        />
+      </template>
+
+      <template #cell-updated_at="{ row }">
+        {{ new Date(row.updated_at).toLocaleString() }}
+      </template>
+
+      <template #actions="{ row }">
+        <SButton
+          variant="primary"
+          size="sm"
+          :loading="actions.patchRateLimit.isPending.value"
+          @click="onPatch(row.key)"
+        >
+          {{ $t('admin.rateLimits.save') }}
+        </SButton>
+      </template>
+
+      <template #empty>
+        <SEmptyState
+          :icon="AdjustmentsHorizontalIcon"
+          :text="$t('admin.rateLimits.empty')"
+        />
+      </template>
+    </STable>
   </section>
 </template>
 
 <script setup lang="ts">
-import { SPageHeader } from '@shared/ui'
-import { reactive, watch } from 'vue'
+import { computed, reactive, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
+import { AdjustmentsHorizontalIcon } from '@heroicons/vue/24/outline'
+import { SPageHeader, STable, SButton, SInput, SAlert, SEmptyState } from '@shared/ui'
+import type { Column } from '@shared/ui/STable.vue'
 import { useQuery } from '@tanstack/vue-query'
 import { adminApi } from '../api/admin'
 import { adminKeys } from '../queries'
 import { useAdminActions } from '../composables/useAdminActions'
+
+const { t } = useI18n()
 
 interface EditRow {
   window_sec: number
@@ -84,9 +99,18 @@ interface EditRow {
 
 const edits = reactive<Record<string, EditRow>>({})
 
+const columns = computed<Column[]>(() => [
+  { key: 'key', label: t('admin.rateLimits.key') },
+  { key: 'window_sec', label: t('admin.rateLimits.window'), width: '120px' },
+  { key: 'max_count', label: t('admin.rateLimits.maxCount'), width: '120px' },
+  { key: 'scope', label: t('admin.rateLimits.scope'), width: '120px' },
+  { key: 'updated_at', label: t('admin.rateLimits.updated'), width: '180px' },
+  { key: 'actions', label: t('admin.users.actions'), width: '100px', align: 'right' },
+])
+
 const query = useQuery({
   queryKey: adminKeys.rateLimits(),
-  queryFn: () => adminApi.listRateLimits().then(r => r.data),
+  queryFn: () => adminApi.listRateLimits(),
 })
 
 watch(
@@ -115,5 +139,7 @@ function onPatch(key: string): void {
 </script>
 
 <style scoped>
-.admin-rate-limits__input { width: 5rem; }
+.admin-rate-limits__input {
+  width: 6rem;
+}
 </style>

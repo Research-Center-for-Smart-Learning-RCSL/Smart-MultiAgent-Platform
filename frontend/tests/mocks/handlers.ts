@@ -135,7 +135,7 @@ export const handlers = [
   http.get('/api/workflow-runs/:runId/steps', () => HttpResponse.json([])),
   http.get('/api/workflow-runs/:runId/approvals', () => HttpResponse.json([])),
 
-  http.get('/api/admin/users', () => HttpResponse.json({ items: [], total: 0 })),
+  http.get('/api/admin/users', () => HttpResponse.json([])),
   http.get('/api/admin/users/:userId', () =>
     HttpResponse.json({
       id: 'u_1',
@@ -153,8 +153,8 @@ export const handlers = [
       project_ids: [],
     }),
   ),
-  http.get('/api/admin/orgs', () => HttpResponse.json({ items: [], total: 0 })),
-  http.get('/api/admin/projects', () => HttpResponse.json({ items: [], total: 0 })),
+  http.get('/api/admin/orgs', () => HttpResponse.json([])),
+  http.get('/api/admin/projects', () => HttpResponse.json([])),
   http.get('/api/admin/audit', () => HttpResponse.json({ items: [], total: 0 })),
   http.get('/api/admin/metrics', () => HttpResponse.json({})),
   http.get('/api/admin/rate-limits', () => HttpResponse.json([])),
