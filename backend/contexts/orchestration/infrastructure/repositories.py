@@ -31,6 +31,25 @@ from contexts.orchestration.infrastructure.tables import (
     workflow_runs,
 )
 
+
+async def _project_id_for_run(
+    db: AsyncSession,
+    workflow_run_id: uuid.UUID,
+) -> uuid.UUID | None:
+    """Resolve a workflow run to its owning project_id, or None if absent.
+
+    Shared by the approval and agent-instance repositories for the API-2
+    authz scope check; keeping it in one place stops the two AuthZ predicates
+    from silently diverging on a schema change.
+    """
+    row = (
+        await db.execute(
+            sa.select(workflow_runs.c.project_id).where(workflow_runs.c.id == workflow_run_id),
+        )
+    ).first()
+    return row[0] if row else None
+
+
 # ---------------------------------------------------------------------------
 # Approval repository
 # ---------------------------------------------------------------------------
@@ -134,12 +153,7 @@ class ApprovalRepository:
 
     async def project_for_run(self, workflow_run_id: uuid.UUID) -> uuid.UUID | None:
         """Return the project_id owning a workflow run, or None if absent (API-2)."""
-        row = (
-            await self._db.execute(
-                sa.select(workflow_runs.c.project_id).where(workflow_runs.c.id == workflow_run_id),
-            )
-        ).first()
-        return row[0] if row else None
+        return await _project_id_for_run(self._db, workflow_run_id)
 
     async def list_for_workflow_run(
         self,
@@ -459,6 +473,47 @@ class AgentInstanceRepository:
         if row is None:
             return None
         return _row_to_instance(row)
+
+    async def list_for_workflow_run(
+        self,
+        workflow_run_id: uuid.UUID,
+    ) -> list[AgentInstance]:
+        """Return every sub-agent spawned during a workflow run (alive + dead).
+
+        Sub-agents are the depth-1 children of the synthetic depth-0 root(s)
+        created per (agent, workflow run); the run id is stamped into each
+        root's ``run_context``. The admin backstage trace inspects finished
+        runs whose sub-agents have already been destroyed, so the alive-only
+        :meth:`list_alive_children` would return nothing — hence this query
+        does not filter on ``destroyed_at``.
+        """
+        roots = (
+            sa.select(agent_instances.c.id)
+            .where(
+                agent_instances.c.parent_id.is_(None),
+                agent_instances.c.run_context["workflow_run_id"].astext == str(workflow_run_id),
+            )
+            .scalar_subquery()
+        )
+        rows = (
+            (
+                await self._db.execute(
+                    agent_instances.select()
+                    .where(agent_instances.c.parent_id.in_(roots))
+                    .order_by(agent_instances.c.spawned_at),
+                )
+            )
+            .mappings()
+            .all()
+        )
+        return [_row_to_instance(r) for r in rows]
+
+    async def project_for_workflow_run(
+        self,
+        workflow_run_id: uuid.UUID,
+    ) -> uuid.UUID | None:
+        """Return the project_id owning a workflow run, or None if absent (API-2)."""
+        return await _project_id_for_run(self._db, workflow_run_id)
 
     async def destroy(self, instance_id: uuid.UUID, state: str = "completed") -> None:
         await self._db.execute(

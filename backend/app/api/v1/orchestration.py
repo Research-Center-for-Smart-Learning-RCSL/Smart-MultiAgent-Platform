@@ -27,6 +27,7 @@ from contexts.orchestration.application.approval_service import ApprovalService
 from contexts.orchestration.application.instruct_service import InstructService
 from contexts.orchestration.application.subagent_service import SubagentService
 from contexts.orchestration.infrastructure.a2a_streams import read_dlq
+from contexts.orchestration.interfaces.facade import OrchestrationFacade
 from shared_kernel.auth.dependencies import current_principal, get_role_resolver
 from shared_kernel.auth.permissions import Principal, RoleResolver, Scope
 from shared_kernel.db.session import db_session
@@ -217,6 +218,27 @@ async def list_instructions_for_chain(
 # ---------------------------------------------------------------------------
 # Sub-agent endpoints (G.8 — project members)
 # ---------------------------------------------------------------------------
+
+
+@router.get(
+    "/workflow-runs/{workflow_run_id}/subagents",
+    summary="List sub-agents spawned during a workflow run",
+)
+async def list_run_subagents(
+    workflow_run_id: uuid.UUID = Path(...),
+    pagination: PaginationParams = Depends(),
+    db: AsyncSession = Depends(db_session),
+    principal: Principal = Depends(current_principal),
+    resolver: RoleResolver = Depends(get_role_resolver),
+) -> list[dict[str, Any]]:
+    facade = OrchestrationFacade(db)
+    project_id = await facade.resolve_workflow_run_project(workflow_run_id)
+    if project_id is None:
+        raise _not_found("workflow run")
+    await _assert_project_member(principal, project_id, resolver)
+    instances = await facade.list_workflow_run_subagents(workflow_run_id)
+    instances = instances[pagination.offset : pagination.offset + pagination.limit]
+    return [_instance_out(i) for i in instances]
 
 
 @router.get(

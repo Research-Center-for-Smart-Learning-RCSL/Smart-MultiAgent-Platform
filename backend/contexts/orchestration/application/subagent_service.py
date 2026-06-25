@@ -297,6 +297,20 @@ class SubagentService:
     async def list_children(self, parent_id: uuid.UUID) -> list[AgentInstance]:
         return await self._instances.list_alive_children(parent_id)
 
+    async def list_for_workflow_run(
+        self,
+        workflow_run_id: uuid.UUID,
+    ) -> list[AgentInstance]:
+        """Sub-agents spawned during a workflow run (alive + destroyed) — backstage."""
+        return await self._instances.list_for_workflow_run(workflow_run_id)
+
+    async def resolve_run_project(
+        self,
+        workflow_run_id: uuid.UUID,
+    ) -> uuid.UUID | None:
+        """Project owning a workflow run — authz helper for the backstage (API-2)."""
+        return await self._instances.project_for_workflow_run(workflow_run_id)
+
     async def cleanup_expired(self, retention_days: int = 30) -> int:
         return await self._instances.delete_older_than_days(retention_days)
 
