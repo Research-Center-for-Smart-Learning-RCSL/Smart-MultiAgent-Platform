@@ -19,18 +19,12 @@ const { t } = useI18n()
 const router = useRouter()
 const session = useSessionStore()
 const { isMobile } = useBreakpoint()
-const { theme, setTheme } = useTheme()
+const { theme, cycleTheme } = useTheme()
 
 const themeIcons: Record<Theme, Component> = {
   light: SunIcon,
   dark: MoonIcon,
   system: ComputerDesktopIcon,
-}
-
-function cycleTheme(): void {
-  const order: Theme[] = ['light', 'dark', 'system']
-  const idx = order.indexOf(theme.value)
-  setTheme(order[(idx + 1) % order.length]!)
 }
 
 const avatarName = computed(() => session.me?.email ?? '')
@@ -66,7 +60,7 @@ const menuItems = computed(() => {
     items.push({ key: 'div-theme', label: '', divider: true })
     items.push({
       key: 'theme',
-      label: t('app.userMenu.theme', { theme: theme.value }),
+      label: t('app.userMenu.theme', { theme: t(`app.theme.${theme.value}`) }),
       icon: themeIcons[theme.value],
     })
   }

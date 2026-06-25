@@ -8,7 +8,7 @@ test.describe('Org → invite → accept → transfer OC', () => {
     // create button opens a confirm dialog before the API call.
     await page.getByRole('textbox', { name: /organisation/i }).fill('E2E Org')
     await page.getByRole('button', { name: /create/i }).click()
-    await page.locator('dialog.confirm-dialog').getByRole('button', { name: /create/i }).click()
+    await page.getByRole('dialog').getByRole('button', { name: /create/i }).click()
     await expect(page.getByText('E2E Org')).toBeVisible()
   })
 

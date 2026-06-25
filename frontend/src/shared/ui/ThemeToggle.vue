@@ -1,18 +1,12 @@
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
-import { useTheme, type Theme } from '@shared/composables/useTheme'
+import { useTheme } from '@shared/composables/useTheme'
 import { SunIcon, MoonIcon, ComputerDesktopIcon } from '@heroicons/vue/24/outline'
 
 const { t } = useI18n()
-const { theme, setTheme } = useTheme()
+const { theme, cycleTheme } = useTheme()
 
 const icons = { light: SunIcon, dark: MoonIcon, system: ComputerDesktopIcon } as const
-
-function cycle(): void {
-  const order: Theme[] = ['light', 'dark', 'system']
-  const idx = order.indexOf(theme.value)
-  setTheme(order[(idx + 1) % order.length]!)
-}
 </script>
 
 <template>
@@ -20,7 +14,7 @@ function cycle(): void {
     type="button"
     class="theme-toggle"
     :aria-label="t('app.themeLabel', { theme })"
-    @click="cycle"
+    @click="cycleTheme"
   >
     <component
       :is="icons[theme]"

@@ -46,9 +46,16 @@ if (supportsMatchMedia()) {
   })
 }
 
+function cycleTheme(): void {
+  const order: Theme[] = ['light', 'dark', 'system']
+  const idx = order.indexOf(theme.value)
+  theme.value = order[(idx + 1) % order.length]!
+}
+
 export function useTheme() {
   return {
     theme,
     setTheme: (t: Theme) => { theme.value = t },
+    cycleTheme,
   }
 }

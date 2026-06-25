@@ -58,6 +58,7 @@ async function submit(): Promise<void> {
     } else if (e instanceof ApiError && e.status === 409) {
       const ids = Array.isArray(e.extra.blocked_org_ids) ? (e.extra.blocked_org_ids as string[]) : []
       serverError.value = t('identity.deleteAccount.blocked')
+      submitting.value = false
       try {
         const { data: orgs } = await orgsApi.list()
         const nameMap = new Map(orgs.map(o => [o.id, o.name]))
@@ -132,8 +133,8 @@ async function submit(): Promise<void> {
             class="blocked-list"
           >
             <li
-              v-for="name in blockedOrgNames"
-              :key="name"
+              v-for="(name, idx) in blockedOrgNames"
+              :key="idx"
             >
               {{ name }}
             </li>
