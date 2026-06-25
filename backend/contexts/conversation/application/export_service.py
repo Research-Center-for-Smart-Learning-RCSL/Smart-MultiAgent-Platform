@@ -38,8 +38,14 @@ class ExportJobState:
     owner_user_id: uuid.UUID
     status: str  # "queued" | "running" | "ready" | "failed"
     created_at: datetime
-    object_key: str | None  # exports/{job_id}/manifest.json once ready
+    object_key: str | None  # exports/{job_id}/<filename> once ready
     bucket: str | None
+    # Export shape, chosen at request time. The date window is resolved to
+    # concrete bounds by the API from the preset (last_7_days, custom, …) so
+    # the worker stays deterministic regardless of when it runs.
+    export_format: str = "markdown"  # "markdown" | "json" | "pdf"
+    created_after: datetime | None = None
+    created_before: datetime | None = None
     error: str | None = None
 
 
@@ -47,6 +53,9 @@ async def create(
     *,
     chatroom_id: uuid.UUID,
     owner_user_id: uuid.UUID,
+    export_format: str = "markdown",
+    created_after: datetime | None = None,
+    created_before: datetime | None = None,
 ) -> ExportJobState:
     job_id = uuid.uuid4()
     state = ExportJobState(
@@ -57,6 +66,9 @@ async def create(
         created_at=now(),
         object_key=None,
         bucket=None,
+        export_format=export_format,
+        created_after=created_after,
+        created_before=created_before,
     )
     await _store(state)
     return state
@@ -93,6 +105,8 @@ async def get(job_id: uuid.UUID) -> ExportJobState | None:
     if raw is None:
         return None
     data = json.loads(raw)
+    after = data.get("created_after")
+    before = data.get("created_before")
     return ExportJobState(
         job_id=uuid.UUID(data["job_id"]),
         chatroom_id=uuid.UUID(data["chatroom_id"]),
@@ -101,6 +115,9 @@ async def get(job_id: uuid.UUID) -> ExportJobState | None:
         created_at=datetime.fromisoformat(data["created_at"]),
         object_key=data.get("object_key"),
         bucket=data.get("bucket"),
+        export_format=data.get("export_format", "markdown"),
+        created_after=datetime.fromisoformat(after) if after else None,
+        created_before=datetime.fromisoformat(before) if before else None,
         error=data.get("error"),
     )
 
@@ -114,6 +131,9 @@ async def _store(state: ExportJobState) -> None:
         "created_at": state.created_at.isoformat(),
         "object_key": state.object_key,
         "bucket": state.bucket,
+        "export_format": state.export_format,
+        "created_after": state.created_after.isoformat() if state.created_after else None,
+        "created_before": state.created_before.isoformat() if state.created_before else None,
         "error": state.error,
     }
     await get_redis().set(
@@ -132,6 +152,9 @@ def _replace(state: ExportJobState, **kwargs: object) -> ExportJobState:
         created_at=state.created_at,
         object_key=kwargs.get("object_key", state.object_key),  # type: ignore[arg-type]
         bucket=kwargs.get("bucket", state.bucket),  # type: ignore[arg-type]
+        export_format=state.export_format,
+        created_after=state.created_after,
+        created_before=state.created_before,
         error=kwargs.get("error", state.error),  # type: ignore[arg-type]
     )
 

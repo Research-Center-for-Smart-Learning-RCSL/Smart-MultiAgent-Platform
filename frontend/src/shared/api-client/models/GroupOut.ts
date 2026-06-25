@@ -5,6 +5,7 @@
 export type GroupOut = {
     created_at: string;
     id: string;
+    member_count?: number;
     name: string;
     project_id: string;
 };

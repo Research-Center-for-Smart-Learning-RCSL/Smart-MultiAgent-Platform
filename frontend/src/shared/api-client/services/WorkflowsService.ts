@@ -66,6 +66,31 @@ export class WorkflowsService {
         });
     }
     /**
+     * Dry Run
+     * @returns string Successful Response
+     * @throws ApiError
+     */
+    public static dryRunApiWorkflowsWorkflowIdDryRunPost({
+        workflowId,
+        requestBody,
+    }: {
+        workflowId: string,
+        requestBody: RunTriggerIn,
+    }): CancelablePromise<Record<string, string>> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/workflows/{workflow_id}/dry-run',
+            path: {
+                'workflow_id': workflowId,
+            },
+            body: requestBody,
+            mediaType: 'application/json',
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
      * List Runs
      * @returns any Successful Response
      * @throws ApiError

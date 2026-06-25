@@ -24,8 +24,13 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1
 
+# Runtime libs for WeasyPrint (chat export → PDF): Pango/GDK-Pixbuf for text +
+# image layout, plus fonts-noto-cjk so Traditional-Chinese transcripts render.
 RUN apt-get update \
- && apt-get install -y --no-install-recommends curl ca-certificates libpq5 \
+ && apt-get install -y --no-install-recommends \
+      curl ca-certificates libpq5 \
+      libpango-1.0-0 libpangoft2-1.0-0 libgdk-pixbuf-2.0-0 libffi8 \
+      fontconfig fonts-noto-cjk \
  && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

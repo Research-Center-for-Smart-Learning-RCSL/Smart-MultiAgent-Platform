@@ -34,6 +34,7 @@ dependencies = [
   "cryptography==48.0.*",
   "psycopg[binary]==3.2.*",
   "minio==7.2.*",
+  "weasyprint==63.*",  # chat export → PDF (HTML render); needs pango/cairo + fonts-noto-cjk in the image
   "neo4j==5.24.*",
   "qdrant-client==1.12.*",
   "prometheus-client==0.21.*",
@@ -181,6 +182,7 @@ module = [
   "aiosmtplib.*",
   "yaml.*",
   "pypdf.*",
+  "weasyprint.*",
 ]
 ignore_missing_imports = true
 

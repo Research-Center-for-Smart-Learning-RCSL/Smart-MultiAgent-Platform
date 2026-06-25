@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Sequence
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Any
 
 import sqlalchemy as sa
@@ -231,22 +231,29 @@ class MessageRepository:
         chatroom_id: uuid.UUID,
         *,
         limit: int | None = None,
+        created_after: datetime | None = None,
+        created_before: datetime | None = None,
     ) -> Sequence[Message]:
         """Full dump of a room's live messages, ordered chronologically --
         used by the export worker. Always streams from the primary index so
         a 10k-message export stays sub-second.
 
         *limit* caps the result set to prevent unbounded memory usage in
-        large rooms.
+        large rooms. *created_after* / *created_before* bound the window for
+        date-ranged exports (inclusive lower, exclusive upper); ``None`` on
+        either side leaves that edge open.
         """
+        conditions = [
+            t.messages.c.chatroom_id == chatroom_id,
+            t.messages.c.deleted_at.is_(None),
+        ]
+        if created_after is not None:
+            conditions.append(t.messages.c.created_at >= created_after)
+        if created_before is not None:
+            conditions.append(t.messages.c.created_at < created_before)
         q = (
             t.messages.select()
-            .where(
-                sa.and_(
-                    t.messages.c.chatroom_id == chatroom_id,
-                    t.messages.c.deleted_at.is_(None),
-                )
-            )
+            .where(sa.and_(*conditions))
             .order_by(t.messages.c.created_at.asc())
         )
         if limit is not None:

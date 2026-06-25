@@ -2,6 +2,7 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
+import type { ExportCreateIn } from '../models/ExportCreateIn';
 import type { ExportCreateOut } from '../models/ExportCreateOut';
 import type { ExportStatusOut } from '../models/ExportStatusOut';
 import type { CancelablePromise } from '../core/CancelablePromise';
@@ -15,8 +16,10 @@ export class ExportsService {
      */
     public static createExportApiChatroomsChatroomIdExportPost({
         chatroomId,
+        requestBody,
     }: {
         chatroomId: string,
+        requestBody?: (ExportCreateIn | null),
     }): CancelablePromise<ExportCreateOut> {
         return __request(OpenAPI, {
             method: 'POST',
@@ -24,6 +27,8 @@ export class ExportsService {
             path: {
                 'chatroom_id': chatroomId,
             },
+            body: requestBody,
+            mediaType: 'application/json',
             errors: {
                 422: `Validation Error`,
             },
