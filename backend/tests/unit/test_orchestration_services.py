@@ -722,3 +722,28 @@ class TestSubagentReadHelpers:
 
         count = await svc.cleanup_expired(retention_days=30)
         assert count == 5
+
+    async def test_list_for_workflow_run(self) -> None:
+        spawned = [_instance(parent_id=uuid.uuid4()), _instance(parent_id=uuid.uuid4())]
+        instances = AsyncMock()
+        instances.list_for_workflow_run.return_value = spawned
+        svc = _make_subagent_service(instances=instances)
+
+        result = await svc.list_for_workflow_run(_RUN)
+        assert len(result) == 2
+        instances.list_for_workflow_run.assert_awaited_once_with(_RUN)
+
+    async def test_resolve_run_project(self) -> None:
+        project_id = uuid.uuid4()
+        instances = AsyncMock()
+        instances.project_for_workflow_run.return_value = project_id
+        svc = _make_subagent_service(instances=instances)
+
+        assert await svc.resolve_run_project(_RUN) == project_id
+
+    async def test_resolve_run_project_absent(self) -> None:
+        instances = AsyncMock()
+        instances.project_for_workflow_run.return_value = None
+        svc = _make_subagent_service(instances=instances)
+
+        assert await svc.resolve_run_project(uuid.uuid4()) is None
