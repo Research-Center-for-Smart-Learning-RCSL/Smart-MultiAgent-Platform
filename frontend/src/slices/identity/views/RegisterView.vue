@@ -25,11 +25,11 @@ const emailRef = ref<InstanceType<typeof SInput> | null>(null)
 const fieldErrors = ref<Record<string, string | undefined>>({})
 
 function validateEmail(): boolean {
-  return validateField(emailSchema, email.value, fieldErrors, 'email')
+  return validateField(emailSchema, email.value, fieldErrors, 'email', t)
 }
 
 function validatePassword(): boolean {
-  return validateField(passwordSchema, password.value, fieldErrors, 'password')
+  return validateField(passwordSchema, password.value, fieldErrors, 'password', t)
 }
 
 onMounted(async () => {

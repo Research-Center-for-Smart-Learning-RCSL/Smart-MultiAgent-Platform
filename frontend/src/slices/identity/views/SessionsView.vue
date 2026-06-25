@@ -3,7 +3,7 @@ import { onMounted, ref, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ComputerDesktopIcon } from '@heroicons/vue/24/outline'
 import {
-  SPageHeader, SCard, SButton, SBadge,
+  SPageHeader, SCard, SButton, SStatusBadge,
   SAlert, SSkeleton, SEmptyState,
 } from '@shared/ui'
 import { accessTokenClaims } from '@shared/transport'
@@ -183,14 +183,13 @@ onMounted(load)
             </div>
           </div>
           <div class="session-actions">
-            <SBadge
+            <SStatusBadge
               v-if="isCurrent(s)"
-              variant="success"
-              size="sm"
+              status="current"
               :aria-label="$t('identity.sessions.currentLabel')"
             >
               {{ $t('identity.sessions.currentBadge') }}
-            </SBadge>
+            </SStatusBadge>
             <SButton
               v-if="!isCurrent(s)"
               variant="danger"

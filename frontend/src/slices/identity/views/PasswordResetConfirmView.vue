@@ -24,12 +24,12 @@ const fieldErrors = ref<Record<string, string | undefined>>({})
 let token: string | null = null
 
 function validateNewPassword(): boolean {
-  return validateField(passwordSchema, newPassword.value, fieldErrors, 'newPassword')
+  return validateField(passwordSchema, newPassword.value, fieldErrors, 'newPassword', t)
 }
 
 function validateConfirmPassword(): boolean {
   return validatePasswordMatch(
-    newPassword.value, confirmPassword.value, fieldErrors, 'confirmPassword',
+    newPassword.value, confirmPassword.value, fieldErrors, 'confirmPassword', t,
   )
 }
 

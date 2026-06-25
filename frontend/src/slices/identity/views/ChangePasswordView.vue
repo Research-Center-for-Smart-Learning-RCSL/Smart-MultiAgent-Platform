@@ -34,10 +34,10 @@ function validateCurrentPassword(): boolean {
 }
 
 function validateNewPassword(): boolean {
-  const valid = validateField(passwordSchema, newPassword.value, fieldErrors, 'newPassword')
+  const valid = validateField(passwordSchema, newPassword.value, fieldErrors, 'newPassword', t)
   if (!valid) return false
   if (newPassword.value === currentPassword.value) {
-    fieldErrors.value.newPassword = 'identity.validation.passwordSame'
+    fieldErrors.value.newPassword = t('identity.validation.passwordSame')
     return false
   }
   return true
@@ -45,7 +45,7 @@ function validateNewPassword(): boolean {
 
 function validateConfirmPassword(): boolean {
   return validatePasswordMatch(
-    newPassword.value, confirmPassword.value, fieldErrors, 'confirmPassword',
+    newPassword.value, confirmPassword.value, fieldErrors, 'confirmPassword', t,
   )
 }
 

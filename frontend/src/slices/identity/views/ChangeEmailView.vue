@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, nextTick } from 'vue'
-import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
+import { EnvelopeIcon } from '@heroicons/vue/24/outline'
 import { SPageHeader, SCard, SFormField, SInput, SButton, SAlert } from '@shared/ui'
 import { isProblemWithType } from '@shared/transport'
 import { RateLimitError } from '@shared/errors'
@@ -11,7 +11,6 @@ import { useSessionStore } from '../stores/session'
 import { emailSchema, validateField } from '../validation'
 
 const { t } = useI18n()
-const router = useRouter()
 const session = useSessionStore()
 const rateLimit = useRateLimitCountdown()
 
@@ -27,10 +26,10 @@ const passwordRef = ref<InstanceType<typeof SInput> | null>(null)
 const fieldErrors = ref<Record<string, string | undefined>>({})
 
 function validateNewEmail(): boolean {
-  const valid = validateField(emailSchema, newEmail.value, fieldErrors, 'newEmail')
+  const valid = validateField(emailSchema, newEmail.value, fieldErrors, 'newEmail', t)
   if (!valid) return false
   if (newEmail.value === session.me?.email) {
-    fieldErrors.value.newEmail = 'identity.validation.emailSame'
+    fieldErrors.value.newEmail = t('identity.validation.emailSame')
     return false
   }
   return true
@@ -61,8 +60,6 @@ async function submit(): Promise<void> {
     await authApi.changeEmail({ new_email: newEmail.value, password: password.value })
     submittedEmail.value = newEmail.value
     done.value = true
-    session.clear()
-    router.push({ name: 'identity.login' })
   } catch (e: unknown) {
     if (e instanceof RateLimitError) {
       const seconds = Math.ceil(e.retryAfterMs / 1000)
@@ -98,68 +95,88 @@ async function submit(): Promise<void> {
     <SPageHeader :title="$t('identity.changeEmail.title')" />
 
     <SCard class="form-card">
-      <dl class="current-email">
-        <dt>{{ $t('identity.changeEmail.currentLabel') }}</dt>
-        <dd>{{ session.me?.email }}</dd>
-      </dl>
-
-      <form
-        class="auth-form"
-        @submit.prevent="submit"
-      >
-        <SFormField
-          :label="$t('identity.changeEmail.newEmail')"
-          name="newEmail"
-          :error="fieldErrors.newEmail"
-          required
+      <template v-if="done">
+        <div
+          class="done-state"
+          aria-live="polite"
         >
-          <SInput
-            ref="emailRef"
-            v-model="newEmail"
-            type="email"
-            autocomplete="email"
-            :disabled="submitting || rateLimit.active.value"
-            :error="!!fieldErrors.newEmail"
-            @blur="validateNewEmail"
+          <EnvelopeIcon
+            class="done-state__icon"
+            aria-hidden="true"
           />
-        </SFormField>
+          <h2 class="done-state__title">
+            {{ $t('identity.changeEmail.sentTitle') }}
+          </h2>
+          <p class="done-state__text">
+            {{ $t('identity.changeEmail.sentDescription', { email: submittedEmail }) }}
+          </p>
+        </div>
+      </template>
 
-        <SFormField
-          :label="$t('identity.changeEmail.password')"
-          name="password"
-          :error="fieldErrors.password"
-          :help="$t('identity.changeEmail.passwordHelp')"
-          required
+      <template v-else>
+        <dl class="current-email">
+          <dt>{{ $t('identity.changeEmail.currentLabel') }}</dt>
+          <dd>{{ session.me?.email }}</dd>
+        </dl>
+
+        <form
+          class="auth-form"
+          @submit.prevent="submit"
         >
-          <SInput
-            ref="passwordRef"
-            v-model="password"
-            type="password"
-            autocomplete="current-password"
+          <SFormField
+            :label="$t('identity.changeEmail.newEmail')"
+            name="newEmail"
+            :error="fieldErrors.newEmail"
+            required
+          >
+            <SInput
+              ref="emailRef"
+              v-model="newEmail"
+              type="email"
+              autocomplete="email"
+              :disabled="submitting || rateLimit.active.value"
+              :error="!!fieldErrors.newEmail"
+              @blur="validateNewEmail"
+            />
+          </SFormField>
+
+          <SFormField
+            :label="$t('identity.changeEmail.password')"
+            name="password"
+            :error="fieldErrors.password"
+            :help="$t('identity.changeEmail.passwordHelp')"
+            required
+          >
+            <SInput
+              ref="passwordRef"
+              v-model="password"
+              type="password"
+              autocomplete="current-password"
+              :disabled="submitting || rateLimit.active.value"
+              :error="!!fieldErrors.password"
+            />
+          </SFormField>
+
+          <SAlert
+            v-if="serverError"
+            variant="danger"
+          >
+            {{ serverError }}
+          </SAlert>
+
+          <SButton
+            type="submit"
+            variant="primary"
+            size="md"
+            :loading="submitting"
             :disabled="submitting || rateLimit.active.value"
-            :error="!!fieldErrors.password"
-          />
-        </SFormField>
-
-        <SAlert
-          v-if="serverError"
-          variant="danger"
-        >
-          {{ serverError }}
-        </SAlert>
-
-        <SButton
-          type="submit"
-          variant="primary"
-          size="md"
-          :loading="submitting"
-          :disabled="submitting || rateLimit.active.value"
-          :aria-busy="submitting"
-          class="form-submit"
-        >
-          {{ $t('identity.changeEmail.submit') }}
-        </SButton>
-      </form>
+            :aria-busy="submitting"
+            class="form-submit"
+          >
+            {{ $t('identity.changeEmail.submit') }}
+          </SButton>
+        </form>
+      </template>
     </SCard>
   </div>
 </template>
@@ -187,6 +204,32 @@ async function submit(): Promise<void> {
 
 .form-submit {
   width: 100%;
+}
+
+.done-state {
+  text-align: center;
+  padding: 16px 0;
+}
+
+.done-state__icon {
+  width: 48px;
+  height: 48px;
+  color: var(--color-accent);
+  margin: 0 auto 16px;
+}
+
+.done-state__title {
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: var(--color-fg);
+  margin: 0 0 8px;
+}
+
+.done-state__text {
+  font-size: 0.875rem;
+  color: var(--color-muted);
+  line-height: 1.5;
+  margin: 0;
 }
 
 @media (max-width: 768px) {
