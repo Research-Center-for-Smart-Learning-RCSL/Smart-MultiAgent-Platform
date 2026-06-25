@@ -88,6 +88,28 @@ class KeyGroupRepository:
         ).all()
         return [_row_to_group(r) for r in rows]
 
+    async def list_for_project_with_counts(
+        self, project_id: uuid.UUID
+    ) -> list[tuple[KeyGroup, int]]:
+        m = t.key_group_members
+        stmt = (
+            sa.select(
+                t.key_groups,
+                sa.func.count(m.c.key_id).label("member_count"),
+            )
+            .outerjoin(m, m.c.group_id == t.key_groups.c.id)
+            .where(
+                sa.and_(
+                    t.key_groups.c.project_id == project_id,
+                    t.key_groups.c.deleted_at.is_(None),
+                )
+            )
+            .group_by(t.key_groups.c.id)
+            .order_by(t.key_groups.c.created_at.desc())
+        )
+        rows = (await self._db.execute(stmt)).all()
+        return [(_row_to_group(r), r.member_count) for r in rows]
+
     async def rename(self, group_id: uuid.UUID, name: str) -> None:
         await self._db.execute(t.key_groups.update().where(t.key_groups.c.id == group_id).values(name=name))
 

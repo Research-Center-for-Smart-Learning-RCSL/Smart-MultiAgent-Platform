@@ -51,14 +51,16 @@ class GroupOut(BaseModel):
     project_id: uuid.UUID
     name: str
     created_at: str
+    member_count: int = 0
 
     @classmethod
-    def from_domain(cls, g: KeyGroup) -> GroupOut:
+    def from_domain(cls, g: KeyGroup, *, member_count: int = 0) -> GroupOut:
         return cls(
             id=g.id,
             project_id=g.project_id,
             name=g.name,
             created_at=g.created_at.isoformat(),
+            member_count=member_count,
         )
 
 
@@ -155,9 +157,9 @@ async def list_groups(
     pagination: PaginationParams = Depends(),
     db: AsyncSession = Depends(db_session),
 ) -> list[GroupOut]:
-    rows = await KeyGroupService(db).list_for_project(project_id)
+    rows = await KeyGroupService(db).list_for_project_with_counts(project_id)
     rows = rows[pagination.offset : pagination.offset + pagination.limit]
-    return [GroupOut.from_domain(g) for g in rows]
+    return [GroupOut.from_domain(g, member_count=cnt) for g, cnt in rows]
 
 
 @project_router.post(

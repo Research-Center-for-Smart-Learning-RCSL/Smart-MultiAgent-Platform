@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import {
@@ -26,6 +26,8 @@ import { useInlineRename, useConfirmDialog, useToast } from '@shared/composables
 import { useKeyGroupDetail } from '../composables/useKeyGroups'
 import { useProjectKeys } from '../composables/useProjectKeys'
 import type { MemberPatch } from '../api/key-groups'
+import { CAPABILITIES } from '../api/keys'
+import type { ApiKeyProvider } from '../api/keys'
 import CapabilityChip from '../components/CapabilityChip.vue'
 import MemberConfigPanel from '../components/MemberConfigPanel.vue'
 
@@ -76,11 +78,13 @@ const carriedKeyMap = computed(() => {
 const availableKeys = computed(() => {
   if (!detail.value) return []
   const memberIds = new Set(detail.value.members.map((m) => m.key_id))
-  return carried.value.map((k) => ({
-    value: k.id,
-    label: `${k.provider} - ${k.name}`,
-    disabled: memberIds.has(k.id),
-  }))
+  return carried.value
+    .filter((k) => CAPABILITIES[k.provider as ApiKeyProvider]?.includes('llm_chat'))
+    .map((k) => ({
+      value: k.id,
+      label: `${k.provider} - ${k.name}`,
+      disabled: memberIds.has(k.id),
+    }))
 })
 
 function onDragStart(e: DragEvent, keyId: string) {
@@ -182,12 +186,6 @@ async function onDeleteGroup() {
   }
 }
 
-onMounted(async () => {
-  await Promise.all([reload(), reloadCarried()])
-})
-watch([groupId, projectId], async () => {
-  await Promise.all([reload(), reloadCarried()])
-})
 </script>
 
 <template>

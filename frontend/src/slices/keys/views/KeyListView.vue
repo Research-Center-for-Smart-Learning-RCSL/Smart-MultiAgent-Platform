@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import {
@@ -18,6 +18,7 @@ import {
   SStatusBadge,
   SEmptyState,
   SAlert,
+  SPagination,
 } from '@shared/ui'
 import { useConfirmDialog, useToast } from '@shared/composables'
 import { useMyKeys } from '../composables/useMyKeys'
@@ -35,6 +36,14 @@ const { keys, loading, error, reload, upload, retest, remove } = useMyKeys()
 
 const showUpload = ref(false)
 const retestingId = ref<string | null>(null)
+const currentPage = ref(1)
+const pageSize = 20
+
+const totalPages = computed(() => Math.max(1, Math.ceil(keys.value.length / pageSize)))
+const paginatedKeys = computed(() => {
+  const start = (currentPage.value - 1) * pageSize
+  return keys.value.slice(start, start + pageSize)
+})
 
 const columns = computed<Column[]>(() => [
   { key: 'provider', label: t('keys.list.provider'), width: '160px' },
@@ -103,7 +112,6 @@ function onAction(key: string, row: { id: string }) {
   }
 }
 
-onMounted(reload)
 </script>
 
 <template>
@@ -135,7 +143,7 @@ onMounted(reload)
 
     <STable
       :columns="columns"
-      :data="keys"
+      :data="paginatedKeys"
       :loading="loading"
       row-key="id"
       class="mt-6"
@@ -204,6 +212,16 @@ onMounted(reload)
         </SEmptyState>
       </template>
     </STable>
+
+    <SPagination
+      v-if="keys.length > pageSize"
+      :page="currentPage"
+      :total-pages="totalPages"
+      :total-items="keys.length"
+      :page-size="pageSize"
+      class="mt-4"
+      @update:page="currentPage = $event"
+    />
 
     <KeyUploadForm
       :open="showUpload"

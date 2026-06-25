@@ -1,52 +1,39 @@
-import { computed, ref } from 'vue'
+import { computed } from 'vue'
+import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import { errorMessage } from '@shared/errors'
+import { keysKeys } from '../queries'
 import { projectKeysApi } from '../api/project-keys'
 import type { ApiKey } from '../api/keys'
 
 export function useProjectKeys(projectId: () => string) {
-  const carried = ref<ApiKey[]>([])
-  const loading = ref(false)
-  const error = ref<string | null>(null)
+  const qc = useQueryClient()
+
+  const { data, isLoading: loading, error: queryError, refetch } = useQuery({
+    queryKey: computed(() => keysKeys.projectKeys(projectId())),
+    queryFn: () => projectKeysApi.listCarried(projectId()).then((r) => r.data),
+    enabled: computed(() => !!projectId()),
+  })
+
+  const carried = computed<ApiKey[]>(() => data.value ?? [])
+  const error = computed(() => queryError.value ? errorMessage(queryError.value) : null)
   const isError = computed(() => error.value !== null)
 
   async function reload(): Promise<void> {
-    const pid = projectId()
-    if (!pid) {
-      carried.value = []
-      return
-    }
-    loading.value = true
-    error.value = null
-    try {
-      const { data } = await projectKeysApi.listCarried(pid)
-      carried.value = data
-    } catch (e) {
-      error.value = errorMessage(e)
-    } finally {
-      loading.value = false
-    }
+    await refetch()
   }
 
   async function carry(keyId: string): Promise<void> {
     const pid = projectId()
     if (!pid) return
-    try {
-      await projectKeysApi.carry(pid, keyId)
-      await reload()
-    } catch (e) {
-      error.value = errorMessage(e)
-    }
+    await projectKeysApi.carry(pid, keyId)
+    await qc.invalidateQueries({ queryKey: keysKeys.projectKeys(pid) })
   }
 
   async function withdraw(keyId: string): Promise<void> {
     const pid = projectId()
     if (!pid) return
-    try {
-      await projectKeysApi.withdraw(pid, keyId)
-      await reload()
-    } catch (e) {
-      error.value = errorMessage(e)
-    }
+    await projectKeysApi.withdraw(pid, keyId)
+    await qc.invalidateQueries({ queryKey: keysKeys.projectKeys(pid) })
   }
 
   return { carried, loading, error, isError, reload, carry, withdraw }

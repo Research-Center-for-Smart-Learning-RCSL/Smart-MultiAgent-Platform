@@ -1,5 +1,7 @@
-import { ref } from 'vue'
+import { computed } from 'vue'
+import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import { errorMessage } from '@shared/errors'
+import { keysKeys } from '../queries'
 import {
   searchKeysApi,
   type SearchKey,
@@ -7,21 +9,19 @@ import {
 } from '../api/search-keys'
 
 export function useSearchKeys(projectId: () => string) {
-  const keys = ref<SearchKey[]>([])
-  const error = ref<string | null>(null)
+  const qc = useQueryClient()
+
+  const { data, error: queryError, refetch } = useQuery({
+    queryKey: computed(() => keysKeys.searchKeys(projectId())),
+    queryFn: () => searchKeysApi.list(projectId()).then((r) => r.data),
+    enabled: computed(() => !!projectId()),
+  })
+
+  const keys = computed<SearchKey[]>(() => data.value ?? [])
+  const error = computed(() => queryError.value ? errorMessage(queryError.value) : null)
 
   async function reload(): Promise<void> {
-    const pid = projectId()
-    if (!pid) {
-      keys.value = []
-      return
-    }
-    try {
-      const { data } = await searchKeysApi.list(pid)
-      keys.value = data
-    } catch (e) {
-      error.value = errorMessage(e)
-    }
+    await refetch()
   }
 
   async function upload(
@@ -31,45 +31,29 @@ export function useSearchKeys(projectId: () => string) {
   ): Promise<void> {
     const pid = projectId()
     if (!pid) return
-    try {
-      await searchKeysApi.upload(pid, provider, secret, config)
-    } catch (e) {
-      error.value = errorMessage(e)
-    }
-    await reload()
+    await searchKeysApi.upload(pid, provider, secret, config)
+    await qc.invalidateQueries({ queryKey: keysKeys.searchKeys(pid) })
   }
 
   async function retest(id: string): Promise<void> {
     const pid = projectId()
     if (!pid) return
-    try {
-      await searchKeysApi.retest(pid, id)
-    } catch (e) {
-      error.value = errorMessage(e)
-    }
-    await reload()
+    await searchKeysApi.retest(pid, id)
+    await qc.invalidateQueries({ queryKey: keysKeys.searchKeys(pid) })
   }
 
   async function activate(id: string): Promise<void> {
     const pid = projectId()
     if (!pid) return
-    try {
-      await searchKeysApi.activate(pid, id)
-    } catch (e) {
-      error.value = errorMessage(e)
-    }
-    await reload()
+    await searchKeysApi.activate(pid, id)
+    await qc.invalidateQueries({ queryKey: keysKeys.searchKeys(pid) })
   }
 
   async function remove(id: string): Promise<void> {
     const pid = projectId()
     if (!pid) return
-    try {
-      await searchKeysApi.remove(pid, id)
-    } catch (e) {
-      error.value = errorMessage(e)
-    }
-    await reload()
+    await searchKeysApi.remove(pid, id)
+    await qc.invalidateQueries({ queryKey: keysKeys.searchKeys(pid) })
   }
 
   return { keys, error, reload, upload, retest, activate, remove }

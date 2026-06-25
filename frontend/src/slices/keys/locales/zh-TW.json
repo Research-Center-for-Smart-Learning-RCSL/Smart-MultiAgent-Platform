@@ -180,6 +180,9 @@
       "tavily": "Tavily",
       "googleCse": "Google CSE",
       "cxPrefix": "cx: {value}",
+      "lastTested": "上次測試",
+      "never": "從未",
+      "deleteActiveWarning": "此金鑰目前為啟用中的搜尋金鑰。刪除後將停用此專案的所有網路搜尋功能，直到啟用其他金鑰為止。",
       "emptyTitle": "尚未設定搜尋金鑰。",
       "emptyDescription": "新增搜尋提供者金鑰以啟用代理的網路搜尋功能。"
     },

@@ -1,25 +1,22 @@
-import { ref } from 'vue'
+import { computed } from 'vue'
+import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import { errorMessage } from '@shared/errors'
+import { keysKeys } from '../queries'
 import { keysApi, type ApiKey, type ApiKeyProvider } from '../api/keys'
 
 export function useMyKeys() {
-  const keys = ref<ApiKey[]>([])
-  const loading = ref(false)
-  const uploading = ref(false)
-  const error = ref<string | null>(null)
+  const qc = useQueryClient()
+
+  const { data, isLoading: loading, error: queryError, refetch } = useQuery({
+    queryKey: keysKeys.myKeys(),
+    queryFn: () => keysApi.list().then((r) => r.data),
+  })
+
+  const keys = computed<ApiKey[]>(() => data.value ?? [])
+  const error = computed(() => queryError.value ? errorMessage(queryError.value) : null)
 
   async function reload(): Promise<void> {
-    loading.value = true
-    error.value = null
-    try {
-      const { data } = await keysApi.list()
-      keys.value = data
-    } catch (e) {
-      error.value = errorMessage(e)
-
-    } finally {
-      loading.value = false
-    }
+    await refetch()
   }
 
   async function upload(
@@ -27,41 +24,20 @@ export function useMyKeys() {
     name: string,
     secret: string,
   ): Promise<ApiKey | null> {
-    if (uploading.value) return null
-    error.value = null
-    uploading.value = true
-    try {
-      const { data } = await keysApi.upload(provider, name, secret)
-      await reload()
-      return data
-    } catch (e) {
-      error.value = errorMessage(e)
-
-      return null
-    } finally {
-      uploading.value = false
-    }
+    const { data: created } = await keysApi.upload(provider, name, secret)
+    await qc.invalidateQueries({ queryKey: keysKeys.myKeys() })
+    return created
   }
 
   async function retest(id: string): Promise<void> {
-    try {
-      await keysApi.retest(id)
-      await reload()
-    } catch (e) {
-      error.value = errorMessage(e)
-
-    }
+    await keysApi.retest(id)
+    await qc.invalidateQueries({ queryKey: keysKeys.myKeys() })
   }
 
   async function remove(id: string): Promise<void> {
-    try {
-      await keysApi.remove(id)
-      await reload()
-    } catch (e) {
-      error.value = errorMessage(e)
-
-    }
+    await keysApi.remove(id)
+    await qc.invalidateQueries({ queryKey: keysKeys.myKeys() })
   }
 
-  return { keys, loading, uploading, error, reload, upload, retest, remove }
+  return { keys, loading, error, reload, upload, retest, remove }
 }
