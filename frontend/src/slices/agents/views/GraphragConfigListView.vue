@@ -5,15 +5,43 @@ import { useI18n } from 'vue-i18n'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/vue-query'
 import { useForm } from 'vee-validate'
 import { toTypedSchema } from '@vee-validate/zod'
-import { SCard, SFormField, SPageHeader } from '@shared/ui'
-import { useConfirmDialog, useServerErrors, usePolling, useToast } from '@shared/composables'
+import {
+  PlusIcon,
+  TrashIcon,
+  EyeIcon,
+  CircleStackIcon,
+  EllipsisVerticalIcon,
+} from '@heroicons/vue/24/outline'
+import {
+  SPageHeader,
+  STable,
+  SBadge,
+  SButton,
+  SDropdown,
+  SModal,
+  SDrawer,
+  SFormField,
+  SInput,
+  SSelect,
+  SToggle,
+  SAccordion,
+  SEmptyState,
+  SAlert,
+} from '@shared/ui'
+import {
+  useConfirmDialog,
+  useServerErrors,
+  usePolling,
+  useToast,
+} from '@shared/composables'
 import { keyGroupsApi, keysKeys } from '@slices/keys'
-import { agentsApi, type GraphragConfig } from '../api'
+import { agentsApi, type GraphragConfig, type GraphragStatus } from '../api'
 import { agentKeys } from '../queries'
 import {
   graphragConfigCreateSchema,
   type GraphragConfigCreateInput,
 } from '../types/schemas'
+import type { Column } from '@shared/ui/STable.vue'
 
 const { t } = useI18n()
 const route = useRoute()
@@ -22,7 +50,10 @@ const projectId = route.params.projectId as string
 const toast = useToast()
 const { confirm } = useConfirmDialog()
 
-const showForm = ref(false)
+const showCreateModal = ref(false)
+const showStatusDrawer = ref(false)
+const statusDrawerConfig = ref<GraphragConfig | null>(null)
+const drawerStatus = ref<GraphragStatus | null>(null)
 
 const configsQuery = useQuery({
   queryKey: agentKeys.graphragConfigs(projectId),
@@ -39,24 +70,17 @@ const keyGroupsQuery = useQuery({
   queryFn: async () => (await keyGroupsApi.listForProject(projectId)).data,
 })
 
+const configs = computed<GraphragConfig[]>(() => configsQuery.data.value ?? [])
+
 const agentById = computed(() =>
   new Map((agentsQuery.data.value ?? []).map((a) => [a.id, a])),
 )
 const keyGroupById = computed(() =>
   new Map((keyGroupsQuery.data.value ?? []).map((g) => [g.id, g.name])),
 )
-const keyGroupName = (id: string): string => keyGroupById.value.get(id) ?? id
 
-// A config is "bound" only when its agent actually points back at it
-// (turn_engine reads agent.graphrag_config_id). Creating + building a config is
-// inert until the agent is bound on its detail page — surface that explicitly.
-const isBound = (cfg: GraphragConfig): boolean =>
-  agentById.value.get(cfg.agent_id)?.graphrag_config_id === cfg.id
-
-// A GraphRAG config is 1:1 with an agent — only agents without one yet can take
-// a new config.
 const configuredAgentIds = computed(
-  () => new Set((configsQuery.data.value ?? []).map((c) => c.agent_id)),
+  () => new Set(configs.value.map((c) => c.agent_id)),
 )
 const availableAgents = computed(() =>
   (agentsQuery.data.value ?? []).filter((a) => !configuredAgentIds.value.has(a.id)),
@@ -64,6 +88,66 @@ const availableAgents = computed(() =>
 const hasKeyGroups = computed(() => (keyGroupsQuery.data.value?.length ?? 0) > 0)
 const canCreate = computed(() => availableAgents.value.length > 0 && hasKeyGroups.value)
 
+// --- Build state management ---
+const IN_PROGRESS = new Set(['running', 'neo4j_committed', 'failed_compensating'])
+const liveState = ref<Record<string, string>>({})
+
+const effectiveState = (cfg: GraphragConfig): string =>
+  liveState.value[cfg.id] ?? cfg.last_build_state
+const isBuilding = (cfg: GraphragConfig): boolean => IN_PROGRESS.has(effectiveState(cfg))
+
+const buildStateVariant = (state: string): 'neutral' | 'info' | 'danger' | 'warning' => {
+  const map: Record<string, 'neutral' | 'info' | 'danger' | 'warning'> = {
+    idle: 'neutral',
+    running: 'info',
+    neo4j_committed: 'info',
+    qdrant_committed: 'info',
+    failed: 'danger',
+    failed_compensating: 'warning',
+  }
+  return map[state] ?? 'neutral'
+}
+
+const buildStateLabel = (state: string): string => {
+  const map: Record<string, string> = {
+    idle: t('agents.graphragList.states.idle'),
+    running: t('agents.graphragList.states.running'),
+    neo4j_committed: t('agents.graphragList.states.neo4jCommitted'),
+    qdrant_committed: t('agents.graphragList.states.qdrantCommitted'),
+    failed: t('agents.graphragList.states.failed'),
+    failed_compensating: t('agents.graphragList.states.compensating'),
+  }
+  return map[state] ?? state
+}
+
+const statusPoll = usePolling(
+  (id) => agentsApi.getGraphragStatus(id).then((r) => r.data),
+  {
+    isTerminal: (s) => !IN_PROGRESS.has(s.state),
+    onResult: (id, s) => {
+      liveState.value = { ...liveState.value, [id]: s.state }
+      if (!IN_PROGRESS.has(s.state)) {
+        qc.invalidateQueries({ queryKey: agentKeys.graphragConfigs(projectId) })
+      }
+    },
+  },
+)
+
+const buildMutation = useMutation({
+  mutationFn: (id: string) => agentsApi.buildGraphrag(id),
+  onSuccess: (_data, id) => {
+    toast.success(t('agents.graphragList.buildStarted'))
+    statusPoll.start(id)
+  },
+  onError: () => toast.error(t('agents.graphragList.buildFailed')),
+})
+
+function startBuild(id: string): void {
+  liveState.value = { ...liveState.value, [id]: 'running' }
+  buildMutation.mutate(id)
+}
+
+// --- Create form ---
 const schema = toTypedSchema(graphragConfigCreateSchema)
 const { handleSubmit, errors, defineField, resetForm, setErrors } =
   useForm<GraphragConfigCreateInput>({
@@ -74,14 +158,15 @@ const { handleSubmit, errors, defineField, resetForm, setErrors } =
 const [agentId] = defineField('agent_id')
 const [builderKeyGroupId] = defineField('builder_key_group_id')
 
-// The builder key group must differ from the chosen agent's own consumer key
-// group (billing separation, GraphRagBuilderKeyGroupConflict) — exclude it.
+const triggerEveryN = ref<number | null>(null)
+const triggerSilence = ref<number | null>(null)
+const triggerManual = ref(false)
+
 const builderKeyGroups = computed(() => {
   const consumer = agentId.value ? agentById.value.get(agentId.value)?.key_group_id : undefined
   return (keyGroupsQuery.data.value ?? []).filter((g) => g.id !== consumer)
 })
 
-// If switching agent invalidates the current builder pick, clear it.
 watch(agentId, () => {
   if (
     builderKeyGroupId.value &&
@@ -98,8 +183,7 @@ const createMutation = useMutation({
     (await agentsApi.createGraphragConfig(projectId, values)).data,
   onSuccess: () => {
     qc.invalidateQueries({ queryKey: agentKeys.graphragConfigs(projectId) })
-    resetForm()
-    showForm.value = false
+    showCreateModal.value = false
     toast.success(t('agents.graphragList.created'))
   },
   onError: (err) => {
@@ -107,52 +191,23 @@ const createMutation = useMutation({
   },
 })
 
-const onSubmit = handleSubmit((values) => createMutation.mutate(values))
-
-// Build is a 2PC machine (BuildState): idle → running → neo4j_committed →
-// qdrant_committed (success) | failed_compensating → failed. GraphRAG has no WS
-// channel, so after a manual build we poll the status endpoint until it settles,
-// overriding the row's displayed state live.
-const IN_PROGRESS = new Set(['running', 'neo4j_committed', 'failed_compensating'])
-const liveState = ref<Record<string, string>>({})
-
-// The effective state of a row prefers the live-polled value over the cached
-// last_build_state, so the per-row Build button can disable itself the moment a
-// build is in flight (preventing duplicate enqueues against an in-progress 2PC).
-const effectiveState = (cfg: GraphragConfig): string =>
-  liveState.value[cfg.id] ?? cfg.last_build_state
-const isBuilding = (cfg: GraphragConfig): boolean => IN_PROGRESS.has(effectiveState(cfg))
-
-// Poll the status endpoint until the 2PC build settles (shared usePolling:
-// bounded, transient errors reschedule, timers cleared on unmount). Keyed by
-// config id so several builds can poll at once.
-const statusPoll = usePolling((id) => agentsApi.getGraphragStatus(id).then((r) => r.data), {
-  isTerminal: (s) => !IN_PROGRESS.has(s.state),
-  onResult: (id, s) => {
-    liveState.value = { ...liveState.value, [id]: s.state }
-    if (!IN_PROGRESS.has(s.state)) {
-      qc.invalidateQueries({ queryKey: agentKeys.graphragConfigs(projectId) })
-    }
-  },
-})
-
-const buildMutation = useMutation({
-  mutationFn: (id: string) => agentsApi.buildGraphrag(id),
-  onSuccess: (_data, id) => {
-    toast.success(t('agents.graphragList.buildStarted'))
-    statusPoll.start(id)
-  },
-  onError: () => toast.error(t('agents.graphragList.buildFailed')),
-})
-
-// Optimistically mark the row in-progress before the POST resolves so a fast
-// 202 can't re-enable the button (the mutation's own isPending clears on 202,
-// long before the multi-minute build settles).
-function startBuild(id: string): void {
-  liveState.value = { ...liveState.value, [id]: 'running' }
-  buildMutation.mutate(id)
+function openCreateModal(): void {
+  resetForm()
+  triggerEveryN.value = null
+  triggerSilence.value = null
+  triggerManual.value = false
+  showCreateModal.value = true
 }
 
+const onSubmit = handleSubmit((values) => {
+  const trigger_config: Record<string, unknown> = {}
+  if (triggerEveryN.value) trigger_config.every_n_messages = triggerEveryN.value
+  if (triggerSilence.value) trigger_config.silence_minutes = triggerSilence.value
+  if (triggerManual.value) trigger_config.manual = true
+  createMutation.mutate({ ...values, trigger_config })
+})
+
+// --- Delete ---
 const deleteMutation = useMutation({
   mutationFn: (id: string) => agentsApi.deleteGraphragConfig(id),
   onSuccess: () => {
@@ -164,92 +219,192 @@ const deleteMutation = useMutation({
 
 async function confirmDelete(cfg: GraphragConfig): Promise<void> {
   const label = agentById.value.get(cfg.agent_id)?.name ?? cfg.agent_id
-  const ok = await confirm({ title: t('agents.graphragList.deleteTitle'), message: t('agents.graphragList.deleteConfirm', { name: label }), variant: 'warning' })
+  const ok = await confirm({
+    title: t('agents.graphragList.deleteTitle'),
+    message: t('agents.graphragList.deleteConfirm', { name: label }),
+    variant: 'error',
+  })
   if (!ok) return
   deleteMutation.mutate(cfg.id)
 }
 
-function refresh(): void {
-  qc.invalidateQueries({ queryKey: agentKeys.graphragConfigs(projectId) })
+// --- Status drawer ---
+async function openStatusDrawer(cfg: GraphragConfig): Promise<void> {
+  statusDrawerConfig.value = cfg
+  showStatusDrawer.value = true
+  try {
+    const { data } = await agentsApi.getGraphragStatus(cfg.id)
+    drawerStatus.value = data
+  } catch {
+    drawerStatus.value = null
+  }
 }
+
+function formatDate(iso: string | null): string {
+  if (!iso) return '--'
+  return new Date(iso).toLocaleString()
+}
+
+// --- Actions ---
+function onAction(key: string, row: GraphragConfig): void {
+  if (key === 'status') void openStatusDrawer(row)
+  else if (key === 'delete') void confirmDelete(row)
+}
+
+const actionItems = computed(() => [
+  { key: 'status', label: t('agents.graphragList.viewStatus'), icon: EyeIcon },
+  { key: 'divider', label: '', divider: true },
+  { key: 'delete', label: t('common.delete', 'Delete'), icon: TrashIcon, danger: true },
+])
+
+const agentOptions = computed(() =>
+  availableAgents.value.map((a) => ({ value: a.id, label: a.name })),
+)
+const builderKeyGroupOptions = computed(() =>
+  builderKeyGroups.value.map((g) => ({ value: g.id, label: g.name })),
+)
+
+const accordionItems = computed(() => [
+  { key: 'trigger', title: t('agents.graphragForm.trigger') },
+])
+
+const columns = computed<Column[]>(() => [
+  { key: 'agent_id', label: t('agents.graphragList.colAgent') },
+  { key: 'builder_key_group_id', label: t('agents.graphragList.colBuilder'), width: '160px' },
+  { key: 'last_build_state', label: t('agents.graphragList.colState'), width: '120px' },
+  { key: 'last_build_at', label: t('agents.graphragList.colLastBuilt'), width: '120px' },
+  { key: 'actions', label: '', width: '120px', align: 'right' },
+])
 </script>
 
 <template>
-  <section class="graphrag-list px-4 py-4 sm:p-6">
+  <main class="p-6">
     <SPageHeader :title="t('agents.graphragList.title')">
-      <button
-        class="btn"
-        type="button"
-        @click="refresh"
-      >
-        {{ t('agents.graphragList.refresh') }}
-      </button>
-      <button
-        class="btn btn-primary"
-        :disabled="!canCreate"
-        @click="showForm = !showForm"
-      >
-        {{ showForm ? t('agents.graphragList.cancel') : t('agents.graphragList.create') }}
-      </button>
+      <template #actions>
+        <SButton
+          variant="primary"
+          :disabled="!canCreate"
+          @click="openCreateModal"
+        >
+          <template #icon-left>
+            <PlusIcon class="w-4 h-4" />
+          </template>
+          {{ t('agents.graphragList.create') }}
+        </SButton>
+      </template>
     </SPageHeader>
 
-    <p
+    <SAlert
       v-if="!agentsQuery.isLoading.value && (agentsQuery.data.value?.length ?? 0) === 0"
-      class="graphrag-list__warning"
-      role="alert"
+      variant="warning"
+      class="mt-4"
     >
       {{ t('agents.graphragList.noAgents') }}
-    </p>
-    <p
+    </SAlert>
+    <SAlert
       v-else-if="!keyGroupsQuery.isLoading.value && !hasKeyGroups"
-      class="graphrag-list__warning"
-      role="alert"
+      variant="warning"
+      class="mt-4"
     >
       {{ t('agents.graphragList.noKeyGroups') }}
-    </p>
-    <p
-      v-else-if="!configsQuery.isLoading.value && availableAgents.length === 0"
-      class="graphrag-list__warning"
-      role="alert"
-    >
-      {{ t('agents.graphragList.allConfigured') }}
-    </p>
+    </SAlert>
 
-    <SCard
-      v-if="showForm"
-      class="max-w-[480px] mb-6"
+    <STable
+      :columns="columns"
+      :data="configs"
+      :loading="configsQuery.isLoading.value"
+      row-key="id"
+      class="mt-6"
     >
-      <form
-        @submit.prevent="onSubmit"
-      >
-        <p class="graphrag-list__hint">
-          {{ t('agents.graphragList.builderHint') }}
-        </p>
+      <template #cell-agent_id="{ row }">
+        <span class="font-medium">
+          {{ agentById.get(row.agent_id)?.name ?? row.agent_id }}
+        </span>
+      </template>
 
+      <template #cell-builder_key_group_id="{ row }">
+        {{ keyGroupById.get(row.builder_key_group_id) ?? row.builder_key_group_id }}
+      </template>
+
+      <template #cell-last_build_state="{ row }">
+        <SBadge
+          :variant="buildStateVariant(effectiveState(row))"
+          :dot="isBuilding(row)"
+        >
+          {{ buildStateLabel(effectiveState(row)) }}
+        </SBadge>
+      </template>
+
+      <template #cell-last_build_at="{ row }">
+        {{ formatDate(row.last_build_at) }}
+      </template>
+
+      <template #actions="{ row }">
+        <div class="flex items-center gap-2">
+          <SButton
+            variant="ghost"
+            size="sm"
+            :disabled="isBuilding(row)"
+            @click="startBuild(row.id)"
+          >
+            {{ t('agents.graphragList.build') }}
+          </SButton>
+          <SDropdown
+            :items="actionItems"
+            placement="bottom-end"
+            @select="onAction($event, row)"
+          >
+            <template #trigger>
+              <SButton
+                variant="ghost"
+                icon-only
+                size="sm"
+              >
+                <EllipsisVerticalIcon class="w-4 h-4" />
+              </SButton>
+            </template>
+          </SDropdown>
+        </div>
+      </template>
+
+      <template #empty>
+        <SEmptyState
+          :icon="CircleStackIcon"
+          :title="t('agents.graphragList.emptyTitle')"
+          :text="t('agents.graphragList.emptyDescription')"
+        >
+          <template #action>
+            <SButton
+              v-if="canCreate"
+              variant="primary"
+              @click="openCreateModal"
+            >
+              {{ t('agents.graphragList.create') }}
+            </SButton>
+          </template>
+        </SEmptyState>
+      </template>
+    </STable>
+
+    <!-- Create modal -->
+    <SModal
+      :open="showCreateModal"
+      :title="t('agents.graphragList.create')"
+      size="md"
+      @close="showCreateModal = false"
+    >
+      <form @submit.prevent="onSubmit">
         <SFormField
           :label="t('agents.graphragForm.agent')"
           name="agent_id"
           :error="errors.agent_id"
           required
         >
-          <select
-            id="agent_id"
+          <SSelect
             v-model="agentId"
-          >
-            <option
-              value=""
-              disabled
-            >
-              {{ t('agents.graphragForm.agentPlaceholder') }}
-            </option>
-            <option
-              v-for="a in availableAgents"
-              :key="a.id"
-              :value="a.id"
-            >
-              {{ a.name }}
-            </option>
-          </select>
+            :options="agentOptions"
+            :placeholder="t('agents.graphragForm.agentPlaceholder')"
+          />
         </SFormField>
 
         <SFormField
@@ -258,128 +413,120 @@ function refresh(): void {
           :error="errors.builder_key_group_id"
           required
         >
-          <select
-            id="builder_key_group_id"
+          <SSelect
             v-model="builderKeyGroupId"
+            :options="builderKeyGroupOptions"
+            :placeholder="t('agents.graphragForm.builderKeyGroupPlaceholder')"
             :disabled="!agentId"
-          >
-            <option
-              value=""
-              disabled
-            >
-              {{ t('agents.graphragForm.builderKeyGroupPlaceholder') }}
-            </option>
-            <option
-              v-for="g in builderKeyGroups"
-              :key="g.id"
-              :value="g.id"
-            >
-              {{ g.name }}
-            </option>
-          </select>
+          />
         </SFormField>
 
-        <button
-          type="submit"
-          class="btn btn-primary"
-          :disabled="createMutation.isPending.value"
+        <SAccordion
+          :items="accordionItems"
+          class="mt-4"
         >
-          {{ t('agents.graphragForm.submit') }}
-        </button>
+          <template #item-trigger>
+            <p class="text-sm text-[var(--color-muted)] mb-3">
+              {{ t('agents.graphragForm.triggerHelp') }}
+            </p>
+            <SFormField
+              :label="t('agents.graphragForm.triggerEveryN')"
+              name="trigger_every_n"
+            >
+              <SInput
+                v-model="triggerEveryN"
+                type="number"
+              />
+            </SFormField>
+            <SFormField
+              :label="t('agents.graphragForm.triggerSilence')"
+              name="trigger_silence"
+            >
+              <SInput
+                v-model="triggerSilence"
+                type="number"
+              />
+            </SFormField>
+            <SFormField
+              :label="t('agents.graphragForm.triggerManual')"
+              name="trigger_manual"
+            >
+              <SToggle v-model="triggerManual" />
+            </SFormField>
+          </template>
+        </SAccordion>
       </form>
-    </SCard>
 
-    <p v-if="configsQuery.isLoading.value">
-      {{ t('agents.graphragList.loading') }}
-    </p>
-    <div
-      v-else
-      class="overflow-x-auto"
-    >
-      <table class="table">
-        <thead>
-          <tr>
-            <th scope="col">
-              {{ t('agents.graphragList.colAgent') }}
-            </th>
-            <th scope="col">
-              {{ t('agents.graphragList.colBuilder') }}
-            </th>
-            <th scope="col">
-              {{ t('agents.graphragList.colBinding') }}
-            </th>
-            <th scope="col">
-              {{ t('agents.graphragList.colState') }}
-            </th>
-            <th scope="col">
-              {{ t('agents.graphragList.colActions') }}
-            </th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr
-            v-for="c in configsQuery.data.value ?? []"
-            :key="c.id"
+      <template #footer>
+        <div class="flex justify-end gap-3">
+          <SButton
+            variant="secondary"
+            @click="showCreateModal = false"
           >
-            <td>{{ agentById.get(c.agent_id)?.name ?? c.agent_id }}</td>
-            <td>{{ keyGroupName(c.builder_key_group_id) }}</td>
-            <td>
-              <span v-if="isBound(c)">{{ t('agents.graphragList.bound') }}</span>
-              <span
-                v-else
-                class="graphrag-list__error"
-                :title="t('agents.graphragList.unboundHint')"
-              >{{ t('agents.graphragList.unbound') }}</span>
-            </td>
-            <td>
-              {{ effectiveState(c) }}
-              <span
-                v-if="c.last_build_error"
-                class="graphrag-list__error"
-                :title="c.last_build_error"
-              >{{ t('agents.graphragList.errorFlag') }}</span>
-            </td>
-            <td>
-              <button
-                class="btn"
-                type="button"
-                :disabled="isBuilding(c)"
-                @click="startBuild(c.id)"
-              >
-                {{ t('agents.graphragList.build') }}
-              </button>
-              <button
-                class="btn btn-danger"
-                type="button"
-                @click="confirmDelete(c)"
-              >
-                {{ t('agents.graphragList.delete') }}
-              </button>
-            </td>
-          </tr>
-          <tr v-if="(configsQuery.data.value ?? []).length === 0">
-            <td colspan="5">
-              {{ t('agents.graphragList.empty') }}
-            </td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
-  </section>
-</template>
+            {{ t('agents.graphragList.cancel') }}
+          </SButton>
+          <SButton
+            variant="primary"
+            :loading="createMutation.isPending.value"
+            @click="onSubmit"
+          >
+            {{ t('agents.graphragForm.submit') }}
+          </SButton>
+        </div>
+      </template>
+    </SModal>
 
-<style scoped>
-.graphrag-list__hint {
-  color: var(--color-muted);
-  font-size: 0.875rem;
-  margin-bottom: 0.75rem;
-}
-.graphrag-list__warning {
-  color: var(--color-danger);
-  margin-bottom: 0.75rem;
-}
-.graphrag-list__error {
-  color: var(--color-danger);
-  cursor: help;
-}
-</style>
+    <!-- Status drawer -->
+    <SDrawer
+      :open="showStatusDrawer"
+      :title="t('agents.graphragList.statusTitle')"
+      side="right"
+      size="md"
+      @close="showStatusDrawer = false"
+    >
+      <template v-if="drawerStatus">
+        <div class="space-y-6">
+          <div>
+            <p class="text-sm font-medium text-[var(--color-muted)] mb-1">
+              {{ t('agents.graphragList.colState') }}
+            </p>
+            <SBadge :variant="buildStateVariant(drawerStatus.state)">
+              {{ buildStateLabel(drawerStatus.state) }}
+            </SBadge>
+          </div>
+          <div>
+            <p class="text-sm font-medium text-[var(--color-muted)] mb-1">
+              {{ t('agents.graphragList.colLastBuilt') }}
+            </p>
+            <p>{{ formatDate(drawerStatus.last_build_at) }}</p>
+          </div>
+          <div>
+            <p class="text-sm font-medium text-[var(--color-muted)] mb-1">
+              {{ t('agents.graphragList.lastError') }}
+            </p>
+            <p
+              v-if="drawerStatus.last_build_error"
+              class="text-[var(--color-danger)]"
+            >
+              {{ drawerStatus.last_build_error }}
+            </p>
+            <p
+              v-else
+              class="text-[var(--color-muted)]"
+            >
+              {{ t('agents.graphragList.noError') }}
+            </p>
+          </div>
+          <SButton
+            v-if="statusDrawerConfig"
+            variant="primary"
+            :disabled="isBuilding(statusDrawerConfig)"
+            @click="startBuild(statusDrawerConfig.id)"
+          >
+            {{ t('agents.graphragList.build') }}
+          </SButton>
+        </div>
+      </template>
+    </SDrawer>
+  </main>
+</template>

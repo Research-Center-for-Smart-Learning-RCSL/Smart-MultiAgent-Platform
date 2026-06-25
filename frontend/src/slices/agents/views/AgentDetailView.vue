@@ -1,18 +1,46 @@
 <script setup lang="ts">
-import { useI18n } from 'vue-i18n'
+import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/vue-query'
 import { useForm } from 'vee-validate'
 import { toTypedSchema } from '@vee-validate/zod'
-import { computed, watch } from 'vue'
-
-import { SFormField } from '@shared/ui'
-import { useConfirmDialog, useServerErrors, useToast } from '@shared/composables'
-import AgentFormFields from '../components/AgentFormFields.vue'
-import { keyGroupsApi, keysKeys } from '@slices/keys'
-import { agentsApi } from '../api'
+import {
+  Cog6ToothIcon,
+  CommandLineIcon,
+  BookOpenIcon,
+  ServerIcon,
+  ArrowsPointingOutIcon,
+  TrashIcon,
+} from '@heroicons/vue/24/outline'
+import {
+  SPageHeader,
+  STabs,
+  SCard,
+  SFormField,
+  SInput,
+  SSelect,
+  SRadio,
+  SToggle,
+  SCodeEditor,
+  SButton,
+  SBadge,
+  STable,
+  SAlert,
+  SEmptyState,
+  SSkeleton,
+} from '@shared/ui'
+import {
+  useConfirmDialog,
+  useServerErrors,
+  useToast,
+  useBreakpoint,
+} from '@shared/composables'
+import { keyGroupsApi, keysKeys, type KeyGroup } from '@slices/keys'
+import { agentsApi, type McpBinding } from '../api'
 import { agentKeys } from '../queries'
 import { agentCreateSchema, type AgentCreateInput } from '../types/schemas'
+import type { Column } from '@shared/ui/STable.vue'
 
 const { t } = useI18n()
 const route = useRoute()
@@ -20,62 +48,79 @@ const router = useRouter()
 const qc = useQueryClient()
 const toast = useToast()
 const { confirm } = useConfirmDialog()
-const agentId = route.params.agentId as string
+const { isMobile } = useBreakpoint()
 
+const routeAgentId = route.params.agentId as string
+const isCreateMode = routeAgentId === 'new'
+const agentId = isCreateMode ? '' : routeAgentId
+const createProjectId = (route.query.projectId as string) ?? ''
+
+const activeTab = ref((route.query.tab as string) || 'general')
+
+// --- Queries ---
 const query = useQuery({
   queryKey: agentKeys.agent(agentId),
-  queryFn: async () => {
-    const { data } = await agentsApi.get(agentId)
-    return data
-  },
+  enabled: !isCreateMode,
+  queryFn: async () => (await agentsApi.get(agentId)).data,
 })
 
-// `project_id` (needed to scope the pickers) travels on the agent payload, not
-// the route, so both queries stay disabled until the agent has loaded.
-const pickerProjectId = computed(() => query.data.value?.project_id ?? '')
+const pickerProjectId = computed(() => {
+  if (isCreateMode) return createProjectId
+  return query.data.value?.project_id ?? ''
+})
 
-// These three pickers fetch the same project-scoped lists the RAG/GraphRAG list
-// views own, so they MUST use the shared factory keys — otherwise the list
-// views' create/delete invalidations (keyed by projectId) never reach this
-// cache and the pickers serve stale options after a config is created.
 const keyGroupsQuery = useQuery({
   queryKey: computed(() => keysKeys.keyGroups(pickerProjectId.value)),
   enabled: computed(() => !!pickerProjectId.value),
-  queryFn: async () => {
-    const { data } = await keyGroupsApi.listForProject(pickerProjectId.value)
-    return data
-  },
+  queryFn: async () => (await keyGroupsApi.listForProject(pickerProjectId.value)).data,
 })
 
 const ragConfigsQuery = useQuery({
   queryKey: computed(() => agentKeys.ragConfigs(pickerProjectId.value)),
   enabled: computed(() => !!pickerProjectId.value),
-  queryFn: async () => {
-    const { data } = await agentsApi.listRagConfigs(pickerProjectId.value)
-    return data
-  },
+  queryFn: async () => (await agentsApi.listRagConfigs(pickerProjectId.value)).data,
 })
 
-// A GraphRAG config is 1:1 with an agent, so the only config this agent may bind
-// is the one built for it. Setting `graphrag_config_id` here is what the runtime
-// reads to enable graph retrieval (turn_engine reads agent.graphrag_config_id).
 const graphragConfigsQuery = useQuery({
   queryKey: computed(() => agentKeys.graphragConfigs(pickerProjectId.value)),
   enabled: computed(() => !!pickerProjectId.value),
-  queryFn: async () => {
-    const { data } = await agentsApi.listGraphragConfigs(pickerProjectId.value)
-    return data
-  },
+  queryFn: async () => (await agentsApi.listGraphragConfigs(pickerProjectId.value)).data,
+})
+
+const mcpBindingsQuery = useQuery({
+  queryKey: computed(() => agentKeys.mcpBindings(agentId)),
+  enabled: computed(() => !isCreateMode && !!agentId),
+  queryFn: async () => (await agentsApi.listMcpBindings(agentId)).data,
 })
 
 const thisAgentGraphrag = computed(() =>
   (graphragConfigsQuery.data.value ?? []).find((c) => c.agent_id === agentId),
 )
 
+const mcpBindings = computed<McpBinding[]>(() => mcpBindingsQuery.data.value ?? [])
+
+const keyGroups = computed<KeyGroup[]>(() => keyGroupsQuery.data.value ?? [])
+const hasKeyGroups = computed(() => keyGroups.value.length > 0)
+
+// --- Form setup ---
 const schema = toTypedSchema(agentCreateSchema)
-const { handleSubmit, errors, defineField, resetForm, setErrors } = useForm<AgentCreateInput>({
-  validationSchema: schema,
-})
+const { handleSubmit, errors, defineField, resetForm, setErrors, meta } =
+  useForm<AgentCreateInput>({
+    validationSchema: schema,
+    initialValues: {
+      name: '',
+      model_hint: 'claude',
+      model_id: null,
+      key_group_id: '',
+      system_prompt: '',
+      prompt_strategy: 'full',
+      rag_config_id: null,
+      graphrag_config_id: null,
+      context_mode: 'general',
+      context_token_cap: null,
+      a2a_enabled: false,
+    },
+  })
 
 const [name] = defineField('name')
 const [modelHint] = defineField('model_hint')
@@ -84,12 +129,24 @@ const [keyGroupId] = defineField('key_group_id')
 const [systemPrompt] = defineField('system_prompt')
 const [promptStrategy] = defineField('prompt_strategy')
 const [contextMode] = defineField('context_mode')
+const [contextTokenCap] = defineField('context_token_cap')
 const [ragConfigId] = defineField('rag_config_id')
 const [graphragConfigId] = defineField('graphrag_config_id')
 const [a2aEnabled] = defineField('a2a_enabled')
 
-const { applyServerErrors } = useServerErrors(setErrors)
+// Wakeup config decomposed fields
+const wakeupEveryN = ref<number | null>(null)
+const wakeupSilence = ref<number | null>(null)
+const wakeupCallOnly = ref(false)
+const wakeupAutostop = ref<number | null>(null)
 
+// Workflow capabilities decomposed fields
+const canInstruct = ref(false)
+const canApprove = ref(false)
+const canCreateSubagent = ref(false)
+const maxAliveSubagents = ref(5)
+
+// Populate form from loaded agent
 watch(
   () => query.data.value,
   (agent) => {
@@ -103,21 +160,81 @@ watch(
         system_prompt: agent.system_prompt,
         prompt_strategy: agent.prompt_strategy as AgentCreateInput['prompt_strategy'],
         context_mode: agent.context_mode as AgentCreateInput['context_mode'],
+        context_token_cap: agent.context_token_cap,
         rag_config_id: agent.rag_config_id,
         graphrag_config_id: agent.graphrag_config_id,
-        context_token_cap: agent.context_token_cap,
         a2a_enabled: agent.a2a_enabled,
       },
     })
+    const wc = agent.wakeup_config as Record<string, number | boolean | null>
+    wakeupEveryN.value = (wc.every_n_messages as number) ?? null
+    wakeupSilence.value = (wc.silence_minutes as number) ?? null
+    wakeupCallOnly.value = (wc.call_only as boolean) ?? false
+    wakeupAutostop.value = (wc.autostop_rounds as number) ?? null
+
+    const wf = agent.workflow_capabilities as Record<string, boolean | number>
+    canInstruct.value = (wf.can_instruct as boolean) ?? false
+    canApprove.value = (wf.can_approve as boolean) ?? false
+    canCreateSubagent.value = (wf.can_create_subagent as boolean) ?? false
+    maxAliveSubagents.value = (wf.max_alive_subagents as number) ?? 5
   },
   { immediate: true },
 )
 
+// Default key group for create mode
+watch(
+  () => keyGroupsQuery.data.value,
+  (groups) => {
+    if (isCreateMode && groups && groups.length && !keyGroupId.value) {
+      keyGroupId.value = groups[0]!.id
+    }
+  },
+  { immediate: true },
+)
+
+const { applyServerErrors } = useServerErrors(setErrors)
+
+function assemblePayload(values: AgentCreateInput): Record<string, unknown> {
+  const wakeup_config: Record<string, unknown> = {}
+  if (wakeupEveryN.value) wakeup_config.every_n_messages = wakeupEveryN.value
+  if (wakeupSilence.value) wakeup_config.silence_minutes = wakeupSilence.value
+  if (wakeupCallOnly.value) wakeup_config.call_only = true
+  if (wakeupAutostop.value) wakeup_config.autostop_rounds = wakeupAutostop.value
+
+  const workflow_capabilities: Record<string, unknown> = {}
+  if (canInstruct.value) workflow_capabilities.can_instruct = true
+  if (canApprove.value) workflow_capabilities.can_approve = true
+  if (canCreateSubagent.value) {
+    workflow_capabilities.can_create_subagent = true
+    workflow_capabilities.max_alive_subagents = maxAliveSubagents.value
+  }
+
+  return { ...values, wakeup_config, workflow_capabilities }
+}
+
+// --- Create mutation ---
+const createMutation = useMutation({
+  mutationFn: async (values: AgentCreateInput) => {
+    const payload = assemblePayload(values)
+    const { data } = await agentsApi.create(createProjectId, payload as AgentCreateInput)
+    return data
+  },
+  onSuccess: (agent) => {
+    toast.success(t('agents.list.created'))
+    router.replace({ name: 'agents.detail', params: { agentId: agent.id } })
+  },
+  onError: (err) => {
+    if (!applyServerErrors(err)) toast.error(t('agents.list.createFailed'))
+  },
+})
+
+// --- Patch mutation ---
 const patchMutation = useMutation({
   mutationFn: async (values: AgentCreateInput) => {
     const agent = query.data.value
     if (!agent) throw new Error('Agent not loaded')
-    const { data } = await agentsApi.patch(agentId, agent.version, values)
+    const payload = assemblePayload(values)
+    const { data } = await agentsApi.patch(agentId, agent.version, payload as Partial<AgentCreateInput>)
     return data
   },
   onSuccess: () => {
@@ -125,165 +242,596 @@ const patchMutation = useMutation({
     toast.success(t('agents.detail.saved'))
   },
   onError: (err) => {
-    if (!applyServerErrors(err)) {
-      toast.error(t('agents.detail.saveFailed'))
-    }
+    if (!applyServerErrors(err)) toast.error(t('agents.detail.saveFailed'))
   },
 })
 
+const saving = computed(() => createMutation.isPending.value || patchMutation.isPending.value)
+
+const onSubmit = handleSubmit((values) => {
+  if (isCreateMode) {
+    createMutation.mutate(values)
+  } else {
+    patchMutation.mutate(values)
+  }
+})
+
+// --- Delete ---
 const deleteMutation = useMutation({
   mutationFn: () => agentsApi.remove(agentId, query.data.value!.version),
   onSuccess: () => {
-    router.back()
+    router.push({ name: 'agents.list', params: { projectId: pickerProjectId.value } })
   },
   onError: () => toast.error(t('agents.detail.deleteFailed')),
 })
 
 async function onDelete(): Promise<void> {
-  const ok = await confirm({ title: t('agents.detail.deleteConfirmTitle'), message: t('agents.detail.deleteConfirm'), variant: 'warning', confirmLabel: t('agents.detail.delete'), cancelLabel: t('app.cancel') })
+  const ok = await confirm({
+    title: t('agents.detail.deleteConfirmTitle'),
+    message: t('agents.detail.deleteConfirm'),
+    variant: 'error',
+    confirmLabel: t('agents.detail.delete'),
+  })
   if (!ok) return
   deleteMutation.mutate()
 }
 
-const onSubmit = handleSubmit((values) => {
-  patchMutation.mutate(values)
+// --- MCP test ---
+const testingIds = ref<Set<string>>(new Set())
+
+const testMutation = useMutation({
+  mutationFn: (bindingId: string) => agentsApi.testMcpBinding(agentId, bindingId),
+  onSuccess: (res) => {
+    if (res.data.ok) {
+      toast.success(
+        t('agents.mcp.testOk', {
+          count: res.data.tool_names.length,
+          ms: res.data.duration_ms,
+        }),
+      )
+    } else {
+      toast.error(t('agents.mcp.testBad'))
+    }
+  },
+  onError: () => toast.error(t('agents.mcp.testFailed')),
+  onSettled: (_res, _err, bindingId) => {
+    const next = new Set(testingIds.value)
+    next.delete(bindingId)
+    testingIds.value = next
+  },
+})
+
+function runTest(bindingId: string): void {
+  testingIds.value = new Set(testingIds.value).add(bindingId)
+  testMutation.mutate(bindingId)
+}
+
+// --- Tab config ---
+const tabs = computed(() => [
+  { key: 'general', label: t('agents.detail.tabs.general'), icon: Cog6ToothIcon },
+  { key: 'prompt', label: t('agents.detail.tabs.prompt'), icon: CommandLineIcon },
+  { key: 'knowledge', label: t('agents.detail.tabs.knowledge'), icon: BookOpenIcon },
+  { key: 'mcp', label: t('agents.detail.tabs.mcp'), icon: ServerIcon, badge: mcpBindings.value.length > 0 ? String(mcpBindings.value.length) : undefined },
+  { key: 'orchestration', label: t('agents.detail.tabs.orchestration'), icon: ArrowsPointingOutIcon },
+])
+
+function onTabChange(tab: string): void {
+  activeTab.value = tab
+  router.replace({ query: { ...route.query, tab } })
+}
+
+// Prompt character counter
+const promptLength = computed(() => (systemPrompt.value ?? '').length)
+const promptCounterClass = computed(() => {
+  if (promptLength.value >= 99000) return 'text-[var(--color-danger)]'
+  if (promptLength.value >= 90000) return 'text-[var(--color-warning)]'
+  return 'text-[var(--color-muted)]'
+})
+
+// Options
+const modelHintOptions = computed(() => [
+  { value: 'claude', label: t('agents.form.modelHints.claude') },
+  { value: 'openai', label: t('agents.form.modelHints.openai') },
+  { value: 'gemini', label: t('agents.form.modelHints.gemini') },
+])
+
+const keyGroupOptions = computed(() =>
+  keyGroups.value.map((g) => ({ value: g.id, label: g.name })),
+)
+
+const promptStrategyOptions = computed(() => [
+  { value: 'full', label: t('agents.form.strategies.full') },
+  { value: 'lazy', label: t('agents.form.strategies.lazy') },
+])
+
+const ragConfigOptions = computed(() => [
+  { value: '', label: t('agents.form.noRagConfig') },
+  ...(ragConfigsQuery.data.value ?? []).map((c) => ({ value: c.id, label: c.name })),
+])
+
+const graphragConfigOptions = computed(() => {
+  const options = [{ value: '', label: t('agents.form.noGraphragConfig') }]
+  if (thisAgentGraphrag.value) {
+    options.push({ value: thisAgentGraphrag.value.id, label: t('agents.form.graphragConfigThis') })
+  }
+  return options
+})
+
+const mcpColumns = computed<Column[]>(() => [
+  { key: 'source', label: t('agents.mcp.colSource'), width: '80px' },
+  { key: 'reference', label: t('agents.mcp.colReference') },
+  { key: 'tools', label: t('agents.mcp.colTools'), width: '100px' },
+  { key: 'actions', label: '', width: '80px', align: 'right' },
+])
+
+const pageTitle = computed(() => {
+  if (isCreateMode) return t('agents.detail.new')
+  return query.data.value?.name ?? t('agents.detail.title')
 })
 </script>
 
 <template>
-  <section class="agent-detail px-4 py-4 sm:p-6">
-    <h1 class="text-xl font-semibold mb-4">
-      {{ query.data.value?.name ?? t('agents.detail.title') }}
-    </h1>
+  <main class="p-6">
+    <!-- Loading skeleton -->
+    <template v-if="!isCreateMode && query.isLoading.value">
+      <SSkeleton width="200px" />
+      <div class="flex gap-2 mt-4">
+        <SSkeleton
+          v-for="i in 5"
+          :key="i"
+          variant="rect"
+          width="80px"
+          height="32px"
+        />
+      </div>
+      <SSkeleton class="mt-6" />
+      <SSkeleton class="mt-2" />
+    </template>
 
-    <div
-      v-if="query.isLoading.value"
-      class="agent-detail__loading"
-    >
-      {{ t('agents.detail.loading') }}
-    </div>
-
-    <form
-      v-else-if="query.data.value"
-      class="agent-detail__form"
-      @submit.prevent="onSubmit"
-    >
-      <AgentFormFields
-        v-model:name="name"
-        v-model:model-hint="modelHint"
-        v-model:model-id="modelId"
-        v-model:key-group-id="keyGroupId"
-        v-model:system-prompt="systemPrompt"
-        v-model:prompt-strategy="promptStrategy"
-        v-model:context-mode="contextMode"
-        v-model:rag-config-id="ragConfigId"
-        v-model:a2a-enabled="a2aEnabled"
-        :errors="errors"
-        :key-groups="keyGroupsQuery.data.value ?? []"
-        :rag-configs="ragConfigsQuery.data.value ?? []"
-        :textarea-rows="6"
-      >
-        <template #after-rag>
-          <RouterLink
-            v-if="ragConfigId"
-            class="agent-detail__rag-manage"
-            :to="{
-              name: 'agents.ragConfig',
-              params: { projectId: pickerProjectId, configId: ragConfigId },
-            }"
+    <template v-else>
+      <SPageHeader :title="pageTitle">
+        <template #actions>
+          <SButton
+            v-if="!isCreateMode"
+            variant="danger"
+            @click="onDelete"
           >
-            {{ t('agents.rag.manageLink') }}
-          </RouterLink>
-          <RouterLink
-            class="agent-detail__rag-manage"
-            :to="{ name: 'agents.ragConfigs', params: { projectId: pickerProjectId } }"
+            <template #icon-left>
+              <TrashIcon class="w-4 h-4" />
+            </template>
+            {{ t('agents.detail.delete') }}
+          </SButton>
+          <SButton
+            variant="primary"
+            :loading="saving"
+            :disabled="!meta.dirty && !isCreateMode"
+            @click="onSubmit"
           >
-            {{ t('agents.form.manageRagConfigs') }}
-          </RouterLink>
+            {{ t('agents.detail.save') }}
+          </SButton>
         </template>
+      </SPageHeader>
 
-        <template #extra-fields>
-          <SFormField
-            :label="t('agents.form.graphragConfig')"
-            name="graphrag_config_id"
-            :error="errors.graphrag_config_id"
-          >
-            <select
-              id="graphrag_config_id"
-              v-model="graphragConfigId"
+      <SAlert
+        v-if="!hasKeyGroups && !keyGroupsQuery.isLoading.value"
+        variant="warning"
+        class="mt-4"
+      >
+        {{ t('agents.form.noKeyGroups') }}
+      </SAlert>
+
+      <!-- Tabs - collapse to SSelect on mobile -->
+      <div
+        v-if="isMobile"
+        class="mt-6"
+      >
+        <SSelect
+          :model-value="activeTab"
+          :options="tabs.map(tab => ({ value: tab.key, label: tab.label }))"
+          @update:model-value="onTabChange"
+        />
+      </div>
+
+      <STabs
+        v-else
+        :model-value="activeTab"
+        :tabs="tabs"
+        class="mt-6"
+        @update:model-value="onTabChange"
+      />
+
+      <form @submit.prevent="onSubmit">
+        <!-- Tab: General -->
+        <div
+          v-show="activeTab === 'general'"
+          class="mt-6 space-y-6"
+        >
+          <SCard>
+            <h3 class="text-lg font-semibold mb-4">
+              {{ t('agents.detail.tabs.general') }}
+            </h3>
+            <SFormField
+              :label="t('agents.form.name')"
+              name="name"
+              :error="errors.name"
+              required
             >
-              <option :value="null">
-                {{ t('agents.form.graphragConfigNone') }}
-              </option>
-              <option
-                v-if="thisAgentGraphrag"
-                :value="thisAgentGraphrag.id"
+              <SInput
+                v-model="name"
+                :error="!!errors.name"
+              />
+            </SFormField>
+
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-4">
+              <SFormField
+                :label="t('agents.form.modelHint')"
+                name="model_hint"
+                :error="errors.model_hint"
+                required
               >
-                {{ t('agents.form.graphragConfigThis') }}
-              </option>
-            </select>
-            <RouterLink
-              class="agent-detail__rag-manage"
+                <SSelect
+                  v-model="modelHint"
+                  :options="modelHintOptions"
+                />
+              </SFormField>
+              <SFormField
+                :label="t('agents.form.modelId')"
+                name="model_id"
+                :error="errors.model_id"
+                :help="t('agents.form.modelIdHelp')"
+              >
+                <SInput
+                  v-model="modelId"
+                  :placeholder="t('agents.form.modelIdPlaceholder')"
+                />
+              </SFormField>
+            </div>
+
+            <SFormField
+              :label="t('agents.form.keyGroup')"
+              name="key_group_id"
+              :error="errors.key_group_id"
+              required
+              class="mt-4"
+            >
+              <SSelect
+                v-model="keyGroupId"
+                :options="keyGroupOptions"
+                :placeholder="t('agents.form.keyGroupPlaceholder')"
+              />
+            </SFormField>
+          </SCard>
+
+          <SCard>
+            <h3 class="text-lg font-semibold mb-4">
+              {{ t('agents.form.contextMode') }}
+            </h3>
+            <div class="flex gap-6">
+              <SRadio
+                v-model="contextMode"
+                value="general"
+                name="context_mode"
+              >
+                {{ t('agents.form.contextModeGeneral') }}
+              </SRadio>
+              <SRadio
+                v-model="contextMode"
+                value="compact"
+                name="context_mode"
+              >
+                {{ t('agents.form.contextModeCompact') }}
+              </SRadio>
+            </div>
+            <SFormField
+              v-if="contextMode === 'compact'"
+              :label="t('agents.form.contextTokenCap')"
+              name="context_token_cap"
+              :error="errors.context_token_cap"
+              :help="t('agents.form.contextTokenCapHelp')"
+              class="mt-4"
+            >
+              <SInput
+                v-model="contextTokenCap"
+                type="number"
+              />
+            </SFormField>
+          </SCard>
+        </div>
+
+        <!-- Tab: Prompt -->
+        <div
+          v-show="activeTab === 'prompt'"
+          class="mt-6 space-y-6"
+        >
+          <SCard>
+            <h3 class="text-lg font-semibold mb-4">
+              {{ t('agents.form.systemPrompt') }}
+            </h3>
+            <SFormField
+              :label="t('agents.form.promptStrategy')"
+              name="prompt_strategy"
+              :error="errors.prompt_strategy"
+            >
+              <SSelect
+                v-model="promptStrategy"
+                :options="promptStrategyOptions"
+              />
+            </SFormField>
+
+            <SFormField
+              :label="t('agents.form.systemPrompt')"
+              name="system_prompt"
+              :error="errors.system_prompt"
+              class="mt-4"
+            >
+              <SCodeEditor
+                v-model="systemPrompt"
+                language="markdown"
+                :rows="16"
+                :placeholder="t('agents.form.systemPromptPlaceholder')"
+              />
+            </SFormField>
+            <p
+              class="text-xs mt-1"
+              :class="promptCounterClass"
+            >
+              {{ `${promptLength.toLocaleString()} / 100,000` }}
+            </p>
+          </SCard>
+        </div>
+
+        <!-- Tab: Knowledge -->
+        <div
+          v-show="activeTab === 'knowledge'"
+          class="mt-6 space-y-6"
+        >
+          <SCard>
+            <h3 class="text-lg font-semibold mb-4">
+              {{ t('agents.form.ragConfig') }}
+            </h3>
+            <SFormField
+              :label="t('agents.form.ragConfig')"
+              name="rag_config_id"
+              :error="errors.rag_config_id"
+              :help="t('agents.form.manageRagConfigs')"
+            >
+              <SSelect
+                v-model="ragConfigId"
+                :options="ragConfigOptions"
+              />
+            </SFormField>
+            <SButton
+              v-if="ragConfigId && pickerProjectId"
+              variant="link"
+              class="mt-2"
+              :to="{
+                name: 'agents.ragConfig',
+                params: { projectId: pickerProjectId, configId: ragConfigId },
+              }"
+              as="router-link"
+            >
+              {{ t('agents.rag.manageLink') }}
+            </SButton>
+          </SCard>
+
+          <SCard>
+            <h3 class="text-lg font-semibold mb-4">
+              {{ t('agents.form.graphragConfig') }}
+            </h3>
+            <SFormField
+              :label="t('agents.form.graphragConfig')"
+              name="graphrag_config_id"
+              :error="errors.graphrag_config_id"
+            >
+              <SSelect
+                v-model="graphragConfigId"
+                :options="graphragConfigOptions"
+              />
+            </SFormField>
+            <SButton
+              v-if="pickerProjectId"
+              variant="link"
+              class="mt-2"
               :to="{ name: 'agents.graphragConfigs', params: { projectId: pickerProjectId } }"
+              as="router-link"
             >
               {{ t('agents.form.manageGraphragConfigs') }}
-            </RouterLink>
-          </SFormField>
+            </SButton>
+          </SCard>
+        </div>
 
-          <SFormField
-            :label="t('agents.form.mcp')"
-            name="mcp"
-          >
-            <RouterLink
-              class="agent-detail__rag-manage"
+        <!-- Tab: MCP -->
+        <div
+          v-show="activeTab === 'mcp'"
+          class="mt-6"
+        >
+          <SCard>
+            <h3 class="text-lg font-semibold mb-4">
+              {{ t('agents.detail.tabs.mcp') }}
+            </h3>
+
+            <STable
+              v-if="mcpBindings.length > 0"
+              :columns="mcpColumns"
+              :data="mcpBindings"
+              row-key="id"
+            >
+              <template #cell-source="{ row }">
+                <SBadge variant="neutral">
+                  {{ t(`agents.mcp.sources.${row.source}`) }}
+                </SBadge>
+              </template>
+
+              <template #cell-reference="{ row }">
+                <span class="font-mono text-sm break-all">{{ row.reference }}</span>
+              </template>
+
+              <template #cell-tools="{ row }">
+                {{ row.allowed_tools.length ? t('agents.mcp.nAllowed', { n: row.allowed_tools.length }) : t('agents.mcp.allTools') }}
+              </template>
+
+              <template #actions="{ row }">
+                <SButton
+                  variant="ghost"
+                  size="sm"
+                  :loading="testingIds.has(row.id)"
+                  @click="runTest(row.id)"
+                >
+                  {{ t('agents.mcp.test') }}
+                </SButton>
+              </template>
+            </STable>
+
+            <SEmptyState
+              v-else-if="!isCreateMode"
+              :icon="ServerIcon"
+              :title="t('agents.mcp.emptyTitle')"
+              :text="t('agents.mcp.emptyDescription')"
+            >
+              <template #action>
+                <SButton
+                  variant="link"
+                  :to="{ name: 'agents.mcp', params: { agentId } }"
+                  as="router-link"
+                >
+                  {{ t('agents.mcp.add') }}
+                </SButton>
+              </template>
+            </SEmptyState>
+
+            <SButton
+              v-if="!isCreateMode && mcpBindings.length > 0"
+              variant="link"
+              class="mt-4"
               :to="{ name: 'agents.mcp', params: { agentId } }"
+              as="router-link"
             >
               {{ t('agents.form.manageMcp') }}
-            </RouterLink>
-          </SFormField>
+            </SButton>
+          </SCard>
+        </div>
 
-          <SFormField
-            :label="t('agents.form.orchestration')"
-            name="orchestration"
-          >
-            <RouterLink
-              class="agent-detail__rag-manage"
-              :to="{ name: 'workflow.agentOrchestration', params: { agentId } }"
-            >
-              {{ t('agents.form.manageOrchestration') }}
-            </RouterLink>
-          </SFormField>
-        </template>
-      </AgentFormFields>
-
-      <div class="agent-detail__actions">
-        <button
-          type="submit"
-          class="btn btn-primary"
-          :disabled="patchMutation.isPending.value"
+        <!-- Tab: Orchestration -->
+        <div
+          v-show="activeTab === 'orchestration'"
+          class="mt-6 space-y-6"
         >
-          {{ t('agents.detail.save') }}
-        </button>
-        <button
-          type="button"
-          class="btn btn-danger"
-          :disabled="deleteMutation.isPending.value"
-          @click="onDelete()"
+          <SCard>
+            <h3 class="text-lg font-semibold mb-4">
+              {{ t('agents.form.a2aEnabled') }}
+            </h3>
+            <SFormField
+              :label="t('agents.form.a2aEnabled')"
+              name="a2a_enabled"
+              :help="t('agents.form.a2aHelp')"
+            >
+              <SToggle v-model="a2aEnabled" />
+            </SFormField>
+          </SCard>
+
+          <SCard>
+            <h3 class="text-lg font-semibold mb-4">
+              {{ t('agents.form.wakeupHelp') }}
+            </h3>
+            <div class="space-y-4">
+              <SFormField
+                :label="t('agents.form.wakeupEveryN')"
+                name="wakeup_every_n"
+              >
+                <SInput
+                  v-model="wakeupEveryN"
+                  type="number"
+                  :disabled="wakeupCallOnly"
+                />
+              </SFormField>
+              <SFormField
+                :label="t('agents.form.wakeupSilence')"
+                name="wakeup_silence"
+              >
+                <SInput
+                  v-model="wakeupSilence"
+                  type="number"
+                  :disabled="wakeupCallOnly"
+                />
+              </SFormField>
+              <SFormField
+                :label="t('agents.form.wakeupCallOnly')"
+                name="wakeup_call_only"
+              >
+                <SToggle v-model="wakeupCallOnly" />
+              </SFormField>
+              <SFormField
+                :label="t('agents.form.wakeupAutostop')"
+                name="wakeup_autostop"
+              >
+                <SInput
+                  v-model="wakeupAutostop"
+                  type="number"
+                />
+              </SFormField>
+            </div>
+          </SCard>
+
+          <SCard>
+            <h3 class="text-lg font-semibold mb-4">
+              {{ t('agents.form.orchestration') }}
+            </h3>
+            <div class="space-y-4">
+              <SFormField
+                :label="t('agents.form.canInstruct')"
+                name="can_instruct"
+              >
+                <SToggle v-model="canInstruct" />
+              </SFormField>
+              <SFormField
+                :label="t('agents.form.canApprove')"
+                name="can_approve"
+              >
+                <SToggle v-model="canApprove" />
+              </SFormField>
+              <SFormField
+                :label="t('agents.form.canCreateSubagent')"
+                name="can_create_subagent"
+              >
+                <SToggle v-model="canCreateSubagent" />
+              </SFormField>
+              <SFormField
+                v-if="canCreateSubagent"
+                :label="t('agents.form.maxAliveSubagents')"
+                name="max_alive_subagents"
+              >
+                <SInput
+                  v-model="maxAliveSubagents"
+                  type="number"
+                />
+              </SFormField>
+            </div>
+          </SCard>
+        </div>
+      </form>
+
+      <!-- Fixed bottom bar on mobile -->
+      <div
+        v-if="isMobile"
+        class="fixed bottom-0 left-0 right-0 p-4 bg-[var(--color-bg)] border-t border-[var(--color-border)] flex gap-3 z-10"
+      >
+        <SButton
+          v-if="!isCreateMode"
+          variant="danger"
+          class="flex-1"
+          @click="onDelete"
         >
           {{ t('agents.detail.delete') }}
-        </button>
+        </SButton>
+        <SButton
+          variant="primary"
+          class="flex-1"
+          :loading="saving"
+          @click="onSubmit"
+        >
+          {{ t('agents.detail.save') }}
+        </SButton>
       </div>
-    </form>
-  </section>
+    </template>
+  </main>
 </template>
-
-<style scoped>
-.agent-detail__form {
-  max-width: 560px;
-}
-.agent-detail__actions {
-  display: flex;
-  gap: 0.75rem;
-  margin-top: 1rem;
-}
-</style>

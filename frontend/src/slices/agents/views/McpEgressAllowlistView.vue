@@ -1,14 +1,26 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/vue-query'
 import { useForm } from 'vee-validate'
 import { toTypedSchema } from '@vee-validate/zod'
 import { z } from 'zod'
-import { SCard, SFormField, SPageHeader } from '@shared/ui'
+import { PlusIcon, TrashIcon, ShieldCheckIcon } from '@heroicons/vue/24/outline'
+import {
+  SPageHeader,
+  SCard,
+  STable,
+  SFormField,
+  SInput,
+  SButton,
+  SAlert,
+  SEmptyState,
+} from '@shared/ui'
 import { useConfirmDialog, useServerErrors, useToast } from '@shared/composables'
 import { agentsApi, type EgressAllowlistEntry } from '../api'
 import { agentKeys } from '../queries'
+import type { Column } from '@shared/ui/STable.vue'
 
 const { t } = useI18n()
 const route = useRoute()
@@ -22,7 +34,10 @@ const allowlistQuery = useQuery({
   queryFn: async () => (await agentsApi.listEgressAllowlist(projectId)).data,
 })
 
-// Mirrors backend AllowlistAddIn (hostname 1..253, optional note ≤500).
+const entries = computed<EgressAllowlistEntry[]>(() => allowlistQuery.data.value ?? [])
+const loading = computed(() => allowlistQuery.isLoading.value)
+const error = computed(() => allowlistQuery.error.value)
+
 const addSchema = z.object({
   hostname: z.string().trim().min(1).max(253),
   note: z.string().trim().max(500).nullable().default(null),
@@ -63,112 +78,149 @@ const removeMutation = useMutation({
 })
 
 async function confirmRemove(entry: EgressAllowlistEntry): Promise<void> {
-  const ok = await confirm({ title: t('agents.egress.removeTitle'), message: t('agents.egress.removeConfirm', { host: entry.hostname }), variant: 'warning' })
+  const ok = await confirm({
+    title: t('agents.egress.removeTitle'),
+    message: t('agents.egress.removeConfirm', { host: entry.hostname }),
+    variant: 'warning',
+  })
   if (!ok) return
   removeMutation.mutate(entry.hostname)
 }
+
+function formatRelativeTime(iso: string): string {
+  const diff = Date.now() - new Date(iso).getTime()
+  const days = Math.floor(diff / 86400000)
+  if (days < 1) return t('agents.egress.colAdded')
+  if (days < 30) return `${days}d ago`
+  return new Date(iso).toLocaleDateString()
+}
+
+const columns = computed<Column[]>(() => [
+  { key: 'hostname', label: t('agents.egress.colHost') },
+  { key: 'note', label: t('agents.egress.colNote'), width: '200px' },
+  { key: 'added_at', label: t('agents.egress.colAdded'), width: '120px' },
+  { key: 'actions', label: '', width: '48px', align: 'right' },
+])
 </script>
 
 <template>
-  <section class="egress px-4 py-4 sm:p-6">
-    <SPageHeader :title="t('agents.egress.title')" />
-    <p class="egress__subtitle mb-4">
-      {{ t('agents.egress.subtitle') }}
-    </p>
+  <main class="p-6">
+    <SPageHeader :title="t('agents.egress.title')">
+      <template #breadcrumbs>
+        <span>{{ t('agents.egress.title') }}</span>
+      </template>
+    </SPageHeader>
 
-    <SCard class="max-w-[480px] mb-6">
+    <SAlert
+      variant="info"
+      class="mt-4"
+    >
+      {{ t('agents.egress.infoAlert') }}
+    </SAlert>
+
+    <SCard class="mt-6">
       <form
+        class="flex flex-col gap-3 md:flex-row md:items-end"
         @submit.prevent="onSubmit"
       >
-        <SFormField
-          :label="t('agents.egress.hostname')"
-          name="hostname"
-          :error="errors.hostname"
-          required
-        >
-          <input
-            id="hostname"
-            v-model="hostname"
-            :placeholder="t('agents.egress.hostnamePlaceholder')"
-            :aria-invalid="!!errors.hostname"
+        <div class="flex-[2]">
+          <SFormField
+            :label="t('agents.egress.hostname')"
+            name="hostname"
+            :error="errors.hostname"
+            required
           >
-        </SFormField>
-        <SFormField
-          :label="t('agents.egress.note')"
-          name="note"
-          :error="errors.note"
-        >
-          <input
-            id="note"
-            v-model="note"
+            <SInput
+              v-model="hostname"
+              :placeholder="t('agents.egress.hostnamePlaceholder')"
+              :error="!!errors.hostname"
+            />
+          </SFormField>
+        </div>
+        <div class="flex-1">
+          <SFormField
+            :label="t('agents.egress.note')"
+            name="note"
+            :error="errors.note"
           >
-        </SFormField>
-        <button
+            <SInput v-model="note" />
+          </SFormField>
+        </div>
+        <SButton
+          variant="primary"
           type="submit"
-          class="btn btn-primary"
-          :disabled="addMutation.isPending.value"
+          :loading="addMutation.isPending.value"
         >
+          <template #icon-left>
+            <PlusIcon class="w-4 h-4" />
+          </template>
           {{ t('agents.egress.add') }}
-        </button>
+        </SButton>
       </form>
     </SCard>
 
-    <p v-if="allowlistQuery.isLoading.value">
-      {{ t('agents.egress.loading') }}
-    </p>
-    <div
-      v-else
-      class="overflow-x-auto"
+    <SAlert
+      v-if="error"
+      variant="danger"
+      class="mt-4"
     >
-      <table class="table">
-        <thead>
-          <tr>
-            <th scope="col">
-              {{ t('agents.egress.colHost') }}
-            </th>
-            <th scope="col">
-              {{ t('agents.egress.colNote') }}
-            </th>
-            <th scope="col">
-              {{ t('agents.egress.colActions') }}
-            </th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr
-            v-for="e in allowlistQuery.data.value ?? []"
-            :key="e.id"
-          >
-            <td class="egress__host">
-              {{ e.hostname }}
-            </td>
-            <td>{{ e.note ?? '—' }}</td>
-            <td>
-              <button
-                class="btn btn-danger"
-                type="button"
-                @click="confirmRemove(e)"
-              >
-                {{ t('agents.egress.remove') }}
-              </button>
-            </td>
-          </tr>
-          <tr v-if="(allowlistQuery.data.value ?? []).length === 0">
-            <td colspan="3">
-              {{ t('agents.egress.empty') }}
-            </td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
-  </section>
-</template>
+      {{ t('agents.egress.addFailed') }}
+      <template #actions>
+        <SButton
+          variant="ghost"
+          size="sm"
+          @click="allowlistQuery.refetch()"
+        >
+          {{ t('agents.detail.reload') }}
+        </SButton>
+      </template>
+    </SAlert>
 
-<style scoped>
-.egress__subtitle {
-  color: var(--color-muted);
-}
-.egress__host {
-  font-family: var(--font-mono, monospace);
-}
-</style>
+    <STable
+      :columns="columns"
+      :data="entries"
+      :loading="loading"
+      row-key="id"
+      class="mt-6"
+    >
+      <template #cell-hostname="{ row }">
+        <span class="font-mono text-sm">{{ row.hostname }}</span>
+      </template>
+
+      <template #cell-note="{ row }">
+        <span
+          v-if="row.note"
+          class="truncate max-w-[200px] inline-block"
+        >{{ row.note }}</span>
+        <span
+          v-else
+          class="text-[var(--color-muted)]"
+        >--</span>
+      </template>
+
+      <template #cell-added_at="{ row }">
+        {{ formatRelativeTime(row.added_at) }}
+      </template>
+
+      <template #actions="{ row }">
+        <SButton
+          variant="ghost"
+          icon-only
+          size="sm"
+          :aria-label="t('agents.egress.remove')"
+          @click="confirmRemove(row)"
+        >
+          <TrashIcon class="w-4 h-4 text-[var(--color-danger)]" />
+        </SButton>
+      </template>
+
+      <template #empty>
+        <SEmptyState
+          :icon="ShieldCheckIcon"
+          :title="t('agents.egress.emptyTitle')"
+          :text="t('agents.egress.emptyDescription')"
+        />
+      </template>
+    </STable>
+  </main>
+</template>

@@ -1,25 +1,53 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { computed, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/vue-query'
-import { SPageHeader } from '@shared/ui'
-import { useConfirmDialog, useToast } from '@shared/composables'
+import { useForm } from 'vee-validate'
+import { toTypedSchema } from '@vee-validate/zod'
+import {
+  Cog6ToothIcon,
+  DocumentIcon,
+  TrashIcon,
+} from '@heroicons/vue/24/outline'
+import {
+  SPageHeader,
+  STabs,
+  SCard,
+  SFormField,
+  SInput,
+  SSelect,
+  SToggle,
+  SButton,
+  STable,
+  SBadge,
+  SFileUpload,
+  SProgressBar,
+  SEmptyState,
+  SSkeleton,
+} from '@shared/ui'
+import {
+  useConfirmDialog,
+  useToast,
+} from '@shared/composables'
 import { tusUpload } from '@shared/transport'
-import { agentsApi, RAG_MULTIPART_MAX, type RagDocument } from '../api'
+import { projectKeysApi, CAPABILITIES, keysKeys } from '@slices/keys'
+import { agentsApi, RAG_MULTIPART_MAX, type RagConfig, type RagDocument } from '../api'
 import { agentKeys } from '../queries'
+import { ragConfigCreateSchema, type RagConfigCreateInput } from '../types/schemas'
 import { useRagConfigSocket } from '../composables/useRagConfigSocket'
+import type { Column } from '@shared/ui/STable.vue'
 
 const { t } = useI18n()
 const route = useRoute()
+const router = useRouter()
 const qc = useQueryClient()
 const projectId = route.params.projectId as string
 const configId = route.params.configId as string
 const toast = useToast()
 const { confirm } = useConfirmDialog()
+const activeTab = ref((route.query.tab as string) || 'settings')
 
-// Live ingestion status (ws:rag-configs/{id}) — drives the in-flight badge and
-// refetches the document list when the worker reaches a terminal state.
 const { progress } = useRagConfigSocket(configId, projectId)
 
 const configQuery = useQuery({
@@ -32,6 +60,25 @@ const docsQuery = useQuery({
   queryFn: async () => (await agentsApi.listDocuments(configId)).data,
 })
 
+const projectKeysQuery = useQuery({
+  queryKey: keysKeys.projectKeys(projectId),
+  queryFn: async () => (await projectKeysApi.listCarried(projectId)).data,
+})
+
+const config = computed<RagConfig | undefined>(() => configQuery.data.value)
+const docs = computed<RagDocument[]>(() => docsQuery.data.value ?? [])
+
+const embedKeys = computed(() =>
+  (projectKeysQuery.data.value ?? []).filter((k) =>
+    CAPABILITIES[k.provider].includes('embedding'),
+  ),
+)
+const rerankKeys = computed(() =>
+  (projectKeysQuery.data.value ?? []).filter((k) =>
+    CAPABILITIES[k.provider].includes('rerank'),
+  ),
+)
+
 watch(
   () => progress.value.state,
   (state) => {
@@ -41,32 +88,112 @@ watch(
   },
 )
 
+// --- Settings form ---
+const schema = toTypedSchema(ragConfigCreateSchema)
+const { errors, defineField, resetForm, values } =
+  useForm<RagConfigCreateInput>({ validationSchema: schema })
+
+defineField('name')
+const [chunkStrategy] = defineField('chunk_strategy')
+const [embedKeyId] = defineField('embed_key_id')
+const [embedProvider] = defineField('embed_provider')
+const [embedModel] = defineField('embed_model')
+const [rerankEnabled] = defineField('rerank_enabled')
+const [rerankKeyId] = defineField('rerank_key_id')
+const [rerankModel] = defineField('rerank_model')
+const [topK] = defineField('top_k')
+const [rerankProvider] = defineField('rerank_provider')
+
+const chunkSizeTokens = ref(512)
+const chunkOverlapTokens = ref(64)
+const similarityThreshold = ref(0.8)
+
+watch(
+  () => configQuery.data.value,
+  (cfg) => {
+    if (!cfg) return
+    const cp = cfg.chunk_params as Record<string, number>
+    resetForm({
+      values: {
+        name: cfg.name,
+        chunk_strategy: cfg.chunk_strategy as 'fixed' | 'semantic',
+        chunk_params: cfg.chunk_params,
+        embed_key_id: cfg.embed_key_id ?? '',
+        embed_provider: cfg.embed_provider as RagConfigCreateInput['embed_provider'],
+        embed_model: cfg.embed_model,
+        rerank_enabled: cfg.rerank_enabled,
+        rerank_key_id: cfg.rerank_key_id,
+        rerank_provider: (cfg.rerank_provider as 'cohere' | null) ?? null,
+        rerank_model: cfg.rerank_model,
+        top_k: cfg.top_k,
+      },
+    })
+    chunkSizeTokens.value = (cp.chunk_size_tokens as number) ?? 512
+    chunkOverlapTokens.value = (cp.chunk_overlap_tokens as number) ?? 64
+    similarityThreshold.value = (cp.similarity_threshold as number) ?? 0.8
+  },
+  { immediate: true },
+)
+
+watch(embedKeyId, (id) => {
+  const key = embedKeys.value.find((k) => k.id === id)
+  if (key) embedProvider.value = key.provider as RagConfigCreateInput['embed_provider']
+})
+
+watch(rerankEnabled, (on) => {
+  if (on) {
+    rerankProvider.value = 'cohere'
+    if (!rerankKeyId.value && rerankKeys.value.length) {
+      rerankKeyId.value = rerankKeys.value[0]!.id
+    }
+  } else {
+    rerankProvider.value = null
+    rerankKeyId.value = null
+    rerankModel.value = null
+  }
+})
+
+const deleteConfigMutation = useMutation({
+  mutationFn: () => agentsApi.deleteRagConfig(configId),
+  onSuccess: () => {
+    router.push({ name: 'agents.ragConfigs', params: { projectId } })
+    toast.success(t('agents.ragList.deleted'))
+  },
+  onError: () => toast.error(t('agents.ragList.deleteFailed')),
+})
+
+async function onDeleteConfig(): Promise<void> {
+  const ok = await confirm({
+    title: t('agents.ragList.deleteTitle'),
+    message: t('agents.ragList.deleteConfirm', { name: config.value?.name ?? '' }),
+    variant: 'error',
+  })
+  if (!ok) return
+  deleteConfigMutation.mutate()
+}
+
+// --- Document upload ---
 const uploading = ref(false)
 const uploadPct = ref(0)
-const fileInput = ref<HTMLInputElement | null>(null)
 
-async function onFile(event: Event): Promise<void> {
-  const input = event.target as HTMLInputElement
-  const file = input.files?.[0]
-  if (!file) return
+async function onFiles(files: File[]): Promise<void> {
   uploading.value = true
   uploadPct.value = 0
   try {
-    if (file.size <= RAG_MULTIPART_MAX) {
-      // ≤ 32 MB — synchronous multipart; the row lands 'ready' in one request.
-      await agentsApi.uploadDocumentMultipart(configId, file)
-    } else {
-      // Larger — resumable tus; the backend registers the doc and hands it to
-      // the rag_ingest_document worker (status flows over the socket).
-      await tusUpload({
-        file,
-        purpose: 'rag_source',
-        projectId,
-        ragConfigId: configId,
-        onProgress: (uploaded, total) => {
-          uploadPct.value = total > 0 ? Math.round((uploaded / total) * 100) : 0
-        },
-      })
+    for (const file of files) {
+      if (file.size <= RAG_MULTIPART_MAX) {
+        await agentsApi.uploadDocumentMultipart(configId, file)
+      } else {
+        await tusUpload({
+          file,
+          purpose: 'rag_source',
+          projectId,
+          ragConfigId: configId,
+          onProgress: (uploaded, total) => {
+            uploadPct.value = total > 0 ? Math.round((uploaded / total) * 100) : 0
+          },
+        })
+      }
     }
     toast.success(t('agents.rag.uploadStarted'))
     qc.invalidateQueries({ queryKey: agentKeys.ragDocuments(configId) })
@@ -74,11 +201,11 @@ async function onFile(event: Event): Promise<void> {
     toast.error(t('agents.rag.uploadFailed'))
   } finally {
     uploading.value = false
-    if (fileInput.value) fileInput.value.value = ''
   }
 }
 
-const deleteMutation = useMutation({
+// --- Document delete ---
+const deleteDocMutation = useMutation({
   mutationFn: (id: string) => agentsApi.deleteDocument(id),
   onSuccess: () => {
     toast.success(t('agents.rag.deleted'))
@@ -87,10 +214,14 @@ const deleteMutation = useMutation({
   onError: () => toast.error(t('agents.rag.deleteFailed')),
 })
 
-async function confirmDelete(doc: RagDocument): Promise<void> {
-  const ok = await confirm({ title: t('agents.rag.deleteTitle'), message: t('agents.rag.deleteConfirm', { name: doc.filename }), variant: 'warning' })
+async function confirmDeleteDoc(doc: RagDocument): Promise<void> {
+  const ok = await confirm({
+    title: t('agents.rag.deleteTitle'),
+    message: t('agents.rag.deleteConfirm', { name: doc.filename }),
+    variant: 'warning',
+  })
   if (!ok) return
-  deleteMutation.mutate(doc.id)
+  deleteDocMutation.mutate(doc.id)
 }
 
 function humanSize(bytes: number): string {
@@ -98,84 +229,329 @@ function humanSize(bytes: number): string {
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`
 }
+
+const statusVariant = (status: string): 'info' | 'success' | 'danger' | 'warning' => {
+  const map: Record<string, 'info' | 'success' | 'danger' | 'warning'> = {
+    ingesting: 'info',
+    ready: 'success',
+    failed: 'danger',
+    quarantined: 'warning',
+  }
+  return map[status] ?? 'info'
+}
+
+const scanVariant = (status: string): 'neutral' | 'success' | 'danger' => {
+  const map: Record<string, 'neutral' | 'success' | 'danger'> = {
+    pending: 'neutral',
+    clean: 'success',
+    quarantined: 'danger',
+    skipped: 'neutral',
+  }
+  return map[status] ?? 'neutral'
+}
+
+const tabs = computed(() => [
+  { key: 'settings', label: t('agents.ragForm.tabs.settings'), icon: Cog6ToothIcon },
+  {
+    key: 'documents',
+    label: t('agents.ragForm.tabs.documents'),
+    icon: DocumentIcon,
+    badge: docs.value.length > 0 ? String(docs.value.length) : undefined,
+  },
+])
+
+function onTabChange(tab: string): void {
+  activeTab.value = tab
+  router.replace({ query: { ...route.query, tab } })
+}
+
+const embedKeyOptions = computed(() =>
+  embedKeys.value.map((k) => ({ value: k.id, label: `${k.name} (${k.provider})` })),
+)
+const rerankKeyOptions = computed(() =>
+  rerankKeys.value.map((k) => ({ value: k.id, label: `${k.name} (${k.provider})` })),
+)
+const chunkStrategyOptions = computed(() => [
+  { value: 'fixed', label: t('agents.ragForm.chunkFixed') },
+  { value: 'semantic', label: t('agents.ragForm.chunkSemantic') },
+])
+
+const docColumns = computed<Column[]>(() => [
+  { key: 'filename', label: t('agents.rag.colName') },
+  { key: 'size_bytes', label: t('agents.rag.colSize'), width: '80px' },
+  { key: 'status', label: t('agents.rag.colStatus'), width: '100px' },
+  { key: 'scan_status', label: t('agents.rag.colScanned'), width: '100px' },
+  { key: 'actions', label: '', width: '48px', align: 'right' },
+])
+
+const progressText = computed(() => {
+  const p = progress.value
+  if (p.state === 'ingesting' && p.documentsTotal > 0) {
+    return t('agents.rag.ingestionProgress', {
+      processed: p.documentsProcessed,
+      total: p.documentsTotal,
+    })
+  }
+  if (p.state === 'indexing') return t('agents.rag.indexing')
+  if (p.state === 'ingesting') return t('agents.rag.ingestionStarted')
+  return ''
+})
+
+const progressValue = computed(() => {
+  const p = progress.value
+  if (p.state === 'ingesting' && p.documentsTotal > 0) {
+    return Math.round((p.documentsProcessed / p.documentsTotal) * 100)
+  }
+  return 0
+})
+
+const showProgress = computed(() =>
+  ['ingesting', 'indexing'].includes(progress.value.state),
+)
 </script>
 
 <template>
-  <section class="rag-config px-4 py-4 sm:p-6">
-    <SPageHeader :title="configQuery.data.value?.name ?? t('agents.rag.title')" />
-    <p class="rag-config__subtitle mb-4">
-      {{ t('agents.rag.subtitle') }}
-    </p>
+  <main class="p-6">
+    <template v-if="configQuery.isLoading.value">
+      <SSkeleton width="200px" />
+      <SSkeleton class="mt-4" />
+      <SSkeleton class="mt-2" />
+    </template>
 
-    <div class="rag-config__upload">
-      <label class="btn btn-primary">
-        {{ uploading ? t('agents.rag.uploading') : t('agents.rag.upload') }}
-        <input
-          ref="fileInput"
-          type="file"
-          class="sr-only"
-          :disabled="uploading"
-          @change="onFile"
-        >
-      </label>
-      <span
-        v-if="uploading && uploadPct > 0"
-        class="rag-config__pct"
-      >{{ uploadPct }}%</span>
-    </div>
-    <p class="rag-config__hint">
-      {{ t('agents.rag.sizeHint') }}
-    </p>
-
-    <p v-if="docsQuery.isLoading.value">
-      {{ t('agents.rag.loading') }}
-    </p>
-    <div
-      v-else
-      class="overflow-x-auto"
-    >
-      <table class="table">
-        <thead>
-          <tr>
-            <th scope="col">
-              {{ t('agents.rag.colName') }}
-            </th>
-            <th scope="col">
-              {{ t('agents.rag.colSize') }}
-            </th>
-            <th scope="col">
-              {{ t('agents.rag.colStatus') }}
-            </th>
-            <th scope="col">
-              {{ t('agents.rag.colActions') }}
-            </th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr
-            v-for="d in docsQuery.data.value ?? []"
-            :key="d.id"
+    <template v-else-if="config">
+      <SPageHeader :title="config.name">
+        <template #actions>
+          <SButton
+            variant="danger"
+            @click="onDeleteConfig"
           >
-            <td>{{ d.filename }}</td>
-            <td>{{ humanSize(d.size_bytes) }}</td>
-            <td>{{ t(`agents.rag.statusLabel.${d.status}`) }}</td>
-            <td>
-              <button
-                class="btn btn-danger"
-                type="button"
-                @click="confirmDelete(d)"
+            {{ t('agents.detail.delete') }}
+          </SButton>
+        </template>
+      </SPageHeader>
+
+      <STabs
+        :model-value="activeTab"
+        :tabs="tabs"
+        class="mt-6"
+        @update:model-value="onTabChange"
+      >
+        <!-- Settings tab -->
+        <template #tab-settings>
+          <div class="mt-6 space-y-6">
+            <SCard>
+              <h3 class="text-lg font-semibold mb-4">
+                {{ t('agents.ragForm.embedProvider') }}
+              </h3>
+              <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                <SFormField
+                  :label="t('agents.ragForm.embedKey')"
+                  name="embed_key_id"
+                  :error="errors.embed_key_id"
+                  required
+                >
+                  <SSelect
+                    v-model="embedKeyId"
+                    :options="embedKeyOptions"
+                    :placeholder="t('agents.ragForm.embedKeyPlaceholder')"
+                  />
+                </SFormField>
+                <SFormField
+                  :label="t('agents.ragForm.embedModel')"
+                  name="embed_model"
+                  :error="errors.embed_model"
+                  required
+                >
+                  <SInput
+                    v-model="embedModel"
+                    :placeholder="t('agents.ragForm.embedModelHint')"
+                    :error="!!errors.embed_model"
+                  />
+                </SFormField>
+              </div>
+            </SCard>
+
+            <SCard>
+              <h3 class="text-lg font-semibold mb-4">
+                {{ t('agents.ragForm.chunkStrategy') }}
+              </h3>
+              <SFormField
+                :label="t('agents.ragForm.chunkStrategy')"
+                name="chunk_strategy"
               >
-                {{ t('agents.rag.delete') }}
-              </button>
-            </td>
-          </tr>
-          <tr v-if="(docsQuery.data.value ?? []).length === 0">
-            <td colspan="4">
-              {{ t('agents.rag.empty') }}
-            </td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
-  </section>
+                <SSelect
+                  v-model="chunkStrategy"
+                  :options="chunkStrategyOptions"
+                />
+              </SFormField>
+              <template v-if="values.chunk_strategy === 'fixed'">
+                <div class="grid grid-cols-2 gap-4 mt-4">
+                  <SFormField
+                    :label="t('agents.ragForm.chunkSize')"
+                    name="chunk_size_tokens"
+                  >
+                    <SInput
+                      v-model="chunkSizeTokens"
+                      type="number"
+                    />
+                  </SFormField>
+                  <SFormField
+                    :label="t('agents.ragForm.chunkOverlap')"
+                    name="chunk_overlap_tokens"
+                  >
+                    <SInput
+                      v-model="chunkOverlapTokens"
+                      type="number"
+                    />
+                  </SFormField>
+                </div>
+              </template>
+              <SFormField
+                v-else
+                :label="t('agents.ragForm.similarityThreshold')"
+                name="similarity_threshold"
+                class="mt-4"
+              >
+                <SInput
+                  v-model="similarityThreshold"
+                  type="number"
+                />
+              </SFormField>
+            </SCard>
+
+            <SCard>
+              <h3 class="text-lg font-semibold mb-4">
+                {{ t('agents.ragForm.topK') }}
+              </h3>
+              <SFormField
+                :label="t('agents.ragForm.topK')"
+                name="top_k"
+                :error="errors.top_k"
+              >
+                <SInput
+                  v-model="topK"
+                  type="number"
+                />
+              </SFormField>
+
+              <SFormField
+                :label="t('agents.ragForm.rerankEnabled')"
+                name="rerank_enabled"
+                class="mt-4"
+              >
+                <SToggle v-model="rerankEnabled" />
+              </SFormField>
+
+              <template v-if="rerankEnabled">
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-4">
+                  <SFormField
+                    :label="t('agents.ragForm.rerankKey')"
+                    name="rerank_key_id"
+                    :error="errors.rerank_key_id"
+                  >
+                    <SSelect
+                      v-model="rerankKeyId"
+                      :options="rerankKeyOptions"
+                      :placeholder="t('agents.ragForm.rerankKeyPlaceholder')"
+                    />
+                  </SFormField>
+                  <SFormField
+                    :label="t('agents.ragForm.rerankModel')"
+                    name="rerank_model"
+                    :error="errors.rerank_model"
+                  >
+                    <SInput v-model="rerankModel" />
+                  </SFormField>
+                </div>
+              </template>
+            </SCard>
+          </div>
+        </template>
+
+        <!-- Documents tab -->
+        <template #tab-documents>
+          <div class="mt-6 space-y-6">
+            <SCard>
+              <h3 class="text-lg font-semibold mb-4">
+                {{ t('agents.rag.upload') }}
+              </h3>
+              <SFileUpload
+                accept=".pdf,.txt,.md,.docx,application/pdf,text/plain,text/markdown,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                :max-size="33554432"
+                multiple
+                :disabled="uploading"
+                @files="onFiles"
+              >
+                <p class="text-sm text-[var(--color-muted)]">
+                  {{ t('agents.rag.sizeHint') }}
+                </p>
+              </SFileUpload>
+            </SCard>
+
+            <SCard>
+              <h3 class="text-lg font-semibold mb-4">
+                {{ t('agents.ragForm.tabs.documents') }}
+              </h3>
+
+              <STable
+                :columns="docColumns"
+                :data="docs"
+                :loading="docsQuery.isLoading.value"
+                row-key="id"
+              >
+                <template #cell-size_bytes="{ row }">
+                  {{ humanSize(row.size_bytes) }}
+                </template>
+
+                <template #cell-status="{ row }">
+                  <SBadge :variant="statusVariant(row.status)">
+                    {{ t(`agents.rag.status.${row.status}`) }}
+                  </SBadge>
+                </template>
+
+                <template #cell-scan_status="{ row }">
+                  <SBadge :variant="scanVariant(row.scan_status)">
+                    {{ t(`agents.rag.scan.${row.scan_status}`) }}
+                  </SBadge>
+                </template>
+
+                <template #actions="{ row }">
+                  <SButton
+                    variant="ghost"
+                    icon-only
+                    size="sm"
+                    @click="confirmDeleteDoc(row)"
+                  >
+                    <TrashIcon class="w-4 h-4 text-[var(--color-danger)]" />
+                  </SButton>
+                </template>
+
+                <template #empty>
+                  <SEmptyState
+                    :icon="DocumentIcon"
+                    :title="t('agents.rag.emptyTitle')"
+                    :text="t('agents.rag.emptyDescription')"
+                  />
+                </template>
+              </STable>
+
+              <div
+                v-if="showProgress"
+                class="mt-4"
+              >
+                <SProgressBar
+                  :value="progressValue"
+                  :indeterminate="progress.state === 'indexing' || (progress.state === 'ingesting' && progress.documentsTotal === 0)"
+                  variant="info"
+                />
+                <p class="text-sm text-[var(--color-muted)] mt-1">
+                  {{ progressText }}
+                </p>
+              </div>
+            </SCard>
+          </div>
+        </template>
+      </STabs>
+    </template>
+  </main>
 </template>

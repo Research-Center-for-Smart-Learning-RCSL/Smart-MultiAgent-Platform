@@ -5,11 +5,35 @@ import { useI18n } from 'vue-i18n'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/vue-query'
 import { useForm } from 'vee-validate'
 import { toTypedSchema } from '@vee-validate/zod'
-import { SCard, SFormField, SPageHeader } from '@shared/ui'
+import {
+  PlusIcon,
+  TrashIcon,
+  PencilSquareIcon,
+  PlayIcon,
+  ServerIcon,
+  EllipsisVerticalIcon,
+} from '@heroicons/vue/24/outline'
+import {
+  SPageHeader,
+  STable,
+  SBadge,
+  SButton,
+  SDropdown,
+  SModal,
+  SFormField,
+  SInput,
+  SSelect,
+  STextarea,
+  SCodeEditor,
+  SAccordion,
+  SAlert,
+  SEmptyState,
+} from '@shared/ui'
 import { useConfirmDialog, useServerErrors, useToast } from '@shared/composables'
 import { agentsApi, type McpBinding, type McpTestResult } from '../api'
 import { agentKeys } from '../queries'
 import { mcpBindingCreateSchema, type McpBindingCreateInput } from '../types/schemas'
+import type { Column } from '@shared/ui/STable.vue'
 
 const { t } = useI18n()
 const route = useRoute()
@@ -18,10 +42,7 @@ const toast = useToast()
 const { confirm } = useConfirmDialog()
 const agentId = route.params.agentId as string
 
-// The three built-in tool names a `builtin`-source binding can reference.
 const BUILTIN_TOOLS = ['file', 'web_search', 'code_exec']
-
-const showForm = ref(false)
 
 const agentQuery = useQuery({
   queryKey: agentKeys.agent(agentId),
@@ -34,6 +55,14 @@ const bindingsQuery = useQuery({
   queryFn: async () => (await agentsApi.listMcpBindings(agentId)).data,
 })
 
+const bindings = computed<McpBinding[]>(() => bindingsQuery.data.value ?? [])
+const loading = computed(() => bindingsQuery.isLoading.value)
+
+// --- Add / Edit modal ---
+const showModal = ref(false)
+const editingBinding = ref<McpBinding | null>(null)
+const isEditing = computed(() => !!editingBinding.value)
+
 const schema = toTypedSchema(mcpBindingCreateSchema)
 const { handleSubmit, errors, defineField, resetForm, setErrors } =
   useForm<McpBindingCreateInput>({
@@ -44,16 +73,36 @@ const { handleSubmit, errors, defineField, resetForm, setErrors } =
 const [source] = defineField('source')
 const [reference] = defineField('reference')
 
-// The valid `reference` space differs per source (built-in tool name vs URL vs
-// package spec), so clear it on source change — otherwise a URL typed under
-// 'url' could be submitted as a 'builtin' reference.
 watch(source, () => {
-  reference.value = ''
+  if (!isEditing.value) reference.value = ''
 })
 
-// allowed_tools is a list; collect it as a comma/space-separated string and
-// parse at submit (kept outside vee-validate, so reset by hand).
 const allowedToolsRaw = ref('')
+const configJson = ref('{}')
+
+function openAddModal(): void {
+  editingBinding.value = null
+  resetForm()
+  allowedToolsRaw.value = ''
+  configJson.value = '{}'
+  showModal.value = true
+}
+
+function openEditModal(binding: McpBinding): void {
+  editingBinding.value = binding
+  resetForm({
+    values: {
+      source: binding.source,
+      reference: binding.reference,
+      allowed_tools: binding.allowed_tools,
+      config: binding.config,
+    },
+  })
+  allowedToolsRaw.value = binding.allowed_tools.join(', ')
+  configJson.value = JSON.stringify(binding.config, null, 2)
+  showModal.value = true
+}
+
 function parseTools(raw: string): string[] {
   return raw
     .split(/[\s,]+/)
@@ -61,20 +110,22 @@ function parseTools(raw: string): string[] {
     .filter(Boolean)
 }
 
-const { applyServerErrors } = useServerErrors(setErrors)
-
-function resetCreateForm(): void {
-  resetForm()
-  allowedToolsRaw.value = ''
+function parseConfig(raw: string): Record<string, unknown> {
+  try {
+    return JSON.parse(raw) as Record<string, unknown>
+  } catch {
+    return {}
+  }
 }
+
+const { applyServerErrors } = useServerErrors(setErrors)
 
 const createMutation = useMutation({
   mutationFn: async (payload: McpBindingCreateInput) =>
     (await agentsApi.addMcpBinding(agentId, payload)).data,
   onSuccess: () => {
     qc.invalidateQueries({ queryKey: agentKeys.mcpBindings(agentId) })
-    resetCreateForm()
-    showForm.value = false
+    showModal.value = false
     toast.success(t('agents.mcp.created'))
   },
   onError: (err) => {
@@ -82,12 +133,16 @@ const createMutation = useMutation({
   },
 })
 
-const onSubmit = handleSubmit((values) =>
-  createMutation.mutate({ ...values, allowed_tools: parseTools(allowedToolsRaw.value) }),
-)
+const onSubmit = handleSubmit((values) => {
+  const payload: McpBindingCreateInput = {
+    ...values,
+    allowed_tools: parseTools(allowedToolsRaw.value),
+    config: parseConfig(configJson.value),
+  }
+  createMutation.mutate(payload)
+})
 
-// Test results + in-flight state are keyed by binding id so a slow/hung probe
-// on one binding only disables that row's Test button, not every row's.
+// --- Test flow ---
 const testResults = ref<Record<string, McpTestResult>>({})
 const testingIds = ref<Set<string>>(new Set())
 const isTesting = (bindingId: string): boolean => testingIds.value.has(bindingId)
@@ -96,6 +151,14 @@ const testMutation = useMutation({
   mutationFn: (bindingId: string) => agentsApi.testMcpBinding(agentId, bindingId),
   onSuccess: (res, bindingId) => {
     testResults.value = { ...testResults.value, [bindingId]: res.data }
+    if (res.data.ok) {
+      toast.success(
+        t('agents.mcp.testOk', {
+          count: res.data.tool_names.length,
+          ms: res.data.duration_ms,
+        }),
+      )
+    }
   },
   onError: () => toast.error(t('agents.mcp.testFailed')),
   onSettled: (_res, _err, bindingId) => {
@@ -110,6 +173,7 @@ function runTest(bindingId: string): void {
   testMutation.mutate(bindingId)
 }
 
+// --- Delete ---
 const deleteMutation = useMutation({
   mutationFn: (bindingId: string) => agentsApi.deleteMcpBinding(agentId, bindingId),
   onSuccess: () => {
@@ -120,35 +184,166 @@ const deleteMutation = useMutation({
 })
 
 async function confirmDelete(b: McpBinding): Promise<void> {
-  const ok = await confirm({ title: t('agents.mcp.deleteTitle'), message: t('agents.mcp.deleteConfirm', { ref: b.reference }), variant: 'warning' })
+  const ok = await confirm({
+    title: t('agents.mcp.deleteTitle'),
+    message: t('agents.mcp.deleteConfirm', { ref: b.reference }),
+    variant: 'warning',
+  })
   if (!ok) return
   deleteMutation.mutate(b.id)
 }
+
+function onAction(key: string, row: McpBinding): void {
+  if (key === 'test') runTest(row.id)
+  else if (key === 'edit') openEditModal(row)
+  else if (key === 'delete') void confirmDelete(row)
+}
+
+const actionItems = computed(() => [
+  { key: 'test', label: t('agents.mcp.test'), icon: PlayIcon },
+  { key: 'edit', label: t('common.edit', 'Edit'), icon: PencilSquareIcon },
+  { key: 'divider', label: '', divider: true },
+  { key: 'delete', label: t('agents.mcp.delete'), icon: TrashIcon, danger: true },
+])
+
+const sourceOptions = computed(() => [
+  { value: 'builtin', label: t('agents.mcp.sources.builtin') },
+  { value: 'url', label: t('agents.mcp.sources.url') },
+  { value: 'package', label: t('agents.mcp.sources.package') },
+])
+
+const builtinOptions = computed(() =>
+  BUILTIN_TOOLS.map((tool) => ({ value: tool, label: tool })),
+)
+
+const referenceHelp = computed(() => {
+  const src = source.value as 'builtin' | 'url' | 'package'
+  return t(`agents.mcp.referenceHelp.${src}`)
+})
+
+const columns = computed<Column[]>(() => [
+  { key: 'source', label: t('agents.mcp.colSource'), width: '90px' },
+  { key: 'reference', label: t('agents.mcp.colReference') },
+  { key: 'tools', label: t('agents.mcp.colTools'), width: '120px' },
+  { key: 'actions', label: '', width: '120px', align: 'right' },
+])
+
+const accordionItems = computed(() => [
+  { key: 'config', title: t('agents.mcp.advancedConfig') },
+])
 </script>
 
 <template>
-  <section class="agent-mcp px-4 py-4 sm:p-6">
+  <main class="p-6">
     <SPageHeader :title="t('agents.mcp.title')">
-      <button
-        class="btn btn-primary"
-        @click="showForm = !showForm"
-      >
-        {{ showForm ? t('agents.mcp.cancel') : t('agents.mcp.add') }}
-      </button>
+      <template #actions>
+        <SButton
+          variant="primary"
+          @click="openAddModal"
+        >
+          <template #icon-left>
+            <PlusIcon class="w-4 h-4" />
+          </template>
+          {{ t('agents.mcp.add') }}
+        </SButton>
+      </template>
     </SPageHeader>
-    <p class="agent-mcp__subtitle mb-4">
-      {{ t('agents.mcp.subtitle', { name: agentQuery.data.value?.name ?? '' }) }}
-      <RouterLink
-        v-if="projectId"
-        :to="{ name: 'agents.egressAllowlist', params: { projectId } }"
-      >
-        {{ t('agents.mcp.manageEgress') }}
-      </RouterLink>
-    </p>
 
-    <SCard
-      v-if="showForm"
-      class="max-w-[480px] mb-6"
+    <SAlert
+      variant="info"
+      class="mt-4"
+    >
+      {{ t('agents.mcp.infoAlert') }}
+      <template #actions>
+        <SButton
+          v-if="projectId"
+          variant="link"
+          :to="{ name: 'agents.egressAllowlist', params: { projectId } }"
+          as="router-link"
+        >
+          {{ t('agents.mcp.manageEgress') }}
+        </SButton>
+      </template>
+    </SAlert>
+
+    <STable
+      :columns="columns"
+      :data="bindings"
+      :loading="loading"
+      row-key="id"
+      class="mt-6"
+    >
+      <template #cell-source="{ row }">
+        <SBadge variant="neutral">
+          {{ t(`agents.mcp.sources.${row.source}`) }}
+        </SBadge>
+      </template>
+
+      <template #cell-reference="{ row }">
+        <span class="font-mono text-sm break-all">{{ row.reference }}</span>
+      </template>
+
+      <template #cell-tools="{ row }">
+        <template v-if="!row.allowed_tools.length">
+          {{ t('agents.mcp.allTools') }}
+        </template>
+        <template v-else>
+          {{ t('agents.mcp.nAllowed', { n: row.allowed_tools.length }) }}
+        </template>
+      </template>
+
+      <template #actions="{ row }">
+        <div class="flex items-center gap-2">
+          <SButton
+            variant="ghost"
+            size="sm"
+            :loading="isTesting(row.id)"
+            @click="runTest(row.id)"
+          >
+            {{ t('agents.mcp.test') }}
+          </SButton>
+          <SDropdown
+            :items="actionItems"
+            placement="bottom-end"
+            @select="onAction($event, row)"
+          >
+            <template #trigger>
+              <SButton
+                variant="ghost"
+                icon-only
+                size="sm"
+              >
+                <EllipsisVerticalIcon class="w-4 h-4" />
+              </SButton>
+            </template>
+          </SDropdown>
+        </div>
+      </template>
+
+      <template #empty>
+        <SEmptyState
+          :icon="ServerIcon"
+          :title="t('agents.mcp.emptyTitle')"
+          :text="t('agents.mcp.emptyDescription')"
+        >
+          <template #action>
+            <SButton
+              variant="primary"
+              @click="openAddModal"
+            >
+              {{ t('agents.mcp.add') }}
+            </SButton>
+          </template>
+        </SEmptyState>
+      </template>
+    </STable>
+
+    <!-- Add / Edit modal -->
+    <SModal
+      :open="showModal"
+      :title="isEditing ? t('common.edit', 'Edit') : t('agents.mcp.add')"
+      size="lg"
+      @close="showModal = false"
     >
       <form
         @submit.prevent="onSubmit"
@@ -159,175 +354,80 @@ async function confirmDelete(b: McpBinding): Promise<void> {
           :error="errors.source"
           required
         >
-          <select
-            id="source"
+          <SSelect
             v-model="source"
-          >
-            <option value="url">
-              {{ t('agents.mcp.sourceUrl') }}
-            </option>
-            <option value="package">
-              {{ t('agents.mcp.sourcePackage') }}
-            </option>
-            <option value="builtin">
-              {{ t('agents.mcp.sourceBuiltin') }}
-            </option>
-          </select>
+            :options="sourceOptions"
+            :disabled="isEditing"
+          />
         </SFormField>
 
         <SFormField
           :label="t('agents.mcp.reference')"
           name="reference"
           :error="errors.reference"
+          :help="referenceHelp"
           required
         >
-          <select
-            v-if="source === 'builtin'"
-            id="reference"
+          <SSelect
+            v-if="source === 'builtin' && !isEditing"
             v-model="reference"
-          >
-            <option
-              value=""
-              disabled
-            >
-              {{ t('agents.mcp.referencePlaceholderBuiltin') }}
-            </option>
-            <option
-              v-for="tool in BUILTIN_TOOLS"
-              :key="tool"
-              :value="tool"
-            >
-              {{ tool }}
-            </option>
-          </select>
-          <input
+            :options="builtinOptions"
+            :placeholder="t('agents.mcp.referencePlaceholderBuiltin')"
+          />
+          <SInput
             v-else
-            id="reference"
             v-model="reference"
             :placeholder="source === 'url'
               ? t('agents.mcp.referencePlaceholderUrl')
               : t('agents.mcp.referencePlaceholderPackage')"
-            :aria-invalid="!!errors.reference"
-          >
+            :error="!!errors.reference"
+            :disabled="isEditing"
+          />
         </SFormField>
 
         <SFormField
           :label="t('agents.mcp.allowedTools')"
           name="allowed_tools"
+          :help="t('agents.mcp.allowedToolsHelp')"
         >
-          <input
-            id="allowed_tools"
+          <STextarea
             v-model="allowedToolsRaw"
+            :rows="3"
             :placeholder="t('agents.mcp.allowedToolsPlaceholder')"
-          >
-          <span class="agent-mcp__hint">{{ t('agents.mcp.allowedToolsHint') }}</span>
+          />
         </SFormField>
 
-        <button
-          type="submit"
-          class="btn btn-primary"
-          :disabled="createMutation.isPending.value"
+        <SAccordion
+          :items="accordionItems"
+          class="mt-4"
         >
-          {{ t('agents.mcp.submit') }}
-        </button>
+          <template #item-config>
+            <SCodeEditor
+              v-model="configJson"
+              language="json"
+              :rows="6"
+            />
+          </template>
+        </SAccordion>
       </form>
-    </SCard>
 
-    <p v-if="bindingsQuery.isLoading.value">
-      {{ t('agents.mcp.loading') }}
-    </p>
-    <div
-      v-else
-      class="overflow-x-auto"
-    >
-      <table class="table">
-        <thead>
-          <tr>
-            <th scope="col">
-              {{ t('agents.mcp.colSource') }}
-            </th>
-            <th scope="col">
-              {{ t('agents.mcp.colReference') }}
-            </th>
-            <th scope="col">
-              {{ t('agents.mcp.colTools') }}
-            </th>
-            <th scope="col">
-              {{ t('agents.mcp.colActions') }}
-            </th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr
-            v-for="b in bindingsQuery.data.value ?? []"
-            :key="b.id"
+      <template #footer>
+        <div class="flex justify-end gap-3">
+          <SButton
+            variant="secondary"
+            @click="showModal = false"
           >
-            <td>{{ b.source }}</td>
-            <td class="agent-mcp__ref">
-              {{ b.reference }}
-            </td>
-            <td>
-              {{ b.allowed_tools.length ? b.allowed_tools.join(', ') : '—' }}
-              <span
-                v-if="testResults[b.id]"
-                :class="testResults[b.id]!.ok ? 'agent-mcp__ok' : 'agent-mcp__error'"
-                :title="testResults[b.id]!.error ?? testResults[b.id]!.tool_names.join(', ')"
-              >
-                {{ testResults[b.id]!.ok
-                  ? t('agents.mcp.testOk', { count: testResults[b.id]!.tool_names.length, ms: testResults[b.id]!.duration_ms })
-                  : t('agents.mcp.testBad') }}
-              </span>
-            </td>
-            <td>
-              <button
-                class="btn"
-                type="button"
-                :disabled="isTesting(b.id)"
-                @click="runTest(b.id)"
-              >
-                {{ t('agents.mcp.test') }}
-              </button>
-              <button
-                class="btn btn-danger"
-                type="button"
-                @click="confirmDelete(b)"
-              >
-                {{ t('agents.mcp.delete') }}
-              </button>
-            </td>
-          </tr>
-          <tr v-if="(bindingsQuery.data.value ?? []).length === 0">
-            <td colspan="4">
-              {{ t('agents.mcp.empty') }}
-            </td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
-  </section>
+            {{ t('agents.mcp.cancel') }}
+          </SButton>
+          <SButton
+            variant="primary"
+            :loading="createMutation.isPending.value"
+            @click="onSubmit"
+          >
+            {{ t('agents.mcp.submit') }}
+          </SButton>
+        </div>
+      </template>
+    </SModal>
+  </main>
 </template>
-
-<style scoped>
-.agent-mcp__subtitle {
-  color: var(--color-muted);
-}
-.agent-mcp__hint {
-  display: block;
-  color: var(--color-muted);
-  font-size: 0.875rem;
-  margin-top: 0.25rem;
-}
-.agent-mcp__ref {
-  font-family: var(--font-mono, monospace);
-  word-break: break-all;
-}
-.agent-mcp__ok {
-  color: var(--color-success);
-  margin-left: 0.5rem;
-}
-.agent-mcp__error {
-  color: var(--color-danger);
-  margin-left: 0.5rem;
-  cursor: help;
-}
-</style>
