@@ -232,11 +232,12 @@ async function confirmDelete(cfg: GraphragConfig): Promise<void> {
 async function openStatusDrawer(cfg: GraphragConfig): Promise<void> {
   statusDrawerConfig.value = cfg
   showStatusDrawer.value = true
+  drawerStatus.value = null
   try {
     const { data } = await agentsApi.getGraphragStatus(cfg.id)
     drawerStatus.value = data
   } catch {
-    drawerStatus.value = null
+    toast.error(t('agents.graphragList.statusFetchFailed'))
   }
 }
 

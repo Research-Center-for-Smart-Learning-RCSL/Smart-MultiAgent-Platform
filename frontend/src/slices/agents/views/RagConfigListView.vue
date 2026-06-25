@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/vue-query'
@@ -34,10 +34,11 @@ import {
   useToast,
   useClientPagination,
 } from '@shared/composables'
-import { projectKeysApi, CAPABILITIES, keysKeys, type ApiKey } from '@slices/keys'
+import { projectKeysApi, CAPABILITIES, keysKeys } from '@slices/keys'
 import { agentsApi, type RagConfig } from '../api'
 import { agentKeys } from '../queries'
 import { ragConfigCreateSchema, type RagConfigCreateInput } from '../types/schemas'
+import { useRagConfigForm } from '../composables/useRagConfigForm'
 import type { Column } from '@shared/ui/STable.vue'
 
 const { t } = useI18n()
@@ -74,7 +75,6 @@ const rerankKeys = computed(() =>
     CAPABILITIES[k.provider].includes('rerank'),
   ),
 )
-const hasEmbedKeys = computed(() => embedKeys.value.length > 0)
 
 const filteredConfigs = computed(() => {
   if (!search.value) return configs.value
@@ -116,43 +116,31 @@ const [rerankModel] = defineField('rerank_model')
 const [topK] = defineField('top_k')
 const [rerankProvider] = defineField('rerank_provider')
 
-const CHUNK_DEFAULTS = { size: 512, overlap: 64, similarity: 0.8 }
-const chunkSizeTokens = ref(CHUNK_DEFAULTS.size)
-const chunkOverlapTokens = ref(CHUNK_DEFAULTS.overlap)
-const similarityThreshold = ref(CHUNK_DEFAULTS.similarity)
-
-watch(embedKeyId, (id) => {
-  const key = embedKeys.value.find((k) => k.id === id)
-  if (key) embedProvider.value = key.provider as RagConfigCreateInput['embed_provider']
-})
-
-watch(
+const {
+  chunkSizeTokens,
+  chunkOverlapTokens,
+  similarityThreshold,
+  hasEmbedKeys,
+  embedKeyOptions,
+  rerankKeyOptions,
+  resetChunkDefaults,
+  defaultEmbedKey,
+  assembleChunkParams,
+} = useRagConfigForm({
   embedKeys,
-  (keys) => {
-    if (keys.length && !embedKeyId.value) embedKeyId.value = keys[0]!.id
-  },
-  { immediate: true },
-)
-
-watch(rerankEnabled, (on) => {
-  if (on) {
-    rerankProvider.value = 'cohere'
-    if (!rerankKeyId.value && rerankKeys.value.length) {
-      rerankKeyId.value = rerankKeys.value[0]!.id
-    }
-  } else {
-    rerankProvider.value = null
-    rerankKeyId.value = null
-    rerankModel.value = null
-  }
+  rerankKeys,
+  embedKeyId,
+  embedProvider,
+  rerankEnabled,
+  rerankKeyId,
+  rerankProvider,
+  rerankModel,
 })
 
 function openCreateModal(): void {
   resetForm()
-  chunkSizeTokens.value = CHUNK_DEFAULTS.size
-  chunkOverlapTokens.value = CHUNK_DEFAULTS.overlap
-  similarityThreshold.value = CHUNK_DEFAULTS.similarity
-  if (embedKeys.value.length) embedKeyId.value = embedKeys.value[0]!.id
+  resetChunkDefaults()
+  defaultEmbedKey()
   showModal.value = true
 }
 
@@ -172,14 +160,10 @@ const createMutation = useMutation({
 })
 
 const onSubmit = handleSubmit((formValues) => {
-  const chunk_params =
-    formValues.chunk_strategy === 'fixed'
-      ? {
-          chunk_size_tokens: chunkSizeTokens.value,
-          chunk_overlap_tokens: chunkOverlapTokens.value,
-        }
-      : { similarity_threshold: similarityThreshold.value }
-  createMutation.mutate({ ...formValues, chunk_params })
+  createMutation.mutate({
+    ...formValues,
+    chunk_params: assembleChunkParams(formValues.chunk_strategy),
+  })
 })
 
 // --- Delete ---
@@ -218,10 +202,6 @@ function onRowClick(row: RagConfig): void {
   goToConfig(row.id)
 }
 
-function keyLabel(k: ApiKey): string {
-  return `${k.name} (${k.provider})`
-}
-
 const actionItems = computed(() => [
   { key: 'edit', label: t('common.edit', 'Edit'), icon: PencilSquareIcon },
   { key: 'divider', label: '', divider: true },
@@ -232,14 +212,6 @@ const chunkStrategyOptions = computed(() => [
   { value: 'fixed', label: t('agents.ragForm.chunkFixed') },
   { value: 'semantic', label: t('agents.ragForm.chunkSemantic') },
 ])
-
-const embedKeyOptions = computed(() =>
-  embedKeys.value.map((k) => ({ value: k.id, label: keyLabel(k) })),
-)
-
-const rerankKeyOptions = computed(() =>
-  rerankKeys.value.map((k) => ({ value: k.id, label: keyLabel(k) })),
-)
 
 const columns = computed<Column[]>(() => [
   { key: 'name', label: t('agents.ragList.colName') },
@@ -323,7 +295,7 @@ const columns = computed<Column[]>(() => [
           v-if="row.rerank_enabled"
           variant="success"
         >
-          {{ t('agents.graphragList.bound') }}
+          {{ t('agents.ragList.rerankOn') }}
         </SBadge>
         <span
           v-else

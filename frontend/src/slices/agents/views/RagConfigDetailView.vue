@@ -23,11 +23,13 @@ import {
   SBadge,
   SFileUpload,
   SProgressBar,
+  SAlert,
   SEmptyState,
   SSkeleton,
 } from '@shared/ui'
 import {
   useConfirmDialog,
+  useServerErrors,
   useToast,
 } from '@shared/composables'
 import { tusUpload } from '@shared/transport'
@@ -36,6 +38,7 @@ import { agentsApi, RAG_MULTIPART_MAX, type RagConfig, type RagDocument } from '
 import { agentKeys } from '../queries'
 import { ragConfigCreateSchema, type RagConfigCreateInput } from '../types/schemas'
 import { useRagConfigSocket } from '../composables/useRagConfigSocket'
+import { useRagConfigForm } from '../composables/useRagConfigForm'
 import type { Column } from '@shared/ui/STable.vue'
 
 const { t } = useI18n()
@@ -46,6 +49,7 @@ const projectId = route.params.projectId as string
 const configId = route.params.configId as string
 const toast = useToast()
 const { confirm } = useConfirmDialog()
+
 const activeTab = ref((route.query.tab as string) || 'settings')
 
 const { progress } = useRagConfigSocket(configId, projectId)
@@ -67,6 +71,7 @@ const projectKeysQuery = useQuery({
 
 const config = computed<RagConfig | undefined>(() => configQuery.data.value)
 const docs = computed<RagDocument[]>(() => docsQuery.data.value ?? [])
+const configError = computed(() => configQuery.error.value)
 
 const embedKeys = computed(() =>
   (projectKeysQuery.data.value ?? []).filter((k) =>
@@ -89,11 +94,10 @@ watch(
 )
 
 // --- Settings form ---
-const schema = toTypedSchema(ragConfigCreateSchema)
-const { errors, defineField, resetForm, values } =
-  useForm<RagConfigCreateInput>({ validationSchema: schema })
+const formSchema = toTypedSchema(ragConfigCreateSchema)
+const { handleSubmit, errors, defineField, resetForm, setErrors, values } =
+  useForm<RagConfigCreateInput>({ validationSchema: formSchema })
 
-defineField('name')
 const [chunkStrategy] = defineField('chunk_strategy')
 const [embedKeyId] = defineField('embed_key_id')
 const [embedProvider] = defineField('embed_provider')
@@ -103,16 +107,31 @@ const [rerankKeyId] = defineField('rerank_key_id')
 const [rerankModel] = defineField('rerank_model')
 const [topK] = defineField('top_k')
 const [rerankProvider] = defineField('rerank_provider')
+defineField('name')
 
-const chunkSizeTokens = ref(512)
-const chunkOverlapTokens = ref(64)
-const similarityThreshold = ref(0.8)
+const {
+  chunkSizeTokens,
+  chunkOverlapTokens,
+  similarityThreshold,
+  embedKeyOptions,
+  rerankKeyOptions,
+  assembleChunkParams,
+  loadChunkParams,
+} = useRagConfigForm({
+  embedKeys,
+  rerankKeys,
+  embedKeyId,
+  embedProvider,
+  rerankEnabled,
+  rerankKeyId,
+  rerankProvider,
+  rerankModel,
+})
 
 watch(
   () => configQuery.data.value,
   (cfg) => {
     if (!cfg) return
-    const cp = cfg.chunk_params as Record<string, number>
     resetForm({
       values: {
         name: cfg.name,
@@ -128,29 +147,33 @@ watch(
         top_k: cfg.top_k,
       },
     })
-    chunkSizeTokens.value = (cp.chunk_size_tokens as number) ?? 512
-    chunkOverlapTokens.value = (cp.chunk_overlap_tokens as number) ?? 64
-    similarityThreshold.value = (cp.similarity_threshold as number) ?? 0.8
+    loadChunkParams(cfg.chunk_params as Record<string, unknown>)
   },
   { immediate: true },
 )
 
-watch(embedKeyId, (id) => {
-  const key = embedKeys.value.find((k) => k.id === id)
-  if (key) embedProvider.value = key.provider as RagConfigCreateInput['embed_provider']
+const { applyServerErrors } = useServerErrors(setErrors)
+
+const saveMutation = useMutation({
+  mutationFn: async (payload: Partial<RagConfigCreateInput>) => {
+    // RagConfig PATCH not yet in API — placeholder for when backend adds it.
+    // For now, the form is read-only display of current settings.
+    return payload
+  },
+  onSuccess: () => {
+    qc.invalidateQueries({ queryKey: agentKeys.ragConfig(configId) })
+    toast.success(t('agents.detail.saved'))
+  },
+  onError: (err) => {
+    if (!applyServerErrors(err)) toast.error(t('agents.detail.saveFailed'))
+  },
 })
 
-watch(rerankEnabled, (on) => {
-  if (on) {
-    rerankProvider.value = 'cohere'
-    if (!rerankKeyId.value && rerankKeys.value.length) {
-      rerankKeyId.value = rerankKeys.value[0]!.id
-    }
-  } else {
-    rerankProvider.value = null
-    rerankKeyId.value = null
-    rerankModel.value = null
-  }
+const onSaveSettings = handleSubmit((formValues) => {
+  saveMutation.mutate({
+    ...formValues,
+    chunk_params: assembleChunkParams(formValues.chunk_strategy),
+  })
 })
 
 const deleteConfigMutation = useMutation({
@@ -174,11 +197,9 @@ async function onDeleteConfig(): Promise<void> {
 
 // --- Document upload ---
 const uploading = ref(false)
-const uploadPct = ref(0)
 
 async function onFiles(files: File[]): Promise<void> {
   uploading.value = true
-  uploadPct.value = 0
   try {
     for (const file of files) {
       if (file.size <= RAG_MULTIPART_MAX) {
@@ -189,9 +210,6 @@ async function onFiles(files: File[]): Promise<void> {
           purpose: 'rag_source',
           projectId,
           ragConfigId: configId,
-          onProgress: (uploaded, total) => {
-            uploadPct.value = total > 0 ? Math.round((uploaded / total) * 100) : 0
-          },
         })
       }
     }
@@ -232,20 +250,14 @@ function humanSize(bytes: number): string {
 
 const statusVariant = (status: string): 'info' | 'success' | 'danger' | 'warning' => {
   const map: Record<string, 'info' | 'success' | 'danger' | 'warning'> = {
-    ingesting: 'info',
-    ready: 'success',
-    failed: 'danger',
-    quarantined: 'warning',
+    ingesting: 'info', ready: 'success', failed: 'danger', quarantined: 'warning',
   }
   return map[status] ?? 'info'
 }
 
 const scanVariant = (status: string): 'neutral' | 'success' | 'danger' => {
   const map: Record<string, 'neutral' | 'success' | 'danger'> = {
-    pending: 'neutral',
-    clean: 'success',
-    quarantined: 'danger',
-    skipped: 'neutral',
+    pending: 'neutral', clean: 'success', quarantined: 'danger', skipped: 'neutral',
   }
   return map[status] ?? 'neutral'
 }
@@ -265,12 +277,6 @@ function onTabChange(tab: string): void {
   router.replace({ query: { ...route.query, tab } })
 }
 
-const embedKeyOptions = computed(() =>
-  embedKeys.value.map((k) => ({ value: k.id, label: `${k.name} (${k.provider})` })),
-)
-const rerankKeyOptions = computed(() =>
-  rerankKeys.value.map((k) => ({ value: k.id, label: `${k.name} (${k.provider})` })),
-)
 const chunkStrategyOptions = computed(() => [
   { value: 'fixed', label: t('agents.ragForm.chunkFixed') },
   { value: 'semantic', label: t('agents.ragForm.chunkSemantic') },
@@ -318,6 +324,23 @@ const showProgress = computed(() =>
       <SSkeleton class="mt-2" />
     </template>
 
+    <SAlert
+      v-else-if="configError"
+      variant="danger"
+      class="mt-4"
+    >
+      {{ t('agents.ragList.loadError') }}
+      <template #actions>
+        <SButton
+          variant="ghost"
+          size="sm"
+          @click="configQuery.refetch()"
+        >
+          {{ t('agents.detail.reload') }}
+        </SButton>
+      </template>
+    </SAlert>
+
     <template v-else-if="config">
       <SPageHeader :title="config.name">
         <template #actions>
@@ -326,6 +349,14 @@ const showProgress = computed(() =>
             @click="onDeleteConfig"
           >
             {{ t('agents.detail.delete') }}
+          </SButton>
+          <SButton
+            v-if="activeTab === 'settings'"
+            variant="primary"
+            :loading="saveMutation.isPending.value"
+            @click="onSaveSettings"
+          >
+            {{ t('agents.detail.save') }}
           </SButton>
         </template>
       </SPageHeader>
@@ -338,7 +369,10 @@ const showProgress = computed(() =>
       >
         <!-- Settings tab -->
         <template #tab-settings>
-          <div class="mt-6 space-y-6">
+          <form
+            class="mt-6 space-y-6"
+            @submit.prevent="onSaveSettings"
+          >
             <SCard>
               <h3 class="text-lg font-semibold mb-4">
                 {{ t('agents.ragForm.embedProvider') }}
@@ -465,7 +499,7 @@ const showProgress = computed(() =>
                 </div>
               </template>
             </SCard>
-          </div>
+          </form>
         </template>
 
         <!-- Documents tab -->

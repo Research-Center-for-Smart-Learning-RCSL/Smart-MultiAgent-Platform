@@ -40,6 +40,7 @@ import { keyGroupsApi, keysKeys, type KeyGroup } from '@slices/keys'
 import { agentsApi, type McpBinding } from '../api'
 import { agentKeys } from '../queries'
 import { agentCreateSchema, type AgentCreateInput } from '../types/schemas'
+import { useMcpTest } from '../composables/useMcpTest'
 import type { Column } from '@shared/ui/STable.vue'
 
 const { t } = useI18n()
@@ -194,18 +195,20 @@ watch(
 
 const { applyServerErrors } = useServerErrors(setErrors)
 
-function assemblePayload(values: AgentCreateInput): Record<string, unknown> {
+function assemblePayload(
+  values: AgentCreateInput,
+): AgentCreateInput & { wakeup_config: Record<string, unknown>; workflow_capabilities: Record<string, unknown> } {
   const wakeup_config: Record<string, unknown> = {}
-  if (wakeupEveryN.value) wakeup_config.every_n_messages = wakeupEveryN.value
-  if (wakeupSilence.value) wakeup_config.silence_minutes = wakeupSilence.value
+  if (wakeupEveryN.value !== null) wakeup_config.every_n_messages = wakeupEveryN.value
+  if (wakeupSilence.value !== null) wakeup_config.silence_minutes = wakeupSilence.value
   if (wakeupCallOnly.value) wakeup_config.call_only = true
-  if (wakeupAutostop.value) wakeup_config.autostop_rounds = wakeupAutostop.value
+  if (wakeupAutostop.value !== null) wakeup_config.autostop_rounds = wakeupAutostop.value
 
   const workflow_capabilities: Record<string, unknown> = {}
-  if (canInstruct.value) workflow_capabilities.can_instruct = true
-  if (canApprove.value) workflow_capabilities.can_approve = true
+  workflow_capabilities.can_instruct = canInstruct.value
+  workflow_capabilities.can_approve = canApprove.value
+  workflow_capabilities.can_create_subagent = canCreateSubagent.value
   if (canCreateSubagent.value) {
-    workflow_capabilities.can_create_subagent = true
     workflow_capabilities.max_alive_subagents = maxAliveSubagents.value
   }
 
@@ -215,8 +218,7 @@ function assemblePayload(values: AgentCreateInput): Record<string, unknown> {
 // --- Create mutation ---
 const createMutation = useMutation({
   mutationFn: async (values: AgentCreateInput) => {
-    const payload = assemblePayload(values)
-    const { data } = await agentsApi.create(createProjectId, payload as AgentCreateInput)
+    const { data } = await agentsApi.create(createProjectId, assemblePayload(values))
     return data
   },
   onSuccess: (agent) => {
@@ -233,8 +235,7 @@ const patchMutation = useMutation({
   mutationFn: async (values: AgentCreateInput) => {
     const agent = query.data.value
     if (!agent) throw new Error('Agent not loaded')
-    const payload = assemblePayload(values)
-    const { data } = await agentsApi.patch(agentId, agent.version, payload as Partial<AgentCreateInput>)
+    const { data } = await agentsApi.patch(agentId, agent.version, assemblePayload(values))
     return data
   },
   onSuccess: () => {
@@ -277,34 +278,7 @@ async function onDelete(): Promise<void> {
 }
 
 // --- MCP test ---
-const testingIds = ref<Set<string>>(new Set())
-
-const testMutation = useMutation({
-  mutationFn: (bindingId: string) => agentsApi.testMcpBinding(agentId, bindingId),
-  onSuccess: (res) => {
-    if (res.data.ok) {
-      toast.success(
-        t('agents.mcp.testOk', {
-          count: res.data.tool_names.length,
-          ms: res.data.duration_ms,
-        }),
-      )
-    } else {
-      toast.error(t('agents.mcp.testBad'))
-    }
-  },
-  onError: () => toast.error(t('agents.mcp.testFailed')),
-  onSettled: (_res, _err, bindingId) => {
-    const next = new Set(testingIds.value)
-    next.delete(bindingId)
-    testingIds.value = next
-  },
-})
-
-function runTest(bindingId: string): void {
-  testingIds.value = new Set(testingIds.value).add(bindingId)
-  testMutation.mutate(bindingId)
-}
+const { testingIds, runTest } = useMcpTest(agentId)
 
 // --- Tab config ---
 const tabs = computed(() => [
