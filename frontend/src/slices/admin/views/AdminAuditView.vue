@@ -69,20 +69,20 @@
       </SButton>
     </form>
 
-    <SAlert
+    <SQueryError
       v-if="query.isError.value"
-      variant="danger"
       class="mt-2"
-      role="alert"
-    >
-      {{ $t('admin.audit.loadError') }}
-    </SAlert>
+      :message="$t('admin.audit.loadError')"
+      :retry-label="$t('admin.common.retry')"
+      @retry="query.refetch()"
+    />
 
     <STable
       class="mt-4"
       :columns="columns"
       :data="allItems"
-      :loading="query.isPending.value && allItems.length === 0"
+      :loading="query.isPending.value"
+      :loading-label="$t('admin.common.loading')"
       row-key="id"
     >
       <template #cell-actor_user_id="{ row }">
@@ -98,10 +98,12 @@
         {{ row.actor_ip ?? '-' }}
       </template>
       <template #cell-created_at="{ row }">
-        {{ new Date(row.created_at).toLocaleString() }}
+        {{ formatDateTime(row.created_at) }}
       </template>
 
       <template #empty>
+        <!-- Table stays mounted during load-more errors to keep loaded rows;
+             suppress the empty state when the error alert above is showing. -->
         <SEmptyState
           v-if="!query.isError.value"
           :icon="ClipboardDocumentListIcon"
@@ -111,12 +113,13 @@
     </STable>
 
     <div
-      v-if="nextCursor"
+      v-if="query.hasNextPage.value"
       class="admin-audit__pagination"
     >
       <SButton
         variant="secondary"
-        @click="loadMore"
+        :loading="query.isFetchingNextPage.value"
+        @click="query.fetchNextPage()"
       >
         {{ $t('admin.audit.loadMore') }}
       </SButton>
@@ -125,24 +128,23 @@
 </template>
 
 <script setup lang="ts">
-import { reactive, ref, computed, watch } from 'vue'
-import { useQuery } from '@tanstack/vue-query'
+import { reactive, ref, computed } from 'vue'
+import { useInfiniteQuery } from '@tanstack/vue-query'
 import { useI18n } from 'vue-i18n'
 import { ClipboardDocumentListIcon } from '@heroicons/vue/24/outline'
-import { SPageHeader, STable, SButton, SInput, SAlert, SEmptyState } from '@shared/ui'
+import { SPageHeader, STable, SButton, SInput, SQueryError, SEmptyState } from '@shared/ui'
 import type { Column } from '@shared/ui/STable.vue'
+import { formatDateTime } from '@shared/utils/datetime'
 import { useToast } from '@shared/composables'
 import { adminApi } from '../api/admin'
 import { adminKeys } from '../queries'
-import type { AuditFilter, AuditEntry } from '../types'
+import type { AuditFilter } from '../types'
 
 const { t } = useI18n()
 const toast = useToast()
 
 const filters = reactive<AuditFilter>({})
 const appliedFilters = ref<AuditFilter>({})
-const allItems = ref<AuditEntry[]>([])
-const nextCursor = ref<number | null>(null)
 
 const columns = computed<Column[]>(() => [
   { key: 'id', label: t('admin.audit.id'), width: '80px' },
@@ -164,34 +166,20 @@ function applyFilters(): void {
   if (filters.session_id) clean.session_id = filters.session_id
   if (filters.from) clean.from = filters.from
   if (filters.to) clean.to = filters.to
-  allItems.value = []
-  nextCursor.value = null
+  // New query key resets the infinite query's pages automatically.
   appliedFilters.value = clean
 }
 
-const query = useQuery({
+const query = useInfiniteQuery({
   queryKey: computed(() => adminKeys.audit(appliedFilters.value)),
-  queryFn: () => adminApi.queryAudit(appliedFilters.value),
+  queryFn: ({ pageParam }) =>
+    adminApi.queryAudit({ ...appliedFilters.value, cursor: pageParam }),
+  initialPageParam: undefined as number | undefined,
+  getNextPageParam: (lastPage) => lastPage.next_cursor ?? undefined,
   refetchOnWindowFocus: false,
 })
 
-watch(() => query.data.value, (data) => {
-  if (!data) return
-  if (appliedFilters.value.cursor) {
-    // Load-more: accumulate new items
-    allItems.value = [...allItems.value, ...data.items]
-  } else {
-    // Fresh query: replace items
-    allItems.value = [...data.items]
-  }
-  nextCursor.value = data.next_cursor
-})
-
-function loadMore(): void {
-  if (nextCursor.value) {
-    appliedFilters.value = { ...appliedFilters.value, cursor: nextCursor.value }
-  }
-}
+const allItems = computed(() => (query.data.value?.pages ?? []).flatMap((p) => p.items))
 
 async function onExport(): Promise<void> {
   if (!appliedFilters.value.from || !appliedFilters.value.to) {

@@ -29,23 +29,13 @@
       {{ promoteError }}
     </SAlert>
 
-    <SAlert
+    <SQueryError
       v-if="query.isError.value"
-      variant="danger"
       class="mt-4"
-      role="alert"
-    >
-      {{ $t('admin.common.loadError') }}
-      <template #actions>
-        <SButton
-          size="sm"
-          variant="secondary"
-          @click="query.refetch()"
-        >
-          {{ $t('admin.common.retry') }}
-        </SButton>
-      </template>
-    </SAlert>
+      :message="$t('admin.common.loadError')"
+      :retry-label="$t('admin.common.retry')"
+      @retry="query.refetch()"
+    />
 
     <STable
       v-else
@@ -53,6 +43,7 @@
       :columns="columns"
       :data="query.data.value ?? []"
       :loading="query.isPending.value"
+      :loading-label="$t('admin.common.loading')"
       row-key="user_id"
     >
       <template #cell-user_id="{ row }">
@@ -64,7 +55,7 @@
       </template>
 
       <template #cell-promoted_at="{ row }">
-        {{ new Date(row.promoted_at).toLocaleDateString() }}
+        {{ formatDate(row.promoted_at) }}
       </template>
 
       <template #actions="{ row }">
@@ -98,9 +89,11 @@ import {
   SButton,
   SInput,
   SAlert,
+  SQueryError,
   SEmptyState,
 } from '@shared/ui'
 import type { Column } from '@shared/ui/STable.vue'
+import { formatDate } from '@shared/utils/datetime'
 import { useQuery } from '@tanstack/vue-query'
 import { adminApi } from '../api/admin'
 import { adminKeys } from '../queries'

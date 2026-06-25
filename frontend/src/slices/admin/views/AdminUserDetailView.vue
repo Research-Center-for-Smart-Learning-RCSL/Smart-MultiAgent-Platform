@@ -23,9 +23,9 @@
 
           <dt>{{ $t('admin.users.status') }}</dt>
           <dd>
-            <SBadge :variant="userStatusVariant(query.data.value.status)">
-              {{ query.data.value.status }}
-            </SBadge>
+            <SStatusBadge :status="query.data.value.status">
+              {{ $t(userStatusLabelKey(query.data.value.status)) }}
+            </SStatusBadge>
           </dd>
 
           <dt>{{ $t('admin.users.verified') }}</dt>
@@ -76,12 +76,12 @@ import { useI18n } from 'vue-i18n'
 import { useQuery } from '@tanstack/vue-query'
 import { useRoute } from 'vue-router'
 import { useConfirmDialog } from '@shared/composables'
-import { SPageHeader, SCard, SBadge, SLoadingSpinner, SAlert } from '@shared/ui'
+import { SPageHeader, SCard, SStatusBadge, SLoadingSpinner, SAlert } from '@shared/ui'
 import { adminApi } from '../api/admin'
 import { adminKeys } from '../queries'
 import { useAdminActions } from '../composables/useAdminActions'
 import { useImpersonation } from '../composables/useImpersonation'
-import { userStatusVariant } from '../utils/userStatus'
+import { userStatusLabelKey } from '../utils/userStatus'
 import AdminUserActions from '../components/AdminUserActions.vue'
 
 const { t } = useI18n()
