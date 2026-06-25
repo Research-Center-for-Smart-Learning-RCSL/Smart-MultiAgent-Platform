@@ -22,7 +22,7 @@ import {
   STooltip,
   SPagination,
 } from '@shared/ui'
-import { useConfirmDialog, useToast } from '@shared/composables'
+import { useConfirmDialog, useToast, useClientPagination } from '@shared/composables'
 import { useSearchKeys } from '../composables/useSearchKeys'
 import SearchKeyUploadForm from '../components/SearchKeyUploadForm.vue'
 import type { SearchProvider } from '../api/search-keys'
@@ -40,14 +40,8 @@ const { keys, error, reload, upload, retest, activate, remove } = useSearchKeys(
 
 const showAdd = ref(false)
 const uploadFormRef = ref<InstanceType<typeof SearchKeyUploadForm> | null>(null)
-const currentPage = ref(1)
-const pageSize = 20
 
-const totalPages = computed(() => Math.max(1, Math.ceil(keys.value.length / pageSize)))
-const paginatedKeys = computed(() => {
-  const start = (currentPage.value - 1) * pageSize
-  return keys.value.slice(start, start + pageSize)
-})
+const { currentPage, totalPages, paginatedItems: paginatedKeys, pageSize } = useClientPagination(keys)
 
 const columns = computed<Column[]>(() => [
   { key: 'provider', label: t('keys.search.provider'), width: '160px' },

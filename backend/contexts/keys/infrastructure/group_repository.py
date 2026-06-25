@@ -73,21 +73,6 @@ class KeyGroupRepository:
         ).first()
         return _row_to_group(row) if row else None
 
-    async def list_for_project(self, project_id: uuid.UUID) -> list[KeyGroup]:
-        rows = (
-            await self._db.execute(
-                t.key_groups.select()
-                .where(
-                    sa.and_(
-                        t.key_groups.c.project_id == project_id,
-                        t.key_groups.c.deleted_at.is_(None),
-                    )
-                )
-                .order_by(t.key_groups.c.created_at.desc())
-            )
-        ).all()
-        return [_row_to_group(r) for r in rows]
-
     async def list_for_project_with_counts(
         self, project_id: uuid.UUID
     ) -> list[tuple[KeyGroup, int]]:

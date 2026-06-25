@@ -129,7 +129,8 @@
       "memberUpdated": "成員設定已儲存。",
       "memberUpdateFailed": "儲存成員設定失敗。",
       "noAvailableKeys": "沒有可用金鑰。請先將金鑰攜入專案。",
-      "reorderHandle": "拖曳以重新排序"
+      "reorderHandle": "拖曳以重新排序",
+      "reorderFailed": "成員排序失敗。"
     },
     "form": {
       "title": "上傳 API 金鑰",

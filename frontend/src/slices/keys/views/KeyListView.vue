@@ -20,7 +20,7 @@ import {
   SAlert,
   SPagination,
 } from '@shared/ui'
-import { useConfirmDialog, useToast } from '@shared/composables'
+import { useConfirmDialog, useToast, useClientPagination } from '@shared/composables'
 import { useMyKeys } from '../composables/useMyKeys'
 import KeyUploadForm from '../components/KeyUploadForm.vue'
 import CapabilityChip from '../components/CapabilityChip.vue'
@@ -36,14 +36,9 @@ const { keys, loading, error, reload, upload, retest, remove } = useMyKeys()
 
 const showUpload = ref(false)
 const retestingId = ref<string | null>(null)
-const currentPage = ref(1)
-const pageSize = 20
+const uploading = ref(false)
 
-const totalPages = computed(() => Math.max(1, Math.ceil(keys.value.length / pageSize)))
-const paginatedKeys = computed(() => {
-  const start = (currentPage.value - 1) * pageSize
-  return keys.value.slice(start, start + pageSize)
-})
+const { currentPage, totalPages, paginatedItems: paginatedKeys, pageSize } = useClientPagination(keys)
 
 const columns = computed<Column[]>(() => [
   { key: 'provider', label: t('keys.list.provider'), width: '160px' },
@@ -60,10 +55,16 @@ const actionItems = computed(() => [
 ])
 
 async function onUpload(p: { provider: ApiKeyProvider; name: string; secret: string }) {
-  const result = await upload(p.provider, p.name, p.secret)
-  if (result) {
+  if (uploading.value) return
+  uploading.value = true
+  try {
+    await upload(p.provider, p.name, p.secret)
     showUpload.value = false
     toast.success(t('keys.form.uploaded'))
+  } catch {
+    toast.error(t('keys.form.uploadFailed'))
+  } finally {
+    uploading.value = false
   }
 }
 
@@ -225,6 +226,7 @@ function onAction(key: string, row: { id: string }) {
 
     <KeyUploadForm
       :open="showUpload"
+      :loading="uploading"
       @close="showUpload = false"
       @submit="onUpload"
     />

@@ -104,7 +104,7 @@ function onDragLeave() {
   dropTargetId.value = null
 }
 
-function onDrop(targetKeyId: string) {
+async function onDrop(targetKeyId: string) {
   const src = draggingId.value
   draggingId.value = null
   dropTargetId.value = null
@@ -118,7 +118,11 @@ function onDrop(targetKeyId: string) {
   order.forEach((kid, i) => {
     priorities[kid] = i + 1
   })
-  reorder(priorities)
+  try {
+    await reorder(priorities)
+  } catch {
+    toast.error(t('keys.groups.reorderFailed'))
+  }
 }
 
 function onDragEnd() {
