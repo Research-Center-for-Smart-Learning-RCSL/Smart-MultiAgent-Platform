@@ -188,6 +188,9 @@ class OCTransferService:
             raise TransferNotFound(str(transfer_id))
         if transfer.target_user_id != caller_user_id:
             raise TransferConflict("only the target may reject")
+        if transfer.expires_at < now():
+            await self._transfers.resolve(transfer_id, OCTransferState.EXPIRED)
+            raise TransferNotFound(f"transfer {transfer_id} has expired")
         updated = await self._transfers.resolve(transfer_id, OCTransferState.REJECTED)
         if updated is None:
             raise TransferNotFound(str(transfer_id))

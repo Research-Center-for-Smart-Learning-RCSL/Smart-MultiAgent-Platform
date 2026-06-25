@@ -1,5 +1,5 @@
 import { http } from '@shared/transport'
-import type { PaginationParams } from './orgs'
+import type { PaginationParams } from '@shared/transport'
 
 export type ProjectOwnerType = 'user' | 'org'
 

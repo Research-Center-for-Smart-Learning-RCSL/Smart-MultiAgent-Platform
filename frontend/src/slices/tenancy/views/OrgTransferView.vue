@@ -156,6 +156,13 @@ async function acceptTransfer(): Promise<void> {
 
 async function decline(): Promise<void> {
   if (!pending.value) return
+  const ok = await confirm({
+    title: t('tenancy.transfer.declineTitle'),
+    message: t('tenancy.transfer.declineBody'),
+    variant: 'warning',
+    confirmLabel: t('tenancy.transfer.declineConfirm'),
+  })
+  if (!ok) return
   try {
     await orgsApi.rejectTransfer(orgId.value, pending.value.id)
     qc.invalidateQueries({ queryKey: tenancyKeys.orgTransfers(orgId.value) })
