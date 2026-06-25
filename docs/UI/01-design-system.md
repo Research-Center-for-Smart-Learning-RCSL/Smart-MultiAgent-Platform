@@ -303,10 +303,10 @@ All components:
 | Prop | Type | Default | Description |
 |------|------|---------|-------------|
 | `label` | `string` | — | Field label |
+| `name` | `string` | — | Field identifier — maps to label `for`, and generates ARIA IDs (`{name}-error`, `{name}-help`) |
 | `error` | `string \| undefined` | — | Error message |
 | `help` | `string \| undefined` | — | Help text below input |
 | `required` | `boolean` | `false` | Shows required indicator |
-| `htmlFor` | `string` | — | Label `for` attribute |
 
 **Slots**: `default` (the input component)
 
