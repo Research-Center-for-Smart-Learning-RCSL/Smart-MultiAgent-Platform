@@ -1,9 +1,5 @@
 import { http } from '@shared/transport'
-
-export interface PaginationParams {
-  limit?: number
-  offset?: number
-}
+import type { PaginationParams } from '@shared/transport'
 
 export interface Org {
   id: string

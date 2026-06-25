@@ -33,7 +33,7 @@ class TenancyRoleResolver(RoleResolver):
         project = None
         org_id = scope.org_id
         if scope.project_id:
-            project = await self._projects.get(scope.project_id)
+            project = await self._projects.get(scope.project_id, include_deleted=True)
             if project and project.owner_org_id:
                 # R5.03 — Org Owner in the parent Org is a Project Owner here.
                 org_id = project.owner_org_id

@@ -94,7 +94,10 @@
       "cancelLabel": "Cancel transfer",
       "targetNotice": "You have been selected to become the Original Creator of this organization.",
       "loadError": "Failed to load transfer status",
-      "declined": "Transfer declined"
+      "declined": "Transfer declined",
+      "declineTitle": "Decline Transfer",
+      "declineBody": "Are you sure you want to decline this transfer? The initiator will need to start a new transfer request.",
+      "declineConfirm": "Decline transfer"
     },
     "invite": {
       "inboxTitle": "Invitations",

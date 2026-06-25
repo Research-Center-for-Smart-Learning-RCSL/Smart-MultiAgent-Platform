@@ -94,7 +94,10 @@
       "cancelLabel": "取消轉移",
       "targetNotice": "您已被選為此組織的新原始建立者。",
       "loadError": "載入轉移狀態失敗",
-      "declined": "轉移已拒絕"
+      "declined": "轉移已拒絕",
+      "declineTitle": "拒絕轉移",
+      "declineBody": "確定要拒絕此轉移嗎？發起者將需要重新發起轉移請求。",
+      "declineConfirm": "拒絕轉移"
     },
     "invite": {
       "inboxTitle": "邀請",
