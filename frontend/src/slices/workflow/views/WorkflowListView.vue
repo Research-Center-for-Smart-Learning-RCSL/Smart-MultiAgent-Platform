@@ -1,40 +1,55 @@
 <template>
   <section class="workflow-list">
-    <SPageHeader :title="$t('workflow.list.title')">
-      <form
-        class="flex gap-2"
-        @submit.prevent="onCreate"
+    <SPageHeader :title="$t('workflow.list.title')" />
+
+    <!-- Inline create form (spec 1.3) -->
+    <form
+      class="flex items-end gap-2 mb-4"
+      @submit.prevent="onCreate"
+    >
+      <SFormField
+        :label="$t('workflow.list.name')"
+        name="workflow-name"
+        class="flex-1 max-w-sm"
       >
         <input
+          id="workflow-name"
           v-model="newName"
           required
           minlength="1"
           maxlength="200"
-          class="border rounded px-2 py-1"
+          class="wf-input"
           :placeholder="$t('workflow.list.namePlaceholder')"
         >
-        <button
-          type="submit"
-          class="btn btn-primary"
-          :disabled="createMutation.isPending.value"
-        >
-          {{ $t('workflow.list.create') }}
-        </button>
-      </form>
-    </SPageHeader>
+      </SFormField>
+      <button
+        type="submit"
+        class="btn btn-primary"
+        :disabled="createMutation.isPending.value"
+      >
+        {{ $t('workflow.list.create') }}
+      </button>
+    </form>
 
-    <p
+    <SLoadingSpinner
       v-if="query.isLoading.value"
-      class="text-muted"
-    >
-      …
-    </p>
-    <p
+      :label="$t('workflow.list.title')"
+      class="justify-center py-8"
+    />
+    <SAlert
       v-else-if="query.isError.value"
-      class="text-danger"
+      variant="danger"
     >
       {{ $t('workflow.list.loadError') }}
-    </p>
+      <template #actions>
+        <button
+          class="underline"
+          @click="query.refetch()"
+        >
+          {{ $t('workflow.list.retry') }}
+        </button>
+      </template>
+    </SAlert>
 
     <div
       v-else-if="query.data.value?.length"
@@ -93,12 +108,12 @@
       </table>
     </div>
 
-    <p
+    <SEmptyState
       v-else
-      class="text-muted"
-    >
-      {{ $t('workflow.list.empty') }}
-    </p>
+      :icon="RectangleGroupIcon"
+      :title="$t('workflow.list.empty')"
+      :text="$t('workflow.list.emptyHint')"
+    />
   </section>
 </template>
 
@@ -108,7 +123,14 @@ import { ref } from 'vue'
 import { useRoute } from 'vue-router'
 
 import { useI18n } from 'vue-i18n'
-import { SPageHeader } from '@shared/ui'
+import { RectangleGroupIcon } from '@heroicons/vue/24/outline'
+import {
+  SAlert,
+  SEmptyState,
+  SFormField,
+  SLoadingSpinner,
+  SPageHeader,
+} from '@shared/ui'
 import { useConfirmDialog, useToast } from '@shared/composables'
 import { createWorkflow, deleteWorkflow, listWorkflows } from '../api'
 import { wfKeys } from '../queries'

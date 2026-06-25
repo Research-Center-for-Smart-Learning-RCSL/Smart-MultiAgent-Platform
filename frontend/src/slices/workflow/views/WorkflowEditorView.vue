@@ -233,6 +233,7 @@ import NodeConfigPanel from '../components/NodeConfigPanel.vue'
 import WorkflowNodeComponent from '../components/WorkflowNodeComponent.vue'
 import { useWorkflowEditor } from '../composables/useWorkflowEditor'
 import { useWorkflowLint } from '../composables/useWorkflowLint'
+import { fetchProjectAgents } from '../utils/projectAgents'
 import type { Workflow } from '../types'
 
 import '@vue-flow/core/dist/style.css'
@@ -346,17 +347,12 @@ async function loadWorkflow(): Promise<void> {
 
 async function loadContextData(): Promise<void> {
   try {
-    const { getWorkspace } = await import('@slices/conversation')
-    const ws = await getWorkspace(workspaceId.value)
-    const [{ agentsApi }, { listChatrooms }] = await Promise.all([
-      import('@slices/agents'),
-      import('@slices/conversation'),
-    ])
-    const [agentRes, chatroomList] = await Promise.all([
-      agentsApi.list(ws.project_id),
+    const { listChatrooms } = await import('@slices/conversation')
+    const [agentList, chatroomList] = await Promise.all([
+      fetchProjectAgents(workspaceId.value),
       listChatrooms(workspaceId.value),
     ])
-    agents.value = agentRes.data.map((a: { id: string; name: string }) => ({ id: a.id, name: a.name }))
+    agents.value = agentList
     chatrooms.value = chatroomList.map((c: { id: string; name: string }) => ({ id: c.id, name: c.name }))
   } catch {
     // Non-fatal — config pickers will just be empty

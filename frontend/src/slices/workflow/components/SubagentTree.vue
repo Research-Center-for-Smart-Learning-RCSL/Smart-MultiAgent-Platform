@@ -1,13 +1,17 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { listSubagents } from '../api'
+import { listRunSubagents } from '../api'
 import type { AgentInstance } from '../types'
 
 const { t } = useI18n()
 
+// Sub-agents have depth exactly 1 and are parented under a synthetic per-run
+// root whose id is never exposed; the only way to list "what this run spawned"
+// is the run-scoped endpoint, which also includes destroyed instances for the
+// historical backstage view.
 const props = defineProps<{
-  parentInstanceId: string
+  runId: string
   agentNames: Record<string, string>
 }>()
 
@@ -17,7 +21,7 @@ const loading = ref(false)
 async function refresh(): Promise<void> {
   loading.value = true
   try {
-    children.value = await listSubagents(props.parentInstanceId)
+    children.value = await listRunSubagents(props.runId)
   } catch {
     children.value = []
   } finally {
@@ -25,7 +29,7 @@ async function refresh(): Promise<void> {
   }
 }
 
-watch(() => props.parentInstanceId, () => void refresh(), { immediate: true })
+watch(() => props.runId, () => void refresh(), { immediate: true })
 
 function stateIcon(state: string): string {
   switch (state) {
@@ -47,6 +51,10 @@ function stateClass(state: string): string {
 
 function agentName(id: string): string {
   return props.agentNames[id] ?? id.slice(0, 8)
+}
+
+function fmtTime(ts: string): string {
+  return new Date(ts).toLocaleString()
 }
 </script>
 
@@ -92,9 +100,9 @@ function agentName(id: string): string {
           {{ child.task_description }}
         </div>
         <div class="text-xs text-muted">
-          {{ t('workflow.subagent.spawned', { time: child.spawned_at }) }}
+          {{ t('workflow.subagent.spawned', { time: fmtTime(child.spawned_at) }) }}
           <template v-if="child.destroyed_at">
-            &middot; {{ t('workflow.subagent.destroyed', { time: child.destroyed_at }) }}
+            &middot; {{ t('workflow.subagent.destroyed', { time: fmtTime(child.destroyed_at) }) }}
           </template>
         </div>
       </div>

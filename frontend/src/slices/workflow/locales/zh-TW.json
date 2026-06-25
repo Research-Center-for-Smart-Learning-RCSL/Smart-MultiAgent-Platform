@@ -10,6 +10,8 @@
       "runs": "執行紀錄",
       "delete": "刪除",
       "empty": "尚無工作流程。",
+      "emptyHint": "於上方建立一個，開始編排您的代理。",
+      "retry": "重試",
       "loadError": "載入工作流程失敗。",
       "createFailed": "建立工作流程失敗。",
       "deleteFailed": "刪除工作流程失敗。",
@@ -56,12 +58,13 @@
       "inspect": "檢視",
       "archived": "已封存",
       "empty": "尚無執行紀錄。",
+      "emptyHint": "手動觸發一次執行，或等待此工作流程的觸發條件啟動。",
       "triggerFailed": "觸發工作流程執行失敗。"
     },
     "run": {
-      "title": "執行檢視器",
+      "idLabel": "執行 {id}",
       "backToRuns": "執行紀錄",
-      "liveConnected": "即時連線中",
+      "connected": "已連線",
       "cancel": "取消執行",
       "triggerType": "觸發方式",
       "started": "開始時間",
@@ -81,6 +84,7 @@
       "noSteps": "此次執行無步驟紀錄。",
       "subagentTree": "子代理樹狀圖",
       "instructChains": "指令鏈",
+      "noChains": "此次執行無指令鏈。",
       "approvalHistory": "核准紀錄",
       "noApprovals": "此次執行無核准紀錄。"
     },
