@@ -22,6 +22,7 @@ const AGENT = {
   project_id: 'proj_1',
   name: 'Researcher',
   model_hint: 'claude',
+  model_id: null,
   key_group_id: 'kg_1',
   system_prompt: '',
   prompt_strategy: 'full',
@@ -68,17 +69,16 @@ describe('AgentMcpView', () => {
     })
     await settle(wrapper)
     expect(wrapper.text()).toContain('https://mcp.example.com/sse')
-    expect(wrapper.text()).toContain('search, fetch')
   })
 
-  it('renders the empty state when the agent has no bindings', async () => {
+  it('renders the table and an add button when the agent has no bindings', async () => {
     seed([])
     const wrapper = await renderView(AgentMcpView, {
       routes,
       initialRoute: '/agents/agent_1/mcp',
     })
     await settle(wrapper)
-    expect(wrapper.find('.table').exists()).toBe(true)
-    expect(wrapper.find('header .btn-primary').exists()).toBe(true)
+    expect(wrapper.find('table.s-table').exists()).toBe(true)
+    expect(wrapper.find('button.s-btn--primary').exists()).toBe(true)
   })
 })

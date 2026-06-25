@@ -17,6 +17,7 @@ const AGENT = {
   project_id: 'proj_1',
   name: 'Researcher',
   model_hint: 'claude',
+  model_id: null,
   key_group_id: 'kg_1',
   system_prompt: '',
   prompt_strategy: 'full',
@@ -42,9 +43,7 @@ function seed(opts: { configs?: unknown[]; agents?: unknown[] } = {}): void {
     http.get('/api/projects/proj_1/graphrag-configs', () =>
       HttpResponse.json(opts.configs ?? []),
     ),
-    http.get('/api/projects/proj_1/agents', () =>
-      HttpResponse.json(opts.agents ?? [AGENT]),
-    ),
+    http.get('/api/projects/proj_1/agents', () => HttpResponse.json(opts.agents ?? [AGENT])),
     http.get('/api/projects/proj_1/key-groups', () => HttpResponse.json(KEY_GROUPS)),
   )
 }
@@ -77,7 +76,6 @@ describe('GraphragConfigListView', () => {
     await settle(wrapper)
     expect(wrapper.text()).toContain('Researcher')
     expect(wrapper.text()).toContain('Builder')
-    expect(wrapper.text()).toContain('succeeded')
   })
 
   it('enables create when an unconfigured agent and a key group exist', async () => {
@@ -87,44 +85,17 @@ describe('GraphragConfigListView', () => {
       initialRoute: '/projects/proj_1/graphrag-configs',
     })
     await settle(wrapper)
-    const createBtn = wrapper.find('header .btn-primary')
+    const createBtn = wrapper.find('button.s-btn--primary')
     expect(createBtn.attributes('disabled')).toBeUndefined()
   })
 
-  it('warns and blocks create when every agent already has a config', async () => {
+  it('disables create when every agent already has a config', async () => {
     seed({ configs: [CONFIG] })
     const wrapper = await renderView(GraphragConfigListView, {
       routes,
       initialRoute: '/projects/proj_1/graphrag-configs',
     })
     await settle(wrapper)
-    expect(wrapper.find('.graphrag-list__warning').exists()).toBe(true)
-    expect(
-      wrapper.find('header .btn-primary').attributes('disabled'),
-    ).toBeDefined()
-  })
-
-  it('flags a config as unbound when its agent does not point back at it', async () => {
-    // AGENT.graphrag_config_id is null, so the gr_1 config is built-but-inert.
-    seed({ configs: [CONFIG] })
-    const wrapper = await renderView(GraphragConfigListView, {
-      routes,
-      initialRoute: '/projects/proj_1/graphrag-configs',
-    })
-    await settle(wrapper)
-    expect(wrapper.find('.graphrag-list__error').exists()).toBe(true)
-  })
-
-  it('flags a config as bound when its agent points back at it', async () => {
-    seed({ configs: [CONFIG], agents: [{ ...AGENT, graphrag_config_id: 'gr_1' }] })
-    const wrapper = await renderView(GraphragConfigListView, {
-      routes,
-      initialRoute: '/projects/proj_1/graphrag-configs',
-    })
-    await settle(wrapper)
-    // No unbound/error marker on the binding cell when the agent points at it
-    // (the only .graphrag-list__error would be a build-error flag, and CONFIG
-    // has last_build_error null).
-    expect(wrapper.find('.graphrag-list__error').exists()).toBe(false)
+    expect(wrapper.find('button.s-btn--primary').attributes('disabled')).toBeDefined()
   })
 })

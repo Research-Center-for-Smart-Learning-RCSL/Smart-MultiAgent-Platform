@@ -44,14 +44,14 @@ describe('McpEgressAllowlistView', () => {
     expect(wrapper.text()).toContain('weather API')
   })
 
-  it('renders the empty state when nothing is allowlisted', async () => {
+  it('always renders the add form and the table', async () => {
     seed([])
     const wrapper = await renderView(McpEgressAllowlistView, {
       routes,
       initialRoute: '/projects/proj_1/mcp/egress-allowlist',
     })
     await settle(wrapper)
-    expect(wrapper.find('.table').exists()).toBe(true)
+    expect(wrapper.find('table.s-table').exists()).toBe(true)
     expect(wrapper.find('form').exists()).toBe(true)
   })
 })
