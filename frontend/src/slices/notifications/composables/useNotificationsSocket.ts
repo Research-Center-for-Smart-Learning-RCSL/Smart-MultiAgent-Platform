@@ -15,7 +15,11 @@ import { wsManager, type ChannelEvent } from '@shared/transport'
 import { useSessionStore } from '@shared/stores/session'
 import { notificationKeys } from '../queries'
 
-export function useNotificationsSocket(): void {
+// `onCreated` fires once per `notification.created` event — the direct signal a
+// brand-new notification arrived. Prefer it over inferring arrivals from a
+// change in the unread count, which misses the case where a new notification
+// and a concurrent mark-read leave the net count unchanged.
+export function useNotificationsSocket(onCreated?: () => void): void {
   const session = useSessionStore()
   const qc = useQueryClient()
   let unsub: (() => void) | null = null
@@ -31,6 +35,7 @@ export function useNotificationsSocket(): void {
       unsub = channel.subscribe('notification.created', (_ev: ChannelEvent) => {
         qc.invalidateQueries({ queryKey: notificationKeys.list() })
         qc.invalidateQueries({ queryKey: notificationKeys.unreadCount() })
+        onCreated?.()
       })
       // Idempotent: ban-kick likely already connected this channel.
       channel.connect()
