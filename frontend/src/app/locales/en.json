@@ -59,6 +59,7 @@
     "userMenu": {
       "account": "Account Settings",
       "sessions": "Sessions",
+      "theme": "Theme: {theme}",
       "admin": "Admin Console",
       "logout": "Log Out"
     }

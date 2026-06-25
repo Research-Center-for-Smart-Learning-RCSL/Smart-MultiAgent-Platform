@@ -8,8 +8,13 @@ import {
   CheckIcon,
   PlusIcon,
 } from '@heroicons/vue/24/outline'
+import { SAvatar } from '@shared/ui'
 import { useWorkspaceStore } from '@shared/stores/workspace'
 import { tenancyKeys, orgsApi, projectsApi, type Org, type Project } from '@slices/tenancy'
+
+defineProps<{
+  compact?: boolean
+}>()
 
 const { t } = useI18n()
 const router = useRouter()
@@ -117,19 +122,30 @@ onBeforeUnmount(() => {
     <button
       ref="triggerRef"
       class="switcher__trigger"
-      :class="{ 'switcher__trigger--empty': !workspace.hasOrg }"
+      :class="{
+        'switcher__trigger--empty': !workspace.hasOrg,
+        'switcher__trigger--compact': compact,
+      }"
       type="button"
       :aria-expanded="isOpen"
       :aria-label="t('app.switcher.placeholder')"
       @click.stop="toggle"
     >
-      <span class="switcher__text">
-        {{ workspace.hasOrg ? displayText : t('app.switcher.placeholder') }}
-      </span>
-      <ChevronDownIcon
-        class="switcher__chevron"
-        :class="{ 'switcher__chevron--open': isOpen }"
-      />
+      <template v-if="compact">
+        <SAvatar
+          :name="workspace.orgName || '?'"
+          size="sm"
+        />
+      </template>
+      <template v-else>
+        <span class="switcher__text">
+          {{ workspace.hasOrg ? displayText : t('app.switcher.placeholder') }}
+        </span>
+        <ChevronDownIcon
+          class="switcher__chevron"
+          :class="{ 'switcher__chevron--open': isOpen }"
+        />
+      </template>
     </button>
 
     <Transition name="switcher-panel">
@@ -272,6 +288,12 @@ onBeforeUnmount(() => {
 
 .switcher__trigger--empty {
   color: var(--color-muted);
+}
+
+.switcher__trigger--compact {
+  padding: 4px;
+  border: none;
+  border-radius: var(--radius-full);
 }
 
 .switcher__text {

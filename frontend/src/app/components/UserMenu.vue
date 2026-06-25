@@ -7,13 +7,31 @@ import {
   ComputerDesktopIcon,
   ShieldExclamationIcon,
   ArrowRightOnRectangleIcon,
+  SunIcon,
+  MoonIcon,
 } from '@heroicons/vue/24/outline'
 import { SAvatar, SDropdown } from '@shared/ui'
 import { useSessionStore } from '@shared/stores/session'
+import { useBreakpoint } from '@shared/composables/useBreakpoint'
+import { useTheme, type Theme } from '@shared/composables/useTheme'
 
 const { t } = useI18n()
 const router = useRouter()
 const session = useSessionStore()
+const { isMobile } = useBreakpoint()
+const { theme, setTheme } = useTheme()
+
+const themeIcons: Record<Theme, Component> = {
+  light: SunIcon,
+  dark: MoonIcon,
+  system: ComputerDesktopIcon,
+}
+
+function cycleTheme(): void {
+  const order: Theme[] = ['light', 'dark', 'system']
+  const idx = order.indexOf(theme.value)
+  setTheme(order[(idx + 1) % order.length]!)
+}
 
 const avatarName = computed(() => session.me?.email ?? '')
 
@@ -43,6 +61,15 @@ const menuItems = computed(() => {
       icon: ComputerDesktopIcon,
     },
   ]
+
+  if (isMobile.value) {
+    items.push({ key: 'div-theme', label: '', divider: true })
+    items.push({
+      key: 'theme',
+      label: t('app.userMenu.theme', { theme: theme.value }),
+      icon: themeIcons[theme.value],
+    })
+  }
 
   if (session.me?.is_admin) {
     items.push({ key: 'div-admin', label: '', divider: true })
@@ -74,6 +101,9 @@ async function onSelect(key: string) {
       break
     case 'admin':
       router.push({ name: 'admin.home' })
+      break
+    case 'theme':
+      cycleTheme()
       break
     case 'logout':
       await session.logout()

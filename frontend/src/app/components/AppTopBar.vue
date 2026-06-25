@@ -50,11 +50,8 @@ const { isMobile } = useBreakpoint()
     </div>
 
     <!-- Center zone -->
-    <div
-      v-if="!isMobile"
-      class="topbar__center"
-    >
-      <OrgProjectSwitcher />
+    <div class="topbar__center">
+      <OrgProjectSwitcher :compact="isMobile" />
     </div>
 
     <!-- Right zone -->

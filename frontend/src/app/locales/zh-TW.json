@@ -59,6 +59,7 @@
     "userMenu": {
       "account": "帳號設定",
       "sessions": "工作階段",
+      "theme": "主題：{theme}",
       "admin": "管理控制台",
       "logout": "登出"
     }
