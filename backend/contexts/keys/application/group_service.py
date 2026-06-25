@@ -55,9 +55,6 @@ class KeyGroupService:
 
     # ----- groups --------------------------------------------------------
 
-    async def list_for_project(self, project_id: uuid.UUID) -> list[KeyGroup]:
-        return await self._groups.list_for_project(project_id)
-
     async def list_for_project_with_counts(
         self, project_id: uuid.UUID
     ) -> list[tuple[KeyGroup, int]]:

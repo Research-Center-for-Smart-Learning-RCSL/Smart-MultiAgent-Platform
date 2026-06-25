@@ -106,12 +106,9 @@ export function useKeyGroupDetail(groupId: () => string) {
     }
     try {
       await keyGroupsApi.reorder(id, priorities)
+    } finally {
       optimisticDetail.value = null
       await qc.invalidateQueries({ queryKey: keysKeys.keyGroup(id) })
-    } catch (e) {
-      optimisticDetail.value = null
-      await qc.invalidateQueries({ queryKey: keysKeys.keyGroup(id) })
-      throw e
     }
   }
 

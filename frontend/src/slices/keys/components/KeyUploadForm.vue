@@ -14,7 +14,7 @@ const CAP_LABELS: Record<string, string> = {
   rerank: 'rerank',
 }
 
-const props = defineProps<{ open: boolean }>()
+const props = defineProps<{ open: boolean; loading?: boolean }>()
 const emit = defineEmits<{
   (e: 'close'): void
   (e: 'submit', payload: { provider: ApiKeyProvider; name: string; secret: string }): void
@@ -161,6 +161,8 @@ function onClose() {
           variant="primary"
           type="submit"
           form="key-upload-form"
+          :loading="props.loading"
+          :disabled="props.loading"
           data-testid="key-upload-submit"
         >
           {{ t('keys.form.submit') }}

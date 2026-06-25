@@ -129,7 +129,8 @@
       "memberUpdated": "Member configuration saved.",
       "memberUpdateFailed": "Failed to save member configuration.",
       "noAvailableKeys": "No available keys. Carry keys into the project first.",
-      "reorderHandle": "Drag to reorder"
+      "reorderHandle": "Drag to reorder",
+      "reorderFailed": "Failed to reorder members."
     },
     "form": {
       "title": "Upload API Key",
