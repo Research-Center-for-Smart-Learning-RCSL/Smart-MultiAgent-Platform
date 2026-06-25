@@ -168,7 +168,8 @@
       "scope": "Scope",
       "updated": "Updated",
       "save": "Save",
-      "empty": "No rate limit policies."
+      "empty": "No rate limit policies.",
+      "invalid": "Window and max count must each be at least 1."
     },
     "metrics": {
       "title": "Platform Metrics",

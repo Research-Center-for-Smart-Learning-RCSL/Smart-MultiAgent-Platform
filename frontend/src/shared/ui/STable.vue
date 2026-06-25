@@ -29,6 +29,7 @@ const props = withDefaults(
     selected?: unknown[]
     rowKey?: string
     stickyHeader?: boolean
+    loadingLabel?: string
   }>(),
   {
     data: () => [],
@@ -41,6 +42,7 @@ const props = withDefaults(
     selected: () => [],
     rowKey: 'id',
     stickyHeader: false,
+    loadingLabel: 'Loading',
   },
 )
 
@@ -116,6 +118,14 @@ const skeletonRows = 5
 
 <template>
   <div class="s-table-wrap">
+    <!-- Screen-reader loading announcement (skeleton rows are visual-only) -->
+    <span
+      v-if="loading"
+      class="sr-only"
+      role="status"
+      aria-live="polite"
+    >{{ loadingLabel }}</span>
+
     <!-- Bulk actions bar -->
     <div
       v-if="selectable && selected.length > 0"
@@ -128,7 +138,10 @@ const skeletonRows = 5
       />
     </div>
 
-    <table class="s-table">
+    <table
+      class="s-table"
+      :aria-busy="loading"
+    >
       <thead :class="{ 's-table__thead--sticky': stickyHeader }">
         <tr>
           <!-- Select-all checkbox -->

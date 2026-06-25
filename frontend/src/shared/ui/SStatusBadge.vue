@@ -9,6 +9,8 @@ type BadgeVariant = 'info' | 'success' | 'warning' | 'danger' | 'neutral'
 
 const VARIANT_MAP: Record<string, BadgeVariant> = {
   active: 'success',
+  banned: 'danger',
+  deleted: 'neutral',
   current: 'success',
   running: 'info',
   waiting: 'warning',

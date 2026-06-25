@@ -2,23 +2,13 @@
   <section class="admin-rate-limits">
     <SPageHeader :title="$t('admin.rateLimits.title')" />
 
-    <SAlert
+    <SQueryError
       v-if="query.isError.value"
-      variant="danger"
       class="mt-4"
-      role="alert"
-    >
-      {{ $t('admin.common.loadError') }}
-      <template #actions>
-        <SButton
-          size="sm"
-          variant="secondary"
-          @click="query.refetch()"
-        >
-          {{ $t('admin.common.retry') }}
-        </SButton>
-      </template>
-    </SAlert>
+      :message="$t('admin.common.loadError')"
+      :retry-label="$t('admin.common.retry')"
+      @retry="query.refetch()"
+    />
 
     <STable
       v-else
@@ -26,6 +16,7 @@
       :columns="columns"
       :data="query.data.value ?? []"
       :loading="query.isPending.value"
+      :loading-label="$t('admin.common.loading')"
       row-key="key"
     >
       <template #cell-key="{ row }">
@@ -55,7 +46,7 @@
       </template>
 
       <template #cell-updated_at="{ row }">
-        {{ new Date(row.updated_at).toLocaleString() }}
+        {{ formatDateTime(row.updated_at) }}
       </template>
 
       <template #actions="{ row }">
@@ -83,14 +74,17 @@
 import { computed, reactive, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { AdjustmentsHorizontalIcon } from '@heroicons/vue/24/outline'
-import { SPageHeader, STable, SButton, SInput, SAlert, SEmptyState } from '@shared/ui'
+import { SPageHeader, STable, SButton, SInput, SQueryError, SEmptyState } from '@shared/ui'
 import type { Column } from '@shared/ui/STable.vue'
+import { formatDateTime } from '@shared/utils/datetime'
+import { useToast } from '@shared/composables'
 import { useQuery } from '@tanstack/vue-query'
 import { adminApi } from '../api/admin'
 import { adminKeys } from '../queries'
 import { useAdminActions } from '../composables/useAdminActions'
 
 const { t } = useI18n()
+const toast = useToast()
 
 interface EditRow {
   window_sec: number
@@ -131,6 +125,15 @@ const actions = useAdminActions()
 function onPatch(key: string): void {
   const edit = edits[key]
   if (!edit) return
+  // SInput coerces a cleared number field to 0; guard before hitting the API
+  // (backend requires window_sec/max_count >= 1) so the user gets a clear reason.
+  if (
+    !Number.isFinite(edit.window_sec) || edit.window_sec < 1
+    || !Number.isFinite(edit.max_count) || edit.max_count < 1
+  ) {
+    toast.warning(t('admin.rateLimits.invalid'))
+    return
+  }
   actions.patchRateLimit.mutate({
     key,
     patch: { window_sec: edit.window_sec, max_count: edit.max_count },

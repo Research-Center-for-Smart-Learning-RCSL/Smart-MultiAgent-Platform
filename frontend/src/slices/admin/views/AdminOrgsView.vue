@@ -2,23 +2,13 @@
   <section class="admin-orgs">
     <SPageHeader :title="$t('admin.orgs.title')" />
 
-    <SAlert
+    <SQueryError
       v-if="query.isError.value"
-      variant="danger"
       class="mt-4"
-      role="alert"
-    >
-      {{ $t('admin.common.loadError') }}
-      <template #actions>
-        <SButton
-          size="sm"
-          variant="secondary"
-          @click="query.refetch()"
-        >
-          {{ $t('admin.common.retry') }}
-        </SButton>
-      </template>
-    </SAlert>
+      :message="$t('admin.common.loadError')"
+      :retry-label="$t('admin.common.retry')"
+      @retry="query.refetch()"
+    />
 
     <STable
       v-else
@@ -26,6 +16,7 @@
       :columns="columns"
       :data="query.data.value ?? []"
       :loading="query.isPending.value"
+      :loading-label="$t('admin.common.loading')"
       row-key="id"
     >
       <template #cell-creator_user_id="{ row }">
@@ -33,7 +24,7 @@
       </template>
 
       <template #cell-created_at="{ row }">
-        {{ new Date(row.created_at).toLocaleDateString() }}
+        {{ formatDate(row.created_at) }}
       </template>
 
       <template #cell-deleted_at="{ row }">
@@ -41,7 +32,7 @@
           v-if="row.deleted_at"
           variant="danger"
         >
-          {{ new Date(row.deleted_at!).toLocaleDateString() }}
+          {{ formatDate(row.deleted_at!) }}
         </SBadge>
         <span v-else>-</span>
       </template>
@@ -92,10 +83,11 @@ import {
   STable,
   SButton,
   SBadge,
-  SAlert,
+  SQueryError,
   SEmptyState,
 } from '@shared/ui'
 import type { Column } from '@shared/ui/STable.vue'
+import { formatDate } from '@shared/utils/datetime'
 import { useQuery } from '@tanstack/vue-query'
 import { useConfirmDialog } from '@shared/composables'
 

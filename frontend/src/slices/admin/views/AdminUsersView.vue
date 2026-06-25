@@ -26,23 +26,13 @@
       </SButton>
     </form>
 
-    <SAlert
+    <SQueryError
       v-if="query.isError.value"
-      variant="danger"
       class="mt-4"
-      role="alert"
-    >
-      {{ $t('admin.users.loadError') }}
-      <template #actions>
-        <SButton
-          size="sm"
-          variant="secondary"
-          @click="query.refetch()"
-        >
-          {{ $t('admin.common.retry') }}
-        </SButton>
-      </template>
-    </SAlert>
+      :message="$t('admin.users.loadError')"
+      :retry-label="$t('admin.common.retry')"
+      @retry="query.refetch()"
+    />
 
     <STable
       v-else
@@ -50,6 +40,7 @@
       :columns="columns"
       :data="query.data.value ?? []"
       :loading="query.isPending.value"
+      :loading-label="$t('admin.common.loading')"
       row-key="id"
     >
       <template #cell-email="{ row }">
@@ -59,9 +50,9 @@
       </template>
 
       <template #cell-status="{ row }">
-        <SBadge :variant="userStatusVariant(row.status)">
+        <SStatusBadge :status="row.status">
           {{ $t(userStatusLabelKey(row.status)) }}
-        </SBadge>
+        </SStatusBadge>
       </template>
 
       <template #cell-email_verified="{ row }">
@@ -69,7 +60,7 @@
       </template>
 
       <template #cell-created_at="{ row }">
-        {{ new Date(row.created_at).toLocaleDateString() }}
+        {{ formatDate(row.created_at) }}
       </template>
 
       <template #actions="{ row }">
@@ -109,18 +100,19 @@ import {
   SPageHeader,
   STable,
   SButton,
-  SBadge,
+  SStatusBadge,
   SSelect,
   SSearchInput,
   SEmptyState,
-  SAlert,
+  SQueryError,
 } from '@shared/ui'
 import type { Column } from '@shared/ui/STable.vue'
+import { formatDate } from '@shared/utils/datetime'
 import { useQuery } from '@tanstack/vue-query'
 import { adminApi } from '../api/admin'
 import { adminKeys } from '../queries'
 import { useAdminActions } from '../composables/useAdminActions'
-import { userStatusVariant, userStatusLabelKey } from '../utils/userStatus'
+import { userStatusLabelKey } from '../utils/userStatus'
 
 const { t } = useI18n()
 
