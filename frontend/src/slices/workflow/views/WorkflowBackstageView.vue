@@ -16,7 +16,6 @@
         <select
           v-model="selectedRunId"
           class="border rounded px-2 py-1 text-sm w-full max-w-xs"
-          @change="onRunSelected"
         >
           <option value="">
             —
@@ -88,7 +87,7 @@
         </h2>
         <SubagentTree
           v-if="selectedRunId"
-          :parent-instance-id="selectedRunId"
+          :run-id="selectedRunId"
           :agent-names="agentNames"
         />
       </div>
@@ -98,11 +97,23 @@
         <h2 class="font-semibold mb-2">
           {{ $t('workflow.backstage.instructChains') }}
         </h2>
-        <InstructChainView
-          v-if="selectedRunId"
-          :chain-id="selectedRunId"
-          :agent-names="agentNames"
-        />
+        <div
+          v-if="chainIds.length"
+          class="space-y-3"
+        >
+          <InstructChainView
+            v-for="cid in chainIds"
+            :key="cid"
+            :chain-id="cid"
+            :agent-names="agentNames"
+          />
+        </div>
+        <p
+          v-else
+          class="text-muted text-sm"
+        >
+          {{ $t('workflow.backstage.noChains') }}
+        </p>
       </div>
 
       <!-- Approval histories -->
@@ -134,18 +145,21 @@
 
 <script setup lang="ts">
 import { useQuery } from '@tanstack/vue-query'
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 
 import { STATUS_BG_MAP } from '@shared/ui'
-import { listApprovalsForRun, listRuns, listSteps } from '../api'
+import { getApproval, getInstruction, listApprovalsForRun, listRuns, listSteps } from '../api'
 import { wfKeys } from '../queries'
+import type { ApprovalWithVotes } from '../types'
+import { fetchProjectAgents } from '../utils/projectAgents'
 import ApprovalCard from '../components/ApprovalCard.vue'
 import InstructChainView from '../components/InstructChainView.vue'
 import SubagentTree from '../components/SubagentTree.vue'
 
 const route = useRoute()
 const workflowId = route.params.workflowId as string
+const workspaceId = route.params.workspaceId as string
 const selectedRunId = ref('')
 const agentNames = ref<Record<string, string>>({})
 
@@ -162,17 +176,77 @@ const stepsQuery = useQuery({
   enabled: computed(() => !!selectedRunId.value),
 })
 
+// The list endpoint returns approvals without their votes; fetch each one in
+// full so the backstage cards can render the voter breakdown (spec 5.6). Use
+// allSettled so one archived/erroring approval does not collapse the panel —
+// the readable ones still render.
 const approvalsQuery = useQuery({
   queryKey: computed(() => wfKeys.approvals(selectedRunId.value)),
-  queryFn: () => listApprovalsForRun(selectedRunId.value),
+  queryFn: async () => {
+    const list = await listApprovalsForRun(selectedRunId.value)
+    const settled = await Promise.allSettled(list.map((a) => getApproval(a.id)))
+    return settled
+      .filter((r): r is PromiseFulfilledResult<ApprovalWithVotes> => r.status === 'fulfilled')
+      .map((r) => r.value)
+  },
   enabled: computed(() => !!selectedRunId.value),
 })
 
 const stepsList = computed(() => stepsQuery.data.value ?? [])
 
-function onRunSelected(): void {
-  // queries auto-refetch on key change
+// Derive the distinct instruction-chain ids for the run from its instruct
+// steps: each instruct step stores `{ instruction_id }` in its output, and an
+// instruction record carries the chain id it belongs to. Backstage is
+// admin-only, so the admin-scoped getInstruction lookup is available here.
+const chainIds = ref<string[]>([])
+
+// Monotonic guard: each run change bumps this so a slower in-flight resolution
+// for a previously-selected run cannot land last and overwrite fresher chain
+// ids (same stale-overwrite race the run socket guards with syncGeneration).
+let chainGeneration = 0
+
+watch(
+  stepsList,
+  async (steps) => {
+    const generation = ++chainGeneration
+    const instructionIds = steps
+      .map((s) => (s.output as { instruction_id?: unknown } | null)?.instruction_id)
+      .filter((v): v is string => typeof v === 'string')
+    if (!instructionIds.length) {
+      chainIds.value = []
+      return
+    }
+    const seen = new Set<string>()
+    await Promise.all(
+      instructionIds.map(async (iid) => {
+        try {
+          const instr = await getInstruction(iid)
+          seen.add(instr.chain_id)
+        } catch {
+          // Non-fatal — instruction may be archived or unreadable.
+        }
+      }),
+    )
+    if (generation !== chainGeneration) return
+    chainIds.value = [...seen]
+  },
+  { immediate: true },
+)
+
+// Map agent ids to display names so the sub-agent tree / instruction chain
+// render readable labels instead of truncated ids. Failure is non-fatal —
+// labels fall back to ids.
+async function loadAgentNames(): Promise<void> {
+  try {
+    const agents = await fetchProjectAgents(workspaceId)
+    const map: Record<string, string> = {}
+    for (const a of agents) map[a.id] = a.name
+    agentNames.value = map
+  } catch {
+    // Non-fatal.
+  }
 }
+onMounted(loadAgentNames)
 
 function stepBorderClass(state: string): string {
   switch (state) {

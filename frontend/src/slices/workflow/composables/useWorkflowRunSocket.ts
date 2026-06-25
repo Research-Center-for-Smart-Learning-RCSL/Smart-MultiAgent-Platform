@@ -59,8 +59,13 @@ export function useWorkflowRunSocket(runId: string) {
       case 'workflow.step_started':
       case 'workflow.step_finished':
       case 'workflow.step_failed':
+        // Any step transition can flip the run's own state (a resume out of
+        // `waiting`, a step that fails the run, or the final step), so refresh
+        // both the step list and the run header.
         qc.invalidateQueries({ queryKey: wfKeys.steps(runId) })
+        qc.invalidateQueries({ queryKey: wfKeys.run(runId) })
         break
+      case 'workflow.run_started':
       case 'workflow.run_finished':
       case 'workflow.run_cancelled':
         qc.invalidateQueries({ queryKey: wfKeys.run(runId) })

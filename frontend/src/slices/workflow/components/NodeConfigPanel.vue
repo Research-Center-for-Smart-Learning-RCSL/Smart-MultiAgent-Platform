@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, ref, watch, type Component } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { SFormField } from '@shared/ui'
 import type { WorkflowNode, NodeType } from '../types'
@@ -31,7 +31,7 @@ defineEmits<{
   (e: 'delete'): void
 }>()
 
-const CONFIG_FORM_MAP: Record<NodeType, unknown> = {
+const CONFIG_FORM_MAP: Record<NodeType, Component> = {
   trigger: TriggerConfigForm,
   agent_invocation: AgentInvocationConfigForm,
   approval_gate: ApprovalGateConfigForm,
@@ -88,10 +88,11 @@ const configComponent = computed(() => CONFIG_FORM_MAP[props.node.type] ?? null)
       @update:model-value="$emit('update:config', $event)"
     />
 
-    <!-- Delete button -->
+    <!-- Delete button — disabled (not hidden) for the trigger entry node -->
     <button
-      v-if="node.type !== 'trigger'"
       class="btn btn-danger w-full mt-4"
+      :disabled="node.type === 'trigger'"
+      :title="node.type === 'trigger' ? t('workflow.config.cannotDeleteTrigger') : ''"
       @click="$emit('delete')"
     >
       {{ t('workflow.config.deleteNode') }}

@@ -9,8 +9,8 @@
       >
         &larr; {{ $t('workflow.run.backToRuns') }}
       </button>
-      <h1 class="text-xl font-semibold">
-        {{ $t('workflow.run.title') }}
+      <h1 class="text-xl font-semibold font-mono">
+        {{ $t('workflow.run.idLabel', { id: shortRunId }) }}
       </h1>
       <SStatusBadge
         v-if="run"
@@ -18,9 +18,14 @@
       />
       <span
         v-if="connected"
-        class="ml-2 w-2 h-2 rounded-full bg-success inline-block"
-        :title="$t('workflow.run.liveConnected')"
-      />
+        class="ml-2 inline-flex items-center gap-1 text-xs text-success"
+      >
+        <span
+          class="w-2 h-2 rounded-full bg-success inline-block"
+          aria-hidden="true"
+        />
+        {{ $t('workflow.run.connected') }}
+      </span>
     </header>
 
     <!-- Cancel -->
@@ -29,7 +34,7 @@
       class="mb-4"
     >
       <button
-        class="btn btn-sm text-danger"
+        class="btn btn-danger btn-sm"
         @click="onCancel"
       >
         {{ $t('workflow.run.cancel') }}
@@ -39,7 +44,7 @@
     <!-- Run details -->
     <div
       v-if="run"
-      class="mb-6 text-sm space-y-1"
+      class="mb-6 text-sm grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-1 max-w-2xl"
     >
       <p><strong>{{ $t('workflow.run.triggerType') }}:</strong> {{ run.trigger_type }}</p>
       <p><strong>{{ $t('workflow.run.started') }}:</strong> {{ new Date(run.started_at).toLocaleString() }}</p>
@@ -132,6 +137,7 @@ const route = useRoute()
 const router = useRouter()
 const qc = useQueryClient()
 const runId = route.params.runId as string
+const shortRunId = (runId ?? '').slice(0, 8)
 const toast = useToast()
 
 const { connected } = useWorkflowRunSocket(runId)

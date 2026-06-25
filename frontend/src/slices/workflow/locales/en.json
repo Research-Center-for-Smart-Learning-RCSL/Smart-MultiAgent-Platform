@@ -10,6 +10,8 @@
       "runs": "Runs",
       "delete": "Delete",
       "empty": "No workflows yet.",
+      "emptyHint": "Create one above to start orchestrating your agents.",
+      "retry": "Retry",
       "loadError": "Failed to load workflows.",
       "createFailed": "Failed to create workflow.",
       "deleteFailed": "Failed to delete workflow.",
@@ -56,12 +58,13 @@
       "inspect": "Inspect",
       "archived": "archived",
       "empty": "No runs yet.",
+      "emptyHint": "Trigger a manual run, or wait for this workflow's triggers to fire.",
       "triggerFailed": "Failed to trigger workflow run."
     },
     "run": {
-      "title": "Run Inspector",
+      "idLabel": "Run {id}",
       "backToRuns": "Runs",
-      "liveConnected": "Live connected",
+      "connected": "Connected",
       "cancel": "Cancel Run",
       "triggerType": "Trigger",
       "started": "Started",
@@ -81,6 +84,7 @@
       "noSteps": "No steps for this run.",
       "subagentTree": "Sub-agent Tree",
       "instructChains": "Instruction Chains",
+      "noChains": "No instruction chains for this run.",
       "approvalHistory": "Approval History",
       "noApprovals": "No approvals for this run."
     },

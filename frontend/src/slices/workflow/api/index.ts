@@ -165,11 +165,15 @@ export async function listInstructionsForChain(
 
 // ---- Sub-agents (G.8) -------------------------------------------------------
 
-export async function listSubagents(
-  parentInstanceId: string,
+// All sub-agents spawned during a workflow run (alive + destroyed), for the
+// admin backstage trace where the run has usually finished and its sub-agents
+// are already torn down. (The alive-only `/instances/{id}/children` endpoint
+// exists server-side but has no frontend consumer.)
+export async function listRunSubagents(
+  runId: string,
 ): Promise<AgentInstance[]> {
   const { data } = await http.get<AgentInstance[]>(
-    `/orchestration/instances/${parentInstanceId}/children`,
+    `/orchestration/workflow-runs/${runId}/subagents`,
   )
   return data
 }

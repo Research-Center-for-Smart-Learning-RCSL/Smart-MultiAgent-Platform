@@ -27,12 +27,11 @@
       </label>
     </div>
 
-    <p
+    <SLoadingSpinner
       v-if="query.isLoading.value"
-      class="text-muted"
-    >
-      …
-    </p>
+      :label="$t('workflow.runs.title')"
+      class="justify-center py-8"
+    />
     <div
       v-else-if="runsList.length"
       class="overflow-x-auto"
@@ -90,12 +89,12 @@
         </tbody>
       </table>
     </div>
-    <p
+    <SEmptyState
       v-else
-      class="text-muted"
-    >
-      {{ $t('workflow.runs.empty') }}
-    </p>
+      :icon="PlayCircleIcon"
+      :title="$t('workflow.runs.empty')"
+      :text="$t('workflow.runs.emptyHint')"
+    />
   </section>
 </template>
 
@@ -105,8 +104,14 @@ import { computed, ref } from 'vue'
 import { useRoute } from 'vue-router'
 
 import { useI18n } from 'vue-i18n'
+import { PlayCircleIcon } from '@heroicons/vue/24/outline'
 import { useToast } from '@shared/composables'
-import { SPageHeader, SStatusBadge } from '@shared/ui'
+import {
+  SEmptyState,
+  SLoadingSpinner,
+  SPageHeader,
+  SStatusBadge,
+} from '@shared/ui'
 import { listRuns, triggerRun } from '../api'
 import { wfKeys } from '../queries'
 
