@@ -27,6 +27,7 @@ import {
   SAccordion,
   SEmptyState,
   SAlert,
+  STooltip,
 } from '@shared/ui'
 import {
   useConfirmDialog,
@@ -87,6 +88,13 @@ const availableAgents = computed(() =>
 )
 const hasKeyGroups = computed(() => (keyGroupsQuery.data.value?.length ?? 0) > 0)
 const canCreate = computed(() => availableAgents.value.length > 0 && hasKeyGroups.value)
+
+// A config is only "active" when its agent points back at it (turn_engine reads
+// agent.graphrag_config_id). A built-but-unbound config has already consumed the
+// builder key budget yet performs no retrieval, so surface that explicitly to
+// stop users believing a finished build is wired up when it is not.
+const isBound = (cfg: GraphragConfig): boolean =>
+  agentById.value.get(cfg.agent_id)?.graphrag_config_id === cfg.id
 
 // --- Build state management ---
 const IN_PROGRESS = new Set(['running', 'neo4j_committed', 'failed_compensating'])
@@ -273,6 +281,7 @@ const columns = computed<Column[]>(() => [
   { key: 'agent_id', label: t('agents.graphragList.colAgent') },
   { key: 'builder_key_group_id', label: t('agents.graphragList.colBuilder'), width: '160px' },
   { key: 'last_build_state', label: t('agents.graphragList.colState'), width: '120px' },
+  { key: 'binding', label: t('agents.graphragList.colBinding'), width: '110px' },
   { key: 'last_build_at', label: t('agents.graphragList.colLastBuilt'), width: '120px' },
   { key: 'actions', label: '', width: '120px', align: 'right' },
 ])
@@ -334,6 +343,23 @@ const columns = computed<Column[]>(() => [
         >
           {{ buildStateLabel(effectiveState(row)) }}
         </SBadge>
+      </template>
+
+      <template #cell-binding="{ row }">
+        <SBadge
+          v-if="isBound(row)"
+          variant="success"
+        >
+          {{ t('agents.graphragList.bound') }}
+        </SBadge>
+        <STooltip
+          v-else
+          :content="t('agents.graphragList.unboundHint')"
+        >
+          <SBadge variant="warning">
+            {{ t('agents.graphragList.unbound') }}
+          </SBadge>
+        </STooltip>
       </template>
 
       <template #cell-last_build_at="{ row }">
@@ -494,6 +520,25 @@ const columns = computed<Column[]>(() => [
             <SBadge :variant="buildStateVariant(drawerStatus.state)">
               {{ buildStateLabel(drawerStatus.state) }}
             </SBadge>
+          </div>
+          <div v-if="statusDrawerConfig">
+            <p class="text-sm font-medium text-[var(--color-muted)] mb-1">
+              {{ t('agents.graphragList.colBinding') }}
+            </p>
+            <SBadge
+              v-if="isBound(statusDrawerConfig)"
+              variant="success"
+            >
+              {{ t('agents.graphragList.bound') }}
+            </SBadge>
+            <template v-else>
+              <SBadge variant="warning">
+                {{ t('agents.graphragList.unbound') }}
+              </SBadge>
+              <p class="text-sm text-[var(--color-muted)] mt-1">
+                {{ t('agents.graphragList.unboundHint') }}
+              </p>
+            </template>
           </div>
           <div>
             <p class="text-sm font-medium text-[var(--color-muted)] mb-1">
