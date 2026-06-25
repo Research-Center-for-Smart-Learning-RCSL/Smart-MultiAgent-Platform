@@ -4,7 +4,12 @@ export { useConfirmDialog, type ConfirmOptions, type PromptOptions } from './use
 export { useCsrfToken } from './useCsrfToken'
 export { useServerErrors } from './useServerErrors'
 export { useTheme, type Theme } from './useTheme'
-export { useToast } from './useToast'
+export { useToast, TOAST_DURATION_MS, type ToastOptions } from './useToast'
+export {
+  useNetworkStatus,
+  markConnectionLost,
+  markConnectionRestored,
+} from './useNetworkStatus'
 export { useNow } from './useNow'
 export { usePolling, type UsePollingOptions, type PollingController } from './usePolling'
 export { useInlineRename, type InlineRename } from './useInlineRename'

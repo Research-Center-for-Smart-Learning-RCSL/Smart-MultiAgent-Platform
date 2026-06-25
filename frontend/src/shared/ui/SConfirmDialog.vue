@@ -4,9 +4,10 @@ import { useI18n } from 'vue-i18n'
 import { useConfirmDialog } from '@shared/composables/useConfirmDialog'
 import SModal from './SModal.vue'
 import SButton from './SButton.vue'
+import SAlert from './SAlert.vue'
 
 const { t } = useI18n()
-const { state, handleConfirm, handleCancel } = useConfirmDialog()
+const { state, canConfirm, handleConfirm, handleCancel } = useConfirmDialog()
 
 const inputRef = ref<HTMLInputElement | null>(null)
 </script>
@@ -18,9 +19,21 @@ const inputRef = ref<HTMLInputElement | null>(null)
     size="sm"
     role="alertdialog"
     :closable="false"
+    :close-on-backdrop="false"
     @close="handleCancel"
   >
-    <p class="s-confirm__message">
+    <!-- High-impact destructive prompts surface the warning in a danger alert
+         so the irreversibility reads before the confirmation input (§3.2). -->
+    <SAlert
+      v-if="state.promptMode && state.variant === 'error'"
+      variant="danger"
+    >
+      {{ state.message }}
+    </SAlert>
+    <p
+      v-else
+      class="s-confirm__message"
+    >
       {{ state.message }}
     </p>
 
@@ -50,13 +63,14 @@ const inputRef = ref<HTMLInputElement | null>(null)
 
     <template #footer>
       <SButton
-        variant="secondary"
+        variant="ghost"
         @click="handleCancel"
       >
         {{ state.cancelLabel || t('app.cancel') }}
       </SButton>
       <SButton
         :variant="state.variant === 'error' ? 'danger' : 'primary'"
+        :disabled="!canConfirm"
         @click="handleConfirm"
       >
         {{ state.confirmLabel || t('app.confirm') }}

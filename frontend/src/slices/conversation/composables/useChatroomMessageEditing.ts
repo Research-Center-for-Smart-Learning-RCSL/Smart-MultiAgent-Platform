@@ -34,11 +34,26 @@ export function useChatroomMessageEditing(chatroomId: string) {
     const id = editingId.value
     const text = editDraft.value.trim()
     if (!id || !text) return
+    const version = editVersion.value
+    const key = convKeys.messages(chatroomId)
+    const prevRecent = qc.getQueryData<Message[]>(key)
+    // Optimistic content swap in the cache, then close the editor immediately
+    // (§7.2). Messages only in the older-pagination pane aren't in this cache;
+    // those reconcile via the message.updated WS event instead.
+    qc.setQueryData<Message[]>(key, (prev) =>
+      prev?.map((m) =>
+        m.id === id ? { ...m, content_md: text, edited_at: new Date().toISOString() } : m,
+      ),
+    )
+    cancelEdit()
     try {
-      await apiEditMessage(id, editVersion.value, text)
-      cancelEdit()
-      await qc.invalidateQueries({ queryKey: convKeys.messages(chatroomId) })
+      const updated = await apiEditMessage(id, version, text)
+      qc.setQueryData<Message[]>(key, (prev) =>
+        prev?.map((m) => (m.id === updated.id ? updated : m)),
+      )
     } catch {
+      // Rollback to the pre-edit content and surface the failure.
+      if (prevRecent) qc.setQueryData(key, prevRecent)
       toast.error(t('conversation.chatroom.editFailed'))
     }
   }

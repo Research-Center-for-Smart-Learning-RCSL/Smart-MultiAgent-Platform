@@ -8,7 +8,7 @@
 // so the client recovers the delta the server did not replay.
 
 import { useQueryClient } from '@tanstack/vue-query'
-import { onActivated, onBeforeUnmount, onDeactivated, onMounted, ref, watch } from 'vue'
+import { computed, onActivated, onBeforeUnmount, onDeactivated, onMounted, ref, watch } from 'vue'
 
 import { wsManager, type ChannelEvent } from '@shared/transport'
 import { useOrchestrationStore } from '@shared/stores/orchestration'
@@ -27,16 +27,37 @@ export function useChatroomSocket(roomId: string) {
   const store = useConversationStore()
   const orchStore = useOrchestrationStore()
   const connected = ref(false)
-  // Three-state pill (07-conversation): 'connecting' before the first
-  // successful open, 'live' while open, 'reconnecting' once a previously-live
-  // socket has dropped. The channel auto-retries forever, so a drop is never a
-  // terminal state — the transport only exposes a boolean, so this richer
-  // distinction is derived here rather than in the transport contract.
-  const connectionState = ref<'connecting' | 'live' | 'reconnecting'>('connecting')
+  // Pill state (07-conversation / §7.1): 'connecting' before the first open,
+  // 'live' while open, 'reconnecting' after a drop, and 'degraded' once the
+  // socket has failed to reconnect enough times that we fall back to REST
+  // polling. The transport exposes a boolean (open/closed) plus an advisory
+  // degraded flag; the richer pill state is derived from both here.
+  const baseState = ref<'connecting' | 'live' | 'reconnecting'>('connecting')
+  const degraded = ref(false)
+  const connectionState = computed<'connecting' | 'live' | 'reconnecting' | 'degraded'>(
+    () => (degraded.value && baseState.value !== 'live' ? 'degraded' : baseState.value),
+  )
   let everConnected = false
   const lastSeenMessageId = ref<string | null>(null)
 
   const channel = wsManager.channel(`/chatroom/${roomId}`)
+
+  // Polling fallback: while the socket is degraded, pull the message delta over
+  // REST every 10s so the room keeps updating even though pushes are dark (§7.1).
+  const POLL_INTERVAL_MS = 10_000
+  let pollTimer: ReturnType<typeof setInterval> | null = null
+
+  function startPolling(): void {
+    if (pollTimer !== null) return
+    pollTimer = setInterval(() => void replayDelta(), POLL_INTERVAL_MS)
+  }
+
+  function stopPolling(): void {
+    if (pollTimer !== null) {
+      clearInterval(pollTimer)
+      pollTimer = null
+    }
+  }
 
   // Monotonic generation guard: each reconnect bumps this counter, so if the
   // socket flaps and two replays overlap, a slower earlier fetch cannot
@@ -191,13 +212,15 @@ export function useChatroomSocket(roomId: string) {
   const unsubscribeEvent = channel.subscribe('*', handleEvent)
   const unsubscribeStatus = channel.onStatus((isConnected) => {
     connected.value = isConnected
-    connectionState.value = isConnected
+    baseState.value = isConnected
       ? 'live'
       : everConnected
         ? 'reconnecting'
         : 'connecting'
     if (isConnected) {
       everConnected = true
+      // The socket is back — the degraded poll (if any) is now redundant.
+      stopPolling()
       // Clear stale thinking state from a prior session: if the agent
       // finished while we were disconnected (KeepAlive deactivation or
       // network drop), no agent.finished event was received and the
@@ -207,6 +230,12 @@ export function useChatroomSocket(roomId: string) {
       clearThinkingTimeout()
       void replayDelta()
     }
+  })
+
+  const unsubscribeDegraded = channel.onDegraded((isDegraded) => {
+    degraded.value = isDegraded
+    if (isDegraded) startPolling()
+    else stopPolling()
   })
 
   onMounted(() => {
@@ -219,14 +248,17 @@ export function useChatroomSocket(roomId: string) {
 
   onDeactivated(() => {
     clearThinkingTimeout()
+    stopPolling()
     channel.disconnect()
   })
 
   onBeforeUnmount(() => {
     clearThinkingTimeout()
+    stopPolling()
     channel.send({ type: 'typing.stop' })
     unsubscribeEvent()
     unsubscribeStatus()
+    unsubscribeDegraded()
     wsManager.close(`/chatroom/${roomId}`)
     store.resetRoom(roomId)
   })

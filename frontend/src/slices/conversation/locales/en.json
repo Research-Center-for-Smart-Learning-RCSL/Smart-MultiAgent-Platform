@@ -68,6 +68,8 @@
       "searchResults": "Search Results",
       "live": "live",
       "offline": "offline",
+      "degraded": "offline (polling)",
+      "sending": "Sending…",
       "uploadFailed": "(failed) {filename}",
       "sendFailed": "Failed to send message.",
       "searchFailed": "Search failed.",

@@ -10,6 +10,10 @@ const props = withDefaults(defineProps<{
   size?: 'sm' | 'md' | 'lg' | 'xl' | 'full'
   closable?: boolean
   persistent?: boolean
+  /** When false, clicking the backdrop does NOT close the modal, but Escape
+   *  still does (unless `persistent`). Lets a destructive-confirm dialog resist
+   *  an accidental backdrop click while staying keyboard-dismissible (§3.1). */
+  closeOnBackdrop?: boolean
   role?: 'dialog' | 'alertdialog'
 }>(), {
   open: false,
@@ -17,6 +21,7 @@ const props = withDefaults(defineProps<{
   size: 'md',
   closable: true,
   persistent: false,
+  closeOnBackdrop: true,
   role: 'dialog',
 })
 
@@ -43,7 +48,7 @@ function onKeydown(e: KeyboardEvent) {
 }
 
 function onBackdropClick() {
-  if (!props.persistent) {
+  if (!props.persistent && props.closeOnBackdrop) {
     emit('close')
   }
 }

@@ -18,7 +18,7 @@ import {
 } from '../api'
 import { renderMarkdown } from '../utils/renderMarkdown'
 import { convKeys } from '../queries'
-import type { Attachment, Message } from '../types'
+import type { Attachment, DisplayMessage, Message } from '../types'
 
 // R13.21/R13.23: an author may edit their OWN message within 5 minutes; beyond
 // that only Admin/Project Owner may. Agents never edit their own (R13.22). The
@@ -46,6 +46,8 @@ export function useChatroomMessages(
   }
 
   function canEdit(m: Message): boolean {
+    // An optimistic (not-yet-persisted) message has no server id to PATCH.
+    if ((m as DisplayMessage)._status) return false
     if (isAdmin.value) return true
     return (
       isOwnUserMessage(m) &&
@@ -54,6 +56,7 @@ export function useChatroomMessages(
   }
 
   function canDelete(m: Message): boolean {
+    if ((m as DisplayMessage)._status) return false
     return isAdmin.value || isOwnUserMessage(m)
   }
 
@@ -63,6 +66,10 @@ export function useChatroomMessages(
   const olderMessages = ref<Message[]>([])
   const hasOlderMessages = ref(true)
   const loadingOlder = ref(false)
+  // Optimistic, not-yet-acknowledged sends (§7.2). They render immediately with
+  // a "sending" state and are reconciled against the persisted message (or
+  // rolled back) when the POST settles.
+  const pendingMessages = ref<DisplayMessage[]>([])
 
   const query = useQuery({
     queryKey: convKeys.messages(chatroomId),
@@ -79,13 +86,18 @@ export function useChatroomMessages(
     { immediate: true },
   )
 
-  const messages = computed<Message[]>(() => {
+  const messages = computed<DisplayMessage[]>(() => {
     const recent = query.data.value ?? []
     const recentIds = new Set(recent.map((m) => m.id))
     const deduped = olderMessages.value.filter((m) => !recentIds.has(m.id))
-    return [...deduped, ...recent].sort((a, b) =>
+    const persisted = [...deduped, ...recent].sort((a, b) =>
       a.created_at < b.created_at ? -1 : 1,
     )
+    // Pending sends always tail the list (they are the newest), regardless of
+    // any clock skew between the optimistic timestamp and persisted messages.
+    return pendingMessages.value.length
+      ? [...persisted, ...pendingMessages.value]
+      : persisted
   })
 
   async function loadEarlier(): Promise<void> {
@@ -156,17 +168,48 @@ export function useChatroomMessages(
       return true
     }
 
+    // Optimistic insert: show the message immediately in a "sending" state and
+    // clear the composer, so the UI never waits on the round-trip (§7.2).
+    const tempId = `pending-${crypto.randomUUID()}`
+    const optimistic: DisplayMessage = {
+      id: tempId,
+      chatroom_id: chatroomId,
+      sender_type: 'user',
+      sender_id: myId.value,
+      content_md: text,
+      metadata: {},
+      version: 0,
+      created_at: new Date().toISOString(),
+      edited_at: null,
+      deleted_at: null,
+      _status: 'sending',
+    }
+    pendingMessages.value = [...pendingMessages.value, optimistic]
+    draft.value = ''
+    await nextTick()
+    // jsdom (tests) has no Element.scrollTo.
+    if (typeof listRef.value?.scrollTo === 'function') {
+      listRef.value.scrollTo({ top: listRef.value.scrollHeight })
+    }
+
     try {
-      await sendMessage(chatroomId, { content_md: text, attachment_ids: attachmentIds })
-      draft.value = ''
-      await qc.invalidateQueries({ queryKey: convKeys.messages(chatroomId) })
-      await nextTick()
-      // jsdom (tests) has no Element.scrollTo.
-      if (typeof listRef.value?.scrollTo === 'function') {
-        listRef.value.scrollTo({ top: listRef.value.scrollHeight })
-      }
+      const created = await sendMessage(chatroomId, {
+        content_md: text,
+        attachment_ids: attachmentIds,
+      })
+      // Seed the cache with the persisted message before dropping the optimistic
+      // one, so the bubble never flickers out and back in. The WS echo /
+      // refetch dedupes on id.
+      qc.setQueryData<Message[]>(convKeys.messages(chatroomId), (prev) => {
+        if (!prev) return [created]
+        if (prev.some((x) => x.id === created.id)) return prev
+        return [...prev, created]
+      })
+      pendingMessages.value = pendingMessages.value.filter((m) => m.id !== tempId)
       return true
     } catch {
+      // Rollback: pull the optimistic message and surface the failure (§7.2).
+      pendingMessages.value = pendingMessages.value.filter((m) => m.id !== tempId)
       toast.error(t('conversation.chatroom.sendFailed'))
       return false
     }
@@ -181,10 +224,19 @@ export function useChatroomMessages(
       variant: 'warning',
     })
     if (!ok) return
+    const key = convKeys.messages(chatroomId)
+    const prevRecent = qc.getQueryData<Message[]>(key)
+    const prevOlder = olderMessages.value
+    // Optimistic removal: drop it from both panes immediately. The list's
+    // <TransitionGroup> animates the leave (§7.2 fade-out).
+    qc.setQueryData<Message[]>(key, (prev) => prev?.filter((x) => x.id !== m.id))
+    olderMessages.value = olderMessages.value.filter((x) => x.id !== m.id)
     try {
       await apiDeleteMessage(m.id)
-      await qc.invalidateQueries({ queryKey: convKeys.messages(chatroomId) })
     } catch {
+      // Rollback both panes to exactly what they were before.
+      if (prevRecent) qc.setQueryData(key, prevRecent)
+      olderMessages.value = prevOlder
       toast.error(t('conversation.chatroom.deleteFailed'))
     }
   }

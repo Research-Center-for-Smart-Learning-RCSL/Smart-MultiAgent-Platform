@@ -28,9 +28,14 @@ export interface ChannelEvent {
 
 type EventHandler = (event: ChannelEvent) => void
 type StatusHandler = (connected: boolean) => void
+type DegradedHandler = (degraded: boolean) => void
 
 const INITIAL_BACKOFF_MS = 1_000
 const MAX_BACKOFF_MS = 30_000
+// After this many consecutive failed connect attempts the channel is declared
+// "degraded" (§12 Shared Patterns §7.1) so consumers can fall back to REST
+// polling. The socket keeps retrying underneath; degraded is purely advisory.
+const DEGRADED_THRESHOLD = 3
 // Refresh the in-socket token this long before the access JWT's `exp`.
 const REFRESH_MARGIN_MS = 60_000
 // Floor for the refresh timer — a token already inside (or past) the margin
@@ -51,9 +56,12 @@ export class Channel {
   private socket: WebSocket | null = null
   private handlers = new Map<string, Set<EventHandler>>()
   private statusHandlers = new Set<StatusHandler>()
+  private degradedHandlers = new Set<DegradedHandler>()
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null
   private refreshTimer: ReturnType<typeof setTimeout> | null = null
   private backoff = INITIAL_BACKOFF_MS
+  private consecutiveFailures = 0
+  private degraded = false
   private closed = false
   private paused = false
   private connecting = false
@@ -73,6 +81,15 @@ export class Channel {
   onStatus(handler: StatusHandler): () => void {
     this.statusHandlers.add(handler)
     return () => this.statusHandlers.delete(handler)
+  }
+
+  // Advisory "the socket has failed to reconnect repeatedly" signal (§7.1).
+  // Pushes the current value on subscribe so a late subscriber is not stuck
+  // until the next transition.
+  onDegraded(handler: DegradedHandler): () => void {
+    this.degradedHandlers.add(handler)
+    handler(this.degraded)
+    return () => this.degradedHandlers.delete(handler)
   }
 
   send(payload: Record<string, unknown>): void {
@@ -117,6 +134,8 @@ export class Channel {
 
       socket.onopen = () => {
         this.backoff = INITIAL_BACKOFF_MS
+        this.consecutiveFailures = 0
+        this.setDegraded(false)
         this.emitStatus(true)
         this.scheduleTokenRefresh()
       }
@@ -152,6 +171,10 @@ export class Channel {
   // the channel closed, so connect() can be called again (used by KeepAlive).
   disconnect(): void {
     this.paused = true
+    // A deliberate pause (KeepAlive deactivation) is not a connection failure —
+    // reset the failure run so reactivation starts clean and not mid-degrade.
+    this.consecutiveFailures = 0
+    this.setDegraded(false)
     this.clearReconnectTimer()
     this.clearRefreshTimer()
     if (this.socket && this.socket.readyState <= WebSocket.OPEN) {
@@ -170,6 +193,7 @@ export class Channel {
     this.socket = null
     this.handlers.clear()
     this.statusHandlers.clear()
+    this.degradedHandlers.clear()
   }
 
   private dispatch(event: ChannelEvent): void {
@@ -184,8 +208,20 @@ export class Channel {
     this.statusHandlers.forEach((h) => h(connected))
   }
 
+  private setDegraded(value: boolean): void {
+    if (this.degraded === value) return
+    this.degraded = value
+    this.degradedHandlers.forEach((h) => h(value))
+  }
+
   private scheduleReconnect(): void {
     if (this.reconnectTimer !== null || this.closed) return
+    // Each scheduled retry without an intervening successful open is one more
+    // consecutive failure; crossing the threshold flips the channel degraded.
+    this.consecutiveFailures += 1
+    if (this.consecutiveFailures >= DEGRADED_THRESHOLD) {
+      this.setDegraded(true)
+    }
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null
       this.connect()

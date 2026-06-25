@@ -15,6 +15,11 @@
       "message": "This page hit an unexpected error. You can retry, or navigate elsewhere.",
       "retry": "Retry"
     },
+    "network": {
+      "title": "Connection lost",
+      "message": "Attempting to reconnect...",
+      "retry": "Retry Now"
+    },
     "pagination": {
       "showing": "Showing {start}-{end} of {total}",
       "label": "Pagination",
