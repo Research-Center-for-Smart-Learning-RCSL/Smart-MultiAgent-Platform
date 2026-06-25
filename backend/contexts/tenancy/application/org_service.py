@@ -186,7 +186,7 @@ class OrgService:
         self,
         *,
         org_id: uuid.UUID,
-        admin_user_id: uuid.UUID,
+        actor_user_id: uuid.UUID,
         actor_ip: str | None,
         request_id: uuid.UUID | None = None,
     ) -> None:
@@ -198,7 +198,7 @@ class OrgService:
             self._db,
             audit.AuditEvent(
                 action="org.restored",
-                actor_user_id=admin_user_id,
+                actor_user_id=actor_user_id,
                 actor_ip=actor_ip,
                 resource_type="org",
                 resource_id=org_id,

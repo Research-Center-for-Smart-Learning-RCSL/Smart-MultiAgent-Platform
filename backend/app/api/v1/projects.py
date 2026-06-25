@@ -238,16 +238,18 @@ async def restore_project(
     project_id: uuid.UUID = Path(...),
     ctx: RequestContext = Depends(current_context),
     principal: Principal = Depends(current_principal),
+    _=Depends(
+        require(
+            Capability.PROJECT_DELETE,
+            scope_from_path(project_param="project_id"),
+        )
+    ),
     db: AsyncSession = Depends(db_session),
 ) -> None:
-    if not principal.is_admin:
-        from shared_kernel.auth.dependencies import _raise_forbidden
-
-        _raise_forbidden("Admin only")
     service = ProjectService(db)
     await service.restore(
         project_id=project_id,
-        admin_user_id=principal.user_id,
+        actor_user_id=principal.user_id,
         actor_ip=ctx.actor_ip,
         request_id=ctx.request_id,
     )

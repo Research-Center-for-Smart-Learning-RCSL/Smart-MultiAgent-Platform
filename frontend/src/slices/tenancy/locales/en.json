@@ -93,7 +93,8 @@
       "acceptLabel": "Accept transfer",
       "cancelLabel": "Cancel transfer",
       "targetNotice": "You have been selected to become the Original Creator of this organization.",
-      "loadError": "Failed to load transfer status"
+      "loadError": "Failed to load transfer status",
+      "declined": "Transfer declined"
     },
     "invite": {
       "inboxTitle": "Invitations",
@@ -122,7 +123,8 @@
     },
     "common": {
       "loading": "Loading...",
-      "versionConflict": "Someone else edited this. Refreshing..."
+      "versionConflict": "Someone else edited this. Refreshing...",
+      "retry": "Retry"
     },
     "quotas": {
       "title": "Quotas",

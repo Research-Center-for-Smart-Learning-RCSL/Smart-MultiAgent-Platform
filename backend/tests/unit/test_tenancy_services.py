@@ -236,7 +236,7 @@ class TestOrgSoftDeleteRestore:
         projects.list_by_org.return_value = []
         svc = _make_org_service(org_repo=orgs, project_repo=projects)
 
-        await svc.restore(org_id=_ORG_ID, admin_user_id=_USER_ID, actor_ip=None)
+        await svc.restore(org_id=_ORG_ID, actor_user_id=_USER_ID, actor_ip=None)
 
         orgs.restore.assert_awaited_once_with(_ORG_ID)
         projects.list_by_org.assert_awaited_once_with(_ORG_ID, include_deleted=True)
@@ -486,7 +486,7 @@ class TestProjectSoftDeleteRestore:
         projects = AsyncMock()
         svc = _make_project_service(project_repo=projects)
 
-        await svc.restore(project_id=_PROJECT_ID, admin_user_id=_USER_ID, actor_ip=None)
+        await svc.restore(project_id=_PROJECT_ID, actor_user_id=_USER_ID, actor_ip=None)
 
         projects.restore.assert_awaited_once_with(_PROJECT_ID)
 

@@ -1,4 +1,5 @@
 import { http } from '@shared/transport'
+import type { PaginationParams } from './orgs'
 
 export interface Invite {
   id: string
@@ -13,8 +14,8 @@ export interface Invite {
 }
 
 export const invitesApi = {
-  list: (state: 'pending' | 'accepted' | 'rejected' = 'pending') =>
-    http.get<Invite[]>(`/invites`, { params: { state } }),
+  list: (state: 'pending' | 'accepted' | 'rejected' = 'pending', params?: PaginationParams) =>
+    http.get<Invite[]>(`/invites`, { params: { state, ...params } }),
   accept: (id: string) => http.post(`/invites/${id}/accept`),
   acceptByToken: (token: string) => http.post<Invite>(`/invites/accept-by-token`, { token }),
   reject: (id: string) => http.post(`/invites/${id}/reject`),

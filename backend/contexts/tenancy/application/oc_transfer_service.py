@@ -172,6 +172,39 @@ class OCTransferService:
         )
         return updated
 
+    async def reject(
+        self,
+        *,
+        org_id: uuid.UUID,
+        transfer_id: uuid.UUID,
+        caller_user_id: uuid.UUID,
+        actor_ip: str | None,
+        request_id: uuid.UUID | None = None,
+    ) -> OCTransfer:
+        transfer = await self._transfers.get(transfer_id)
+        if transfer is None or transfer.resolved_at is not None:
+            raise TransferNotFound(str(transfer_id))
+        if transfer.org_id != org_id:
+            raise TransferNotFound(str(transfer_id))
+        if transfer.target_user_id != caller_user_id:
+            raise TransferConflict("only the target may reject")
+        updated = await self._transfers.resolve(transfer_id, OCTransferState.REJECTED)
+        if updated is None:
+            raise TransferNotFound(str(transfer_id))
+        await audit.emit(
+            self._db,
+            audit.AuditEvent(
+                action="org.original_creator_transfer_rejected",
+                actor_user_id=caller_user_id,
+                actor_ip=actor_ip,
+                resource_type="org",
+                resource_id=transfer.org_id,
+                metadata={"transfer_id": str(transfer.id)},
+                request_id=request_id,
+            ),
+        )
+        return updated
+
     async def list_pending(self, org_id: uuid.UUID) -> Sequence[OCTransfer]:
         return await self._transfers.list_pending(org_id)
 

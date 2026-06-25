@@ -98,6 +98,7 @@ class TransferOut(BaseModel):
     initiator_user_id: uuid.UUID
     target_user_id: uuid.UUID
     state: str
+    created_at: str
     expires_at: str
 
 
@@ -260,14 +261,13 @@ async def restore_org(
     org_id: uuid.UUID = Path(...),
     ctx: RequestContext = Depends(current_context),
     principal: Principal = Depends(current_principal),
+    _=Depends(require(Capability.ORG_DELETE, scope_from_path(org_param="org_id"))),
     db: AsyncSession = Depends(db_session),
 ) -> None:
-    if not principal.is_admin:
-        raise HTTPException(status_code=403, detail="Admin only")
     service = OrgService(db)
     await service.restore(
         org_id=org_id,
-        admin_user_id=principal.user_id,
+        actor_user_id=principal.user_id,
         actor_ip=ctx.actor_ip,
         request_id=ctx.request_id,
     )
@@ -466,6 +466,29 @@ async def transfer_cancel(
     )
 
 
+@router.post(
+    "/{org_id}/original-creator-transfers/{transfer_id}/reject",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_model=None,
+)
+async def transfer_reject(
+    org_id: uuid.UUID = Path(...),
+    transfer_id: uuid.UUID = Path(...),
+    ctx: RequestContext = Depends(current_context),
+    principal: Principal = Depends(current_principal),
+    _=Depends(require_membership(org_param="org_id")),
+    db: AsyncSession = Depends(db_session),
+) -> None:
+    service = OCTransferService(db)
+    await service.reject(
+        org_id=org_id,
+        transfer_id=transfer_id,
+        caller_user_id=principal.user_id,
+        actor_ip=ctx.actor_ip,
+        request_id=ctx.request_id,
+    )
+
+
 def _transfer_out(t) -> TransferOut:
     return TransferOut(
         id=t.id,
@@ -473,6 +496,7 @@ def _transfer_out(t) -> TransferOut:
         initiator_user_id=t.initiator_user_id,
         target_user_id=t.target_user_id,
         state=t.state.value,
+        created_at=t.created_at.isoformat(),
         expires_at=t.expires_at.isoformat(),
     )
 
