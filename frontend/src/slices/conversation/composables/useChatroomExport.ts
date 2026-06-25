@@ -6,7 +6,7 @@ import { ref } from 'vue'
 import { useToast } from '@shared/composables'
 import { useI18n } from 'vue-i18n'
 import { usePolling } from '@shared/composables'
-import { createExport, getExport } from '../api'
+import { createExport, getExport, type ExportOptions } from '../api'
 import type { ExportStatus } from '../types'
 
 export function useChatroomExport(chatroomId: string) {
@@ -24,9 +24,9 @@ export function useChatroomExport(chatroomId: string) {
     },
   })
 
-  async function runExport(): Promise<void> {
+  async function runExport(opts: ExportOptions = {}): Promise<void> {
     try {
-      const { job_id, status } = await createExport(chatroomId)
+      const { job_id, status } = await createExport(chatroomId, opts)
       exportJob.value = { status: status as ExportStatus['status'], url: null }
       exportPoll.start(job_id)
     } catch {

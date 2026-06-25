@@ -220,6 +220,14 @@ export default [
   {
     files: [
       'src/slices/conversation/views/ChatroomView.vue',
+      // Message rendering was extracted out of ChatroomView into these
+      // presentational components (07-conversation). Each binds ONLY the
+      // output of renderMarkdown()/sanitizeSnippet() → DOMPurify, preserving
+      // the same single-sanitiser XSS contract. Do not add files here without
+      // that guarantee + a security review.
+      'src/slices/conversation/components/ChatroomMessageBubble.vue',
+      'src/slices/conversation/components/ChatroomStreamingBubble.vue',
+      'src/slices/conversation/components/ChatroomSearchPanel.vue',
     ],
     rules: {
       'vue/no-v-html': 'off',

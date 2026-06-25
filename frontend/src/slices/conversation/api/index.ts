@@ -208,11 +208,20 @@ export async function searchMessages(
   return data
 }
 
+export interface ExportOptions {
+  format?: 'markdown' | 'json' | 'pdf'
+  date_range?: 'all' | 'last_7_days' | 'last_30_days' | 'custom'
+  start?: string
+  end?: string
+}
+
 export async function createExport(
   chatroomId: string,
+  opts: ExportOptions = {},
 ): Promise<{ job_id: string; status: string }> {
   const { data } = await http.post<{ job_id: string; status: string }>(
     `/chatrooms/${chatroomId}/export`,
+    opts,
   )
   return data
 }

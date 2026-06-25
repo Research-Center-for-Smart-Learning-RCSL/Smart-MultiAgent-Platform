@@ -153,8 +153,7 @@ export function useChatroomMessages(
   const draft = ref('')
   const pendingUploads = ref<PendingUpload[]>([])
 
-  async function onDrop(ev: DragEvent): Promise<void> {
-    const files = Array.from(ev.dataTransfer?.files ?? [])
+  async function uploadFiles(files: File[]): Promise<void> {
     for (const file of files) {
       const record: PendingUpload = {
         id: crypto.randomUUID(),
@@ -178,6 +177,14 @@ export function useChatroomMessages(
         record.filename = t('conversation.chatroom.uploadFailed', { filename: record.filename })
       }
     }
+  }
+
+  async function onDrop(ev: DragEvent): Promise<void> {
+    await uploadFiles(Array.from(ev.dataTransfer?.files ?? []))
+  }
+
+  function removeUpload(id: string): void {
+    pendingUploads.value = pendingUploads.value.filter((p) => p.id !== id)
   }
 
   async function onSend(): Promise<void> {
@@ -302,6 +309,8 @@ export function useChatroomMessages(
     draft,
     pendingUploads,
     onDrop,
+    uploadFiles,
+    removeUpload,
     onSend,
     // edit
     editingId,

@@ -3,210 +3,158 @@
     class="chatroom"
     :class="{ 'chatroom--mobile': isMobile }"
   >
-    <header>
-      <h1>#{{ chatroomId.slice(0, 8) }}</h1>
-      <span :class="['pill', connected ? 'on' : 'off']">
-        {{ connected ? $t('conversation.chatroom.live') : $t('conversation.chatroom.offline') }}
-      </span>
-      <input
-        v-model="searchQuery"
-        :placeholder="$t('conversation.chatroom.searchPlaceholder')"
-        @keyup.enter="runSearch"
-      >
-      <button @click="runExport">
-        {{ $t('conversation.chatroom.export') }}
-      </button>
-      <span
-        v-if="exportJob"
-        class="export-status"
-      >
-        <a
-          v-if="exportJob.status === 'ready' && exportJob.url"
-          :href="exportJob.url"
-          download
-        >{{ $t('conversation.chatroom.exportDownload') }}</a>
-        <span v-else>{{ $t(`conversation.chatroom.exportState.${exportJob.status}`) }}</span>
-      </span>
-    </header>
-
-    <!-- Live approval cards (G.10) — rendered above messages when present. -->
-    <div
-      v-if="liveApprovals.length"
-      class="approvals"
-    >
-      <ApprovalCard
-        v-for="a in liveApprovals"
-        :key="a.id"
-        :approval="a"
-        :agent-names="{}"
-      />
-    </div>
-
-    <ol
-      ref="listRef"
-      class="messages"
-    >
-      <li
-        v-if="hasOlderMessages"
-        class="load-earlier"
-      >
-        <button
-          type="button"
-          :disabled="loadingOlder"
-          @click="loadEarlier"
-        >
-          {{ loadingOlder ? $t('conversation.chatroom.loadingEarlier') : $t('conversation.chatroom.loadEarlier') }}
-        </button>
-      </li>
-      <li
-        v-for="m in messages"
-        :key="m.id"
-      >
-        <div class="meta">
-          <span>{{ m.sender_type }}</span>
-          <time>{{ m.created_at }}</time>
-          <span
-            v-if="m.edited_at"
-            class="edited"
-          >{{ $t('conversation.chatroom.edited') }}</span>
-          <span class="msg-actions">
-            <button
-              v-if="editingId !== m.id && canEdit(m)"
-              type="button"
-              class="link-btn"
-              @click="startEdit(m)"
-            >
-              {{ $t('conversation.chatroom.edit') }}
-            </button>
-            <button
-              v-if="canDelete(m)"
-              type="button"
-              class="link-btn link-btn--danger"
-              @click="confirmDelete(m)"
-            >
-              {{ $t('conversation.chatroom.delete') }}
-            </button>
-          </span>
-        </div>
-        <!-- Inline editor (R13.21); otherwise the single v-html site (R24.41). -->
-        <div
-          v-if="editingId === m.id"
-          class="md-edit"
-        >
-          <textarea
-            v-model="editDraft"
-            :aria-label="$t('conversation.chatroom.edit')"
-          />
-          <div class="md-edit__actions">
-            <button
-              type="button"
-              @click="saveEdit"
-            >
-              {{ $t('conversation.chatroom.save') }}
-            </button>
-            <button
-              type="button"
-              @click="cancelEdit"
-            >
-              {{ $t('conversation.chatroom.cancel') }}
-            </button>
-          </div>
-        </div>
-        <div
-          v-else
-          class="md"
-          v-html="rendered[m.id]"
-        />
-        <ul
-          v-if="m.attachments && m.attachments.length"
-          class="attachments"
-        >
-          <li
-            v-for="att in m.attachments"
-            :key="att.id"
-          >
-            <button
-              v-if="att.status === 'active'"
-              type="button"
-              class="link-btn"
-              @click="downloadAttachment(att)"
-            >
-              {{ att.filename }}
-            </button>
-            <span
-              v-else-if="att.status === 'quarantined'"
-              class="attachment-gone"
-            >{{ $t('conversation.chatroom.attachmentQuarantined', { name: att.filename }) }}</span>
-            <span
-              v-else
-              class="attachment-gone"
-            >{{ $t('conversation.chatroom.attachmentExpired', { name: att.filename }) }}</span>
-          </li>
-        </ul>
-      </li>
-      <!-- Transient streaming drafts: per-agent agent.token deltas accumulate
-           here until the persisted reply arrives via message.created (also
-           rendered through renderMarkdown → DOMPurify, same XSS contract). -->
-      <li
-        v-for="[agentId, html] in streamingEntries"
-        :key="`stream-${agentId}`"
-        class="streaming"
-        data-testid="streaming-draft"
-      >
-        <div class="meta">
-          <span class="streaming-label">{{ $t('conversation.chatroom.agentStreaming') }}</span>
-        </div>
-        <div
-          class="md"
-          v-html="html"
-        />
-      </li>
-    </ol>
-
-    <ChatroomPresence
-      v-if="!isMobile"
-      :presence-list="presenceList"
-      :agent-thinking="store.isAnyAgentThinking(chatroomId) ? 'yes' : null"
+    <ChatroomHeader
+      class="chatroom__header"
+      :room-name="roomName"
+      :connected="connected"
+      :is-mobile="isMobile"
+      @back="goBack"
+      @search="searchOpen = true"
+      @settings="goSettings"
+      @export="openExport"
+      @toggle-agents="agentsDrawerOpen = true"
+      @toggle-people="peopleDrawerOpen = true"
     />
 
-    <p
-      v-if="typingList.length"
-      class="typing-indicator"
-    >
-      {{ typingList.map((uid) => uid.slice(0, 8)).join(', ') }}
-      {{ $t('conversation.chatroom.typing') }}
-    </p>
+    <ChatroomAgentSidebar
+      v-if="!isMobile"
+      class="chatroom__agents"
+      :agents="agentList"
+    />
+
+    <div class="chatroom__feed">
+      <ChatroomSearchPanel
+        v-if="searchOpen"
+        :query="searchQuery"
+        :hits="searchHits"
+        :rendered-snippets="renderedSnippets"
+        :searching="searching"
+        @update:query="searchQuery = $event"
+        @search="doSearch"
+        @close="searchOpen = false"
+        @select="onSelectHit"
+      />
+
+      <ol
+        ref="listRef"
+        class="messages"
+      >
+        <li v-if="hasOlderMessages">
+          <ChatroomLoadEarlier
+            :loading="loadingOlder"
+            @load="onLoadEarlier"
+          />
+        </li>
+
+        <ChatroomMessageBubble
+          v-for="m in messages"
+          :key="m.id"
+          :message="m"
+          :html="rendered[m.id] ?? ''"
+          :sender-name="senderName(m)"
+          :editing="editingId === m.id"
+          :edit-draft="editDraft"
+          :can-edit="canEdit(m)"
+          :can-delete="canDelete(m)"
+          @start-edit="startEdit(m)"
+          @save-edit="saveEdit"
+          @cancel-edit="cancelEdit"
+          @delete="confirmDelete(m)"
+          @copy="copyMessage(m)"
+          @download="downloadAttachment"
+          @update:edit-draft="editDraft = $event"
+        />
+
+        <li
+          v-for="a in liveApprovals"
+          :key="`approval-${a.id}`"
+        >
+          <ApprovalCard
+            :approval="a"
+            :agent-names="{}"
+          />
+        </li>
+
+        <ChatroomStreamingBubble
+          v-for="[agentId, html] in streamingEntries"
+          :key="`stream-${agentId}`"
+          :html="html"
+          :agent-name="agentId.slice(0, 8)"
+        />
+
+        <li v-if="!messages.length && !streamingEntries.length && !liveApprovals.length">
+          <SEmptyState
+            :icon="ChatBubbleLeftRightIcon"
+            :title="t('conversation.chatroom.emptyTitle')"
+            :text="t('conversation.chatroom.emptyText')"
+          />
+        </li>
+      </ol>
+
+      <div
+        v-if="showPill"
+        class="chatroom__pill"
+      >
+        <ChatroomNewMessagesPill
+          :count="newCount"
+          @click="scrollToBottom(true)"
+        />
+      </div>
+    </div>
+
+    <ChatroomTypingIndicator
+      class="chatroom__typing"
+      :names="typingNames"
+    />
 
     <ChatroomComposer
       v-model="draft"
-      :pending-uploads="pendingUploads.length"
+      class="chatroom__composer"
+      :pending-uploads="pendingUploads"
+      :disabled="!connected"
       @submit="onSend"
       @typing="emitTyping"
       @drop="onDrop"
-    >
-      <template #pending-uploads>
-        <li
-          v-for="a in pendingUploads"
-          :key="a.id"
-        >
-          {{ a.filename }} ({{ Math.round(a.progress * 100) }}%)
-        </li>
-      </template>
-    </ChatroomComposer>
+      @pick-files="uploadFiles"
+      @remove-upload="removeUpload"
+    />
 
-    <section
-      v-if="searchHits.length"
-      class="search-results"
+    <ChatroomPresence
+      v-if="!isMobile"
+      class="chatroom__presence"
+      :online-users="onlineUsers"
+      :agents="agentList"
+    />
+
+    <!-- Mobile drawers -->
+    <SDrawer
+      v-if="isMobile"
+      :open="agentsDrawerOpen"
+      side="left"
+      :title="t('conversation.chatroom.agents')"
+      @close="agentsDrawerOpen = false"
     >
-      <h4>{{ $t('conversation.chatroom.searchResults') }}</h4>
-      <ul>
-        <li
-          v-for="h in searchHits"
-          :key="h.message_id"
-          v-html="renderedSnippets[h.message_id]"
-        />
-      </ul>
-    </section>
+      <ChatroomAgentSidebar :agents="agentList" />
+    </SDrawer>
+    <SDrawer
+      v-if="isMobile"
+      :open="peopleDrawerOpen"
+      side="right"
+      :title="t('conversation.chatroom.people')"
+      @close="peopleDrawerOpen = false"
+    >
+      <ChatroomPresence
+        :online-users="onlineUsers"
+        :agents="agentList"
+      />
+    </SDrawer>
+
+    <ChatroomExportModal
+      :open="exportOpen"
+      :job="exportJob"
+      @close="exportOpen = false"
+      @submit="onExportSubmit"
+    />
   </section>
 </template>
 
@@ -216,40 +164,89 @@ import {
   onBeforeUnmount,
   onMounted,
   onUpdated,
+  ref,
   useTemplateRef,
   watch,
 } from 'vue'
-import { useRoute } from 'vue-router'
-
-import { useToast } from '@shared/composables'
+import { useRoute, useRouter } from 'vue-router'
+import { useQuery } from '@tanstack/vue-query'
 import { useI18n } from 'vue-i18n'
-import { useBreakpoint } from '@shared/composables'
+
+import { useToast, useBreakpoint } from '@shared/composables'
+import { SDrawer, SEmptyState } from '@shared/ui'
+import { ChatBubbleLeftRightIcon } from '@heroicons/vue/24/outline'
 import { useSessionStore } from '@shared/stores/session'
+import { useOrchestrationStore } from '@shared/stores/orchestration'
+import { ApprovalCard } from '@slices/workflow'
+
 import { useChatroomSocket } from '../composables/useChatroomSocket'
 import { useChatroomMessages } from '../composables/useChatroomMessages'
 import { useChatroomSearch } from '../composables/useChatroomSearch'
 import { useChatroomExport } from '../composables/useChatroomExport'
-import { enhanceRenderedMarkdown, renderMarkdown } from '../utils/renderMarkdown'
+import { useChatroomScroll } from '../composables/useChatroomScroll'
 import { useConversationStore } from '../stores/conversation'
-import { ApprovalCard } from '@slices/workflow'
-import { useOrchestrationStore } from '@shared/stores/orchestration'
-import ChatroomComposer from '../components/ChatroomComposer.vue'
+import { enhanceRenderedMarkdown, renderMarkdown } from '../utils/renderMarkdown'
+import { getChatroom, listChatroomAgents, type ExportOptions } from '../api'
+import { convKeys } from '../queries'
+import type { AgentStatus } from '../components/ChatroomAgentSidebar.vue'
+import type { Message, SearchHit } from '../types'
+
+import ChatroomHeader from '../components/ChatroomHeader.vue'
+import ChatroomAgentSidebar from '../components/ChatroomAgentSidebar.vue'
+import ChatroomMessageBubble from '../components/ChatroomMessageBubble.vue'
+import ChatroomStreamingBubble from '../components/ChatroomStreamingBubble.vue'
 import ChatroomPresence from '../components/ChatroomPresence.vue'
+import ChatroomComposer from '../components/ChatroomComposer.vue'
+import ChatroomTypingIndicator from '../components/ChatroomTypingIndicator.vue'
+import ChatroomSearchPanel from '../components/ChatroomSearchPanel.vue'
+import ChatroomExportModal from '../components/ChatroomExportModal.vue'
+import ChatroomNewMessagesPill from '../components/ChatroomNewMessagesPill.vue'
+import ChatroomLoadEarlier from '../components/ChatroomLoadEarlier.vue'
 
 const { t } = useI18n()
 const toast = useToast()
 const route = useRoute()
+const router = useRouter()
 const store = useConversationStore()
 const session = useSessionStore()
+const orchStore = useOrchestrationStore()
 const chatroomId = route.params.chatroomId as string
 const projectId = (route.params.projectId as string) || ''
 
 const myId = computed(() => session.me?.id ?? null)
-
 const { isMobile } = useBreakpoint()
 store.setActive(chatroomId)
 
 const listRef = useTemplateRef<HTMLElement>('listRef')
+
+// ---- room + bound agents --------------------------------------------------
+
+const roomQuery = useQuery({
+  queryKey: convKeys.chatroom(chatroomId),
+  queryFn: () => getChatroom(chatroomId),
+  retry: false,
+})
+const roomName = computed(() => roomQuery.data.value?.name ?? `#${chatroomId.slice(0, 8)}`)
+
+const boundAgentsQuery = useQuery({
+  queryKey: ['conversation', 'chatroom-agents', chatroomId],
+  queryFn: () => listChatroomAgents(chatroomId),
+  retry: false,
+})
+
+function agentStatus(id: string): AgentStatus {
+  if (store.agentStreams[chatroomId]?.[id]) return 'streaming'
+  if (store.agentThinking[chatroomId]?.has(id)) return 'thinking'
+  return 'idle'
+}
+
+const agentList = computed(() =>
+  (boundAgentsQuery.data.value ?? []).map((id) => ({
+    id,
+    name: id.slice(0, 8),
+    status: agentStatus(id),
+  })),
+)
 
 // ---- composables ----------------------------------------------------------
 
@@ -262,6 +259,8 @@ const {
   draft,
   pendingUploads,
   onDrop,
+  uploadFiles,
+  removeUpload,
   onSend,
   editingId,
   editDraft,
@@ -276,17 +275,11 @@ const {
   refreshOlderMessage,
 } = useChatroomMessages(chatroomId, projectId, listRef)
 
-const {
-  searchQuery,
-  searchHits,
-  renderedSnippets,
-  runSearch,
-} = useChatroomSearch(chatroomId)
-
-const {
-  exportJob,
-  runExport,
-} = useChatroomExport(chatroomId)
+const { searchQuery, searchHits, renderedSnippets, runSearch } = useChatroomSearch(chatroomId)
+const { exportJob, runExport } = useChatroomExport(chatroomId)
+const messageCount = computed(() => messages.value.length)
+const { showPill, newCount, scrollToBottom, maybeStick, captureBeforePrepend, restoreAfterPrepend } =
+  useChatroomScroll(listRef, messageCount)
 
 // ---- WebSocket + real-time state ------------------------------------------
 
@@ -294,7 +287,6 @@ let typingTimer: ReturnType<typeof setTimeout> | null = null
 const TYPING_DEBOUNCE_MS = 3000
 
 const { connected, channel: wsChannel } = useChatroomSocket(chatroomId)
-const orchStore = useOrchestrationStore()
 
 wsChannel.subscribe('message.updated', (ev) => void refreshOlderMessage(ev.message_id as string))
 wsChannel.subscribe('message.deleted', (ev) => dropOlderMessage(ev.message_id as string))
@@ -318,10 +310,18 @@ onBeforeUnmount(() => {
   }
 })
 
-const typingList = computed(() => {
+const typingNames = computed(() => {
   const set = store.typingUsers[chatroomId]
   if (!set) return []
-  return Array.from(set).filter((uid) => uid !== myId.value)
+  return Array.from(set)
+    .filter((uid) => uid !== myId.value)
+    .map((uid) => uid.slice(0, 8))
+})
+
+const onlineUsers = computed(() => {
+  const set = store.presence[chatroomId]
+  if (!set) return []
+  return Array.from(set).map((id) => ({ id, isYou: id === myId.value }))
 })
 
 // Per-agent streaming draft bubbles — memoised so only the agent whose text
@@ -371,20 +371,64 @@ watch(
   },
 )
 
-const presenceList = computed(() => {
-  const set = store.presence[chatroomId]
-  return set ? Array.from(set) : []
-})
-
 const liveApprovals = computed(() => orchStore.getApprovalsForRoom(chatroomId))
 
+// ---- header actions -------------------------------------------------------
+
+const searchOpen = ref(false)
+const searching = ref(false)
+const exportOpen = ref(false)
+const agentsDrawerOpen = ref(false)
+const peopleDrawerOpen = ref(false)
+
+function goBack(): void {
+  router.back()
+}
+
+function goSettings(): void {
+  void router.push({ name: 'conversation.chatroom.settings', params: { chatroomId } })
+}
+
+function senderName(m: Message): string {
+  return m.sender_id ? m.sender_id.slice(0, 8) : m.sender_type
+}
+
+function copyMessage(m: Message): void {
+  navigator.clipboard?.writeText(m.content_md).catch(() => {})
+}
+
+async function doSearch(): Promise<void> {
+  searching.value = true
+  try {
+    await runSearch()
+  } finally {
+    searching.value = false
+  }
+}
+
+function onSelectHit(_hit: SearchHit): void {
+  searchOpen.value = false
+}
+
+async function onLoadEarlier(): Promise<void> {
+  captureBeforePrepend()
+  await loadEarlier()
+  restoreAfterPrepend()
+}
+
+function openExport(): void {
+  exportJob.value = null
+  exportOpen.value = true
+}
+
+function onExportSubmit(opts: ExportOptions): void {
+  void runExport(opts)
+}
+
 // ---- KaTeX/Mermaid post-processing (FE-12) --------------------------------
-// `onUpdated` fires on every reactive change — each presence blip, typing
-// indicator, new message — and the Mermaid pass is async, so naive invocation
-// lets overlapping runs race over the same DOM nodes. We debounce so a burst
-// collapses to one pass, and an in-flight guard serialises runs; a change
-// arriving mid-pass queues exactly one follow-up so the latest DOM is always
-// reflected.
+// `onUpdated` fires on every reactive change; the Mermaid pass is async, so we
+// debounce a burst into one pass and serialise overlapping runs. Streaming
+// growth also re-pins the feed to the bottom if the user was already there.
 const ENHANCE_DEBOUNCE_MS = 120
 let enhanceTimer: ReturnType<typeof setTimeout> | null = null
 let enhanceInFlight = false
@@ -419,7 +463,10 @@ function scheduleEnhance(): void {
 }
 
 onMounted(scheduleEnhance)
-onUpdated(scheduleEnhance)
+onUpdated(() => {
+  scheduleEnhance()
+  maybeStick()
+})
 onBeforeUnmount(() => {
   if (enhanceTimer !== null) clearTimeout(enhanceTimer)
 })
@@ -428,112 +475,69 @@ onBeforeUnmount(() => {
 <style scoped>
 .chatroom {
   display: grid;
-  grid-template-columns: 1fr 240px;
-  grid-template-rows: auto 1fr auto auto;
-  gap: 0.5rem;
+  grid-template-columns: 220px 1fr 200px;
+  grid-template-rows: 48px 1fr auto auto;
   height: 100%;
+  overflow: hidden;
 }
-.chatroom h1 {
-  font-size: 1.25rem;
-  font-weight: 600;
+
+.chatroom__header {
+  grid-column: 1 / -1;
+  grid-row: 1;
 }
-.messages {
+
+.chatroom__agents {
   grid-column: 1;
+  grid-row: 2 / -1;
+}
+
+.chatroom__feed {
+  grid-column: 2;
   grid-row: 2;
+  position: relative;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.messages {
+  height: 100%;
   overflow-y: auto;
   list-style: none;
-  padding: 0.5rem;
+  margin: 0;
+  padding: 16px;
 }
-.presence {
+
+.chatroom__typing {
   grid-column: 2;
-  grid-row: 2 / 4;
-}
-.composer {
-  grid-column: 1;
   grid-row: 3;
 }
-.search-results {
-  grid-column: 1 / 3;
+
+.chatroom__composer {
+  grid-column: 2;
   grid-row: 4;
 }
-.pill.on {
-  color: var(--color-success);
+
+.chatroom__presence {
+  grid-column: 3;
+  grid-row: 2 / -1;
 }
-.pill.off {
-  color: var(--color-danger);
+
+.chatroom__pill {
+  position: absolute;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
 }
+
+/* Mobile: single column; side panels become drawers. */
 .chatroom--mobile {
   grid-template-columns: 1fr;
+  grid-template-rows: 48px 1fr auto auto;
 }
-.chatroom--mobile .presence {
-  display: none;
-}
-.meta {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-.edited {
-  color: var(--color-muted);
-  font-size: 0.75rem;
-}
-.msg-actions {
-  margin-left: auto;
-  display: inline-flex;
-  gap: 0.5rem;
-}
-.link-btn {
-  background: none;
-  border: none;
-  padding: 0;
-  font-size: 0.875rem;
-  color: var(--color-accent);
-  cursor: pointer;
-}
-.link-btn--danger {
-  color: var(--color-danger);
-}
-.md-edit textarea {
-  width: 100%;
-  min-height: 4rem;
-}
-.md-edit__actions {
-  display: flex;
-  gap: 0.5rem;
-  margin-top: 0.25rem;
-}
-.export-status {
-  margin-left: 0.5rem;
-  font-size: 0.875rem;
-}
-.attachment-gone {
-  color: var(--color-muted);
-  font-style: italic;
-  font-size: 0.875rem;
-}
-.load-earlier {
-  text-align: center;
-  padding: 0.5rem 0;
-}
-.load-earlier button {
-  font-size: 0.875rem;
-  color: var(--color-accent);
-  background: none;
-  border: 1px solid var(--color-accent);
-  border-radius: var(--radius-md);
-  padding: 0.25rem 0.75rem;
-  cursor: pointer;
-}
-.load-earlier button:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
-.typing-indicator {
+
+.chatroom--mobile .chatroom__feed,
+.chatroom--mobile .chatroom__typing,
+.chatroom--mobile .chatroom__composer {
   grid-column: 1;
-  padding: 0 0.5rem;
-  font-size: 0.875rem;
-  color: var(--color-muted);
-  font-style: italic;
-  min-height: 1.2em;
 }
 </style>

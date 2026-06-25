@@ -91,8 +91,9 @@ describe('ChatroomView', () => {
     })
     signInAs('u_1')
     await settle()
-    // Two link buttons (Edit + Delete) on the own, within-window message.
-    expect(wrapper.findAll('.link-btn').length).toBe(2)
+    // Edit + Delete hover actions on the own, within-window message.
+    expect(wrapper.find('.msg-action--edit').exists()).toBe(true)
+    expect(wrapper.find('.msg-action--delete').exists()).toBe(true)
   })
 
   it('renders message attachments: download for active, placeholder for expired', async () => {
@@ -145,7 +146,7 @@ describe('ChatroomView', () => {
     expect(wrapper.find('.attachment-gone').exists()).toBe(true) // expired → placeholder
   })
 
-  it('surfaces export status after triggering an export', async () => {
+  it('surfaces export status after triggering an export from the modal', async () => {
     server.use(
       http.post('/api/chatrooms/cr_1/export', () =>
         HttpResponse.json({ job_id: 'job_1', status: 'queued' }),
@@ -155,9 +156,12 @@ describe('ChatroomView', () => {
       routes,
       initialRoute: '/chatrooms/cr_1',
     })
-    await wrapper.find('header button').trigger('click')
+    // Open the export modal, then submit; the modal switches to a status view.
+    await wrapper.find('[data-testid="open-export"]').trigger('click')
+    await nextTick()
+    await wrapper.find('[data-testid="submit-export"]').trigger('click')
     await settle()
-    expect(wrapper.find('.export-status').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="export-status"]').exists()).toBe(true)
   })
 
   it('renders the streaming draft bubble while agent tokens accumulate', async () => {
