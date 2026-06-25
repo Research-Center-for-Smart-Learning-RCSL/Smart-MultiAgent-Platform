@@ -6,7 +6,7 @@
     <ChatroomHeader
       class="chatroom__header"
       :room-name="roomName"
-      :connected="connected"
+      :connection-state="connectionState"
       :is-mobile="isMobile"
       @back="goBack"
       @search="searchOpen = true"
@@ -56,6 +56,7 @@
           :edit-draft="editDraft"
           :can-edit="canEdit(m)"
           :can-delete="canDelete(m)"
+          :flash="highlightId === m.id"
           @start-edit="startEdit(m)"
           @save-edit="saveEdit"
           @cancel-edit="cancelEdit"
@@ -159,7 +160,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref, useTemplateRef, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, useTemplateRef, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useQuery } from '@tanstack/vue-query'
 import { useI18n } from 'vue-i18n'
@@ -281,8 +282,16 @@ const { streamingEntries } = useAgentStreams(chatroomId)
 const { searchQuery, searchHits, renderedSnippets, runSearch } = useChatroomSearch(chatroomId)
 const { exportJob, runExport } = useChatroomExport(chatroomId)
 const messageCount = computed(() => messages.value.length)
-const { showPill, newCount, scrollToBottom, maybeStick, captureBeforePrepend, restoreAfterPrepend } =
-  useChatroomScroll(listRef, messageCount)
+const {
+  showPill,
+  newCount,
+  highlightId,
+  scrollToBottom,
+  scrollToMessage,
+  maybeStick,
+  captureBeforePrepend,
+  restoreAfterPrepend,
+} = useChatroomScroll(listRef, messageCount)
 
 // Debounced KaTeX/Mermaid post-processing; re-pin scroll after each update.
 useMarkdownEnhance(listRef, { onAfterUpdate: maybeStick })
@@ -298,7 +307,7 @@ async function send(): Promise<void> {
 let typingTimer: ReturnType<typeof setTimeout> | null = null
 const TYPING_DEBOUNCE_MS = 3000
 
-const { connected, channel: wsChannel } = useChatroomSocket(chatroomId)
+const { connected, connectionState, channel: wsChannel } = useChatroomSocket(chatroomId)
 
 wsChannel.subscribe('message.updated', (ev) => void refreshOlderMessage(ev.message_id as string))
 wsChannel.subscribe('message.deleted', (ev) => dropOlderMessage(ev.message_id as string))
@@ -397,8 +406,17 @@ async function doSearch(): Promise<void> {
   }
 }
 
-function onSelectHit(_hit: SearchHit): void {
+function onSelectHit(hit: SearchHit): void {
   searchOpen.value = false
+  // The panel sits over the feed; let it unmount before scrolling so the
+  // target message is not obscured. A hit may reference a message that has
+  // not been paginated into the feed yet — there is no "load-around" endpoint,
+  // so we tell the user rather than scrolling to nothing.
+  void nextTick(() => {
+    if (!scrollToMessage(hit.message_id)) {
+      toast.info(t('conversation.chatroom.searchJumpUnavailable'))
+    }
+  })
 }
 
 async function onLoadEarlier(): Promise<void> {

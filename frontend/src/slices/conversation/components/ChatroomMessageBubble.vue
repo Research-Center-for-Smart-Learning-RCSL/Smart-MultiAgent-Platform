@@ -2,7 +2,9 @@
   <!-- System messages: centered, compact, no bubble. -->
   <li
     v-if="message.sender_type === 'system'"
+    :id="`msg-${message.id}`"
     class="sys"
+    :class="{ 'msg--flash': flash }"
   >
     <span class="sys__line" />
     <span
@@ -15,8 +17,9 @@
   <!-- User / agent message bubble. -->
   <li
     v-else
+    :id="`msg-${message.id}`"
     class="bubble-row"
-    :class="{ 'bubble-row--agent': isAgent }"
+    :class="{ 'bubble-row--agent': isAgent, 'msg--flash': flash }"
   >
     <ChatroomBubbleShell :agent="isAgent">
       <template #meta>
@@ -169,6 +172,7 @@ const props = defineProps<{
   editDraft: string
   canEdit: boolean
   canDelete: boolean
+  flash?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -192,6 +196,22 @@ const { t } = useI18n()
   flex-direction: column;
   gap: 4px;
   margin-bottom: 8px;
+}
+
+/* Transient highlight when jumped to from search. Animates from the warning
+   tint back to the bubble's natural background. */
+.bubble-row.msg--flash :deep(.bubble) {
+  animation: msg-flash 1.6s ease-out;
+}
+
+.sys.msg--flash .sys__text {
+  animation: msg-flash 1.6s ease-out;
+}
+
+@keyframes msg-flash {
+  from {
+    background-color: var(--color-warning-tint, #fef3c7);
+  }
 }
 
 .bubble__avatar--agent {

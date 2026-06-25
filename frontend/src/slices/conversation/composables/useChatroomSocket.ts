@@ -27,6 +27,13 @@ export function useChatroomSocket(roomId: string) {
   const store = useConversationStore()
   const orchStore = useOrchestrationStore()
   const connected = ref(false)
+  // Three-state pill (07-conversation): 'connecting' before the first
+  // successful open, 'live' while open, 'reconnecting' once a previously-live
+  // socket has dropped. The channel auto-retries forever, so a drop is never a
+  // terminal state — the transport only exposes a boolean, so this richer
+  // distinction is derived here rather than in the transport contract.
+  const connectionState = ref<'connecting' | 'live' | 'reconnecting'>('connecting')
+  let everConnected = false
   const lastSeenMessageId = ref<string | null>(null)
 
   const channel = wsManager.channel(`/chatroom/${roomId}`)
@@ -184,7 +191,13 @@ export function useChatroomSocket(roomId: string) {
   const unsubscribeEvent = channel.subscribe('*', handleEvent)
   const unsubscribeStatus = channel.onStatus((isConnected) => {
     connected.value = isConnected
+    connectionState.value = isConnected
+      ? 'live'
+      : everConnected
+        ? 'reconnecting'
+        : 'connecting'
     if (isConnected) {
+      everConnected = true
       // Clear stale thinking state from a prior session: if the agent
       // finished while we were disconnected (KeepAlive deactivation or
       // network drop), no agent.finished event was received and the
@@ -228,5 +241,5 @@ export function useChatroomSocket(roomId: string) {
     { immediate: true },
   )
 
-  return { connected, lastSeenMessageId, channel }
+  return { connected, connectionState, lastSeenMessageId, channel }
 }

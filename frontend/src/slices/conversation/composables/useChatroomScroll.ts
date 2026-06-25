@@ -12,6 +12,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import type { ComputedRef, Ref } from 'vue'
 
 const BOTTOM_THRESHOLD_PX = 80
+const FLASH_MS = 1600
 
 export function useChatroomScroll(
   listRef: Readonly<Ref<HTMLElement | null>>,
@@ -20,6 +21,11 @@ export function useChatroomScroll(
   const atBottom = ref(true)
   const newCount = ref(0)
   const showPill = computed(() => !atBottom.value && newCount.value > 0)
+
+  // Search "jump to message": id of the message to flash-highlight, cleared
+  // after the flash. The view binds this to each bubble's flash prop.
+  const highlightId = ref<string | null>(null)
+  let flashTimer: ReturnType<typeof setTimeout> | null = null
 
   function isAtBottom(): boolean {
     const el = listRef.value
@@ -60,6 +66,31 @@ export function useChatroomScroll(
     })
   })
 
+  /** Scroll a loaded message into view and flash it. Returns false when the
+   *  message is not in the currently-loaded page (older history not paginated
+   *  in yet), so the caller can surface that to the user. */
+  function scrollToMessage(id: string): boolean {
+    const el = listRef.value
+    if (!el) return false
+    const selector =
+      typeof CSS !== 'undefined' && typeof CSS.escape === 'function'
+        ? `#msg-${CSS.escape(id)}`
+        : `[id="msg-${id}"]`
+    const target = el.querySelector<HTMLElement>(selector)
+    if (!target) return false
+    // jsdom (tests) has no Element.scrollIntoView.
+    if (typeof target.scrollIntoView === 'function') {
+      target.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    }
+    highlightId.value = id
+    if (flashTimer !== null) clearTimeout(flashTimer)
+    flashTimer = setTimeout(() => {
+      highlightId.value = null
+      flashTimer = null
+    }, FLASH_MS)
+    return true
+  }
+
   // Preserve the topmost visible message when older history is prepended.
   let savedHeight = 0
   function captureBeforePrepend(): void {
@@ -78,13 +109,16 @@ export function useChatroomScroll(
   })
   onBeforeUnmount(() => {
     listRef.value?.removeEventListener('scroll', onScroll)
+    if (flashTimer !== null) clearTimeout(flashTimer)
   })
 
   return {
     atBottom,
     newCount,
     showPill,
+    highlightId,
     scrollToBottom,
+    scrollToMessage,
     maybeStick,
     captureBeforePrepend,
     restoreAfterPrepend,
