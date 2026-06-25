@@ -11,7 +11,7 @@ export const workflowRoutes: RouteRecordRaw[] = [
     path: '/workspaces/:workspaceId/workflows/:workflowId/edit',
     name: 'workflow.editor',
     component: () => import('./views/WorkflowEditorView.vue'),
-    meta: { requiresAuth: true },
+    meta: { requiresAuth: true, sidebarCollapsed: true, contentPadding: 'none' },
   },
   {
     path: '/workspaces/:workspaceId/workflows/:workflowId/runs',

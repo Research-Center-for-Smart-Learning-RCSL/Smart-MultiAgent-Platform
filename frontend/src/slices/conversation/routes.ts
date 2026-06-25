@@ -17,7 +17,7 @@ export const conversationRoutes: RouteRecordRaw[] = [
     path: '/chatrooms/:chatroomId',
     name: 'conversation.chatroom',
     component: () => import('./views/ChatroomView.vue'),
-    meta: { requiresAuth: true },
+    meta: { requiresAuth: true, sidebarCollapsed: true, contentPadding: 'none' },
   },
   {
     path: '/chatrooms/:chatroomId/settings',
