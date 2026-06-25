@@ -116,6 +116,7 @@ onBeforeUnmount(() => {
 <template>
   <div
     class="switcher"
+    :class="{ 'switcher--compact': compact }"
     role="none"
     @keydown="onKeydown"
   >
@@ -294,6 +295,11 @@ onBeforeUnmount(() => {
   padding: 4px;
   border: none;
   border-radius: var(--radius-full);
+}
+
+.switcher--compact .switcher__panel {
+  left: auto;
+  right: 0;
 }
 
 .switcher__text {

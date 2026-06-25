@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch, nextTick } from 'vue'
+import { ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useConfirmDialog } from '@shared/composables/useConfirmDialog'
 import SModal from './SModal.vue'
@@ -9,13 +9,6 @@ const { t } = useI18n()
 const { state, handleConfirm, handleCancel } = useConfirmDialog()
 
 const inputRef = ref<HTMLInputElement | null>(null)
-
-watch(() => state.open, async (open) => {
-  if (open && state.promptMode) {
-    await nextTick()
-    inputRef.value?.focus()
-  }
-})
 </script>
 
 <template>
@@ -23,6 +16,7 @@ watch(() => state.open, async (open) => {
     :open="state.open"
     :title="state.title"
     size="sm"
+    role="alertdialog"
     :closable="false"
     @close="handleCancel"
   >

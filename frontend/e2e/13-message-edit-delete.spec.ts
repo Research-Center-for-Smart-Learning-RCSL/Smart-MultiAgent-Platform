@@ -42,7 +42,7 @@ test.describe('Message edit/delete: author 5-min rule + admin override (M.3)', (
     await deleteBtn.click()
 
     // Confirm dialog renders Cancel/Confirm; wait for the dialog to appear.
-    const dialog = page.locator('dialog.confirm-dialog')
+    const dialog = page.getByRole('dialog')
     await expect(dialog).toBeVisible({ timeout: 3000 })
     await dialog.getByRole('button', { name: /confirm/i }).click()
     await expect(page.locator('.messages').getByText(msg)).not.toBeVisible({ timeout: 5000 })

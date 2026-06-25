@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, nextTick } from 'vue'
+import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { EnvelopeIcon } from '@heroicons/vue/24/outline'
 import { SPageHeader, SCard, SFormField, SInput, SButton, SAlert } from '@shared/ui'
@@ -11,6 +12,7 @@ import { useSessionStore } from '../stores/session'
 import { emailSchema, validateField } from '../validation'
 
 const { t } = useI18n()
+const router = useRouter()
 const session = useSessionStore()
 const rateLimit = useRateLimitCountdown()
 
@@ -42,6 +44,11 @@ function validatePassword(): boolean {
   }
   fieldErrors.value.password = undefined
   return true
+}
+
+function goLogin(): void {
+  session.clear()
+  router.push({ name: 'identity.login' })
 }
 
 onMounted(async () => {
@@ -110,6 +117,13 @@ async function submit(): Promise<void> {
           <p class="done-state__text">
             {{ $t('identity.changeEmail.sentDescription', { email: submittedEmail }) }}
           </p>
+          <SButton
+            variant="primary"
+            class="done-state__action"
+            @click="goLogin"
+          >
+            {{ $t('identity.login.title') }}
+          </SButton>
         </div>
       </template>
 
@@ -230,6 +244,10 @@ async function submit(): Promise<void> {
   color: var(--color-muted);
   line-height: 1.5;
   margin: 0;
+}
+
+.done-state__action {
+  margin-top: 20px;
 }
 
 @media (max-width: 768px) {

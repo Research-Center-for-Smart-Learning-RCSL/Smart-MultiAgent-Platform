@@ -8,12 +8,14 @@ const props = withDefaults(defineProps<{
   size?: 'sm' | 'md' | 'lg' | 'xl' | 'full'
   closable?: boolean
   persistent?: boolean
+  role?: 'dialog' | 'alertdialog'
 }>(), {
   open: false,
   title: undefined,
   size: 'md',
   closable: true,
   persistent: false,
+  role: 'dialog',
 })
 
 const emit = defineEmits<{
@@ -113,7 +115,7 @@ onBeforeUnmount(() => {
           ref="panelRef"
           class="s-modal__panel"
           :class="`s-modal__panel--${size}`"
-          role="dialog"
+          :role="role"
           aria-modal="true"
           tabindex="-1"
         >
