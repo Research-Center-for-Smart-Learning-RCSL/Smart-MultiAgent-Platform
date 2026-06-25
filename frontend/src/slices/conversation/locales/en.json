@@ -144,7 +144,9 @@
       "exportReady": "Export ready!",
       "exportRunning": "Exporting chatroom history…",
       "exportExpiry": "Link expires in 24 hours.",
-      "retry": "Retry"
+      "retry": "Retry",
+      "copied": "Copied to clipboard.",
+      "copyFailed": "Failed to copy."
     },
     "settings": {
       "title": "Chatroom Settings",

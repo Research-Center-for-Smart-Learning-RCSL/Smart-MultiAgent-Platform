@@ -3,27 +3,28 @@
     class="streaming"
     data-testid="streaming-draft"
   >
-    <article class="bubble bubble--agent">
-      <header class="bubble__meta">
+    <ChatroomBubbleShell agent>
+      <template #meta>
         <SAvatar
           :name="agentName"
           size="sm"
         />
         <span class="bubble__sender">{{ agentName }}</span>
         <span class="streaming__label">{{ t('conversation.chatroom.agentStreaming') }}</span>
-      </header>
+      </template>
       <!-- Single sanitiser site (eslint allowlist): html came from renderMarkdown. -->
       <div
         class="bubble__body md streaming-md"
         v-html="html"
       />
-    </article>
+    </ChatroomBubbleShell>
   </li>
 </template>
 
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
 import { SAvatar } from '@shared/ui'
+import ChatroomBubbleShell from './ChatroomBubbleShell.vue'
 
 defineProps<{
   html: string
@@ -36,22 +37,6 @@ const { t } = useI18n()
 <style scoped>
 .streaming {
   margin-bottom: 8px;
-}
-
-.bubble {
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-left: 3px solid var(--color-accent);
-  border-radius: var(--radius-md);
-  padding: 12px 16px;
-  max-width: 85%;
-}
-
-.bubble__meta {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 6px;
 }
 
 .bubble__sender {
