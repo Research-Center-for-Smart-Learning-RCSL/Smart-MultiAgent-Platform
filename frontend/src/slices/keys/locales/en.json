@@ -180,6 +180,9 @@
       "tavily": "Tavily",
       "googleCse": "Google CSE",
       "cxPrefix": "cx: {value}",
+      "lastTested": "Last Tested",
+      "never": "Never",
+      "deleteActiveWarning": "This key is currently the active search key. Deleting it will disable all web search for this project until another key is activated.",
       "emptyTitle": "No search keys configured.",
       "emptyDescription": "Add search provider keys to enable web search capabilities for your agents."
     },

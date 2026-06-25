@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import {
@@ -73,7 +73,6 @@ async function onDelete() {
   }
 }
 
-onMounted(reload)
 </script>
 
 <template>

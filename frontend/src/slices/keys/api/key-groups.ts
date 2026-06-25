@@ -5,6 +5,7 @@ export interface KeyGroup {
   project_id: string
   name: string
   created_at: string
+  member_count: number
 }
 
 export interface Rotation {

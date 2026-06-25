@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import {
@@ -20,6 +20,7 @@ import {
   SEmptyState,
   SAlert,
   STooltip,
+  SPagination,
 } from '@shared/ui'
 import { useConfirmDialog, useToast } from '@shared/composables'
 import { useSearchKeys } from '../composables/useSearchKeys'
@@ -39,14 +40,25 @@ const { keys, error, reload, upload, retest, activate, remove } = useSearchKeys(
 
 const showAdd = ref(false)
 const uploadFormRef = ref<InstanceType<typeof SearchKeyUploadForm> | null>(null)
+const currentPage = ref(1)
+const pageSize = 20
+
+const totalPages = computed(() => Math.max(1, Math.ceil(keys.value.length / pageSize)))
+const paginatedKeys = computed(() => {
+  const start = (currentPage.value - 1) * pageSize
+  return keys.value.slice(start, start + pageSize)
+})
 
 const columns = computed<Column[]>(() => [
   { key: 'provider', label: t('keys.search.provider'), width: '160px' },
   { key: 'masked_preview', label: t('keys.search.preview'), width: '110px' },
   { key: 'test_status', label: t('keys.search.status'), width: '120px', align: 'center' },
+  { key: 'last_test_at', label: t('keys.search.lastTested'), width: '140px' },
   { key: 'is_active', label: t('keys.search.active'), width: '80px', align: 'center' },
   { key: 'actions', label: '', width: '80px', align: 'right' },
 ])
+
+const activeKeyId = computed(() => keys.value.find((k) => k.is_active)?.id ?? '')
 
 const PROVIDER_DISPLAY: Record<SearchProvider, string> = {
   brave: 'Brave',
@@ -96,9 +108,13 @@ async function onActivate(id: string) {
 
 async function onDelete(id: string) {
   const key = keys.value.find((k) => k.id === id)
+  const provider = PROVIDER_DISPLAY[key?.provider ?? 'brave']
+  const message = key?.is_active
+    ? `${t('keys.search.deleteBody', { provider })}\n\n${t('keys.search.deleteActiveWarning')}`
+    : t('keys.search.deleteBody', { provider })
   const ok = await confirm({
     title: t('keys.search.deleteTitle'),
-    message: t('keys.search.deleteBody', { provider: PROVIDER_DISPLAY[key?.provider ?? 'brave'] }),
+    message,
     confirmLabel: t('keys.search.delete'),
     variant: 'error',
   })
@@ -119,8 +135,6 @@ function onAction(key: string, row: { id: string }) {
   }
 }
 
-onMounted(reload)
-watch(projectId, reload)
 </script>
 
 <template>
@@ -152,7 +166,7 @@ watch(projectId, reload)
 
     <STable
       :columns="columns"
-      :data="keys"
+      :data="paginatedKeys"
       row-key="id"
       class="mt-6"
     >
@@ -194,6 +208,12 @@ watch(projectId, reload)
         </small>
       </template>
 
+      <template #cell-last_test_at="{ row }">
+        <span class="text-sm text-[var(--color-muted)]">
+          {{ row.last_test_at ? new Date(row.last_test_at).toLocaleString() : $t('keys.search.never') }}
+        </span>
+      </template>
+
       <template #cell-is_active="{ row }">
         <STooltip
           v-if="row.test_status === 'failed'"
@@ -201,18 +221,18 @@ watch(projectId, reload)
           placement="top"
         >
           <SRadio
-            :model-value="keys.find((k: { provider: string; is_active: boolean }) => k.provider === row.provider && k.is_active)?.id ?? ''"
+            :model-value="activeKeyId"
             :value="row.id"
-            :name="`active-${row.provider}`"
+            name="active-search-key"
             disabled
             :data-testid="`activate-${row.id}`"
           />
         </STooltip>
         <SRadio
           v-else
-          :model-value="keys.find((k: { provider: string; is_active: boolean }) => k.provider === row.provider && k.is_active)?.id ?? ''"
+          :model-value="activeKeyId"
           :value="row.id"
-          :name="`active-${row.provider}`"
+          name="active-search-key"
           :data-testid="`activate-${row.id}`"
           @update:model-value="onActivate(row.id)"
         />
@@ -253,6 +273,16 @@ watch(projectId, reload)
         </SEmptyState>
       </template>
     </STable>
+
+    <SPagination
+      v-if="keys.length > pageSize"
+      :page="currentPage"
+      :total-pages="totalPages"
+      :total-items="keys.length"
+      :page-size="pageSize"
+      class="mt-4"
+      @update:page="currentPage = $event"
+    />
 
     <SearchKeyUploadForm
       ref="uploadFormRef"

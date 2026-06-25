@@ -180,7 +180,20 @@ Skeleton row:
 | Retest succeeds (failed) | `retest()` then | Toast warning: `$t('keys.list.retestInvalid')` with `test_error` |
 | Delete fails | `remove()` catch | Toast error: `$t('keys.list.deleteFailed')` |
 
-### 1.11 Responsive Behavior
+### 1.11 Pagination
+
+The backend supports `limit` and `offset` query parameters on
+`GET /api/keys`. The table renders with `SPagination` below it.
+
+| Property | Value |
+|----------|-------|
+| Page size | 20 (default) |
+| Page size options | `[20, 50, 100]` |
+| Component | `SPagination` below `STable` |
+| State | Managed via query params `?page=N&size=M` for URL persistence |
+| On page change | Fetch with updated `offset = (page - 1) * size` |
+
+### 1.12 Responsive Behavior
 
 | Breakpoint | Changes |
 |------------|---------|
@@ -199,7 +212,7 @@ Skeleton row:
 +------------------------------+
 ```
 
-### 1.12 Design System Components Used
+### 1.13 Design System Components Used
 
 | Component | Usage |
 |-----------|-------|
@@ -214,8 +227,9 @@ Skeleton row:
 | `SAlert` | Fetch error banner |
 | `STooltip` | Full test_error text on hover |
 | `SModal` | Key Upload Modal (section 7) |
+| `SPagination` | Page navigation below table |
 
-### 1.13 Accessibility
+### 1.14 Accessibility
 
 | Element | Attributes |
 |---------|------------|
@@ -543,7 +557,20 @@ no keys):
 | Withdraw fails | `withdraw()` catch | Toast error |
 | Usage fetch fails | `usage()` catch | Inline error text in expanded panel |
 
-### 3.10 Responsive Behavior
+### 3.10 Pagination
+
+The carried keys table supports pagination via `SPagination` (backend
+`GET /api/projects/{pid}/keys` accepts `limit` and `offset`). The
+available keys table (carry tab) is not paginated — it is computed
+client-side by filtering personal keys against carried keys.
+
+| Property | Value |
+|----------|-------|
+| Page size | 20 (default) |
+| Scope | Carried keys tab only |
+| Component | `SPagination` below carried keys `STable` |
+
+### 3.11 Responsive Behavior
 
 | Breakpoint | Changes |
 |------------|---------|
@@ -551,7 +578,7 @@ no keys):
 | 768-1023px | Hide Preview column; usage stats wrap to 2x2 grid |
 | < 768px | Card list layout; each key as `SCard`; usage stats stack vertically; tabs remain horizontal but use full width |
 
-### 3.11 Design System Components Used
+### 3.12 Design System Components Used
 
 | Component | Usage |
 |-----------|-------|
@@ -567,6 +594,7 @@ no keys):
 | `SAlert` | Error banners |
 | `SCard` | Mobile card layout, usage expansion panel |
 | `CapabilityChip` | Provider + capabilities |
+| `SPagination` | Carried keys table pagination |
 
 ---
 
@@ -627,7 +655,7 @@ Create Group Modal:
 | Column Key | Label (`$t`) | Width | Cell Content |
 |------------|-------------|-------|--------------|
 | `name` | `keys.groups.name` -- "Name" | auto | `<router-link>` to group detail, `--color-accent` text, hover underline |
-| `members` | `keys.groups.members` -- "Members" | 120px | `$t('keys.groups.memberCount', { n })` -- "N keys" |
+| `member_count` | `keys.groups.members` -- "Members" | 120px | `$t('keys.groups.memberCount', { n })` -- "N keys". Uses `member_count` field from `GroupOut` (computed server-side) |
 | `created_at` | `keys.groups.created` -- "Created" | 160px | Locale date format |
 | `actions` | -- | 80px | `SDropdown` |
 
@@ -792,6 +820,12 @@ The group name in the page header supports inline editing via the
 Members are rendered as a vertically-stacked list of draggable cards. Each
 card has a priority badge, key info, and expandable configuration.
 
+**Data flow note**: the backend `MemberOut` DTO only contains `key_id`,
+`priority`, `rotation`, and `limits` — it does not include provider,
+name, or masked preview. The view must load carried project keys via
+`useProjectKeys` and join on `key_id` to resolve display fields
+(provider, name, masked_preview) for each member card.
+
 **Member card anatomy**:
 
 ```
@@ -927,17 +961,23 @@ below the field:
 **Trigger**: `SSelect` (or `SDropdown`) in the section header area labeled
 `$t('keys.groups.addMember')` -- "Add Member".
 
-**Options**: list of carried project keys not already in the group.
-Each option shows `provider - key-name`. Keys already in the group are
-shown as disabled with "(already added)" suffix.
+**Options**: list of carried project keys that have the `llm_chat`
+capability and are not already in the group. Only Claude, OpenAI, and
+Gemini keys appear — Voyage (`embedding` only) and Cohere (`rerank`
+only) are excluded because the backend enforces `LLM_CHAT` capability
+on group members. Each option shows `provider - key-name`. Keys already
+in the group are shown as disabled with "(already added)" suffix.
+
+**Filtering**: use the `CAPABILITIES` table from `api/keys.ts` to filter
+`carried.filter(k => CAPABILITIES[k.provider].includes('llm_chat'))`.
 
 **On select**: immediately calls `addMember(groupId, keyId)`. New member
 appears at the bottom of the list with the lowest priority. The list
 re-renders with the new member.
 
 **No available keys**: dropdown shows a disabled placeholder
-`$t('keys.groups.noAvailableKeys')` -- "No available keys. Carry keys
-into the project first."
+`$t('keys.groups.noAvailableKeys')` -- "No available keys. Carry LLM
+keys into the project first."
 
 ### 5.8 Remove Member
 
@@ -1070,6 +1110,7 @@ Add Search Key Modal:
 | `provider` | `keys.search.provider` -- "Provider" | 160px | Provider name + config subtitle (section 6.4) |
 | `masked_preview` | `keys.search.preview` -- "Preview" | 110px | Monospace `<code>` |
 | `test_status` | `keys.search.status` -- "Status" | 120px | `SStatusBadge` + error detail |
+| `last_test_at` | `keys.search.lastTested` -- "Last Tested" | 140px | Locale-formatted datetime or `$t('keys.search.never')` -- "Never" |
 | `is_active` | `keys.search.active` -- "Active" | 80px | `SRadio` (section 6.5) |
 | `actions` | -- | 80px | `SDropdown` |
 
@@ -1092,22 +1133,25 @@ name.
 
 ### 6.5 Active Radio Behavior
 
-Each provider type can have exactly one active key per project. The Active
-column uses `SRadio` buttons grouped by provider type.
+Only one search key can be active per project at a time, regardless of
+provider. The Active column uses `SRadio` buttons in a single radio group
+spanning all rows.
 
 **Rules**:
-- Only one key per provider type can be active at a time
+- Only one search key can be active across the entire project
 - Clicking a radio on an inactive key calls
   `activate(projectId, searchKeyId)`
-- The active key's radio is checked; all others of the same provider type
-  are unchecked
+- The newly activated key's radio is checked; the previously active key
+  (any provider) is unchecked
 - Keys with `test_status === 'failed'` show a disabled radio with tooltip:
   `$t('keys.search.cannotActivateInvalid')` -- "Fix validation errors
   before activating."
+- The active key's provider determines which search provider agents use
 
 **Activation flow**:
 1. User clicks inactive radio
-2. Optimistic: immediately check the new radio, uncheck the old
+2. Optimistic: immediately check the new radio, uncheck the previously
+   active key (regardless of provider)
 3. Call `POST /api/projects/{pid}/search-keys/{kid}/activate`
 4. On success: no additional action
 5. On failure (409 SearchActivationConflict): revert radio state, toast
@@ -1164,7 +1208,7 @@ loading state).
 |----------|-------|
 | Title | `$t('keys.search.deleteTitle')` -- "Delete Search Key" |
 | Body | `$t('keys.search.deleteBody', { provider })` -- "Delete this {provider} search key? Agents using this provider for search will stop working." |
-| Warning (when active) | Additional `SAlert` variant `warning` inside the dialog body: "This key is currently active. Deleting it will disable {provider} search for this project." |
+| Warning (when active) | Additional `SAlert` variant `warning` inside the dialog body: `$t('keys.search.deleteActiveWarning')` -- "This key is currently the active search key. Deleting it will disable all web search for this project until another key is activated." |
 | Variant | `danger` |
 
 ### 6.9 Empty State
@@ -1191,19 +1235,31 @@ loading state).
 | Error | Source | UI Treatment |
 |-------|--------|-------------|
 | List fetch fails | `useSearchKeys` error | `SAlert` variant `danger` above table |
-| Upload fails (duplicate provider) | `upload()` catch | Inline form error: "A key for this provider already exists." |
+| Upload fails (validation) | `upload()` catch | Inline form error via `SFormField` error prop |
 | Retest fails | `retest()` catch | Toast error |
 | Activate fails (409) | `activate()` catch | Toast error + revert radio state |
 | Delete fails | `remove()` catch | Toast error |
 
-### 6.11 Responsive Behavior
+### 6.11 Pagination
+
+The backend supports `limit` and `offset` on
+`GET /api/projects/{pid}/search-keys`. The table renders with
+`SPagination` below it.
+
+| Property | Value |
+|----------|-------|
+| Page size | 20 (default) |
+| Component | `SPagination` below `STable` |
+| State | Managed via query params `?page=N&size=M` |
+
+### 6.12 Responsive Behavior
 
 | Breakpoint | Changes |
 |------------|---------|
 | >= 768px | Full table layout |
 | < 768px | Card list: provider + config on first line, preview + status on second, active radio + actions on third; modal becomes full-width with 16px padding |
 
-### 6.12 Design System Components Used
+### 6.13 Design System Components Used
 
 | Component | Usage |
 |-----------|-------|
@@ -1222,6 +1278,7 @@ loading state).
 | `SAlert` | Fetch error, active key delete warning |
 | `SEmptyState` | No keys placeholder |
 | `STooltip` | Disabled radio explanation |
+| `SPagination` | Page navigation below table |
 
 ---
 
@@ -1651,7 +1708,7 @@ formatTokenCount.ts (new)
 | Hourly sliding window | -- | 60-minute sliding window for token/request limits |
 | 80% threshold notification | -- | SAlert warning + backend notification via `key_usage_threshold` |
 | Usage retention 13 months | -- | Info text below usage stats |
-| Search key one-active-per-provider | -- | Radio button enforces single active per provider type |
+| Search key one-active-per-project | -- | Radio button enforces single active key across entire project (any provider) |
 | Google CSE extra field | -- | CX field conditionally shown in upload modal |
 | Vault Transit encryption | -- | Security notice in upload modal |
 
@@ -1665,12 +1722,12 @@ Backend domain errors and their UI treatment across all views.
 |---|---|---|---|---|
 | KeyNotFound | 404 | `keys/not-found` | "Key not found." | EmptyState (detail), toast (actions) |
 | KeyNotOwnedByCaller | 403 | `keys/not-owned` | "You do not own this key." | Toast error |
-| KeyRevoked | 410 | `keys/revoked` | "This key has been revoked." | Toast error, row disabled |
+| KeyRevoked | 410 | `keys/revoked` | "This key has been revoked." | Toast error; in list views the row renders with `opacity: 0.5`, status badge shows "Revoked" (variant `neutral`), all actions disabled except Delete |
 | CapabilityMismatch | 422 | `keys/capability-mismatch` | "Key capabilities do not match the required configuration." | Toast error |
 | ProviderUnauthorized | 422 | `keys/provider-unauthorized` | "Provider rejected the API key." | Status badge `failed` + test_error |
-| KeyGroupExhausted | 503 | `keys/group-exhausted` | "All keys in the group are exhausted." | SAlert in group detail |
+| KeyGroupExhausted | 503 | `keys/group-exhausted` | "All keys in the group are exhausted." | `SAlert` variant `danger` above the member list in `KeyGroupDetailView`; includes reason sub-type: "no_members", "errors", or "quota" |
 | UsageQuotaExceeded | 429 | `keys/usage-quota-exceeded` | "Hourly usage quota exceeded." | SProgressBar at 100% + SAlert danger |
-| SearchActivationConflict | 409 | `search/activation-conflict` | "Another key of this provider is already active." | Toast error, revert radio |
+| SearchActivationConflict | 409 | `search/activation-conflict` | "Another activation is in progress. Please try again." | Toast error, revert radio state |
 | GroupWrongProject | 422 | `keys/not-carried` | "Key is not carried into this project." | Toast error |
 | GroupMemberConflict | 409 | `keys/member-conflict` | "Key is already a member of this group." | Toast error, dropdown option disabled |
 
@@ -1682,7 +1739,7 @@ Backend domain errors and their UI treatment across all views.
 
 | Method | Path | Request | Response |
 |--------|------|---------|----------|
-| GET | `/api/keys` | -- | `KeyOut[]` |
+| GET | `/api/keys` | `?limit=20&offset=0` | `KeyOut[]` |
 | POST | `/api/keys` | `KeyUploadIn` | `KeyOut` |
 | POST | `/api/keys/{id}/retest` | -- | `KeyOut` |
 | DELETE | `/api/keys/{id}` | -- | 204 |
@@ -1691,7 +1748,7 @@ Backend domain errors and their UI treatment across all views.
 
 | Method | Path | Request | Response |
 |--------|------|---------|----------|
-| GET | `/api/projects/{pid}/keys` | -- | `KeyOut[]` |
+| GET | `/api/projects/{pid}/keys` | `?limit=20&offset=0` | `KeyOut[]` |
 | POST | `/api/projects/{pid}/keys` | `CarryIn` | `KeyOut` |
 | DELETE | `/api/projects/{pid}/keys/{kid}` | -- | 204 |
 | GET | `/api/projects/{pid}/keys/{kid}/usage` | `?window=1h\|24h\|7d\|30d` | `UsageOut` |
@@ -1700,7 +1757,7 @@ Backend domain errors and their UI treatment across all views.
 
 | Method | Path | Request | Response |
 |--------|------|---------|----------|
-| GET | `/api/projects/{pid}/key-groups` | -- | `GroupOut[]` |
+| GET | `/api/projects/{pid}/key-groups` | -- | `GroupOut[]` (includes `member_count`) |
 | POST | `/api/projects/{pid}/key-groups` | `GroupIn` | `GroupOut` |
 | GET | `/api/key-groups/{gid}` | -- | `GroupDetailOut` |
 | PATCH | `/api/key-groups/{gid}` | `GroupPatchIn` | `GroupOut` |
@@ -1714,7 +1771,7 @@ Backend domain errors and their UI treatment across all views.
 
 | Method | Path | Request | Response |
 |--------|------|---------|----------|
-| GET | `/api/projects/{pid}/search-keys` | -- | `SearchKeyOut[]` |
+| GET | `/api/projects/{pid}/search-keys` | `?limit=20&offset=0` | `SearchKeyOut[]` |
 | POST | `/api/projects/{pid}/search-keys` | `SearchKeyIn` | `SearchKeyOut` |
 | POST | `/api/projects/{pid}/search-keys/{kid}/retest` | -- | `SearchKeyOut` |
 | POST | `/api/projects/{pid}/search-keys/{kid}/activate` | -- | `SearchKeyOut` |

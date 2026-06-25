@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import {
@@ -18,6 +18,7 @@ import {
   SStatusBadge,
   SEmptyState,
   SAlert,
+  SPagination,
 } from '@shared/ui'
 import { useConfirmDialog, useToast } from '@shared/composables'
 import { useMyKeys } from '../composables/useMyKeys'
@@ -40,6 +41,14 @@ const { carried, loading, error, reload, carry, withdraw } = useProjectKeys(
 
 const activeTab = ref('carried')
 const expandedKeyId = ref<string | null>(null)
+const carriedPage = ref(1)
+const pageSize = 20
+
+const carriedTotalPages = computed(() => Math.max(1, Math.ceil(carried.value.length / pageSize)))
+const paginatedCarried = computed(() => {
+  const start = (carriedPage.value - 1) * pageSize
+  return carried.value.slice(start, start + pageSize)
+})
 
 const carriable = computed(() =>
   myKeys.value.filter((m) => !carried.value.some((c) => c.id === m.id)),
@@ -97,12 +106,6 @@ async function onCarry(keyId: string) {
   }
 }
 
-onMounted(async () => {
-  await Promise.all([reloadMine(), reload()])
-})
-watch(projectId, async () => {
-  await Promise.all([reloadMine(), reload()])
-})
 </script>
 
 <template>
@@ -130,7 +133,7 @@ watch(projectId, async () => {
       <template #tab-carried>
         <STable
           :columns="carriedColumns"
-          :data="carried"
+          :data="paginatedCarried"
           :loading="loading"
           row-key="id"
         >
@@ -200,6 +203,15 @@ watch(projectId, async () => {
             compact
           />
         </div>
+        <SPagination
+          v-if="carried.length > pageSize"
+          :page="carriedPage"
+          :total-pages="carriedTotalPages"
+          :total-items="carried.length"
+          :page-size="pageSize"
+          class="mt-4"
+          @update:page="carriedPage = $event"
+        />
       </template>
 
       <!-- Available Keys tab -->
