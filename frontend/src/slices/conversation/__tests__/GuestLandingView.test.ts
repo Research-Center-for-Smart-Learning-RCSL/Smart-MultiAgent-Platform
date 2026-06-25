@@ -24,13 +24,14 @@ describe('GuestLandingView', () => {
     expect(wrapper.exists()).toBe(true)
   })
 
-  it('shows the enrolling state initially', async () => {
+  it('renders the enrollment card with a live region on mount', async () => {
     const wrapper = await renderView(GuestLandingView, {
       routes,
       initialRoute: '/g/cr_1/tok_abc',
     })
+    // The card mounts and fires enrollGuest; its content area announces state
+    // changes via an aria-live region regardless of the resolved state.
     expect(wrapper.find('.guest-landing').exists()).toBe(true)
-    // The component starts in 'enrolling' state and fires enrollGuest on mount.
-    expect(wrapper.find('p').exists()).toBe(true)
+    expect(wrapper.find('[aria-live]').exists()).toBe(true)
   })
 })
