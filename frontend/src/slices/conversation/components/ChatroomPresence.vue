@@ -30,23 +30,11 @@
       {{ t('conversation.chatroom.agentStatusHeader') }}
     </p>
     <ul class="presence__list">
-      <li
+      <ChatroomAgentStatusItem
         v-for="a in agents"
         :key="a.id"
-        class="presence-agent"
-      >
-        <SAvatar
-          :name="a.name"
-          size="sm"
-        />
-        <span class="presence-agent__body">
-          <span class="presence-agent__name">{{ a.name }}</span>
-          <span
-            class="presence-agent__status"
-            :class="`presence-agent__status--${a.status}`"
-          >{{ t(`conversation.chatroom.agentStatus.${a.status}`) }}</span>
-        </span>
-      </li>
+        :agent="a"
+      />
     </ul>
   </aside>
 </template>
@@ -54,11 +42,13 @@
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
 import { SAvatar, SDivider } from '@shared/ui'
-import type { AgentStatus } from './ChatroomAgentSidebar.vue'
+import ChatroomAgentStatusItem, {
+  type AgentStatusEntry,
+} from './ChatroomAgentStatusItem.vue'
 
 defineProps<{
   onlineUsers: Array<{ id: string; isYou: boolean }>
-  agents: Array<{ id: string; name: string; status: AgentStatus }>
+  agents: AgentStatusEntry[]
 }>()
 
 const { t } = useI18n()
@@ -123,37 +113,5 @@ const { t } = useI18n()
 .presence-user__you {
   font-size: 12px;
   color: var(--color-muted);
-}
-
-.presence-agent {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-height: 44px;
-}
-
-.presence-agent__body {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-}
-
-.presence-agent__name {
-  font-size: 14px;
-  color: var(--color-fg);
-}
-
-.presence-agent__status {
-  font-size: 12px;
-  color: var(--color-muted);
-}
-
-.presence-agent__status--thinking,
-.presence-agent__status--streaming {
-  color: var(--color-accent);
-}
-
-.presence-agent__status--error {
-  color: var(--color-danger);
 }
 </style>

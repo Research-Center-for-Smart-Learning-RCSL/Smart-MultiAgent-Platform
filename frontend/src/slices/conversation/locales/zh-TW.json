@@ -144,7 +144,9 @@
       "exportReady": "匯出完成！",
       "exportRunning": "正在匯出聊天室歷史…",
       "exportExpiry": "連結將在 24 小時後失效。",
-      "retry": "重試"
+      "retry": "重試",
+      "copied": "已複製到剪貼簿。",
+      "copyFailed": "複製失敗。"
     },
     "settings": {
       "title": "聊天室設定",

@@ -112,7 +112,7 @@
       class="chatroom__composer"
       :pending-uploads="pendingUploads"
       :disabled="!connected"
-      @submit="onSend"
+      @submit="send"
       @typing="emitTyping"
       @drop="onDrop"
       @pick-files="uploadFiles"
@@ -159,15 +159,7 @@
 </template>
 
 <script setup lang="ts">
-import {
-  computed,
-  onBeforeUnmount,
-  onMounted,
-  onUpdated,
-  ref,
-  useTemplateRef,
-  watch,
-} from 'vue'
+import { computed, onBeforeUnmount, ref, useTemplateRef, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useQuery } from '@tanstack/vue-query'
 import { useI18n } from 'vue-i18n'
@@ -181,14 +173,17 @@ import { ApprovalCard } from '@slices/workflow'
 
 import { useChatroomSocket } from '../composables/useChatroomSocket'
 import { useChatroomMessages } from '../composables/useChatroomMessages'
+import { useChatroomMessageEditing } from '../composables/useChatroomMessageEditing'
+import { useChatroomAttachments } from '../composables/useChatroomAttachments'
 import { useChatroomSearch } from '../composables/useChatroomSearch'
 import { useChatroomExport } from '../composables/useChatroomExport'
 import { useChatroomScroll } from '../composables/useChatroomScroll'
+import { useAgentStreams } from '../composables/useAgentStreams'
+import { useMarkdownEnhance } from '../composables/useMarkdownEnhance'
 import { useConversationStore } from '../stores/conversation'
-import { enhanceRenderedMarkdown, renderMarkdown } from '../utils/renderMarkdown'
 import { getChatroom, listChatroomAgents, type ExportOptions } from '../api'
 import { convKeys } from '../queries'
-import type { AgentStatus } from '../components/ChatroomAgentSidebar.vue'
+import type { AgentStatus } from '../components/ChatroomAgentStatusItem.vue'
 import type { Message, SearchHit } from '../types'
 
 import ChatroomHeader from '../components/ChatroomHeader.vue'
@@ -220,6 +215,9 @@ store.setActive(chatroomId)
 const listRef = useTemplateRef<HTMLElement>('listRef')
 
 // ---- room + bound agents --------------------------------------------------
+// Both queries degrade gracefully on purpose: a guest who can't read the room
+// metadata (403) still gets a usable view — roomName falls back to the id and
+// the agent list simply stays empty. Do not add error UI here.
 
 const roomQuery = useQuery({
   queryKey: convKeys.chatroom(chatroomId),
@@ -257,29 +255,43 @@ const {
   loadEarlier,
   rendered,
   draft,
-  pendingUploads,
-  onDrop,
-  uploadFiles,
-  removeUpload,
   onSend,
-  editingId,
-  editDraft,
-  startEdit,
-  cancelEdit,
-  saveEdit,
   confirmDelete,
   downloadAttachment,
   canEdit,
   canDelete,
   dropOlderMessage,
   refreshOlderMessage,
-} = useChatroomMessages(chatroomId, projectId, listRef)
+} = useChatroomMessages(chatroomId, listRef)
+
+const { editingId, editDraft, startEdit, cancelEdit, saveEdit } =
+  useChatroomMessageEditing(chatroomId)
+
+const {
+  pendingUploads,
+  uploadFiles,
+  onDrop,
+  removeUpload,
+  attachmentIds,
+  clear: clearAttachments,
+} = useChatroomAttachments(chatroomId, projectId)
+
+const { streamingEntries } = useAgentStreams(chatroomId)
 
 const { searchQuery, searchHits, renderedSnippets, runSearch } = useChatroomSearch(chatroomId)
 const { exportJob, runExport } = useChatroomExport(chatroomId)
 const messageCount = computed(() => messages.value.length)
 const { showPill, newCount, scrollToBottom, maybeStick, captureBeforePrepend, restoreAfterPrepend } =
   useChatroomScroll(listRef, messageCount)
+
+// Debounced KaTeX/Mermaid post-processing; re-pin scroll after each update.
+useMarkdownEnhance(listRef, { onAfterUpdate: maybeStick })
+
+/** Send the draft + resolved attachments, clearing uploads on success. */
+async function send(): Promise<void> {
+  const ok = await onSend(attachmentIds())
+  if (ok) clearAttachments()
+}
 
 // ---- WebSocket + real-time state ------------------------------------------
 
@@ -324,36 +336,6 @@ const onlineUsers = computed(() => {
   return Array.from(set).map((id) => ({ id, isYou: id === myId.value }))
 })
 
-// Per-agent streaming draft bubbles — memoised so only the agent whose text
-// changed gets re-rendered (renderMarkdown + DOMPurify is expensive at token
-// frequency). The cache maps agentId → {source, html}.
-const _streamCache = new Map<string, { source: string; html: string }>()
-const streamingEntries = computed<[string, string][]>(() => {
-  const roomStreams = store.agentStreams[chatroomId]
-  if (!roomStreams) {
-    _streamCache.clear()
-    return []
-  }
-  const activeIds = new Set<string>()
-  const entries: [string, string][] = []
-  for (const [agentId, text] of Object.entries(roomStreams)) {
-    if (!text) continue
-    activeIds.add(agentId)
-    const cached = _streamCache.get(agentId)
-    if (cached && cached.source === text) {
-      entries.push([agentId, cached.html])
-    } else {
-      const html = renderMarkdown(text)
-      _streamCache.set(agentId, { source: text, html })
-      entries.push([agentId, html])
-    }
-  }
-  for (const key of _streamCache.keys()) {
-    if (!activeIds.has(key)) _streamCache.delete(key)
-  }
-  return entries
-})
-
 // Agent failure surfaced by the socket layer: backend agent.finished{error}
 // or the client-side thinking watchdog ('timeout'). Toast once, then clear.
 watch(
@@ -393,8 +375,17 @@ function senderName(m: Message): string {
   return m.sender_id ? m.sender_id.slice(0, 8) : m.sender_type
 }
 
-function copyMessage(m: Message): void {
-  navigator.clipboard?.writeText(m.content_md).catch(() => {})
+async function copyMessage(m: Message): Promise<void> {
+  if (!navigator.clipboard) {
+    toast.error(t('conversation.chatroom.copyFailed'))
+    return
+  }
+  try {
+    await navigator.clipboard.writeText(m.content_md)
+    toast.success(t('conversation.chatroom.copied'))
+  } catch {
+    toast.error(t('conversation.chatroom.copyFailed'))
+  }
 }
 
 async function doSearch(): Promise<void> {
@@ -424,52 +415,6 @@ function openExport(): void {
 function onExportSubmit(opts: ExportOptions): void {
   void runExport(opts)
 }
-
-// ---- KaTeX/Mermaid post-processing (FE-12) --------------------------------
-// `onUpdated` fires on every reactive change; the Mermaid pass is async, so we
-// debounce a burst into one pass and serialise overlapping runs. Streaming
-// growth also re-pins the feed to the bottom if the user was already there.
-const ENHANCE_DEBOUNCE_MS = 120
-let enhanceTimer: ReturnType<typeof setTimeout> | null = null
-let enhanceInFlight = false
-let enhanceQueued = false
-
-async function runEnhance(): Promise<void> {
-  if (enhanceInFlight) {
-    enhanceQueued = true
-    return
-  }
-  if (!listRef.value) return
-  enhanceInFlight = true
-  try {
-    await enhanceRenderedMarkdown(listRef.value)
-  } catch {
-    // Best-effort; rendering errors must not crash the chatroom.
-  } finally {
-    enhanceInFlight = false
-  }
-  if (enhanceQueued) {
-    enhanceQueued = false
-    scheduleEnhance()
-  }
-}
-
-function scheduleEnhance(): void {
-  if (enhanceTimer !== null) clearTimeout(enhanceTimer)
-  enhanceTimer = setTimeout(() => {
-    enhanceTimer = null
-    void runEnhance()
-  }, ENHANCE_DEBOUNCE_MS)
-}
-
-onMounted(scheduleEnhance)
-onUpdated(() => {
-  scheduleEnhance()
-  maybeStick()
-})
-onBeforeUnmount(() => {
-  if (enhanceTimer !== null) clearTimeout(enhanceTimer)
-})
 </script>
 
 <style scoped>

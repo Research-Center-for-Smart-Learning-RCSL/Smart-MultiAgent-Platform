@@ -18,11 +18,8 @@
     class="bubble-row"
     :class="{ 'bubble-row--agent': isAgent }"
   >
-    <article
-      class="bubble"
-      :class="{ 'bubble--agent': isAgent }"
-    >
-      <header class="bubble__meta">
+    <ChatroomBubbleShell :agent="isAgent">
+      <template #meta>
         <SAvatar
           :name="senderName"
           size="sm"
@@ -33,7 +30,7 @@
           :class="{ 'bubble__sender--agent': isAgent }"
         >{{ senderName }}</span>
         <time class="bubble__time">{{ time }}</time>
-      </header>
+      </template>
 
       <!-- Inline edit mode (own message). -->
       <div
@@ -111,7 +108,7 @@
         v-if="message.edited_at"
         class="bubble__edited"
       >{{ t('conversation.chatroom.edited') }}</span>
-    </article>
+    </ChatroomBubbleShell>
 
     <!-- Hover actions. -->
     <div
@@ -160,6 +157,7 @@ import {
   ClipboardDocumentIcon,
 } from '@heroicons/vue/24/outline'
 import { SAvatar, SButton, STextarea } from '@shared/ui'
+import ChatroomBubbleShell from './ChatroomBubbleShell.vue'
 import { formatTime } from '../utils/format'
 import type { Attachment, Message } from '../types'
 
@@ -194,28 +192,6 @@ const { t } = useI18n()
   flex-direction: column;
   gap: 4px;
   margin-bottom: 8px;
-}
-
-.bubble {
-  background: var(--color-bg);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  padding: 12px 16px;
-  max-width: 75%;
-  min-width: 200px;
-}
-
-.bubble--agent {
-  background: var(--color-surface);
-  border-left: 3px solid var(--color-accent);
-  max-width: 85%;
-}
-
-.bubble__meta {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 6px;
 }
 
 .bubble__avatar--agent {

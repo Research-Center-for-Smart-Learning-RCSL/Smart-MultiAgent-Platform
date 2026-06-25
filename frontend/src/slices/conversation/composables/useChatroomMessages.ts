@@ -10,14 +10,12 @@ import { useI18n } from 'vue-i18n'
 import { useSessionStore } from '@shared/stores/session'
 import {
   deleteMessage as apiDeleteMessage,
-  editMessage as apiEditMessage,
   getMessage,
   listMessages,
   sendMessage,
   compactChatroom,
   getAttachment,
 } from '../api'
-import { tusUpload, resourceToAttachmentId } from '@shared/transport'
 import { renderMarkdown } from '../utils/renderMarkdown'
 import { convKeys } from '../queries'
 import type { Attachment, Message } from '../types'
@@ -28,16 +26,8 @@ import type { Attachment, Message } from '../types'
 // affordances only.
 const EDIT_WINDOW_MS = 5 * 60 * 1000
 
-export interface PendingUpload {
-  id: string
-  filename: string
-  progress: number
-  attachmentId: string | null
-}
-
 export function useChatroomMessages(
   chatroomId: string,
-  projectId: string,
   listRef: Readonly<{ value: HTMLElement | null }>,
 ) {
   const { t } = useI18n()
@@ -151,98 +141,34 @@ export function useChatroomMessages(
   // ---------- compose & send -----------------------------------------------
 
   const draft = ref('')
-  const pendingUploads = ref<PendingUpload[]>([])
 
-  async function uploadFiles(files: File[]): Promise<void> {
-    for (const file of files) {
-      const record: PendingUpload = {
-        id: crypto.randomUUID(),
-        filename: file.name,
-        progress: 0,
-        attachmentId: null,
-      }
-      pendingUploads.value.push(record)
-      try {
-        const result = await tusUpload({
-          file,
-          purpose: 'chat_attachment',
-          projectId,
-          chatroomId,
-          onProgress: (done, total) => {
-            record.progress = total === 0 ? 1 : done / total
-          },
-        })
-        record.attachmentId = resourceToAttachmentId(result.resourceHeader)
-      } catch {
-        record.filename = t('conversation.chatroom.uploadFailed', { filename: record.filename })
-      }
-    }
-  }
-
-  async function onDrop(ev: DragEvent): Promise<void> {
-    await uploadFiles(Array.from(ev.dataTransfer?.files ?? []))
-  }
-
-  function removeUpload(id: string): void {
-    pendingUploads.value = pendingUploads.value.filter((p) => p.id !== id)
-  }
-
-  async function onSend(): Promise<void> {
+  /** Send the current draft with the given attachment ids. Returns true on
+   *  success so the caller can clear its own attachment state (the upload
+   *  surface lives in useChatroomAttachments). */
+  async function onSend(attachmentIds: string[] = []): Promise<boolean> {
     const text = draft.value.trim()
-    if (!text && pendingUploads.value.length === 0) return
+    if (!text && attachmentIds.length === 0) return false
 
-    // /compact slash command (G.10): forces compaction on active agent.
+    // /compact slash command (G.10): forces compaction on the active agent.
     if (text === '/compact') {
       draft.value = ''
       await compactChatroom(chatroomId)
-      return
+      return true
     }
 
-    const attachmentIds = pendingUploads.value
-      .map((p) => p.attachmentId)
-      .filter((x): x is string => !!x)
     try {
-      await sendMessage(chatroomId, {
-        content_md: text,
-        attachment_ids: attachmentIds,
-      })
+      await sendMessage(chatroomId, { content_md: text, attachment_ids: attachmentIds })
       draft.value = ''
-      pendingUploads.value = []
       await qc.invalidateQueries({ queryKey: convKeys.messages(chatroomId) })
       await nextTick()
-      listRef.value?.scrollTo({ top: listRef.value.scrollHeight })
+      // jsdom (tests) has no Element.scrollTo.
+      if (typeof listRef.value?.scrollTo === 'function') {
+        listRef.value.scrollTo({ top: listRef.value.scrollHeight })
+      }
+      return true
     } catch {
       toast.error(t('conversation.chatroom.sendFailed'))
-    }
-  }
-
-  // ---------- inline edit (R13.21) -----------------------------------------
-
-  const editingId = ref<string | null>(null)
-  const editDraft = ref('')
-  const editVersion = ref(0)
-
-  function startEdit(m: Message): void {
-    editingId.value = m.id
-    editDraft.value = m.content_md
-    editVersion.value = m.version
-  }
-
-  function cancelEdit(): void {
-    editingId.value = null
-    editDraft.value = ''
-  }
-
-  async function saveEdit(): Promise<void> {
-    const id = editingId.value
-    const text = editDraft.value.trim()
-    if (!id || !text) return
-    try {
-      await apiEditMessage(id, editVersion.value, text)
-      cancelEdit()
-      await qc.invalidateQueries({ queryKey: convKeys.messages(chatroomId) })
-    } catch {
-      toast.error(t('conversation.chatroom.editFailed'))
+      return false
     }
   }
 
@@ -307,20 +233,10 @@ export function useChatroomMessages(
     rendered,
     // compose
     draft,
-    pendingUploads,
-    onDrop,
-    uploadFiles,
-    removeUpload,
     onSend,
-    // edit
-    editingId,
-    editDraft,
-    startEdit,
-    cancelEdit,
-    saveEdit,
     // delete
     confirmDelete,
-    // attachment
+    // attachment download
     downloadAttachment,
     // permissions
     canEdit,

@@ -154,10 +154,11 @@ import {
   SProgressBar,
 } from '@shared/ui'
 import type { ExportOptions } from '../api'
+import type { ExportStatus } from '../types'
 
 defineProps<{
   open: boolean
-  job: { status: string; url: string | null } | null
+  job: { status: ExportStatus['status']; url: string | null } | null
 }>()
 
 const emit = defineEmits<{

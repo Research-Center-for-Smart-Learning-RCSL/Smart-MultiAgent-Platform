@@ -109,7 +109,7 @@ import {
   ArrowUpTrayIcon,
 } from '@heroicons/vue/24/outline'
 import { SButton, SProgressBar } from '@shared/ui'
-import type { PendingUpload } from '../composables/useChatroomMessages'
+import type { PendingUpload } from '../composables/useChatroomAttachments'
 
 const props = defineProps<{
   modelValue: string
