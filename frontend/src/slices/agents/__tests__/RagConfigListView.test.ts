@@ -48,7 +48,7 @@ function seedHandlers(opts: { embedKey?: boolean } = {}): void {
                 id: 'key_1',
                 provider: 'openai',
                 name: 'My OpenAI',
-                masked_preview: 'sk-…abcd',
+                masked_preview: 'sk-...abcd',
                 test_status: 'ok',
                 test_error: null,
                 last_test_at: null,
@@ -60,6 +60,11 @@ function seedHandlers(opts: { embedKey?: boolean } = {}): void {
   )
 }
 
+async function settle(wrapper: { vm: { $nextTick: () => Promise<void> } }): Promise<void> {
+  await new Promise((r) => setTimeout(r, 100))
+  await wrapper.vm.$nextTick()
+}
+
 describe('RagConfigListView', () => {
   it('lists the project RAG configurations fetched from the backend', async () => {
     seedHandlers()
@@ -67,8 +72,8 @@ describe('RagConfigListView', () => {
       routes,
       initialRoute: '/projects/proj_1/rag-configs',
     })
-    await new Promise((r) => setTimeout(r, 100))
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
+    expect(wrapper.find('table.s-table').exists()).toBe(true)
     expect(wrapper.text()).toContain('Handbook')
   })
 
@@ -78,22 +83,19 @@ describe('RagConfigListView', () => {
       routes,
       initialRoute: '/projects/proj_1/rag-configs',
     })
-    await new Promise((r) => setTimeout(r, 100))
-    await wrapper.vm.$nextTick()
-    const createBtn = wrapper.find('header .btn-primary')
+    await settle(wrapper)
+    const createBtn = wrapper.find('button.s-btn--primary')
     expect(createBtn.exists()).toBe(true)
     expect(createBtn.attributes('disabled')).toBeUndefined()
   })
 
-  it('warns and blocks creation when the project has no embedding key', async () => {
+  it('disables creation when the project has no embedding key', async () => {
     seedHandlers({ embedKey: false })
     const wrapper = await renderView(RagConfigListView, {
       routes,
       initialRoute: '/projects/proj_1/rag-configs',
     })
-    await new Promise((r) => setTimeout(r, 100))
-    await wrapper.vm.$nextTick()
-    expect(wrapper.find('.rag-list__warning').exists()).toBe(true)
-    expect(wrapper.find('header .btn-primary').attributes('disabled')).toBeDefined()
+    await settle(wrapper)
+    expect(wrapper.find('button.s-btn--primary').attributes('disabled')).toBeDefined()
   })
 })

@@ -10,6 +10,11 @@ const routes = [
     name: 'agents.ragConfig',
     component: RagConfigDetailView,
   },
+  {
+    path: '/projects/:projectId/rag-configs',
+    name: 'agents.ragConfigs',
+    component: { template: '<div />' },
+  },
 ]
 
 function seedHandlers(): void {
@@ -20,7 +25,7 @@ function seedHandlers(): void {
         project_id: 'proj_1',
         name: 'Handbook',
         chunk_strategy: 'fixed',
-        chunk_params: {},
+        chunk_params: { chunk_size_tokens: 512, chunk_overlap_tokens: 64 },
         embed_key_id: 'key_1',
         embed_provider: 'openai',
         embed_model: 'text-embedding-3-small',
@@ -46,29 +51,36 @@ function seedHandlers(): void {
         },
       ]),
     ),
+    http.get('/api/projects/proj_1/keys', () => HttpResponse.json([])),
   )
 }
 
+async function settle(wrapper: { vm: { $nextTick: () => Promise<void> } }): Promise<void> {
+  await new Promise((r) => setTimeout(r, 100))
+  await wrapper.vm.$nextTick()
+}
+
 describe('RagConfigDetailView', () => {
-  it('renders without errors', async () => {
+  it('renders the config name and a Save action on the settings tab', async () => {
     seedHandlers()
     const wrapper = await renderView(RagConfigDetailView, {
       routes,
       initialRoute: '/projects/proj_1/rag-configs/cfg_1',
     })
-    expect(wrapper.exists()).toBe(true)
-    // The upload control is always present (a labelled file input).
-    expect(wrapper.find('input[type="file"]').exists()).toBe(true)
+    await settle(wrapper)
+    expect(wrapper.text()).toContain('Handbook')
+    // Settings tab is active by default and exposes a primary Save button.
+    expect(wrapper.find('button.s-btn--primary').exists()).toBe(true)
   })
 
-  it('lists the config documents fetched from the backend', async () => {
+  it('lists the config documents with an upload control on the documents tab', async () => {
     seedHandlers()
     const wrapper = await renderView(RagConfigDetailView, {
       routes,
-      initialRoute: '/projects/proj_1/rag-configs/cfg_1',
+      initialRoute: '/projects/proj_1/rag-configs/cfg_1?tab=documents',
     })
-    await new Promise((r) => setTimeout(r, 100))
-    await wrapper.vm.$nextTick()
+    await settle(wrapper)
+    expect(wrapper.find('input[type="file"]').exists()).toBe(true)
     expect(wrapper.text()).toContain('guide.pdf')
   })
 })
