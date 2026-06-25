@@ -4,7 +4,7 @@ import { EyeIcon, EyeSlashIcon } from '@heroicons/vue/20/solid'
 
 const props = withDefaults(defineProps<{
   modelValue?: string | number
-  type?: 'text' | 'password' | 'email' | 'number' | 'url'
+  type?: 'text' | 'password' | 'email' | 'number' | 'url' | 'datetime-local'
   placeholder?: string
   disabled?: boolean
   error?: boolean

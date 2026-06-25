@@ -28,7 +28,7 @@ export function useImpersonation() {
     mutationFn: (userId: string) => adminApi.impersonate(userId),
     onSuccess: (res) => {
       savedAdminToken.value = getAccessToken()
-      setAccessToken(res.data.access_token)
+      setAccessToken(res.access_token)
     },
   })
 

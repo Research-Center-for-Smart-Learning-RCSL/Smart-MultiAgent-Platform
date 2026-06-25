@@ -6,7 +6,10 @@
     },
     "common": {
       "yes": "Yes",
-      "no": "No"
+      "no": "No",
+      "loading": "Loading…",
+      "retry": "Retry",
+      "loadError": "Failed to load data."
     },
     "nav": {
       "users": "Users",
@@ -68,7 +71,8 @@
       "hardDeleteConfirm": "Delete Forever",
       "impersonateMessage": "Start a read-only impersonation session for this user?",
       "impersonateTitle": "Impersonate User",
-      "impersonateConfirm": "Start"
+      "impersonateConfirm": "Start",
+      "notFound": "User not found."
     },
     "admins": {
       "title": "Admins",
@@ -77,7 +81,8 @@
       "promotedAt": "Promoted At",
       "userIdPlaceholder": "User ID to promote",
       "promote": "Promote",
-      "demote": "Demote"
+      "demote": "Demote",
+      "empty": "No admins yet."
     },
     "ipBans": {
       "title": "IP Bans",
@@ -87,7 +92,8 @@
       "add": "Add Ban",
       "remove": "Remove",
       "removeConfirmTitle": "Remove IP Ban",
-      "removeConfirm": "Remove this IP ban? The blocked range will regain access immediately."
+      "removeConfirm": "Remove this IP ban? The blocked range will regain access immediately.",
+      "empty": "No IP bans yet."
     },
     "orgs": {
       "title": "Organisations",
@@ -104,13 +110,15 @@
       "forceTransferTitle": "Force Transfer OC",
       "forceTransferConfirm": "Transfer",
       "forceTransferUserIdRequired": "User ID is required",
-      "transferFailed": "OC transfer failed."
+      "transferFailed": "OC transfer failed.",
+      "empty": "No organisations yet."
     },
     "projects": {
       "title": "Projects",
       "name": "Name",
       "ownerUser": "Owner User",
-      "ownerOrg": "Owner Org"
+      "ownerOrg": "Owner Org",
+      "empty": "No projects."
     },
     "audit": {
       "title": "Audit Log",
@@ -126,7 +134,9 @@
       "export": "Export CSV",
       "exportDateRequired": "Please set both From and To dates before exporting.",
       "exportFailed": "Export failed. Please try again.",
-      "loadMore": "Load More"
+      "loadMore": "Load More",
+      "empty": "No audit entries match your filters.",
+      "loadError": "Failed to load audit log."
     },
     "ops": {
       "title": "Operations",
@@ -157,14 +167,16 @@
       "maxCount": "Max Count",
       "scope": "Scope",
       "updated": "Updated",
-      "save": "Save"
+      "save": "Save",
+      "empty": "No rate limit policies."
     },
     "metrics": {
       "title": "Platform Metrics",
       "totalUsers": "Total Users",
       "totalOrgs": "Total Organisations",
       "totalProjects": "Total Projects",
-      "totalAuditEntries": "Total Audit Entries"
+      "totalAuditEntries": "Total Audit Entries",
+      "error": "Failed to load metrics."
     },
     "impersonation": {
       "title": "Impersonation",

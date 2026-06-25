@@ -6,74 +6,101 @@
       class="admin-admins__promote"
       @submit.prevent="onPromote"
     >
-      <input
+      <SInput
         v-model="promoteUserId"
+        class="admin-admins__input"
         :placeholder="$t('admin.admins.userIdPlaceholder')"
-        required
-      >
-      <button
+      />
+      <SButton
         type="submit"
-        class="btn btn-primary"
+        variant="primary"
+        :loading="actions.promoteAdmin.isPending.value"
       >
         {{ $t('admin.admins.promote') }}
-      </button>
+      </SButton>
     </form>
 
-    <p
+    <SAlert
       v-if="promoteError"
-      class="admin-admins__error"
+      variant="danger"
+      class="mt-2"
+      role="alert"
     >
       {{ promoteError }}
-    </p>
+    </SAlert>
 
-    <div
-      v-if="query.data.value"
-      class="overflow-x-auto"
+    <SAlert
+      v-if="query.isError.value"
+      variant="danger"
+      class="mt-4"
+      role="alert"
     >
-      <table class="table">
-        <thead>
-          <tr>
-            <th scope="col">
-              {{ $t('admin.admins.userId') }}
-            </th>
-            <th scope="col">
-              {{ $t('admin.admins.promotedBy') }}
-            </th>
-            <th scope="col">
-              {{ $t('admin.admins.promotedAt') }}
-            </th>
-            <th scope="col">
-              {{ $t('admin.users.actions') }}
-            </th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr
-            v-for="admin in query.data.value"
-            :key="admin.user_id"
-          >
-            <td>{{ admin.user_id }}</td>
-            <td>{{ admin.promoted_by_user_id ?? '-' }}</td>
-            <td>{{ new Date(admin.promoted_at).toLocaleDateString() }}</td>
-            <td>
-              <button
-                class="btn btn-danger btn-sm"
-                @click="onDemote(admin.user_id)"
-              >
-                {{ $t('admin.admins.demote') }}
-              </button>
-            </td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
+      {{ $t('admin.common.loadError') }}
+      <template #actions>
+        <SButton
+          size="sm"
+          variant="secondary"
+          @click="query.refetch()"
+        >
+          {{ $t('admin.common.retry') }}
+        </SButton>
+      </template>
+    </SAlert>
+
+    <STable
+      v-else
+      class="mt-4"
+      :columns="columns"
+      :data="query.data.value ?? []"
+      :loading="query.isPending.value"
+      row-key="user_id"
+    >
+      <template #cell-user_id="{ row }">
+        <code class="font-mono text-[0.8125rem]">{{ row.user_id }}</code>
+      </template>
+
+      <template #cell-promoted_by_user_id="{ row }">
+        {{ row.promoted_by_user_id ?? '-' }}
+      </template>
+
+      <template #cell-promoted_at="{ row }">
+        {{ new Date(row.promoted_at).toLocaleDateString() }}
+      </template>
+
+      <template #actions="{ row }">
+        <SButton
+          variant="danger"
+          size="sm"
+          :loading="actions.demoteAdmin.isPending.value"
+          @click="onDemote(row.user_id)"
+        >
+          {{ $t('admin.admins.demote') }}
+        </SButton>
+      </template>
+
+      <template #empty>
+        <SEmptyState
+          :icon="ShieldCheckIcon"
+          :text="$t('admin.admins.empty')"
+        />
+      </template>
+    </STable>
   </section>
 </template>
 
 <script setup lang="ts">
-import { SPageHeader } from '@shared/ui'
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { ShieldCheckIcon } from '@heroicons/vue/24/outline'
+import {
+  SPageHeader,
+  STable,
+  SButton,
+  SInput,
+  SAlert,
+  SEmptyState,
+} from '@shared/ui'
+import type { Column } from '@shared/ui/STable.vue'
 import { useQuery } from '@tanstack/vue-query'
 import { adminApi } from '../api/admin'
 import { adminKeys } from '../queries'
@@ -84,9 +111,16 @@ const { t } = useI18n()
 const promoteUserId = ref('')
 const promoteError = ref<string | null>(null)
 
+const columns = computed<Column[]>(() => [
+  { key: 'user_id', label: t('admin.admins.userId') },
+  { key: 'promoted_by_user_id', label: t('admin.admins.promotedBy') },
+  { key: 'promoted_at', label: t('admin.admins.promotedAt'), width: '160px' },
+  { key: 'actions', label: t('admin.users.actions'), width: '120px', align: 'right' },
+])
+
 const query = useQuery({
   queryKey: adminKeys.admins(),
-  queryFn: () => adminApi.listAdmins().then(r => r.data),
+  queryFn: () => adminApi.listAdmins(),
 })
 
 const actions = useAdminActions()
@@ -116,6 +150,14 @@ async function onDemote(userId: string): Promise<void> {
 </script>
 
 <style scoped>
-.admin-admins__promote { display: flex; gap: 0.5rem; margin: 1rem 0; }
-.admin-admins__error { color: var(--color-danger); }
+.admin-admins__promote {
+  display: flex;
+  gap: 0.5rem;
+  margin: 1rem 0;
+  align-items: center;
+}
+.admin-admins__input {
+  flex: 1 1 24rem;
+  max-width: 32rem;
+}
 </style>

@@ -1,39 +1,77 @@
 <template>
   <section class="admin-metrics">
     <SPageHeader :title="$t('admin.metrics.title')" />
+
+    <SLoadingSpinner
+      v-if="query.isLoading.value"
+      class="my-4"
+      :label="$t('admin.common.loading')"
+    />
+    <SAlert
+      v-else-if="query.isError.value"
+      variant="danger"
+      class="my-4"
+      role="alert"
+    >
+      {{ $t('admin.metrics.error') }}
+      <template #actions>
+        <SButton
+          size="sm"
+          variant="secondary"
+          @click="query.refetch()"
+        >
+          {{ $t('admin.common.retry') }}
+        </SButton>
+      </template>
+    </SAlert>
     <div
-      v-if="query.data.value"
+      v-else-if="query.data.value"
       class="admin-metrics__grid"
     >
-      <div class="admin-metrics__card">
-        <span class="admin-metrics__value">{{ query.data.value.total_users }}</span>
-        <span class="admin-metrics__label">{{ $t('admin.metrics.totalUsers') }}</span>
-      </div>
-      <div class="admin-metrics__card">
-        <span class="admin-metrics__value">{{ query.data.value.total_orgs }}</span>
-        <span class="admin-metrics__label">{{ $t('admin.metrics.totalOrgs') }}</span>
-      </div>
-      <div class="admin-metrics__card">
-        <span class="admin-metrics__value">{{ query.data.value.total_projects }}</span>
-        <span class="admin-metrics__label">{{ $t('admin.metrics.totalProjects') }}</span>
-      </div>
-      <div class="admin-metrics__card">
-        <span class="admin-metrics__value">{{ query.data.value.total_audit_entries }}</span>
-        <span class="admin-metrics__label">{{ $t('admin.metrics.totalAuditEntries') }}</span>
-      </div>
+      <SCard
+        v-for="stat in stats"
+        :key="stat.label"
+        class="admin-metrics__card"
+      >
+        <component
+          :is="stat.icon"
+          class="admin-metrics__icon"
+          aria-hidden="true"
+        />
+        <span class="admin-metrics__value">{{ stat.value }}</span>
+        <span class="admin-metrics__label">{{ $t(stat.label) }}</span>
+      </SCard>
     </div>
   </section>
 </template>
 
 <script setup lang="ts">
-import { SPageHeader } from '@shared/ui'
+import { computed } from 'vue'
+import {
+  UsersIcon,
+  BuildingOffice2Icon,
+  FolderIcon,
+  ClipboardDocumentListIcon,
+} from '@heroicons/vue/24/outline'
+import { SPageHeader, SCard, SLoadingSpinner, SAlert, SButton } from '@shared/ui'
 import { useQuery } from '@tanstack/vue-query'
 import { adminApi } from '../api/admin'
 import { adminKeys } from '../queries'
 
 const query = useQuery({
   queryKey: adminKeys.metrics(),
-  queryFn: () => adminApi.getMetrics().then(r => r.data),
+  queryFn: () => adminApi.getMetrics(),
+})
+
+const stats = computed(() => {
+  const m = query.data.value
+  if (!m) return []
+  return [
+    { label: 'admin.metrics.totalUsers', value: m.total_users, icon: UsersIcon },
+    { label: 'admin.metrics.totalOrgs', value: m.total_orgs, icon: BuildingOffice2Icon },
+    { label: 'admin.metrics.totalProjects', value: m.total_projects, icon: FolderIcon },
+    { label: 'admin.metrics.totalAuditEntries', value: m.total_audit_entries, icon: ClipboardDocumentListIcon },
+  ]
 })
 </script>
 
@@ -48,10 +86,21 @@ const query = useQuery({
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: 1.5rem;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
+  text-align: center;
+  gap: 0.25rem;
 }
-.admin-metrics__value { font-size: 2rem; font-weight: 700; }
-.admin-metrics__label { font-size: 0.875rem; color: var(--color-muted); }
+.admin-metrics__icon {
+  width: 1.5rem;
+  height: 1.5rem;
+  color: var(--color-muted);
+}
+.admin-metrics__value {
+  font-size: 2rem;
+  font-weight: 700;
+  color: var(--color-fg);
+}
+.admin-metrics__label {
+  font-size: 0.875rem;
+  color: var(--color-muted);
+}
 </style>

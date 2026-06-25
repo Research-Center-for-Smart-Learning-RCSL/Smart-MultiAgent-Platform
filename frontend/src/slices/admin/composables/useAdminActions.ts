@@ -71,6 +71,13 @@ export function useAdminActions() {
     onError: () => toast.error(t('admin.actionErrors.deleteOrgFailed')),
   })
 
+  const forceTransferOrg = useMutation({
+    mutationFn: ({ orgId, targetUserId }: { orgId: string; targetUserId: string }) =>
+      adminApi.forceTransferOC(orgId, targetUserId),
+    onSuccess: () => qc.invalidateQueries({ queryKey: adminKeys.orgs() }),
+    onError: () => toast.error(t('admin.orgs.transferFailed')),
+  })
+
   const createIpBan = useMutation({
     mutationFn: ({ cidr, reason }: { cidr: string; reason: string }) =>
       adminApi.createIpBan(cidr, reason),
@@ -123,6 +130,7 @@ export function useAdminActions() {
     promoteAdmin,
     demoteAdmin,
     forceDeleteOrg,
+    forceTransferOrg,
     createIpBan,
     deleteIpBan,
     patchRateLimit,

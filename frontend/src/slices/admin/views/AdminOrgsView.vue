@@ -1,97 +1,125 @@
 <template>
   <section class="admin-orgs">
     <SPageHeader :title="$t('admin.orgs.title')" />
-    <div
-      v-if="query.data.value"
-      class="overflow-x-auto"
+
+    <SAlert
+      v-if="query.isError.value"
+      variant="danger"
+      class="mt-4"
+      role="alert"
     >
-      <table class="table">
-        <thead>
-          <tr>
-            <th scope="col">
-              {{ $t('admin.orgs.name') }}
-            </th>
-            <th scope="col">
-              {{ $t('admin.orgs.creator') }}
-            </th>
-            <th scope="col">
-              {{ $t('admin.users.created') }}
-            </th>
-            <th scope="col">
-              {{ $t('admin.orgs.deleted') }}
-            </th>
-            <th scope="col">
-              {{ $t('admin.users.actions') }}
-            </th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr
-            v-for="org in query.data.value"
-            :key="org.id"
+      {{ $t('admin.common.loadError') }}
+      <template #actions>
+        <SButton
+          size="sm"
+          variant="secondary"
+          @click="query.refetch()"
+        >
+          {{ $t('admin.common.retry') }}
+        </SButton>
+      </template>
+    </SAlert>
+
+    <STable
+      v-else
+      class="mt-4"
+      :columns="columns"
+      :data="query.data.value ?? []"
+      :loading="query.isPending.value"
+      row-key="id"
+    >
+      <template #cell-creator_user_id="{ row }">
+        <code class="font-mono text-[0.8125rem]">{{ row.creator_user_id }}</code>
+      </template>
+
+      <template #cell-created_at="{ row }">
+        {{ new Date(row.created_at).toLocaleDateString() }}
+      </template>
+
+      <template #cell-deleted_at="{ row }">
+        <SBadge
+          v-if="row.deleted_at"
+          variant="danger"
+        >
+          {{ new Date(row.deleted_at!).toLocaleDateString() }}
+        </SBadge>
+        <span v-else>-</span>
+      </template>
+
+      <template #actions="{ row }">
+        <template v-if="!row.deleted_at">
+          <SButton
+            variant="danger"
+            size="sm"
+            @click="onForceDelete(row.id, row.name)"
           >
-            <td>{{ org.name }}</td>
-            <td>{{ org.creator_user_id }}</td>
-            <td>{{ new Date(org.created_at).toLocaleDateString() }}</td>
-            <td>{{ org.deleted_at ? new Date(org.deleted_at).toLocaleDateString() : '-' }}</td>
-            <td>
-              <button
-                v-if="!org.deleted_at"
-                class="btn btn-danger btn-sm"
-                @click="onForceDelete(org.id, org.name)"
-              >
-                {{ $t('admin.orgs.forceDelete') }}
-              </button>
-              <button
-                v-if="org.deleted_at"
-                class="btn btn-sm"
-                @click="actions.restoreResource.mutate({ type: 'org', id: org.id })"
-              >
-                {{ $t('admin.orgs.restore') }}
-              </button>
-              <button
-                v-if="!org.deleted_at"
-                class="btn btn-sm"
-                @click="onTransfer(org.id)"
-              >
-                {{ $t('admin.orgs.forceTransfer') }}
-              </button>
-            </td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
+            {{ $t('admin.orgs.forceDelete') }}
+          </SButton>
+          <SButton
+            variant="secondary"
+            size="sm"
+            @click="onTransfer(row.id)"
+          >
+            {{ $t('admin.orgs.forceTransfer') }}
+          </SButton>
+        </template>
+        <SButton
+          v-else
+          variant="secondary"
+          size="sm"
+          @click="actions.restoreResource.mutate({ type: 'org', id: row.id })"
+        >
+          {{ $t('admin.orgs.restore') }}
+        </SButton>
+      </template>
+
+      <template #empty>
+        <SEmptyState
+          :icon="BuildingOffice2Icon"
+          :text="$t('admin.orgs.empty')"
+        />
+      </template>
+    </STable>
   </section>
 </template>
 
 <script setup lang="ts">
-import { SPageHeader } from '@shared/ui'
+import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/vue-query'
-import { useConfirmDialog, useToast } from '@shared/composables'
+import { BuildingOffice2Icon } from '@heroicons/vue/24/outline'
+import {
+  SPageHeader,
+  STable,
+  SButton,
+  SBadge,
+  SAlert,
+  SEmptyState,
+} from '@shared/ui'
+import type { Column } from '@shared/ui/STable.vue'
+import { useQuery } from '@tanstack/vue-query'
+import { useConfirmDialog } from '@shared/composables'
 
 import { adminApi } from '../api/admin'
 import { adminKeys } from '../queries'
 import { useAdminActions } from '../composables/useAdminActions'
 
 const { t } = useI18n()
-const qc = useQueryClient()
-const toast = useToast()
 const { confirm, prompt } = useConfirmDialog()
+
+const columns = computed<Column[]>(() => [
+  { key: 'name', label: t('admin.orgs.name') },
+  { key: 'creator_user_id', label: t('admin.orgs.creator') },
+  { key: 'created_at', label: t('admin.users.created'), width: '140px' },
+  { key: 'deleted_at', label: t('admin.orgs.deleted'), width: '140px' },
+  { key: 'actions', label: t('admin.users.actions'), width: '240px', align: 'right' },
+])
 
 const query = useQuery({
   queryKey: adminKeys.orgs(),
-  queryFn: () => adminApi.listOrgs().then(r => r.data),
+  queryFn: () => adminApi.listOrgs(),
 })
 
 const actions = useAdminActions()
-
-const transferMutation = useMutation({
-  mutationFn: ({ orgId, targetUserId }: { orgId: string; targetUserId: string }) =>
-    adminApi.forceTransferOC(orgId, targetUserId),
-  onSuccess: () => qc.invalidateQueries({ queryKey: adminKeys.orgs() }),
-  onError: () => toast.error(t('admin.orgs.transferFailed')),
-})
 
 async function onForceDelete(orgId: string, orgName: string): Promise<void> {
   const ok = await confirm({
@@ -115,10 +143,6 @@ async function onTransfer(orgId: string): Promise<void> {
     inputErrorMessage: t('admin.orgs.forceTransferUserIdRequired'),
     variant: 'warning',
   })
-  if (targetUserId) transferMutation.mutate({ orgId, targetUserId })
+  if (targetUserId) actions.forceTransferOrg.mutate({ orgId, targetUserId })
 }
 </script>
-
-<style scoped>
-td button + button { margin-left: 0.25rem; }
-</style>
