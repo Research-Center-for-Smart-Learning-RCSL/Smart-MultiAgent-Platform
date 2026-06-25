@@ -30,9 +30,10 @@ import {
   SEmptyState,
 } from '@shared/ui'
 import { useConfirmDialog, useServerErrors, useToast } from '@shared/composables'
-import { agentsApi, type McpBinding, type McpTestResult } from '../api'
+import { agentsApi, type McpBinding } from '../api'
 import { agentKeys } from '../queries'
 import { mcpBindingCreateSchema, type McpBindingCreateInput } from '../types/schemas'
+import { useMcpTest } from '../composables/useMcpTest'
 import type { Column } from '@shared/ui/STable.vue'
 
 const { t } = useI18n()
@@ -58,10 +59,13 @@ const bindingsQuery = useQuery({
 const bindings = computed<McpBinding[]>(() => bindingsQuery.data.value ?? [])
 const loading = computed(() => bindingsQuery.isLoading.value)
 
+const { isTesting, runTest } = useMcpTest(agentId)
+
 // --- Add / Edit modal ---
 const showModal = ref(false)
 const editingBinding = ref<McpBinding | null>(null)
 const isEditing = computed(() => !!editingBinding.value)
+const configJsonError = ref<string | null>(null)
 
 const schema = toTypedSchema(mcpBindingCreateSchema)
 const { handleSubmit, errors, defineField, resetForm, setErrors } =
@@ -85,6 +89,7 @@ function openAddModal(): void {
   resetForm()
   allowedToolsRaw.value = ''
   configJson.value = '{}'
+  configJsonError.value = null
   showModal.value = true
 }
 
@@ -100,6 +105,7 @@ function openEditModal(binding: McpBinding): void {
   })
   allowedToolsRaw.value = binding.allowed_tools.join(', ')
   configJson.value = JSON.stringify(binding.config, null, 2)
+  configJsonError.value = null
   showModal.value = true
 }
 
@@ -110,11 +116,11 @@ function parseTools(raw: string): string[] {
     .filter(Boolean)
 }
 
-function parseConfig(raw: string): Record<string, unknown> {
+function parseConfig(raw: string): Record<string, unknown> | null {
   try {
     return JSON.parse(raw) as Record<string, unknown>
   } catch {
-    return {}
+    return null
   }
 }
 
@@ -134,44 +140,19 @@ const createMutation = useMutation({
 })
 
 const onSubmit = handleSubmit((values) => {
+  const parsedConfig = parseConfig(configJson.value)
+  if (parsedConfig === null) {
+    configJsonError.value = t('agents.mcp.invalidJson')
+    return
+  }
+  configJsonError.value = null
   const payload: McpBindingCreateInput = {
     ...values,
     allowed_tools: parseTools(allowedToolsRaw.value),
-    config: parseConfig(configJson.value),
+    config: parsedConfig,
   }
   createMutation.mutate(payload)
 })
-
-// --- Test flow ---
-const testResults = ref<Record<string, McpTestResult>>({})
-const testingIds = ref<Set<string>>(new Set())
-const isTesting = (bindingId: string): boolean => testingIds.value.has(bindingId)
-
-const testMutation = useMutation({
-  mutationFn: (bindingId: string) => agentsApi.testMcpBinding(agentId, bindingId),
-  onSuccess: (res, bindingId) => {
-    testResults.value = { ...testResults.value, [bindingId]: res.data }
-    if (res.data.ok) {
-      toast.success(
-        t('agents.mcp.testOk', {
-          count: res.data.tool_names.length,
-          ms: res.data.duration_ms,
-        }),
-      )
-    }
-  },
-  onError: () => toast.error(t('agents.mcp.testFailed')),
-  onSettled: (_res, _err, bindingId) => {
-    const next = new Set(testingIds.value)
-    next.delete(bindingId)
-    testingIds.value = next
-  },
-})
-
-function runTest(bindingId: string): void {
-  testingIds.value = new Set(testingIds.value).add(bindingId)
-  testMutation.mutate(bindingId)
-}
 
 // --- Delete ---
 const deleteMutation = useMutation({
@@ -345,9 +326,7 @@ const accordionItems = computed(() => [
       size="lg"
       @close="showModal = false"
     >
-      <form
-        @submit.prevent="onSubmit"
-      >
+      <form @submit.prevent="onSubmit">
         <SFormField
           :label="t('agents.mcp.source')"
           name="source"
@@ -407,6 +386,12 @@ const accordionItems = computed(() => [
               language="json"
               :rows="6"
             />
+            <p
+              v-if="configJsonError"
+              class="text-xs text-[var(--color-danger)] mt-1"
+            >
+              {{ configJsonError }}
+            </p>
           </template>
         </SAccordion>
       </form>

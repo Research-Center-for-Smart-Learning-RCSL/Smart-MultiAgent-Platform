@@ -33,6 +33,7 @@ import {
 import { keyGroupsApi, keysKeys, type KeyGroup } from '@slices/keys'
 import { agentsApi, type Agent } from '../api'
 import { agentKeys } from '../queries'
+import type { AgentCreateInput } from '../types/schemas'
 import type { Column } from '@shared/ui/STable.vue'
 
 const { t } = useI18n()
@@ -46,7 +47,6 @@ const projectId = route.params.projectId as string
 
 const search = ref('')
 const modelFilter = ref<string>('')
-const statusFilter = ref<string>('')
 
 const query = useQuery({
   queryKey: agentKeys.agents(projectId),
@@ -82,11 +82,6 @@ const filteredAgents = computed(() => {
   }
   if (modelFilter.value) {
     items = items.filter((a) => a.model_hint === modelFilter.value)
-  }
-  if (statusFilter.value === 'active') {
-    items = items.filter((a) => !a.deleted_at)
-  } else if (statusFilter.value === 'deleted') {
-    items = items.filter((a) => !!a.deleted_at)
   }
   return items
 })
@@ -145,31 +140,31 @@ async function confirmDelete(agent: Agent): Promise<void> {
   deleteMutation.mutate(agent)
 }
 
-async function duplicateAgent(agent: Agent): Promise<void> {
-  try {
-    await agentsApi.create(projectId, {
+const duplicateMutation = useMutation({
+  mutationFn: (agent: Agent) =>
+    agentsApi.create(projectId, {
       name: `${agent.name} (copy)`,
-      model_hint: agent.model_hint as 'claude' | 'openai' | 'gemini',
+      model_hint: agent.model_hint as AgentCreateInput['model_hint'],
       model_id: agent.model_id ?? null,
       key_group_id: agent.key_group_id,
       system_prompt: agent.system_prompt,
-      prompt_strategy: agent.prompt_strategy as 'full' | 'lazy',
+      prompt_strategy: agent.prompt_strategy as AgentCreateInput['prompt_strategy'],
       rag_config_id: agent.rag_config_id,
       graphrag_config_id: null,
-      context_mode: agent.context_mode as 'general' | 'compact',
+      context_mode: agent.context_mode as AgentCreateInput['context_mode'],
       context_token_cap: agent.context_token_cap,
       a2a_enabled: agent.a2a_enabled,
-    })
+    }),
+  onSuccess: () => {
     qc.invalidateQueries({ queryKey: agentKeys.agents(projectId) })
-    toast.success(t('agents.list.created'))
-  } catch {
-    toast.error(t('agents.list.createFailed'))
-  }
-}
+    toast.success(t('agents.list.duplicated'))
+  },
+  onError: () => toast.error(t('agents.list.createFailed')),
+})
 
 function onAction(key: string, row: Agent): void {
   if (key === 'edit') goToAgent(row.id)
-  else if (key === 'duplicate') void duplicateAgent(row)
+  else if (key === 'duplicate') duplicateMutation.mutate(row)
   else if (key === 'delete') void confirmDelete(row)
 }
 
