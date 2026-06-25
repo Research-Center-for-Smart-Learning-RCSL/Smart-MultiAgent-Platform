@@ -359,6 +359,30 @@ export class OrgsService {
         });
     }
     /**
+     * Transfer Reject
+     * @returns void
+     * @throws ApiError
+     */
+    public static transferRejectApiOrgsOrgIdOriginalCreatorTransfersTransferIdRejectPost({
+        orgId,
+        transferId,
+    }: {
+        orgId: string,
+        transferId: string,
+    }): CancelablePromise<void> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/orgs/{org_id}/original-creator-transfers/{transfer_id}/reject',
+            path: {
+                'org_id': orgId,
+                'transfer_id': transferId,
+            },
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
      * Get Org Quotas
      * @returns OrgQuotasOut Successful Response
      * @throws ApiError

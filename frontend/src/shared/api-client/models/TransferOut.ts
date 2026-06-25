@@ -3,6 +3,7 @@
 /* tslint:disable */
 /* eslint-disable */
 export type TransferOut = {
+    created_at: string;
     expires_at: string;
     id: string;
     initiator_user_id: string;

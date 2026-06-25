@@ -134,15 +134,23 @@ export class AdminService {
     public static exportAuditApiAdminAuditExportPost({
         actorUserId,
         resourceType,
+        resourceId,
         action,
         from,
         to,
+        ipPrefix,
+        sessionId,
+        requestId,
     }: {
         actorUserId?: (string | null),
         resourceType?: (string | null),
+        resourceId?: (string | null),
         action?: (string | null),
         from?: (string | null),
         to?: (string | null),
+        ipPrefix?: (string | null),
+        sessionId?: (string | null),
+        requestId?: (string | null),
     }): CancelablePromise<Record<string, any>> {
         return __request(OpenAPI, {
             method: 'POST',
@@ -150,9 +158,13 @@ export class AdminService {
             query: {
                 'actor_user_id': actorUserId,
                 'resource_type': resourceType,
+                'resource_id': resourceId,
                 'action': action,
                 'from': from,
                 'to': to,
+                'ip_prefix': ipPrefix,
+                'session_id': sessionId,
+                'request_id': requestId,
             },
             errors: {
                 422: `Validation Error`,
@@ -380,7 +392,7 @@ export class AdminService {
         resourceType,
         resourceId,
     }: {
-        resourceType: string,
+        resourceType: 'user' | 'org' | 'project',
         resourceId: string,
     }): CancelablePromise<RestoreOut> {
         return __request(OpenAPI, {

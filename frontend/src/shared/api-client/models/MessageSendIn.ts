@@ -4,6 +4,6 @@
 /* eslint-disable */
 export type MessageSendIn = {
     attachment_ids?: Array<string>;
-    content_md: string;
+    content_md?: string;
 };
 

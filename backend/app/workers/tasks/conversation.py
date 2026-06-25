@@ -177,6 +177,9 @@ async def chat_export(
                 chatroom_id=rid,
                 owner_user_id=oid,
                 exported_at=exported_at,
+                export_format=state.export_format,
+                created_after=state.created_after,
+                created_before=state.created_before,
             )
         await export_service.mark_ready(
             job_id=jid,

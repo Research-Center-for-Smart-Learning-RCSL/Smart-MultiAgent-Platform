@@ -185,6 +185,7 @@ class TestChatExportBuildAndUpload:
             chatroom_id=_ROOM,
             owner_user_id=_USER,
             exported_at=_NOW.isoformat(),
+            export_format="json",
         )
 
         assert bucket == "exports"
@@ -319,6 +320,7 @@ class TestChatExportBuildAndUpload:
             job_id=_JOB,
             chatroom_id=_ROOM,
             owner_user_id=_USER,
+            export_format="json",
         )
 
         put_call = minio.put_object.call_args
@@ -376,6 +378,153 @@ class TestChatExportBuildAndUpload:
         call_kwargs = msgs_repo.all_for_chatroom.call_args
         assert call_kwargs[1]["limit"] == _EXPORT_MAX_MESSAGES
 
+    @patch("contexts.conversation.application.chat_export_service.get_minio_client")
+    @patch("contexts.conversation.application.chat_export_service.ChatroomRepository")
+    @patch("contexts.conversation.application.chat_export_service.MessageAttachmentRepository")
+    @patch("contexts.conversation.application.chat_export_service.MessageEditRepository")
+    @patch("contexts.conversation.application.chat_export_service.MessageRepository")
+    @patch("contexts.conversation.application.chat_export_service.ensure_can_read")
+    @patch("contexts.conversation.application.chat_export_service.resolve_room_access")
+    @patch("contexts.conversation.application.chat_export_service.IdentityFacade")
+    async def test_markdown_format(
+        self,
+        MockIdentity,
+        mock_resolve,
+        mock_ensure,
+        MockMsgs,
+        MockEdits,
+        MockAtts,
+        MockRooms,
+        mock_minio_fn,
+    ) -> None:
+        MockIdentity.return_value = AsyncMock(is_admin=AsyncMock(return_value=False))
+        mock_resolve.return_value = MagicMock()
+        room = MagicMock()
+        room.name = "general"
+        MockRooms.return_value = AsyncMock(get=AsyncMock(return_value=room))
+        MockMsgs.return_value = AsyncMock(
+            all_for_chatroom=AsyncMock(return_value=[_message(content="hello world")])
+        )
+        MockEdits.return_value = AsyncMock(list_for_message=AsyncMock(return_value=[]))
+        MockAtts.return_value = AsyncMock(list_for_message=AsyncMock(return_value=[]))
+        minio = AsyncMock()
+        minio.exports_bucket = "exports"
+        mock_minio_fn.return_value = minio
+
+        _bucket, key = await ChatExportService(AsyncMock()).build_and_upload_export(
+            job_id=_JOB,
+            chatroom_id=_ROOM,
+            owner_user_id=_USER,
+            export_format="markdown",
+        )
+
+        assert key.endswith("export.md")
+        put_call = minio.put_object.call_args
+        assert put_call.kwargs["content_type"] == "text/markdown"
+        text = put_call.kwargs["data"].decode("utf-8")
+        assert "# general" in text
+        assert "hello world" in text
+
+    @patch("contexts.conversation.application.chat_export_service.get_minio_client")
+    @patch("contexts.conversation.application.chat_export_service.ChatroomRepository")
+    @patch("contexts.conversation.application.chat_export_service.MessageAttachmentRepository")
+    @patch("contexts.conversation.application.chat_export_service.MessageEditRepository")
+    @patch("contexts.conversation.application.chat_export_service.MessageRepository")
+    @patch("contexts.conversation.application.chat_export_service.ensure_can_read")
+    @patch("contexts.conversation.application.chat_export_service.resolve_room_access")
+    @patch("contexts.conversation.application.chat_export_service.IdentityFacade")
+    async def test_pdf_format_renders_via_weasyprint(
+        self,
+        MockIdentity,
+        mock_resolve,
+        mock_ensure,
+        MockMsgs,
+        MockEdits,
+        MockAtts,
+        MockRooms,
+        mock_minio_fn,
+    ) -> None:
+        MockIdentity.return_value = AsyncMock(is_admin=AsyncMock(return_value=False))
+        mock_resolve.return_value = MagicMock()
+        room = MagicMock()
+        room.name = "general"
+        MockRooms.return_value = AsyncMock(get=AsyncMock(return_value=room))
+        MockMsgs.return_value = AsyncMock(
+            all_for_chatroom=AsyncMock(return_value=[_message(content="hello")])
+        )
+        MockEdits.return_value = AsyncMock(list_for_message=AsyncMock(return_value=[]))
+        MockAtts.return_value = AsyncMock(list_for_message=AsyncMock(return_value=[]))
+        minio = AsyncMock()
+        minio.exports_bucket = "exports"
+        mock_minio_fn.return_value = minio
+
+        # Stub the WeasyPrint render so the test needs no system libraries.
+        with patch.object(
+            ChatExportService, "_html_to_pdf", return_value=b"%PDF-1.4 stub"
+        ) as mock_pdf:
+            _bucket, key = await ChatExportService(AsyncMock()).build_and_upload_export(
+                job_id=_JOB,
+                chatroom_id=_ROOM,
+                owner_user_id=_USER,
+                export_format="pdf",
+            )
+
+        assert key.endswith("export.pdf")
+        mock_pdf.assert_called_once()
+        # The rendered HTML carries the sanitised message body.
+        assert "hello" in mock_pdf.call_args.args[0]
+        put_call = minio.put_object.call_args
+        assert put_call.kwargs["content_type"] == "application/pdf"
+        assert put_call.kwargs["data"] == b"%PDF-1.4 stub"
+
+    @patch("contexts.conversation.application.chat_export_service.get_minio_client")
+    @patch("contexts.conversation.application.chat_export_service.ChatroomRepository")
+    @patch("contexts.conversation.application.chat_export_service.MessageAttachmentRepository")
+    @patch("contexts.conversation.application.chat_export_service.MessageEditRepository")
+    @patch("contexts.conversation.application.chat_export_service.MessageRepository")
+    @patch("contexts.conversation.application.chat_export_service.ensure_can_read")
+    @patch("contexts.conversation.application.chat_export_service.resolve_room_access")
+    @patch("contexts.conversation.application.chat_export_service.IdentityFacade")
+    async def test_date_range_window_passed_to_repo(
+        self,
+        MockIdentity,
+        mock_resolve,
+        mock_ensure,
+        MockMsgs,
+        MockEdits,
+        MockAtts,
+        MockRooms,
+        mock_minio_fn,
+    ) -> None:
+        MockIdentity.return_value = AsyncMock(is_admin=AsyncMock(return_value=False))
+        mock_resolve.return_value = MagicMock()
+        room = MagicMock()
+        room.name = "general"
+        MockRooms.return_value = AsyncMock(get=AsyncMock(return_value=room))
+        msgs_repo = AsyncMock()
+        msgs_repo.all_for_chatroom.return_value = []
+        MockMsgs.return_value = msgs_repo
+        MockEdits.return_value = AsyncMock()
+        MockAtts.return_value = AsyncMock()
+        minio = AsyncMock()
+        minio.exports_bucket = "exports"
+        mock_minio_fn.return_value = minio
+
+        after = datetime(2026, 6, 1, 0, 0, 0)
+        before = datetime(2026, 6, 23, 0, 0, 0)
+        await ChatExportService(AsyncMock()).build_and_upload_export(
+            job_id=_JOB,
+            chatroom_id=_ROOM,
+            owner_user_id=_USER,
+            export_format="json",
+            created_after=after,
+            created_before=before,
+        )
+
+        call_kwargs = msgs_repo.all_for_chatroom.call_args.kwargs
+        assert call_kwargs["created_after"] == after
+        assert call_kwargs["created_before"] == before
+
 
 class TestUploadManifest:
     async def test_upload_timeout_raises(self) -> None:
@@ -397,4 +546,6 @@ class TestUploadManifest:
             ),
             pytest.raises(TimeoutError, match="timed out"),
         ):
-            await ChatExportService._upload_manifest(_JOB, b'{"test": true}')
+            await ChatExportService._upload(
+                _JOB, b'{"test": true}', "manifest.json", "application/json"
+            )
