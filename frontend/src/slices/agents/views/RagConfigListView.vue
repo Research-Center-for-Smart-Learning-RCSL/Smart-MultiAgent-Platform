@@ -137,6 +137,12 @@ const {
   rerankModel,
 })
 
+// Rerank needs a Cohere key; if the toggle is on without one the backend rejects
+// with CapabilityMismatch, so disable the toggle when none exist and block submit
+// if it is somehow on without a key.
+const hasRerankKeys = computed(() => rerankKeys.value.length > 0)
+const rerankIncomplete = computed(() => rerankEnabled.value && !rerankKeyId.value)
+
 function openCreateModal(): void {
   resetForm()
   resetChunkDefaults()
@@ -456,8 +462,12 @@ const columns = computed<Column[]>(() => [
         <SFormField
           :label="t('agents.ragForm.rerankEnabled')"
           name="rerank_enabled"
+          :help="!hasRerankKeys ? t('agents.ragForm.noRerankKeys') : undefined"
         >
-          <SToggle v-model="rerankEnabled" />
+          <SToggle
+            v-model="rerankEnabled"
+            :disabled="!hasRerankKeys"
+          />
         </SFormField>
 
         <template v-if="rerankEnabled">
@@ -493,6 +503,7 @@ const columns = computed<Column[]>(() => [
           <SButton
             variant="primary"
             :loading="createMutation.isPending.value"
+            :disabled="rerankIncomplete"
             @click="onSubmit"
           >
             {{ t('agents.ragForm.submit') }}

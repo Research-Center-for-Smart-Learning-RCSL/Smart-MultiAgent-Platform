@@ -88,6 +88,12 @@ const isDisabled = computed(() => props.disabled || props.loading)
       <slot />
     </span>
     <span
+      v-else-if="!loading && !$slots['icon-left'] && !$slots['icon-right']"
+      class="s-btn__icon"
+    >
+      <slot />
+    </span>
+    <span
       v-if="$slots['icon-right']"
       class="s-btn__icon"
     >

@@ -154,6 +154,8 @@ const duplicateMutation = useMutation({
       context_mode: agent.context_mode as AgentCreateInput['context_mode'],
       context_token_cap: agent.context_token_cap,
       a2a_enabled: agent.a2a_enabled,
+      wakeup_config: agent.wakeup_config,
+      workflow_capabilities: agent.workflow_capabilities,
     }),
   onSuccess: () => {
     qc.invalidateQueries({ queryKey: agentKeys.agents(projectId) })

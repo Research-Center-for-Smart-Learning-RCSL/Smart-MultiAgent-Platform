@@ -30,7 +30,7 @@ import {
   SEmptyState,
 } from '@shared/ui'
 import { useConfirmDialog, useServerErrors, useToast } from '@shared/composables'
-import { agentsApi, type McpBinding } from '../api'
+import { agentsApi, type McpBinding, type McpBindingPatchInput } from '../api'
 import { agentKeys } from '../queries'
 import { mcpBindingCreateSchema, type McpBindingCreateInput } from '../types/schemas'
 import { useMcpTest } from '../composables/useMcpTest'
@@ -139,6 +139,25 @@ const createMutation = useMutation({
   },
 })
 
+// Only allowed_tools and config are mutable; source/reference are immutable
+// (and disabled in the form), so editing PATCHes just those two fields.
+const patchMutation = useMutation({
+  mutationFn: async (vars: { bindingId: string; payload: McpBindingPatchInput }) =>
+    (await agentsApi.patchMcpBinding(agentId, vars.bindingId, vars.payload)).data,
+  onSuccess: () => {
+    qc.invalidateQueries({ queryKey: agentKeys.mcpBindings(agentId) })
+    showModal.value = false
+    toast.success(t('agents.mcp.updated'))
+  },
+  onError: (err) => {
+    if (!applyServerErrors(err)) toast.error(t('agents.mcp.createFailed'))
+  },
+})
+
+const submitting = computed(
+  () => createMutation.isPending.value || patchMutation.isPending.value,
+)
+
 const onSubmit = handleSubmit((values) => {
   const parsedConfig = parseConfig(configJson.value)
   if (parsedConfig === null) {
@@ -146,12 +165,16 @@ const onSubmit = handleSubmit((values) => {
     return
   }
   configJsonError.value = null
-  const payload: McpBindingCreateInput = {
-    ...values,
-    allowed_tools: parseTools(allowedToolsRaw.value),
-    config: parsedConfig,
+  const allowed_tools = parseTools(allowedToolsRaw.value)
+  const editing = editingBinding.value
+  if (editing) {
+    patchMutation.mutate({
+      bindingId: editing.id,
+      payload: { allowed_tools, config: parsedConfig },
+    })
+  } else {
+    createMutation.mutate({ ...values, allowed_tools, config: parsedConfig })
   }
-  createMutation.mutate(payload)
 })
 
 // --- Delete ---
@@ -406,10 +429,10 @@ const accordionItems = computed(() => [
           </SButton>
           <SButton
             variant="primary"
-            :loading="createMutation.isPending.value"
+            :loading="submitting"
             @click="onSubmit"
           >
-            {{ t('agents.mcp.submit') }}
+            {{ isEditing ? t('agents.mcp.save') : t('agents.mcp.submit') }}
           </SButton>
         </div>
       </template>

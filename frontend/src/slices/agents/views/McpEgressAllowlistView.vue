@@ -88,10 +88,9 @@ async function confirmRemove(entry: EgressAllowlistEntry): Promise<void> {
 }
 
 function formatRelativeTime(iso: string): string {
-  const diff = Date.now() - new Date(iso).getTime()
-  const days = Math.floor(diff / 86400000)
-  if (days < 1) return t('agents.egress.colAdded')
-  if (days < 30) return `${days}d ago`
+  const days = Math.floor((Date.now() - new Date(iso).getTime()) / 86400000)
+  if (days < 1) return t('agents.egress.addedToday')
+  if (days < 30) return t('agents.egress.addedDaysAgo', { days })
   return new Date(iso).toLocaleDateString()
 }
 

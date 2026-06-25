@@ -147,6 +147,7 @@
       "rerankProvider": "重排序提供者",
       "rerankModel": "重排序模型",
       "noRerankKeys": "此專案沒有 Cohere（重排序）金鑰——請到金鑰頁面攜入一把以啟用重排序。",
+      "immutableHint": "Embedding 提供者、模型與分塊策略在建立時固定，無法變更。",
       "submit": "建立設定"
     },
     "graphragList": {
@@ -217,6 +218,8 @@
       "add": "新增綁定",
       "cancel": "取消",
       "created": "MCP 伺服器已綁定。",
+      "updated": "MCP 綁定已更新。",
+      "save": "儲存變更",
       "createFailed": "綁定 MCP 伺服器失敗。",
       "deleted": "MCP 綁定已移除。",
       "deleteFailed": "移除 MCP 綁定失敗。",
@@ -285,6 +288,8 @@
       "colHost": "主機名稱",
       "colNote": "備註",
       "colAdded": "新增時間",
+      "addedToday": "今天",
+      "addedDaysAgo": "{days} 天前",
       "colActions": "操作",
       "emptyTitle": "尚無允許的主機",
       "emptyDescription": "新增此專案中 MCP 伺服器允許連線的主機名稱。若無項目，所有 MCP egress 均被封鎖。"

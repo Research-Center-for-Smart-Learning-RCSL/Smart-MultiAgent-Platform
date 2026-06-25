@@ -195,25 +195,35 @@ watch(
 
 const { applyServerErrors } = useServerErrors(setErrors)
 
-function assemblePayload(
-  values: AgentCreateInput,
-): AgentCreateInput & { wakeup_config: Record<string, unknown>; workflow_capabilities: Record<string, unknown> } {
-  const wakeup_config: Record<string, unknown> = {}
-  if (wakeupEveryN.value !== null) wakeup_config.every_n_messages = wakeupEveryN.value
-  if (wakeupSilence.value !== null) wakeup_config.silence_minutes = wakeupSilence.value
-  if (wakeupCallOnly.value) wakeup_config.call_only = true
-  if (wakeupAutostop.value !== null) wakeup_config.autostop_rounds = wakeupAutostop.value
+function assemblePayload(values: AgentCreateInput): AgentCreateInput {
+  // Send every key explicitly (null/false for unset) so a partial-merge backend
+  // can't retain a stale value the user just cleared. SInput type=number emits 0
+  // when cleared, so `|| null` maps both 0 and null to "unset" for these min-1
+  // fields (0 messages / 0 minutes is never a valid trigger).
+  const wakeup_config: Record<string, unknown> = {
+    every_n_messages: wakeupEveryN.value || null,
+    silence_minutes: wakeupSilence.value || null,
+    autostop_rounds: wakeupAutostop.value || null,
+    call_only: wakeupCallOnly.value,
+  }
 
-  const workflow_capabilities: Record<string, unknown> = {}
-  workflow_capabilities.can_instruct = canInstruct.value
-  workflow_capabilities.can_approve = canApprove.value
-  workflow_capabilities.can_create_subagent = canCreateSubagent.value
-  if (canCreateSubagent.value) {
-    workflow_capabilities.max_alive_subagents = maxAliveSubagents.value
+  const workflow_capabilities: Record<string, unknown> = {
+    can_instruct: canInstruct.value,
+    can_approve: canApprove.value,
+    can_create_subagent: canCreateSubagent.value,
+    max_alive_subagents: canCreateSubagent.value ? maxAliveSubagents.value : null,
   }
 
   return { ...values, wakeup_config, workflow_capabilities }
 }
+
+// A token cap only applies in compact mode; clear it when leaving so a stale
+// value (or a 0 left by clearing the input) can't ride along on save.
+watch(contextMode, (mode) => {
+  if (mode === 'general') contextTokenCap.value = null
+})
+
+const saveDisabled = computed(() => !isCreateMode && !meta.value.dirty)
 
 // --- Create mutation ---
 const createMutation = useMutation({
@@ -378,7 +388,7 @@ const pageTitle = computed(() => {
           <SButton
             variant="primary"
             :loading="saving"
-            :disabled="!meta.dirty && !isCreateMode"
+            :disabled="saveDisabled"
             @click="onSubmit"
           >
             {{ t('agents.detail.save') }}
@@ -801,6 +811,7 @@ const pageTitle = computed(() => {
           variant="primary"
           class="flex-1"
           :loading="saving"
+          :disabled="saveDisabled"
           @click="onSubmit"
         >
           {{ t('agents.detail.save') }}

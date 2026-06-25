@@ -34,7 +34,13 @@ import {
 } from '@shared/composables'
 import { tusUpload } from '@shared/transport'
 import { projectKeysApi, CAPABILITIES, keysKeys } from '@slices/keys'
-import { agentsApi, RAG_MULTIPART_MAX, type RagConfig, type RagDocument } from '../api'
+import {
+  agentsApi,
+  RAG_MULTIPART_MAX,
+  type RagConfig,
+  type RagDocument,
+  type RagConfigPatchInput,
+} from '../api'
 import { agentKeys } from '../queries'
 import { ragConfigCreateSchema, type RagConfigCreateInput } from '../types/schemas'
 import { useRagConfigSocket } from '../composables/useRagConfigSocket'
@@ -154,12 +160,12 @@ watch(
 
 const { applyServerErrors } = useServerErrors(setErrors)
 
+// Embedding (provider/model/key) and chunk strategy are immutable post-creation
+// — an indexed corpus can't switch embedding space — so only the patchable
+// fields are sent.
 const saveMutation = useMutation({
-  mutationFn: async (payload: Partial<RagConfigCreateInput>) => {
-    // RagConfig PATCH not yet in API — placeholder for when backend adds it.
-    // For now, the form is read-only display of current settings.
-    return payload
-  },
+  mutationFn: async (payload: RagConfigPatchInput) =>
+    (await agentsApi.patchRagConfig(configId, payload)).data,
   onSuccess: () => {
     qc.invalidateQueries({ queryKey: agentKeys.ragConfig(configId) })
     toast.success(t('agents.detail.saved'))
@@ -171,8 +177,13 @@ const saveMutation = useMutation({
 
 const onSaveSettings = handleSubmit((formValues) => {
   saveMutation.mutate({
-    ...formValues,
+    name: formValues.name,
+    top_k: formValues.top_k,
     chunk_params: assembleChunkParams(formValues.chunk_strategy),
+    rerank_enabled: formValues.rerank_enabled,
+    rerank_key_id: formValues.rerank_key_id,
+    rerank_provider: formValues.rerank_provider,
+    rerank_model: formValues.rerank_model,
   })
 })
 
@@ -388,6 +399,7 @@ const showProgress = computed(() =>
                     v-model="embedKeyId"
                     :options="embedKeyOptions"
                     :placeholder="t('agents.ragForm.embedKeyPlaceholder')"
+                    disabled
                   />
                 </SFormField>
                 <SFormField
@@ -400,9 +412,13 @@ const showProgress = computed(() =>
                     v-model="embedModel"
                     :placeholder="t('agents.ragForm.embedModelHint')"
                     :error="!!errors.embed_model"
+                    disabled
                   />
                 </SFormField>
               </div>
+              <p class="text-sm text-[var(--color-muted)] mt-2">
+                {{ t('agents.ragForm.immutableHint') }}
+              </p>
             </SCard>
 
             <SCard>
@@ -416,6 +432,7 @@ const showProgress = computed(() =>
                 <SSelect
                   v-model="chunkStrategy"
                   :options="chunkStrategyOptions"
+                  disabled
                 />
               </SFormField>
               <template v-if="values.chunk_strategy === 'fixed'">
