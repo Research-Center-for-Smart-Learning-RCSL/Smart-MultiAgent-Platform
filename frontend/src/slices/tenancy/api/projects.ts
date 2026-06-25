@@ -1,4 +1,5 @@
 import { http } from '@shared/transport'
+import type { PaginationParams } from './orgs'
 
 export type ProjectOwnerType = 'user' | 'org'
 
@@ -23,8 +24,8 @@ export interface ProjectMember {
 }
 
 export const projectsApi = {
-  list: (scope?: ProjectOwnerType, id?: string) =>
-    http.get<Project[]>(`/projects`, { params: scope && id ? { scope, id } : undefined }),
+  list: (scope?: ProjectOwnerType, id?: string, params?: PaginationParams) =>
+    http.get<Project[]>(`/projects`, { params: { ...params, ...(scope && id ? { scope, id } : {}) } }),
   create: (owner_type: ProjectOwnerType, owner_id: string, name: string) =>
     http.post<Project>(`/projects`, { owner_type, owner_id, name }),
   get: (id: string) => http.get<Project>(`/projects/${id}`),
@@ -32,7 +33,8 @@ export const projectsApi = {
   restore: (id: string) => http.post<Project>(`/projects/${id}/restore`),
   rename: (id: string, name: string, version: number) =>
     http.patch<Project>(`/projects/${id}`, { name }, { headers: { 'If-Match': String(version) } }),
-  listMembers: (id: string) => http.get<ProjectMember[]>(`/projects/${id}/members`),
+  listMembers: (id: string, params?: PaginationParams) =>
+    http.get<ProjectMember[]>(`/projects/${id}/members`, { params }),
   removeMember: (id: string, uid: string) =>
     http.delete(`/projects/${id}/members/${uid}`),
   setRole: (id: string, uid: string, role: 'owner' | 'member') =>

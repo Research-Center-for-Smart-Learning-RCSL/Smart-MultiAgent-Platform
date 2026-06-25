@@ -1,5 +1,10 @@
 import { http } from '@shared/transport'
 
+export interface PaginationParams {
+  limit?: number
+  offset?: number
+}
+
 export interface Org {
   id: string
   name: string
@@ -18,8 +23,6 @@ export interface OrgMember {
   joined_at: string
 }
 
-// Mirrors backend `OrgQuotasOut`. Advisory only (R8): usage counts vs the
-// platform's advisory targets; not hard-enforced.
 export interface OrgQuotas {
   users: number
   projects: number
@@ -41,7 +44,8 @@ export interface OriginalCreatorTransfer {
 }
 
 export const orgsApi = {
-  list: () => http.get<Org[]>('/orgs'),
+  list: (params?: PaginationParams) =>
+    http.get<Org[]>('/orgs', { params }),
   create: (name: string) => http.post<Org>('/orgs', { name }),
   get: (id: string) => http.get<Org>(`/orgs/${id}`),
   rename: (id: string, name: string, version: number) =>
@@ -50,7 +54,8 @@ export const orgsApi = {
   restore: (id: string) => http.post<Org>(`/orgs/${id}/restore`),
   quotas: (id: string) => http.get<OrgQuotas>(`/orgs/${id}/quotas`),
 
-  listMembers: (id: string) => http.get<OrgMember[]>(`/orgs/${id}/members`),
+  listMembers: (id: string, params?: PaginationParams) =>
+    http.get<OrgMember[]>(`/orgs/${id}/members`, { params }),
   removeMember: (id: string, uid: string) => http.delete(`/orgs/${id}/members/${uid}`),
   setRole: (id: string, uid: string, role: 'owner' | 'member') =>
     http.patch(`/orgs/${id}/members/${uid}`, { role }),
@@ -63,10 +68,12 @@ export const orgsApi = {
       `/orgs/${id}/original-creator-transfers`,
       { target_user_id },
     ),
-  listTransfers: (id: string) =>
-    http.get<OriginalCreatorTransfer[]>(`/orgs/${id}/original-creator-transfers`),
+  listTransfers: (id: string, params?: PaginationParams) =>
+    http.get<OriginalCreatorTransfer[]>(`/orgs/${id}/original-creator-transfers`, { params }),
   acceptTransfer: (id: string, tid: string) =>
     http.post(`/orgs/${id}/original-creator-transfers/${tid}/accept`),
   cancelTransfer: (id: string, tid: string) =>
     http.delete(`/orgs/${id}/original-creator-transfers/${tid}`),
+  rejectTransfer: (id: string, tid: string) =>
+    http.post(`/orgs/${id}/original-creator-transfers/${tid}/reject`),
 }

@@ -57,6 +57,11 @@ const pending = computed<OriginalCreatorTransfer | null>(() =>
   transfers.value?.find(tr => tr.state === 'pending') ?? null,
 )
 
+function memberEmail(userId: string): string {
+  const m = members.value?.find(mem => mem.user_id === userId)
+  return m?.email ?? userId
+}
+
 const isInitiator = computed(() =>
   pending.value !== null && session.me?.id === pending.value.initiator_user_id,
 )
@@ -152,9 +157,9 @@ async function acceptTransfer(): Promise<void> {
 async function decline(): Promise<void> {
   if (!pending.value) return
   try {
-    await orgsApi.cancelTransfer(orgId.value, pending.value.id)
+    await orgsApi.rejectTransfer(orgId.value, pending.value.id)
     qc.invalidateQueries({ queryKey: tenancyKeys.orgTransfers(orgId.value) })
-    toast.success(t('tenancy.transfer.cancelled'))
+    toast.success(t('tenancy.transfer.declined'))
   } catch {
     toast.error(t('tenancy.transfer.loadError'))
   }
@@ -191,7 +196,7 @@ const breadcrumbs = computed(() => [
           size="sm"
           @click="() => refetch()"
         >
-          {{ t('app.confirm') }}
+          {{ t('tenancy.common.retry') }}
         </SButton>
       </template>
     </SAlert>
@@ -262,7 +267,7 @@ const breadcrumbs = computed(() => [
         <dl class="transfer-details">
           <div class="detail-row">
             <dt>{{ t('tenancy.transfer.targetField') }}</dt>
-            <dd>{{ pending.target_user_id }}</dd>
+            <dd>{{ memberEmail(pending.target_user_id) }}</dd>
           </div>
           <div class="detail-row">
             <dt>{{ t('tenancy.transfer.initiatedField') }}</dt>
@@ -300,7 +305,7 @@ const breadcrumbs = computed(() => [
         <dl class="transfer-details">
           <div class="detail-row">
             <dt>{{ t('tenancy.transfer.initiatedByField') }}</dt>
-            <dd>{{ pending.initiator_user_id }}</dd>
+            <dd>{{ memberEmail(pending.initiator_user_id) }}</dd>
           </div>
           <div class="detail-row">
             <dt>{{ t('tenancy.transfer.expiresField') }}</dt>
@@ -339,7 +344,7 @@ const breadcrumbs = computed(() => [
         <dl class="transfer-details">
           <div class="detail-row">
             <dt>{{ t('tenancy.transfer.targetField') }}</dt>
-            <dd>{{ pending.target_user_id }}</dd>
+            <dd>{{ memberEmail(pending.target_user_id) }}</dd>
           </div>
           <div class="detail-row">
             <dt>{{ t('tenancy.transfer.expiresField') }}</dt>

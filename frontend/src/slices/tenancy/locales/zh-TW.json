@@ -93,7 +93,8 @@
       "acceptLabel": "接受轉移",
       "cancelLabel": "取消轉移",
       "targetNotice": "您已被選為此組織的新原始建立者。",
-      "loadError": "載入轉移狀態失敗"
+      "loadError": "載入轉移狀態失敗",
+      "declined": "轉移已拒絕"
     },
     "invite": {
       "inboxTitle": "邀請",
@@ -122,7 +123,8 @@
     },
     "common": {
       "loading": "載入中...",
-      "versionConflict": "其他人已編輯此項目，正在重新整理..."
+      "versionConflict": "其他人已編輯此項目，正在重新整理...",
+      "retry": "重試"
     },
     "quotas": {
       "title": "配額",

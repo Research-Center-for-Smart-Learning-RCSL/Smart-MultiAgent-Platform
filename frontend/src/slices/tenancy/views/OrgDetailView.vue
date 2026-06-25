@@ -123,7 +123,7 @@ const breadcrumbs = computed(() => [
           size="sm"
           @click="() => refetch()"
         >
-          {{ t('app.confirm') }}
+          {{ t('tenancy.common.retry') }}
         </SButton>
       </template>
     </SAlert>

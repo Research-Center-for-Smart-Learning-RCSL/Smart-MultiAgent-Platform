@@ -164,7 +164,7 @@ class ProjectService:
         self,
         *,
         project_id: uuid.UUID,
-        admin_user_id: uuid.UUID,
+        actor_user_id: uuid.UUID,
         actor_ip: str | None,
         request_id: uuid.UUID | None = None,
     ) -> None:
@@ -173,7 +173,7 @@ class ProjectService:
             self._db,
             audit.AuditEvent(
                 action="project.restored",
-                actor_user_id=admin_user_id,
+                actor_user_id=actor_user_id,
                 actor_ip=actor_ip,
                 resource_type="project",
                 resource_id=project_id,
