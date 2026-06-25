@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch, nextTick, onBeforeUnmount, type Component } from 'vue'
+import { ref, watch, nextTick, onMounted, onBeforeUnmount, type Component } from 'vue'
 
 interface DropdownItem {
   key: string
@@ -32,6 +32,19 @@ function setItemRef(el: unknown, index: number) {
   if (el instanceof HTMLElement) {
     itemRefs.value[index] = el
   }
+}
+
+// The trigger slot always holds a real control (SButton/anchor), but it is
+// caller-provided so we cannot bind ARIA to it declaratively from this template.
+// Imperatively set the menu-popup ARIA on that control (not the presentational
+// wrapper, where role="none" would discard it) and keep aria-expanded in sync.
+function syncTriggerAria() {
+  const control = triggerRef.value?.querySelector<HTMLElement>(
+    'button, [role="button"], a[href]',
+  )
+  if (!control) return
+  control.setAttribute('aria-haspopup', 'menu')
+  control.setAttribute('aria-expanded', String(isOpen.value))
 }
 
 function toggle() {
@@ -98,7 +111,10 @@ function onClickOutside(e: MouseEvent) {
   }
 }
 
+onMounted(syncTriggerAria)
+
 watch(isOpen, async (open) => {
+  syncTriggerAria()
   if (open) {
     document.addEventListener('click', onClickOutside, { capture: true })
     await nextTick()

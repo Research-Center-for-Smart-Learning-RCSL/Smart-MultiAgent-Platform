@@ -2,6 +2,8 @@
   <p
     class="typing"
     :class="{ 'typing--visible': names.length > 0 }"
+    aria-live="polite"
+    aria-atomic="true"
   >
     <template v-if="names.length">
       {{ text }}

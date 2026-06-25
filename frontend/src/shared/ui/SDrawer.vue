@@ -1,6 +1,8 @@
 <script setup lang="ts">
-import { watch, ref, nextTick, onBeforeUnmount, useSlots } from 'vue'
+import { ref, useSlots, useId, computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { XMarkIcon } from '@heroicons/vue/24/outline'
+import { useFocusTrap } from '@shared/composables'
 
 const props = withDefaults(defineProps<{
   open?: boolean
@@ -19,32 +21,25 @@ const emit = defineEmits<{
 }>()
 
 const slots = useSlots()
+const { t } = useI18n()
+
+const titleId = useId()
+const labelledBy = computed(() => (props.title ? titleId : undefined))
 
 const panelRef = ref<HTMLElement | null>(null)
+const { trapTab } = useFocusTrap(panelRef, () => props.open)
 
 function onKeydown(e: KeyboardEvent) {
   if (e.key === 'Escape') {
     emit('close')
+    return
   }
+  trapTab(e)
 }
 
 function onBackdropClick() {
   emit('close')
 }
-
-watch(() => props.open, async (isOpen) => {
-  if (isOpen) {
-    document.body.style.overflow = 'hidden'
-    await nextTick()
-    panelRef.value?.focus()
-  } else {
-    document.body.style.overflow = ''
-  }
-})
-
-onBeforeUnmount(() => {
-  document.body.style.overflow = ''
-})
 </script>
 
 <template>
@@ -73,11 +68,13 @@ onBeforeUnmount(() => {
             ]"
             role="dialog"
             aria-modal="true"
+            :aria-labelledby="labelledBy"
             tabindex="-1"
           >
             <div class="s-drawer__header">
               <h2
                 v-if="title"
+                :id="titleId"
                 class="s-drawer__title"
               >
                 {{ title }}
@@ -85,7 +82,7 @@ onBeforeUnmount(() => {
               <button
                 class="s-drawer__close"
                 type="button"
-                aria-label="Close"
+                :aria-label="t('app.close')"
                 @click="emit('close')"
               >
                 <XMarkIcon class="s-drawer__close-icon" />
@@ -142,7 +139,7 @@ onBeforeUnmount(() => {
 
 .s-drawer__panel--sm {
   width: 320px;
-  max-width: 100vw;
+  max-width: 85vw;
 }
 
 .s-drawer__panel--md {
@@ -153,6 +150,22 @@ onBeforeUnmount(() => {
 .s-drawer__panel--lg {
   width: 560px;
   max-width: 100vw;
+}
+
+/* Responsive width per 11-responsive-a11y.md section 8:
+   md+ keeps the nominal width, sm caps to 85vw, xs goes full-width. */
+@media (max-width: 767px) {
+  .s-drawer__panel--md,
+  .s-drawer__panel--lg {
+    width: 85vw;
+  }
+}
+
+@media (max-width: 479px) {
+  .s-drawer__panel--md,
+  .s-drawer__panel--lg {
+    width: 100vw;
+  }
 }
 
 .s-drawer__header {

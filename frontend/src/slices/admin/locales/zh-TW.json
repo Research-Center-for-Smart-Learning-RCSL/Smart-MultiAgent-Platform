@@ -12,6 +12,9 @@
       "loadError": "載入資料失敗。"
     },
     "nav": {
+      "home": "儀表板",
+      "label": "管理導覽",
+      "sectionLabel": "管理區段",
       "users": "使用者",
       "admins": "管理員",
       "ipBans": "IP 封鎖",

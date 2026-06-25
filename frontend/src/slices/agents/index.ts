@@ -1,6 +1,4 @@
-import { registerMessages } from '@shared/i18n'
-import en from './locales/en.json'
-import zhTW from './locales/zh-TW.json'
+import { registerLocaleLoaders } from '@shared/i18n'
 
 export { agentsRoutes } from './routes'
 export { agentKeys } from './queries'
@@ -11,6 +9,8 @@ export { agentCreateSchema, ragConfigCreateSchema } from './types/schemas'
 export type { AgentCreateInput, RagConfigCreateInput } from './types/schemas'
 
 export function installAgentsSlice(): void {
-  registerMessages('en', en)
-  registerMessages('zh-TW', zhTW)
+  registerLocaleLoaders({
+    en: () => import('./locales/en.json'),
+    'zh-TW': () => import('./locales/zh-TW.json'),
+  })
 }

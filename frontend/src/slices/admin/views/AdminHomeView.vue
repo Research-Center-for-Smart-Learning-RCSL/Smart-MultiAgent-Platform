@@ -2,22 +2,6 @@
   <section class="admin-home">
     <SPageHeader :title="$t('admin.home.title')" />
 
-    <nav class="admin-home__nav">
-      <router-link
-        v-for="item in navItems"
-        :key="item.name"
-        :to="{ name: item.name }"
-        class="admin-home__nav-link"
-      >
-        <component
-          :is="item.icon"
-          class="w-5 h-5"
-          aria-hidden="true"
-        />
-        <span>{{ $t(item.label) }}</span>
-      </router-link>
-    </nav>
-
     <SLoadingSpinner
       v-if="metricsQuery.isLoading.value"
       class="my-4"
@@ -58,33 +42,10 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
-import {
-  UsersIcon,
-  ShieldCheckIcon,
-  NoSymbolIcon,
-  BuildingOffice2Icon,
-  FolderIcon,
-  ClipboardDocumentListIcon,
-  WrenchScrewdriverIcon,
-  AdjustmentsHorizontalIcon,
-  ChartBarIcon,
-} from '@heroicons/vue/24/outline'
 import { SPageHeader, SLoadingSpinner, SCard, SAlert, SButton } from '@shared/ui'
 import { useQuery } from '@tanstack/vue-query'
 import { adminApi } from '../api/admin'
 import { adminKeys } from '../queries'
-
-const navItems = [
-  { name: 'admin.users', label: 'admin.nav.users', icon: UsersIcon },
-  { name: 'admin.admins', label: 'admin.nav.admins', icon: ShieldCheckIcon },
-  { name: 'admin.ipBans', label: 'admin.nav.ipBans', icon: NoSymbolIcon },
-  { name: 'admin.orgs', label: 'admin.nav.orgs', icon: BuildingOffice2Icon },
-  { name: 'admin.projects', label: 'admin.nav.projects', icon: FolderIcon },
-  { name: 'admin.audit', label: 'admin.nav.audit', icon: ClipboardDocumentListIcon },
-  { name: 'admin.ops', label: 'admin.nav.ops', icon: WrenchScrewdriverIcon },
-  { name: 'admin.rateLimits', label: 'admin.nav.rateLimits', icon: AdjustmentsHorizontalIcon },
-  { name: 'admin.metrics', label: 'admin.nav.metrics', icon: ChartBarIcon },
-] as const
 
 const metricsQuery = useQuery({
   queryKey: adminKeys.metrics(),
@@ -104,26 +65,6 @@ const stats = computed(() => {
 </script>
 
 <style scoped>
-.admin-home__nav {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.75rem;
-  margin: 1rem 0;
-}
-.admin-home__nav-link {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.5rem 1rem;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  color: var(--color-fg);
-  text-decoration: none;
-  transition: background var(--transition-fast);
-}
-.admin-home__nav-link:hover {
-  background: var(--color-sidebar-hover);
-}
 .admin-home__stats {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
@@ -144,14 +85,5 @@ const stats = computed(() => {
 .admin-home__label {
   font-size: 0.875rem;
   color: var(--color-muted);
-}
-
-@media (max-width: 768px) {
-  .admin-home__nav {
-    flex-direction: column;
-  }
-  .admin-home__nav-link {
-    width: 100%;
-  }
 }
 </style>

@@ -1,9 +1,7 @@
 // Public surface of the workflow slice. Only exports listed here are
 // importable from other slices (enforced in Phase J).
 
-import { registerMessages } from '@shared/i18n'
-import en from './locales/en.json'
-import zhTW from './locales/zh-TW.json'
+import { registerLocaleLoaders } from '@shared/i18n'
 
 export { workflowRoutes } from './routes'
 export { patchAgentWakeupConfig } from './api'
@@ -44,6 +42,8 @@ export type {
 } from './types'
 
 export function installWorkflowSlice(): void {
-  registerMessages('en', en)
-  registerMessages('zh-TW', zhTW)
+  registerLocaleLoaders({
+    en: () => import('./locales/en.json'),
+    'zh-TW': () => import('./locales/zh-TW.json'),
+  })
 }

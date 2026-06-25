@@ -3,6 +3,7 @@ import { http, HttpResponse } from 'msw'
 import { server } from '../../../../tests/mocks/server'
 import { renderView } from '../../../../tests/utils'
 import { installNotificationsSlice } from '..'
+import { ensureLocaleLoaded } from '@shared/i18n'
 import NotificationsView from '../views/NotificationsView.vue'
 
 const routes = [
@@ -44,9 +45,10 @@ async function settle(wrapper: { vm: { $nextTick: () => Promise<void> } }): Prom
   await wrapper.vm.$nextTick()
 }
 
-beforeAll(() => {
-  // Register the slice i18n bundle so $t() resolves real strings in assertions.
+beforeAll(async () => {
+  // Register + load the slice i18n bundle so $t() resolves real strings.
   installNotificationsSlice()
+  await ensureLocaleLoaded('en')
 })
 
 describe('NotificationsView', () => {

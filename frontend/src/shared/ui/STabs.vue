@@ -134,6 +134,9 @@ function onKeydown(e: KeyboardEvent) {
 .s-tabs__list {
   display: flex;
   border-bottom: 1px solid var(--color-border);
+  /* Scrollable when tabs overflow (mobile); no-op when they fit (desktop). */
+  overflow-x: auto;
+  scrollbar-width: thin;
 }
 
 .s-tabs__tab {
@@ -142,6 +145,7 @@ function onKeydown(e: KeyboardEvent) {
   gap: 6px;
   height: 40px;
   padding: 0 16px;
+  flex-shrink: 0;
   background: none;
   border: none;
   border-bottom: 2px solid transparent;

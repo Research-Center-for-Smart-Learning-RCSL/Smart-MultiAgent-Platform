@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { effectScope } from 'vue'
-import { useNow } from './useNow'
+import { useNow } from '../useNow'
 
 afterEach(() => {
   vi.useRealTimers()

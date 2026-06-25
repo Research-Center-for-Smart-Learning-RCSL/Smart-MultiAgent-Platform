@@ -1,6 +1,4 @@
-import { registerMessages } from '@shared/i18n'
-import enMessages from './locales/en.json'
-import zhMessages from './locales/zh-TW.json'
+import { registerLocaleLoaders } from '@shared/i18n'
 
 export { adminRoutes } from './routes'
 export { useAdminStore } from './stores/admin'
@@ -8,6 +6,8 @@ export { adminKeys } from './queries'
 export { default as ImpersonationBanner } from './components/ImpersonationBanner.vue'
 
 export function installAdminSlice(): void {
-  registerMessages('en', enMessages)
-  registerMessages('zh-TW', zhMessages)
+  registerLocaleLoaders({
+    en: () => import('./locales/en.json'),
+    'zh-TW': () => import('./locales/zh-TW.json'),
+  })
 }

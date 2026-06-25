@@ -7,6 +7,8 @@
     "cancel": "取消",
     "confirm": "確認",
     "save": "儲存",
+    "close": "關閉",
+    "back": "返回",
     "themeLabel": "主題：{theme}",
     "errorBoundary": {
       "title": "發生錯誤",
@@ -26,6 +28,7 @@
       "getStarted": "立即開始",
       "logIn": "登入"
     },
+    "skipToContent": "跳至主要內容",
     "topbar": {
       "toggleSidebar": "切換側邊欄"
     },

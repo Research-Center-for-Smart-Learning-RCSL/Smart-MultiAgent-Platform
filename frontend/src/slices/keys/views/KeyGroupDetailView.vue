@@ -6,6 +6,8 @@ import {
   Bars2Icon,
   ChevronDownIcon,
   ChevronUpIcon,
+  ArrowUpIcon,
+  ArrowDownIcon,
   XMarkIcon,
   PencilIcon,
   CheckIcon,
@@ -22,7 +24,7 @@ import {
   SEmptyState,
   SAlert,
 } from '@shared/ui'
-import { useInlineRename, useConfirmDialog, useToast } from '@shared/composables'
+import { useInlineRename, useConfirmDialog, useToast, useBreakpoint } from '@shared/composables'
 import { useKeyGroupDetail } from '../composables/useKeyGroups'
 import { useProjectKeys } from '../composables/useProjectKeys'
 import type { MemberPatch } from '../api/key-groups'
@@ -38,6 +40,7 @@ const route = useRoute()
 const router = useRouter()
 const projectId = computed(() => route.params.projectId as string)
 const groupId = computed(() => route.params.id as string)
+const { isMobile } = useBreakpoint()
 
 const {
   detail, error, reload,
@@ -51,6 +54,7 @@ const expandedMemberId = ref<string | null>(null)
 const draggingId = ref<string | null>(null)
 const dropTargetId = ref<string | null>(null)
 const savingMemberId = ref<string | null>(null)
+const reordering = ref(false)
 
 const rename = useInlineRename({
   current: () => detail.value?.group.name ?? '',
@@ -104,6 +108,22 @@ function onDragLeave() {
   dropTargetId.value = null
 }
 
+/** Persist a new member ordering as 1-based priorities. */
+async function applyOrder(order: string[]): Promise<void> {
+  const priorities: Record<string, number> = {}
+  order.forEach((kid, i) => {
+    priorities[kid] = i + 1
+  })
+  reordering.value = true
+  try {
+    await reorder(priorities)
+  } catch {
+    toast.error(t('keys.groups.reorderFailed'))
+  } finally {
+    reordering.value = false
+  }
+}
+
 async function onDrop(targetKeyId: string) {
   const src = draggingId.value
   draggingId.value = null
@@ -114,15 +134,18 @@ async function onDrop(targetKeyId: string) {
   const to = order.indexOf(targetKeyId)
   if (from < 0 || to < 0) return
   order.splice(to, 0, ...order.splice(from, 1))
-  const priorities: Record<string, number> = {}
-  order.forEach((kid, i) => {
-    priorities[kid] = i + 1
-  })
-  try {
-    await reorder(priorities)
-  } catch {
-    toast.error(t('keys.groups.reorderFailed'))
-  }
+  await applyOrder(order)
+}
+
+// Touch-friendly reorder for narrow screens (no drag handle below md).
+async function moveMember(keyId: string, dir: -1 | 1): Promise<void> {
+  if (!detail.value) return
+  const order = detail.value.members.map((m) => m.key_id)
+  const from = order.indexOf(keyId)
+  const to = from + dir
+  if (from < 0 || to < 0 || to >= order.length) return
+  order.splice(to, 0, ...order.splice(from, 1))
+  await applyOrder(order)
 }
 
 function onDragEnd() {
@@ -313,7 +336,7 @@ async function onDeleteGroup() {
         class="flex flex-col gap-2"
       >
         <div
-          v-for="m in detail.members"
+          v-for="(m, idx) in detail.members"
           :key="m.key_id"
           :data-testid="`member-${m.key_id}`"
         >
@@ -330,7 +353,9 @@ async function onDeleteGroup() {
             @dragleave="onDragLeave"
             @drop.prevent="onDrop(m.key_id)"
           >
+            <!-- Desktop/tablet: drag handle. Mobile: up/down buttons. -->
             <button
+              v-if="!isMobile"
               type="button"
               draggable="true"
               class="cursor-grab active:cursor-grabbing text-[var(--color-muted)] p-0 bg-transparent border-0"
@@ -340,6 +365,31 @@ async function onDeleteGroup() {
             >
               <Bars2Icon class="w-5 h-5" />
             </button>
+            <div
+              v-else
+              class="flex flex-col"
+            >
+              <SButton
+                variant="ghost"
+                icon-only
+                size="sm"
+                :disabled="reordering || idx === 0"
+                :aria-label="$t('keys.groups.moveUp')"
+                @click="moveMember(m.key_id, -1)"
+              >
+                <ArrowUpIcon class="w-4 h-4" />
+              </SButton>
+              <SButton
+                variant="ghost"
+                icon-only
+                size="sm"
+                :disabled="reordering || idx === detail.members.length - 1"
+                :aria-label="$t('keys.groups.moveDown')"
+                @click="moveMember(m.key_id, 1)"
+              >
+                <ArrowDownIcon class="w-4 h-4" />
+              </SButton>
+            </div>
 
             <SBadge variant="info">
               #{{ m.priority }}

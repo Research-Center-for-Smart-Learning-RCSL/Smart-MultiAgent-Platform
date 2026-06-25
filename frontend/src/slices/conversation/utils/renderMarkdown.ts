@@ -16,18 +16,30 @@ import MarkdownIt from 'markdown-it'
 
 let mermaidInited = false
 
-const md = new MarkdownIt({
-  html: true,
-  linkify: true,
-  breaks: false,
-  highlight(str, lang) {
-    const escaped = md.utils.escapeHtml(str)
-    if (lang) {
-      return `<pre class="hljs"><code class="language-${md.utils.escapeHtml(lang)}">${escaped}</code></pre>`
-    }
-    return `<pre class="hljs"><code>${escaped}</code></pre>`
-  },
-})
+// Lazily constructed so importing this module has no top-level side effect.
+// Eager-vs-lazy bundle placement is already decided by the import graph (this
+// module is only reached via the lazy chatroom/search chunks); the lazy
+// singleton additionally avoids tree-shaking surprises if an eager module ever
+// imports it, and defers the MarkdownIt instantiation cost to first render.
+let _md: MarkdownIt | null = null
+
+function getMd(): MarkdownIt {
+  if (_md) return _md
+  const md = new MarkdownIt({
+    html: true,
+    linkify: true,
+    breaks: false,
+    highlight(str, lang) {
+      const escaped = md.utils.escapeHtml(str)
+      if (lang) {
+        return `<pre class="hljs"><code class="language-${md.utils.escapeHtml(lang)}">${escaped}</code></pre>`
+      }
+      return `<pre class="hljs"><code>${escaped}</code></pre>`
+    },
+  })
+  _md = md
+  return _md
+}
 
 // Strict DOMPurify config — event handlers, javascript: URIs, etc. are
 // already stripped by the default. We also remove `style`.
@@ -74,7 +86,7 @@ const PURIFY_CONFIG: DOMPurify.Config = {
 
 /** Render markdown → sanitised HTML. Returns a string safe to pass to v-html. */
 export function renderMarkdown(source: string): string {
-  const raw = md.render(source ?? '')
+  const raw = getMd().render(source ?? '')
   return DOMPurify.sanitize(raw, PURIFY_CONFIG) as unknown as string
 }
 
@@ -89,6 +101,10 @@ async function hljsInDom(root: HTMLElement): Promise<void> {
     root.querySelectorAll<HTMLElement>('pre code[class*="language-"]'),
   ).filter(
     (el) =>
+      // Skip blocks already highlighted on a previous pass — onUpdated re-runs
+      // over the whole message list, and re-highlighting every block each time
+      // is wasteful (and warns in highlight.js).
+      !el.dataset.highlighted &&
       !el.classList.contains('language-mermaid') &&
       !el.classList.contains('language-math') &&
       !el.classList.contains('language-latex'),

@@ -75,34 +75,37 @@
       </SButton>
     </template>
 
-    <!-- Mobile: people drawer toggle + overflow menu. -->
-    <template v-else>
-      <SButton
-        variant="ghost"
-        icon-only
-        size="sm"
-        :aria-label="t('conversation.chatroom.people')"
-        @click="emit('toggle-people')"
-      >
-        <UsersIcon class="w-5 h-5" />
-      </SButton>
-      <SDropdown
-        :items="overflowItems"
-        placement="bottom-end"
-        @select="onOverflow"
-      >
-        <template #trigger>
-          <SButton
-            variant="ghost"
-            icon-only
-            size="sm"
-            :aria-label="t('conversation.chatroom.more')"
-          >
-            <EllipsisVerticalIcon class="w-5 h-5" />
-          </SButton>
-        </template>
-      </SDropdown>
-    </template>
+    <!-- People drawer toggle: mobile + tablet (presence rail only exists at lg+). -->
+    <SButton
+      v-if="!isDesktop"
+      variant="ghost"
+      icon-only
+      size="sm"
+      :aria-label="t('conversation.chatroom.people')"
+      @click="emit('toggle-people')"
+    >
+      <UsersIcon class="w-5 h-5" />
+    </SButton>
+
+    <!-- Overflow menu: mobile only (its actions have dedicated buttons above
+         on tablet/desktop). -->
+    <SDropdown
+      v-if="isMobile"
+      :items="overflowItems"
+      placement="bottom-end"
+      @select="onOverflow"
+    >
+      <template #trigger>
+        <SButton
+          variant="ghost"
+          icon-only
+          size="sm"
+          :aria-label="t('conversation.chatroom.more')"
+        >
+          <EllipsisVerticalIcon class="w-5 h-5" />
+        </SButton>
+      </template>
+    </SDropdown>
   </header>
 </template>
 
@@ -128,6 +131,7 @@ const props = defineProps<{
   roomName: string
   connectionState: 'connecting' | 'live' | 'reconnecting'
   isMobile: boolean
+  isDesktop: boolean
 }>()
 
 const emit = defineEmits<{

@@ -12,6 +12,9 @@
       "loadError": "Failed to load data."
     },
     "nav": {
+      "home": "Dashboard",
+      "label": "Admin navigation",
+      "sectionLabel": "Admin section",
       "users": "Users",
       "admins": "Admins",
       "ipBans": "IP Bans",
