@@ -127,6 +127,7 @@
       "dropFiles": "將檔案拖放到這裡",
       "searchResultsCount": "「{query}」的 {count} 筆結果",
       "searchNoResults": "沒有符合搜尋的訊息",
+      "searchJumpUnavailable": "該訊息在較早的歷史記錄中，請向上捲動以載入。",
       "emptyTitle": "尚無訊息",
       "emptyText": "在下方輸入訊息開始對話，或等待繫結的代理人回應。",
       "exportTitle": "匯出聊天室",

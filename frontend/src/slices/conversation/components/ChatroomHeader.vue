@@ -31,13 +31,14 @@
 
     <span
       class="chat-header__pill"
-      :class="connected ? 'chat-header__pill--on' : 'chat-header__pill--off'"
+      :class="pill.cls"
     >
       <component
-        :is="connected ? SignalIcon : SignalSlashIcon"
+        :is="pill.icon"
         class="chat-header__pill-icon"
+        :class="{ 'chat-header__pill-icon--spin': pill.spin }"
       />
-      {{ connected ? t('conversation.chatroom.live') : t('conversation.chatroom.offline') }}
+      {{ pill.label }}
     </span>
 
     <div class="chat-header__spacer" />
@@ -119,12 +120,13 @@ import {
   EllipsisVerticalIcon,
   SignalIcon,
   SignalSlashIcon,
+  ArrowPathIcon,
 } from '@heroicons/vue/24/outline'
 import { SButton, SDropdown } from '@shared/ui'
 
-defineProps<{
+const props = defineProps<{
   roomName: string
-  connected: boolean
+  connectionState: 'connecting' | 'live' | 'reconnecting'
   isMobile: boolean
 }>()
 
@@ -138,6 +140,35 @@ const emit = defineEmits<{
 }>()
 
 const { t } = useI18n()
+
+// 'connecting' (never opened yet) reuses the Offline visual — the channel is
+// not yet usable; 'reconnecting' (was live, dropped) gets its own spinning,
+// warning-toned state so a transient drop does not read as a hard failure.
+const pill = computed(() => {
+  switch (props.connectionState) {
+    case 'live':
+      return {
+        icon: SignalIcon,
+        label: t('conversation.chatroom.live'),
+        cls: 'chat-header__pill--on',
+        spin: false,
+      }
+    case 'reconnecting':
+      return {
+        icon: ArrowPathIcon,
+        label: t('conversation.chatroom.reconnecting'),
+        cls: 'chat-header__pill--reconnecting',
+        spin: true,
+      }
+    default:
+      return {
+        icon: SignalSlashIcon,
+        label: t('conversation.chatroom.offline'),
+        cls: 'chat-header__pill--off',
+        spin: false,
+      }
+  }
+})
 
 const overflowItems = computed(() => [
   { key: 'search', label: t('conversation.chatroom.search'), icon: MagnifyingGlassIcon },
@@ -202,6 +233,21 @@ function onOverflow(key: string): void {
 .chat-header__pill--off {
   color: var(--color-danger);
   background: var(--color-danger-tint, #fee2e2);
+}
+
+.chat-header__pill--reconnecting {
+  color: var(--color-warning);
+  background: var(--color-warning-tint, #fef3c7);
+}
+
+.chat-header__pill-icon--spin {
+  animation: chat-header-pill-spin 1s linear infinite;
+}
+
+@keyframes chat-header-pill-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .chat-header__spacer {

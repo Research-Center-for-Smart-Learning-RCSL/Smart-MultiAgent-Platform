@@ -127,6 +127,7 @@
       "dropFiles": "Drop files here",
       "searchResultsCount": "{count} results for \"{query}\"",
       "searchNoResults": "No messages match your search",
+      "searchJumpUnavailable": "That message is in older history — scroll up to load it.",
       "emptyTitle": "No messages yet",
       "emptyText": "Start the conversation by typing a message below, or wait for a bound agent to respond.",
       "exportTitle": "Export Chatroom",
