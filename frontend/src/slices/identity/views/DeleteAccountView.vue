@@ -11,6 +11,7 @@ import { ApiError, RateLimitError } from '@shared/errors'
 import { useConfirmDialog, useRateLimitCountdown } from '@shared/composables'
 import { authApi } from '../api/auth'
 import { useSessionStore } from '../stores/session'
+import { orgsApi } from '@slices/tenancy'
 
 const { t } = useI18n()
 const router = useRouter()
@@ -21,14 +22,14 @@ const rateLimit = useRateLimitCountdown()
 const password = ref('')
 const confirmed = ref(false)
 const serverError = ref<string | null>(null)
-const blockedOrgIds = ref<string[]>([])
+const blockedOrgNames = ref<string[]>([])
 const submitting = ref(false)
 
 const fieldErrors = ref<Record<string, string | undefined>>({})
 
 async function submit(): Promise<void> {
   serverError.value = null
-  blockedOrgIds.value = []
+  blockedOrgNames.value = []
 
   if (!password.value) {
     fieldErrors.value.password = t('identity.validation.passwordRequired')
@@ -55,9 +56,15 @@ async function submit(): Promise<void> {
       serverError.value = t('identity.errors.rateLimit')
       rateLimit.start(seconds)
     } else if (e instanceof ApiError && e.status === 409) {
-      const ids = e.extra.blocked_org_ids
-      blockedOrgIds.value = Array.isArray(ids) ? (ids as string[]) : []
+      const ids = Array.isArray(e.extra.blocked_org_ids) ? (e.extra.blocked_org_ids as string[]) : []
       serverError.value = t('identity.deleteAccount.blocked')
+      try {
+        const { data: orgs } = await orgsApi.list()
+        const nameMap = new Map(orgs.map(o => [o.id, o.name]))
+        blockedOrgNames.value = ids.map(id => nameMap.get(id) ?? id)
+      } catch {
+        blockedOrgNames.value = ids
+      }
     } else if (isProblemWithType(e, '/auth/invalid-credentials')) {
       fieldErrors.value.password = t('identity.errors.invalidCredentials')
       password.value = ''
@@ -121,14 +128,14 @@ async function submit(): Promise<void> {
         >
           {{ serverError }}
           <ul
-            v-if="blockedOrgIds.length"
+            v-if="blockedOrgNames.length"
             class="blocked-list"
           >
             <li
-              v-for="id in blockedOrgIds"
-              :key="id"
+              v-for="name in blockedOrgNames"
+              :key="name"
             >
-              {{ id }}
+              {{ name }}
             </li>
           </ul>
         </SAlert>

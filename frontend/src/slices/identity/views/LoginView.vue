@@ -56,7 +56,7 @@ function safeRedirect(raw: string): string {
 }
 
 function validateEmail(): boolean {
-  return validateField(emailSchema, email.value, fieldErrors, 'email')
+  return validateField(emailSchema, email.value, fieldErrors, 'email', t)
 }
 
 function validatePassword(): boolean {

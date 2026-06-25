@@ -11,15 +11,18 @@ export const passwordSchema = z.string()
   .min(1, 'identity.validation.passwordRequired')
   .min(PASSWORD_MIN_LENGTH, 'identity.validation.passwordMinLength')
 
+type TranslateFn = (key: string) => string
+
 export function validateField(
   schema: z.ZodString,
   value: string,
   fieldErrors: Ref<Record<string, string | undefined>>,
   fieldKey: string,
+  t: TranslateFn,
 ): boolean {
   const result = schema.safeParse(value)
   if (!result.success) {
-    fieldErrors.value[fieldKey] = result.error.issues[0].message
+    fieldErrors.value[fieldKey] = t(result.error.issues[0].message)
     return false
   }
   fieldErrors.value[fieldKey] = undefined
@@ -31,13 +34,14 @@ export function validatePasswordMatch(
   confirm: string,
   fieldErrors: Ref<Record<string, string | undefined>>,
   fieldKey: string,
+  t: TranslateFn,
 ): boolean {
   if (!confirm) {
-    fieldErrors.value[fieldKey] = 'identity.validation.passwordRequired'
+    fieldErrors.value[fieldKey] = t('identity.validation.passwordRequired')
     return false
   }
   if (confirm !== password) {
-    fieldErrors.value[fieldKey] = 'identity.validation.passwordMismatch'
+    fieldErrors.value[fieldKey] = t('identity.validation.passwordMismatch')
     return false
   }
   fieldErrors.value[fieldKey] = undefined

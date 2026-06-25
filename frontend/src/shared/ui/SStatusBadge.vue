@@ -8,6 +8,8 @@ const props = defineProps<{
 type BadgeVariant = 'info' | 'success' | 'warning' | 'danger' | 'neutral'
 
 const VARIANT_MAP: Record<string, BadgeVariant> = {
+  active: 'success',
+  current: 'success',
   running: 'info',
   waiting: 'warning',
   succeeded: 'success',
