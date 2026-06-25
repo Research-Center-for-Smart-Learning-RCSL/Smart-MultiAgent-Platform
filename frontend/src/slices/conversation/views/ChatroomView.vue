@@ -52,25 +52,27 @@
           />
         </li>
 
-        <ChatroomMessageBubble
-          v-for="m in messages"
-          :key="m.id"
-          :message="m"
-          :html="rendered[m.id] ?? ''"
-          :sender-name="senderName(m)"
-          :editing="editingId === m.id"
-          :edit-draft="editDraft"
-          :can-edit="canEdit(m)"
-          :can-delete="canDelete(m)"
-          :flash="highlightId === m.id"
-          @start-edit="startEdit(m)"
-          @save-edit="saveEdit"
-          @cancel-edit="cancelEdit"
-          @delete="confirmDelete(m)"
-          @copy="copyMessage(m)"
-          @download="downloadAttachment"
-          @update:edit-draft="editDraft = $event"
-        />
+        <TransitionGroup name="msg">
+          <ChatroomMessageBubble
+            v-for="m in messages"
+            :key="m.id"
+            :message="m"
+            :html="rendered[m.id] ?? ''"
+            :sender-name="senderName(m)"
+            :editing="editingId === m.id"
+            :edit-draft="editDraft"
+            :can-edit="canEdit(m)"
+            :can-delete="canDelete(m)"
+            :flash="highlightId === m.id"
+            @start-edit="startEdit(m)"
+            @save-edit="saveEdit"
+            @cancel-edit="cancelEdit"
+            @delete="confirmDelete(m)"
+            @copy="copyMessage(m)"
+            @download="downloadAttachment"
+            @update:edit-draft="editDraft = $event"
+          />
+        </TransitionGroup>
 
         <li
           v-for="a in liveApprovals"
@@ -477,6 +479,38 @@ function onExportSubmit(opts: ExportOptions): void {
   list-style: none;
   margin: 0;
   padding: 16px;
+}
+
+/* Real-time list animations (§7.2 / §7.5): new messages slide in, deleted ones
+   fade out. Initial-render items are NOT animated (no `appear`), so opening a
+   busy room does not flush the whole backlog through the transition. */
+.msg-enter-active {
+  transition:
+    opacity 200ms ease,
+    transform 200ms ease;
+}
+
+.msg-leave-active {
+  transition:
+    opacity 150ms ease,
+    transform 150ms ease;
+}
+
+.msg-enter-from {
+  opacity: 0;
+  transform: translateY(8px);
+}
+
+.msg-leave-to {
+  opacity: 0;
+  transform: translateY(-4px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .msg-enter-active,
+  .msg-leave-active {
+    transition: none;
+  }
 }
 
 .chatroom__typing {

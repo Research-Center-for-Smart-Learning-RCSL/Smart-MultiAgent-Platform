@@ -1,4 +1,4 @@
-import { reactive, watch } from 'vue'
+import { computed, reactive, watch, type ComputedRef } from 'vue'
 import { useRouter } from 'vue-router'
 
 export type DialogVariant = 'warning' | 'error' | 'info'
@@ -118,6 +118,15 @@ function handleCancel() {
   resetState()
 }
 
+// Whether the confirm action is currently allowed. For a type-to-confirm
+// prompt (§3.2) the confirm button stays disabled until the typed value matches
+// the required pattern; plain confirms and pattern-less prompts are always
+// confirmable.
+const canConfirm: ComputedRef<boolean> = computed(() => {
+  if (!state.promptMode || !state.inputPattern) return true
+  return state.inputPattern.test(state.inputValue)
+})
+
 let navGuardInstalled = false
 
 export function useConfirmDialog() {
@@ -135,5 +144,5 @@ export function useConfirmDialog() {
       // called outside component context (e.g. errorHandler) — no nav guard needed
     }
   }
-  return { state, confirm, prompt, handleConfirm, handleCancel }
+  return { state, canConfirm, confirm, prompt, handleConfirm, handleCancel }
 }

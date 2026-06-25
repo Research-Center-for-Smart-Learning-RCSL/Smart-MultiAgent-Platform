@@ -129,7 +129,7 @@ import { SButton, SDropdown } from '@shared/ui'
 
 const props = defineProps<{
   roomName: string
-  connectionState: 'connecting' | 'live' | 'reconnecting'
+  connectionState: 'connecting' | 'live' | 'reconnecting' | 'degraded'
   isMobile: boolean
   isDesktop: boolean
 }>()
@@ -162,6 +162,15 @@ const pill = computed(() => {
         icon: ArrowPathIcon,
         label: t('conversation.chatroom.reconnecting'),
         cls: 'chat-header__pill--reconnecting',
+        spin: true,
+      }
+    case 'degraded':
+      // Repeated reconnects failed — we are on the REST polling fallback. Red
+      // (offline-toned) but still spinning, since the socket keeps retrying.
+      return {
+        icon: ArrowPathIcon,
+        label: t('conversation.chatroom.degraded'),
+        cls: 'chat-header__pill--off',
         spin: true,
       }
     default:

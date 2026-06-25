@@ -68,6 +68,8 @@
       "searchResults": "搜尋結果",
       "live": "即時",
       "offline": "離線",
+      "degraded": "離線（輪詢中）",
+      "sending": "傳送中…",
       "uploadFailed": "（失敗）{filename}",
       "sendFailed": "傳送訊息失敗。",
       "searchFailed": "搜尋失敗。",

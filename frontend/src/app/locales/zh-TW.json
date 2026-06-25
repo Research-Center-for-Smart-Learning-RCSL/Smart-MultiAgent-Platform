@@ -15,6 +15,11 @@
       "message": "此頁面發生未預期的錯誤。您可以重試，或前往其他頁面。",
       "retry": "重試"
     },
+    "network": {
+      "title": "連線中斷",
+      "message": "正在嘗試重新連線...",
+      "retry": "立即重試"
+    },
     "pagination": {
       "showing": "顯示 {start}-{end}，共 {total} 筆",
       "label": "分頁",

@@ -19,7 +19,11 @@
     v-else
     :id="`msg-${message.id}`"
     class="bubble-row"
-    :class="{ 'bubble-row--agent': isAgent, 'msg--flash': flash }"
+    :class="{
+      'bubble-row--agent': isAgent,
+      'msg--flash': flash,
+      'bubble-row--pending': message._status === 'sending',
+    }"
   >
     <ChatroomBubbleShell :agent="isAgent">
       <template #meta>
@@ -33,6 +37,10 @@
           :class="{ 'bubble__sender--agent': isAgent }"
         >{{ senderName }}</span>
         <time class="bubble__time">{{ time }}</time>
+        <span
+          v-if="message._status === 'sending'"
+          class="bubble__sending"
+        >{{ t('conversation.chatroom.sending') }}</span>
       </template>
 
       <!-- Inline edit mode (own message). -->
@@ -162,10 +170,10 @@ import {
 import { SAvatar, SButton, STextarea } from '@shared/ui'
 import ChatroomBubbleShell from './ChatroomBubbleShell.vue'
 import { formatTime } from '../utils/format'
-import type { Attachment, Message } from '../types'
+import type { Attachment, DisplayMessage } from '../types'
 
 const props = defineProps<{
-  message: Message
+  message: DisplayMessage
   html: string
   senderName: string
   editing: boolean
@@ -232,6 +240,16 @@ const { t } = useI18n()
 .bubble__time {
   margin-left: auto;
   font-size: 12px;
+  color: var(--color-muted);
+}
+
+.bubble-row--pending {
+  opacity: 0.6;
+}
+
+.bubble__sending {
+  font-size: 11px;
+  font-style: italic;
   color: var(--color-muted);
 }
 

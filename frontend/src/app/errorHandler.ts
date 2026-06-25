@@ -1,6 +1,7 @@
 import type { App } from 'vue'
 import { toast } from 'vue-sonner'
 import { AuthError, PermissionError, ValidationError, RateLimitError, NetworkError } from '@shared/errors'
+import { TOAST_DURATION_MS } from '@shared/composables'
 import { router } from './router'
 
 function handleError(err: unknown): boolean {
@@ -9,7 +10,7 @@ function handleError(err: unknown): boolean {
     return true
   }
   if (err instanceof PermissionError) {
-    toast.error(err.detail ?? err.title)
+    toast.error(err.detail ?? err.title, { duration: TOAST_DURATION_MS.error })
     return true
   }
   if (err instanceof ValidationError) {
@@ -17,11 +18,15 @@ function handleError(err: unknown): boolean {
   }
   if (err instanceof RateLimitError) {
     const seconds = Math.ceil(err.retryAfterMs / 1000)
-    toast.warning(`Rate limited. Please retry in ${seconds}s.`)
+    toast.warning(`Rate limited. Please retry in ${seconds}s.`, {
+      duration: TOAST_DURATION_MS.warning,
+    })
     return true
   }
   if (err instanceof NetworkError) {
-    toast.error(err.detail ?? 'Network error. Please check your connection.')
+    // A connection drop is a *persistent* state, so the global SNetworkBanner
+    // (driven by markConnectionLost in the transport layer) owns the feedback.
+    // A transient toast for a persistent state would contradict §9, so swallow.
     return true
   }
   return false
@@ -31,7 +36,9 @@ export function installErrorHandler(app: App): void {
   app.config.errorHandler = (err) => {
     if (handleError(err)) return
 
-    toast.error('An unexpected error occurred. Please try again.')
+    toast.error('An unexpected error occurred. Please try again.', {
+      duration: TOAST_DURATION_MS.error,
+    })
 
     if (import.meta.env.PROD) {
       reportError(err)

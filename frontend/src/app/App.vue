@@ -4,7 +4,7 @@ import { useRoute } from 'vue-router'
 import { Toaster } from 'vue-sonner'
 import { ImpersonationBanner } from '@slices/admin'
 import { useBanKickGuard } from '@shared/composables'
-import { SConfirmDialog } from '@shared/ui'
+import { SConfirmDialog, SNetworkBanner } from '@shared/ui'
 import ErrorBoundary from './ErrorBoundary.vue'
 import AuthLayout from './layouts/AuthLayout.vue'
 import AppShell from './layouts/AppShell.vue'
@@ -22,6 +22,7 @@ const layoutComponent = computed(() => {
 </script>
 
 <template>
+  <SNetworkBanner />
   <ImpersonationBanner />
   <ErrorBoundary>
     <component :is="layoutComponent">

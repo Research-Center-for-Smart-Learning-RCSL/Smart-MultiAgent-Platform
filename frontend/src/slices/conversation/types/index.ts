@@ -39,6 +39,13 @@ export interface Message {
   attachments?: Attachment[]
 }
 
+/** A message plus client-only optimistic state. `_status` is present on an
+ *  unsent (optimistic) message and absent on every persisted message, so a
+ *  truthy `_status` is the canonical "this is a local placeholder" test. */
+export interface DisplayMessage extends Message {
+  _status?: 'sending' | 'failed'
+}
+
 export interface Attachment {
   id: string
   chatroom_id: string | null

@@ -12,6 +12,8 @@ import { defineComponent } from 'vue'
 import type { ChannelEvent } from '@shared/transport'
 
 const subscribedHandlers: Array<(ev: ChannelEvent) => void> = []
+const statusHandlers: Array<(connected: boolean) => void> = []
+const degradedHandlers: Array<(degraded: boolean) => void> = []
 
 vi.mock('@shared/transport', () => {
   const channel = {
@@ -19,7 +21,15 @@ vi.mock('@shared/transport', () => {
       subscribedHandlers.push(handler)
       return () => {}
     },
-    onStatus: () => () => {},
+    onStatus: (handler: (connected: boolean) => void) => {
+      statusHandlers.push(handler)
+      return () => {}
+    },
+    onDegraded: (handler: (degraded: boolean) => void) => {
+      degradedHandlers.push(handler)
+      handler(false)
+      return () => {}
+    },
     connect: () => {},
     disconnect: () => {},
     close: () => {},
@@ -34,8 +44,9 @@ vi.mock('@shared/transport', () => {
   }
 })
 
+const listMessagesMock = vi.hoisted(() => vi.fn(async () => []))
 vi.mock('../api', () => ({
-  listMessages: vi.fn(async () => []),
+  listMessages: listMessagesMock,
 }))
 
 import {
@@ -49,6 +60,10 @@ const AGENT = 'agent_1'
 
 function emit(ev: Record<string, unknown>): void {
   for (const h of [...subscribedHandlers]) h(ev as ChannelEvent)
+}
+
+function emitDegraded(degraded: boolean): void {
+  for (const h of [...degradedHandlers]) h(degraded)
 }
 
 function mountSocket(): {
@@ -77,6 +92,9 @@ describe('useChatroomSocket agent streaming', () => {
 
   beforeEach(() => {
     subscribedHandlers.length = 0
+    statusHandlers.length = 0
+    degradedHandlers.length = 0
+    listMessagesMock.mockClear()
     vi.useFakeTimers()
   })
 
@@ -180,5 +198,28 @@ describe('useChatroomSocket agent streaming', () => {
     emit({ type: 'agent.token', text: 'done', agent_id: AGENT })
     emit({ type: 'message.created', message_id: 'm_agent', sender_type: 'agent', sender_id: AGENT })
     expect(mounted.store.agentStreams[ROOM]?.[AGENT]).toBeUndefined()
+  })
+
+  it('polls the message delta every 10s while the socket is degraded (§7.1)', () => {
+    const mounted = mountSocket()
+    wrapper = mounted.wrapper
+    // Seed a cursor so replayDelta has a `since` to fetch from.
+    emit({ type: 'message.created', message_id: 'm_seed', sender_type: 'user', sender_id: 'u1' })
+    listMessagesMock.mockClear()
+
+    emitDegraded(true)
+    expect(listMessagesMock).not.toHaveBeenCalled()
+
+    vi.advanceTimersByTime(10_000)
+    expect(listMessagesMock).toHaveBeenCalledWith(ROOM, { since: 'm_seed' })
+
+    vi.advanceTimersByTime(10_000)
+    expect(listMessagesMock).toHaveBeenCalledTimes(2)
+
+    // Recovery stops the poll.
+    emitDegraded(false)
+    listMessagesMock.mockClear()
+    vi.advanceTimersByTime(30_000)
+    expect(listMessagesMock).not.toHaveBeenCalled()
   })
 })

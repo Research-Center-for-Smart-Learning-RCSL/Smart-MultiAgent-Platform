@@ -8,6 +8,14 @@ import {
 import { useBreakpoint, BP } from '@shared/composables'
 import STableCards from './STableCards.vue'
 
+export type ColumnCellType =
+  | 'text'
+  | 'badge'
+  | 'date'
+  | 'number'
+  | 'boolean'
+  | 'user'
+
 export interface Column {
   key: string
   label: string
@@ -17,6 +25,10 @@ export interface Column {
   /** Hide this column when the viewport is narrower than the given breakpoint
       (only applies when responsiveMode === 'hide-columns'). */
   hideBelow?: 'sm' | 'md' | 'lg' | 'xl'
+  /** Shapes the loading skeleton for this column so it previews the real cell
+      (a badge pill, an avatar+name, a short date, etc.) instead of a generic
+      bar — avoiding layout jolt when data lands (§2.4). */
+  cellType?: ColumnCellType
 }
 
 type RowData = Record<string, unknown>
@@ -148,6 +160,24 @@ function onRowClick(row: T) {
 }
 
 const skeletonRows = 5
+
+// Per-column skeleton geometry so a loading cell roughly matches the shape of
+// the data it stands in for (§2.4). 'user' is rendered separately (avatar +
+// name) in the template.
+function skeletonStyle(col: Column): Record<string, string> {
+  switch (col.cellType) {
+    case 'badge':
+      return { width: '64px', height: '18px', borderRadius: 'var(--radius-full)' }
+    case 'date':
+      return { width: '88px', height: '14px' }
+    case 'number':
+      return { width: '48px', height: '14px' }
+    case 'boolean':
+      return { width: '18px', height: '18px' }
+    default:
+      return { width: col.width || '70%', height: '14px' }
+  }
+}
 </script>
 
 <template>
@@ -265,8 +295,22 @@ const skeletonRows = 5
               :style="{ textAlign: col.align || 'left' }"
             >
               <div
+                v-if="col.cellType === 'user'"
+                class="s-table__skeleton-user"
+              >
+                <div
+                  class="s-table__skeleton s-table__skeleton--avatar"
+                  style="width: 28px; height: 28px;"
+                />
+                <div
+                  class="s-table__skeleton"
+                  style="width: 96px; height: 14px;"
+                />
+              </div>
+              <div
+                v-else
                 class="s-table__skeleton"
-                :style="{ width: col.width || '70%', height: '14px' }"
+                :style="skeletonStyle(col)"
               />
             </td>
             <td
@@ -518,6 +562,17 @@ const skeletonRows = 5
   border-radius: var(--radius-sm);
   background: var(--color-neutral-tint);
   animation: s-table-pulse 1.5s ease-in-out infinite;
+}
+
+.s-table__skeleton--avatar {
+  border-radius: var(--radius-full);
+  flex-shrink: 0;
+}
+
+.s-table__skeleton-user {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
 }
 
 @keyframes s-table-pulse {

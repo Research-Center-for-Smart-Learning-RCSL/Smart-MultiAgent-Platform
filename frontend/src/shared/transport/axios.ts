@@ -14,6 +14,7 @@ import axios, {
 import { computed, ref, type ComputedRef } from 'vue'
 
 import { AuthError, NetworkError } from '@shared/errors'
+import { markConnectionLost, markConnectionRestored } from '@shared/composables/useNetworkStatus'
 import { i18n } from '@shared/i18n'
 
 import type { ProblemJson } from './problem-json'
@@ -115,12 +116,21 @@ http.interceptors.request.use((config: InternalAxiosRequestConfig) => {
 
 // --- Response interceptor ---
 http.interceptors.response.use(
-  (r) => r,
+  (r) => {
+    // Any answered request proves the connection is alive — clear an offline
+    // banner the instant real traffic flows again (§4.4).
+    markConnectionRestored()
+    return r
+  },
   async (error: AxiosError<ProblemJson>) => {
-    // Network error (no response at all)
+    // Network error (no response at all): the server was unreachable. Flip the
+    // global offline banner; its probe loop drives recovery.
     if (!error.response) {
+      markConnectionLost()
       throw new NetworkError(error.message || 'Network request failed')
     }
+    // A *response* arrived (even an error one) — connectivity is fine.
+    markConnectionRestored()
 
     const original = error.config as InternalAxiosRequestConfig & {
       _retry?: boolean
