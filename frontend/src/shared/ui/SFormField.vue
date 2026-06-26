@@ -14,6 +14,10 @@ const controlRef = ref<HTMLElement | null>(null)
 function syncAria() {
   const el = controlRef.value?.querySelector('input, select, textarea') as HTMLElement | null
   if (!el) return
+  // Associate the control with our <label for="name"> so clicking the label
+  // focuses it and assistive tech / getByLabel can resolve the accessible name.
+  // Respect an explicit id the control may already carry.
+  if (!el.id) el.id = props.name
   const describedBy = props.error ? `${props.name}-error` : props.help ? `${props.name}-help` : null
   if (describedBy) el.setAttribute('aria-describedby', describedBy)
   else el.removeAttribute('aria-describedby')
