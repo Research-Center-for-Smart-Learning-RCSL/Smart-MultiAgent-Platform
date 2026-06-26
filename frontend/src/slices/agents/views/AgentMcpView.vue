@@ -45,8 +45,6 @@ const toast = useToast()
 const { confirm } = useConfirmDialog()
 const agentId = route.params.agentId as string
 
-const BUILTIN_TOOLS = ['file', 'web_search', 'code_exec']
-
 const agentQuery = useQuery({
   queryKey: agentKeys.agent(agentId),
   queryFn: async () => (await agentsApi.get(agentId)).data,
@@ -72,25 +70,15 @@ const serverBindings = computed(() => bindings.value.filter((b) => b.source !== 
 const { isTesting, runTest, failedResult } = useMcpTest(agentId)
 
 // --- Built-in tools (Code Interpreter etc.) ---
-// Mirrors the backend gate (`_enabled_builtins`): with NO builtin binding all
-// three are on (legacy); once any exists, only the named ones are. Toggling
-// reconciles explicit builtin bindings behind the scenes so the user never has
-// to think in terms of "bindings".
-const BUILTIN_NONE_SENTINEL = '__none__'
-const reconciling = ref(false)
-
-const enabledBuiltins = computed<Set<string>>(() => {
-  const builtinBindings = bindings.value.filter((b) => b.source === 'builtin')
-  if (!builtinBindings.length) return new Set(BUILTIN_TOOLS)
-  const enabled = new Set<string>()
-  for (const b of builtinBindings) {
-    if (BUILTIN_TOOLS.includes(b.reference)) enabled.add(b.reference)
-    for (const tool of b.allowed_tools) {
-      if (BUILTIN_TOOLS.includes(tool)) enabled.add(tool)
-    }
-  }
-  return enabled
+// The gate rule lives server-side; the editor just reads the enabled set and
+// PUTs a new one, so there's no second copy of the rule to drift.
+const builtinQuery = useQuery({
+  queryKey: agentKeys.builtinTools(agentId),
+  queryFn: async () => (await agentsApi.getBuiltinTools(agentId)).data,
 })
+const enabledBuiltins = computed<Set<string>>(
+  () => new Set(builtinQuery.data.value?.enabled ?? []),
+)
 
 const builtinRows = computed(() =>
   (['code_exec', 'web_search', 'file'] as const).map((key) => ({
@@ -100,42 +88,26 @@ const builtinRows = computed(() =>
   })),
 )
 
-async function applyBuiltins(desired: Set<string>): Promise<void> {
-  reconciling.value = true
-  try {
-    const existing = bindings.value.filter((b) => b.source === 'builtin')
-    let targetRefs: string[]
-    if (desired.size === BUILTIN_TOOLS.length) targetRefs = [] // all on -> legacy (no bindings)
-    else if (desired.size === 0) targetRefs = [BUILTIN_NONE_SENTINEL]
-    else targetRefs = [...desired]
-    // Add the new explicit bindings first, then remove the previous ones, so
-    // the effective set is never momentarily wider-than-intended in a way that
-    // matters (the union during the swap is harmless and short-lived).
-    for (const reference of targetRefs) {
-      await agentsApi.addMcpBinding(agentId, {
-        source: 'builtin',
-        reference,
-        allowed_tools: [],
-        config: {},
-      })
-    }
-    for (const b of existing) {
-      await agentsApi.deleteMcpBinding(agentId, b.id)
-    }
+const builtinMutation = useMutation({
+  mutationFn: async (enabled: string[]) =>
+    (await agentsApi.setBuiltinTools(agentId, enabled)).data,
+  onSuccess: (data) => {
+    qc.setQueryData(agentKeys.builtinTools(agentId), data)
+    qc.invalidateQueries({ queryKey: agentKeys.mcpBindings(agentId) })
     toast.success(t('agents.builtinTools.updated'))
-  } catch {
-    toast.error(t('agents.builtinTools.updateFailed'))
-  } finally {
-    await qc.invalidateQueries({ queryKey: agentKeys.mcpBindings(agentId) })
-    reconciling.value = false
-  }
-}
+  },
+  onError: () => toast.error(t('agents.builtinTools.updateFailed')),
+})
+
+const builtinBusy = computed(
+  () => builtinMutation.isPending.value || builtinQuery.isLoading.value,
+)
 
 function setBuiltinEnabled(tool: string, value: boolean): void {
   const desired = new Set(enabledBuiltins.value)
   if (value) desired.add(tool)
   else desired.delete(tool)
-  void applyBuiltins(desired)
+  builtinMutation.mutate([...desired])
 }
 
 // --- Add / Edit modal ---
@@ -294,12 +266,8 @@ const sourceOptions = computed(() => [
   { value: 'package', label: t('agents.mcp.sources.package') },
 ])
 
-const builtinOptions = computed(() =>
-  BUILTIN_TOOLS.map((tool) => ({ value: tool, label: tool })),
-)
-
 const referenceHelp = computed(() => {
-  const src = source.value as 'builtin' | 'url' | 'package'
+  const src = source.value as 'url' | 'package'
   return t(`agents.mcp.referenceHelp.${src}`)
 })
 
@@ -376,7 +344,7 @@ const accordionItems = computed(() => [
           <SToggle
             :id="`builtin-${row.key}`"
             :model-value="enabledBuiltins.has(row.key)"
-            :disabled="reconciling || loading"
+            :disabled="builtinBusy"
             @update:model-value="setBuiltinEnabled(row.key, $event)"
           />
         </li>
@@ -483,14 +451,7 @@ const accordionItems = computed(() => [
           :help="referenceHelp"
           required
         >
-          <SSelect
-            v-if="source === 'builtin' && !isEditing"
-            v-model="reference"
-            :options="builtinOptions"
-            :placeholder="t('agents.mcp.referencePlaceholderBuiltin')"
-          />
           <SInput
-            v-else
             v-model="reference"
             :placeholder="source === 'url'
               ? t('agents.mcp.referencePlaceholderUrl')

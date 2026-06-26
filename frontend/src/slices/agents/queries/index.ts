@@ -15,6 +15,8 @@ export const agentKeys = {
     ['agents', 'graphragConfig', configId] as const,
   mcpBindings: (agentId: string) =>
     ['agents', 'mcpBindings', agentId] as const,
+  builtinTools: (agentId: string) =>
+    ['agents', 'builtinTools', agentId] as const,
   egressAllowlist: (projectId: string) =>
     ['agents', 'egressAllowlist', projectId] as const,
 }

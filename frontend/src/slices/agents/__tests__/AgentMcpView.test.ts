@@ -38,10 +38,14 @@ const AGENT = {
   deleted_at: null,
 }
 
-function seed(bindings: unknown[]): void {
+function seed(
+  bindings: unknown[],
+  builtins: string[] = ['code_exec', 'web_search', 'file'],
+): void {
   server.use(
     http.get('/api/agents/agent_1', () => HttpResponse.json(AGENT)),
     http.get('/api/agents/agent_1/mcp', () => HttpResponse.json(bindings)),
+    http.get('/api/agents/agent_1/builtin-tools', () => HttpResponse.json({ enabled: builtins })),
   )
 }
 
@@ -82,8 +86,8 @@ describe('AgentMcpView', () => {
     expect(wrapper.find('button.s-btn--primary').exists()).toBe(true)
   })
 
-  it('shows all built-ins on when the agent has no builtin bindings (legacy)', async () => {
-    seed([])
+  it('reflects the server-reported enabled built-in tools', async () => {
+    seed([], ['code_exec', 'web_search', 'file'])
     const wrapper = await renderView(AgentMcpView, {
       routes,
       initialRoute: '/agents/agent_1/mcp',
@@ -94,18 +98,8 @@ describe('AgentMcpView', () => {
     }
   })
 
-  it('derives built-in toggle state from builtin bindings (explicit mode)', async () => {
-    seed([
-      {
-        id: 'b1',
-        agent_id: 'agent_1',
-        source: 'builtin',
-        reference: 'web_search',
-        allowed_tools: [],
-        config: {},
-        created_at: '2026-01-01T00:00:00Z',
-      },
-    ])
+  it('shows only the server-enabled built-ins as on', async () => {
+    seed([], ['web_search'])
     const wrapper = await renderView(AgentMcpView, {
       routes,
       initialRoute: '/agents/agent_1/mcp',
@@ -114,26 +108,15 @@ describe('AgentMcpView', () => {
     expect(wrapper.find('#builtin-web_search').attributes('aria-checked')).toBe('true')
     expect(wrapper.find('#builtin-code_exec').attributes('aria-checked')).toBe('false')
     expect(wrapper.find('#builtin-file').attributes('aria-checked')).toBe('false')
-    // The builtin binding is managed by the card, so the MCP servers table is
-    // empty (it lists only url/package servers) and shows its empty state.
-    expect(wrapper.text()).toContain('agents.mcp.emptyTitle')
   })
 
-  it('reconciles bindings when a built-in is toggled off', async () => {
-    seed([])
-    const posts: Array<{ source: string; reference: string }> = []
+  it('PUTs the new enabled set when a built-in is toggled off', async () => {
+    seed([], ['code_exec', 'web_search', 'file'])
+    let putBody: { enabled: string[] } | null = null
     server.use(
-      http.post('/api/agents/agent_1/mcp', async ({ request }) => {
-        const body = (await request.json()) as { source: string; reference: string }
-        posts.push(body)
-        return HttpResponse.json({
-          id: `new_${posts.length}`,
-          agent_id: 'agent_1',
-          ...body,
-          allowed_tools: [],
-          config: {},
-          created_at: '2026-01-01T00:00:00Z',
-        })
+      http.put('/api/agents/agent_1/builtin-tools', async ({ request }) => {
+        putBody = (await request.json()) as { enabled: string[] }
+        return HttpResponse.json({ enabled: putBody.enabled })
       }),
     )
     const wrapper = await renderView(AgentMcpView, {
@@ -141,11 +124,11 @@ describe('AgentMcpView', () => {
       initialRoute: '/agents/agent_1/mcp',
     })
     await settle(wrapper)
-    // Legacy all-on; turning code_exec off materialises explicit bindings for
-    // the remaining two tools.
+    // All on; turning code_exec off PUTs the remaining two — the server owns
+    // how that maps to bindings.
     await wrapper.find('#builtin-code_exec').trigger('click')
     await settle(wrapper)
-    expect(posts.map((p) => p.reference).sort()).toEqual(['file', 'web_search'])
-    expect(posts.every((p) => p.source === 'builtin')).toBe(true)
+    expect(putBody).not.toBeNull()
+    expect([...(putBody!.enabled)].sort()).toEqual(['file', 'web_search'])
   })
 })
