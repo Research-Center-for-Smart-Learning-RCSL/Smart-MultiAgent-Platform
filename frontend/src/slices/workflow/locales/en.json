@@ -13,6 +13,7 @@
       "emptyHint": "Create one above to start orchestrating your agents.",
       "retry": "Retry",
       "loadError": "Failed to load workflows.",
+      "createSuccess": "Workflow created.",
       "createFailed": "Failed to create workflow.",
       "deleteFailed": "Failed to delete workflow.",
       "deleteConfirmTitle": "Delete Workflow",

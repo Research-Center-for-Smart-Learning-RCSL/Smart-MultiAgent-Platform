@@ -391,6 +391,34 @@ const pageTitle = computed(() => {
   if (isCreateMode) return t('agents.detail.new')
   return query.data.value?.name ?? t('agents.detail.title')
 })
+
+const breadcrumbs = computed(() => [
+  { label: t('agents.breadcrumb.agents'), to: pickerProjectId.value ? { name: 'agents.list', params: { projectId: pickerProjectId.value } } : undefined },
+  { label: pageTitle.value },
+])
+
+// --- GraphRAG status in Knowledge tab ---
+const graphragStatusQuery = useQuery({
+  queryKey: computed(() => agentKeys.graphragConfig(graphragConfigId.value ?? '')),
+  enabled: computed(() => !!graphragConfigId.value && !isCreateMode),
+  queryFn: async () => (await agentsApi.getGraphragStatus(graphragConfigId.value!)).data,
+})
+
+const graphragStatusText = computed(() => {
+  const status = graphragStatusQuery.data.value
+  if (!status) return ''
+  const stateMap: Record<string, string> = {
+    idle: t('agents.graphragList.states.idle'),
+    running: t('agents.graphragList.states.running'),
+    neo4j_committed: t('agents.graphragList.states.neo4jCommitted'),
+    qdrant_committed: t('agents.graphragList.states.qdrantCommitted'),
+    failed: t('agents.graphragList.states.failed'),
+    failed_compensating: t('agents.graphragList.states.compensating'),
+  }
+  const state = stateMap[status.state] ?? status.state
+  const lastBuilt = status.last_build_at ? new Date(status.last_build_at).toLocaleString() : '--'
+  return t('agents.graphragList.graphragStatusInfo', { state, lastBuilt })
+})
 </script>
 
 <template>
@@ -412,7 +440,10 @@ const pageTitle = computed(() => {
     </template>
 
     <template v-else>
-      <SPageHeader :title="pageTitle">
+      <SPageHeader
+        :title="pageTitle"
+        :breadcrumbs="breadcrumbs"
+      >
         <template #actions>
           <SButton
             v-if="!isCreateMode"
@@ -668,6 +699,13 @@ const pageTitle = computed(() => {
                 :options="graphragConfigOptions"
               />
             </SFormField>
+            <SAlert
+              v-if="graphragConfigId && graphragStatusQuery.data.value"
+              variant="info"
+              class="mt-3"
+            >
+              {{ graphragStatusText }}
+            </SAlert>
             <SButton
               v-if="pickerProjectId"
               variant="link"

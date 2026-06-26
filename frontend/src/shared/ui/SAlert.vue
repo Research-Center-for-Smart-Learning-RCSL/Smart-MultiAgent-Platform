@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import {
   InformationCircleIcon,
   CheckCircleIcon,
@@ -7,6 +8,8 @@ import {
   XCircleIcon,
 } from '@heroicons/vue/24/solid'
 import { XMarkIcon } from '@heroicons/vue/24/outline'
+
+const { t } = useI18n()
 
 type Variant = 'info' | 'success' | 'warning' | 'danger'
 
@@ -72,7 +75,7 @@ const iconComponent = computed(() => {
       v-if="dismissible"
       type="button"
       class="s-alert__dismiss"
-      aria-label="Dismiss"
+      :aria-label="t('app.dismiss')"
       @click="emit('dismiss')"
     >
       <XMarkIcon

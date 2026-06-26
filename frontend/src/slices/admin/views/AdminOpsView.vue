@@ -96,6 +96,9 @@ const restoreTypeOptions = computed(() => [
   { value: 'user', label: t('admin.ops.typeUser') },
   { value: 'org', label: t('admin.ops.typeOrg') },
   { value: 'project', label: t('admin.ops.typeProject') },
+  { value: 'agent', label: t('admin.ops.typeAgent') },
+  { value: 'workflow', label: t('admin.ops.typeWorkflow') },
+  { value: 'chatroom', label: t('admin.ops.typeChatroom') },
 ])
 
 const { confirm } = useConfirmDialog()

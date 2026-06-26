@@ -8,6 +8,7 @@
     "confirm": "確認",
     "save": "儲存",
     "close": "關閉",
+    "dismiss": "關閉",
     "back": "返回",
     "themeLabel": "主題：{theme}",
     "errorBoundary": {

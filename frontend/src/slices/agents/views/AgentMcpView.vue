@@ -51,6 +51,11 @@ const agentQuery = useQuery({
 })
 const projectId = computed(() => agentQuery.data.value?.project_id ?? '')
 
+const breadcrumbs = computed(() => [
+  { label: agentQuery.data.value?.name ?? '...', to: { name: 'agents.detail', params: { agentId } } },
+  { label: t('agents.breadcrumb.mcpBindings') },
+])
+
 const bindingsQuery = useQuery({
   queryKey: agentKeys.mcpBindings(agentId),
   queryFn: async () => (await agentsApi.listMcpBindings(agentId)).data,
@@ -59,7 +64,7 @@ const bindingsQuery = useQuery({
 const bindings = computed<McpBinding[]>(() => bindingsQuery.data.value ?? [])
 const loading = computed(() => bindingsQuery.isLoading.value)
 
-const { isTesting, runTest } = useMcpTest(agentId)
+const { isTesting, runTest, failedResult } = useMcpTest(agentId)
 
 // --- Add / Edit modal ---
 const showModal = ref(false)
@@ -239,7 +244,10 @@ const accordionItems = computed(() => [
 
 <template>
   <main class="p-6">
-    <SPageHeader :title="t('agents.mcp.title')">
+    <SPageHeader
+      :title="t('agents.mcp.title')"
+      :breadcrumbs="breadcrumbs"
+    >
       <template #actions>
         <SButton
           variant="primary"
@@ -433,6 +441,39 @@ const accordionItems = computed(() => [
             @click="onSubmit"
           >
             {{ isEditing ? t('agents.mcp.save') : t('agents.mcp.submit') }}
+          </SButton>
+        </div>
+      </template>
+    </SModal>
+
+    <!-- MCP test failure modal -->
+    <SModal
+      :open="!!failedResult"
+      :title="t('agents.mcp.testErrorTitle')"
+      size="md"
+      @close="failedResult = null"
+    >
+      <SCodeEditor
+        v-if="failedResult"
+        :model-value="failedResult.error"
+        language="text"
+        :rows="6"
+        readonly
+      />
+      <p
+        v-if="failedResult"
+        class="text-sm text-[var(--color-text-muted)] mt-2"
+      >
+        {{ t('agents.mcp.testErrorDuration', { ms: failedResult.duration_ms }) }}
+      </p>
+
+      <template #footer>
+        <div class="flex justify-end">
+          <SButton
+            variant="secondary"
+            @click="failedResult = null"
+          >
+            {{ t('app.close') }}
           </SButton>
         </div>
       </template>

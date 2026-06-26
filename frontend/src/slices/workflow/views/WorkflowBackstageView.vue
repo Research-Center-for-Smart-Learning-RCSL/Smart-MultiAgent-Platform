@@ -1,13 +1,9 @@
 <template>
   <section class="workflow-backstage p-4">
-    <header class="mb-4">
-      <h1 class="text-xl font-semibold">
-        {{ $t('workflow.backstage.title') }}
-      </h1>
-      <p class="text-sm text-muted">
-        {{ $t('workflow.backstage.subtitle') }}
-      </p>
-    </header>
+    <SPageHeader
+      :title="$t('workflow.backstage.title')"
+      :subtitle="$t('workflow.backstage.subtitle')"
+    />
 
     <!-- Run selector -->
     <div class="mb-4">
@@ -148,7 +144,7 @@ import { useQuery } from '@tanstack/vue-query'
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 
-import { STATUS_BG_MAP } from '@shared/ui'
+import { SPageHeader, STATUS_BG_MAP } from '@shared/ui'
 import { getApproval, getInstruction, listApprovalsForRun, listRuns, listSteps } from '../api'
 import { wfKeys } from '../queries'
 import type { ApprovalWithVotes } from '../types'

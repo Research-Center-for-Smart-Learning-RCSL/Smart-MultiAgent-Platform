@@ -8,6 +8,7 @@
     "confirm": "Confirm",
     "save": "Save",
     "close": "Close",
+    "dismiss": "Dismiss",
     "back": "Back",
     "themeLabel": "Theme: {theme}",
     "errorBoundary": {
