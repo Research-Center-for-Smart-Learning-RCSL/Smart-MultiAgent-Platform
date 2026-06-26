@@ -115,8 +115,8 @@ function togglePasswordVisibility() {
 }
 
 .s-input:focus-within {
-  outline: 2px solid var(--color-accent);
-  outline-offset: -1px;
+  border-color: var(--color-accent);
+  box-shadow: var(--focus-ring);
 }
 
 .s-input--error {
@@ -124,7 +124,7 @@ function togglePasswordVisibility() {
 }
 
 .s-input--error:focus-within {
-  outline-color: var(--color-danger);
+  box-shadow: 0 0 0 2px var(--color-bg), 0 0 0 4px var(--color-danger);
 }
 
 .s-input--disabled {

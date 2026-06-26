@@ -103,7 +103,7 @@ function onClear() {
 
 .search-input:focus-within {
   border-color: var(--color-accent);
-  outline: var(--focus-ring);
+  box-shadow: var(--focus-ring);
 }
 
 .search-input__icon,

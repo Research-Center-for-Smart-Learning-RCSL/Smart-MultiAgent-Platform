@@ -66,8 +66,9 @@ function onInput(event: Event) {
 }
 
 .s-textarea:focus {
-  outline: 2px solid var(--color-accent);
-  outline-offset: -1px;
+  border-color: var(--color-accent);
+  outline: none;
+  box-shadow: var(--focus-ring);
 }
 
 .s-textarea--error {
@@ -75,7 +76,7 @@ function onInput(event: Event) {
 }
 
 .s-textarea--error:focus {
-  outline-color: var(--color-danger);
+  box-shadow: 0 0 0 2px var(--color-bg), 0 0 0 4px var(--color-danger);
 }
 
 .s-textarea--disabled {
