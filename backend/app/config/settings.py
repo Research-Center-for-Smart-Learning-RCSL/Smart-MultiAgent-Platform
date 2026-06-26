@@ -366,17 +366,23 @@ def _check_prod_secrets(s: Settings) -> None:
         raise ConfigError("Insecure defaults active in production:\n  - " + "\n  - ".join(problems))
 
 
-def _load() -> Settings:
+def _load(*, skip_prod_checks: bool = False) -> Settings:
     try:
         settings = Settings()
     except ValidationError as exc:
         missing = [".".join(str(p) for p in e["loc"]) for e in exc.errors()]
         msg = "Configuration errors:\n  - " + "\n  - ".join(missing)
         raise ConfigError(msg) from exc
-    _check_prod_secrets(settings)
+    if not skip_prod_checks:
+        _check_prod_secrets(settings)
     return settings
 
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
     return _load()
+
+
+def get_settings_for_bootstrap() -> Settings:
+    """Return settings without prod-secret checks (bootstrap needs dev tokens)."""
+    return _load(skip_prod_checks=True)
