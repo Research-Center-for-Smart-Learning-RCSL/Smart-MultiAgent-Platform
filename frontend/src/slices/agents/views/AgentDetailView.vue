@@ -244,19 +244,24 @@ watch(
 const { applyServerErrors } = useServerErrors(setErrors)
 
 function assemblePayload(values: AgentCreateInput): AgentCreateInput {
+  // Call-only is mutually exclusive with the autonomous triggers (the inputs
+  // are disabled in the UI), so never ship their `enabled` flags alongside it —
+  // otherwise the saved config is self-contradictory (the backend would ignore
+  // every_n/silence, but the stored data reads as if both were active).
+  const callOnly = wakeupCallOnly.value
   const wakeup_config: Record<string, unknown> = {
     triggers: {
       every_n_messages: {
-        enabled: !!wakeupEveryN.value,
+        enabled: !callOnly && !!wakeupEveryN.value,
         n: wakeupEveryN.value || 3,
       },
       silence_minutes: {
-        enabled: !!wakeupSilence.value,
+        enabled: !callOnly && !!wakeupSilence.value,
         t_minutes: wakeupSilence.value || 2,
         autostop_rounds: wakeupAutostop.value || 5,
       },
       call_only: {
-        enabled: wakeupCallOnly.value,
+        enabled: callOnly,
       },
     },
   }

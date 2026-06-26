@@ -73,6 +73,10 @@ export function useMentionAutocomplete(options: {
   /** Handle a keydown while the list is open. Returns true when the key was
    *  consumed for navigation/selection so the caller skips its own handling. */
   function handleKeydown(e: KeyboardEvent): boolean {
+    // During IME composition the keystrokes (Enter to commit a candidate,
+    // arrows to move between candidates) belong to the input method, not the
+    // mention list — never hijack them. Critical for CJK input.
+    if (e.isComposing) return false
     if (!open.value) return false
     const len = matches.value.length
     if (e.key === 'ArrowDown') {
@@ -92,7 +96,10 @@ export function useMentionAutocomplete(options: {
     }
     if ((e.key === 'Enter' && !e.shiftKey) || e.key === 'Tab') {
       e.preventDefault()
-      select(matches.value[activeIndex.value]!)
+      // The list can shrink (an agent left the room) after the caret last
+      // moved, leaving activeIndex past the end — guard the lookup.
+      const choice = matches.value[activeIndex.value]
+      if (choice) select(choice)
       return true
     }
     return false
