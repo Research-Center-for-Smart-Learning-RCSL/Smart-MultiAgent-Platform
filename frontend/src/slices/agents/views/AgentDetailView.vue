@@ -170,11 +170,23 @@ watch(
         a2a_enabled: agent.a2a_enabled,
       },
     })
-    const wc = agent.wakeup_config as Record<string, number | boolean | null>
-    wakeupEveryN.value = (wc.every_n_messages as number) ?? null
-    wakeupSilence.value = (wc.silence_minutes as number) ?? null
-    wakeupCallOnly.value = (wc.call_only as boolean) ?? false
-    wakeupAutostop.value = (wc.autostop_rounds as number) ?? null
+    const wc = agent.wakeup_config as Record<string, unknown>
+    if (wc?.triggers) {
+      const triggers = wc.triggers as Record<string, Record<string, unknown>>
+      const enm = triggers.every_n_messages ?? {}
+      const sm = triggers.silence_minutes ?? {}
+      const co = triggers.call_only ?? {}
+      wakeupEveryN.value = enm.enabled ? (enm.n as number) ?? null : null
+      wakeupSilence.value = sm.enabled ? (sm.t_minutes as number) ?? null : null
+      wakeupCallOnly.value = (co.enabled as boolean) ?? false
+      wakeupAutostop.value = sm.enabled ? (sm.autostop_rounds as number) ?? null : null
+    } else {
+      // Legacy flat format saved before the nested triggers schema
+      wakeupEveryN.value = (wc?.every_n_messages as number) || null
+      wakeupSilence.value = (wc?.silence_minutes as number) || null
+      wakeupCallOnly.value = (wc?.call_only as boolean) ?? false
+      wakeupAutostop.value = (wc?.autostop_rounds as number) || null
+    }
 
     const wf = agent.workflow_capabilities as Record<string, boolean | number>
     canInstruct.value = (wf.can_instruct as boolean) ?? false
@@ -199,15 +211,21 @@ watch(
 const { applyServerErrors } = useServerErrors(setErrors)
 
 function assemblePayload(values: AgentCreateInput): AgentCreateInput {
-  // Send every key explicitly (null/false for unset) so a partial-merge backend
-  // can't retain a stale value the user just cleared. SInput type=number emits 0
-  // when cleared, so `|| null` maps both 0 and null to "unset" for these min-1
-  // fields (0 messages / 0 minutes is never a valid trigger).
   const wakeup_config: Record<string, unknown> = {
-    every_n_messages: wakeupEveryN.value || null,
-    silence_minutes: wakeupSilence.value || null,
-    autostop_rounds: wakeupAutostop.value || null,
-    call_only: wakeupCallOnly.value,
+    triggers: {
+      every_n_messages: {
+        enabled: !!wakeupEveryN.value,
+        n: wakeupEveryN.value || 3,
+      },
+      silence_minutes: {
+        enabled: !!wakeupSilence.value,
+        t_minutes: wakeupSilence.value || 2,
+        autostop_rounds: wakeupAutostop.value || 5,
+      },
+      call_only: {
+        enabled: wakeupCallOnly.value,
+      },
+    },
   }
 
   const workflow_capabilities: Record<string, unknown> = {
