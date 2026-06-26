@@ -153,11 +153,16 @@ const createMutation = useMutation({
   mutationFn: (name: string) =>
     createWorkflow(workspaceId, {
       name,
+      // Must satisfy docs/workflow.schema.json: schema_version "1.0", name,
+      // node positions, and a manual trigger's required allowed_roles — else the
+      // backend rejects the create with 422.
       definition: {
+        schema_version: '1.0',
+        name,
         entry_node_id: 'trigger_1',
         nodes: [
-          { id: 'trigger_1', type: 'trigger', config: { trigger_type: 'manual' } },
-          { id: 'end_1', type: 'end', config: { status: 'success' } },
+          { id: 'trigger_1', type: 'trigger', config: { trigger_type: 'manual', allowed_roles: ['Admin'] }, position: { x: 0, y: 0 } },
+          { id: 'end_1', type: 'end', config: { status: 'success' }, position: { x: 240, y: 0 } },
         ],
         edges: [{ id: 'e1', from: 'trigger_1', to: 'end_1', from_port: 'default' }],
       },
