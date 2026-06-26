@@ -7,10 +7,13 @@
  */
 import { request } from '@playwright/test'
 import { writeFileSync } from 'fs'
-import { resolve } from 'path'
+import { dirname, resolve } from 'path'
+import { fileURLToPath } from 'url'
 
+// This file runs as ESM ("type": "module"), where __dirname is undefined.
+const HERE = dirname(fileURLToPath(import.meta.url))
 const BASE = process.env.E2E_API_BASE ?? 'http://localhost:28000'
-const SEED_FILE = resolve(__dirname, '.e2e-seed.json')
+const SEED_FILE = resolve(HERE, '.e2e-seed.json')
 
 const ADMIN = { email: 'e2e-admin@example.com', password: 'E2eAdm1n!Str0ng' }
 const USER = { email: 'e2e-user@example.com', password: 'E2eP@ssw0rd!Str0ng' }
