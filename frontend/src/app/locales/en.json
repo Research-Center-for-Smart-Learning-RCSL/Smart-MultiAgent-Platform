@@ -11,6 +11,7 @@
     "close": "Close",
     "dismiss": "Dismiss",
     "back": "Back",
+    "localeLabel": "Language: {locale}",
     "themeLabel": "Theme: {theme}",
     "errorBoundary": {
       "title": "Something went wrong",
