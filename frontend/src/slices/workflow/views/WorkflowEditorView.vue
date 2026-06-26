@@ -119,6 +119,21 @@
       </button>
     </div>
 
+    <!-- Version conflict banner — a concurrent save bumped the version -->
+    <div
+      v-if="conflictDetected"
+      role="alert"
+      class="px-4 py-2 bg-warning-tint text-warning-on text-sm border-b"
+    >
+      {{ $t('workflow.editor.conflict') }}
+      <button
+        class="ml-2 underline"
+        @click="reloadAfterConflict"
+      >
+        {{ $t('workflow.editor.reload') }}
+      </button>
+    </div>
+
     <!-- Lint status bar — visible after any validation run -->
     <div
       v-if="store.lintRan"
@@ -232,6 +247,50 @@
           @delete="onDeleteNode"
         />
       </aside>
+
+      <!-- Side panel: edge (connection) inspector -->
+      <aside
+        v-else-if="selectedEdge && isDesktop"
+        class="w-80 border-l bg-surface p-4 overflow-y-auto shrink-0"
+      >
+        <div class="space-y-3">
+          <div class="text-xs text-muted">
+            {{ $t('workflow.editor.edgeTitle') }}
+          </div>
+          <div class="text-xs">
+            <span class="text-muted">{{ $t('workflow.editor.edgeFrom') }}:</span>
+            {{ selectedEdge.source }} ({{ selectedEdge.port }})
+          </div>
+          <div class="text-xs">
+            <span class="text-muted">{{ $t('workflow.editor.edgeTo') }}:</span>
+            {{ selectedEdge.target }}
+          </div>
+          <div>
+            <label
+              for="edge-guard"
+              class="text-xs font-medium block mb-1"
+            >
+              {{ $t('workflow.editor.edgeGuard') }}
+            </label>
+            <textarea
+              id="edge-guard"
+              :value="selectedEdge.guard"
+              class="wf-input min-h-[60px] font-mono"
+              :placeholder="$t('workflow.editor.edgeGuardPlaceholder')"
+              @input="onEdgeGuardUpdate(($event.target as HTMLTextAreaElement).value)"
+            />
+            <p class="text-2xs text-muted mt-1">
+              {{ $t('workflow.editor.edgeGuardHelp') }}
+            </p>
+          </div>
+          <button
+            class="btn btn-danger w-full mt-2"
+            @click="deleteSelectedEdge"
+          >
+            {{ $t('workflow.editor.deleteEdge') }}
+          </button>
+        </div>
+      </aside>
     </div>
   </section>
 </template>
@@ -248,6 +307,7 @@ import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute, useRouter } from 'vu
 import { useConfirmDialog, useToast } from '@shared/composables'
 import { useI18n } from 'vue-i18n'
 import { useBreakpoint } from '@shared/composables'
+import { ApiError } from '@shared/errors'
 import {
   dryRun,
   listWorkflows,
@@ -282,6 +342,7 @@ const workspaceId = ref((route.params.workspaceId as string) || '')
 
 const workflow = ref<Workflow | null>(null)
 const loadError = ref<string | null>(null)
+const conflictDetected = ref(false)
 
 // Data for config forms (agents + chatrooms in the project)
 const agents = ref<Array<{ id: string; name: string }>>([])
@@ -300,12 +361,15 @@ const {
   paletteOpen,
   allNodeIds,
   selectedNode,
+  selectedEdge,
   seedNodeCounter,
   defToFlow,
   flowToDef,
   addNode,
   onDeleteNode,
   onConnect,
+  deleteSelectedEdge,
+  onEdgeGuardUpdate,
   onNodeClick,
   onEdgeClick,
   onPaneClick,
@@ -390,6 +454,13 @@ void loadWorkflow().then(() => {
   if (workspaceId.value) void loadContextData()
 })
 
+// Discard local edits and reload after a version conflict (mirrors the agent
+// editor): the only safe recovery is to take the latest server version.
+function reloadAfterConflict(): void {
+  conflictDetected.value = false
+  void loadWorkflow()
+}
+
 // ---- unsaved changes guard ------------------------------------------------
 
 async function confirmUnsaved(): Promise<boolean> {
@@ -418,12 +489,19 @@ const saveMutation = useMutation({
   },
   onSuccess: (wf) => {
     if (!wf) return
+    conflictDetected.value = false
     workflow.value = wf
     definition.value = wf.definition
     store.markSaved(wf.version)
     qc.invalidateQueries({ queryKey: wfKeys.workflow(workflowId) })
   },
-  onError: () => toast.error(t('workflow.editor.saveFailed')),
+  onError: (err) => {
+    if (err instanceof ApiError && err.status === 409) {
+      conflictDetected.value = true
+      return
+    }
+    toast.error(t('workflow.editor.saveFailed'))
+  },
 })
 
 function onSave(): void {
