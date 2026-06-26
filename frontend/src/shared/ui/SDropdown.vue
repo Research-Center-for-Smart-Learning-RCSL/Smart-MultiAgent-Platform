@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch, nextTick, onMounted, onBeforeUnmount, type Component } from 'vue'
+import { ref, watch, nextTick, onMounted, onBeforeUnmount, type Component, type CSSProperties } from 'vue'
 
 interface DropdownItem {
   key: string
@@ -27,6 +27,7 @@ const isOpen = ref(false)
 const triggerRef = ref<HTMLElement | null>(null)
 const menuRef = ref<HTMLElement | null>(null)
 const itemRefs = ref<HTMLElement[]>([])
+const menuPos = ref<CSSProperties>({})
 
 function setItemRef(el: unknown, index: number) {
   if (el instanceof HTMLElement) {
@@ -101,6 +102,25 @@ function onKeydown(e: KeyboardEvent) {
   }
 }
 
+function updateMenuPosition() {
+  if (!triggerRef.value) return
+  const rect = triggerRef.value.getBoundingClientRect()
+  const pos: CSSProperties = {
+    position: 'fixed',
+    top: `${rect.bottom + 4}px`,
+  }
+  if (props.placement === 'bottom-end') {
+    pos.right = `${window.innerWidth - rect.right}px`
+  } else {
+    pos.left = `${rect.left}px`
+  }
+  menuPos.value = pos
+}
+
+function onScrollWhileOpen() {
+  if (isOpen.value) updateMenuPosition()
+}
+
 function onClickOutside(e: MouseEvent) {
   const target = e.target as Node
   if (
@@ -116,7 +136,10 @@ onMounted(syncTriggerAria)
 watch(isOpen, async (open) => {
   syncTriggerAria()
   if (open) {
+    updateMenuPosition()
     document.addEventListener('click', onClickOutside, { capture: true })
+    window.addEventListener('scroll', onScrollWhileOpen, { capture: true, passive: true })
+    window.addEventListener('resize', onScrollWhileOpen, { passive: true })
     await nextTick()
     const actionable = getActionableIndices()
     if (actionable.length > 0) {
@@ -124,12 +147,16 @@ watch(isOpen, async (open) => {
     }
   } else {
     document.removeEventListener('click', onClickOutside, { capture: true })
+    window.removeEventListener('scroll', onScrollWhileOpen, { capture: true })
+    window.removeEventListener('resize', onScrollWhileOpen)
     itemRefs.value = []
   }
 })
 
 onBeforeUnmount(() => {
   document.removeEventListener('click', onClickOutside, { capture: true })
+  window.removeEventListener('scroll', onScrollWhileOpen, { capture: true })
+  window.removeEventListener('resize', onScrollWhileOpen)
 })
 </script>
 
@@ -148,49 +175,50 @@ onBeforeUnmount(() => {
     >
       <slot name="trigger" />
     </div>
-    <Transition name="s-dropdown">
-      <div
-        v-if="isOpen"
-        ref="menuRef"
-        class="s-dropdown__menu"
-        :class="`s-dropdown__menu--${placement}`"
-        :style="{ width: width, minWidth: '180px' }"
-        role="menu"
-      >
-        <template
-          v-for="(item, index) in items"
-          :key="item.key"
+    <Teleport to="body">
+      <Transition name="s-dropdown">
+        <div
+          v-if="isOpen"
+          ref="menuRef"
+          class="s-dropdown__menu"
+          :style="{ ...menuPos, width: width, minWidth: '180px' }"
+          role="menu"
         >
-          <div
-            v-if="item.divider"
-            class="s-dropdown__divider"
-            role="separator"
-          />
-          <button
-            v-else
-            :ref="(el) => setItemRef(el, index)"
-            class="s-dropdown__item"
-            :class="{
-              's-dropdown__item--danger': item.danger,
-              's-dropdown__item--disabled': item.disabled,
-            }"
-            role="menuitem"
-            type="button"
-            :disabled="item.disabled"
-            tabindex="-1"
-            @click.stop="selectItem(item)"
+          <template
+            v-for="(item, index) in items"
+            :key="item.key"
           >
-            <component
-              :is="item.icon"
-              v-if="item.icon"
-              class="s-dropdown__item-icon"
-              :class="{ 's-dropdown__item-icon--danger': item.danger }"
+            <div
+              v-if="item.divider"
+              class="s-dropdown__divider"
+              role="separator"
             />
-            <span>{{ item.label }}</span>
-          </button>
-        </template>
-      </div>
-    </Transition>
+            <button
+              v-else
+              :ref="(el) => setItemRef(el, index)"
+              class="s-dropdown__item"
+              :class="{
+                's-dropdown__item--danger': item.danger,
+                's-dropdown__item--disabled': item.disabled,
+              }"
+              role="menuitem"
+              type="button"
+              :disabled="item.disabled"
+              tabindex="-1"
+              @click.stop="selectItem(item)"
+            >
+              <component
+                :is="item.icon"
+                v-if="item.icon"
+                class="s-dropdown__item-icon"
+                :class="{ 's-dropdown__item-icon--danger': item.danger }"
+              />
+              <span>{{ item.label }}</span>
+            </button>
+          </template>
+        </div>
+      </Transition>
+    </Teleport>
   </div>
 </template>
 
@@ -205,23 +233,12 @@ onBeforeUnmount(() => {
 }
 
 .s-dropdown__menu {
-  position: absolute;
-  top: 100%;
-  margin-top: 4px;
   background: var(--color-bg);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-lg);
   padding: 4px 0;
   z-index: var(--z-dropdown);
-}
-
-.s-dropdown__menu--bottom-end {
-  right: 0;
-}
-
-.s-dropdown__menu--bottom-start {
-  left: 0;
 }
 
 .s-dropdown__divider {
