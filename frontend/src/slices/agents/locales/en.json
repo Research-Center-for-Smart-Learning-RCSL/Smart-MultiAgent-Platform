@@ -106,7 +106,7 @@
       "wakeupCallOnly": "Call Only (no autonomous wake)",
       "wakeupAutostop": "Auto-stop Rounds",
       "wakeupHelp": "Configure when this agent wakes up in a chatroom conversation.",
-      "wakeupInertWarning": "No trigger is enabled, so this agent will not respond to messages on its own. It can still be summoned with @mention in a chatroom. Enable a trigger below to let it reply automatically.",
+      "wakeupInertWarning": "No trigger is enabled, so this agent will not respond to messages on its own. It can still be summoned with {'@'}mention in a chatroom. Enable a trigger below to let it reply automatically.",
       "canInstruct": "Can instruct other agents",
       "canApprove": "Can approve actions",
       "canCreateSubagent": "Can create sub-agents",
@@ -255,11 +255,11 @@
       "reference": "Reference",
       "referencePlaceholderBuiltin": "Select a built-in tool...",
       "referencePlaceholderUrl": "https://mcp.example.com/sse",
-      "referencePlaceholderPackage": "e.g. @modelcontextprotocol/server-filesystem",
+      "referencePlaceholderPackage": "e.g. {'@'}modelcontextprotocol/server-filesystem",
       "referenceHelp": {
         "builtin": "Enter built-in name: file, web_search, or code_exec",
         "url": "SSE or HTTP endpoint URL for the MCP server",
-        "package": "npx or uvx package specifier, e.g. @modelcontextprotocol/server-filesystem"
+        "package": "npx or uvx package specifier, e.g. {'@'}modelcontextprotocol/server-filesystem"
       },
       "allowedTools": "Allowed Tools",
       "allowedToolsPlaceholder": "tool_a, tool_b",
