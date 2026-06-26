@@ -52,6 +52,14 @@ _AGENT_CAP_PER_PROJECT = 1000
 # Sentinel for system-initiated wakeup patches (§22.6). Never maps to a real
 # user row — authored-snapshot overwrites are skipped when the actor is the system.
 _SYSTEM_ACTOR_ID = uuid.UUID(int=0)
+# A create that supplies no wakeup config would otherwise parse as inert (R15.01:
+# no trigger enabled) and the agent would never respond. Default to replying to
+# every message so agents created via API / CLI / import behave like UI-created
+# ones. A caller wanting a different cadence — or a deliberately inert agent —
+# passes an explicit config (even an empty {}), which is respected.
+_DEFAULT_WAKEUP_CONFIG: dict[str, Any] = {
+    "triggers": {"every_n_messages": {"enabled": True, "n": 1}}
+}
 
 
 class AgentService:
@@ -127,7 +135,9 @@ class AgentService:
                 project_id=project_id,
             )
 
-        wakeup = draft.wakeup_config or {}
+        # `is not None` (not truthiness): an explicit empty {} means "inert by
+        # choice" and must not be overridden by the default.
+        wakeup = draft.wakeup_config if draft.wakeup_config is not None else _DEFAULT_WAKEUP_CONFIG
         agent = await self._agents.create(
             project_id=project_id,
             name=draft.name.strip(),
