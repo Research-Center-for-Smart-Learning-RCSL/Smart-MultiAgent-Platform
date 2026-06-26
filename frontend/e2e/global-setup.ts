@@ -139,13 +139,13 @@ async function globalSetup(): Promise<void> {
           data: {
             name: `e2e-workflow-${Date.now()}`,
             definition: {
-              schema_version: 1,
+              schema_version: '1.0',
               name: 'E2E Test Workflow',
               variables: {},
               timeouts: { run_max_seconds: 60, idle_max_seconds: 30 },
               entry_node_id: 'trigger_1',
               nodes: [
-                { id: 'trigger_1', type: 'trigger', config: { trigger_type: 'manual' }, label: 'Start', position: { x: 0, y: 0 } },
+                { id: 'trigger_1', type: 'trigger', config: { trigger_type: 'manual', allowed_roles: ['ProjectOwner'] }, label: 'Start', position: { x: 0, y: 0 } },
                 { id: 'end_1', type: 'end', config: {}, label: 'End', position: { x: 200, y: 0 } },
               ],
               edges: [
