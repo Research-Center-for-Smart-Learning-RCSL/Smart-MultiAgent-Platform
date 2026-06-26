@@ -111,6 +111,13 @@ services:
         required: false
     environment:
       SMAP_APP_ENV: prod
+      # alembic/env.py loads get_settings(), which runs _check_prod_secrets in
+      # prod/staging. Every other checked secret comes from .env (shared with
+      # backend-web), but docs_enabled defaults to true and is disabled only via
+      # this env var on backend-web — mirror it here or the prod check raises and
+      # the migration job fails. SMAP_LOG_LEVEL just matches the app's log output.
+      SMAP_APP_DOCS_ENABLED: "false"
+      SMAP_LOG_LEVEL: info
     restart: "no"
     depends_on:
       postgres: { condition: service_healthy }
