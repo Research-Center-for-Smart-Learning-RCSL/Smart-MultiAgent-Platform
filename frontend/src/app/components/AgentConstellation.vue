@@ -1,43 +1,36 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { usePrefersReducedMotion } from '@shared/composables'
+import { CENTER as center, RADIUS as radius, SATELLITES, BALL_COUNT } from './constellation'
 
 // Decorative hero visual: a central orchestrator hub linked to a ring of
 // heterogeneous agent nodes, with comet-tailed pulses flowing both inward
 // (agents reporting) and outward (the hub dispatching) to evoke multi-agent
-// orchestration. Pure inline SVG + CSS keyframes — no runtime deps. The global
-// prefers-reduced-motion rule (shared/styles/main.css) freezes every animation,
-// leaving a clean static topology, so motion is never required to read it.
+// orchestration. Every ball (hub + 6 satellites) breathes through an
+// empty -> filling -> released cycle: an accent core grows from the centre to
+// fill its hollow shell, then contracts back out, so the seven phases are
+// staggered evenly and the fill reads as a wave travelling around the ring.
+// Pure inline SVG + CSS keyframes — no runtime deps. The global
+// prefers-reduced-motion rule (shared/styles/main.css) collapses each animation
+// to its final keyframe (a fully-filled core), leaving a clean static topology,
+// so motion is never required to read it.
 
-const center = { x: 200, y: 200 }
-const radius = 150
 // Decorative ring sits just outside the node circle.
 const orbitRadius = radius + 34
 
-// Heterogeneous nodes tell the "multi-LLM, mixed providers" story: varied
-// radii, a couple highlighted as primaries, alternating flow direction.
-const NODES = [
-  { deg: -90, r: 12, primary: true },
-  { deg: -30, r: 8, primary: false },
-  { deg: 30, r: 10, primary: false },
-  { deg: 90, r: 9, primary: true },
-  { deg: 150, r: 8, primary: false },
-  { deg: 210, r: 11, primary: false },
-]
+// Drives both the phase stagger below and the CSS animation duration (bound as
+// --fill-cycle on the root), so the JS timing and the stylesheet cannot drift.
+const FILL_CYCLE_S = 4
+const fillDelay = (phase: number): string => `${-(phase / BALL_COUNT) * FILL_CYCLE_S}s`
 
-const satellites = NODES.map((n, i) => {
-  const rad = (n.deg * Math.PI) / 180
-  return {
-    id: i,
-    x: Math.round(center.x + radius * Math.cos(rad)),
-    y: Math.round(center.y + radius * Math.sin(rad)),
-    r: n.r,
-    primary: n.primary,
-    // Odd edges flow inward (agents reporting), even edges outward (hub
-    // dispatching), for request/response variety.
-    inward: i % 2 === 1,
-  }
-})
+const satellites = SATELLITES.map((n) => ({
+  ...n,
+  // Satellites occupy fill phases 1..6; the hub holds phase 0.
+  fillDelay: fillDelay(n.id + 1),
+  // Odd edges flow inward (agents reporting), even edges outward (hub
+  // dispatching), for request/response variety.
+  inward: n.id % 2 === 1,
+}))
 
 const root = ref<SVGSVGElement | null>(null)
 const reduced = usePrefersReducedMotion()
@@ -147,6 +140,7 @@ onBeforeUnmount(() => {
     focusable="false"
     :style="{
       transform: `perspective(900px) rotateX(${tiltX}deg) rotateY(${tiltY}deg)`,
+      '--fill-cycle': `${FILL_CYCLE_S}s`,
     }"
   >
     <defs>
@@ -213,21 +207,31 @@ onBeforeUnmount(() => {
       </template>
     </g>
 
-    <!-- Satellite agent nodes. -->
+    <!-- Satellite agent nodes: a hollow shell with an accent core that grows to
+         fill it then contracts back out (empty -> filled -> released). -->
     <g class="nodes">
-      <circle
+      <template
         v-for="node in satellites"
         :key="`node-${node.id}`"
-        class="node"
-        :class="{ 'node--primary': node.primary }"
-        :cx="node.x"
-        :cy="node.y"
-        :r="node.r"
-        :style="{ animationDelay: `${node.id * 0.35}s` }"
-      />
+      >
+        <circle
+          class="node-shell"
+          :cx="node.x"
+          :cy="node.y"
+          :r="node.r"
+        />
+        <circle
+          class="node-fill"
+          :cx="node.x"
+          :cy="node.y"
+          :r="node.r"
+          :style="{ animationDelay: node.fillDelay }"
+        />
+      </template>
     </g>
 
-    <!-- Central orchestrator hub with an expanding "active" ping. -->
+    <!-- Central orchestrator hub with an expanding "active" ping. Shares the
+         fill cycle as phase 0, anchoring the wave that travels out to the ring. -->
     <circle
       class="hub-ping"
       :cx="center.x"
@@ -241,7 +245,13 @@ onBeforeUnmount(() => {
       r="24"
     />
     <circle
-      class="hub"
+      class="hub-shell"
+      :cx="center.x"
+      :cy="center.y"
+      r="15"
+    />
+    <circle
+      class="hub-fill"
       :cx="center.x"
       :cy="center.y"
       r="15"
@@ -262,9 +272,9 @@ onBeforeUnmount(() => {
 /* SVG transforms must originate from each element's own box centre, not the
    shared viewport origin. */
 .orbit,
-.node,
+.node-fill,
 .hub-ping,
-.hub {
+.hub-fill {
   transform-box: fill-box;
   transform-origin: center;
 }
@@ -272,9 +282,9 @@ onBeforeUnmount(() => {
 /* Freeze every animation while the figure is scrolled out of view. */
 .constellation.is-paused .orbit,
 .constellation.is-paused .edge-flow,
-.constellation.is-paused .node,
+.constellation.is-paused .node-fill,
 .constellation.is-paused .hub-ping,
-.constellation.is-paused .hub {
+.constellation.is-paused .hub-fill {
   animation-play-state: paused;
 }
 
@@ -326,27 +336,30 @@ onBeforeUnmount(() => {
   }
 }
 
-.node {
+.node-shell,
+.hub-shell {
   fill: var(--color-bg);
   stroke: var(--color-accent);
   stroke-width: 2;
-  animation: ac-breathe 4s ease-in-out infinite;
 }
 
-.node--primary {
+/* The hub holds phase 0 (no inline delay); satellites are offset around it. */
+.node-fill,
+.hub-fill {
   fill: var(--color-accent);
-  stroke: none;
+  animation: ac-fill var(--fill-cycle) ease-in-out infinite;
 }
 
-@keyframes ac-breathe {
+/* The accent core empties (scale 0) at mid-cycle and rests filled (scale 1) at
+   the ends — so reduced-motion, which snaps to the final keyframe, settles on a
+   complete, fully-filled glyph. */
+@keyframes ac-fill {
   0%,
   100% {
     transform: scale(1);
-    opacity: 0.92;
   }
   50% {
-    transform: scale(1.12);
-    opacity: 1;
+    transform: scale(0);
   }
 }
 
@@ -374,20 +387,5 @@ onBeforeUnmount(() => {
   stroke: var(--color-accent);
   stroke-width: 1.5;
   opacity: 0.35;
-}
-
-.hub {
-  fill: var(--color-accent);
-  animation: ac-hub-pulse 2.8s ease-in-out infinite;
-}
-
-@keyframes ac-hub-pulse {
-  0%,
-  100% {
-    transform: scale(1);
-  }
-  50% {
-    transform: scale(1.08);
-  }
 }
 </style>

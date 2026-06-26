@@ -11,15 +11,23 @@ describe('AgentConstellation', () => {
     expect(svg.attributes('role')).toBe('presentation')
   })
 
-  it('draws one node and one flow edge per satellite', async () => {
+  it('draws a shell, a fill core, and one flow edge per satellite', async () => {
     const wrapper = await renderView(AgentConstellation)
-    expect(wrapper.findAll('.node')).toHaveLength(6)
+    expect(wrapper.findAll('.node-shell')).toHaveLength(6)
+    expect(wrapper.findAll('.node-fill')).toHaveLength(6)
     expect(wrapper.findAll('.edge-flow')).toHaveLength(6)
   })
 
-  it('flags primary nodes and alternating inward flow', async () => {
+  it('gives the hub its own shell and fill core for the cycle', async () => {
     const wrapper = await renderView(AgentConstellation)
-    expect(wrapper.findAll('.node--primary')).toHaveLength(2)
+    expect(wrapper.findAll('.hub-shell')).toHaveLength(1)
+    expect(wrapper.findAll('.hub-fill')).toHaveLength(1)
+  })
+
+  it('staggers fill phases across satellites and alternates inward flow', async () => {
+    const wrapper = await renderView(AgentConstellation)
+    const delays = wrapper.findAll('.node-fill').map((c) => c.attributes('style') ?? '')
+    expect(new Set(delays).size).toBe(6)
     expect(wrapper.findAll('.edge-flow--inward')).toHaveLength(3)
   })
 })
