@@ -39,6 +39,30 @@ def _silence_active_key(agent_id: uuid.UUID, room_id: uuid.UUID) -> str:
     return f"wakeup:silence_active:{agent_id}:{room_id}"
 
 
+def _gated_notice_key(agent_id: uuid.UUID, room_id: uuid.UUID) -> str:
+    return f"wakeup:gated_notice:{agent_id}:{room_id}"
+
+
+# ---------------------------------------------------------------------------
+# presence-gated wake-up notice debounce
+# ---------------------------------------------------------------------------
+
+
+async def claim_gated_notice(
+    agent_id: uuid.UUID,
+    room_id: uuid.UUID,
+    cooldown_s: int = 3600,
+) -> bool:
+    """Atomically claim the right to emit one "wake-up was presence-gated"
+    notice for this agent+room. Returns True at most once per ``cooldown_s``
+    window (Redis ``SET NX EX``) so a busy room cannot spam owners on every
+    Nth message. Returns False while the cooldown is still in effect.
+    """
+    r = get_redis()
+    key = _gated_notice_key(agent_id, room_id)
+    return bool(await r.set(key, "1", nx=True, ex=cooldown_s))
+
+
 # ---------------------------------------------------------------------------
 # every_n_messages counter
 # ---------------------------------------------------------------------------

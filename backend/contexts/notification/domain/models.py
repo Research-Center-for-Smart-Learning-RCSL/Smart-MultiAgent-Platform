@@ -15,6 +15,7 @@ class NotificationKind(str, enum.Enum):
     INVITE_RECEIVED = "invite.received"
     APPROVAL_HUMAN_REQUESTED = "approval.human_requested"
     ADMIN_BAN_REASON = "admin.ban_reason"
+    AGENT_WAKEUP_GATED = "agent.wakeup_gated"
 
 
 @dataclass(frozen=True, slots=True)
