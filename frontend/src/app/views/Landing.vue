@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { onMounted } from 'vue'
-import { useRouter } from 'vue-router'
+import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
   Squares2X2Icon,
   ShareIcon,
   ChatBubbleLeftRightIcon,
+  ChatBubbleLeftIcon,
+  ArrowRightIcon,
   ServerStackIcon,
   KeyIcon,
   LockClosedIcon,
@@ -14,12 +15,18 @@ import {
 import { SButton, ThemeToggle } from '@shared/ui'
 import { useDocumentMeta, useRevealOnScroll } from '@shared/composables'
 import { useSessionStore } from '@shared/stores/session'
+import { useWorkspaceStore } from '@shared/stores/workspace'
+import { useRecentChatrooms, type Chatroom } from '@slices/conversation'
 import AgentConstellation from '@app/components/AgentConstellation.vue'
 import BrandLogo from '@app/components/BrandLogo.vue'
 
 const { t } = useI18n()
-const router = useRouter()
 const session = useSessionStore()
+const workspace = useWorkspaceStore()
+
+// `Me` carries no display name, so the greeting falls back to the email
+// local-part — friendlier than the full address on a hero.
+const displayName = computed(() => session.me?.email.split('@')[0] ?? '')
 
 const features = [
   { key: 'compose', icon: Squares2X2Icon },
@@ -36,42 +43,57 @@ const trust = [
 
 const { el: featuresEl, revealed } = useRevealOnScroll()
 
+// Recent chatrooms for the authenticated "jump back in" rail, via the shared
+// composable (one cache entry + one network fan-out shared with the sidebar).
+const { rooms: recentRooms, isLoading: recentLoading } = useRecentChatrooms(
+  () => workspace.projectId,
+  { limit: 4, enabled: () => session.isAuthenticated },
+)
+const lastRoom = computed<Chatroom | null>(() => recentRooms.value[0] ?? null)
+
+// Show the onboarding copy only once the query has settled with no rooms —
+// never while it is still loading, so a returning user is not flashed a
+// misleading "nothing here yet" hero on every visit.
+const recentSettledEmpty = computed(() => !recentLoading.value && !lastRoom.value)
+
 useDocumentMeta({
   title: () => t('app.landing.metaTitle'),
   description: () => t('app.landing.metaDescription'),
 })
-
-onMounted(() => {
-  if (session.isAuthenticated) {
-    router.replace({ path: '/orgs' })
-  }
-})
 </script>
 
 <template>
-  <div
-    v-if="!session.isAuthenticated"
-    class="landing"
-  >
+  <div class="landing">
     <header class="landing__nav">
       <BrandLogo />
       <div class="landing__nav-actions">
         <ThemeToggle />
-        <SButton
-          class="landing__nav-login"
-          variant="ghost"
-          as="router-link"
-          to="/login"
-        >
-          {{ t('app.landing.logIn') }}
-        </SButton>
-        <SButton
-          variant="primary"
-          as="router-link"
-          to="/register"
-        >
-          {{ t('app.landing.getStarted') }}
-        </SButton>
+        <template v-if="session.isAuthenticated">
+          <SButton
+            variant="primary"
+            as="router-link"
+            to="/orgs"
+          >
+            {{ t('app.landing.enterWorkspace') }}
+          </SButton>
+        </template>
+        <template v-else>
+          <SButton
+            class="landing__nav-login"
+            variant="ghost"
+            as="router-link"
+            to="/login"
+          >
+            {{ t('app.landing.logIn') }}
+          </SButton>
+          <SButton
+            variant="primary"
+            as="router-link"
+            to="/register"
+          >
+            {{ t('app.landing.getStarted') }}
+          </SButton>
+        </template>
       </div>
     </header>
 
@@ -82,55 +104,84 @@ onMounted(() => {
           aria-hidden="true"
         />
         <div class="hero__copy">
-          <p class="hero__eyebrow">
-            {{ t('app.landing.eyebrow') }}
-          </p>
-          <h1 class="hero__title">
-            <i18n-t
-              keypath="app.landing.headline"
-              tag="span"
-              scope="global"
-            >
-              <template #highlight>
-                <span class="hero__title-accent">{{ t('app.landing.headlineHighlight') }}</span>
-              </template>
-            </i18n-t>
-          </h1>
-          <p class="hero__subtitle">
-            {{ t('app.landing.subtitle') }}
-          </p>
-          <div class="hero__actions">
-            <SButton
-              variant="primary"
-              size="lg"
-              as="router-link"
-              to="/register"
-            >
-              {{ t('app.landing.getStarted') }}
-            </SButton>
-            <SButton
-              variant="secondary"
-              size="lg"
-              as="router-link"
-              to="/login"
-            >
-              {{ t('app.landing.logIn') }}
-            </SButton>
-          </div>
-          <ul class="trust">
-            <li
-              v-for="item in trust"
-              :key="item.key"
-              class="trust__item"
-            >
-              <component
-                :is="item.icon"
-                class="trust__icon"
-                aria-hidden="true"
-              />
-              {{ t(`app.landing.trust.${item.key}`) }}
-            </li>
-          </ul>
+          <template v-if="session.isAuthenticated">
+            <h1 class="hero__title">
+              {{ t('app.landing.welcomeBack', { name: displayName }) }}
+            </h1>
+            <p class="hero__subtitle">
+              {{ recentSettledEmpty ? t('app.landing.authedSubtitleEmpty') : t('app.landing.authedSubtitle') }}
+            </p>
+            <div class="hero__actions">
+              <SButton
+                v-if="lastRoom"
+                variant="primary"
+                size="lg"
+                as="router-link"
+                :to="`/chatrooms/${lastRoom.id}`"
+              >
+                {{ t('app.landing.openRecentRoom') }}
+              </SButton>
+              <SButton
+                :variant="lastRoom ? 'secondary' : 'primary'"
+                size="lg"
+                as="router-link"
+                to="/orgs"
+              >
+                {{ t('app.landing.enterWorkspace') }}
+              </SButton>
+            </div>
+          </template>
+          <template v-else>
+            <p class="hero__eyebrow">
+              {{ t('app.landing.eyebrow') }}
+            </p>
+            <h1 class="hero__title">
+              <i18n-t
+                keypath="app.landing.headline"
+                tag="span"
+                scope="global"
+              >
+                <template #highlight>
+                  <span class="hero__title-accent">{{ t('app.landing.headlineHighlight') }}</span>
+                </template>
+              </i18n-t>
+            </h1>
+            <p class="hero__subtitle">
+              {{ t('app.landing.subtitle') }}
+            </p>
+            <div class="hero__actions">
+              <SButton
+                variant="primary"
+                size="lg"
+                as="router-link"
+                to="/register"
+              >
+                {{ t('app.landing.getStarted') }}
+              </SButton>
+              <SButton
+                variant="secondary"
+                size="lg"
+                as="router-link"
+                to="/login"
+              >
+                {{ t('app.landing.logIn') }}
+              </SButton>
+            </div>
+            <ul class="trust">
+              <li
+                v-for="item in trust"
+                :key="item.key"
+                class="trust__item"
+              >
+                <component
+                  :is="item.icon"
+                  class="trust__icon"
+                  aria-hidden="true"
+                />
+                {{ t(`app.landing.trust.${item.key}`) }}
+              </li>
+            </ul>
+          </template>
         </div>
         <div class="hero__visual">
           <AgentConstellation />
@@ -138,6 +189,34 @@ onMounted(() => {
       </section>
 
       <section
+        v-if="session.isAuthenticated && recentRooms.length"
+        class="recent"
+        :aria-label="t('app.landing.recentTitle')"
+      >
+        <h2 class="recent__title">
+          {{ t('app.landing.recentTitle') }}
+        </h2>
+        <div class="recent__grid">
+          <RouterLink
+            v-for="room in recentRooms"
+            :key="room.id"
+            class="recent__card"
+            :to="`/chatrooms/${room.id}`"
+          >
+            <span class="recent__icon">
+              <ChatBubbleLeftIcon aria-hidden="true" />
+            </span>
+            <span class="recent__name">{{ room.name }}</span>
+            <ArrowRightIcon
+              class="recent__arrow"
+              aria-hidden="true"
+            />
+          </RouterLink>
+        </div>
+      </section>
+
+      <section
+        v-else-if="!session.isAuthenticated"
         ref="featuresEl"
         class="features"
         :class="{ 'features--in': revealed }"
@@ -388,6 +467,84 @@ onMounted(() => {
   margin: 0;
 }
 
+/* -- Recent chatrooms (authenticated) -- */
+.recent {
+  padding: 8px 0 72px;
+}
+
+.recent__title {
+  font-size: 1.0625rem;
+  font-weight: 600;
+  color: var(--color-fg);
+  margin: 0 0 16px;
+}
+
+.recent__grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 16px;
+}
+
+.recent__card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-xl);
+  background: var(--color-surface);
+  padding: 16px 18px;
+  text-decoration: none;
+  color: var(--color-fg);
+  transition:
+    border-color var(--transition-normal),
+    box-shadow var(--transition-normal),
+    transform var(--transition-normal);
+}
+
+.recent__card:hover {
+  border-color: var(--color-accent);
+  box-shadow: var(--shadow-md);
+  transform: translateY(-2px);
+}
+
+.recent__card:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.recent__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
+  border-radius: var(--radius-lg);
+  background: var(--color-info-tint);
+  color: var(--color-info-on);
+}
+
+.recent__icon :deep(svg) {
+  width: 20px;
+  height: 20px;
+}
+
+.recent__name {
+  flex: 1;
+  min-width: 0;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.recent__arrow {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  color: var(--color-muted);
+}
+
 /* -- Footer -- */
 .landing__footer {
   display: flex;
@@ -478,7 +635,8 @@ onMounted(() => {
 }
 
 @media (max-width: 768px) {
-  .features {
+  .features,
+  .recent__grid {
     grid-template-columns: 1fr;
   }
 }
