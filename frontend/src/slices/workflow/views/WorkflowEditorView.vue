@@ -238,6 +238,7 @@
 
 <script setup lang="ts">
 import { VueFlow } from '@vue-flow/core'
+import type { NodeChange, EdgeChange } from '@vue-flow/core'
 import { Background } from '@vue-flow/background'
 import { Controls } from '@vue-flow/controls'
 import { useMutation, useQueryClient } from '@tanstack/vue-query'
@@ -322,15 +323,14 @@ const { scheduleLint } = useWorkflowLint(
   flowToDef,
 )
 
-// Wire up change handlers to also trigger lint
-function onNodesChange(): void {
-  onNodesChangeBase()
-  scheduleLint()
+// Wire up change handlers to also trigger lint (only when something real
+// changed — VueFlow also emits dimensions/select changes that are not edits).
+function onNodesChange(changes: NodeChange[]): void {
+  if (onNodesChangeBase(changes)) scheduleLint()
 }
 
-function onEdgesChange(): void {
-  onEdgesChangeBase()
-  scheduleLint()
+function onEdgesChange(changes: EdgeChange[]): void {
+  if (onEdgesChangeBase(changes)) scheduleLint()
 }
 
 function onConfigUpdate(config: Record<string, unknown>): void {

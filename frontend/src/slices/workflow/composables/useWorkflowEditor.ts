@@ -6,6 +6,8 @@ import type {
   Edge as FlowEdge,
   GraphNode,
   Connection,
+  NodeChange,
+  EdgeChange,
 } from '@vue-flow/core'
 import { computed, ref } from 'vue'
 
@@ -73,6 +75,10 @@ export function useWorkflowEditor() {
       sourceHandle: e.from_port ?? 'default',
       label: e.from_port && e.from_port !== 'default' ? e.from_port : undefined,
       animated: false,
+      // Carry the guard through the graph so a save round-trip preserves it.
+      // The editor has no guard UI yet, but API/backend-authored guards must
+      // survive an edit-and-save instead of being silently dropped.
+      data: e.guard != null ? { guard: e.guard } : undefined,
     }))
   }
 
@@ -84,12 +90,16 @@ export function useWorkflowEditor() {
       config: fn.data.config ?? {},
       position: fn.position,
     }))
-    const edges = flowEdges.value.map((fe: FlowEdge) => ({
-      id: fe.id,
-      from: fe.source,
-      to: fe.target,
-      from_port: fe.sourceHandle ?? 'default',
-    }))
+    const edges = flowEdges.value.map((fe: FlowEdge) => {
+      const guard = (fe.data as { guard?: string | null } | undefined)?.guard
+      return {
+        id: fe.id,
+        from: fe.source,
+        to: fe.target,
+        from_port: fe.sourceHandle ?? 'default',
+        ...(guard != null ? { guard } : {}),
+      }
+    })
     return {
       ...definition.value,
       nodes,
@@ -251,12 +261,23 @@ export function useWorkflowEditor() {
 
   // ---------- change handlers (to be called by the view + lint) ------------
 
-  function onNodesChange(): void {
-    store.markDirty()
+  // VueFlow emits `dimensions` (on mount/measure) and `select` (on click)
+  // changes that are not edits — marking dirty on those falsely flags unsaved
+  // changes right after load and on mere selection. Only real mutations count.
+  // Returns whether a meaningful change occurred so the caller can also gate
+  // its lint pass.
+  function onNodesChange(changes: NodeChange[]): boolean {
+    const meaningful = changes.some(
+      (c) => c.type === 'position' || c.type === 'add' || c.type === 'remove',
+    )
+    if (meaningful) store.markDirty()
+    return meaningful
   }
 
-  function onEdgesChange(): void {
-    store.markDirty()
+  function onEdgesChange(changes: EdgeChange[]): boolean {
+    const meaningful = changes.some((c) => c.type === 'add' || c.type === 'remove')
+    if (meaningful) store.markDirty()
+    return meaningful
   }
 
   // ---------- undo / redo --------------------------------------------------
