@@ -34,6 +34,13 @@ WORKDIR /opt/driver
 COPY driver/ /opt/driver/
 ENV PYTHONPATH=/opt/driver
 
+# Persistent kernel for the Code-Interpreter session path: when the host starts
+# this image with command=["python","/opt/kernel/kernel.py"] it serves a live
+# namespace over a /tmp AF_UNIX socket, driven per-call by client.py via
+# `docker exec` (see docker_runsc.py kernel registry). The default `python -c`
+# path is unaffected — these files are inert unless the kernel command is used.
+COPY code-exec/kernel/ /opt/kernel/
+
 # Non-root (uid matches docker_runsc._SANDBOX_UID); read-only-rootfs compatible
 # — writes land in /workspace (tmpfs) or /tmp only.
 RUN useradd --uid 10001 --create-home --shell /usr/sbin/nologin sandbox \
