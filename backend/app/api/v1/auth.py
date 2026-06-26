@@ -18,7 +18,7 @@ from app.api.v1.deps import PaginationParams
 from app.config.settings import get_settings
 from contexts.identity.application.auth_service import AuthService, TokenPair
 from contexts.identity.application.factory import create_auth_service
-from contexts.identity.interfaces.facade import IdentityFacade
+from contexts.identity.interfaces.facade import IdentityFacade, UserProfile
 from shared_kernel.auth import captcha, ratelimit, tokens
 from shared_kernel.auth.context import RequestContext
 from shared_kernel.auth.dependencies import (
@@ -174,9 +174,21 @@ class UserOut(BaseModel):
 
 
 class UpdateProfileIn(BaseModel):
-    # Optional, non-unique label. ``None`` (or blank) clears it. Server-side
+    # Optional, non-unique label. Explicit ``null`` (or blank) clears it; omitting
+    # the key leaves it unchanged (true PATCH — see ``update_me``). Server-side
     # normalisation strips control chars and re-trims; this is the outer bound.
     display_name: str | None = Field(default=None, max_length=50)
+
+
+def _user_out(profile: UserProfile) -> UserOut:
+    return UserOut(
+        id=profile.id,
+        email=profile.email,
+        email_verified=profile.email_verified,
+        status=profile.status.value,
+        is_admin=profile.is_admin,
+        display_name=profile.display_name,
+    )
 
 
 class SessionOut(BaseModel):
@@ -428,18 +440,10 @@ async def me(
     principal: Principal = Depends(current_principal),
     db: AsyncSession = Depends(db_session),
 ) -> UserOut:
-    facade = IdentityFacade(db)
-    profile = await facade.get_profile(principal.user_id)
+    profile = await IdentityFacade(db).get_profile(principal.user_id)
     if profile is None:
         raise HTTPException(status_code=500, detail="User profile not found for authenticated token")
-    return UserOut(
-        id=profile.id,
-        email=profile.email,
-        email_verified=profile.email_verified,
-        status=profile.status.value,
-        is_admin=profile.is_admin,
-        display_name=profile.display_name,
-    )
+    return _user_out(profile)
 
 
 @router.patch("/me")
@@ -449,25 +453,19 @@ async def update_me(
     principal: Principal = Depends(current_principal),
     db: AsyncSession = Depends(db_session),
 ) -> UserOut:
-    service = _service(db)
-    await service.update_display_name(
-        user_id=principal.user_id,
-        display_name=body.display_name,
-        remote_ip=ctx.actor_ip,
-        request_id=ctx.request_id,
-    )
-    facade = IdentityFacade(db)
-    profile = await facade.get_profile(principal.user_id)
+    # True PATCH: only touch display_name when the caller actually sent the key,
+    # so an omitted field leaves it unchanged while an explicit null clears it.
+    if "display_name" in body.model_fields_set:
+        await _service(db).update_display_name(
+            user_id=principal.user_id,
+            display_name=body.display_name,
+            remote_ip=ctx.actor_ip,
+            request_id=ctx.request_id,
+        )
+    profile = await IdentityFacade(db).get_profile(principal.user_id)
     if profile is None:
         raise HTTPException(status_code=500, detail="User profile not found for authenticated token")
-    return UserOut(
-        id=profile.id,
-        email=profile.email,
-        email_verified=profile.email_verified,
-        status=profile.status.value,
-        is_admin=profile.is_admin,
-        display_name=profile.display_name,
-    )
+    return _user_out(profile)
 
 
 @router.get("/sessions")
