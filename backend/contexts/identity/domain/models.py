@@ -33,6 +33,9 @@ class User:
     last_login_at: datetime | None
     version: int
     created_at: datetime
+    # Optional, non-unique label. Defaulted so existing positional constructions
+    # (and the email-only auth flows) keep working; email stays the identity key.
+    display_name: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

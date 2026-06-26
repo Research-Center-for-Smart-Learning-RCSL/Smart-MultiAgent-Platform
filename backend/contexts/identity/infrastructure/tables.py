@@ -21,6 +21,7 @@ users = sa.Table(
     metadata,
     sa.Column("id", pg.UUID(as_uuid=True), primary_key=True, server_default=sa.text("gen_random_uuid()")),
     sa.Column("email", sa.Text, nullable=False),
+    sa.Column("display_name", sa.String(50), nullable=True),
     sa.Column("password_hash", sa.Text, nullable=False),
     sa.Column("email_verified", sa.Boolean, nullable=False, server_default=sa.text("false")),
     sa.Column("status", sa.Text, nullable=False, server_default=sa.text("'pending'")),

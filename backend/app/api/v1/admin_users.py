@@ -31,6 +31,7 @@ router = APIRouter(tags=["admin"])
 class UserSummaryOut(BaseModel):
     id: uuid.UUID
     email: str
+    display_name: str | None
     status: str
     email_verified: bool
     created_at: str
@@ -39,6 +40,7 @@ class UserSummaryOut(BaseModel):
 class UserDetailOut(BaseModel):
     id: uuid.UUID
     email: str
+    display_name: str | None
     status: str
     email_verified: bool
     is_admin: bool
@@ -85,6 +87,7 @@ async def list_users(
         UserSummaryOut(
             id=u.id,
             email=u.email,
+            display_name=u.display_name,
             status=u.status.value,
             email_verified=u.email_verified,
             created_at=u.created_at.isoformat(),
@@ -107,6 +110,7 @@ async def get_user(
     return UserDetailOut(
         id=u.id,
         email=u.email,
+        display_name=u.display_name,
         status=u.status.value,
         email_verified=u.email_verified,
         is_admin=detail.is_admin,

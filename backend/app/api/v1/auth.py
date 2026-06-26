@@ -170,6 +170,13 @@ class UserOut(BaseModel):
     email_verified: bool
     status: str
     is_admin: bool
+    display_name: str | None = None
+
+
+class UpdateProfileIn(BaseModel):
+    # Optional, non-unique label. ``None`` (or blank) clears it. Server-side
+    # normalisation strips control chars and re-trims; this is the outer bound.
+    display_name: str | None = Field(default=None, max_length=50)
 
 
 class SessionOut(BaseModel):
@@ -431,6 +438,35 @@ async def me(
         email_verified=profile.email_verified,
         status=profile.status.value,
         is_admin=profile.is_admin,
+        display_name=profile.display_name,
+    )
+
+
+@router.patch("/me")
+async def update_me(
+    body: UpdateProfileIn,
+    ctx: RequestContext = Depends(current_context),
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(db_session),
+) -> UserOut:
+    service = _service(db)
+    await service.update_display_name(
+        user_id=principal.user_id,
+        display_name=body.display_name,
+        remote_ip=ctx.actor_ip,
+        request_id=ctx.request_id,
+    )
+    facade = IdentityFacade(db)
+    profile = await facade.get_profile(principal.user_id)
+    if profile is None:
+        raise HTTPException(status_code=500, detail="User profile not found for authenticated token")
+    return UserOut(
+        id=profile.id,
+        email=profile.email,
+        email_verified=profile.email_verified,
+        status=profile.status.value,
+        is_admin=profile.is_admin,
+        display_name=profile.display_name,
     )
 
 

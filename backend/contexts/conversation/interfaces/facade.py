@@ -14,7 +14,13 @@ from datetime import timedelta
 import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from contexts.conversation.domain.models import Chatroom, Message, SenderType, Workspace
+from contexts.conversation.domain.models import (
+    Chatroom,
+    ChatroomGuest,
+    Message,
+    SenderType,
+    Workspace,
+)
 from contexts.conversation.infrastructure.repositories import (
     ChatroomGuestRepository,
     ChatroomRepository,
@@ -70,6 +76,13 @@ class ConversationFacade:
             chatroom_id=chatroom_id,
             user_id=user_id,
         )
+
+    async def list_guests(self, chatroom_id: uuid.UUID) -> Sequence[ChatroomGuest]:
+        return await self._guests.list(chatroom_id)
+
+    async def distinct_user_sender_ids(self, chatroom_id: uuid.UUID) -> set[uuid.UUID]:
+        """Human author ids present in the room's live message history."""
+        return await self._messages.distinct_user_sender_ids(chatroom_id)
 
     async def get_message(self, message_id: uuid.UUID) -> Message | None:
         return await self._messages.get(message_id)
