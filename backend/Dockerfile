@@ -13,7 +13,9 @@ RUN apt-get update \
 
 WORKDIR /build
 
-COPY requirements.lock ./
+# Build context is the repo root (see compose backend-web build.context) so
+# backend files are addressed under backend/.
+COPY backend/requirements.lock ./
 RUN pip install --prefix=/install -r requirements.lock
 
 # ---------- Base — runtime libs only (no compilers) ----------
@@ -35,18 +37,24 @@ RUN apt-get update \
 
 WORKDIR /app
 
+# The workflow linter loads this normative schema at runtime via an absolute
+# path (parents[4]/docs/workflow.schema.json → /docs/... in the image). It lives
+# at the repo root, outside backend/, so ship it here. In base so dev + runtime
+# both have it; without it every workflow create/validate/dry-run 500s.
+COPY docs/workflow.schema.json /docs/workflow.schema.json
+
 # ---------- Dev — adds `[dev]` extras for tests/linters/type-check ----------
 # Build with `--target dev`; bind-mount source for HMR-style iteration.
 FROM base AS dev
 
-COPY pyproject.toml ./
+COPY backend/pyproject.toml ./
 RUN apt-get update \
  && apt-get install -y --no-install-recommends build-essential libpq-dev \
  && pip install -e '.[dev]' \
  && apt-get purge -y --auto-remove build-essential libpq-dev \
  && rm -rf /var/lib/apt/lists/*
 
-COPY . .
+COPY backend/ ./
 
 RUN addgroup --system --gid 1001 appgroup \
  && adduser --system --uid 1001 --gid 1001 --no-create-home appuser \
@@ -63,7 +71,7 @@ FROM base AS runtime
 # Copy pre-built packages from builder stage (no build-essential in runtime).
 COPY --from=builder /install /usr/local
 
-COPY . .
+COPY backend/ ./
 
 RUN addgroup --system --gid 1001 appgroup \
  && adduser --system --uid 1001 --gid 1001 --no-create-home appuser \

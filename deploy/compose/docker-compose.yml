@@ -101,8 +101,11 @@ services:
   # ---------- Backend web ----------
   backend-web:
     build:
-      context: ../../backend
-      dockerfile: Dockerfile
+      # Repo-root context so the image can COPY docs/workflow.schema.json (the
+      # workflow linter loads it at runtime). A dedicated backend/Dockerfile.dockerignore
+      # keeps this context lean and leaves the root .dockerignore for the frontend.
+      context: ../..
+      dockerfile: backend/Dockerfile
     # container_name intentionally absent: prod overlay sets replicas > 1, which
     # is incompatible with a fixed name. Dev override re-adds it for convenience.
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000
@@ -132,8 +135,9 @@ services:
   # ---------- Backend worker (Arq) ----------
   backend-worker:
     build:
-      context: ../../backend
-      dockerfile: Dockerfile
+      # See backend-web: repo-root context so docs/workflow.schema.json ships.
+      context: ../..
+      dockerfile: backend/Dockerfile
     # container_name absent for the same reason as backend-web (replicas > 1).
     command: arq app.workers.main.WorkerSettings
     env_file:
