@@ -141,7 +141,7 @@
 
 <script setup lang="ts">
 import { useQuery } from '@tanstack/vue-query'
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 import { SPageHeader, STATUS_BG_MAP } from '@shared/ui'
@@ -173,9 +173,12 @@ watch(
   { immediate: true },
 )
 
+// All backstage reads are gated on authorization so an unauthorized visitor
+// (redirected by the watch above) never fires backend calls that just 403.
 const runsQuery = useQuery({
   queryKey: wfKeys.runs(workflowId),
   queryFn: () => listRuns(workflowId, { limit: 100, includeArchive: true }),
+  enabled: computed(() => isAuthorized.value),
 })
 
 const runs = computed(() => runsQuery.data.value ?? [])
@@ -183,7 +186,7 @@ const runs = computed(() => runsQuery.data.value ?? [])
 const stepsQuery = useQuery({
   queryKey: computed(() => wfKeys.steps(selectedRunId.value)),
   queryFn: () => listSteps(selectedRunId.value),
-  enabled: computed(() => !!selectedRunId.value),
+  enabled: computed(() => isAuthorized.value && !!selectedRunId.value),
 })
 
 // The list endpoint returns approvals without their votes; fetch each one in
@@ -199,7 +202,7 @@ const approvalsQuery = useQuery({
       .filter((r): r is PromiseFulfilledResult<ApprovalWithVotes> => r.status === 'fulfilled')
       .map((r) => r.value)
   },
-  enabled: computed(() => !!selectedRunId.value),
+  enabled: computed(() => isAuthorized.value && !!selectedRunId.value),
 })
 
 const stepsList = computed(() => stepsQuery.data.value ?? [])
@@ -257,7 +260,15 @@ async function loadAgentNames(): Promise<void> {
     // Non-fatal.
   }
 }
-onMounted(loadAgentNames)
+// Only load once authorized (immediate covers the admin case, where
+// isAuthorized is true synchronously).
+watch(
+  isAuthorized,
+  (ok) => {
+    if (ok) void loadAgentNames()
+  },
+  { immediate: true },
+)
 
 function stepBorderClass(state: string): string {
   switch (state) {

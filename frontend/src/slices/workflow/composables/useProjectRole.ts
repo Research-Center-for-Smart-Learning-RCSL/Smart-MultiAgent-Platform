@@ -43,6 +43,9 @@ export function useProjectRole(workspaceId: string) {
   const decided = computed(() => {
     if (isAdmin.value) return true
     if (workspaceQuery.isError.value) return true
+    // Workspace resolved but carried no project_id: members can't be fetched,
+    // so conclude (deny) rather than hang forever waiting on a disabled query.
+    if (workspaceQuery.isSuccess.value && !projectId.value) return true
     return membersQuery.isSuccess.value || membersQuery.isError.value
   })
 
