@@ -144,7 +144,7 @@ const breadcrumbs = computed(() => [
               <template #icon-left>
                 <PencilIcon class="w-4 h-4" />
               </template>
-              {{ t('app.save') }}
+              {{ t('app.rename') }}
             </SButton>
 
             <SButton
