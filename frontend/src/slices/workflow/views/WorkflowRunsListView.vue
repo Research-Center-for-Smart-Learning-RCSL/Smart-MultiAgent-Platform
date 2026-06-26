@@ -9,6 +9,13 @@
           &larr; {{ $t('workflow.runs.backToList') }}
         </router-link>
       </template>
+      <router-link
+        v-if="isAuthorized"
+        :to="{ name: 'workflow.backstage', params: { workspaceId, workflowId } }"
+        class="btn btn-sm"
+      >
+        {{ $t('workflow.runs.backstage') }}
+      </router-link>
       <button
         class="btn btn-primary btn-sm"
         @click="onTrigger"
@@ -130,13 +137,18 @@ import {
 } from '@shared/ui'
 import { listRuns, triggerRun } from '../api'
 import { wfKeys } from '../queries'
+import { useProjectRole } from '../composables/useProjectRole'
 
 const { t } = useI18n()
 const route = useRoute()
 const toast = useToast()
 const qc = useQueryClient()
 const workflowId = route.params.workflowId as string
+const workspaceId = route.params.workspaceId as string
 const showArchive = ref(false)
+
+// Backstage is admin/owner-only; only surface the link to those who can enter.
+const { isAuthorized } = useProjectRole(workspaceId)
 
 const query = useQuery({
   queryKey: computed(() => [...wfKeys.runs(workflowId), showArchive.value] as const),

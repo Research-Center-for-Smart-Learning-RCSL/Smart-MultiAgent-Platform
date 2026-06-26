@@ -63,6 +63,7 @@
       "title": "Workflow Runs",
       "backToList": "Workflows",
       "triggerManual": "Trigger Run",
+      "backstage": "Backstage",
       "includeArchive": "Include archived",
       "state": "State",
       "trigger": "Trigger",
