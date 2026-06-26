@@ -506,6 +506,14 @@ function onExportSubmit(opts: ExportOptions): void {
   transform: translateY(-4px);
 }
 
+/* On send success the optimistic placeholder (a `pending-<uuid>` vnode key) is
+   replaced by its persisted twin (the real id) at the same position — a key
+   swap Vue animates as leave+enter. Drop the placeholder's leave transition so
+   that swap reads as a single clean settle, not a cross-fade flash. */
+.bubble-row--pending.msg-leave-active {
+  transition: none;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .msg-enter-active,
   .msg-leave-active {

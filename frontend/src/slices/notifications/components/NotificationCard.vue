@@ -3,15 +3,14 @@ import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { SButton } from '@shared/ui'
 import { useNow } from '@shared/composables'
-import { formatDateTime } from '@shared/utils/datetime'
+import { formatDateTime, formatRelativeTime } from '@shared/utils/datetime'
 import type { Notification } from '../api'
 import { kindConfig } from '../lib/kindConfig'
-import { relativeTime, type RelativeTime } from '../lib/relativeTime'
 
 const props = defineProps<{ notification: Notification }>()
 const emit = defineEmits<{ markRead: [id: string] }>()
 
-const { t } = useI18n()
+const { t, locale } = useI18n()
 
 const cfg = computed(() => kindConfig(props.notification.kind))
 const isUnread = computed(() => !props.notification.read_at)
@@ -19,27 +18,12 @@ const action = computed(() => cfg.value.action?.(props.notification) ?? null)
 const kindLabel = computed(() => t(cfg.value.labelKey))
 const absolute = computed(() => formatDateTime(props.notification.created_at))
 
-function relLabel(r: RelativeTime): string {
-  switch (r.unit) {
-    case 'justNow':
-      return t('notifications.justNow')
-    case 'minutes':
-      return t('notifications.minutesAgo', { n: r.n })
-    case 'hours':
-      return t('notifications.hoursAgo', { n: r.n })
-    case 'yesterday':
-      return t('notifications.yesterday')
-    case 'days':
-      return t('notifications.daysAgo', { n: r.n })
-    case 'date':
-      return r.value
-  }
-}
 // `now` ticks every 60s so relative labels advance instead of freezing at the
-// value captured on first render.
+// value captured on first render. Shares the app-wide Intl-based formatter so
+// notifications and the rest of the UI read timestamps identically.
 const now = useNow()
 const relText = computed(() =>
-  relLabel(relativeTime(props.notification.created_at, new Date(now.value))),
+  formatRelativeTime(props.notification.created_at, now.value, locale.value),
 )
 
 // Screen readers get the unread/read status plus the full text in one label so

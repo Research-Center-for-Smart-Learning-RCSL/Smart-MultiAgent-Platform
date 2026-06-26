@@ -65,7 +65,13 @@ export function useChatroomSocket(roomId: string) {
   let replayGeneration = 0
 
   async function replayDelta(): Promise<void> {
-    if (!lastSeenMessageId.value) return
+    if (!lastSeenMessageId.value) {
+      // No cursor yet (empty or never-synced room): there is no delta to fetch,
+      // so refetch the latest page instead. Without this a degraded-mode poll
+      // would silently no-op for a room that never managed an initial sync.
+      await qc.invalidateQueries({ queryKey: ['conversation', 'messages', roomId] })
+      return
+    }
     const generation = ++replayGeneration
     try {
       const delta = await listMessages(roomId, { since: lastSeenMessageId.value })

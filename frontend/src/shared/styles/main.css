@@ -71,6 +71,9 @@
   --z-sidebar: 100;
   --z-topbar: 200;
   --z-dropdown: 300;
+  /* System connection banner: above chrome, below modals so it never overlaps
+     an open dialog's content. */
+  --z-banner: 350;
   --z-modal: 400;
   --z-toast: 500;
   --z-tooltip: 600;

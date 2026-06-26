@@ -1,5 +1,9 @@
 import { readonly, ref, type DeepReadonly, type Ref } from 'vue'
-import { http } from '@shared/transport'
+// Import the axios instance directly (not via the '@shared/transport' barrel)
+// to keep this module's cycle with the transport layer as narrow as possible —
+// axios.ts depends on markConnection*, and a barrel import would also drag
+// ws-manager/tus into that cycle.
+import { http } from '@shared/transport/axios'
 import { queryClient } from '@shared/query-client'
 
 // Global connection-status singleton (§12 Shared Patterns §4.4).
@@ -18,7 +22,6 @@ const INITIAL_BACKOFF_MS = 1_000
 const MAX_BACKOFF_MS = 30_000
 
 const online = ref(true)
-const reconnecting = ref(false)
 
 let backoff = INITIAL_BACKOFF_MS
 let probeTimer: ReturnType<typeof setTimeout> | undefined
@@ -43,7 +46,6 @@ async function probe(): Promise<void> {
   // A real request may have already cleared the offline state; nothing to do.
   if (online.value || probeInFlight) return
   probeInFlight = true
-  reconnecting.value = true
   try {
     // `/healthz` is the root-mounted liveness endpoint (no `/api` prefix), so
     // override the instance baseURL. It still rides the shared interceptors —
@@ -67,7 +69,6 @@ async function probe(): Promise<void> {
 export function markConnectionLost(): void {
   if (!online.value) return
   online.value = false
-  reconnecting.value = true
   backoff = INITIAL_BACKOFF_MS
   scheduleProbe(backoff)
 }
@@ -77,7 +78,6 @@ export function markConnectionLost(): void {
 export function markConnectionRestored(): void {
   const wasOffline = !online.value
   online.value = true
-  reconnecting.value = false
   backoff = INITIAL_BACKOFF_MS
   clearProbeTimer()
   if (wasOffline) {
@@ -103,14 +103,12 @@ if (typeof window !== 'undefined') {
 
 export interface NetworkStatus {
   online: DeepReadonly<Ref<boolean>>
-  reconnecting: DeepReadonly<Ref<boolean>>
   retryNow: () => void
 }
 
 export function useNetworkStatus(): NetworkStatus {
   return {
     online: readonly(online),
-    reconnecting: readonly(reconnecting),
     retryNow,
   }
 }

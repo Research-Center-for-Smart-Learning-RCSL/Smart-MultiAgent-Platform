@@ -126,6 +126,11 @@ http.interceptors.response.use(
     // Network error (no response at all): the server was unreachable. Flip the
     // global offline banner; its probe loop drives recovery.
     if (!error.response) {
+      // A deliberately canceled/aborted request (e.g. an aborted query) is not
+      // a connectivity failure — don't misread it as the connection dropping.
+      if (axios.isCancel(error)) {
+        throw error
+      }
       markConnectionLost()
       throw new NetworkError(error.message || 'Network request failed')
     }
