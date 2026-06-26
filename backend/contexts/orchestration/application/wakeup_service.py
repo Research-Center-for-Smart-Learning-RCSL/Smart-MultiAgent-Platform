@@ -99,11 +99,63 @@ class WakeupService:
                     if not cfg.allow_self_open:
                         members = await self._presence.list_room(room_id)
                         if not members:
+                            # The trigger fired but the agent may not open an
+                            # empty room on its own — otherwise this silence is a
+                            # mystery to the owner. Heads-up, debounced per room.
+                            await self._notify_wakeup_gated(agent, room_id)
                             continue
                     WAKEUP_FIRES.labels(kind="every_n_messages").inc()
                     wake_list.append(agent_id)
 
         return wake_list
+
+    async def _notify_wakeup_gated(self, agent: Agent, room_id: uuid.UUID) -> None:
+        """Tell the project's owners that ``agent``'s ``every_n_messages`` wake-up
+        was suppressed because nobody was present and ``allow_self_open`` is off.
+
+        Debounced to at most once an hour per (agent, room) so an active room
+        cannot spam the bell. The caller's message is already durably committed
+        (the wake-up dispatch is post-commit), so we persist + publish our own
+        notification rows here rather than leaving them to a trailing commit a
+        best-effort rollback might discard.
+        """
+        if not await wakeup_state.claim_gated_notice(agent.id, room_id):
+            return
+        # Function-local imports keep the orchestration→notification/tenancy edges
+        # out of module import (mirrors the deferred-import convention in
+        # conversation.application.triggers).
+        from contexts.notification.interfaces.facade import (
+            NotificationFacade,
+            NotificationKind,
+        )
+        from contexts.tenancy.domain.models import ProjectMemberRole
+        from contexts.tenancy.interfaces.facade import TenancyFacade
+
+        members = await TenancyFacade(self._db).project_members(agent.project_id)
+        owners = [m.user_id for m in members if m.role is ProjectMemberRole.OWNER]
+        if not owners:
+            return
+
+        notif = NotificationFacade(self._db)
+        body = (
+            f"{agent.name} reached its message trigger but did not open the room: "
+            "no one was present and it is not allowed to open the room on its own. "
+            "Enable self-open in the agent's wake-up settings to let it reply while you are away."
+        )
+        for uid in owners:
+            await notif.send(
+                user_id=uid,
+                kind=NotificationKind.AGENT_WAKEUP_GATED,
+                title="An agent stayed quiet while you were away",
+                body=body,
+                metadata={
+                    "agent_id": str(agent.id),
+                    "room_id": str(room_id),
+                    "reason": "presence_gated",
+                    "trigger": "every_n_messages",
+                },
+            )
+        await self._db.commit()
 
     # ------------------------------------------------------------------
     # Silence timer evaluation (called periodically per agent+room)

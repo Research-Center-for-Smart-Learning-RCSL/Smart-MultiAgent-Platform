@@ -408,6 +408,33 @@ class TurnEngine:
                 exc_info=True,
             )
 
+    async def _emit_skip_notice(self, chatroom_id: uuid.UUID, agent_id: uuid.UUID, reason: str) -> None:
+        """Best-effort 'why no reply' WS notice for a skipped turn.
+
+        Lets a present user learn why an agent went quiet instead of guessing.
+        These skip points sit *before* the main turn try-block, so a Redis
+        hiccup here must not escalate a benign skip into a failed turn —
+        swallow and log. Only actionable/explicit-call reasons reach here;
+        benign skips (no_input, empty_reply, locked) stay silent by design.
+
+        Emitted under the ``error`` key, not ``reason``: the client surfaces
+        ``agent.finished.error`` to the user but treats ``reason`` as a benign
+        silent skip (e.g. empty_reply), so a notice keyed on ``reason`` would
+        never be shown.
+        """
+        try:
+            await Publisher(room_channel(chatroom_id)).emit(
+                "agent.finished", {"error": reason, "agent_id": str(agent_id)}
+            )
+        except Exception:
+            _log.warning(
+                "skip-notice emit failed agent=%s room=%s reason=%s",
+                agent_id,
+                chatroom_id,
+                reason,
+                exc_info=True,
+            )
+
     async def _run_locked(
         self,
         *,
@@ -420,6 +447,10 @@ class TurnEngine:
     ) -> TurnResult:
         agent = await AgentsFacade(self._db).get_agent(agent_id)
         if agent is None:
+            # An explicit @mention to a now-deleted agent deserves feedback;
+            # autonomous triggers (every_n/silence) stay silent.
+            if trigger == "mention":
+                await self._emit_skip_notice(chatroom_id, agent_id, "agent_gone")
             return TurnResult(status="skipped", reason="agent_gone")
         # AuthZ tap: re-validate the agent↔room binding at turn start (defends
         # against an unbind racing the trigger).
@@ -427,6 +458,8 @@ class TurnEngine:
             chatroom_id=chatroom_id, agent_id=agent_id
         )
         if not bound:
+            if trigger == "mention":
+                await self._emit_skip_notice(chatroom_id, agent_id, "not_bound")
             return TurnResult(status="skipped", reason="not_bound")
         # AuthZ tap: the agent's key group must still belong to the agent's
         # project (defends against a key-group move/delete racing the trigger).
@@ -439,6 +472,9 @@ class TurnEngine:
                 {"reason": "key_group_scope", "key_group_id": str(agent.key_group_id)},
             )
             await self._db.commit()
+            # Actionable for any trigger: a present user otherwise sees the agent
+            # fall silent with no hint the key group was moved or deleted.
+            await self._emit_skip_notice(chatroom_id, agent.id, "key_group_scope")
             return TurnResult(status="skipped", reason="key_group_scope")
         # Per-(agent, room) turn rate bucket — backstop against trigger storms.
         if not await self._turn_rate_allowed(agent_id, chatroom_id):
@@ -449,6 +485,9 @@ class TurnEngine:
                 {"reason": "rate_limited", "trigger": trigger},
             )
             await self._db.commit()
+            # Actionable for any trigger: the rate backstop is informative
+            # regardless of who or what triggered the suppressed turn.
+            await self._emit_skip_notice(chatroom_id, agent.id, "rate_limited")
             return TurnResult(status="skipped", reason="rate_limited")
 
         provider = agent.model_hint.value
@@ -546,7 +585,9 @@ class TurnEngine:
                 )
                 await self._db.commit()
                 self._compact_forced_rooms.discard(chatroom_id)
-                await Publisher(room).emit("agent.finished", {"reason": "empty_reply", "agent_id": str(agent.id)})
+                await Publisher(room).emit(
+                    "agent.finished", {"reason": "empty_reply", "agent_id": str(agent.id)}
+                )
                 return TurnResult(status="skipped", reason="empty_reply", tool_rounds=rounds)
 
             msg = await MessageService(self._db).send_agent(
@@ -585,7 +626,9 @@ class TurnEngine:
             # audit row are independently guarded: a Redis outage must not
             # swallow the agent.turn_failed audit (DB), and vice versa.
             try:
-                await Publisher(room).emit("agent.finished", {"error": _err_kind(exc), "agent_id": str(agent.id)})
+                await Publisher(room).emit(
+                    "agent.finished", {"error": _err_kind(exc), "agent_id": str(agent.id)}
+                )
             except Exception:
                 _log.exception("agent turn failure-path WS emit failed")
             try:
@@ -800,7 +843,9 @@ class TurnEngine:
                 if isinstance(ev, TokenDelta):
                     AGENT_STREAM_TOKENS_TOTAL.inc()
                     if room is not None:
-                        await Publisher(room).emit("agent.token", {"text": ev.text, "agent_id": str(agent.id)})
+                        await Publisher(room).emit(
+                            "agent.token", {"text": ev.text, "agent_id": str(agent.id)}
+                        )
                 elif isinstance(ev, StreamComplete):
                     body = ev.result.body
 
@@ -833,17 +878,21 @@ class TurnEngine:
         for m in messages:
             role = m.get("role", "")
             if role == "tool":
-                final_messages.append({
-                    "role": "user",
-                    "content": f"[Tool result: {m.get('name', 'unknown')}]\n{m.get('content', '')}",
-                })
+                final_messages.append(
+                    {
+                        "role": "user",
+                        "content": f"[Tool result: {m.get('name', 'unknown')}]\n{m.get('content', '')}",
+                    }
+                )
             elif role == "assistant" and m.get("tool_calls"):
                 text = m.get("content") or ""
                 names = [tc.get("name", "?") for tc in m["tool_calls"]]
-                final_messages.append({
-                    "role": "assistant",
-                    "content": f"{text}\n[Used tools: {', '.join(names)}]".strip(),
-                })
+                final_messages.append(
+                    {
+                        "role": "assistant",
+                        "content": f"{text}\n[Used tools: {', '.join(names)}]".strip(),
+                    }
+                )
             else:
                 final_messages.append(m)
         final_payload: dict[str, Any] = {
@@ -865,7 +914,9 @@ class TurnEngine:
                 if isinstance(ev, TokenDelta):
                     AGENT_STREAM_TOKENS_TOTAL.inc()
                     if room is not None:
-                        await Publisher(room).emit("agent.token", {"text": ev.text, "agent_id": str(agent.id)})
+                        await Publisher(room).emit(
+                            "agent.token", {"text": ev.text, "agent_id": str(agent.id)}
+                        )
                 elif isinstance(ev, StreamComplete):
                     final_body = ev.result.body
             return str(final_body.get("text", last_text)), MAX_TOOL_ROUNDS

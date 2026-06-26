@@ -103,6 +103,48 @@ async def test_filter_mentioned_bound_agents_empty_input_skips_repo(monkeypatch)
 
 
 @pytest.mark.asyncio
+async def test_filter_mentioned_bound_agents_uses_provided_binding(monkeypatch) -> None:
+    a1, a2 = uuid.uuid4(), uuid.uuid4()
+
+    class _Boom:
+        def __init__(self, db) -> None:
+            raise AssertionError("must not re-query when the binding is supplied")
+
+    monkeypatch.setattr(triggers, "ChatroomAgentRepository", _Boom)
+    out = await triggers.filter_mentioned_bound_agents(
+        object(),
+        chatroom_id=uuid.uuid4(),
+        mention_agent_ids=[a1, a2],
+        bound_agent_ids=[a1],  # shared fetch — a2 is not bound
+    )
+    assert out == [a1]
+
+
+@pytest.mark.asyncio
+async def test_evaluate_message_wakeups_uses_provided_binding(monkeypatch) -> None:
+    a1 = uuid.uuid4()
+
+    class _Boom:
+        def __init__(self, db) -> None:
+            raise AssertionError("must not re-query when the binding is supplied")
+
+    monkeypatch.setattr(triggers, "ChatroomAgentRepository", _Boom)
+
+    class _Facade:
+        def __init__(self, db) -> None:
+            pass
+
+        async def on_message_created(self, *, room_id, sender_is_user, agent_ids):
+            return list(agent_ids)
+
+    monkeypatch.setattr(facade_mod, "OrchestrationFacade", _Facade)
+    woken = await triggers.evaluate_message_wakeups(
+        object(), chatroom_id=uuid.uuid4(), sender_is_user=True, bound_agent_ids=[a1]
+    )
+    assert woken == [a1]
+
+
+@pytest.mark.asyncio
 async def test_evaluate_presence_change_forwards_flag(monkeypatch) -> None:
     a1 = uuid.uuid4()
     room = uuid.uuid4()
@@ -233,6 +275,51 @@ async def test_wakeup_agent_skips_when_agent_gone(monkeypatch) -> None:
     rec = _patch_task_env(monkeypatch, room=SimpleNamespace(id=uuid.uuid4()), agent=None)
     out = await orch_task.wakeup_agent({}, str(uuid.uuid4()), str(uuid.uuid4()))
     assert out == "skipped:agent_gone"
+    assert rec["run_turn"] == []
+
+
+@pytest.mark.asyncio
+async def test_wakeup_agent_mention_agent_gone_emits_notice(monkeypatch) -> None:
+    # An @mention to a now-unavailable agent (soft-deleted but still bound)
+    # returns at the worker guard before the engine runs — surface a notice so
+    # the explicit summon is not silently dropped.
+    rec = _patch_task_env(monkeypatch, room=SimpleNamespace(id=uuid.uuid4()), agent=None)
+    emitted: list[tuple[str, dict]] = []
+
+    class _Pub:
+        def __init__(self, _channel) -> None:
+            pass
+
+        async def emit(self, event, payload) -> None:
+            emitted.append((event, payload))
+
+    monkeypatch.setattr("shared_kernel.realtime.pubsub.Publisher", _Pub)
+    monkeypatch.setattr("contexts.conversation.infrastructure.channels.room_channel", lambda rid: rid)
+
+    out = await orch_task.wakeup_agent({}, str(uuid.uuid4()), str(uuid.uuid4()), "mention")
+    assert out == "skipped:agent_gone"
+    assert rec["run_turn"] == []
+    assert emitted[0][0] == "agent.finished"
+    # Keyed on `error` (not `reason`): the client only surfaces agent.finished
+    # under `error`; a `reason` payload is treated as a benign silent skip.
+    assert emitted[0][1]["error"] == "agent_gone"
+
+
+@pytest.mark.asyncio
+async def test_wakeup_agent_autonomous_agent_gone_is_silent(monkeypatch) -> None:
+    rec = _patch_task_env(monkeypatch, room=SimpleNamespace(id=uuid.uuid4()), agent=None)
+    emitted: list = []
+
+    class _Boom:
+        def __init__(self, _channel) -> None:
+            raise AssertionError("autonomous agent_gone must not emit a notice")
+
+    monkeypatch.setattr("shared_kernel.realtime.pubsub.Publisher", _Boom)
+    monkeypatch.setattr("contexts.conversation.infrastructure.channels.room_channel", lambda rid: rid)
+
+    out = await orch_task.wakeup_agent({}, str(uuid.uuid4()), str(uuid.uuid4()), "every_n_messages")
+    assert out == "skipped:agent_gone"
+    assert emitted == []
     assert rec["run_turn"] == []
 
 
