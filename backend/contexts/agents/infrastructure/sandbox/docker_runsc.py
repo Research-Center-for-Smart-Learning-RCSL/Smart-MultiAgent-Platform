@@ -22,6 +22,11 @@ Docker SDK imports are **lazy** — the module imports cleanly without Docker
 installed, so unit tests can exercise the pure bits without requiring a
 daemon. Tests should swap in a fake :class:`SandboxRunner` rather than touch
 this class.
+
+The ``code_exec`` tool has two paths: the default run-and-burn ``python -c``
+above, and — when a call carries a ``chatroom_id`` — a persistent per-session
+kernel (Code Interpreter). The kernel registry + its security trade-offs are
+documented at the ``_KERNELS`` block below.
 """
 
 from __future__ import annotations
@@ -35,7 +40,7 @@ import logging
 import time
 import uuid
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from hashlib import sha256
 from typing import Any, Literal
 
@@ -44,7 +49,7 @@ from contexts.agents.domain.errors import (
     McpTimeout,
     SandboxRuntimeViolation,
 )
-from contexts.agents.domain.mcp import McpTestResult, ToolCallResult
+from contexts.agents.domain.mcp import McpTestResult, StagedFile, ToolCallResult
 
 # Pinned by digest in production; the tag here is a placeholder used only as
 # a repr. Ops-side rebuild pipeline re-stamps the digest per agent-version
@@ -92,6 +97,50 @@ def _tar_single_file(name: str, data: bytes) -> bytes:
     return buf.getvalue()
 
 
+def _safe_input_name(filename: str) -> str:
+    """Reduce a user filename to a flat, traversal-safe basename."""
+    base = filename.replace("\\", "/").rsplit("/", 1)[-1]
+    cleaned = "".join(c for c in base if c.isprintable() and c not in '"\\:*?<>|').strip()
+    cleaned = cleaned.lstrip(".") or "file"
+    return cleaned[:200]
+
+
+def _tar_staged_inputs(rel_dir: str, files: Sequence[StagedFile]) -> tuple[bytes, list[str]]:
+    """Tar stream that creates *rel_dir* (owned by the sandbox uid) and drops the
+    files into it. Returns (archive, staged_relative_paths)."""
+    import io
+    import posixpath
+    import tarfile
+
+    rel_dir = rel_dir.strip("/")
+    buf = io.BytesIO()
+    staged: list[str] = []
+    with tarfile.open(fileobj=buf, mode="w") as tar:
+        acc = ""
+        for part in rel_dir.split("/"):
+            acc = posixpath.join(acc, part) if acc else part
+            d = tarfile.TarInfo(name=acc + "/")
+            d.type = tarfile.DIRTYPE
+            d.mode = 0o700
+            d.uid = d.gid = _SANDBOX_UID
+            tar.addfile(d)
+        seen: set[str] = set()
+        for f in files:
+            name = _safe_input_name(f.filename)
+            # Disambiguate collisions after sanitising.
+            if name in seen:
+                stem, _, ext = name.rpartition(".")
+                name = f"{stem or name}-{len(seen)}{('.' + ext) if stem else ''}"
+            seen.add(name)
+            info = tarfile.TarInfo(name=posixpath.join(rel_dir, name))
+            info.size = len(f.data)
+            info.mode = 0o600
+            info.uid = info.gid = _SANDBOX_UID
+            tar.addfile(info, io.BytesIO(f.data))
+            staged.append(posixpath.join("inputs", name))
+    return buf.getvalue(), staged
+
+
 # Wrapper for ``code_exec`` when the caller supplies stdin (K.5 FIX 7): the
 # code-exec image runs ``python -c`` directly (no driver), so a bare env var
 # was never read and sys.stdin stayed attached to nothing. When stdin is
@@ -119,6 +168,76 @@ def _get_semaphore() -> asyncio.Semaphore:
     return _container_semaphore
 
 
+def _docker_client() -> Any:
+    """Lazy-import the docker SDK so unit tests don't need it installed."""
+    import docker
+
+    return docker.from_env()
+
+
+# --------------------------------------------------------------------------- #
+# Live-kernel registry (Code-Interpreter session path).                        #
+#                                                                              #
+# The default ``code_exec`` path is run-and-burn (`python -c`, fresh container #
+# per call). When a call carries a ``chatroom_id`` we instead keep ONE         #
+# long-lived gVisor container per (agent, room) running ``kernel.py``, so the  #
+# Python namespace persists across calls within a chat session. This           #
+# consciously evolves the run-and-burn property to                             #
+# *ephemeral-per-session-with-idle-reaping*: all other isolation is preserved  #
+# (gVisor, network_mode=none, read-only root, non-root uid, cap_drop ALL,      #
+# per-session container isolation, no secrets in env), and a kernel is removed #
+# once idle past ``_KERNEL_IDLE_S``. The registry is module-global because the #
+# ``DockerRunscSandbox`` instance is rebuilt every turn (frozen, stateless),   #
+# so per-instance state would never be reused.                                 #
+# --------------------------------------------------------------------------- #
+_MAX_LIVE_KERNELS = 16
+_KERNEL_IDLE_S = 900.0
+_KERNEL_LABEL = "smap.kernel"
+_KERNELS: dict[str, _KernelHandle] = {}
+_kernels_guard = asyncio.Lock()
+
+
+@dataclass(slots=True)
+class _KernelHandle:
+    container_id: str
+    last_used: float
+    lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+
+
+class _KernelGone(Exception):
+    """The kernel container vanished between lookup and exec (crash/OOM/reap)."""
+
+
+def _session_key(agent_id: uuid.UUID, chatroom_id: uuid.UUID) -> str:
+    return f"{agent_id}:{chatroom_id}"
+
+
+def _kernel_container_name(agent_id: uuid.UUID, chatroom_id: uuid.UUID) -> str:
+    return f"smap-kernel-{agent_id}-{chatroom_id}"
+
+
+def _ms_since(start: float) -> int:
+    return int((time.monotonic() - start) * 1000)
+
+
+def _is_running(container: Any) -> bool:
+    try:
+        state = (container.attrs.get("State") or {}) if container.attrs else {}
+        return bool(state.get("Running")) or container.status == "running"
+    except Exception:
+        return False
+
+
+def _get_container_quietly(client: Any, ref: str) -> Any | None:
+    """Fetch + refresh a container by id/name; ``None`` if it's gone."""
+    try:
+        container = client.containers.get(ref)
+        container.reload()
+        return container
+    except Exception:
+        return None
+
+
 @dataclass(frozen=True, slots=True)
 class DockerRunscSandbox:
     """Concrete :class:`SandboxRunner` backed by the local Docker daemon."""
@@ -131,9 +250,7 @@ class DockerRunscSandbox:
 
     def _client(self) -> Any:
         """Lazy-import the docker SDK so unit tests don't need it installed."""
-        import docker
-
-        return docker.from_env()
+        return _docker_client()
 
     def _egress_env(self, project_id: uuid.UUID) -> dict[str, str]:
         """Pre-signed egress credentials for the sandbox's URL-MCP path (K.5).
@@ -445,7 +562,19 @@ class DockerRunscSandbox:
         source: str,
         stdin: str = "",
         timeout_s: float = 30.0,
+        chatroom_id: uuid.UUID | None = None,
     ) -> ToolCallResult:
+        # Session path: a chat turn reuses a persistent kernel so in-memory
+        # state survives across calls. Headless turns (A2A, no room) keep the
+        # original run-and-burn behaviour below.
+        if chatroom_id is not None:
+            return await self._run_code_exec_kernel(
+                agent_id=agent_id,
+                chatroom_id=chatroom_id,
+                source=source,
+                stdin=stdin,
+                timeout_s=timeout_s,
+            )
         async with _get_semaphore():
             client = self._client()
             host_config = self._base_host_config()
@@ -497,6 +626,283 @@ class DockerRunscSandbox:
             duration_ms=duration_ms,
         )
 
+    # ----------------------------------------------------------------- #
+    # Live-kernel session path                                          #
+    # ----------------------------------------------------------------- #
+
+    async def _run_code_exec_kernel(
+        self,
+        *,
+        agent_id: uuid.UUID,
+        chatroom_id: uuid.UUID,
+        source: str,
+        stdin: str,
+        timeout_s: float,
+    ) -> ToolCallResult:
+        client = self._client()
+        session = _session_key(agent_id, chatroom_id)
+        start = time.monotonic()
+        budget = min(float(timeout_s), 30.0)
+        notice = ""
+        for attempt in (1, 2):
+            handle, status = await self._get_or_create_kernel(
+                client, agent_id=agent_id, chatroom_id=chatroom_id
+            )
+            # Only warn when a kernel that previously held state had to be
+            # recreated — never on the first call of a session (status="created").
+            if status == "recreated":
+                notice = "[kernel restarted: in-memory state was lost]\n"
+            try:
+                async with handle.lock, _get_semaphore():
+                    exec_out = await asyncio.wait_for(
+                        asyncio.to_thread(
+                            self._kernel_exec_call, client, handle.container_id, source, stdin, budget
+                        ),
+                        timeout=budget + 5.0,
+                    )
+                handle.last_used = time.time()
+            except TimeoutError:
+                await self._reset_kernel(client, agent_id=agent_id, chatroom_id=chatroom_id)
+                return ToolCallResult(
+                    ok=False,
+                    stdout="",
+                    stderr=f"timeout: kernel exec exceeded {budget:.0f}s",
+                    exit_code=124,
+                    duration_ms=_ms_since(start),
+                    metadata={"session": session},
+                )
+            except _KernelGone:
+                await self._discard_kernel_key(agent_id, chatroom_id)
+                if attempt == 2:
+                    return ToolCallResult(
+                        ok=False,
+                        stdout="",
+                        stderr="kernel unavailable",
+                        exit_code=1,
+                        duration_ms=_ms_since(start),
+                        metadata={"session": session},
+                    )
+                # The kernel we were using just died — its state is gone.
+                notice = "[kernel restarted: in-memory state was lost]\n"
+                continue
+            return self._reply_to_result(exec_out, notice=notice, start=start, session=session)
+        # Loop always returns above; satisfy the type checker.
+        raise AssertionError("unreachable")
+
+    def _kernel_exec_call(
+        self, client: Any, container_id: str, source: str, stdin: str, timeout_s: float
+    ) -> tuple[int, bytes, bytes]:
+        """Blocking exec of the messenger into a live kernel (runs in a thread)."""
+        container = _get_container_quietly(client, container_id)
+        if container is None or not _is_running(container):
+            raise _KernelGone(container_id)
+        env = {
+            "SMAP_KERNEL_CODE": source,
+            "SMAP_KERNEL_STDIN": stdin,
+            "SMAP_KERNEL_TIMEOUT": str(int(timeout_s)),
+        }
+        try:
+            result = container.exec_run(
+                ["python", "/opt/kernel/client.py"],
+                environment=env,
+                user=_SANDBOX_UID,
+                demux=True,
+            )
+        except Exception as exc:  # NotFound/APIError → treat as a dead kernel
+            raise _KernelGone(container_id) from exc
+        stdout_b, stderr_b = result.output if result.output else (b"", b"")
+        return int(result.exit_code or 0), stdout_b or b"", stderr_b or b""
+
+    def _reply_to_result(
+        self, exec_out: tuple[int, bytes, bytes], *, notice: str, start: float, session: str
+    ) -> ToolCallResult:
+        exit_code, stdout_b, stderr_b = exec_out
+        raw = stdout_b.decode("utf-8", errors="replace")
+        err = stderr_b.decode("utf-8", errors="replace")
+        try:
+            reply = json.loads(raw)
+        except ValueError:
+            return ToolCallResult(
+                ok=False,
+                stdout="",
+                stderr=f"kernel returned non-JSON: {raw[:512]} {err[:256]}".strip(),
+                exit_code=exit_code or 1,
+                duration_ms=_ms_since(start),
+                metadata={"session": session},
+            )
+        ok = bool(reply.get("ok"))
+        return ToolCallResult(
+            ok=ok,
+            stdout=notice + str(reply.get("stdout", "")),
+            stderr=str(reply.get("stderr", "")),
+            exit_code=0 if ok else 1,
+            duration_ms=_ms_since(start),
+            metadata={"session": session, "artifacts": list(reply.get("artifacts") or [])},
+        )
+
+    async def _get_or_create_kernel(
+        self, client: Any, *, agent_id: uuid.UUID, chatroom_id: uuid.UUID
+    ) -> tuple[_KernelHandle, str]:
+        """Return (handle, status) — status is "reused", "created" (first kernel
+        for this session), or "recreated" (a prior kernel had died)."""
+        key = _session_key(agent_id, chatroom_id)
+        name = _kernel_container_name(agent_id, chatroom_id)
+        async with _kernels_guard:
+            had_dead_kernel = False
+            handle = _KERNELS.get(key)
+            if handle is not None:
+                container = await asyncio.to_thread(_get_container_quietly, client, handle.container_id)
+                if container is not None and _is_running(container):
+                    handle.last_used = time.time()
+                    return handle, "reused"
+                _KERNELS.pop(key, None)
+                had_dead_kernel = True  # a tracked kernel that held state has gone
+            # Adopt a kernel another worker/process may already be running.
+            existing = await asyncio.to_thread(_get_container_quietly, client, name)
+            if existing is not None:
+                if _is_running(existing):
+                    handle = _KernelHandle(container_id=existing.id, last_used=time.time())
+                    _KERNELS[key] = handle
+                    return handle, "reused"
+                await self._remove_quietly(existing)
+                had_dead_kernel = True
+            await self._evict_if_full(client)
+            container = await self._create_kernel(
+                client, agent_id=agent_id, chatroom_id=chatroom_id, name=name
+            )
+            handle = _KernelHandle(container_id=container.id, last_used=time.time())
+            _KERNELS[key] = handle
+            return handle, ("recreated" if had_dead_kernel else "created")
+
+    async def _create_kernel(
+        self, client: Any, *, agent_id: uuid.UUID, chatroom_id: uuid.UUID, name: str
+    ) -> Any:
+        volume = f"smap-agent-fs-{agent_id}"
+        host_config = self._base_host_config()
+        # No network, persistent per-agent volume at /workspace, kernel label so
+        # the smap.sandbox orphan sweep never reaps a live kernel.
+        host_config["network_mode"] = "none"
+        host_config["volumes"] = {volume: {"bind": "/workspace", "mode": "rw"}}
+        host_config["labels"] = {
+            _KERNEL_LABEL: "1",
+            "smap.kernel.session": _session_key(agent_id, chatroom_id),
+        }
+        container = await asyncio.to_thread(
+            client.containers.run,
+            image=self.code_exec_image,
+            command=["python", "/opt/kernel/kernel.py"],
+            environment={"SMAP_AGENT_ID": str(agent_id), "SMAP_KERNEL_ROOM": str(chatroom_id)},
+            user=_SANDBOX_UID,
+            tmpfs={"/tmp": f"size={_TMP_TMPFS_BYTES}"},  # noqa: S108 — in-container tmpfs
+            detach=True,
+            name=name,
+            **host_config,
+        )
+        try:
+            await self._assert_runsc(container)
+        except Exception:
+            await self._remove_quietly(container)
+            raise
+        return container
+
+    async def _evict_if_full(self, client: Any) -> None:
+        """Evict the least-recently-used kernel when at capacity (holds guard)."""
+        if len(_KERNELS) < _MAX_LIVE_KERNELS:
+            return
+        victim_key = min(_KERNELS, key=lambda k: _KERNELS[k].last_used)
+        handle = _KERNELS.pop(victim_key, None)
+        if handle is None:
+            return
+        container = await asyncio.to_thread(_get_container_quietly, client, handle.container_id)
+        if container is not None:
+            await self._remove_quietly(container)
+
+    async def _discard_kernel_key(self, agent_id: uuid.UUID, chatroom_id: uuid.UUID) -> None:
+        async with _kernels_guard:
+            _KERNELS.pop(_session_key(agent_id, chatroom_id), None)
+
+    async def reset_kernel(self, *, agent_id: uuid.UUID, chatroom_id: uuid.UUID) -> None:
+        """Tear down a session's kernel (next call starts fresh, state lost)."""
+        await self._reset_kernel(self._client(), agent_id=agent_id, chatroom_id=chatroom_id)
+
+    async def _reset_kernel(self, client: Any, *, agent_id: uuid.UUID, chatroom_id: uuid.UUID) -> None:
+        async with _kernels_guard:
+            handle = _KERNELS.pop(_session_key(agent_id, chatroom_id), None)
+        ref = handle.container_id if handle is not None else _kernel_container_name(agent_id, chatroom_id)
+        container = await asyncio.to_thread(_get_container_quietly, client, ref)
+        if container is not None:
+            await self._remove_quietly(container)
+
+    async def stage_kernel_inputs(
+        self,
+        *,
+        agent_id: uuid.UUID,
+        chatroom_id: uuid.UUID,
+        files: Sequence[StagedFile],
+    ) -> list[str]:
+        """Copy user-uploaded files into the session's kernel inputs dir.
+
+        Writes ``/workspace/sessions/{room}/inputs/{file}`` on the per-agent
+        volume via a short-lived (no-network) container's ``put_archive`` — the
+        same volume the live kernel mounts, so ``code_exec`` can read them.
+        Returns the workspace-relative paths actually staged (e.g. ``inputs/x``).
+        """
+        if not files:
+            return []
+        client = self._client()
+        volume = f"smap-agent-fs-{agent_id}"
+        rel_dir = f"sessions/{chatroom_id}/inputs"
+        archive, staged = _tar_staged_inputs(rel_dir, files)
+        host_config = self._base_host_config()
+        host_config["network_mode"] = "none"
+        host_config["volumes"] = {volume: {"bind": "/workspace", "mode": "rw"}}
+        async with _get_semaphore():
+            container = await asyncio.to_thread(
+                client.containers.create,
+                image=self.code_exec_image,
+                command=["true"],
+                user=_SANDBOX_UID,
+                tmpfs={"/tmp": f"size={_TMP_TMPFS_BYTES}"},  # noqa: S108 — in-container tmpfs
+                **host_config,
+            )
+            try:
+                await self._assert_runsc(container)
+                # put_archive extracts into the mounted volume; no need to run.
+                await asyncio.to_thread(container.put_archive, "/workspace", archive)
+            finally:
+                await self._remove_quietly(container)
+        return staged
+
+    async def cleanup_orphan_kernels(self, *, max_age_s: float = 3600) -> int:
+        """Backstop sweep: remove kernel containers older than *max_age_s* that
+        are no longer tracked (parent process crashed before idle-reaping)."""
+        client = self._client()
+        try:
+            containers = await asyncio.to_thread(
+                client.containers.list, all=True, filters={"label": _KERNEL_LABEL}
+            )
+        except Exception:
+            _log.warning("kernel cleanup: failed to list containers", exc_info=True)
+            return 0
+        tracked = {h.container_id for h in _KERNELS.values()}
+        cutoff = time.time() - max_age_s
+        removed = 0
+        for c in containers:
+            try:
+                if c.id in tracked:
+                    continue
+                created = c.attrs.get("Created", "")
+                if not created:
+                    continue
+                ts = datetime.datetime.fromisoformat(created.replace("Z", "+00:00")).timestamp()
+                if ts < cutoff:
+                    await asyncio.to_thread(c.remove, force=True)
+                    removed += 1
+                    _log.info("kernel cleanup: removed orphan kernel %s", c.short_id)
+            except Exception:
+                _log.debug("kernel cleanup: skip container %s", c.short_id, exc_info=True)
+        return removed
+
     async def cleanup_orphan_containers(self, *, max_age_s: float = 600) -> int:
         """Remove sandbox containers older than *max_age_s* seconds.
 
@@ -530,6 +936,48 @@ class DockerRunscSandbox:
         return removed
 
 
+async def _reap_idle_kernels_once(idle_s: float) -> int:
+    """Remove kernels idle past *idle_s*. Returns the count removed."""
+    now = time.time()
+    async with _kernels_guard:
+        stale = [(k, h) for k, h in _KERNELS.items() if now - h.last_used > idle_s]
+        for k, _ in stale:
+            _KERNELS.pop(k, None)
+    if not stale:
+        return 0
+    client = _docker_client()
+    for _, handle in stale:
+        container = await asyncio.to_thread(_get_container_quietly, client, handle.container_id)
+        if container is not None:
+            with contextlib.suppress(Exception):
+                await asyncio.to_thread(container.remove, force=True)
+    _log.info("kernel reaper: removed %d idle kernel(s)", len(stale))
+    return len(stale)
+
+
+async def reap_idle_kernels(*, interval_s: float = 60.0, idle_s: float = _KERNEL_IDLE_S) -> None:
+    """Long-running reaper loop — started by the worker, cancelled on shutdown."""
+    while True:
+        await asyncio.sleep(interval_s)
+        with contextlib.suppress(Exception):
+            await _reap_idle_kernels_once(idle_s)
+
+
+async def shutdown_all_kernels() -> None:
+    """Remove every live kernel container (worker shutdown)."""
+    async with _kernels_guard:
+        handles = list(_KERNELS.values())
+        _KERNELS.clear()
+    if not handles:
+        return
+    client = _docker_client()
+    for handle in handles:
+        container = await asyncio.to_thread(_get_container_quietly, client, handle.container_id)
+        if container is not None:
+            with contextlib.suppress(Exception):
+                await asyncio.to_thread(container.remove, force=True)
+
+
 def docker_runsc_sandbox_from_settings() -> DockerRunscSandbox:
     """Build the production sandbox runner from settings (composition root, K.5).
 
@@ -552,4 +1000,9 @@ def docker_runsc_sandbox_from_settings() -> DockerRunscSandbox:
     )
 
 
-__all__ = ["DockerRunscSandbox", "docker_runsc_sandbox_from_settings"]
+__all__ = [
+    "DockerRunscSandbox",
+    "docker_runsc_sandbox_from_settings",
+    "reap_idle_kernels",
+    "shutdown_all_kernels",
+]

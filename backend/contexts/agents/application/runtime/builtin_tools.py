@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import logging
+import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
@@ -149,24 +150,38 @@ def _dump_results(results: list[SearchResult]) -> str:
     )
 
 
-def _build_code_exec_tool(db: AsyncSession, *, agent: Agent, deps: BuiltinToolDeps) -> Tool:
+def _build_code_exec_tool(
+    db: AsyncSession,
+    *,
+    agent: Agent,
+    deps: BuiltinToolDeps,
+    chatroom_id: uuid.UUID | None = None,
+    artifact_sink: list[dict[str, Any]] | None = None,
+) -> Tool:
     from contexts.agents.application.tools.code_exec import CodeExecTool
 
     async def _invoke(args: dict[str, Any]) -> ToolResult:
         source = str(args.get("source", ""))
         if not source:
             return ToolResult(content="code_exec requires 'source'", is_error=True)
-        tool = CodeExecTool(agent_id=agent.id, runner=deps.runner, db=db)
+        tool = CodeExecTool(agent_id=agent.id, runner=deps.runner, db=db, chatroom_id=chatroom_id)
         try:
             res = await tool.run(source, stdin=str(args.get("stdin", "")))
         except Exception as exc:
             return ToolResult(content=f"code_exec failed: {exc}", is_error=True)
+        # Collect any artifacts the kernel produced (charts/files) so the turn
+        # engine can attach them to the agent's reply. Best-effort, never raises.
+        if artifact_sink is not None:
+            produced = res.metadata.get("artifacts") if isinstance(res.metadata, dict) else None
+            if isinstance(produced, list):
+                artifact_sink.extend(a for a in produced if isinstance(a, dict))
         body = res.stdout if res.ok else f"{res.stdout}\n[stderr]\n{res.stderr}".strip()
         return ToolResult(content=_clip(body or "(no output)"), is_error=not res.ok)
 
     return Tool(
         name="code_exec",
-        description="Run a short Python snippet in a gVisor sandbox (30s cap). Returns stdout/stderr.",
+        description="Run a Python snippet in a gVisor sandbox (30s cap). State persists across "
+        "calls in a chat; loaded data and saved files survive. Returns stdout/stderr.",
         input_schema=_CODE_EXEC_SCHEMA,
         invoke=_invoke,
     )
@@ -296,6 +311,11 @@ _BUILTIN_BUILDERS: dict[str, Callable[..., Tool]] = {
 }
 BUILTIN_TOOL_NAMES = frozenset(_BUILTIN_BUILDERS)
 
+# Sentinel a builtin binding can carry in ``reference`` to mean "explicit mode,
+# but no built-in enabled". Lets the editor represent an all-off state, which a
+# bare absence of builtin bindings (legacy all-on) otherwise cannot express.
+BUILTIN_NONE_SENTINEL = "__none__"
+
 
 def _enabled_builtins(mcp_bindings: list[McpBinding]) -> set[str]:
     """Which built-in tools (web_search/code_exec/file) an agent has enabled.
@@ -325,17 +345,32 @@ def build_builtin_tools(
     agent: Agent,
     mcp_bindings: list[McpBinding],
     deps: BuiltinToolDeps,
+    chatroom_id: uuid.UUID | None = None,
+    artifact_sink: list[dict[str, Any]] | None = None,
 ) -> list[Tool]:
     """Assemble the agent's enabled built-in tools + its MCP server tools (K.5).
 
     Built-ins are gated per-agent via ``_enabled_builtins``; builtin-source
     bindings are NEVER routed to the MCP sandbox runner (they have no remote
     server) — only url/package bindings produce sandboxed MCP tools.
+
+    ``chatroom_id`` / ``artifact_sink`` are threaded only into ``code_exec`` so
+    that a chat turn runs against the room's persistent kernel and any produced
+    artifacts are collected for the reply (both ``None`` for headless A2A turns).
     """
     enabled = _enabled_builtins(mcp_bindings)
-    tools: list[Tool] = [
-        builder(db, agent=agent, deps=deps) for name, builder in _BUILTIN_BUILDERS.items() if name in enabled
-    ]
+    tools: list[Tool] = []
+    for name, builder in _BUILTIN_BUILDERS.items():
+        if name not in enabled:
+            continue
+        if name == "code_exec":
+            tools.append(
+                _build_code_exec_tool(
+                    db, agent=agent, deps=deps, chatroom_id=chatroom_id, artifact_sink=artifact_sink
+                )
+            )
+        else:
+            tools.append(builder(db, agent=agent, deps=deps))
     for binding in mcp_bindings:
         if binding.source == McpSource.BUILTIN:
             continue
@@ -344,4 +379,10 @@ def build_builtin_tools(
     return tools
 
 
-__all__ = ["BUILTIN_TOOL_NAMES", "BuiltinToolDeps", "build_builtin_tools", "default_builtin_deps"]
+__all__ = [
+    "BUILTIN_NONE_SENTINEL",
+    "BUILTIN_TOOL_NAMES",
+    "BuiltinToolDeps",
+    "build_builtin_tools",
+    "default_builtin_deps",
+]

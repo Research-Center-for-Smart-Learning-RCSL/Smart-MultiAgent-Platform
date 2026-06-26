@@ -70,7 +70,15 @@ class SandboxRunner(Protocol):
         source: str,
         stdin: str = "",
         timeout_s: float = 30.0,
-    ) -> ToolCallResult: ...
+        chatroom_id: uuid.UUID | None = None,
+    ) -> ToolCallResult:
+        """Run a Python snippet in the gVisor sandbox.
+
+        When ``chatroom_id`` is given the call is routed to a persistent,
+        session-scoped kernel that keeps in-memory state across calls (the
+        Code-Interpreter path); otherwise it runs run-and-burn.
+        """
+        ...
 
 
 class EgressProxyClient(Protocol):

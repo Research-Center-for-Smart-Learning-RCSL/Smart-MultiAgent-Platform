@@ -94,7 +94,9 @@ async def sandbox_orphan_cleanup(ctx: dict[str, Any]) -> dict[str, int]:
 
     sandbox = docker_runsc_sandbox_from_settings()
     removed = await sandbox.cleanup_orphan_containers()
-    return {"removed": removed}
+    # Backstop for live kernels whose owning process crashed before idle-reaping.
+    kernels = await sandbox.cleanup_orphan_kernels()
+    return {"removed": removed, "kernels": kernels}
 
 
 async def key_usage_threshold_sample(ctx: dict[str, Any]) -> int:
@@ -193,6 +195,14 @@ async def _startup(ctx: dict[str, Any]) -> None:
         supervisor.run(),
         name="a2a-consumer-supervisor",
     )
+    # Reap idle Code-Interpreter kernels so long-lived sandbox containers don't
+    # accumulate between the hourly orphan sweep.
+    from contexts.agents.infrastructure.sandbox.docker_runsc import reap_idle_kernels
+
+    ctx["_kernel_reaper_task"] = asyncio.create_task(
+        reap_idle_kernels(),
+        name="code-exec-kernel-reaper",
+    )
 
 
 async def _shutdown(ctx: dict[str, Any]) -> None:
@@ -202,12 +212,17 @@ async def _shutdown(ctx: dict[str, Any]) -> None:
         await supervisor.stop()
     # Cancel the listener tasks before Arq tears the loop down; their
     # cancellation paths unsubscribe / close Redis pub/sub cleanly.
-    for key in ("_a2a_task", "_revocation_task"):
+    for key in ("_a2a_task", "_revocation_task", "_kernel_reaper_task"):
         task = ctx.get(key)
         if task is not None:
             task.cancel()
             with suppress(asyncio.CancelledError):
                 await task
+    # Best-effort: tear down any kernels this worker still holds.
+    with suppress(Exception):
+        from contexts.agents.infrastructure.sandbox.docker_runsc import shutdown_all_kernels
+
+        await shutdown_all_kernels()
 
 
 class WorkerSettings:

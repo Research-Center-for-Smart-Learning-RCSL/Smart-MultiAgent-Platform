@@ -115,7 +115,8 @@ class TestCreate:
         group = MagicMock()
         group.project_id = _PROJECT_ID
         keys.get_key_group.return_value = group
-        svc = _make_service(agent_repo=agents, keys_facade=keys)
+        bindings = AsyncMock()
+        svc = _make_service(agent_repo=agents, keys_facade=keys, binding_repo=bindings)
 
         result = await svc.create(
             project_id=_PROJECT_ID,
@@ -126,6 +127,11 @@ class TestCreate:
 
         assert result.id == agent.id
         agents.create.assert_awaited_once()
+        # Opt-in default: new agents are seeded with web_search + file built-in
+        # bindings only — code_exec is omitted so the Code Interpreter is off.
+        seeded = {c.kwargs["reference"] for c in bindings.add.await_args_list}
+        assert seeded == {"web_search", "file"}
+        assert all(c.kwargs["source"] is McpSource.BUILTIN for c in bindings.add.await_args_list)
 
     @patch("contexts.agents.application.agent_service.audit.emit", new_callable=AsyncMock)
     async def test_cap_exceeded_raises(self, _audit) -> None:

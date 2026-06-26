@@ -15,15 +15,18 @@ import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.conversation.domain.models import (
+    AttachmentStatus,
     Chatroom,
     ChatroomGuest,
     Message,
+    MessageAttachment,
     SenderType,
     Workspace,
 )
 from contexts.conversation.infrastructure.repositories import (
     ChatroomGuestRepository,
     ChatroomRepository,
+    MessageAttachmentRepository,
     MessageRepository,
     WorkspaceRepository,
 )
@@ -37,6 +40,7 @@ class ConversationFacade:
         self._rooms = ChatroomRepository(db)
         self._messages = MessageRepository(db)
         self._guests = ChatroomGuestRepository(db)
+        self._attachments = MessageAttachmentRepository(db)
 
     async def get_workspace(
         self,
@@ -123,6 +127,31 @@ class ConversationFacade:
             content_md=content_md,
             metadata=metadata,
         )
+
+    # -- Code-Interpreter staging (read-only) ----------------------------------
+
+    async def latest_user_attachments(self, chatroom_id: uuid.UUID) -> list[MessageAttachment]:
+        """Active attachments on the room's most recent user message.
+
+        Used to stage chat uploads into the ``code_exec`` workspace before a
+        turn; agents read them from ``inputs/<filename>``.
+        """
+        recent = await self._messages.list(chatroom_id=chatroom_id, before=None, limit=20)
+        user_msg = next((m for m in recent if m.sender_type is SenderType.USER), None)
+        if user_msg is None:
+            return []
+        attachments = await self._attachments.list_for_message(user_msg.id)
+        return [a for a in attachments if a.status is AttachmentStatus.ACTIVE]
+
+    async def read_attachment_bytes(self, attachment_id: uuid.UUID) -> bytes | None:
+        """Fetch an active attachment's bytes from object storage (server-side)."""
+        att = await self._attachments.get(attachment_id)
+        if att is None or att.status is not AttachmentStatus.ACTIVE:
+            return None
+        from shared_kernel.storage import get_minio_client
+
+        bucket, _, key = att.minio_path.partition("/")
+        return await get_minio_client().get_object(bucket=bucket, key=key)
 
     # -- Retention helpers (H4) ------------------------------------------------
 
