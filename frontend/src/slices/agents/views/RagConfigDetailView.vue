@@ -81,6 +81,11 @@ const config = computed<RagConfig | undefined>(() => configQuery.data.value)
 const docs = computed<RagDocument[]>(() => docsQuery.data.value ?? [])
 const configError = computed(() => configQuery.error.value)
 
+const breadcrumbs = computed(() => [
+  { label: t('agents.breadcrumb.ragConfigs'), to: { name: 'agents.ragConfigs', params: { projectId } } },
+  { label: config.value?.name ?? '...' },
+])
+
 const embedKeys = computed(() =>
   (projectKeysQuery.data.value ?? []).filter((k) =>
     CAPABILITIES[k.provider].includes('embedding'),
@@ -355,7 +360,10 @@ const showProgress = computed(() =>
     </SAlert>
 
     <template v-else-if="config">
-      <SPageHeader :title="config.name">
+      <SPageHeader
+        :title="config.name"
+        :breadcrumbs="breadcrumbs"
+      >
         <template #actions>
           <SButton
             variant="danger"

@@ -1,5 +1,7 @@
 import { computed, ref } from 'vue'
 import { useMutation } from '@tanstack/vue-query'
+import { useI18n } from 'vue-i18n'
+import { useToast } from '@shared/composables'
 import { accessTokenClaims, getAccessToken, setAccessToken } from '@shared/transport'
 import { adminApi } from '../api/admin'
 
@@ -9,6 +11,9 @@ import { adminApi } from '../api/admin'
 const savedAdminToken = ref<string | null>(null)
 
 export function useImpersonation() {
+  const { t } = useI18n()
+  const toast = useToast()
+
   // Both derive from the reactive `accessTokenClaims`, so they recompute the
   // moment `setAccessToken` runs (start/end of impersonation) — a plain decode
   // of the non-reactive token would cache the first value forever (FE-8).
@@ -30,6 +35,7 @@ export function useImpersonation() {
       savedAdminToken.value = getAccessToken()
       setAccessToken(res.access_token)
     },
+    onError: () => toast.error(t('admin.impersonation.startFailed')),
   })
 
   const endImpersonation = useMutation({
@@ -38,14 +44,8 @@ export function useImpersonation() {
       setAccessToken(savedAdminToken.value)
       savedAdminToken.value = null
     },
+    onError: () => toast.error(t('admin.impersonation.endFailed')),
   })
-
-  function blockMutatingAction(): boolean {
-    if (isImpersonating.value) {
-      return true
-    }
-    return false
-  }
 
   return {
     impersonatedBy,
@@ -53,6 +53,5 @@ export function useImpersonation() {
     isImpersonating,
     startImpersonation,
     endImpersonation,
-    blockMutatingAction,
   }
 }

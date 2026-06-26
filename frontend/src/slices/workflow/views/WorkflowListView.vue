@@ -87,7 +87,7 @@
               v{{ wf.version }}
             </td>
             <td class="text-muted">
-              {{ new Date(wf.created_at).toLocaleDateString() }}
+              {{ formatDate(wf.created_at) }}
             </td>
             <td class="flex gap-2 justify-end">
               <router-link
@@ -132,6 +132,7 @@ import {
   SPageHeader,
 } from '@shared/ui'
 import { useConfirmDialog, useToast } from '@shared/composables'
+import { formatDate } from '@shared/utils/datetime'
 import { createWorkflow, deleteWorkflow, listWorkflows } from '../api'
 import { wfKeys } from '../queries'
 
@@ -163,6 +164,7 @@ const createMutation = useMutation({
     }),
   onSuccess: () => {
     qc.invalidateQueries({ queryKey: wfKeys.workflows(workspaceId) })
+    toast.success(t('workflow.list.createSuccess'))
   },
   onError: () => toast.error(t('workflow.list.createFailed')),
 })

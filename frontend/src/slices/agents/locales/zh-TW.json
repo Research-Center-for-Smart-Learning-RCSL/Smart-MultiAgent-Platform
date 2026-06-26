@@ -1,5 +1,13 @@
 {
   "agents": {
+    "breadcrumb": {
+      "projects": "專案",
+      "agents": "代理人",
+      "ragConfigs": "RAG 設定",
+      "graphrag": "GraphRAG",
+      "mcpBindings": "MCP 綁定",
+      "egressAllowlist": "MCP Egress 白名單"
+    },
     "list": {
       "title": "代理人",
       "create": "建立代理人",
@@ -10,7 +18,11 @@
       "createFailed": "建立代理人失敗。",
       "searchPlaceholder": "搜尋代理人…",
       "filterAll": "全部",
+      "a2a": "A2A",
       "a2aOn": "開啟",
+      "statusAll": "所有狀態",
+      "statusActive": "活躍",
+      "statusDeleted": "已刪除",
       "emptyTitle": "尚無代理人",
       "emptyDescription": "建立您的第一個 AI 代理人以開始使用。",
       "loadError": "載入代理人失敗。",
@@ -195,7 +207,8 @@
       "emptyDescription": "建立 GraphRAG 設定以從代理人對話建構知識圖。",
       "statusFetchFailed": "擷取建置狀態失敗。",
       "lastError": "最後錯誤",
-      "noError": "（無）"
+      "noError": "（無）",
+      "graphragStatusInfo": "GraphRAG 建置狀態：{state}。上次建置：{lastBuilt}。"
     },
     "graphragForm": {
       "agent": "代理人",
@@ -256,6 +269,8 @@
       "testOk": "連線正常——發現 {count} 個工具（{ms} 毫秒）",
       "testBad": "失敗",
       "testFailed": "MCP 測試請求失敗。",
+      "testErrorTitle": "MCP 測試失敗",
+      "testErrorDuration": "耗時：{ms} 毫秒",
       "delete": "移除",
       "colSource": "來源",
       "colReference": "參照",
@@ -271,6 +286,7 @@
       "subtitle": "此專案的 MCP 沙箱可連線的主機名稱。僅限擁有者。其餘一律由 egress proxy 封鎖。",
       "infoAlert": "僅允許連線到此清單中的主機名稱。所有其他 egress 均被封鎖。僅專案擁有者可管理此清單。",
       "hostname": "主機名稱",
+      "hostnameInvalid": "主機名稱必須符合 RFC 1123 格式（例如 api.example.com）。",
       "hostnamePlaceholder": "api.example.com",
       "note": "備註",
       "add": "新增",
@@ -290,6 +306,7 @@
       "colAdded": "新增時間",
       "addedToday": "今天",
       "addedDaysAgo": "{days} 天前",
+      "colAddedBy": "新增者",
       "colActions": "操作",
       "emptyTitle": "尚無允許的主機",
       "emptyDescription": "新增此專案中 MCP 伺服器允許連線的主機名稱。若無項目，所有 MCP egress 均被封鎖。"

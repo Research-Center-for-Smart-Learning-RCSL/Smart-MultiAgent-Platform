@@ -13,6 +13,7 @@
       "emptyHint": "於上方建立一個，開始編排您的代理。",
       "retry": "重試",
       "loadError": "載入工作流程失敗。",
+      "createSuccess": "工作流程已建立。",
       "createFailed": "建立工作流程失敗。",
       "deleteFailed": "刪除工作流程失敗。",
       "deleteConfirmTitle": "刪除工作流程",

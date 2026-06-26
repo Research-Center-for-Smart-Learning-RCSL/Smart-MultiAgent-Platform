@@ -32,6 +32,19 @@ const toast = useToast()
 const { confirm } = useConfirmDialog()
 const session = useSessionStore()
 
+const projectQuery = useQuery({
+  queryKey: tenancyKeys.project(projectId),
+  queryFn: async () => (await projectsApi.get(projectId)).data,
+})
+
+const breadcrumbs = computed(() => [
+  { label: t('agents.breadcrumb.projects'), to: { name: 'tenancy.projectList' } },
+  { label: projectQuery.data.value?.name ?? projectId.slice(0, 8), to: { name: 'tenancy.projectDetail', params: { id: projectId } } },
+  { label: t('agents.breadcrumb.egressAllowlist') },
+])
+
+const isAdmin = computed(() => session.me?.is_admin === true)
+
 const membersQuery = useQuery({
   queryKey: computed(() => tenancyKeys.projectMembers(projectId)),
   queryFn: () => projectsApi.listMembers(projectId).then((r) => r.data),
@@ -53,8 +66,11 @@ const entries = computed<EgressAllowlistEntry[]>(() => allowlistQuery.data.value
 const loading = computed(() => allowlistQuery.isLoading.value)
 const error = computed(() => allowlistQuery.error.value)
 
+const RFC_1123 = /^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/
+
 const addSchema = z.object({
-  hostname: z.string().trim().min(1).max(253),
+  hostname: z.string().trim().min(1).max(253)
+    .regex(RFC_1123, { message: t('agents.egress.hostnameInvalid') }),
   note: z.string().trim().max(500).nullable().default(null),
 })
 type AddInput = z.infer<typeof addSchema>
@@ -109,21 +125,28 @@ function formatRelativeTime(iso: string): string {
   return new Date(iso).toLocaleDateString()
 }
 
-const columns = computed<Column[]>(() => [
-  { key: 'hostname', label: t('agents.egress.colHost') },
-  { key: 'note', label: t('agents.egress.colNote'), width: '200px' },
-  { key: 'added_at', label: t('agents.egress.colAdded'), width: '120px' },
-  { key: 'actions', label: '', width: '48px', align: 'right' },
-])
+const columns = computed<Column[]>(() => {
+  const cols: Column[] = [
+    { key: 'hostname', label: t('agents.egress.colHost') },
+    { key: 'note', label: t('agents.egress.colNote'), width: '200px' },
+  ]
+  if (isAdmin.value) {
+    cols.push({ key: 'added_by_user_id', label: t('agents.egress.colAddedBy'), width: '140px' })
+  }
+  cols.push(
+    { key: 'added_at', label: t('agents.egress.colAdded'), width: '120px' },
+    { key: 'actions', label: '', width: '48px', align: 'right' },
+  )
+  return cols
+})
 </script>
 
 <template>
   <main class="p-6">
-    <SPageHeader :title="t('agents.egress.title')">
-      <template #breadcrumbs>
-        <span>{{ t('agents.egress.title') }}</span>
-      </template>
-    </SPageHeader>
+    <SPageHeader
+      :title="t('agents.egress.title')"
+      :breadcrumbs="breadcrumbs"
+    />
 
     <SAlert
       variant="info"
@@ -216,6 +239,20 @@ const columns = computed<Column[]>(() => [
           v-if="row.note"
           class="truncate max-w-[200px] inline-block"
         >{{ row.note }}</span>
+        <span
+          v-else
+          class="text-[var(--color-muted)]"
+        >--</span>
+      </template>
+
+      <template
+        v-if="isAdmin"
+        #cell-added_by_user_id="{ row }"
+      >
+        <span
+          v-if="row.added_by_user_id"
+          class="font-mono text-sm truncate max-w-[140px] inline-block"
+        >{{ row.added_by_user_id }}</span>
         <span
           v-else
           class="text-[var(--color-muted)]"

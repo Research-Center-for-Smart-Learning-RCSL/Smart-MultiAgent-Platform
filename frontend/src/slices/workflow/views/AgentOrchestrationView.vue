@@ -3,6 +3,7 @@ import { ref, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useToast } from '@shared/composables'
+import { SPageHeader } from '@shared/ui'
 
 import { getAgentWakeupConfig, patchAgentWakeupConfig } from '../api'
 import type { WakeupConfig } from '../types'
@@ -80,14 +81,10 @@ async function save(): Promise<void> {
 
 <template>
   <section class="agent-ops p-4">
-    <header class="mb-4">
-      <h1 class="text-xl font-semibold">
-        {{ t('workflow.agentOps.title') }}
-      </h1>
-      <p class="text-sm text-muted">
-        {{ t('workflow.agentOps.subtitle') }}
-      </p>
-    </header>
+    <SPageHeader
+      :title="t('workflow.agentOps.title')"
+      :subtitle="t('workflow.agentOps.subtitle')"
+    />
 
     <div class="mb-6">
       <h2 class="font-semibold mb-2">

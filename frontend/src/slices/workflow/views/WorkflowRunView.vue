@@ -47,9 +47,9 @@
       class="mb-6 text-sm grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-1 max-w-2xl"
     >
       <p><strong>{{ $t('workflow.run.triggerType') }}:</strong> {{ run.trigger_type }}</p>
-      <p><strong>{{ $t('workflow.run.started') }}:</strong> {{ new Date(run.started_at).toLocaleString() }}</p>
+      <p><strong>{{ $t('workflow.run.started') }}:</strong> {{ formatDateTime(run.started_at) }}</p>
       <p v-if="run.ended_at">
-        <strong>{{ $t('workflow.run.ended') }}:</strong> {{ new Date(run.ended_at).toLocaleString() }}
+        <strong>{{ $t('workflow.run.ended') }}:</strong> {{ formatDateTime(run.ended_at) }}
       </p>
     </div>
 
@@ -127,6 +127,7 @@ import { useRoute, useRouter } from 'vue-router'
 
 import { useToast } from '@shared/composables'
 import { SStatusBadge } from '@shared/ui'
+import { formatDateTime } from '@shared/utils/datetime'
 import { useI18n } from 'vue-i18n'
 import { cancelRun, getRun, listSteps } from '../api'
 import { useWorkflowRunSocket } from '../composables/useWorkflowRunSocket'

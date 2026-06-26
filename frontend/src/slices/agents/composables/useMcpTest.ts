@@ -4,10 +4,16 @@ import { useI18n } from 'vue-i18n'
 import { useToast } from '@shared/composables'
 import { agentsApi } from '../api'
 
+export interface McpTestFailure {
+  error: string
+  duration_ms: number
+}
+
 export function useMcpTest(agentId: string) {
   const { t } = useI18n()
   const toast = useToast()
   const testingIds = ref<Set<string>>(new Set())
+  const failedResult = ref<McpTestFailure | null>(null)
 
   const isTesting = (bindingId: string): boolean => testingIds.value.has(bindingId)
 
@@ -22,7 +28,10 @@ export function useMcpTest(agentId: string) {
           }),
         )
       } else {
-        toast.error(t('agents.mcp.testBad'))
+        failedResult.value = {
+          error: res.data.error ?? t('agents.mcp.testBad'),
+          duration_ms: res.data.duration_ms,
+        }
       }
     },
     onError: () => toast.error(t('agents.mcp.testFailed')),
@@ -38,5 +47,5 @@ export function useMcpTest(agentId: string) {
     testMutation.mutate(bindingId)
   }
 
-  return { testingIds, isTesting, runTest }
+  return { testingIds, isTesting, runTest, failedResult }
 }

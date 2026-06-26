@@ -30,7 +30,9 @@ import {
   useClientPagination,
   useBreakpoint,
 } from '@shared/composables'
+import { useSessionStore } from '@shared/stores/session'
 import { keyGroupsApi, keysKeys, type KeyGroup } from '@slices/keys'
+import { projectsApi, tenancyKeys } from '@slices/tenancy'
 import { agentsApi, type Agent } from '../api'
 import { agentKeys } from '../queries'
 import type { AgentCreateInput } from '../types/schemas'
@@ -43,10 +45,24 @@ const qc = useQueryClient()
 const toast = useToast()
 const { confirm } = useConfirmDialog()
 const { isMobile } = useBreakpoint()
+const session = useSessionStore()
 const projectId = route.params.projectId as string
+const isAdmin = computed(() => session.me?.is_admin === true)
 
 const search = ref('')
 const modelFilter = ref<string>('')
+const statusFilter = ref<string>('')
+
+const projectQuery = useQuery({
+  queryKey: tenancyKeys.project(projectId),
+  queryFn: async () => (await projectsApi.get(projectId)).data,
+})
+
+const breadcrumbs = computed(() => [
+  { label: t('agents.breadcrumb.projects'), to: { name: 'tenancy.projectList' } },
+  { label: projectQuery.data.value?.name ?? projectId.slice(0, 8), to: { name: 'tenancy.projectDetail', params: { id: projectId } } },
+  { label: t('agents.breadcrumb.agents') },
+])
 
 const query = useQuery({
   queryKey: agentKeys.agents(projectId),
@@ -83,6 +99,11 @@ const filteredAgents = computed(() => {
   if (modelFilter.value) {
     items = items.filter((a) => a.model_hint === modelFilter.value)
   }
+  if (statusFilter.value === 'active') {
+    items = items.filter((a) => !a.deleted_at)
+  } else if (statusFilter.value === 'deleted') {
+    items = items.filter((a) => !!a.deleted_at)
+  }
   return items
 })
 
@@ -96,12 +117,18 @@ const modelOptions = computed(() => [
   { value: 'gemini', label: t('agents.form.modelHints.gemini') },
 ])
 
+const statusOptions = computed(() => [
+  { value: '', label: t('agents.list.statusAll') },
+  { value: 'active', label: t('agents.list.statusActive') },
+  { value: 'deleted', label: t('agents.list.statusDeleted') },
+])
+
 const columns = computed<Column[]>(() => [
   { key: 'name', label: t('agents.form.name') },
   { key: 'model_hint', label: t('agents.form.modelHint'), width: '100px' },
   { key: 'key_group_id', label: t('agents.form.keyGroup'), width: '140px' },
   { key: 'rag_config_id', label: t('agents.form.ragConfig'), width: '100px' },
-  { key: 'a2a_enabled', label: 'A2A', width: '60px' },
+  { key: 'a2a_enabled', label: t('agents.list.a2a'), width: '60px' },
   { key: 'actions', label: '', width: '48px', align: 'right' },
 ])
 
@@ -177,7 +204,10 @@ function onRowClick(row: Agent): void {
 
 <template>
   <main class="p-6">
-    <SPageHeader :title="t('agents.list.title')">
+    <SPageHeader
+      :title="t('agents.list.title')"
+      :breadcrumbs="breadcrumbs"
+    >
       <template #actions>
         <SButton
           variant="primary"
@@ -200,6 +230,13 @@ function onRowClick(row: Agent): void {
       <SSelect
         v-model="modelFilter"
         :options="modelOptions"
+        size="sm"
+        class="w-36"
+      />
+      <SSelect
+        v-if="isAdmin"
+        v-model="statusFilter"
+        :options="statusOptions"
         size="sm"
         class="w-36"
       />

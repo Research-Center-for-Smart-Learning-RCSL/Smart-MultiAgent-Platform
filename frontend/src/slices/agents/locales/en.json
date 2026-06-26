@@ -1,5 +1,13 @@
 {
   "agents": {
+    "breadcrumb": {
+      "projects": "Projects",
+      "agents": "Agents",
+      "ragConfigs": "RAG Configs",
+      "graphrag": "GraphRAG",
+      "mcpBindings": "MCP Bindings",
+      "egressAllowlist": "MCP Egress Allowlist"
+    },
     "list": {
       "title": "Agents",
       "create": "Create Agent",
@@ -10,7 +18,11 @@
       "createFailed": "Failed to create agent.",
       "searchPlaceholder": "Search agents...",
       "filterAll": "All",
+      "a2a": "A2A",
       "a2aOn": "On",
+      "statusAll": "All Statuses",
+      "statusActive": "Active",
+      "statusDeleted": "Deleted",
       "emptyTitle": "No agents yet",
       "emptyDescription": "Create your first AI agent to get started.",
       "loadError": "Failed to load agents.",
@@ -195,7 +207,8 @@
       "emptyDescription": "Create a GraphRAG config to build a knowledge graph from agent conversations.",
       "statusFetchFailed": "Failed to fetch build status.",
       "lastError": "Last Error",
-      "noError": "(none)"
+      "noError": "(none)",
+      "graphragStatusInfo": "GraphRAG build state: {state}. Last built: {lastBuilt}."
     },
     "graphragForm": {
       "agent": "Agent",
@@ -256,6 +269,8 @@
       "testOk": "Connection OK -- {count} tools discovered in {ms}ms",
       "testBad": "Failed",
       "testFailed": "MCP test request failed.",
+      "testErrorTitle": "MCP Test Failed",
+      "testErrorDuration": "Duration: {ms}ms",
       "delete": "Remove",
       "colSource": "Source",
       "colReference": "Reference",
@@ -271,6 +286,7 @@
       "subtitle": "Hostnames MCP sandboxes in this project may connect to. Owner only. Everything else is blocked by the egress proxy.",
       "infoAlert": "Only MCP server connections to hostnames in this list are permitted. All other egress is blocked. Only project owners can manage this list.",
       "hostname": "Hostname",
+      "hostnameInvalid": "Hostname must follow RFC 1123 format (e.g. api.example.com).",
       "hostnamePlaceholder": "api.example.com",
       "note": "Note",
       "add": "Add",
@@ -290,6 +306,7 @@
       "colAdded": "Added",
       "addedToday": "Today",
       "addedDaysAgo": "{days}d ago",
+      "colAddedBy": "Added By",
       "colActions": "Actions",
       "emptyTitle": "No hostnames allowed",
       "emptyDescription": "Add hostnames that MCP servers in this project are allowed to connect to. Without entries, all MCP egress is blocked."

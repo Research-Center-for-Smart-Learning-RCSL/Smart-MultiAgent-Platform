@@ -86,10 +86,10 @@
               {{ r.trigger_type }}
             </td>
             <td class="text-muted">
-              {{ new Date(r.started_at).toLocaleString() }}
+              {{ formatDateTime(r.started_at) }}
             </td>
             <td class="text-muted">
-              {{ r.ended_at ? new Date(r.ended_at).toLocaleString() : '—' }}
+              {{ r.ended_at ? formatDateTime(r.ended_at) : '—' }}
             </td>
             <td>
               <router-link
@@ -120,6 +120,7 @@ import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { PlayCircleIcon } from '@heroicons/vue/24/outline'
 import { useToast } from '@shared/composables'
+import { formatDateTime } from '@shared/utils/datetime'
 import {
   SAlert,
   SEmptyState,
