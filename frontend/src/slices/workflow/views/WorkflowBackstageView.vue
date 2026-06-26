@@ -88,8 +88,11 @@
         />
       </div>
 
-      <!-- Instruction chains -->
-      <div class="mb-6">
+      <!-- Instruction chains — admin-only diagnostic (backend gates the lookup) -->
+      <div
+        v-if="isAdmin"
+        class="mb-6"
+      >
         <h2 class="font-semibold mb-2">
           {{ $t('workflow.backstage.instructChains') }}
         </h2>
@@ -142,9 +145,12 @@
 <script setup lang="ts">
 import { useQuery } from '@tanstack/vue-query'
 import { computed, onMounted, ref, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 
 import { SPageHeader, STATUS_BG_MAP } from '@shared/ui'
+import { useSessionStore } from '@slices/identity'
+import { getWorkspace } from '@slices/conversation'
+import { projectsApi, tenancyKeys } from '@slices/tenancy'
 import { getApproval, getInstruction, listApprovalsForRun, listRuns, listSteps } from '../api'
 import { wfKeys } from '../queries'
 import type { ApprovalWithVotes } from '../types'
@@ -154,10 +160,57 @@ import InstructChainView from '../components/InstructChainView.vue'
 import SubagentTree from '../components/SubagentTree.vue'
 
 const route = useRoute()
+const router = useRouter()
+const session = useSessionStore()
 const workflowId = route.params.workflowId as string
 const workspaceId = route.params.workspaceId as string
 const selectedRunId = ref('')
 const agentNames = ref<Record<string, string>>({})
+
+// ---- authorization: platform admin OR project owner ----------------------
+// The route guard only knows the global admin flag, so resolve the per-project
+// role here (workspace -> project -> my membership). Members fetch is skipped
+// for admins, who are always allowed.
+const isAdmin = computed(() => session.me?.is_admin ?? false)
+
+const workspaceQuery = useQuery({
+  queryKey: computed(() => ['workflow', 'backstage', 'workspace', workspaceId]),
+  queryFn: () => getWorkspace(workspaceId),
+  enabled: computed(() => !isAdmin.value),
+})
+
+const projectId = computed(() => workspaceQuery.data.value?.project_id ?? '')
+
+const membersQuery = useQuery({
+  queryKey: computed(() => tenancyKeys.projectMembers(projectId.value)),
+  queryFn: () => projectsApi.listMembers(projectId.value).then((r) => r.data),
+  enabled: computed(() => !isAdmin.value && !!projectId.value),
+})
+
+const isOwner = computed(() => {
+  const me = session.me
+  const members = membersQuery.data.value
+  if (!me || !members) return false
+  return members.find((m) => m.user_id === me.id)?.role === 'owner'
+})
+
+const isAuthorized = computed(() => isAdmin.value || isOwner.value)
+
+// Only conclude "denied" once the per-project role has actually resolved, so a
+// legitimate owner isn't bounced mid-load.
+const authDecided = computed(() => {
+  if (isAdmin.value) return true
+  if (workspaceQuery.isError.value) return true
+  return membersQuery.isSuccess.value || membersQuery.isError.value
+})
+
+watch(
+  [authDecided, isAuthorized],
+  ([decided, ok]) => {
+    if (decided && !ok) router.replace({ name: 'root' })
+  },
+  { immediate: true },
+)
 
 const runsQuery = useQuery({
   queryKey: wfKeys.runs(workflowId),
@@ -192,8 +245,9 @@ const stepsList = computed(() => stepsQuery.data.value ?? [])
 
 // Derive the distinct instruction-chain ids for the run from its instruct
 // steps: each instruct step stores `{ instruction_id }` in its output, and an
-// instruction record carries the chain id it belongs to. Backstage is
-// admin-only, so the admin-scoped getInstruction lookup is available here.
+// instruction record carries the chain id it belongs to. The getInstruction
+// lookup is admin-only on the backend, so this only runs for admins; project
+// owners see the rest of the backstage without the instruction-chain section.
 const chainIds = ref<string[]>([])
 
 // Monotonic guard: each run change bumps this so a slower in-flight resolution
@@ -205,6 +259,11 @@ watch(
   stepsList,
   async (steps) => {
     const generation = ++chainGeneration
+    // getInstruction is admin-only; skip resolution entirely for non-admins.
+    if (!isAdmin.value) {
+      chainIds.value = []
+      return
+    }
     const instructionIds = steps
       .map((s) => (s.output as { instruction_id?: unknown } | null)?.instruction_id)
       .filter((v): v is string => typeof v === 'string')

@@ -29,11 +29,11 @@ export const workflowRoutes: RouteRecordRaw[] = [
     path: '/workspaces/:workspaceId/workflows/:workflowId/backstage',
     name: 'workflow.backstage',
     component: () => import('./views/WorkflowBackstageView.vue'),
-    // NOTE: project_owner access would require per-project role resolution in
-    // the route guard, which is not available from global session state today.
-    // For now only admins can reach the backstage; revisit when per-project
-    // role context is wired into the router.
-    meta: { requiresAuth: true, requiredRoles: ['admin'] },
+    // Per-project role isn't in the synchronous route guard (only the global
+    // admin flag is). Authorization is resolved inside the view instead:
+    // platform admins and project owners are allowed, everyone else is
+    // redirected. The admin-only instruction-chain section is gated there too.
+    meta: { requiresAuth: true },
   },
   {
     path: '/agents/:agentId/orchestration',
