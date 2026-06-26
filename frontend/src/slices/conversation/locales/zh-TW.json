@@ -66,6 +66,7 @@
       "agentFailed": "代理人執行失敗，請再試一次。",
       "agentTimeout": "代理人沒有回應。",
       "composerPlaceholder": "輸入訊息…",
+      "mentionListLabel": "可提及的代理人",
       "send": "傳送",
       "searchResults": "搜尋結果",
       "live": "即時",

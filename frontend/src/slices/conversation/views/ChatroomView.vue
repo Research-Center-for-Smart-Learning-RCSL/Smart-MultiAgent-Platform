@@ -121,6 +121,7 @@
       v-model="draft"
       class="chatroom__composer"
       :pending-uploads="pendingUploads"
+      :agents="agentList"
       :disabled="!connected"
       @submit="send"
       @typing="emitTyping"
@@ -302,7 +303,7 @@ const {
   canDelete,
   dropOlderMessage,
   refreshOlderMessage,
-} = useChatroomMessages(chatroomId, listRef)
+} = useChatroomMessages(chatroomId, listRef, () => agentList.value)
 
 const { editingId, editDraft, startEdit, cancelEdit, saveEdit } =
   useChatroomMessageEditing(chatroomId)

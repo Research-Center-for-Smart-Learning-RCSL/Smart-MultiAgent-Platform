@@ -106,6 +106,7 @@
       "wakeupCallOnly": "Call Only (no autonomous wake)",
       "wakeupAutostop": "Auto-stop Rounds",
       "wakeupHelp": "Configure when this agent wakes up in a chatroom conversation.",
+      "wakeupInertWarning": "No trigger is enabled, so this agent will not respond to messages on its own. It can still be summoned with @mention in a chatroom. Enable a trigger below to let it reply automatically.",
       "canInstruct": "Can instruct other agents",
       "canApprove": "Can approve actions",
       "canCreateSubagent": "Can create sub-agents",
