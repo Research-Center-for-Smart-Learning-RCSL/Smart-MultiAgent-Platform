@@ -30,7 +30,7 @@ contexts/{name}/
 
 ## API Routes
 
-39 route files in `app/api/v1/`. WebSocket routes in `app/api/ws/` (5 files).
+38 route files in `app/api/v1/`. WebSocket routes in `app/api/ws/` (6 files).
 
 Route handlers must:
 1. Validate input via Pydantic request models
@@ -51,7 +51,7 @@ alembic upgrade head
 alembic downgrade -1
 ```
 
-Migrations are in `alembic/versions/` (0000–0030). Each migration must be forward-compatible (old code runs on new schema).
+Migrations are in `alembic/versions/` (0000–0035). Each migration must be forward-compatible (old code runs on new schema).
 
 ## Testing
 
