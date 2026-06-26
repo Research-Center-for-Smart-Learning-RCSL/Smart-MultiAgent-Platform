@@ -7,7 +7,7 @@ import { OpenAPI } from '../core/OpenAPI';
 import { request as __request } from '../core/request';
 export class OrchestrationService {
     /**
-     * Read A2A DLQ entries for an agent (admin only)
+     * Read A2A DLQ entries for an agent
      * @returns any Successful Response
      * @throws ApiError
      */
@@ -49,7 +49,7 @@ export class OrchestrationService {
         });
     }
     /**
-     * List all instructions in a chain (admin only)
+     * List all instructions in a chain
      * @returns any Successful Response
      * @throws ApiError
      */
@@ -119,7 +119,7 @@ export class OrchestrationService {
         });
     }
     /**
-     * Get a single instruction record (admin only)
+     * Get a single instruction record
      * @returns any Successful Response
      * @throws ApiError
      */
@@ -162,6 +162,41 @@ export class OrchestrationService {
         return __request(OpenAPI, {
             method: 'GET',
             url: '/api/orchestration/workflow-runs/{workflow_run_id}/approvals',
+            path: {
+                'workflow_run_id': workflowRunId,
+            },
+            query: {
+                'limit': limit,
+                'offset': offset,
+            },
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * List sub-agents spawned during a workflow run
+     * @returns any Successful Response
+     * @throws ApiError
+     */
+    public static listRunSubagentsApiOrchestrationWorkflowRunsWorkflowRunIdSubagentsGet({
+        workflowRunId,
+        limit = 100,
+        offset,
+    }: {
+        workflowRunId: string,
+        /**
+         * Max items to return
+         */
+        limit?: number,
+        /**
+         * Number of items to skip
+         */
+        offset?: number,
+    }): CancelablePromise<Array<Record<string, any>>> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/orchestration/workflow-runs/{workflow_run_id}/subagents',
             path: {
                 'workflow_run_id': workflowRunId,
             },

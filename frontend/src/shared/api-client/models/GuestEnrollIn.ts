@@ -2,9 +2,7 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
-export type MessageSendIn = {
-    attachment_ids?: Array<string>;
-    content_md?: string;
-    mention_agent_ids?: Array<string>;
+export type GuestEnrollIn = {
+    display_name?: (string | null);
 };
 
