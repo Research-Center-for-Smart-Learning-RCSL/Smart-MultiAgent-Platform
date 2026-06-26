@@ -55,14 +55,12 @@ export function installErrorHandler(app: App): void {
 }
 
 export function reportError(err: unknown): void {
+  // R24.37: the /api/frontend-errors beacon endpoint is explicitly out of v1
+  // scope — v1 just console.errors. Beaconing to it 404s on every uncaught
+  // error AND loses the error (sendBeacon to a 404 captures nothing), which is
+  // strictly worse than logging. Log to console until the endpoint exists.
   try {
-    const payload = {
-      message: err instanceof Error ? err.message : String(err),
-      stack: err instanceof Error ? err.stack : undefined,
-      url: window.location.href,
-      timestamp: new Date().toISOString(),
-    }
-    navigator.sendBeacon?.('/api/frontend-errors', JSON.stringify(payload))
+    console.error('[uncaught]', err)
   } catch {
     // Best-effort; don't throw from the error handler.
   }
