@@ -14,10 +14,25 @@ from __future__ import annotations
 
 import logging
 import uuid
+from dataclasses import dataclass
+from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 _log = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True, slots=True)
+class RagContext:
+    """Result of a RAG retrieval for one turn.
+
+    ``block`` is folded into the system prompt; ``sources`` is persisted on the
+    agent reply's ``metadata.rag_sources`` so the UI can cite what was retrieved
+    (one entry per retrieved chunk, filename resolved for display).
+    """
+
+    block: str
+    sources: list[dict[str, Any]]
 
 
 class RagContextProvider:
@@ -46,8 +61,8 @@ class RagContextProvider:
         rag_config_id: uuid.UUID | None,
         query_text: str | None,
         agent_id: uuid.UUID | None = None,
-    ) -> str | None:
-        """Return a formatted RAG context string, or ``None`` if unavailable.
+    ) -> RagContext | None:
+        """Return the RAG context (prompt block + citable sources), or ``None``.
 
         Safe to call unconditionally — returns ``None`` when the config is
         missing, Qdrant is not configured, or retrieval fails for any reason.
@@ -113,7 +128,9 @@ class RagContextProvider:
                 )
                 if not chunks:
                     return None
-                return str(svc.format_as_rag_message(chunks)["content"])
+                block = str(svc.format_as_rag_message(chunks)["content"])
+                sources = await self._build_sources(chunks)
+                return RagContext(block=block, sources=sources)
             finally:
                 await qclient.close()
         except Exception:
@@ -124,5 +141,27 @@ class RagContextProvider:
             )
             return None
 
+    async def _build_sources(self, chunks: list[Any]) -> list[dict[str, Any]]:
+        """Shape retrieved chunks into citable sources for the reply metadata.
 
-__all__ = ["RagContextProvider"]
+        One entry per chunk (a document can contribute several), preserving the
+        retriever's ranking. Filename is best-effort — a since-deleted document
+        falls back to ``None`` rather than blocking the citation.
+        """
+        from contexts.knowledge.infrastructure.repositories import RagDocumentRepository
+
+        distinct_ids = {c.document_id for c in chunks}
+        docs = await RagDocumentRepository(self._db).get_many(list(distinct_ids))
+        filenames: dict[uuid.UUID, str] = {d.id: d.filename for d in docs}
+        return [
+            {
+                "document_id": str(c.document_id),
+                "filename": filenames.get(c.document_id),
+                "chunk_idx": c.chunk_idx,
+                "score": round(c.score, 4),
+            }
+            for c in chunks
+        ]
+
+
+__all__ = ["RagContext", "RagContextProvider"]

@@ -23,6 +23,16 @@ export interface Chatroom {
 
 export type SenderType = 'user' | 'agent' | 'system'
 
+// One retrieved RAG chunk cited on an agent reply. Lives in
+// `Message.metadata.rag_sources` (populated by the backend turn engine).
+// `filename` is null when the source document was deleted after retrieval.
+export interface RagSource {
+  document_id: string
+  filename: string | null
+  chunk_idx: number
+  score: number
+}
+
 export interface Message {
   id: string
   chatroom_id: string
