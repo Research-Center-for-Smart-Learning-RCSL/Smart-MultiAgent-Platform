@@ -45,6 +45,8 @@
       "deleteConfirm": "Delete this agent? This cannot be undone.",
       "conflictAlert": "Someone else modified this agent. Reload to see changes.",
       "reload": "Reload",
+      "openOrchestration": "Advanced Orchestration",
+      "openOrchestrationHelp": "Wake-up triggers and the failed-event queue for this agent.",
       "tabs": {
         "general": "General",
         "prompt": "Prompt",

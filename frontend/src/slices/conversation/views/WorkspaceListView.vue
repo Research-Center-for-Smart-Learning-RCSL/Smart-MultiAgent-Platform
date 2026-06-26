@@ -6,6 +6,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/vue-query'
 import {
   PlusIcon,
   Square3Stack3DIcon,
+  ShareIcon,
   TrashIcon,
   EllipsisVerticalIcon,
 } from '@heroicons/vue/24/outline'
@@ -102,10 +103,15 @@ const deleteMutation = useMutation({
 })
 
 const actionItems = computed(() => [
+  { key: 'workflows', label: t('conversation.workspaces.workflows'), icon: ShareIcon },
   { key: 'delete', label: t('conversation.workspaces.delete'), icon: TrashIcon, danger: true },
 ])
 
 async function onAction(key: string, ws: Workspace): Promise<void> {
+  if (key === 'workflows') {
+    router.push({ name: 'workflow.list', params: { workspaceId: ws.id } })
+    return
+  }
   if (key !== 'delete') return
   const ok = await confirm({
     title: t('conversation.workspaces.deleteTitle'),
