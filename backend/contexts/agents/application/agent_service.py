@@ -61,6 +61,8 @@ _DEFAULT_WAKEUP_CONFIG: dict[str, Any] = {"triggers": {"every_n_messages": {"ena
 # Built-in tools a NEW agent gets by default — code_exec is omitted so the
 # Code Interpreter is opt-in (the user enables it in the agent editor).
 _DEFAULT_BUILTIN_TOOLS: tuple[str, ...] = ("web_search", "file")
+# Canonical display order for the editor (Code Interpreter is the headline).
+_BUILTIN_TOOL_ORDER: tuple[str, ...] = ("code_exec", "web_search", "file")
 
 
 class AgentService:
@@ -444,6 +446,73 @@ class AgentService:
                 request_id=request_id,
             ),
         )
+
+    # ---- built-in tools (Code Interpreter etc.) --------------------------
+
+    async def get_enabled_builtins(self, agent_id: uuid.UUID) -> list[str]:
+        """The agent's currently-enabled built-in tools, in display order.
+
+        Single source of truth for the gate rule — the editor reads this rather
+        than re-deriving it, so the two can't drift."""
+        from contexts.agents.application.runtime.builtin_tools import _enabled_builtins
+
+        enabled = _enabled_builtins(list(await self._bindings.list(agent_id)))
+        return [t for t in _BUILTIN_TOOL_ORDER if t in enabled]
+
+    async def set_builtin_tools(
+        self,
+        *,
+        agent_id: uuid.UUID,
+        enabled: set[str],
+        actor_user_id: uuid.UUID,
+        actor_ip: str | None,
+        request_id: uuid.UUID | None = None,
+    ) -> list[str]:
+        """Reconcile the agent's builtin MCP bindings to match *enabled*.
+
+        Owns the gate semantics server-side: all three enabled -> no builtin
+        bindings (legacy all-on); none enabled -> a single sentinel binding;
+        otherwise one binding per enabled tool. The ``__none__`` sentinel stays
+        an internal detail here, never an API contract the client must know."""
+        from contexts.agents.application.runtime.builtin_tools import (
+            BUILTIN_NONE_SENTINEL,
+            BUILTIN_TOOL_NAMES,
+        )
+
+        await self.get(agent_id)
+        valid = set(enabled) & set(BUILTIN_TOOL_NAMES)
+        existing = [b for b in await self._bindings.list(agent_id) if b.source is McpSource.BUILTIN]
+        if valid == set(BUILTIN_TOOL_NAMES):
+            target_refs: set[str] = set()
+        elif not valid:
+            target_refs = {BUILTIN_NONE_SENTINEL}
+        else:
+            target_refs = valid
+        existing_refs = {b.reference for b in existing}
+        for reference in target_refs - existing_refs:
+            await self._bindings.add(
+                agent_id=agent_id,
+                source=McpSource.BUILTIN,
+                reference=reference,
+                allowed_tools=[],
+                config={},
+            )
+        for binding in existing:
+            if binding.reference not in target_refs:
+                await self._bindings.remove(agent_id=agent_id, binding_id=binding.id)
+        await audit.emit(
+            self._db,
+            audit.AuditEvent(
+                action="agent.builtin_tools_set",
+                actor_user_id=actor_user_id,
+                actor_ip=actor_ip,
+                resource_type="agent",
+                resource_id=agent_id,
+                metadata={"agent_id": str(agent_id), "enabled": sorted(valid)},
+                request_id=request_id,
+            ),
+        )
+        return await self.get_enabled_builtins(agent_id)
 
 
 __all__ = ["AgentService"]

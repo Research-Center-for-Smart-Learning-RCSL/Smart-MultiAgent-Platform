@@ -134,6 +134,63 @@ class TestCreate:
         assert all(c.kwargs["source"] is McpSource.BUILTIN for c in bindings.add.await_args_list)
 
     @patch("contexts.agents.application.agent_service.audit.emit", new_callable=AsyncMock)
+    async def test_set_builtin_tools_reconciles(self, _audit) -> None:
+        # Agent currently has one builtin binding for web_search (explicit mode).
+        existing = McpBinding(
+            id=uuid.uuid4(),
+            agent_id=uuid.uuid4(),
+            source=McpSource.BUILTIN,
+            reference="web_search",
+            allowed_tools=(),
+            config={},
+            created_at=_NOW,
+        )
+        agents = AsyncMock()
+        agents.get.return_value = _make_agent()
+        bindings = AsyncMock()
+        bindings.list.return_value = [existing]
+        svc = _make_service(agent_repo=agents, binding_repo=bindings)
+
+        await svc.set_builtin_tools(
+            agent_id=existing.agent_id,
+            enabled={"web_search", "code_exec"},
+            actor_user_id=_USER_ID,
+            actor_ip=None,
+        )
+        # code_exec is newly added; web_search already exists so it is not re-added
+        # and not removed (only non-target builtins would be).
+        added_refs = {c.kwargs["reference"] for c in bindings.add.await_args_list}
+        assert added_refs == {"code_exec"}
+        assert bindings.remove.await_count == 0
+
+    @patch("contexts.agents.application.agent_service.audit.emit", new_callable=AsyncMock)
+    async def test_set_builtin_tools_all_on_clears_bindings(self, _audit) -> None:
+        existing = McpBinding(
+            id=uuid.uuid4(),
+            agent_id=uuid.uuid4(),
+            source=McpSource.BUILTIN,
+            reference="web_search",
+            allowed_tools=(),
+            config={},
+            created_at=_NOW,
+        )
+        agents = AsyncMock()
+        agents.get.return_value = _make_agent()
+        bindings = AsyncMock()
+        bindings.list.return_value = [existing]
+        svc = _make_service(agent_repo=agents, binding_repo=bindings)
+
+        await svc.set_builtin_tools(
+            agent_id=existing.agent_id,
+            enabled={"web_search", "code_exec", "file"},
+            actor_user_id=_USER_ID,
+            actor_ip=None,
+        )
+        # All three enabled -> remove the explicit binding, add none (legacy all-on).
+        assert bindings.add.await_count == 0
+        assert bindings.remove.await_count == 1
+
+    @patch("contexts.agents.application.agent_service.audit.emit", new_callable=AsyncMock)
     async def test_cap_exceeded_raises(self, _audit) -> None:
         agents = AsyncMock()
         agents.count_active.return_value = _AGENT_CAP_PER_PROJECT

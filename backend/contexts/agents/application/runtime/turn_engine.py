@@ -372,16 +372,24 @@ class TurnEngine:
             attachments = await facade.latest_user_attachments(chatroom_id)
             if not attachments:
                 return None
-            staged: list[StagedFile] = []
+            # Choose within the byte budget using the known sizes BEFORE reading,
+            # so we never pull more than the cap into memory; then read the
+            # chosen files concurrently.
+            chosen: list[Any] = []
             total = 0
             for att in attachments[:_MAX_STAGED_FILES]:
-                data = await facade.read_attachment_bytes(att.id)
-                if data is None:
+                if total + att.size_bytes > _MAX_STAGED_BYTES:
                     continue
-                if total + len(data) > _MAX_STAGED_BYTES:
-                    break
-                total += len(data)
-                staged.append(StagedFile(filename=att.filename, data=data))
+                total += att.size_bytes
+                chosen.append(att)
+            if not chosen:
+                return None
+            blobs = await facade.read_attachments_bytes(chosen)
+            staged = [
+                StagedFile(filename=att.filename, data=data)
+                for att, data in zip(chosen, blobs, strict=True)
+                if data is not None
+            ]
             if not staged:
                 return None
             runner = docker_runsc_sandbox_from_settings()
@@ -405,6 +413,7 @@ class TurnEngine:
         rolls back the already-committed reply. Returns the count persisted."""
         if not artifacts:
             return 0
+        import asyncio
         import base64
 
         from contexts.conversation.application.attachment_service import AttachmentService
@@ -412,7 +421,7 @@ class TurnEngine:
         try:
             svc = AttachmentService(self._db)
             seen: set[str] = set()
-            ids: list[uuid.UUID] = []
+            prepared: list[tuple[str, str, bytes]] = []
             for art in artifacts:
                 rel = str(art.get("rel_path") or art.get("filename") or "")
                 if rel in seen:
@@ -427,21 +436,31 @@ class TurnEngine:
                 except Exception:
                     _log.debug("skipping artifact with undecodable b64", exc_info=True)
                     continue
-                row = await svc.ingest_agent_artifact(
-                    project_id=agent.project_id,
-                    chatroom_id=chatroom_id,
-                    agent_id=agent.id,
-                    filename=str(art.get("filename") or "artifact"),
-                    mime=str(art.get("mime") or "application/octet-stream"),
-                    data=data,
+                prepared.append(
+                    (
+                        str(art.get("filename") or "artifact"),
+                        str(art.get("mime") or "application/octet-stream"),
+                        data,
+                    )
                 )
-                ids.append(row.id)
-            if ids:
-                await svc.bind_agent_artifacts(
-                    attachment_ids=ids, message_id=message_id, chatroom_id=chatroom_id
-                )
+            if not prepared:
+                return 0
+            # Uploads are independent object-store writes -> run concurrently;
+            # the row inserts/bind that follow share the DB session, so they stay
+            # sequential inside persist_agent_artifacts.
+            uploads = await asyncio.gather(
+                *[
+                    svc.upload_agent_artifact(
+                        project_id=agent.project_id, chatroom_id=chatroom_id, filename=fn, mime=mt, data=d
+                    )
+                    for (fn, mt, d) in prepared
+                ]
+            )
+            count = await svc.persist_agent_artifacts(
+                agent_id=agent.id, message_id=message_id, chatroom_id=chatroom_id, uploads=uploads
+            )
             await self._db.commit()
-            return len(ids)
+            return count
         except Exception:
             _log.warning("artifact persistence failed for agent %s", agent.id, exc_info=True)
             with contextlib.suppress(Exception):

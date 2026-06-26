@@ -168,11 +168,21 @@ def _get_semaphore() -> asyncio.Semaphore:
     return _container_semaphore
 
 
-def _docker_client() -> Any:
-    """Lazy-import the docker SDK so unit tests don't need it installed."""
-    import docker
+_docker_client_instance: Any | None = None
 
-    return docker.from_env()
+
+def _docker_client() -> Any:
+    """Process-wide docker client (lazy-imported so unit tests don't need the SDK).
+
+    Cached because the worker rebuilds the sandbox runner every turn and the
+    reaper ticks every minute — recreating ``docker.from_env()`` each time is
+    pure waste (mirrors the cached MinIO client)."""
+    global _docker_client_instance
+    if _docker_client_instance is None:
+        import docker
+
+        _docker_client_instance = docker.from_env()
+    return _docker_client_instance
 
 
 # --------------------------------------------------------------------------- #
@@ -643,15 +653,15 @@ class DockerRunscSandbox:
         session = _session_key(agent_id, chatroom_id)
         start = time.monotonic()
         budget = min(float(timeout_s), 30.0)
-        notice = ""
+        restarted = False
         for attempt in (1, 2):
             handle, status = await self._get_or_create_kernel(
                 client, agent_id=agent_id, chatroom_id=chatroom_id
             )
-            # Only warn when a kernel that previously held state had to be
-            # recreated — never on the first call of a session (status="created").
+            # Only flag a restart when a kernel that previously held state had to
+            # be recreated — never on the first call of a session ("created").
             if status == "recreated":
-                notice = "[kernel restarted: in-memory state was lost]\n"
+                restarted = True
             try:
                 async with handle.lock, _get_semaphore():
                     exec_out = await asyncio.wait_for(
@@ -683,9 +693,9 @@ class DockerRunscSandbox:
                         metadata={"session": session},
                     )
                 # The kernel we were using just died — its state is gone.
-                notice = "[kernel restarted: in-memory state was lost]\n"
+                restarted = True
                 continue
-            return self._reply_to_result(exec_out, notice=notice, start=start, session=session)
+            return self._reply_to_result(exec_out, restarted=restarted, start=start, session=session)
         # Loop always returns above; satisfy the type checker.
         raise AssertionError("unreachable")
 
@@ -714,7 +724,7 @@ class DockerRunscSandbox:
         return int(result.exit_code or 0), stdout_b or b"", stderr_b or b""
 
     def _reply_to_result(
-        self, exec_out: tuple[int, bytes, bytes], *, notice: str, start: float, session: str
+        self, exec_out: tuple[int, bytes, bytes], *, restarted: bool, start: float, session: str
     ) -> ToolCallResult:
         exit_code, stdout_b, stderr_b = exec_out
         raw = stdout_b.decode("utf-8", errors="replace")
@@ -728,16 +738,22 @@ class DockerRunscSandbox:
                 stderr=f"kernel returned non-JSON: {raw[:512]} {err[:256]}".strip(),
                 exit_code=exit_code or 1,
                 duration_ms=_ms_since(start),
-                metadata={"session": session},
+                metadata={"session": session, "restarted": restarted},
             )
         ok = bool(reply.get("ok"))
+        # The restart signal rides in metadata (not concatenated into stdout) so
+        # the kernel's own output stays clean; the tool layer surfaces it.
         return ToolCallResult(
             ok=ok,
-            stdout=notice + str(reply.get("stdout", "")),
+            stdout=str(reply.get("stdout", "")),
             stderr=str(reply.get("stderr", "")),
             exit_code=0 if ok else 1,
             duration_ms=_ms_since(start),
-            metadata={"session": session, "artifacts": list(reply.get("artifacts") or [])},
+            metadata={
+                "session": session,
+                "restarted": restarted,
+                "artifacts": list(reply.get("artifacts") or []),
+            },
         )
 
     async def _get_or_create_kernel(
@@ -873,23 +889,26 @@ class DockerRunscSandbox:
                 await self._remove_quietly(container)
         return staged
 
-    async def cleanup_orphan_kernels(self, *, max_age_s: float = 3600) -> int:
-        """Backstop sweep: remove kernel containers older than *max_age_s* that
-        are no longer tracked (parent process crashed before idle-reaping)."""
+    async def _remove_aged_containers(
+        self, *, label: str, max_age_s: float, skip_ids: frozenset[str] = frozenset()
+    ) -> int:
+        """Remove labelled containers older than *max_age_s*, skipping tracked ids.
+
+        Shared by the sandbox-orphan and kernel-orphan sweeps so the listing,
+        timestamp parse, and force-remove stay in one place."""
         client = self._client()
         try:
             containers = await asyncio.to_thread(
-                client.containers.list, all=True, filters={"label": _KERNEL_LABEL}
+                client.containers.list, all=True, filters={"label": label}
             )
         except Exception:
-            _log.warning("kernel cleanup: failed to list containers", exc_info=True)
+            _log.warning("orphan cleanup: failed to list containers (label=%s)", label, exc_info=True)
             return 0
-        tracked = {h.container_id for h in _KERNELS.values()}
         cutoff = time.time() - max_age_s
         removed = 0
         for c in containers:
             try:
-                if c.id in tracked:
+                if c.id in skip_ids:
                     continue
                 created = c.attrs.get("Created", "")
                 if not created:
@@ -898,42 +917,23 @@ class DockerRunscSandbox:
                 if ts < cutoff:
                     await asyncio.to_thread(c.remove, force=True)
                     removed += 1
-                    _log.info("kernel cleanup: removed orphan kernel %s", c.short_id)
-            except Exception:
-                _log.debug("kernel cleanup: skip container %s", c.short_id, exc_info=True)
-        return removed
-
-    async def cleanup_orphan_containers(self, *, max_age_s: float = 600) -> int:
-        """Remove sandbox containers older than *max_age_s* seconds.
-
-        Called periodically from the worker to catch containers whose parent
-        process crashed before the finally-block removal ran.
-        """
-        client = self._client()
-        removed = 0
-        try:
-            containers = await asyncio.to_thread(
-                client.containers.list,
-                all=True,
-                filters={"label": _CONTAINER_LABEL},
-            )
-        except Exception:
-            _log.warning("orphan cleanup: failed to list containers", exc_info=True)
-            return 0
-        cutoff = time.time() - max_age_s
-        for c in containers:
-            try:
-                created = c.attrs.get("Created", "")
-                if not created:
-                    continue
-                ts = datetime.datetime.fromisoformat(created.replace("Z", "+00:00")).timestamp()
-                if ts < cutoff:
-                    await asyncio.to_thread(c.remove, force=True)
-                    removed += 1
-                    _log.info("orphan cleanup: removed container %s", c.short_id)
+                    _log.info("orphan cleanup: removed container %s (label=%s)", c.short_id, label)
             except Exception:
                 _log.debug("orphan cleanup: skip container %s", c.short_id, exc_info=True)
         return removed
+
+    async def cleanup_orphan_kernels(self, *, max_age_s: float = 3600) -> int:
+        """Backstop sweep: remove kernel containers older than *max_age_s* that
+        are no longer tracked (parent process crashed before idle-reaping)."""
+        tracked = frozenset(h.container_id for h in _KERNELS.values())
+        return await self._remove_aged_containers(
+            label=_KERNEL_LABEL, max_age_s=max_age_s, skip_ids=tracked
+        )
+
+    async def cleanup_orphan_containers(self, *, max_age_s: float = 600) -> int:
+        """Remove ephemeral sandbox containers whose parent process crashed
+        before the finally-block removal ran."""
+        return await self._remove_aged_containers(label=_CONTAINER_LABEL, max_age_s=max_age_s)
 
 
 async def _reap_idle_kernels_once(idle_s: float) -> int:

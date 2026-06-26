@@ -552,4 +552,65 @@ async def delete_mcp_binding(
     )
 
 
+class BuiltinToolsIn(BaseModel):
+    enabled: list[str] = Field(default_factory=list, max_length=16)
+
+
+class BuiltinToolsOut(BaseModel):
+    enabled: list[str]
+
+
+@agent_router.get("/{agent_id}/builtin-tools")
+async def get_builtin_tools(
+    agent_id: uuid.UUID = Path(...),
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(db_session),
+) -> BuiltinToolsOut:
+    service = AgentService(db)
+    agent = await service.get(agent_id)
+    from shared_kernel.auth.dependencies import _raise_forbidden, get_role_resolver
+    from shared_kernel.auth.permissions import Scope
+
+    if not principal.is_admin:
+        resolver = await get_role_resolver(db)
+        roles = await resolver.roles_for(principal, Scope(project_id=agent.project_id))
+        if not roles:
+            _raise_forbidden("caller is not a member of the agent's project")
+    return BuiltinToolsOut(enabled=await service.get_enabled_builtins(agent_id))
+
+
+@agent_router.put("/{agent_id}/builtin-tools")
+async def set_builtin_tools(
+    body: BuiltinToolsIn,
+    agent_id: uuid.UUID = Path(...),
+    ctx: RequestContext = Depends(current_context),
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(db_session),
+) -> BuiltinToolsOut:
+    service = AgentService(db)
+    agent = await service.get(agent_id)
+
+    from shared_kernel.auth.dependencies import _raise_forbidden, get_role_resolver
+    from shared_kernel.auth.permissions import Scope, decide
+
+    resolver = await get_role_resolver(db)
+    decision = await decide(
+        principal,
+        Capability.RESOURCE_CREATE_EDIT,
+        Scope(project_id=agent.project_id),
+        resolver,
+    )
+    if not decision.allowed:
+        _raise_forbidden(decision.reason)
+
+    enabled = await service.set_builtin_tools(
+        agent_id=agent_id,
+        enabled=set(body.enabled),
+        actor_user_id=principal.user_id,
+        actor_ip=ctx.actor_ip,
+        request_id=ctx.request_id,
+    )
+    return BuiltinToolsOut(enabled=enabled)
+
+
 __all__ = ["agent_router", "project_router"]

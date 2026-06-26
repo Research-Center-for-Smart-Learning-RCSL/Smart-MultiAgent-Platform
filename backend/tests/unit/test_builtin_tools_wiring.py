@@ -170,6 +170,20 @@ async def test_code_exec_threads_chatroom_and_collects_artifacts() -> None:
     assert runner.run_code_exec.await_args.kwargs["chatroom_id"] == room
 
 
+async def test_code_exec_surfaces_kernel_restart_from_metadata() -> None:
+    runner = AsyncMock()
+    runner.run_code_exec.return_value = ToolCallResult(
+        ok=True, stdout="hi", stderr="", exit_code=0, duration_ms=1, metadata={"restarted": True}
+    )
+    tools = {
+        t.name: t
+        for t in bt.build_builtin_tools(AsyncMock(), agent=_agent(), mcp_bindings=[], deps=_deps(runner=runner))
+    }
+    res = await tools["code_exec"].invoke({"source": "print('hi')"})
+    assert res.content.startswith("[kernel restarted")
+    assert "hi" in res.content
+
+
 async def test_code_exec_requires_source() -> None:
     tools = {
         t.name: t for t in bt.build_builtin_tools(AsyncMock(), agent=_agent(), mcp_bindings=[], deps=_deps())
