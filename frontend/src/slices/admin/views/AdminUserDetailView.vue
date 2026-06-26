@@ -21,6 +21,9 @@
           <dt>{{ $t('admin.userDetail.id') }}</dt>
           <dd><code class="font-mono text-[0.8125rem]">{{ query.data.value.id }}</code></dd>
 
+          <dt>{{ $t('admin.userDetail.displayName') }}</dt>
+          <dd>{{ query.data.value.display_name ?? '-' }}</dd>
+
           <dt>{{ $t('admin.users.status') }}</dt>
           <dd>
             <SStatusBadge :status="query.data.value.status">

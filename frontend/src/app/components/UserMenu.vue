@@ -7,6 +7,7 @@ import {
   ComputerDesktopIcon,
   ShieldExclamationIcon,
   ArrowRightOnRectangleIcon,
+  UserCircleIcon,
   SunIcon,
   MoonIcon,
 } from '@heroicons/vue/24/outline'
@@ -27,7 +28,10 @@ const themeIcons: Record<Theme, Component> = {
   system: ComputerDesktopIcon,
 }
 
-const avatarName = computed(() => session.me?.email ?? '')
+const displayName = computed(() => session.me?.display_name?.trim() ?? '')
+// Avatar initial and menu header prefer the display name; email is the fallback
+// label (and a secondary line) since it is always present.
+const avatarName = computed(() => displayName.value || session.me?.email || '')
 
 const menuItems = computed(() => {
   const items: Array<{
@@ -39,11 +43,27 @@ const menuItems = computed(() => {
     divider?: boolean
   }> = [
     {
-      key: 'email-header',
-      label: session.me?.email ?? '',
+      key: 'name-header',
+      label: displayName.value || (session.me?.email ?? ''),
       disabled: true,
     },
+  ]
+
+  if (displayName.value) {
+    items.push({
+      key: 'email-subheader',
+      label: session.me?.email ?? '',
+      disabled: true,
+    })
+  }
+
+  items.push(
     { key: 'div-header', label: '', divider: true },
+    {
+      key: 'profile',
+      label: t('app.userMenu.profile'),
+      icon: UserCircleIcon,
+    },
     {
       key: 'account',
       label: t('app.userMenu.account'),
@@ -54,7 +74,7 @@ const menuItems = computed(() => {
       label: t('app.userMenu.sessions'),
       icon: ComputerDesktopIcon,
     },
-  ]
+  )
 
   if (isMobile.value) {
     items.push({ key: 'div-theme', label: '', divider: true })
@@ -87,6 +107,9 @@ const menuItems = computed(() => {
 
 async function onSelect(key: string) {
   switch (key) {
+    case 'profile':
+      router.push({ name: 'identity.profile' })
+      break
     case 'account':
       router.push({ name: 'identity.changePassword' })
       break

@@ -1,6 +1,7 @@
 export interface UserSummary {
   id: string
   email: string
+  display_name: string | null
   status: 'active' | 'pending' | 'banned' | 'deleted'
   email_verified: boolean
   created_at: string
@@ -9,6 +10,7 @@ export interface UserSummary {
 export interface UserDetail {
   id: string
   email: string
+  display_name: string | null
   status: 'active' | 'pending' | 'banned' | 'deleted'
   email_verified: boolean
   is_admin: boolean

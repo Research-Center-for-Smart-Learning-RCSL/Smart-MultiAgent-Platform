@@ -102,6 +102,7 @@
       "loadError": "Failed to load"
     },
     "userMenu": {
+      "profile": "Profile",
       "account": "Account Settings",
       "sessions": "Sessions",
       "theme": "Theme: {theme}",

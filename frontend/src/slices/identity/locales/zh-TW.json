@@ -51,6 +51,14 @@
       "expiredToken": "此重設連結已過期。",
       "requestNewLink": "申請新連結"
     },
+    "profile": {
+      "title": "個人資料",
+      "emailLabel": "電子郵件",
+      "displayName": "顯示名稱",
+      "displayNameHelp": "聊天室中顯示給其他人看的名稱。留空則改用簡短 ID。",
+      "submit": "儲存",
+      "saved": "個人資料已更新。"
+    },
     "changePassword": {
       "title": "變更密碼",
       "current": "目前密碼",
@@ -133,7 +141,8 @@
       "passwordMinLength": "密碼至少需要 10 個字元。",
       "passwordMismatch": "密碼不一致。",
       "passwordSame": "新密碼不能與目前密碼相同。",
-      "emailSame": "新信箱不能與目前信箱相同。"
+      "emailSame": "新信箱不能與目前信箱相同。",
+      "displayNameMaxLength": "顯示名稱不能超過 50 個字元。"
     }
   }
 }

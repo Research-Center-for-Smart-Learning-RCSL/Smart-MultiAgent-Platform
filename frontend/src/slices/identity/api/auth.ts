@@ -24,6 +24,7 @@ export interface Me {
   email_verified: boolean
   is_admin: boolean
   status: 'active' | 'pending' | 'banned' | 'deleted'
+  display_name: string | null
 }
 
 export interface Session {
@@ -67,6 +68,11 @@ export const authApi = {
     http.post('/auth/change-email', body),
 
   me: () => http.get<Me>('/auth/me'),
+
+  // Set or clear the optional display name. `null` (or blank) clears it; the
+  // server normalises and echoes back the stored value as the fresh `Me`.
+  updateProfile: (body: { display_name: string | null }) =>
+    http.patch<Me>('/auth/me', body),
 
   // Self-service account deletion (R6.07). DELETE carries the re-auth password
   // in the body (`{ data }` — axios puts a DELETE payload there). A 409 means

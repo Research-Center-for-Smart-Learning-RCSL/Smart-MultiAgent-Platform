@@ -32,6 +32,12 @@ export const identityRoutes: RouteRecordRaw[] = [
     meta: { requiresAuth: false, layout: 'auth' },
   },
   {
+    path: '/account/profile',
+    name: 'identity.profile',
+    component: () => import('./views/ProfileView.vue'),
+    meta: { requiresAuth: true },
+  },
+  {
     path: '/account/password',
     name: 'identity.changePassword',
     component: () => import('./views/ChangePasswordView.vue'),
