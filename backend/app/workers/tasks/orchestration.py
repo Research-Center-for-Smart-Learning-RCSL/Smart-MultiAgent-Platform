@@ -23,29 +23,6 @@ from loguru import logger
 from shared_kernel.db.session import async_session
 
 
-async def _emit_mention_skip_notice(room_id: uuid.UUID, agent_id: uuid.UUID, reason: str) -> None:
-    """Best-effort WS notice that an explicitly-summoned agent could not run.
-
-    A worker-level guard (agent soft-deleted while still room-bound) returns
-    before the TurnEngine ever emits, so without this an @mention to such an
-    agent would silently produce nothing. Autonomous triggers are not routed
-    here — only explicit mentions. Failure must never fail the wake-up job.
-
-    Keyed on ``error`` (not ``reason``): the client only surfaces
-    ``agent.finished.error`` — a ``reason`` payload is treated as a benign
-    silent skip and never shown.
-    """
-    try:
-        from contexts.conversation.infrastructure.channels import room_channel
-        from shared_kernel.realtime.pubsub import Publisher
-
-        await Publisher(room_channel(room_id)).emit(
-            "agent.finished", {"error": reason, "agent_id": str(agent_id)}
-        )
-    except Exception:
-        logger.bind(agent_id=str(agent_id), room_id=str(room_id)).warning("mention skip-notice emit failed")
-
-
 async def wakeup_agent(
     ctx: dict[str, Any],
     agent_id: str,
@@ -90,7 +67,14 @@ async def wakeup_agent(
         agent = await AgentsFacade(db).get_agent(aid)
         if agent is None:
             if trigger == "mention":
-                await _emit_mention_skip_notice(rid, aid, "agent_gone")
+                # A worker-level guard (agent soft-deleted while still room-bound)
+                # returns before the TurnEngine emits, so without this an @mention
+                # to such an agent would silently produce nothing.
+                from contexts.conversation.infrastructure.channels import (
+                    emit_agent_finished_error,
+                )
+
+                await emit_agent_finished_error(rid, aid, "agent_gone")
             logger.bind(agent_id=agent_id, room_id=room_id).info("wakeup skipped: agent gone")
             return "skipped:agent_gone"
         cfg = WakeupConfig.from_dict(agent.wakeup_config)

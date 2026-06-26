@@ -63,6 +63,16 @@ async def claim_gated_notice(
     return bool(await r.set(key, "1", nx=True, ex=cooldown_s))
 
 
+async def release_gated_notice(agent_id: uuid.UUID, room_id: uuid.UUID) -> None:
+    """Drop the debounce token so the next presence-gated wake-up can re-notify.
+
+    Used when a claimed notice failed to deliver — without this a transient
+    failure would silence the heads-up for the full cooldown window.
+    """
+    r = get_redis()
+    await r.delete(_gated_notice_key(agent_id, room_id))
+
+
 # ---------------------------------------------------------------------------
 # every_n_messages counter
 # ---------------------------------------------------------------------------

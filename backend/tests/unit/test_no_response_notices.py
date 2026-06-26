@@ -30,6 +30,9 @@ class _FakeDB:
     async def commit(self) -> None:
         return None
 
+    async def rollback(self) -> None:
+        return None
+
 
 def _locked_agent():
     return SimpleNamespace(id=uuid.uuid4(), key_group_id=uuid.uuid4(), project_id=uuid.uuid4())
@@ -51,15 +54,10 @@ def _wire_locked(
     """
     emitted: list[tuple[str, dict]] = []
 
-    class _Pub:
-        def __init__(self, _channel) -> None:
-            pass
+    async def _fake_emit(chatroom_id, agent_id, reason) -> None:
+        emitted.append(("agent.finished", {"error": reason, "agent_id": str(agent_id)}))
 
-        async def emit(self, event, payload) -> None:
-            emitted.append((event, payload))
-
-    monkeypatch.setattr(te, "Publisher", _Pub)
-    monkeypatch.setattr(te, "room_channel", lambda rid: rid)
+    monkeypatch.setattr(te, "emit_agent_finished_error", _fake_emit)
 
     class _AgentsFacade:
         def __init__(self, db) -> None:
@@ -248,6 +246,45 @@ async def test_gated_notice_noop_without_owners(monkeypatch) -> None:
     agent = SimpleNamespace(id=uuid.uuid4(), name="Nova", project_id=uuid.uuid4())
     await _svc()._notify_wakeup_gated(agent, uuid.uuid4())
     assert sends == []
+
+
+@pytest.mark.asyncio
+async def test_gated_notice_releases_token_when_delivery_fails(monkeypatch) -> None:
+    # A claimed-but-undelivered notice must free the debounce token so the next
+    # gated message can retry, rather than going dark for the whole cooldown.
+    released: list = []
+
+    async def _claim(agent_id, room_id, cooldown_s=3600):
+        return True
+
+    async def _release(agent_id, room_id):
+        released.append((agent_id, room_id))
+
+    monkeypatch.setattr("contexts.orchestration.infrastructure.wakeup_state.claim_gated_notice", _claim)
+    monkeypatch.setattr("contexts.orchestration.infrastructure.wakeup_state.release_gated_notice", _release)
+
+    class _Tenancy:
+        def __init__(self, db) -> None:
+            pass
+
+        async def project_members(self, project_id):
+            return [_member(ProjectMemberRole.OWNER)]
+
+    monkeypatch.setattr("contexts.tenancy.interfaces.facade.TenancyFacade", _Tenancy)
+
+    class _Notif:
+        def __init__(self, db) -> None:
+            pass
+
+        async def send(self, **kwargs):
+            raise RuntimeError("provider down")
+
+    monkeypatch.setattr("contexts.notification.interfaces.facade.NotificationFacade", _Notif)
+
+    agent = SimpleNamespace(id=uuid.uuid4(), name="Nova", project_id=uuid.uuid4())
+    # Best-effort: must swallow the failure, not propagate into wake-up dispatch.
+    await _svc()._notify_wakeup_gated(agent, uuid.uuid4())
+    assert len(released) == 1
 
 
 # --------------------------------------------------------------------------- #

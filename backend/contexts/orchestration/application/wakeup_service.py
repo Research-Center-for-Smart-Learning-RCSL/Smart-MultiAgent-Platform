@@ -114,10 +114,15 @@ class WakeupService:
         was suppressed because nobody was present and ``allow_self_open`` is off.
 
         Debounced to at most once an hour per (agent, room) so an active room
-        cannot spam the bell. The caller's message is already durably committed
-        (the wake-up dispatch is post-commit), so we persist + publish our own
-        notification rows here rather than leaving them to a trailing commit a
-        best-effort rollback might discard.
+        cannot spam the bell. Self-contained best-effort: a failure here must not
+        disturb the wake-up dispatch that called it.
+
+        Each owner is committed individually. ``NotificationService`` publishes
+        ``notification.created`` on flush, so committing per owner keeps every
+        published bell entry backed by a durable row — a later owner's failure
+        can't leave an earlier owner with a ghost notification. If nothing was
+        delivered, the debounce token is released so the next message retries
+        rather than the room going dark for a full hour.
         """
         if not await wakeup_state.claim_gated_notice(agent.id, room_id):
             return
@@ -131,31 +136,41 @@ class WakeupService:
         from contexts.tenancy.domain.models import ProjectMemberRole
         from contexts.tenancy.interfaces.facade import TenancyFacade
 
-        members = await TenancyFacade(self._db).project_members(agent.project_id)
-        owners = [m.user_id for m in members if m.role is ProjectMemberRole.OWNER]
-        if not owners:
-            return
+        delivered = 0
+        try:
+            members = await TenancyFacade(self._db).project_members(agent.project_id)
+            owners = [m.user_id for m in members if m.role is ProjectMemberRole.OWNER]
+            if not owners:
+                return
 
-        notif = NotificationFacade(self._db)
-        body = (
-            f"{agent.name} reached its message trigger but did not open the room: "
-            "no one was present and it is not allowed to open the room on its own. "
-            "Enable self-open in the agent's wake-up settings to let it reply while you are away."
-        )
-        for uid in owners:
-            await notif.send(
-                user_id=uid,
-                kind=NotificationKind.AGENT_WAKEUP_GATED,
-                title="An agent stayed quiet while you were away",
-                body=body,
-                metadata={
-                    "agent_id": str(agent.id),
-                    "room_id": str(room_id),
-                    "reason": "presence_gated",
-                    "trigger": "every_n_messages",
-                },
+            notif = NotificationFacade(self._db)
+            body = (
+                f"{agent.name} reached its message trigger but did not open the room: "
+                "no one was present and it is not allowed to open the room on its own. "
+                "Enable self-open in the agent's wake-up settings to let it reply while you are away."
             )
-        await self._db.commit()
+            for uid in owners:
+                await notif.send(
+                    user_id=uid,
+                    kind=NotificationKind.AGENT_WAKEUP_GATED,
+                    title="An agent stayed quiet while you were away",
+                    body=body,
+                    metadata={
+                        "agent_id": str(agent.id),
+                        "room_id": str(room_id),
+                        "reason": "presence_gated",
+                        "trigger": "every_n_messages",
+                    },
+                )
+                await self._db.commit()
+                delivered += 1
+        except Exception:
+            await self._db.rollback()
+            if delivered == 0:
+                # Nothing reached anyone — free the debounce token so the next
+                # gated message can retry instead of staying silent for an hour.
+                await wakeup_state.release_gated_notice(agent.id, room_id)
+            logger.warning("presence-gate notice failed agent=%s room=%s", agent.id, room_id, exc_info=True)
 
     # ------------------------------------------------------------------
     # Silence timer evaluation (called periodically per agent+room)

@@ -37,7 +37,7 @@ from contexts.agents.domain.models import Agent
 from contexts.agents.infrastructure.turn_lock import DEFAULT_TURN_TTL_S, turn_lock
 from contexts.agents.interfaces.facade import AgentsFacade
 from contexts.conversation.application.message_service import MessageService
-from contexts.conversation.infrastructure.channels import room_channel
+from contexts.conversation.infrastructure.channels import emit_agent_finished_error, room_channel
 from contexts.conversation.infrastructure.repositories import ChatroomAgentRepository
 from contexts.keys.application.provider_router import (
     ProviderRequest,
@@ -408,33 +408,6 @@ class TurnEngine:
                 exc_info=True,
             )
 
-    async def _emit_skip_notice(self, chatroom_id: uuid.UUID, agent_id: uuid.UUID, reason: str) -> None:
-        """Best-effort 'why no reply' WS notice for a skipped turn.
-
-        Lets a present user learn why an agent went quiet instead of guessing.
-        These skip points sit *before* the main turn try-block, so a Redis
-        hiccup here must not escalate a benign skip into a failed turn —
-        swallow and log. Only actionable/explicit-call reasons reach here;
-        benign skips (no_input, empty_reply, locked) stay silent by design.
-
-        Emitted under the ``error`` key, not ``reason``: the client surfaces
-        ``agent.finished.error`` to the user but treats ``reason`` as a benign
-        silent skip (e.g. empty_reply), so a notice keyed on ``reason`` would
-        never be shown.
-        """
-        try:
-            await Publisher(room_channel(chatroom_id)).emit(
-                "agent.finished", {"error": reason, "agent_id": str(agent_id)}
-            )
-        except Exception:
-            _log.warning(
-                "skip-notice emit failed agent=%s room=%s reason=%s",
-                agent_id,
-                chatroom_id,
-                reason,
-                exc_info=True,
-            )
-
     async def _run_locked(
         self,
         *,
@@ -450,7 +423,7 @@ class TurnEngine:
             # An explicit @mention to a now-deleted agent deserves feedback;
             # autonomous triggers (every_n/silence) stay silent.
             if trigger == "mention":
-                await self._emit_skip_notice(chatroom_id, agent_id, "agent_gone")
+                await emit_agent_finished_error(chatroom_id, agent_id, "agent_gone")
             return TurnResult(status="skipped", reason="agent_gone")
         # AuthZ tap: re-validate the agent↔room binding at turn start (defends
         # against an unbind racing the trigger).
@@ -459,7 +432,7 @@ class TurnEngine:
         )
         if not bound:
             if trigger == "mention":
-                await self._emit_skip_notice(chatroom_id, agent_id, "not_bound")
+                await emit_agent_finished_error(chatroom_id, agent_id, "not_bound")
             return TurnResult(status="skipped", reason="not_bound")
         # AuthZ tap: the agent's key group must still belong to the agent's
         # project (defends against a key-group move/delete racing the trigger).
@@ -474,7 +447,7 @@ class TurnEngine:
             await self._db.commit()
             # Actionable for any trigger: a present user otherwise sees the agent
             # fall silent with no hint the key group was moved or deleted.
-            await self._emit_skip_notice(chatroom_id, agent.id, "key_group_scope")
+            await emit_agent_finished_error(chatroom_id, agent.id, "key_group_scope")
             return TurnResult(status="skipped", reason="key_group_scope")
         # Per-(agent, room) turn rate bucket — backstop against trigger storms.
         if not await self._turn_rate_allowed(agent_id, chatroom_id):
@@ -487,7 +460,7 @@ class TurnEngine:
             await self._db.commit()
             # Actionable for any trigger: the rate backstop is informative
             # regardless of who or what triggered the suppressed turn.
-            await self._emit_skip_notice(chatroom_id, agent.id, "rate_limited")
+            await emit_agent_finished_error(chatroom_id, agent.id, "rate_limited")
             return TurnResult(status="skipped", reason="rate_limited")
 
         provider = agent.model_hint.value
