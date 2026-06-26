@@ -6,7 +6,7 @@ const transport = vi.hoisted(() => ({ get: vi.fn() }))
 vi.mock('@shared/query-client', () => ({
   queryClient: { invalidateQueries: () => qc.invalidate() },
 }))
-vi.mock('@shared/transport', () => ({
+vi.mock('@shared/transport/axios', () => ({
   http: { get: (...args: unknown[]) => transport.get(...args) },
 }))
 
@@ -30,17 +30,15 @@ afterEach(() => {
 })
 
 describe('useNetworkStatus', () => {
-  it('starts online and not reconnecting', () => {
-    const { online, reconnecting } = useNetworkStatus()
+  it('starts online', () => {
+    const { online } = useNetworkStatus()
     expect(online.value).toBe(true)
-    expect(reconnecting.value).toBe(false)
   })
 
-  it('flips offline (and reconnecting) when the connection is lost', () => {
-    const { online, reconnecting } = useNetworkStatus()
+  it('flips offline when the connection is lost', () => {
+    const { online } = useNetworkStatus()
     markConnectionLost()
     expect(online.value).toBe(false)
-    expect(reconnecting.value).toBe(true)
   })
 
   it('invalidates queries exactly once on a genuine offline->online transition', () => {

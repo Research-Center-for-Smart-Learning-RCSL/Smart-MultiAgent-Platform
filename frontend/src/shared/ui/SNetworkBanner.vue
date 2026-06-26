@@ -43,7 +43,7 @@ const { online, retryNow } = useNetworkStatus()
   top: 0;
   left: 50%;
   transform: translateX(-50%);
-  z-index: var(--z-toast, 1000);
+  z-index: var(--z-banner, 350);
   width: min(640px, calc(100vw - 32px));
   margin-top: 12px;
 }

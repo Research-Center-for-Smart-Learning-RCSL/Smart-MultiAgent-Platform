@@ -43,7 +43,7 @@ export interface Message {
  *  unsent (optimistic) message and absent on every persisted message, so a
  *  truthy `_status` is the canonical "this is a local placeholder" test. */
 export interface DisplayMessage extends Message {
-  _status?: 'sending' | 'failed'
+  _status?: 'sending'
 }
 
 export interface Attachment {

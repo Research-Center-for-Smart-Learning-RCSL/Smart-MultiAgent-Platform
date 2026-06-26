@@ -52,8 +52,13 @@ export function useChatroomMessageEditing(chatroomId: string) {
         prev?.map((m) => (m.id === updated.id ? updated : m)),
       )
     } catch {
-      // Rollback to the pre-edit content and surface the failure.
+      // Rollback the optimistic content AND reopen the editor with the user's
+      // rewritten text, so a failed save (409 conflict / network) never discards
+      // it — they can fix and retry in place.
       if (prevRecent) qc.setQueryData(key, prevRecent)
+      editingId.value = id
+      editDraft.value = text
+      editVersion.value = version
       toast.error(t('conversation.chatroom.editFailed'))
     }
   }

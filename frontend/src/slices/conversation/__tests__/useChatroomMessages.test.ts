@@ -16,6 +16,7 @@ const api = vi.hoisted(() => ({
   listMessages: vi.fn(),
   sendMessage: vi.fn(),
   deleteMessage: vi.fn(),
+  editMessage: vi.fn(),
   getMessage: vi.fn(),
   getAttachment: vi.fn(),
   compactChatroom: vi.fn(),
@@ -39,6 +40,8 @@ vi.mock('vue-i18n', async (importOriginal) => {
 })
 
 import { useChatroomMessages } from '../composables/useChatroomMessages'
+import { useChatroomMessageEditing } from '../composables/useChatroomMessageEditing'
+import { convKeys } from '../queries'
 
 const ROOM = 'cr_1'
 type Composable = ReturnType<typeof useChatroomMessages>
@@ -70,22 +73,32 @@ function msg(over: Partial<Message> = {}): Message {
   }
 }
 
-function mountHost() {
+const HostComponent = defineComponent({
+  props: { run: { type: Function, required: true } },
+  setup(props) {
+    ;(props.run as () => void)()
+    return () => null
+  },
+})
+
+function mountQueryHost(run: () => void, gcTime = 0) {
   const pinia = createPinia()
   setActivePinia(pinia)
   const qc = new QueryClient({
-    defaultOptions: { queries: { retry: false, gcTime: 0 } },
+    defaultOptions: { queries: { retry: false, gcTime } },
   })
-  const wrapper = mount(
-    defineComponent({
-      setup() {
-        const listRef: Ref<HTMLElement | null> = ref(null)
-        composable = useChatroomMessages(ROOM, listRef)
-        return () => null
-      },
-    }),
-    { global: { plugins: [pinia, [VueQueryPlugin, { queryClient: qc }]] } },
-  )
+  mount(HostComponent, {
+    props: { run },
+    global: { plugins: [pinia, [VueQueryPlugin, { queryClient: qc }]] },
+  })
+  return qc
+}
+
+function mountHost() {
+  const qc = mountQueryHost(() => {
+    const listRef: Ref<HTMLElement | null> = ref(null)
+    composable = useChatroomMessages(ROOM, listRef)
+  })
   const session = useSessionStore()
   session.me = {
     id: 'u1',
@@ -94,7 +107,18 @@ function mountHost() {
     is_admin: false,
     status: 'active',
   }
-  return { wrapper }
+  return { qc }
+}
+
+let editing: ReturnType<typeof useChatroomMessageEditing>
+
+function mountEditing() {
+  // No useQuery observer lives in this host, so keep gcTime high — gcTime:0
+  // would collect the seeded cache entry before saveEdit reads it.
+  const qc = mountQueryHost(() => {
+    editing = useChatroomMessageEditing(ROOM)
+  }, Infinity)
+  return { qc }
 }
 
 beforeEach(() => {
@@ -145,6 +169,62 @@ describe('useChatroomMessages optimistic send', () => {
     await flushPromises()
 
     expect(composable.messages.value).toHaveLength(0)
+    // The user's text is restored so a failed send never loses it.
+    expect(composable.draft.value).toBe('boom')
+    expect(toast.error).toHaveBeenCalledTimes(1)
+  })
+
+  it('hides the persisted echo while the optimistic send is still in flight', async () => {
+    api.listMessages.mockResolvedValue([])
+    const send = deferred<Message>()
+    api.sendMessage.mockReturnValue(send.promise)
+
+    const { qc } = mountHost()
+    await flushPromises()
+
+    composable.draft.value = 'dup'
+    const pending = composable.onSend([])
+    await nextTick()
+    expect(composable.messages.value).toHaveLength(1)
+
+    // Simulate the WS echo refetch landing the persisted twin (same sender +
+    // content) BEFORE the POST resolves — it must NOT render a second time.
+    qc.setQueryData(convKeys.messages(ROOM), [
+      msg({ id: 'm_real', sender_id: 'u1', content_md: 'dup' }),
+    ])
+    await nextTick()
+    expect(composable.messages.value).toHaveLength(1)
+
+    send.resolve(msg({ id: 'm_real', sender_id: 'u1', content_md: 'dup' }))
+    await pending
+    await flushPromises()
+    expect(composable.messages.value.filter((m) => m.content_md === 'dup')).toHaveLength(1)
+  })
+})
+
+describe('useChatroomMessageEditing optimistic edit', () => {
+  it('reopens the editor with the user\'s text when the save fails', async () => {
+    const { qc } = mountEditing()
+    qc.setQueryData(convKeys.messages(ROOM), [msg({ id: 'm_e', content_md: 'old', version: 2 })])
+    const edit = deferred<Message>()
+    api.editMessage.mockReturnValue(edit.promise)
+
+    editing.startEdit(msg({ id: 'm_e', content_md: 'old', version: 2 }))
+    editing.editDraft.value = 'new text'
+    const pending = editing.saveEdit()
+    await nextTick()
+    // Optimistic: editor closed, cache shows the new content.
+    expect(editing.editingId.value).toBeNull()
+    expect((qc.getQueryData(convKeys.messages(ROOM)) as Message[])[0]!.content_md).toBe('new text')
+
+    edit.reject(new Error('conflict'))
+    await pending
+    await flushPromises()
+
+    // Rollback: content reverted AND the editor is reopened holding the draft.
+    expect((qc.getQueryData(convKeys.messages(ROOM)) as Message[])[0]!.content_md).toBe('old')
+    expect(editing.editingId.value).toBe('m_e')
+    expect(editing.editDraft.value).toBe('new text')
     expect(toast.error).toHaveBeenCalledTimes(1)
   })
 })
