@@ -23,8 +23,8 @@ export class ProjectsService {
         limit = 100,
         offset,
     }: {
-        scope: 'user' | 'org',
-        id: string,
+        scope?: ('user' | 'org' | null),
+        id?: (string | null),
         /**
          * Max items to return
          */

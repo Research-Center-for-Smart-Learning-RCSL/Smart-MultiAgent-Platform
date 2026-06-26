@@ -2,6 +2,7 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
+import type { GuestEnrollIn } from '../models/GuestEnrollIn';
 import type { CancelablePromise } from '../core/CancelablePromise';
 import { OpenAPI } from '../core/OpenAPI';
 import { request as __request } from '../core/request';
@@ -14,9 +15,11 @@ export class GuestsService {
     public static enrollGuestApiGuestChatroomIdGuestTokenEnrollPost({
         chatroomId,
         guestToken,
+        requestBody,
     }: {
         chatroomId: string,
         guestToken: string,
+        requestBody?: GuestEnrollIn,
     }): CancelablePromise<void> {
         return __request(OpenAPI, {
             method: 'POST',
@@ -25,6 +28,8 @@ export class GuestsService {
                 'chatroom_id': chatroomId,
                 'guest_token': guestToken,
             },
+            body: requestBody,
+            mediaType: 'application/json',
             errors: {
                 422: `Validation Error`,
             },

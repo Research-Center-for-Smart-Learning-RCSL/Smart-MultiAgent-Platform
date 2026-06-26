@@ -54,6 +54,7 @@ export type { GroupDetailOut } from './models/GroupDetailOut';
 export type { GroupIn } from './models/GroupIn';
 export type { GroupOut } from './models/GroupOut';
 export type { GroupPatchIn } from './models/GroupPatchIn';
+export type { GuestEnrollIn } from './models/GuestEnrollIn';
 export type { GuestLinkOut } from './models/GuestLinkOut';
 export type { HTTPValidationError } from './models/HTTPValidationError';
 export type { ImpersonateOut } from './models/ImpersonateOut';
