@@ -88,7 +88,8 @@ function onKeydown(e: KeyboardEvent) {
 
 .code-editor:focus {
   border-color: var(--color-accent);
-  outline: var(--focus-ring);
+  outline: none;
+  box-shadow: var(--focus-ring);
 }
 
 .code-editor[readonly] {

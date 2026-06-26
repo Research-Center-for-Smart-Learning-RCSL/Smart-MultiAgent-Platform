@@ -99,8 +99,9 @@ function onChange(event: Event) {
 }
 
 .s-select__native:focus {
-  outline: 2px solid var(--color-accent);
-  outline-offset: -1px;
+  border-color: var(--color-accent);
+  outline: none;
+  box-shadow: var(--focus-ring);
 }
 
 .s-select--sm .s-select__native {
@@ -117,7 +118,7 @@ function onChange(event: Event) {
 }
 
 .s-select--error .s-select__native:focus {
-  outline-color: var(--color-danger);
+  box-shadow: 0 0 0 2px var(--color-bg), 0 0 0 4px var(--color-danger);
 }
 
 .s-select--disabled .s-select__native {
