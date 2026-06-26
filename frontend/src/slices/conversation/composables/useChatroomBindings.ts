@@ -107,12 +107,40 @@ export function useChatroomBindings(
     }
   }
 
+  // Per-agent save coordination: the editor emits on every field commit, so a
+  // second edit can arrive while the first save is in flight. Stash the latest
+  // config and flush it after the running save returns, so no edit is dropped
+  // and consecutive saves don't reuse a stale version (409). We deliberately do
+  // not mutate the agent's local wakeup_config — that would re-render the editor
+  // and revert in-progress edits; only the version needs to advance.
+  const wakeupInFlight = new Set<string>()
+  const wakeupPending = new Map<string, WakeupConfig>()
+
   async function saveWakeupConfig(agentId: string, config: WakeupConfig): Promise<void> {
+    if (wakeupInFlight.has(agentId)) {
+      wakeupPending.set(agentId, config)
+      return
+    }
+    const agent = projectAgents.value.find((a) => a.id === agentId)
+    if (!agent) {
+      toast.error(t('conversation.settings.wakeupConfigFailed'))
+      return
+    }
+    wakeupInFlight.add(agentId)
     try {
-      await patchAgentWakeupConfig(agentId, config)
+      // The agent PATCH needs an If-Match precondition; pass the current
+      // version and adopt the bumped one so the next save doesn't conflict.
+      agent.version = await patchAgentWakeupConfig(agentId, config, agent.version)
       toast.success(t('conversation.settings.wakeupConfigSaved'))
     } catch {
       toast.error(t('conversation.settings.wakeupConfigFailed'))
+    } finally {
+      wakeupInFlight.delete(agentId)
+    }
+    const next = wakeupPending.get(agentId)
+    if (next) {
+      wakeupPending.delete(agentId)
+      await saveWakeupConfig(agentId, next)
     }
   }
 
