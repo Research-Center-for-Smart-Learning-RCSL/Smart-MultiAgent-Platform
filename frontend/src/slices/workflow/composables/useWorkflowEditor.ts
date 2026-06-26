@@ -50,6 +50,19 @@ export function useWorkflowEditor() {
     }
   })
 
+  const selectedEdge = computed(() => {
+    if (!selectedEdgeId.value) return null
+    const fe = flowEdges.value.find((e) => e.id === selectedEdgeId.value)
+    if (!fe) return null
+    return {
+      id: fe.id,
+      source: fe.source,
+      target: fe.target,
+      port: (fe.sourceHandle as string | undefined) ?? 'default',
+      guard: (fe.data as { guard?: string | null } | undefined)?.guard ?? '',
+    }
+  })
+
   // ---------- graph serialization ------------------------------------------
 
   function seedNodeCounter(nodes: FlowNode[]): void {
@@ -91,13 +104,15 @@ export function useWorkflowEditor() {
       position: fn.position,
     }))
     const edges = flowEdges.value.map((fe: FlowEdge) => {
-      const guard = (fe.data as { guard?: string | null } | undefined)?.guard
+      const rawGuard = (fe.data as { guard?: string | null } | undefined)?.guard
+      const guard = typeof rawGuard === 'string' ? rawGuard.trim() : rawGuard
       return {
         id: fe.id,
         from: fe.source,
         to: fe.target,
         from_port: fe.sourceHandle ?? 'default',
-        ...(guard != null ? { guard } : {}),
+        // Omit a blank/whitespace-only guard so it round-trips as unconditional.
+        ...(guard ? { guard } : {}),
       }
     })
     return {
@@ -183,6 +198,18 @@ export function useWorkflowEditor() {
     store.pushUndo(flowToDef())
     flowEdges.value = flowEdges.value.filter((e) => e.id !== selectedEdgeId.value)
     selectedEdgeId.value = null
+    store.markDirty()
+  }
+
+  function onEdgeGuardUpdate(guard: string): void {
+    const id = selectedEdgeId.value
+    if (!id) return
+    pushUndoDebounced()
+    // Store the raw text while typing (trimming here would eat spaces mid-edit);
+    // flowToDef normalizes and omits a blank guard on save.
+    flowEdges.value = flowEdges.value.map((e) =>
+      e.id === id ? { ...e, data: { ...(e.data ?? {}), guard } } : e,
+    )
     store.markDirty()
   }
 
@@ -307,6 +334,7 @@ export function useWorkflowEditor() {
     paletteOpen,
     allNodeIds,
     selectedNode,
+    selectedEdge,
     // graph serialization
     seedNodeCounter,
     defToFlow,
@@ -317,6 +345,7 @@ export function useWorkflowEditor() {
     // edge CRUD
     onConnect,
     deleteSelectedEdge,
+    onEdgeGuardUpdate,
     // click handlers
     onNodeClick,
     onEdgeClick,
