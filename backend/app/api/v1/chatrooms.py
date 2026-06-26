@@ -83,7 +83,7 @@ class AgentRef(BaseModel):
     agent_id: uuid.UUID
 
 
-class MemberOut(BaseModel):
+class ChatroomMemberOut(BaseModel):
     user_id: uuid.UUID
     display_name: str | None
 
@@ -402,7 +402,7 @@ async def list_chatroom_members(
     chatroom_id: uuid.UUID = Path(...),
     principal: Principal = Depends(current_principal),
     db: AsyncSession = Depends(db_session),
-) -> list[MemberOut]:
+) -> list[ChatroomMemberOut]:
     """Resolve human participants to display names so the client can label
     message authors (REST history + live WS messages share one map).
 
@@ -431,13 +431,15 @@ async def list_chatroom_members(
     sender_ids = await conv.distinct_user_sender_ids(chatroom_id)
     all_ids = sender_ids | set(guest_names)
     account_names = await IdentityFacade(db).get_display_names(list(all_ids))
-    return [
-        MemberOut(
-            user_id=uid,
-            display_name=guest_names.get(uid) or account_names.get(uid),
-        )
-        for uid in all_ids
-    ]
+
+    def _resolve(uid: uuid.UUID) -> str | None:
+        # A guest's per-room name takes precedence when the guest row carries one
+        # (explicit ``None`` test, so an empty per-room name is not silently
+        # overridden by the account name); otherwise fall back to the account name.
+        guest = guest_names.get(uid)
+        return guest if guest is not None else account_names.get(uid)
+
+    return [ChatroomMemberOut(user_id=uid, display_name=_resolve(uid)) for uid in all_ids]
 
 
 # --------------------------------------------------------------------------- #

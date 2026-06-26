@@ -30,7 +30,7 @@ from contexts.identity.infrastructure import tables as t
 from shared_kernel.auth.clients import now
 
 
-def _row_to_user(row: Any) -> User:
+def row_to_user(row: Any) -> User:
     return User(
         id=row.id,
         email=row.email,
@@ -60,11 +60,11 @@ class UserRepository:
             .returning(t.users)
         )
         row = (await self._db.execute(stmt)).one()
-        return _row_to_user(row)
+        return row_to_user(row)
 
     async def get_by_id(self, user_id: uuid.UUID) -> User | None:
         row = (await self._db.execute(t.users.select().where(t.users.c.id == user_id))).first()
-        return _row_to_user(row) if row else None
+        return row_to_user(row) if row else None
 
     async def get_active_by_email(self, email: str) -> User | None:
         row = (
@@ -77,7 +77,7 @@ class UserRepository:
                 )
             )
         ).first()
-        return _row_to_user(row) if row else None
+        return row_to_user(row) if row else None
 
     async def set_password(
         self,
@@ -96,9 +96,7 @@ class UserRepository:
             t.users.update().where(t.users.c.id == user_id).values(display_name=display_name)
         )
 
-    async def get_display_names(
-        self, user_ids: Sequence[uuid.UUID]
-    ) -> dict[uuid.UUID, str | None]:
+    async def get_display_names(self, user_ids: Sequence[uuid.UUID]) -> dict[uuid.UUID, str | None]:
         """Batch-resolve user_id -> display_name. Never returns email (privacy).
 
         Used to label chat-message authors without leaking the login identifier
@@ -474,4 +472,5 @@ __all__ = [
     "PasswordResetTokenRepository",
     "SessionRepository",
     "UserRepository",
+    "row_to_user",
 ]

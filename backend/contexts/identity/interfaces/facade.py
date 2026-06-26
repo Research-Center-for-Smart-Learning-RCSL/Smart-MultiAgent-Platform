@@ -60,9 +60,7 @@ class IdentityFacade:
             display_name=user.display_name,
         )
 
-    async def get_display_names(
-        self, user_ids: Sequence[uuid.UUID]
-    ) -> dict[uuid.UUID, str | None]:
+    async def get_display_names(self, user_ids: Sequence[uuid.UUID]) -> dict[uuid.UUID, str | None]:
         """Batch-resolve display names for labelling chat authors.
 
         Returns only display names (never email) so callers can surface a human

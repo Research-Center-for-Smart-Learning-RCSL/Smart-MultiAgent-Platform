@@ -22,6 +22,7 @@ from contexts.identity.infrastructure.repositories import (
     AdminRepository,
     SessionRepository,
     UserRepository,
+    row_to_user,
 )
 from contexts.notification.interfaces.facade import NotificationFacade, NotificationKind
 from shared_kernel import audit
@@ -77,7 +78,7 @@ class AdminService:
         if status:
             query = query.where(t.users.c.status == status)
         rows = (await self._db.execute(query)).all()
-        return [_row_to_user(r) for r in rows]
+        return [row_to_user(r) for r in rows]
 
     async def get_user_detail(self, user_id: uuid.UUID) -> UserDetail | None:
         user = await self._users.get_by_id(user_id)
@@ -199,7 +200,8 @@ class AdminService:
         await self._users.soft_delete(target_user_id)
         await self._invalidate_user_sessions(target_user_id)
         await Publisher(user_channel(target_user_id)).emit(
-            "account-deleted", {"by": "admin"},
+            "account-deleted",
+            {"by": "admin"},
         )
         await audit.emit(
             self._db,
@@ -246,12 +248,11 @@ class AdminService:
             reassign_to_user_id=admin_user_id,
         )
         _message_edits = sa.table(
-            "message_edits", sa.column("edited_by_user_id"),
+            "message_edits",
+            sa.column("edited_by_user_id"),
         )
         await self._db.execute(
-            _message_edits.delete().where(
-                _message_edits.c.edited_by_user_id == target_user_id
-            )
+            _message_edits.delete().where(_message_edits.c.edited_by_user_id == target_user_id)
         )
         await self._db.execute(t.users.delete().where(t.users.c.id == target_user_id))
         await audit.emit(
@@ -427,22 +428,6 @@ class AdminService:
                     ),
                 )
         await self._sessions.revoke_all_for_user(user_id)
-
-
-def _row_to_user(row: Any) -> User:
-    return User(
-        id=row.id,
-        email=row.email,
-        password_hash=row.password_hash,
-        email_verified=row.email_verified,
-        status=UserStatus(row.status),
-        banned_reason=row.banned_reason,
-        banned_at=row.banned_at,
-        deleted_at=row.deleted_at,
-        last_login_at=row.last_login_at,
-        version=row.version,
-        created_at=row.created_at,
-    )
 
 
 __all__ = ["AdminEntry", "AdminService", "LastAdminError", "SelfTargetError", "UserDetail"]
