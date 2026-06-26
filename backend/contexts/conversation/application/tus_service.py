@@ -266,6 +266,17 @@ class TusService:
                 assert upload.rag_config_id is not None
                 from contexts.knowledge.interfaces.facade import KnowledgeFacade
 
+                # The per-agent allowlist was validated at tus-create; re-parse
+                # it from the stored metadata so the finaliser writes it
+                # atomically on create (no racy post-upload PATCH).
+                meta = parse_metadata(upload.metadata_raw)
+                agent_ids: list[uuid.UUID] = []
+                for raw_id in meta.get("rag_agent_ids", "").split(","):
+                    token = raw_id.strip()
+                    if token:
+                        with contextlib.suppress(ValueError):
+                            agent_ids.append(uuid.UUID(token))
+
                 doc = await KnowledgeFacade(self._db).finalize_rag_upload(
                     rag_config_id=upload.rag_config_id,
                     filename=upload.filename,
@@ -274,6 +285,7 @@ class TusService:
                     size_bytes=upload.upload_length,
                     uploaded_by=user_id,
                     actor_ip=actor_ip,
+                    agent_ids=agent_ids,
                     request_id=request_id,
                 )
                 rag_document_id = doc.id

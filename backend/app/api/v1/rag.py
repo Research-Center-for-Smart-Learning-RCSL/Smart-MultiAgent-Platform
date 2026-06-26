@@ -112,6 +112,13 @@ class RagDocumentOut(BaseModel):
     status: str
     scan_status: str
     uploaded_at: str
+    agent_ids: list[uuid.UUID]
+
+
+class RagDocumentAgentsPatchIn(BaseModel):
+    """Replace a document's per-agent allowlist (empty = no agent may see it)."""
+
+    agent_ids: list[uuid.UUID]
 
 
 def _to_config_out(c) -> RagConfigOut:
@@ -145,7 +152,41 @@ def _to_document_out(d) -> RagDocumentOut:
         status=d.status.value,
         scan_status=d.scan_status.value,
         uploaded_at=d.uploaded_at.isoformat(),
+        agent_ids=list(d.agent_ids),
     )
+
+
+async def validate_agent_allowlist(
+    *,
+    db: AsyncSession,
+    config_id: uuid.UUID,
+    project_id: uuid.UUID,
+    agent_ids: list[uuid.UUID],
+) -> list[uuid.UUID]:
+    """Ensure every id is a live agent in ``project_id`` bound to ``config_id``.
+
+    A document's allowlist may only name agents that actually consume this
+    config — naming an agent bound to a different config (or another project)
+    would be a no-op at retrieval and an AuthZ smell, so we reject it at the
+    boundary. Returns the de-duplicated list on success; raises 422 otherwise.
+    """
+    from contexts.agents.interfaces.facade import AgentsFacade
+
+    if not agent_ids:
+        return []
+    requested = set(agent_ids)
+    bound = {
+        a.id
+        for a in await AgentsFacade(db).list_agents_for_project(project_id)
+        if a.rag_config_id == config_id
+    }
+    unknown = requested - bound
+    if unknown:
+        raise HTTPException(
+            status_code=422,
+            detail=f"agent_ids not bound to this config: {sorted(str(u) for u in unknown)}",
+        )
+    return list(requested)
 
 
 _log = logging.getLogger(__name__)
@@ -390,6 +431,12 @@ async def upload_document(
     config_id: uuid.UUID = Path(...),
     file: UploadFile = File(...),
     mime: str | None = Form(default=None),
+    # Per-agent allowlist. Intentionally secure-by-default: an omitted/empty
+    # list means NO agent may retrieve the document (an explicit allowlist, not
+    # a deny-list). The UI pre-selects every bound agent, so a normal upload is
+    # visible; a non-UI caller must opt in explicitly. Edit later via
+    # PATCH /rag-documents/{id}/agents.
+    agent_ids: list[uuid.UUID] = Form(default=[]),
     ctx: RequestContext = Depends(current_context),
     principal: Principal = Depends(current_principal),
     db: AsyncSession = Depends(db_session),
@@ -417,6 +464,13 @@ async def upload_document(
             status_code=422,
             detail="rag config has no embed_key_id",
         )
+
+    validated_agent_ids = await validate_agent_allowlist(
+        db=db,
+        config_id=config_id,
+        project_id=cfg.project_id,
+        agent_ids=agent_ids,
+    )
 
     # API-4: enforce the 32 MB multipart cap BEFORE buffering the whole file
     # in memory — read up to cap + 1 byte and reject on overflow (the same
@@ -449,6 +503,7 @@ async def upload_document(
                 mime=mime or file.content_type or "application/octet-stream",
                 data=data,
                 uploaded_by=principal.user_id,
+                agent_ids=tuple(validated_agent_ids),
             ),
             actor_user_id=principal.user_id,
             actor_ip=ctx.actor_ip,
@@ -579,4 +634,76 @@ async def delete_rag_document(
     )
 
 
-__all__ = ["config_router", "document_router", "project_router"]
+@document_router.patch("/{document_id}/agents")
+async def set_document_agents(
+    body: RagDocumentAgentsPatchIn,
+    document_id: uuid.UUID = Path(...),
+    ctx: RequestContext = Depends(current_context),
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(db_session),
+) -> RagDocumentOut:
+    """Replace a document's per-agent allowlist.
+
+    AuthZ matches document deletion: ``RESOURCE_CREATE_EDIT`` at the parent
+    config's project. DOM-7: a missing document and an existing-but-forbidden
+    one both return 404 so the endpoint is not a cross-tenant UUID oracle.
+    """
+    from contexts.knowledge.infrastructure.repositories import (
+        RagDocumentNotFound,
+        RagDocumentRepository,
+    )
+    from shared_kernel import audit as _audit
+    from shared_kernel.auth.dependencies import get_role_resolver
+    from shared_kernel.auth.permissions import Scope, decide
+
+    docs_repo = RagDocumentRepository(db)
+    not_found = HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="rag document not found")
+    try:
+        doc = await docs_repo.require(document_id)
+    except RagDocumentNotFound:
+        raise not_found from None
+
+    cfg = await RagConfigService(db).get(doc.rag_config_id)
+    resolver = await get_role_resolver(db)
+    decision = await decide(
+        principal,
+        Capability.RESOURCE_CREATE_EDIT,
+        Scope(project_id=cfg.project_id),
+        resolver,
+    )
+    if not decision.allowed:
+        raise not_found
+
+    validated = await validate_agent_allowlist(
+        db=db,
+        config_id=doc.rag_config_id,
+        project_id=cfg.project_id,
+        agent_ids=body.agent_ids,
+    )
+    updated = await docs_repo.set_agents(document_id=document_id, agent_ids=validated)
+    assert updated is not None  # row existed (require() above) within this txn
+    await _audit.emit(
+        db,
+        _audit.AuditEvent(
+            action="rag.document_agents_set",
+            actor_user_id=principal.user_id,
+            actor_ip=ctx.actor_ip,
+            resource_type="rag_document",
+            resource_id=document_id,
+            metadata={
+                "rag_config_id": str(doc.rag_config_id),
+                "project_id": str(cfg.project_id),
+                "agent_ids": [str(a) for a in validated],
+            },
+            request_id=ctx.request_id,
+        ),
+    )
+    return _to_document_out(updated)
+
+
+__all__ = [
+    "config_router",
+    "document_router",
+    "project_router",
+    "validate_agent_allowlist",
+]

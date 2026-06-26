@@ -50,12 +50,16 @@ class KnowledgeFacade:
         size_bytes: int,
         uploaded_by: uuid.UUID | None,
         actor_ip: str | None,
+        agent_ids: list[uuid.UUID] | None = None,
         request_id: uuid.UUID | None = None,
     ) -> RagDocument:
         """Finalize a completed tus ``purpose=rag_source`` upload (E.6).
 
         Delegates to :class:`RagTusFinalizer` — streams the staged blob into
         MinIO, creates the ``rag_documents`` row, and enqueues the embed worker.
+        ``agent_ids`` is the per-agent allowlist for a newly created document
+        (validated at the tus-create boundary); ignored on dedup of an existing
+        document so a re-upload never silently rewrites another upload's scope.
         """
         from contexts.knowledge.application.rag_tus_finalizer import RagTusFinalizer
 
@@ -67,6 +71,7 @@ class KnowledgeFacade:
             size_bytes=size_bytes,
             uploaded_by=uploaded_by,
             actor_ip=actor_ip,
+            agent_ids=agent_ids or [],
             request_id=request_id,
         )
 

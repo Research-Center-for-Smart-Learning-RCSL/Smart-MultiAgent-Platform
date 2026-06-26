@@ -30,7 +30,9 @@ export interface Agent {
   deleted_at: string | null
 }
 
-// Mirrors backend `RagDocumentOut`.
+// Mirrors backend `RagDocumentOut`. `agent_ids` is the strict per-agent
+// allowlist: only listed agents may retrieve the document's chunks (empty =
+// none). Only agents bound to the parent config may appear here.
 export interface RagDocument {
   id: string
   rag_config_id: string
@@ -40,6 +42,7 @@ export interface RagDocument {
   status: 'ingesting' | 'ready' | 'failed' | 'quarantined'
   scan_status: 'pending' | 'clean' | 'quarantined' | 'skipped'
   uploaded_at: string
+  agent_ids: string[]
 }
 
 // Files at or below this size go through the synchronous multipart endpoint;
@@ -186,10 +189,12 @@ export const agentsApi = {
 
   // ≤ 32 MB synchronous path. Larger files use tusUpload(purpose:'rag_source')
   // from @shared/transport, which the backend routes to the ingest worker.
-  uploadDocumentMultipart: (configId: string, file: File) => {
+  // `agentIds` is the per-agent allowlist applied to the new document.
+  uploadDocumentMultipart: (configId: string, file: File, agentIds: string[] = []) => {
     const form = new FormData()
     form.append('file', file)
     form.append('mime', file.type || 'application/octet-stream')
+    for (const id of agentIds) form.append('agent_ids', id)
     return http.post<RagDocument>(`/rag-configs/${configId}/documents`, form, {
       headers: { 'Content-Type': 'multipart/form-data' },
     })
@@ -197,6 +202,10 @@ export const agentsApi = {
 
   deleteDocument: (documentId: string) =>
     http.delete(`/rag-documents/${documentId}`),
+
+  // Replace a document's per-agent allowlist (empty = no agent may retrieve it).
+  setDocumentAgents: (documentId: string, agentIds: string[]) =>
+    http.patch<RagDocument>(`/rag-documents/${documentId}/agents`, { agent_ids: agentIds }),
 
   listGraphragConfigs: (projectId: string) =>
     http.get<GraphragConfig[]>(`/projects/${projectId}/graphrag-configs`),

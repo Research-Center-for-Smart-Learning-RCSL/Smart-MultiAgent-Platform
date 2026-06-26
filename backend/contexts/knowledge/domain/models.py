@@ -83,6 +83,8 @@ class RagDocument:
     scan_at: datetime | None
     uploaded_by: uuid.UUID | None
     uploaded_at: datetime
+    # Strict per-agent allowlist. Empty = no agent may retrieve this document.
+    agent_ids: tuple[uuid.UUID, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

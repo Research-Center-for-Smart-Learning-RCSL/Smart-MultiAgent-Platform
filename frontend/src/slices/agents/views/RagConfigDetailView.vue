@@ -9,6 +9,7 @@ import {
   Cog6ToothIcon,
   DocumentIcon,
   TrashIcon,
+  UserGroupIcon,
 } from '@heroicons/vue/24/outline'
 import {
   SPageHeader,
@@ -21,6 +22,8 @@ import {
   SButton,
   STable,
   SBadge,
+  SCheckbox,
+  SModal,
   SFileUpload,
   SProgressBar,
   SAlert,
@@ -38,6 +41,7 @@ import { projectKeysApi, CAPABILITIES, keysKeys } from '@slices/keys'
 import {
   agentsApi,
   RAG_MULTIPART_MAX,
+  type Agent,
   type RagConfig,
   type RagDocument,
   type RagConfigPatchInput,
@@ -80,6 +84,58 @@ const projectKeysQuery = useQuery({
 const config = computed<RagConfig | undefined>(() => configQuery.data.value)
 const docs = computed<RagDocument[]>(() => docsQuery.data.value ?? [])
 const configError = computed(() => configQuery.error.value)
+
+// --- Per-agent document scoping ---
+const agentsQuery = useQuery({
+  queryKey: agentKeys.agents(projectId),
+  queryFn: async () => (await agentsApi.list(projectId)).data,
+})
+
+// Only agents bound to THIS config may appear on a document's allowlist.
+const boundAgents = computed<Agent[]>(() =>
+  (agentsQuery.data.value ?? []).filter((a) => a.rag_config_id === configId),
+)
+// Upload allowlist: default to every bound agent so a fresh upload is visible
+// by default (the backend treats an empty allowlist as "no agent may see it").
+// Re-seeds whenever the bound-agent set changes.
+const uploadAgentIds = ref<string[]>([])
+watch(
+  boundAgents,
+  (agents) => {
+    uploadAgentIds.value = agents.map((a) => a.id)
+  },
+  { immediate: true },
+)
+function toggleUploadAgent(id: string, on: boolean): void {
+  uploadAgentIds.value = on
+    ? [...new Set([...uploadAgentIds.value, id])]
+    : uploadAgentIds.value.filter((x) => x !== id)
+}
+
+// --- Edit an existing document's allowlist ---
+const editDoc = ref<RagDocument | null>(null)
+const editAgentIds = ref<string[]>([])
+function openAgentsEditor(doc: RagDocument): void {
+  editDoc.value = doc
+  editAgentIds.value = [...doc.agent_ids]
+}
+function toggleEditAgent(id: string, on: boolean): void {
+  editAgentIds.value = on
+    ? [...new Set([...editAgentIds.value, id])]
+    : editAgentIds.value.filter((x) => x !== id)
+}
+const setAgentsMutation = useMutation({
+  mutationFn: async () => {
+    if (!editDoc.value) return
+    await agentsApi.setDocumentAgents(editDoc.value.id, [...editAgentIds.value])
+  },
+  onSuccess: () => {
+    editDoc.value = null
+    toast.success(t('agents.rag.agentsSaved'))
+    qc.invalidateQueries({ queryKey: agentKeys.ragDocuments(configId) })
+  },
+  onError: () => toast.error(t('agents.rag.agentsSaveFailed')),
+})
 
 const breadcrumbs = computed(() => [
   { label: t('agents.breadcrumb.ragConfigs'), to: { name: 'agents.ragConfigs', params: { projectId } } },
@@ -218,16 +274,20 @@ const uploading = ref(false)
 
 async function onFiles(files: File[]): Promise<void> {
   uploading.value = true
+  const agentIds = [...uploadAgentIds.value]
   try {
     for (const file of files) {
       if (file.size <= RAG_MULTIPART_MAX) {
-        await agentsApi.uploadDocumentMultipart(configId, file)
+        await agentsApi.uploadDocumentMultipart(configId, file, agentIds)
       } else {
+        // The allowlist rides in tus metadata so the finaliser applies it
+        // atomically on the new document (no racy post-upload PATCH).
         await tusUpload({
           file,
           purpose: 'rag_source',
           projectId,
           ragConfigId: configId,
+          ragAgentIds: agentIds,
         })
       }
     }
@@ -305,6 +365,7 @@ const docColumns = computed<Column[]>(() => [
   { key: 'size_bytes', label: t('agents.rag.colSize'), width: '80px' },
   { key: 'status', label: t('agents.rag.colStatus'), width: '100px' },
   { key: 'scan_status', label: t('agents.rag.colScanned'), width: '100px' },
+  { key: 'agents', label: t('agents.rag.colAgents'), width: '140px' },
   { key: 'actions', label: '', width: '48px', align: 'right' },
 ])
 
@@ -571,6 +632,35 @@ const showProgress = computed(() =>
                   {{ t('agents.rag.sizeHint') }}
                 </p>
               </SFileUpload>
+
+              <!-- Per-agent allowlist applied to uploads in this batch. -->
+              <div class="mt-4">
+                <p class="text-sm font-medium mb-1">
+                  {{ t('agents.rag.visibleToAgents') }}
+                </p>
+                <p class="text-sm text-[var(--color-muted)] mb-2">
+                  {{ t('agents.rag.visibleToAgentsHint') }}
+                </p>
+                <p
+                  v-if="boundAgents.length === 0"
+                  class="text-sm text-[var(--color-muted)]"
+                >
+                  {{ t('agents.rag.noBoundAgents') }}
+                </p>
+                <div
+                  v-else
+                  class="flex flex-col gap-1"
+                >
+                  <SCheckbox
+                    v-for="agent in boundAgents"
+                    :key="agent.id"
+                    :model-value="uploadAgentIds.includes(agent.id)"
+                    @update:model-value="toggleUploadAgent(agent.id, $event)"
+                  >
+                    {{ agent.name }}
+                  </SCheckbox>
+                </div>
+              </div>
             </SCard>
 
             <SCard>
@@ -598,6 +688,25 @@ const showProgress = computed(() =>
                   <SBadge :variant="scanVariant(row.scan_status)">
                     {{ t(`agents.rag.scan.${row.scan_status}`) }}
                   </SBadge>
+                </template>
+
+                <template #cell-agents="{ row }">
+                  <SButton
+                    variant="ghost"
+                    size="sm"
+                    @click="openAgentsEditor(row)"
+                  >
+                    <template #icon-left>
+                      <UserGroupIcon class="w-4 h-4" />
+                    </template>
+                    <span :class="{ 'text-[var(--color-warning)]': row.agent_ids.length === 0 }">
+                      {{
+                        row.agent_ids.length === 0
+                          ? t('agents.rag.agentsNone')
+                          : t('agents.rag.agentsCount', { count: row.agent_ids.length })
+                      }}
+                    </span>
+                  </SButton>
                 </template>
 
                 <template #actions="{ row }">
@@ -636,6 +745,55 @@ const showProgress = computed(() =>
             </SCard>
           </div>
       </div>
+
+      <!-- Edit a document's per-agent allowlist -->
+      <SModal
+        :open="editDoc !== null"
+        :title="t('agents.rag.agentsModalTitle')"
+        size="md"
+        @close="editDoc = null"
+      >
+        <p class="text-sm text-[var(--color-muted)] mb-3">
+          {{ t('agents.rag.visibleToAgentsHint') }}
+        </p>
+        <p
+          v-if="boundAgents.length === 0"
+          class="text-sm text-[var(--color-muted)]"
+        >
+          {{ t('agents.rag.noBoundAgents') }}
+        </p>
+        <div
+          v-else
+          class="flex flex-col gap-1"
+        >
+          <SCheckbox
+            v-for="agent in boundAgents"
+            :key="agent.id"
+            :model-value="editAgentIds.includes(agent.id)"
+            @update:model-value="toggleEditAgent(agent.id, $event)"
+          >
+            {{ agent.name }}
+          </SCheckbox>
+        </div>
+
+        <template #footer>
+          <div class="flex justify-end gap-3">
+            <SButton
+              variant="secondary"
+              @click="editDoc = null"
+            >
+              {{ t('agents.ragList.cancel') }}
+            </SButton>
+            <SButton
+              variant="primary"
+              :loading="setAgentsMutation.isPending.value"
+              @click="setAgentsMutation.mutate()"
+            >
+              {{ t('agents.detail.save') }}
+            </SButton>
+          </div>
+        </template>
+      </SModal>
     </template>
   </main>
 </template>

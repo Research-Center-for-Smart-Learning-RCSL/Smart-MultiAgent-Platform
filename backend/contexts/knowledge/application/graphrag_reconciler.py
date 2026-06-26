@@ -23,6 +23,7 @@ from collections.abc import Awaitable, Callable
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from contexts.knowledge.application.graphrag_events import publish_build_state
 from contexts.knowledge.application.graphrag_ports import (
     Neo4jDriver,
     SnapshotStore,
@@ -116,6 +117,9 @@ class ReconciliationLoop:
                 state=BuildState.FAILED,
                 error="no snapshot available for compensation",
             )
+            await publish_build_state(
+                cfg.id, BuildState.FAILED.value, error="no snapshot available for compensation"
+            )
             return
 
         for attempt, backoff in enumerate(RETRY_BACKOFF_S, start=1):
@@ -167,6 +171,7 @@ class ReconciliationLoop:
                     },
                 ),
             )
+            await publish_build_state(cfg.id, BuildState.IDLE.value, build_id=build_id)
             return
 
         # Retries exhausted → rollback Neo4j from snapshot.
@@ -199,6 +204,9 @@ class ReconciliationLoop:
             config_id=cfg.id,
             state=BuildState.FAILED,
             error="phase2 retries exhausted; rolled back",
+        )
+        await publish_build_state(
+            cfg.id, BuildState.FAILED.value, build_id=build_id, error="phase2 retries exhausted; rolled back"
         )
         await self._snapshots.delete(
             config_id=cfg.id,

@@ -3,6 +3,7 @@
 /* tslint:disable */
 /* eslint-disable */
 export type RagDocumentOut = {
+    agent_ids: Array<string>;
     filename: string;
     id: string;
     mime: string;

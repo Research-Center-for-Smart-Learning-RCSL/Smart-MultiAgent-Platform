@@ -530,6 +530,62 @@ async def test_reconciler_exhausted_rolls_back() -> None:
     assert neo4j.deleted  # delete_by_build called
 
 
+@pytest.mark.asyncio
+async def test_publishes_build_state_on_each_transition(monkeypatch: Any) -> None:
+    # The builder emits a WS ``build.state`` per transition so the frontend can
+    # show live progress instead of polling (R11.04).
+    published: list[str] = []
+
+    async def _capture(config_id: Any, state: str, **_kw: Any) -> None:
+        published.append(state)
+
+    from contexts.knowledge.application import graphrag_builder as bmod
+
+    monkeypatch.setattr(bmod, "publish_build_state", _capture)
+
+    cfg = _make_cfg()
+    builder, _store, _db = _make_builder(
+        cfg=cfg,
+        neo4j=FakeNeo4j(),
+        vectors=FakeVectorStore(),
+        lock=FakeLock(),
+        snapshots=FakeSnapshots(),
+        extractor=FakeExtractor(_make_triples()),
+    )
+
+    await builder.run(config_id=cfg.id)
+
+    assert published[0] == BuildState.RUNNING.value
+    assert BuildState.NEO4J_COMMITTED.value in published
+    assert published[-1] == BuildState.IDLE.value
+
+
+@pytest.mark.asyncio
+async def test_publishes_failed_state_on_phase1_failure(monkeypatch: Any) -> None:
+    published: list[str] = []
+
+    async def _capture(config_id: Any, state: str, **_kw: Any) -> None:
+        published.append(state)
+
+    from contexts.knowledge.application import graphrag_builder as bmod
+
+    monkeypatch.setattr(bmod, "publish_build_state", _capture)
+
+    cfg = _make_cfg()
+    builder, _store, _db = _make_builder(
+        cfg=cfg,
+        neo4j=FakeNeo4j(raise_on_apply=RuntimeError("boom")),
+        vectors=FakeVectorStore(),
+        lock=FakeLock(),
+        snapshots=FakeSnapshots(),
+        extractor=FakeExtractor(_make_triples()),
+    )
+
+    await builder.run(config_id=cfg.id)
+
+    assert published[-1] == BuildState.FAILED.value
+
+
 async def _noop(*_a: Any, **_kw: Any) -> None:
     return None
 

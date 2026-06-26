@@ -122,6 +122,24 @@ async def tus_create(
         if cfg.embed_key_id is None:
             raise HTTPException(status_code=422, detail="rag config has no embed_key_id")
         await _require_rag_owner(db, project_id=cfg.project_id, principal=principal)
+        # Validate the per-agent allowlist at the boundary (before the client
+        # streams up to 1 GiB) — the finaliser trusts the stored metadata.
+        from app.api.v1.rag import validate_agent_allowlist
+
+        rag_agent_ids: list[uuid.UUID] = []
+        for raw_id in meta.get("rag_agent_ids", "").split(","):
+            token = raw_id.strip()
+            if token:
+                try:
+                    rag_agent_ids.append(uuid.UUID(token))
+                except ValueError as exc:
+                    raise TusMetadataInvalid("rag_agent_ids must be UUIDs") from exc
+        await validate_agent_allowlist(
+            db=db,
+            config_id=rag_config_id,
+            project_id=cfg.project_id,
+            agent_ids=rag_agent_ids,
+        )
     else:
         # Any other/unset purpose has no ACL-gated finaliser — fail closed.
         raise HTTPException(

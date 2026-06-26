@@ -22,6 +22,9 @@ export interface TusUploadOptions {
   projectId: string
   chatroomId?: string
   ragConfigId?: string
+  // Per-agent allowlist for a rag_source upload — set atomically by the
+  // finaliser on the new document (validated at tus-create).
+  ragAgentIds?: string[]
   onProgress?: (bytesUploaded: number, bytesTotal: number) => void
   signal?: AbortSignal
 }
@@ -50,6 +53,7 @@ async function createUpload(opts: TusUploadOptions): Promise<string> {
     project_id: opts.projectId,
     chatroom_id: opts.chatroomId,
     rag_config_id: opts.ragConfigId,
+    rag_agent_ids: opts.ragAgentIds?.length ? opts.ragAgentIds.join(',') : undefined,
     filename: opts.file.name,
     mime: opts.file.type || 'application/octet-stream',
   })

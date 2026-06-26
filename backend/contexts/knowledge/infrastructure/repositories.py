@@ -64,6 +64,7 @@ def _row_to_document(row: Any) -> RagDocument:
         scan_at=row.scan_at,
         uploaded_by=row.uploaded_by,
         uploaded_at=row.uploaded_at,
+        agent_ids=tuple(row.agent_ids or ()),
     )
 
 
@@ -208,6 +209,7 @@ class RagDocumentRepository:
         sha256: str,
         minio_path: str,
         uploaded_by: uuid.UUID | None,
+        agent_ids: Sequence[uuid.UUID] = (),
     ) -> RagDocument:
         row = (
             await self._db.execute(
@@ -220,11 +222,34 @@ class RagDocumentRepository:
                     sha256=sha256,
                     minio_path=minio_path,
                     uploaded_by=uploaded_by,
+                    agent_ids=list(agent_ids),
                 )
                 .returning(t.rag_documents)
             )
         ).one()
         return _row_to_document(row)
+
+    async def set_agents(
+        self,
+        *,
+        document_id: uuid.UUID,
+        agent_ids: Sequence[uuid.UUID],
+    ) -> RagDocument | None:
+        """Replace a document's per-agent allowlist. Returns the refreshed row.
+
+        Scoping is enforced in the retrieval hydration join, so this single
+        Postgres write is the whole edit — no external (Qdrant) payload to keep
+        in sync, hence no dual-write consistency window.
+        """
+        row = (
+            await self._db.execute(
+                t.rag_documents.update()
+                .where(t.rag_documents.c.id == document_id)
+                .values(agent_ids=list(agent_ids))
+                .returning(t.rag_documents)
+            )
+        ).first()
+        return _row_to_document(row) if row else None
 
     async def set_status(
         self,
@@ -293,6 +318,43 @@ class RagDocumentRepository:
         ).all()
         return [_row_to_document(r) for r in rows]
 
+    async def allowed_document_ids(
+        self,
+        *,
+        config_id: uuid.UUID,
+        agent_id: uuid.UUID,
+    ) -> list[uuid.UUID]:
+        """Retrievable document ids in ``config_id`` visible to ``agent_id``.
+
+        The querying agent must be on a document's allowlist
+        (``agent_ids @> [agent_id]`` — uses the GIN index from migration 0035),
+        and the document must be retrievable (``ready`` and not ``quarantined``,
+        matching :meth:`RagChunkRepository.lookup_points`). The retrieve path
+        passes the result to Qdrant as a ``doc_id`` filter so the vector top_k is
+        computed over allowed documents only.
+        """
+        rows = (
+            await self._db.execute(
+                sa.select(t.rag_documents.c.id).where(
+                    t.rag_documents.c.rag_config_id == config_id,
+                    t.rag_documents.c.status == "ready",
+                    t.rag_documents.c.scan_status != ScanStatus.QUARANTINED.value,
+                    t.rag_documents.c.agent_ids.contains([agent_id]),
+                )
+            )
+        ).all()
+        return [r.id for r in rows]
+
+    async def get_many(self, document_ids: Sequence[uuid.UUID]) -> list[RagDocument]:
+        """Batch-fetch documents by id (one round-trip) — avoids per-id N+1."""
+        ids = list(document_ids)
+        if not ids:
+            return []
+        rows = (
+            await self._db.execute(t.rag_documents.select().where(t.rag_documents.c.id.in_(ids)))
+        ).all()
+        return [_row_to_document(r) for r in rows]
+
 
 class RagChunkRepository:
     def __init__(self, db: AsyncSession) -> None:
@@ -320,7 +382,24 @@ class RagChunkRepository:
         return [_row_to_chunk(r) for r in rows]
 
     async def lookup_points(self, qdrant_point_ids: Sequence[uuid.UUID]) -> Sequence[RagChunk]:
-        """Batch lookup — used by the retrieval path to hydrate Qdrant hits."""
+        """Batch lookup — used by the retrieval path to hydrate Qdrant hits.
+
+        Only confirmed-malicious chunks are withheld. ``scan_status == 'pending'``
+        is the normal window between an ingest flipping a doc to ``ready`` and the
+        async ClamAV pass landing, so excluding it would make a freshly uploaded
+        doc un-retrievable until the scan finishes — an availability gap we don't
+        want. We therefore drop only ``quarantined``; the ``status == 'ready'``
+        guard already excludes the ingesting/failed/quarantined lifecycle states,
+        and the scan_status check is defence-in-depth for a quarantine verdict
+        that has not yet flipped ``status``.
+
+        Per-agent allowlist scoping is NOT applied here — the retrieve path
+        resolves the agent's visible documents up front (see
+        :meth:`RagDocumentRepository.allowed_document_ids`) and passes them to
+        Qdrant as a ``doc_id`` filter, so scoping happens *before* the vector
+        top_k and recall is correct. This keeps a single source of truth for the
+        allowlist instead of a second post-hydration filter that could drift.
+        """
         if not qdrant_point_ids:
             return []
         query = (
@@ -329,7 +408,7 @@ class RagChunkRepository:
             .where(
                 t.rag_chunks.c.qdrant_point_id.in_(list(qdrant_point_ids)),
                 t.rag_documents.c.status == "ready",
-                t.rag_documents.c.scan_status.in_(["clean", "skipped"]),
+                t.rag_documents.c.scan_status != ScanStatus.QUARANTINED.value,
             )
         )
         rows = (await self._db.execute(query)).all()

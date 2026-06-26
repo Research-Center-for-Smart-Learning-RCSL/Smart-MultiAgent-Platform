@@ -1,9 +1,10 @@
 """Thin Qdrant wrapper for RAG collections.
 
-Each project gets one ``rag_{project_id}`` collection (§21.4). The payload
-is ``{doc_id, chunk_idx, agent_ids: [...]}`` — the ``agent_ids`` array is
-how retrieval filters results to agents allowed to see a chunk when a
-config is bound to a subset of a project's agents.
+Each project gets one ``rag_{project_id}`` collection (§21.4). The payload is
+``{doc_id, chunk_idx}`` — purely the bridge back to ``rag_chunks``. Access
+control (the per-document agent allowlist) and the scan-status gate live in the
+Postgres hydration join, not here, so editing a document's allowlist never
+requires rewriting vector-store payload.
 
 SoC:
 - The wrapper owns collection naming, client lifecycle, and *only* the
@@ -87,15 +88,9 @@ class QdrantStore:
         project_id: uuid.UUID,
         query_vector: list[float],
         top_k: int,
-        agent_id: uuid.UUID | None = None,
         doc_ids: list[uuid.UUID] | None = None,
     ) -> list[QdrantHit]:
         must: list[FieldCondition] = []
-        # NOTE: agent_id filtering is intentionally disabled. RAG configs are
-        # project-scoped (not agent-scoped) and ingest always writes
-        # agent_ids=[] — filtering by agent_id would always return 0 results.
-        # The parameter is kept for future use when per-agent scoping is
-        # implemented end-to-end (ingest + search).
         if doc_ids:
             must.append(
                 FieldCondition(

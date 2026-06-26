@@ -32,13 +32,13 @@ import {
 import {
   useConfirmDialog,
   useServerErrors,
-  usePolling,
   useToast,
 } from '@shared/composables'
 import { keyGroupsApi, keysKeys } from '@slices/keys'
 import { agentsApi, type GraphragConfig, type GraphragStatus } from '../api'
 import { agentKeys } from '../queries'
 import { useProjectBreadcrumbs } from '../composables/useProjectBreadcrumbs'
+import { useGraphragSocket } from '../composables/useGraphragSocket'
 import {
   graphragConfigCreateSchema,
   type GraphragConfigCreateInput,
@@ -101,13 +101,25 @@ const canCreate = computed(() => availableAgents.value.length > 0 && hasKeyGroup
 const isBound = (cfg: GraphragConfig): boolean =>
   agentById.value.get(cfg.agent_id)?.graphrag_config_id === cfg.id
 
-// --- Build state management ---
+// --- Build state management (live via WebSocket) ---
 const IN_PROGRESS = new Set(['running', 'neo4j_committed', 'failed_compensating'])
-const liveState = ref<Record<string, string>>({})
+const { liveState, watch: watchBuild } = useGraphragSocket(projectId)
 
 const effectiveState = (cfg: GraphragConfig): string =>
   liveState.value[cfg.id] ?? cfg.last_build_state
 const isBuilding = (cfg: GraphragConfig): boolean => IN_PROGRESS.has(effectiveState(cfg))
+
+// Pick up any config that is already mid-build when the list loads (a build
+// triggered elsewhere, or a page reload during one) so its progress stays live.
+watch(
+  configs,
+  (list) => {
+    for (const cfg of list) {
+      if (IN_PROGRESS.has(cfg.last_build_state)) watchBuild(cfg.id)
+    }
+  },
+  { immediate: true },
+)
 
 const buildStateVariant = (state: string): 'neutral' | 'info' | 'danger' | 'warning' => {
   const map: Record<string, 'neutral' | 'info' | 'danger' | 'warning'> = {
@@ -133,30 +145,24 @@ const buildStateLabel = (state: string): string => {
   return map[state] ?? state
 }
 
-const statusPoll = usePolling(
-  (id) => agentsApi.getGraphragStatus(id).then((r) => r.data),
-  {
-    isTerminal: (s) => !IN_PROGRESS.has(s.state),
-    onResult: (id, s) => {
-      liveState.value = { ...liveState.value, [id]: s.state }
-      if (!IN_PROGRESS.has(s.state)) {
-        qc.invalidateQueries({ queryKey: agentKeys.graphragConfigs(projectId) })
-      }
-    },
-  },
-)
-
 const buildMutation = useMutation({
   mutationFn: (id: string) => agentsApi.buildGraphrag(id),
-  onSuccess: (_data, id) => {
-    toast.success(t('agents.graphragList.buildStarted'))
-    statusPoll.start(id)
+  onSuccess: () => toast.success(t('agents.graphragList.buildStarted')),
+  onError: (_err, id) => {
+    // The build never started, so roll back the optimistic 'running' state —
+    // otherwise no WS event will ever arrive to clear it and the card sticks.
+    const next = { ...liveState.value }
+    delete next[id]
+    liveState.value = next
+    toast.error(t('agents.graphragList.buildFailed'))
   },
-  onError: () => toast.error(t('agents.graphragList.buildFailed')),
 })
 
 function startBuild(id: string): void {
+  // Optimistic running state + subscribe before the request returns so we
+  // never miss the early build.state events.
   liveState.value = { ...liveState.value, [id]: 'running' }
+  watchBuild(id)
   buildMutation.mutate(id)
 }
 

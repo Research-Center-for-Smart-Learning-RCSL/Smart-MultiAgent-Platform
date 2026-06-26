@@ -28,6 +28,7 @@ from typing import Any, Literal
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from contexts.knowledge.application.graphrag_events import publish_build_state
 from contexts.knowledge.application.graphrag_ports import (
     BuildLockStore,
     DeltaMessage,
@@ -140,6 +141,7 @@ class GraphRagBuilder:
             state=BuildState.RUNNING,
             error=None,
         )
+        await publish_build_state(cfg.id, BuildState.RUNNING.value, build_id=build_id)
         await audit.emit(
             self._db,
             audit.AuditEvent(
@@ -211,6 +213,7 @@ class GraphRagBuilder:
             state=BuildState.NEO4J_COMMITTED,
             error=None,
         )
+        await publish_build_state(cfg.id, BuildState.NEO4J_COMMITTED.value, build_id=build_id)
 
         # ------------ Phase 2: embed + upsert Qdrant ---------------------
         try:
@@ -248,6 +251,9 @@ class GraphRagBuilder:
                         "error": str(exc),
                     },
                 ),
+            )
+            await publish_build_state(
+                cfg.id, BuildState.FAILED_COMPENSATING.value, build_id=build_id, error=str(exc)
             )
             return BuildResult(
                 config_id=cfg.id,
@@ -307,6 +313,13 @@ class GraphRagBuilder:
                 },
             ),
         )
+        await publish_build_state(
+            cfg.id,
+            BuildState.IDLE.value,
+            build_id=build_id,
+            triples=n_triples,
+            entities=len(embeddings),
+        )
         return BuildResult(
             config_id=cfg.id,
             build_id=build_id,
@@ -344,6 +357,7 @@ class GraphRagBuilder:
                 },
             ),
         )
+        await publish_build_state(config_id, BuildState.FAILED.value, build_id=build_id, error=error)
 
     async def _embed_entities(
         self,

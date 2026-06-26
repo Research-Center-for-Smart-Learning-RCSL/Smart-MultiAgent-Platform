@@ -68,6 +68,7 @@ class RagTusFinalizer:
         size_bytes: int,
         uploaded_by: uuid.UUID | None,
         actor_ip: str | None,
+        agent_ids: list[uuid.UUID] | None = None,
         request_id: uuid.UUID | None = None,
     ) -> RagDocument:
         norm_mime = _normalise_mime(mime, filename)
@@ -119,6 +120,7 @@ class RagTusFinalizer:
             sha256=sha,
             minio_path=f"{self._minio.rag_sources_bucket}/{key}",
             uploaded_by=uploaded_by,
+            agent_ids=agent_ids or [],
         )
         await audit.emit(
             self._db,

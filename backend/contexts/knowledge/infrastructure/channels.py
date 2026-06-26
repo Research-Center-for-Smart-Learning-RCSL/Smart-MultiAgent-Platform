@@ -9,4 +9,8 @@ def rag_channel(config_id: uuid.UUID) -> str:
     return f"ws:rag:{config_id}"
 
 
-__all__ = ["rag_channel"]
+def graphrag_channel(config_id: uuid.UUID) -> str:
+    return f"ws:graphrag:{config_id}"
+
+
+__all__ = ["graphrag_channel", "rag_channel"]

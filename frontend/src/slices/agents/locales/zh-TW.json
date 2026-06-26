@@ -226,6 +226,18 @@
       "triggerManual": "僅手動",
       "triggerHelp": "何時自動重建知識圖。"
     },
+    "builtinTools": {
+      "title": "內建工具",
+      "subtitle": "此代理人可使用的能力。Code Interpreter 會執行任意程式碼，因此預設為關閉——當你希望代理人進行運算、分析資料或產生圖表時再啟用。",
+      "code_exec": "Code Interpreter",
+      "code_execDesc": "在 gVisor 沙箱中執行 Python。狀態會在對話中保留——載入的資料與儲存的圖表會在訊息間延續（每次呼叫上限 30 秒）。",
+      "web_search": "網路搜尋",
+      "web_searchDesc": "讓代理人透過專案設定的搜尋供應商在網路上搜尋。",
+      "file": "檔案工作區",
+      "fileDesc": "讓代理人在其持久工作區中讀寫檔案。",
+      "updated": "已更新內建工具。",
+      "updateFailed": "更新內建工具失敗。"
+    },
     "mcp": {
       "title": "MCP 綁定",
       "subtitle": "{name} 可用的工具。URL/套件伺服器在 gVisor 沙箱中執行，只能連線到專案 egress 白名單上的主機——",
@@ -329,6 +341,7 @@
       "colSize": "大小",
       "colStatus": "狀態",
       "colScanned": "掃描",
+      "colAgents": "代理",
       "colActions": "操作",
       "delete": "刪除",
       "deleted": "文件已刪除。",
@@ -358,7 +371,15 @@
       "ingestionProgress": "處理中 {processed} / {total} 個片段…",
       "indexing": "索引向量中…",
       "emptyTitle": "尚未上傳文件",
-      "emptyDescription": "上傳文件以建立檢索用知識庫。"
+      "emptyDescription": "上傳文件以建立檢索用知識庫。",
+      "visibleToAgents": "可見的代理",
+      "visibleToAgentsHint": "只有選取的代理能檢索此文件。未選取任何代理代表沒有代理看得到它。",
+      "noBoundAgents": "目前沒有代理綁定此設定。請先將代理綁定到其知識庫，再於此處選擇文件可見範圍。",
+      "agentsNone": "無代理",
+      "agentsCount": "{count} 個代理",
+      "agentsModalTitle": "文件可見範圍",
+      "agentsSaved": "已更新文件可見範圍。",
+      "agentsSaveFailed": "更新文件可見範圍失敗。"
     }
   }
 }

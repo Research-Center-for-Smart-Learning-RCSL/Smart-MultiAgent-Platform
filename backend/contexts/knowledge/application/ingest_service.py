@@ -27,8 +27,9 @@ SoC:
   can swap them without touching production code.
 - Virus scanning (R10.01 ClamAV) is surfaced via the
   ``rag_documents.scan_status`` column; the nightly ClamAV worker flips
-  it, and retrieval filters out non-`clean` rows. Ingest marks fresh
-  uploads as ``scan_status='pending'`` by table default.
+  it, and retrieval withholds ``quarantined`` rows (``pending`` stays
+  retrievable so a fresh upload has no availability gap). Ingest marks
+  fresh uploads as ``scan_status='pending'`` by table default.
 """
 
 from __future__ import annotations
@@ -51,7 +52,7 @@ from contexts.knowledge.domain.errors import (
 )
 from contexts.knowledge.domain.models import DocumentStatus, RagConfig, RagDocument
 from contexts.knowledge.infrastructure.channels import rag_channel
-from contexts.knowledge.infrastructure.chunkers import chunk_text
+from contexts.knowledge.infrastructure.chunkers import chunk_document
 from contexts.knowledge.infrastructure.parsers import MIME_TO_PARSER
 from contexts.knowledge.infrastructure.qdrant_store import QdrantStore
 from contexts.knowledge.infrastructure.repositories import (
@@ -86,6 +87,9 @@ class IngestInput:
     mime: str
     data: bytes
     uploaded_by: uuid.UUID | None
+    # Per-agent allowlist for the new document (empty = no agent may retrieve
+    # it). The API layer validates these belong to the config before ingest.
+    agent_ids: tuple[uuid.UUID, ...] = ()
 
 
 class IngestService:
@@ -180,6 +184,7 @@ class IngestService:
             sha256=sha,
             minio_path=minio_path,
             uploaded_by=ipt.uploaded_by,
+            agent_ids=ipt.agent_ids,
         )
         await audit.emit(
             self._db,
@@ -275,10 +280,11 @@ class IngestService:
         ``ingestion.started`` event."""
         try:
             text = MIME_TO_PARSER[doc.mime](data)
-            pieces = chunk_text(
+            pieces = await chunk_document(
                 text,
                 strategy=cfg.chunk_strategy,
                 params=cfg.chunk_params,
+                embedder=self._embedder,
             )
             await self._qdrant.ensure_collection(
                 cfg.project_id,
@@ -354,7 +360,6 @@ class IngestService:
                                 {
                                     "doc_id": str(doc.id),
                                     "chunk_idx": start + i,
-                                    "agent_ids": [],
                                 },
                             )
                             for i, (pid, vec) in enumerate(zip(point_ids, vectors, strict=True))
