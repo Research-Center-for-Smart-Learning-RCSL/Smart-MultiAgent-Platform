@@ -4,6 +4,7 @@
 /* eslint-disable */
 import type { AgentRef } from '../models/AgentRef';
 import type { ChatroomCreateIn } from '../models/ChatroomCreateIn';
+import type { ChatroomMemberOut } from '../models/ChatroomMemberOut';
 import type { ChatroomOut } from '../models/ChatroomOut';
 import type { ChatroomPatchIn } from '../models/ChatroomPatchIn';
 import type { GuestLinkOut } from '../models/GuestLinkOut';
@@ -207,6 +208,36 @@ export class ChatroomsService {
         return __request(OpenAPI, {
             method: 'GET',
             url: '/api/chatrooms/{chatroom_id}/guest-link',
+            path: {
+                'chatroom_id': chatroomId,
+            },
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * List Chatroom Members
+     * Resolve human participants to display names so the client can label
+     * message authors (REST history + live WS messages share one map).
+     *
+     * Only ``user_id`` + ``display_name`` is returned — never email — so a room
+     * member (including a guest) cannot harvest other participants' login
+     * identifiers. The id set is the union of distinct human message authors and
+     * enrolled guests; a guest's per-room display name takes precedence over their
+     * account display name. Names left unset resolve to ``null`` and the client
+     * falls back to a short id.
+     * @returns ChatroomMemberOut Successful Response
+     * @throws ApiError
+     */
+    public static listChatroomMembersApiChatroomsChatroomIdMembersGet({
+        chatroomId,
+    }: {
+        chatroomId: string,
+    }): CancelablePromise<Array<ChatroomMemberOut>> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/chatrooms/{chatroom_id}/members',
             path: {
                 'chatroom_id': chatroomId,
             },

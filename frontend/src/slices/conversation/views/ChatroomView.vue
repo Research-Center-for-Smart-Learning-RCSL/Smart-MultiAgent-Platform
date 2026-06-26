@@ -308,14 +308,17 @@ const agentList = computed(() =>
 )
 
 // Autocomplete-only mention source: bound agents plus named human members.
-// Typing `@Name` for a person inserts plain text only — the agent wake list
-// (resolved separately from `agentList`) never sees user ids, so mentioning a
-// person pings them visually without summoning anything. Unnamed users are
+// The send path resolves wake targets by name against `agentList` only, so a
+// user whose name collides with a bound agent would summon that agent if
+// suggested — exclude those collisions here so picking a person from the list
+// only ever inserts plain text and never wakes an agent. Unnamed users are
 // omitted since they have no handle to match.
 const mentionables = computed<{ id: string; name: string }[]>(() => {
+  const agentNameSet = new Set(agentList.value.map((a) => a.name.toLowerCase()))
   const users = (membersQuery.data.value ?? [])
-    .filter((m) => m.display_name)
-    .map((m) => ({ id: m.user_id, name: m.display_name as string }))
+    .filter((m): m is { user_id: string; display_name: string } => !!m.display_name)
+    .filter((m) => !agentNameSet.has(m.display_name.toLowerCase()))
+    .map((m) => ({ id: m.user_id, name: m.display_name }))
   return [...agentList.value, ...users]
 })
 
@@ -336,6 +339,29 @@ const {
   dropOlderMessage,
   refreshOlderMessage,
 } = useChatroomMessages(chatroomId, listRef, () => agentList.value)
+
+// The member roster is fetched once, but new authors (and renames) appear over
+// the room's lifetime via WebSocket. When a user message arrives from a sender
+// the roster doesn't name yet, refetch it once for that id so the author label
+// resolves instead of staying a truncated id. Tracking attempted ids bounds
+// this to one refetch per sender (a sender with no display name stays unnamed
+// without re-querying every message).
+const resolvedSenderAttempts = new Set<string>()
+watch(messages, (list) => {
+  let needsRefetch = false
+  for (const m of list) {
+    if (
+      m.sender_type === 'user' &&
+      m.sender_id &&
+      !(m.sender_id in userNames.value) &&
+      !resolvedSenderAttempts.has(m.sender_id)
+    ) {
+      resolvedSenderAttempts.add(m.sender_id)
+      needsRefetch = true
+    }
+  }
+  if (needsRefetch) void membersQuery.refetch()
+})
 
 const { editingId, editDraft, startEdit, cancelEdit, saveEdit } =
   useChatroomMessageEditing(chatroomId)
