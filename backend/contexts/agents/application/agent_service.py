@@ -57,9 +57,7 @@ _SYSTEM_ACTOR_ID = uuid.UUID(int=0)
 # every message so agents created via API / CLI / import behave like UI-created
 # ones. A caller wanting a different cadence — or a deliberately inert agent —
 # passes an explicit config (even an empty {}), which is respected.
-_DEFAULT_WAKEUP_CONFIG: dict[str, Any] = {
-    "triggers": {"every_n_messages": {"enabled": True, "n": 1}}
-}
+_DEFAULT_WAKEUP_CONFIG: dict[str, Any] = {"triggers": {"every_n_messages": {"enabled": True, "n": 1}}}
 
 
 class AgentService:
@@ -152,7 +150,10 @@ class AgentService:
             context_token_cap=draft.context_token_cap,
             a2a_enabled=bool(draft.a2a_enabled) if draft.a2a_enabled is not None else False,
             wakeup_config=wakeup,
-            wakeup_authored_snapshot=wakeup if wakeup else None,
+            # Mirror the config exactly: an explicit empty {} ("inert by choice")
+            # is a real authored baseline, so it must not collapse to None here
+            # the way a truthiness check would.
+            wakeup_authored_snapshot=wakeup,
             workflow_capabilities=draft.workflow_capabilities or {},
         )
         await audit.emit(
