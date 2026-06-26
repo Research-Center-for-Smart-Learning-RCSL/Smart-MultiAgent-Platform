@@ -31,10 +31,37 @@
       "page": "Page {page}"
     },
     "landing": {
-      "headline": "Smart Multi-Agent Platform",
-      "subtitle": "Compose, orchestrate, and chat with multi-LLM agent groups.",
+      "eyebrow": "Self-hosted, bring your own keys",
+      "headline": "Smart {highlight} Platform",
+      "headlineHighlight": "Multi-Agent",
+      "subtitle": "Compose, orchestrate, and chat with multi-LLM agent groups, all on infrastructure you control.",
       "getStarted": "Get Started",
-      "logIn": "Log In"
+      "logIn": "Log In",
+      "selfHostNote": "No billing, no lock-in. SMAP never sees your provider keys in plaintext.",
+      "featuresLabel": "Platform capabilities",
+      "features": {
+        "compose": {
+          "title": "Compose",
+          "desc": "Build agents from any provider and group them into collaborative teams."
+        },
+        "orchestrate": {
+          "title": "Orchestrate",
+          "desc": "Design multi-step workflows visually and run them with full observability."
+        },
+        "chat": {
+          "title": "Chat",
+          "desc": "Talk to your agent groups in real time with streaming, RAG, and tools."
+        }
+      },
+      "footerTagline": "Your keys. Your infrastructure. Your agents.",
+      "trust": {
+        "selfHosted": "Self-hosted",
+        "byoKey": "Bring your own keys",
+        "encrypted": "Envelope-encrypted",
+        "noLockIn": "No vendor lock-in"
+      },
+      "metaTitle": "SMAP — Smart Multi-Agent Platform",
+      "metaDescription": "Self-hosted platform to compose, orchestrate, and chat with multi-LLM agent groups. Bring your own provider keys."
     },
     "skipToContent": "Skip to main content",
     "topbar": {

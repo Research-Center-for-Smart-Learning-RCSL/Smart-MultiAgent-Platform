@@ -2,12 +2,44 @@
 import { onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { SButton } from '@shared/ui'
+import {
+  Squares2X2Icon,
+  ShareIcon,
+  ChatBubbleLeftRightIcon,
+  ServerStackIcon,
+  KeyIcon,
+  LockClosedIcon,
+  ArrowsRightLeftIcon,
+} from '@heroicons/vue/24/outline'
+import { SButton, ThemeToggle } from '@shared/ui'
+import { useDocumentMeta, useRevealOnScroll } from '@shared/composables'
 import { useSessionStore } from '@shared/stores/session'
+import AgentConstellation from '@app/components/AgentConstellation.vue'
+import BrandLogo from '@app/components/BrandLogo.vue'
 
 const { t } = useI18n()
 const router = useRouter()
 const session = useSessionStore()
+
+const features = [
+  { key: 'compose', icon: Squares2X2Icon },
+  { key: 'orchestrate', icon: ShareIcon },
+  { key: 'chat', icon: ChatBubbleLeftRightIcon },
+] as const
+
+const trust = [
+  { key: 'selfHosted', icon: ServerStackIcon },
+  { key: 'byoKey', icon: KeyIcon },
+  { key: 'encrypted', icon: LockClosedIcon },
+  { key: 'noLockIn', icon: ArrowsRightLeftIcon },
+] as const
+
+const { el: featuresEl, revealed } = useRevealOnScroll()
+
+useDocumentMeta({
+  title: () => t('app.landing.metaTitle'),
+  description: () => t('app.landing.metaDescription'),
+})
 
 onMounted(() => {
   if (session.isAuthenticated) {
@@ -17,31 +49,126 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="landing">
-    <h1 class="landing__title">
-      {{ t('app.landing.headline') }}
-    </h1>
-    <p class="landing__subtitle">
-      {{ t('app.landing.subtitle') }}
-    </p>
-    <div class="landing__actions">
-      <SButton
-        variant="primary"
-        size="lg"
-        as="router-link"
-        to="/register"
+  <div
+    v-if="!session.isAuthenticated"
+    class="landing"
+  >
+    <header class="landing__nav">
+      <BrandLogo />
+      <div class="landing__nav-actions">
+        <ThemeToggle />
+        <SButton
+          class="landing__nav-login"
+          variant="ghost"
+          as="router-link"
+          to="/login"
+        >
+          {{ t('app.landing.logIn') }}
+        </SButton>
+        <SButton
+          variant="primary"
+          as="router-link"
+          to="/register"
+        >
+          {{ t('app.landing.getStarted') }}
+        </SButton>
+      </div>
+    </header>
+
+    <main class="landing__main">
+      <section class="hero">
+        <div
+          class="hero__bg"
+          aria-hidden="true"
+        />
+        <div class="hero__copy">
+          <p class="hero__eyebrow">
+            {{ t('app.landing.eyebrow') }}
+          </p>
+          <h1 class="hero__title">
+            <i18n-t
+              keypath="app.landing.headline"
+              tag="span"
+              scope="global"
+            >
+              <template #highlight>
+                <span class="hero__title-accent">{{ t('app.landing.headlineHighlight') }}</span>
+              </template>
+            </i18n-t>
+          </h1>
+          <p class="hero__subtitle">
+            {{ t('app.landing.subtitle') }}
+          </p>
+          <div class="hero__actions">
+            <SButton
+              variant="primary"
+              size="lg"
+              as="router-link"
+              to="/register"
+            >
+              {{ t('app.landing.getStarted') }}
+            </SButton>
+            <SButton
+              variant="secondary"
+              size="lg"
+              as="router-link"
+              to="/login"
+            >
+              {{ t('app.landing.logIn') }}
+            </SButton>
+          </div>
+          <ul class="trust">
+            <li
+              v-for="item in trust"
+              :key="item.key"
+              class="trust__item"
+            >
+              <component
+                :is="item.icon"
+                class="trust__icon"
+                aria-hidden="true"
+              />
+              {{ t(`app.landing.trust.${item.key}`) }}
+            </li>
+          </ul>
+        </div>
+        <div class="hero__visual">
+          <AgentConstellation />
+        </div>
+      </section>
+
+      <section
+        ref="featuresEl"
+        class="features"
+        :class="{ 'features--in': revealed }"
+        :aria-label="t('app.landing.featuresLabel')"
       >
-        {{ t('app.landing.getStarted') }}
-      </SButton>
-      <SButton
-        variant="secondary"
-        size="lg"
-        as="router-link"
-        to="/login"
-      >
-        {{ t('app.landing.logIn') }}
-      </SButton>
-    </div>
+        <article
+          v-for="(feature, i) in features"
+          :key="feature.key"
+          class="feature"
+          :style="{ transitionDelay: `${i * 90}ms` }"
+        >
+          <span class="feature__icon">
+            <component
+              :is="feature.icon"
+              aria-hidden="true"
+            />
+          </span>
+          <h2 class="feature__title">
+            {{ t(`app.landing.features.${feature.key}.title`) }}
+          </h2>
+          <p class="feature__desc">
+            {{ t(`app.landing.features.${feature.key}.desc`) }}
+          </p>
+        </article>
+      </section>
+    </main>
+
+    <footer class="landing__footer">
+      <BrandLogo size="sm" />
+      <span class="landing__footer-tagline">{{ t('app.landing.footerTagline') }}</span>
+    </footer>
   </div>
 </template>
 
@@ -49,30 +176,322 @@ onMounted(() => {
 .landing {
   display: flex;
   flex-direction: column;
-  align-items: center;
-  text-align: center;
-  gap: 12px;
-  padding: 2rem 1rem 0;
+  min-height: 100dvh;
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 0 24px;
 }
 
-.landing__title {
-  font-size: 1.5rem;
-  font-weight: 700;
-  color: var(--color-fg);
-  margin: 0;
-}
-
-.landing__subtitle {
-  font-size: 1rem;
-  color: var(--color-muted);
-  max-width: 360px;
-  line-height: 1.5;
-  margin: 0;
-}
-
-.landing__actions {
+/* -- Nav -- */
+.landing__nav {
   display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 72px;
+  flex-shrink: 0;
+}
+
+.landing__nav-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* -- Main / hero -- */
+.landing__main {
+  flex: 1;
+}
+
+.hero {
+  position: relative;
+  display: grid;
+  grid-template-columns: 1.1fr 1fr;
+  align-items: center;
+  gap: 48px;
+  padding: 48px 0 64px;
+}
+
+/* Decorative depth: a soft radial wash plus a faint dot grid, both fading out
+   before the edges so text never sits on busy texture. */
+.hero__bg {
+  position: absolute;
+  inset: -40px -24px 0;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(
+      60% 70% at 70% 30%,
+      color-mix(in srgb, var(--color-accent) 12%, transparent),
+      transparent 70%
+    ),
+    radial-gradient(var(--color-border) 1px, transparent 1px);
+  background-size: auto, 22px 22px;
+  -webkit-mask-image: radial-gradient(80% 80% at 50% 40%, #000 40%, transparent 100%);
+  mask-image: radial-gradient(80% 80% at 50% 40%, #000 40%, transparent 100%);
+  opacity: 0.5;
+}
+
+.hero__copy,
+.hero__visual {
+  position: relative;
+  z-index: 1;
+}
+
+.hero__copy {
+  animation: hero-rise 0.6s ease-out both;
+}
+
+.hero__eyebrow {
+  display: inline-block;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--color-info-on);
+  background: var(--color-info-tint);
+  padding: 4px 12px;
+  border-radius: var(--radius-full);
+  margin: 0 0 20px;
+}
+
+.hero__title {
+  font-size: clamp(2rem, 4vw, 3rem);
+  font-weight: 700;
+  line-height: 1.1;
+  color: var(--color-fg);
+  margin: 0 0 16px;
+}
+
+/* High-contrast accent gradient on the keyword. Tokens shift per theme so the
+   stops stay readable in light and dark; forced-colors mode falls back to a
+   solid system color so the word never disappears. */
+.hero__title-accent {
+  background: linear-gradient(
+    90deg,
+    var(--color-accent),
+    color-mix(in srgb, var(--color-accent) 55%, #8b5cf6)
+  );
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: var(--color-accent);
+  -webkit-text-fill-color: transparent;
+}
+
+@media (forced-colors: active) {
+  .hero__title-accent {
+    color: currentColor;
+    -webkit-text-fill-color: currentColor;
+  }
+}
+
+.hero__subtitle {
+  font-size: 1.125rem;
+  line-height: 1.6;
+  color: var(--color-muted);
+  max-width: 30rem;
+  margin: 0 0 32px;
+}
+
+.hero__actions {
+  display: flex;
+  flex-wrap: wrap;
   gap: 12px;
-  margin-top: 12px;
+}
+
+.hero__visual {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: visual-in 0.7s ease-out 0.1s both;
+}
+
+/* -- Trust strip -- */
+.trust {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 20px;
+  list-style: none;
+  margin: 28px 0 0;
+  padding: 0;
+}
+
+.trust__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.8125rem;
+  color: var(--color-muted);
+}
+
+.trust__icon {
+  width: 16px;
+  height: 16px;
+  color: var(--color-accent);
+  flex-shrink: 0;
+}
+
+/* -- Features -- */
+.features {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 24px;
+  padding: 32px 0 72px;
+}
+
+.feature {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-xl);
+  background: var(--color-surface);
+  padding: 24px;
+  opacity: 0;
+  transform: translateY(16px);
+  transition:
+    opacity var(--transition-slow),
+    transform var(--transition-normal),
+    border-color var(--transition-normal),
+    box-shadow var(--transition-normal);
+}
+
+.features--in .feature {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.feature:hover {
+  border-color: var(--color-accent);
+  box-shadow: var(--shadow-md);
+  transform: translateY(-2px);
+}
+
+.feature__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius-lg);
+  background: var(--color-info-tint);
+  color: var(--color-info-on);
+  margin-bottom: 16px;
+}
+
+.feature__icon :deep(svg) {
+  width: 24px;
+  height: 24px;
+}
+
+.feature__title {
+  font-size: 1.0625rem;
+  font-weight: 600;
+  color: var(--color-fg);
+  margin: 0 0 8px;
+}
+
+.feature__desc {
+  font-size: 0.9375rem;
+  line-height: 1.55;
+  color: var(--color-muted);
+  margin: 0;
+}
+
+/* -- Footer -- */
+.landing__footer {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 24px 0;
+  border-top: 1px solid var(--color-border);
+  flex-shrink: 0;
+}
+
+.landing__footer-tagline {
+  font-size: 0.875rem;
+  color: var(--color-muted);
+}
+
+@keyframes hero-rise {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes visual-in {
+  from {
+    opacity: 0;
+    transform: scale(0.94);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* Static fallback when the observer never runs (reduced-motion seeds revealed
+   immediately; this covers the brief pre-reveal frame and no-JS edge cases). */
+@media (prefers-reduced-motion: reduce) {
+  .feature {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
+}
+
+/* A two-column hero gets cramped below ~900px (constellation squeezed, copy
+   wraps badly), so stack it well before phone widths. */
+@media (max-width: 900px) {
+  .hero {
+    grid-template-columns: 1fr;
+    gap: 24px;
+    padding: 24px 0 48px;
+    text-align: center;
+  }
+
+  .hero__subtitle {
+    margin-inline: auto;
+  }
+
+  .hero__actions {
+    justify-content: center;
+  }
+
+  .trust {
+    justify-content: center;
+  }
+
+  .hero__visual {
+    order: -1;
+    max-width: 300px;
+    margin: 0 auto;
+  }
+
+  /* The dot grid reads as fine texture on a wide hero but turns busy in a
+     single narrow column — keep only the soft radial wash there. */
+  .hero__bg {
+    background-image: radial-gradient(
+      70% 60% at 50% 28%,
+      color-mix(in srgb, var(--color-accent) 10%, transparent),
+      transparent 70%
+    );
+    background-size: auto;
+    opacity: 0.7;
+  }
+}
+
+@media (max-width: 768px) {
+  .features {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 560px) {
+  /* The hero already provides a Log In button; drop the nav ghost link so the
+     brand and primary CTA have breathing room on small phones. */
+  .landing__nav-login {
+    display: none;
+  }
 }
 </style>

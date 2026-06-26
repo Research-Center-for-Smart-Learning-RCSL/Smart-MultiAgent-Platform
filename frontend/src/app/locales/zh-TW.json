@@ -31,10 +31,37 @@
       "page": "第 {page} 頁"
     },
     "landing": {
-      "headline": "智慧多代理平台",
-      "subtitle": "組合、編排並與多 LLM 代理群組對話。",
+      "eyebrow": "自架部署，使用自己的金鑰",
+      "headline": "智慧{highlight}平台",
+      "headlineHighlight": "多代理",
+      "subtitle": "組合、編排並與多 LLM 代理群組對話，全部運行在你掌控的基礎設施上。",
       "getStarted": "立即開始",
-      "logIn": "登入"
+      "logIn": "登入",
+      "selfHostNote": "無計費、無綁定。SMAP 絕不以明文接觸你的供應商金鑰。",
+      "featuresLabel": "平台能力",
+      "features": {
+        "compose": {
+          "title": "組合",
+          "desc": "從任意供應商建立代理，並編組成協作團隊。"
+        },
+        "orchestrate": {
+          "title": "編排",
+          "desc": "以視覺化方式設計多步驟工作流，並在完整可觀測性下執行。"
+        },
+        "chat": {
+          "title": "對話",
+          "desc": "即時與你的代理群組對話，支援串流、RAG 與工具呼叫。"
+        }
+      },
+      "footerTagline": "你的金鑰，你的基礎設施，你的代理。",
+      "trust": {
+        "selfHosted": "自架部署",
+        "byoKey": "使用自己的金鑰",
+        "encrypted": "信封加密",
+        "noLockIn": "無供應商綁定"
+      },
+      "metaTitle": "SMAP — 智慧多代理平台",
+      "metaDescription": "自架平台，組合、編排並與多 LLM 代理群組對話，使用你自己的供應商金鑰。"
     },
     "skipToContent": "跳至主要內容",
     "topbar": {

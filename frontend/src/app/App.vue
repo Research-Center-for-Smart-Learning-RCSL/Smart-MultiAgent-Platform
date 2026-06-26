@@ -8,6 +8,7 @@ import { SConfirmDialog, SNetworkBanner } from '@shared/ui'
 import ErrorBoundary from './ErrorBoundary.vue'
 import AuthLayout from './layouts/AuthLayout.vue'
 import AppShell from './layouts/AppShell.vue'
+import PublicLayout from './layouts/PublicLayout.vue'
 
 useBanKickGuard()
 
@@ -15,6 +16,7 @@ const route = useRoute()
 
 const layoutComponent = computed(() => {
   const layout = route.meta.layout as string | undefined
+  if (layout === 'public') return PublicLayout
   if (layout === 'auth') return AuthLayout
   if (layout === 'app') return AppShell
   return route.meta.requiresAuth ? AppShell : AuthLayout

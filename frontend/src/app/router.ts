@@ -22,7 +22,7 @@ const routes: RouteRecordRaw[] = [
     path: '/',
     name: 'root',
     component: () => import('@app/views/Landing.vue'),
-    meta: { layout: 'auth' },
+    meta: { layout: 'public' },
   },
   ...identityRoutes,
   ...tenancyRoutes,

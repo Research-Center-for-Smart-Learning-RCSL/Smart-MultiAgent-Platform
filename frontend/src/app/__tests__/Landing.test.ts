@@ -19,4 +19,21 @@ describe('Landing', () => {
     expect(wrapper.text()).toContain('app.landing.getStarted')
     expect(wrapper.text()).toContain('app.landing.logIn')
   })
+
+  it('renders the hero visual and brand mark', async () => {
+    const wrapper = await renderView(Landing)
+    expect(wrapper.find('svg.constellation').exists()).toBe(true)
+    expect(wrapper.find('.brand-mark').exists()).toBe(true)
+  })
+
+  it('renders the three capability cards and the trust strip', async () => {
+    const wrapper = await renderView(Landing)
+    expect(wrapper.findAll('.feature')).toHaveLength(3)
+    expect(wrapper.findAll('.trust__item')).toHaveLength(4)
+  })
+
+  it('sets the document title for unauthenticated visitors', async () => {
+    await renderView(Landing)
+    expect(document.title).toContain('app.landing.metaTitle')
+  })
 })
