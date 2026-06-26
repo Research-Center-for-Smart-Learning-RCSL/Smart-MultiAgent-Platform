@@ -6,6 +6,7 @@ export { conversationRoutes } from './routes'
 export { convKeys } from './queries'
 export { useConversationStore } from './stores/conversation'
 export { useChatroomSocket } from './composables/useChatroomSocket'
+export { useRecentChatrooms } from './composables/useRecentChatrooms'
 export { getWorkspace, listChatrooms, listWorkspaces } from './api'
 export type {
   Attachment,

@@ -37,6 +37,12 @@
       "subtitle": "Compose, orchestrate, and chat with multi-LLM agent groups, all on infrastructure you control.",
       "getStarted": "Get Started",
       "logIn": "Log In",
+      "welcomeBack": "Welcome back, {name}",
+      "authedSubtitle": "Jump back into a recent chatroom, or head into your workspace.",
+      "authedSubtitleEmpty": "Head into your workspace to start chatting with your agent groups.",
+      "openRecentRoom": "Open recent chatroom",
+      "enterWorkspace": "Enter workspace",
+      "recentTitle": "Jump back in",
       "selfHostNote": "No billing, no lock-in. SMAP never sees your provider keys in plaintext.",
       "featuresLabel": "Platform capabilities",
       "features": {

@@ -1,33 +1,19 @@
 <script setup lang="ts">
-import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { useQuery } from '@tanstack/vue-query'
 import { ChatBubbleLeftIcon } from '@heroicons/vue/24/outline'
 import { useWorkspaceStore } from '@shared/stores/workspace'
-import { listWorkspaces, listChatrooms, type Chatroom } from '@slices/conversation'
+import { useRecentChatrooms } from '@slices/conversation'
 
 const { t } = useI18n()
 const route = useRoute()
 const router = useRouter()
 const workspace = useWorkspaceStore()
 
-const chatroomsQuery = useQuery({
-  queryKey: ['sidebar', 'chatrooms', computed(() => workspace.projectId)],
-  queryFn: async () => {
-    const workspaces = await listWorkspaces(workspace.projectId!)
-    const settled = await Promise.allSettled(
-      workspaces.map((ws) => listChatrooms(ws.id)),
-    )
-    return settled
-      .filter((r): r is PromiseFulfilledResult<Chatroom[]> => r.status === 'fulfilled')
-      .flatMap((r) => r.value)
-      .sort((a, b) => b.created_at.localeCompare(a.created_at))
-      .slice(0, 10)
-  },
-  enabled: computed(() => !!workspace.projectId),
-  staleTime: 60_000,
-})
+const { query: chatroomsQuery, rooms: chatrooms } = useRecentChatrooms(
+  () => workspace.projectId,
+  { limit: 10 },
+)
 
 function isActive(chatroomId: string): boolean {
   return route.path === `/chatrooms/${chatroomId}`
@@ -64,9 +50,9 @@ function navigateTo(chatroomId: string): void {
       {{ t('app.sidebar.loadError') }}
     </div>
 
-    <template v-else-if="chatroomsQuery.data.value?.length">
+    <template v-else-if="chatrooms.length">
       <a
-        v-for="chatroom in chatroomsQuery.data.value"
+        v-for="chatroom in chatrooms"
         :key="chatroom.id"
         class="nav-item"
         :class="{ 'nav-item--active': isActive(chatroom.id) }"

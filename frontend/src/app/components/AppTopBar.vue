@@ -2,7 +2,6 @@
 import { useI18n } from 'vue-i18n'
 import { Bars3Icon, XMarkIcon } from '@heroicons/vue/24/outline'
 import { LocaleToggle, ThemeToggle } from '@shared/ui'
-import { useSessionStore } from '@shared/stores/session'
 import { useBreakpoint } from '@shared/composables/useBreakpoint'
 import { NotificationBell } from '@slices/notifications'
 import UserMenu from './UserMenu.vue'
@@ -17,7 +16,6 @@ const emit = defineEmits<{
 }>()
 
 const { t } = useI18n()
-const session = useSessionStore()
 const { isMobile } = useBreakpoint()
 </script>
 
@@ -42,7 +40,7 @@ const { isMobile } = useBreakpoint()
       </button>
 
       <RouterLink
-        :to="session.isAuthenticated ? '/orgs' : '/'"
+        to="/"
         class="topbar__wordmark"
       >
         SMAP

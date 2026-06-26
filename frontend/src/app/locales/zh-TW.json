@@ -37,6 +37,12 @@
       "subtitle": "組合、編排並與多 LLM 代理群組對話，全部運行在你掌控的基礎設施上。",
       "getStarted": "立即開始",
       "logIn": "登入",
+      "welcomeBack": "歡迎回來，{name}",
+      "authedSubtitle": "回到最近的聊天室，或直接進入你的工作區。",
+      "authedSubtitleEmpty": "進入你的工作區，開始與你的代理群組對話。",
+      "openRecentRoom": "開啟最近的聊天室",
+      "enterWorkspace": "進工作區",
+      "recentTitle": "快速繼續",
       "selfHostNote": "無計費、無綁定。SMAP 絕不以明文接觸你的供應商金鑰。",
       "featuresLabel": "平台能力",
       "features": {
