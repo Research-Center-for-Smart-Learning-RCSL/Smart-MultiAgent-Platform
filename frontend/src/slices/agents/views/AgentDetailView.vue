@@ -150,6 +150,25 @@ const canApprove = ref(false)
 const canCreateSubagent = ref(false)
 const maxAliveSubagents = ref(5)
 
+// Wakeup + workflow-capability fields live outside the vee-validate form, so
+// `meta.dirty` never flips when only these change. Snapshot them at load time
+// and compare to drive the Save button (otherwise editing only triggers /
+// orchestration leaves Save permanently disabled).
+function extrasSnapshot(): string {
+  return JSON.stringify([
+    wakeupEveryN.value,
+    wakeupSilence.value,
+    wakeupCallOnly.value,
+    wakeupAutostop.value,
+    canInstruct.value,
+    canApprove.value,
+    canCreateSubagent.value,
+    maxAliveSubagents.value,
+  ])
+}
+const extrasBaseline = ref(extrasSnapshot())
+const extrasDirty = computed(() => extrasSnapshot() !== extrasBaseline.value)
+
 // Populate form from loaded agent
 watch(
   () => query.data.value,
@@ -193,6 +212,11 @@ watch(
     canApprove.value = (wf.can_approve as boolean) ?? false
     canCreateSubagent.value = (wf.can_create_subagent as boolean) ?? false
     maxAliveSubagents.value = (wf.max_alive_subagents as number) ?? 5
+
+    // Re-baseline so the freshly loaded values don't read as dirty. A
+    // successful patch invalidates the query, which re-fires this watcher and
+    // clears extrasDirty the same way meta.dirty resets via resetForm.
+    extrasBaseline.value = extrasSnapshot()
   },
   { immediate: true },
 )
@@ -244,7 +268,9 @@ watch(contextMode, (mode) => {
   if (mode === 'general') contextTokenCap.value = null
 })
 
-const saveDisabled = computed(() => !isCreateMode && !meta.value.dirty)
+const saveDisabled = computed(
+  () => !isCreateMode && !meta.value.dirty && !extrasDirty.value,
+)
 
 // --- Create mutation ---
 const createMutation = useMutation({
