@@ -276,6 +276,7 @@ const agentNames = computed<Record<string, string>>(() => {
 function agentStatus(id: string): AgentStatus {
   if (store.agentStreams[chatroomId]?.[id]) return 'streaming'
   if (store.agentThinking[chatroomId]?.has(id)) return 'thinking'
+  if (store.agentErrors[chatroomId]?.[id]) return 'error'
   return 'idle'
 }
 
@@ -284,6 +285,7 @@ const agentList = computed(() =>
     id,
     name: agentNames.value[id] ?? id.slice(0, 8),
     status: agentStatus(id),
+    errorReason: store.agentErrors[chatroomId]?.[id],
   })),
 )
 
@@ -400,18 +402,21 @@ const onlineUsers = computed(() => {
 })
 
 // Agent failure surfaced by the socket layer: backend agent.finished{error}
-// or the client-side thinking watchdog ('timeout'). Toast once, then clear.
+// or the client-side thinking watchdog ('timeout'). Known skip reasons get a
+// specific message; anything else falls back to the generic failure. Toast
+// once, then clear.
+const AGENT_ERROR_MESSAGES: Record<string, string> = {
+  timeout: 'conversation.chatroom.agentTimeout',
+  rate_limited: 'conversation.chatroom.agentRateLimited',
+  agent_gone: 'conversation.chatroom.agentUnavailable',
+  not_bound: 'conversation.chatroom.agentUnavailable',
+  key_group_scope: 'conversation.chatroom.agentUnavailable',
+}
 watch(
   () => store.agentError[chatroomId],
   (err) => {
     if (!err) return
-    toast.error(
-      t(
-        err === 'timeout'
-          ? 'conversation.chatroom.agentTimeout'
-          : 'conversation.chatroom.agentFailed',
-      ),
-    )
+    toast.error(t(AGENT_ERROR_MESSAGES[err] ?? 'conversation.chatroom.agentFailed'))
     store.setAgentError(chatroomId, null)
   },
 )

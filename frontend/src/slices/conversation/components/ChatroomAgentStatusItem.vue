@@ -1,5 +1,8 @@
 <template>
-  <li class="agent-status-item">
+  <li
+    class="agent-status-item"
+    :title="errorTooltip"
+  >
     <SAvatar
       :name="agent.name"
       size="sm"
@@ -26,6 +29,18 @@ export interface AgentStatusEntry {
   id: string
   name: string
   status: AgentStatus
+  // Backend error kind from agent.finished{error}, set while status is 'error'.
+  errorReason?: string
+}
+
+// Reuse the chatroom's user-facing failure copy for the hover tooltip; unknown
+// kinds (e.g. provider_exhausted:*) fall back to the generic failure message.
+const ERROR_TOOLTIP_KEYS: Record<string, string> = {
+  rate_limited: 'conversation.chatroom.agentRateLimited',
+  agent_gone: 'conversation.chatroom.agentUnavailable',
+  not_bound: 'conversation.chatroom.agentUnavailable',
+  key_group_scope: 'conversation.chatroom.agentUnavailable',
+  timeout: 'conversation.chatroom.agentTimeout',
 }
 
 const props = defineProps<{
@@ -35,6 +50,11 @@ const props = defineProps<{
 const { t } = useI18n()
 const busy = computed(
   () => props.agent.status === 'thinking' || props.agent.status === 'streaming',
+)
+const errorTooltip = computed(() =>
+  props.agent.status === 'error' && props.agent.errorReason
+    ? t(ERROR_TOOLTIP_KEYS[props.agent.errorReason] ?? 'conversation.chatroom.agentFailed')
+    : undefined,
 )
 </script>
 
