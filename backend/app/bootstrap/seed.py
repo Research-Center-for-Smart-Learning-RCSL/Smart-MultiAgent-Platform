@@ -60,12 +60,14 @@ _SEED_IDS_PATH = Path("/tmp/e2e-seed-ids.env")  # noqa: S108 — test-only fixtu
 # (not source/target), and the trigger config carries `trigger_type`. Otherwise
 # the edge does not render in the editor and the engine can't traverse it.
 _MINIMAL_WORKFLOW_DEFINITION: dict[str, Any] = {
+    "schema_version": "1.0",
+    "name": "E2E Workflow",
     "entry_node_id": "trigger",
     "nodes": [
         {
             "id": "trigger",
             "type": "trigger",
-            "config": {"trigger_type": "manual"},
+            "config": {"trigger_type": "manual", "allowed_roles": ["ProjectOwner"]},
             "label": "Start",
             "position": {"x": 0, "y": 0},
         },
