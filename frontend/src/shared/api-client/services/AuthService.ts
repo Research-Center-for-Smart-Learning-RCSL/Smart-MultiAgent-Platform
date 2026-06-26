@@ -14,6 +14,7 @@ import type { RefreshIn } from '../models/RefreshIn';
 import type { RegisterIn } from '../models/RegisterIn';
 import type { SessionOut } from '../models/SessionOut';
 import type { TokenPairOut } from '../models/TokenPairOut';
+import type { UpdateProfileIn } from '../models/UpdateProfileIn';
 import type { UserOut } from '../models/UserOut';
 import type { VerifyEmailIn } from '../models/VerifyEmailIn';
 import type { WsTicketOut } from '../models/WsTicketOut';
@@ -153,6 +154,26 @@ export class AuthService {
         return __request(OpenAPI, {
             method: 'GET',
             url: '/api/auth/me',
+        });
+    }
+    /**
+     * Update Me
+     * @returns UserOut Successful Response
+     * @throws ApiError
+     */
+    public static updateMeApiAuthMePatch({
+        requestBody,
+    }: {
+        requestBody: UpdateProfileIn,
+    }): CancelablePromise<UserOut> {
+        return __request(OpenAPI, {
+            method: 'PATCH',
+            url: '/api/auth/me',
+            body: requestBody,
+            mediaType: 'application/json',
+            errors: {
+                422: `Validation Error`,
+            },
         });
     }
     /**

@@ -2,12 +2,7 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
-export type UserOut = {
+export type UpdateProfileIn = {
     display_name?: (string | null);
-    email: string;
-    email_verified: boolean;
-    id: string;
-    is_admin: boolean;
-    status: string;
 };
 

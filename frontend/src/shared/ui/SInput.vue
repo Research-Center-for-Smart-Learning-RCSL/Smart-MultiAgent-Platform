@@ -10,6 +10,7 @@ const props = withDefaults(defineProps<{
   error?: boolean
   size?: 'sm' | 'md'
   id?: string | undefined
+  maxlength?: number | undefined
 }>(), {
   modelValue: '',
   type: 'text',
@@ -18,6 +19,7 @@ const props = withDefaults(defineProps<{
   error: false,
   size: 'md',
   id: undefined,
+  maxlength: undefined,
 })
 
 const emit = defineEmits<{
@@ -74,6 +76,7 @@ function togglePasswordVisibility() {
       :value="modelValue"
       :placeholder="placeholder"
       :disabled="disabled"
+      :maxlength="maxlength"
       @input="onInput"
     >
     <span

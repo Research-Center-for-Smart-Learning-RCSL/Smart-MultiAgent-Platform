@@ -7,6 +7,7 @@ export type UserDetailOut = {
     banned_reason: (string | null);
     created_at: string;
     deleted_at: (string | null);
+    display_name: (string | null);
     email: string;
     email_verified: boolean;
     id: string;
