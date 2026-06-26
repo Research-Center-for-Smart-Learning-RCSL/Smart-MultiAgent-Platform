@@ -179,7 +179,7 @@ watch(
       wakeupEveryN.value = enm.enabled ? (enm.n as number) ?? null : null
       wakeupSilence.value = sm.enabled ? (sm.t_minutes as number) ?? null : null
       wakeupCallOnly.value = (co.enabled as boolean) ?? false
-      wakeupAutostop.value = sm.enabled ? (sm.autostop_rounds as number) ?? null : null
+      wakeupAutostop.value = (sm.autostop_rounds as number) ?? null
     } else {
       // Legacy flat format saved before the nested triggers schema
       wakeupEveryN.value = (wc?.every_n_messages as number) || null
