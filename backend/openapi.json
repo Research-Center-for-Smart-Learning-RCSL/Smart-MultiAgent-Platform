@@ -1010,6 +1010,15 @@
       },
       "Body_upload_document_api_rag_configs__config_id__documents_post": {
         "properties": {
+          "agent_ids": {
+            "default": [],
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "title": "Agent Ids",
+            "type": "array"
+          },
           "file": {
             "contentMediaType": "application/octet-stream",
             "title": "File",
@@ -3274,8 +3283,34 @@
         "title": "RagConfigPatchIn",
         "type": "object"
       },
+      "RagDocumentAgentsPatchIn": {
+        "description": "Replace a document's per-agent allowlist (empty = no agent may see it).",
+        "properties": {
+          "agent_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "title": "Agent Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "agent_ids"
+        ],
+        "title": "RagDocumentAgentsPatchIn",
+        "type": "object"
+      },
       "RagDocumentOut": {
         "properties": {
+          "agent_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "title": "Agent Ids",
+            "type": "array"
+          },
           "filename": {
             "title": "Filename",
             "type": "string"
@@ -3324,7 +3359,8 @@
           "sha256",
           "status",
           "scan_status",
-          "uploaded_at"
+          "uploaded_at",
+          "agent_ids"
         ],
         "title": "RagDocumentOut",
         "type": "object"
@@ -12902,6 +12938,60 @@
           }
         },
         "summary": "Delete Rag Document",
+        "tags": [
+          "rag"
+        ]
+      }
+    },
+    "/api/rag-documents/{document_id}/agents": {
+      "patch": {
+        "description": "Replace a document's per-agent allowlist.\n\nAuthZ matches document deletion: ``RESOURCE_CREATE_EDIT`` at the parent\nconfig's project. DOM-7: a missing document and an existing-but-forbidden\none both return 404 so the endpoint is not a cross-tenant UUID oracle.",
+        "operationId": "set_document_agents_api_rag_documents__document_id__agents_patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "document_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Document Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RagDocumentAgentsPatchIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RagDocumentOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Set Document Agents",
         "tags": [
           "rag"
         ]

@@ -42,6 +42,7 @@ from contexts.knowledge.infrastructure.qdrant_store import QdrantStore
 from contexts.knowledge.infrastructure.repositories import (
     RagChunkRepository,
     RagConfigRepository,
+    RagDocumentRepository,
 )
 
 __all__ = ["RetrievedChunk", "RetrieveService"]
@@ -70,6 +71,7 @@ class RetrieveService:
         self._reranker = reranker
         self._configs = RagConfigRepository(db)
         self._chunks = RagChunkRepository(db)
+        self._docs = RagDocumentRepository(db)
 
     async def _load_config(self, config_id: uuid.UUID) -> RagConfig:
         cfg = await self._configs.get(config_id)
@@ -90,6 +92,16 @@ class RetrieveService:
         effective_top_k = top_k or cfg.top_k or 8
         do_rerank = cfg.rerank_enabled if rerank is None else rerank
 
+        # Per-agent scoping (R10.11): resolve the agent's visible documents up
+        # front and constrain the Qdrant search to them, so top_k is computed
+        # over allowed documents — correct recall even for a narrowly-scoped
+        # agent. An agent with no allowed documents retrieves nothing.
+        doc_ids: list[uuid.UUID] | None = None
+        if agent_id is not None:
+            doc_ids = await self._docs.allowed_document_ids(config_id=config_id, agent_id=agent_id)
+            if not doc_ids:
+                return []
+
         vecs = await self._embedder.embed_batch([text])
         if not vecs:
             from contexts.knowledge.infrastructure.embedders import EmbeddingError
@@ -97,18 +109,18 @@ class RetrieveService:
             raise EmbeddingError(0, "embedder returned no vectors for query")
         query_vec = vecs[0]
 
-        # Over-fetch when reranking so the reranker has headroom (R10.08).
+        # Over-fetch only when reranking, to give the reranker headroom (R10.08).
         fetch_k = effective_top_k * 4 if do_rerank else effective_top_k
         hits = await self._qdrant.search(
             project_id=cfg.project_id,
             query_vector=query_vec,
             top_k=fetch_k,
-            agent_id=agent_id,
+            doc_ids=doc_ids,
         )
         if not hits:
             return []
 
-        # Hydrate chunk text from Postgres.
+        # Hydrate chunk text from Postgres (scan-status gate applied there).
         rows = await self._chunks.lookup_points([h.point_id for h in hits])
         by_pt: dict[uuid.UUID, tuple[int, uuid.UUID, str]] = {
             r.qdrant_point_id: (r.chunk_idx, r.document_id, r.text) for r in rows

@@ -6,6 +6,7 @@ import type { Body_upload_document_api_rag_configs__config_id__documents_post } 
 import type { RagConfigCreateIn } from '../models/RagConfigCreateIn';
 import type { RagConfigOut } from '../models/RagConfigOut';
 import type { RagConfigPatchIn } from '../models/RagConfigPatchIn';
+import type { RagDocumentAgentsPatchIn } from '../models/RagDocumentAgentsPatchIn';
 import type { RagDocumentOut } from '../models/RagDocumentOut';
 import type { CancelablePromise } from '../core/CancelablePromise';
 import { OpenAPI } from '../core/OpenAPI';
@@ -240,6 +241,36 @@ export class RagService {
             path: {
                 'document_id': documentId,
             },
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * Set Document Agents
+     * Replace a document's per-agent allowlist.
+     *
+     * AuthZ matches document deletion: ``RESOURCE_CREATE_EDIT`` at the parent
+     * config's project. DOM-7: a missing document and an existing-but-forbidden
+     * one both return 404 so the endpoint is not a cross-tenant UUID oracle.
+     * @returns RagDocumentOut Successful Response
+     * @throws ApiError
+     */
+    public static setDocumentAgentsApiRagDocumentsDocumentIdAgentsPatch({
+        documentId,
+        requestBody,
+    }: {
+        documentId: string,
+        requestBody: RagDocumentAgentsPatchIn,
+    }): CancelablePromise<RagDocumentOut> {
+        return __request(OpenAPI, {
+            method: 'PATCH',
+            url: '/api/rag-documents/{document_id}/agents',
+            path: {
+                'document_id': documentId,
+            },
+            body: requestBody,
+            mediaType: 'application/json',
             errors: {
                 422: `Validation Error`,
             },

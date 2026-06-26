@@ -48,10 +48,35 @@ function seedHandlers(): void {
           status: 'ready',
           scan_status: 'clean',
           uploaded_at: '2026-01-02T00:00:00Z',
+          agent_ids: ['agent_1'],
         },
       ]),
     ),
     http.get('/api/projects/proj_1/keys', () => HttpResponse.json([])),
+    http.get('/api/projects/proj_1/agents', () =>
+      HttpResponse.json([
+        {
+          id: 'agent_1',
+          project_id: 'proj_1',
+          name: 'Support Bot',
+          model_hint: 'claude',
+          model_id: null,
+          key_group_id: 'kg_1',
+          system_prompt: '',
+          prompt_strategy: 'full',
+          rag_config_id: 'cfg_1',
+          graphrag_config_id: null,
+          context_mode: 'window',
+          context_token_cap: null,
+          a2a_enabled: false,
+          wakeup_config: {},
+          workflow_capabilities: {},
+          version: 1,
+          created_at: '2026-01-01T00:00:00Z',
+          deleted_at: null,
+        },
+      ]),
+    ),
   )
 }
 
@@ -82,5 +107,18 @@ describe('RagConfigDetailView', () => {
     await settle(wrapper)
     expect(wrapper.find('input[type="file"]').exists()).toBe(true)
     expect(wrapper.text()).toContain('guide.pdf')
+  })
+
+  it('shows the per-agent allowlist picker and the document agent count', async () => {
+    seedHandlers()
+    const wrapper = await renderView(RagConfigDetailView, {
+      routes,
+      initialRoute: '/projects/proj_1/rag-configs/cfg_1?tab=documents',
+    })
+    await settle(wrapper)
+    // The bound agent appears in the upload allowlist picker (data, not i18n).
+    expect(wrapper.text()).toContain('Support Bot')
+    // The allowlist checkbox picker rendered.
+    expect(wrapper.find('input[type="checkbox"]').exists()).toBe(true)
   })
 })

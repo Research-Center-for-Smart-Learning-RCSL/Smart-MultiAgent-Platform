@@ -122,6 +122,9 @@ def _build_registry() -> list[RouterEntry]:
         chatroom as ws_chatroom,
     )
     from app.api.ws import (
+        graphrag as ws_graphrag,
+    )
+    from app.api.ws import (
         rag_configs as ws_rag_configs,
     )
     from app.api.ws import (
@@ -197,6 +200,7 @@ def _build_registry() -> list[RouterEntry]:
         RouterEntry(ws_chatroom.router),
         RouterEntry(ws_workflow_runs.router),
         RouterEntry(ws_rag_configs.router),
+        RouterEntry(ws_graphrag.router),
         RouterEntry(ws_admin_tail.router),
     ]
 

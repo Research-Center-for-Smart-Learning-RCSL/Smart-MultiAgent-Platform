@@ -80,6 +80,14 @@ rag_documents = sa.Table(
         "uploaded_by", pg.UUID(as_uuid=True), sa.ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     ),
     sa.Column("uploaded_at", sa.TIMESTAMP(timezone=True), nullable=False, server_default=sa.text("now()")),
+    # Strict per-agent allowlist (0035). Empty = no agent may retrieve this
+    # document's chunks; retrieval filters on it in the hydration join.
+    sa.Column(
+        "agent_ids",
+        pg.ARRAY(pg.UUID(as_uuid=True)),
+        nullable=False,
+        server_default=sa.text("'{}'::uuid[]"),
+    ),
 )
 
 

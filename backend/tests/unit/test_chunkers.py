@@ -6,7 +6,11 @@ import pytest
 
 from contexts.knowledge.domain.errors import ChunkParamsInvalid
 from contexts.knowledge.domain.models import ChunkStrategy
-from contexts.knowledge.infrastructure.chunkers import chunk_fixed, chunk_text
+from contexts.knowledge.infrastructure.chunkers import (
+    chunk_document,
+    chunk_fixed,
+    chunk_semantic,
+)
 
 
 def test_fixed_simple_windowing() -> None:
@@ -25,8 +29,80 @@ def test_fixed_rejects_bad_params() -> None:
         chunk_fixed("a b c", chunk_size_tokens=3, chunk_overlap_tokens=3)
 
 
-def test_chunk_text_defaults_fixed() -> None:
+async def test_chunk_document_defaults_fixed() -> None:
     txt = " ".join(str(i) for i in range(1500))
-    out = chunk_text(txt, strategy=ChunkStrategy.FIXED, params={})
+    # embedder is required by the signature but ignored for the fixed strategy.
+    out = await chunk_document(txt, strategy=ChunkStrategy.FIXED, params={}, embedder=_StubEmbedder({}))
     # Default 512/64 → ~3 chunks.
     assert len(out) >= 3
+
+
+# ---------------------------------------------------------------------------
+# Similarity-aware semantic chunking
+# ---------------------------------------------------------------------------
+
+
+class _StubEmbedder:
+    """Maps each sentence to a fixed vector, so similarity is deterministic."""
+
+    def __init__(self, vectors: dict[str, list[float]]) -> None:
+        self._vectors = vectors
+
+    async def embed_batch(self, texts: list[str]) -> list[list[float]]:
+        return [self._vectors[t] for t in texts]
+
+
+async def test_semantic_splits_on_topic_shift() -> None:
+    # Two sentences point one way, the third is orthogonal → boundary before it.
+    text = "Cats purr. Cats nap. Servers crash."
+    vectors = {
+        "Cats purr.": [1.0, 0.0],
+        "Cats nap.": [1.0, 0.0],
+        "Servers crash.": [0.0, 1.0],
+    }
+    out = await chunk_semantic(
+        text,
+        embedder=_StubEmbedder(vectors),
+        max_tokens_per_chunk=100,
+        similarity_threshold=0.5,
+    )
+    assert out == ["Cats purr. Cats nap.", "Servers crash."]
+
+
+async def test_semantic_keeps_cohesive_text_together() -> None:
+    text = "Cats purr. Cats nap. Cats hunt."
+    same = [1.0, 0.0]
+    out = await chunk_semantic(
+        text,
+        embedder=_StubEmbedder({s.strip(): same for s in ["Cats purr.", "Cats nap.", "Cats hunt."]}),
+        max_tokens_per_chunk=100,
+        similarity_threshold=0.5,
+    )
+    assert out == ["Cats purr. Cats nap. Cats hunt."]
+
+
+async def test_semantic_respects_capacity() -> None:
+    # All identical direction (never a topic-shift boundary), but capacity forces a split.
+    text = "aa bb. cc dd. ee ff."
+    same = [1.0, 0.0]
+    out = await chunk_semantic(
+        text,
+        embedder=_StubEmbedder({s: same for s in ["aa bb.", "cc dd.", "ee ff."]}),
+        max_tokens_per_chunk=2,  # each sentence is 2 tokens → one sentence per chunk
+        similarity_threshold=0.1,
+    )
+    assert out == ["aa bb.", "cc dd.", "ee ff."]
+
+
+async def test_semantic_rejects_bad_threshold() -> None:
+    with pytest.raises(ChunkParamsInvalid):
+        await chunk_semantic(
+            "x.", embedder=_StubEmbedder({"x.": [1.0]}), max_tokens_per_chunk=10, similarity_threshold=0.0
+        )
+
+
+async def test_semantic_empty_text() -> None:
+    out = await chunk_semantic(
+        "   ", embedder=_StubEmbedder({}), max_tokens_per_chunk=10, similarity_threshold=0.5
+    )
+    assert out == []

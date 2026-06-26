@@ -16,6 +16,7 @@ can be exercised without them:
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
 from typing import Any
 
 import pytest
@@ -29,12 +30,14 @@ from contexts.knowledge.application.ingest_service import (
     IngestInput,
     IngestService,
 )
-from contexts.knowledge.domain.models import ChunkStrategy, DocumentStatus
+from contexts.knowledge.domain.models import ChunkStrategy, DocumentStatus, ScanStatus
 from contexts.knowledge.infrastructure.repositories import (
+    RagChunkRepository,
     RagConfigRepository,
     RagDocumentRepository,
 )
 from contexts.tenancy.infrastructure.repositories import ProjectRepository
+from shared_kernel.auth.clients import now
 from shared_kernel.db.session import async_session
 
 pytestmark = pytest.mark.wiring
@@ -288,3 +291,91 @@ async def test_index_batches_embeddings_for_large_documents() -> None:
         assert embedder.calls >= 2  # batching actually engaged
         assert embedder.max_batch <= _EMBED_BATCH  # no oversized provider call
         assert embedder.total == total_chunks  # every chunk embedded exactly once
+
+
+# --------------------------------------------------------------------------- #
+# 6. Retrieval hydration withholds only quarantined chunks. A ready-but-not-   #
+#    yet-scanned (pending) doc stays retrievable so a fresh upload has no       #
+#    availability gap; a quarantined doc is dropped.                            #
+# --------------------------------------------------------------------------- #
+
+
+async def _seed_ready_doc(
+    db: AsyncSession,
+    cfg: Any,
+    user: Any,
+    *,
+    filename: str,
+    agent_ids: Sequence[uuid.UUID] = (),
+) -> tuple[uuid.UUID, uuid.UUID]:
+    """Create a READY doc with one chunk; return (document_id, qdrant_point_id)."""
+    sha = uuid.uuid4().hex
+    doc = await RagDocumentRepository(db).create(
+        rag_config_id=cfg.id,
+        filename=filename,
+        mime="text/plain",
+        size_bytes=len(_TEXT),
+        sha256=sha,
+        minio_path=f"rag-sources/{cfg.project_id}/{cfg.id}/{sha}",
+        uploaded_by=user.id,
+        agent_ids=agent_ids,
+    )
+    await RagDocumentRepository(db).set_status(document_id=doc.id, status=DocumentStatus.READY)
+    point_id = uuid.uuid4()
+    await RagChunkRepository(db).insert_many(
+        [{"document_id": doc.id, "chunk_idx": 0, "text": "body", "qdrant_point_id": point_id}]
+    )
+    return doc.id, point_id
+
+
+async def test_lookup_points_keeps_pending_drops_quarantined() -> None:
+    async with async_session() as db:
+        user, cfg = await _seed_config(db)
+
+        # Pending: ready doc whose ClamAV pass has not landed yet.
+        pending_doc, pending_point = await _seed_ready_doc(db, cfg, user, filename="pending.txt")
+        # Quarantined: scan flipped both scan_status and status.
+        bad_doc, bad_point = await _seed_ready_doc(db, cfg, user, filename="bad.txt")
+        await RagDocumentRepository(db).mark_scan(
+            document_id=bad_doc, scan_status=ScanStatus.QUARANTINED, scan_at=now()
+        )
+        await db.commit()
+
+        hydrated = await RagChunkRepository(db).lookup_points([pending_point, bad_point])
+        returned_docs = {c.document_id for c in hydrated}
+
+        assert pending_doc in returned_docs  # no availability gap for a fresh upload
+        assert bad_doc not in returned_docs  # confirmed-malicious chunk withheld
+
+
+# --------------------------------------------------------------------------- #
+# 7. The per-agent allowlist is resolved by allowed_document_ids, which the     #
+#    retrieve path passes to Qdrant as a doc_id filter: an agent sees a doc only #
+#    if it's on the allowlist; empty allowlist = nobody; quarantined excluded.   #
+# --------------------------------------------------------------------------- #
+
+
+async def test_allowed_document_ids_enforces_agent_allowlist() -> None:
+    async with async_session() as db:
+        user, cfg = await _seed_config(db)
+        agent_a, agent_b = uuid.uuid4(), uuid.uuid4()
+
+        doc_a, _ = await _seed_ready_doc(db, cfg, user, filename="a.txt", agent_ids=[agent_a])
+        doc_ab, _ = await _seed_ready_doc(db, cfg, user, filename="ab.txt", agent_ids=[agent_a, agent_b])
+        doc_none, _ = await _seed_ready_doc(db, cfg, user, filename="none.txt", agent_ids=[])
+        # On agent A's allowlist but quarantined — must be excluded.
+        bad, _ = await _seed_ready_doc(db, cfg, user, filename="bad.txt", agent_ids=[agent_a])
+        await RagDocumentRepository(db).mark_scan(
+            document_id=bad, scan_status=ScanStatus.QUARANTINED, scan_at=now()
+        )
+        await db.commit()
+
+        repo = RagDocumentRepository(db)
+        for_a = set(await repo.allowed_document_ids(config_id=cfg.id, agent_id=agent_a))
+        for_b = set(await repo.allowed_document_ids(config_id=cfg.id, agent_id=agent_b))
+
+        assert for_a == {doc_a, doc_ab}  # excludes empty-allowlist + quarantined
+        assert for_b == {doc_ab}
+        assert doc_none not in for_a
+        assert doc_none not in for_b
+        assert bad not in for_a

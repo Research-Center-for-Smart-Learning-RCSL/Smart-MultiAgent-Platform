@@ -226,6 +226,18 @@
       "triggerManual": "Manual only",
       "triggerHelp": "When to automatically rebuild the knowledge graph."
     },
+    "builtinTools": {
+      "title": "Built-in Tools",
+      "subtitle": "Capabilities this agent can use. Code Interpreter runs arbitrary code, so it is off by default -- enable it when you want the agent to compute, analyse data, or make charts.",
+      "code_exec": "Code Interpreter",
+      "code_execDesc": "Run Python in a gVisor sandbox. State persists across the chat -- loaded data and saved charts carry over between messages (30s per call).",
+      "web_search": "Web search",
+      "web_searchDesc": "Let the agent search the web via the project's configured search provider.",
+      "file": "File workspace",
+      "fileDesc": "Let the agent read and write files in its persistent workspace.",
+      "updated": "Built-in tools updated.",
+      "updateFailed": "Failed to update built-in tools."
+    },
     "mcp": {
       "title": "MCP Bindings",
       "subtitle": "Tools available to {name}. URL/package servers run in the gVisor sandbox and may only reach hosts on the project's egress allowlist --",
@@ -329,6 +341,7 @@
       "colSize": "Size",
       "colStatus": "Status",
       "colScanned": "Scanned",
+      "colAgents": "Agents",
       "colActions": "Actions",
       "delete": "Delete",
       "deleted": "Document deleted.",
@@ -358,7 +371,15 @@
       "ingestionProgress": "Processing {processed} / {total} chunks...",
       "indexing": "Indexing vectors...",
       "emptyTitle": "No documents uploaded",
-      "emptyDescription": "Upload documents to build a knowledge base for retrieval."
+      "emptyDescription": "Upload documents to build a knowledge base for retrieval.",
+      "visibleToAgents": "Visible to agents",
+      "visibleToAgentsHint": "Only the selected agents can retrieve this document. An empty selection means no agent can see it.",
+      "noBoundAgents": "No agents are bound to this config yet. Bind an agent to its knowledge base first, then choose document visibility here.",
+      "agentsNone": "No agents",
+      "agentsCount": "{count} agents",
+      "agentsModalTitle": "Document visibility",
+      "agentsSaved": "Document visibility updated.",
+      "agentsSaveFailed": "Failed to update document visibility."
     }
   }
 }
