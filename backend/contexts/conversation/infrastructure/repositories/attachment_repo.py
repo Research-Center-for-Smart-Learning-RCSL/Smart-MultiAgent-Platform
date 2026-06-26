@@ -147,6 +147,70 @@ class MessageAttachmentRepository:
         )
         return result.rowcount or 0
 
+    async def create_agent_artifact(
+        self,
+        *,
+        attachment_id: uuid.UUID,
+        chatroom_id: uuid.UUID,
+        filename: str,
+        mime: str,
+        size_bytes: int,
+        minio_path: str,
+        expires_at: datetime | None,
+    ) -> MessageAttachment:
+        """Insert an agent-authored artifact (chart/file produced by code_exec).
+
+        ``uploaded_by_user_id`` is NULL (no human uploader) and the AV scan is
+        skipped — the bytes originate inside the sandbox, not from a client.
+        """
+        row = (
+            await self._db.execute(
+                t.message_attachments.insert()
+                .values(
+                    id=attachment_id,
+                    chatroom_id=chatroom_id,
+                    uploaded_by_user_id=None,
+                    filename=filename,
+                    mime=mime,
+                    size_bytes=size_bytes,
+                    minio_path=minio_path,
+                    scan_status=ScanStatus.SKIPPED.value,
+                    expires_at=expires_at,
+                )
+                .returning(t.message_attachments)
+            )
+        ).one()
+        return _row_to_attachment(row)
+
+    async def bind_agent_artifacts(
+        self,
+        *,
+        attachment_ids: Sequence[uuid.UUID],
+        message_id: uuid.UUID,
+        chatroom_id: uuid.UUID,
+    ) -> int:
+        """Bind agent-authored artifacts to a freshly-sent agent message.
+
+        Mirrors :meth:`bind_to_message` but matches on ``uploaded_by_user_id IS
+        NULL`` (agent authorship) rather than a human uploader.
+        """
+        if not attachment_ids:
+            return 0
+        result = await self._db.execute(
+            t.message_attachments.update()
+            .where(
+                sa.and_(
+                    t.message_attachments.c.id.in_(list(attachment_ids)),
+                    t.message_attachments.c.message_id.is_(None),
+                    t.message_attachments.c.chatroom_id == chatroom_id,
+                    t.message_attachments.c.uploaded_by_user_id.is_(None),
+                    t.message_attachments.c.status == AttachmentStatus.ACTIVE.value,
+                )
+            )
+            .values(message_id=message_id),
+        )
+        return result.rowcount or 0
+
     async def mark_scan(
         self,
         *,

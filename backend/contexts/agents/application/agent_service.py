@@ -58,6 +58,9 @@ _SYSTEM_ACTOR_ID = uuid.UUID(int=0)
 # ones. A caller wanting a different cadence — or a deliberately inert agent —
 # passes an explicit config (even an empty {}), which is respected.
 _DEFAULT_WAKEUP_CONFIG: dict[str, Any] = {"triggers": {"every_n_messages": {"enabled": True, "n": 1}}}
+# Built-in tools a NEW agent gets by default — code_exec is omitted so the
+# Code Interpreter is opt-in (the user enables it in the agent editor).
+_DEFAULT_BUILTIN_TOOLS: tuple[str, ...] = ("web_search", "file")
 
 
 class AgentService:
@@ -156,6 +159,18 @@ class AgentService:
             wakeup_authored_snapshot=wakeup,
             workflow_capabilities=draft.workflow_capabilities or {},
         )
+        # Opt-in default for the Code Interpreter: seed explicit builtin bindings
+        # for web_search + file only, so a NEW agent starts with code_exec OFF.
+        # (Existing agents have no builtin bindings and keep the legacy all-on
+        # behaviour — only new agents enter explicit-gating mode here.)
+        for tool in _DEFAULT_BUILTIN_TOOLS:
+            await self._bindings.add(
+                agent_id=agent.id,
+                source=McpSource.BUILTIN,
+                reference=tool,
+                allowed_tools=[],
+                config={},
+            )
         await audit.emit(
             self._db,
             audit.AuditEvent(

@@ -286,6 +286,76 @@ class AttachmentService:
             uploaded_by_user_id=uploader_user_id,
         )
 
+    # ---- agent artifacts (Code Interpreter) -------------------------------
+
+    async def ingest_agent_artifact(
+        self,
+        *,
+        project_id: uuid.UUID,
+        chatroom_id: uuid.UUID,
+        agent_id: uuid.UUID,
+        filename: str,
+        mime: str,
+        data: bytes,
+    ) -> MessageAttachment:
+        """Persist a code_exec-produced artifact (chart/file) as an attachment.
+
+        Authored by the agent (no human uploader), AV scan skipped — the bytes
+        come from inside the gVisor sandbox. The caller binds the returned row
+        to the agent's reply message via ``bind_agent_artifacts``.
+        """
+        attachment_id = uuid.uuid4()
+        key = chat_upload_key(
+            project_id=project_id,
+            chatroom_id=chatroom_id,
+            attachment_id=attachment_id,
+            filename=filename,
+        )
+        await self._minio.put_object(
+            bucket=self._minio.chat_uploads_bucket,
+            key=key,
+            data=data,
+            content_type=mime,
+        )
+        row = await self._repo.create_agent_artifact(
+            attachment_id=attachment_id,
+            chatroom_id=chatroom_id,
+            filename=filename,
+            mime=mime,
+            size_bytes=len(data),
+            minio_path=f"{self._minio.chat_uploads_bucket}/{key}",
+            expires_at=now() + ATTACHMENT_TTL,
+        )
+        await audit.emit(
+            self._db,
+            audit.AuditEvent(
+                action="attachment.agent_artifact",
+                resource_type="attachment",
+                resource_id=row.id,
+                metadata={
+                    "chatroom_id": str(chatroom_id),
+                    "agent_id": str(agent_id),
+                    "filename": filename,
+                    "mime": mime,
+                    "size_bytes": len(data),
+                },
+            ),
+        )
+        return row
+
+    async def bind_agent_artifacts(
+        self,
+        *,
+        attachment_ids: list[uuid.UUID],
+        message_id: uuid.UUID,
+        chatroom_id: uuid.UUID,
+    ) -> int:
+        return await self._repo.bind_agent_artifacts(
+            attachment_ids=attachment_ids,
+            message_id=message_id,
+            chatroom_id=chatroom_id,
+        )
+
     # ---- scan callback ----------------------------------------------------
 
     async def record_scan_result(

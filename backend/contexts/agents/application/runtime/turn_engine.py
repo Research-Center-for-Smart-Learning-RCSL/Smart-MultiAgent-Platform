@@ -14,6 +14,7 @@ turn lock assume a long-lived background context. The triggers that invoke this
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import time
@@ -51,7 +52,7 @@ from contexts.keys.domain.providers import ProviderCapability
 from contexts.keys.infrastructure.adapters import build_router
 from contexts.keys.infrastructure.group_repository import KeyGroupRepository
 from contexts.knowledge.application.graphrag_context_provider import GraphRagContextProvider
-from contexts.knowledge.application.rag_context_provider import RagContextProvider
+from contexts.knowledge.application.rag_context_provider import RagContext, RagContextProvider
 from shared_kernel import audit
 from shared_kernel.observability.metrics import REGISTRY
 from shared_kernel.realtime.pubsub import Publisher
@@ -66,6 +67,11 @@ _DEFAULT_MAX_TOKENS = 4096
 # promote these to settings when one lands.
 _TURN_RATE_WINDOW_S = 300
 _TURN_RATE_MAX_TURNS = 30
+
+# Code-Interpreter workspace staging caps — how many of the triggering user
+# message's attachments to copy into the kernel, and the total byte budget.
+_MAX_STAGED_FILES = 10
+_MAX_STAGED_BYTES = 64 * 1024 * 1024
 
 # ---- Turn observability (same pattern as PROVIDER_CALL_TOTAL) ---------------
 
@@ -306,9 +312,19 @@ class TurnEngine:
             await self._requeue_notifications(agent, pending_notes)
             return TurnResult(status="failed", reason=_err_kind(exc))
 
-    async def _builtin_tools(self, agent: Agent) -> list[Tool]:
+    async def _builtin_tools(
+        self,
+        agent: Agent,
+        *,
+        chatroom_id: uuid.UUID | None = None,
+        artifact_sink: list[dict[str, Any]] | None = None,
+    ) -> list[Tool]:
         """Assemble the sandbox (``code_exec`` / ``file``) + ``web_search`` built-in
         tools and the agent's bound MCP tools for this turn (K.5).
+
+        ``chatroom_id`` routes ``code_exec`` to the room's persistent kernel and
+        ``artifact_sink`` collects any artifacts it produces; both are ``None``
+        for headless A2A turns (no room, no kernel, no artifact surface).
 
         Best-effort: a wiring fault (no Docker daemon in a dev run, etc.) must
         not abort the turn — the agent simply runs without those tools. Each
@@ -322,11 +338,115 @@ class TurnEngine:
 
             bindings = await AgentsFacade(self._db).list_mcp_bindings(agent.id)
             return build_builtin_tools(
-                self._db, agent=agent, mcp_bindings=list(bindings), deps=default_builtin_deps()
+                self._db,
+                agent=agent,
+                mcp_bindings=list(bindings),
+                deps=default_builtin_deps(),
+                chatroom_id=chatroom_id,
+                artifact_sink=artifact_sink,
             )
         except Exception:
             _log.warning("builtin tool assembly failed for agent %s", agent.id, exc_info=True)
             return []
+
+    async def _stage_workspace_inputs(self, agent: Agent, chatroom_id: uuid.UUID) -> str | None:
+        """Stage the triggering user message's attachments into the code_exec
+        workspace so the kernel can read them (Code Interpreter).
+
+        Returns a one-line note listing the workspace paths (folded into the
+        system prompt so the model knows where the files are) or ``None``.
+        Best-effort and gated on ``code_exec`` actually being enabled — a fault
+        here must never abort the turn."""
+        try:
+            from contexts.agents.application.runtime.builtin_tools import _enabled_builtins
+            from contexts.agents.domain.mcp import StagedFile
+            from contexts.agents.infrastructure.sandbox.docker_runsc import (
+                docker_runsc_sandbox_from_settings,
+            )
+            from contexts.conversation.interfaces.facade import ConversationFacade
+
+            bindings = await AgentsFacade(self._db).list_mcp_bindings(agent.id)
+            if "code_exec" not in _enabled_builtins(list(bindings)):
+                return None
+            facade = ConversationFacade(self._db)
+            attachments = await facade.latest_user_attachments(chatroom_id)
+            if not attachments:
+                return None
+            staged: list[StagedFile] = []
+            total = 0
+            for att in attachments[:_MAX_STAGED_FILES]:
+                data = await facade.read_attachment_bytes(att.id)
+                if data is None:
+                    continue
+                if total + len(data) > _MAX_STAGED_BYTES:
+                    break
+                total += len(data)
+                staged.append(StagedFile(filename=att.filename, data=data))
+            if not staged:
+                return None
+            runner = docker_runsc_sandbox_from_settings()
+            paths = await runner.stage_kernel_inputs(agent_id=agent.id, chatroom_id=chatroom_id, files=staged)
+            if not paths:
+                return None
+            return "[Files available in the code_exec workspace: " + ", ".join(paths) + "]"
+        except Exception:
+            _log.warning("workspace input staging failed for agent %s", agent.id, exc_info=True)
+            return None
+
+    async def _persist_artifacts(
+        self,
+        agent: Agent,
+        chatroom_id: uuid.UUID,
+        message_id: uuid.UUID,
+        artifacts: list[dict[str, Any]],
+    ) -> int:
+        """Store code_exec artifacts as agent-authored attachments bound to the
+        reply. Best-effort and in its own transaction so a storage hiccup never
+        rolls back the already-committed reply. Returns the count persisted."""
+        if not artifacts:
+            return 0
+        import base64
+
+        from contexts.conversation.application.attachment_service import AttachmentService
+
+        try:
+            svc = AttachmentService(self._db)
+            seen: set[str] = set()
+            ids: list[uuid.UUID] = []
+            for art in artifacts:
+                rel = str(art.get("rel_path") or art.get("filename") or "")
+                if rel in seen:
+                    continue
+                seen.add(rel)
+                b64 = art.get("b64")
+                if not b64:
+                    # Large artifact not inlined by the kernel — skipped in v1.
+                    continue
+                try:
+                    data = base64.b64decode(b64)
+                except Exception:
+                    _log.debug("skipping artifact with undecodable b64", exc_info=True)
+                    continue
+                row = await svc.ingest_agent_artifact(
+                    project_id=agent.project_id,
+                    chatroom_id=chatroom_id,
+                    agent_id=agent.id,
+                    filename=str(art.get("filename") or "artifact"),
+                    mime=str(art.get("mime") or "application/octet-stream"),
+                    data=data,
+                )
+                ids.append(row.id)
+            if ids:
+                await svc.bind_agent_artifacts(
+                    attachment_ids=ids, message_id=message_id, chatroom_id=chatroom_id
+                )
+            await self._db.commit()
+            return len(ids)
+        except Exception:
+            _log.warning("artifact persistence failed for agent %s", agent.id, exc_info=True)
+            with contextlib.suppress(Exception):
+                await self._db.rollback()
+            return 0
 
     def _resolve_prompt(self, agent: Agent) -> tuple[str, LazyPrompt | None, SectionCache | None]:
         """Resolve the agent's system prompt (R9.04–R9.08). All chat providers
@@ -491,16 +611,26 @@ class TurnEngine:
             # Retrieval keys off the *current* input when this turn carries one
             # (run_input_turn); otherwise the latest user message in history.
             query_text = input_text or next((h.content for h in reversed(history) if h.role == "user"), None)
-            rag_block = await self._rag_context(agent, query_text)
-            if rag_block:
-                system_parts.append(rag_block)
+            rag_ctx = await self._rag_context(agent, query_text)
+            if rag_ctx:
+                system_parts.append(rag_ctx.block)
             graphrag_block = await self._graphrag_context(agent, query_text)
             if graphrag_block:
                 system_parts.append(graphrag_block)
             # Drain queued A2A notifications (R9.16); approval requests also add
             # the cast_approval_vote tool for this turn.
             notify_block, extra_tools, pending_notes = await self._pending_context_and_tools(agent)
-            extra_tools = extra_tools + await self._builtin_tools(agent)
+            # code_exec artifacts (charts/files) produced this turn land here and
+            # are attached to the reply after it's persisted (Code Interpreter).
+            artifact_sink: list[dict[str, Any]] = []
+            extra_tools = extra_tools + await self._builtin_tools(
+                agent, chatroom_id=chatroom_id, artifact_sink=artifact_sink
+            )
+            # Stage the triggering message's uploads into the kernel workspace so
+            # code_exec can read them; the returned note tells the model the paths.
+            staged_note = await self._stage_workspace_inputs(agent, chatroom_id)
+            if staged_note:
+                system_parts.append(staged_note)
             if notify_block:
                 system_parts.append(notify_block)
             system_text = "\n\n".join(p for p in system_parts if p)
@@ -563,16 +693,23 @@ class TurnEngine:
                 )
                 return TurnResult(status="skipped", reason="empty_reply", tool_rounds=rounds)
 
+            reply_meta: dict[str, Any] = {"trigger": trigger, "tool_rounds": rounds}
+            if rag_ctx and rag_ctx.sources:
+                # Persist what RAG retrieved so the UI can cite it (R10.09).
+                reply_meta["rag_sources"] = rag_ctx.sources
             msg = await MessageService(self._db).send_agent(
                 chatroom_id=chatroom_id,
                 agent_id=agent.id,
                 content_md=final_text,
-                metadata={"trigger": trigger, "tool_rounds": rounds},
+                metadata=reply_meta,
                 request_id=request_id,
             )
             await self._audit(agent, chatroom_id, "agent.turn_finished", {"tool_rounds": rounds})
             await self._db.commit()
             self._compact_forced_rooms.discard(chatroom_id)
+            # Persist any code_exec artifacts (charts/files) and bind them to the
+            # reply BEFORE the WS event so the client's refetch hydrates them.
+            await self._persist_artifacts(agent, chatroom_id, msg.id, artifact_sink)
             # Publish AFTER commit so a client's refetch sees the committed row
             # (agent replies have no optimistic echo, unlike user sends).
             pub = Publisher(room)
@@ -897,7 +1034,7 @@ class TurnEngine:
             _log.warning("final no-tools call failed; falling back to last tool-round text")
             return last_text, MAX_TOOL_ROUNDS
 
-    async def _rag_context(self, agent: Agent, query: str | None) -> str | None:
+    async def _rag_context(self, agent: Agent, query: str | None) -> RagContext | None:
         """Delegate to the knowledge-context :class:`RagContextProvider`."""
         return await self._rag_provider.query(
             rag_config_id=agent.rag_config_id,

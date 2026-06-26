@@ -76,10 +76,19 @@ class SearchResult:
     score: float
 
 
+@dataclass(frozen=True, slots=True)
+class StagedFile:
+    """A user-uploaded file to copy into the code_exec session workspace."""
+
+    filename: str
+    data: bytes
+
+
 __all__ = [
     "EgressAllowlistEntry",
     "McpServerDraft",
     "McpTestResult",
     "SearchResult",
+    "StagedFile",
     "ToolCallResult",
 ]

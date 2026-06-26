@@ -143,6 +143,33 @@ async def test_code_exec_maps_ok_and_error() -> None:
     assert "boom" in res2.content
 
 
+async def test_code_exec_threads_chatroom_and_collects_artifacts() -> None:
+    runner = AsyncMock()
+    art = {"filename": "chart.png", "mime": "image/png", "size_bytes": 3, "rel_path": "/w/chart.png", "b64": "AAA"}
+    runner.run_code_exec.return_value = ToolCallResult(
+        ok=True, stdout="done", stderr="", exit_code=0, duration_ms=1, metadata={"artifacts": [art]}
+    )
+    sink: list[dict] = []
+    room = uuid.uuid4()
+    tools = {
+        t.name: t
+        for t in bt.build_builtin_tools(
+            AsyncMock(),
+            agent=_agent(),
+            mcp_bindings=[],
+            deps=_deps(runner=runner),
+            chatroom_id=room,
+            artifact_sink=sink,
+        )
+    }
+    res = await tools["code_exec"].invoke({"source": "print('x')"})
+    assert res.is_error is False
+    # The kernel's artifacts are accumulated for the reply, and the room id is
+    # threaded so code_exec runs against the session kernel.
+    assert sink == [art]
+    assert runner.run_code_exec.await_args.kwargs["chatroom_id"] == room
+
+
 async def test_code_exec_requires_source() -> None:
     tools = {
         t.name: t for t in bt.build_builtin_tools(AsyncMock(), agent=_agent(), mcp_bindings=[], deps=_deps())

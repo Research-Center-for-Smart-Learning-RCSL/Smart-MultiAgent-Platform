@@ -448,15 +448,21 @@ async def add_mcp_binding(
     # tool (in `reference` or `allowed_tools`) it would silently disable ALL of
     # them for the agent (the gate only defaults-on when there are zero builtin
     # bindings). Reject it at creation rather than let it become a dead binding.
+    # The `__none__` sentinel is the one exception: it lets the editor persist an
+    # explicit "all built-ins off" state (a builtin binding exists -> explicit
+    # mode, but it names no tool so the enabled set is empty).
     if body.source == "builtin":
-        from contexts.agents.application.runtime.builtin_tools import BUILTIN_TOOL_NAMES
+        from contexts.agents.application.runtime.builtin_tools import (
+            BUILTIN_NONE_SENTINEL,
+            BUILTIN_TOOL_NAMES,
+        )
 
         named = {body.reference, *body.allowed_tools} & BUILTIN_TOOL_NAMES
-        if not named:
+        if not named and body.reference != BUILTIN_NONE_SENTINEL:
             raise HTTPException(
                 status_code=422,
                 detail=f"builtin MCP binding must name one of {sorted(BUILTIN_TOOL_NAMES)} "
-                "in reference or allowed_tools",
+                f"in reference or allowed_tools (or '{BUILTIN_NONE_SENTINEL}' to disable all)",
             )
 
     binding = await service.add_mcp_binding(

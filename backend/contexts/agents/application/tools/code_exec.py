@@ -24,6 +24,9 @@ class CodeExecTool:
     agent_id: uuid.UUID
     runner: SandboxRunner
     db: AsyncSession | None = None
+    # When set, code runs in the room's persistent kernel so state (loaded
+    # dataframes, variables) survives across calls within the chat session.
+    chatroom_id: uuid.UUID | None = None
 
     async def run(
         self,
@@ -44,6 +47,7 @@ class CodeExecTool:
             source=source,
             stdin=stdin,
             timeout_s=budget,
+            chatroom_id=self.chatroom_id,
         )
         if self.db is not None:
             await audit.emit(
