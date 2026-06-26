@@ -136,17 +136,22 @@ class MessageRepository:
         ).all()
         return [_row_to_message(r) for r in rows]
 
-    async def distinct_user_sender_ids(self, chatroom_id: uuid.UUID) -> set[uuid.UUID]:
+    async def distinct_user_sender_ids(self, chatroom_id: uuid.UUID, *, limit: int = 1000) -> set[uuid.UUID]:
         """Distinct human author ids that have posted a live message in the room.
 
         Used to resolve author display names for the member roster. Bots
         (``agent``/``system``) are excluded — only ``user`` senders carry an
         identity-context display name.
+
+        Ordered + capped so the partial index ``ix_messages_chatroom_sender``
+        (0034) can yield sorted distinct ids and stop at ``limit`` instead of
+        scanning the room's whole history. ``limit`` bounds both the query cost
+        and the resulting roster; authors past the cap fall back to a short id
+        client-side (a non-issue below a four-figure distinct-poster count).
         """
         rows = (
             await self._db.execute(
                 sa.select(t.messages.c.sender_id)
-                .distinct()
                 .where(
                     sa.and_(
                         t.messages.c.chatroom_id == chatroom_id,
@@ -155,6 +160,9 @@ class MessageRepository:
                         t.messages.c.deleted_at.is_(None),
                     )
                 )
+                .distinct()
+                .order_by(t.messages.c.sender_id)
+                .limit(limit)
             )
         ).all()
         return {r.sender_id for r in rows}
@@ -274,11 +282,7 @@ class MessageRepository:
             conditions.append(t.messages.c.created_at >= created_after)
         if created_before is not None:
             conditions.append(t.messages.c.created_at < created_before)
-        q = (
-            t.messages.select()
-            .where(sa.and_(*conditions))
-            .order_by(t.messages.c.created_at.asc())
-        )
+        q = t.messages.select().where(sa.and_(*conditions)).order_by(t.messages.c.created_at.asc())
         if limit is not None:
             q = q.limit(limit)
         rows = (await self._db.execute(q)).all()
