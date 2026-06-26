@@ -8,11 +8,20 @@ import { z } from 'zod'
 import { XCircleIcon } from '@heroicons/vue/24/outline'
 import { SButton, SFormField, SInput, SLoadingSpinner } from '@shared/ui'
 import { ApiError } from '@shared/errors'
+import { useSessionStore } from '@shared/stores/session'
 import { enrollGuest } from '../api'
 
 const { t } = useI18n()
 const route = useRoute()
 const router = useRouter()
+const session = useSessionStore()
+
+if (!session.isAuthenticated) {
+  router.replace({
+    name: 'identity.login',
+    query: { redirect: route.fullPath },
+  })
+}
 
 // `idle` = waiting for user to fill in display name; `enrolling` = API in
 // flight; `invalid` = token rejected (permanent, no retry); `error` =
