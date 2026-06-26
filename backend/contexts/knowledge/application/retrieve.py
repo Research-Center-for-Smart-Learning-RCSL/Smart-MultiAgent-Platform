@@ -92,15 +92,23 @@ class RetrieveService:
         effective_top_k = top_k or cfg.top_k or 8
         do_rerank = cfg.rerank_enabled if rerank is None else rerank
 
-        # Per-agent scoping (R10.11): resolve the agent's visible documents up
-        # front and constrain the Qdrant search to them, so top_k is computed
-        # over allowed documents — correct recall even for a narrowly-scoped
-        # agent. An agent with no allowed documents retrieves nothing.
-        doc_ids: list[uuid.UUID] | None = None
+        # Scope the Qdrant search to this config's documents. The collection is
+        # per-PROJECT (rag_{project_id}) and shared across configs, so the doc_id
+        # filter is what limits results to THIS config — without it a search
+        # would leak other configs' chunks. When an agent_id is given we further
+        # narrow to that agent's allowlist (R10.11); the no-agent path (admin /
+        # tests) is still config-scoped, never project-wide.
+        #
+        # doc_ids size scales with the config's (agent-visible) document count —
+        # fine at this scale. If a config ever holds very many documents, prefer
+        # a per-config collection or a config_id payload filter over an unbounded
+        # doc_id list rather than dropping the filter (which would un-scope).
         if agent_id is not None:
             doc_ids = await self._docs.allowed_document_ids(config_id=config_id, agent_id=agent_id)
-            if not doc_ids:
-                return []
+        else:
+            doc_ids = await self._docs.retrievable_document_ids(config_id=config_id)
+        if not doc_ids:
+            return []
 
         vecs = await self._embedder.embed_batch([text])
         if not vecs:

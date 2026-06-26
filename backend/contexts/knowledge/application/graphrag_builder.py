@@ -252,9 +252,7 @@ class GraphRagBuilder:
                     },
                 ),
             )
-            await publish_build_state(
-                cfg.id, BuildState.FAILED_COMPENSATING.value, build_id=build_id, error=str(exc)
-            )
+            await publish_build_state(cfg.id, BuildState.FAILED_COMPENSATING.value, build_id=build_id)
             return BuildResult(
                 config_id=cfg.id,
                 build_id=build_id,
@@ -357,7 +355,7 @@ class GraphRagBuilder:
                 },
             ),
         )
-        await publish_build_state(config_id, BuildState.FAILED.value, build_id=build_id, error=error)
+        await publish_build_state(config_id, BuildState.FAILED.value, build_id=build_id)
 
     async def _embed_entities(
         self,

@@ -644,9 +644,12 @@ async def set_document_agents(
 ) -> RagDocumentOut:
     """Replace a document's per-agent allowlist.
 
-    AuthZ matches document deletion: ``RESOURCE_CREATE_EDIT`` at the parent
-    config's project. DOM-7: a missing document and an existing-but-forbidden
-    one both return 404 so the endpoint is not a cross-tenant UUID oracle.
+    AuthZ: ``RESOURCE_CREATE_EDIT`` at the parent config's project AND Project
+    Owner — re-scoping which agents can retrieve a document is a corpus
+    access-control decision, so it is owner-gated to match document upload
+    (R10.10), not the weaker edit-only bar. DOM-7: a missing document and an
+    existing-but-forbidden one both return 404 so the endpoint is not a
+    cross-tenant UUID oracle.
     """
     from contexts.knowledge.infrastructure.repositories import (
         RagDocumentNotFound,
@@ -673,6 +676,8 @@ async def set_document_agents(
     )
     if not decision.allowed:
         raise not_found
+    # R10.10: re-scoping document visibility is owner-gated, like upload.
+    await _require_owner(db=db, project_id=cfg.project_id, principal=principal)
 
     validated = await validate_agent_allowlist(
         db=db,

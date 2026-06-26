@@ -345,6 +345,26 @@ class RagDocumentRepository:
         ).all()
         return [r.id for r in rows]
 
+    async def retrievable_document_ids(self, *, config_id: uuid.UUID) -> list[uuid.UUID]:
+        """All retrievable document ids in ``config_id`` (no agent narrowing).
+
+        Used to scope an *unscoped* (no agent_id) retrieval to the config: the
+        Qdrant collection is per-project and shared across configs, so without a
+        doc_id filter a search would return other configs' chunks. Same
+        retrievability gate as :meth:`allowed_document_ids` (ready + not
+        quarantined).
+        """
+        rows = (
+            await self._db.execute(
+                sa.select(t.rag_documents.c.id).where(
+                    t.rag_documents.c.rag_config_id == config_id,
+                    t.rag_documents.c.status == "ready",
+                    t.rag_documents.c.scan_status != ScanStatus.QUARANTINED.value,
+                )
+            )
+        ).all()
+        return [r.id for r in rows]
+
     async def get_many(self, document_ids: Sequence[uuid.UUID]) -> list[RagDocument]:
         """Batch-fetch documents by id (one round-trip) — avoids per-id N+1."""
         ids = list(document_ids)

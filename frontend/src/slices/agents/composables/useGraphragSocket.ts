@@ -30,9 +30,20 @@ export function useGraphragSocket(projectId: string) {
   let pollTimer: ReturnType<typeof setInterval> | null = null
 
   function isInProgress(configId: string): boolean {
+    // Only poll configs with a known in-progress state. Unknown (undefined)
+    // must NOT count as in-progress — otherwise a config whose optimistic state
+    // was rolled back (e.g. a failed build-trigger deletes its liveState key)
+    // would be polled forever.
     const s = liveState.value[configId]
-    // Unknown (just-triggered, no event yet) counts as in-progress.
-    return s === undefined || IN_PROGRESS.has(s)
+    return s !== undefined && IN_PROGRESS.has(s)
+  }
+
+  function unwatch(configId: string): void {
+    const teardown = watched.get(configId)
+    if (teardown) {
+      teardown()
+      watched.delete(configId)
+    }
   }
 
   function ensurePoll(): void {
@@ -47,8 +58,12 @@ export function useGraphragSocket(projectId: string) {
   function applyState(configId: string, state: string): void {
     liveState.value = { ...liveState.value, [configId]: state }
     if (!IN_PROGRESS.has(state)) {
-      // Terminal: refetch the authoritative config row (last_build_at, binding).
+      // Terminal: refetch the authoritative config row (last_build_at, binding)
+      // and close this config's channel so subscriptions don't accumulate over
+      // many builds. Deferred so we don't tear down a channel from inside its
+      // own event handler. A later re-build re-subscribes via watch().
       qc.invalidateQueries({ queryKey: agentKeys.graphragConfigs(projectId) })
+      void Promise.resolve().then(() => unwatch(configId))
     }
   }
 

@@ -106,3 +106,37 @@ async def test_semantic_empty_text() -> None:
         "   ", embedder=_StubEmbedder({}), max_tokens_per_chunk=10, similarity_threshold=0.5
     )
     assert out == []
+
+
+class _ConstEmbedder:
+    """Maps any sentence to the same vector (similarity never triggers)."""
+
+    async def embed_batch(self, texts: list[str]) -> list[list[float]]:
+        return [[1.0, 0.0] for _ in texts]
+
+
+async def test_semantic_splits_cjk_on_fullwidth_terminators() -> None:
+    # zh-TW: 。terminators, no inter-character spaces. Must still split into
+    # sentences and detect the topic shift (cats -> servers).
+    text = "貓咪會喵喵叫。貓咪愛睡覺。伺服器當機了。"
+    vectors = {
+        "貓咪會喵喵叫。": [1.0, 0.0],
+        "貓咪愛睡覺。": [1.0, 0.0],
+        "伺服器當機了。": [0.0, 1.0],
+    }
+    out = await chunk_semantic(
+        text, embedder=_StubEmbedder(vectors), max_tokens_per_chunk=100, similarity_threshold=0.5
+    )
+    assert out == ["貓咪會喵喵叫。 貓咪愛睡覺。", "伺服器當機了。"]
+
+
+async def test_semantic_hard_splits_oversized_delimiterless_text() -> None:
+    # A long space-less CJK blob with no terminators must be capacity-split, not
+    # returned as one giant chunk that the embedder would reject.
+    text = "字" * 250
+    out = await chunk_semantic(
+        text, embedder=_ConstEmbedder(), max_tokens_per_chunk=100, similarity_threshold=0.5
+    )
+    assert len(out) >= 3
+    assert all(c != text for c in out)  # the blob was split, not passed through whole
+    assert "".join(out) == text  # and nothing was dropped
