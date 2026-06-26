@@ -28,10 +28,12 @@ from contexts.conversation.application.message_service import (
     EditAuthority,
     MessageService,
 )
-from contexts.conversation.application.triggers import evaluate_message_wakeups
+from contexts.conversation.application.triggers import (
+    evaluate_message_wakeups,
+    filter_mentioned_bound_agents,
+)
 from contexts.conversation.domain.models import Message
 from contexts.conversation.infrastructure.channels import room_channel
-from shared_kernel.realtime.pubsub import Publisher
 from shared_kernel.auth.context import RequestContext
 from shared_kernel.auth.dependencies import (
     _raise_forbidden,
@@ -41,6 +43,7 @@ from shared_kernel.auth.dependencies import (
 from shared_kernel.auth.permissions import Principal
 from shared_kernel.db.session import db_session
 from shared_kernel.queue import enqueue
+from shared_kernel.realtime.pubsub import Publisher
 
 _log = logging.getLogger(__name__)
 
@@ -58,16 +61,24 @@ message_router = APIRouter(prefix="/api/messages", tags=["messages"])
 _MAX_CONTENT_MD = 100_000
 # Upper bound on attachments referenced by one message (API-7).
 _MAX_ATTACHMENT_IDS = 100
+# Upper bound on @mentioned agents per message — a chat message never names
+# more than a handful, and each spawns a turn, so keep the fan-out bounded.
+_MAX_MENTION_IDS = 50
 
 
 class MessageSendIn(BaseModel):
     content_md: str = Field(default="", max_length=_MAX_CONTENT_MD)
     attachment_ids: list[uuid.UUID] = Field(default_factory=list, max_length=_MAX_ATTACHMENT_IDS)
+    # Agents the author explicitly summoned via @mention. Resolved client-side
+    # against the room's bound agents; the server re-validates each is actually
+    # bound before waking it. A mention is an explicit call, so it wakes the
+    # agent regardless of its wakeup triggers (R15.01 is the auto path).
+    mention_agent_ids: list[uuid.UUID] = Field(default_factory=list, max_length=_MAX_MENTION_IDS)
     # `metadata` is system-populated (rag_chunks, tool_calls, compact_summary,
     # etc. — §21.1) and deliberately not accepted from clients.
 
     @model_validator(mode="after")
-    def _require_content_or_attachments(self) -> "MessageSendIn":
+    def _require_content_or_attachments(self) -> MessageSendIn:
         if not self.content_md and not self.attachment_ids:
             raise ValueError("message must have content_md or attachment_ids")
         return self
@@ -208,27 +219,72 @@ async def send_message(
         )
     except Exception:
         _log.error("realtime publish failed for message.created %s", msg.id, exc_info=True)
-    await _dispatch_message_wakeups(db, chatroom_id)
+    woken = await _dispatch_message_wakeups(db, chatroom_id)
+    await _dispatch_mention_wakeups(db, chatroom_id, body.mention_agent_ids, already_woken=woken)
     await _dispatch_message_workflow_signal(chatroom_id, body.content_md)
     return _to_out(msg, await service.list_attachments(msg.id))
 
 
-async def _dispatch_message_wakeups(db: AsyncSession, chatroom_id: uuid.UUID) -> None:
+async def _dispatch_message_wakeups(db: AsyncSession, chatroom_id: uuid.UUID) -> set[uuid.UUID]:
     """Evaluate every_n_messages for the room's bound agents and enqueue a
-    ``wakeup_agent`` turn for each that fired. Best-effort: a Redis / dispatch
-    hiccup must never fail the user's send (the message is already committed)."""
+    ``wakeup_agent`` turn for each that fired. Returns the woken agent ids so the
+    caller can skip re-waking the same agent via @mention. Best-effort: a Redis /
+    dispatch hiccup must never fail the user's send (the message is committed)."""
+    woken: set[uuid.UUID] = set()
     try:
-        woken = await evaluate_message_wakeups(db, chatroom_id=chatroom_id, sender_is_user=True)
-        for agent_id in woken:
+        fired = await evaluate_message_wakeups(db, chatroom_id=chatroom_id, sender_is_user=True)
+        for agent_id in fired:
             await enqueue(
                 "wakeup_agent",
                 str(agent_id),
                 str(chatroom_id),
                 "every_n_messages",
             )
+            woken.add(agent_id)
     except Exception:  # pragma: no cover — defensive; exercised via wiring tier
         _log.warning(
             "wake-up dispatch failed for room %s; message persisted, no turn enqueued",
+            chatroom_id,
+            exc_info=True,
+        )
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+    return woken
+
+
+async def _dispatch_mention_wakeups(
+    db: AsyncSession,
+    chatroom_id: uuid.UUID,
+    mention_agent_ids: list[uuid.UUID],
+    *,
+    already_woken: set[uuid.UUID],
+) -> None:
+    """Wake each @mentioned agent that is bound to the room and wasn't already
+    woken by every_n_messages. A mention is an explicit call, so the turn runs
+    regardless of the agent's wakeup config (an inert / call-only agent still
+    replies when summoned). Best-effort and post-commit — never fails the send."""
+    if not mention_agent_ids:
+        return
+    try:
+        bound = await filter_mentioned_bound_agents(
+            db,
+            chatroom_id=chatroom_id,
+            mention_agent_ids=mention_agent_ids,
+        )
+        for agent_id in bound:
+            if agent_id in already_woken:
+                continue
+            await enqueue(
+                "wakeup_agent",
+                str(agent_id),
+                str(chatroom_id),
+                "mention",
+            )
+    except Exception:  # pragma: no cover — defensive; exercised via wiring tier
+        _log.warning(
+            "mention wake-up dispatch failed for room %s; message persisted",
             chatroom_id,
             exc_info=True,
         )
