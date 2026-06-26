@@ -205,6 +205,10 @@
     },
     "guest": {
       "title": "Join Chatroom",
+      "description": "Enter a display name to join the chatroom.",
+      "displayName": "Display Name",
+      "displayNamePlaceholder": "Enter your name",
+      "enterChatroom": "Enter Chatroom",
       "enrolling": "Joining chatroom…",
       "done": "You have joined the chatroom.",
       "error": "Failed to join. The link may be invalid or expired.",

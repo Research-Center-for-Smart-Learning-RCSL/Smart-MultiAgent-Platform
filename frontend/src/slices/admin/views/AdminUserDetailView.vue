@@ -60,7 +60,7 @@
           :user="query.data.value"
           :is-pending="actionPending"
           @ban="actions.promptBan(userId)"
-          @unban="actions.unbanUser.mutate(userId)"
+          @unban="onUnban"
           @soft-delete="onSoftDelete"
           @hard-delete="onHardDelete"
           @impersonate="onImpersonate"
@@ -104,6 +104,18 @@ const actionPending = computed(() =>
   || actions.hardDeleteUser.isPending.value
   || startImpersonation.isPending.value,
 )
+
+async function onUnban(): Promise<void> {
+  const ok = await confirm({
+    title: t('admin.users.unbanTitle'),
+    message: t('admin.users.unbanMessage'),
+    confirmLabel: t('admin.users.unbanConfirm'),
+    cancelLabel: t('app.cancel'),
+    variant: 'warning',
+  })
+  if (!ok) return
+  actions.unbanUser.mutate(userId)
+}
 
 async function onSoftDelete(): Promise<void> {
   const ok = await confirm({

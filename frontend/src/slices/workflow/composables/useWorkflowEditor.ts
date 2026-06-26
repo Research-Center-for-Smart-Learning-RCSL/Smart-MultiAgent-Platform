@@ -195,11 +195,21 @@ export function useWorkflowEditor() {
   }
 
   function onCanvasKeydown(event: KeyboardEvent): void {
+    const tag = (event.target as HTMLElement)?.tagName
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return
+
     if (event.key === 'Delete' || event.key === 'Backspace') {
-      const tag = (event.target as HTMLElement)?.tagName
-      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return
       if (selectedEdgeId.value) deleteSelectedEdge()
       else if (store.selectedNodeId) void onDeleteNode()
+    }
+
+    const mod = event.ctrlKey || event.metaKey
+    if (event.key === 'z' && mod && event.shiftKey) {
+      event.preventDefault()
+      onRedo()
+    } else if (event.key === 'z' && mod) {
+      event.preventDefault()
+      onUndo()
     }
   }
 

@@ -52,7 +52,10 @@
       "banDialogMessage": "Provide a reason for banning this user:",
       "banDialogTitle": "Ban User",
       "banDialogConfirm": "Ban",
-      "banDialogReasonRequired": "Reason is required"
+      "banDialogReasonRequired": "Reason is required",
+      "unbanTitle": "Unban User",
+      "unbanMessage": "Restore access for this user? They will be able to log in again.",
+      "unbanConfirm": "Unban"
     },
     "userDetail": {
       "id": "ID",

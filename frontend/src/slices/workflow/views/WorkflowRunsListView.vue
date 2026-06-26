@@ -32,6 +32,20 @@
       :label="$t('workflow.runs.title')"
       class="justify-center py-8"
     />
+    <SAlert
+      v-else-if="query.isError.value"
+      variant="danger"
+    >
+      {{ $t('workflow.runs.loadError') }}
+      <template #actions>
+        <button
+          class="underline"
+          @click="query.refetch()"
+        >
+          {{ $t('workflow.runs.retry') }}
+        </button>
+      </template>
+    </SAlert>
     <div
       v-else-if="runsList.length"
       class="overflow-x-auto"
@@ -107,6 +121,7 @@ import { useI18n } from 'vue-i18n'
 import { PlayCircleIcon } from '@heroicons/vue/24/outline'
 import { useToast } from '@shared/composables'
 import {
+  SAlert,
   SEmptyState,
   SLoadingSpinner,
   SPageHeader,

@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { http, HttpResponse } from 'msw'
 import { server } from '../../../../tests/mocks/server'
 import { renderView } from '../../../../tests/utils'
+import { useSessionStore } from '@shared/stores/session'
 import McpEgressAllowlistView from '../views/McpEgressAllowlistView.vue'
 
 const routes = [
@@ -11,6 +12,27 @@ const routes = [
     component: McpEgressAllowlistView,
   },
 ]
+
+function signInAs(userId: string): void {
+  const session = useSessionStore()
+  session.me = {
+    id: userId,
+    email: 'u@smap.test',
+    email_verified: true,
+    is_admin: false,
+    status: 'active',
+  }
+}
+
+function seedOwner(userId: string): void {
+  server.use(
+    http.get('/api/projects/proj_1/members', () =>
+      HttpResponse.json([
+        { user_id: userId, email: 'u@smap.test', role: 'owner', joined_at: '2026-01-01T00:00:00Z' },
+      ]),
+    ),
+  )
+}
 
 function seed(entries: unknown[]): void {
   server.use(
@@ -44,14 +66,28 @@ describe('McpEgressAllowlistView', () => {
     expect(wrapper.text()).toContain('weather API')
   })
 
-  it('always renders the add form and the table', async () => {
+  it('renders the add form for project owners', async () => {
+    seed([])
+    seedOwner('u_test')
+    const wrapper = await renderView(McpEgressAllowlistView, {
+      routes,
+      initialRoute: '/projects/proj_1/mcp/egress-allowlist',
+    })
+    signInAs('u_test')
+    await settle(wrapper)
+    expect(wrapper.find('table.s-table').exists()).toBe(true)
+    expect(wrapper.find('form').exists()).toBe(true)
+  })
+
+  it('hides the add form for non-owners', async () => {
     seed([])
     const wrapper = await renderView(McpEgressAllowlistView, {
       routes,
       initialRoute: '/projects/proj_1/mcp/egress-allowlist',
     })
+    signInAs('u_member')
     await settle(wrapper)
     expect(wrapper.find('table.s-table').exists()).toBe(true)
-    expect(wrapper.find('form').exists()).toBe(true)
+    expect(wrapper.find('form').exists()).toBe(false)
   })
 })

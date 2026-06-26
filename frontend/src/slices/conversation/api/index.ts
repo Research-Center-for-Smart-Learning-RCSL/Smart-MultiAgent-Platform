@@ -236,8 +236,12 @@ export async function getExport(jobId: string): Promise<ExportStatus> {
 export async function enrollGuest(
   chatroomId: string,
   guestToken: string,
+  displayName?: string,
 ): Promise<void> {
-  await http.post(`/guest/${chatroomId}/${guestToken}/enroll`)
+  await http.post(
+    `/guest/${chatroomId}/${guestToken}/enroll`,
+    displayName ? { display_name: displayName } : undefined,
+  )
 }
 
 // ---- /compact slash command (G.10) ---------------------------------------

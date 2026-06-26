@@ -31,6 +31,7 @@ import {
   useConfirmDialog,
   useServerErrors,
   useToast,
+  useBreakpoint,
 } from '@shared/composables'
 import { tusUpload } from '@shared/transport'
 import { projectKeysApi, CAPABILITIES, keysKeys } from '@slices/keys'
@@ -55,6 +56,7 @@ const projectId = route.params.projectId as string
 const configId = route.params.configId as string
 const toast = useToast()
 const { confirm } = useConfirmDialog()
+const { isMobile } = useBreakpoint()
 
 const activeTab = ref((route.query.tab as string) || 'settings')
 
@@ -372,14 +374,28 @@ const showProgress = computed(() =>
         </template>
       </SPageHeader>
 
+      <!-- Tabs - collapse to SSelect on mobile -->
+      <div
+        v-if="isMobile"
+        class="mt-6"
+      >
+        <SSelect
+          :model-value="activeTab"
+          :options="tabs.map(tab => ({ value: tab.key, label: tab.label }))"
+          @update:model-value="onTabChange"
+        />
+      </div>
+
       <STabs
+        v-else
         :model-value="activeTab"
         :tabs="tabs"
         class="mt-6"
         @update:model-value="onTabChange"
-      >
-        <!-- Settings tab -->
-        <template #tab-settings>
+      />
+
+      <!-- Tab: Settings -->
+      <div v-show="activeTab === 'settings'">
           <form
             class="mt-6 space-y-6"
             @submit.prevent="onSaveSettings"
@@ -517,10 +533,10 @@ const showProgress = computed(() =>
               </template>
             </SCard>
           </form>
-        </template>
+      </div>
 
-        <!-- Documents tab -->
-        <template #tab-documents>
+      <!-- Tab: Documents -->
+      <div v-show="activeTab === 'documents'">
           <div class="mt-6 space-y-6">
             <SCard>
               <h3 class="text-lg font-semibold mb-4">
@@ -601,8 +617,7 @@ const showProgress = computed(() =>
               </div>
             </SCard>
           </div>
-        </template>
-      </STabs>
+      </div>
     </template>
   </main>
 </template>

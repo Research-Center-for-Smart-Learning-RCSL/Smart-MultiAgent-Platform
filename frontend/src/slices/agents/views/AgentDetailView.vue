@@ -36,6 +36,7 @@ import {
   useToast,
   useBreakpoint,
 } from '@shared/composables'
+import { ApiError } from '@shared/errors'
 import { keyGroupsApi, keysKeys, type KeyGroup } from '@slices/keys'
 import { agentsApi, type McpBinding } from '../api'
 import { agentKeys } from '../queries'
@@ -57,6 +58,7 @@ const agentId = isCreateMode ? '' : routeAgentId
 const createProjectId = (route.query.projectId as string) ?? ''
 
 const activeTab = ref((route.query.tab as string) || 'general')
+const conflictDetected = ref(false)
 
 // --- Queries ---
 const query = useQuery({
@@ -249,23 +251,60 @@ const patchMutation = useMutation({
     return data
   },
   onSuccess: () => {
+    conflictDetected.value = false
     qc.invalidateQueries({ queryKey: agentKeys.agent(agentId) })
     toast.success(t('agents.detail.saved'))
   },
   onError: (err) => {
+    if (err instanceof ApiError && err.status === 409) {
+      conflictDetected.value = true
+      return
+    }
     if (!applyServerErrors(err)) toast.error(t('agents.detail.saveFailed'))
   },
 })
 
 const saving = computed(() => createMutation.isPending.value || patchMutation.isPending.value)
 
-const onSubmit = handleSubmit((values) => {
-  if (isCreateMode) {
-    createMutation.mutate(values)
-  } else {
-    patchMutation.mutate(values)
-  }
-})
+const fieldToTab: Record<string, string> = {
+  name: 'general',
+  model_hint: 'general',
+  model_id: 'general',
+  key_group_id: 'general',
+  context_mode: 'general',
+  context_token_cap: 'general',
+  system_prompt: 'prompt',
+  prompt_strategy: 'prompt',
+  rag_config_id: 'knowledge',
+  graphrag_config_id: 'knowledge',
+  a2a_enabled: 'orchestration',
+}
+
+const tabOrder = ['general', 'prompt', 'knowledge', 'mcp', 'orchestration']
+
+const onSubmit = handleSubmit(
+  (values) => {
+    if (isCreateMode) {
+      createMutation.mutate(values)
+    } else {
+      patchMutation.mutate(values)
+    }
+  },
+  ({ errors: fieldErrors }) => {
+    const errorTabs = new Set(
+      Object.keys(fieldErrors).map((f) => fieldToTab[f]).filter(Boolean),
+    )
+    const firstTab = tabOrder.find((tab) => errorTabs.has(tab))
+    if (firstTab && firstTab !== activeTab.value) {
+      onTabChange(firstTab)
+    }
+  },
+)
+
+function reloadAfterConflict(): void {
+  conflictDetected.value = false
+  qc.invalidateQueries({ queryKey: agentKeys.agent(agentId) })
+}
 
 // --- Delete ---
 const deleteMutation = useMutation({
@@ -402,6 +441,23 @@ const pageTitle = computed(() => {
         class="mt-4"
       >
         {{ t('agents.form.noKeyGroups') }}
+      </SAlert>
+
+      <SAlert
+        v-if="conflictDetected"
+        variant="warning"
+        class="mt-4"
+      >
+        {{ t('agents.detail.conflictAlert') }}
+        <template #actions>
+          <SButton
+            variant="ghost"
+            size="sm"
+            @click="reloadAfterConflict"
+          >
+            {{ t('agents.detail.reload') }}
+          </SButton>
+        </template>
       </SAlert>
 
       <!-- Tabs - collapse to SSelect on mobile -->
