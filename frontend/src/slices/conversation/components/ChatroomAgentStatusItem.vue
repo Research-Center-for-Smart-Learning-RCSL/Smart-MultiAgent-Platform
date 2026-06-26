@@ -22,6 +22,7 @@
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { SAvatar } from '@shared/ui'
+import { AGENT_ERROR_MESSAGE_KEYS, AGENT_ERROR_FALLBACK_KEY } from '../constants/agentErrors'
 
 export type AgentStatus = 'idle' | 'thinking' | 'streaming' | 'error'
 
@@ -31,16 +32,6 @@ export interface AgentStatusEntry {
   status: AgentStatus
   // Backend error kind from agent.finished{error}, set while status is 'error'.
   errorReason?: string
-}
-
-// Reuse the chatroom's user-facing failure copy for the hover tooltip; unknown
-// kinds (e.g. provider_exhausted:*) fall back to the generic failure message.
-const ERROR_TOOLTIP_KEYS: Record<string, string> = {
-  rate_limited: 'conversation.chatroom.agentRateLimited',
-  agent_gone: 'conversation.chatroom.agentUnavailable',
-  not_bound: 'conversation.chatroom.agentUnavailable',
-  key_group_scope: 'conversation.chatroom.agentUnavailable',
-  timeout: 'conversation.chatroom.agentTimeout',
 }
 
 const props = defineProps<{
@@ -53,7 +44,7 @@ const busy = computed(
 )
 const errorTooltip = computed(() =>
   props.agent.status === 'error' && props.agent.errorReason
-    ? t(ERROR_TOOLTIP_KEYS[props.agent.errorReason] ?? 'conversation.chatroom.agentFailed')
+    ? t(AGENT_ERROR_MESSAGE_KEYS[props.agent.errorReason] ?? AGENT_ERROR_FALLBACK_KEY)
     : undefined,
 )
 </script>

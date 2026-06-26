@@ -4,7 +4,7 @@
 // wildcard handler the composable registers via channel.subscribe('*', …).
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { mount, type VueWrapper } from '@vue/test-utils'
+import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { QueryClient, VueQueryPlugin } from '@tanstack/vue-query'
 import { defineComponent } from 'vue'
@@ -169,6 +169,23 @@ describe('useChatroomSocket agent streaming', () => {
     wrapper = mounted.wrapper
     emit({ type: 'agent.finished', error: 'key_group_scope', agent_id: AGENT })
     emit({ type: 'message.created', message_id: 'm_agent', sender_type: 'agent', sender_id: AGENT })
+    expect(mounted.store.agentErrors[ROOM]?.[AGENT]).toBeUndefined()
+  })
+
+  it('clears a stale badge when the recovery reply arrives via delta-replay', async () => {
+    const mounted = mountSocket()
+    wrapper = mounted.wrapper
+    // Seed a cursor, then fail the agent so the badge is lit.
+    emit({ type: 'message.created', message_id: 'm_seed', sender_type: 'user', sender_id: 'u1' })
+    emit({ type: 'agent.finished', error: 'rate_limited', agent_id: AGENT })
+    expect(mounted.store.agentErrors[ROOM]?.[AGENT]).toBe('rate_limited')
+    // On reconnect the agent's recovery reply is recovered via REST delta, not
+    // the live message.created handler — the badge must still clear.
+    listMessagesMock.mockResolvedValueOnce([
+      { id: 'm_reply', sender_type: 'agent', sender_id: AGENT },
+    ] as unknown as Awaited<ReturnType<typeof listMessagesMock>>)
+    for (const h of [...statusHandlers]) h(true)
+    await flushPromises()
     expect(mounted.store.agentErrors[ROOM]?.[AGENT]).toBeUndefined()
   })
 

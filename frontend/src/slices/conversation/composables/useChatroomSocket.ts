@@ -95,6 +95,11 @@ export function useChatroomSocket(roomId: string) {
       return [...prev, m]
     })
     lastSeenMessageId.value = m.id
+    // A reply recovered via delta-replay (reconnect/degraded polling) means the
+    // agent acted — drop any stale error badge, mirroring the live handler.
+    if (m.sender_type === 'agent' && m.sender_id) {
+      store.clearAgentError(roomId, m.sender_id)
+    }
   }
 
   let thinkingTimer: ReturnType<typeof setTimeout> | null = null
