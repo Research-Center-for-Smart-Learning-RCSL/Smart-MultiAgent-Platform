@@ -295,6 +295,7 @@ class ChatroomGuestRepository:
         chatroom_id: uuid.UUID,
         user_id: uuid.UUID,
         joined_via_token: str,
+        display_name: str | None = None,
     ) -> None:
         stmt = (
             pg.insert(t.chatroom_guests)
@@ -302,6 +303,7 @@ class ChatroomGuestRepository:
                 chatroom_id=chatroom_id,
                 user_id=user_id,
                 joined_via_token=joined_via_token,
+                display_name=display_name,
             )
             .on_conflict_do_nothing()
         )
@@ -340,6 +342,7 @@ class ChatroomGuestRepository:
                 chatroom_id=r.chatroom_id,
                 user_id=r.user_id,
                 joined_via_token=r.joined_via_token,
+                display_name=r.display_name,
                 joined_at=r.joined_at,
             )
             for r in rows

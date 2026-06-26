@@ -29,6 +29,11 @@ export const conversationRoutes: RouteRecordRaw[] = [
     path: '/g/:chatroomId/:guestToken',
     name: 'conversation.guest',
     component: () => import('./views/GuestLandingView.vue'),
+    // requiresAuth: false so the page loads for unauthenticated visitors.
+    // TODO(backend): POST /guest/:chatroomId/:guestToken/enroll currently
+    // requires JWT via current_principal. It should authenticate via the
+    // guest token path parameter instead so truly unauthenticated guests
+    // can complete enrollment without a prior login round-trip.
     meta: { requiresAuth: false, layout: 'auth' },
   },
   {

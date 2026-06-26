@@ -32,9 +32,9 @@ import {
 } from '@shared/composables'
 import { useSessionStore } from '@shared/stores/session'
 import { keyGroupsApi, keysKeys, type KeyGroup } from '@slices/keys'
-import { projectsApi, tenancyKeys } from '@slices/tenancy'
 import { agentsApi, type Agent } from '../api'
 import { agentKeys } from '../queries'
+import { useProjectBreadcrumbs } from '../composables/useProjectBreadcrumbs'
 import type { AgentCreateInput } from '../types/schemas'
 import type { Column } from '@shared/ui/STable.vue'
 
@@ -53,14 +53,7 @@ const search = ref('')
 const modelFilter = ref<string>('')
 const statusFilter = ref<string>('')
 
-const projectQuery = useQuery({
-  queryKey: tenancyKeys.project(projectId),
-  queryFn: async () => (await projectsApi.get(projectId)).data,
-})
-
-const breadcrumbs = computed(() => [
-  { label: t('agents.breadcrumb.projects'), to: { name: 'tenancy.projectList' } },
-  { label: projectQuery.data.value?.name ?? projectId.slice(0, 8), to: { name: 'tenancy.projectDetail', params: { id: projectId } } },
+const { breadcrumbs } = useProjectBreadcrumbs(projectId, [
   { label: t('agents.breadcrumb.agents') },
 ])
 

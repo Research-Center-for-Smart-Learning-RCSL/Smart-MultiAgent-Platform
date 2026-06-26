@@ -29,6 +29,7 @@ import {
   SAlert,
   SEmptyState,
   SSkeleton,
+  SModal,
 } from '@shared/ui'
 import {
   useConfirmDialog,
@@ -327,7 +328,7 @@ async function onDelete(): Promise<void> {
 }
 
 // --- MCP test ---
-const { testingIds, runTest } = useMcpTest(agentId)
+const { testingIds, runTest, failedResult } = useMcpTest(agentId)
 
 // --- Tab config ---
 const tabs = computed(() => [
@@ -912,5 +913,38 @@ const graphragStatusText = computed(() => {
         </SButton>
       </div>
     </template>
+
+    <!-- MCP test failure modal -->
+    <SModal
+      :open="!!failedResult"
+      :title="t('agents.mcp.testErrorTitle')"
+      size="md"
+      @close="failedResult = null"
+    >
+      <SCodeEditor
+        v-if="failedResult"
+        :model-value="failedResult.error"
+        language="text"
+        :rows="6"
+        readonly
+      />
+      <p
+        v-if="failedResult"
+        class="text-sm text-[var(--color-text-muted)] mt-2"
+      >
+        {{ t('agents.mcp.testErrorDuration', { ms: failedResult.duration_ms }) }}
+      </p>
+
+      <template #footer>
+        <div class="flex justify-end">
+          <SButton
+            variant="secondary"
+            @click="failedResult = null"
+          >
+            {{ t('app.close') }}
+          </SButton>
+        </div>
+      </template>
+    </SModal>
   </main>
 </template>

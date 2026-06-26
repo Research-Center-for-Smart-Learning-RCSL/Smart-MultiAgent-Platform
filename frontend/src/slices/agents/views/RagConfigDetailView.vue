@@ -403,7 +403,12 @@ const showProgress = computed(() =>
       />
 
       <!-- Tab: Settings -->
-      <div v-show="activeTab === 'settings'">
+      <div
+        v-show="activeTab === 'settings'"
+        role="tabpanel"
+        id="tabpanel-settings"
+        aria-labelledby="settings"
+      >
           <form
             class="mt-6 space-y-6"
             @submit.prevent="onSaveSettings"
@@ -544,7 +549,12 @@ const showProgress = computed(() =>
       </div>
 
       <!-- Tab: Documents -->
-      <div v-show="activeTab === 'documents'">
+      <div
+        v-show="activeTab === 'documents'"
+        role="tabpanel"
+        id="tabpanel-documents"
+        aria-labelledby="documents"
+      >
           <div class="mt-6 space-y-6">
             <SCard>
               <h3 class="text-lg font-semibold mb-4">

@@ -2,6 +2,9 @@
 import { ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
+import { useForm } from 'vee-validate'
+import { toTypedSchema } from '@vee-validate/zod'
+import { z } from 'zod'
 import { XCircleIcon } from '@heroicons/vue/24/outline'
 import { SButton, SFormField, SInput, SLoadingSpinner } from '@shared/ui'
 import { ApiError } from '@shared/errors'
@@ -15,15 +18,26 @@ const router = useRouter()
 // flight; `invalid` = token rejected (permanent, no retry); `error` =
 // transient network/server failure (retryable — re-submits with same name).
 const state = ref<'idle' | 'enrolling' | 'invalid' | 'error'>('idle')
-const displayName = ref('')
 
-async function doEnroll(): Promise<void> {
-  if (!displayName.value.trim()) return
+const schema = toTypedSchema(
+  z.object({
+    displayName: z.string().trim().min(1).max(100),
+  }),
+)
+
+const { handleSubmit, errors, defineField } = useForm({
+  validationSchema: schema,
+  initialValues: { displayName: '' },
+})
+
+const [displayName] = defineField('displayName')
+
+const doEnroll = handleSubmit(async (values) => {
   state.value = 'enrolling'
   const chatroomId = route.params.chatroomId as string
   const token = route.params.guestToken as string
   try {
-    await enrollGuest(chatroomId, token, displayName.value.trim())
+    await enrollGuest(chatroomId, token, values.displayName)
     // Strip the token from history (R24.43) before landing on the room.
     history.replaceState(null, '', `/c/${chatroomId}`)
     await router.replace({
@@ -31,13 +45,10 @@ async function doEnroll(): Promise<void> {
       params: { chatroomId },
     })
   } catch (e) {
-    if (e instanceof ApiError && e.status >= 400 && e.status < 500) {
-      state.value = 'invalid'
-    } else {
-      state.value = 'error'
-    }
+    const permanent = e instanceof ApiError && [401, 403, 404].includes(e.status)
+    state.value = permanent ? 'invalid' : 'error'
   }
-}
+})
 </script>
 
 <template>
@@ -61,12 +72,14 @@ async function doEnroll(): Promise<void> {
           <SFormField
             :label="t('conversation.guest.displayName')"
             name="displayName"
+            :error="errors.displayName"
             required
           >
             <SInput
               v-model="displayName"
               :maxlength="100"
               :placeholder="t('conversation.guest.displayNamePlaceholder')"
+              :error="!!errors.displayName"
             />
           </SFormField>
           <SButton

@@ -15,6 +15,7 @@ from __future__ import annotations
 import uuid
 
 from fastapi import APIRouter, Depends, Path, status
+from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.conversation.application.guest_service import GuestService
@@ -26,6 +27,10 @@ from shared_kernel.db.session import db_session
 router = APIRouter(prefix="/api/guest", tags=["guests"])
 
 
+class GuestEnrollIn(BaseModel):
+    display_name: str | None = Field(default=None, max_length=100)
+
+
 @router.post(
     "/{chatroom_id}/{guest_token}/enroll",
     status_code=status.HTTP_204_NO_CONTENT,
@@ -34,6 +39,7 @@ router = APIRouter(prefix="/api/guest", tags=["guests"])
 async def enroll_guest(
     chatroom_id: uuid.UUID = Path(...),
     guest_token: str = Path(..., min_length=16, max_length=128),
+    body: GuestEnrollIn = GuestEnrollIn(),
     ctx: RequestContext = Depends(current_context),
     principal: Principal = Depends(current_principal),
     db: AsyncSession = Depends(db_session),
@@ -43,6 +49,7 @@ async def enroll_guest(
         chatroom_id=chatroom_id,
         token=guest_token,
         user_id=principal.user_id,
+        display_name=body.display_name,
         actor_ip=ctx.actor_ip,
         request_id=ctx.request_id,
     )

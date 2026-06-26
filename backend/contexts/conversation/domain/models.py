@@ -63,6 +63,7 @@ class ChatroomGuest:
     chatroom_id: uuid.UUID
     user_id: uuid.UUID
     joined_via_token: str
+    display_name: str | None
     joined_at: datetime
 
 
