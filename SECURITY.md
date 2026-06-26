@@ -194,7 +194,7 @@ SMAP uses `Authorization: Bearer` headers (not cookies) for API authentication, 
 
 ### Trusted proxy resolution
 
-`X-Forwarded-For` is parsed only from IPs in the `SMAP_SEC_TRUSTED_PROXIES` CIDR list (default: `127.0.0.1/32`). The right-most non-proxy address is used as the real client IP. Misconfiguring this setting can allow IP spoofing.
+`X-Forwarded-For` is parsed only from IPs in the `SMAP_SEC_TRUSTED_PROXIES` CIDR list (default: `127.0.0.1/32, ::1/128, 172.16.0.0/12` — loopback plus the Docker bridge range). The right-most non-proxy address is used as the real client IP. Misconfiguring this setting can allow IP spoofing.
 
 ---
 
@@ -212,10 +212,10 @@ SMAP uses `Authorization: Bearer` headers (not cookies) for API authentication, 
 ## File Uploads & Object Storage
 
 - **Single-shot uploads**: 32 MB maximum per file.
-- **Resumable uploads (TUS protocol)**: Cap configurable via `SMAP_MINIO_UPLOAD_MAX_BYTES`.
+- **Resumable uploads (TUS protocol)**: 1 GiB hard cap.
 - All uploads require chatroom membership verification before acceptance.
 - Files are stored in MinIO (S3-compatible) with a 3-day TTL for chat attachments.
-- A `scan_status` field is reserved for anti-malware integration; operators may plug in a scanning service.
+- **Malware scanning.** Chat attachments and RAG source documents flow through a `scan_status` pipeline backed by a built-in ClamAV adapter (INSTREAM). Scanning is **off by default** — when disabled, files are marked clean — and is enabled with `SMAP_SEC_FILE_SCAN_ENABLED=true` plus `SMAP_SEC_CLAMAV_HOST` / `SMAP_SEC_CLAMAV_PORT`. Quarantined files are not served.
 - Content-Type is enforced server-side; client-supplied MIME types are not trusted.
 
 ---
@@ -240,7 +240,7 @@ Admin impersonation is explicitly **read-only**: the auth middleware rejects mut
 
 ## Audit Logging
 
-All security-sensitive actions emit structured audit events written to the `audit_events` table:
+All security-sensitive actions emit structured audit events written to the `audit_logs` table:
 
 - Authentication events: login, failed login, logout, password change, token refresh
 - Session events: creation, revocation (single and bulk)
@@ -250,13 +250,13 @@ All security-sensitive actions emit structured audit events written to the `audi
 - Admin operations: all actions including impersonation start/end
 - IP ban operations
 
-Audit records are append-only from the application's perspective. Retention policy is configurable; the database role used by the application does not have `DELETE` permission on `audit_events`.
+Audit records are append-only from the application's perspective. Retention policy is configurable; the database role used by the application does not have `DELETE` permission on `audit_logs`.
 
 ---
 
 ## Dependency Management
 
-- Backend: `pyproject.toml` pins exact minor versions (e.g., `fastapi==0.115.*`).
+- Backend: `pyproject.toml` pins exact minor versions (e.g., `fastapi==0.137.*`).
 - Frontend: `package.json` pins exact versions.
 - Dependabot is configured to open grouped PRs weekly for both `backend/` and `frontend/`.
 - Run `pip audit` (backend) and `pnpm audit` (frontend) in CI to catch known CVEs before merge.
