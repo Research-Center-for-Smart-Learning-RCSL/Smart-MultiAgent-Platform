@@ -7,6 +7,7 @@ import {
   PlusIcon,
   ChatBubbleLeftRightIcon,
   Cog6ToothIcon,
+  ShareIcon,
   TrashIcon,
   EllipsisVerticalIcon,
 } from '@heroicons/vue/24/outline'
@@ -208,6 +209,16 @@ function submitCreate(): void {
       :breadcrumbs="breadcrumbs"
     >
       <template #actions>
+        <SButton
+          variant="secondary"
+          :to="{ name: 'workflow.list', params: { workspaceId } }"
+          as="router-link"
+        >
+          <template #icon-left>
+            <ShareIcon class="w-4 h-4" />
+          </template>
+          {{ t('conversation.chatrooms.workflows') }}
+        </SButton>
         <SButton
           variant="primary"
           data-testid="create-chatroom"

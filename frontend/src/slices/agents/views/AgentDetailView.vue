@@ -930,6 +930,25 @@ const graphragStatusText = computed(() => {
               </SFormField>
             </div>
           </SCard>
+
+          <SCard v-if="!isCreateMode">
+            <h3 class="text-lg font-semibold mb-1">
+              {{ t('agents.detail.openOrchestration') }}
+            </h3>
+            <p class="text-sm text-muted mb-4">
+              {{ t('agents.detail.openOrchestrationHelp') }}
+            </p>
+            <SButton
+              variant="secondary"
+              :to="{ name: 'workflow.agentOrchestration', params: { agentId } }"
+              as="router-link"
+            >
+              <template #icon-left>
+                <ArrowsPointingOutIcon class="w-4 h-4" />
+              </template>
+              {{ t('agents.detail.openOrchestration') }}
+            </SButton>
+          </SCard>
         </div>
       </form>
 

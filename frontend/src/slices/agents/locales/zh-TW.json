@@ -45,6 +45,8 @@
       "deleteConfirm": "刪除此代理人？此操作無法復原。",
       "conflictAlert": "其他人已修改此代理人。請重新載入以查看變更。",
       "reload": "重新載入",
+      "openOrchestration": "進階編排設定",
+      "openOrchestrationHelp": "此代理人的喚醒觸發條件與失敗事件佇列。",
       "tabs": {
         "general": "一般",
         "prompt": "提示詞",
