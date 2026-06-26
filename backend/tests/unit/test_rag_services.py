@@ -227,7 +227,11 @@ class TestIngestHappyPath:
     @patch("contexts.knowledge.application.ingest_service.enqueue_rag_scan", new_callable=AsyncMock)
     @patch("contexts.knowledge.application.ingest_service.audit.emit", new_callable=AsyncMock)
     @patch("contexts.knowledge.application.ingest_service.Publisher")
-    @patch("contexts.knowledge.application.ingest_service.chunk_text", return_value=["chunk1", "chunk2"])
+    @patch(
+        "contexts.knowledge.application.ingest_service.chunk_document",
+        new_callable=AsyncMock,
+        return_value=["chunk1", "chunk2"],
+    )
     @patch(
         "contexts.knowledge.application.ingest_service.MIME_TO_PARSER", {"text/plain": lambda d: d.decode()}
     )
@@ -286,7 +290,11 @@ class TestIngestHappyPath:
 class TestIngestFailure:
     @patch("contexts.knowledge.application.ingest_service.audit.emit", new_callable=AsyncMock)
     @patch("contexts.knowledge.application.ingest_service.Publisher")
-    @patch("contexts.knowledge.application.ingest_service.chunk_text", return_value=["c1"])
+    @patch(
+        "contexts.knowledge.application.ingest_service.chunk_document",
+        new_callable=AsyncMock,
+        return_value=["c1"],
+    )
     @patch(
         "contexts.knowledge.application.ingest_service.MIME_TO_PARSER", {"text/plain": lambda d: d.decode()}
     )
@@ -336,7 +344,11 @@ class TestIngestVectorMismatch:
     @patch("contexts.knowledge.application.ingest_service.enqueue_rag_scan", new_callable=AsyncMock)
     @patch("contexts.knowledge.application.ingest_service.audit.emit", new_callable=AsyncMock)
     @patch("contexts.knowledge.application.ingest_service.Publisher")
-    @patch("contexts.knowledge.application.ingest_service.chunk_text", return_value=["c1", "c2"])
+    @patch(
+        "contexts.knowledge.application.ingest_service.chunk_document",
+        new_callable=AsyncMock,
+        return_value=["c1", "c2"],
+    )
     @patch(
         "contexts.knowledge.application.ingest_service.MIME_TO_PARSER", {"text/plain": lambda d: d.decode()}
     )
@@ -386,6 +398,7 @@ def _make_retrieve_service(
     *,
     config_repo: AsyncMock | None = None,
     chunk_repo: AsyncMock | None = None,
+    docs_repo: AsyncMock | None = None,
     embedder: MagicMock | None = None,
     qdrant: AsyncMock | None = None,
     reranker: AsyncMock | None = None,
@@ -401,6 +414,13 @@ def _make_retrieve_service(
         svc._configs = config_repo
     if chunk_repo is not None:
         svc._chunks = chunk_repo
+    if docs_repo is None:
+        # Default: a non-empty doc set so retrieval proceeds past the config/
+        # agent scoping gate. Tests that exercise scoping inject their own.
+        docs_repo = AsyncMock()
+        docs_repo.retrievable_document_ids.return_value = [uuid.uuid4()]
+        docs_repo.allowed_document_ids.return_value = [uuid.uuid4()]
+    svc._docs = docs_repo
     return svc
 
 
@@ -517,6 +537,55 @@ class TestRetrieveQuery:
 
         assert len(result) == 1
 
+    async def test_agent_scope_constrains_qdrant_to_allowed_docs(self) -> None:
+        # With an agent_id, retrieval resolves the agent's visible documents up
+        # front and constrains the Qdrant search to them (doc_ids), so the vector
+        # top_k is computed over allowed docs — correct recall, no over-fetch.
+        cfg = _make_config(top_k=3)
+        configs = AsyncMock()
+        configs.get.return_value = cfg
+        allowed = [uuid.uuid4(), uuid.uuid4()]
+        docs = AsyncMock()
+        docs.allowed_document_ids.return_value = allowed
+        embedder = MagicMock(vector_size=3)
+        embedder.embed_batch = AsyncMock(return_value=[[0.1, 0.2, 0.3]])
+        qdrant = AsyncMock()
+        qdrant.search.return_value = [MagicMock(point_id=uuid.uuid4(), score=0.9)]
+        chunks = AsyncMock()
+        chunks.lookup_points.return_value = []
+        agent_id = uuid.uuid4()
+
+        svc = _make_retrieve_service(
+            config_repo=configs, docs_repo=docs, embedder=embedder, qdrant=qdrant, chunk_repo=chunks
+        )
+        await svc.query(config_id=_CONFIG_ID, text="q", agent_id=agent_id)
+
+        # Allowed-doc set was resolved for this agent and passed to Qdrant.
+        assert docs.allowed_document_ids.await_args.kwargs["agent_id"] == agent_id
+        assert qdrant.search.await_args.kwargs["doc_ids"] == allowed
+        # No over-fetch without reranking — Qdrant already scopes to allowed docs.
+        assert qdrant.search.await_args.kwargs["top_k"] == 3
+        # lookup_points no longer takes an agent_id (scoping moved up front).
+        assert "agent_id" not in chunks.lookup_points.await_args.kwargs
+
+    async def test_agent_with_no_allowed_docs_returns_empty_without_search(self) -> None:
+        cfg = _make_config(top_k=3)
+        configs = AsyncMock()
+        configs.get.return_value = cfg
+        docs = AsyncMock()
+        docs.allowed_document_ids.return_value = []  # agent on no allowlist
+        embedder = MagicMock(vector_size=3)
+        embedder.embed_batch = AsyncMock(return_value=[[0.1, 0.2, 0.3]])
+        qdrant = AsyncMock()
+
+        svc = _make_retrieve_service(
+            config_repo=configs, docs_repo=docs, embedder=embedder, qdrant=qdrant
+        )
+        result = await svc.query(config_id=_CONFIG_ID, text="q", agent_id=uuid.uuid4())
+
+        assert result == []
+        qdrant.search.assert_not_awaited()  # short-circuits before embedding/search
+
 
 class TestFormatRagMessage:
     def test_format_single_chunk(self) -> None:
@@ -529,3 +598,50 @@ class TestFormatRagMessage:
         assert "hello" in msg["content"]
         assert msg["metadata"]["type"] == "rag"
         assert len(msg["metadata"]["chunk_refs"]) == 1
+
+
+class TestRagContextProviderSources:
+    async def test_build_sources_resolves_filenames(self, monkeypatch) -> None:
+        # The provider shapes retrieved chunks into citable sources (one per
+        # chunk, ranked order, filename resolved) that the turn engine persists
+        # on the reply metadata for the chat UI.
+        from contexts.knowledge.application.rag_context_provider import RagContextProvider
+
+        doc_id = uuid.uuid4()
+        repo = AsyncMock()
+        repo.get_many.return_value = [MagicMock(id=doc_id, filename="guide.pdf")]
+        monkeypatch.setattr(
+            "contexts.knowledge.infrastructure.repositories.RagDocumentRepository",
+            lambda _db: repo,
+        )
+
+        provider = RagContextProvider(AsyncMock(), router=MagicMock())
+        chunks = [
+            RetrievedChunk(document_id=doc_id, chunk_idx=2, text="a", score=0.8765),
+            RetrievedChunk(document_id=doc_id, chunk_idx=5, text="b", score=0.5),
+        ]
+        sources = await provider._build_sources(chunks)
+
+        assert sources == [
+            {"document_id": str(doc_id), "filename": "guide.pdf", "chunk_idx": 2, "score": 0.8765},
+            {"document_id": str(doc_id), "filename": "guide.pdf", "chunk_idx": 5, "score": 0.5},
+        ]
+
+    async def test_build_sources_tolerates_deleted_document(self, monkeypatch) -> None:
+        # A since-deleted document must not block the citation — filename is None.
+        from contexts.knowledge.application.rag_context_provider import RagContextProvider
+
+        repo = AsyncMock()
+        repo.get_many.return_value = []  # document deleted after retrieval
+        monkeypatch.setattr(
+            "contexts.knowledge.infrastructure.repositories.RagDocumentRepository",
+            lambda _db: repo,
+        )
+        provider = RagContextProvider(AsyncMock(), router=MagicMock())
+        doc_id = uuid.uuid4()
+        sources = await provider._build_sources(
+            [RetrievedChunk(document_id=doc_id, chunk_idx=0, text="x", score=0.1)]
+        )
+        assert sources == [
+            {"document_id": str(doc_id), "filename": None, "chunk_idx": 0, "score": 0.1}
+        ]
