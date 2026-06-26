@@ -18,6 +18,8 @@ import {
   SEmptyState,
 } from '@shared/ui'
 import { useConfirmDialog, useServerErrors, useToast } from '@shared/composables'
+import { useSessionStore } from '@shared/stores/session'
+import { projectsApi, tenancyKeys } from '@slices/tenancy'
 import { agentsApi, type EgressAllowlistEntry } from '../api'
 import { agentKeys } from '../queries'
 import type { Column } from '@shared/ui/STable.vue'
@@ -28,6 +30,19 @@ const qc = useQueryClient()
 const projectId = route.params.projectId as string
 const toast = useToast()
 const { confirm } = useConfirmDialog()
+const session = useSessionStore()
+
+const membersQuery = useQuery({
+  queryKey: computed(() => tenancyKeys.projectMembers(projectId)),
+  queryFn: () => projectsApi.listMembers(projectId).then((r) => r.data),
+})
+
+const isOwner = computed(() => {
+  const me = session.me
+  if (!me || !membersQuery.data.value) return false
+  const membership = membersQuery.data.value.find((m) => m.user_id === me.id)
+  return membership?.role === 'owner'
+})
 
 const allowlistQuery = useQuery({
   queryKey: agentKeys.egressAllowlist(projectId),
@@ -117,7 +132,10 @@ const columns = computed<Column[]>(() => [
       {{ t('agents.egress.infoAlert') }}
     </SAlert>
 
-    <SCard class="mt-6">
+    <SCard
+      v-if="isOwner"
+      class="mt-6"
+    >
       <form
         class="flex flex-col gap-3 md:flex-row md:items-end"
         @submit.prevent="onSubmit"
@@ -157,6 +175,13 @@ const columns = computed<Column[]>(() => [
         </SButton>
       </form>
     </SCard>
+
+    <p
+      v-if="!isOwner"
+      class="mt-6 text-sm text-[var(--color-muted)]"
+    >
+      {{ t('agents.egress.ownerOnly') }}
+    </p>
 
     <SAlert
       v-if="error"
@@ -203,6 +228,7 @@ const columns = computed<Column[]>(() => [
 
       <template #actions="{ row }">
         <SButton
+          v-if="isOwner"
           variant="ghost"
           icon-only
           size="sm"

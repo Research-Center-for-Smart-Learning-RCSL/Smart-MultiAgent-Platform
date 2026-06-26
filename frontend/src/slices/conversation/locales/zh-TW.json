@@ -205,6 +205,10 @@
     },
     "guest": {
       "title": "加入聊天室",
+      "description": "請輸入顯示名稱以加入聊天室。",
+      "displayName": "顯示名稱",
+      "displayNamePlaceholder": "輸入您的名稱",
+      "enterChatroom": "進入聊天室",
       "enrolling": "加入聊天室中…",
       "done": "已加入聊天室。",
       "error": "加入失敗。連結可能無效或已過期。",

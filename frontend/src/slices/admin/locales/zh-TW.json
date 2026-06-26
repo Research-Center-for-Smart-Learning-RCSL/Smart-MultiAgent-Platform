@@ -52,7 +52,10 @@
       "banDialogMessage": "請提供封鎖此使用者的原因：",
       "banDialogTitle": "封鎖使用者",
       "banDialogConfirm": "封鎖",
-      "banDialogReasonRequired": "原因為必填"
+      "banDialogReasonRequired": "原因為必填",
+      "unbanTitle": "解除封鎖使用者",
+      "unbanMessage": "恢復此使用者的存取權限？他們將能夠再次登入。",
+      "unbanConfirm": "解除封鎖"
     },
     "userDetail": {
       "id": "ID",

@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { XCircleIcon } from '@heroicons/vue/24/outline'
-import { SButton, SLoadingSpinner } from '@shared/ui'
+import { SButton, SFormField, SInput, SLoadingSpinner } from '@shared/ui'
 import { ApiError } from '@shared/errors'
 import { enrollGuest } from '../api'
 
@@ -11,16 +11,19 @@ const { t } = useI18n()
 const route = useRoute()
 const router = useRouter()
 
-// `invalid` = token rejected (permanent, no retry); `error` = transient
-// network/server failure (retryable).
-const state = ref<'enrolling' | 'invalid' | 'error'>('enrolling')
+// `idle` = waiting for user to fill in display name; `enrolling` = API in
+// flight; `invalid` = token rejected (permanent, no retry); `error` =
+// transient network/server failure (retryable — re-submits with same name).
+const state = ref<'idle' | 'enrolling' | 'invalid' | 'error'>('idle')
+const displayName = ref('')
 
 async function doEnroll(): Promise<void> {
+  if (!displayName.value.trim()) return
   state.value = 'enrolling'
   const chatroomId = route.params.chatroomId as string
   const token = route.params.guestToken as string
   try {
-    await enrollGuest(chatroomId, token)
+    await enrollGuest(chatroomId, token, displayName.value.trim())
     // Strip the token from history (R24.43) before landing on the room.
     history.replaceState(null, '', `/c/${chatroomId}`)
     await router.replace({
@@ -35,8 +38,6 @@ async function doEnroll(): Promise<void> {
     }
   }
 }
-
-onMounted(doEnroll)
 </script>
 
 <template>
@@ -49,7 +50,37 @@ onMounted(doEnroll)
       class="guest-content"
       aria-live="polite"
     >
-      <template v-if="state === 'enrolling'">
+      <template v-if="state === 'idle'">
+        <p class="guest-desc">
+          {{ t('conversation.guest.description') }}
+        </p>
+        <form
+          class="guest-form"
+          @submit.prevent="doEnroll"
+        >
+          <SFormField
+            :label="t('conversation.guest.displayName')"
+            name="displayName"
+            required
+          >
+            <SInput
+              v-model="displayName"
+              :maxlength="100"
+              :placeholder="t('conversation.guest.displayNamePlaceholder')"
+            />
+          </SFormField>
+          <SButton
+            type="submit"
+            variant="primary"
+            class="state-action"
+            :disabled="!displayName.trim()"
+          >
+            {{ t('conversation.guest.enterChatroom') }}
+          </SButton>
+        </form>
+      </template>
+
+      <template v-else-if="state === 'enrolling'">
         <SLoadingSpinner
           size="md"
           :text="t('conversation.guest.enrolling')"
@@ -123,6 +154,19 @@ onMounted(doEnroll)
   font-size: 0.875rem;
   color: var(--color-fg);
   margin: 0;
+}
+
+.guest-desc {
+  font-size: 0.875rem;
+  color: var(--color-muted);
+  margin: 0;
+}
+
+.guest-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  width: 100%;
 }
 
 .state-action {

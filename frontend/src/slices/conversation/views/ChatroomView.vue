@@ -80,7 +80,7 @@
         >
           <ApprovalCard
             :approval="a"
-            :agent-names="{}"
+            :agent-names="agentNames"
           />
         </li>
 
@@ -88,7 +88,7 @@
           v-for="[agentId, html] in streamingEntries"
           :key="`stream-${agentId}`"
           :html="html"
-          :agent-name="agentId.slice(0, 8)"
+          :agent-name="agentNames[agentId] ?? agentId.slice(0, 8)"
           aria-live="off"
         />
 
@@ -192,7 +192,7 @@ import { useChatroomScroll } from '../composables/useChatroomScroll'
 import { useAgentStreams } from '../composables/useAgentStreams'
 import { useMarkdownEnhance } from '../composables/useMarkdownEnhance'
 import { useConversationStore } from '../stores/conversation'
-import { getChatroom, listChatroomAgents, type ExportOptions } from '../api'
+import { getChatroom, getWorkspace, listChatroomAgents, listProjectAgents, type ExportOptions } from '../api'
 import { convKeys } from '../queries'
 import type { AgentStatus } from '../components/ChatroomAgentStatusItem.vue'
 import type { Message, SearchHit } from '../types'
@@ -244,6 +244,34 @@ const boundAgentsQuery = useQuery({
   retry: false,
 })
 
+// Resolve workspace → project → agents to get agent display names. Each
+// query gates on the previous via `enabled`, so missing room data does not
+// trigger errors; the names map simply stays empty and falls back to the
+// truncated id.
+const workspaceQuery = useQuery({
+  queryKey: computed(() => ['conversation', 'workspace', roomQuery.data.value?.workspace_id]),
+  queryFn: () => getWorkspace(roomQuery.data.value!.workspace_id),
+  enabled: computed(() => !!roomQuery.data.value?.workspace_id),
+  retry: false,
+})
+
+const projectAgentsQuery = useQuery({
+  queryKey: computed(() => ['conversation', 'project-agents', workspaceQuery.data.value?.project_id]),
+  queryFn: () => listProjectAgents(workspaceQuery.data.value!.project_id),
+  enabled: computed(() => !!workspaceQuery.data.value?.project_id),
+  retry: false,
+})
+
+const agentNames = computed<Record<string, string>>(() => {
+  const agents = projectAgentsQuery.data.value
+  if (!agents) return {}
+  const map: Record<string, string> = {}
+  for (const a of agents) {
+    map[a.id] = a.name
+  }
+  return map
+})
+
 function agentStatus(id: string): AgentStatus {
   if (store.agentStreams[chatroomId]?.[id]) return 'streaming'
   if (store.agentThinking[chatroomId]?.has(id)) return 'thinking'
@@ -253,7 +281,7 @@ function agentStatus(id: string): AgentStatus {
 const agentList = computed(() =>
   (boundAgentsQuery.data.value ?? []).map((id) => ({
     id,
-    name: id.slice(0, 8),
+    name: agentNames.value[id] ?? id.slice(0, 8),
     status: agentStatus(id),
   })),
 )
@@ -392,6 +420,9 @@ function goSettings(): void {
 }
 
 function senderName(m: Message): string {
+  if (m.sender_type === 'agent' && m.sender_id) {
+    return agentNames.value[m.sender_id] ?? m.sender_id.slice(0, 8)
+  }
   return m.sender_id ? m.sender_id.slice(0, 8) : m.sender_type
 }
 

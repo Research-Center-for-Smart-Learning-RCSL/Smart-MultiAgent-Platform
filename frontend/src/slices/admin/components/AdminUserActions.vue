@@ -25,6 +25,7 @@ const { t } = useI18n()
       v-if="user.status === 'active'"
       variant="danger"
       :disabled="isPending"
+      :loading="isPending"
       @click="$emit('ban')"
     >
       {{ t('admin.users.ban') }}
@@ -33,6 +34,7 @@ const { t } = useI18n()
       v-if="user.status === 'banned'"
       variant="secondary"
       :disabled="isPending"
+      :loading="isPending"
       @click="$emit('unban')"
     >
       {{ t('admin.users.unban') }}
@@ -41,6 +43,7 @@ const { t } = useI18n()
       v-if="user.status === 'active'"
       variant="danger"
       :disabled="isPending"
+      :loading="isPending"
       @click="$emit('soft-delete')"
     >
       {{ t('admin.userDetail.softDelete') }}
@@ -49,6 +52,7 @@ const { t } = useI18n()
       v-if="user.deleted_at"
       variant="danger"
       :disabled="isPending"
+      :loading="isPending"
       @click="$emit('hard-delete')"
     >
       {{ t('admin.userDetail.hardDelete') }}
@@ -57,6 +61,7 @@ const { t } = useI18n()
       v-if="user.status === 'active'"
       variant="secondary"
       :disabled="isPending"
+      :loading="isPending"
       @click="$emit('impersonate')"
     >
       {{ t('admin.userDetail.impersonate') }}

@@ -76,7 +76,7 @@
           v-else-if="row.status === 'banned'"
           variant="secondary"
           size="sm"
-          @click="actions.unbanUser.mutate(row.id)"
+          @click="onUnban(row.id)"
         >
           {{ $t('admin.users.unban') }}
         </SButton>
@@ -106,6 +106,7 @@ import {
   SEmptyState,
   SQueryError,
 } from '@shared/ui'
+import { useConfirmDialog } from '@shared/composables'
 import type { Column } from '@shared/ui/STable.vue'
 import { formatDate } from '@shared/utils/datetime'
 import { useQuery } from '@tanstack/vue-query'
@@ -154,6 +155,19 @@ const query = useQuery({
 })
 
 const actions = useAdminActions()
+const { confirm } = useConfirmDialog()
+
+async function onUnban(userId: string): Promise<void> {
+  const ok = await confirm({
+    title: t('admin.users.unbanTitle'),
+    message: t('admin.users.unbanMessage'),
+    confirmLabel: t('admin.users.unbanConfirm'),
+    cancelLabel: t('app.cancel'),
+    variant: 'warning',
+  })
+  if (!ok) return
+  actions.unbanUser.mutate(userId)
+}
 </script>
 
 <style scoped>

@@ -62,7 +62,9 @@
       "archived": "archived",
       "empty": "No runs yet.",
       "emptyHint": "Trigger a manual run, or wait for this workflow's triggers to fire.",
-      "triggerFailed": "Failed to trigger workflow run."
+      "triggerFailed": "Failed to trigger workflow run.",
+      "loadError": "Failed to load workflow runs.",
+      "retry": "Retry"
     },
     "run": {
       "idLabel": "Run {id}",
