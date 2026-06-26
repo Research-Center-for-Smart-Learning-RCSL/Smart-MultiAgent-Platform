@@ -10,19 +10,28 @@ interface DocumentMeta {
  * lifetime of a view. Pass reactive getters (e.g. ones that call `t()`); the
  * tags re-apply when their sources change, so switching locale updates them.
  *
- * The previous `<title>` is captured on mount and restored on unmount, so a
- * view's title does not leak onto whatever route follows it. No-ops under SSR.
+ * Both the previous title and description are captured on mount and restored on
+ * unmount (a tag this view created is removed), so a view's metadata does not
+ * leak onto whatever route follows it. No-ops under SSR.
  */
 export function useDocumentMeta(meta: DocumentMeta): void {
   let previousTitle = ''
+  let previousDescription: string | null = null
+  let createdDescriptionTag = false
+
+  function descriptionTag(): HTMLMetaElement | null {
+    if (typeof document === 'undefined') return null
+    return document.head.querySelector<HTMLMetaElement>('meta[name="description"]')
+  }
 
   function ensureDescriptionTag(): HTMLMetaElement | null {
     if (typeof document === 'undefined') return null
-    let tag = document.head.querySelector<HTMLMetaElement>('meta[name="description"]')
+    let tag = descriptionTag()
     if (!tag) {
       tag = document.createElement('meta')
       tag.name = 'description'
       document.head.appendChild(tag)
+      createdDescriptionTag = true
     }
     return tag
   }
@@ -37,13 +46,24 @@ export function useDocumentMeta(meta: DocumentMeta): void {
   }
 
   onMounted(() => {
-    previousTitle = typeof document !== 'undefined' ? document.title : ''
+    if (typeof document !== 'undefined') {
+      previousTitle = document.title
+      if (meta.description) previousDescription = descriptionTag()?.content ?? null
+    }
     apply()
   })
 
   watch(() => [meta.title?.(), meta.description?.()], apply)
 
   onBeforeUnmount(() => {
-    if (typeof document !== 'undefined' && meta.title) document.title = previousTitle
+    if (typeof document === 'undefined') return
+    if (meta.title) document.title = previousTitle
+    if (meta.description) {
+      const tag = descriptionTag()
+      if (tag) {
+        if (createdDescriptionTag) tag.remove()
+        else if (previousDescription !== null) tag.content = previousDescription
+      }
+    }
   })
 }

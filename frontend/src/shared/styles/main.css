@@ -11,6 +11,7 @@
   --color-muted: #6b7280;
   --color-accent: #2563eb;
   --color-accent-hover: #1d4ed8;
+  --color-accent-2: #7c3aed;
   --color-danger: #dc2626;
   --color-surface: #f8fafc;
   --color-border: #e5e7eb;
@@ -121,6 +122,7 @@
     --color-muted: #9ca3af;
     --color-accent: #60a5fa;
     --color-accent-hover: #93c5fd;
+    --color-accent-2: #a78bfa;
     --color-danger: #f87171;
     --color-surface: #1f2937;
     --color-border: #374151;

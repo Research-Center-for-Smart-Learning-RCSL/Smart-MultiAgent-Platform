@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref } from 'vue'
+import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { usePrefersReducedMotion } from '@shared/composables'
 
 // Decorative hero visual: a central orchestrator hub linked to a ring of
 // heterogeneous agent nodes, with comet-tailed pulses flowing both inward
@@ -10,6 +11,8 @@ import { onBeforeUnmount, onMounted, ref } from 'vue'
 
 const center = { x: 200, y: 200 }
 const radius = 150
+// Decorative ring sits just outside the node circle.
+const orbitRadius = radius + 34
 
 // Heterogeneous nodes tell the "multi-LLM, mixed providers" story: varied
 // radii, a couple highlighted as primaries, alternating flow direction.
@@ -30,55 +33,114 @@ const satellites = NODES.map((n, i) => {
     y: Math.round(center.y + radius * Math.sin(rad)),
     r: n.r,
     primary: n.primary,
-    inward: i % 2 === 0,
+    // Odd edges flow inward (agents reporting), even edges outward (hub
+    // dispatching), for request/response variety.
+    inward: i % 2 === 1,
   }
 })
 
+const root = ref<SVGSVGElement | null>(null)
+const reduced = usePrefersReducedMotion()
+
+// Pause the perpetual keyframe animations whenever the figure leaves the
+// viewport — it is purely decorative, so spending frames on it offscreen is
+// wasted work.
+const paused = ref(false)
+let visibility: IntersectionObserver | null = null
+
 // Pointer parallax — a restrained ±6deg tilt that follows the cursor. Opt-in
 // only on fine pointers with motion enabled; touch and reduced-motion users get
-// a flat, static figure.
-const root = ref<SVGSVGElement | null>(null)
+// a flat, static figure. Moves are coalesced to one transform write per frame,
+// and the bounding rect is cached on enter so no move forces a layout reflow.
 const tiltX = ref(0)
 const tiltY = ref(0)
 const MAX_TILT = 6
-let detach: (() => void) | null = null
+let rect: DOMRect | null = null
+let lastEvent: PointerEvent | null = null
+let rafId = 0
+let pointerAttached = false
 
-function onMove(e: PointerEvent): void {
-  const el = root.value
-  if (!el) return
-  const rect = el.getBoundingClientRect()
-  const px = (e.clientX - rect.left) / rect.width - 0.5
-  const py = (e.clientY - rect.top) / rect.height - 0.5
+function applyTilt(): void {
+  rafId = 0
+  if (!lastEvent || !rect) return
+  const px = (lastEvent.clientX - rect.left) / rect.width - 0.5
+  const py = (lastEvent.clientY - rect.top) / rect.height - 0.5
   tiltY.value = px * MAX_TILT * 2
   tiltX.value = -py * MAX_TILT * 2
 }
 
+function onEnter(): void {
+  rect = root.value?.getBoundingClientRect() ?? null
+}
+
+function onMove(e: PointerEvent): void {
+  lastEvent = e
+  if (!rafId) rafId = requestAnimationFrame(applyTilt)
+}
+
 function onLeave(): void {
+  if (rafId) {
+    cancelAnimationFrame(rafId)
+    rafId = 0
+  }
+  lastEvent = null
+  rect = null
   tiltX.value = 0
   tiltY.value = 0
 }
 
-onMounted(() => {
+function attachPointer(): void {
   const el = root.value
-  if (!el || typeof window.matchMedia !== 'function') return
-  const noMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-  const coarse = !window.matchMedia('(pointer: fine)').matches
-  if (noMotion || coarse) return
+  if (pointerAttached || !el) return
+  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return
+  if (!window.matchMedia('(pointer: fine)').matches) return
+  pointerAttached = true
+  el.addEventListener('pointerenter', onEnter)
   el.addEventListener('pointermove', onMove)
   el.addEventListener('pointerleave', onLeave)
-  detach = () => {
-    el.removeEventListener('pointermove', onMove)
-    el.removeEventListener('pointerleave', onLeave)
+}
+
+function detachPointer(): void {
+  const el = root.value
+  if (!pointerAttached || !el) return
+  pointerAttached = false
+  el.removeEventListener('pointerenter', onEnter)
+  el.removeEventListener('pointermove', onMove)
+  el.removeEventListener('pointerleave', onLeave)
+  onLeave()
+}
+
+onMounted(() => {
+  const el = root.value
+  if (!el) return
+
+  if (!reduced.value) attachPointer()
+  // React live to the OS reduced-motion setting being toggled.
+  watch(reduced, (r) => (r ? detachPointer() : attachPointer()))
+
+  if (typeof IntersectionObserver !== 'undefined') {
+    visibility = new IntersectionObserver(
+      (entries) => {
+        paused.value = !entries.some((e) => e.isIntersecting)
+      },
+      { threshold: 0 },
+    )
+    visibility.observe(el)
   }
 })
 
-onBeforeUnmount(() => detach?.())
+onBeforeUnmount(() => {
+  detachPointer()
+  visibility?.disconnect()
+  visibility = null
+})
 </script>
 
 <template>
   <svg
     ref="root"
     class="constellation"
+    :class="{ 'is-paused': paused }"
     viewBox="0 0 400 400"
     role="presentation"
     aria-hidden="true"
@@ -110,7 +172,7 @@ onBeforeUnmount(() => detach?.())
     <circle
       :cx="center.x"
       :cy="center.y"
-      r="150"
+      :r="radius"
       fill="url(#ac-hub-glow)"
     />
 
@@ -121,12 +183,12 @@ onBeforeUnmount(() => detach?.())
         class="orbit-ring"
         :cx="center.x"
         :cy="center.y"
-        r="184"
+        :r="orbitRadius"
       />
     </g>
 
-    <!-- Edges: a faint static rail plus a comet-tailed pulse. Even edges flow
-         outward, odd edges inward, for request/response variety. -->
+    <!-- Edges: a faint static rail plus a comet-tailed pulse, alternating
+         inward/outward (see `inward` above). -->
     <g class="edges">
       <template
         v-for="node in satellites"
@@ -197,9 +259,26 @@ onBeforeUnmount(() => detach?.())
   transition: transform 140ms ease-out;
 }
 
-.orbit {
+/* SVG transforms must originate from each element's own box centre, not the
+   shared viewport origin. */
+.orbit,
+.node,
+.hub-ping,
+.hub {
   transform-box: fill-box;
   transform-origin: center;
+}
+
+/* Freeze every animation while the figure is scrolled out of view. */
+.constellation.is-paused .orbit,
+.constellation.is-paused .edge-flow,
+.constellation.is-paused .node,
+.constellation.is-paused .hub-ping,
+.constellation.is-paused .hub {
+  animation-play-state: paused;
+}
+
+.orbit {
   animation: ac-orbit 50s linear infinite;
 }
 
@@ -251,8 +330,6 @@ onBeforeUnmount(() => detach?.())
   fill: var(--color-bg);
   stroke: var(--color-accent);
   stroke-width: 2;
-  transform-box: fill-box;
-  transform-origin: center;
   animation: ac-breathe 4s ease-in-out infinite;
 }
 
@@ -277,8 +354,6 @@ onBeforeUnmount(() => detach?.())
   fill: none;
   stroke: var(--color-accent);
   stroke-width: 1.5;
-  transform-box: fill-box;
-  transform-origin: center;
   animation: ac-ping 2.8s ease-out infinite;
 }
 
@@ -303,8 +378,6 @@ onBeforeUnmount(() => detach?.())
 
 .hub {
   fill: var(--color-accent);
-  transform-box: fill-box;
-  transform-origin: center;
   animation: ac-hub-pulse 2.8s ease-in-out infinite;
 }
 

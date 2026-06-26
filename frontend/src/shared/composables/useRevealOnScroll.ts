@@ -1,4 +1,5 @@
 import { onBeforeUnmount, onMounted, ref } from 'vue'
+import { usePrefersReducedMotion } from './usePrefersReducedMotion'
 
 /**
  * Reveals an element the first time it scrolls into view, for entrance
@@ -15,18 +16,11 @@ import { onBeforeUnmount, onMounted, ref } from 'vue'
 export function useRevealOnScroll(options: { threshold?: number } = {}) {
   const el = ref<HTMLElement | null>(null)
   const revealed = ref(false)
+  const reduced = usePrefersReducedMotion()
   let observer: IntersectionObserver | null = null
 
-  function prefersReducedMotion(): boolean {
-    return (
-      typeof window !== 'undefined' &&
-      typeof window.matchMedia === 'function' &&
-      window.matchMedia('(prefers-reduced-motion: reduce)').matches
-    )
-  }
-
   onMounted(() => {
-    if (prefersReducedMotion() || typeof IntersectionObserver === 'undefined' || !el.value) {
+    if (reduced.value || typeof IntersectionObserver === 'undefined' || !el.value) {
       revealed.value = true
       return
     }
