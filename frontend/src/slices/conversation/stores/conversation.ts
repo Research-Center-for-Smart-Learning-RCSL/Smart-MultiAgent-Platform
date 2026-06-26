@@ -23,6 +23,10 @@ export const useConversationStore = defineStore('conversation', () => {
   // Last agent failure kind ('timeout' for the client-side watchdog, or the
   // backend's error kind from agent.finished). The view consumes + clears it.
   const agentError = ref<Record<string, string | null>>({})
+  // Per-room per-agent error kind that persists until the agent next acts.
+  // Drives the sidebar 'error' badge + tooltip — distinct from the transient
+  // room-level `agentError` above, which fires the one-shot toast.
+  const agentErrors = ref<Record<string, Record<string, string>>>({})
   const typingUsers = ref<Record<string, Set<string>>>({})
 
   function addTyping(roomId: string, userId: string): void {
@@ -100,6 +104,23 @@ export const useConversationStore = defineStore('conversation', () => {
     agentError.value = { ...agentError.value, [roomId]: kind }
   }
 
+  function setAgentErrorKind(roomId: string, agentId: string, kind: string): void {
+    const room = agentErrors.value[roomId] ?? {}
+    agentErrors.value = { ...agentErrors.value, [roomId]: { ...room, [agentId]: kind } }
+  }
+
+  function clearAgentError(roomId: string, agentId: string): void {
+    const room = agentErrors.value[roomId]
+    if (!room || !(agentId in room)) return
+    const { [agentId]: _, ...rest } = room
+    if (Object.keys(rest).length === 0) {
+      const { [roomId]: _r, ...roomsRest } = agentErrors.value
+      agentErrors.value = roomsRest
+    } else {
+      agentErrors.value = { ...agentErrors.value, [roomId]: rest }
+    }
+  }
+
   function setActive(id: string | null): void {
     activeChatroomId.value = id
   }
@@ -113,6 +134,8 @@ export const useConversationStore = defineStore('conversation', () => {
     agentStreams.value = restStream
     const { [roomId]: _e, ...restError } = agentError.value
     agentError.value = restError
+    const { [roomId]: _ae, ...restAgentErrors } = agentErrors.value
+    agentErrors.value = restAgentErrors
     const { [roomId]: _t, ...restTyping } = typingUsers.value
     typingUsers.value = restTyping
   }
@@ -122,6 +145,7 @@ export const useConversationStore = defineStore('conversation', () => {
     agentThinking.value = {}
     agentStreams.value = {}
     agentError.value = {}
+    agentErrors.value = {}
     typingUsers.value = {}
     activeChatroomId.value = null
   }
@@ -136,6 +160,7 @@ export const useConversationStore = defineStore('conversation', () => {
     agentThinking,
     agentStreams,
     agentError,
+    agentErrors,
     typingUsers,
     addTyping,
     removeTyping,
@@ -147,6 +172,8 @@ export const useConversationStore = defineStore('conversation', () => {
     appendAgentToken,
     clearAgentStream,
     setAgentError,
+    setAgentErrorKind,
+    clearAgentError,
     setActive,
     resetRoom,
     clearAll,

@@ -148,6 +148,30 @@ describe('useChatroomSocket agent streaming', () => {
     expect(mounted.store.agentThinking[ROOM]?.has(AGENT)).toBe(true)
   })
 
+  it('pins the error kind to the agent for the sidebar badge', () => {
+    const mounted = mountSocket()
+    wrapper = mounted.wrapper
+    emit({ type: 'agent.finished', error: 'rate_limited', agent_id: AGENT })
+    // Per-agent badge state outlives the transient room-level toast trigger.
+    expect(mounted.store.agentErrors[ROOM]?.[AGENT]).toBe('rate_limited')
+  })
+
+  it('clears the agent badge when the agent next thinks', () => {
+    const mounted = mountSocket()
+    wrapper = mounted.wrapper
+    emit({ type: 'agent.finished', error: 'rate_limited', agent_id: AGENT })
+    emit({ type: 'agent.thinking', agent_id: AGENT })
+    expect(mounted.store.agentErrors[ROOM]?.[AGENT]).toBeUndefined()
+  })
+
+  it('clears the agent badge once the agent posts a reply', () => {
+    const mounted = mountSocket()
+    wrapper = mounted.wrapper
+    emit({ type: 'agent.finished', error: 'key_group_scope', agent_id: AGENT })
+    emit({ type: 'message.created', message_id: 'm_agent', sender_type: 'agent', sender_id: AGENT })
+    expect(mounted.store.agentErrors[ROOM]?.[AGENT]).toBeUndefined()
+  })
+
   it('times out a wedged turn and reports a timeout error', () => {
     const mounted = mountSocket()
     wrapper = mounted.wrapper

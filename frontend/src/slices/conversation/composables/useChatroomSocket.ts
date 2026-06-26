@@ -131,6 +131,8 @@ export function useChatroomSocket(roomId: string) {
         // in-progress agent stream (BUG-4).
         if (ev.sender_type === 'agent' && agentId) {
           store.clearAgentStream(roomId, agentId)
+          // The agent produced a reply — drop any stale error badge.
+          store.clearAgentError(roomId, agentId)
         }
         break
       }
@@ -155,6 +157,8 @@ export function useChatroomSocket(roomId: string) {
         if (agentId) {
           store.setAgentThinking(roomId, agentId, true)
           store.clearAgentStream(roomId, agentId)
+          // A fresh turn supersedes the prior failure — clear the badge.
+          store.clearAgentError(roomId, agentId)
         }
         store.setAgentError(roomId, null)
         armThinkingTimeout()
@@ -179,6 +183,11 @@ export function useChatroomSocket(roomId: string) {
         }
         if (typeof ev.error === 'string' && ev.error) {
           store.setAgentError(roomId, ev.error)
+          // Pin the failure to this agent so its sidebar badge stays lit until
+          // it next acts (the room-level error above is consumed by the toast).
+          if (agentId) {
+            store.setAgentErrorKind(roomId, agentId, ev.error)
+          }
         }
         // Re-arm the watchdog if other agents are still active so a
         // second agent's stuck turn still gets timed out (R1).

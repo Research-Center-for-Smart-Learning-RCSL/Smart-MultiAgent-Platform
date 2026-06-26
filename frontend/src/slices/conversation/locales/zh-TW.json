@@ -65,6 +65,8 @@
       "agentStreaming": "代理人輸入中…",
       "agentFailed": "代理人執行失敗，請再試一次。",
       "agentTimeout": "代理人沒有回應。",
+      "agentRateLimited": "代理人目前回覆過於頻繁，請稍候再試。",
+      "agentUnavailable": "該代理人已無法回應。",
       "composerPlaceholder": "輸入訊息…",
       "mentionListLabel": "可提及的代理人",
       "send": "傳送",
