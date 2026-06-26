@@ -85,6 +85,9 @@
       "userIdPlaceholder": "User ID to promote",
       "promote": "Promote",
       "demote": "Demote",
+      "demoteTitle": "Demote Admin",
+      "demoteMessage": "Remove admin privileges from this user? They will lose access to the admin console.",
+      "demoteConfirm": "Demote",
       "empty": "No admins yet."
     },
     "ipBans": {
@@ -149,6 +152,8 @@
       "resourceType": "Resource type",
       "resourceId": "Resource ID",
       "reset": "Reset",
+      "resetConfirmTitle": "Reset GraphRAG Index",
+      "resetConfirmMessage": "Reset this GraphRAG config to idle? All build progress will be lost and the index must be rebuilt.",
       "graphragResetSuccess": "GraphRAG config reset to idle.",
       "resetFailed": "Reset failed.",
       "restore": "Restore Soft-Deleted Resource",
@@ -171,6 +176,8 @@
       "scope": "Scope",
       "updated": "Updated",
       "save": "Save",
+      "confirmTitle": "Update Rate Limit",
+      "confirmMessage": "Update rate limit policy \"{key}\"? Incorrect values may lock out users.",
       "empty": "No rate limit policies.",
       "invalid": "Window and max count must each be at least 1."
     },
@@ -191,6 +198,9 @@
       "activeSession": "Impersonation session is active. All write operations are blocked.",
       "banner": "You are viewing as another user (admin: {adminId})",
       "readOnly": "Read-only mode — all write operations are blocked.",
+      "confirmTitle": "Start Impersonation",
+      "confirmMessage": "Start a read-only impersonation session? All actions will be audit-logged.",
+      "confirmStart": "Start Session",
       "startFailed": "Failed to start impersonation session.",
       "endFailed": "Failed to end impersonation session."
     },

@@ -77,7 +77,7 @@ import { AdjustmentsHorizontalIcon } from '@heroicons/vue/24/outline'
 import { SPageHeader, STable, SButton, SInput, SQueryError, SEmptyState } from '@shared/ui'
 import type { Column } from '@shared/ui/STable.vue'
 import { formatDateTime } from '@shared/utils/datetime'
-import { useToast } from '@shared/composables'
+import { useToast, useConfirmDialog } from '@shared/composables'
 import { useQuery } from '@tanstack/vue-query'
 import { adminApi } from '../api/admin'
 import { adminKeys } from '../queries'
@@ -85,6 +85,7 @@ import { useAdminActions } from '../composables/useAdminActions'
 
 const { t } = useI18n()
 const toast = useToast()
+const { confirm } = useConfirmDialog()
 
 interface EditRow {
   window_sec: number
@@ -122,11 +123,9 @@ watch(
 
 const actions = useAdminActions()
 
-function onPatch(key: string): void {
+async function onPatch(key: string): Promise<void> {
   const edit = edits[key]
   if (!edit) return
-  // SInput coerces a cleared number field to 0; guard before hitting the API
-  // (backend requires window_sec/max_count >= 1) so the user gets a clear reason.
   if (
     !Number.isFinite(edit.window_sec) || edit.window_sec < 1
     || !Number.isFinite(edit.max_count) || edit.max_count < 1
@@ -134,6 +133,14 @@ function onPatch(key: string): void {
     toast.warning(t('admin.rateLimits.invalid'))
     return
   }
+  const ok = await confirm({
+    title: t('admin.rateLimits.confirmTitle'),
+    message: t('admin.rateLimits.confirmMessage', { key }),
+    confirmLabel: t('admin.rateLimits.save'),
+    cancelLabel: t('app.cancel'),
+    variant: 'warning',
+  })
+  if (!ok) return
   actions.patchRateLimit.mutate({
     key,
     patch: { window_sec: edit.window_sec, max_count: edit.max_count },
