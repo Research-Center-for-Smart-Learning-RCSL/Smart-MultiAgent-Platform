@@ -1,6 +1,6 @@
 # SMAP Backend
 
-The backend is built with Python 3.12, FastAPI, Pydantic v2, SQLAlchemy 2 (async), Alembic, Arq, and loguru. It is organized as a Domain-Driven Design (DDD) system with distinct bounded contexts, each responsible for a specific business capability.
+The backend is built with Python 3.12, FastAPI, Pydantic v2, SQLAlchemy 2 (async), Alembic, Arq, and loguru, and integrates PostgreSQL, Redis, Qdrant, Neo4j, MinIO, and HashiCorp Vault with Prometheus and OpenTelemetry observability. It is organized as a Domain-Driven Design (DDD) system with distinct bounded contexts, each responsible for a specific business capability.
 
 ## Project Layout
 
@@ -16,11 +16,11 @@ contexts/            # Ten bounded contexts (independent business domains)
   identity/          # User accounts, admin roles, sessions, JWT, password management
   tenancy/           # Organizations, projects, membership, invites, OC transfers
   keys/              # Bring-your-own-key support for LLM/embedding/search services
-  agents/            # Agent definitions, MCP tools, built-in tools (file, web_search, code_exec)
-  knowledge/         # Retrieval-Augmented Generation (RAG) and GraphRAG (Neo4j + Qdrant)
+  agents/            # Agent definitions, MCP tools, built-in tools (file; web_search via Tavily/Brave/Serper/Google CSE; code_exec on a session-scoped Code-Interpreter kernel)
+  knowledge/         # RAG (with citations + per-agent scoping) and GraphRAG (Neo4j + Qdrant)
   conversation/      # Workspaces, chatrooms, messages, WebSockets, tus uploads, guests, exports
   orchestration/     # A2A streams, wakeup configs, instructions, sub-agent inheritance
-  workflow/          # Workflow definitions, SEL v1, 11 executors, 5 triggers, runs FSM
+  workflow/          # Workflow definitions, SEL v1, 11 executors, 6 triggers, runs FSM
   audit/             # Append-only audit logs, redaction, admin access
   notification/      # In-app notifications and notification rules
   {X}/               # Each context follows this structure:
@@ -32,7 +32,6 @@ shared_kernel/       # Shared primitives across all contexts
   auth/              # Authentication and authorization (JWT, RBAC matrix, rate limiter, IP ban cache)
   db/                # SQLAlchemy engine, session factory, table registry
   errors/            # Error handling (RFC 7807 Problem Details, custom error base)
-  events/            # In-process event bus for inter-context communication
   i18n/              # Internationalization helpers
   infra/             # Shared external service clients (Vault, Redis buckets)
   logging/           # Structured logging via loguru with JSON + redaction
@@ -50,7 +49,7 @@ The codebase enforces separation of concerns through the following rules (valida
 
 1. **Layered architecture**: Dependencies flow inward (`domain` ← `application` ← `infrastructure` ← `interfaces`). Inner layers never depend on outer layers.
 
-2. **Context isolation**: Bounded contexts do not directly import each other. Shared concerns are placed in `shared_kernel`, and cross-context communication uses the event bus.
+2. **Context isolation**: Bounded contexts do not directly import each other (enforced by import-linter). Shared, cross-cutting concerns live in `shared_kernel`; coordination across contexts happens at the application layer through each context's interface facade.
 
 3. **Thin request routing**: HTTP routers in `app.api.*` only import from `contexts.*.interfaces`. Domain and infrastructure logic remain isolated from the API layer.
 
@@ -83,7 +82,7 @@ make dev-backend               # Start development server (uvicorn on port 8000)
 When adding new features, keep the following principles in mind:
 
 - **Business logic belongs in `domain`**: Write use-case logic in `application`, external integrations in `infrastructure`.
-- **Maintain isolation**: Avoid cross-context dependencies. Use `shared_kernel` for shared concerns and the event bus for communication.
+- **Maintain isolation**: Avoid cross-context dependencies. Use `shared_kernel` for shared, cross-cutting concerns and coordinate across contexts through their interface facades.
 - **Keep routers thin**: API routers should delegate to context interfaces, not contain business logic.
 - **Test thoroughly**: Write tests at the appropriate level (unit for domain, integration for application/infrastructure).
 
