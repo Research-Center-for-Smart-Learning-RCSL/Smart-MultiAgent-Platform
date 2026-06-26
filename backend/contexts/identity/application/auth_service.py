@@ -8,6 +8,7 @@ crosses the HTTP boundary.
 from __future__ import annotations
 
 import hashlib
+import unicodedata
 import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -55,6 +56,7 @@ from shared_kernel.auth.password import (
 
 _VERIFY_TTL = timedelta(hours=24)
 _RESET_TTL = timedelta(minutes=30)  # R6.05
+_MAX_DISPLAY_NAME = 50
 
 
 # ---------------------------------------------------------------------------
@@ -572,6 +574,40 @@ class AuthService:
             ),
         )
 
+    async def update_display_name(
+        self,
+        *,
+        user_id: uuid.UUID,
+        display_name: str | None,
+        remote_ip: str | None,
+        request_id: uuid.UUID | None = None,
+    ) -> str | None:
+        """Set (or clear) the caller's optional display name.
+
+        Non-destructive and unauthenticated beyond the live session: a display
+        name carries no security weight, so unlike email/password changes this
+        does not re-prompt for the password or invalidate sessions. Returns the
+        normalised value actually stored so the router can echo it back.
+        """
+        normalised = _normalise_display_name(display_name)
+        user = await self._users.get_by_id(user_id)
+        if user is None:
+            raise InvalidCredentials()
+        await self._users.set_display_name(user_id, normalised)
+        await audit.emit(
+            self._db,
+            audit.AuditEvent(
+                action="auth.display_name_changed",
+                actor_user_id=user_id,
+                actor_ip=remote_ip,
+                resource_type="user",
+                resource_id=user_id,
+                metadata={"cleared": normalised is None},
+                request_id=request_id,
+            ),
+        )
+        return normalised
+
     async def delete_account(
         self,
         *,
@@ -714,6 +750,21 @@ def _normalise_email(raw: str) -> str:
     if at <= 0 or at >= len(e) - 1 or len(e) > 320:
         raise InvalidEmailFormat("invalid email address")
     return e
+
+
+def _normalise_display_name(raw: str | None) -> str | None:
+    """Trim and strip control/format characters; empty collapses to None.
+
+    Printable Unicode (incl. CJK and emoji) is preserved — this is user content,
+    not project UI text. Control/format chars (category ``C*``) are removed so a
+    name cannot smuggle newlines or zero-width joiners into chat author labels.
+    Length is capped defensively even though the API boundary also validates it.
+    """
+    if raw is None:
+        return None
+    cleaned = "".join(ch for ch in raw if ch == " " or not unicodedata.category(ch).startswith("C"))
+    cleaned = cleaned.strip()[:_MAX_DISPLAY_NAME].strip()
+    return cleaned or None
 
 
 __all__ = [

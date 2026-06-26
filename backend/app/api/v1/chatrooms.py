@@ -19,6 +19,7 @@ from contexts.conversation.domain.errors import (
     WorkspaceNotFound,
 )
 from contexts.conversation.interfaces.facade import ConversationFacade
+from contexts.identity.interfaces.facade import IdentityFacade
 from shared_kernel.auth.context import RequestContext
 from shared_kernel.auth.dependencies import (
     _raise_forbidden,
@@ -80,6 +81,11 @@ class GuestLinkOut(BaseModel):
 
 class AgentRef(BaseModel):
     agent_id: uuid.UUID
+
+
+class MemberOut(BaseModel):
+    user_id: uuid.UUID
+    display_name: str | None
 
 
 def _to_out(r) -> ChatroomOut:
@@ -384,6 +390,54 @@ async def remove_chatroom_agent(
         actor_ip=ctx.actor_ip,
         request_id=ctx.request_id,
     )
+
+
+# --------------------------------------------------------------------------- #
+# Members — human author roster for resolving chat-message display names
+# --------------------------------------------------------------------------- #
+
+
+@chatroom_router.get("/{chatroom_id}/members")
+async def list_chatroom_members(
+    chatroom_id: uuid.UUID = Path(...),
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(db_session),
+) -> list[MemberOut]:
+    """Resolve human participants to display names so the client can label
+    message authors (REST history + live WS messages share one map).
+
+    Only ``user_id`` + ``display_name`` is returned — never email — so a room
+    member (including a guest) cannot harvest other participants' login
+    identifiers. The id set is the union of distinct human message authors and
+    enrolled guests; a guest's per-room display name takes precedence over their
+    account display name. Names left unset resolve to ``null`` and the client
+    falls back to a short id.
+    """
+    project_id = await _project_id_for_chatroom(db, chatroom_id)
+    conv = ConversationFacade(db)
+    if not principal.is_admin:
+        resolver = await get_role_resolver(db)
+        roles = await resolver.roles_for(
+            principal,
+            Scope(project_id=project_id, chatroom_id=chatroom_id),
+        )
+        is_guest = await conv.is_chatroom_guest(
+            chatroom_id=chatroom_id,
+            user_id=principal.user_id,
+        )
+        if not roles and not is_guest:
+            _raise_forbidden("not a participant of this room")
+    guest_names = {g.user_id: g.display_name for g in await conv.list_guests(chatroom_id)}
+    sender_ids = await conv.distinct_user_sender_ids(chatroom_id)
+    all_ids = sender_ids | set(guest_names)
+    account_names = await IdentityFacade(db).get_display_names(list(all_ids))
+    return [
+        MemberOut(
+            user_id=uid,
+            display_name=guest_names.get(uid) or account_names.get(uid),
+        )
+        for uid in all_ids
+    ]
 
 
 # --------------------------------------------------------------------------- #

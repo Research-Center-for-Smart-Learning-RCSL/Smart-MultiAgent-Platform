@@ -32,6 +32,7 @@ class UserProfile:
     is_admin: bool
     created_at: datetime
     last_login_at: datetime | None
+    display_name: str | None
 
 
 class IdentityFacade:
@@ -56,7 +57,18 @@ class IdentityFacade:
             is_admin=await self._admins.is_admin(user.id),
             created_at=user.created_at,
             last_login_at=user.last_login_at,
+            display_name=user.display_name,
         )
+
+    async def get_display_names(
+        self, user_ids: Sequence[uuid.UUID]
+    ) -> dict[uuid.UUID, str | None]:
+        """Batch-resolve display names for labelling chat authors.
+
+        Returns only display names (never email) so callers can surface a human
+        label for a ``sender_id`` without exposing the login identifier.
+        """
+        return await self._users.get_display_names(user_ids)
 
     async def is_admin(self, user_id: uuid.UUID) -> bool:
         return await self._admins.is_admin(user_id)

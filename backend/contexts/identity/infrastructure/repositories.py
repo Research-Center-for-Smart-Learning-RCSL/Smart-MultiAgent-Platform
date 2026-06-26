@@ -43,6 +43,7 @@ def _row_to_user(row: Any) -> User:
         last_login_at=row.last_login_at,
         version=row.version,
         created_at=row.created_at,
+        display_name=row.display_name,
     )
 
 
@@ -89,6 +90,29 @@ class UserRepository:
         if only_if_hash is not None:
             stmt = stmt.where(t.users.c.password_hash == only_if_hash)
         await self._db.execute(stmt.values(password_hash=password_hash))
+
+    async def set_display_name(self, user_id: uuid.UUID, display_name: str | None) -> None:
+        await self._db.execute(
+            t.users.update().where(t.users.c.id == user_id).values(display_name=display_name)
+        )
+
+    async def get_display_names(
+        self, user_ids: Sequence[uuid.UUID]
+    ) -> dict[uuid.UUID, str | None]:
+        """Batch-resolve user_id -> display_name. Never returns email (privacy).
+
+        Used to label chat-message authors without leaking the login identifier
+        to other room members. Unknown ids are simply absent from the result.
+        """
+        ids = list(set(user_ids))
+        if not ids:
+            return {}
+        rows = (
+            await self._db.execute(
+                sa.select(t.users.c.id, t.users.c.display_name).where(t.users.c.id.in_(ids))
+            )
+        ).all()
+        return {r.id: r.display_name for r in rows}
 
     async def set_email(self, user_id: uuid.UUID, new_email: str) -> None:
         # Only demote active/pending users to pending on email change. If the

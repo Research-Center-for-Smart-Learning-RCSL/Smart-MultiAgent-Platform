@@ -136,6 +136,29 @@ class MessageRepository:
         ).all()
         return [_row_to_message(r) for r in rows]
 
+    async def distinct_user_sender_ids(self, chatroom_id: uuid.UUID) -> set[uuid.UUID]:
+        """Distinct human author ids that have posted a live message in the room.
+
+        Used to resolve author display names for the member roster. Bots
+        (``agent``/``system``) are excluded — only ``user`` senders carry an
+        identity-context display name.
+        """
+        rows = (
+            await self._db.execute(
+                sa.select(t.messages.c.sender_id)
+                .distinct()
+                .where(
+                    sa.and_(
+                        t.messages.c.chatroom_id == chatroom_id,
+                        t.messages.c.sender_type == SenderType.USER.value,
+                        t.messages.c.sender_id.is_not(None),
+                        t.messages.c.deleted_at.is_(None),
+                    )
+                )
+            )
+        ).all()
+        return {r.sender_id for r in rows}
+
     async def update_content(
         self,
         *,
