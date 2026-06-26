@@ -264,11 +264,7 @@ onMounted(() => {
    stops stay readable in light and dark; forced-colors mode falls back to a
    solid system color so the word never disappears. */
 .hero__title-accent {
-  background: linear-gradient(
-    90deg,
-    var(--color-accent),
-    color-mix(in srgb, var(--color-accent) 55%, #8b5cf6)
-  );
+  background: linear-gradient(90deg, var(--color-accent), var(--color-accent-2));
   -webkit-background-clip: text;
   background-clip: text;
   color: var(--color-accent);

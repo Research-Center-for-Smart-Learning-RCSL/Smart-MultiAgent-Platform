@@ -44,4 +44,28 @@ describe('useDocumentMeta', () => {
     expect(tags).toHaveLength(1)
     expect(tags[0]?.getAttribute('content')).toBe('updated')
   })
+
+  it('restores the previous description on unmount', () => {
+    const existing = document.createElement('meta')
+    existing.name = 'description'
+    existing.content = 'original'
+    document.head.appendChild(existing)
+
+    const wrapper = mount(makeHarness('T', 'overwritten'))
+    expect(document.head.querySelector<HTMLMetaElement>('meta[name="description"]')?.content).toBe(
+      'overwritten',
+    )
+    wrapper.unmount()
+    expect(document.head.querySelector<HTMLMetaElement>('meta[name="description"]')?.content).toBe(
+      'original',
+    )
+  })
+
+  it('removes a description tag it created, on unmount', () => {
+    expect(document.head.querySelector('meta[name="description"]')).toBeNull()
+    const wrapper = mount(makeHarness('T', 'fresh'))
+    expect(document.head.querySelector('meta[name="description"]')).not.toBeNull()
+    wrapper.unmount()
+    expect(document.head.querySelector('meta[name="description"]')).toBeNull()
+  })
 })
