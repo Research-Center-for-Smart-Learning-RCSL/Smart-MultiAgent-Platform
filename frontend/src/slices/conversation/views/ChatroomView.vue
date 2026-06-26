@@ -193,6 +193,7 @@ import { useChatroomScroll } from '../composables/useChatroomScroll'
 import { useAgentStreams } from '../composables/useAgentStreams'
 import { useMarkdownEnhance } from '../composables/useMarkdownEnhance'
 import { useConversationStore } from '../stores/conversation'
+import { AGENT_ERROR_MESSAGE_KEYS, AGENT_ERROR_FALLBACK_KEY } from '../constants/agentErrors'
 import { getChatroom, getWorkspace, listChatroomAgents, listProjectAgents, type ExportOptions } from '../api'
 import { convKeys } from '../queries'
 import type { AgentStatus } from '../components/ChatroomAgentStatusItem.vue'
@@ -405,18 +406,11 @@ const onlineUsers = computed(() => {
 // or the client-side thinking watchdog ('timeout'). Known skip reasons get a
 // specific message; anything else falls back to the generic failure. Toast
 // once, then clear.
-const AGENT_ERROR_MESSAGES: Record<string, string> = {
-  timeout: 'conversation.chatroom.agentTimeout',
-  rate_limited: 'conversation.chatroom.agentRateLimited',
-  agent_gone: 'conversation.chatroom.agentUnavailable',
-  not_bound: 'conversation.chatroom.agentUnavailable',
-  key_group_scope: 'conversation.chatroom.agentUnavailable',
-}
 watch(
   () => store.agentError[chatroomId],
   (err) => {
     if (!err) return
-    toast.error(t(AGENT_ERROR_MESSAGES[err] ?? 'conversation.chatroom.agentFailed'))
+    toast.error(t(AGENT_ERROR_MESSAGE_KEYS[err] ?? AGENT_ERROR_FALLBACK_KEY))
     store.setAgentError(chatroomId, null)
   },
 )
