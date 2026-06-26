@@ -1,0 +1,30 @@
+# Dedicated build-context ignore for the backend image, which builds from the
+# REPO ROOT (so it can COPY docs/workflow.schema.json — the normative schema the
+# workflow linter loads at runtime). BuildKit uses this file for backend/Dockerfile
+# and leaves the repo-root .dockerignore (used by the frontend image) untouched.
+# Keep only backend/ + docs/; exclude everything else and the usual junk.
+.git
+.github
+.claude
+frontend
+deploy
+node_modules
+**/node_modules
+**/__pycache__
+**/*.py[cod]
+**/*.egg-info
+**/.venv
+**/venv
+**/.pytest_cache
+**/.mypy_cache
+**/.ruff_cache
+**/.coverage
+**/htmlcov
+**/coverage
+**/playwright-report
+**/test-results
+backend/tests
+backend/Dockerfile
+backend/Dockerfile.dockerignore
+*.log
+.env*
