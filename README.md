@@ -4,7 +4,7 @@ SMAP is a self-hosted web application for composing and conversing with groups o
 
 Deployment target: single-host Docker Compose (16-core / 32 GB). There is no cloud-managed option or SaaS tier.
 
-![SMAP Architecture](assets/SMAP.jpg)
+![SMAP — Smart Multi-Agent Platform](assets/SMAP-logo.svg)
 
 ---
 
@@ -14,17 +14,19 @@ Deployment target: single-host Docker Compose (16-core / 32 GB). There is no clo
 
 **Agent configuration.** An Agent is a named LLM persona with a system prompt, a Key Group, an optional RAG configuration, an optional Graph RAG configuration, and an optional set of MCP tool servers. Agents can exchange messages via the Agent-to-Agent (A2A) protocol and be composed into multi-agent workflows.
 
-**Retrieval-augmented generation.** Each agent can be bound to a RAG configuration backed by Qdrant (dense vector search) and a Graph RAG configuration backed by Neo4j (graph-enhanced retrieval). Both are populated by background ingestion workers.
+**Retrieval-augmented generation.** Each agent can be bound to a per-agent-scoped RAG configuration backed by Qdrant (dense vector search) and a Graph RAG configuration backed by Neo4j (graph-enhanced retrieval). Both are populated by background ingestion workers, and retrieved chunks are surfaced as citations on the agent's reply. Graph RAG build progress streams to the UI over WebSocket.
 
-**MCP tool servers.** Agents can call built-in tool servers (file access, web search via Tavily, code execution) and user-provided external MCP servers. External servers run inside a gVisor-isolated Docker-in-Docker sandbox with an egress proxy.
+**MCP tool servers.** Agents can call built-in tool servers — file access, web search (via Tavily, Brave, Serper, or Google CSE), and a Code Interpreter whose session-scoped kernel persists state across calls and renders inline chart artifacts — as well as user-provided external MCP servers. External servers run inside a gVisor-isolated Docker-in-Docker sandbox with an egress proxy.
 
-**Chat rooms and workspaces.** Projects contain Workspaces; Workspaces contain Chat Rooms. Chat Rooms support real-time messaging over WebSocket, file attachments (resumable upload via TUS), full-text search (PostgreSQL GIN index), and export to CSV in MinIO. Permanent guest links allow external users to join a room without a platform account.
+**Chat rooms and workspaces.** Projects contain Workspaces; Workspaces contain Chat Rooms. Chat Rooms support real-time messaging over WebSocket, file attachments (resumable upload via TUS), full-text search (PostgreSQL GIN index), summoning specific agents by `@mention`, optional per-user display names, and transcript export to Markdown, JSON, or PDF (optionally date-ranged) stored in MinIO. Permanent guest links allow external users to join a room without a platform account.
 
-**Workflow engine.** Workflows are directed graphs of agent steps supporting 11 executor types, 5 trigger kinds, and the SMAP Expression Language (SEL v1) for dynamic routing. Execution is tracked in a `workflow_runs` finite-state machine (running / waiting / succeeded / failed / cancelled) with a 90-day archive policy.
+**Workflow engine.** Workflows are directed graphs of agent steps supporting 11 executor types, 6 trigger kinds, and the SMAP Expression Language (SEL v1) for dynamic routing. Execution is tracked in a `workflow_runs` finite-state machine (running / waiting / succeeded / failed / cancelled) with a 90-day archive policy. A dry-run mode validates a definition and exercises its routing without invoking side-effecting steps.
 
 **Multi-tenant access control.** Accounts belong to Organizations; Organizations contain Projects. Each scope has a role hierarchy (Original Creator, Org Owner, Org Member, Project Owner, Project Member, Guest). Authorization is enforced through a 24-capability permission matrix evaluated per request.
 
 **Admin and observability.** Admins can manage users (ban, unban, soft-delete, hard-delete), promote or demote admins with a last-admin guard, manage IP ban lists (CIDR), adjust per-bucket rate-limit policies, force-transfer Original Creator status, impersonate users in read-only mode, and query or export the append-only audit log. Prometheus metrics, OpenTelemetry tracing, and structured JSON logging are included.
+
+**Localization.** The web interface is fully internationalized (vue-i18n) and ships English and Traditional Chinese, switchable from the top bar.
 
 **Retention.** A background worker runs 16 retention policies on a configurable schedule covering messages, file attachments, exports, audit logs, workflow run archives, key usage events, soft-deleted tenancy entities, expired tokens, sessions, and more.
 
@@ -54,7 +56,7 @@ FastAPI  (stateless API gateway)
     +---> MCP sandbox  (Docker-in-Docker + gVisor + egress proxy)
 ```
 
-Five WebSocket endpoints provide real-time push: per-user notifications, per-chatroom messages, workflow run streaming, RAG config updates, and admin log tailing. All WebSocket connections authenticate via the `bearer.<token>` subprotocol.
+Six WebSocket endpoints provide real-time push: per-user notifications, per-chatroom messages, workflow run streaming, RAG config updates, Graph RAG build progress, and admin log tailing. All WebSocket connections authenticate via the `bearer.<token>` subprotocol.
 
 ---
 
@@ -72,14 +74,17 @@ Five WebSocket endpoints provide real-time push: per-user notifications, per-cha
 | Secrets | HashiCorp Vault 2.3 (HVAC) |
 | Auth | Argon2-cffi (passwords), Vault Transit RS256 (JWT signing in `shared_kernel/auth/jwt.py`) |
 | HTTP client | HTTPX 0.27 (async) |
-| Serialization | ORJSON 3.10, Pydantic 2.9 |
+| Serialization | ORJSON 3.11, Pydantic 2.9 |
 | Logging | Loguru 0.7 (structured JSON) |
 | Metrics | Prometheus-client 0.21 |
 | Tracing | OpenTelemetry SDK 1.27 |
 | Frontend | Vue 3.5, TypeScript 5.6, Vite 6.4 |
 | State | Pinia 2.2, TanStack Vue Query 5.59 |
-| UI | Element Plus 2.11, Tailwind CSS 4.3, Heroicons 2.2 |
+| UI | Custom design-system component library, Tailwind CSS 4.3, Heroicons 2.2 |
 | Forms | vee-validate 4.14, Zod 3.23 |
+| Workflow editor | Vue Flow 1.42 |
+| Content rendering | markdown-it 14, KaTeX, Mermaid, highlight.js (DOMPurify-sanitized) |
+| Localization | vue-i18n 11.2 (English, Traditional Chinese) |
 | Linting | Ruff 0.7, MyPy 1.13, ESLint 9.28 |
 | Testing | Pytest 8.3, pytest-asyncio 0.24, Vitest 4.1, Playwright 1.56 |
 
@@ -110,7 +115,6 @@ backend/
     auth/            JWT, RBAC matrix, rate limiter, IP ban cache, FastAPI deps
     db/              SQLAlchemy engine, session factory, table registry
     errors/          Error handling (RFC 7807 Problem Details, custom error base)
-    events/          In-process event bus for inter-context communication
     i18n/            Internationalization helpers
     infra/           Shared external service clients (Vault, Redis buckets)
     logging/         Structured logging via loguru with JSON + redaction
@@ -119,7 +123,7 @@ backend/
     realtime/        WebSocket connection management and pub/sub helpers
     security/        Envelope encryption (DEK + Vault Transit)
     storage/         MinIO client wrapper
-  alembic/           Database migrations (versions 0000 through 0030)
+  alembic/           Database migrations (versions 0000 through 0035)
   alembic.ini
 
 frontend/
@@ -136,7 +140,7 @@ deploy/
   compose/           Docker Compose files (base, prod overlay, test overlay, dev override)
   compose/nginx/     Nginx config (TLS, HSTS, CSP, WS upgrade, banner suppression)
   vault/             Vault policies (HCL) and bootstrap SOP
-  observability/     Optional OTel + Prometheus + Loki + Grafana stack
+  observability/     Optional OTel + Prometheus + Alertmanager + Loki + Grafana stack (with Postgres/Redis/Vault exporters)
   README.md          Operator walk-through (< 60 min bring-up)
 
 docs/
@@ -222,9 +226,13 @@ Section prefixes:
 | `SMAP_MINIO_` | MinIO endpoint, credentials, bucket names |
 | `SMAP_VAULT_` | Vault address, AppRole credentials, Transit key names |
 | `SMAP_JWT_` | Access and refresh token TTLs, issuer, audience |
-| `SMAP_SEC_` | Trusted proxy CIDRs, CORS origins, CSP mode |
+| `SMAP_OBS_` | Prometheus metrics and OpenTelemetry tracing toggles |
+| `SMAP_SEC_` | Trusted proxy CIDRs, CORS origins, CSP mode, file-scan toggle |
 | `SMAP_LOG_` | Log level, service name, JSON toggle |
-| `SMAP_LIMITS_` | Per-bucket rate-limit counts (R19.02) |
+| `SMAP_EGRESS_` | Egress proxy controls for MCP sandbox traffic |
+| `SMAP_SANDBOX_` | gVisor MCP sandbox image and resource limits |
+| `SMAP_SMTP_` | SMTP transport for email verification |
+| `SMAP_LIMIT_` | Per-bucket rate-limit counts (R19.02) |
 
 See `.env.example` for the full list with defaults.
 
@@ -241,30 +249,6 @@ See `.env.example` for the full list with defaults.
 **Requirement traceability.** Commits, pull requests, and test docstrings cite at least one `[Rxx.yy]` requirement ID. When a new requirement must be added, it goes into `REQUIREMENTS.md` before any code is written.
 
 **Specifications are English.** All files under `docs/`, `deploy/`, and the root SRS are English-only. Pull request descriptions may use zh-TW.
-
----
-
-## Build status (phases)
-
-| Phase | Title | Status | Closed |
-|---|---|---|---|
-| A | Foundations and Project Bootstrap | CODE complete | 2026-04-21 |
-| B | Infrastructure Bootstrap and Operations | CODE complete | 2026-04-21 |
-| C | Identity, Tenancy, Access, and Web Security | CODE complete | 2026-04-21 |
-| D | API Key Management | CODE complete | 2026-04-21 |
-| E | Agents, RAG, Graph RAG, MCP | CODE complete | 2026-04-22 |
-| F | Chat and Real-time | CODE complete | 2026-04-23 |
-| G | Multi-Agent Orchestration | CODE complete | 2026-04-23 |
-| H | Workflow Engine | CODE complete | 2026-04-23 |
-| I | Admin, Audit, Notifications, Retention | CODE complete | 2026-04-23 |
-| J | Frontend Integration, E2E, and Release | UI incomplete (see M) | 2026-04-24 |
-| K | Agent Runtime and Critical Gap Remediation | CODE complete (gate pending) | 2026-06-13 |
-| L | Account Self-Delete and RAG Ingestion | CODE complete | 2026-06-14 |
-| M | Frontend Gap Remediation and Deferred-List Closure | CODE complete | 2026-06-15 |
-| N | Design System | CODE complete | 2026-06-15 |
-| O | Workflow Editor | CODE complete | 2026-06-16 |
-
-Full gate notes for each closed phase are in `docs/implement/00-overview.md`.
 
 ---
 
