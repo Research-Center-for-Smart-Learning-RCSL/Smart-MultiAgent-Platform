@@ -22,6 +22,10 @@ test.describe('Workflow editor → validate → run → live steps', () => {
     test.skip(!env('E2E_WORKFLOW_ID'), 'needs seeded workflow')
     await page.goto(`/workspaces/${env('E2E_WORKSPACE_ID')}/workflows/${env('E2E_WORKFLOW_ID')}/runs`)
     await page.getByRole('button', { name: /trigger|run/i }).click()
-    await expect(page.getByText(/running|completed|waiting/i)).toBeVisible({ timeout: 30_000 })
+    // RunState vocabulary is running|waiting|succeeded|failed|cancelled — a
+    // trigger->end run reaches "succeeded" almost immediately (no "completed").
+    await expect(
+      page.getByText(/running|waiting|succeeded|failed/i).first(),
+    ).toBeVisible({ timeout: 30_000 })
   })
 })
