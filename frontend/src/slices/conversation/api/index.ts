@@ -108,6 +108,23 @@ export async function listChatroomAgents(chatroomId: string): Promise<string[]> 
   return data.map((r) => r.agent_id)
 }
 
+// Human participants (message authors + guests) with their resolved display
+// names. Used to label user messages; `display_name` is null when unset, in
+// which case the UI falls back to a truncated id. Never includes email.
+export interface ChatroomMember {
+  user_id: string
+  display_name: string | null
+}
+
+export async function listChatroomMembers(
+  chatroomId: string,
+): Promise<ChatroomMember[]> {
+  const { data } = await http.get<ChatroomMember[]>(
+    `/chatrooms/${chatroomId}/members`,
+  )
+  return data
+}
+
 export async function addChatroomAgent(
   chatroomId: string,
   agentId: string,

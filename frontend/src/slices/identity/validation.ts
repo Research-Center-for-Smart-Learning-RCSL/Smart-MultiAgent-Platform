@@ -11,6 +11,13 @@ export const passwordSchema = z.string()
   .min(1, 'identity.validation.passwordRequired')
   .min(PASSWORD_MIN_LENGTH, 'identity.validation.passwordMinLength')
 
+export const DISPLAY_NAME_MAX_LENGTH = 50
+
+// Optional label: an empty string is valid (it clears the name); only the
+// upper bound is enforced client-side, mirroring the server cap.
+export const displayNameSchema = z.string()
+  .max(DISPLAY_NAME_MAX_LENGTH, 'identity.validation.displayNameMaxLength')
+
 type TranslateFn = (key: string) => string
 
 export function validateField(

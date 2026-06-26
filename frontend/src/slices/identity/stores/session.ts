@@ -34,6 +34,12 @@ export const useSessionStore = defineStore('identity/session', () => {
     me.value = data
   }
 
+  // Replace the cached profile with a freshly returned `Me` (e.g. after a
+  // profile update echoes back the normalised value) without a second fetch.
+  function setMe(next: Me): void {
+    me.value = next
+  }
+
   async function logout(): Promise<void> {
     try {
       await authApi.logout()
@@ -73,6 +79,7 @@ export const useSessionStore = defineStore('identity/session', () => {
     login,
     logout,
     refreshMe,
+    setMe,
     clear,
     hydrate,
   }

@@ -49,6 +49,10 @@
         </router-link>
       </template>
 
+      <template #cell-display_name="{ row }">
+        {{ row.display_name ?? '-' }}
+      </template>
+
       <template #cell-status="{ row }">
         <SStatusBadge :status="row.status">
           {{ $t(userStatusLabelKey(row.status)) }}
@@ -132,6 +136,7 @@ const statusOptions = computed(() => [
 
 const columns = computed<Column[]>(() => [
   { key: 'email', label: t('admin.users.email') },
+  { key: 'display_name', label: t('admin.users.displayName'), width: '160px' },
   { key: 'status', label: t('admin.users.status'), width: '120px' },
   { key: 'email_verified', label: t('admin.users.verified'), width: '100px', align: 'center' },
   { key: 'created_at', label: t('admin.users.created'), width: '140px' },

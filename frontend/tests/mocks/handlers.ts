@@ -30,9 +30,22 @@ export const handlers = [
       display_name: 'Test User',
       email_verified: true,
       is_admin: false,
+      status: 'active',
       created_at: '2026-01-01T00:00:00Z',
     }),
   ),
+
+  http.patch('/api/auth/me', async ({ request }) => {
+    const body = (await request.json()) as { display_name: string | null }
+    return HttpResponse.json({
+      id: 'u_test',
+      email: 'test@example.com',
+      display_name: body.display_name?.trim() || null,
+      email_verified: true,
+      is_admin: false,
+      status: 'active',
+    })
+  }),
 
   http.get('/api/orgs', () => HttpResponse.json([])),
   http.get('/api/orgs/:orgId', () =>
@@ -184,4 +197,6 @@ export const handlers = [
   http.get('/api/guest/:token', () =>
     HttpResponse.json({ chatroom_id: 'cr_1', display_name: 'Guest' }),
   ),
+
+  http.get('/api/chatrooms/:chatroomId/members', () => HttpResponse.json([])),
 ]

@@ -102,6 +102,7 @@
       "loadError": "載入失敗"
     },
     "userMenu": {
+      "profile": "個人資料",
       "account": "帳號設定",
       "sessions": "工作階段",
       "theme": "主題：{theme}",

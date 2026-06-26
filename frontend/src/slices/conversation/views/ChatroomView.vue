@@ -121,7 +121,7 @@
       v-model="draft"
       class="chatroom__composer"
       :pending-uploads="pendingUploads"
-      :agents="agentList"
+      :agents="mentionables"
       :disabled="!connected"
       @submit="send"
       @typing="emitTyping"
@@ -194,7 +194,7 @@ import { useAgentStreams } from '../composables/useAgentStreams'
 import { useMarkdownEnhance } from '../composables/useMarkdownEnhance'
 import { useConversationStore } from '../stores/conversation'
 import { AGENT_ERROR_MESSAGE_KEYS, AGENT_ERROR_FALLBACK_KEY } from '../constants/agentErrors'
-import { getChatroom, getWorkspace, listChatroomAgents, listProjectAgents, type ExportOptions } from '../api'
+import { getChatroom, getWorkspace, listChatroomAgents, listChatroomMembers, listProjectAgents, type ExportOptions } from '../api'
 import { convKeys } from '../queries'
 import type { AgentStatus } from '../components/ChatroomAgentStatusItem.vue'
 import type { Message, SearchHit } from '../types'
@@ -274,6 +274,23 @@ const agentNames = computed<Record<string, string>>(() => {
   return map
 })
 
+// Human author display names (members + guests). One map resolves both REST
+// history and live WS messages; absent/null names fall back to a truncated id.
+// Degrades gracefully like the agent queries — a 403 just leaves the map empty.
+const membersQuery = useQuery({
+  queryKey: ['conversation', 'chatroom-members', chatroomId],
+  queryFn: () => listChatroomMembers(chatroomId),
+  retry: false,
+})
+
+const userNames = computed<Record<string, string>>(() => {
+  const map: Record<string, string> = {}
+  for (const m of membersQuery.data.value ?? []) {
+    if (m.display_name) map[m.user_id] = m.display_name
+  }
+  return map
+})
+
 function agentStatus(id: string): AgentStatus {
   if (store.agentStreams[chatroomId]?.[id]) return 'streaming'
   if (store.agentThinking[chatroomId]?.has(id)) return 'thinking'
@@ -289,6 +306,18 @@ const agentList = computed(() =>
     errorReason: store.agentErrors[chatroomId]?.[id],
   })),
 )
+
+// Autocomplete-only mention source: bound agents plus named human members.
+// Typing `@Name` for a person inserts plain text only — the agent wake list
+// (resolved separately from `agentList`) never sees user ids, so mentioning a
+// person pings them visually without summoning anything. Unnamed users are
+// omitted since they have no handle to match.
+const mentionables = computed<{ id: string; name: string }[]>(() => {
+  const users = (membersQuery.data.value ?? [])
+    .filter((m) => m.display_name)
+    .map((m) => ({ id: m.user_id, name: m.display_name as string }))
+  return [...agentList.value, ...users]
+})
 
 // ---- composables ----------------------------------------------------------
 
@@ -436,6 +465,9 @@ function goSettings(): void {
 function senderName(m: Message): string {
   if (m.sender_type === 'agent' && m.sender_id) {
     return agentNames.value[m.sender_id] ?? m.sender_id.slice(0, 8)
+  }
+  if (m.sender_type === 'user' && m.sender_id) {
+    return userNames.value[m.sender_id] ?? m.sender_id.slice(0, 8)
   }
   return m.sender_id ? m.sender_id.slice(0, 8) : m.sender_type
 }

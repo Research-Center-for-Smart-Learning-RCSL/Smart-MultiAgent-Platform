@@ -51,6 +51,14 @@
       "expiredToken": "This reset link has expired.",
       "requestNewLink": "Request New Link"
     },
+    "profile": {
+      "title": "Profile",
+      "emailLabel": "Email",
+      "displayName": "Display name",
+      "displayNameHelp": "Shown to others in chats. Leave blank to use a short ID instead.",
+      "submit": "Save",
+      "saved": "Profile updated."
+    },
     "changePassword": {
       "title": "Change Password",
       "current": "Current Password",
@@ -133,7 +141,8 @@
       "passwordMinLength": "Password must be at least 10 characters.",
       "passwordMismatch": "Passwords do not match.",
       "passwordSame": "New password must be different from current password.",
-      "emailSame": "New email must be different from current email."
+      "emailSame": "New email must be different from current email.",
+      "displayNameMaxLength": "Display name must be at most 50 characters."
     }
   }
 }
