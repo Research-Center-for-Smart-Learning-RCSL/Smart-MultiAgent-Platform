@@ -109,27 +109,30 @@ def test_reply_to_result_parses_artifacts() -> None:
     art = {"filename": "f.png", "mime": "image/png", "size_bytes": 3, "rel_path": "/w/f.png", "b64": "AAA"}
     reply = {"ok": True, "stdout": "hi", "stderr": "", "artifacts": [art]}
     out = (0, json.dumps(reply).encode("utf-8"), b"")
-    res = DockerRunscSandbox()._reply_to_result(out, notice="", start=0.0, session="a:b")
+    res = DockerRunscSandbox()._reply_to_result(out, restarted=False, start=0.0, session="a:b")
     assert res.ok is True
     assert res.stdout == "hi"
     assert res.metadata["artifacts"] == [art]
     assert res.metadata["session"] == "a:b"
+    assert res.metadata["restarted"] is False
 
 
-def test_reply_to_result_prepends_restart_notice() -> None:
+def test_reply_to_result_flags_restart_in_metadata() -> None:
     from contexts.agents.infrastructure.sandbox.docker_runsc import DockerRunscSandbox
 
     reply = {"ok": True, "stdout": "v", "stderr": "", "artifacts": []}
     out = (0, json.dumps(reply).encode("utf-8"), b"")
-    res = DockerRunscSandbox()._reply_to_result(out, notice="[kernel restarted]\n", start=0.0, session="x")
-    assert res.stdout.startswith("[kernel restarted]")
+    res = DockerRunscSandbox()._reply_to_result(out, restarted=True, start=0.0, session="x")
+    # The restart rides in metadata; stdout stays the kernel's clean output.
+    assert res.stdout == "v"
+    assert res.metadata["restarted"] is True
 
 
 def test_reply_to_result_handles_non_json() -> None:
     from contexts.agents.infrastructure.sandbox.docker_runsc import DockerRunscSandbox
 
     out = (1, b"not json", b"traceback")
-    res = DockerRunscSandbox()._reply_to_result(out, notice="", start=0.0, session="x")
+    res = DockerRunscSandbox()._reply_to_result(out, restarted=False, start=0.0, session="x")
     assert res.ok is False
     assert "non-JSON" in res.stderr
 

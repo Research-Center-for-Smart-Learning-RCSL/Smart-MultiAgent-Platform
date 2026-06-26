@@ -169,14 +169,20 @@ def _build_code_exec_tool(
             res = await tool.run(source, stdin=str(args.get("stdin", "")))
         except Exception as exc:
             return ToolResult(content=f"code_exec failed: {exc}", is_error=True)
+        meta = res.metadata if isinstance(res.metadata, dict) else {}
         # Collect any artifacts the kernel produced (charts/files) so the turn
         # engine can attach them to the agent's reply. Best-effort, never raises.
         if artifact_sink is not None:
-            produced = res.metadata.get("artifacts") if isinstance(res.metadata, dict) else None
+            produced = meta.get("artifacts")
             if isinstance(produced, list):
                 artifact_sink.extend(a for a in produced if isinstance(a, dict))
         body = res.stdout if res.ok else f"{res.stdout}\n[stderr]\n{res.stderr}".strip()
-        return ToolResult(content=_clip(body or "(no output)"), is_error=not res.ok)
+        body = _clip(body or "(no output)")
+        # Surface a kernel restart (state loss) to the model from the structured
+        # metadata flag rather than relying on a magic string in stdout.
+        if meta.get("restarted"):
+            body = "[kernel restarted: in-memory state was lost]\n" + body
+        return ToolResult(content=body, is_error=not res.ok)
 
     return Tool(
         name="code_exec",

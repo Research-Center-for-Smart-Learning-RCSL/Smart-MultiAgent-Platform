@@ -33,17 +33,17 @@ class _FakeAttachmentService:
     instances: ClassVar[list[_FakeAttachmentService]] = []
 
     def __init__(self, _db: Any) -> None:
-        self.ingested: list[dict[str, Any]] = []
-        self.bound: dict[str, Any] | None = None
+        self.uploaded: list[dict[str, Any]] = []
+        self.persisted: dict[str, Any] | None = None
         _FakeAttachmentService.instances.append(self)
 
-    async def ingest_agent_artifact(self, **kwargs: Any) -> SimpleNamespace:
-        self.ingested.append(kwargs)
-        return SimpleNamespace(id=uuid.uuid4())
+    async def upload_agent_artifact(self, **kwargs: Any) -> SimpleNamespace:
+        self.uploaded.append(kwargs)
+        return SimpleNamespace(attachment_id=uuid.uuid4(), filename=kwargs.get("filename"))
 
-    async def bind_agent_artifacts(self, **kwargs: Any) -> int:
-        self.bound = kwargs
-        return len(kwargs["attachment_ids"])
+    async def persist_agent_artifacts(self, **kwargs: Any) -> int:
+        self.persisted = kwargs
+        return len(kwargs["uploads"])
 
 
 @pytest.mark.asyncio
@@ -68,12 +68,13 @@ async def test_persist_artifacts_dedupes_skips_and_binds(monkeypatch: pytest.Mon
 
     assert count == 1  # dedup + skip of the non-inlined artifact
     svc = _FakeAttachmentService.instances[-1]
-    assert len(svc.ingested) == 1
-    assert svc.ingested[0]["filename"] == "chart.png"
-    assert svc.ingested[0]["project_id"] == agent.project_id
-    assert svc.bound is not None
-    assert svc.bound["message_id"] == msg_id
-    assert svc.bound["chatroom_id"] == room
+    assert len(svc.uploaded) == 1  # uploads run concurrently, one per unique artifact
+    assert svc.uploaded[0]["filename"] == "chart.png"
+    assert svc.uploaded[0]["project_id"] == agent.project_id
+    assert svc.persisted is not None
+    assert svc.persisted["message_id"] == msg_id
+    assert svc.persisted["chatroom_id"] == room
+    assert len(svc.persisted["uploads"]) == 1
     assert engine._db.committed is True
 
 

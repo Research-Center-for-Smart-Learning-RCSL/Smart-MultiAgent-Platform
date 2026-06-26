@@ -143,15 +143,28 @@ class ConversationFacade:
         attachments = await self._attachments.list_for_message(user_msg.id)
         return [a for a in attachments if a.status is AttachmentStatus.ACTIVE]
 
-    async def read_attachment_bytes(self, attachment_id: uuid.UUID) -> bytes | None:
-        """Fetch an active attachment's bytes from object storage (server-side)."""
-        att = await self._attachments.get(attachment_id)
-        if att is None or att.status is not AttachmentStatus.ACTIVE:
-            return None
+    async def read_attachments_bytes(self, attachments: Sequence[MessageAttachment]) -> list[bytes | None]:
+        """Fetch several attachments' bytes from object storage concurrently.
+
+        Object reads are independent (no shared DB session), so they run in
+        parallel; ``None`` for any attachment that is not active or fails to
+        read. Order matches the input."""
+        import asyncio
+
         from shared_kernel.storage import get_minio_client
 
-        bucket, _, key = att.minio_path.partition("/")
-        return await get_minio_client().get_object(bucket=bucket, key=key)
+        minio = get_minio_client()
+
+        async def _read(att: MessageAttachment) -> bytes | None:
+            if att.status is not AttachmentStatus.ACTIVE:
+                return None
+            bucket, _, key = att.minio_path.partition("/")
+            try:
+                return await minio.get_object(bucket=bucket, key=key)
+            except Exception:
+                return None
+
+        return list(await asyncio.gather(*[_read(a) for a in attachments]))
 
     # -- Retention helpers (H4) ------------------------------------------------
 

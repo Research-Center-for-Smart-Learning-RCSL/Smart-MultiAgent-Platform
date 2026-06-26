@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import logging
 import uuid
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import timedelta
 
@@ -82,6 +83,19 @@ class AttachmentPointer:
 
     attachment: MessageAttachment
     url: str
+
+
+@dataclass(frozen=True, slots=True)
+class AgentArtifactUpload:
+    """A code_exec artifact whose bytes are uploaded but whose row isn't created
+    yet — lets a batch upload concurrently before the sequential DB inserts."""
+
+    attachment_id: uuid.UUID
+    chatroom_id: uuid.UUID
+    filename: str
+    mime: str
+    size_bytes: int
+    minio_path: str
 
 
 class AttachmentService:
@@ -288,22 +302,19 @@ class AttachmentService:
 
     # ---- agent artifacts (Code Interpreter) -------------------------------
 
-    async def ingest_agent_artifact(
+    async def upload_agent_artifact(
         self,
         *,
         project_id: uuid.UUID,
         chatroom_id: uuid.UUID,
-        agent_id: uuid.UUID,
         filename: str,
         mime: str,
         data: bytes,
-    ) -> MessageAttachment:
-        """Persist a code_exec-produced artifact (chart/file) as an attachment.
+    ) -> AgentArtifactUpload:
+        """Upload one code_exec artifact's bytes to object storage (no DB write).
 
-        Authored by the agent (no human uploader), AV scan skipped — the bytes
-        come from inside the gVisor sandbox. The caller binds the returned row
-        to the agent's reply message via ``bind_agent_artifacts``.
-        """
+        Split from row persistence so a batch of artifacts can upload
+        concurrently before the (session-bound, sequential) DB inserts."""
         attachment_id = uuid.uuid4()
         key = chat_upload_key(
             project_id=project_id,
@@ -317,43 +328,57 @@ class AttachmentService:
             data=data,
             content_type=mime,
         )
-        row = await self._repo.create_agent_artifact(
+        return AgentArtifactUpload(
             attachment_id=attachment_id,
             chatroom_id=chatroom_id,
             filename=filename,
             mime=mime,
             size_bytes=len(data),
             minio_path=f"{self._minio.chat_uploads_bucket}/{key}",
-            expires_at=now() + ATTACHMENT_TTL,
         )
-        await audit.emit(
-            self._db,
-            audit.AuditEvent(
-                action="attachment.agent_artifact",
-                resource_type="attachment",
-                resource_id=row.id,
-                metadata={
-                    "chatroom_id": str(chatroom_id),
-                    "agent_id": str(agent_id),
-                    "filename": filename,
-                    "mime": mime,
-                    "size_bytes": len(data),
-                },
-            ),
-        )
-        return row
 
-    async def bind_agent_artifacts(
+    async def persist_agent_artifacts(
         self,
         *,
-        attachment_ids: list[uuid.UUID],
+        agent_id: uuid.UUID,
         message_id: uuid.UUID,
         chatroom_id: uuid.UUID,
+        uploads: Sequence[AgentArtifactUpload],
     ) -> int:
+        """Insert agent-authored attachment rows for already-uploaded artifacts
+        and bind them to the reply message. Authored by the agent (no human
+        uploader), AV scan skipped — the bytes came from the gVisor sandbox."""
+        if not uploads:
+            return 0
+        ids: list[uuid.UUID] = []
+        for up in uploads:
+            row = await self._repo.create_agent_artifact(
+                attachment_id=up.attachment_id,
+                chatroom_id=up.chatroom_id,
+                filename=up.filename,
+                mime=up.mime,
+                size_bytes=up.size_bytes,
+                minio_path=up.minio_path,
+                expires_at=now() + ATTACHMENT_TTL,
+            )
+            ids.append(row.id)
+            await audit.emit(
+                self._db,
+                audit.AuditEvent(
+                    action="attachment.agent_artifact",
+                    resource_type="attachment",
+                    resource_id=row.id,
+                    metadata={
+                        "chatroom_id": str(chatroom_id),
+                        "agent_id": str(agent_id),
+                        "filename": up.filename,
+                        "mime": up.mime,
+                        "size_bytes": up.size_bytes,
+                    },
+                ),
+            )
         return await self._repo.bind_agent_artifacts(
-            attachment_ids=attachment_ids,
-            message_id=message_id,
-            chatroom_id=chatroom_id,
+            attachment_ids=ids, message_id=message_id, chatroom_id=chatroom_id
         )
 
     # ---- scan callback ----------------------------------------------------
