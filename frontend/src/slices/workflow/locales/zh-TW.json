@@ -63,6 +63,7 @@
       "title": "執行紀錄",
       "backToList": "工作流程",
       "triggerManual": "觸發執行",
+      "backstage": "後台追蹤",
       "includeArchive": "包含已封存",
       "state": "狀態",
       "trigger": "觸發方式",
