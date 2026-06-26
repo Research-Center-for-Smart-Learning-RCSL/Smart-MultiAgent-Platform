@@ -219,7 +219,6 @@ function openWorkspace(ws: Workspace): void {
                 icon-only
                 size="sm"
                 :aria-label="t('conversation.workspaces.actions')"
-                @click.stop
               >
                 <EllipsisVerticalIcon class="w-4 h-4" />
               </SButton>
