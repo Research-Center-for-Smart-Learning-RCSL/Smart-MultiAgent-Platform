@@ -36,9 +36,9 @@ import {
   useToast,
 } from '@shared/composables'
 import { keyGroupsApi, keysKeys } from '@slices/keys'
-import { projectsApi, tenancyKeys } from '@slices/tenancy'
 import { agentsApi, type GraphragConfig, type GraphragStatus } from '../api'
 import { agentKeys } from '../queries'
+import { useProjectBreadcrumbs } from '../composables/useProjectBreadcrumbs'
 import {
   graphragConfigCreateSchema,
   type GraphragConfigCreateInput,
@@ -52,14 +52,7 @@ const projectId = route.params.projectId as string
 const toast = useToast()
 const { confirm } = useConfirmDialog()
 
-const projectQuery = useQuery({
-  queryKey: tenancyKeys.project(projectId),
-  queryFn: async () => (await projectsApi.get(projectId)).data,
-})
-
-const breadcrumbs = computed(() => [
-  { label: t('agents.breadcrumb.projects'), to: { name: 'tenancy.projectList' } },
-  { label: projectQuery.data.value?.name ?? projectId.slice(0, 8), to: { name: 'tenancy.projectDetail', params: { id: projectId } } },
+const { breadcrumbs } = useProjectBreadcrumbs(projectId, [
   { label: t('agents.breadcrumb.graphrag') },
 ])
 

@@ -22,6 +22,7 @@ import { useSessionStore } from '@shared/stores/session'
 import { projectsApi, tenancyKeys } from '@slices/tenancy'
 import { agentsApi, type EgressAllowlistEntry } from '../api'
 import { agentKeys } from '../queries'
+import { useProjectBreadcrumbs } from '../composables/useProjectBreadcrumbs'
 import type { Column } from '@shared/ui/STable.vue'
 
 const { t } = useI18n()
@@ -32,14 +33,7 @@ const toast = useToast()
 const { confirm } = useConfirmDialog()
 const session = useSessionStore()
 
-const projectQuery = useQuery({
-  queryKey: tenancyKeys.project(projectId),
-  queryFn: async () => (await projectsApi.get(projectId)).data,
-})
-
-const breadcrumbs = computed(() => [
-  { label: t('agents.breadcrumb.projects'), to: { name: 'tenancy.projectList' } },
-  { label: projectQuery.data.value?.name ?? projectId.slice(0, 8), to: { name: 'tenancy.projectDetail', params: { id: projectId } } },
+const { breadcrumbs } = useProjectBreadcrumbs(projectId, [
   { label: t('agents.breadcrumb.egressAllowlist') },
 ])
 
@@ -68,15 +62,19 @@ const error = computed(() => allowlistQuery.error.value)
 
 const RFC_1123 = /^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/
 
-const addSchema = z.object({
-  hostname: z.string().trim().min(1).max(253)
-    .regex(RFC_1123, { message: t('agents.egress.hostnameInvalid') }),
-  note: z.string().trim().max(500).nullable().default(null),
-})
-type AddInput = z.infer<typeof addSchema>
+const addSchema = computed(() =>
+  toTypedSchema(
+    z.object({
+      hostname: z.string().trim().min(1).max(253)
+        .regex(RFC_1123, { message: t('agents.egress.hostnameInvalid') }),
+      note: z.string().trim().max(500).nullable().default(null),
+    }),
+  ),
+)
+type AddInput = { hostname: string; note: string | null }
 
 const { handleSubmit, errors, defineField, resetForm, setErrors } = useForm<AddInput>({
-  validationSchema: toTypedSchema(addSchema),
+  validationSchema: addSchema,
   initialValues: { hostname: '', note: null },
 })
 const [hostname] = defineField('hostname')
@@ -156,7 +154,7 @@ const columns = computed<Column[]>(() => {
     </SAlert>
 
     <SCard
-      v-if="isOwner"
+      v-if="isOwner || membersQuery.isPending.value"
       class="mt-6"
     >
       <form
@@ -200,7 +198,7 @@ const columns = computed<Column[]>(() => {
     </SCard>
 
     <p
-      v-if="!isOwner"
+      v-if="!isOwner && !membersQuery.isPending.value"
       class="mt-6 text-sm text-[var(--color-muted)]"
     >
       {{ t('agents.egress.ownerOnly') }}

@@ -35,9 +35,9 @@ import {
   useClientPagination,
 } from '@shared/composables'
 import { projectKeysApi, CAPABILITIES, keysKeys } from '@slices/keys'
-import { projectsApi, tenancyKeys } from '@slices/tenancy'
 import { agentsApi, type RagConfig } from '../api'
 import { agentKeys } from '../queries'
+import { useProjectBreadcrumbs } from '../composables/useProjectBreadcrumbs'
 import { ragConfigCreateSchema, type RagConfigCreateInput } from '../types/schemas'
 import { useRagConfigForm } from '../composables/useRagConfigForm'
 import type { Column } from '@shared/ui/STable.vue'
@@ -53,14 +53,7 @@ const { confirm } = useConfirmDialog()
 const search = ref('')
 const showModal = ref(false)
 
-const projectQuery = useQuery({
-  queryKey: tenancyKeys.project(projectId),
-  queryFn: async () => (await projectsApi.get(projectId)).data,
-})
-
-const breadcrumbs = computed(() => [
-  { label: t('agents.breadcrumb.projects'), to: { name: 'tenancy.projectList' } },
-  { label: projectQuery.data.value?.name ?? projectId.slice(0, 8), to: { name: 'tenancy.projectDetail', params: { id: projectId } } },
+const { breadcrumbs } = useProjectBreadcrumbs(projectId, [
   { label: t('agents.breadcrumb.ragConfigs') },
 ])
 

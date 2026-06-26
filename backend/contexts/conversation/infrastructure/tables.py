@@ -67,6 +67,7 @@ chatroom_guests = sa.Table(
         "user_id", pg.UUID(as_uuid=True), sa.ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
     ),
     sa.Column("joined_via_token", sa.Text, nullable=False),
+    sa.Column("display_name", sa.String(100), nullable=True),
     sa.Column("joined_at", sa.TIMESTAMP(timezone=True), nullable=False, server_default=sa.text("now()")),
 )
 

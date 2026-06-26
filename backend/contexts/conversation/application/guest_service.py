@@ -44,6 +44,7 @@ class GuestService:
         chatroom_id: uuid.UUID,
         token: str,
         user_id: uuid.UUID,
+        display_name: str | None = None,
         actor_ip: str | None,
         request_id: uuid.UUID | None,
     ) -> Chatroom:
@@ -61,6 +62,7 @@ class GuestService:
             chatroom_id=chatroom_id,
             user_id=user_id,
             joined_via_token=token,
+            display_name=display_name,
         )
         await audit.emit(
             self._db,

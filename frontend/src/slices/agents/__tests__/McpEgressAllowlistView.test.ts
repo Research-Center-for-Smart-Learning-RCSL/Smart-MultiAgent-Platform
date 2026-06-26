@@ -81,6 +81,13 @@ describe('McpEgressAllowlistView', () => {
 
   it('hides the add form for non-owners', async () => {
     seed([])
+    server.use(
+      http.get('/api/projects/proj_1/members', () =>
+        HttpResponse.json([
+          { user_id: 'u_member', email: 'member@smap.test', role: 'member', joined_at: '2026-01-01T00:00:00Z' },
+        ]),
+      ),
+    )
     const wrapper = await renderView(McpEgressAllowlistView, {
       routes,
       initialRoute: '/projects/proj_1/mcp/egress-allowlist',
