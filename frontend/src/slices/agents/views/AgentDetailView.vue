@@ -936,7 +936,7 @@ const graphragStatusText = computed(() => {
       <!-- Fixed bottom bar on mobile -->
       <div
         v-if="isMobile"
-        class="fixed bottom-0 left-0 right-0 p-4 bg-[var(--color-bg)] border-t border-[var(--color-border)] flex gap-3 z-10"
+        class="fixed bottom-0 left-0 right-0 p-4 bg-bg border-t border-border flex gap-3 z-10"
       >
         <SButton
           v-if="!isCreateMode"
@@ -974,7 +974,7 @@ const graphragStatusText = computed(() => {
       />
       <p
         v-if="failedResult"
-        class="text-sm text-[var(--color-text-muted)] mt-2"
+        class="text-sm text-muted mt-2"
       >
         {{ t('agents.mcp.testErrorDuration', { ms: failedResult.duration_ms }) }}
       </p>
