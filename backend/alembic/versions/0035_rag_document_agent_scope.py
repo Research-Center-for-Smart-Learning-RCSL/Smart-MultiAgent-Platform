@@ -6,10 +6,13 @@ A RAG config is project-scoped and shared by every agent bound to it
 document's chunks. An empty array means *no* agent can see it (the value is a
 positive allowlist, not a deny-list).
 
-Retrieval enforces the allowlist in the Postgres hydration join
-(``RagChunkRepository.lookup_points``), so existing Qdrant points need no
-payload rewrite — backfilling this column is sufficient for the feature to
-take effect.
+Retrieval enforces the allowlist in ``RetrieveService.query``: it resolves the
+querying agent's visible documents via ``RagDocumentRepository.allowed_document_ids``
+(``agent_ids @> [agent_id]`` — served by the GIN index below) and passes them to
+Qdrant as a ``doc_id`` filter, so the vector top_k is computed over allowed docs.
+This keeps the access-control out of the vector-store payload, so existing Qdrant
+points need no payload rewrite — backfilling this column is sufficient for the
+feature to take effect.
 
 Backfill preserves today's behaviour: every existing document becomes visible
 to all agents currently bound to its config, so no corpus silently disappears

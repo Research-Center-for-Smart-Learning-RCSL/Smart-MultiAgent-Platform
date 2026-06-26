@@ -97,12 +97,17 @@ const boundAgents = computed<Agent[]>(() =>
 )
 // Upload allowlist: default to every bound agent so a fresh upload is visible
 // by default (the backend treats an empty allowlist as "no agent may see it").
-// Re-seeds whenever the bound-agent set changes.
+// Seed ONCE when the bound agents first load — re-seeding on every refetch
+// would silently discard the user's manual deselection before they upload.
 const uploadAgentIds = ref<string[]>([])
+const uploadAgentsSeeded = ref(false)
 watch(
   boundAgents,
   (agents) => {
-    uploadAgentIds.value = agents.map((a) => a.id)
+    if (!uploadAgentsSeeded.value && agents.length) {
+      uploadAgentIds.value = agents.map((a) => a.id)
+      uploadAgentsSeeded.value = true
+    }
   },
   { immediate: true },
 )

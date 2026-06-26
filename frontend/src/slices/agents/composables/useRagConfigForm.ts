@@ -13,7 +13,10 @@ interface RagConfigFormOptions {
   rerankModel: Ref<string | null>
 }
 
-const CHUNK_DEFAULTS = { size: 512, overlap: 64, similarity: 0.8 }
+// similarity is the semantic-chunk topic-shift threshold (cosine to the chunk
+// centroid). Kept low to match the backend default — a high value over-fragments
+// coherent prose into tiny chunks. See DEFAULT_SEMANTIC_CHUNK_PARAMS.
+const CHUNK_DEFAULTS = { size: 512, overlap: 64, similarity: 0.3 }
 
 export function useRagConfigForm(opts: RagConfigFormOptions) {
   const {

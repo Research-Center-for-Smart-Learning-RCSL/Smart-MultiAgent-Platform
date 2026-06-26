@@ -44,9 +44,13 @@ DEFAULT_FIXED_CHUNK_PARAMS: dict[str, int] = {
     "chunk_size_tokens": 512,
     "chunk_overlap_tokens": 64,
 }
+# similarity_threshold is compared against the cosine of a sentence to the
+# running chunk centroid; for in-topic prose that cosine often sits well below
+# 0.6, so a high default over-fragments into ~1-sentence chunks. Default low —
+# split only on a clear topic shift; max_tokens_per_chunk is the reliable bound.
 DEFAULT_SEMANTIC_CHUNK_PARAMS: dict[str, float | int] = {
     "max_tokens_per_chunk": 512,
-    "similarity_threshold": 0.6,
+    "similarity_threshold": 0.3,
 }
 
 

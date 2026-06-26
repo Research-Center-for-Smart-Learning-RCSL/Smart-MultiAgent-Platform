@@ -117,9 +117,7 @@ class ReconciliationLoop:
                 state=BuildState.FAILED,
                 error="no snapshot available for compensation",
             )
-            await publish_build_state(
-                cfg.id, BuildState.FAILED.value, error="no snapshot available for compensation"
-            )
+            await publish_build_state(cfg.id, BuildState.FAILED.value)
             return
 
         for attempt, backoff in enumerate(RETRY_BACKOFF_S, start=1):
@@ -205,9 +203,7 @@ class ReconciliationLoop:
             state=BuildState.FAILED,
             error="phase2 retries exhausted; rolled back",
         )
-        await publish_build_state(
-            cfg.id, BuildState.FAILED.value, build_id=build_id, error="phase2 retries exhausted; rolled back"
-        )
+        await publish_build_state(cfg.id, BuildState.FAILED.value, build_id=build_id)
         await self._snapshots.delete(
             config_id=cfg.id,
             build_id=build_id,

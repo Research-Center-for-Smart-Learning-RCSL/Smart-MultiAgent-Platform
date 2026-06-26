@@ -26,15 +26,19 @@ async def publish_build_state(
     state: str,
     *,
     build_id: uuid.UUID | None = None,
-    error: str | None = None,
     **extra: Any,
 ) -> None:
-    """Best-effort publish of a GraphRAG build-state transition."""
+    """Best-effort publish of a GraphRAG build-state transition.
+
+    Deliberately carries no error detail: the event broadcasts to every project
+    member on ws:graphrag:{id}, and a raw provider/exception string could leak
+    internal detail. The terminal ``state`` (failed / failed_compensating) is
+    enough for the UI; the message lives in the audit row and REST
+    ``last_build_error`` only.
+    """
     payload: dict[str, Any] = {"state": state}
     if build_id is not None:
         payload["build_id"] = str(build_id)
-    if error is not None:
-        payload["error"] = error
     payload.update(extra)
     try:
         await Publisher(graphrag_channel(config_id)).emit("build.state", payload)
