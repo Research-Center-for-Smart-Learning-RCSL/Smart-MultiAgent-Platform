@@ -18,3 +18,5 @@ export { useRateLimitCountdown, type RateLimitCountdown } from './useRateLimitCo
 export { useClientPagination, type ClientPagination } from './useClientPagination'
 export { useVisualViewport } from './useVisualViewport'
 export { useFocusTrap } from './useFocusTrap'
+export { useRevealOnScroll } from './useRevealOnScroll'
+export { useDocumentMeta } from './useDocumentMeta'

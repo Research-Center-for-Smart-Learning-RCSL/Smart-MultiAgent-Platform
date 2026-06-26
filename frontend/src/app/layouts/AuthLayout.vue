@@ -1,11 +1,12 @@
 <script setup lang="ts">
+import BrandLogo from '@app/components/BrandLogo.vue'
 </script>
 
 <template>
   <div class="auth-layout">
     <div class="auth-layout__wrapper">
       <div class="auth-layout__logo">
-        SMAP
+        <BrandLogo size="lg" />
       </div>
       <slot />
     </div>
@@ -28,12 +29,9 @@
 }
 
 .auth-layout__logo {
-  font-size: 24px;
-  font-weight: 700;
-  color: var(--color-accent);
-  text-align: center;
+  display: flex;
+  justify-content: center;
   margin-bottom: 24px;
-  user-select: none;
 }
 
 @media (max-width: 480px) {
