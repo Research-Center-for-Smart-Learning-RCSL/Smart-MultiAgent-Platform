@@ -4,14 +4,16 @@ Exposes approval gates, instruct chains, sub-agent instances, and A2A DLQ
 entries for the frontend. All mutations flow through the workflow engine
 (Phase H).
 
-AuthZ (API-2 — hybrid scoping):
-- Approvals (G.6) + sub-agents (G.8): resolved to their owning project; the
-  caller must hold a role in that project.
-- Instruct chains (G.7) + A2A DLQ (G.10): admin-only backstage.
+AuthZ (API-2 — project scoping):
+- Approvals (G.6), sub-agents (G.8), instruct chains (G.7), and A2A DLQ (G.10)
+  all resolve their path UUID to the owning project; the caller must hold a
+  role in that project (admins always pass). Instruct chains are single-project
+  by construction — A2A scope enforcement blocks cross-project instruct — so
+  resolving via an agent in the chain is sound.
 
-Every handler resolves its path UUID to a project (or requires admin) before
-returning data — without this an authenticated caller could read any tenant's
-orchestration state by enumerating IDs.
+Every handler resolves its path UUID to a project before returning data —
+without this an authenticated caller could read any tenant's orchestration
+state by enumerating IDs.
 """
 
 from __future__ import annotations
@@ -23,6 +25,7 @@ from fastapi import APIRouter, Depends, HTTPException, Path, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.deps import PaginationParams
+from contexts.agents.interfaces.facade import AgentsFacade
 from contexts.orchestration.application.approval_service import ApprovalService
 from contexts.orchestration.application.instruct_service import InstructService
 from contexts.orchestration.application.subagent_service import SubagentService
@@ -38,14 +41,6 @@ router = APIRouter(prefix="/api/orchestration", tags=["orchestration"])
 # ---------------------------------------------------------------------------
 # AuthZ helpers
 # ---------------------------------------------------------------------------
-
-
-def _assert_admin(principal: Principal) -> None:
-    if not principal.is_admin:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="admin access required",
-        )
 
 
 async def _assert_project_member(
@@ -177,39 +172,47 @@ async def list_approvals_for_run(
 
 
 # ---------------------------------------------------------------------------
-# Instruct chain endpoints (G.7 — admin backstage)
+# Instruct chain endpoints (G.7 — project members)
 # ---------------------------------------------------------------------------
 
 
 @router.get(
     "/instructions/{instruction_id}",
-    summary="Get a single instruction record (admin only)",
+    summary="Get a single instruction record",
 )
 async def get_instruction(
     instruction_id: uuid.UUID = Path(...),
     db: AsyncSession = Depends(db_session),
     principal: Principal = Depends(current_principal),
+    resolver: RoleResolver = Depends(get_role_resolver),
 ) -> dict[str, Any]:
-    _assert_admin(principal)
     svc = InstructService(db)
+    project_id = await svc.resolve_instruction_project(instruction_id)
+    if project_id is None:
+        raise _not_found("instruction")
+    await _assert_project_member(principal, project_id, resolver)
     instruction = await svc.get_instruction(instruction_id)
-    if instruction is None:
+    if instruction is None:  # pragma: no cover — resolved above
         raise _not_found("instruction")
     return _instruction_out(instruction)
 
 
 @router.get(
     "/chains/{chain_id}/instructions",
-    summary="List all instructions in a chain (admin only)",
+    summary="List all instructions in a chain",
 )
 async def list_instructions_for_chain(
     chain_id: uuid.UUID = Path(...),
     pagination: PaginationParams = Depends(),
     db: AsyncSession = Depends(db_session),
     principal: Principal = Depends(current_principal),
+    resolver: RoleResolver = Depends(get_role_resolver),
 ) -> list[dict[str, Any]]:
-    _assert_admin(principal)
     svc = InstructService(db)
+    project_id = await svc.resolve_chain_project(chain_id)
+    if project_id is None:
+        raise _not_found("chain")
+    await _assert_project_member(principal, project_id, resolver)
     instructions = await svc.list_for_chain(chain_id)
     instructions = instructions[pagination.offset : pagination.offset + pagination.limit]
     return [_instruction_out(i) for i in instructions]
@@ -263,19 +266,24 @@ async def list_subagent_children(
 
 
 # ---------------------------------------------------------------------------
-# DLQ viewer (G.10 — admin only)
+# DLQ viewer (G.10 — project members)
 # ---------------------------------------------------------------------------
 
 
 @router.get(
     "/agents/{agent_id}/dlq",
-    summary="Read A2A DLQ entries for an agent (admin only)",
+    summary="Read A2A DLQ entries for an agent",
 )
 async def get_agent_dlq(
     agent_id: uuid.UUID = Path(...),
+    db: AsyncSession = Depends(db_session),
     principal: Principal = Depends(current_principal),
+    resolver: RoleResolver = Depends(get_role_resolver),
 ) -> list[dict[str, Any]]:
-    _assert_admin(principal)
+    agent = await AgentsFacade(db).get_agent(agent_id, include_deleted=True)
+    if agent is None:
+        raise _not_found("agent")
+    await _assert_project_member(principal, agent.project_id, resolver)
     return await read_dlq(agent_id)
 
 

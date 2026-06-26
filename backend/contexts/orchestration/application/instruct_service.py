@@ -18,6 +18,7 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from contexts.agents.interfaces.facade import AgentsFacade
 from contexts.orchestration.application.a2a_service import A2AService
 from contexts.orchestration.domain.errors import (
     InstructBudgetExceeded,
@@ -45,6 +46,7 @@ class InstructService:
         self._db = db
         self._instructions = InstructionRepository(db)
         self._a2a = A2AService(db)
+        self._agents = AgentsFacade(db)
 
     async def issue(
         self,
@@ -217,6 +219,32 @@ class InstructService:
 
     async def list_for_chain(self, chain_id: uuid.UUID) -> list[Instruction]:
         return await self._instructions.list_for_chain(chain_id)
+
+    async def resolve_instruction_project(self, instruction_id: uuid.UUID) -> uuid.UUID | None:
+        """Project owning an instruction (via its issuer agent) — authz helper (API-2).
+
+        A2A scope enforcement blocks cross-project instruct, so the issuer and
+        target always share a project; resolving via the issuer is sufficient.
+        Returns None when the instruction or its agent no longer exists.
+        """
+        instruction = await self._instructions.get(instruction_id)
+        if instruction is None:
+            return None
+        agent = await self._agents.get_agent(instruction.issuer_agent_id, include_deleted=True)
+        return agent.project_id if agent else None
+
+    async def resolve_chain_project(self, chain_id: uuid.UUID) -> uuid.UUID | None:
+        """Project owning an instruction chain (via any instruction's issuer).
+
+        Every instruction in a chain shares one project (cross-project instruct
+        is blocked at delivery), so the first row's issuer is representative.
+        Returns None when the chain is empty or its agent no longer exists.
+        """
+        instructions = await self._instructions.list_for_chain(chain_id)
+        if not instructions:
+            return None
+        agent = await self._agents.get_agent(instructions[0].issuer_agent_id, include_deleted=True)
+        return agent.project_id if agent else None
 
 
 __all__ = ["InstructService"]
