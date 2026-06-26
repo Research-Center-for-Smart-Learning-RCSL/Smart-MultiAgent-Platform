@@ -202,8 +202,16 @@ const { t } = useI18n()
 .bubble-row {
   display: flex;
   flex-direction: column;
+  /* Own (user) messages sit on the right; agent messages override to the left
+     below. System messages use the separate .sys layout, so this only ever
+     applies to user/agent bubbles. */
+  align-items: flex-end;
   gap: 4px;
   margin-bottom: 8px;
+}
+
+.bubble-row--agent {
+  align-items: flex-start;
 }
 
 /* Transient highlight when jumped to from search. Animates from the warning
