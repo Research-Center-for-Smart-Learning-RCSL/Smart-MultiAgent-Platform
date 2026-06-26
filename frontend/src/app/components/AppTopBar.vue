@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
 import { Bars3Icon, XMarkIcon } from '@heroicons/vue/24/outline'
-import { ThemeToggle } from '@shared/ui'
+import { LocaleToggle, ThemeToggle } from '@shared/ui'
 import { useSessionStore } from '@shared/stores/session'
 import { useBreakpoint } from '@shared/composables/useBreakpoint'
 import { NotificationBell } from '@slices/notifications'
@@ -58,6 +58,7 @@ const { isMobile } = useBreakpoint()
     <div class="topbar__right">
       <NotificationBell />
       <UserMenu />
+      <LocaleToggle v-if="!isMobile" />
       <ThemeToggle v-if="!isMobile" />
     </div>
   </header>

@@ -3,6 +3,7 @@ export { useBreakpoint, BP, type Breakpoint } from './useBreakpoint'
 export { useConfirmDialog, type ConfirmOptions, type PromptOptions } from './useConfirmDialog'
 export { useCsrfToken } from './useCsrfToken'
 export { useServerErrors } from './useServerErrors'
+export { useLocale } from './useLocale'
 export { useTheme, type Theme } from './useTheme'
 export { useToast, TOAST_DURATION_MS, type ToastOptions } from './useToast'
 export {

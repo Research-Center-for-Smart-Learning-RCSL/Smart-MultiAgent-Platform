@@ -11,6 +11,7 @@
     "close": "關閉",
     "dismiss": "關閉",
     "back": "返回",
+    "localeLabel": "語言：{locale}",
     "themeLabel": "主題：{theme}",
     "errorBoundary": {
       "title": "發生錯誤",
