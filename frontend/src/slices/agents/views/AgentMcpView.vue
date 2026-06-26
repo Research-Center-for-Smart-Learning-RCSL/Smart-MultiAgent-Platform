@@ -18,6 +18,8 @@ import {
   STable,
   SBadge,
   SButton,
+  SCard,
+  SToggle,
   SDropdown,
   SModal,
   SFormField,
@@ -63,8 +65,78 @@ const bindingsQuery = useQuery({
 
 const bindings = computed<McpBinding[]>(() => bindingsQuery.data.value ?? [])
 const loading = computed(() => bindingsQuery.isLoading.value)
+// Built-in tools are managed by the capability card above; the table lists only
+// the url/package MCP servers so a built-in can't be edited in two places.
+const serverBindings = computed(() => bindings.value.filter((b) => b.source !== 'builtin'))
 
 const { isTesting, runTest, failedResult } = useMcpTest(agentId)
+
+// --- Built-in tools (Code Interpreter etc.) ---
+// Mirrors the backend gate (`_enabled_builtins`): with NO builtin binding all
+// three are on (legacy); once any exists, only the named ones are. Toggling
+// reconciles explicit builtin bindings behind the scenes so the user never has
+// to think in terms of "bindings".
+const BUILTIN_NONE_SENTINEL = '__none__'
+const reconciling = ref(false)
+
+const enabledBuiltins = computed<Set<string>>(() => {
+  const builtinBindings = bindings.value.filter((b) => b.source === 'builtin')
+  if (!builtinBindings.length) return new Set(BUILTIN_TOOLS)
+  const enabled = new Set<string>()
+  for (const b of builtinBindings) {
+    if (BUILTIN_TOOLS.includes(b.reference)) enabled.add(b.reference)
+    for (const tool of b.allowed_tools) {
+      if (BUILTIN_TOOLS.includes(tool)) enabled.add(tool)
+    }
+  }
+  return enabled
+})
+
+const builtinRows = computed(() =>
+  (['code_exec', 'web_search', 'file'] as const).map((key) => ({
+    key,
+    label: t(`agents.builtinTools.${key}`),
+    description: t(`agents.builtinTools.${key}Desc`),
+  })),
+)
+
+async function applyBuiltins(desired: Set<string>): Promise<void> {
+  reconciling.value = true
+  try {
+    const existing = bindings.value.filter((b) => b.source === 'builtin')
+    let targetRefs: string[]
+    if (desired.size === BUILTIN_TOOLS.length) targetRefs = [] // all on -> legacy (no bindings)
+    else if (desired.size === 0) targetRefs = [BUILTIN_NONE_SENTINEL]
+    else targetRefs = [...desired]
+    // Add the new explicit bindings first, then remove the previous ones, so
+    // the effective set is never momentarily wider-than-intended in a way that
+    // matters (the union during the swap is harmless and short-lived).
+    for (const reference of targetRefs) {
+      await agentsApi.addMcpBinding(agentId, {
+        source: 'builtin',
+        reference,
+        allowed_tools: [],
+        config: {},
+      })
+    }
+    for (const b of existing) {
+      await agentsApi.deleteMcpBinding(agentId, b.id)
+    }
+    toast.success(t('agents.builtinTools.updated'))
+  } catch {
+    toast.error(t('agents.builtinTools.updateFailed'))
+  } finally {
+    await qc.invalidateQueries({ queryKey: agentKeys.mcpBindings(agentId) })
+    reconciling.value = false
+  }
+}
+
+function setBuiltinEnabled(tool: string, value: boolean): void {
+  const desired = new Set(enabledBuiltins.value)
+  if (value) desired.add(tool)
+  else desired.delete(tool)
+  void applyBuiltins(desired)
+}
 
 // --- Add / Edit modal ---
 const showModal = ref(false)
@@ -215,8 +287,9 @@ const actionItems = computed(() => [
   { key: 'delete', label: t('agents.mcp.delete'), icon: TrashIcon, danger: true },
 ])
 
+// Built-in tools are toggled via the capability card; the modal only adds
+// url/package MCP servers, so a built-in binding can't be authored here.
 const sourceOptions = computed(() => [
-  { value: 'builtin', label: t('agents.mcp.sources.builtin') },
   { value: 'url', label: t('agents.mcp.sources.url') },
   { value: 'package', label: t('agents.mcp.sources.package') },
 ])
@@ -278,9 +351,41 @@ const accordionItems = computed(() => [
       </template>
     </SAlert>
 
+    <SCard class="mt-6">
+      <h2 class="text-sm font-semibold text-[var(--color-fg)]">
+        {{ t('agents.builtinTools.title') }}
+      </h2>
+      <p class="mt-1 text-sm text-[var(--color-muted)]">
+        {{ t('agents.builtinTools.subtitle') }}
+      </p>
+      <ul class="mt-4 flex flex-col divide-y divide-[var(--color-border)]">
+        <li
+          v-for="row in builtinRows"
+          :key="row.key"
+          class="flex items-center justify-between gap-4 py-3"
+        >
+          <div class="min-w-0">
+            <label
+              :for="`builtin-${row.key}`"
+              class="text-sm font-medium text-[var(--color-fg)]"
+            >{{ row.label }}</label>
+            <p class="text-xs text-[var(--color-muted)]">
+              {{ row.description }}
+            </p>
+          </div>
+          <SToggle
+            :id="`builtin-${row.key}`"
+            :model-value="enabledBuiltins.has(row.key)"
+            :disabled="reconciling || loading"
+            @update:model-value="setBuiltinEnabled(row.key, $event)"
+          />
+        </li>
+      </ul>
+    </SCard>
+
     <STable
       :columns="columns"
-      :data="bindings"
+      :data="serverBindings"
       :loading="loading"
       row-key="id"
       class="mt-6"

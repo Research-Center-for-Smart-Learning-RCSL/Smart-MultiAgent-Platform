@@ -89,8 +89,15 @@
           v-for="att in message.attachments"
           :key="att.id"
         >
+          <!-- Image attachments (incl. agent-produced charts) render inline. -->
+          <AttachmentImage
+            v-if="att.status === 'active' && isImage(att.mime)"
+            :attachment-id="att.id"
+            :filename="att.filename"
+            @download="emit('download', att)"
+          />
           <button
-            v-if="att.status === 'active'"
+            v-else-if="att.status === 'active'"
             type="button"
             class="attachment-link"
             @click="emit('download', att)"
@@ -119,6 +126,45 @@
         v-if="message.edited_at"
         class="bubble__edited"
       >{{ t('conversation.chatroom.edited') }}</span>
+
+      <!-- RAG citations: what retrieval fed the model for this reply. -->
+      <div
+        v-if="isAgent && ragSources.length"
+        class="bubble__sources"
+      >
+        <button
+          type="button"
+          class="bubble__sources-toggle"
+          :aria-expanded="showSources"
+          @click="showSources = !showSources"
+        >
+          <BookOpenIcon class="bubble__sources-icon" />
+          {{ t('conversation.chatroom.sources', { count: ragSources.length }) }}
+          <ChevronDownIcon
+            class="bubble__sources-chevron"
+            :class="{ 'bubble__sources-chevron--open': showSources }"
+          />
+        </button>
+        <ul
+          v-if="showSources"
+          class="bubble__sources-list"
+        >
+          <li
+            v-for="(src, i) in ragSources"
+            :key="`${src.document_id}-${src.chunk_idx}-${i}`"
+            class="bubble__source"
+          >
+            <DocumentTextIcon class="bubble__source-icon" />
+            <span class="bubble__source-name">{{
+              src.filename ?? t('conversation.chatroom.sourceUnknownDoc')
+            }}</span>
+            <span class="bubble__source-meta">
+              {{ t('conversation.chatroom.sourceChunk', { idx: src.chunk_idx }) }}
+              &middot; {{ formatScore(src.score) }}
+            </span>
+          </li>
+        </ul>
+      </div>
     </ChatroomBubbleShell>
 
     <!-- Hover actions. -->
@@ -157,7 +203,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
   PaperClipIcon,
@@ -166,11 +212,15 @@ import {
   PencilSquareIcon,
   TrashIcon,
   ClipboardDocumentIcon,
+  BookOpenIcon,
+  ChevronDownIcon,
+  DocumentTextIcon,
 } from '@heroicons/vue/24/outline'
 import { SAvatar, SButton, STextarea } from '@shared/ui'
 import ChatroomBubbleShell from './ChatroomBubbleShell.vue'
+import AttachmentImage from './AttachmentImage.vue'
 import { formatTime } from '../utils/format'
-import type { Attachment, DisplayMessage } from '../types'
+import type { Attachment, DisplayMessage, RagSource } from '../types'
 
 const props = defineProps<{
   message: DisplayMessage
@@ -196,6 +246,25 @@ const emit = defineEmits<{
 const isAgent = computed(() => props.message.sender_type === 'agent')
 const time = computed(() => formatTime(props.message.created_at))
 const { t } = useI18n()
+
+// RAG citations the backend attached to this agent reply (R10.09).
+const ragSources = computed<RagSource[]>(() => {
+  const raw = props.message.metadata?.rag_sources
+  return Array.isArray(raw) ? (raw as RagSource[]) : []
+})
+const showSources = ref(false)
+
+// Persisted metadata is untyped at runtime; tolerate a drifted/partial entry
+// rather than throwing a render error that would break the whole bubble.
+function formatScore(score: unknown): string {
+  return typeof score === 'number' ? score.toFixed(2) : '--'
+}
+
+// Image attachments (user uploads + agent-produced charts) render inline; the
+// presign endpoint forces a safe inline content-type for these MIME types.
+function isImage(mime: string): boolean {
+  return mime.startsWith('image/')
+}
 </script>
 
 <style scoped>
@@ -312,6 +381,74 @@ const { t } = useI18n()
   font-size: 11px;
   font-style: italic;
   color: var(--color-muted);
+}
+
+.bubble__sources {
+  margin-top: 8px;
+  border-top: 1px solid var(--color-border);
+  padding-top: 6px;
+}
+
+.bubble__sources-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: none;
+  border: none;
+  padding: 2px 0;
+  font-size: 12px;
+  color: var(--color-muted);
+  cursor: pointer;
+}
+
+.bubble__sources-icon {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+
+.bubble__sources-chevron {
+  width: 12px;
+  height: 12px;
+  transition: transform var(--transition-fast);
+}
+
+.bubble__sources-chevron--open {
+  transform: rotate(180deg);
+}
+
+.bubble__sources-list {
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.bubble__source {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--color-fg);
+}
+
+.bubble__source-icon {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  color: var(--color-muted);
+}
+
+.bubble__source-name {
+  font-weight: 500;
+  word-break: break-word;
+}
+
+.bubble__source-meta {
+  color: var(--color-muted);
+  font-variant-numeric: tabular-nums;
 }
 
 .bubble__edit {
