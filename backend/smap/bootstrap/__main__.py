@@ -16,7 +16,7 @@ from __future__ import annotations
 import typer
 from loguru import logger
 
-from app.config.settings import get_settings
+from app.config.settings import get_settings_for_bootstrap as get_settings
 
 from . import (
     create_admin as _create_admin,
