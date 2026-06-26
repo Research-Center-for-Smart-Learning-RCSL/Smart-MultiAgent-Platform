@@ -131,6 +131,12 @@ export interface McpBindingPatchInput {
   config?: Record<string, unknown>
 }
 
+// Built-in tool gating is owned server-side; the editor reads/writes the
+// enabled set and never re-derives the gate rule. Mirrors `BuiltinToolsOut`.
+export interface BuiltinToolsState {
+  enabled: string[]
+}
+
 // Mirrors backend `McpTestOut` — the sandbox probe result.
 export interface McpTestResult {
   ok: boolean
@@ -236,6 +242,12 @@ export const agentsApi = {
 
   testMcpBinding: (agentId: string, bindingId: string) =>
     http.post<McpTestResult>(`/agents/${agentId}/mcp/${bindingId}/test`),
+
+  getBuiltinTools: (agentId: string) =>
+    http.get<BuiltinToolsState>(`/agents/${agentId}/builtin-tools`),
+
+  setBuiltinTools: (agentId: string, enabled: string[]) =>
+    http.put<BuiltinToolsState>(`/agents/${agentId}/builtin-tools`, { enabled }),
 
   listEgressAllowlist: (projectId: string) =>
     http.get<EgressAllowlistEntry[]>(`/projects/${projectId}/mcp/egress-allowlist`),
