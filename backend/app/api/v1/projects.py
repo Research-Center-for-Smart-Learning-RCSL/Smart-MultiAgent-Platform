@@ -85,14 +85,16 @@ def _to_out(p) -> ProjectOut:
 
 @router.get("")
 async def list_projects(
-    scope: Literal["user", "org"] = Query(...),
-    owner_id: uuid.UUID = Query(..., alias="id"),
+    scope: Literal["user", "org"] | None = Query(None),
+    owner_id: uuid.UUID | None = Query(None, alias="id"),
     pagination: PaginationParams = Depends(),
     principal: Principal = Depends(current_principal),
     db: AsyncSession = Depends(db_session),
 ) -> list[ProjectOut]:
     service = ProjectService(db)
-    if scope == "user":
+    if scope is None or owner_id is None:
+        rows = await service.list_visible_for_user(principal.user_id)
+    elif scope == "user":
         if owner_id != principal.user_id and not principal.is_admin:
             raise HTTPException(
                 status_code=403,
@@ -100,8 +102,6 @@ async def list_projects(
             )
         rows = await service.list_by_user(owner_id)
     else:
-        # Org-scope requires caller membership (Admin bypass). Without this
-        # check any authenticated user could enumerate every org's projects.
         from shared_kernel.auth.dependencies import get_role_resolver
         from shared_kernel.auth.permissions import Scope as _Scope
 
