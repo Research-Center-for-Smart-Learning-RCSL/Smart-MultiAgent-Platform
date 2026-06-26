@@ -153,6 +153,7 @@
       "copyFailed": "複製失敗。"
     },
     "settings": {
+      "backToChatroom": "返回聊天室",
       "title": "聊天室設定",
       "general": "一般",
       "name": "名稱",

@@ -153,6 +153,7 @@
       "copyFailed": "Failed to copy."
     },
     "settings": {
+      "backToChatroom": "Back to chatroom",
       "title": "Chatroom Settings",
       "general": "General",
       "name": "Name",
