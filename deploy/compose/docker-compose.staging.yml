@@ -93,6 +93,32 @@ services:
       resources:
         limits: { cpus: "0.5", memory: 256M }
 
+  # ---------- DB migrations (one-shot) ----------
+  # Runs `alembic upgrade head` to completion, then exits. backend-web and
+  # backend-worker gate on it via `service_completed_successfully`, so a plain
+  # `up -d --build` always lands a current schema before the app starts — no
+  # manual migrate step. Idempotent: a no-op when already at head. Only needs
+  # the DB (alembic/env.py reads just the DSN — no Vault), so it waits on
+  # postgres alone and finishes well before the slower services are ready.
+  migrate:
+    <<: *security-defaults
+    build:
+      context: ../..
+      dockerfile: backend/Dockerfile
+    command: python -m alembic upgrade head
+    env_file:
+      - path: ../../.env
+        required: false
+    environment:
+      SMAP_APP_ENV: prod
+    restart: "no"
+    depends_on:
+      postgres: { condition: service_healthy }
+    networks: [backend_net, data_net]
+    deploy:
+      resources:
+        limits: { cpus: "1.0", memory: 512M }
+
   # ---------- Backend ----------
   backend-web:
     <<: *security-defaults
@@ -108,6 +134,7 @@ services:
     volumes:
       - ../vault/certs:/vault-tls:ro
     depends_on:
+      migrate: { condition: service_completed_successfully }
       postgres: { condition: service_healthy }
       redis: { condition: service_healthy }
       vault: { condition: service_healthy }
@@ -131,6 +158,7 @@ services:
     volumes:
       - ../vault/certs:/vault-tls:ro
     depends_on:
+      migrate: { condition: service_completed_successfully }
       redis: { condition: service_healthy }
       postgres: { condition: service_healthy }
       docker-socket-proxy: { condition: service_healthy }
