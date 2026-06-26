@@ -125,7 +125,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, ref } from 'vue'
+import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
   PlusIcon,
@@ -136,7 +136,8 @@ import {
 } from '@heroicons/vue/24/outline'
 import { SButton, SProgressBar } from '@shared/ui'
 import type { PendingUpload } from '../composables/useChatroomAttachments'
-import { activeMention, type MentionableAgent } from '../utils/mentions'
+import { useMentionAutocomplete } from '../composables/useMentionAutocomplete'
+import type { MentionableAgent } from '../utils/mentions'
 
 const props = withDefaults(
   defineProps<{
@@ -167,83 +168,23 @@ const canSend = computed(
 )
 
 // ---- @mention autocomplete ------------------------------------------------
-// `mentionQuery` is the partial token after an active `@`, or null when the
-// caret is not inside a mention. Matches are drawn from the room's bound agents.
-const MENTION_LIMIT = 6
-const mentionQuery = ref<string | null>(null)
-const activeIndex = ref(0)
-
-const mentionMatches = computed<MentionableAgent[]>(() => {
-  if (mentionQuery.value === null) return []
-  const q = mentionQuery.value.toLowerCase()
-  return props.agents.filter((a) => a.name.toLowerCase().includes(q)).slice(0, MENTION_LIMIT)
+const {
+  open: mentionOpen,
+  matches: mentionMatches,
+  activeIndex,
+  refresh: refreshMention,
+  close: closeMention,
+  select: selectMention,
+  handleKeydown: handleMentionKeydown,
+  handleKeyup: onKeyup,
+} = useMentionAutocomplete({
+  textarea: textareaRef,
+  agents: () => props.agents,
+  onInsert: (value) => emit('update:modelValue', value),
 })
-const mentionOpen = computed(() => mentionQuery.value !== null && mentionMatches.value.length > 0)
-
-function refreshMention(): void {
-  const el = textareaRef.value
-  if (!el) {
-    mentionQuery.value = null
-    return
-  }
-  const info = activeMention(el.value, el.selectionStart ?? 0)
-  mentionQuery.value = info ? info.query : null
-  activeIndex.value = 0
-}
-
-function closeMention(): void {
-  mentionQuery.value = null
-}
-
-function selectMention(agent: MentionableAgent): void {
-  const el = textareaRef.value
-  if (!el) return
-  const value = el.value
-  const caret = el.selectionStart ?? value.length
-  const info = activeMention(value, caret)
-  if (!info) {
-    closeMention()
-    return
-  }
-  const before = value.slice(0, info.start)
-  const insert = `@${agent.name} `
-  const next = before + insert + value.slice(caret)
-  emit('update:modelValue', next)
-  closeMention()
-  // Restore the caret just past the inserted mention.
-  void nextTick(() => {
-    const pos = before.length + insert.length
-    el.focus()
-    el.setSelectionRange(pos, pos)
-  })
-}
-
-const MENTION_NAV_KEYS = ['ArrowDown', 'ArrowUp', 'Enter', 'Tab', 'Escape']
 
 function onKeydown(e: KeyboardEvent): void {
-  if (mentionOpen.value) {
-    const len = mentionMatches.value.length
-    if (e.key === 'ArrowDown') {
-      e.preventDefault()
-      activeIndex.value = (activeIndex.value + 1) % len
-      return
-    }
-    if (e.key === 'ArrowUp') {
-      e.preventDefault()
-      activeIndex.value = (activeIndex.value - 1 + len) % len
-      return
-    }
-    if (e.key === 'Escape') {
-      e.preventDefault()
-      closeMention()
-      return
-    }
-    if ((e.key === 'Enter' && !e.shiftKey) || e.key === 'Tab') {
-      e.preventDefault()
-      selectMention(mentionMatches.value[activeIndex.value]!)
-      return
-    }
-  }
+  if (handleMentionKeydown(e)) return
   // Enter submits, unless it's confirming an IME composition (important for
   // CJK input) or combined with a modifier (Shift+Enter inserts a newline).
   if (
@@ -261,13 +202,6 @@ function onKeydown(e: KeyboardEvent): void {
   if (e.key === 'Escape') {
     emit('update:modelValue', '')
   }
-}
-
-function onKeyup(e: KeyboardEvent): void {
-  // While navigating the open list, don't recompute (it would reset the
-  // highlight); otherwise track the caret so moving into an @token reopens it.
-  if (mentionOpen.value && MENTION_NAV_KEYS.includes(e.key)) return
-  refreshMention()
 }
 
 function onInput(e: Event): void {
