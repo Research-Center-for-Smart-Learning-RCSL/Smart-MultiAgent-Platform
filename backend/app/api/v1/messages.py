@@ -8,6 +8,7 @@ resolved here so the service stays free of AuthZ primitives.
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import uuid
 from collections.abc import Sequence
@@ -225,6 +226,13 @@ async def send_message(
     return _to_out(msg, await service.list_attachments(msg.id))
 
 
+async def _rollback_quietly(db: AsyncSession) -> None:
+    """Best-effort rollback that never raises. The message is already committed,
+    so a failed post-commit wake-up dispatch must not surface to the caller."""
+    with contextlib.suppress(Exception):
+        await db.rollback()
+
+
 async def _dispatch_message_wakeups(db: AsyncSession, chatroom_id: uuid.UUID) -> set[uuid.UUID]:
     """Evaluate every_n_messages for the room's bound agents and enqueue a
     ``wakeup_agent`` turn for each that fired. Returns the woken agent ids so the
@@ -247,10 +255,7 @@ async def _dispatch_message_wakeups(db: AsyncSession, chatroom_id: uuid.UUID) ->
             chatroom_id,
             exc_info=True,
         )
-        try:
-            await db.rollback()
-        except Exception:
-            pass
+        await _rollback_quietly(db)
     return woken
 
 
@@ -288,10 +293,7 @@ async def _dispatch_mention_wakeups(
             chatroom_id,
             exc_info=True,
         )
-        try:
-            await db.rollback()
-        except Exception:
-            pass
+        await _rollback_quietly(db)
 
 
 async def _dispatch_message_workflow_signal(chatroom_id: uuid.UUID, content: str) -> None:
