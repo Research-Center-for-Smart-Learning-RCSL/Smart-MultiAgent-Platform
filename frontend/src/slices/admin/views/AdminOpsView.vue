@@ -76,6 +76,7 @@
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { SPageHeader, SCard, SInput, SSelect, SButton, SAlert } from '@shared/ui'
+import { useConfirmDialog } from '@shared/composables'
 import { useAdminActions } from '../composables/useAdminActions'
 
 interface OpResult {
@@ -97,10 +98,19 @@ const restoreTypeOptions = computed(() => [
   { value: 'project', label: t('admin.ops.typeProject') },
 ])
 
+const { confirm } = useConfirmDialog()
 const actions = useAdminActions()
 
 async function onResetGraphrag(): Promise<void> {
   resetResult.value = null
+  const ok = await confirm({
+    title: t('admin.ops.resetConfirmTitle'),
+    message: t('admin.ops.resetConfirmMessage'),
+    confirmLabel: t('admin.ops.reset'),
+    cancelLabel: t('app.cancel'),
+    variant: 'warning',
+  })
+  if (!ok) return
   try {
     await actions.resetGraphrag.mutateAsync(graphragConfigId.value.trim())
     resetResult.value = { text: t('admin.ops.graphragResetSuccess'), ok: true }

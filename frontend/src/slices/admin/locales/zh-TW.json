@@ -85,6 +85,9 @@
       "userIdPlaceholder": "要提升的使用者 ID",
       "promote": "提升",
       "demote": "降級",
+      "demoteTitle": "降級管理員",
+      "demoteMessage": "移除此使用者的管理員權限？他們將無法存取管理控制台。",
+      "demoteConfirm": "降級",
       "empty": "尚無管理員。"
     },
     "ipBans": {
@@ -149,6 +152,8 @@
       "resourceType": "資源類型",
       "resourceId": "資源 ID",
       "reset": "重設",
+      "resetConfirmTitle": "重設 GraphRAG 索引",
+      "resetConfirmMessage": "將此 GraphRAG 設定重設為閒置？所有建構進度將遺失，索引必須重新建構。",
       "graphragResetSuccess": "GraphRAG 設定已重設為閒置。",
       "resetFailed": "重設失敗。",
       "restore": "還原軟刪除資源",
@@ -171,6 +176,8 @@
       "scope": "範圍",
       "updated": "更新時間",
       "save": "儲存",
+      "confirmTitle": "更新速率限制",
+      "confirmMessage": "更新速率限制原則「{key}」？不正確的值可能會鎖定使用者。",
       "empty": "尚無速率限制原則。",
       "invalid": "時間窗口與最大次數皆須至少為 1。"
     },
@@ -191,6 +198,9 @@
       "activeSession": "模擬登入工作階段進行中，所有寫入操作已被封鎖。",
       "banner": "您正在以其他使用者身份瀏覽（管理員：{adminId}）",
       "readOnly": "唯讀模式 — 所有寫入操作已被封鎖。",
+      "confirmTitle": "開始模擬登入",
+      "confirmMessage": "啟動唯讀模擬登入工作階段？所有操作將記錄於稽核日誌。",
+      "confirmStart": "開始工作階段",
       "startFailed": "無法啟動模擬登入工作階段。",
       "endFailed": "無法結束模擬登入工作階段。"
     },

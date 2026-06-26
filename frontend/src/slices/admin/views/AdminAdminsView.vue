@@ -97,10 +97,12 @@ import { formatDate } from '@shared/utils/datetime'
 import { useQuery } from '@tanstack/vue-query'
 import { adminApi } from '../api/admin'
 import { adminKeys } from '../queries'
+import { useConfirmDialog } from '@shared/composables'
 import { useAdminActions } from '../composables/useAdminActions'
 import { isProblemWithType } from '@shared/transport'
 
 const { t } = useI18n()
+const { confirm } = useConfirmDialog()
 const promoteUserId = ref('')
 const promoteError = ref<string | null>(null)
 
@@ -130,6 +132,14 @@ async function onPromote(): Promise<void> {
 
 async function onDemote(userId: string): Promise<void> {
   promoteError.value = null
+  const ok = await confirm({
+    title: t('admin.admins.demoteTitle'),
+    message: t('admin.admins.demoteMessage'),
+    confirmLabel: t('admin.admins.demoteConfirm'),
+    cancelLabel: t('app.cancel'),
+    variant: 'warning',
+  })
+  if (!ok) return
   try {
     await actions.demoteAdmin.mutateAsync(userId)
   } catch (e) {
