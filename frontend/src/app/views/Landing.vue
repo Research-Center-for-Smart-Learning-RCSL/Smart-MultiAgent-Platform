@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
   Squares2X2Icon,
@@ -19,8 +19,24 @@ import { useWorkspaceStore } from '@shared/stores/workspace'
 import { useRecentChatrooms, type Chatroom } from '@slices/conversation'
 import AgentConstellation from '@app/components/AgentConstellation.vue'
 import BrandLogo from '@app/components/BrandLogo.vue'
+import LandingIntro from '@app/components/LandingIntro.vue'
 
 const { t } = useI18n()
+
+// Full-screen brand intro on every entry. Read the motion preference
+// synchronously so the overlay is present from the first paint (no hero flash)
+// and is skipped outright for reduced-motion users.
+const prefersReducedMotion =
+  typeof window !== 'undefined' &&
+  typeof window.matchMedia === 'function' &&
+  window.matchMedia('(prefers-reduced-motion: reduce)').matches
+const introActive = ref(!prefersReducedMotion)
+
+// The hero constellation stays hidden under the intro so the overlay can dock
+// its assembled glyph onto this exact slot and swap in seamlessly; reduced-motion
+// users (no intro) see it from the start.
+const heroVisualEl = ref<HTMLElement | null>(null)
+const heroRevealed = ref(!introActive.value)
 const session = useSessionStore()
 const workspace = useWorkspaceStore()
 
@@ -64,6 +80,12 @@ useDocumentMeta({
 
 <template>
   <div class="landing">
+    <LandingIntro
+      v-if="introActive"
+      :target="heroVisualEl"
+      @reveal="heroRevealed = true"
+      @done="introActive = false"
+    />
     <header class="landing__nav">
       <BrandLogo />
       <div class="landing__nav-actions">
@@ -183,7 +205,11 @@ useDocumentMeta({
             </ul>
           </template>
         </div>
-        <div class="hero__visual">
+        <div
+          ref="heroVisualEl"
+          class="hero__visual"
+          :class="{ 'hero__visual--pending': !heroRevealed }"
+        >
           <AgentConstellation />
         </div>
       </section>
@@ -375,7 +401,12 @@ useDocumentMeta({
   display: flex;
   align-items: center;
   justify-content: center;
-  animation: visual-in 0.7s ease-out 0.1s both;
+}
+
+/* Hidden under the intro overlay so its docked glyph can swap in seamlessly;
+   no transition, so the swap is a single frame with no double image. */
+.hero__visual--pending {
+  opacity: 0;
 }
 
 /* -- Trust strip -- */
@@ -572,17 +603,6 @@ useDocumentMeta({
   }
 }
 
-@keyframes visual-in {
-  from {
-    opacity: 0;
-    transform: scale(0.94);
-  }
-  to {
-    opacity: 1;
-    transform: scale(1);
-  }
-}
-
 /* Static fallback when the observer never runs (reduced-motion seeds revealed
    immediately; this covers the brief pre-reveal frame and no-JS edge cases). */
 @media (prefers-reduced-motion: reduce) {
@@ -590,6 +610,23 @@ useDocumentMeta({
     opacity: 1;
     transform: none;
     transition: none;
+  }
+
+  /* Reduced-motion users skip the intro overlay entirely; a brief opacity-only
+     fade (no movement, safe under reduced-motion) softens the otherwise-instant
+     page swap. Deliberately overrides the global blanket animation freeze, which
+     would otherwise flatten even a plain cross-fade. */
+  .landing {
+    animation: landing-reduced-in 0.2s ease both !important;
+  }
+}
+
+@keyframes landing-reduced-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
   }
 }
 

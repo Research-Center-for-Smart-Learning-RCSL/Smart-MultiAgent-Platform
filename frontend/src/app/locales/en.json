@@ -37,6 +37,7 @@
       "subtitle": "Compose, orchestrate, and chat with multi-LLM agent groups, all on infrastructure you control.",
       "getStarted": "Get Started",
       "logIn": "Log In",
+      "introSkip": "Click anywhere to skip",
       "welcomeBack": "Welcome back, {name}",
       "authedSubtitle": "Jump back into a recent chatroom, or head into your workspace.",
       "authedSubtitleEmpty": "Head into your workspace to start chatting with your agent groups.",
