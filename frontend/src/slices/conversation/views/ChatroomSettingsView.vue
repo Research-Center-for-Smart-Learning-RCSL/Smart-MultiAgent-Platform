@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watchEffect } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import {
+  ArrowLeftIcon,
   ClipboardDocumentIcon,
   TrashIcon,
   ArchiveBoxArrowDownIcon,
@@ -31,6 +32,7 @@ import { useChatroomBindings } from '../composables/useChatroomBindings'
 
 const { t } = useI18n()
 const route = useRoute()
+const router = useRouter()
 const toast = useToast()
 const { confirm } = useConfirmDialog()
 const chatroomId = route.params.chatroomId as string
@@ -175,7 +177,19 @@ watchEffect(() => {
     <SPageHeader
       :title="t('conversation.settings.title')"
       :breadcrumbs="breadcrumbs"
-    />
+    >
+      <template #prepend>
+        <SButton
+          variant="ghost"
+          icon-only
+          size="sm"
+          :aria-label="t('conversation.settings.backToChatroom')"
+          @click="router.push({ name: 'conversation.chatroom', params: { chatroomId } })"
+        >
+          <ArrowLeftIcon class="w-5 h-5" />
+        </SButton>
+      </template>
+    </SPageHeader>
 
     <!-- Loading -->
     <div
