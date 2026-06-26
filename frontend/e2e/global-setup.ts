@@ -62,28 +62,45 @@ async function globalSetup(): Promise<void> {
       const org = await orgResp.json()
       seed.E2E_ORG_ID = org.id
 
-      // Create project in org
-      const projResp = await api.post(`/api/orgs/${org.id}/projects`, {
+      // Create an org-owned project. The route is POST /api/projects with the
+      // owner descriptor in the body (NOT /api/orgs/{id}/projects).
+      const projResp = await api.post('/api/projects', {
         headers: userAuth,
-        data: { name: `e2e-proj-${Date.now()}` },
+        data: { name: `e2e-proj-${Date.now()}`, owner_type: 'org', owner_id: org.id },
       })
       if (projResp.ok()) {
         const proj = await projResp.json()
         seed.E2E_PROJECT_ID = proj.id
 
-        // Create agent in project
-        const agentResp = await api.post(`/api/projects/${proj.id}/agents`, {
+        // A key group is required to create an agent — make it first.
+        const kgResp = await api.post(`/api/projects/${proj.id}/key-groups`, {
           headers: userAuth,
-          data: {
-            name: `e2e-agent-${Date.now()}`,
-            system_prompt: 'You are a test agent.',
-            provider: 'openai',
-            model_id: 'gpt-4o-mini',
-          },
+          data: { name: `e2e-keygroup-${Date.now()}` },
         })
-        if (agentResp.ok()) {
-          const agent = await agentResp.json()
-          seed.E2E_AGENT_ID = agent.id
+        let keyGroupId: string | undefined
+        if (kgResp.ok()) {
+          const kg = await kgResp.json()
+          keyGroupId = kg.id
+          seed.E2E_KEY_GROUP_URL = `projects/${proj.id}/key-groups/${kg.id}`
+        }
+
+        // Create agent in project. Required: model_hint (claude|openai|gemini)
+        // and key_group_id — there is no 'provider' field.
+        if (keyGroupId) {
+          const agentResp = await api.post(`/api/projects/${proj.id}/agents`, {
+            headers: userAuth,
+            data: {
+              name: `e2e-agent-${Date.now()}`,
+              model_hint: 'openai',
+              model_id: 'gpt-4o-mini',
+              key_group_id: keyGroupId,
+              system_prompt: 'You are a test agent.',
+            },
+          })
+          if (agentResp.ok()) {
+            const agent = await agentResp.json()
+            seed.E2E_AGENT_ID = agent.id
+          }
         }
       }
     }
@@ -146,18 +163,6 @@ async function globalSetup(): Promise<void> {
 
     // Mark invite target (second user email)
     seed.E2E_INVITE_TARGET = ADMIN.email
-
-    // Key group URL (create if project exists)
-    if (seed.E2E_PROJECT_ID) {
-      const kgResp = await api.post(`/api/projects/${seed.E2E_PROJECT_ID}/key-groups`, {
-        headers: userAuth,
-        data: { name: `e2e-keygroup-${Date.now()}` },
-      })
-      if (kgResp.ok()) {
-        const kg = await kgResp.json()
-        seed.E2E_KEY_GROUP_URL = `projects/${seed.E2E_PROJECT_ID}/key-groups/${kg.id}`
-      }
-    }
   } catch (err) {
     console.warn('[e2e-seed] Seeding error (tests with env gates will skip):', err)
   }
