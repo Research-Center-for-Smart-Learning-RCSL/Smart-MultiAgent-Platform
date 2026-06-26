@@ -63,12 +63,26 @@ const { data: projects, isLoading, isError, refetch } = useQuery({
   ).then(r => r.data),
 })
 
+const scopeIsOrg = computed(() =>
+  orgs.value?.some(o => o.id === activeTab.value) ?? false,
+)
 const showCreate = ref(false)
 const createOwnerType = ref<ProjectOwnerType>('user')
 const createOrgId = ref<string>('')
 const createName = ref('')
 const createError = ref<string | null>(null)
 const creating = ref(false)
+
+if (route.query.create === '1') {
+  router.replace({ query: { ...route.query, create: undefined } })
+  watch(orgs, () => {
+    if (scopeIsOrg.value) {
+      createOwnerType.value = 'org'
+      createOrgId.value = activeTab.value
+    }
+    showCreate.value = true
+  }, { once: true })
+}
 
 const ownerTypeOptions = [
   { value: 'user', label: t('tenancy.project.ownerPersonal') },

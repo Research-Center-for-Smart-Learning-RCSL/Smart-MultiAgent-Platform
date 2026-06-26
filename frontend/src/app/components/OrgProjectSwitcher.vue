@@ -74,9 +74,13 @@ function goCreateOrg() {
 
 function goCreateProject() {
   close()
-  if (workspace.orgId) {
-    router.push(`/orgs/${workspace.orgId}/projects`)
-  }
+  router.push({
+    name: 'tenancy.projectList',
+    query: {
+      ...(workspace.orgId ? { scope: workspace.orgId } : {}),
+      create: '1',
+    },
+  })
 }
 
 function onClickOutside(e: MouseEvent) {
