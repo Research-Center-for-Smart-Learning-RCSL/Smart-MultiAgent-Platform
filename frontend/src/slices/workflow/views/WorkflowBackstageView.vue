@@ -88,11 +88,8 @@
         />
       </div>
 
-      <!-- Instruction chains — admin-only diagnostic (backend gates the lookup) -->
-      <div
-        v-if="isAdmin"
-        class="mb-6"
-      >
+      <!-- Instruction chains -->
+      <div class="mb-6">
         <h2 class="font-semibold mb-2">
           {{ $t('workflow.backstage.instructChains') }}
         </h2>
@@ -246,8 +243,8 @@ const stepsList = computed(() => stepsQuery.data.value ?? [])
 // Derive the distinct instruction-chain ids for the run from its instruct
 // steps: each instruct step stores `{ instruction_id }` in its output, and an
 // instruction record carries the chain id it belongs to. The getInstruction
-// lookup is admin-only on the backend, so this only runs for admins; project
-// owners see the rest of the backstage without the instruction-chain section.
+// lookup is project-scoped on the backend, so admins and project owners alike
+// can resolve it here.
 const chainIds = ref<string[]>([])
 
 // Monotonic guard: each run change bumps this so a slower in-flight resolution
@@ -259,11 +256,6 @@ watch(
   stepsList,
   async (steps) => {
     const generation = ++chainGeneration
-    // getInstruction is admin-only; skip resolution entirely for non-admins.
-    if (!isAdmin.value) {
-      chainIds.value = []
-      return
-    }
     const instructionIds = steps
       .map((s) => (s.output as { instruction_id?: unknown } | null)?.instruction_id)
       .filter((v): v is string => typeof v === 'string')

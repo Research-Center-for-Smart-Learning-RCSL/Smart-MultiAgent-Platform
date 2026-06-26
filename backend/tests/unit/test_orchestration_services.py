@@ -137,6 +137,7 @@ def _make_instruct_service(
     *,
     instructions: AsyncMock | None = None,
     a2a: AsyncMock | None = None,
+    agents_facade: AsyncMock | None = None,
 ) -> InstructService:
     db = AsyncMock()
     svc = InstructService(db)
@@ -144,6 +145,8 @@ def _make_instruct_service(
         svc._instructions = instructions
     if a2a is not None:
         svc._a2a = a2a
+    if agents_facade is not None:
+        svc._agents = agents_facade
     return svc
 
 
@@ -520,6 +523,57 @@ class TestInstructStateTransitions:
         assert instructions.update_state.call_args[0][1] is InstructionState.TIMEOUT
         _audit.assert_awaited_once()
         assert _audit.call_args[0][1].action == "instruct.failed"
+
+
+class TestInstructResolveProject:
+    async def test_resolve_instruction_project(self) -> None:
+        project_id = uuid.uuid4()
+        instructions = AsyncMock()
+        instructions.get.return_value = _instruction()
+        agent = MagicMock()
+        agent.project_id = project_id
+        agents_facade = AsyncMock()
+        agents_facade.get_agent.return_value = agent
+        svc = _make_instruct_service(instructions=instructions, agents_facade=agents_facade)
+
+        assert await svc.resolve_instruction_project(uuid.uuid4()) == project_id
+        # Resolves via the issuer agent of the instruction.
+        assert agents_facade.get_agent.call_args[0][0] == _AGENT_A
+
+    async def test_resolve_instruction_project_absent(self) -> None:
+        instructions = AsyncMock()
+        instructions.get.return_value = None
+        svc = _make_instruct_service(instructions=instructions)
+
+        assert await svc.resolve_instruction_project(uuid.uuid4()) is None
+
+    async def test_resolve_instruction_project_agent_gone(self) -> None:
+        instructions = AsyncMock()
+        instructions.get.return_value = _instruction()
+        agents_facade = AsyncMock()
+        agents_facade.get_agent.return_value = None
+        svc = _make_instruct_service(instructions=instructions, agents_facade=agents_facade)
+
+        assert await svc.resolve_instruction_project(uuid.uuid4()) is None
+
+    async def test_resolve_chain_project(self) -> None:
+        project_id = uuid.uuid4()
+        instructions = AsyncMock()
+        instructions.list_for_chain.return_value = [_instruction(), _instruction()]
+        agent = MagicMock()
+        agent.project_id = project_id
+        agents_facade = AsyncMock()
+        agents_facade.get_agent.return_value = agent
+        svc = _make_instruct_service(instructions=instructions, agents_facade=agents_facade)
+
+        assert await svc.resolve_chain_project(uuid.uuid4()) == project_id
+
+    async def test_resolve_chain_project_empty(self) -> None:
+        instructions = AsyncMock()
+        instructions.list_for_chain.return_value = []
+        svc = _make_instruct_service(instructions=instructions)
+
+        assert await svc.resolve_chain_project(uuid.uuid4()) is None
 
 
 # ===========================================================================
