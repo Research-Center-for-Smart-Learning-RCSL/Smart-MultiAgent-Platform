@@ -24,7 +24,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.conversation.infrastructure.repositories import ChatroomAgentRepository
 
-__all__ = ["evaluate_message_wakeups", "evaluate_presence_change"]
+__all__ = [
+    "evaluate_message_wakeups",
+    "evaluate_presence_change",
+    "filter_mentioned_bound_agents",
+]
 
 
 async def evaluate_message_wakeups(
@@ -52,6 +56,32 @@ async def evaluate_message_wakeups(
         sender_is_user=sender_is_user,
         agent_ids=agent_ids,
     )
+
+
+async def filter_mentioned_bound_agents(
+    db: AsyncSession,
+    *,
+    chatroom_id: uuid.UUID,
+    mention_agent_ids: list[uuid.UUID],
+) -> list[uuid.UUID]:
+    """Return the subset of ``mention_agent_ids`` actually bound to the room,
+    preserving order and dropping duplicates. The send endpoint wakes each as
+    an explicit call (bypassing wakeup-trigger evaluation), so this bound-check
+    is the authorization boundary: a client can only summon agents the room
+    already grants — never an arbitrary agent id.
+
+    Returns an empty list when nothing matches or no agent is bound.
+    """
+    if not mention_agent_ids:
+        return []
+    bound = {a.agent_id for a in await ChatroomAgentRepository(db).list(chatroom_id)}
+    out: list[uuid.UUID] = []
+    seen: set[uuid.UUID] = set()
+    for agent_id in mention_agent_ids:
+        if agent_id in bound and agent_id not in seen:
+            seen.add(agent_id)
+            out.append(agent_id)
+    return out
 
 
 async def evaluate_presence_change(

@@ -71,7 +71,10 @@ async def wakeup_agent(
         cfg = WakeupConfig.from_dict(agent.wakeup_config)
         autostop_limit = cfg.triggers.silence_minutes.autostop_rounds
         autostop_count = await wakeup_state.get_autostop_count(aid, rid)
-        if autostop_limit > 0 and autostop_count >= autostop_limit:
+        # A `mention` is an explicit user call (not an autonomous round), so it
+        # bypasses the autostop backstop — a user summoning the agent must always
+        # get a reply even after the agent has stalled on consecutive self-rounds.
+        if trigger != "mention" and autostop_limit > 0 and autostop_count >= autostop_limit:
             logger.bind(agent_id=agent_id, room_id=room_id, autostop=autostop_count).info(
                 "wakeup skipped: autostop tripped"
             )

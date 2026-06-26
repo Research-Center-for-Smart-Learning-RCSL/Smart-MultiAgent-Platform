@@ -75,6 +75,34 @@ async def test_evaluate_message_wakeups_no_agents_skips_facade(monkeypatch) -> N
 
 
 @pytest.mark.asyncio
+async def test_filter_mentioned_bound_agents_keeps_only_bound(monkeypatch) -> None:
+    a1, a2, unbound = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+    monkeypatch.setattr(triggers, "ChatroomAgentRepository", _fake_agent_repo([a1, a2]))
+
+    out = await triggers.filter_mentioned_bound_agents(
+        object(),
+        chatroom_id=uuid.uuid4(),
+        # a2 listed twice + an agent that is not bound to the room.
+        mention_agent_ids=[a2, unbound, a2, a1],
+    )
+    # Unbound dropped, duplicates collapsed, mention order preserved.
+    assert out == [a2, a1]
+
+
+@pytest.mark.asyncio
+async def test_filter_mentioned_bound_agents_empty_input_skips_repo(monkeypatch) -> None:
+    class _Boom:
+        def __init__(self, db) -> None:
+            raise AssertionError("repo must not be built for an empty mention list")
+
+    monkeypatch.setattr(triggers, "ChatroomAgentRepository", _Boom)
+    out = await triggers.filter_mentioned_bound_agents(
+        object(), chatroom_id=uuid.uuid4(), mention_agent_ids=[]
+    )
+    assert out == []
+
+
+@pytest.mark.asyncio
 async def test_evaluate_presence_change_forwards_flag(monkeypatch) -> None:
     a1 = uuid.uuid4()
     room = uuid.uuid4()
@@ -232,6 +260,24 @@ async def test_wakeup_agent_runs_turn_and_counts_round(monkeypatch) -> None:
     # autostop bumped exactly once, only because the turn completed.
     assert rec["on_agent_message_sent"] == [(aid, rid)]
     assert "wakeup.fired" in rec["audit"]
+
+
+@pytest.mark.asyncio
+async def test_wakeup_agent_mention_bypasses_autostop(monkeypatch) -> None:
+    # A user @mention is an explicit call and must run even after autostop has
+    # tripped for autonomous rounds.
+    aid, rid = uuid.uuid4(), uuid.uuid4()
+    rec = _patch_task_env(
+        monkeypatch,
+        room=SimpleNamespace(id=rid),
+        agent=_agent(autostop_rounds=3),
+        autostop_count=5,
+        turn_status="completed",
+    )
+    out = await orch_task.wakeup_agent({}, str(aid), str(rid), "mention")
+
+    assert out == "completed"
+    assert rec["run_turn"] == [(aid, rid, "mention")]
 
 
 @pytest.mark.asyncio
