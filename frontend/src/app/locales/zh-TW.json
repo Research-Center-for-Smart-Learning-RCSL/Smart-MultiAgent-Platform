@@ -37,6 +37,7 @@
       "subtitle": "組合、編排並與多 LLM 代理群組對話，全部運行在你掌控的基礎設施上。",
       "getStarted": "立即開始",
       "logIn": "登入",
+      "introSkip": "點擊任意處以略過",
       "welcomeBack": "歡迎回來，{name}",
       "authedSubtitle": "回到最近的聊天室，或直接進入你的工作區。",
       "authedSubtitleEmpty": "進入你的工作區，開始與你的代理群組對話。",
