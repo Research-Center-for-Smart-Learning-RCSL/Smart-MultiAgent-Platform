@@ -28,7 +28,15 @@ __all__ = [
     "evaluate_message_wakeups",
     "evaluate_presence_change",
     "filter_mentioned_bound_agents",
+    "list_bound_agent_ids",
 ]
+
+
+async def list_bound_agent_ids(db: AsyncSession, chatroom_id: uuid.UUID) -> list[uuid.UUID]:
+    """List the agent ids bound to a room. Exposed so a caller evaluating more
+    than one trigger for the same message (every_n + @mention) can fetch the
+    binding once and pass it into both, instead of querying per evaluation."""
+    return [a.agent_id for a in await ChatroomAgentRepository(db).list(chatroom_id)]
 
 
 async def evaluate_message_wakeups(
@@ -36,15 +44,19 @@ async def evaluate_message_wakeups(
     *,
     chatroom_id: uuid.UUID,
     sender_is_user: bool,
+    bound_agent_ids: list[uuid.UUID] | None = None,
 ) -> list[uuid.UUID]:
     """Return the agent ids whose ``every_n_messages`` trigger fired for this
     message. Side effects (counter increment, autostop reset on user sends,
     silence-timer touch) happen inside the orchestration facade.
 
-    Returns an empty list when no agent is bound to the room.
+    ``bound_agent_ids`` lets the caller supply an already-fetched room binding;
+    when omitted it is queried here. Returns an empty list when no agent is
+    bound to the room.
     """
-    agents = await ChatroomAgentRepository(db).list(chatroom_id)
-    agent_ids = [a.agent_id for a in agents]
+    agent_ids = (
+        bound_agent_ids if bound_agent_ids is not None else await list_bound_agent_ids(db, chatroom_id)
+    )
     if not agent_ids:
         return []
     # Deferred import: orchestration → conversation has no cycle today, but the
@@ -63,6 +75,7 @@ async def filter_mentioned_bound_agents(
     *,
     chatroom_id: uuid.UUID,
     mention_agent_ids: list[uuid.UUID],
+    bound_agent_ids: list[uuid.UUID] | None = None,
 ) -> list[uuid.UUID]:
     """Return the subset of ``mention_agent_ids`` actually bound to the room,
     preserving order and dropping duplicates. The send endpoint wakes each as
@@ -70,11 +83,15 @@ async def filter_mentioned_bound_agents(
     is the authorization boundary: a client can only summon agents the room
     already grants — never an arbitrary agent id.
 
-    Returns an empty list when nothing matches or no agent is bound.
+    ``bound_agent_ids`` lets the caller supply an already-fetched room binding
+    (shared with every_n evaluation) instead of re-querying. Returns an empty
+    list when nothing matches or no agent is bound.
     """
     if not mention_agent_ids:
         return []
-    bound = {a.agent_id for a in await ChatroomAgentRepository(db).list(chatroom_id)}
+    bound = set(
+        bound_agent_ids if bound_agent_ids is not None else await list_bound_agent_ids(db, chatroom_id)
+    )
     out: list[uuid.UUID] = []
     seen: set[uuid.UUID] = set()
     for agent_id in mention_agent_ids:

@@ -32,6 +32,7 @@ from contexts.conversation.application.message_service import (
 from contexts.conversation.application.triggers import (
     evaluate_message_wakeups,
     filter_mentioned_bound_agents,
+    list_bound_agent_ids,
 )
 from contexts.conversation.domain.models import Message
 from contexts.conversation.infrastructure.channels import room_channel
@@ -220,8 +221,13 @@ async def send_message(
         )
     except Exception:
         _log.error("realtime publish failed for message.created %s", msg.id, exc_info=True)
-    woken = await _dispatch_message_wakeups(db, chatroom_id)
-    await _dispatch_mention_wakeups(db, chatroom_id, body.mention_agent_ids, already_woken=woken)
+    # Fetch the room's agent binding once and share it across both wake-up
+    # evaluations (every_n + @mention) so a mention send issues one query, not two.
+    bound_ids = await _list_bound_agents_for_dispatch(db, chatroom_id)
+    woken = await _dispatch_message_wakeups(db, chatroom_id, bound_ids)
+    await _dispatch_mention_wakeups(
+        db, chatroom_id, body.mention_agent_ids, already_woken=woken, bound_agent_ids=bound_ids
+    )
     await _dispatch_message_workflow_signal(chatroom_id, body.content_md)
     return _to_out(msg, await service.list_attachments(msg.id))
 
@@ -233,14 +239,33 @@ async def _rollback_quietly(db: AsyncSession) -> None:
         await db.rollback()
 
 
-async def _dispatch_message_wakeups(db: AsyncSession, chatroom_id: uuid.UUID) -> set[uuid.UUID]:
+async def _list_bound_agents_for_dispatch(
+    db: AsyncSession, chatroom_id: uuid.UUID
+) -> list[uuid.UUID] | None:
+    """Fetch the room binding once for the post-commit wake-up dispatch. Best-
+    effort: on failure return None so each evaluator falls back to its own
+    (try-protected) fetch rather than the send failing."""
+    try:
+        return await list_bound_agent_ids(db, chatroom_id)
+    except Exception:  # pragma: no cover — defensive; exercised via wiring tier
+        await _rollback_quietly(db)
+        return None
+
+
+async def _dispatch_message_wakeups(
+    db: AsyncSession,
+    chatroom_id: uuid.UUID,
+    bound_agent_ids: list[uuid.UUID] | None = None,
+) -> set[uuid.UUID]:
     """Evaluate every_n_messages for the room's bound agents and enqueue a
     ``wakeup_agent`` turn for each that fired. Returns the woken agent ids so the
     caller can skip re-waking the same agent via @mention. Best-effort: a Redis /
     dispatch hiccup must never fail the user's send (the message is committed)."""
     woken: set[uuid.UUID] = set()
     try:
-        fired = await evaluate_message_wakeups(db, chatroom_id=chatroom_id, sender_is_user=True)
+        fired = await evaluate_message_wakeups(
+            db, chatroom_id=chatroom_id, sender_is_user=True, bound_agent_ids=bound_agent_ids
+        )
         for agent_id in fired:
             await enqueue(
                 "wakeup_agent",
@@ -265,6 +290,7 @@ async def _dispatch_mention_wakeups(
     mention_agent_ids: list[uuid.UUID],
     *,
     already_woken: set[uuid.UUID],
+    bound_agent_ids: list[uuid.UUID] | None = None,
 ) -> None:
     """Wake each @mentioned agent that is bound to the room and wasn't already
     woken by every_n_messages. A mention is an explicit call, so the turn runs
@@ -277,6 +303,7 @@ async def _dispatch_mention_wakeups(
             db,
             chatroom_id=chatroom_id,
             mention_agent_ids=mention_agent_ids,
+            bound_agent_ids=bound_agent_ids,
         )
         for agent_id in bound:
             if agent_id in already_woken:
