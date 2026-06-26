@@ -4,7 +4,9 @@ SMAP is a self-hosted web application for composing and conversing with groups o
 
 Deployment target: single-host Docker Compose (16-core / 32 GB). There is no cloud-managed option or SaaS tier.
 
-<img src="assets/SMAP-logo.svg" alt="SMAP — Smart Multi-Agent Platform" width="170">
+<p align="center">
+  <img src="assets/SMAP-logo.svg" alt="SMAP — Smart Multi-Agent Platform" width="200">
+</p>
 
 
 ---
