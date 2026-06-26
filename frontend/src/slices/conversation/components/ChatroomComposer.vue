@@ -25,22 +25,48 @@
         @change="onPick"
       >
 
-      <textarea
-        class="composer__textarea"
-        :value="modelValue"
-        :placeholder="disabled
-          ? t('conversation.chatroom.reconnecting')
-          : t('conversation.chatroom.composerPlaceholder')"
-        :aria-label="t('conversation.chatroom.composerPlaceholder')"
-        :readonly="disabled"
-        rows="1"
-        @input="onInput"
-        @keydown.enter.exact.prevent="$emit('submit')"
-        @keydown.escape="$emit('update:modelValue', '')"
-        @dragover.prevent="dragActive = true"
-        @dragleave.prevent="dragActive = false"
-        @drop.prevent="onDropEvent"
-      />
+      <div class="composer__field">
+        <textarea
+          ref="textareaRef"
+          class="composer__textarea"
+          :value="modelValue"
+          :placeholder="disabled
+            ? t('conversation.chatroom.reconnecting')
+            : t('conversation.chatroom.composerPlaceholder')"
+          :aria-label="t('conversation.chatroom.composerPlaceholder')"
+          :readonly="disabled"
+          rows="1"
+          @input="onInput"
+          @keydown="onKeydown"
+          @keyup="onKeyup"
+          @click="refreshMention"
+          @blur="closeMention"
+          @dragover.prevent="dragActive = true"
+          @dragleave.prevent="dragActive = false"
+          @drop.prevent="onDropEvent"
+        />
+
+        <!-- @mention autocomplete: summon a specific bound agent (R15.01b). -->
+        <div
+          v-if="mentionOpen"
+          class="composer__mentions"
+          role="listbox"
+          :aria-label="t('conversation.chatroom.mentionListLabel')"
+        >
+          <button
+            v-for="(a, i) in mentionMatches"
+            :key="a.id"
+            type="button"
+            role="option"
+            :aria-selected="i === activeIndex"
+            class="mention-option"
+            :class="{ 'mention-option--active': i === activeIndex }"
+            @mousedown.prevent="selectMention(a)"
+          >
+            {{ a.name }}
+          </button>
+        </div>
+      </div>
 
       <SButton
         type="submit"
@@ -99,7 +125,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, nextTick, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
   PlusIcon,
@@ -110,12 +136,17 @@ import {
 } from '@heroicons/vue/24/outline'
 import { SButton, SProgressBar } from '@shared/ui'
 import type { PendingUpload } from '../composables/useChatroomAttachments'
+import { activeMention, type MentionableAgent } from '../utils/mentions'
 
-const props = defineProps<{
-  modelValue: string
-  pendingUploads: PendingUpload[]
-  disabled?: boolean
-}>()
+const props = withDefaults(
+  defineProps<{
+    modelValue: string
+    pendingUploads: PendingUpload[]
+    agents?: MentionableAgent[]
+    disabled?: boolean
+  }>(),
+  { agents: () => [] },
+)
 
 const emit = defineEmits<{
   submit: []
@@ -128,15 +159,121 @@ const emit = defineEmits<{
 
 const { t } = useI18n()
 const fileInput = ref<HTMLInputElement | null>(null)
+const textareaRef = ref<HTMLTextAreaElement | null>(null)
 const dragActive = ref(false)
 
 const canSend = computed(
   () => !props.disabled && (props.modelValue.trim().length > 0 || props.pendingUploads.length > 0),
 )
 
+// ---- @mention autocomplete ------------------------------------------------
+// `mentionQuery` is the partial token after an active `@`, or null when the
+// caret is not inside a mention. Matches are drawn from the room's bound agents.
+const MENTION_LIMIT = 6
+const mentionQuery = ref<string | null>(null)
+const activeIndex = ref(0)
+
+const mentionMatches = computed<MentionableAgent[]>(() => {
+  if (mentionQuery.value === null) return []
+  const q = mentionQuery.value.toLowerCase()
+  return props.agents.filter((a) => a.name.toLowerCase().includes(q)).slice(0, MENTION_LIMIT)
+})
+const mentionOpen = computed(() => mentionQuery.value !== null && mentionMatches.value.length > 0)
+
+function refreshMention(): void {
+  const el = textareaRef.value
+  if (!el) {
+    mentionQuery.value = null
+    return
+  }
+  const info = activeMention(el.value, el.selectionStart ?? 0)
+  mentionQuery.value = info ? info.query : null
+  activeIndex.value = 0
+}
+
+function closeMention(): void {
+  mentionQuery.value = null
+}
+
+function selectMention(agent: MentionableAgent): void {
+  const el = textareaRef.value
+  if (!el) return
+  const value = el.value
+  const caret = el.selectionStart ?? value.length
+  const info = activeMention(value, caret)
+  if (!info) {
+    closeMention()
+    return
+  }
+  const before = value.slice(0, info.start)
+  const insert = `@${agent.name} `
+  const next = before + insert + value.slice(caret)
+  emit('update:modelValue', next)
+  closeMention()
+  // Restore the caret just past the inserted mention.
+  void nextTick(() => {
+    const pos = before.length + insert.length
+    el.focus()
+    el.setSelectionRange(pos, pos)
+  })
+}
+
+const MENTION_NAV_KEYS = ['ArrowDown', 'ArrowUp', 'Enter', 'Tab', 'Escape']
+
+function onKeydown(e: KeyboardEvent): void {
+  if (mentionOpen.value) {
+    const len = mentionMatches.value.length
+    if (e.key === 'ArrowDown') {
+      e.preventDefault()
+      activeIndex.value = (activeIndex.value + 1) % len
+      return
+    }
+    if (e.key === 'ArrowUp') {
+      e.preventDefault()
+      activeIndex.value = (activeIndex.value - 1 + len) % len
+      return
+    }
+    if (e.key === 'Escape') {
+      e.preventDefault()
+      closeMention()
+      return
+    }
+    if ((e.key === 'Enter' && !e.shiftKey) || e.key === 'Tab') {
+      e.preventDefault()
+      selectMention(mentionMatches.value[activeIndex.value]!)
+      return
+    }
+  }
+  // Enter submits, unless it's confirming an IME composition (important for
+  // CJK input) or combined with a modifier (Shift+Enter inserts a newline).
+  if (
+    e.key === 'Enter' &&
+    !e.shiftKey &&
+    !e.ctrlKey &&
+    !e.metaKey &&
+    !e.altKey &&
+    !e.isComposing
+  ) {
+    e.preventDefault()
+    emit('submit')
+    return
+  }
+  if (e.key === 'Escape') {
+    emit('update:modelValue', '')
+  }
+}
+
+function onKeyup(e: KeyboardEvent): void {
+  // While navigating the open list, don't recompute (it would reset the
+  // highlight); otherwise track the caret so moving into an @token reopens it.
+  if (mentionOpen.value && MENTION_NAV_KEYS.includes(e.key)) return
+  refreshMention()
+}
+
 function onInput(e: Event): void {
   emit('update:modelValue', (e.target as HTMLTextAreaElement).value)
   emit('typing')
+  refreshMention()
 }
 
 function openPicker(): void {
@@ -182,8 +319,14 @@ function onDropEvent(e: DragEvent): void {
   display: none;
 }
 
-.composer__textarea {
+.composer__field {
+  position: relative;
   flex: 1;
+  display: flex;
+}
+
+.composer__textarea {
+  width: 100%;
   min-height: 36px;
   max-height: 192px;
   resize: none;
@@ -195,6 +338,53 @@ function onDropEvent(e: DragEvent): void {
   line-height: 1.5;
   padding: 8px 0;
   outline: none;
+}
+
+.composer__mentions {
+  position: absolute;
+  bottom: calc(100% + 4px);
+  left: 0;
+  z-index: 20;
+  min-width: 180px;
+  max-width: 280px;
+  max-height: 200px;
+  overflow-y: auto;
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md, 0 4px 12px rgb(0 0 0 / 12%));
+}
+
+.mention-option {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  border-radius: var(--radius-sm);
+  padding: 6px 8px;
+  font-size: 14px;
+  color: var(--color-fg);
+  cursor: pointer;
+}
+
+/* Decorative accent `@` prefix — kept in CSS so the template stays free of a
+   bare (untranslated) string literal. */
+.mention-option::before {
+  content: '@';
+  color: var(--color-accent);
+  font-weight: 600;
+}
+
+.mention-option--active,
+.mention-option:hover {
+  background: var(--color-surface);
 }
 
 .composer__uploads {

@@ -66,6 +66,7 @@
       "agentFailed": "The agent run failed. Please try again.",
       "agentTimeout": "The agent did not respond.",
       "composerPlaceholder": "Type a message…",
+      "mentionListLabel": "Agents you can mention",
       "send": "Send",
       "searchResults": "Search Results",
       "live": "live",

@@ -137,7 +137,7 @@ export async function listMessages(
 
 export async function sendMessage(
   chatroomId: string,
-  payload: { content_md: string; attachment_ids?: string[] },
+  payload: { content_md: string; attachment_ids?: string[]; mention_agent_ids?: string[] },
 ): Promise<Message> {
   const { data } = await http.post<Message>(
     `/chatrooms/${chatroomId}/messages`,

@@ -106,6 +106,7 @@
       "wakeupCallOnly": "僅呼叫模式（不自動喚醒）",
       "wakeupAutostop": "自動停止回合數",
       "wakeupHelp": "設定此代理人在聊天室對話中的喚醒條件。",
+      "wakeupInertWarning": "未啟用任何觸發條件，此代理人不會自動回應訊息；仍可在聊天室以 @提及 手動呼叫。請於下方啟用觸發條件，讓它能自動回覆。",
       "canInstruct": "可指揮其他代理人",
       "canApprove": "可核准動作",
       "canCreateSubagent": "可建立子代理人",

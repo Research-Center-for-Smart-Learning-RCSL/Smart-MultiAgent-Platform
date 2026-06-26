@@ -138,11 +138,20 @@ const [ragConfigId] = defineField('rag_config_id')
 const [graphragConfigId] = defineField('graphrag_config_id')
 const [a2aEnabled] = defineField('a2a_enabled')
 
-// Wakeup config decomposed fields
-const wakeupEveryN = ref<number | null>(null)
+// Wakeup config decomposed fields. New agents default to replying to every
+// message (every_n=1): without an enabled trigger an agent is inert and never
+// responds, which is a surprising default for a chat agent. Edit mode loads the
+// agent's real config in the query watcher below.
+const wakeupEveryN = ref<number | null>(isCreateMode ? 1 : null)
 const wakeupSilence = ref<number | null>(null)
 const wakeupCallOnly = ref(false)
 const wakeupAutostop = ref<number | null>(null)
+
+// Mirrors the backend WakeupConfig.is_inert() check: with no trigger enabled the
+// agent never auto-responds (it can still be summoned by @mention in a room).
+const wakeupInert = computed(
+  () => !wakeupEveryN.value && !wakeupSilence.value && !wakeupCallOnly.value,
+)
 
 // Workflow capabilities decomposed fields
 const canInstruct = ref(false)
@@ -856,6 +865,13 @@ const graphragStatusText = computed(() => {
             <h3 class="text-lg font-semibold mb-4">
               {{ t('agents.form.wakeupHelp') }}
             </h3>
+            <SAlert
+              v-if="wakeupInert"
+              variant="warning"
+              class="mb-4"
+            >
+              {{ t('agents.form.wakeupInertWarning') }}
+            </SAlert>
             <div class="space-y-4">
               <SFormField
                 :label="t('agents.form.wakeupEveryN')"
