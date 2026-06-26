@@ -55,23 +55,30 @@ logger = logging.getLogger(__name__)
 
 _SEED_IDS_PATH = Path("/tmp/e2e-seed-ids.env")  # noqa: S108 — test-only fixture output
 
+# Must match the definition schema the linter/engine/frontend expect:
+# `entry_node_id` equals the trigger node, edges keyed by `from`/`to`/`from_port`
+# (not source/target), and the trigger config carries `trigger_type`. Otherwise
+# the edge does not render in the editor and the engine can't traverse it.
 _MINIMAL_WORKFLOW_DEFINITION: dict[str, Any] = {
+    "entry_node_id": "trigger",
     "nodes": [
         {
             "id": "trigger",
             "type": "trigger",
-            "config": {"kind": "manual"},
+            "config": {"trigger_type": "manual"},
+            "label": "Start",
             "position": {"x": 0, "y": 0},
         },
         {
             "id": "end",
             "type": "end",
             "config": {},
+            "label": "End",
             "position": {"x": 200, "y": 0},
         },
     ],
     "edges": [
-        {"source": "trigger", "target": "end"},
+        {"id": "e1", "from": "trigger", "to": "end", "from_port": "default"},
     ],
 }
 
