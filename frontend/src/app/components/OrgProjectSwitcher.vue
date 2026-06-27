@@ -8,7 +8,6 @@ import {
   CheckIcon,
   PlusIcon,
 } from '@heroicons/vue/24/outline'
-import { SAvatar } from '@shared/ui'
 import { useWorkspaceStore } from '@shared/stores/workspace'
 import { tenancyKeys, orgsApi, projectsApi, type Org, type Project } from '@slices/tenancy'
 
@@ -136,21 +135,13 @@ onBeforeUnmount(() => {
       :aria-label="t('app.switcher.placeholder')"
       @click.stop="toggle"
     >
-      <template v-if="compact">
-        <SAvatar
-          :name="workspace.orgName || '?'"
-          size="sm"
-        />
-      </template>
-      <template v-else>
-        <span class="switcher__text">
-          {{ workspace.hasOrg ? displayText : t('app.switcher.placeholder') }}
-        </span>
-        <ChevronDownIcon
-          class="switcher__chevron"
-          :class="{ 'switcher__chevron--open': isOpen }"
-        />
-      </template>
+      <span class="switcher__text">
+        {{ workspace.hasOrg ? displayText : t('app.switcher.placeholder') }}
+      </span>
+      <ChevronDownIcon
+        class="switcher__chevron"
+        :class="{ 'switcher__chevron--open': isOpen }"
+      />
     </button>
 
     <Transition name="switcher-panel">
@@ -296,9 +287,7 @@ onBeforeUnmount(() => {
 }
 
 .switcher__trigger--compact {
-  padding: 4px;
-  border: none;
-  border-radius: var(--radius-full);
+  max-width: 180px;
 }
 
 .switcher--compact .switcher__panel {
