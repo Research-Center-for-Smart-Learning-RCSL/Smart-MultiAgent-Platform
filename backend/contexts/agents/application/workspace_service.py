@@ -29,7 +29,26 @@ from shared_kernel.storage.minio_client import MinioClient, agent_workspace_key
 
 _QUOTA_BYTES = 256 * 1024 * 1024  # 256 MB per agent
 _MAX_FILE_BYTES = 32 * 1024 * 1024  # 32 MB per multipart upload
+_MAX_FILE_COUNT = 500  # per agent
 _MAX_PATH_LEN = 500
+
+_BLOCKED_MIME_PREFIXES = (
+    "text/html",
+    "application/javascript",
+    "application/x-javascript",
+    "image/svg+xml",
+    "application/xhtml+xml",
+)
+
+
+def _safe_mime(raw: str) -> str:
+    lowered = raw.strip().lower().split(";")[0].strip()
+    if not lowered:
+        return "application/octet-stream"
+    for blocked in _BLOCKED_MIME_PREFIXES:
+        if lowered == blocked:
+            return "application/octet-stream"
+    return lowered
 
 
 def _safe_workspace_path(raw: str | None, fallback_filename: str) -> str:
@@ -91,11 +110,19 @@ class WorkspaceFileService:
             raise ValueError(f"file exceeds {_MAX_FILE_BYTES // (1024 * 1024)} MB limit")
 
         ws_path = _safe_workspace_path(path, filename)
+        mime = _safe_mime(mime)
         sha256 = hashlib.sha256(data).hexdigest()
         size_bytes = len(data)
 
-        current_usage = await self._files.total_bytes(agent_id)
         existing = await self._files.get_by_path(agent_id=agent_id, path=ws_path)
+        if existing is None:
+            file_count = await self._files.count(agent_id)
+            if file_count >= _MAX_FILE_COUNT:
+                raise WorkspaceQuotaExceeded(
+                    f"agent workspace file count limit reached ({_MAX_FILE_COUNT})"
+                )
+
+        current_usage = await self._files.total_bytes(agent_id)
         replaced_bytes = existing.size_bytes if existing else 0
         net_usage = current_usage - replaced_bytes + size_bytes
         if net_usage > _QUOTA_BYTES:

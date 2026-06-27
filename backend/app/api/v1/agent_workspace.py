@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import APIRouter, Depends, File, Form, Path, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Path, UploadFile, status
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -78,7 +78,12 @@ async def upload_workspace_file(
 ) -> WorkspaceFileOut:
     await _require_edit(agent_id, principal, db)
 
+    max_upload = 32 * 1024 * 1024
+    if file.size is not None and file.size > max_upload:
+        raise HTTPException(status_code=413, detail="file exceeds 32 MB limit")
     data = await file.read()
+    if len(data) > max_upload:
+        raise HTTPException(status_code=413, detail="file exceeds 32 MB limit")
     mime = file.content_type or "application/octet-stream"
     filename = file.filename or "file"
 
