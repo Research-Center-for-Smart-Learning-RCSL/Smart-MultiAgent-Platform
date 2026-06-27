@@ -24,6 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from contexts.keys.domain.errors import KeyNotFound, KeyNotOwnedByCaller
 from contexts.keys.domain.models import ApiKey, mask_preview
 from contexts.keys.domain.providers import ApiKeyProvider
+from contexts.keys.infrastructure.carry_repository import KeyProjectRepository
 from contexts.keys.infrastructure.group_repository import KeyGroupMemberRepository
 from contexts.keys.infrastructure.key_revocation_events import publish_key_revoked
 from contexts.keys.infrastructure.probes import ProbeStatus, probe
@@ -233,6 +234,7 @@ class KeyService:
         now = datetime.now(tz=UTC)
         await self._repo.soft_delete(key_id, at=now)
         removed = await KeyGroupMemberRepository(self._db).remove_all_for_key(key_id)
+        await KeyProjectRepository(self._db).withdraw_all_for_key(key_id=key_id, at=now)
         await audit.emit(
             self._db,
             audit.AuditEvent(

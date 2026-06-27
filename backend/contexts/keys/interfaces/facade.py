@@ -128,15 +128,23 @@ class KeysFacade:
         key_id: uuid.UUID,
         project_id: uuid.UUID,
     ) -> bool:
-        """True if *key_id* is actively carried into *project_id*.
+        """True if *key_id* is actively carried into *project_id* and not deleted.
 
-        Checks ``key_projects.carried = true`` — a withdrawn key is out of
-        scope even if stale ``key_group_members`` rows still reference it.
+        Checks ``key_projects.carried = true`` and ``api_keys.deleted_at IS NULL``
+        so a withdrawn or soft-deleted key is never considered in-scope.
         """
         row = (
             await self._db.execute(
                 sa.select(sa.literal(1))
-                .select_from(_t.key_projects)
+                .select_from(
+                    _t.key_projects.join(
+                        _t.api_keys,
+                        sa.and_(
+                            _t.api_keys.c.id == _t.key_projects.c.key_id,
+                            _t.api_keys.c.deleted_at.is_(None),
+                        ),
+                    )
+                )
                 .where(
                     sa.and_(
                         _t.key_projects.c.key_id == key_id,
