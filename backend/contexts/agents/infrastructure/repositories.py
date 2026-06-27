@@ -12,22 +12,26 @@ from collections.abc import Sequence
 from typing import Any
 
 import sqlalchemy as sa
+from sqlalchemy.dialects import postgresql as pg
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.agents.domain.errors import (
     AgentNameTaken,
     AgentNotFound,
+    AgentToolNotFound,
     AgentVersionMismatch,
-    McpBindingNotFound,
+    WorkspaceFileNotFound,
 )
 from contexts.agents.domain.models import (
+    SINGLETON_TOOL_TYPES,
     Agent,
     AgentModelHint,
+    AgentTool,
+    AgentToolType,
     ContextMode,
-    McpBinding,
-    McpSource,
     PromptStrategy,
+    WorkspaceFile,
 )
 from contexts.agents.infrastructure import tables as t
 from shared_kernel.auth.clients import now
@@ -53,18 +57,6 @@ def _row_to_agent(row: Any) -> Agent:
         workflow_capabilities=dict(row.workflow_capabilities or {}),
         version=row.version,
         deleted_at=row.deleted_at,
-        created_at=row.created_at,
-    )
-
-
-def _row_to_binding(row: Any) -> McpBinding:
-    return McpBinding(
-        id=row.id,
-        agent_id=row.agent_id,
-        source=McpSource(row.source),
-        reference=row.reference,
-        allowed_tools=tuple(row.allowed_tools or ()),
-        config=dict(row.config or {}),
         created_at=row.created_at,
     )
 
@@ -251,101 +243,348 @@ class AgentRepository:
         return _row_to_agent(row)
 
 
-class AgentMcpBindingRepository:
+def _row_to_tool(row: Any) -> AgentTool:
+    return AgentTool(
+        id=row.id,
+        agent_id=row.agent_id,
+        tool_type=AgentToolType(row.tool_type),
+        enabled=bool(row.enabled),
+        display_name=row.display_name,
+        config=dict(row.config or {}),
+        created_at=row.created_at,
+    )
+
+
+class AgentToolRepository:
     def __init__(self, db: AsyncSession) -> None:
         self._db = db
 
-    async def list(self, agent_id: uuid.UUID) -> Sequence[McpBinding]:
+    async def list(
+        self,
+        agent_id: uuid.UUID,
+        *,
+        limit: int | None = None,
+        offset: int = 0,
+    ) -> Sequence[AgentTool]:
+        q = (
+            t.agent_tools.select()
+            .where(t.agent_tools.c.agent_id == agent_id)
+            .order_by(t.agent_tools.c.created_at)
+            .offset(offset)
+        )
+        if limit is not None:
+            q = q.limit(limit)
+        rows = (await self._db.execute(q)).all()
+        return [_row_to_tool(r) for r in rows]
+
+    async def list_for_agents(self, agent_ids: Sequence[uuid.UUID]) -> dict[uuid.UUID, list[AgentTool]]:
+        if not agent_ids:
+            return {}
         rows = (
             await self._db.execute(
-                t.agent_mcp_servers.select()
-                .where(t.agent_mcp_servers.c.agent_id == agent_id)
-                .order_by(t.agent_mcp_servers.c.created_at)
+                t.agent_tools.select()
+                .where(t.agent_tools.c.agent_id.in_(list(agent_ids)))
+                .order_by(t.agent_tools.c.agent_id, t.agent_tools.c.created_at)
             )
         ).all()
-        return [_row_to_binding(r) for r in rows]
+        result: dict[uuid.UUID, list[AgentTool]] = {aid: [] for aid in agent_ids}
+        for row in rows:
+            result[row.agent_id].append(_row_to_tool(row))
+        return result
+
+    async def get(self, *, agent_id: uuid.UUID, tool_id: uuid.UUID) -> AgentTool | None:
+        row = (
+            await self._db.execute(
+                t.agent_tools.select().where(
+                    sa.and_(
+                        t.agent_tools.c.id == tool_id,
+                        t.agent_tools.c.agent_id == agent_id,
+                    )
+                )
+            )
+        ).first()
+        return _row_to_tool(row) if row else None
+
+    async def get_singleton(self, *, agent_id: uuid.UUID, tool_type: AgentToolType) -> AgentTool | None:
+        row = (
+            await self._db.execute(
+                t.agent_tools.select().where(
+                    sa.and_(
+                        t.agent_tools.c.agent_id == agent_id,
+                        t.agent_tools.c.tool_type == tool_type.value,
+                    )
+                )
+            )
+        ).first()
+        return _row_to_tool(row) if row else None
 
     async def add(
         self,
         *,
         agent_id: uuid.UUID,
-        source: McpSource,
-        reference: str,
-        allowed_tools: Sequence[str],
-        config: dict[str, Any],
-    ) -> McpBinding:
+        tool_type: AgentToolType,
+        enabled: bool = True,
+        display_name: str | None = None,
+        config: dict[str, Any] | None = None,
+        tool_id: uuid.UUID | None = None,
+    ) -> AgentTool:
+        values: dict[str, Any] = {
+            "agent_id": agent_id,
+            "tool_type": tool_type.value,
+            "enabled": enabled,
+            "display_name": display_name,
+            "config": config or {},
+        }
+        if tool_id is not None:
+            values["id"] = tool_id
         row = (
             await self._db.execute(
-                t.agent_mcp_servers.insert()
-                .values(
-                    agent_id=agent_id,
-                    source=source.value,
-                    reference=reference,
-                    allowed_tools=list(allowed_tools),
-                    config=config,
-                )
-                .returning(t.agent_mcp_servers)
+                t.agent_tools.insert().values(**values).returning(t.agent_tools)
             )
         ).one()
-        return _row_to_binding(row)
+        return _row_to_tool(row)
+
+    async def set_enabled(
+        self,
+        *,
+        agent_id: uuid.UUID,
+        tool_id: uuid.UUID,
+        enabled: bool,
+    ) -> AgentTool:
+        row = (
+            await self._db.execute(
+                t.agent_tools.update()
+                .where(
+                    sa.and_(
+                        t.agent_tools.c.id == tool_id,
+                        t.agent_tools.c.agent_id == agent_id,
+                    )
+                )
+                .values(enabled=enabled)
+                .returning(t.agent_tools)
+            )
+        ).first()
+        if row is None:
+            raise AgentToolNotFound(str(tool_id))
+        return _row_to_tool(row)
 
     async def patch(
         self,
         *,
         agent_id: uuid.UUID,
-        binding_id: uuid.UUID,
-        allowed_tools: Sequence[str] | None,
-        config: dict[str, Any] | None,
-    ) -> McpBinding:
-        """Update allowed_tools and/or config on an existing binding."""
+        tool_id: uuid.UUID,
+        enabled: bool | None = None,
+        display_name: str | None = None,
+        config: dict[str, Any] | None = None,
+        clear_display_name: bool = False,
+    ) -> AgentTool:
         values: dict[str, Any] = {}
-        if allowed_tools is not None:
-            values["allowed_tools"] = list(allowed_tools)
+        if enabled is not None:
+            values["enabled"] = enabled
+        if clear_display_name:
+            values["display_name"] = None
+        elif display_name is not None:
+            values["display_name"] = display_name
         if config is not None:
             values["config"] = config
         if not values:
-            row = (
-                await self._db.execute(
-                    t.agent_mcp_servers.select().where(
-                        sa.and_(
-                            t.agent_mcp_servers.c.id == binding_id,
-                            t.agent_mcp_servers.c.agent_id == agent_id,
-                        )
-                    )
-                )
-            ).first()
-            if row is None:
-                raise McpBindingNotFound(str(binding_id))
-            return _row_to_binding(row)
-
+            existing = await self.get(agent_id=agent_id, tool_id=tool_id)
+            if existing is None:
+                raise AgentToolNotFound(str(tool_id))
+            return existing
         row = (
             await self._db.execute(
-                t.agent_mcp_servers.update()
+                t.agent_tools.update()
                 .where(
                     sa.and_(
-                        t.agent_mcp_servers.c.id == binding_id,
-                        t.agent_mcp_servers.c.agent_id == agent_id,
+                        t.agent_tools.c.id == tool_id,
+                        t.agent_tools.c.agent_id == agent_id,
                     )
                 )
                 .values(**values)
-                .returning(t.agent_mcp_servers)
+                .returning(t.agent_tools)
             )
         ).first()
         if row is None:
-            raise McpBindingNotFound(str(binding_id))
-        return _row_to_binding(row)
+            raise AgentToolNotFound(str(tool_id))
+        return _row_to_tool(row)
 
-    async def remove(self, *, agent_id: uuid.UUID, binding_id: uuid.UUID) -> None:
+    async def remove(self, *, agent_id: uuid.UUID, tool_id: uuid.UUID) -> None:
         result = await self._db.execute(
-            t.agent_mcp_servers.delete().where(
+            t.agent_tools.delete().where(
                 sa.and_(
-                    t.agent_mcp_servers.c.id == binding_id,
-                    t.agent_mcp_servers.c.agent_id == agent_id,
+                    t.agent_tools.c.id == tool_id,
+                    t.agent_tools.c.agent_id == agent_id,
                 )
             )
         )
         if (result.rowcount or 0) == 0:
-            raise McpBindingNotFound(str(binding_id))
+            raise AgentToolNotFound(str(tool_id))
+
+    async def provision_singletons(
+        self,
+        *,
+        agent_id: uuid.UUID,
+        web_search: bool = True,
+        code_interpreter: bool = False,
+        file_workspace: bool = True,
+        file_search_enabled: bool = False,
+    ) -> None:
+        """Idempotent: insert-or-ignore the four singleton rows for an agent."""
+        rows = [
+            (AgentToolType.HOSTED_WEB_SEARCH, web_search),
+            (AgentToolType.HOSTED_CODE_INTERPRETER, code_interpreter),
+            (AgentToolType.HOSTED_FILE_WORKSPACE, file_workspace),
+            (AgentToolType.HOSTED_FILE_SEARCH, file_search_enabled),
+        ]
+        for tool_type, enabled in rows:
+            stmt = (
+                pg.insert(t.agent_tools)
+                .values(
+                    agent_id=agent_id,
+                    tool_type=tool_type.value,
+                    enabled=enabled,
+                    config={},
+                )
+                .on_conflict_do_nothing(
+                    index_elements=["agent_id", "tool_type"],
+                    index_where=t.agent_tools.c.tool_type.in_(
+                        [tt.value for tt in SINGLETON_TOOL_TYPES]
+                    ),
+                )
+            )
+            await self._db.execute(stmt)
 
 
-__all__ = ["AgentMcpBindingRepository", "AgentRepository"]
+def _row_to_workspace_file(row: Any) -> WorkspaceFile:
+    return WorkspaceFile(
+        id=row.id,
+        agent_id=row.agent_id,
+        path=row.path,
+        size_bytes=row.size_bytes,
+        sha256=row.sha256,
+        mime=row.mime,
+        minio_key=row.minio_key,
+        created_by=row.created_by,
+        created_at=row.created_at,
+    )
+
+
+class WorkspaceFileRepository:
+    def __init__(self, db: AsyncSession) -> None:
+        self._db = db
+
+    async def list(self, agent_id: uuid.UUID) -> Sequence[WorkspaceFile]:
+        rows = (
+            await self._db.execute(
+                t.agent_workspace_files.select()
+                .where(t.agent_workspace_files.c.agent_id == agent_id)
+                .order_by(t.agent_workspace_files.c.path)
+            )
+        ).all()
+        return [_row_to_workspace_file(r) for r in rows]
+
+    async def get(self, *, agent_id: uuid.UUID, file_id: uuid.UUID) -> WorkspaceFile | None:
+        row = (
+            await self._db.execute(
+                t.agent_workspace_files.select().where(
+                    sa.and_(
+                        t.agent_workspace_files.c.id == file_id,
+                        t.agent_workspace_files.c.agent_id == agent_id,
+                    )
+                )
+            )
+        ).first()
+        return _row_to_workspace_file(row) if row else None
+
+    async def get_by_path(self, *, agent_id: uuid.UUID, path: str) -> WorkspaceFile | None:
+        row = (
+            await self._db.execute(
+                t.agent_workspace_files.select().where(
+                    sa.and_(
+                        t.agent_workspace_files.c.agent_id == agent_id,
+                        t.agent_workspace_files.c.path == path,
+                    )
+                )
+            )
+        ).first()
+        return _row_to_workspace_file(row) if row else None
+
+    async def total_bytes(self, agent_id: uuid.UUID) -> int:
+        row = (
+            await self._db.execute(
+                sa.select(sa.func.coalesce(sa.func.sum(t.agent_workspace_files.c.size_bytes), 0))
+                .where(t.agent_workspace_files.c.agent_id == agent_id)
+            )
+        ).one()
+        return int(row[0])
+
+    async def upsert(
+        self,
+        *,
+        agent_id: uuid.UUID,
+        path: str,
+        size_bytes: int,
+        sha256: str,
+        mime: str,
+        minio_key: str,
+        created_by: uuid.UUID | None,
+    ) -> WorkspaceFile:
+        stmt = (
+            pg.insert(t.agent_workspace_files)
+            .values(
+                agent_id=agent_id,
+                path=path,
+                size_bytes=size_bytes,
+                sha256=sha256,
+                mime=mime,
+                minio_key=minio_key,
+                created_by=created_by,
+            )
+            .on_conflict_do_update(
+                constraint="uq_agent_workspace_files_agent_path",
+                set_={
+                    "size_bytes": size_bytes,
+                    "sha256": sha256,
+                    "mime": mime,
+                    "minio_key": minio_key,
+                    "created_by": created_by,
+                    "created_at": sa.text("now()"),
+                },
+            )
+            .returning(t.agent_workspace_files)
+        )
+        row = (await self._db.execute(stmt)).one()
+        return _row_to_workspace_file(row)
+
+    async def remove(self, *, agent_id: uuid.UUID, file_id: uuid.UUID) -> WorkspaceFile:
+        existing = await self.get(agent_id=agent_id, file_id=file_id)
+        if existing is None:
+            raise WorkspaceFileNotFound(str(file_id))
+        await self._db.execute(
+            t.agent_workspace_files.delete().where(
+                sa.and_(
+                    t.agent_workspace_files.c.id == file_id,
+                    t.agent_workspace_files.c.agent_id == agent_id,
+                )
+            )
+        )
+        return existing
+
+    async def sha256_ref_count(self, *, agent_id: uuid.UUID, sha256: str) -> int:
+        row = (
+            await self._db.execute(
+                sa.select(sa.func.count())
+                .select_from(t.agent_workspace_files)
+                .where(
+                    sa.and_(
+                        t.agent_workspace_files.c.agent_id == agent_id,
+                        t.agent_workspace_files.c.sha256 == sha256,
+                    )
+                )
+            )
+        ).one()
+        return int(row[0])
+
+
+__all__ = ["AgentRepository", "AgentToolRepository", "WorkspaceFileRepository"]

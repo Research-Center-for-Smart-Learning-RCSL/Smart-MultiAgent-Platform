@@ -1,12 +1,13 @@
 """`smap.bootstrap minio-init` — buckets + lifecycle + scoped service account.
 
-Exactly three buckets per §21.5:
+Four buckets:
   * `chat-uploads` — 3-day expiration (R13.10)
   * `rag-sources` — kept as long as the `rag_documents` row lives
   * `exports` — 24-hour expiration (MinIO minimum is one day; equivalent)
+  * `agent-workspace` — designer-uploaded files for Code Interpreter (no TTL)
 
 A dedicated MinIO service account is created with a canned IAM-style policy
-scoped to just these three buckets. Its access_key/secret_key are written to
+scoped to just these buckets. Its access_key/secret_key are written to
 Vault KV `secret/smap/config/minio`; the runtime backend reads them via the
 Vault client at startup and never touches root credentials.
 """
@@ -34,6 +35,7 @@ def _policy_document(settings: Settings) -> dict[str, Any]:
         settings.minio.bucket_chat_uploads,
         settings.minio.bucket_rag_sources,
         settings.minio.bucket_exports,
+        settings.minio.bucket_agent_workspace,
     )
     obj_arns = [f"arn:aws:s3:::{b}/*" for b in buckets]
     bucket_arns = [f"arn:aws:s3:::{b}" for b in buckets]
@@ -145,6 +147,7 @@ def run(
         lifecycle=_lifecycle(settings.minio.bucket_exports, days=1),
         report=report,
     )
+    _ensure_bucket(data, settings.minio.bucket_agent_workspace, lifecycle=None, report=report)
 
     admin = _admin_client(settings)
 
@@ -165,7 +168,7 @@ def run(
             access_key=settings.minio.service_account_name,
             secret_key=new_secret,
             name=settings.minio.service_account_name,
-            description="SMAP backend scoped account (chat-uploads/rag-sources/exports).",
+            description="SMAP backend scoped account (chat-uploads/rag-sources/exports/agent-workspace).",
             policy=policy_doc,
         )
     except Exception as exc:  # — MinIO error taxonomy is open-ended

@@ -39,6 +39,9 @@ def _build_registry() -> list[RouterEntry]:
         admin_ip_bans as admin_ip_ban_routes,
     )
     from app.api.v1 import (
+        agent_workspace as agent_workspace_routes,
+    )
+    from app.api.v1 import (
         agents as agent_routes,
     )
     from app.api.v1 import (
@@ -162,6 +165,7 @@ def _build_registry() -> list[RouterEntry]:
         # Agents
         RouterEntry(agent_routes.project_router),
         RouterEntry(agent_routes.agent_router),
+        RouterEntry(agent_workspace_routes.router),
         # RAG
         RouterEntry(rag_routes.project_router),
         RouterEntry(rag_routes.config_router),
@@ -170,8 +174,7 @@ def _build_registry() -> list[RouterEntry]:
         RouterEntry(graphrag_routes.project_router),
         RouterEntry(graphrag_routes.config_router),
         RouterEntry(graphrag_routes.admin_router),
-        # MCP
-        RouterEntry(mcp_routes.agent_router),
+        # MCP egress allowlist
         RouterEntry(mcp_routes.project_router),
         # Conversation
         RouterEntry(workspace_routes.project_router),

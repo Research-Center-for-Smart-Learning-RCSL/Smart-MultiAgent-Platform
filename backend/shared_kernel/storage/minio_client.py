@@ -151,10 +151,10 @@ class MinioClient:
 
         await asyncio.to_thread(_rm)
 
-    def list_objects_sync(self, bucket: str) -> list[Any]:
+    def list_objects_sync(self, bucket: str, *, prefix: str | None = None) -> list[Any]:
         """Return all objects in *bucket* (recursive). Caller runs in a thread."""
         try:
-            return list(self._client.list_objects(bucket, recursive=True))
+            return list(self._client.list_objects(bucket, prefix=prefix, recursive=True))
         except S3Error as exc:
             raise StorageError(f"list_objects failed: {exc}") from exc
 
@@ -244,6 +244,10 @@ def rag_source_key(*, project_id: uuid.UUID, document_id: uuid.UUID, filename: s
     return f"{project_id}/{document_id}/{safe_name}"
 
 
+def agent_workspace_key(*, agent_id: uuid.UUID, sha256: str) -> str:
+    return f"{agent_id}/{sha256}"
+
+
 def export_key(*, job_id: uuid.UUID, filename: str) -> str:
     # SEC-L6: sanitise like chat_upload_key / rag_source_key so a filename can
     # never inject path separators into the object key. Keys are UUID-namespaced
@@ -256,6 +260,7 @@ __all__ = [
     "MinioClient",
     "ObjectStat",
     "StorageError",
+    "agent_workspace_key",
     "chat_upload_key",
     "export_key",
     "get_minio_client",

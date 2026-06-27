@@ -31,6 +31,26 @@ class McpSource(str, enum.Enum):
     PACKAGE = "package"
 
 
+class AgentToolType(str, enum.Enum):
+    HOSTED_MCP = "hosted_mcp"
+    HOSTED_WEB_SEARCH = "hosted_web_search"
+    HOSTED_CODE_INTERPRETER = "hosted_code_interpreter"
+    HOSTED_FILE_WORKSPACE = "hosted_file_workspace"
+    HOSTED_FILE_SEARCH = "hosted_file_search"
+    LOCAL_FUNCTION = "local_function"
+    LOCAL_SHELL = "local_shell"
+
+
+SINGLETON_TOOL_TYPES: frozenset[AgentToolType] = frozenset(
+    {
+        AgentToolType.HOSTED_WEB_SEARCH,
+        AgentToolType.HOSTED_CODE_INTERPRETER,
+        AgentToolType.HOSTED_FILE_WORKSPACE,
+        AgentToolType.HOSTED_FILE_SEARCH,
+    }
+)
+
+
 @dataclass(frozen=True, slots=True)
 class Agent:
     id: uuid.UUID
@@ -66,6 +86,48 @@ class McpBinding:
 
 
 @dataclass(frozen=True, slots=True)
+class AgentTool:
+    id: uuid.UUID
+    agent_id: uuid.UUID
+    tool_type: AgentToolType
+    enabled: bool
+    display_name: str | None
+    config: dict[str, Any]
+    created_at: datetime
+
+    def is_singleton(self) -> bool:
+        return self.tool_type in SINGLETON_TOOL_TYPES
+
+    def mcp_source(self) -> str:
+        """MCP source ('url' or 'package') — only valid for HOSTED_MCP rows."""
+        return str(self.config.get("source", ""))
+
+    def mcp_reference(self) -> str:
+        """MCP server reference — only valid for HOSTED_MCP rows."""
+        return str(self.config.get("reference", ""))
+
+    def mcp_allowed_tools(self) -> tuple[str, ...]:
+        """Whitelist of tool names exposed by an MCP server."""
+        raw = self.config.get("allowed_tools")
+        if isinstance(raw, (list, tuple)):
+            return tuple(str(t) for t in raw)
+        return ()
+
+
+@dataclass(frozen=True, slots=True)
+class WorkspaceFile:
+    id: uuid.UUID
+    agent_id: uuid.UUID
+    path: str
+    size_bytes: int
+    sha256: str
+    mime: str
+    minio_key: str
+    created_by: uuid.UUID | None
+    created_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
 class AgentDraft:
     """Payload shape for create + patch. `None` means "unchanged" on patch."""
 
@@ -95,8 +157,12 @@ __all__ = [
     "Agent",
     "AgentDraft",
     "AgentModelHint",
+    "AgentTool",
+    "AgentToolType",
     "ContextMode",
     "McpBinding",
     "McpSource",
     "PromptStrategy",
+    "SINGLETON_TOOL_TYPES",
+    "WorkspaceFile",
 ]
