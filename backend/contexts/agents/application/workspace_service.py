@@ -26,6 +26,7 @@ from contexts.agents.infrastructure.repositories import (
 )
 from shared_kernel import audit
 from shared_kernel.storage.minio_client import MinioClient, agent_workspace_key
+from shared_kernel.storage.sanitize import safe_input_name as _safe_input_name
 
 _QUOTA_BYTES = 256 * 1024 * 1024  # 256 MB per agent
 _MAX_FILE_BYTES = 32 * 1024 * 1024  # 32 MB per multipart upload
@@ -72,13 +73,6 @@ def _safe_workspace_path(raw: str | None, fallback_filename: str) -> str:
     return normed
 
 
-def _safe_input_name(filename: str) -> str:
-    base = filename.replace("\\", "/").rsplit("/", 1)[-1]
-    cleaned = "".join(c for c in base if c.isprintable() and c not in '"\\:*?<>|').strip()
-    cleaned = cleaned.lstrip(".") or "file"
-    return cleaned[:200]
-
-
 class WorkspaceFileService:
     def __init__(self, db: AsyncSession, storage: MinioClient) -> None:
         self._db = db
@@ -118,9 +112,7 @@ class WorkspaceFileService:
         if existing is None:
             file_count = await self._files.count(agent_id)
             if file_count >= _MAX_FILE_COUNT:
-                raise WorkspaceQuotaExceeded(
-                    f"agent workspace file count limit reached ({_MAX_FILE_COUNT})"
-                )
+                raise WorkspaceQuotaExceeded(f"agent workspace file count limit reached ({_MAX_FILE_COUNT})")
 
         current_usage = await self._files.total_bytes(agent_id)
         replaced_bytes = existing.size_bytes if existing else 0
@@ -153,7 +145,8 @@ class WorkspaceFileService:
 
         if old_sha256 and old_sha256 != sha256:
             ref_count = await self._files.sha256_ref_count(
-                agent_id=agent_id, sha256=old_sha256,
+                agent_id=agent_id,
+                sha256=old_sha256,
             )
             if ref_count == 0:
                 old_key = agent_workspace_key(agent_id=agent_id, sha256=old_sha256)

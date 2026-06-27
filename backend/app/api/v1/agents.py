@@ -481,14 +481,16 @@ async def list_agent_tools(
         roles = await resolver.roles_for(principal, Scope(project_id=agent.project_id))
         if not roles:
             _raise_forbidden("caller is not a member of the agent's project")
-    return [
-        _to_tool_out(t)
-        for t in await service.list_tools(
-            agent_id,
-            limit=pagination.limit,
-            offset=pagination.offset,
-        )
-    ]
+    tools = await service.list_tools(
+        agent_id,
+        limit=pagination.limit,
+        offset=pagination.offset,
+    )
+    results: list[AgentToolOut] = []
+    for t in tools:
+        warnings = await _function_warnings(db, agent.project_id, t)
+        results.append(_to_tool_out(t, config_warnings=warnings))
+    return results
 
 
 @agent_router.post("/{agent_id}/tools", status_code=status.HTTP_201_CREATED)
@@ -516,16 +518,19 @@ async def add_agent_tool(
     if not decision.allowed:
         _raise_forbidden(decision.reason)
 
-    tool = await service.add_tool(
-        agent_id=agent_id,
-        tool_type=AgentToolType(body.tool_type),
-        display_name=body.display_name,
-        config=body.config,
-        auth=body.auth,
-        actor_user_id=principal.user_id,
-        actor_ip=ctx.actor_ip,
-        request_id=ctx.request_id,
-    )
+    try:
+        tool = await service.add_tool(
+            agent_id=agent_id,
+            tool_type=AgentToolType(body.tool_type),
+            display_name=body.display_name,
+            config=body.config,
+            auth=body.auth,
+            actor_user_id=principal.user_id,
+            actor_ip=ctx.actor_ip,
+            request_id=ctx.request_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     warnings = await _function_warnings(db, agent.project_id, tool)
     return _to_tool_out(tool, config_warnings=warnings)
 
@@ -556,18 +561,21 @@ async def patch_agent_tool(
         _raise_forbidden(decision.reason)
 
     fields = body.model_dump(exclude_unset=True)
-    tool = await service.patch_tool(
-        agent_id=agent_id,
-        tool_id=tool_id,
-        enabled=fields.get("enabled"),
-        display_name=fields.get("display_name"),
-        clear_display_name="display_name" in fields and fields["display_name"] is None,
-        config=fields.get("config"),
-        auth=fields.get("auth"),
-        actor_user_id=principal.user_id,
-        actor_ip=ctx.actor_ip,
-        request_id=ctx.request_id,
-    )
+    try:
+        tool = await service.patch_tool(
+            agent_id=agent_id,
+            tool_id=tool_id,
+            enabled=fields.get("enabled"),
+            display_name=fields.get("display_name"),
+            clear_display_name="display_name" in fields and fields["display_name"] is None,
+            config=fields.get("config"),
+            auth=fields.get("auth"),
+            actor_user_id=principal.user_id,
+            actor_ip=ctx.actor_ip,
+            request_id=ctx.request_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     warnings = await _function_warnings(db, agent.project_id, tool)
     return _to_tool_out(tool, config_warnings=warnings)
 

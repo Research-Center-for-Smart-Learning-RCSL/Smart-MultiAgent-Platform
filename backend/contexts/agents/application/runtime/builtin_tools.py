@@ -267,7 +267,7 @@ def _build_file_search_tool(
             )
         except Exception as exc:
             return ToolResult(content=f"file_search failed: {exc}", is_error=True)
-        if ctx is None or not ctx.sources:
+        if ctx is None or not ctx.sources or not getattr(ctx, "block", None):
             return ToolResult(content="No matching passages found in the agent's files.")
         return ToolResult(content=_clip(_format_passages(ctx)))
 
@@ -508,8 +508,6 @@ def build_agent_tools(
     """Assemble the agent's enabled tools from the unified ``agent_tools`` table.
 
     Dispatches by ``tool_type``; disabled rows and ``local_shell`` are skipped.
-    ``hosted_file_search`` and ``local_function`` are stub cases — their builders
-    land in Phases C and E respectively.
     """
     out: list[Tool] = []
     for t in tools:

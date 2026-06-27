@@ -61,6 +61,16 @@ _FUNCTION_NAME_RE = re.compile(r"^[a-z0-9_]{1,64}$")
 _FUNCTION_METHODS = frozenset({"GET", "POST", "PUT", "PATCH", "DELETE"})
 
 
+def _has_ref_key(obj: Any) -> bool:
+    if isinstance(obj, dict):
+        if "$ref" in obj:
+            return True
+        return any(_has_ref_key(v) for v in obj.values())
+    if isinstance(obj, list):
+        return any(_has_ref_key(v) for v in obj)
+    return False
+
+
 def _validate_function_config(config: dict[str, Any]) -> None:
     name = config.get("name")
     if not name or not isinstance(name, str) or not _FUNCTION_NAME_RE.match(name):
@@ -81,7 +91,7 @@ def _validate_function_config(config: dict[str, Any]) -> None:
     props = params.get("properties")
     if isinstance(props, dict) and len(props) > 50:
         raise ValueError("function config.parameters.properties has too many entries (max 50)")
-    if "$ref" in _json.dumps(params):
+    if _has_ref_key(params):
         raise ValueError("function config.parameters must not use $ref")
 
     http = config.get("http")
@@ -450,6 +460,9 @@ class AgentService:
             ref = tool_config.get("reference")
             if not ref or not isinstance(ref, str) or len(ref) > 2000:
                 raise ValueError("hosted_mcp config.reference is required (max 2000 chars)")
+            allowed = tool_config.get("allowed_tools")
+            if isinstance(allowed, list) and len(allowed) > 200:
+                raise ValueError("hosted_mcp config.allowed_tools must have at most 200 entries")
 
         if tool_type == AgentToolType.LOCAL_FUNCTION:
             _validate_function_config(tool_config)
@@ -524,8 +537,11 @@ class AgentService:
 
         if existing.tool_type == AgentToolType.LOCAL_FUNCTION and patch_config is not None:
             merged = {**existing.config, **patch_config}
-            merged.pop("auth", None)
+            sealed_auth = merged.pop("auth", None)
             _validate_function_config(merged)
+            if sealed_auth is not None:
+                merged["auth"] = sealed_auth
+            patch_config = merged
 
         if auth:
             from contexts.agents.application.tool_auth import seal_tool_auth

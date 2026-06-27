@@ -98,11 +98,9 @@ def _tar_single_file(name: str, data: bytes) -> bytes:
 
 
 def _safe_input_name(filename: str) -> str:
-    """Reduce a user filename to a flat, traversal-safe basename."""
-    base = filename.replace("\\", "/").rsplit("/", 1)[-1]
-    cleaned = "".join(c for c in base if c.isprintable() and c not in '"\\:*?<>|').strip()
-    cleaned = cleaned.lstrip(".") or "file"
-    return cleaned[:200]
+    from shared_kernel.storage.sanitize import safe_input_name
+
+    return safe_input_name(filename)
 
 
 def _tar_staged_inputs(rel_dir: str, files: Sequence[StagedFile]) -> tuple[bytes, list[str]]:
@@ -910,14 +908,19 @@ class DockerRunscSandbox:
         if not files:
             return []
 
+        # _tar_staged_inputs returns paths with a hardcoded "inputs/" prefix.
+        # We need to replace it with "agent-files/" for our directory.
+        def _fix_paths(raw: list[str]) -> list[str]:
+            return [p.replace("inputs/", "agent-files/", 1) for p in raw]
+
         cached = _WORKSPACE_MANIFESTS.get(agent_id)
         if cached == manifest_sha:
-            return [f"agent-files/{_safe_input_name(f.filename)}" for f in files]
+            _, cached_staged = _tar_staged_inputs(rel_dir="agent-files", files=files)
+            return _fix_paths(cached_staged)
 
         client = self._client()
         volume = f"smap-agent-fs-{agent_id}"
-        rel_dir = "agent-files"
-        archive, _raw_staged = _tar_staged_inputs(rel_dir, files)
+        archive, raw_staged = _tar_staged_inputs(rel_dir="agent-files", files=files)
 
         host_config = self._base_host_config()
         host_config["network_mode"] = "none"
@@ -938,10 +941,7 @@ class DockerRunscSandbox:
                 await self._remove_quietly(container)
 
         _WORKSPACE_MANIFESTS[agent_id] = manifest_sha
-        # _tar_staged_inputs hardcodes "inputs/" prefix in its returned paths;
-        # rebuild with the correct "agent-files/" prefix.
-        staged = [f"agent-files/{_safe_input_name(f.filename)}" for f in files]
-        return staged
+        return _fix_paths(raw_staged)
 
     async def _remove_aged_containers(
         self, *, label: str, max_age_s: float, skip_ids: frozenset[str] = frozenset()
@@ -952,9 +952,7 @@ class DockerRunscSandbox:
         timestamp parse, and force-remove stay in one place."""
         client = self._client()
         try:
-            containers = await asyncio.to_thread(
-                client.containers.list, all=True, filters={"label": label}
-            )
+            containers = await asyncio.to_thread(client.containers.list, all=True, filters={"label": label})
         except Exception:
             _log.warning("orphan cleanup: failed to list containers (label=%s)", label, exc_info=True)
             return 0
@@ -980,9 +978,7 @@ class DockerRunscSandbox:
         """Backstop sweep: remove kernel containers older than *max_age_s* that
         are no longer tracked (parent process crashed before idle-reaping)."""
         tracked = frozenset(h.container_id for h in _KERNELS.values())
-        return await self._remove_aged_containers(
-            label=_KERNEL_LABEL, max_age_s=max_age_s, skip_ids=tracked
-        )
+        return await self._remove_aged_containers(label=_KERNEL_LABEL, max_age_s=max_age_s, skip_ids=tracked)
 
     async def cleanup_orphan_containers(self, *, max_age_s: float = 600) -> int:
         """Remove ephemeral sandbox containers whose parent process crashed
