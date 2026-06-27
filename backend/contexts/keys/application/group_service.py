@@ -198,11 +198,8 @@ class KeyGroupService:
         actor_user_id: uuid.UUID,
         request_id: uuid.UUID | None = None,
     ) -> None:
-        group = await self._groups.get_active(group_id)
-        if group is None:
-            raise KeyNotFound(str(group_id))
-        carried = await self._carries.list_active_in_project(group.project_id)
-        if not any(c.id == key_id for c in carried):
+        members = await self._members.list_ordered_carried(group_id)
+        if not any(m.key_id == key_id for m in members):
             raise KeyNotFound(f"member {key_id} in group {group_id}")
         await self._members.patch(group_id=group_id, key_id=key_id, updates=col_updates)
         await audit.emit(

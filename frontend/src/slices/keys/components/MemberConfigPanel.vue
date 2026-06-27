@@ -32,9 +32,9 @@ const form = reactive({
   retry_max_delay_ms: props.member.rotation.retry_max_delay_ms,
   retry_max: props.member.rotation.retry_max,
   retry_jitter_pct: props.member.rotation.retry_jitter_pct,
-  max_input_tokens_per_hour: props.member.limits.max_input_tokens_per_hour as number | null,
-  max_output_tokens_per_hour: props.member.limits.max_output_tokens_per_hour as number | null,
-  max_requests_per_hour: props.member.limits.max_requests_per_hour as number | null,
+  max_input_tokens_per_hour: (props.member.limits.max_input_tokens_per_hour || null) as number | null,
+  max_output_tokens_per_hour: (props.member.limits.max_output_tokens_per_hour || null) as number | null,
+  max_requests_per_hour: (props.member.limits.max_requests_per_hour || null) as number | null,
 })
 
 const newCode = ref('')
@@ -55,7 +55,8 @@ function removeErrorCode(code: number) {
 function parseNullableNumber(val: string): number | null {
   if (val === '') return null
   const n = Number(val)
-  return n < 1 ? 1 : n
+  if (isNaN(n) || n < 1) return null
+  return n
 }
 
 function onSave() {

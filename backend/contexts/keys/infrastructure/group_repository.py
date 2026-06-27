@@ -147,10 +147,12 @@ class KeyGroupMemberRepository:
         m = t.key_group_members
         kg = t.key_groups
         kp = t.key_projects
+        ak = t.api_keys
         stmt = (
             sa.select(m)
             .select_from(
-                m.join(kg, kg.c.id == m.c.group_id).join(
+                m.join(kg, kg.c.id == m.c.group_id)
+                .join(
                     kp,
                     sa.and_(
                         kp.c.key_id == m.c.key_id,
@@ -158,6 +160,7 @@ class KeyGroupMemberRepository:
                         kp.c.carried.is_(True),
                     ),
                 )
+                .join(ak, sa.and_(ak.c.id == m.c.key_id, ak.c.deleted_at.is_(None)))
             )
             .where(m.c.group_id == group_id)
             .order_by(m.c.priority.asc())

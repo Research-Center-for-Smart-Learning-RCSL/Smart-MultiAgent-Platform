@@ -76,6 +76,20 @@ class KeyProjectRepository:
         )
         return bool(result.rowcount)
 
+    async def withdraw_all_for_key(self, *, key_id: uuid.UUID, at: datetime) -> int:
+        """Withdraw every active carry for *key_id* across all projects."""
+        result = await self._db.execute(
+            t.key_projects.update()
+            .where(
+                sa.and_(
+                    t.key_projects.c.key_id == key_id,
+                    t.key_projects.c.carried.is_(True),
+                )
+            )
+            .values(carried=False, withdrawn_at=at)
+        )
+        return result.rowcount or 0
+
     async def list_active_in_project(self, project_id: uuid.UUID) -> list[ApiKey]:
         """Return the `ApiKey` projection for every key currently carried in."""
         stmt = (
