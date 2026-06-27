@@ -368,7 +368,8 @@
         "label": "本地 Shell",
         "description": "在 gVisor 沙箱中執行 shell 指令。",
         "comingSoon": "本地 Shell 可在沙箱中執行 shell 指令。此功能即將推出。",
-        "badge": "即將推出"
+        "badge": "即將推出",
+        "learnMore": "了解更多"
       },
       "toggleSuccess": "工具已更新。",
       "toggleFailed": "更新工具失敗。"
