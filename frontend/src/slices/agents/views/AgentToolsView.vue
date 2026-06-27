@@ -158,10 +158,18 @@ const uploadWsFile = useMutation({
   onError: () => toast.error(t('agents.tools.codeInterpreter.files.uploadFailed')),
 })
 
+const WS_MAX_FILE_SIZE = 32 * 1024 * 1024
+
 function onWsFileChange(ev: Event): void {
   const input = ev.target as HTMLInputElement
   const file = input.files?.[0]
-  if (file) uploadWsFile.mutate(file)
+  if (!file) return
+  if (file.size > WS_MAX_FILE_SIZE) {
+    toast.error(t('agents.tools.codeInterpreter.files.uploadFailed'))
+    input.value = ''
+    return
+  }
+  uploadWsFile.mutate(file)
   input.value = ''
 }
 
@@ -456,6 +464,7 @@ const mcpAccordionItems = computed(() => [
               ref="wsFileInput"
               type="file"
               class="hidden"
+              accept=".csv,.tsv,.json,.jsonl,.txt,.md,.pdf,.docx,.xlsx,.py,.r,.sql,.xml,.yaml,.yml,.parquet,.zip,.tar,.gz,.png,.jpg,.jpeg,.gif,.webp"
               @change="onWsFileChange"
             >
             <SButton

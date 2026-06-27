@@ -474,12 +474,13 @@ class WorkspaceFileRepository:
     def __init__(self, db: AsyncSession) -> None:
         self._db = db
 
-    async def list(self, agent_id: uuid.UUID) -> Sequence[WorkspaceFile]:
+    async def list(self, agent_id: uuid.UUID, *, limit: int = 500) -> Sequence[WorkspaceFile]:
         rows = (
             await self._db.execute(
                 t.agent_workspace_files.select()
                 .where(t.agent_workspace_files.c.agent_id == agent_id)
                 .order_by(t.agent_workspace_files.c.path)
+                .limit(limit)
             )
         ).all()
         return [_row_to_workspace_file(r) for r in rows]
@@ -496,6 +497,16 @@ class WorkspaceFileRepository:
             )
         ).first()
         return _row_to_workspace_file(row) if row else None
+
+    async def count(self, agent_id: uuid.UUID) -> int:
+        row = (
+            await self._db.execute(
+                sa.select(sa.func.count())
+                .select_from(t.agent_workspace_files)
+                .where(t.agent_workspace_files.c.agent_id == agent_id)
+            )
+        ).one()
+        return int(row[0])
 
     async def get_by_path(self, *, agent_id: uuid.UUID, path: str) -> WorkspaceFile | None:
         row = (
