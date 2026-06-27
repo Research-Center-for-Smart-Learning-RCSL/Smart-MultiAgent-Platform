@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import {
   Squares2X2Icon,
@@ -22,6 +23,8 @@ import BrandLogo from '@app/components/BrandLogo.vue'
 import LandingIntro from '@app/components/LandingIntro.vue'
 
 const { t } = useI18n()
+const route = useRoute()
+const router = useRouter()
 
 // Full-screen brand intro on every entry. Read the motion preference
 // synchronously so the overlay is present from the first paint (no hero flash)
@@ -39,6 +42,40 @@ const heroVisualEl = ref<HTMLElement | null>(null)
 const heroRevealed = ref(!introActive.value)
 const session = useSessionStore()
 const workspace = useWorkspaceStore()
+
+// Invite-link landing: `/?invite=1#token=<token>`. The token stays in the
+// fragment (SEC-8); after the intro animation authenticated users proceed to
+// accept, unauthenticated users get CTA links that carry the redirect.
+const inviteRedirect = computed(() => {
+  if (route.query.invite !== '1') return null
+  const token = new URLSearchParams(route.hash.slice(1)).get('token')
+  if (!token) return null
+  return `/invites/accept#token=${encodeURIComponent(token)}`
+})
+
+const getStartedTo = computed(() =>
+  inviteRedirect.value
+    ? { path: '/register', query: { redirect: inviteRedirect.value } }
+    : '/register',
+)
+const logInTo = computed(() =>
+  inviteRedirect.value
+    ? { path: '/login', query: { redirect: inviteRedirect.value } }
+    : '/login',
+)
+
+function onIntroDone(): void {
+  introActive.value = false
+  if (session.isAuthenticated && inviteRedirect.value) {
+    router.replace(inviteRedirect.value)
+  }
+}
+
+onMounted(() => {
+  if (!introActive.value && session.isAuthenticated && inviteRedirect.value) {
+    router.replace(inviteRedirect.value)
+  }
+})
 
 // `Me` carries no display name, so the greeting falls back to the email
 // local-part — friendlier than the full address on a hero.
@@ -84,7 +121,7 @@ useDocumentMeta({
       v-if="introActive"
       :target="heroVisualEl"
       @reveal="heroRevealed = true"
-      @done="introActive = false"
+      @done="onIntroDone"
     />
     <header class="landing__nav">
       <BrandLogo />
@@ -104,14 +141,14 @@ useDocumentMeta({
             class="landing__nav-login"
             variant="ghost"
             as="router-link"
-            to="/login"
+            :to="logInTo"
           >
             {{ t('app.landing.logIn') }}
           </SButton>
           <SButton
             variant="primary"
             as="router-link"
-            to="/register"
+            :to="getStartedTo"
           >
             {{ t('app.landing.getStarted') }}
           </SButton>
@@ -176,7 +213,7 @@ useDocumentMeta({
                 variant="primary"
                 size="lg"
                 as="router-link"
-                to="/register"
+                :to="getStartedTo"
               >
                 {{ t('app.landing.getStarted') }}
               </SButton>
@@ -184,7 +221,7 @@ useDocumentMeta({
                 variant="secondary"
                 size="lg"
                 as="router-link"
-                to="/login"
+                :to="logInTo"
               >
                 {{ t('app.landing.logIn') }}
               </SButton>

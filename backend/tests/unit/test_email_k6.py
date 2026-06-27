@@ -370,7 +370,7 @@ async def test_email_invite_carries_token_link(monkeypatch) -> None:
     msg = sender.sent[0]
     assert msg.to == "invitee@x.com"
     assert msg.template == "invite"
-    assert "https://app.example/invites/accept#token=TOK123" in msg.text_body
+    assert "https://app.example/?invite=1#token=TOK123" in msg.text_body
     assert "Acme" in msg.text_body
     # email.sent audit fired with template + recipient digest (never plaintext).
     emit.assert_awaited_once()

@@ -220,7 +220,7 @@ class InviteService:
             from contexts.identity.infrastructure import email_templates
             from contexts.identity.infrastructure.email import EmailMessage
 
-            accept_link = f"{self._public_origin}/invites/accept#token={token}"
+            accept_link = f"{self._public_origin}/?invite=1#token={token}"
             rendered = email_templates.invite(
                 scope_label=scope_label,
                 scope_name=scope_name,
