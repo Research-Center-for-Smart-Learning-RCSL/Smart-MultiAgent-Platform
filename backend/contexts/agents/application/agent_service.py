@@ -73,6 +73,16 @@ def _validate_function_config(config: dict[str, Any]) -> None:
     params = config.get("parameters")
     if not isinstance(params, dict) or params.get("type") != "object":
         raise ValueError("function config.parameters must be a JSON object schema")
+    import json as _json
+
+    params_size = len(_json.dumps(params, separators=(",", ":")))
+    if params_size > 10_000:
+        raise ValueError("function config.parameters JSON too large (max 10 KB)")
+    props = params.get("properties")
+    if isinstance(props, dict) and len(props) > 50:
+        raise ValueError("function config.parameters.properties has too many entries (max 50)")
+    if "$ref" in _json.dumps(params):
+        raise ValueError("function config.parameters must not use $ref")
 
     http = config.get("http")
     if not isinstance(http, dict):
@@ -103,9 +113,26 @@ def _validate_function_config(config: dict[str, Any]) -> None:
     if headers is not None:
         if not isinstance(headers, dict) or len(headers) > 20:
             raise ValueError("function config.http.headers must be a dict (max 20)")
+        blocked = frozenset(
+            {
+                "authorization",
+                "cookie",
+                "proxy-authorization",
+                "host",
+                "transfer-encoding",
+                "content-length",
+                "content-encoding",
+                "connection",
+                "upgrade",
+                "te",
+                "trailer",
+                "keep-alive",
+            }
+        )
         for k in headers:
-            if k.lower() in ("authorization", "cookie", "proxy-authorization"):
-                raise ValueError(f"function config.http.headers must not include {k}; use auth instead")
+            kl = k.lower()
+            if kl in blocked or kl.startswith("x-smap-"):
+                raise ValueError(f"function config.http.headers must not include {k}")
 
 
 # Sentinel for system-initiated wakeup patches (§22.6). Never maps to a real
@@ -494,6 +521,11 @@ class AgentService:
             )
 
         patch_config = dict(config) if config is not None else None
+
+        if existing.tool_type == AgentToolType.LOCAL_FUNCTION and patch_config is not None:
+            merged = {**existing.config, **patch_config}
+            merged.pop("auth", None)
+            _validate_function_config(merged)
 
         if auth:
             from contexts.agents.application.tool_auth import seal_tool_auth

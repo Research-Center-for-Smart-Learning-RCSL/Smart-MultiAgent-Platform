@@ -50,6 +50,8 @@ _AUTH_NAME_HEADER = "x-smap-egress-auth-name"
 _AUTH_VALUE_HEADER = "x-smap-egress-auth-value"
 _AUTH_SIG_HEADER = "x-smap-egress-auth-sig"
 
+_EGRESS_URL_HEADER = "x-smap-egress-url"
+
 _STRIPPED_INBOUND_HEADERS: frozenset[str] = frozenset(
     {
         "authorization",
@@ -57,6 +59,7 @@ _STRIPPED_INBOUND_HEADERS: frozenset[str] = frozenset(
         "cookie",
         _HMAC_HEADER,
         _PROJECT_ID_HEADER,
+        _EGRESS_URL_HEADER,
         _AUTH_NAME_HEADER,
         _AUTH_VALUE_HEADER,
         _AUTH_SIG_HEADER,
@@ -223,9 +226,9 @@ def create_app(settings: EgressProxySettings) -> FastAPI:
         parts = urlsplit(target)
         # The request arrives with the proxy's own host/scheme; the actual
         # target is conveyed via a dedicated header to avoid ambiguity.
-        forward_url = request.headers.get("x-smap-egress-url", "")
+        forward_url = request.headers.get(_EGRESS_URL_HEADER, "")
         if not forward_url:
-            return _problem(400, "mcp-egress-denied", "missing x-smap-egress-url")
+            return _problem(400, "mcp-egress-denied", f"missing {_EGRESS_URL_HEADER}")
         fwd_parts = urlsplit(forward_url)
         host = fwd_parts.hostname or ""
         if not host:
