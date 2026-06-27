@@ -129,9 +129,9 @@ class MemberPatchIn(BaseModel):
     retry_max_delay_ms: int | None = Field(default=None, ge=0)
     retry_max: int | None = Field(default=None, ge=0)
     retry_jitter_pct: int | None = Field(default=None, ge=0, le=100)
-    max_input_tokens_per_hour: int | None = Field(default=None, ge=0)
-    max_output_tokens_per_hour: int | None = Field(default=None, ge=0)
-    max_requests_per_hour: int | None = Field(default=None, ge=0)
+    max_input_tokens_per_hour: int | None = Field(default=None, ge=1)
+    max_output_tokens_per_hour: int | None = Field(default=None, ge=1)
+    max_requests_per_hour: int | None = Field(default=None, ge=1)
 
 
 class ReorderIn(BaseModel):

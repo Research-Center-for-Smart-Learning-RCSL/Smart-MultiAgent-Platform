@@ -9,6 +9,7 @@ string. Model id is caller-supplied.
 from __future__ import annotations
 
 import json
+import uuid
 from collections.abc import AsyncGenerator
 from typing import Any
 
@@ -105,7 +106,11 @@ def _parse_candidate(data: dict[str, Any]) -> tuple[str, list[dict[str, Any]], s
             text_parts.append(part["text"])
         elif "functionCall" in part:
             fc = part["functionCall"]
-            tool_calls.append({"id": None, "name": fc.get("name"), "arguments": fc.get("args") or {}})
+            tool_calls.append({
+                "id": f"gemini-{uuid.uuid4().hex[:12]}",
+                "name": fc.get("name"),
+                "arguments": fc.get("args") or {},
+            })
     return "".join(text_parts), tool_calls, cand.get("finishReason")
 
 
