@@ -1,3 +1,15 @@
+﻿python : C:\Users\Leolo\AppData\Local\Programs\Python\Python312\Lib\site-
+packages\pydantic\_internal\_fields.py:172: UserWarning: Field name "json
+" in "LoggingSection" shadows an attribute in parent "BaseSettings"
+At line:1 char:25
++ cd C:\dev\SMAP\backend; python scripts/export_openapi.py 2>&1 | Out-F .
+..
++                         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (C:\Users\Leolo\... "BaseSet 
+   tings":String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+  warnings.warn(
 {
   "components": {
     "schemas": {
@@ -511,6 +523,200 @@
           "agent_id"
         ],
         "title": "AgentRef",
+        "type": "object"
+      },
+      "AgentToolCreateIn": {
+        "additionalProperties": false,
+        "properties": {
+          "auth": {
+            "anyOf": [
+              {
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Auth"
+          },
+          "config": {
+            "title": "Config",
+            "type": "object"
+          },
+          "display_name": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Name"
+          },
+          "tool_type": {
+            "enum": [
+              "hosted_mcp",
+              "local_function"
+            ],
+            "title": "Tool Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tool_type"
+        ],
+        "title": "AgentToolCreateIn",
+        "type": "object"
+      },
+      "AgentToolOut": {
+        "properties": {
+          "agent_id": {
+            "format": "uuid",
+            "title": "Agent Id",
+            "type": "string"
+          },
+          "config": {
+            "title": "Config",
+            "type": "object"
+          },
+          "config_warnings": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Config Warnings",
+            "type": "array"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "display_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Name"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "tool_type": {
+            "title": "Tool Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "agent_id",
+          "tool_type",
+          "enabled",
+          "display_name",
+          "config",
+          "created_at"
+        ],
+        "title": "AgentToolOut",
+        "type": "object"
+      },
+      "AgentToolPatchIn": {
+        "additionalProperties": false,
+        "properties": {
+          "auth": {
+            "anyOf": [
+              {
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Auth"
+          },
+          "config": {
+            "anyOf": [
+              {
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Config"
+          },
+          "display_name": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Name"
+          },
+          "enabled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Enabled"
+          }
+        },
+        "title": "AgentToolPatchIn",
+        "type": "object"
+      },
+      "AgentToolTestOut": {
+        "properties": {
+          "duration_ms": {
+            "title": "Duration Ms",
+            "type": "integer"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "ok": {
+            "title": "Ok",
+            "type": "boolean"
+          },
+          "tool_names": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Tool Names",
+            "type": "array"
+          }
+        },
+        "required": [
+          "ok",
+          "tool_names",
+          "duration_ms"
+        ],
+        "title": "AgentToolTestOut",
         "type": "object"
       },
       "AllowlistAddIn": {
@@ -1040,6 +1246,31 @@
           "file"
         ],
         "title": "Body_upload_document_api_rag_configs__config_id__documents_post",
+        "type": "object"
+      },
+      "Body_upload_workspace_file_api_agents__agent_id__workspace_files_post": {
+        "properties": {
+          "file": {
+            "contentMediaType": "application/octet-stream",
+            "title": "File",
+            "type": "string"
+          },
+          "path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Path"
+          }
+        },
+        "required": [
+          "file"
+        ],
+        "title": "Body_upload_workspace_file_api_agents__agent_id__workspace_files_post",
         "type": "object"
       },
       "CaptchaConfigOut": {
@@ -2091,161 +2322,6 @@
           "marked"
         ],
         "title": "MarkReadOut",
-        "type": "object"
-      },
-      "McpBindingCreateIn": {
-        "properties": {
-          "allowed_tools": {
-            "items": {
-              "type": "string"
-            },
-            "maxItems": 200,
-            "title": "Allowed Tools",
-            "type": "array"
-          },
-          "config": {
-            "title": "Config",
-            "type": "object"
-          },
-          "reference": {
-            "maxLength": 2000,
-            "minLength": 1,
-            "title": "Reference",
-            "type": "string"
-          },
-          "source": {
-            "enum": [
-              "builtin",
-              "url",
-              "package"
-            ],
-            "title": "Source",
-            "type": "string"
-          }
-        },
-        "required": [
-          "source",
-          "reference"
-        ],
-        "title": "McpBindingCreateIn",
-        "type": "object"
-      },
-      "McpBindingOut": {
-        "properties": {
-          "agent_id": {
-            "format": "uuid",
-            "title": "Agent Id",
-            "type": "string"
-          },
-          "allowed_tools": {
-            "items": {
-              "type": "string"
-            },
-            "title": "Allowed Tools",
-            "type": "array"
-          },
-          "config": {
-            "title": "Config",
-            "type": "object"
-          },
-          "created_at": {
-            "title": "Created At",
-            "type": "string"
-          },
-          "id": {
-            "format": "uuid",
-            "title": "Id",
-            "type": "string"
-          },
-          "reference": {
-            "title": "Reference",
-            "type": "string"
-          },
-          "source": {
-            "title": "Source",
-            "type": "string"
-          }
-        },
-        "required": [
-          "id",
-          "agent_id",
-          "source",
-          "reference",
-          "allowed_tools",
-          "config",
-          "created_at"
-        ],
-        "title": "McpBindingOut",
-        "type": "object"
-      },
-      "McpBindingPatchIn": {
-        "additionalProperties": false,
-        "properties": {
-          "allowed_tools": {
-            "anyOf": [
-              {
-                "items": {
-                  "type": "string"
-                },
-                "maxItems": 200,
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Allowed Tools"
-          },
-          "config": {
-            "anyOf": [
-              {
-                "type": "object"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Config"
-          }
-        },
-        "title": "McpBindingPatchIn",
-        "type": "object"
-      },
-      "McpTestOut": {
-        "properties": {
-          "duration_ms": {
-            "title": "Duration Ms",
-            "type": "integer"
-          },
-          "error": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Error"
-          },
-          "ok": {
-            "title": "Ok",
-            "type": "boolean"
-          },
-          "tool_names": {
-            "items": {
-              "type": "string"
-            },
-            "title": "Tool Names",
-            "type": "array"
-          }
-        },
-        "required": [
-          "ok",
-          "tool_names",
-          "duration_ms"
-        ],
-        "title": "McpTestOut",
         "type": "object"
       },
       "MemberOut": {
@@ -4570,6 +4646,46 @@
         "title": "WorkspaceCreatedOut",
         "type": "object"
       },
+      "WorkspaceFileOut": {
+        "properties": {
+          "agent_id": {
+            "format": "uuid",
+            "title": "Agent Id",
+            "type": "string"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "mime": {
+            "title": "Mime",
+            "type": "string"
+          },
+          "path": {
+            "title": "Path",
+            "type": "string"
+          },
+          "size_bytes": {
+            "title": "Size Bytes",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "agent_id",
+          "path",
+          "size_bytes",
+          "mime",
+          "created_at"
+        ],
+        "title": "WorkspaceFileOut",
+        "type": "object"
+      },
       "WorkspaceOut": {
         "properties": {
           "created_at": {
@@ -4690,7 +4806,7 @@
           "max_input_tokens_per_hour": {
             "anyOf": [
               {
-                "minimum": 0.0,
+                "minimum": 1.0,
                 "type": "integer"
               },
               {
@@ -4702,7 +4818,7 @@
           "max_output_tokens_per_hour": {
             "anyOf": [
               {
-                "minimum": 0.0,
+                "minimum": 1.0,
                 "type": "integer"
               },
               {
@@ -4714,7 +4830,7 @@
           "max_requests_per_hour": {
             "anyOf": [
               {
-                "minimum": 0.0,
+                "minimum": 1.0,
                 "type": "integer"
               },
               {
@@ -6543,9 +6659,9 @@
         ]
       }
     },
-    "/api/agents/{agent_id}/mcp": {
+    "/api/agents/{agent_id}/tools": {
       "get": {
-        "operationId": "list_mcp_bindings_api_agents__agent_id__mcp_get",
+        "operationId": "list_agent_tools_api_agents__agent_id__tools_get",
         "parameters": [
           {
             "in": "path",
@@ -6556,6 +6672,33 @@
               "title": "Agent Id",
               "type": "string"
             }
+          },
+          {
+            "description": "Max items to return",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "description": "Max items to return",
+              "maximum": 500,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Number of items to skip",
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "description": "Number of items to skip",
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
           }
         ],
         "responses": {
@@ -6564,9 +6707,9 @@
               "application/json": {
                 "schema": {
                   "items": {
-                    "$ref": "#/components/schemas/McpBindingOut"
+                    "$ref": "#/components/schemas/AgentToolOut"
                   },
-                  "title": "Response List Mcp Bindings Api Agents  Agent Id  Mcp Get",
+                  "title": "Response List Agent Tools Api Agents  Agent Id  Tools Get",
                   "type": "array"
                 }
               }
@@ -6584,13 +6727,13 @@
             "description": "Validation Error"
           }
         },
-        "summary": "List Mcp Bindings",
+        "summary": "List Agent Tools",
         "tags": [
           "agents"
         ]
       },
       "post": {
-        "operationId": "add_mcp_binding_api_agents__agent_id__mcp_post",
+        "operationId": "add_agent_tool_api_agents__agent_id__tools_post",
         "parameters": [
           {
             "in": "path",
@@ -6607,7 +6750,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/McpBindingCreateIn"
+                "$ref": "#/components/schemas/AgentToolCreateIn"
               }
             }
           },
@@ -6618,7 +6761,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/McpBindingOut"
+                  "$ref": "#/components/schemas/AgentToolOut"
                 }
               }
             },
@@ -6635,15 +6778,15 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Add Mcp Binding",
+        "summary": "Add Agent Tool",
         "tags": [
           "agents"
         ]
       }
     },
-    "/api/agents/{agent_id}/mcp/{binding_id}": {
+    "/api/agents/{agent_id}/tools/{tool_id}": {
       "delete": {
-        "operationId": "delete_mcp_binding_api_agents__agent_id__mcp__binding_id__delete",
+        "operationId": "delete_agent_tool_api_agents__agent_id__tools__tool_id__delete",
         "parameters": [
           {
             "in": "path",
@@ -6657,11 +6800,11 @@
           },
           {
             "in": "path",
-            "name": "binding_id",
+            "name": "tool_id",
             "required": true,
             "schema": {
               "format": "uuid",
-              "title": "Binding Id",
+              "title": "Tool Id",
               "type": "string"
             }
           }
@@ -6681,13 +6824,13 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Delete Mcp Binding",
+        "summary": "Delete Agent Tool",
         "tags": [
           "agents"
         ]
       },
       "patch": {
-        "operationId": "patch_mcp_binding_api_agents__agent_id__mcp__binding_id__patch",
+        "operationId": "patch_agent_tool_api_agents__agent_id__tools__tool_id__patch",
         "parameters": [
           {
             "in": "path",
@@ -6701,11 +6844,11 @@
           },
           {
             "in": "path",
-            "name": "binding_id",
+            "name": "tool_id",
             "required": true,
             "schema": {
               "format": "uuid",
-              "title": "Binding Id",
+              "title": "Tool Id",
               "type": "string"
             }
           }
@@ -6714,7 +6857,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/McpBindingPatchIn"
+                "$ref": "#/components/schemas/AgentToolPatchIn"
               }
             }
           },
@@ -6725,7 +6868,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/McpBindingOut"
+                  "$ref": "#/components/schemas/AgentToolOut"
                 }
               }
             },
@@ -6742,15 +6885,15 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Patch Mcp Binding",
+        "summary": "Patch Agent Tool",
         "tags": [
           "agents"
         ]
       }
     },
-    "/api/agents/{agent_id}/mcp/{mcp_id}/test": {
+    "/api/agents/{agent_id}/tools/{tool_id}/test": {
       "post": {
-        "operationId": "test_mcp_binding_api_agents__agent_id__mcp__mcp_id__test_post",
+        "operationId": "test_agent_tool_api_agents__agent_id__tools__tool_id__test_post",
         "parameters": [
           {
             "in": "path",
@@ -6764,11 +6907,11 @@
           },
           {
             "in": "path",
-            "name": "mcp_id",
+            "name": "tool_id",
             "required": true,
             "schema": {
               "format": "uuid",
-              "title": "Mcp Id",
+              "title": "Tool Id",
               "type": "string"
             }
           }
@@ -6778,7 +6921,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/McpTestOut"
+                  "$ref": "#/components/schemas/AgentToolTestOut"
                 }
               }
             },
@@ -6795,9 +6938,153 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Test Mcp Binding",
+        "summary": "Test Agent Tool",
         "tags": [
-          "mcp"
+          "agents"
+        ]
+      }
+    },
+    "/api/agents/{agent_id}/workspace-files": {
+      "get": {
+        "operationId": "list_workspace_files_api_agents__agent_id__workspace_files_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/WorkspaceFileOut"
+                  },
+                  "title": "Response List Workspace Files Api Agents  Agent Id  Workspace Files Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Workspace Files",
+        "tags": [
+          "agent-workspace"
+        ]
+      },
+      "post": {
+        "operationId": "upload_workspace_file_api_agents__agent_id__workspace_files_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_upload_workspace_file_api_agents__agent_id__workspace_files_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceFileOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Upload Workspace File",
+        "tags": [
+          "agent-workspace"
+        ]
+      }
+    },
+    "/api/agents/{agent_id}/workspace-files/{file_id}": {
+      "delete": {
+        "operationId": "delete_workspace_file_api_agents__agent_id__workspace_files__file_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "file_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "File Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Workspace File",
+        "tags": [
+          "agent-workspace"
         ]
       }
     },
@@ -12945,7 +13232,7 @@
     },
     "/api/rag-documents/{document_id}/agents": {
       "patch": {
-        "description": "Replace a document's per-agent allowlist.\n\nAuthZ matches document deletion: ``RESOURCE_CREATE_EDIT`` at the parent\nconfig's project. DOM-7: a missing document and an existing-but-forbidden\none both return 404 so the endpoint is not a cross-tenant UUID oracle.",
+        "description": "Replace a document's per-agent allowlist.\n\nAuthZ: ``RESOURCE_CREATE_EDIT`` at the parent config's project AND Project\nOwner \u2014 re-scoping which agents can retrieve a document is a corpus\naccess-control decision, so it is owner-gated to match document upload\n(R10.10), not the weaker edit-only bar. DOM-7: a missing document and an\nexisting-but-forbidden one both return 404 so the endpoint is not a\ncross-tenant UUID oracle.",
         "operationId": "set_document_agents_api_rag_documents__document_id__agents_patch",
         "parameters": [
           {

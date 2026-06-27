@@ -617,4 +617,95 @@ async def delete_agent_tool(
     )
 
 
+def _get_sandbox_runner():  # pragma: no cover - runtime injection
+    from contexts.agents.infrastructure.sandbox.docker_runsc import (
+        docker_runsc_sandbox_from_settings,
+    )
+
+    return docker_runsc_sandbox_from_settings()
+
+
+class AgentToolTestOut(BaseModel):
+    ok: bool
+    tool_names: list[str]
+    duration_ms: int
+    error: str | None = None
+
+
+@agent_router.post("/{agent_id}/tools/{tool_id}/test")
+async def test_agent_tool(
+    agent_id: uuid.UUID = Path(...),
+    tool_id: uuid.UUID = Path(...),
+    ctx: RequestContext = Depends(current_context),
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(db_session),
+    runner=Depends(_get_sandbox_runner),
+) -> AgentToolTestOut:
+    service = AgentService(db)
+    agent = await service.get(agent_id)
+
+    from shared_kernel.auth.dependencies import _raise_forbidden, get_role_resolver
+    from shared_kernel.auth.permissions import Scope, decide
+
+    resolver = await get_role_resolver(db)
+    decision = await decide(
+        principal,
+        Capability.RESOURCE_CREATE_EDIT,
+        Scope(project_id=agent.project_id),
+        resolver,
+    )
+    if not decision.allowed:
+        _raise_forbidden(decision.reason)
+
+    from contexts.agents.domain.models import AgentToolType
+
+    tools = await service.list_tools(agent_id)
+    tool = next((t for t in tools if t.id == tool_id), None)
+    if tool is None:
+        raise HTTPException(status_code=404, detail="tool not found")
+    if tool.tool_type != AgentToolType.HOSTED_MCP:
+        raise HTTPException(status_code=422, detail="only hosted_mcp tools can be tested")
+
+    import time
+
+    from contexts.agents.application.tool_auth import unseal_tool_auth
+
+    config = tool.config or {}
+    source = config.get("source", "url")
+    reference = config.get("reference", "")
+    allowed_tools = config.get("allowed_tools", [])
+
+    auth = None
+    sealed = config.get("auth")
+    if sealed and isinstance(sealed, dict) and sealed.get("__sealed__"):
+        auth = unseal_tool_auth(tool.id, sealed)
+
+    start = time.monotonic()
+    try:
+        result = await runner.probe(
+            agent_id=agent_id,
+            source=source,
+            reference=reference,
+            allowed_tools=allowed_tools,
+            auth=auth,
+            project_id=agent.project_id,
+            timeout_s=20.0,
+        )
+    except Exception as exc:
+        duration = int((time.monotonic() - start) * 1000)
+        return AgentToolTestOut(
+            ok=False,
+            tool_names=[],
+            duration_ms=duration,
+            error=str(exc) or exc.__class__.__name__,
+        )
+
+    return AgentToolTestOut(
+        ok=result.ok,
+        tool_names=list(result.tool_names),
+        duration_ms=result.duration_ms,
+        error=result.error,
+    )
+
+
 __all__ = ["agent_router", "project_router"]
