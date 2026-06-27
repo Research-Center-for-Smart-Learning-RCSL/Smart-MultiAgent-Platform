@@ -99,10 +99,19 @@ export const functionToolCreateSchema = z.object({
   config: z.object({
     name: z.string().trim().min(1).max(64).regex(/^[a-z0-9_]+$/),
     description: z.string().trim().min(1).max(1000),
-    parameters: z.record(z.unknown()).default({ type: 'object', properties: {} }),
+    parameters: z
+      .record(z.unknown())
+      .default({ type: 'object', properties: {} })
+      .refine((p) => p.type === 'object', 'Parameters must have type "object"'),
     http: z.object({
       method: z.enum(['GET', 'POST', 'PUT', 'PATCH', 'DELETE']),
-      url: z.string().trim().url().min(1).max(2000),
+      url: z
+        .string()
+        .trim()
+        .url()
+        .min(1)
+        .max(2000)
+        .refine((u) => u.startsWith('https://'), 'Must use HTTPS'),
       headers: z.record(z.string()).default({}),
     }),
   }),

@@ -309,6 +309,9 @@ def _unseal_tool_auth_safe(tool: AgentTool) -> dict[str, Any] | None:
         return None
 
 
+_ALLOWED_UPSTREAM_AUTH_NAMES = frozenset({"authorization", "x-api-key", "x-auth-token"})
+
+
 def _auth_pair(auth: dict[str, Any] | None) -> tuple[str, str] | None:
     if not auth:
         return None
@@ -319,7 +322,12 @@ def _auth_pair(auth: dict[str, Any] | None) -> tuple[str, str] | None:
     if auth_type == "header":
         name = auth.get("name", "")
         value = auth.get("value", "")
-        return (name, value) if name and value else None
+        if not name or not value:
+            return None
+        if name.lower() not in _ALLOWED_UPSTREAM_AUTH_NAMES:
+            logger.warning("function auth header name %r not in allowed set, skipping", name)
+            return None
+        return (name, value)
     return None
 
 
@@ -441,7 +449,11 @@ def _build_function_tool(
             if int(rl_results[0]) > _FUNCTION_RATE_LIMIT_PER_MINUTE:
                 return ToolResult(content="function rate limit exceeded (60/min/project).", is_error=True)
         except Exception:
-            logger.debug("function rate-limiter failed", exc_info=True)
+            logger.warning("function rate-limiter unavailable, blocking call", exc_info=True)
+            return ToolResult(
+                content="function call temporarily unavailable (rate-limiter offline).",
+                is_error=True,
+            )
 
         headers = dict(http_cfg.get("headers") or {})
         auth = _unseal_tool_auth_safe(tool)
