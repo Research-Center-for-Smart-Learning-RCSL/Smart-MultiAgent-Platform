@@ -17,10 +17,12 @@ SoC:
 
 from __future__ import annotations
 
+import re
 import struct
 import uuid
 from collections.abc import Sequence
 from typing import Any
+from urllib.parse import urlsplit
 
 import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -28,27 +30,84 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from contexts.agents.domain.errors import (
     AgentCapExceeded,
     AgentNotFound,
+    AgentToolNotFound,
+    AgentToolTypeImmutable,
+    FileSearchNeedsKnowledge,
     GraphRagConfigOutOfProject,
     KeyGroupOutOfProject,
     RagConfigOutOfProject,
+    ToolNotAvailable,
 )
 from contexts.agents.domain.models import (
+    SINGLETON_TOOL_TYPES,
     Agent,
     AgentDraft,
+    AgentTool,
+    AgentToolType,
     ContextMode,
-    McpBinding,
-    McpSource,
     PromptStrategy,
 )
 from contexts.agents.infrastructure.repositories import (
-    AgentMcpBindingRepository,
     AgentRepository,
+    AgentToolRepository,
 )
 from contexts.keys.interfaces.facade import KeysFacade
 from contexts.knowledge.interfaces.facade import KnowledgeFacade
 from shared_kernel import audit
 
 _AGENT_CAP_PER_PROJECT = 1000
+
+_FUNCTION_NAME_RE = re.compile(r"^[a-z0-9_]{1,64}$")
+_FUNCTION_METHODS = frozenset({"GET", "POST", "PUT", "PATCH", "DELETE"})
+
+
+def _validate_function_config(config: dict[str, Any]) -> None:
+    name = config.get("name")
+    if not name or not isinstance(name, str) or not _FUNCTION_NAME_RE.match(name):
+        raise ValueError("function config.name is required (a-z0-9_, 1-64 chars)")
+
+    desc = config.get("description")
+    if not desc or not isinstance(desc, str) or len(desc) > 1000:
+        raise ValueError("function config.description is required (max 1000 chars)")
+
+    params = config.get("parameters")
+    if not isinstance(params, dict) or params.get("type") != "object":
+        raise ValueError("function config.parameters must be a JSON object schema")
+
+    http = config.get("http")
+    if not isinstance(http, dict):
+        raise ValueError("function config.http is required")
+    method = str(http.get("method", "")).upper()
+    if method not in _FUNCTION_METHODS:
+        raise ValueError(f"function config.http.method must be one of {sorted(_FUNCTION_METHODS)}")
+    http["method"] = method
+
+    url = http.get("url")
+    if not url or not isinstance(url, str) or len(url) > 2000:
+        raise ValueError("function config.http.url is required (max 2000 chars)")
+    parts = urlsplit(url)
+    if parts.scheme not in ("https",):
+        raise ValueError("function config.http.url must use https")
+    host = parts.hostname or ""
+    if not host:
+        raise ValueError("function config.http.url must have a hostname")
+    try:
+        import ipaddress
+
+        ipaddress.ip_address(host)
+        raise ValueError("function config.http.url must use a hostname, not an IP literal")
+    except ValueError as exc:
+        if "IP literal" in str(exc):
+            raise
+    headers = http.get("headers")
+    if headers is not None:
+        if not isinstance(headers, dict) or len(headers) > 20:
+            raise ValueError("function config.http.headers must be a dict (max 20)")
+        for k in headers:
+            if k.lower() in ("authorization", "cookie", "proxy-authorization"):
+                raise ValueError(f"function config.http.headers must not include {k}; use auth instead")
+
+
 # Sentinel for system-initiated wakeup patches (§22.6). Never maps to a real
 # user row — authored-snapshot overwrites are skipped when the actor is the system.
 _SYSTEM_ACTOR_ID = uuid.UUID(int=0)
@@ -58,18 +117,13 @@ _SYSTEM_ACTOR_ID = uuid.UUID(int=0)
 # ones. A caller wanting a different cadence — or a deliberately inert agent —
 # passes an explicit config (even an empty {}), which is respected.
 _DEFAULT_WAKEUP_CONFIG: dict[str, Any] = {"triggers": {"every_n_messages": {"enabled": True, "n": 1}}}
-# Built-in tools a NEW agent gets by default — code_exec is omitted so the
-# Code Interpreter is opt-in (the user enables it in the agent editor).
-_DEFAULT_BUILTIN_TOOLS: tuple[str, ...] = ("web_search", "file")
-# Canonical display order for the editor (Code Interpreter is the headline).
-_BUILTIN_TOOL_ORDER: tuple[str, ...] = ("code_exec", "web_search", "file")
 
 
 class AgentService:
     def __init__(self, db: AsyncSession) -> None:
         self._db = db
         self._agents = AgentRepository(db)
-        self._bindings = AgentMcpBindingRepository(db)
+        self._tools = AgentToolRepository(db)
         self._keys = KeysFacade(db)
         self._knowledge = KnowledgeFacade(db)
 
@@ -161,18 +215,7 @@ class AgentService:
             wakeup_authored_snapshot=wakeup,
             workflow_capabilities=draft.workflow_capabilities or {},
         )
-        # Opt-in default for the Code Interpreter: seed explicit builtin bindings
-        # for web_search + file only, so a NEW agent starts with code_exec OFF.
-        # (Existing agents have no builtin bindings and keep the legacy all-on
-        # behaviour — only new agents enter explicit-gating mode here.)
-        for tool in _DEFAULT_BUILTIN_TOOLS:
-            await self._bindings.add(
-                agent_id=agent.id,
-                source=McpSource.BUILTIN,
-                reference=tool,
-                allowed_tools=[],
-                config={},
-            )
+        await self.provision_tool_singletons(agent.id)
         await audit.emit(
             self._db,
             audit.AuditEvent(
@@ -337,182 +380,208 @@ class AgentService:
         )
 
     # ------------------------------------------------------------------
-    # MCP bindings (partial — full surface lands in E.9).
+    # Unified agent tools surface (Phase A)
     # ------------------------------------------------------------------
 
-    async def list_mcp_bindings(self, agent_id: uuid.UUID) -> Sequence[McpBinding]:
-        await self.get(agent_id)  # existence guard
-        return await self._bindings.list(agent_id)
+    async def list_tools(
+        self,
+        agent_id: uuid.UUID,
+        *,
+        limit: int | None = None,
+        offset: int = 0,
+    ) -> list[AgentTool]:
+        await self.get(agent_id)
+        return list(await self._tools.list(agent_id, limit=limit, offset=offset))
 
-    async def add_mcp_binding(
+    async def add_tool(
         self,
         *,
         agent_id: uuid.UUID,
-        source: McpSource,
-        reference: str,
-        allowed_tools: Sequence[str],
-        config: dict[str, Any],
+        tool_type: AgentToolType,
+        display_name: str | None = None,
+        config: dict[str, Any] | None = None,
+        auth: dict[str, Any] | None = None,
         actor_user_id: uuid.UUID,
         actor_ip: str | None,
         request_id: uuid.UUID | None = None,
-    ) -> McpBinding:
+    ) -> AgentTool:
         await self.get(agent_id)
-        binding = await self._bindings.add(
+
+        if tool_type in SINGLETON_TOOL_TYPES:
+            raise AgentToolTypeImmutable(
+                f"singleton tool {tool_type.value} is auto-provisioned; " f"toggle via PATCH /tools/{{id}}"
+            )
+        if tool_type == AgentToolType.LOCAL_SHELL:
+            raise ToolNotAvailable("local_shell is not available yet")
+
+        tool_config = dict(config or {})
+
+        if tool_type == AgentToolType.HOSTED_MCP:
+            src = tool_config.get("source")
+            if src not in ("url", "package"):
+                raise ValueError("hosted_mcp config.source must be 'url' or 'package'")
+            ref = tool_config.get("reference")
+            if not ref or not isinstance(ref, str) or len(ref) > 2000:
+                raise ValueError("hosted_mcp config.reference is required (max 2000 chars)")
+
+        if tool_type == AgentToolType.LOCAL_FUNCTION:
+            _validate_function_config(tool_config)
+
+        tool = await self._tools.add(
             agent_id=agent_id,
-            source=source,
-            reference=reference,
-            allowed_tools=allowed_tools,
-            config=config,
+            tool_type=tool_type,
+            enabled=True,
+            display_name=display_name,
+            config=tool_config,
         )
+
+        if auth:
+            from contexts.agents.application.tool_auth import seal_tool_auth
+
+            sealed = seal_tool_auth(tool.id, auth)
+            tool_config["auth"] = sealed
+            tool = await self._tools.patch(
+                agent_id=agent_id,
+                tool_id=tool.id,
+                config=tool_config,
+            )
+
         await audit.emit(
             self._db,
             audit.AuditEvent(
-                action="agent.mcp_binding_added",
+                action="agent.tool_added",
                 actor_user_id=actor_user_id,
                 actor_ip=actor_ip,
-                resource_type="agent_mcp_binding",
-                resource_id=binding.id,
+                resource_type="agent_tool",
+                resource_id=tool.id,
                 metadata={
                     "agent_id": str(agent_id),
-                    "source": source.value,
-                    "reference": reference,
-                    "allowed_tools": list(allowed_tools),
+                    "tool_type": tool_type.value,
+                    "display_name": display_name,
+                    "auth_set": auth is not None,
                 },
                 request_id=request_id,
             ),
         )
-        return binding
+        return tool
 
-    async def patch_mcp_binding(
+    async def patch_tool(
         self,
         *,
         agent_id: uuid.UUID,
-        binding_id: uuid.UUID,
-        allowed_tools: Sequence[str] | None,
-        config: dict[str, Any] | None,
+        tool_id: uuid.UUID,
+        enabled: bool | None = None,
+        display_name: str | None = None,
+        clear_display_name: bool = False,
+        config: dict[str, Any] | None = None,
+        auth: dict[str, Any] | None = None,
         actor_user_id: uuid.UUID,
         actor_ip: str | None,
         request_id: uuid.UUID | None = None,
-    ) -> McpBinding:
-        await self.get(agent_id)
-        binding = await self._bindings.patch(
+    ) -> AgentTool:
+        agent = await self.get(agent_id)
+        existing = await self._tools.get(agent_id=agent_id, tool_id=tool_id)
+        if existing is None:
+            raise AgentToolNotFound(str(tool_id))
+
+        if (
+            existing.tool_type == AgentToolType.HOSTED_FILE_SEARCH
+            and enabled is True
+            and agent.rag_config_id is None
+        ):
+            raise FileSearchNeedsKnowledge(
+                "attach a knowledge source (RAG config) to the agent before enabling File Search"
+            )
+
+        patch_config = dict(config) if config is not None else None
+
+        if auth:
+            from contexts.agents.application.tool_auth import seal_tool_auth
+
+            sealed = seal_tool_auth(existing.id, auth)
+            if patch_config is None:
+                patch_config = dict(existing.config)
+            patch_config["auth"] = sealed
+
+        tool = await self._tools.patch(
             agent_id=agent_id,
-            binding_id=binding_id,
-            allowed_tools=allowed_tools,
-            config=config,
+            tool_id=tool_id,
+            enabled=enabled,
+            display_name=display_name,
+            clear_display_name=clear_display_name,
+            config=patch_config,
         )
+
         changed: list[str] = []
-        if allowed_tools is not None:
-            changed.append("allowed_tools")
-        if config is not None:
+        if enabled is not None:
+            changed.append("enabled")
+        if display_name is not None or clear_display_name:
+            changed.append("display_name")
+        if config is not None or auth:
             changed.append("config")
-        await audit.emit(
-            self._db,
-            audit.AuditEvent(
-                action="agent.mcp_binding_updated",
-                actor_user_id=actor_user_id,
-                actor_ip=actor_ip,
-                resource_type="agent_mcp_binding",
-                resource_id=binding_id,
-                metadata={
-                    "agent_id": str(agent_id),
-                    "fields": changed,
-                },
-                request_id=request_id,
-            ),
-        )
-        return binding
 
-    async def remove_mcp_binding(
+        if changed:
+            await audit.emit(
+                self._db,
+                audit.AuditEvent(
+                    action="agent.tool_updated",
+                    actor_user_id=actor_user_id,
+                    actor_ip=actor_ip,
+                    resource_type="agent_tool",
+                    resource_id=tool_id,
+                    metadata={
+                        "agent_id": str(agent_id),
+                        "tool_type": existing.tool_type.value,
+                        "fields": changed,
+                    },
+                    request_id=request_id,
+                ),
+            )
+        return tool
+
+    async def remove_tool(
         self,
         *,
         agent_id: uuid.UUID,
-        binding_id: uuid.UUID,
+        tool_id: uuid.UUID,
         actor_user_id: uuid.UUID,
         actor_ip: str | None,
         request_id: uuid.UUID | None = None,
     ) -> None:
         await self.get(agent_id)
-        await self._bindings.remove(agent_id=agent_id, binding_id=binding_id)
-        await audit.emit(
-            self._db,
-            audit.AuditEvent(
-                action="agent.mcp_binding_removed",
-                actor_user_id=actor_user_id,
-                actor_ip=actor_ip,
-                resource_type="agent_mcp_binding",
-                resource_id=binding_id,
-                metadata={"agent_id": str(agent_id)},
-                request_id=request_id,
-            ),
-        )
-
-    # ---- built-in tools (Code Interpreter etc.) --------------------------
-
-    async def get_enabled_builtins(self, agent_id: uuid.UUID) -> list[str]:
-        """The agent's currently-enabled built-in tools, in display order.
-
-        Single source of truth for the gate rule — the editor reads this rather
-        than re-deriving it, so the two can't drift."""
-        from contexts.agents.application.runtime.builtin_tools import _enabled_builtins
-
-        enabled = _enabled_builtins(list(await self._bindings.list(agent_id)))
-        return [t for t in _BUILTIN_TOOL_ORDER if t in enabled]
-
-    async def set_builtin_tools(
-        self,
-        *,
-        agent_id: uuid.UUID,
-        enabled: set[str],
-        actor_user_id: uuid.UUID,
-        actor_ip: str | None,
-        request_id: uuid.UUID | None = None,
-    ) -> list[str]:
-        """Reconcile the agent's builtin MCP bindings to match *enabled*.
-
-        Owns the gate semantics server-side: all three enabled -> no builtin
-        bindings (legacy all-on); none enabled -> a single sentinel binding;
-        otherwise one binding per enabled tool. The ``__none__`` sentinel stays
-        an internal detail here, never an API contract the client must know."""
-        from contexts.agents.application.runtime.builtin_tools import (
-            BUILTIN_NONE_SENTINEL,
-            BUILTIN_TOOL_NAMES,
-        )
-
-        await self.get(agent_id)
-        valid = set(enabled) & set(BUILTIN_TOOL_NAMES)
-        existing = [b for b in await self._bindings.list(agent_id) if b.source is McpSource.BUILTIN]
-        if valid == set(BUILTIN_TOOL_NAMES):
-            target_refs: set[str] = set()
-        elif not valid:
-            target_refs = {BUILTIN_NONE_SENTINEL}
-        else:
-            target_refs = valid
-        existing_refs = {b.reference for b in existing}
-        for reference in target_refs - existing_refs:
-            await self._bindings.add(
-                agent_id=agent_id,
-                source=McpSource.BUILTIN,
-                reference=reference,
-                allowed_tools=[],
-                config={},
+        existing = await self._tools.get(agent_id=agent_id, tool_id=tool_id)
+        if existing is None:
+            raise AgentToolNotFound(str(tool_id))
+        if existing.is_singleton():
+            raise AgentToolTypeImmutable(
+                f"singleton tool {existing.tool_type.value} cannot be deleted; " f"disable via PATCH"
             )
-        for binding in existing:
-            if binding.reference not in target_refs:
-                await self._bindings.remove(agent_id=agent_id, binding_id=binding.id)
+        await self._tools.remove(agent_id=agent_id, tool_id=tool_id)
         await audit.emit(
             self._db,
             audit.AuditEvent(
-                action="agent.builtin_tools_set",
+                action="agent.tool_removed",
                 actor_user_id=actor_user_id,
                 actor_ip=actor_ip,
-                resource_type="agent",
-                resource_id=agent_id,
-                metadata={"agent_id": str(agent_id), "enabled": sorted(valid)},
+                resource_type="agent_tool",
+                resource_id=tool_id,
+                metadata={
+                    "agent_id": str(agent_id),
+                    "tool_type": existing.tool_type.value,
+                },
                 request_id=request_id,
             ),
         )
-        return await self.get_enabled_builtins(agent_id)
+
+    async def provision_tool_singletons(self, agent_id: uuid.UUID) -> None:
+        """Called on agent create — idempotent insertion of the 4 singleton rows."""
+        await self._tools.provision_singletons(
+            agent_id=agent_id,
+            web_search=True,
+            code_interpreter=False,
+            file_workspace=True,
+            file_search_enabled=False,
+        )
 
 
 __all__ = ["AgentService"]

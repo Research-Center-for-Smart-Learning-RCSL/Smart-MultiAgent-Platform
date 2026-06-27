@@ -59,11 +59,9 @@ class HttpxEgressProxyClient:
         params: dict[str, Any] | None = None,
         json_body: Any | None = None,
         timeout_s: float = 20.0,
+        upstream_auth: tuple[str, str] | None = None,
     ) -> tuple[int, dict[str, str], bytes]:
         if not self.shared_secret:
-            # Fail closed: without the shared secret we cannot authenticate to
-            # the proxy, and we must never fall back to a direct (un-proxied)
-            # call. Surfaces as the same domain error the proxy itself returns.
             raise McpEgressDenied("egress proxy shared secret is not configured")
 
         import httpx
@@ -80,6 +78,18 @@ class HttpxEgressProxyClient:
             merged_query = parts.query + sep + urlencode(params)
             target_url = urlunsplit((parts.scheme, parts.netloc, parts.path, merged_query, parts.fragment))
         out_headers[_EGRESS_URL_HEADER] = target_url
+
+        if upstream_auth is not None:
+            auth_name, auth_value = upstream_auth
+            vh = sha256(auth_value.encode()).hexdigest()
+            sig = hmac.new(
+                self.shared_secret,
+                f"{project_id}:auth:{auth_name.lower()}:{vh}".encode("ascii"),
+                sha256,
+            ).hexdigest()
+            out_headers["x-smap-egress-auth-name"] = auth_name
+            out_headers["x-smap-egress-auth-value"] = auth_value
+            out_headers["x-smap-egress-auth-sig"] = sig
 
         try:
             async with httpx.AsyncClient(timeout=timeout_s) as client:

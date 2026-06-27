@@ -79,3 +79,48 @@ export const mcpBindingCreateSchema = z.object({
 })
 
 export type McpBindingCreateInput = z.infer<typeof mcpBindingCreateSchema>
+
+// --- Unified Agent Tools (Phase B) ---
+
+export const mcpToolCreateSchema = z.object({
+  tool_type: z.literal('hosted_mcp'),
+  display_name: z.string().trim().max(200).optional(),
+  config: z.object({
+    source: z.enum(['url', 'package']),
+    reference: z.string().trim().min(1).max(2000),
+    allowed_tools: z.array(z.string().trim().min(1)).default([]),
+  }),
+  auth: z.record(z.unknown()).optional(),
+})
+
+export const functionToolCreateSchema = z.object({
+  tool_type: z.literal('local_function'),
+  display_name: z.string().trim().max(200).optional(),
+  config: z.object({
+    name: z.string().trim().min(1).max(64).regex(/^[a-z0-9_]+$/),
+    description: z.string().trim().min(1).max(1000),
+    parameters: z.record(z.unknown()).default({ type: 'object', properties: {} }),
+    http: z.object({
+      method: z.enum(['GET', 'POST', 'PUT', 'PATCH', 'DELETE']),
+      url: z.string().trim().url().min(1).max(2000),
+      headers: z.record(z.string()).default({}),
+    }),
+  }),
+  auth: z
+    .object({
+      type: z.enum(['bearer', 'header']),
+      token: z.string().optional(),
+      name: z.string().optional(),
+      value: z.string().optional(),
+    })
+    .optional(),
+})
+
+export type FunctionToolCreateInput = z.infer<typeof functionToolCreateSchema>
+
+export const agentToolCreateSchema = z.discriminatedUnion('tool_type', [
+  mcpToolCreateSchema,
+  functionToolCreateSchema,
+])
+
+export type AgentToolCreateInput = z.infer<typeof agentToolCreateSchema>

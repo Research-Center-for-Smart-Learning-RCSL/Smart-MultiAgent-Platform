@@ -25,7 +25,6 @@ from contexts.agents.domain.models import (
     AgentDraft,
     AgentModelHint,
     ContextMode,
-    McpSource,
     PromptStrategy,
 )
 from shared_kernel.auth.context import RequestContext
@@ -131,29 +130,6 @@ class AgentOut(BaseModel):
     deleted_at: str | None
 
 
-class McpBindingCreateIn(BaseModel):
-    source: Literal["builtin", "url", "package"]
-    reference: str = Field(min_length=1, max_length=_MAX_REFERENCE)
-    allowed_tools: list[str] = Field(default_factory=list, max_length=_MAX_ALLOWED_TOOLS)
-    config: dict[str, Any] = Field(default_factory=dict)
-
-
-class McpBindingPatchIn(BaseModel):
-    model_config = {"extra": "forbid"}
-    allowed_tools: list[str] | None = Field(default=None, max_length=_MAX_ALLOWED_TOOLS)
-    config: dict[str, Any] | None = None
-
-
-class McpBindingOut(BaseModel):
-    id: uuid.UUID
-    agent_id: uuid.UUID
-    source: str
-    reference: str
-    allowed_tools: list[str]
-    config: dict[str, Any]
-    created_at: str
-
-
 def _to_agent_out(a) -> AgentOut:
     return AgentOut(
         id=a.id,
@@ -174,18 +150,6 @@ def _to_agent_out(a) -> AgentOut:
         version=a.version,
         created_at=a.created_at.isoformat(),
         deleted_at=a.deleted_at.isoformat() if a.deleted_at else None,
-    )
-
-
-def _to_binding_out(b) -> McpBindingOut:
-    return McpBindingOut(
-        id=b.id,
-        agent_id=b.agent_id,
-        source=b.source.value,
-        reference=b.reference,
-        allowed_tools=list(b.allowed_tools),
-        config=b.config,
-        created_at=b.created_at.isoformat(),
     )
 
 
@@ -397,16 +361,116 @@ async def delete_agent(
 
 
 # ---------------------------------------------------------------------------
-# MCP bindings (subset; full surface in E.9)
+# Unified Agent Tools surface (Phase A — /api/agents/{id}/tools)
 # ---------------------------------------------------------------------------
 
+_MAX_DISPLAY_NAME = 200
 
-@agent_router.get("/{agent_id}/mcp")
-async def list_mcp_bindings(
+
+class AgentToolOut(BaseModel):
+    id: uuid.UUID
+    agent_id: uuid.UUID
+    tool_type: str
+    enabled: bool
+    display_name: str | None
+    config: dict[str, Any]
+    config_warnings: list[str] = []
+    created_at: str
+
+
+_MAX_CONFIG_KEYS = 20
+_MAX_AUTH_KEYS = 10
+
+
+class AgentToolCreateIn(BaseModel):
+    model_config = {"extra": "forbid"}
+    tool_type: Literal["hosted_mcp", "local_function"]
+    display_name: str | None = Field(default=None, max_length=_MAX_DISPLAY_NAME)
+    config: dict[str, Any] = Field(default_factory=dict)
+    auth: dict[str, Any] | None = None
+
+    @field_validator("config")
+    @classmethod
+    def _cap_config(cls, v: dict[str, Any]) -> dict[str, Any]:
+        if len(v) > _MAX_CONFIG_KEYS:
+            raise ValueError(f"config must have at most {_MAX_CONFIG_KEYS} keys")
+        return v
+
+    @field_validator("auth")
+    @classmethod
+    def _cap_auth(cls, v: dict[str, Any] | None) -> dict[str, Any] | None:
+        if v is not None and len(v) > _MAX_AUTH_KEYS:
+            raise ValueError(f"auth must have at most {_MAX_AUTH_KEYS} keys")
+        return v
+
+
+class AgentToolPatchIn(BaseModel):
+    model_config = {"extra": "forbid"}
+    enabled: bool | None = None
+    display_name: str | None = Field(default=None, max_length=_MAX_DISPLAY_NAME)
+    config: dict[str, Any] | None = None
+    auth: dict[str, Any] | None = None
+
+    @field_validator("config")
+    @classmethod
+    def _cap_config(cls, v: dict[str, Any] | None) -> dict[str, Any] | None:
+        if v is not None and len(v) > _MAX_CONFIG_KEYS:
+            raise ValueError(f"config must have at most {_MAX_CONFIG_KEYS} keys")
+        return v
+
+    @field_validator("auth")
+    @classmethod
+    def _cap_auth(cls, v: dict[str, Any] | None) -> dict[str, Any] | None:
+        if v is not None and len(v) > _MAX_AUTH_KEYS:
+            raise ValueError(f"auth must have at most {_MAX_AUTH_KEYS} keys")
+        return v
+
+
+def _to_tool_out(t, *, config_warnings: list[str] | None = None) -> AgentToolOut:
+    cfg = {k: v for k, v in t.config.items() if k not in ("auth", "auth_present")}
+    if "auth" in t.config:
+        cfg["auth_present"] = True
+    return AgentToolOut(
+        id=t.id,
+        agent_id=t.agent_id,
+        tool_type=t.tool_type.value if hasattr(t.tool_type, "value") else str(t.tool_type),
+        enabled=t.enabled,
+        display_name=t.display_name,
+        config=cfg,
+        config_warnings=config_warnings or [],
+        created_at=t.created_at.isoformat(),
+    )
+
+
+async def _function_warnings(db: AsyncSession, project_id: uuid.UUID, tool: Any) -> list[str]:
+    from contexts.agents.domain.models import AgentToolType
+
+    if not hasattr(tool, "tool_type") or tool.tool_type != AgentToolType.LOCAL_FUNCTION:
+        return []
+    http = (tool.config or {}).get("http", {})
+    url = http.get("url", "")
+    if not url:
+        return []
+    from urllib.parse import urlsplit
+
+    from contexts.agents.infrastructure.mcp_repositories import EgressAllowlistRepository
+
+    host = (urlsplit(url).hostname or "").lower()
+    if not host:
+        return []
+    repo = EgressAllowlistRepository(db)
+    if not await repo.is_allowed(project_id=project_id, hostname=host):
+        return [f"host {host} is not on the project egress allowlist"]
+    return []
+
+
+@agent_router.get("/{agent_id}/tools")
+async def list_agent_tools(
     agent_id: uuid.UUID = Path(...),
     principal: Principal = Depends(current_principal),
+    pagination: PaginationParams = Depends(),
     db: AsyncSession = Depends(db_session),
-) -> list[McpBindingOut]:
+) -> list[AgentToolOut]:
     service = AgentService(db)
     agent = await service.get(agent_id)
     from shared_kernel.auth.dependencies import _raise_forbidden, get_role_resolver
@@ -417,76 +481,64 @@ async def list_mcp_bindings(
         roles = await resolver.roles_for(principal, Scope(project_id=agent.project_id))
         if not roles:
             _raise_forbidden("caller is not a member of the agent's project")
-    return [_to_binding_out(b) for b in await service.list_mcp_bindings(agent_id)]
-
-
-@agent_router.post("/{agent_id}/mcp", status_code=status.HTTP_201_CREATED)
-async def add_mcp_binding(
-    body: McpBindingCreateIn,
-    agent_id: uuid.UUID = Path(...),
-    ctx: RequestContext = Depends(current_context),
-    principal: Principal = Depends(current_principal),
-    db: AsyncSession = Depends(db_session),
-) -> McpBindingOut:
-    service = AgentService(db)
-    agent = await service.get(agent_id)
-
-    from shared_kernel.auth.dependencies import _raise_forbidden, get_role_resolver
-    from shared_kernel.auth.permissions import Scope, decide
-
-    resolver = await get_role_resolver(db)
-    decision = await decide(
-        principal,
-        Capability.RESOURCE_CREATE_EDIT,
-        Scope(project_id=agent.project_id),
-        resolver,
-    )
-    if not decision.allowed:
-        _raise_forbidden(decision.reason)
-
-    # A `builtin` binding toggles built-in tools per agent; if it names no known
-    # tool (in `reference` or `allowed_tools`) it would silently disable ALL of
-    # them for the agent (the gate only defaults-on when there are zero builtin
-    # bindings). Reject it at creation rather than let it become a dead binding.
-    # The `__none__` sentinel is the one exception: it lets the editor persist an
-    # explicit "all built-ins off" state (a builtin binding exists -> explicit
-    # mode, but it names no tool so the enabled set is empty).
-    if body.source == "builtin":
-        from contexts.agents.application.runtime.builtin_tools import (
-            BUILTIN_NONE_SENTINEL,
-            BUILTIN_TOOL_NAMES,
+    return [
+        _to_tool_out(t)
+        for t in await service.list_tools(
+            agent_id,
+            limit=pagination.limit,
+            offset=pagination.offset,
         )
+    ]
 
-        named = {body.reference, *body.allowed_tools} & BUILTIN_TOOL_NAMES
-        if not named and body.reference != BUILTIN_NONE_SENTINEL:
-            raise HTTPException(
-                status_code=422,
-                detail=f"builtin MCP binding must name one of {sorted(BUILTIN_TOOL_NAMES)} "
-                f"in reference or allowed_tools (or '{BUILTIN_NONE_SENTINEL}' to disable all)",
-            )
 
-    binding = await service.add_mcp_binding(
+@agent_router.post("/{agent_id}/tools", status_code=status.HTTP_201_CREATED)
+async def add_agent_tool(
+    body: AgentToolCreateIn,
+    agent_id: uuid.UUID = Path(...),
+    ctx: RequestContext = Depends(current_context),
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(db_session),
+) -> AgentToolOut:
+    service = AgentService(db)
+    agent = await service.get(agent_id)
+
+    from contexts.agents.domain.models import AgentToolType
+    from shared_kernel.auth.dependencies import _raise_forbidden, get_role_resolver
+    from shared_kernel.auth.permissions import Scope, decide
+
+    resolver = await get_role_resolver(db)
+    decision = await decide(
+        principal,
+        Capability.RESOURCE_CREATE_EDIT,
+        Scope(project_id=agent.project_id),
+        resolver,
+    )
+    if not decision.allowed:
+        _raise_forbidden(decision.reason)
+
+    tool = await service.add_tool(
         agent_id=agent_id,
-        source=McpSource(body.source),
-        reference=body.reference,
-        allowed_tools=body.allowed_tools,
+        tool_type=AgentToolType(body.tool_type),
+        display_name=body.display_name,
         config=body.config,
+        auth=body.auth,
         actor_user_id=principal.user_id,
         actor_ip=ctx.actor_ip,
         request_id=ctx.request_id,
     )
-    return _to_binding_out(binding)
+    warnings = await _function_warnings(db, agent.project_id, tool)
+    return _to_tool_out(tool, config_warnings=warnings)
 
 
-@agent_router.patch("/{agent_id}/mcp/{binding_id}")
-async def patch_mcp_binding(
-    body: McpBindingPatchIn,
+@agent_router.patch("/{agent_id}/tools/{tool_id}")
+async def patch_agent_tool(
+    body: AgentToolPatchIn,
     agent_id: uuid.UUID = Path(...),
-    binding_id: uuid.UUID = Path(...),
+    tool_id: uuid.UUID = Path(...),
     ctx: RequestContext = Depends(current_context),
     principal: Principal = Depends(current_principal),
     db: AsyncSession = Depends(db_session),
-) -> McpBindingOut:
+) -> AgentToolOut:
     service = AgentService(db)
     agent = await service.get(agent_id)
 
@@ -503,26 +555,31 @@ async def patch_mcp_binding(
     if not decision.allowed:
         _raise_forbidden(decision.reason)
 
-    binding = await service.patch_mcp_binding(
+    fields = body.model_dump(exclude_unset=True)
+    tool = await service.patch_tool(
         agent_id=agent_id,
-        binding_id=binding_id,
-        allowed_tools=body.allowed_tools,
-        config=body.config,
+        tool_id=tool_id,
+        enabled=fields.get("enabled"),
+        display_name=fields.get("display_name"),
+        clear_display_name="display_name" in fields and fields["display_name"] is None,
+        config=fields.get("config"),
+        auth=fields.get("auth"),
         actor_user_id=principal.user_id,
         actor_ip=ctx.actor_ip,
         request_id=ctx.request_id,
     )
-    return _to_binding_out(binding)
+    warnings = await _function_warnings(db, agent.project_id, tool)
+    return _to_tool_out(tool, config_warnings=warnings)
 
 
 @agent_router.delete(
-    "/{agent_id}/mcp/{binding_id}",
+    "/{agent_id}/tools/{tool_id}",
     status_code=status.HTTP_204_NO_CONTENT,
     response_model=None,
 )
-async def delete_mcp_binding(
+async def delete_agent_tool(
     agent_id: uuid.UUID = Path(...),
-    binding_id: uuid.UUID = Path(...),
+    tool_id: uuid.UUID = Path(...),
     ctx: RequestContext = Depends(current_context),
     principal: Principal = Depends(current_principal),
     db: AsyncSession = Depends(db_session),
@@ -543,74 +600,13 @@ async def delete_mcp_binding(
     if not decision.allowed:
         _raise_forbidden(decision.reason)
 
-    await service.remove_mcp_binding(
+    await service.remove_tool(
         agent_id=agent_id,
-        binding_id=binding_id,
+        tool_id=tool_id,
         actor_user_id=principal.user_id,
         actor_ip=ctx.actor_ip,
         request_id=ctx.request_id,
     )
-
-
-class BuiltinToolsIn(BaseModel):
-    enabled: list[str] = Field(default_factory=list, max_length=16)
-
-
-class BuiltinToolsOut(BaseModel):
-    enabled: list[str]
-
-
-@agent_router.get("/{agent_id}/builtin-tools")
-async def get_builtin_tools(
-    agent_id: uuid.UUID = Path(...),
-    principal: Principal = Depends(current_principal),
-    db: AsyncSession = Depends(db_session),
-) -> BuiltinToolsOut:
-    service = AgentService(db)
-    agent = await service.get(agent_id)
-    from shared_kernel.auth.dependencies import _raise_forbidden, get_role_resolver
-    from shared_kernel.auth.permissions import Scope
-
-    if not principal.is_admin:
-        resolver = await get_role_resolver(db)
-        roles = await resolver.roles_for(principal, Scope(project_id=agent.project_id))
-        if not roles:
-            _raise_forbidden("caller is not a member of the agent's project")
-    return BuiltinToolsOut(enabled=await service.get_enabled_builtins(agent_id))
-
-
-@agent_router.put("/{agent_id}/builtin-tools")
-async def set_builtin_tools(
-    body: BuiltinToolsIn,
-    agent_id: uuid.UUID = Path(...),
-    ctx: RequestContext = Depends(current_context),
-    principal: Principal = Depends(current_principal),
-    db: AsyncSession = Depends(db_session),
-) -> BuiltinToolsOut:
-    service = AgentService(db)
-    agent = await service.get(agent_id)
-
-    from shared_kernel.auth.dependencies import _raise_forbidden, get_role_resolver
-    from shared_kernel.auth.permissions import Scope, decide
-
-    resolver = await get_role_resolver(db)
-    decision = await decide(
-        principal,
-        Capability.RESOURCE_CREATE_EDIT,
-        Scope(project_id=agent.project_id),
-        resolver,
-    )
-    if not decision.allowed:
-        _raise_forbidden(decision.reason)
-
-    enabled = await service.set_builtin_tools(
-        agent_id=agent_id,
-        enabled=set(body.enabled),
-        actor_user_id=principal.user_id,
-        actor_ip=ctx.actor_ip,
-        request_id=ctx.request_id,
-    )
-    return BuiltinToolsOut(enabled=enabled)
 
 
 __all__ = ["agent_router", "project_router"]
