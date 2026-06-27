@@ -21,6 +21,7 @@ import {
 import { useSessionStore } from '@shared/stores/session'
 import { useWorkspaceStore } from '@shared/stores/workspace'
 import SidebarChatroomList from './SidebarChatroomList.vue'
+import SidebarGroup from './SidebarGroup.vue'
 
 const { t } = useI18n()
 const route = useRoute()
@@ -33,24 +34,46 @@ interface NavItem {
   route: string
 }
 
-const globalNav = computed<NavItem[]>(() => [
+const workspaceNav = computed<NavItem[]>(() => [
   { icon: BuildingOffice2Icon, label: t('app.sidebar.orgs'), route: '/orgs' },
   { icon: FolderIcon, label: t('app.sidebar.projects'), route: '/projects' },
+])
+
+const personalNav = computed<NavItem[]>(() => [
   { icon: KeyIcon, label: t('app.sidebar.keys'), route: '/keys' },
   { icon: BellIcon, label: t('app.sidebar.notifications'), route: '/notifications' },
   { icon: InboxArrowDownIcon, label: t('app.sidebar.invites'), route: '/invites' },
 ])
 
-const projectNav = computed<NavItem[]>(() => {
+const agentItem = computed<NavItem | null>(() => {
+  const pid = workspace.projectId
+  if (!pid) return null
+  return { icon: CpuChipIcon, label: t('app.sidebar.agents'), route: `/projects/${pid}/agents` }
+})
+
+const knowledgeNav = computed<NavItem[]>(() => {
   const pid = workspace.projectId
   if (!pid) return []
   return [
-    { icon: CpuChipIcon, label: t('app.sidebar.agents'), route: `/projects/${pid}/agents` },
     { icon: DocumentTextIcon, label: t('app.sidebar.ragConfigs'), route: `/projects/${pid}/rag-configs` },
     { icon: CircleStackIcon, label: t('app.sidebar.graphrag'), route: `/projects/${pid}/graphrag-configs` },
+  ]
+})
+
+const projectKeysNav = computed<NavItem[]>(() => {
+  const pid = workspace.projectId
+  if (!pid) return []
+  return [
     { icon: KeyIcon, label: t('app.sidebar.projectKeys'), route: `/projects/${pid}/keys` },
     { icon: RectangleGroupIcon, label: t('app.sidebar.keyGroups'), route: `/projects/${pid}/key-groups` },
     { icon: MagnifyingGlassIcon, label: t('app.sidebar.searchKeys'), route: `/projects/${pid}/search-keys` },
+  ]
+})
+
+const infraNav = computed<NavItem[]>(() => {
+  const pid = workspace.projectId
+  if (!pid) return []
+  return [
     { icon: Square3Stack3DIcon, label: t('app.sidebar.workspaces'), route: `/projects/${pid}/workspaces` },
     { icon: ShieldCheckIcon, label: t('app.sidebar.mcpAllowlist'), route: `/projects/${pid}/mcp/egress-allowlist` },
   ]
@@ -68,10 +91,13 @@ function isActive(path: string): boolean {
     class="sidebar"
   >
     <nav class="sidebar__nav">
-      <!-- Section 1: Global Navigation -->
-      <div class="sidebar__section">
+      <!-- Global — Workspace -->
+      <SidebarGroup
+        :label="t('app.sidebar.groupWorkspace')"
+        storage-key="workspace"
+      >
         <RouterLink
-          v-for="item in globalNav"
+          v-for="item in workspaceNav"
           :key="item.route"
           :to="item.route"
           class="nav-item"
@@ -83,17 +109,61 @@ function isActive(path: string): boolean {
           />
           <span class="nav-label">{{ item.label }}</span>
         </RouterLink>
-      </div>
+      </SidebarGroup>
 
-      <!-- Section 2: Project Context -->
+      <!-- Global — Personal -->
+      <SidebarGroup
+        :label="t('app.sidebar.groupPersonal')"
+        storage-key="personal"
+      >
+        <RouterLink
+          v-for="item in personalNav"
+          :key="item.route"
+          :to="item.route"
+          class="nav-item"
+          :class="{ 'nav-item--active': isActive(item.route) }"
+        >
+          <component
+            :is="item.icon"
+            class="nav-icon"
+          />
+          <span class="nav-label">{{ item.label }}</span>
+        </RouterLink>
+      </SidebarGroup>
+
+      <!-- Project Context -->
       <template v-if="workspace.hasProject">
         <div class="sidebar__divider" />
-        <div class="sidebar__section">
-          <div class="section-header">
-            {{ t('app.sidebar.projectContext') }}
-          </div>
+
+        <div class="section-header">
+          {{ t('app.sidebar.projectContext') }}
+        </div>
+
+        <!-- Agents — standalone -->
+        <div
+          v-if="agentItem"
+          class="sidebar__section"
+        >
           <RouterLink
-            v-for="item in projectNav"
+            :to="agentItem.route"
+            class="nav-item"
+            :class="{ 'nav-item--active': isActive(agentItem.route) }"
+          >
+            <component
+              :is="agentItem.icon"
+              class="nav-icon"
+            />
+            <span class="nav-label">{{ agentItem.label }}</span>
+          </RouterLink>
+        </div>
+
+        <!-- Knowledge -->
+        <SidebarGroup
+          :label="t('app.sidebar.groupKnowledge')"
+          storage-key="knowledge"
+        >
+          <RouterLink
+            v-for="item in knowledgeNav"
             :key="item.route"
             :to="item.route"
             class="nav-item"
@@ -105,14 +175,55 @@ function isActive(path: string): boolean {
             />
             <span class="nav-label">{{ item.label }}</span>
           </RouterLink>
-        </div>
+        </SidebarGroup>
 
-        <!-- Section 3: Recent Chatrooms -->
+        <!-- Keys -->
+        <SidebarGroup
+          :label="t('app.sidebar.groupKeys')"
+          storage-key="project-keys"
+        >
+          <RouterLink
+            v-for="item in projectKeysNav"
+            :key="item.route"
+            :to="item.route"
+            class="nav-item"
+            :class="{ 'nav-item--active': isActive(item.route) }"
+          >
+            <component
+              :is="item.icon"
+              class="nav-icon"
+            />
+            <span class="nav-label">{{ item.label }}</span>
+          </RouterLink>
+        </SidebarGroup>
+
+        <!-- Infrastructure (default collapsed) -->
+        <SidebarGroup
+          :label="t('app.sidebar.groupInfra')"
+          storage-key="infra"
+          :default-collapsed="true"
+        >
+          <RouterLink
+            v-for="item in infraNav"
+            :key="item.route"
+            :to="item.route"
+            class="nav-item"
+            :class="{ 'nav-item--active': isActive(item.route) }"
+          >
+            <component
+              :is="item.icon"
+              class="nav-icon"
+            />
+            <span class="nav-label">{{ item.label }}</span>
+          </RouterLink>
+        </SidebarGroup>
+
+        <!-- Recent Chatrooms -->
         <div class="sidebar__divider" />
         <SidebarChatroomList />
       </template>
 
-      <!-- Section 4: Admin -->
+      <!-- Admin -->
       <template v-if="session.me?.is_admin">
         <div class="sidebar__divider" />
         <div class="sidebar__section">
