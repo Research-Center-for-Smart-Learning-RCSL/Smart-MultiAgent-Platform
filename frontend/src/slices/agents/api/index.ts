@@ -164,6 +164,7 @@ export interface AgentTool {
   enabled: boolean
   display_name: string | null
   config: Record<string, unknown>
+  config_warnings: string[]
   created_at: string
 }
 

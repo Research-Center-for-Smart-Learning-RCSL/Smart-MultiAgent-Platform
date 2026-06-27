@@ -19,20 +19,30 @@ from __future__ import annotations
 import json
 import logging
 import uuid
-from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Protocol
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.agents.application.runtime.tool_registry import Tool, ToolResult
 from contexts.agents.domain.mcp import SearchResult
-from contexts.agents.domain.models import Agent, McpBinding, McpSource
+from contexts.agents.domain.models import Agent, AgentTool, AgentToolType
 
 logger = logging.getLogger(__name__)
 
 # Per-tool output caps so a chatty tool can't blow the context window.
 _MAX_TOOL_OUTPUT = 16_000
+
+
+class RagProviderProto(Protocol):
+    async def query(
+        self,
+        *,
+        rag_config_id: uuid.UUID | None,
+        query_text: str | None,
+        agent_id: uuid.UUID | None = ...,
+        top_k: int | None = ...,
+    ) -> Any: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -45,6 +55,7 @@ class BuiltinToolDeps:
     adapters: dict[Any, Any]  # {SearchProvider: SearchAdapter}
     cache: Any  # SearchCache
     rate_limiter: Any  # SearchRateLimiter
+    rag_provider: RagProviderProto | None = None
 
 
 def default_builtin_deps() -> BuiltinToolDeps:
@@ -223,52 +234,98 @@ def _build_file_tool(db: AsyncSession, *, agent: Agent, deps: BuiltinToolDeps) -
     )
 
 
-def _mcp_tool_name(binding: McpBinding, tool: str) -> str:
-    """Namespaced so two bindings exposing the same tool name don't collide."""
-    return f"mcp__{str(binding.id)[:8]}__{tool}"
+_FILE_SEARCH_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "query": {"type": "string", "description": "What to search the agent's files for."},
+        "top_k": {"type": "integer", "description": "Max passages to return (1-20)."},
+    },
+    "required": ["query"],
+    "additionalProperties": False,
+}
 
 
-def _build_mcp_tool(
-    db: AsyncSession,
-    *,
-    agent: Agent,
-    binding: McpBinding,
-    tool: str,
-    deps: BuiltinToolDeps,
+def _build_file_search_tool(
+    db: AsyncSession, *, agent: Agent, deps: BuiltinToolDeps, config: dict[str, Any]
 ) -> Tool:
     async def _invoke(args: dict[str, Any]) -> ToolResult:
-        auth = _unseal_binding_auth(binding)
+        if agent.rag_config_id is None:
+            return ToolResult(
+                content="file_search unavailable: no knowledge source configured for this agent.",
+                is_error=True,
+            )
+        if deps.rag_provider is None:
+            return ToolResult(content="file_search unavailable: RAG provider not configured.", is_error=True)
+        default_top_k = config.get("top_k", 8)
+        top_k = min(max(int(args.get("top_k") or default_top_k), 1), 20)
         try:
-            res = await deps.runner.invoke_mcp_tool(
+            ctx = await deps.rag_provider.query(
+                rag_config_id=agent.rag_config_id,
+                query_text=str(args.get("query", "")),
                 agent_id=agent.id,
-                binding_id=binding.id,
-                tool_name=tool,
-                arguments=dict(args),
-                project_id=agent.project_id,
-                source=binding.source.value,
-                reference=binding.reference,
-                auth=auth,
+                top_k=top_k,
             )
         except Exception as exc:
-            await _audit_mcp_invoke(db, agent, binding, tool, ok=False)
-            return ToolResult(content=f"mcp tool {tool} failed: {exc}", is_error=True)
-        await _audit_mcp_invoke(db, agent, binding, tool, ok=res.ok)
-        body = res.stdout if res.ok else f"{res.stdout}\n[stderr]\n{res.stderr}".strip()
-        return ToolResult(content=_clip(body or "(no output)"), is_error=not res.ok)
+            return ToolResult(content=f"file_search failed: {exc}", is_error=True)
+        if ctx is None or not ctx.sources:
+            return ToolResult(content="No matching passages found in the agent's files.")
+        return ToolResult(content=_clip(_format_passages(ctx)))
 
     return Tool(
-        name=_mcp_tool_name(binding, tool),
-        description=f"MCP tool '{tool}' from bound server {binding.reference}.",
-        input_schema={"type": "object", "additionalProperties": True},
+        name="file_search",
+        description="Search files uploaded for this agent and return relevant passages with citations.",
+        input_schema=_FILE_SEARCH_SCHEMA,
         invoke=_invoke,
     )
 
 
-async def _audit_mcp_invoke(
-    db: AsyncSession, agent: Agent, binding: McpBinding, tool: str, *, ok: bool
+def _format_passages(ctx: Any) -> str:
+    """Render RAG context as numbered passages the model can cite."""
+    lines: list[str] = []
+    for i, src in enumerate(ctx.sources, 1):
+        filename = src.get("filename") or "unknown"
+        score = src.get("score", 0)
+        lines.append(f"[{i}] {filename} (score: {score})")
+    lines.append("")
+    lines.append(ctx.block)
+    return "\n".join(lines)
+
+
+AgentToolDeps = BuiltinToolDeps
+
+_FUNCTION_RATE_LIMIT_PER_MINUTE = 60
+
+
+def _unseal_tool_auth_safe(tool: AgentTool) -> dict[str, Any] | None:
+    sealed = tool.config.get("auth") if isinstance(tool.config, dict) else None
+    if not sealed or not isinstance(sealed, dict) or not sealed.get("__sealed__"):
+        return None
+    try:
+        from contexts.agents.application.tool_auth import unseal_tool_auth
+
+        return unseal_tool_auth(tool.id, sealed)
+    except Exception:
+        logger.error("Failed to unseal tool auth for %s", tool.id, exc_info=True)
+        return None
+
+
+def _auth_pair(auth: dict[str, Any] | None) -> tuple[str, str] | None:
+    if not auth:
+        return None
+    auth_type = auth.get("type")
+    if auth_type == "bearer":
+        token = auth.get("token", "")
+        return ("Authorization", f"Bearer {token}") if token else None
+    if auth_type == "header":
+        name = auth.get("name", "")
+        value = auth.get("value", "")
+        return (name, value) if name and value else None
+    return None
+
+
+async def _audit_tool_invoke(
+    db: AsyncSession, agent: Agent, tool: AgentTool, mcp_tool: str, *, ok: bool
 ) -> None:
-    """Per-call MCP tool audit (R12.02/R12.15). Best-effort: an audit hiccup
-    must not abort the tool call or the turn."""
     try:
         from shared_kernel import audit
 
@@ -279,116 +336,211 @@ async def _audit_mcp_invoke(
                 resource_type="agent",
                 resource_id=agent.id,
                 metadata={
-                    "binding_id": str(binding.id),
-                    "reference": binding.reference,
-                    "tool": tool,
+                    "tool_id": str(tool.id),
+                    "reference": tool.mcp_reference(),
+                    "tool": mcp_tool,
                     "ok": ok,
                 },
             ),
         )
-    except Exception:  # pragma: no cover - audit is best-effort
-        logger.warning("Failed to write MCP audit event", exc_info=True)
+    except Exception:  # pragma: no cover
+        logger.warning("Failed to write tool audit event", exc_info=True)
 
 
-def _unseal_binding_auth(binding: McpBinding) -> dict[str, Any] | None:
-    """Decrypt the binding's sealed auth for the sandbox, best-effort.
-
-    The plaintext is handed only to the gVisor container (env), never logged.
-    Mirrors ``McpBindingService.test``'s unseal path."""
-    sealed = binding.config.get("auth") if isinstance(binding.config, dict) else None
-    if not sealed:
-        return None
-    try:
-        from contexts.agents.application.mcp_service import unseal_auth
-
-        return unseal_auth(binding.id, sealed)
-    except Exception:
-        logger.error("Failed to unseal MCP binding auth", exc_info=True)
-        return None
+def _mcp_tool_name_from_agent_tool(tool: AgentTool, mcp_tool: str) -> str:
+    return f"mcp__{str(tool.id)[:8]}__{mcp_tool}"
 
 
-# Single source of truth for the built-in tools, in a stable order: name → its
-# builder. `BUILTIN_TOOL_NAMES` (public) is derived from it and reused by the
-# binding-creation validator so a builtin binding can't name a non-tool.
-_BUILTIN_BUILDERS: dict[str, Callable[..., Tool]] = {
-    "web_search": _build_web_search_tool,
-    "code_exec": _build_code_exec_tool,
-    "file": _build_file_tool,
-}
-BUILTIN_TOOL_NAMES = frozenset(_BUILTIN_BUILDERS)
-
-# Sentinel a builtin binding can carry in ``reference`` to mean "explicit mode,
-# but no built-in enabled". Lets the editor represent an all-off state, which a
-# bare absence of builtin bindings (legacy all-on) otherwise cannot express.
-BUILTIN_NONE_SENTINEL = "__none__"
-
-
-def _enabled_builtins(mcp_bindings: list[McpBinding]) -> set[str]:
-    """Which built-in tools (web_search/code_exec/file) an agent has enabled.
-
-    Per-agent gating (R12.01/R12.10/§12.1): an agent enables a built-in by holding
-    a ``source='builtin'`` MCP binding that names it — in ``reference`` (one tool
-    per binding, the editor's convention) or in ``allowed_tools``.
-
-    Back-compat: an agent with NO builtin-source binding keeps all three on (the
-    historical default), so existing agents are unaffected; once it has at least
-    one builtin binding, only the named tools are exposed.
-    """
-    builtin_bindings = [b for b in mcp_bindings if b.source == McpSource.BUILTIN]
-    if not builtin_bindings:
-        return set(BUILTIN_TOOL_NAMES)
-    enabled: set[str] = set()
-    for b in builtin_bindings:
-        if b.reference in BUILTIN_TOOL_NAMES:
-            enabled.add(b.reference)
-        enabled.update(t for t in b.allowed_tools if t in BUILTIN_TOOL_NAMES)
-    return enabled
-
-
-def build_builtin_tools(
+def _build_mcp_tool_from_agent_tool(
     db: AsyncSession,
     *,
     agent: Agent,
-    mcp_bindings: list[McpBinding],
+    tool: AgentTool,
+    mcp_tool: str,
+    deps: BuiltinToolDeps,
+) -> Tool:
+    async def _invoke(args: dict[str, Any]) -> ToolResult:
+        from contexts.agents.application.tool_auth import unseal_tool_auth
+
+        sealed = tool.config.get("auth") if isinstance(tool.config, dict) else None
+        auth = None
+        if sealed and isinstance(sealed, dict) and sealed.get("__sealed__"):
+            try:
+                auth = unseal_tool_auth(tool.id, sealed)
+            except Exception:
+                logger.error("Failed to unseal tool auth", exc_info=True)
+        try:
+            res = await deps.runner.invoke_mcp_tool(
+                agent_id=agent.id,
+                binding_id=tool.id,
+                tool_name=mcp_tool,
+                arguments=dict(args),
+                project_id=agent.project_id,
+                source=tool.mcp_source(),
+                reference=tool.mcp_reference(),
+                auth=auth,
+            )
+        except Exception as exc:
+            await _audit_tool_invoke(db, agent, tool, mcp_tool, ok=False)
+            return ToolResult(content=f"mcp tool {mcp_tool} failed: {exc}", is_error=True)
+        await _audit_tool_invoke(db, agent, tool, mcp_tool, ok=res.ok)
+        body = res.stdout if res.ok else f"{res.stdout}\n[stderr]\n{res.stderr}".strip()
+        return ToolResult(content=_clip(body or "(no output)"), is_error=not res.ok)
+
+    return Tool(
+        name=_mcp_tool_name_from_agent_tool(tool, mcp_tool),
+        description=f"MCP tool '{mcp_tool}' from bound server {tool.mcp_reference()}.",
+        input_schema={"type": "object", "additionalProperties": True},
+        invoke=_invoke,
+    )
+
+
+def _build_function_tool(
+    db: AsyncSession,
+    *,
+    agent: Agent,
+    tool: AgentTool,
+    deps: BuiltinToolDeps,
+) -> Tool:
+    cfg = tool.config
+    http_cfg = cfg.get("http", {})
+    fn_name = str(cfg.get("name", tool.display_name or f"fn_{str(tool.id)[:8]}"))
+    fn_desc = str(cfg.get("description", ""))
+    fn_params = cfg.get("parameters", {"type": "object", "additionalProperties": True})
+
+    async def _invoke(args: dict[str, Any]) -> ToolResult:
+        from urllib.parse import urlsplit
+
+        from contexts.agents.domain.errors import McpEgressDenied
+        from contexts.agents.infrastructure.mcp_repositories import EgressAllowlistRepository
+
+        url = str(http_cfg.get("url", ""))
+        host = (urlsplit(url).hostname or "").lower()
+        if not await EgressAllowlistRepository(db).is_allowed(
+            project_id=agent.project_id,
+            hostname=host,
+        ):
+            return ToolResult(
+                content=f"function blocked: host {host} is not on the project egress allowlist.",
+                is_error=True,
+            )
+
+        # Rate limit (fixed-window, same pattern as web search).
+        try:
+            import time as _time
+
+            from shared_kernel.auth.clients import get_redis
+
+            redis = get_redis()
+            window = int(_time.time()) // 60
+            rl_key = f"function:rl:{agent.project_id}:{window}"
+            pipe = redis.pipeline(transaction=False)
+            pipe.incr(rl_key, 1)
+            pipe.expire(rl_key, 70)
+            rl_results = await pipe.execute()
+            if int(rl_results[0]) > _FUNCTION_RATE_LIMIT_PER_MINUTE:
+                return ToolResult(content="function rate limit exceeded (60/min/project).", is_error=True)
+        except Exception:
+            logger.debug("function rate-limiter failed", exc_info=True)
+
+        headers = dict(http_cfg.get("headers") or {})
+        auth = _unseal_tool_auth_safe(tool)
+        upstream_auth = _auth_pair(auth)
+        method = str(http_cfg.get("method", "GET")).upper()
+
+        try:
+            if method in ("GET", "DELETE"):
+                status, _h, body = await deps.proxy.request(
+                    method=method,
+                    url=url,
+                    project_id=agent.project_id,
+                    headers=headers,
+                    params=dict(args),
+                    upstream_auth=upstream_auth,
+                    timeout_s=30.0,
+                )
+            else:
+                status, _h, body = await deps.proxy.request(
+                    method=method,
+                    url=url,
+                    project_id=agent.project_id,
+                    headers=headers,
+                    json_body=dict(args),
+                    upstream_auth=upstream_auth,
+                    timeout_s=30.0,
+                )
+        except McpEgressDenied:
+            await _audit_tool_invoke(db, agent, tool, fn_name, ok=False)
+            return ToolResult(content="function blocked by egress policy.", is_error=True)
+        except Exception as exc:
+            await _audit_tool_invoke(db, agent, tool, fn_name, ok=False)
+            return ToolResult(content=f"function call failed: {exc}", is_error=True)
+
+        ok = 200 <= status < 400
+        await _audit_tool_invoke(db, agent, tool, fn_name, ok=ok)
+        text = body.decode("utf-8", "replace")
+        return ToolResult(content=_clip(f"HTTP {status}\n{text}"), is_error=not ok)
+
+    return Tool(name=fn_name, description=fn_desc, input_schema=fn_params, invoke=_invoke)
+
+
+def build_agent_tools(
+    db: AsyncSession,
+    *,
+    agent: Agent,
+    tools: list[AgentTool],
     deps: BuiltinToolDeps,
     chatroom_id: uuid.UUID | None = None,
     artifact_sink: list[dict[str, Any]] | None = None,
 ) -> list[Tool]:
-    """Assemble the agent's enabled built-in tools + its MCP server tools (K.5).
+    """Assemble the agent's enabled tools from the unified ``agent_tools`` table.
 
-    Built-ins are gated per-agent via ``_enabled_builtins``; builtin-source
-    bindings are NEVER routed to the MCP sandbox runner (they have no remote
-    server) — only url/package bindings produce sandboxed MCP tools.
-
-    ``chatroom_id`` / ``artifact_sink`` are threaded only into ``code_exec`` so
-    that a chat turn runs against the room's persistent kernel and any produced
-    artifacts are collected for the reply (both ``None`` for headless A2A turns).
+    Dispatches by ``tool_type``; disabled rows and ``local_shell`` are skipped.
+    ``hosted_file_search`` and ``local_function`` are stub cases — their builders
+    land in Phases C and E respectively.
     """
-    enabled = _enabled_builtins(mcp_bindings)
-    tools: list[Tool] = []
-    for name, builder in _BUILTIN_BUILDERS.items():
-        if name not in enabled:
+    out: list[Tool] = []
+    for t in tools:
+        if not t.enabled:
             continue
-        if name == "code_exec":
-            tools.append(
-                _build_code_exec_tool(
-                    db, agent=agent, deps=deps, chatroom_id=chatroom_id, artifact_sink=artifact_sink
+        match t.tool_type:
+            case AgentToolType.HOSTED_WEB_SEARCH:
+                out.append(_build_web_search_tool(db, agent=agent, deps=deps))
+            case AgentToolType.HOSTED_CODE_INTERPRETER:
+                out.append(
+                    _build_code_exec_tool(
+                        db,
+                        agent=agent,
+                        deps=deps,
+                        chatroom_id=chatroom_id,
+                        artifact_sink=artifact_sink,
+                    )
                 )
-            )
-        else:
-            tools.append(builder(db, agent=agent, deps=deps))
-    for binding in mcp_bindings:
-        if binding.source == McpSource.BUILTIN:
-            continue
-        for tool_name in binding.allowed_tools:
-            tools.append(_build_mcp_tool(db, agent=agent, binding=binding, tool=tool_name, deps=deps))
-    return tools
+            case AgentToolType.HOSTED_FILE_WORKSPACE:
+                out.append(_build_file_tool(db, agent=agent, deps=deps))
+            case AgentToolType.HOSTED_FILE_SEARCH:
+                out.append(_build_file_search_tool(db, agent=agent, deps=deps, config=t.config))
+            case AgentToolType.HOSTED_MCP:
+                for mcp_tool_name in t.mcp_allowed_tools():
+                    out.append(
+                        _build_mcp_tool_from_agent_tool(
+                            db,
+                            agent=agent,
+                            tool=t,
+                            mcp_tool=mcp_tool_name,
+                            deps=deps,
+                        )
+                    )
+            case AgentToolType.LOCAL_FUNCTION:
+                out.append(_build_function_tool(db, agent=agent, tool=t, deps=deps))
+            case AgentToolType.LOCAL_SHELL:
+                continue
+    return out
 
 
 __all__ = [
-    "BUILTIN_NONE_SENTINEL",
-    "BUILTIN_TOOL_NAMES",
+    "AgentToolDeps",
     "BuiltinToolDeps",
-    "build_builtin_tools",
+    "build_agent_tools",
     "default_builtin_deps",
 ]

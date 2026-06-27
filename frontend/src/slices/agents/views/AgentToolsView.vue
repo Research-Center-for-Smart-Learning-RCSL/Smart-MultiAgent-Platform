@@ -7,6 +7,7 @@ import { useForm } from 'vee-validate'
 import { toTypedSchema } from '@vee-validate/zod'
 import {
   ArrowUpTrayIcon,
+  BoltIcon,
   PlusIcon,
   TrashIcon,
   PencilSquareIcon,
@@ -14,6 +15,7 @@ import {
   ServerIcon,
   EllipsisVerticalIcon,
   DocumentIcon,
+  ExclamationTriangleIcon,
 } from '@heroicons/vue/24/outline'
 import {
   SPageHeader,
@@ -42,7 +44,8 @@ import {
   type WorkspaceFile,
 } from '../api'
 import { agentKeys } from '../queries'
-import { mcpToolCreateSchema } from '../types/schemas'
+import { mcpToolCreateSchema, functionToolCreateSchema } from '../types/schemas'
+import type { FunctionToolCreateInput } from '../types/schemas'
 import { useToolTest } from '../composables/useToolTest'
 import type { Column } from '@shared/ui/STable.vue'
 
@@ -393,6 +396,212 @@ const mcpColumns = computed<Column[]>(() => [
 const mcpAccordionItems = computed(() => [
   { key: 'config', title: t('agents.tools.mcp.advancedConfig') },
 ])
+
+// --- Function Add / Edit modal ---
+const showFnModal = ref(false)
+const editingFn = ref<AgentTool | null>(null)
+const isEditingFn = computed(() => !!editingFn.value)
+
+const fnSchema = toTypedSchema(functionToolCreateSchema)
+const {
+  handleSubmit: handleFnSubmit,
+  errors: fnErrors,
+  defineField: defineFnField,
+  resetForm: resetFnForm,
+} = useForm<FunctionToolCreateInput>({
+  validationSchema: fnSchema,
+  initialValues: {
+    tool_type: 'local_function',
+    config: {
+      name: '',
+      description: '',
+      parameters: { type: 'object', properties: {} },
+      http: { method: 'POST', url: '', headers: {} },
+    },
+  },
+})
+
+const [fnName] = defineFnField('config.name')
+const [fnDescription] = defineFnField('config.description')
+const [fnMethod] = defineFnField('config.http.method')
+const [fnUrl] = defineFnField('config.http.url')
+const fnParamsJson = ref('{\n  "type": "object",\n  "properties": {}\n}')
+const fnParamsError = ref<string | null>(null)
+const fnAuthType = ref<'none' | 'bearer' | 'header'>('none')
+const fnAuthToken = ref('')
+const fnAuthHeaderName = ref('')
+const fnAuthHeaderValue = ref('')
+
+function openFnAddModal(): void {
+  editingFn.value = null
+  resetFnForm()
+  fnParamsJson.value = '{\n  "type": "object",\n  "properties": {}\n}'
+  fnParamsError.value = null
+  fnAuthType.value = 'none'
+  fnAuthToken.value = ''
+  fnAuthHeaderName.value = ''
+  fnAuthHeaderValue.value = ''
+  showFnModal.value = true
+}
+
+function openFnEditModal(tool: AgentTool): void {
+  editingFn.value = tool
+  const cfg = tool.config as Record<string, unknown>
+  const http = (cfg.http ?? {}) as Record<string, unknown>
+  resetFnForm({
+    values: {
+      tool_type: 'local_function',
+      config: {
+        name: (cfg.name as string) ?? '',
+        description: (cfg.description as string) ?? '',
+        parameters: (cfg.parameters ?? { type: 'object', properties: {} }) as Record<string, unknown>,
+        http: {
+          method: ((http.method as string) ?? 'POST') as 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE',
+          url: (http.url as string) ?? '',
+          headers: (http.headers ?? {}) as Record<string, string>,
+        },
+      },
+    },
+  })
+  fnParamsJson.value = JSON.stringify(cfg.parameters ?? { type: 'object', properties: {} }, null, 2)
+  fnParamsError.value = null
+  fnAuthType.value = cfg.auth_present ? 'bearer' : 'none'
+  fnAuthToken.value = ''
+  fnAuthHeaderName.value = ''
+  fnAuthHeaderValue.value = ''
+  showFnModal.value = true
+}
+
+const { applyServerErrors: applyFnErrors } = useServerErrors(
+  (errs: Record<string, string>) => {
+    for (const [k, v] of Object.entries(errs)) {
+      fnErrors.value = { ...fnErrors.value, [k]: v }
+    }
+  },
+)
+
+const createFnMutation = useMutation({
+  mutationFn: async (payload: FunctionToolCreateInput) =>
+    (await agentsApi.addTool(agentId, payload as unknown as Parameters<typeof agentsApi.addTool>[1])).data,
+  onSuccess: () => {
+    qc.invalidateQueries({ queryKey: agentKeys.tools(agentId) })
+    showFnModal.value = false
+    toast.success(t('agents.tools.functions.created'))
+  },
+  onError: (err) => {
+    if (!applyFnErrors(err)) toast.error(t('agents.tools.functions.createFailed'))
+  },
+})
+
+const patchFnMutation = useMutation({
+  mutationFn: async (vars: { toolId: string; payload: AgentToolPatchInput }) =>
+    (await agentsApi.patchTool(agentId, vars.toolId, vars.payload)).data,
+  onSuccess: () => {
+    qc.invalidateQueries({ queryKey: agentKeys.tools(agentId) })
+    showFnModal.value = false
+    toast.success(t('agents.tools.functions.updated'))
+  },
+  onError: (err) => {
+    if (!applyFnErrors(err)) toast.error(t('agents.tools.functions.createFailed'))
+  },
+})
+
+const fnSubmitting = computed(
+  () => createFnMutation.isPending.value || patchFnMutation.isPending.value,
+)
+
+const onFnSubmit = handleFnSubmit((values) => {
+  let params: Record<string, unknown>
+  try {
+    params = JSON.parse(fnParamsJson.value) as Record<string, unknown>
+    if (typeof params !== 'object' || params === null) throw new Error()
+  } catch {
+    fnParamsError.value = 'Must be valid JSON'
+    return
+  }
+  fnParamsError.value = null
+
+  const authPayload: Record<string, unknown> | undefined =
+    fnAuthType.value === 'bearer'
+      ? { type: 'bearer', token: fnAuthToken.value }
+      : fnAuthType.value === 'header'
+        ? { type: 'header', name: fnAuthHeaderName.value, value: fnAuthHeaderValue.value }
+        : undefined
+
+  const editing = editingFn.value
+  if (editing) {
+    patchFnMutation.mutate({
+      toolId: editing.id,
+      payload: {
+        config: { ...values.config, parameters: params },
+        ...(authPayload ? { auth: authPayload } : {}),
+      },
+    })
+  } else {
+    createFnMutation.mutate({
+      ...values,
+      config: { ...values.config, parameters: params },
+      auth: authPayload,
+    } as FunctionToolCreateInput)
+  }
+})
+
+const deleteFnMutation = useMutation({
+  mutationFn: (toolId: string) => agentsApi.deleteTool(agentId, toolId),
+  onSuccess: () => {
+    qc.invalidateQueries({ queryKey: agentKeys.tools(agentId) })
+    toast.success(t('agents.tools.functions.deleted'))
+  },
+  onError: () => toast.error(t('agents.tools.functions.deleteFailed')),
+})
+
+async function confirmDeleteFn(tool: AgentTool): Promise<void> {
+  const name = (tool.config as Record<string, unknown>).name as string ?? tool.display_name ?? ''
+  const ok = await confirm({
+    title: t('agents.tools.functions.deleteTitle'),
+    message: t('agents.tools.functions.deleteConfirm', { name }),
+    variant: 'warning',
+  })
+  if (!ok) return
+  deleteFnMutation.mutate(tool.id)
+}
+
+function onFnAction(key: string, row: AgentTool): void {
+  if (key === 'test') runTest(row.id)
+  else if (key === 'edit') openFnEditModal(row)
+  else if (key === 'delete') void confirmDeleteFn(row)
+}
+
+const fnActionItems = computed(() => [
+  { key: 'test', label: t('agents.tools.functions.test'), icon: PlayIcon },
+  { key: 'edit', label: t('common.edit', 'Edit'), icon: PencilSquareIcon },
+  { key: 'divider', label: '', divider: true },
+  { key: 'delete', label: t('agents.tools.functions.deleteTitle'), icon: TrashIcon, danger: true },
+])
+
+const fnMethodOptions = computed(() => [
+  { value: 'GET', label: 'GET' },
+  { value: 'POST', label: 'POST' },
+  { value: 'PUT', label: 'PUT' },
+  { value: 'PATCH', label: 'PATCH' },
+  { value: 'DELETE', label: 'DELETE' },
+])
+
+const fnAuthOptions = computed(() => [
+  { value: 'none', label: t('agents.tools.functions.authNone') },
+  { value: 'bearer', label: t('agents.tools.functions.authBearer') },
+  { value: 'header', label: t('agents.tools.functions.authHeader') },
+])
+
+function fnHost(tool: AgentTool): string {
+  const http = (tool.config as Record<string, unknown>).http as Record<string, unknown> | undefined
+  if (!http) return ''
+  try {
+    return new URL(http.url as string).hostname
+  } catch {
+    return ''
+  }
+}
 </script>
 
 <template>
@@ -620,20 +829,92 @@ const mcpAccordionItems = computed(() => [
         {{ t('agents.tools.local.subtitle') }}
       </p>
 
-      <!-- Functions (Phase E fills this out) -->
+      <!-- Functions -->
       <SCard class="mt-4">
-        <h3 class="text-sm font-semibold text-[var(--color-fg)]">
-          {{ t('agents.tools.functions.label') }}
-        </h3>
-        <p class="text-xs text-[var(--color-muted)]">
-          {{ t('agents.tools.functions.description') }}
-        </p>
+        <div class="flex items-center justify-between mb-3">
+          <div>
+            <h3 class="text-sm font-semibold text-[var(--color-fg)]">
+              {{ t('agents.tools.functions.label') }}
+            </h3>
+            <p class="text-xs text-[var(--color-muted)]">
+              {{ t('agents.tools.functions.description') }}
+            </p>
+          </div>
+          <SButton
+            variant="secondary"
+            size="sm"
+            @click="openFnAddModal"
+          >
+            <template #icon-left>
+              <PlusIcon class="w-4 h-4" />
+            </template>
+            {{ t('agents.tools.functions.add') }}
+          </SButton>
+        </div>
+
+        <div v-if="functionTools.length">
+          <ul class="flex flex-col divide-y divide-[var(--color-border)]">
+            <li
+              v-for="fn in functionTools"
+              :key="fn.id"
+              class="flex items-center justify-between gap-3 py-2"
+            >
+              <div class="flex items-center gap-2 min-w-0">
+                <BoltIcon class="w-4 h-4 shrink-0 text-[var(--color-muted)]" />
+                <span class="text-sm font-medium">{{ (fn.config as Record<string, unknown>).name ?? fn.display_name }}</span>
+                <SBadge
+                  variant="neutral"
+                  size="sm"
+                >
+                  {{ ((fn.config as Record<string, unknown>).http as Record<string, unknown>)?.method ?? 'POST' }}
+                </SBadge>
+                <span class="text-xs text-[var(--color-muted)] truncate">{{ fnHost(fn) }}</span>
+                <ExclamationTriangleIcon
+                  v-if="fn.config_warnings?.length"
+                  class="w-4 h-4 shrink-0 text-[var(--color-warning)]"
+                  :title="fn.config_warnings.join(', ')"
+                />
+              </div>
+              <div class="flex items-center gap-1">
+                <SToggle
+                  :model-value="fn.enabled"
+                  :disabled="toggleBusy"
+                  @update:model-value="toggleSingleton(fn, $event)"
+                />
+                <SDropdown
+                  :items="fnActionItems"
+                  placement="bottom-end"
+                  @select="onFnAction($event, fn)"
+                >
+                  <template #trigger>
+                    <SButton
+                      variant="ghost"
+                      icon-only
+                      size="sm"
+                    >
+                      <EllipsisVerticalIcon class="w-4 h-4" />
+                    </SButton>
+                  </template>
+                </SDropdown>
+              </div>
+            </li>
+          </ul>
+        </div>
         <SEmptyState
-          v-if="!functionTools.length"
-          class="mt-4"
+          v-else
+          :icon="BoltIcon"
           :title="t('agents.tools.functions.emptyTitle')"
           :text="t('agents.tools.functions.emptyDescription')"
-        />
+        >
+          <template #action>
+            <SButton
+              variant="primary"
+              @click="openFnAddModal"
+            >
+              {{ t('agents.tools.functions.add') }}
+            </SButton>
+          </template>
+        </SEmptyState>
       </SCard>
 
       <!-- Local Shell — coming soon -->
@@ -779,6 +1060,154 @@ const mcpAccordionItems = computed(() => [
             @click="failedResult = null"
           >
             {{ t('app.close') }}
+          </SButton>
+        </div>
+      </template>
+    </SModal>
+
+    <!-- ========== Function Add / Edit Modal ========== -->
+    <SModal
+      :open="showFnModal"
+      :title="isEditingFn ? t('common.edit', 'Edit') : t('agents.tools.functions.add')"
+      size="lg"
+      @close="showFnModal = false"
+    >
+      <form @submit.prevent="onFnSubmit">
+        <SFormField
+          :label="t('agents.tools.functions.name')"
+          name="config.name"
+          :error="fnErrors['config.name']"
+          :help="t('agents.tools.functions.nameHelp')"
+          required
+        >
+          <SInput
+            v-model="fnName"
+            :placeholder="t('agents.tools.functions.namePlaceholder')"
+            :error="!!fnErrors['config.name']"
+          />
+        </SFormField>
+
+        <SFormField
+          :label="t('agents.tools.functions.fnDescription')"
+          name="config.description"
+          :error="fnErrors['config.description']"
+          required
+        >
+          <STextarea
+            v-model="fnDescription"
+            :rows="2"
+            :placeholder="t('agents.tools.functions.descriptionPlaceholder')"
+          />
+        </SFormField>
+
+        <SFormField
+          :label="t('agents.tools.functions.parameters')"
+          name="config.parameters"
+        >
+          <SCodeEditor
+            v-model="fnParamsJson"
+            language="json"
+            :rows="6"
+          />
+          <p
+            v-if="fnParamsError"
+            class="text-xs text-[var(--color-danger)] mt-1"
+          >
+            {{ fnParamsError }}
+          </p>
+        </SFormField>
+
+        <div class="flex gap-3">
+          <SFormField
+            :label="t('agents.tools.functions.method')"
+            name="config.http.method"
+            class="w-32"
+          >
+            <SSelect
+              v-model="fnMethod"
+              :options="fnMethodOptions"
+            />
+          </SFormField>
+
+          <SFormField
+            :label="t('agents.tools.functions.url')"
+            name="config.http.url"
+            :error="fnErrors['config.http.url']"
+            :help="t('agents.tools.functions.urlHelp')"
+            class="flex-1"
+            required
+          >
+            <SInput
+              v-model="fnUrl"
+              :placeholder="t('agents.tools.functions.urlPlaceholder')"
+              :error="!!fnErrors['config.http.url']"
+            />
+          </SFormField>
+        </div>
+
+        <SFormField
+          :label="t('agents.tools.functions.auth')"
+          name="auth"
+        >
+          <SSelect
+            v-model="fnAuthType"
+            :options="fnAuthOptions"
+          />
+        </SFormField>
+
+        <template v-if="fnAuthType === 'bearer'">
+          <SFormField
+            :label="t('agents.tools.functions.authToken')"
+            name="auth.token"
+          >
+            <SInput
+              v-model="fnAuthToken"
+              type="password"
+              placeholder="sk-..."
+            />
+          </SFormField>
+        </template>
+
+        <template v-if="fnAuthType === 'header'">
+          <div class="flex gap-3">
+            <SFormField
+              :label="t('agents.tools.functions.authHeaderName')"
+              name="auth.name"
+              class="w-1/3"
+            >
+              <SInput
+                v-model="fnAuthHeaderName"
+                placeholder="X-Api-Key"
+              />
+            </SFormField>
+            <SFormField
+              :label="t('agents.tools.functions.authHeaderValue')"
+              name="auth.value"
+              class="flex-1"
+            >
+              <SInput
+                v-model="fnAuthHeaderValue"
+                type="password"
+              />
+            </SFormField>
+          </div>
+        </template>
+      </form>
+
+      <template #footer>
+        <div class="flex justify-end gap-3">
+          <SButton
+            variant="secondary"
+            @click="showFnModal = false"
+          >
+            {{ t('common.cancel', 'Cancel') }}
+          </SButton>
+          <SButton
+            variant="primary"
+            :loading="fnSubmitting"
+            @click="onFnSubmit"
+          >
+            {{ isEditingFn ? t('common.save', 'Save') : t('agents.tools.functions.add') }}
           </SButton>
         </div>
       </template>

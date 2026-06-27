@@ -46,6 +46,10 @@ _log = logging.getLogger("smap.egress_proxy")
 _MAX_BODY_LOG_BYTES = 2048
 _PROJECT_ID_HEADER = "x-smap-project-id"
 _HMAC_HEADER = "x-smap-egress-hmac"
+_AUTH_NAME_HEADER = "x-smap-egress-auth-name"
+_AUTH_VALUE_HEADER = "x-smap-egress-auth-value"
+_AUTH_SIG_HEADER = "x-smap-egress-auth-sig"
+
 _STRIPPED_INBOUND_HEADERS: frozenset[str] = frozenset(
     {
         "authorization",
@@ -53,8 +57,13 @@ _STRIPPED_INBOUND_HEADERS: frozenset[str] = frozenset(
         "cookie",
         _HMAC_HEADER,
         _PROJECT_ID_HEADER,
+        _AUTH_NAME_HEADER,
+        _AUTH_VALUE_HEADER,
+        _AUTH_SIG_HEADER,
     }
 )
+
+_ALLOWED_AUTH_HEADER_NAMES: frozenset[str] = frozenset({"authorization", "x-api-key", "x-auth-token"})
 
 
 _DEFAULT_RESPONSE_CAP_BYTES = 16 * 1024 * 1024  # 16 MiB; see EgressProxySettings.
@@ -280,6 +289,34 @@ def create_app(settings: EgressProxySettings) -> FastAPI:
         # below connects to an IP literal, set `Host` explicitly to the real
         # target so the upstream still sees the correct virtual host.
         upstream_headers["host"] = _host_header(host, scheme, target_port)
+
+        # 5b. Upstream auth injection (E.6). If the trusted caller signed an
+        #     auth header, verify the content-bound HMAC and inject it into
+        #     upstream_headers. Sandboxes cannot forge this because they only
+        #     hold a pre-signed project HMAC, not the raw shared secret.
+        auth_hdr_name = request.headers.get(_AUTH_NAME_HEADER)
+        auth_hdr_value = request.headers.get(_AUTH_VALUE_HEADER)
+        auth_hdr_sig = request.headers.get(_AUTH_SIG_HEADER)
+        if auth_hdr_name and auth_hdr_value and auth_hdr_sig:
+            if auth_hdr_name.lower() not in _ALLOWED_AUTH_HEADER_NAMES:
+                return _problem(
+                    403,
+                    "mcp-egress-denied",
+                    f"upstream-auth header {auth_hdr_name!r} is not in the allowed set",
+                )
+            vh = sha256(auth_hdr_value.encode()).hexdigest()
+            expected_sig = hmac.new(
+                settings.shared_secret,
+                f"{raw_pid}:auth:{auth_hdr_name.lower()}:{vh}".encode("ascii"),
+                sha256,
+            ).hexdigest()
+            if not hmac.compare_digest(expected_sig, auth_hdr_sig):
+                return _problem(
+                    403,
+                    "mcp-egress-denied",
+                    "invalid upstream-auth signature",
+                )
+            upstream_headers[auth_hdr_name] = auth_hdr_value
 
         # 6. Forward via httpx with a streaming response body and per-call
         #    byte cap (see EgressProxySettings.response_max_bytes). We connect
