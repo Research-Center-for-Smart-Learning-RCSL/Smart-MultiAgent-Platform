@@ -126,6 +126,7 @@
       "refresh": "Refresh"
     },
     "agentOps": {
+      "breadcrumb": "Orchestration",
       "title": "Agent Orchestration",
       "subtitle": "Wake-up triggers and the dead-letter queue for this agent.",
       "wakeupSection": "Wake-up configuration",

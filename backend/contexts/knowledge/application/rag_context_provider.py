@@ -61,6 +61,7 @@ class RagContextProvider:
         rag_config_id: uuid.UUID | None,
         query_text: str | None,
         agent_id: uuid.UUID | None = None,
+        top_k: int | None = None,
     ) -> RagContext | None:
         """Return the RAG context (prompt block + citable sources), or ``None``.
 
@@ -122,6 +123,7 @@ class RagContextProvider:
                     config_id=rag_config_id,
                     text=query_text,
                     agent_id=agent_id,
+                    top_k=top_k,
                     # rerank=None defers to cfg.rerank_enabled; without a
                     # reranker instance force it off so query() stays cheap.
                     rerank=None if reranker is not None else False,

@@ -339,7 +339,7 @@ const fieldToTab: Record<string, string> = {
   a2a_enabled: 'orchestration',
 }
 
-const tabOrder = ['general', 'prompt', 'knowledge', 'mcp', 'orchestration']
+const tabOrder = ['general', 'prompt', 'knowledge', 'tools', 'orchestration']
 
 const onSubmit = handleSubmit(
   (values) => {
@@ -393,7 +393,7 @@ const tabs = computed(() => [
   { key: 'general', label: t('agents.detail.tabs.general'), icon: Cog6ToothIcon },
   { key: 'prompt', label: t('agents.detail.tabs.prompt'), icon: CommandLineIcon },
   { key: 'knowledge', label: t('agents.detail.tabs.knowledge'), icon: BookOpenIcon },
-  { key: 'mcp', label: t('agents.detail.tabs.mcp'), icon: ServerIcon, badge: mcpBindings.value.length > 0 ? String(mcpBindings.value.length) : undefined },
+  { key: 'tools', label: t('agents.tools.tabLabel'), icon: ServerIcon, badge: mcpBindings.value.length > 0 ? String(mcpBindings.value.length) : undefined },
   { key: 'orchestration', label: t('agents.detail.tabs.orchestration'), icon: ArrowsPointingOutIcon },
 ])
 
@@ -779,7 +779,7 @@ const graphragStatusText = computed(() => {
 
         <!-- Tab: MCP -->
         <div
-          v-show="activeTab === 'mcp'"
+          v-show="activeTab === 'tools'"
           class="mt-6"
         >
           <SCard>
@@ -828,7 +828,7 @@ const graphragStatusText = computed(() => {
               <template #action>
                 <SButton
                   variant="link"
-                  :to="{ name: 'agents.mcp', params: { agentId } }"
+                  :to="{ name: 'agents.tools', params: { agentId } }"
                   as="router-link"
                 >
                   {{ t('agents.mcp.add') }}
@@ -840,7 +840,7 @@ const graphragStatusText = computed(() => {
               v-if="!isCreateMode && mcpBindings.length > 0"
               variant="link"
               class="mt-4"
-              :to="{ name: 'agents.mcp', params: { agentId } }"
+              :to="{ name: 'agents.tools', params: { agentId } }"
               as="router-link"
             >
               {{ t('agents.form.manageMcp') }}

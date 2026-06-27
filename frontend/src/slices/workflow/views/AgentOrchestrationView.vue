@@ -1,11 +1,13 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
+import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import { useToast } from '@shared/composables'
 import { SPageHeader } from '@shared/ui'
+import { agentsApi, agentKeys } from '@slices/agents'
 
-import { getAgentWakeupConfig, patchAgentWakeupConfig } from '../api'
+import { patchAgentWakeupConfig } from '../api'
 import type { WakeupConfig } from '../types'
 import WakeupConfigEditor from '../components/WakeupConfigEditor.vue'
 import DlqViewer from '../components/DlqViewer.vue'
@@ -14,9 +16,18 @@ const { t } = useI18n()
 const route = useRoute()
 const agentId = route.params.agentId as string
 const toast = useToast()
+const qc = useQueryClient()
 
-// The stored wakeup_config is `{}` by default, but the editor accesses the full
-// nested shape — so merge whatever is stored onto a complete default.
+const agentQuery = useQuery({
+  queryKey: agentKeys.agent(agentId),
+  queryFn: async () => (await agentsApi.get(agentId)).data,
+})
+
+const breadcrumbs = computed(() => [
+  { label: agentQuery.data.value?.name ?? '...', to: { name: 'agents.detail', params: { agentId } } },
+  { label: t('workflow.agentOps.breadcrumb') },
+])
+
 const DEFAULT_WAKEUP: WakeupConfig = {
   triggers: {
     every_n_messages: { enabled: false, n: 5 },
@@ -47,29 +58,23 @@ function withDefaults(raw: unknown): WakeupConfig {
 }
 
 const config = ref<WakeupConfig | null>(null)
-const loading = ref(true)
 const saving = ref(false)
-// Agent PATCH requires an If-Match precondition; track the version across saves.
 const version = ref(0)
+const initialized = ref(false)
 
-onMounted(async () => {
-  try {
-    const { wakeupConfig, version: v } = await getAgentWakeupConfig(agentId)
-    config.value = withDefaults(wakeupConfig)
-    version.value = v
-  } catch {
-    config.value = withDefaults({})
-    toast.error(t('workflow.agentOps.loadError'))
-  } finally {
-    loading.value = false
-  }
-})
+watch(() => agentQuery.data.value, (agent) => {
+  if (!agent || initialized.value) return
+  config.value = withDefaults(agent.wakeup_config)
+  version.value = agent.version
+  initialized.value = true
+}, { immediate: true })
 
 async function save(): Promise<void> {
   if (!config.value) return
   saving.value = true
   try {
     version.value = await patchAgentWakeupConfig(agentId, config.value, version.value)
+    await qc.invalidateQueries({ queryKey: agentKeys.agent(agentId) })
     toast.success(t('workflow.agentOps.saved'))
   } catch {
     toast.error(t('workflow.agentOps.saveError'))
@@ -84,14 +89,21 @@ async function save(): Promise<void> {
     <SPageHeader
       :title="t('workflow.agentOps.title')"
       :subtitle="t('workflow.agentOps.subtitle')"
+      :breadcrumbs="breadcrumbs"
     />
 
     <div class="mb-6">
       <h2 class="font-semibold mb-2">
         {{ t('workflow.agentOps.wakeupSection') }}
       </h2>
-      <p v-if="loading">
+      <p v-if="agentQuery.isLoading.value">
         {{ t('workflow.agentOps.loading') }}
+      </p>
+      <p
+        v-else-if="agentQuery.isError.value"
+        class="text-red-600"
+      >
+        {{ t('workflow.agentOps.loadError') }}
       </p>
       <template v-else-if="config">
         <WakeupConfigEditor v-model="config" />

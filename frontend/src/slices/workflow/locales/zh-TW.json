@@ -124,6 +124,7 @@
       "refresh": "重新整理"
     },
     "agentOps": {
+      "breadcrumb": "進階編排",
       "title": "代理人編排",
       "subtitle": "此代理人的喚醒觸發條件與死信佇列。",
       "wakeupSection": "喚醒設定",
