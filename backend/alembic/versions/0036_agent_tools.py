@@ -132,7 +132,7 @@ def _backfill() -> None:
         "agent_tools",
         sa.column("id", pg.UUID(as_uuid=True)),
         sa.column("agent_id", pg.UUID(as_uuid=True)),
-        sa.column("tool_type", sa.Text),
+        sa.column("tool_type", pg.ENUM(*_TOOL_TYPES, name="agent_tool_type", create_type=False)),
         sa.column("enabled", sa.Boolean),
         sa.column("display_name", sa.Text),
         sa.column("config", pg.JSONB),
