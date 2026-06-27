@@ -53,7 +53,9 @@ function removeErrorCode(code: number) {
 }
 
 function parseNullableNumber(val: string): number | null {
-  return val === '' ? null : Number(val)
+  if (val === '') return null
+  const n = Number(val)
+  return n < 1 ? 1 : n
 }
 
 function onSave() {
@@ -184,6 +186,7 @@ function onSave() {
         <SInput
           :model-value="form.max_input_tokens_per_hour ?? ''"
           type="number"
+          min="1"
           size="sm"
           @update:model-value="form.max_input_tokens_per_hour = parseNullableNumber(String($event))"
         />
@@ -196,6 +199,7 @@ function onSave() {
         <SInput
           :model-value="form.max_output_tokens_per_hour ?? ''"
           type="number"
+          min="1"
           size="sm"
           @update:model-value="form.max_output_tokens_per_hour = parseNullableNumber(String($event))"
         />
@@ -208,6 +212,7 @@ function onSave() {
         <SInput
           :model-value="form.max_requests_per_hour ?? ''"
           type="number"
+          min="1"
           size="sm"
           @update:model-value="form.max_requests_per_hour = parseNullableNumber(String($event))"
         />

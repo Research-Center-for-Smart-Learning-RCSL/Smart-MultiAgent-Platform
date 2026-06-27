@@ -31,6 +31,12 @@ class KeyGroupOutOfProject(AgentsError):
     code = "agents/key-group-out-of-project"
 
 
+class KeyGroupNoMatchingProvider(AgentsError):
+    """Key Group has no carried key matching the agent's model_hint provider."""
+
+    code = "agents/key-group-no-matching-provider"
+
+
 class RagConfigOutOfProject(AgentsError):
     """Attached RAG config does not belong to the agent's project (SEC-H1).
 
@@ -149,6 +155,7 @@ __all__ = [
     "AgentsError",
     "CapabilityMismatch",
     "GraphRagConfigOutOfProject",
+    "KeyGroupNoMatchingProvider",
     "KeyGroupOutOfProject",
     "McpBindingNotFound",
     "McpEgressDenied",

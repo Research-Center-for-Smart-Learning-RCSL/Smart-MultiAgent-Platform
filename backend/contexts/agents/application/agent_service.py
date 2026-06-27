@@ -34,6 +34,7 @@ from contexts.agents.domain.errors import (
     AgentToolTypeImmutable,
     FileSearchNeedsKnowledge,
     GraphRagConfigOutOfProject,
+    KeyGroupNoMatchingProvider,
     KeyGroupOutOfProject,
     RagConfigOutOfProject,
     ToolNotAvailable,
@@ -169,6 +170,14 @@ class AgentService:
         if group is None or group.project_id != project_id:
             raise KeyGroupOutOfProject(f"key_group {key_group_id} is not in project {project_id}")
 
+    async def _assert_key_group_has_provider(
+        self, *, key_group_id: uuid.UUID, model_hint: str
+    ) -> None:
+        if not await self._keys.has_carried_provider_in_group(key_group_id, model_hint):
+            raise KeyGroupNoMatchingProvider(
+                f"key_group {key_group_id} has no carried keys for provider {model_hint!r}"
+            )
+
     async def _assert_rag_config_in_project(self, *, rag_config_id: uuid.UUID, project_id: uuid.UUID) -> None:
         """SEC-H1 — a RAG config attached to an agent must live in the same
         project, else the agent would pull another tenant's document chunks
@@ -217,6 +226,10 @@ class AgentService:
         await self._assert_key_group_in_project(
             key_group_id=draft.key_group_id,
             project_id=project_id,
+        )
+        await self._assert_key_group_has_provider(
+            key_group_id=draft.key_group_id,
+            model_hint=draft.model_hint.value,
         )
         if draft.rag_config_id is not None:
             await self._assert_rag_config_in_project(
@@ -310,6 +323,14 @@ class AgentService:
             await self._assert_key_group_in_project(
                 key_group_id=new_kg,
                 project_id=current.project_id,
+            )
+        # If key_group or model_hint changed, validate provider availability.
+        effective_kg = new_kg if new_kg is not None else current.key_group_id
+        effective_hint = draft.model_hint.value if draft.model_hint is not None else current.model_hint.value
+        if new_kg is not None or draft.model_hint is not None:
+            await self._assert_key_group_has_provider(
+                key_group_id=effective_kg,
+                model_hint=effective_hint,
             )
         # SEC-H1 — same project guard when (re)attaching a RAG / GraphRAG
         # config. `clear_*` wins over a stale id, so only validate an actual

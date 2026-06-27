@@ -28,6 +28,11 @@ _MAP: ErrorMap = {
         422,
         "Key Group does not belong to the agent's project",
     ),
+    errors.KeyGroupNoMatchingProvider: (
+        "agents/key-group-no-matching-provider",
+        422,
+        "Key Group has no keys matching the agent's model provider",
+    ),
     errors.RagConfigOutOfProject: (
         "agents/rag-config-not-found",
         404,

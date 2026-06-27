@@ -77,19 +77,33 @@ class KeyGroupRepository:
         self, project_id: uuid.UUID
     ) -> list[tuple[KeyGroup, int]]:
         m = t.key_group_members
-        stmt = (
-            sa.select(
-                t.key_groups,
-                sa.func.count(m.c.key_id).label("member_count"),
+        kp = t.key_projects
+        ak = t.api_keys
+        carried_count = (
+            sa.select(sa.func.count(m.c.key_id))
+            .select_from(
+                m.join(
+                    kp,
+                    sa.and_(
+                        kp.c.key_id == m.c.key_id,
+                        kp.c.project_id == t.key_groups.c.project_id,
+                        kp.c.carried.is_(True),
+                    ),
+                ).join(ak, sa.and_(ak.c.id == m.c.key_id, ak.c.deleted_at.is_(None)))
             )
-            .outerjoin(m, m.c.group_id == t.key_groups.c.id)
+            .where(m.c.group_id == t.key_groups.c.id)
+            .correlate(t.key_groups)
+            .scalar_subquery()
+            .label("member_count")
+        )
+        stmt = (
+            sa.select(t.key_groups, carried_count)
             .where(
                 sa.and_(
                     t.key_groups.c.project_id == project_id,
                     t.key_groups.c.deleted_at.is_(None),
                 )
             )
-            .group_by(t.key_groups.c.id)
             .order_by(t.key_groups.c.created_at.desc())
         )
         rows = (await self._db.execute(stmt)).all()
@@ -206,6 +220,13 @@ class KeyGroupMemberRepository:
             )
         )
         return bool(result.rowcount)
+
+    async def remove_all_for_key(self, key_id: uuid.UUID) -> int:
+        """Delete every membership row referencing *key_id* across all groups."""
+        result = await self._db.execute(
+            t.key_group_members.delete().where(t.key_group_members.c.key_id == key_id)
+        )
+        return result.rowcount or 0
 
     async def reorder_atomic(self, *, group_id: uuid.UUID, priorities: dict[uuid.UUID, int]) -> None:
         """Bulk-update priorities inside a deferred-constraint transaction.

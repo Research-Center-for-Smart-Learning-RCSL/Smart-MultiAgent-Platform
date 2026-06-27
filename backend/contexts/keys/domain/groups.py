@@ -30,7 +30,15 @@ class RotationPolicy:
 
 @dataclass(frozen=True, slots=True)
 class HourlyLimits:
-    """Per-member hourly caps (R7.09). Any NULL ⇒ unlimited for that axis."""
+    """Per-member hourly caps (R7.09). Any NULL ⇒ unlimited for that axis.
+
+    Usage tracking is keyed by ``key_id`` only (not per-group-member).
+    The same physical key in multiple groups shares a single usage bucket,
+    so calls through one group consume quota that affects all groups
+    containing that key. This mirrors the provider's view — the provider
+    enforces rate limits per API key regardless of which SMAP group
+    initiated the call.
+    """
 
     max_input_tokens_per_hour: int | None = None
     max_output_tokens_per_hour: int | None = None

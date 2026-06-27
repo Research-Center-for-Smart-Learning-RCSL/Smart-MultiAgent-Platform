@@ -128,25 +128,60 @@ class KeysFacade:
         key_id: uuid.UUID,
         project_id: uuid.UUID,
     ) -> bool:
-        """True if *key_id* is a member of any active key-group in *project_id*.
+        """True if *key_id* is actively carried into *project_id*.
 
-        Encapsulates the ``key_group_members JOIN key_groups`` scope check that
-        the knowledge context uses when validating embed/rerank keys.
+        Checks ``key_projects.carried = true`` — a withdrawn key is out of
+        scope even if stale ``key_group_members`` rows still reference it.
         """
         row = (
             await self._db.execute(
                 sa.select(sa.literal(1))
-                .select_from(
-                    _t.key_group_members.join(
-                        _t.key_groups,
-                        _t.key_groups.c.id == _t.key_group_members.c.group_id,
+                .select_from(_t.key_projects)
+                .where(
+                    sa.and_(
+                        _t.key_projects.c.key_id == key_id,
+                        _t.key_projects.c.project_id == project_id,
+                        _t.key_projects.c.carried.is_(True),
                     )
+                )
+                .limit(1)
+            )
+        ).first()
+        return row is not None
+
+    async def has_carried_provider_in_group(
+        self,
+        group_id: uuid.UUID,
+        provider: str,
+    ) -> bool:
+        """True if *group_id* has at least one actively-carried key from *provider*.
+
+        Used by the agents context to validate that an agent's ``model_hint``
+        is serviceable by the attached key group at create/patch time.
+        """
+        m = _t.key_group_members
+        kg = _t.key_groups
+        kp = _t.key_projects
+        ak = _t.api_keys
+        row = (
+            await self._db.execute(
+                sa.select(sa.literal(1))
+                .select_from(
+                    m.join(kg, kg.c.id == m.c.group_id)
+                    .join(
+                        kp,
+                        sa.and_(
+                            kp.c.key_id == m.c.key_id,
+                            kp.c.project_id == kg.c.project_id,
+                            kp.c.carried.is_(True),
+                        ),
+                    )
+                    .join(ak, sa.and_(ak.c.id == m.c.key_id, ak.c.deleted_at.is_(None)))
                 )
                 .where(
                     sa.and_(
-                        _t.key_group_members.c.key_id == key_id,
-                        _t.key_groups.c.project_id == project_id,
-                        _t.key_groups.c.deleted_at.is_(None),
+                        m.c.group_id == group_id,
+                        ak.c.provider == provider,
                     )
                 )
                 .limit(1)
