@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { ref, onMounted, nextTick } from 'vue'
-import { useRouter } from 'vue-router'
+import { ref, computed, onMounted, nextTick } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { SFormField, SInput, SButton, SAlert } from '@shared/ui'
 import { isProblemWithType } from '@shared/transport'
@@ -11,6 +11,7 @@ import { emailSchema, passwordSchema, validateField } from '../validation'
 import CaptchaWidget from '../components/CaptchaWidget.vue'
 
 const { t } = useI18n()
+const route = useRoute()
 const router = useRouter()
 const rateLimit = useRateLimitCountdown()
 
@@ -23,6 +24,12 @@ const submitting = ref(false)
 const emailRef = ref<InstanceType<typeof SInput> | null>(null)
 
 const fieldErrors = ref<Record<string, string | undefined>>({})
+
+const loginLinkTo = computed(() => {
+  const redirect = route.query.redirect as string | undefined
+  if (redirect) return { name: 'identity.login', query: { redirect } }
+  return { name: 'identity.login' }
+})
 
 function validateEmail(): boolean {
   return validateField(emailSchema, email.value, fieldErrors, 'email', t)
@@ -64,7 +71,10 @@ async function submit(): Promise<void> {
       password: password.value,
       captcha_token: captchaToken.value,
     })
-    router.push({ name: 'identity.login', query: { pendingVerify: '1' } })
+    const loginQuery: Record<string, string> = { pendingVerify: '1' }
+    const redirect = route.query.redirect as string | undefined
+    if (redirect) loginQuery.redirect = redirect
+    router.push({ name: 'identity.login', query: loginQuery })
   } catch (e: unknown) {
     if (e instanceof RateLimitError) {
       const seconds = Math.ceil(e.retryAfterMs / 1000)
@@ -180,7 +190,7 @@ async function submit(): Promise<void> {
 
   <p class="auth-footer">
     {{ $t('identity.register.loginPrompt') }}
-    <RouterLink :to="{ name: 'identity.login' }">
+    <RouterLink :to="loginLinkTo">
       {{ $t('identity.register.loginLink') }}
     </RouterLink>
   </p>

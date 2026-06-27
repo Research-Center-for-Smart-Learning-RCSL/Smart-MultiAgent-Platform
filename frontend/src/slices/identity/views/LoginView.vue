@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, nextTick } from 'vue'
+import { ref, computed, onMounted, nextTick } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { SFormField, SInput, SButton, SAlert } from '@shared/ui'
@@ -23,6 +23,12 @@ const emailRef = ref<InstanceType<typeof SInput> | null>(null)
 const passwordRef = ref<InstanceType<typeof SInput> | null>(null)
 
 const fieldErrors = ref<Record<string, string | undefined>>({})
+
+const registerLinkTo = computed(() => {
+  const redirect = route.query.redirect as string | undefined
+  if (redirect) return { name: 'identity.register', query: { redirect } }
+  return { name: 'identity.register' }
+})
 
 const flashVariant = ref<'info' | 'success' | null>(null)
 const flashMessage = ref<string | null>(null)
@@ -71,7 +77,8 @@ function validatePassword(): boolean {
 onMounted(async () => {
   initFlash()
   if (session.isAuthenticated) {
-    router.push('/orgs')
+    const raw = (route.query.redirect as string) || ''
+    router.push(safeRedirect(raw))
     return
   }
   await nextTick()
@@ -216,7 +223,7 @@ async function submit(): Promise<void> {
 
   <p class="auth-footer">
     {{ $t('identity.login.registerPrompt') }}
-    <RouterLink :to="{ name: 'identity.register' }">
+    <RouterLink :to="registerLinkTo">
       {{ $t('identity.login.registerLink') }}
     </RouterLink>
   </p>
