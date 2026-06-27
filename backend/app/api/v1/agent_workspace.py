@@ -88,16 +88,19 @@ async def upload_workspace_file(
     filename = file.filename or "file"
 
     service = WorkspaceFileService(db, get_minio_client())
-    wf = await service.upload(
-        agent_id=agent_id,
-        filename=filename,
-        data=data,
-        mime=mime,
-        path=path,
-        actor_user_id=principal.user_id,
-        actor_ip=ctx.actor_ip,
-        request_id=ctx.request_id,
-    )
+    try:
+        wf = await service.upload(
+            agent_id=agent_id,
+            filename=filename,
+            data=data,
+            mime=mime,
+            path=path,
+            actor_user_id=principal.user_id,
+            actor_ip=ctx.actor_ip,
+            request_id=ctx.request_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     return _to_out(wf)
 
 
