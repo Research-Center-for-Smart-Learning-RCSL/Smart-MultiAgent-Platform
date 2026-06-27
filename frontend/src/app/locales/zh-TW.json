@@ -92,6 +92,11 @@
       "recentChatrooms": "最近聊天室",
       "noChatrooms": "尚無聊天室",
       "loadError": "載入失敗",
+      "groupWorkspace": "工作區",
+      "groupPersonal": "個人",
+      "groupKnowledge": "知識庫",
+      "groupKeys": "金鑰",
+      "groupInfra": "基礎設施",
       "admin": "管理控制台"
     },
     "switcher": {
