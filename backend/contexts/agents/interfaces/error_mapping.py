@@ -44,6 +44,26 @@ _MAP: ErrorMap = {
         404,
         "MCP binding not found",
     ),
+    errors.AgentToolNotFound: (
+        "agents/tool-not-found",
+        404,
+        "Agent tool not found",
+    ),
+    errors.AgentToolTypeImmutable: (
+        "agents/tool-type-immutable",
+        409,
+        "Singleton tool types are auto-provisioned and cannot be created directly",
+    ),
+    errors.ToolNotAvailable: (
+        "agents/tool-not-available",
+        422,
+        "This tool type is not available yet",
+    ),
+    errors.FileSearchNeedsKnowledge: (
+        "agents/file-search-needs-knowledge-source",
+        422,
+        "File Search requires a knowledge source (RAG config) attached to the agent",
+    ),
     errors.McpTestFailed: (
         "agents/mcp-test-failed",
         502,
@@ -78,6 +98,16 @@ _MAP: ErrorMap = {
         "tool_quota_exceeded/search",
         429,
         "Per-project web_search rate limit exceeded",
+    ),
+    errors.WorkspaceQuotaExceeded: (
+        "agents/workspace-quota-exceeded",
+        413,
+        "Per-agent workspace file quota exceeded",
+    ),
+    errors.WorkspaceFileNotFound: (
+        "agents/workspace-file-not-found",
+        404,
+        "Workspace file not found",
     ),
 }
 

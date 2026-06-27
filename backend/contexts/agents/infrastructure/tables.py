@@ -60,23 +60,53 @@ agents = sa.Table(
 )
 
 
-agent_mcp_servers = sa.Table(
-    "agent_mcp_servers",
+agent_tools = sa.Table(
+    "agent_tools",
     metadata,
     sa.Column("id", pg.UUID(as_uuid=True), primary_key=True, server_default=sa.text("gen_random_uuid()")),
     sa.Column(
         "agent_id", pg.UUID(as_uuid=True), sa.ForeignKey("agents.id", ondelete="CASCADE"), nullable=False
     ),
     sa.Column(
-        "source",
-        pg.ENUM("builtin", "url", "package", name="agent_mcp_source", create_type=False),
+        "tool_type",
+        pg.ENUM(
+            "hosted_mcp",
+            "hosted_web_search",
+            "hosted_code_interpreter",
+            "hosted_file_workspace",
+            "hosted_file_search",
+            "local_function",
+            "local_shell",
+            name="agent_tool_type",
+            create_type=False,
+        ),
         nullable=False,
     ),
-    sa.Column("reference", sa.Text, nullable=False),
-    sa.Column("allowed_tools", pg.ARRAY(sa.Text), nullable=False, server_default=sa.text("'{}'::text[]")),
+    sa.Column("enabled", sa.Boolean, nullable=False, server_default=sa.text("true")),
+    sa.Column("display_name", sa.Text, nullable=True),
     sa.Column("config", pg.JSONB, nullable=False, server_default=sa.text("'{}'::jsonb")),
     sa.Column("created_at", sa.TIMESTAMP(timezone=True), nullable=False, server_default=sa.text("now()")),
 )
 
 
-__all__ = ["agent_mcp_servers", "agents"]
+agent_workspace_files = sa.Table(
+    "agent_workspace_files",
+    metadata,
+    sa.Column("id", pg.UUID(as_uuid=True), primary_key=True, server_default=sa.text("gen_random_uuid()")),
+    sa.Column(
+        "agent_id", pg.UUID(as_uuid=True), sa.ForeignKey("agents.id", ondelete="CASCADE"), nullable=False
+    ),
+    sa.Column("path", sa.Text, nullable=False),
+    sa.Column("size_bytes", sa.BigInteger, nullable=False),
+    sa.Column("sha256", sa.String(64), nullable=False),
+    sa.Column("mime", sa.Text, nullable=False),
+    sa.Column("minio_key", sa.Text, nullable=False),
+    sa.Column(
+        "created_by", pg.UUID(as_uuid=True), sa.ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    ),
+    sa.Column("created_at", sa.TIMESTAMP(timezone=True), nullable=False, server_default=sa.text("now()")),
+    sa.UniqueConstraint("agent_id", "path", name="uq_agent_workspace_files_agent_path"),
+)
+
+
+__all__ = ["agent_tools", "agent_workspace_files", "agents"]

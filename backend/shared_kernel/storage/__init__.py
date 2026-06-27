@@ -18,6 +18,7 @@ from __future__ import annotations
 from shared_kernel.storage.minio_client import (
     MinioClient,
     StorageError,
+    agent_workspace_key,
     chat_upload_key,
     export_key,
     get_minio_client,
@@ -27,6 +28,7 @@ from shared_kernel.storage.minio_client import (
 __all__ = [
     "MinioClient",
     "StorageError",
+    "agent_workspace_key",
     "chat_upload_key",
     "export_key",
     "get_minio_client",

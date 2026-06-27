@@ -140,6 +140,29 @@ async def tus_create(
             project_id=cfg.project_id,
             agent_ids=rag_agent_ids,
         )
+    elif purpose == "agent_workspace":
+        try:
+            agent_id = uuid.UUID(meta.get("agent_id", ""))
+        except ValueError as exc:
+            raise TusMetadataInvalid("agent_id must be UUID") from exc
+        from contexts.agents.application.agent_service import AgentService
+
+        agent_svc = AgentService(db)
+        agent = await agent_svc.get(agent_id)
+        if not principal.is_admin:
+            from shared_kernel.auth.dependencies import _raise_forbidden, get_role_resolver
+            from shared_kernel.auth.permissions import Capability as Cap
+            from shared_kernel.auth.permissions import Scope, decide
+
+            resolver = await get_role_resolver(db)
+            decision = await decide(
+                principal,
+                Cap.RESOURCE_CREATE_EDIT,
+                Scope(project_id=agent.project_id),
+                resolver,
+            )
+            if not decision.allowed:
+                _raise_forbidden(decision.reason)
     else:
         # Any other/unset purpose has no ACL-gated finaliser — fail closed.
         raise HTTPException(

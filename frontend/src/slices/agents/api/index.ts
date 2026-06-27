@@ -1,6 +1,7 @@
 import { http } from '@shared/transport'
 import type {
   AgentCreateInput,
+  AgentToolCreateInput,
   GraphragConfigCreateInput,
   McpBindingCreateInput,
   RagConfigCreateInput,
@@ -145,6 +146,51 @@ export interface McpTestResult {
   error: string | null
 }
 
+// --- Unified Agent Tools (Phase A / Phase B) ---
+
+export type AgentToolType =
+  | 'hosted_mcp'
+  | 'hosted_web_search'
+  | 'hosted_code_interpreter'
+  | 'hosted_file_workspace'
+  | 'hosted_file_search'
+  | 'local_function'
+  | 'local_shell'
+
+export interface AgentTool {
+  id: string
+  agent_id: string
+  tool_type: AgentToolType
+  enabled: boolean
+  display_name: string | null
+  config: Record<string, unknown>
+  created_at: string
+}
+
+export interface AgentToolPatchInput {
+  enabled?: boolean
+  display_name?: string | null
+  config?: Record<string, unknown>
+  auth?: Record<string, unknown> | null
+}
+
+export interface ToolTestResult {
+  ok: boolean
+  tool_names: string[]
+  duration_ms: number
+  error: string | null
+}
+
+// Mirrors backend `WorkspaceFileOut` — designer-uploaded file for Code Interpreter.
+export interface WorkspaceFile {
+  id: string
+  agent_id: string
+  path: string
+  size_bytes: number
+  mime: string
+  created_at: string
+}
+
 // Mirrors backend `AllowlistEntryOut`.
 export interface EgressAllowlistEntry {
   id: string
@@ -259,4 +305,38 @@ export const agentsApi = {
 
   removeEgressAllowlistEntry: (projectId: string, hostname: string) =>
     http.delete(`/projects/${projectId}/mcp/egress-allowlist/${encodeURIComponent(hostname)}`),
+
+  // --- Unified Tools API (Phase A) ---
+
+  listTools: (agentId: string) =>
+    http.get<AgentTool[]>(`/agents/${agentId}/tools`),
+
+  addTool: (agentId: string, payload: AgentToolCreateInput) =>
+    http.post<AgentTool>(`/agents/${agentId}/tools`, payload),
+
+  patchTool: (agentId: string, toolId: string, payload: AgentToolPatchInput) =>
+    http.patch<AgentTool>(`/agents/${agentId}/tools/${toolId}`, payload),
+
+  deleteTool: (agentId: string, toolId: string) =>
+    http.delete(`/agents/${agentId}/tools/${toolId}`),
+
+  testTool: (agentId: string, toolId: string) =>
+    http.post<ToolTestResult>(`/agents/${agentId}/tools/${toolId}/test`),
+
+  // --- Workspace Files (Phase D) ---
+
+  listWorkspaceFiles: (agentId: string) =>
+    http.get<WorkspaceFile[]>(`/agents/${agentId}/workspace-files`),
+
+  uploadWorkspaceFile: (agentId: string, file: File, path?: string) => {
+    const form = new FormData()
+    form.append('file', file)
+    if (path) form.append('path', path)
+    return http.post<WorkspaceFile>(`/agents/${agentId}/workspace-files`, form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    })
+  },
+
+  deleteWorkspaceFile: (agentId: string, fileId: string) =>
+    http.delete(`/agents/${agentId}/workspace-files/${fileId}`),
 }

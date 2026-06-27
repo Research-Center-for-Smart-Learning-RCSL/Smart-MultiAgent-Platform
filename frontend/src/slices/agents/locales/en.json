@@ -238,6 +238,107 @@
       "updated": "Built-in tools updated.",
       "updateFailed": "Failed to update built-in tools."
     },
+    "tools": {
+      "tabLabel": "Tools",
+      "hosted": {
+        "title": "Hosted Tools",
+        "subtitle": "Capabilities SMAP manages for this agent."
+      },
+      "local": {
+        "title": "Local Tools",
+        "subtitle": "User-defined actions this agent can perform."
+      },
+      "webSearch": {
+        "label": "Web Search",
+        "description": "Let the agent search the web via the project's configured search provider."
+      },
+      "codeInterpreter": {
+        "label": "Code Interpreter",
+        "description": "Run Python in a gVisor sandbox. State persists across the chat (30s per call).",
+        "files": {
+          "title": "Files",
+          "hint": "These files are available to this agent's Code Interpreter and File Workspace tools at agent-files/<path>.",
+          "upload": "Upload file",
+          "uploading": "Uploading...",
+          "uploaded": "File uploaded.",
+          "uploadFailed": "Failed to upload file.",
+          "deleted": "File deleted.",
+          "deleteFailed": "Failed to delete file.",
+          "deleteTitle": "Delete File",
+          "deleteConfirm": "Delete \"{path}\"? The file will no longer be available in the Code Interpreter workspace.",
+          "empty": "No files uploaded yet.",
+          "sizeHint": "Up to 32 MB per file, 256 MB total per agent.",
+          "colPath": "Path",
+          "colSize": "Size",
+          "colActions": "Actions"
+        }
+      },
+      "fileWorkspace": {
+        "label": "File Workspace",
+        "description": "Let the agent read and write files in its persistent workspace."
+      },
+      "fileSearch": {
+        "label": "File Search",
+        "description": "Search files uploaded for this agent and return relevant passages.",
+        "needsKnowledge": "Attach a knowledge source (RAG config) to enable File Search."
+      },
+      "mcp": {
+        "label": "MCP Servers",
+        "description": "External tool servers running in the gVisor sandbox.",
+        "add": "Add Server",
+        "created": "MCP server bound.",
+        "updated": "MCP binding updated.",
+        "deleted": "MCP binding removed.",
+        "createFailed": "Failed to bind MCP server.",
+        "deleteFailed": "Failed to remove MCP binding.",
+        "deleteTitle": "Remove MCP Server",
+        "deleteConfirm": "Remove the MCP server \"{ref}\"? The agent will lose its tools.",
+        "source": "Source Type",
+        "sourceUrl": "Remote URL (SSE/HTTP MCP server)",
+        "sourcePackage": "Package (npx/uvx stdio server)",
+        "reference": "Reference",
+        "referencePlaceholderUrl": "https://mcp.example.com/sse",
+        "referencePlaceholderPackage": "e.g. {'@'}modelcontextprotocol/server-filesystem",
+        "referenceHelp": {
+          "url": "SSE or HTTP endpoint URL for the MCP server",
+          "package": "npx or uvx package specifier, e.g. {'@'}modelcontextprotocol/server-filesystem"
+        },
+        "allowedTools": "Allowed Tools",
+        "allowedToolsPlaceholder": "tool_a, tool_b",
+        "allowedToolsHelp": "Leave empty to allow all discovered tools. Enter specific tool names to restrict access.",
+        "advancedConfig": "Advanced Configuration",
+        "invalidJson": "Config must be valid JSON.",
+        "test": "Test",
+        "testOk": "Connection OK -- {count} tools discovered in {ms}ms",
+        "testBad": "Failed",
+        "testFailed": "MCP test request failed.",
+        "testErrorTitle": "MCP Test Failed",
+        "testErrorDuration": "Duration: {ms}ms",
+        "colReference": "Reference",
+        "colSource": "Source",
+        "colTools": "Tools",
+        "colActions": "Actions",
+        "allTools": "All tools",
+        "nAllowed": "{n} allowed",
+        "emptyTitle": "No MCP servers",
+        "emptyDescription": "Add an MCP server to give this agent access to external tools."
+      },
+      "functions": {
+        "label": "Functions",
+        "description": "Outbound HTTP calls this agent can make via the egress proxy.",
+        "comingSoonE": "Add functions in a future update.",
+        "emptyTitle": "No functions",
+        "emptyDescription": "Functions will let this agent call external APIs."
+      },
+      "localShell": {
+        "label": "Local Shell",
+        "description": "Run shell commands in a gVisor sandbox.",
+        "comingSoon": "Local Shell runs shell commands in a sandbox. This capability is coming soon.",
+        "badge": "Coming soon"
+      },
+      "toggleSuccess": "Tool updated.",
+      "toggleFailed": "Failed to update tool."
+    },
     "mcp": {
       "title": "MCP Bindings",
       "subtitle": "Tools available to {name}. URL/package servers run in the gVisor sandbox and may only reach hosts on the project's egress allowlist --",

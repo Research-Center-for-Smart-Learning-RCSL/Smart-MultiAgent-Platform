@@ -87,6 +87,7 @@ class MinioSection(BaseSettings):
     bucket_chat_uploads: str = "chat-uploads"
     bucket_rag_sources: str = "rag-sources"
     bucket_exports: str = "exports"
+    bucket_agent_workspace: str = "agent-workspace"
     # TTLs encoded here so both the bootstrap CLI and tests reference a single
     # source of truth; changing them is a config + Alembic change, never a
     # one-off mutation of the bucket lifecycle via the console.

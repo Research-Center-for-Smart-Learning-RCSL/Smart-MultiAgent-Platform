@@ -57,6 +57,28 @@ class McpBindingNotFound(AgentsError):
     code = "agents/mcp-binding-not-found"
 
 
+class AgentToolNotFound(AgentsError):
+    code = "agents/tool-not-found"
+
+
+class AgentToolTypeImmutable(AgentsError):
+    """Singleton tool types are auto-provisioned; cannot be created via add."""
+
+    code = "agents/tool-type-immutable"
+
+
+class ToolNotAvailable(AgentsError):
+    """Tool type is not implemented yet (e.g. local_shell)."""
+
+    code = "agents/tool-not-available"
+
+
+class FileSearchNeedsKnowledge(AgentsError):
+    """File Search requires a RAG config (knowledge source) attached to the agent."""
+
+    code = "agents/file-search-needs-knowledge-source"
+
+
 class McpTestFailed(AgentsError):
     """Sandbox probe of an MCP server did not complete cleanly."""
 
@@ -106,22 +128,38 @@ class SearchQuotaExceeded(AgentsError):
     code = "tool_quota_exceeded/search"
 
 
+class WorkspaceQuotaExceeded(AgentsError):
+    """Per-agent workspace file quota exhausted."""
+
+    code = "agents/workspace-quota-exceeded"
+
+
+class WorkspaceFileNotFound(AgentsError):
+    code = "agents/workspace-file-not-found"
+
+
 __all__ = [
     "A2AForbidden",
     "AgentCapExceeded",
     "AgentNameTaken",
     "AgentNotFound",
+    "AgentToolNotFound",
+    "AgentToolTypeImmutable",
     "AgentVersionMismatch",
     "AgentsError",
     "CapabilityMismatch",
     "GraphRagConfigOutOfProject",
     "KeyGroupOutOfProject",
     "McpBindingNotFound",
-    "RagConfigOutOfProject",
     "McpEgressDenied",
     "McpTestFailed",
     "McpTimeout",
+    "RagConfigOutOfProject",
     "SandboxRuntimeViolation",
     "SearchKeyNotConfigured",
     "SearchQuotaExceeded",
+    "FileSearchNeedsKnowledge",
+    "ToolNotAvailable",
+    "WorkspaceFileNotFound",
+    "WorkspaceQuotaExceeded",
 ]

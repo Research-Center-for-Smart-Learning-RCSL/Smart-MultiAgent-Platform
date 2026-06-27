@@ -206,6 +206,11 @@ _KERNEL_LABEL = "smap.kernel"
 _KERNELS: dict[str, _KernelHandle] = {}
 _kernels_guard = asyncio.Lock()
 
+# Workspace-file manifest cache — keyed by agent_id (not per-session: persisted
+# files are identical across all sessions for one agent). Avoids a container
+# spawn on the hot path when files haven't changed.
+_WORKSPACE_MANIFESTS: dict[uuid.UUID, str] = {}
+
 
 @dataclass(slots=True)
 class _KernelHandle:
@@ -887,6 +892,55 @@ class DockerRunscSandbox:
                 await asyncio.to_thread(container.put_archive, "/workspace", archive)
             finally:
                 await self._remove_quietly(container)
+        return staged
+
+    async def stage_agent_workspace_files(
+        self,
+        *,
+        agent_id: uuid.UUID,
+        files: Sequence[StagedFile],
+        manifest_sha: str,
+    ) -> list[str]:
+        """Materialise the agent's persisted files under ``/workspace/agent-files/``.
+
+        Idempotent: if the in-memory manifest cache shows the volume already
+        has this ``manifest_sha``, returns immediately (no container spawn).
+        After a successful write the cache is updated.
+        """
+        if not files:
+            return []
+
+        cached = _WORKSPACE_MANIFESTS.get(agent_id)
+        if cached == manifest_sha:
+            return [f"agent-files/{_safe_input_name(f.filename)}" for f in files]
+
+        client = self._client()
+        volume = f"smap-agent-fs-{agent_id}"
+        rel_dir = "agent-files"
+        archive, _raw_staged = _tar_staged_inputs(rel_dir, files)
+
+        host_config = self._base_host_config()
+        host_config["network_mode"] = "none"
+        host_config["volumes"] = {volume: {"bind": "/workspace", "mode": "rw"}}
+        async with _get_semaphore():
+            container = await asyncio.to_thread(
+                client.containers.create,
+                image=self.code_exec_image,
+                command=["true"],
+                user=_SANDBOX_UID,
+                tmpfs={"/tmp": f"size={_TMP_TMPFS_BYTES}"},  # noqa: S108 — in-container tmpfs
+                **host_config,
+            )
+            try:
+                await self._assert_runsc(container)
+                await asyncio.to_thread(container.put_archive, "/workspace", archive)
+            finally:
+                await self._remove_quietly(container)
+
+        _WORKSPACE_MANIFESTS[agent_id] = manifest_sha
+        # _tar_staged_inputs hardcodes "inputs/" prefix in its returned paths;
+        # rebuild with the correct "agent-files/" prefix.
+        staged = [f"agent-files/{_safe_input_name(f.filename)}" for f in files]
         return staged
 
     async def _remove_aged_containers(

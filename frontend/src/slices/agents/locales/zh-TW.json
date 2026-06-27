@@ -238,6 +238,107 @@
       "updated": "已更新內建工具。",
       "updateFailed": "更新內建工具失敗。"
     },
+    "tools": {
+      "tabLabel": "工具",
+      "hosted": {
+        "title": "託管工具",
+        "subtitle": "SMAP 為此代理人管理的能力。"
+      },
+      "local": {
+        "title": "本地工具",
+        "subtitle": "此代理人可執行的使用者自訂動作。"
+      },
+      "webSearch": {
+        "label": "網路搜尋",
+        "description": "讓代理人透過專案設定的搜尋供應商在網路上搜尋。"
+      },
+      "codeInterpreter": {
+        "label": "Code Interpreter",
+        "description": "在 gVisor 沙箱中執行 Python。狀態會在對話中保留（每次呼叫上限 30 秒）。",
+        "files": {
+          "title": "檔案",
+          "hint": "這些檔案可供此代理人的 Code Interpreter 及檔案工作區工具使用，路徑為 agent-files/<path>。",
+          "upload": "上傳檔案",
+          "uploading": "上傳中...",
+          "uploaded": "檔案已上傳。",
+          "uploadFailed": "檔案上傳失敗。",
+          "deleted": "檔案已刪除。",
+          "deleteFailed": "刪除檔案失敗。",
+          "deleteTitle": "刪除檔案",
+          "deleteConfirm": "刪除「{path}」？該檔案將不再於 Code Interpreter 工作區中可用。",
+          "empty": "尚未上傳任何檔案。",
+          "sizeHint": "每個檔案最大 32 MB，每個代理人總計 256 MB。",
+          "colPath": "路徑",
+          "colSize": "大小",
+          "colActions": "操作"
+        }
+      },
+      "fileWorkspace": {
+        "label": "檔案工作區",
+        "description": "讓代理人在其持久工作區中讀寫檔案。"
+      },
+      "fileSearch": {
+        "label": "檔案搜尋",
+        "description": "搜尋為此代理人上傳的檔案並回傳相關段落。",
+        "needsKnowledge": "請先連結知識來源（RAG 設定）以啟用檔案搜尋。"
+      },
+      "mcp": {
+        "label": "MCP 伺服器",
+        "description": "在 gVisor 沙箱中執行的外部工具伺服器。",
+        "add": "新增伺服器",
+        "created": "MCP 伺服器已綁定。",
+        "updated": "MCP 綁定已更新。",
+        "deleted": "MCP 綁定已移除。",
+        "createFailed": "綁定 MCP 伺服器失敗。",
+        "deleteFailed": "移除 MCP 綁定失敗。",
+        "deleteTitle": "移除 MCP 伺服器",
+        "deleteConfirm": "移除 MCP 伺服器「{ref}」？代理人將失去其工具。",
+        "source": "來源類型",
+        "sourceUrl": "遠端 URL（SSE/HTTP MCP 伺服器）",
+        "sourcePackage": "套件（npx/uvx stdio 伺服器）",
+        "reference": "參照",
+        "referencePlaceholderUrl": "https://mcp.example.com/sse",
+        "referencePlaceholderPackage": "例如 {'@'}modelcontextprotocol/server-filesystem",
+        "referenceHelp": {
+          "url": "MCP 伺服器的 SSE 或 HTTP 端點 URL",
+          "package": "npx 或 uvx 套件規格，例如 {'@'}modelcontextprotocol/server-filesystem"
+        },
+        "allowedTools": "允許的工具",
+        "allowedToolsPlaceholder": "tool_a, tool_b",
+        "allowedToolsHelp": "留空以允許所有已發現的工具。輸入特定工具名稱以限制存取。",
+        "advancedConfig": "進階設定",
+        "invalidJson": "設定必須為有效的 JSON。",
+        "test": "測試",
+        "testOk": "連線正常——發現 {count} 個工具（{ms} 毫秒）",
+        "testBad": "失敗",
+        "testFailed": "MCP 測試請求失敗。",
+        "testErrorTitle": "MCP 測試失敗",
+        "testErrorDuration": "耗時：{ms} 毫秒",
+        "colReference": "參照",
+        "colSource": "來源",
+        "colTools": "工具",
+        "colActions": "操作",
+        "allTools": "所有工具",
+        "nAllowed": "已允許 {n} 個",
+        "emptyTitle": "尚無 MCP 伺服器",
+        "emptyDescription": "新增 MCP 伺服器以提供此代理人存取外部工具。"
+      },
+      "functions": {
+        "label": "函式",
+        "description": "此代理人可透過 egress proxy 進行的出站 HTTP 呼叫。",
+        "comingSoonE": "將在未來更新中新增函式功能。",
+        "emptyTitle": "尚無函式",
+        "emptyDescription": "函式將讓此代理人呼叫外部 API。"
+      },
+      "localShell": {
+        "label": "本地 Shell",
+        "description": "在 gVisor 沙箱中執行 shell 指令。",
+        "comingSoon": "本地 Shell 可在沙箱中執行 shell 指令。此功能即將推出。",
+        "badge": "即將推出"
+      },
+      "toggleSuccess": "工具已更新。",
+      "toggleFailed": "更新工具失敗。"
+    },
     "mcp": {
       "title": "MCP 綁定",
       "subtitle": "{name} 可用的工具。URL/套件伺服器在 gVisor 沙箱中執行，只能連線到專案 egress 白名單上的主機——",

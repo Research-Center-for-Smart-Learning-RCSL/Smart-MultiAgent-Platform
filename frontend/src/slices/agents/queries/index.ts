@@ -17,6 +17,10 @@ export const agentKeys = {
     ['agents', 'mcpBindings', agentId] as const,
   builtinTools: (agentId: string) =>
     ['agents', 'builtinTools', agentId] as const,
+  tools: (agentId: string) =>
+    ['agents', 'tools', agentId] as const,
+  workspaceFiles: (agentId: string) =>
+    ['agents', 'workspaceFiles', agentId] as const,
   egressAllowlist: (projectId: string) =>
     ['agents', 'egressAllowlist', projectId] as const,
 }

@@ -72,6 +72,7 @@ _TURN_RATE_MAX_TURNS = 30
 # message's attachments to copy into the kernel, and the total byte budget.
 _MAX_STAGED_FILES = 10
 _MAX_STAGED_BYTES = 64 * 1024 * 1024
+_MAX_AGENT_FILES_BYTES = 128 * 1024 * 1024
 
 # ---- Turn observability (same pattern as PROVIDER_CALL_TOTAL) ---------------
 
@@ -332,74 +333,132 @@ class TurnEngine:
         result, so this guard only covers assembly itself."""
         try:
             from contexts.agents.application.runtime.builtin_tools import (
-                build_builtin_tools,
+                build_agent_tools,
                 default_builtin_deps,
             )
 
-            bindings = await AgentsFacade(self._db).list_mcp_bindings(agent.id)
-            return build_builtin_tools(
+            agent_tools = await AgentsFacade(self._db).list_agent_tools(agent.id)
+            from dataclasses import replace as _replace
+
+            deps = _replace(default_builtin_deps(), rag_provider=self._rag_provider)
+            return build_agent_tools(
                 self._db,
                 agent=agent,
-                mcp_bindings=list(bindings),
-                deps=default_builtin_deps(),
+                tools=agent_tools,
+                deps=deps,
                 chatroom_id=chatroom_id,
                 artifact_sink=artifact_sink,
             )
         except Exception:
-            _log.warning("builtin tool assembly failed for agent %s", agent.id, exc_info=True)
+            _log.warning("agent tool assembly failed for agent %s", agent.id, exc_info=True)
             return []
 
     async def _stage_workspace_inputs(self, agent: Agent, chatroom_id: uuid.UUID) -> str | None:
-        """Stage the triggering user message's attachments into the code_exec
-        workspace so the kernel can read them (Code Interpreter).
+        """Stage the agent's persisted files and the triggering message's
+        attachments into the code_exec workspace.
 
         Returns a one-line note listing the workspace paths (folded into the
         system prompt so the model knows where the files are) or ``None``.
         Best-effort and gated on ``code_exec`` actually being enabled — a fault
         here must never abort the turn."""
         try:
-            from contexts.agents.application.runtime.builtin_tools import _enabled_builtins
             from contexts.agents.domain.mcp import StagedFile
+            from contexts.agents.domain.models import AgentToolType
             from contexts.agents.infrastructure.sandbox.docker_runsc import (
                 docker_runsc_sandbox_from_settings,
             )
             from contexts.conversation.interfaces.facade import ConversationFacade
 
-            bindings = await AgentsFacade(self._db).list_mcp_bindings(agent.id)
-            if "code_exec" not in _enabled_builtins(list(bindings)):
+            agents_facade = AgentsFacade(self._db)
+            agent_tools = await agents_facade.list_agent_tools(agent.id)
+            if not any(
+                t.enabled and t.tool_type == AgentToolType.HOSTED_CODE_INTERPRETER
+                for t in agent_tools
+            ):
                 return None
+
+            runner = docker_runsc_sandbox_from_settings()
+            all_paths: list[str] = []
+
+            # --- persisted agent workspace files (D.4) ---
+            try:
+                await self._stage_persisted_files(agent, runner, agents_facade, all_paths)
+            except Exception:
+                _log.warning("agent workspace file staging failed for %s", agent.id, exc_info=True)
+
+            # --- triggering message's attachments (existing) ---
             facade = ConversationFacade(self._db)
             attachments = await facade.latest_user_attachments(chatroom_id)
-            if not attachments:
+            if attachments:
+                chosen: list[Any] = []
+                total = 0
+                for att in attachments[:_MAX_STAGED_FILES]:
+                    if total + att.size_bytes > _MAX_STAGED_BYTES:
+                        continue
+                    total += att.size_bytes
+                    chosen.append(att)
+                if chosen:
+                    blobs = await facade.read_attachments_bytes(chosen)
+                    staged = [
+                        StagedFile(filename=att.filename, data=data)
+                        for att, data in zip(chosen, blobs, strict=True)
+                        if data is not None
+                    ]
+                    if staged:
+                        paths = await runner.stage_kernel_inputs(
+                            agent_id=agent.id, chatroom_id=chatroom_id, files=staged,
+                        )
+                        all_paths.extend(paths)
+
+            if not all_paths:
                 return None
-            # Choose within the byte budget using the known sizes BEFORE reading,
-            # so we never pull more than the cap into memory; then read the
-            # chosen files concurrently.
-            chosen: list[Any] = []
-            total = 0
-            for att in attachments[:_MAX_STAGED_FILES]:
-                if total + att.size_bytes > _MAX_STAGED_BYTES:
-                    continue
-                total += att.size_bytes
-                chosen.append(att)
-            if not chosen:
-                return None
-            blobs = await facade.read_attachments_bytes(chosen)
-            staged = [
-                StagedFile(filename=att.filename, data=data)
-                for att, data in zip(chosen, blobs, strict=True)
-                if data is not None
-            ]
-            if not staged:
-                return None
-            runner = docker_runsc_sandbox_from_settings()
-            paths = await runner.stage_kernel_inputs(agent_id=agent.id, chatroom_id=chatroom_id, files=staged)
-            if not paths:
-                return None
-            return "[Files available in the code_exec workspace: " + ", ".join(paths) + "]"
+            return "[Files available in the code_exec workspace: " + ", ".join(all_paths) + "]"
         except Exception:
             _log.warning("workspace input staging failed for agent %s", agent.id, exc_info=True)
             return None
+
+    async def _stage_persisted_files(
+        self,
+        agent: Agent,
+        runner: Any,
+        agents_facade: Any,
+        out_paths: list[str],
+    ) -> None:
+        """Hydrate persisted workspace files into ``/workspace/agent-files/``."""
+        import hashlib
+
+        from contexts.agents.domain.mcp import StagedFile
+        from shared_kernel.storage import get_minio_client
+
+        ws_files = await agents_facade.list_workspace_files(agent.id)
+        if not ws_files:
+            return
+
+        manifest_sha = hashlib.sha256(
+            "\n".join(sorted(f"{wf.path}:{wf.sha256}" for wf in ws_files)).encode()
+        ).hexdigest()
+
+        total = 0
+        chosen = []
+        for wf in ws_files:
+            if total + wf.size_bytes > _MAX_AGENT_FILES_BYTES:
+                break
+            total += wf.size_bytes
+            chosen.append(wf)
+        if not chosen:
+            return
+
+        storage = get_minio_client()
+        bucket = storage._cfg.bucket_agent_workspace
+        staged: list[StagedFile] = []
+        for wf in chosen:
+            data = await storage.get_object(bucket=bucket, key=wf.minio_key)
+            staged.append(StagedFile(filename=wf.path.rsplit("/", 1)[-1], data=data))
+
+        paths = await runner.stage_agent_workspace_files(
+            agent_id=agent.id, files=staged, manifest_sha=manifest_sha,
+        )
+        out_paths.extend(paths)
 
     async def _persist_artifacts(
         self,

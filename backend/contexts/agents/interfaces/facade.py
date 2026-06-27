@@ -12,23 +12,22 @@ import uuid
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.agents.domain.errors import AgentVersionMismatch
-from contexts.agents.domain.models import Agent, AgentDraft, McpBinding
+from contexts.agents.domain.models import Agent, AgentDraft, AgentTool, WorkspaceFile
 from contexts.agents.infrastructure.repositories import (
-    AgentMcpBindingRepository,
     AgentRepository,
+    AgentToolRepository,
+    WorkspaceFileRepository,
 )
 
-# Re-export domain types so consumers can ``from contexts.agents.interfaces.facade
-# import Agent, AgentDraft, AgentVersionMismatch`` instead of reaching into
-# ``agents.domain.*`` directly.
-__all__ = ["Agent", "AgentDraft", "AgentVersionMismatch", "AgentsFacade"]
+__all__ = ["Agent", "AgentDraft", "AgentTool", "AgentVersionMismatch", "AgentsFacade", "WorkspaceFile"]
 
 
 class AgentsFacade:
     def __init__(self, db: AsyncSession) -> None:
         self._db = db
         self._agents = AgentRepository(db)
-        self._bindings = AgentMcpBindingRepository(db)
+        self._tools = AgentToolRepository(db)
+        self._workspace_files = WorkspaceFileRepository(db)
 
     async def get_agent(self, agent_id: uuid.UUID, *, include_deleted: bool = False) -> Agent | None:
         return await self._agents.get(agent_id, include_deleted=include_deleted)
@@ -42,9 +41,6 @@ class AgentsFacade:
     async def list_agents_with_authored_snapshot(self) -> list[Agent]:
         """Active agents with non-null wakeup_authored_snapshot (G.5)."""
         return list(await self._agents.list_with_authored_snapshot())
-
-    async def list_mcp_bindings(self, agent_id: uuid.UUID) -> list[McpBinding]:
-        return list(await self._bindings.list(agent_id))
 
     # ------------------------------------------------------------------
     # Write surface exposed to orchestration (G.4 / G.5)
@@ -74,3 +70,9 @@ class AgentsFacade:
             actor_user_id=actor_user_id,
             actor_ip=actor_ip,
         )
+
+    async def list_agent_tools(self, agent_id: uuid.UUID) -> list[AgentTool]:
+        return list(await self._tools.list(agent_id))
+
+    async def list_workspace_files(self, agent_id: uuid.UUID) -> list[WorkspaceFile]:
+        return list(await self._workspace_files.list(agent_id))
