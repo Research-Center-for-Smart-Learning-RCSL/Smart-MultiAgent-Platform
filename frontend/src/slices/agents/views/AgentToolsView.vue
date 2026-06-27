@@ -932,6 +932,14 @@ function fnHost(tool: AgentTool): string {
             <p class="text-xs text-[var(--color-muted)]">
               {{ t('agents.tools.localShell.description') }}
             </p>
+            <SButton
+              variant="link"
+              size="sm"
+              class="mt-1 p-0"
+              @click="toast.info(t('agents.tools.localShell.comingSoon'))"
+            >
+              {{ t('agents.tools.localShell.learnMore') }}
+            </SButton>
           </div>
           <SToggle
             :model-value="false"

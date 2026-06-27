@@ -20,11 +20,13 @@ from contexts.agents.domain.errors import (
     GraphRagConfigOutOfProject,
     KeyGroupOutOfProject,
     RagConfigOutOfProject,
+    ToolNotAvailable,
 )
 from contexts.agents.domain.models import (
     Agent,
     AgentDraft,
     AgentModelHint,
+    AgentToolType,
     ContextMode,
     McpBinding,
     McpSource,
@@ -537,3 +539,33 @@ class TestMcpBindings:
         )
 
         bindings.remove.assert_awaited_once_with(agent_id=agent.id, binding_id=binding_id)
+
+
+# ---------------------------------------------------------------------------
+# add_tool
+# ---------------------------------------------------------------------------
+
+
+class TestAddTool:
+    async def test_local_shell_rejected(self) -> None:
+        """local_shell is not implemented yet; add_tool must raise ToolNotAvailable.
+
+        This test is intentionally a failing-by-design marker: when Local Shell
+        is implemented, flip this test to assert success instead.
+        """
+        agent = _make_agent()
+        agents = AsyncMock()
+        agents.get.return_value = agent
+        tools = AsyncMock()
+        svc = _make_service(agent_repo=agents)
+        svc._tools = tools
+
+        with pytest.raises(ToolNotAvailable, match="local_shell"):
+            await svc.add_tool(
+                agent_id=agent.id,
+                tool_type=AgentToolType.LOCAL_SHELL,
+                actor_user_id=_USER_ID,
+                actor_ip=None,
+            )
+
+        tools.add.assert_not_awaited()

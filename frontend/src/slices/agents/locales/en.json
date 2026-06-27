@@ -368,7 +368,8 @@
         "label": "Local Shell",
         "description": "Run shell commands in a gVisor sandbox.",
         "comingSoon": "Local Shell runs shell commands in a sandbox. This capability is coming soon.",
-        "badge": "Coming soon"
+        "badge": "Coming soon",
+        "learnMore": "Learn more"
       },
       "toggleSuccess": "Tool updated.",
       "toggleFailed": "Failed to update tool."
