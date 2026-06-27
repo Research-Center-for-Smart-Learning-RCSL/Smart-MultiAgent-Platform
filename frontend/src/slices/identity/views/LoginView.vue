@@ -5,7 +5,7 @@ import { useI18n } from 'vue-i18n'
 import { SFormField, SInput, SButton, SAlert } from '@shared/ui'
 import { isProblemWithType } from '@shared/transport'
 import { RateLimitError } from '@shared/errors'
-import { useRateLimitCountdown } from '@shared/composables'
+import { useRateLimitCountdown, safeRedirect } from '@shared/composables'
 import { useSessionStore } from '../stores/session'
 import { emailSchema, validateField } from '../validation'
 
@@ -50,16 +50,6 @@ function initFlash(): void {
   }
 }
 
-function safeRedirect(raw: string): string {
-  if (!raw) return '/orgs'
-  try {
-    const url = new URL(raw, window.location.origin)
-    if (url.origin !== window.location.origin) return '/orgs'
-    return url.pathname + url.search + url.hash
-  } catch {
-    return '/orgs'
-  }
-}
 
 function validateEmail(): boolean {
   return validateField(emailSchema, email.value, fieldErrors, 'email', t)

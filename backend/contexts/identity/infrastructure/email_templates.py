@@ -19,6 +19,10 @@ from dataclasses import dataclass
 _WS_RE = re.compile(r"\s+")
 
 
+def invite_accept_url(base_url: str, token: str) -> str:
+    return f"{base_url.rstrip('/')}/?invite=1#token={token}"
+
+
 def _clean_header_text(value: str) -> str:
     """Collapse CR/LF, other control chars, and whitespace runs to single spaces.
 

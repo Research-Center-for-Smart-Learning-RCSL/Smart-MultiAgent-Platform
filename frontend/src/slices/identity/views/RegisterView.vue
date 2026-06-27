@@ -5,7 +5,7 @@ import { useI18n } from 'vue-i18n'
 import { SFormField, SInput, SButton, SAlert } from '@shared/ui'
 import { isProblemWithType } from '@shared/transport'
 import { RateLimitError } from '@shared/errors'
-import { useRateLimitCountdown } from '@shared/composables'
+import { useRateLimitCountdown, safeRedirect } from '@shared/composables'
 import { authApi, type CaptchaConfig } from '../api/auth'
 import { emailSchema, passwordSchema, validateField } from '../validation'
 import CaptchaWidget from '../components/CaptchaWidget.vue'
@@ -26,8 +26,9 @@ const emailRef = ref<InstanceType<typeof SInput> | null>(null)
 const fieldErrors = ref<Record<string, string | undefined>>({})
 
 const loginLinkTo = computed(() => {
-  const redirect = route.query.redirect as string | undefined
-  if (redirect) return { name: 'identity.login', query: { redirect } }
+  const raw = route.query.redirect as string | undefined
+  const redirect = raw ? safeRedirect(raw) : undefined
+  if (redirect && redirect !== '/orgs') return { name: 'identity.login', query: { redirect } }
   return { name: 'identity.login' }
 })
 
@@ -72,8 +73,9 @@ async function submit(): Promise<void> {
       captcha_token: captchaToken.value,
     })
     const loginQuery: Record<string, string> = { pendingVerify: '1' }
-    const redirect = route.query.redirect as string | undefined
-    if (redirect) loginQuery.redirect = redirect
+    const raw = route.query.redirect as string | undefined
+    const redirect = raw ? safeRedirect(raw) : undefined
+    if (redirect && redirect !== '/orgs') loginQuery.redirect = redirect
     router.push({ name: 'identity.login', query: loginQuery })
   } catch (e: unknown) {
     if (e instanceof RateLimitError) {

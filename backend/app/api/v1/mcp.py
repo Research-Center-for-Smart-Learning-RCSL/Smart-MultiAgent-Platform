@@ -1,15 +1,8 @@
-"""`/api/agents/{id}/mcp(/test)` + `/api/projects/{pid}/mcp/egress-allowlist`
-— MCP binding test + per-project egress allowlist router (E.9).
+"""`/api/projects/{pid}/mcp/egress-allowlist` — per-project egress allowlist (E.9).
 
-The generic binding CRUD (list / add / delete) lives in
-``app/api/v1/agents.py`` since E.1 already shipped it. This router only adds
-the endpoints that are new in E.9:
-
-- ``POST /api/agents/{id}/mcp/{mcp_id}/test`` — sandbox probe
-- ``GET  /api/projects/{pid}/mcp/egress-allowlist``
-- ``PUT  /api/projects/{pid}/mcp/egress-allowlist`` — replace full set
-- ``POST /api/projects/{pid}/mcp/egress-allowlist`` — add one hostname
-- ``DELETE /api/projects/{pid}/mcp/egress-allowlist/{hostname}``
+MCP binding CRUD and test are on the unified ``/api/agents/{id}/tools``
+surface in ``agents.py`` (Phase A). This module only handles the
+project-scoped egress allowlist.
 """
 
 from __future__ import annotations
@@ -21,12 +14,10 @@ from fastapi import APIRouter, Depends, Path, status
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from contexts.agents.application.agent_service import AgentService
 from contexts.agents.application.egress_allowlist_service import (
     EgressAllowlistService,
 )
-from contexts.agents.application.mcp_service import McpBindingService
-from contexts.agents.domain.mcp import EgressAllowlistEntry, McpTestResult
+from contexts.agents.domain.mcp import EgressAllowlistEntry
 from contexts.tenancy.domain.models import ProjectMemberRole
 from contexts.tenancy.infrastructure.repositories import ProjectMemberRepository
 from shared_kernel.auth.context import RequestContext
@@ -35,28 +26,12 @@ from shared_kernel.auth.dependencies import (
     current_principal,
     require_membership,
 )
-from shared_kernel.auth.permissions import Capability, Principal
+from shared_kernel.auth.permissions import Principal
 from shared_kernel.db.session import db_session
 
 # ---------------------------------------------------------------------------
 # Pydantic schemas
 # ---------------------------------------------------------------------------
-
-
-class McpTestOut(BaseModel):
-    ok: bool
-    tool_names: list[str]
-    duration_ms: int
-    error: str | None = None
-
-    @classmethod
-    def from_domain(cls, r: McpTestResult) -> McpTestOut:
-        return cls(
-            ok=r.ok,
-            tool_names=list(r.tool_names),
-            duration_ms=r.duration_ms,
-            error=r.error,
-        )
 
 
 class AllowlistEntryOut(BaseModel):
@@ -139,68 +114,6 @@ async def _require_owner(
         _raise_forbidden(
             "Project Owner required to modify the MCP egress allowlist",
         )
-
-
-def _get_sandbox_runner():  # pragma: no cover - runtime injection
-    """Resolve the process-wide :class:`SandboxRunner`.
-
-    Defaults to the settings-built :class:`DockerRunscSandbox` (digest-pinned
-    images + pre-signed egress, K.5); tests override via
-    ``app.dependency_overrides[_get_sandbox_runner] = ...``.
-    """
-    from contexts.agents.infrastructure.sandbox.docker_runsc import (
-        docker_runsc_sandbox_from_settings,
-    )
-
-    return docker_runsc_sandbox_from_settings()
-
-
-# ---------------------------------------------------------------------------
-# Agent-scoped: MCP test
-# ---------------------------------------------------------------------------
-
-agent_router = APIRouter(prefix="/api/agents", tags=["mcp"])
-
-
-@agent_router.post("/{agent_id}/mcp/{mcp_id}/test")
-async def test_mcp_binding(
-    agent_id: uuid.UUID = Path(...),
-    mcp_id: uuid.UUID = Path(...),
-    ctx: RequestContext = Depends(current_context),
-    principal: Principal = Depends(current_principal),
-    db: AsyncSession = Depends(db_session),
-    runner=Depends(_get_sandbox_runner),
-) -> McpTestOut:
-    # Resolve the agent → project for the capability check.
-    agent_service = AgentService(db)
-    agent = await agent_service.get(agent_id)
-
-    from shared_kernel.auth.dependencies import (
-        _raise_forbidden,
-        get_role_resolver,
-    )
-    from shared_kernel.auth.permissions import Scope, decide
-
-    resolver = await get_role_resolver(db)
-    decision = await decide(
-        principal,
-        Capability.RESOURCE_CREATE_EDIT,
-        Scope(project_id=agent.project_id),
-        resolver,
-    )
-    if not decision.allowed:
-        _raise_forbidden(decision.reason)
-
-    service = McpBindingService(db, runner=runner)
-    result = await service.test(
-        agent_id=agent_id,
-        binding_id=mcp_id,
-        project_id=agent.project_id,
-        actor_user_id=principal.user_id,
-        actor_ip=ctx.actor_ip,
-        request_id=ctx.request_id,
-    )
-    return McpTestOut.from_domain(result)
 
 
 # ---------------------------------------------------------------------------
@@ -288,4 +201,4 @@ async def remove_allowlist_entry(
     )
 
 
-__all__ = ["agent_router", "project_router"]
+__all__ = ["project_router"]

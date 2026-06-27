@@ -39,10 +39,10 @@ import {
 } from '@shared/composables'
 import { ApiError } from '@shared/errors'
 import { keyGroupsApi, keysKeys, type KeyGroup } from '@slices/keys'
-import { agentsApi, type McpBinding } from '../api'
+import { agentsApi, type AgentTool } from '../api'
 import { agentKeys } from '../queries'
 import { agentCreateSchema, type AgentCreateInput } from '../types/schemas'
-import { useMcpTest } from '../composables/useMcpTest'
+import { useToolTest } from '../composables/useToolTest'
 import type { Column } from '@shared/ui/STable.vue'
 
 const { t } = useI18n()
@@ -91,17 +91,19 @@ const graphragConfigsQuery = useQuery({
   queryFn: async () => (await agentsApi.listGraphragConfigs(pickerProjectId.value)).data,
 })
 
-const mcpBindingsQuery = useQuery({
-  queryKey: computed(() => agentKeys.mcpBindings(agentId)),
+const toolsQuery = useQuery({
+  queryKey: computed(() => agentKeys.tools(agentId)),
   enabled: computed(() => !isCreateMode && !!agentId),
-  queryFn: async () => (await agentsApi.listMcpBindings(agentId)).data,
+  queryFn: async () => (await agentsApi.listTools(agentId)).data,
 })
 
 const thisAgentGraphrag = computed(() =>
   (graphragConfigsQuery.data.value ?? []).find((c) => c.agent_id === agentId),
 )
 
-const mcpBindings = computed<McpBinding[]>(() => mcpBindingsQuery.data.value ?? [])
+const mcpTools = computed<AgentTool[]>(() =>
+  (toolsQuery.data.value ?? []).filter((t) => t.tool_type === 'hosted_mcp'),
+)
 
 const keyGroups = computed<KeyGroup[]>(() => keyGroupsQuery.data.value ?? [])
 const hasKeyGroups = computed(() => keyGroups.value.length > 0)
@@ -386,14 +388,14 @@ async function onDelete(): Promise<void> {
 }
 
 // --- MCP test ---
-const { testingIds, runTest, failedResult } = useMcpTest(agentId)
+const { isTesting, runTest, failedResult } = useToolTest(agentId)
 
 // --- Tab config ---
 const tabs = computed(() => [
   { key: 'general', label: t('agents.detail.tabs.general'), icon: Cog6ToothIcon },
   { key: 'prompt', label: t('agents.detail.tabs.prompt'), icon: CommandLineIcon },
   { key: 'knowledge', label: t('agents.detail.tabs.knowledge'), icon: BookOpenIcon },
-  { key: 'tools', label: t('agents.tools.tabLabel'), icon: ServerIcon, badge: mcpBindings.value.length > 0 ? String(mcpBindings.value.length) : undefined },
+  { key: 'tools', label: t('agents.tools.tabLabel'), icon: ServerIcon, badge: mcpTools.value.length > 0 ? String(mcpTools.value.length) : undefined },
   { key: 'orchestration', label: t('agents.detail.tabs.orchestration'), icon: ArrowsPointingOutIcon },
 ])
 
@@ -788,30 +790,30 @@ const graphragStatusText = computed(() => {
             </h3>
 
             <STable
-              v-if="mcpBindings.length > 0"
+              v-if="mcpTools.length > 0"
               :columns="mcpColumns"
-              :data="mcpBindings"
+              :data="mcpTools"
               row-key="id"
             >
               <template #cell-source="{ row }">
                 <SBadge variant="neutral">
-                  {{ t(`agents.mcp.sources.${row.source}`) }}
+                  {{ (row.config as Record<string, unknown>).source ?? 'url' }}
                 </SBadge>
               </template>
 
               <template #cell-reference="{ row }">
-                <span class="font-mono text-sm break-all">{{ row.reference }}</span>
+                <span class="font-mono text-sm break-all">{{ (row.config as Record<string, unknown>).reference ?? row.display_name }}</span>
               </template>
 
               <template #cell-tools="{ row }">
-                {{ row.allowed_tools.length ? t('agents.mcp.nAllowed', { n: row.allowed_tools.length }) : t('agents.mcp.allTools') }}
+                {{ ((row.config as Record<string, unknown>).allowed_tools as string[] ?? []).length ? t('agents.mcp.nAllowed', { n: ((row.config as Record<string, unknown>).allowed_tools as string[]).length }) : t('agents.mcp.allTools') }}
               </template>
 
               <template #actions="{ row }">
                 <SButton
                   variant="ghost"
                   size="sm"
-                  :loading="testingIds.has(row.id)"
+                  :loading="isTesting(row.id)"
                   @click="runTest(row.id)"
                 >
                   {{ t('agents.mcp.test') }}
@@ -837,7 +839,7 @@ const graphragStatusText = computed(() => {
             </SEmptyState>
 
             <SButton
-              v-if="!isCreateMode && mcpBindings.length > 0"
+              v-if="!isCreateMode && mcpTools.length > 0"
               variant="link"
               class="mt-4"
               :to="{ name: 'agents.tools', params: { agentId } }"

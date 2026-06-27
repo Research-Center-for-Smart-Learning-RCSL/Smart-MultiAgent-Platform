@@ -99,7 +99,7 @@ class IdentityFacade:
         from contexts.identity.infrastructure import email_templates
         from contexts.identity.infrastructure.email import EmailMessage
 
-        accept_link = f"{base_url.rstrip('/')}/?invite=1#token={invite_token}"
+        accept_link = email_templates.invite_accept_url(base_url, invite_token)
         rendered = email_templates.invite(
             scope_label=scope_label,
             scope_name=scope_name,
