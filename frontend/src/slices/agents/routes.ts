@@ -32,10 +32,15 @@ export const agentsRoutes: RouteRecordRaw[] = [
     meta: { requiresAuth: true, requiresVerifiedEmail: true },
   },
   {
+    path: '/agents/:agentId/tools',
+    name: 'agents.tools',
+    component: () => import('./views/AgentToolsView.vue'),
+    meta: { requiresAuth: true, requiresVerifiedEmail: true },
+  },
+  {
     path: '/agents/:agentId/mcp',
     name: 'agents.mcp',
-    component: () => import('./views/AgentMcpView.vue'),
-    meta: { requiresAuth: true, requiresVerifiedEmail: true },
+    redirect: (to) => ({ name: 'agents.tools', params: to.params }),
   },
   {
     path: '/projects/:projectId/mcp/egress-allowlist',
