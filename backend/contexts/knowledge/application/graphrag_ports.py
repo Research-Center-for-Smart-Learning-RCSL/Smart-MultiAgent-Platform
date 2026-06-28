@@ -30,6 +30,14 @@ class BuildLockStore(Protocol):
     async def release(self, config_id: uuid.UUID) -> None:
         """Best-effort release; no-op if already expired."""
 
+    async def refresh(self, config_id: uuid.UUID, *, ttl_s: int) -> bool:
+        """Extend the lock's TTL iff this holder still owns it.
+
+        Returns False if the lock was lost (expired and possibly re-acquired by
+        another build). Callers use this at phase boundaries to keep a live
+        build's lock alive and to fail closed rather than write concurrently.
+        """
+
 
 class SnapshotStore(Protocol):
     """Redis-backed pre-build Neo4j snapshot cache (R11.04 compensation)."""

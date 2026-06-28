@@ -72,13 +72,15 @@ const matches = (id: string): boolean => {
   return q === '' || id.toLowerCase().includes(q)
 }
 
-const flowNodes = computed(() => {
+// Built once per fetched graph (topology + positions only). Search must NOT be
+// a dependency here, or every keystroke would rebuild all ~N nodes and force
+// Vue Flow to re-diff them (audit review #7).
+const baseNodes = computed(() => {
   const g = graphQuery.data.value
   if (!g) return []
   return g.nodes.map((node) => {
     const p = positions.value.get(node.id) ?? { x: 0, y: 0 }
     const size = Math.min(28 + node.degree * 4, 72)
-    const dim = search.value.trim() !== '' && !matches(node.id)
     const color = colorFor(node.type)
     return {
       id: node.id,
@@ -94,13 +96,22 @@ const flowNodes = computed(() => {
         alignItems: 'center',
         justifyContent: 'center',
         textAlign: 'center',
-        opacity: dim ? 0.2 : 1,
+        opacity: 1,
         background: `${color}33`,
         borderColor: color,
         color: 'var(--color-text)',
       },
     }
   })
+})
+
+const flowNodes = computed(() => {
+  // No active search: hand Vue Flow the stable base array (no per-node work).
+  if (search.value.trim() === '') return baseNodes.value
+  // Active search: only override opacity, reusing the precomputed styles.
+  return baseNodes.value.map((n) =>
+    matches(n.id) ? n : { ...n, style: { ...n.style, opacity: 0.2 } },
+  )
 })
 
 // Distinct entity categories actually present, for the legend.

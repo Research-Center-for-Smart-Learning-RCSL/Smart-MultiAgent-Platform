@@ -123,10 +123,12 @@ class FakeDb:
 
 
 class FakeLock:
-    def __init__(self, *, busy: bool = False) -> None:
+    def __init__(self, *, busy: bool = False, lose_lock: bool = False) -> None:
         self.busy = busy
+        self.lose_lock = lose_lock
         self.acquired: list[uuid.UUID] = []
         self.released: list[uuid.UUID] = []
+        self.refreshed: list[uuid.UUID] = []
 
     async def acquire(self, config_id: uuid.UUID, *, ttl_s: int) -> bool:
         if self.busy:
@@ -136,6 +138,10 @@ class FakeLock:
 
     async def release(self, config_id: uuid.UUID) -> None:
         self.released.append(config_id)
+
+    async def refresh(self, config_id: uuid.UUID, *, ttl_s: int) -> bool:
+        self.refreshed.append(config_id)
+        return not self.lose_lock
 
 
 class FakeSnapshots:
