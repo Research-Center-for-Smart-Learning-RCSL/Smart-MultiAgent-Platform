@@ -81,19 +81,25 @@ class Neo4jAsyncDriver:
         # in one UNWIND — or a restatement across delta builds — previously
         # clobbered prior evidence_msg_ids, which undercut the evidence-excerpt
         # feature. We union evidence (dedup) and take max confidence.
-        # Node ``type`` (audit L1) is set when the extractor classified the
-        # endpoint (non-empty) and otherwise preserved, so a later mention that
-        # omits the type never wipes a known one.
+        # Node ``type`` (audit L1): a specific classification wins; an empty
+        # type (unknown) or the catch-all 'other' never downgrades a known
+        # specific type (audit review #4 — the extractor maps low-confidence
+        # guesses to 'other', so without this a later 'other' would clobber an
+        # earlier 'person'). 'other' only fills a node that has no type yet.
         cypher = (
             "UNWIND $rows AS row "
             "MERGE (s:Entity {graphrag_config_id: $cid, name: row.subject}) "
             "  ON CREATE SET s.build_id = $bid "
-            "SET s.type = CASE WHEN row.subject_type <> '' "
-            "             THEN row.subject_type ELSE coalesce(s.type, '') END "
+            "SET s.type = CASE "
+            "  WHEN row.subject_type = '' THEN coalesce(s.type, '') "
+            "  WHEN row.subject_type = 'other' AND coalesce(s.type, '') <> '' THEN s.type "
+            "  ELSE row.subject_type END "
             "MERGE (o:Entity {graphrag_config_id: $cid, name: row.object}) "
             "  ON CREATE SET o.build_id = $bid "
-            "SET o.type = CASE WHEN row.object_type <> '' "
-            "             THEN row.object_type ELSE coalesce(o.type, '') END "
+            "SET o.type = CASE "
+            "  WHEN row.object_type = '' THEN coalesce(o.type, '') "
+            "  WHEN row.object_type = 'other' AND coalesce(o.type, '') <> '' THEN o.type "
+            "  ELSE row.object_type END "
             "MERGE (s)-[r:REL {graphrag_config_id: $cid, "
             "                  relation: row.relation}]->(o) "
             "SET r.build_id = $bid, "

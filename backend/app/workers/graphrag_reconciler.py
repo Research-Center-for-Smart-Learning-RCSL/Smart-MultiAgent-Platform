@@ -64,17 +64,15 @@ def _make_phase2_retry(
             # Nothing was committed to Neo4j — Qdrant is already consistent.
             return
 
-        # Reconstruct entity descriptions (same algorithm as GraphRagBuilder._embed_entities).
-        entities: dict[str, list[str]] = {}
-        for row in rows:
-            s, rel, o = row["subject"], row["relation"], row["object"]
-            entities.setdefault(s, []).append(f"{s} {rel} {o}")
-            entities.setdefault(o, []).append(f"{s} {rel} {o}")
-        ordered = sorted(entities.items())
-        # Mirror GraphRagBuilder._embed_entities, including the M7 fragment cap.
-        from contexts.knowledge.application.graphrag_builder import MAX_DESC_FRAGMENTS
+        # Reconstruct entity descriptions via the shared builder helper so a
+        # recovered build re-embeds with exactly the original descriptions
+        # (audit review #8).
+        from contexts.knowledge.application.graphrag_builder import (
+            build_entity_descriptions,
+        )
 
-        descriptions = [" | ".join(v[:MAX_DESC_FRAGMENTS]) for _, v in ordered]
+        pairs = build_entity_descriptions((row["subject"], row["relation"], row["object"]) for row in rows)
+        descriptions = [desc for _, desc in pairs]
 
         # Resolve the first embedding key from the builder key group.
         embed_model: dict[str, str] = {
@@ -129,8 +127,7 @@ def _make_phase2_retry(
             config_id=cfg.id,
             build_id=build_id,
             points=[
-                (_uuid.uuid4(), vec, entity, desc)
-                for (entity, _), desc, vec in zip(ordered, descriptions, vectors, strict=True)
+                (_uuid.uuid4(), vec, entity, desc) for (entity, desc), vec in zip(pairs, vectors, strict=True)
             ],
         )
 

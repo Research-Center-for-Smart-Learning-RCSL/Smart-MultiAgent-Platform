@@ -32,6 +32,14 @@ _RELEASE_LUA = (
     "if redis.call('get', KEYS[1]) == ARGV[1] then " "return redis.call('del', KEYS[1]) else return 0 end"
 )
 
+# Token-checked TTL extension: only the current holder may refresh, so a build
+# that has lost the lock (TTL expired, re-acquired by another build) gets a
+# falsy result and can fail closed instead of writing concurrently (review #3).
+_REFRESH_LUA = (
+    "if redis.call('get', KEYS[1]) == ARGV[1] then "
+    "return redis.call('pexpire', KEYS[1], ARGV[2]) else return 0 end"
+)
+
 
 def _lock_key(config_id: uuid.UUID) -> str:
     return f"graphrag:lock:{config_id}"
@@ -79,6 +87,16 @@ class RedisBuildLockStore:
         if token is None:
             return
         await cast("Awaitable[Any]", self._r().eval(_RELEASE_LUA, 1, _lock_key(config_id), token))
+
+    async def refresh(self, config_id: uuid.UUID, *, ttl_s: int) -> bool:
+        token = self._tokens.get(config_id)
+        if token is None:
+            return False
+        res = await cast(
+            "Awaitable[Any]",
+            self._r().eval(_REFRESH_LUA, 1, _lock_key(config_id), token, str(ttl_s * 1000)),
+        )
+        return bool(res)
 
 
 class RedisSnapshotStore:

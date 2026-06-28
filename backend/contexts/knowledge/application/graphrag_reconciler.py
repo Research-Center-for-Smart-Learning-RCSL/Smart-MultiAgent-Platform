@@ -46,12 +46,19 @@ RETRY_BACKOFF_S: tuple[float, ...] = (1.0, 2.0, 4.0, 8.0, 16.0)
 # per-config lock so it never heals a build that is still live in a worker.
 LOCK_TTL_S = 10 * 60
 
-# States the reconciler will attempt to heal: a Phase-2 failure
-# (FAILED_COMPENSATING) and a build that durably committed Neo4j but crashed
-# before Phase-2 finished (NEO4J_COMMITTED, audit C2).
+# States the reconciler will attempt to heal:
+# - FAILED_COMPENSATING: a Phase-2 failure (retry Qdrant, else roll back).
+# - NEO4J_COMMITTED: durably committed Neo4j but crashed before Phase-2 (audit C2).
+# - RUNNING: crashed during Phase-1 (audit review #1) — without this, making
+#   RUNNING durable (C1) would wedge the config forever, since trigger_build and
+#   the builder both refuse any state outside {IDLE, FAILED}. A live build holds
+#   the per-config lock, so the lock acquire in run_once skips it; only a dead
+#   RUNNING (lock expired/released) is reclaimed, and it rolls straight back
+#   (Phase-1 never finished, so there is no Phase-2 to retry).
 _STUCK_STATES: tuple[BuildState, ...] = (
     BuildState.FAILED_COMPENSATING,
     BuildState.NEO4J_COMMITTED,
+    BuildState.RUNNING,
 )
 
 Sleeper = Callable[[float], Awaitable[None]]
@@ -143,6 +150,14 @@ class ReconciliationLoop:
             )
             await self._clear_current(cfg.id)
             await publish_build_state(cfg.id, BuildState.FAILED.value)
+            return
+
+        if cfg.last_build_state is BuildState.RUNNING:
+            # Audit review #1: a crashed Phase-1 build. Phase-1 never completed
+            # durably (NEO4J_COMMITTED was never reached), so there is no Qdrant
+            # phase to retry — roll back any partial Neo4j writes from this
+            # build and fail it (re-triggerable).
+            await self._rollback(db, cfg=cfg, build_id=build_id)
             return
 
         for attempt, backoff in enumerate(RETRY_BACKOFF_S, start=1):

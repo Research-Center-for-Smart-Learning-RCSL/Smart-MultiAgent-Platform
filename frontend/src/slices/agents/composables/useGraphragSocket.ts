@@ -92,7 +92,12 @@ export function useGraphragSocket(projectId: string) {
   // could never fire for an offline/degraded socket, the exact case it exists
   // to cover.
   function watch(configId: string, initialState?: GraphragBuildState): void {
-    if (initialState !== undefined && liveState.value[configId] === undefined) {
+    // Seed the known state when there isn't already a live in-progress one, so
+    // a fresh in-progress state (e.g. 'running') replaces a stale terminal value
+    // left by a previous build in this session — otherwise the poll backstop
+    // would skip it (audit review #6). Never clobber an in-progress state.
+    const cur = liveState.value[configId]
+    if (initialState !== undefined && (cur === undefined || !GRAPHRAG_IN_PROGRESS.has(cur))) {
       liveState.value = { ...liveState.value, [configId]: initialState }
     }
     if (watched.has(configId)) return
@@ -123,5 +128,5 @@ export function useGraphragSocket(projectId: string) {
     watched.clear()
   })
 
-  return { liveState, watch }
+  return { liveState, watch, unwatch }
 }

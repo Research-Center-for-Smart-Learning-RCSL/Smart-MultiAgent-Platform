@@ -112,7 +112,7 @@ const isBound = (cfg: GraphragConfig): boolean =>
   agentById.value.get(cfg.agent_id)?.graphrag_config_id === cfg.id
 
 // --- Build state management (live via WebSocket) ---
-const { liveState, watch: watchBuild } = useGraphragSocket(projectId)
+const { liveState, watch: watchBuild, unwatch: unwatchBuild } = useGraphragSocket(projectId)
 
 const effectiveState = (cfg: GraphragConfig): GraphragConfig['last_build_state'] =>
   liveState.value[cfg.id] ?? cfg.last_build_state
@@ -167,6 +167,9 @@ const buildMutation = useMutation({
     const next = { ...liveState.value }
     delete next[id]
     liveState.value = next
+    // Tear down the subscription opened optimistically in startBuild, or the WS
+    // channel and the backstop poll timer would leak (audit review #5).
+    unwatchBuild(id)
     toast.error(t('agents.graphragList.buildFailed'))
   },
 })

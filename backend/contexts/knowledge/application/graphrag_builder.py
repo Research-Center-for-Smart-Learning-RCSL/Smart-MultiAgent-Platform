@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import logging
 import uuid
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from typing import Any, Literal
 
@@ -65,6 +65,25 @@ SNAPSHOT_TTL_S = 24 * 60 * 60  # 24h — reconciler runs at 60s period
 # and fail Phase-2 on every reconciler retry. Bounding it keeps the description
 # representative without unbounded growth.
 MAX_DESC_FRAGMENTS = 40
+
+
+def build_entity_descriptions(
+    triples: Iterable[tuple[str, str, str]],
+) -> list[tuple[str, str]]:
+    """Map (subject, relation, object) triples to sorted (entity, description) pairs.
+
+    Audit review #8: single source of truth shared by the builder's Phase-2 and
+    the reconciler's Phase-2 retry, so a recovered build re-embeds entities with
+    exactly the same description (and therefore comparable vectors) as the
+    original build. Each entity's description is the ``" | "``-joined relation
+    fragments it participates in, capped at :data:`MAX_DESC_FRAGMENTS`.
+    """
+    entities: dict[str, list[str]] = {}
+    for subject, relation, obj in triples:
+        fragment = f"{subject} {relation} {obj}"
+        entities.setdefault(subject, []).append(fragment)
+        entities.setdefault(obj, []).append(fragment)
+    return [(name, " | ".join(frags[:MAX_DESC_FRAGMENTS])) for name, frags in sorted(entities.items())]
 
 
 @dataclass(frozen=True, slots=True)
@@ -215,6 +234,11 @@ class GraphRagBuilder:
                 builder_key_group_id=cfg.builder_key_group_id,
                 messages=delta,
             )
+            # Audit review #3: extraction can be slow; refresh the lock and bail
+            # before touching Neo4j if we've lost it (another build may have
+            # taken over after a TTL overrun) so we never write concurrently.
+            if not await self._locks.refresh(cfg.id, ttl_s=LOCK_TTL_S):
+                raise GraphRagBuildBusy(f"lock lost during phase-1 for {cfg.id}")
             n_triples = await self._neo4j.apply_triples(
                 config_id=cfg.id,
                 build_id=build_id,
@@ -248,6 +272,10 @@ class GraphRagBuilder:
                 triples=triples,
             )
             if embeddings:
+                # Audit review #3: embedding can be slow too — refresh + verify
+                # ownership before the Qdrant write.
+                if not await self._locks.refresh(cfg.id, ttl_s=LOCK_TTL_S):
+                    raise GraphRagBuildFailed(f"lock lost before qdrant upsert for {cfg.id}")
                 await self._vectors.ensure_graphrag_collection(
                     cfg.project_id,
                     vector_size=len(embeddings[0].vector),
@@ -327,6 +355,12 @@ class GraphRagBuilder:
             error=None,
             stamp_built_at=True,
         )
+        # Audit review #2: make the terminal IDLE durable BEFORE dropping the
+        # Redis snapshot + current-build pointer. Otherwise a crash between the
+        # cleanup and the worker's outer commit would roll Postgres back to
+        # NEO4J_COMMITTED with the snapshot/pointer already gone — and the
+        # reconciler would mark a genuinely-finished build FAILED.
+        await self._db.commit()
         await self._snapshots.delete(config_id=cfg.id, build_id=build_id)
         await self._snapshots.clear_current(config_id=cfg.id)
         await audit.emit(
@@ -398,15 +432,10 @@ class GraphRagBuilder:
         triples: Sequence[Triple],
     ) -> list[EntityEmbedding]:
         """Build a description per unique entity and embed them in a batch."""
-        entities: dict[str, list[str]] = {}
-        for tr in triples:
-            entities.setdefault(tr.subject, []).append(f"{tr.subject} {tr.relation} {tr.object}")
-            entities.setdefault(tr.object, []).append(f"{tr.subject} {tr.relation} {tr.object}")
-        if not entities:
+        pairs = build_entity_descriptions((t.subject, t.relation, t.object) for t in triples)
+        if not pairs:
             return []
-        ordered = sorted(entities.items())
-        # Audit M7: bound the fragment count per entity description.
-        descriptions = [" | ".join(v[:MAX_DESC_FRAGMENTS]) for _, v in ordered]
+        descriptions = [desc for _, desc in pairs]
         embedder = await self._embedder_factory(cfg)
         vectors = await embedder.embed_batch(descriptions)
         if len(vectors) != len(descriptions):
@@ -424,7 +453,7 @@ class GraphRagBuilder:
                 description=desc,
                 vector=vec,
             )
-            for (entity, _), desc, vec in zip(ordered, descriptions, vectors, strict=True)
+            for (entity, desc), vec in zip(pairs, vectors, strict=True)
         ]
 
 
@@ -460,5 +489,7 @@ __all__ = [
     "EntityEmbedding",
     "GraphRagBuilder",
     "LOCK_TTL_S",
+    "MAX_DESC_FRAGMENTS",
     "SNAPSHOT_TTL_S",
+    "build_entity_descriptions",
 ]
