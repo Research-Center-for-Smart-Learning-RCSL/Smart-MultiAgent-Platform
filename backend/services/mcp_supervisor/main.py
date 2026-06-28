@@ -36,8 +36,13 @@ from typing import Any
 # cache, each GET shells out a fresh `docker` process; under a wedged Docker
 # daemon that is pure wasted load — every probe blocks the full 5 s timeout.
 # A short TTL coalesces bursts to at most one real probe per window while
-# staying responsive to the daemon recovering.
-_CACHE_TTL_SECONDS = 10.0
+# staying responsive to the daemon recovering. Kept above the compose probe
+# interval (15 s) so consecutive liveness ticks reuse a cached result instead
+# of each shelling out a fresh `docker info`, and so a burst from the sandbox
+# readiness gate (many spawns in one window) collapses onto a single probe.
+# Staleness is bounded by the TTL; with retries=5 the unhealthy verdict still
+# lands well inside the daemon's real outage.
+_CACHE_TTL_SECONDS = 20.0
 _cache: tuple[float, bool, str] | None = None
 
 
@@ -97,11 +102,18 @@ class _Handler(http.server.BaseHTTPRequestHandler):
             return
         ok, detail = _check_cached()
         body = json.dumps({"status": "ok" if ok else "error", "detail": detail}).encode()
-        self.send_response(200 if ok else 503)
-        self.send_header("Content-Type", "application/json")
-        self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
+        try:
+            self.send_response(200 if ok else 503)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+        except (BrokenPipeError, ConnectionResetError):
+            # The health probe hung up before we finished writing (e.g. its 4 s
+            # client timeout fired while `docker info` was still running up to
+            # its 5 s budget). Benign — the probe retries on its next interval;
+            # swallow it so socketserver does not log an unhandled traceback.
+            pass
 
     def log_message(self, fmt: str, *args: object) -> None:
         pass  # suppress Apache-style access log; structured logs from container stdout are enough
