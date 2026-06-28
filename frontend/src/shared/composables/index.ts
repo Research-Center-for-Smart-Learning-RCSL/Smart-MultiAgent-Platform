@@ -1,4 +1,5 @@
 export { useBanKickGuard } from './useBanKickGuard'
+export { useIdleLogout, type IdleLogout } from './useIdleLogout'
 export { useBreakpoint, BP, type Breakpoint } from './useBreakpoint'
 export { useConfirmDialog, type ConfirmOptions, type PromptOptions } from './useConfirmDialog'
 export { useCsrfToken } from './useCsrfToken'

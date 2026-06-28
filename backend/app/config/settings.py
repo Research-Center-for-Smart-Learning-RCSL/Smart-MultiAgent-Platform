@@ -122,6 +122,16 @@ class JwtSection(BaseSettings):
 
     access_ttl_seconds: int = 15 * 60  # R6.03
     refresh_ttl_seconds: int = 30 * 24 * 3600
+    # Sliding inactivity window. A session that is not rotated (refreshed) for
+    # longer than this is treated as expired on its next refresh — a server-
+    # authoritative backstop to the SPA's input-driven idle logout. The SPA
+    # fetches both values from `/api/auth/session-policy` so the warning UI and
+    # the enforced timeout stay in lockstep. Set <= 0 to disable the backstop.
+    idle_timeout_seconds: int = 45 * 60
+    # How long before the idle timeout the SPA shows its "are you still there?"
+    # countdown. Purely a client-side UX lead time; carried here so the timeout
+    # policy has a single source of truth.
+    idle_warning_seconds: int = 60
     issuer: str = "smap.local"
     audience: str = "smap.api"
     # NOT YET IMPLEMENTED — reserved for future JWT rotation (R6.03).

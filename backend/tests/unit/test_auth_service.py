@@ -29,6 +29,7 @@ from contexts.identity.domain.errors import (
     TokenInvalid,
 )
 from contexts.identity.domain.models import User, UserStatus
+from shared_kernel.auth.clients import now
 from shared_kernel.auth.password import PasswordHasher
 
 _NOW = datetime(2026, 6, 22, 12, 0, 0)
@@ -460,6 +461,7 @@ class TestRefresh:
         record = MagicMock()
         record.user_id = user.id
         record.session_id = uuid.uuid4()
+        record.last_seen_at = now()
         mock_get.return_value = record
         users = AsyncMock()
         users.get_by_id.return_value = user
@@ -480,6 +482,36 @@ class TestRefresh:
         assert pair.access_token == "new_access"
         assert pair.refresh_token == "new_refresh"
         sessions.update_on_rotation.assert_awaited_once()
+
+    @patch("contexts.identity.application.auth_service.tokens.get_record", new_callable=AsyncMock)
+    @patch("contexts.identity.application.auth_service.tokens.revoke_session", new_callable=AsyncMock)
+    @patch("contexts.identity.application.auth_service.tokens.deny_access_jti", new_callable=AsyncMock)
+    @patch("contexts.identity.application.auth_service.tokens.rotate_session", new_callable=AsyncMock)
+    @patch("contexts.identity.application.auth_service.audit.emit", new_callable=AsyncMock)
+    async def test_idle_session_is_expired(
+        self, _audit, mock_rotate, mock_deny, mock_revoke, mock_get
+    ) -> None:
+        user = _make_user()
+        record = MagicMock()
+        record.user_id = user.id
+        record.session_id = uuid.uuid4()
+        record.last_jti = uuid.uuid4()
+        # Last rotation is far older than the 45-minute idle window.
+        record.last_seen_at = now() - timedelta(hours=2)
+        mock_get.return_value = record
+        users = AsyncMock()
+        users.get_by_id.return_value = user
+        sessions = AsyncMock()
+        svc = _make_service(user_repo=users, session_repo=sessions)
+
+        with pytest.raises(TokenExpired):
+            await svc.refresh(refresh_token="tok", remote_ip="1.2.3.4")
+
+        # The idle session is torn down and never rotated forward.
+        mock_revoke.assert_awaited_once_with("tok")
+        mock_deny.assert_awaited_once_with(record.last_jti)
+        sessions.revoke.assert_awaited_once_with(session_id=record.session_id)
+        mock_rotate.assert_not_awaited()
 
 
 # ---------------------------------------------------------------------------

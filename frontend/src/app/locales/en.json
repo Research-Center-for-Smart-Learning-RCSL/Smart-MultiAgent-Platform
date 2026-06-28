@@ -23,6 +23,14 @@
       "message": "Attempting to reconnect...",
       "retry": "Retry Now"
     },
+    "idle": {
+      "title": "Are you still there?",
+      "message": "You've been inactive for a while. For your security, you'll be signed out automatically.",
+      "countdown": "Signing out in {seconds} s",
+      "stay": "Stay signed in",
+      "logoutNow": "Sign out now",
+      "signedOut": "You were signed out due to inactivity."
+    },
     "pagination": {
       "showing": "Showing {start}-{end} of {total}",
       "label": "Pagination",

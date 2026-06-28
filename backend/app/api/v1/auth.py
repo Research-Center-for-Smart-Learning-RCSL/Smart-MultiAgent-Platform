@@ -211,6 +211,11 @@ class CaptchaConfigOut(BaseModel):
     sitekey: str
 
 
+class SessionPolicyOut(BaseModel):
+    idle_timeout_seconds: int
+    idle_warning_seconds: int
+
+
 # ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
@@ -248,6 +253,21 @@ async def captcha_config() -> CaptchaConfigOut:
     """
     cfg = captcha.public_config()
     return CaptchaConfigOut(mode=cfg.mode, provider=cfg.provider, sitekey=cfg.sitekey)
+
+
+@router.get("/session-policy")
+async def session_policy() -> SessionPolicyOut:
+    """Idle-timeout policy for the SPA's inactivity logout (R6.03-adjacent).
+
+    Unauthenticated by design — it carries no secrets, only the two timing
+    values the client needs to drive its "are you still there?" countdown so the
+    warning UI and the server-enforced idle window share one source of truth.
+    """
+    jwt_cfg = get_settings().jwt
+    return SessionPolicyOut(
+        idle_timeout_seconds=jwt_cfg.idle_timeout_seconds,
+        idle_warning_seconds=jwt_cfg.idle_warning_seconds,
+    )
 
 
 @router.post("/verify-email")
