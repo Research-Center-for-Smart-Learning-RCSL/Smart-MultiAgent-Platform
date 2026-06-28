@@ -16,10 +16,13 @@ const route = useRoute()
 const router = useRouter()
 const session = useSessionStore()
 
+// Route logged-out visitors through the landing intro (brand animation + logo)
+// first; Landing forwards them on to login carrying this page as the return
+// path, so the guest experience starts branded rather than on a bare form.
 if (!session.isAuthenticated) {
   router.replace({
-    name: 'identity.login',
-    query: { redirect: route.fullPath },
+    name: 'root',
+    query: { next: route.fullPath },
   })
 }
 
