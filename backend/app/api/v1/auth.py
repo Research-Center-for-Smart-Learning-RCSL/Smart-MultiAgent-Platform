@@ -11,6 +11,7 @@ import uuid
 from datetime import timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -18,6 +19,7 @@ from app.api.v1.deps import PaginationParams
 from app.config.settings import get_settings
 from contexts.identity.application.auth_service import AuthService, TokenPair
 from contexts.identity.application.factory import create_auth_service
+from contexts.identity.interfaces.error_mapping import DEAD_REFRESH_ERRORS, render_problem
 from contexts.identity.interfaces.facade import IdentityFacade, UserProfile
 from shared_kernel.auth import captcha, ratelimit, tokens
 from shared_kernel.auth.context import RequestContext
@@ -305,23 +307,34 @@ async def login(
     return _token_pair_out(outcome.tokens)
 
 
-@router.post("/refresh")
+@router.post("/refresh", response_model=TokenPairOut)
 async def refresh(
     body: RefreshIn,
     request: Request,
     response: Response,
     ctx: RequestContext = Depends(current_context),
     db: AsyncSession = Depends(db_session),
-) -> TokenPairOut:
+) -> TokenPairOut | JSONResponse:
     refresh_token = request.cookies.get(_REFRESH_COOKIE) or body.refresh_token
     if not refresh_token:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Refresh token missing")
     service = _service(db)
-    pair = await service.refresh(
-        refresh_token=refresh_token,
-        remote_ip=ctx.actor_ip or "0.0.0.0",  # noqa: S104
-        request_id=ctx.request_id,
-    )
+    try:
+        pair = await service.refresh(
+            refresh_token=refresh_token,
+            remote_ip=ctx.actor_ip or "0.0.0.0",  # noqa: S104
+            request_id=ctx.request_id,
+        )
+    except DEAD_REFRESH_ERRORS as exc:
+        # The presented refresh token is permanently unusable (expired, idle-
+        # timed-out, reused, or its owner is no longer active), so the cookie it
+        # rode in on is now inert. Emit the canonical RFC-7807 body on a response
+        # we control and clear the dead cookie, rather than let the error bubble
+        # to the global handler (which builds its own response and would leave
+        # the cookie lingering until its 30-day max-age).
+        problem = await render_problem(request, exc)
+        _clear_refresh_cookie(problem)
+        return problem
     _set_refresh_cookie(response, pair.refresh_token)
     return _token_pair_out(pair)
 
