@@ -9,7 +9,11 @@ import AppSidebar from '../components/AppSidebar.vue'
 const route = useRoute()
 const { isDesktop } = useBreakpoint()
 
-const manualCollapsed = ref(false)
+// null = follow the route's auto behavior; true/false = explicit user choice
+// for the current route. An explicit choice must be able to override
+// autoCollapsed in BOTH directions, otherwise the toggle is dead on immersive
+// routes (e.g. chatrooms) where autoCollapsed is always true.
+const manualOverride = ref<boolean | null>(null)
 
 const isImmersiveRoute = computed(() => {
   const path = route.path
@@ -22,15 +26,17 @@ const autoCollapsed = computed(() =>
   isImmersiveRoute.value || route.meta.sidebarCollapsed === true,
 )
 
-const sidebarCollapsed = computed(
-  () => !isDesktop.value || autoCollapsed.value || manualCollapsed.value,
-)
+const sidebarCollapsed = computed(() => {
+  if (!isDesktop.value) return true
+  if (manualOverride.value !== null) return manualOverride.value
+  return autoCollapsed.value
+})
 
 const sidebarDrawerOpen = ref(false)
 
 function toggleSidebar(): void {
   if (isDesktop.value) {
-    manualCollapsed.value = !manualCollapsed.value
+    manualOverride.value = !sidebarCollapsed.value
   } else {
     sidebarDrawerOpen.value = !sidebarDrawerOpen.value
   }
@@ -40,6 +46,7 @@ watch(
   () => route.path,
   () => {
     sidebarDrawerOpen.value = false
+    manualOverride.value = null
   },
 )
 
