@@ -180,6 +180,8 @@ export interface ToolTestResult {
   tool_names: string[]
   duration_ms: number
   error: string | null
+  // HTTP status from a local_function reachability probe (null for MCP tests).
+  status?: number | null
 }
 
 // Mirrors backend `WorkspaceFileOut` — designer-uploaded file for Code Interpreter.

@@ -88,7 +88,9 @@ export const mcpToolCreateSchema = z.object({
   config: z.object({
     source: z.enum(['url', 'package']),
     reference: z.string().trim().min(1).max(2000),
-    allowed_tools: z.array(z.string().trim().min(1)).default([]),
+    // Validated against the raw textarea in onSubmit (not bound to a vee-validate
+    // field); an empty allowlist yields zero runtime tools and is rejected there.
+    allowed_tools: z.array(z.string().trim().min(1)).max(200).default([]),
   }),
   auth: z.record(z.unknown()).optional(),
 })
