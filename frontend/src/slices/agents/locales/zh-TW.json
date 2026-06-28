@@ -229,8 +229,16 @@
       "loadFailed": "載入知識圖譜失敗。",
       "emptyTitle": "尚無圖譜",
       "emptyDescription": "為此設定執行一次建置以產生知識圖譜。",
-      "legendSize": "節點大小＝關聯度",
-      "legendHint": "節點越大代表關係越多。拖曳可重新排列，捲動可縮放。"
+      "legendHint": "節點大小＝關係數量。拖曳可重新排列，捲動可縮放。",
+      "types": {
+        "person": "人物",
+        "organization": "組織",
+        "location": "地點",
+        "concept": "概念",
+        "event": "事件",
+        "product": "產品",
+        "other": "其他"
+      }
     },
     "graphragForm": {
       "agent": "代理人",

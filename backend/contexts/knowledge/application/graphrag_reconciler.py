@@ -25,6 +25,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.knowledge.application.graphrag_events import publish_build_state
 from contexts.knowledge.application.graphrag_ports import (
+    BuildLockStore,
     Neo4jDriver,
     SnapshotStore,
 )
@@ -41,6 +42,18 @@ _log = logging.getLogger(__name__)
 
 RETRY_BACKOFF_S: tuple[float, ...] = (1.0, 2.0, 4.0, 8.0, 16.0)
 
+# Mirrors the builder's R11a.01 lock TTL — the reconciler takes the same
+# per-config lock so it never heals a build that is still live in a worker.
+LOCK_TTL_S = 10 * 60
+
+# States the reconciler will attempt to heal: a Phase-2 failure
+# (FAILED_COMPENSATING) and a build that durably committed Neo4j but crashed
+# before Phase-2 finished (NEO4J_COMMITTED, audit C2).
+_STUCK_STATES: tuple[BuildState, ...] = (
+    BuildState.FAILED_COMPENSATING,
+    BuildState.NEO4J_COMMITTED,
+)
+
 Sleeper = Callable[[float], Awaitable[None]]
 
 
@@ -56,6 +69,7 @@ class ReconciliationLoop:
         snapshot_store: SnapshotStore,
         phase2_retry: Phase2Retry,
         sleeper: Sleeper | None = None,
+        lock_store: BuildLockStore | None = None,
     ) -> None:
         self._session_factory = session_factory
         self._neo4j = neo4j
@@ -63,6 +77,7 @@ class ReconciliationLoop:
         self._snapshots = snapshot_store
         self._phase2 = phase2_retry
         self._sleep: Sleeper = sleeper or asyncio.sleep
+        self._locks = lock_store
 
     async def run_once(self) -> list[uuid.UUID]:
         """Drive one scan-and-heal cycle. Returns ids successfully committed.
@@ -78,20 +93,29 @@ class ReconciliationLoop:
         db = self._session_factory()
         try:
             repo = GraphRagConfigRepository(db)
-            stuck = await repo.list_in_state(BuildState.FAILED_COMPENSATING)
+            stuck: list[GraphRagConfig] = []
+            for state in _STUCK_STATES:
+                stuck.extend(await repo.list_in_state(state))
             touched: list[uuid.UUID] = []
             for cfg in stuck:
+                # Audit M1: take the per-config build lock so a still-live build
+                # is never reconciled concurrently. A held lock (busy) means a
+                # worker owns this build right now — skip it this cycle.
+                if self._locks is not None and not await self._locks.acquire(cfg.id, ttl_s=LOCK_TTL_S):
+                    continue
                 try:
                     await self._reconcile_one(db, cfg)
                     await db.commit()
+                    touched.append(cfg.id)
                 except Exception:
                     _log.exception(
                         "graphrag reconcile failed for config %s; " "peers in this cycle are unaffected",
                         cfg.id,
                     )
                     await db.rollback()
-                    continue
-                touched.append(cfg.id)
+                finally:
+                    if self._locks is not None:
+                        await self._locks.release(cfg.id)
             return touched
         finally:
             await db.close()
@@ -117,6 +141,7 @@ class ReconciliationLoop:
                 state=BuildState.FAILED,
                 error="no snapshot available for compensation",
             )
+            await self._clear_current(cfg.id)
             await publish_build_state(cfg.id, BuildState.FAILED.value)
             return
 
@@ -156,6 +181,7 @@ class ReconciliationLoop:
                 config_id=cfg.id,
                 build_id=build_id,
             )
+            await self._clear_current(cfg.id)
             await audit.emit(
                 db,
                 audit.AuditEvent(
@@ -208,6 +234,7 @@ class ReconciliationLoop:
             config_id=cfg.id,
             build_id=build_id,
         )
+        await self._clear_current(cfg.id)
         await audit.emit(
             db,
             audit.AuditEvent(
@@ -221,16 +248,28 @@ class ReconciliationLoop:
             ),
         )
 
+    async def _clear_current(self, config_id: uuid.UUID) -> None:
+        """Drop the authoritative in-flight build-id pointer on a terminal heal."""
+        clearer = getattr(self._snapshots, "clear_current", None)
+        if clearer is not None:
+            await clearer(config_id=config_id)
+
     async def _resolve_build_id(
         self,
         cfg: GraphRagConfig,
     ) -> uuid.UUID | None:
-        """Find the in-flight build_id by probing the snapshot store.
+        """Resolve the in-flight build_id for a stuck config.
 
-        We encoded the build id in the Redis key when the builder took
-        the snapshot; the adapter exposes ``scan_current`` to retrieve
-        it. Adapters that cannot scan return ``None``.
+        Audit C4: prefer the authoritative ``get_current`` pointer the builder
+        sets when it takes the snapshot. Fall back to the legacy (non-
+        deterministic) ``scan_current`` only for adapters that predate the
+        pointer. Adapters that can do neither return ``None``.
         """
+        getter = getattr(self._snapshots, "get_current", None)
+        if getter is not None:
+            current = await getter(config_id=cfg.id)
+            if current is not None:
+                return current  # type: ignore[no-any-return]
         scanner = getattr(self._snapshots, "scan_current", None)
         if scanner is None:
             return None

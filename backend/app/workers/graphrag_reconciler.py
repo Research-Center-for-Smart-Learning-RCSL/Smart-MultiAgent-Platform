@@ -27,7 +27,10 @@ from contexts.knowledge.infrastructure.graphrag_vector_store import (
     GraphRagVectorStore,
 )
 from contexts.knowledge.infrastructure.neo4j_driver import Neo4jAsyncDriver
-from contexts.knowledge.infrastructure.redis_lock import RedisSnapshotStore
+from contexts.knowledge.infrastructure.redis_lock import (
+    RedisBuildLockStore,
+    RedisSnapshotStore,
+)
 from shared_kernel.db.session import get_sessionmaker
 
 _log = logging.getLogger(__name__)
@@ -68,7 +71,10 @@ def _make_phase2_retry(
             entities.setdefault(s, []).append(f"{s} {rel} {o}")
             entities.setdefault(o, []).append(f"{s} {rel} {o}")
         ordered = sorted(entities.items())
-        descriptions = [" | ".join(v) for _, v in ordered]
+        # Mirror GraphRagBuilder._embed_entities, including the M7 fragment cap.
+        from contexts.knowledge.application.graphrag_builder import MAX_DESC_FRAGMENTS
+
+        descriptions = [" | ".join(v[:MAX_DESC_FRAGMENTS]) for _, v in ordered]
 
         # Resolve the first embedding key from the builder key group.
         embed_model: dict[str, str] = {
@@ -152,6 +158,7 @@ async def _loop() -> AsyncIterator[ReconciliationLoop]:
         vector_store=vectors,
         snapshot_store=RedisSnapshotStore(),
         phase2_retry=_make_phase2_retry(neo4j, vectors),
+        lock_store=RedisBuildLockStore(),
     )
     try:
         yield loop

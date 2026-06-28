@@ -8,10 +8,14 @@ for permission filtering).
 from __future__ import annotations
 
 import uuid
+from typing import TYPE_CHECKING
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.knowledge.domain.graphrag import GraphRagConfig
+
+if TYPE_CHECKING:
+    from contexts.knowledge.application.graphrag_graph_service import GraphView
 from contexts.knowledge.domain.models import RagConfig, RagDocument
 from contexts.knowledge.infrastructure.graphrag_repositories import (
     GraphRagConfigRepository,
@@ -39,6 +43,23 @@ class KnowledgeFacade:
         confirm an attached config belongs to the agent's project (SEC-H1).
         """
         return await self._graphrag.get(config_id, include_deleted=include_deleted)
+
+    async def get_graphrag_graph(
+        self,
+        config_id: uuid.UUID,
+        *,
+        limit: int,
+    ) -> GraphView:
+        """Bounded node/edge view of a config's Neo4j subgraph (viz P0).
+
+        The api layer authorizes on the config's ``project_id`` first (via
+        :meth:`get_graphrag_config`); this only assembles the read model.
+        """
+        from contexts.knowledge.application.graphrag_graph_service import (
+            GraphRagGraphService,
+        )
+
+        return await GraphRagGraphService(self._db).get_graph(config_id=config_id, limit=limit)
 
     async def finalize_rag_upload(
         self,

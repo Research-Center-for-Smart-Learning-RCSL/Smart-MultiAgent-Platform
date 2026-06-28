@@ -229,8 +229,16 @@
       "loadFailed": "Failed to load the knowledge graph.",
       "emptyTitle": "No graph yet",
       "emptyDescription": "Run a build for this configuration to populate its knowledge graph.",
-      "legendSize": "Node size = degree",
-      "legendHint": "Larger nodes have more relations. Drag to rearrange, scroll to zoom."
+      "legendHint": "Node size = number of relations. Drag to rearrange, scroll to zoom.",
+      "types": {
+        "person": "Person",
+        "organization": "Organization",
+        "location": "Location",
+        "concept": "Concept",
+        "event": "Event",
+        "product": "Product",
+        "other": "Other"
+      }
     },
     "graphragForm": {
       "agent": "Agent",

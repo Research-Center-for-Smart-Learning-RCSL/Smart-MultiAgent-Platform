@@ -32,6 +32,12 @@ export const agentsRoutes: RouteRecordRaw[] = [
     meta: { requiresAuth: true, requiresVerifiedEmail: true },
   },
   {
+    path: '/projects/:projectId/graphrag-configs/:configId/graph',
+    name: 'agents.graphragGraph',
+    component: () => import('./views/GraphragGraphView.vue'),
+    meta: { requiresAuth: true, requiresVerifiedEmail: true },
+  },
+  {
     path: '/agents/:agentId/tools',
     name: 'agents.tools',
     component: () => import('./views/AgentToolsView.vue'),

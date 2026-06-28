@@ -57,6 +57,29 @@ class SnapshotStore(Protocol):
         build_id: uuid.UUID,
     ) -> None: ...
 
+    async def set_current(
+        self,
+        *,
+        config_id: uuid.UUID,
+        build_id: uuid.UUID,
+        ttl_s: int,
+    ) -> None:
+        """Record the in-flight build id authoritatively (audit C4)."""
+
+    async def get_current(
+        self,
+        *,
+        config_id: uuid.UUID,
+    ) -> uuid.UUID | None:
+        """Return the authoritatively-recorded in-flight build id, if any."""
+
+    async def clear_current(
+        self,
+        *,
+        config_id: uuid.UUID,
+    ) -> None:
+        """Drop the in-flight build-id pointer on a terminal transition."""
+
 
 class Neo4jDriver(Protocol):
     """Minimal surface for the GraphRAG subgraph operations."""

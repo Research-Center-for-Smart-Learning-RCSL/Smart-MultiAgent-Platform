@@ -135,6 +135,10 @@ class GraphRagRetrieveService:
             unique = list(dict.fromkeys(evidence_ids))[:10]
             excerpts = tuple(await self._evidence_fetcher(unique))
 
+        # Audit M5: order relations by confidence so the 2 KB bundle cap trims
+        # the weakest edges, not an arbitrary slice of traversal-order output.
+        relations.sort(key=lambda r: r.confidence, reverse=True)
+
         return GraphRagBundle(
             entities=tuple(seed_entities),
             relations=tuple(relations),
