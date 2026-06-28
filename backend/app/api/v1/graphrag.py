@@ -16,18 +16,24 @@ from __future__ import annotations
 import logging
 import uuid
 
-from fastapi import APIRouter, Depends, Path, status
-from pydantic import BaseModel, Field
+from fastapi import APIRouter, Depends, Path, Query, status
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.deps import PaginationParams
 from contexts.knowledge.application.graphrag_config_service import (
     GraphRagConfigService,
 )
+from contexts.knowledge.application.graphrag_graph_service import (
+    DEFAULT_GRAPH_LIMIT,
+    MAX_GRAPH_LIMIT,
+)
 from contexts.knowledge.domain.graphrag import (
+    BuildState,
     GraphRagConfig,
     GraphRagConfigDraft,
 )
+from contexts.knowledge.interfaces.facade import KnowledgeFacade
 from shared_kernel.auth.context import RequestContext
 from shared_kernel.auth.dependencies import (
     current_context,
@@ -46,17 +52,32 @@ _log = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 
+class GraphRagTriggerConfig(BaseModel):
+    """Typed GraphRAG build-trigger config (audit M11).
+
+    Replaces the previously untyped ``dict[str, object]`` that was persisted
+    verbatim as JSON. Unknown keys are rejected and numeric bounds are
+    enforced so arbitrary/oversized payloads can't be stored.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    every_n_messages: int | None = Field(default=None, ge=1, le=100_000)
+    silence_minutes: int | None = Field(default=None, ge=1, le=100_000)
+    manual: bool = False
+
+
 class GraphRagConfigCreateIn(BaseModel):
     agent_id: uuid.UUID
     builder_key_group_id: uuid.UUID
-    trigger_config: dict[str, object] = Field(default_factory=dict)
+    trigger_config: GraphRagTriggerConfig = Field(default_factory=GraphRagTriggerConfig)
 
 
 class GraphRagConfigPatchIn(BaseModel):
     """Partial update — both fields optional. Omitted = unchanged."""
 
     builder_key_group_id: uuid.UUID | None = None
-    trigger_config: dict[str, object] | None = None
+    trigger_config: GraphRagTriggerConfig | None = None
 
 
 class GraphRagConfigOut(BaseModel):
@@ -83,6 +104,29 @@ class GraphRagBuildOut(BaseModel):
     accepted: bool
     build_id: uuid.UUID | None
     state: str
+
+
+class GraphNodeOut(BaseModel):
+    id: str
+    degree: int
+    build_id: str | None
+    type: str
+
+
+class GraphEdgeOut(BaseModel):
+    source: str
+    relation: str
+    target: str
+    confidence: float
+
+
+class GraphOut(BaseModel):
+    """Bounded node/edge view for the knowledge-graph visualizer (viz P0)."""
+
+    config_id: uuid.UUID
+    nodes: list[GraphNodeOut]
+    edges: list[GraphEdgeOut]
+    truncated: bool
 
 
 def _to_out(cfg: GraphRagConfig) -> GraphRagConfigOut:
@@ -141,7 +185,7 @@ async def create_config(
     draft = GraphRagConfigDraft(
         agent_id=body.agent_id,
         builder_key_group_id=body.builder_key_group_id,
-        trigger_config=dict(body.trigger_config),
+        trigger_config=body.trigger_config.model_dump(exclude_none=True),
     )
     cfg = await service.create(
         project_id=project_id,
@@ -241,6 +285,50 @@ async def read_status(
     )
 
 
+@config_router.get("/{config_id}/graph")
+async def read_graph(
+    config_id: uuid.UUID = Path(...),
+    limit: int = Query(DEFAULT_GRAPH_LIMIT, ge=1, le=MAX_GRAPH_LIMIT),
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(db_session),
+) -> GraphOut:
+    """Read a bounded view of the config's knowledge graph (viz P0).
+
+    AuthZ matches ``read_config``: membership at the config's project. The
+    facade assembles the read model; the limit is clamped so a large graph can
+    never stream an unbounded payload to the browser.
+    """
+    facade = KnowledgeFacade(db)
+    cfg = await facade.get_graphrag_config(config_id)
+    if cfg is None:
+        from contexts.knowledge.domain.errors import GraphRagConfigNotFound
+
+        raise GraphRagConfigNotFound(str(config_id))
+    await _assert_project_membership(
+        db=db,
+        principal=principal,
+        project_id=cfg.project_id,
+    )
+    view = await facade.get_graphrag_graph(config_id, limit=limit)
+    return GraphOut(
+        config_id=view.config_id,
+        nodes=[
+            GraphNodeOut(id=n.name, degree=n.degree, build_id=n.build_id, type=n.type)
+            for n in view.nodes
+        ],
+        edges=[
+            GraphEdgeOut(
+                source=e.source,
+                relation=e.relation,
+                target=e.target,
+                confidence=e.confidence,
+            )
+            for e in view.edges
+        ],
+        truncated=view.truncated,
+    )
+
+
 @config_router.patch("/{config_id}")
 async def update_config(
     body: GraphRagConfigPatchIn,
@@ -259,7 +347,9 @@ async def update_config(
     refreshed = await service.update(
         config_id=config_id,
         builder_key_group_id=body.builder_key_group_id,
-        trigger_config=(dict(body.trigger_config) if body.trigger_config is not None else None),
+        trigger_config=(
+            body.trigger_config.model_dump(exclude_none=True) if body.trigger_config is not None else None
+        ),
         actor_user_id=principal.user_id,
         actor_ip=ctx.actor_ip,
         request_id=ctx.request_id,
@@ -342,6 +432,19 @@ async def trigger_build(
     service = GraphRagConfigService(db)
     cfg = await service.get(config_id)
     await _assert_edit(db=db, principal=principal, project_id=cfg.project_id)
+
+    # Audit M8: only enqueue when the config is in a resumable state. The
+    # builder serializes execution via the per-config Redis lock, but without
+    # this guard each duplicate POST still enqueues a job that spins up a worker
+    # only to fail acquiring the lock — a member with edit rights could flood
+    # the queue. An in-progress build returns accepted=False with its state.
+    if cfg.last_build_state not in {BuildState.IDLE, BuildState.FAILED}:
+        return GraphRagBuildOut(
+            accepted=False,
+            build_id=None,
+            state=cfg.last_build_state.value,
+        )
+
     from shared_kernel import audit as _audit
     from shared_kernel.queue import enqueue
 

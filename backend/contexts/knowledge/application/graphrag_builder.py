@@ -59,6 +59,13 @@ _log = logging.getLogger(__name__)
 LOCK_TTL_S = 10 * 60  # R11a.01
 SNAPSHOT_TTL_S = 24 * 60 * 60  # 24h — reconciler runs at 60s period
 
+# Audit M7: cap how many relation fragments contribute to one entity's
+# embedding description. A hot entity that appears in hundreds of triples would
+# otherwise build a description that exceeds the embedder's input-token limit
+# and fail Phase-2 on every reconciler retry. Bounding it keeps the description
+# representative without unbounded growth.
+MAX_DESC_FRAGMENTS = 40
+
 
 @dataclass(frozen=True, slots=True)
 class EntityEmbedding:
@@ -155,9 +162,16 @@ class GraphRagBuilder:
                 },
             ),
         )
+        # Audit C1: persist each transition durably. The worker only committed
+        # once after run() returned, collapsing RUNNING/NEO4J_COMMITTED into the
+        # terminal state — so a crash mid-build left Postgres rolled back while
+        # Neo4j kept the orphan triples, invisible to the reconciler (C2).
+        await self._db.commit()
 
         # Snapshot the prior subgraph BEFORE we touch anything — so Phase-2
-        # failure has something to roll back to.
+        # failure has something to roll back to. The current-build pointer is
+        # the authoritative record of the in-flight build id the reconciler
+        # reads (audit C4) instead of guessing from a key scan.
         try:
             prior = await self._neo4j.snapshot_subgraph(
                 config_id=cfg.id,
@@ -167,6 +181,11 @@ class GraphRagBuilder:
                 config_id=cfg.id,
                 build_id=build_id,
                 snapshot=prior,
+                ttl_s=SNAPSHOT_TTL_S,
+            )
+            await self._snapshots.set_current(
+                config_id=cfg.id,
+                build_id=build_id,
                 ttl_s=SNAPSHOT_TTL_S,
             )
         except Exception as exc:
@@ -182,9 +201,13 @@ class GraphRagBuilder:
 
         # ------------ Phase 1: extract triples + upsert Neo4j -----------
         try:
+            # Audit M6: a "full" rebuild must re-extract the whole history, not
+            # just messages newer than the last build. Pass since=None so the
+            # loader scans from the beginning.
+            since = None if mode == "full" else cfg.last_build_at
             delta = await self._delta_loader.load(
                 config_id=cfg.id,
-                since=cfg.last_build_at,
+                since=since,
                 mode=mode,
             )
             triples = await self._extractor.extract(
@@ -214,6 +237,9 @@ class GraphRagBuilder:
             error=None,
         )
         await publish_build_state(cfg.id, BuildState.NEO4J_COMMITTED.value, build_id=build_id)
+        # Audit C1/C2: make NEO4J_COMMITTED durable so a crash before Phase-2
+        # finishes leaves a row the reconciler can pick up and heal.
+        await self._db.commit()
 
         # ------------ Phase 2: embed + upsert Qdrant ---------------------
         try:
@@ -253,6 +279,10 @@ class GraphRagBuilder:
                 ),
             )
             await publish_build_state(cfg.id, BuildState.FAILED_COMPENSATING.value, build_id=build_id)
+            # Audit C1/C2: persist FAILED_COMPENSATING durably; the current-build
+            # pointer is intentionally left set so the reconciler resolves this
+            # build's id and retries Phase-2 (or rolls back).
+            await self._db.commit()
             return BuildResult(
                 config_id=cfg.id,
                 build_id=build_id,
@@ -298,6 +328,7 @@ class GraphRagBuilder:
             stamp_built_at=True,
         )
         await self._snapshots.delete(config_id=cfg.id, build_id=build_id)
+        await self._snapshots.clear_current(config_id=cfg.id)
         await audit.emit(
             self._db,
             audit.AuditEvent(
@@ -342,6 +373,7 @@ class GraphRagBuilder:
             config_id=config_id,
             build_id=build_id,
         )
+        await self._snapshots.clear_current(config_id=config_id)
         await audit.emit(
             self._db,
             audit.AuditEvent(
@@ -356,6 +388,8 @@ class GraphRagBuilder:
             ),
         )
         await publish_build_state(config_id, BuildState.FAILED.value, build_id=build_id)
+        # Audit C1: FAILED is a terminal state — make it durable immediately.
+        await self._db.commit()
 
     async def _embed_entities(
         self,
@@ -371,7 +405,8 @@ class GraphRagBuilder:
         if not entities:
             return []
         ordered = sorted(entities.items())
-        descriptions = [" | ".join(v) for _, v in ordered]
+        # Audit M7: bound the fragment count per entity description.
+        descriptions = [" | ".join(v[:MAX_DESC_FRAGMENTS]) for _, v in ordered]
         embedder = await self._embedder_factory(cfg)
         vectors = await embedder.embed_batch(descriptions)
         if len(vectors) != len(descriptions):

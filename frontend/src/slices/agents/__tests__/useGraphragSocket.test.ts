@@ -29,7 +29,10 @@ vi.mock('@shared/transport', () => {
 })
 
 const getStatusMock = vi.hoisted(() => vi.fn(async () => ({ data: { state: 'idle' } })))
-vi.mock('../api', () => ({ agentsApi: { getGraphragStatus: getStatusMock } }))
+vi.mock('../api', () => ({
+  agentsApi: { getGraphragStatus: getStatusMock },
+  GRAPHRAG_IN_PROGRESS: new Set(['running', 'neo4j_committed', 'failed_compensating']),
+}))
 
 import { useGraphragSocket } from '../composables/useGraphragSocket'
 
@@ -76,5 +79,12 @@ describe('useGraphragSocket', () => {
     api.watch('cfg_1')
     emit({ type: 'something.else', state: 'running' })
     expect(api.liveState.value['cfg_1']).toBeUndefined()
+  })
+
+  it('seeds the initial state so the poll fallback works without a connect (C6)', () => {
+    const api = mountSocket()
+    // No WS event and no successful connect — only the seed.
+    api.watch('cfg_1', 'running')
+    expect(api.liveState.value['cfg_1']).toBe('running')
   })
 })

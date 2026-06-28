@@ -141,6 +141,7 @@ class FakeLock:
 class FakeSnapshots:
     def __init__(self) -> None:
         self.store: dict[tuple[uuid.UUID, uuid.UUID], dict[str, Any]] = {}
+        self.current: dict[uuid.UUID, uuid.UUID] = {}
 
     async def put(
         self, *, config_id: uuid.UUID, build_id: uuid.UUID, snapshot: dict[str, Any], ttl_s: int
@@ -152,6 +153,15 @@ class FakeSnapshots:
 
     async def delete(self, *, config_id: uuid.UUID, build_id: uuid.UUID) -> None:
         self.store.pop((config_id, build_id), None)
+
+    async def set_current(self, *, config_id: uuid.UUID, build_id: uuid.UUID, ttl_s: int) -> None:
+        self.current[config_id] = build_id
+
+    async def get_current(self, *, config_id: uuid.UUID) -> uuid.UUID | None:
+        return self.current.get(config_id)
+
+    async def clear_current(self, *, config_id: uuid.UUID) -> None:
+        self.current.pop(config_id, None)
 
     async def scan_current(self, *, config_id: uuid.UUID) -> uuid.UUID | None:
         for cid, bid in self.store:

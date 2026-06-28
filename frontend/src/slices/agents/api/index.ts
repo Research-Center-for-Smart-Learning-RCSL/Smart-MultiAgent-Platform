@@ -116,6 +116,8 @@ export interface GraphNode {
   id: string
   degree: number
   build_id: string | null
+  // Coarse entity category for colouring (person/organization/... or '' = unknown).
+  type: string
 }
 
 export interface GraphEdge {

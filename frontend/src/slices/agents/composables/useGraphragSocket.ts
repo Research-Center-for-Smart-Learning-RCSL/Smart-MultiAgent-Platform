@@ -10,10 +10,7 @@ import { onBeforeUnmount, ref } from 'vue'
 
 import { wsManager, type ChannelEvent } from '@shared/transport'
 import { agentKeys } from '../queries'
-import { agentsApi } from '../api'
-
-// States that mean a build is still moving — anything else is terminal.
-const IN_PROGRESS = new Set(['running', 'neo4j_committed', 'failed_compensating'])
+import { agentsApi, GRAPHRAG_IN_PROGRESS, type GraphragBuildState } from '../api'
 
 // Backstop poll: build.state events are best-effort (a Redis hiccup can drop
 // one). Without a fallback a lost terminal event strands the card on 'running'
@@ -21,10 +18,14 @@ const IN_PROGRESS = new Set(['running', 'neo4j_committed', 'failed_compensating'
 // recovers it. (Primary signal is still the WS event; this is just a safety net.)
 const POLL_FALLBACK_MS = 15000
 
+function isBuildState(s: string): s is GraphragBuildState {
+  return GRAPHRAG_IN_PROGRESS.has(s as GraphragBuildState) || ['idle', 'qdrant_committed', 'failed'].includes(s)
+}
+
 export function useGraphragSocket(projectId: string) {
   const qc = useQueryClient()
   // configId -> latest live build state.
-  const liveState = ref<Record<string, string>>({})
+  const liveState = ref<Record<string, GraphragBuildState>>({})
   // configId -> teardown for its channel subscription.
   const watched = new Map<string, () => void>()
   let pollTimer: ReturnType<typeof setInterval> | null = null
@@ -35,7 +36,7 @@ export function useGraphragSocket(projectId: string) {
     // was rolled back (e.g. a failed build-trigger deletes its liveState key)
     // would be polled forever.
     const s = liveState.value[configId]
-    return s !== undefined && IN_PROGRESS.has(s)
+    return s !== undefined && GRAPHRAG_IN_PROGRESS.has(s)
   }
 
   function unwatch(configId: string): void {
@@ -43,6 +44,12 @@ export function useGraphragSocket(projectId: string) {
     if (teardown) {
       teardown()
       watched.delete(configId)
+    }
+    // Audit M14: stop the backstop poll once nothing is being watched, so an
+    // idle list view isn't left ticking an interval over an empty map forever.
+    if (watched.size === 0 && pollTimer !== null) {
+      clearInterval(pollTimer)
+      pollTimer = null
     }
   }
 
@@ -55,14 +62,17 @@ export function useGraphragSocket(projectId: string) {
     }, POLL_FALLBACK_MS)
   }
 
-  function applyState(configId: string, state: string): void {
+  function applyState(configId: string, state: GraphragBuildState): void {
     liveState.value = { ...liveState.value, [configId]: state }
-    if (!IN_PROGRESS.has(state)) {
+    if (!GRAPHRAG_IN_PROGRESS.has(state)) {
       // Terminal: refetch the authoritative config row (last_build_at, binding)
-      // and close this config's channel so subscriptions don't accumulate over
-      // many builds. Deferred so we don't tear down a channel from inside its
-      // own event handler. A later re-build re-subscribes via watch().
+      // for both the list and the single-config query (audit M13 — the agent
+      // detail Knowledge tab reads graphragConfig(id)), and close this config's
+      // channel so subscriptions don't accumulate over many builds. Deferred so
+      // we don't tear down a channel from inside its own event handler. A later
+      // re-build re-subscribes via watch().
       qc.invalidateQueries({ queryKey: agentKeys.graphragConfigs(projectId) })
+      qc.invalidateQueries({ queryKey: agentKeys.graphragConfig(configId) })
       void Promise.resolve().then(() => unwatch(configId))
     }
   }
@@ -76,13 +86,21 @@ export function useGraphragSocket(projectId: string) {
     }
   }
 
-  function watch(configId: string): void {
+  // `initialState` seeds liveState so the backstop poll can recover a build even
+  // when the WebSocket never connects (audit C6). Without it, liveState stayed
+  // undefined until a successful connect, and the poll — which skips undefined —
+  // could never fire for an offline/degraded socket, the exact case it exists
+  // to cover.
+  function watch(configId: string, initialState?: GraphragBuildState): void {
+    if (initialState !== undefined && liveState.value[configId] === undefined) {
+      liveState.value = { ...liveState.value, [configId]: initialState }
+    }
     if (watched.has(configId)) return
     const path = `/graphrag/${configId}`
     const channel = wsManager.channel(path)
 
     const unsubscribeEvent = channel.subscribe('*', (ev: ChannelEvent) => {
-      if (ev.type === 'build.state' && typeof ev.state === 'string') {
+      if (ev.type === 'build.state' && typeof ev.state === 'string' && isBuildState(ev.state)) {
         applyState(configId, ev.state)
       }
     })

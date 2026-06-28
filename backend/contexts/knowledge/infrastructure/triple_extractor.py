@@ -37,14 +37,29 @@ _DEFAULT_EXTRACTION_MODELS: dict[str, str] = {
     "gemini": "gemini-2.0-flash",
 }
 
+# Coarse entity categories the extractor classifies endpoints into, used to
+# colour nodes in the graph visualizer (audit L1). Free-form values are
+# accepted and lower-cased; anything outside this set renders as "other".
+ENTITY_TYPES = ("person", "organization", "location", "concept", "event", "product", "other")
+
 _EXTRACTION_PROMPT = (
     "You are an information extraction engine. From the following chat "
     "messages, extract factual relations as a JSON array of objects with "
     "fields: subject (string), relation (string), object (string), "
-    "confidence (float 0..1), evidence_msg_ids (array of message id "
-    "strings from the provided messages). Respond with ONLY the JSON "
-    "array, no prose.\n\nMESSAGES:\n{messages}"
+    "subject_type (one of: person, organization, location, concept, event, "
+    "product, other), object_type (same set), confidence (float 0..1), "
+    "evidence_msg_ids (array of message id strings from the provided "
+    "messages). Respond with ONLY the JSON array, no prose.\n\n"
+    "MESSAGES:\n{messages}"
 )
+
+
+def _norm_type(raw: object) -> str:
+    """Normalise an extracted entity type to the controlled vocabulary."""
+    if not isinstance(raw, str):
+        return ""
+    val = raw.strip().lower()
+    return val if val in ENTITY_TYPES else ("" if val == "" else "other")
 
 
 class LlmTripleExtractor:
@@ -155,6 +170,8 @@ def _parse_triples(raw: str) -> list[Triple]:
                 object=obj.strip(),
                 confidence=max(0.0, min(1.0, conf)),
                 evidence_msg_ids=tuple(ev),
+                subject_type=_norm_type(row.get("subject_type")),
+                object_type=_norm_type(row.get("object_type")),
             )
         )
     return out

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/vue-query'
 import { useForm } from 'vee-validate'
@@ -11,6 +11,7 @@ import {
   EyeIcon,
   CircleStackIcon,
   EllipsisVerticalIcon,
+  ShareIcon,
 } from '@heroicons/vue/24/outline'
 import {
   SPageHeader,
@@ -28,6 +29,7 @@ import {
   SEmptyState,
   SAlert,
   STooltip,
+  SLoadingSpinner,
 } from '@shared/ui'
 import {
   useConfirmDialog,
@@ -35,7 +37,12 @@ import {
   useToast,
 } from '@shared/composables'
 import { keyGroupsApi, keysKeys } from '@slices/keys'
-import { agentsApi, type GraphragConfig, type GraphragStatus } from '../api'
+import {
+  agentsApi,
+  GRAPHRAG_IN_PROGRESS,
+  type GraphragConfig,
+  type GraphragStatus,
+} from '../api'
 import { agentKeys } from '../queries'
 import { useProjectBreadcrumbs } from '../composables/useProjectBreadcrumbs'
 import { useGraphragSocket } from '../composables/useGraphragSocket'
@@ -47,6 +54,7 @@ import type { Column } from '@shared/ui/STable.vue'
 
 const { t } = useI18n()
 const route = useRoute()
+const router = useRouter()
 const qc = useQueryClient()
 const projectId = route.params.projectId as string
 const toast = useToast()
@@ -60,6 +68,8 @@ const showCreateModal = ref(false)
 const showStatusDrawer = ref(false)
 const statusDrawerConfig = ref<GraphragConfig | null>(null)
 const drawerStatus = ref<GraphragStatus | null>(null)
+const drawerLoading = ref(false)
+const drawerError = ref(false)
 
 const configsQuery = useQuery({
   queryKey: agentKeys.graphragConfigs(projectId),
@@ -102,20 +112,23 @@ const isBound = (cfg: GraphragConfig): boolean =>
   agentById.value.get(cfg.agent_id)?.graphrag_config_id === cfg.id
 
 // --- Build state management (live via WebSocket) ---
-const IN_PROGRESS = new Set(['running', 'neo4j_committed', 'failed_compensating'])
 const { liveState, watch: watchBuild } = useGraphragSocket(projectId)
 
-const effectiveState = (cfg: GraphragConfig): string =>
+const effectiveState = (cfg: GraphragConfig): GraphragConfig['last_build_state'] =>
   liveState.value[cfg.id] ?? cfg.last_build_state
-const isBuilding = (cfg: GraphragConfig): boolean => IN_PROGRESS.has(effectiveState(cfg))
+const isBuilding = (cfg: GraphragConfig): boolean => GRAPHRAG_IN_PROGRESS.has(effectiveState(cfg))
 
 // Pick up any config that is already mid-build when the list loads (a build
 // triggered elsewhere, or a page reload during one) so its progress stays live.
+// Seed the known state so the backstop poll works even if the socket can't
+// connect (audit C6).
 watch(
   configs,
   (list) => {
     for (const cfg of list) {
-      if (IN_PROGRESS.has(cfg.last_build_state)) watchBuild(cfg.id)
+      if (GRAPHRAG_IN_PROGRESS.has(cfg.last_build_state)) {
+        watchBuild(cfg.id, cfg.last_build_state)
+      }
     }
   },
   { immediate: true },
@@ -162,8 +175,15 @@ function startBuild(id: string): void {
   // Optimistic running state + subscribe before the request returns so we
   // never miss the early build.state events.
   liveState.value = { ...liveState.value, [id]: 'running' }
-  watchBuild(id)
+  watchBuild(id, 'running')
   buildMutation.mutate(id)
+}
+
+function openGraph(cfg: GraphragConfig): void {
+  void router.push({
+    name: 'agents.graphragGraph',
+    params: { projectId, configId: cfg.id },
+  })
 }
 
 // --- Create form ---
@@ -252,11 +272,17 @@ async function openStatusDrawer(cfg: GraphragConfig): Promise<void> {
   statusDrawerConfig.value = cfg
   showStatusDrawer.value = true
   drawerStatus.value = null
+  // Audit M12: show explicit loading + error states instead of a blank drawer.
+  drawerLoading.value = true
+  drawerError.value = false
   try {
     const { data } = await agentsApi.getGraphragStatus(cfg.id)
     drawerStatus.value = data
   } catch {
+    drawerError.value = true
     toast.error(t('agents.graphragList.statusFetchFailed'))
+  } finally {
+    drawerLoading.value = false
   }
 }
 
@@ -268,11 +294,13 @@ function formatDate(iso: string | null): string {
 // --- Actions ---
 function onAction(key: string, row: GraphragConfig): void {
   if (key === 'status') void openStatusDrawer(row)
+  else if (key === 'graph') openGraph(row)
   else if (key === 'delete') void confirmDelete(row)
 }
 
 const actionItems = computed(() => [
   { key: 'status', label: t('agents.graphragList.viewStatus'), icon: EyeIcon },
+  { key: 'graph', label: t('agents.graphragList.viewGraph'), icon: ShareIcon },
   { key: 'divider', label: '', divider: true },
   { key: 'delete', label: t('common.delete', 'Delete'), icon: TrashIcon, danger: true },
 ])
@@ -525,7 +553,19 @@ const columns = computed<Column[]>(() => [
       size="md"
       @close="showStatusDrawer = false"
     >
-      <template v-if="drawerStatus">
+      <div
+        v-if="drawerLoading"
+        class="flex justify-center py-10"
+      >
+        <SLoadingSpinner />
+      </div>
+      <SAlert
+        v-else-if="drawerError"
+        variant="danger"
+      >
+        {{ t('agents.graphragList.statusFetchFailed') }}
+      </SAlert>
+      <template v-else-if="drawerStatus">
         <div class="space-y-6">
           <div>
             <p class="text-sm font-medium text-[var(--color-muted)] mb-1">

@@ -195,19 +195,29 @@ async def graphrag_build(
 
             # One-hot per state — set the active label to 1 and zero the others so
             # `graphrag_build_state{config_id="...", state="..."} == 1` is unique
-            # at any moment.
+            # at any moment. Audit M2: the prior label set used "building"/"ready"
+            # which no BuildState ever maps to, so success and failed_compensating
+            # both reported "idle" and operators got no "stuck compensating"
+            # signal. These labels mirror the real terminal states.
             def _set_state(active: str) -> None:
-                for s in ("idle", "building", "ready", "failed"):
+                for s in ("idle", "running", "failed", "compensating"):
                     GRAPHRAG_BUILD_STATE.labels(
                         config_id=cfg_id_str,
                         state=s,
                     ).set(1.0 if s == active else 0.0)
 
-            _set_state("building")
+            # Map a terminal BuildState to its metric label.
+            metric_state = {
+                "idle": "idle",
+                "failed": "failed",
+                "failed_compensating": "compensating",
+            }
+
+            _set_state("running")
             try:
                 result = await builder.run(config_id=cfg_id, triggered_by=triggered_by)
                 await db.commit()
-                _set_state(result.state.value if result.state.value in ("ready", "failed") else "idle")
+                _set_state(metric_state.get(result.state.value, "idle"))
                 _log.info(
                     "graphrag_build done config=%s state=%s triples=%d entities=%d",
                     config_id,

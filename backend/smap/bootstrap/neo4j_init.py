@@ -5,13 +5,19 @@ operator asked for a non-default `settings.neo4j.database`, we try
 `CREATE DATABASE` and downgrade gracefully to `neo4j` when Community refuses;
 the report surfaces a `skipped` entry so it is visible in CI output.
 
-Constraints/indexes match §21.3:
-  * `(:Entity {id})` unique
-  * index on `:Entity(canonical_name)`
-  * relationship index on `:REL(type)`
+The schema must match the properties the GraphRAG driver actually writes
+(``contexts.knowledge.infrastructure.neo4j_driver``): an ``:Entity`` is
+MERGEd on the composite key ``(graphrag_config_id, name)`` and a ``:REL`` on
+``(graphrag_config_id, relation)``. An earlier schema indexed ``id`` /
+``canonical_name`` / ``:REL(type)`` — properties that are never set, so the
+constraint was inert and the indexes dead, leaving every apply/snapshot/
+traverse/delete to do a full label scan (audit C5). The composite range
+indexes below back the real MERGE/MATCH keys.
 
-Per-project subgraph labels (`:P_{project_id}`) are created at runtime by the
-GraphRAG builder; bootstrap only lays down the type-level schema.
+Community edition cannot enforce a composite node-key uniqueness constraint
+(Enterprise-only). Build serialization (the per-config Redis build lock)
+keeps concurrent MERGE on the same key from racing, so a range index — which
+both editions support — is sufficient and correct here.
 """
 
 from __future__ import annotations
@@ -23,13 +29,14 @@ from app.config.settings import Settings
 
 from ._common import BootstrapReport
 
-_CONSTRAINTS: tuple[str, ...] = (
-    "CREATE CONSTRAINT entity_id_unique IF NOT EXISTS " "FOR (e:Entity) REQUIRE e.id IS UNIQUE",
-)
+_CONSTRAINTS: tuple[str, ...] = ()
 
 _INDEXES: tuple[str, ...] = (
-    "CREATE INDEX entity_canonical_name IF NOT EXISTS FOR (e:Entity) ON (e.canonical_name)",
-    "CREATE INDEX rel_type IF NOT EXISTS FOR ()-[r:REL]-() ON (r.type)",
+    "CREATE INDEX entity_config_name IF NOT EXISTS " "FOR (e:Entity) ON (e.graphrag_config_id, e.name)",
+    "CREATE INDEX entity_config_build IF NOT EXISTS " "FOR (e:Entity) ON (e.graphrag_config_id, e.build_id)",
+    "CREATE INDEX rel_config_relation IF NOT EXISTS "
+    "FOR ()-[r:REL]-() ON (r.graphrag_config_id, r.relation)",
+    "CREATE INDEX rel_config_build IF NOT EXISTS " "FOR ()-[r:REL]-() ON (r.graphrag_config_id, r.build_id)",
 )
 
 

@@ -54,6 +54,12 @@ class Triple:
 
     ``evidence_msg_ids`` carries the chat message ids that justify the
     triple so downstream retrieval can surface evidence excerpts.
+
+    ``subject_type`` / ``object_type`` are coarse entity categories (e.g.
+    person, organization, concept) the extractor classifies the endpoints
+    into, used to colour nodes in the graph visualizer (audit L1). Empty
+    string means "unknown" — older builds and soft parse failures leave it
+    blank, which the viewer renders as a neutral category.
     """
 
     subject: str
@@ -61,6 +67,8 @@ class Triple:
     object: str
     confidence: float
     evidence_msg_ids: tuple[uuid.UUID, ...]
+    subject_type: str = ""
+    object_type: str = ""
 
 
 @dataclass(frozen=True, slots=True)
