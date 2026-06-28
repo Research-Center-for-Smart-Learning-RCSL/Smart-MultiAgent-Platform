@@ -1,5 +1,6 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { nextTick } from 'vue'
+import { flushPromises } from '@vue/test-utils'
 import { renderView } from '../../../tests/utils'
 import { useSessionStore } from '@shared/stores/session'
 import Landing from '../views/Landing.vue'
@@ -69,5 +70,28 @@ describe('Landing', () => {
     expect(wrapper.text()).toContain('app.landing.enterWorkspace')
     // The visitor sign-up CTA gives way to the workspace action.
     expect(wrapper.text()).not.toContain('app.landing.getStarted')
+  })
+
+  it('forwards a logged-out deep-link visitor on to login with the return path', async () => {
+    // Reduced motion skips the intro overlay, so the post-intro forward runs on
+    // mount — letting us assert it without driving the animation timers.
+    vi.stubGlobal('matchMedia', () => ({ matches: true, addEventListener() {}, removeEventListener() {} }))
+
+    const wrapper = await renderView(Landing, {
+      initialRoute: '/?next=/g/cr_1/tok_abc',
+    })
+    const router = wrapper.vm.$router
+    // The login route is lazily imported, so the forward navigation settles
+    // across a few macrotasks — flush until it lands (bounded retries).
+    for (let i = 0; i < 10 && router.currentRoute.value.name !== 'identity.login'; i++) {
+      await flushPromises()
+      await new Promise((r) => setTimeout(r))
+    }
+
+    const current = router.currentRoute.value
+    expect(current.name).toBe('identity.login')
+    expect(String(current.query.redirect)).toContain('tok_abc')
+
+    vi.unstubAllGlobals()
   })
 })

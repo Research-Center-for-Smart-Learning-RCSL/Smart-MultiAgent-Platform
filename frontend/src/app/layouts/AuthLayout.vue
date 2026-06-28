@@ -32,6 +32,26 @@ import BrandLogo from '@app/components/BrandLogo.vue'
   display: flex;
   justify-content: center;
   margin-bottom: 24px;
+  /* Gentle entrance so the auth pages feel continuous with the landing intro;
+     frozen for reduced-motion users below. */
+  animation: auth-logo-in 0.5s ease-out both;
+}
+
+@keyframes auth-logo-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .auth-layout__logo {
+    animation: none;
+  }
 }
 
 @media (max-width: 480px) {

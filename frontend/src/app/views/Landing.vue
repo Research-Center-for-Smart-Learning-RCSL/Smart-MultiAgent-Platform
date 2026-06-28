@@ -14,7 +14,7 @@ import {
   ArrowsRightLeftIcon,
 } from '@heroicons/vue/24/outline'
 import { SButton, ThemeToggle } from '@shared/ui'
-import { useDocumentMeta, useRevealOnScroll } from '@shared/composables'
+import { useDocumentMeta, useRevealOnScroll, safeRedirect } from '@shared/composables'
 import { useSessionStore } from '@shared/stores/session'
 import { useWorkspaceStore } from '@shared/stores/workspace'
 import { useRecentChatrooms, type Chatroom } from '@slices/conversation'
@@ -53,28 +53,52 @@ const inviteRedirect = computed(() => {
   return `/invites/accept#token=${encodeURIComponent(token)}`
 })
 
+// Deep-link landing: `/?next=<internal path>`. Guest chatroom links route
+// logged-out visitors through here so they see the brand intro before being
+// handed to login with a return path. Validated as same-origin (open-redirect
+// guard) before it ever reaches a router target.
+const nextTarget = computed<string | null>(() => {
+  const next = route.query.next
+  return typeof next === 'string' && next ? safeRedirect(next) : null
+})
+
+// CTA links carry whichever return target is in play, so a manual click lands
+// the visitor back where they started.
+const ctaRedirect = computed(() => inviteRedirect.value ?? nextTarget.value)
+
 const getStartedTo = computed(() =>
-  inviteRedirect.value
-    ? { path: '/register', query: { redirect: inviteRedirect.value } }
+  ctaRedirect.value
+    ? { path: '/register', query: { redirect: ctaRedirect.value } }
     : '/register',
 )
 const logInTo = computed(() =>
-  inviteRedirect.value
-    ? { path: '/login', query: { redirect: inviteRedirect.value } }
+  ctaRedirect.value
+    ? { path: '/login', query: { redirect: ctaRedirect.value } }
     : '/login',
 )
 
-function onIntroDone(): void {
-  introActive.value = false
-  if (session.isAuthenticated && inviteRedirect.value) {
-    router.replace(inviteRedirect.value)
+// After the intro: authenticated visitors go straight to their target; a
+// logged-out visitor arriving via a guest/deep link (`?next=`) continues to
+// login carrying the return path, while a plain invite-email visitor stays on
+// the marketing hero and uses the CTAs.
+function forwardAfterIntro(): void {
+  if (session.isAuthenticated) {
+    const target = inviteRedirect.value ?? nextTarget.value
+    if (target) router.replace(target)
+    return
+  }
+  if (nextTarget.value) {
+    router.replace({ name: 'identity.login', query: { redirect: nextTarget.value } })
   }
 }
 
+function onIntroDone(): void {
+  introActive.value = false
+  forwardAfterIntro()
+}
+
 onMounted(() => {
-  if (!introActive.value && session.isAuthenticated && inviteRedirect.value) {
-    router.replace(inviteRedirect.value)
-  }
+  if (!introActive.value) forwardAfterIntro()
 })
 
 // `Me` carries no display name, so the greeting falls back to the email
