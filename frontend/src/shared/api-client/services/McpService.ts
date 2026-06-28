@@ -5,35 +5,10 @@
 import type { AllowlistAddIn } from '../models/AllowlistAddIn';
 import type { AllowlistEntryOut } from '../models/AllowlistEntryOut';
 import type { AllowlistReplaceIn } from '../models/AllowlistReplaceIn';
-import type { McpTestOut } from '../models/McpTestOut';
 import type { CancelablePromise } from '../core/CancelablePromise';
 import { OpenAPI } from '../core/OpenAPI';
 import { request as __request } from '../core/request';
 export class McpService {
-    /**
-     * Test Mcp Binding
-     * @returns McpTestOut Successful Response
-     * @throws ApiError
-     */
-    public static testMcpBindingApiAgentsAgentIdMcpMcpIdTestPost({
-        agentId,
-        mcpId,
-    }: {
-        agentId: string,
-        mcpId: string,
-    }): CancelablePromise<McpTestOut> {
-        return __request(OpenAPI, {
-            method: 'POST',
-            url: '/api/agents/{agent_id}/mcp/{mcp_id}/test',
-            path: {
-                'agent_id': agentId,
-                'mcp_id': mcpId,
-            },
-            errors: {
-                422: `Validation Error`,
-            },
-        });
-    }
     /**
      * List Allowlist
      * @returns AllowlistEntryOut Successful Response

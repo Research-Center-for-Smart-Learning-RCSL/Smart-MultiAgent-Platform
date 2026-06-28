@@ -5,9 +5,10 @@
 import type { AgentCreateIn } from '../models/AgentCreateIn';
 import type { AgentOut } from '../models/AgentOut';
 import type { AgentPatchIn } from '../models/AgentPatchIn';
-import type { McpBindingCreateIn } from '../models/McpBindingCreateIn';
-import type { McpBindingOut } from '../models/McpBindingOut';
-import type { McpBindingPatchIn } from '../models/McpBindingPatchIn';
+import type { AgentToolCreateIn } from '../models/AgentToolCreateIn';
+import type { AgentToolOut } from '../models/AgentToolOut';
+import type { AgentToolPatchIn } from '../models/AgentToolPatchIn';
+import type { AgentToolTestOut } from '../models/AgentToolTestOut';
 import type { CancelablePromise } from '../core/CancelablePromise';
 import { OpenAPI } from '../core/OpenAPI';
 import { request as __request } from '../core/request';
@@ -90,20 +91,34 @@ export class AgentsService {
         });
     }
     /**
-     * List Mcp Bindings
-     * @returns McpBindingOut Successful Response
+     * List Agent Tools
+     * @returns AgentToolOut Successful Response
      * @throws ApiError
      */
-    public static listMcpBindingsApiAgentsAgentIdMcpGet({
+    public static listAgentToolsApiAgentsAgentIdToolsGet({
         agentId,
+        limit = 100,
+        offset,
     }: {
         agentId: string,
-    }): CancelablePromise<Array<McpBindingOut>> {
+        /**
+         * Max items to return
+         */
+        limit?: number,
+        /**
+         * Number of items to skip
+         */
+        offset?: number,
+    }): CancelablePromise<Array<AgentToolOut>> {
         return __request(OpenAPI, {
             method: 'GET',
-            url: '/api/agents/{agent_id}/mcp',
+            url: '/api/agents/{agent_id}/tools',
             path: {
                 'agent_id': agentId,
+            },
+            query: {
+                'limit': limit,
+                'offset': offset,
             },
             errors: {
                 422: `Validation Error`,
@@ -111,20 +126,20 @@ export class AgentsService {
         });
     }
     /**
-     * Add Mcp Binding
-     * @returns McpBindingOut Successful Response
+     * Add Agent Tool
+     * @returns AgentToolOut Successful Response
      * @throws ApiError
      */
-    public static addMcpBindingApiAgentsAgentIdMcpPost({
+    public static addAgentToolApiAgentsAgentIdToolsPost({
         agentId,
         requestBody,
     }: {
         agentId: string,
-        requestBody: McpBindingCreateIn,
-    }): CancelablePromise<McpBindingOut> {
+        requestBody: AgentToolCreateIn,
+    }): CancelablePromise<AgentToolOut> {
         return __request(OpenAPI, {
             method: 'POST',
-            url: '/api/agents/{agent_id}/mcp',
+            url: '/api/agents/{agent_id}/tools',
             path: {
                 'agent_id': agentId,
             },
@@ -136,23 +151,23 @@ export class AgentsService {
         });
     }
     /**
-     * Delete Mcp Binding
+     * Delete Agent Tool
      * @returns void
      * @throws ApiError
      */
-    public static deleteMcpBindingApiAgentsAgentIdMcpBindingIdDelete({
+    public static deleteAgentToolApiAgentsAgentIdToolsToolIdDelete({
         agentId,
-        bindingId,
+        toolId,
     }: {
         agentId: string,
-        bindingId: string,
+        toolId: string,
     }): CancelablePromise<void> {
         return __request(OpenAPI, {
             method: 'DELETE',
-            url: '/api/agents/{agent_id}/mcp/{binding_id}',
+            url: '/api/agents/{agent_id}/tools/{tool_id}',
             path: {
                 'agent_id': agentId,
-                'binding_id': bindingId,
+                'tool_id': toolId,
             },
             errors: {
                 422: `Validation Error`,
@@ -160,28 +175,52 @@ export class AgentsService {
         });
     }
     /**
-     * Patch Mcp Binding
-     * @returns McpBindingOut Successful Response
+     * Patch Agent Tool
+     * @returns AgentToolOut Successful Response
      * @throws ApiError
      */
-    public static patchMcpBindingApiAgentsAgentIdMcpBindingIdPatch({
+    public static patchAgentToolApiAgentsAgentIdToolsToolIdPatch({
         agentId,
-        bindingId,
+        toolId,
         requestBody,
     }: {
         agentId: string,
-        bindingId: string,
-        requestBody: McpBindingPatchIn,
-    }): CancelablePromise<McpBindingOut> {
+        toolId: string,
+        requestBody: AgentToolPatchIn,
+    }): CancelablePromise<AgentToolOut> {
         return __request(OpenAPI, {
             method: 'PATCH',
-            url: '/api/agents/{agent_id}/mcp/{binding_id}',
+            url: '/api/agents/{agent_id}/tools/{tool_id}',
             path: {
                 'agent_id': agentId,
-                'binding_id': bindingId,
+                'tool_id': toolId,
             },
             body: requestBody,
             mediaType: 'application/json',
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * Test Agent Tool
+     * @returns AgentToolTestOut Successful Response
+     * @throws ApiError
+     */
+    public static testAgentToolApiAgentsAgentIdToolsToolIdTestPost({
+        agentId,
+        toolId,
+    }: {
+        agentId: string,
+        toolId: string,
+    }): CancelablePromise<AgentToolTestOut> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/agents/{agent_id}/tools/{tool_id}/test',
+            path: {
+                'agent_id': agentId,
+                'tool_id': toolId,
+            },
             errors: {
                 422: `Validation Error`,
             },

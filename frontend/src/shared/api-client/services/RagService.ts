@@ -250,9 +250,12 @@ export class RagService {
      * Set Document Agents
      * Replace a document's per-agent allowlist.
      *
-     * AuthZ matches document deletion: ``RESOURCE_CREATE_EDIT`` at the parent
-     * config's project. DOM-7: a missing document and an existing-but-forbidden
-     * one both return 404 so the endpoint is not a cross-tenant UUID oracle.
+     * AuthZ: ``RESOURCE_CREATE_EDIT`` at the parent config's project AND Project
+     * Owner — re-scoping which agents can retrieve a document is a corpus
+     * access-control decision, so it is owner-gated to match document upload
+     * (R10.10), not the weaker edit-only bar. DOM-7: a missing document and an
+     * existing-but-forbidden one both return 404 so the endpoint is not a
+     * cross-tenant UUID oracle.
      * @returns RagDocumentOut Successful Response
      * @throws ApiError
      */

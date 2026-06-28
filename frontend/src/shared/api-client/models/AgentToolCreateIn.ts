@@ -2,10 +2,10 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
-export type McpBindingCreateIn = {
-    allowed_tools?: Array<string>;
+export type AgentToolCreateIn = {
+    auth?: (Record<string, any> | null);
     config?: Record<string, any>;
-    reference: string;
-    source: 'builtin' | 'url' | 'package';
+    display_name?: (string | null);
+    tool_type: 'hosted_mcp' | 'local_function';
 };
 

@@ -2,6 +2,7 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
+import type { GraphOut } from '../models/GraphOut';
 import type { GraphRagBuildOut } from '../models/GraphRagBuildOut';
 import type { GraphRagConfigCreateIn } from '../models/GraphRagConfigCreateIn';
 import type { GraphRagConfigOut } from '../models/GraphRagConfigOut';
@@ -107,6 +108,37 @@ export class GraphragService {
             url: '/api/graphrag/{config_id}/build',
             path: {
                 'config_id': configId,
+            },
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * Read Graph
+     * Read a bounded view of the config's knowledge graph (viz P0).
+     *
+     * AuthZ matches ``read_config``: membership at the config's project. The
+     * facade assembles the read model; the limit is clamped so a large graph can
+     * never stream an unbounded payload to the browser.
+     * @returns GraphOut Successful Response
+     * @throws ApiError
+     */
+    public static readGraphApiGraphragConfigIdGraphGet({
+        configId,
+        limit = 500,
+    }: {
+        configId: string,
+        limit?: number,
+    }): CancelablePromise<GraphOut> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/graphrag/{config_id}/graph',
+            path: {
+                'config_id': configId,
+            },
+            query: {
+                'limit': limit,
             },
             errors: {
                 422: `Validation Error`,
