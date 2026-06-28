@@ -1,7 +1,8 @@
-"""Unit tests for the local_function reachability probe (POST /tools/{id}/test).
+"""Unit tests for the local_function reachability probe (AgentService._probe_function).
 
-Exercises ``app.api.v1.agents._probe_function_tool`` with the egress allowlist
-repo and proxy client faked out.
+Exercises the probe with the egress allowlist repo and proxy client faked out.
+A 2xx/3xx is a pass; a 4xx/5xx is reachable but a failure; allowlist rejection,
+unsealable credentials, and transport errors are reported as ok=False.
 """
 
 from __future__ import annotations
@@ -11,7 +12,7 @@ from datetime import datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
-from app.api.v1 import agents as mod
+from contexts.agents.application.agent_service import AgentService
 from contexts.agents.domain.models import AgentTool, AgentToolType
 
 _NOW = datetime(2026, 6, 22, 12, 0, 0)
@@ -19,6 +20,10 @@ _NOW = datetime(2026, 6, 22, 12, 0, 0)
 
 def _agent() -> SimpleNamespace:
     return SimpleNamespace(id=uuid.uuid4(), project_id=uuid.uuid4())
+
+
+def _service() -> AgentService:
+    return AgentService(AsyncMock())
 
 
 def _fn_tool(*, with_auth: bool = False) -> AgentTool:
@@ -78,26 +83,27 @@ def _patch_proxy(monkeypatch, status: int) -> None:
 
 async def test_rejects_host_not_on_allowlist(monkeypatch) -> None:
     _patch_allowlist(monkeypatch, _DenyRepo)
-    res = await mod._probe_function_tool(AsyncMock(), agent=_agent(), tool=_fn_tool())
+    res = await _service()._probe_function(_agent(), _fn_tool())
     assert res.ok is False
     assert "allowlist" in (res.error or "")
 
 
-async def test_reports_http_status_on_response(monkeypatch) -> None:
+async def test_2xx_is_a_pass(monkeypatch) -> None:
     _patch_allowlist(monkeypatch, _AllowRepo)
     _patch_proxy(monkeypatch, 204)
-    res = await mod._probe_function_tool(AsyncMock(), agent=_agent(), tool=_fn_tool())
+    res = await _service()._probe_function(_agent(), _fn_tool())
     assert res.ok is True
     assert res.status == 204
 
 
-async def test_reachable_even_on_4xx(monkeypatch) -> None:
-    # Any HTTP response means reachable; a 401 is informational, not a failure.
+async def test_4xx_is_reachable_but_fails(monkeypatch) -> None:
+    # A 401 means the configured credential is being rejected — not a passing test.
     _patch_allowlist(monkeypatch, _AllowRepo)
     _patch_proxy(monkeypatch, 401)
-    res = await mod._probe_function_tool(AsyncMock(), agent=_agent(), tool=_fn_tool())
-    assert res.ok is True
+    res = await _service()._probe_function(_agent(), _fn_tool())
+    assert res.ok is False
     assert res.status == 401
+    assert "401" in (res.error or "")
 
 
 async def test_fails_closed_when_unseal_fails(monkeypatch) -> None:
@@ -106,9 +112,7 @@ async def test_fails_closed_when_unseal_fails(monkeypatch) -> None:
         "contexts.agents.application.runtime.builtin_tools._unseal_tool_auth_safe",
         lambda _tool: None,
     )
-    res = await mod._probe_function_tool(
-        AsyncMock(), agent=_agent(), tool=_fn_tool(with_auth=True)
-    )
+    res = await _service()._probe_function(_agent(), _fn_tool(with_auth=True))
     assert res.ok is False
     assert "unseal" in (res.error or "").lower()
 
@@ -124,6 +128,29 @@ async def test_transport_failure_reported(monkeypatch) -> None:
         "contexts.agents.infrastructure.egress_client.egress_proxy_client_from_settings",
         lambda: _BoomProxy(),
     )
-    res = await mod._probe_function_tool(AsyncMock(), agent=_agent(), tool=_fn_tool())
+    res = await _service()._probe_function(_agent(), _fn_tool())
     assert res.ok is False
     assert "unreachable" in (res.error or "")
+
+
+async def test_probe_tool_audits_and_dispatches(monkeypatch) -> None:
+    # probe_tool emits an agent.tool_tested audit event regardless of outcome.
+    _patch_allowlist(monkeypatch, _AllowRepo)
+    _patch_proxy(monkeypatch, 200)
+    emitted: list = []
+
+    async def _fake_emit(_db, event):
+        emitted.append(event)
+
+    monkeypatch.setattr("contexts.agents.application.agent_service.audit.emit", _fake_emit)
+
+    res = await _service().probe_tool(
+        agent=_agent(),
+        tool=_fn_tool(),
+        runner=AsyncMock(),
+        actor_user_id=uuid.uuid4(),
+        actor_ip=None,
+    )
+    assert res.ok is True
+    assert len(emitted) == 1
+    assert emitted[0].action == "agent.tool_tested"

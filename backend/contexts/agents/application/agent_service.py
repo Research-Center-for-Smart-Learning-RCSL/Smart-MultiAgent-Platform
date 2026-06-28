@@ -47,6 +47,7 @@ from contexts.agents.domain.models import (
     AgentToolType,
     ContextMode,
     PromptStrategy,
+    ToolProbeResult,
 )
 from contexts.agents.infrastructure.repositories import (
     AgentRepository,
@@ -146,7 +147,7 @@ def _validate_function_config(config: dict[str, Any]) -> None:
                 raise ValueError(f"function config.http.headers must not include {k}")
 
 
-def _validate_mcp_config(config: dict[str, Any]) -> None:
+def _validate_mcp_config(config: dict[str, Any], *, allow_empty_allowlist: bool = False) -> None:
     src = config.get("source")
     if src not in ("url", "package"):
         raise ValueError("hosted_mcp config.source must be 'url' or 'package'")
@@ -154,9 +155,13 @@ def _validate_mcp_config(config: dict[str, Any]) -> None:
     if not ref or not isinstance(ref, str) or len(ref) > 2000:
         raise ValueError("hosted_mcp config.reference is required (max 2000 chars)")
     allowed = config.get("allowed_tools")
+    if not isinstance(allowed, list):
+        raise ValueError("hosted_mcp config.allowed_tools must list at least one tool")
     # An empty allowlist produces zero runtime tools (build_agent_tools iterates the
-    # allowlist), so the binding would be silently inert. Require at least one entry.
-    if not isinstance(allowed, list) or not allowed:
+    # allowlist), so the binding is silently inert. Reject it on create; on patch we
+    # tolerate an already-empty list so legacy bindings (migration backfilled []) stay
+    # editable rather than 422-ing on every edit.
+    if not allowed and not allow_empty_allowlist:
         raise ValueError("hosted_mcp config.allowed_tools must list at least one tool")
     if len(allowed) > 200:
         raise ValueError("hosted_mcp config.allowed_tools must have at most 200 entries")
@@ -546,6 +551,7 @@ class AgentService:
         clear_display_name: bool = False,
         config: dict[str, Any] | None = None,
         auth: dict[str, Any] | None = None,
+        clear_auth: bool = False,
         actor_user_id: uuid.UUID,
         actor_ip: str | None,
         request_id: uuid.UUID | None = None,
@@ -577,10 +583,17 @@ class AgentService:
             if existing.tool_type == AgentToolType.LOCAL_FUNCTION:
                 _validate_function_config(merged)
             else:
-                _validate_mcp_config(merged)
-            if sealed_auth is not None:
+                _validate_mcp_config(
+                    merged,
+                    allow_empty_allowlist=not existing.config.get("allowed_tools"),
+                )
+            # Preserve the stored credential unless the caller replaces or clears it.
+            if sealed_auth is not None and not clear_auth:
                 merged["auth"] = sealed_auth
             patch_config = merged
+        elif clear_auth and patch_config is None:
+            # Clear-only patch: drop the stored credential without touching other config.
+            patch_config = {k: v for k, v in existing.config.items() if k != "auth"}
 
         if auth:
             from contexts.agents.application.tool_auth import seal_tool_auth
@@ -604,7 +617,7 @@ class AgentService:
             changed.append("enabled")
         if display_name is not None or clear_display_name:
             changed.append("display_name")
-        if config is not None or auth:
+        if config is not None or auth or clear_auth:
             changed.append("config")
 
         if changed:
@@ -658,6 +671,131 @@ class AgentService:
                 },
                 request_id=request_id,
             ),
+        )
+
+    async def probe_tool(
+        self,
+        *,
+        agent: Agent,
+        tool: AgentTool,
+        runner: Any,
+        actor_user_id: uuid.UUID,
+        actor_ip: str | None,
+        request_id: uuid.UUID | None = None,
+    ) -> ToolProbeResult:
+        """Reachability/test probe for a hosted_mcp or local_function tool.
+
+        Houses the egress + auth-resolution + probe orchestration (kept out of the
+        route, which only knows facades) and audits the test action either way.
+        """
+        if tool.tool_type == AgentToolType.LOCAL_FUNCTION:
+            result = await self._probe_function(agent, tool)
+        elif tool.tool_type == AgentToolType.HOSTED_MCP:
+            result = await self._probe_mcp(agent, tool, runner)
+        else:
+            raise ToolNotAvailable("only hosted_mcp and local_function tools can be tested")
+
+        await audit.emit(
+            self._db,
+            audit.AuditEvent(
+                action="agent.tool_tested",
+                actor_user_id=actor_user_id,
+                actor_ip=actor_ip,
+                resource_type="agent_tool",
+                resource_id=tool.id,
+                metadata={
+                    "agent_id": str(agent.id),
+                    "tool_type": tool.tool_type.value,
+                    "ok": result.ok,
+                },
+                request_id=request_id,
+            ),
+        )
+        return result
+
+    async def _probe_function(self, agent: Agent, tool: AgentTool) -> ToolProbeResult:
+        import time
+
+        from contexts.agents.application.runtime.builtin_tools import (
+            _auth_pair,
+            function_egress_allowed,
+            resolve_tool_auth,
+        )
+        from contexts.agents.infrastructure.egress_client import egress_proxy_client_from_settings
+
+        cfg = tool.config or {}
+        http_cfg = cfg.get("http", {})
+        url = str(http_cfg.get("url", ""))
+        method = str(http_cfg.get("method", "GET")).upper()
+
+        host, allowed = await function_egress_allowed(self._db, project_id=agent.project_id, url=url)
+        if not allowed:
+            return ToolProbeResult(
+                ok=False, error=f"host {host} is not on the project egress allowlist"
+            )
+
+        auth, unsealable = resolve_tool_auth(tool)
+        if unsealable:
+            return ToolProbeResult(ok=False, error="stored credentials could not be unsealed")
+
+        proxy = egress_proxy_client_from_settings()
+        headers = dict(http_cfg.get("headers") or {})
+        start = time.monotonic()
+        try:
+            status, _h, _b = await proxy.request(
+                method=method,
+                url=url,
+                project_id=agent.project_id,
+                headers=headers,
+                upstream_auth=_auth_pair(auth),
+                timeout_s=15.0,
+            )
+        except Exception as exc:
+            return ToolProbeResult(
+                ok=False,
+                duration_ms=int((time.monotonic() - start) * 1000),
+                error=str(exc) or exc.__class__.__name__,
+            )
+        duration = int((time.monotonic() - start) * 1000)
+        # Only a 2xx/3xx counts as a passing test; a 4xx/5xx is reachable but a
+        # failure (e.g. 401 = the configured credential is being rejected).
+        ok = 200 <= status < 400
+        return ToolProbeResult(
+            ok=ok, status=status, duration_ms=duration, error=None if ok else f"HTTP {status}"
+        )
+
+    async def _probe_mcp(self, agent: Agent, tool: AgentTool, runner: Any) -> ToolProbeResult:
+        import time
+
+        from contexts.agents.application.runtime.builtin_tools import resolve_tool_auth
+
+        cfg = tool.config or {}
+        auth, unsealable = resolve_tool_auth(tool)
+        if unsealable:
+            return ToolProbeResult(ok=False, error="stored credentials could not be unsealed")
+
+        start = time.monotonic()
+        try:
+            result = await runner.probe(
+                agent_id=agent.id,
+                source=cfg.get("source", "url"),
+                reference=cfg.get("reference", ""),
+                allowed_tools=cfg.get("allowed_tools", []),
+                auth=auth,
+                project_id=agent.project_id,
+                timeout_s=20.0,
+            )
+        except Exception as exc:
+            return ToolProbeResult(
+                ok=False,
+                duration_ms=int((time.monotonic() - start) * 1000),
+                error=str(exc) or exc.__class__.__name__,
+            )
+        return ToolProbeResult(
+            ok=result.ok,
+            tool_names=tuple(result.tool_names),
+            duration_ms=result.duration_ms,
+            error=result.error,
         )
 
     async def provision_tool_singletons(self, agent_id: uuid.UUID) -> None:

@@ -109,9 +109,20 @@ class AgentTool:
     def mcp_allowed_tools(self) -> tuple[str, ...]:
         """Whitelist of tool names exposed by an MCP server."""
         raw = self.config.get("allowed_tools")
-        if isinstance(raw, (list, tuple)):
+        if isinstance(raw, (list | tuple)):
             return tuple(str(t) for t in raw)
         return ()
+
+
+@dataclass(frozen=True, slots=True)
+class ToolProbeResult:
+    """Outcome of a tool reachability/test probe (hosted_mcp or local_function)."""
+
+    ok: bool
+    tool_names: tuple[str, ...] = ()
+    status: int | None = None
+    duration_ms: int = 0
+    error: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
