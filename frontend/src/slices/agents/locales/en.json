@@ -212,6 +212,7 @@
         "compensating": "Compensating"
       },
       "viewStatus": "View Status",
+      "viewGraph": "View Graph",
       "statusTitle": "GraphRAG Status",
       "emptyTitle": "No GraphRAG configurations",
       "emptyDescription": "Create a GraphRAG config to build a knowledge graph from agent conversations.",
@@ -219,6 +220,17 @@
       "lastError": "Last Error",
       "noError": "(none)",
       "graphragStatusInfo": "GraphRAG build state: {state}. Last built: {lastBuilt}."
+    },
+    "graphragGraph": {
+      "title": "Knowledge Graph",
+      "searchPlaceholder": "Search entities...",
+      "summary": "{nodes} entities, {edges} relations",
+      "truncated": "This graph is large and has been truncated to the most connected entities. Some nodes and relations are not shown.",
+      "loadFailed": "Failed to load the knowledge graph.",
+      "emptyTitle": "No graph yet",
+      "emptyDescription": "Run a build for this configuration to populate its knowledge graph.",
+      "legendSize": "Node size = degree",
+      "legendHint": "Larger nodes have more relations. Drag to rearrange, scroll to zoom."
     },
     "graphragForm": {
       "agent": "Agent",
@@ -357,6 +369,7 @@
         "auth": "Authentication",
         "authNone": "None",
         "authKeep": "Keep existing credentials",
+        "authRemove": "Remove credentials",
         "authBearer": "Bearer Token",
         "authHeader": "Custom Header",
         "authToken": "Token",

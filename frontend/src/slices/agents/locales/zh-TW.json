@@ -212,6 +212,7 @@
         "compensating": "補償中"
       },
       "viewStatus": "檢視狀態",
+      "viewGraph": "檢視圖譜",
       "statusTitle": "GraphRAG 狀態",
       "emptyTitle": "尚無 GraphRAG 設定",
       "emptyDescription": "建立 GraphRAG 設定以從代理人對話建構知識圖。",
@@ -219,6 +220,17 @@
       "lastError": "最後錯誤",
       "noError": "（無）",
       "graphragStatusInfo": "GraphRAG 建置狀態：{state}。上次建置：{lastBuilt}。"
+    },
+    "graphragGraph": {
+      "title": "知識圖譜",
+      "searchPlaceholder": "搜尋實體...",
+      "summary": "{nodes} 個實體、{edges} 條關係",
+      "truncated": "此圖譜過大，已截斷為關聯度最高的實體，部分節點與關係未顯示。",
+      "loadFailed": "載入知識圖譜失敗。",
+      "emptyTitle": "尚無圖譜",
+      "emptyDescription": "為此設定執行一次建置以產生知識圖譜。",
+      "legendSize": "節點大小＝關聯度",
+      "legendHint": "節點越大代表關係越多。拖曳可重新排列，捲動可縮放。"
     },
     "graphragForm": {
       "agent": "代理人",
@@ -357,6 +369,7 @@
         "auth": "驗證",
         "authNone": "無",
         "authKeep": "保留現有憑證",
+        "authRemove": "移除憑證",
         "authBearer": "Bearer Token",
         "authHeader": "自訂標頭",
         "authToken": "Token",

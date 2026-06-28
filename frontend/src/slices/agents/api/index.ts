@@ -68,6 +68,25 @@ export interface RagConfig {
   created_at: string
 }
 
+// The backend 2PC build state machine (BuildState). A closed set — kept as a
+// union so the badge/variant maps and socket logic stay exhaustive instead of
+// falling through on a typo (audit L8).
+export type GraphragBuildState =
+  | 'idle'
+  | 'running'
+  | 'neo4j_committed'
+  | 'qdrant_committed'
+  | 'failed_compensating'
+  | 'failed'
+
+// States that mean a build is still moving — anything else is terminal. Single
+// source of truth shared by the list view and the live socket (audit M14).
+export const GRAPHRAG_IN_PROGRESS: ReadonlySet<GraphragBuildState> = new Set([
+  'running',
+  'neo4j_committed',
+  'failed_compensating',
+])
+
 // Mirrors backend `GraphRagConfigOut`. A GraphRAG config is 1:1 with an agent
 // (R15.16); `builder_key_group_id` is the key group used to extract triples and
 // MUST differ from the agent's own consumer key group (billing separation).
@@ -77,7 +96,7 @@ export interface GraphragConfig {
   agent_id: string
   builder_key_group_id: string
   trigger_config: Record<string, unknown>
-  last_build_state: string
+  last_build_state: GraphragBuildState
   last_build_at: string | null
   last_build_error: string | null
   created_at: string
@@ -87,9 +106,30 @@ export interface GraphragConfig {
 // Mirrors backend `GraphRagStatusOut`.
 export interface GraphragStatus {
   id: string
-  state: string
+  state: GraphragBuildState
   last_build_at: string | null
   last_build_error: string | null
+}
+
+// Mirrors backend `GraphNodeOut` / `GraphEdgeOut` / `GraphOut` (viz P0).
+export interface GraphNode {
+  id: string
+  degree: number
+  build_id: string | null
+}
+
+export interface GraphEdge {
+  source: string
+  relation: string
+  target: string
+  confidence: number
+}
+
+export interface GraphView {
+  config_id: string
+  nodes: GraphNode[]
+  edges: GraphEdge[]
+  truncated: boolean
 }
 
 // Mirrors backend `GraphRagBuildOut` (202 on build accept).
@@ -173,6 +213,8 @@ export interface AgentToolPatchInput {
   display_name?: string | null
   config?: Record<string, unknown>
   auth?: Record<string, unknown> | null
+  // Explicitly remove a stored credential (auth omitted means "leave unchanged").
+  clear_auth?: boolean
 }
 
 export interface ToolTestResult {
@@ -276,6 +318,9 @@ export const agentsApi = {
 
   buildGraphrag: (configId: string) =>
     http.post<GraphragBuild>(`/graphrag/${configId}/build`),
+
+  getGraphragGraph: (configId: string, limit = 500) =>
+    http.get<GraphView>(`/graphrag/${configId}/graph?limit=${limit}`),
 
   listMcpBindings: (agentId: string) =>
     http.get<McpBinding[]>(`/agents/${agentId}/mcp`),
