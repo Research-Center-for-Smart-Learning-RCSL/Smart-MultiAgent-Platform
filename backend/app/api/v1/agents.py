@@ -630,6 +630,73 @@ class AgentToolTestOut(BaseModel):
     tool_names: list[str]
     duration_ms: int
     error: str | None = None
+    # HTTP status from a local_function reachability probe (None for MCP tests).
+    status: int | None = None
+
+
+async def _probe_function_tool(db: AsyncSession, *, agent, tool) -> AgentToolTestOut:
+    """Reachability probe for a local_function tool via the egress proxy.
+
+    Any HTTP response means the endpoint is reachable (ok=True); the status code
+    is informational. Egress-allowlist rejection, unsealable credentials, and
+    transport/timeout failures are reported as ok=False with an error message.
+    """
+    import time
+    from urllib.parse import urlsplit
+
+    from contexts.agents.application.runtime.builtin_tools import (
+        _auth_pair,
+        _unseal_tool_auth_safe,
+    )
+    from contexts.agents.infrastructure.egress_client import egress_proxy_client_from_settings
+    from contexts.agents.infrastructure.mcp_repositories import EgressAllowlistRepository
+
+    cfg = tool.config or {}
+    http_cfg = cfg.get("http", {})
+    url = str(http_cfg.get("url", ""))
+    method = str(http_cfg.get("method", "GET")).upper()
+    host = (urlsplit(url).hostname or "").lower()
+
+    if not await EgressAllowlistRepository(db).is_allowed(project_id=agent.project_id, hostname=host):
+        return AgentToolTestOut(
+            ok=False,
+            tool_names=[],
+            duration_ms=0,
+            error=f"host {host} is not on the project egress allowlist",
+        )
+
+    sealed = cfg.get("auth")
+    auth = _unseal_tool_auth_safe(tool)
+    if isinstance(sealed, dict) and sealed.get("__sealed__") and auth is None:
+        return AgentToolTestOut(
+            ok=False,
+            tool_names=[],
+            duration_ms=0,
+            error="stored credentials could not be unsealed",
+        )
+
+    proxy = egress_proxy_client_from_settings()
+    headers = dict(http_cfg.get("headers") or {})
+    start = time.monotonic()
+    try:
+        status, _h, _b = await proxy.request(
+            method=method,
+            url=url,
+            project_id=agent.project_id,
+            headers=headers,
+            upstream_auth=_auth_pair(auth),
+            timeout_s=15.0,
+        )
+    except Exception as exc:
+        duration = int((time.monotonic() - start) * 1000)
+        return AgentToolTestOut(
+            ok=False,
+            tool_names=[],
+            duration_ms=duration,
+            error=str(exc) or exc.__class__.__name__,
+        )
+    duration = int((time.monotonic() - start) * 1000)
+    return AgentToolTestOut(ok=True, tool_names=[], status=status, duration_ms=duration)
 
 
 @agent_router.post("/{agent_id}/tools/{tool_id}/test")
@@ -663,8 +730,12 @@ async def test_agent_tool(
     tool = next((t for t in tools if t.id == tool_id), None)
     if tool is None:
         raise HTTPException(status_code=404, detail="tool not found")
+    if tool.tool_type == AgentToolType.LOCAL_FUNCTION:
+        return await _probe_function_tool(db, agent=agent, tool=tool)
     if tool.tool_type != AgentToolType.HOSTED_MCP:
-        raise HTTPException(status_code=422, detail="only hosted_mcp tools can be tested")
+        raise HTTPException(
+            status_code=422, detail="only hosted_mcp and local_function tools can be tested"
+        )
 
     import time
 

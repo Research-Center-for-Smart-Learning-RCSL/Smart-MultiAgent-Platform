@@ -376,7 +376,15 @@ def _build_mcp_tool_from_agent_tool(
             try:
                 auth = unseal_tool_auth(tool.id, sealed)
             except Exception:
+                # Fail closed: the binding has stored credentials, so never fall back
+                # to an unauthenticated call (the upstream could treat that as a
+                # different identity). Surface an error instead.
                 logger.error("Failed to unseal tool auth", exc_info=True)
+                await _audit_tool_invoke(db, agent, tool, mcp_tool, ok=False)
+                return ToolResult(
+                    content=f"mcp tool {mcp_tool} failed: stored credentials could not be unsealed",
+                    is_error=True,
+                )
         try:
             res = await deps.runner.invoke_mcp_tool(
                 agent_id=agent.id,
@@ -456,7 +464,18 @@ def _build_function_tool(
             )
 
         headers = dict(http_cfg.get("headers") or {})
+        sealed_auth = cfg.get("auth") if isinstance(cfg, dict) else None
         auth = _unseal_tool_auth_safe(tool)
+        if (
+            isinstance(sealed_auth, dict)
+            and sealed_auth.get("__sealed__")
+            and auth is None
+        ):
+            # Fail closed: stored credentials exist but could not be unsealed.
+            return ToolResult(
+                content="function blocked: stored credentials could not be unsealed.",
+                is_error=True,
+            )
         upstream_auth = _auth_pair(auth)
         method = str(http_cfg.get("method", "GET")).upper()
 

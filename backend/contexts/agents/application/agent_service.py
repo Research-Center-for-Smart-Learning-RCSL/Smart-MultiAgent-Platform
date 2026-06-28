@@ -146,6 +146,24 @@ def _validate_function_config(config: dict[str, Any]) -> None:
                 raise ValueError(f"function config.http.headers must not include {k}")
 
 
+def _validate_mcp_config(config: dict[str, Any]) -> None:
+    src = config.get("source")
+    if src not in ("url", "package"):
+        raise ValueError("hosted_mcp config.source must be 'url' or 'package'")
+    ref = config.get("reference")
+    if not ref or not isinstance(ref, str) or len(ref) > 2000:
+        raise ValueError("hosted_mcp config.reference is required (max 2000 chars)")
+    allowed = config.get("allowed_tools")
+    # An empty allowlist produces zero runtime tools (build_agent_tools iterates the
+    # allowlist), so the binding would be silently inert. Require at least one entry.
+    if not isinstance(allowed, list) or not allowed:
+        raise ValueError("hosted_mcp config.allowed_tools must list at least one tool")
+    if len(allowed) > 200:
+        raise ValueError("hosted_mcp config.allowed_tools must have at most 200 entries")
+    if not all(isinstance(name, str) and name for name in allowed):
+        raise ValueError("hosted_mcp config.allowed_tools entries must be non-empty strings")
+
+
 # Sentinel for system-initiated wakeup patches (§22.6). Never maps to a real
 # user row — authored-snapshot overwrites are skipped when the actor is the system.
 _SYSTEM_ACTOR_ID = uuid.UUID(int=0)
@@ -475,15 +493,7 @@ class AgentService:
         tool_config = dict(config or {})
 
         if tool_type == AgentToolType.HOSTED_MCP:
-            src = tool_config.get("source")
-            if src not in ("url", "package"):
-                raise ValueError("hosted_mcp config.source must be 'url' or 'package'")
-            ref = tool_config.get("reference")
-            if not ref or not isinstance(ref, str) or len(ref) > 2000:
-                raise ValueError("hosted_mcp config.reference is required (max 2000 chars)")
-            allowed = tool_config.get("allowed_tools")
-            if isinstance(allowed, list) and len(allowed) > 200:
-                raise ValueError("hosted_mcp config.allowed_tools must have at most 200 entries")
+            _validate_mcp_config(tool_config)
 
         if tool_type == AgentToolType.LOCAL_FUNCTION:
             _validate_function_config(tool_config)
@@ -556,10 +566,18 @@ class AgentService:
 
         patch_config = dict(config) if config is not None else None
 
-        if existing.tool_type == AgentToolType.LOCAL_FUNCTION and patch_config is not None:
+        # Merge onto the stored config so a partial patch (e.g. allowed_tools only)
+        # never drops sealed auth or other persisted fields, then re-validate.
+        if patch_config is not None and existing.tool_type in (
+            AgentToolType.LOCAL_FUNCTION,
+            AgentToolType.HOSTED_MCP,
+        ):
             merged = {**existing.config, **patch_config}
             sealed_auth = merged.pop("auth", None)
-            _validate_function_config(merged)
+            if existing.tool_type == AgentToolType.LOCAL_FUNCTION:
+                _validate_function_config(merged)
+            else:
+                _validate_mcp_config(merged)
             if sealed_auth is not None:
                 merged["auth"] = sealed_auth
             patch_config = merged
