@@ -365,6 +365,31 @@ class AuthService:
             await self._invalidate_user_sessions(peek.user_id, reason="inactive")
             raise TokenExpired("session user no longer active")
 
+        # Sliding idle backstop (R6.03-adjacent). The SPA enforces an input-driven
+        # idle logout, but a stolen refresh cookie must not be rotatable forever
+        # without any activity. A session whose last rotation is older than the
+        # idle window is expired here. Only THIS session is revoked — an idle lapse
+        # is benign, not a reuse attack, so the family is left intact.
+        idle_ttl = timedelta(seconds=get_settings().jwt.idle_timeout_seconds)
+        if idle_ttl.total_seconds() > 0 and now() - peek.last_seen_at > idle_ttl:
+            await tokens.revoke_session(refresh_token)
+            if peek.last_jti is not None:
+                await tokens.deny_access_jti(peek.last_jti)
+            await self._sessions.revoke(session_id=peek.session_id)
+            await audit.emit(
+                self._db,
+                audit.AuditEvent(
+                    action="auth.idle_timeout",
+                    actor_user_id=user.id,
+                    actor_ip=remote_ip,
+                    resource_type="session",
+                    resource_id=peek.session_id,
+                    session_id=peek.session_id,
+                    request_id=request_id,
+                ),
+            )
+            raise TokenExpired("session idle timeout")
+
         is_admin = await self._admins.is_admin(user.id)
         access_token, claims = jwt.sign_access_token(
             user_id=user.id,

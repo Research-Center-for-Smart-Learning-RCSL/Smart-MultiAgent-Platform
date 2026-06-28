@@ -23,6 +23,14 @@
       "message": "正在嘗試重新連線...",
       "retry": "立即重試"
     },
+    "idle": {
+      "title": "您還在嗎？",
+      "message": "您已有一段時間未操作。為了帳號安全，系統將自動將您登出。",
+      "countdown": "將於 {seconds} 秒後登出",
+      "stay": "繼續使用",
+      "logoutNow": "立即登出",
+      "signedOut": "因閒置過久，您已被登出。"
+    },
     "pagination": {
       "showing": "顯示 {start}-{end}，共 {total} 筆",
       "label": "分頁",

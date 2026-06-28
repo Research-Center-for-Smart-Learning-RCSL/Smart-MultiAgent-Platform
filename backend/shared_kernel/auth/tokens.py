@@ -53,6 +53,9 @@ class RefreshRecord:
     last_jti: uuid.UUID | None
     issued_at: datetime
     expires_at: datetime
+    # Refreshed on every rotation. The application layer reads this to enforce a
+    # sliding idle timeout; this module only carries the value, never the policy.
+    last_seen_at: datetime
 
 
 def hash_refresh(token: str) -> str:
@@ -74,15 +77,17 @@ async def create_session(
     """Issue a fresh refresh token and persist the session record."""
     cfg = get_settings().jwt
     family = family_id or uuid.uuid4()
-    expires = now() + (ttl or timedelta(seconds=cfg.refresh_ttl_seconds))
+    issued = now()
+    expires = issued + (ttl or timedelta(seconds=cfg.refresh_ttl_seconds))
     token = new_refresh_token()
     record = RefreshRecord(
         session_id=session_id,
         user_id=user_id,
         family_id=family,
         last_jti=last_jti,
-        issued_at=now(),
+        issued_at=issued,
         expires_at=expires,
+        last_seen_at=issued,
     )
     await _write_session(token, record)
     return token, record
@@ -116,6 +121,7 @@ async def rotate_session(old_token: str, *, new_jti: uuid.UUID) -> tuple[str, Re
         last_jti=new_jti,
         issued_at=record.issued_at,
         expires_at=record.expires_at,
+        last_seen_at=now(),
     )
     ttl_seconds = max(1, int((record.expires_at - now()).total_seconds()))
     async with r.pipeline(transaction=True) as pipe:
@@ -231,10 +237,15 @@ def _dump_record(r: RefreshRecord) -> dict[str, str]:
         "last_jti": "" if r.last_jti is None else str(r.last_jti),
         "issued_at": r.issued_at.isoformat(),
         "expires_at": r.expires_at.isoformat(),
+        "last_seen_at": r.last_seen_at.isoformat(),
     }
 
 
 def _parse_record(raw: dict[str, Any]) -> RefreshRecord:
+    # `last_seen_at` was added after launch. Sessions written by older code lack
+    # the field; default them to "seen now" so a deploy does not retroactively
+    # idle-expire every live session on its next refresh.
+    last_seen = raw.get("last_seen_at")
     return RefreshRecord(
         session_id=uuid.UUID(raw["session_id"]),
         user_id=uuid.UUID(raw["user_id"]),
@@ -242,6 +253,7 @@ def _parse_record(raw: dict[str, Any]) -> RefreshRecord:
         last_jti=uuid.UUID(raw["last_jti"]) if raw.get("last_jti") else None,
         issued_at=datetime.fromisoformat(raw["issued_at"]),
         expires_at=datetime.fromisoformat(raw["expires_at"]),
+        last_seen_at=datetime.fromisoformat(last_seen) if last_seen else now(),
     )
 
 
