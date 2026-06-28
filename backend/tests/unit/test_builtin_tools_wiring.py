@@ -1,8 +1,9 @@
-"""Unit tests for the K.5 built-in / MCP tool wiring + sandbox egress signing.
+"""Unit tests for the unified agent-tool wiring + sandbox egress signing.
 
-Covers ``builtin_tools.build_builtin_tools`` (the first production caller of the
-orphaned egress/search/sandbox factories) and ``DockerRunscSandbox._egress_env``
-(the pre-signed per-project egress credential the driver receives).
+Covers ``builtin_tools.build_agent_tools`` (dispatch from the unified
+``agent_tools`` model into runtime ``Tool`` objects) and
+``DockerRunscSandbox._egress_env`` (the pre-signed per-project egress
+credential the driver receives).
 """
 
 from __future__ import annotations
@@ -10,26 +11,76 @@ from __future__ import annotations
 import hmac
 import json
 import uuid
+from datetime import datetime
 from hashlib import sha256
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 from contexts.agents.application.runtime import builtin_tools as bt
 from contexts.agents.domain.mcp import SearchResult, ToolCallResult
-from contexts.agents.domain.models import McpSource
+from contexts.agents.domain.models import AgentTool, AgentToolType
+
+_NOW = datetime(2026, 6, 22, 12, 0, 0)
 
 
 def _agent() -> SimpleNamespace:
     return SimpleNamespace(id=uuid.uuid4(), project_id=uuid.uuid4())
 
 
-def _binding(tools: tuple[str, ...]) -> SimpleNamespace:
-    return SimpleNamespace(
+def _tool(
+    tool_type: AgentToolType,
+    *,
+    enabled: bool = True,
+    config: dict | None = None,
+) -> AgentTool:
+    return AgentTool(
         id=uuid.uuid4(),
-        source=McpSource.PACKAGE,
-        reference="npx:@scope/srv",
-        allowed_tools=tools,
-        config={},
+        agent_id=uuid.uuid4(),
+        tool_type=tool_type,
+        enabled=enabled,
+        display_name=None,
+        config=config or {},
+        created_at=_NOW,
+    )
+
+
+def _singletons(
+    *,
+    web_search: bool = True,
+    code_exec: bool = True,
+    file: bool = True,
+    file_search: bool = False,
+) -> list[AgentTool]:
+    """The four hosted singletons with explicit enabled flags."""
+    return [
+        _tool(AgentToolType.HOSTED_WEB_SEARCH, enabled=web_search),
+        _tool(AgentToolType.HOSTED_CODE_INTERPRETER, enabled=code_exec),
+        _tool(AgentToolType.HOSTED_FILE_WORKSPACE, enabled=file),
+        _tool(AgentToolType.HOSTED_FILE_SEARCH, enabled=file_search),
+    ]
+
+
+def _mcp(
+    allowed: tuple[str, ...],
+    *,
+    source: str = "package",
+    reference: str = "npx:@scope/srv",
+) -> AgentTool:
+    return _tool(
+        AgentToolType.HOSTED_MCP,
+        config={"source": source, "reference": reference, "allowed_tools": list(allowed)},
+    )
+
+
+def _function(name: str = "lookup") -> AgentTool:
+    return _tool(
+        AgentToolType.LOCAL_FUNCTION,
+        config={
+            "name": name,
+            "description": "d",
+            "parameters": {"type": "object", "properties": {}},
+            "http": {"method": "POST", "url": "https://api.example.com/x", "headers": {}},
+        },
     )
 
 
@@ -54,61 +105,56 @@ def _ok(stdout: str = "", *, ok: bool = True, stderr: str = "") -> ToolCallResul
 # --------------------------------------------------------------------------- #
 
 
-def test_assembles_builtins_plus_mcp_tools() -> None:
+def test_assembles_singletons_plus_mcp_tools() -> None:
     agent = _agent()
-    tools = bt.build_builtin_tools(
-        AsyncMock(), agent=agent, mcp_bindings=[_binding(("alpha", "beta"))], deps=_deps()
+    tools = bt.build_agent_tools(
+        AsyncMock(), agent=agent, tools=[*_singletons(), _mcp(("alpha", "beta"))], deps=_deps()
     )
     names = {t.name for t in tools}
     assert {"web_search", "code_exec", "file"} <= names
-    # two MCP tools, namespaced by binding id prefix
+    # two MCP tools, namespaced by tool id prefix
     mcp_names = [n for n in names if n.startswith("mcp__")]
     assert len(mcp_names) == 2
     assert any(n.endswith("__alpha") for n in mcp_names)
 
 
-def test_no_bindings_yields_only_builtins() -> None:
-    tools = bt.build_builtin_tools(AsyncMock(), agent=_agent(), mcp_bindings=[], deps=_deps())
+def test_only_enabled_singletons_yield_tools() -> None:
+    tools = bt.build_agent_tools(AsyncMock(), agent=_agent(), tools=_singletons(), deps=_deps())
     assert {t.name for t in tools} == {"web_search", "code_exec", "file"}
 
 
-def _builtin(*, reference: str = "", tools: tuple[str, ...] = ()) -> SimpleNamespace:
-    return SimpleNamespace(
-        id=uuid.uuid4(),
-        source=McpSource.BUILTIN,
-        reference=reference,
-        allowed_tools=tools,
-        config={},
-    )
-
-
-def test_builtin_binding_gates_to_named_tools_only() -> None:
-    # A builtin binding naming web_search (editor convention: in `reference`)
-    # opts the agent into ONLY web_search — code_exec/file are withheld
-    # (R12.01/R12.10/§12.1). And it must NOT be routed to the MCP sandbox.
-    agent = _agent()
-    tools = bt.build_builtin_tools(
-        AsyncMock(), agent=agent, mcp_bindings=[_builtin(reference="web_search")], deps=_deps()
+def test_disabled_singletons_are_skipped() -> None:
+    # Only web_search enabled; code_exec/file/file_search off.
+    tools = bt.build_agent_tools(
+        AsyncMock(),
+        agent=_agent(),
+        tools=_singletons(web_search=True, code_exec=False, file=False),
+        deps=_deps(),
     )
     names = {t.name for t in tools}
     assert names == {"web_search"}
     assert not any(n.startswith("mcp__") for n in names)
 
 
-def test_builtin_binding_via_allowed_tools() -> None:
-    tools = bt.build_builtin_tools(
-        AsyncMock(), agent=_agent(), mcp_bindings=[_builtin(tools=("file", "code_exec"))], deps=_deps()
+def test_file_search_appears_when_enabled() -> None:
+    tools = bt.build_agent_tools(
+        AsyncMock(),
+        agent=_agent(),
+        tools=_singletons(web_search=False, code_exec=False, file=False, file_search=True),
+        deps=_deps(),
     )
-    assert {t.name for t in tools} == {"file", "code_exec"}
+    assert {t.name for t in tools} == {"file_search"}
 
 
-def test_builtin_gate_coexists_with_mcp_server_binding() -> None:
-    # builtin gate (web_search only) + a package server (its tools still appear)
+def test_singletons_coexist_with_mcp_server() -> None:
     agent = _agent()
-    tools = bt.build_builtin_tools(
+    tools = bt.build_agent_tools(
         AsyncMock(),
         agent=agent,
-        mcp_bindings=[_builtin(reference="web_search"), _binding(("alpha",))],
+        tools=[
+            *_singletons(web_search=True, code_exec=False, file=False),
+            _mcp(("alpha",)),
+        ],
         deps=_deps(),
     )
     names = {t.name for t in tools}
@@ -116,6 +162,30 @@ def test_builtin_gate_coexists_with_mcp_server_binding() -> None:
     assert "code_exec" not in names
     assert "file" not in names
     assert any(n.endswith("__alpha") for n in names)
+
+
+def test_disabled_mcp_tool_is_skipped() -> None:
+    disabled_mcp = _tool(
+        AgentToolType.HOSTED_MCP,
+        enabled=False,
+        config={"source": "package", "reference": "npx:@scope/srv", "allowed_tools": ["alpha"]},
+    )
+    tools = bt.build_agent_tools(AsyncMock(), agent=_agent(), tools=[disabled_mcp], deps=_deps())
+    assert tools == []
+
+
+def test_local_shell_is_skipped() -> None:
+    tools = bt.build_agent_tools(
+        AsyncMock(), agent=_agent(), tools=[_tool(AgentToolType.LOCAL_SHELL)], deps=_deps()
+    )
+    assert tools == []
+
+
+def test_function_tool_appears() -> None:
+    tools = bt.build_agent_tools(
+        AsyncMock(), agent=_agent(), tools=[_function("lookup_order")], deps=_deps()
+    )
+    assert {t.name for t in tools} == {"lookup_order"}
 
 
 # --------------------------------------------------------------------------- #
@@ -128,8 +198,11 @@ async def test_code_exec_maps_ok_and_error() -> None:
     runner.run_code_exec.return_value = _ok("42")
     tools = {
         t.name: t
-        for t in bt.build_builtin_tools(
-            AsyncMock(), agent=_agent(), mcp_bindings=[], deps=_deps(runner=runner)
+        for t in bt.build_agent_tools(
+            AsyncMock(),
+            agent=_agent(),
+            tools=[_tool(AgentToolType.HOSTED_CODE_INTERPRETER)],
+            deps=_deps(runner=runner),
         )
     }
 
@@ -153,10 +226,10 @@ async def test_code_exec_threads_chatroom_and_collects_artifacts() -> None:
     room = uuid.uuid4()
     tools = {
         t.name: t
-        for t in bt.build_builtin_tools(
+        for t in bt.build_agent_tools(
             AsyncMock(),
             agent=_agent(),
-            mcp_bindings=[],
+            tools=[_tool(AgentToolType.HOSTED_CODE_INTERPRETER)],
             deps=_deps(runner=runner),
             chatroom_id=room,
             artifact_sink=sink,
@@ -177,7 +250,12 @@ async def test_code_exec_surfaces_kernel_restart_from_metadata() -> None:
     )
     tools = {
         t.name: t
-        for t in bt.build_builtin_tools(AsyncMock(), agent=_agent(), mcp_bindings=[], deps=_deps(runner=runner))
+        for t in bt.build_agent_tools(
+            AsyncMock(),
+            agent=_agent(),
+            tools=[_tool(AgentToolType.HOSTED_CODE_INTERPRETER)],
+            deps=_deps(runner=runner),
+        )
     }
     res = await tools["code_exec"].invoke({"source": "print('hi')"})
     assert res.content.startswith("[kernel restarted")
@@ -186,7 +264,13 @@ async def test_code_exec_surfaces_kernel_restart_from_metadata() -> None:
 
 async def test_code_exec_requires_source() -> None:
     tools = {
-        t.name: t for t in bt.build_builtin_tools(AsyncMock(), agent=_agent(), mcp_bindings=[], deps=_deps())
+        t.name: t
+        for t in bt.build_agent_tools(
+            AsyncMock(),
+            agent=_agent(),
+            tools=[_tool(AgentToolType.HOSTED_CODE_INTERPRETER)],
+            deps=_deps(),
+        )
     }
     res = await tools["code_exec"].invoke({})
     assert res.is_error is True
@@ -197,8 +281,11 @@ async def test_file_dispatches_op() -> None:
     runner.run_file_op.return_value = _ok("a\nb")
     tools = {
         t.name: t
-        for t in bt.build_builtin_tools(
-            AsyncMock(), agent=_agent(), mcp_bindings=[], deps=_deps(runner=runner)
+        for t in bt.build_agent_tools(
+            AsyncMock(),
+            agent=_agent(),
+            tools=[_tool(AgentToolType.HOSTED_FILE_WORKSPACE)],
+            deps=_deps(runner=runner),
         )
     }
 
@@ -218,12 +305,11 @@ async def test_file_dispatches_op() -> None:
 async def test_mcp_tool_passes_source_reference() -> None:
     runner = AsyncMock()
     runner.invoke_mcp_tool.return_value = _ok("tool-output")
-    binding = _binding(("alpha",))
     agent = _agent()
     tools = {
         t.name: t
-        for t in bt.build_builtin_tools(
-            AsyncMock(), agent=agent, mcp_bindings=[binding], deps=_deps(runner=runner)
+        for t in bt.build_agent_tools(
+            AsyncMock(), agent=agent, tools=[_mcp(("alpha",))], deps=_deps(runner=runner)
         )
     }
     name = next(n for n in tools if n.startswith("mcp__"))
@@ -240,11 +326,10 @@ async def test_mcp_tool_passes_source_reference() -> None:
 async def test_mcp_tool_degrades_on_error() -> None:
     runner = AsyncMock()
     runner.invoke_mcp_tool.side_effect = RuntimeError("daemon down")
-    binding = _binding(("alpha",))
     tools = {
         t.name: t
-        for t in bt.build_builtin_tools(
-            AsyncMock(), agent=_agent(), mcp_bindings=[binding], deps=_deps(runner=runner)
+        for t in bt.build_agent_tools(
+            AsyncMock(), agent=_agent(), tools=[_mcp(("alpha",))], deps=_deps(runner=runner)
         )
     }
     name = next(n for n in tools if n.startswith("mcp__"))
@@ -264,7 +349,13 @@ async def test_web_search_formats_results(monkeypatch) -> None:
 
     monkeypatch.setattr("contexts.agents.application.tools.web_search.WebSearchTool.search", _fake_search)
     tools = {
-        t.name: t for t in bt.build_builtin_tools(AsyncMock(), agent=_agent(), mcp_bindings=[], deps=_deps())
+        t.name: t
+        for t in bt.build_agent_tools(
+            AsyncMock(),
+            agent=_agent(),
+            tools=[_tool(AgentToolType.HOSTED_WEB_SEARCH)],
+            deps=_deps(),
+        )
     }
     res = await tools["web_search"].invoke({"query": "hi"})
     assert res.is_error is False
@@ -275,7 +366,13 @@ async def test_web_search_formats_results(monkeypatch) -> None:
 async def test_web_search_degrades_on_missing_key() -> None:
     # Real WebSearchTool.search with no active key raises → tool returns is_error.
     tools = {
-        t.name: t for t in bt.build_builtin_tools(AsyncMock(), agent=_agent(), mcp_bindings=[], deps=_deps())
+        t.name: t
+        for t in bt.build_agent_tools(
+            AsyncMock(),
+            agent=_agent(),
+            tools=[_tool(AgentToolType.HOSTED_WEB_SEARCH)],
+            deps=_deps(),
+        )
     }
     res = await tools["web_search"].invoke({"query": "hi"})
     assert res.is_error is True

@@ -13,7 +13,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from contexts.agents.application.agent_service import _AGENT_CAP_PER_PROJECT, AgentService
+from contexts.agents.application.agent_service import (
+    _AGENT_CAP_PER_PROJECT,
+    AgentService,
+    _validate_mcp_config,
+)
 from contexts.agents.domain.errors import (
     AgentCapExceeded,
     AgentNotFound,
@@ -26,10 +30,9 @@ from contexts.agents.domain.models import (
     Agent,
     AgentDraft,
     AgentModelHint,
+    AgentTool,
     AgentToolType,
     ContextMode,
-    McpBinding,
-    McpSource,
     PromptStrategy,
 )
 
@@ -83,7 +86,7 @@ def _make_draft(**overrides) -> AgentDraft:
 def _make_service(
     *,
     agent_repo: AsyncMock | None = None,
-    binding_repo: AsyncMock | None = None,
+    tool_repo: AsyncMock | None = None,
     keys_facade: AsyncMock | None = None,
     knowledge_facade: AsyncMock | None = None,
 ) -> AgentService:
@@ -92,8 +95,8 @@ def _make_service(
     svc = AgentService(db)
     if agent_repo is not None:
         svc._agents = agent_repo
-    if binding_repo is not None:
-        svc._bindings = binding_repo
+    if tool_repo is not None:
+        svc._tools = tool_repo
     if keys_facade is not None:
         svc._keys = keys_facade
     if knowledge_facade is not None:
@@ -117,8 +120,8 @@ class TestCreate:
         group = MagicMock()
         group.project_id = _PROJECT_ID
         keys.get_key_group.return_value = group
-        bindings = AsyncMock()
-        svc = _make_service(agent_repo=agents, keys_facade=keys, binding_repo=bindings)
+        tools = AsyncMock()
+        svc = _make_service(agent_repo=agents, keys_facade=keys, tool_repo=tools)
 
         result = await svc.create(
             project_id=_PROJECT_ID,
@@ -129,68 +132,8 @@ class TestCreate:
 
         assert result.id == agent.id
         agents.create.assert_awaited_once()
-        # Opt-in default: new agents are seeded with web_search + file built-in
-        # bindings only — code_exec is omitted so the Code Interpreter is off.
-        seeded = {c.kwargs["reference"] for c in bindings.add.await_args_list}
-        assert seeded == {"web_search", "file"}
-        assert all(c.kwargs["source"] is McpSource.BUILTIN for c in bindings.add.await_args_list)
-
-    @patch("contexts.agents.application.agent_service.audit.emit", new_callable=AsyncMock)
-    async def test_set_builtin_tools_reconciles(self, _audit) -> None:
-        # Agent currently has one builtin binding for web_search (explicit mode).
-        existing = McpBinding(
-            id=uuid.uuid4(),
-            agent_id=uuid.uuid4(),
-            source=McpSource.BUILTIN,
-            reference="web_search",
-            allowed_tools=(),
-            config={},
-            created_at=_NOW,
-        )
-        agents = AsyncMock()
-        agents.get.return_value = _make_agent()
-        bindings = AsyncMock()
-        bindings.list.return_value = [existing]
-        svc = _make_service(agent_repo=agents, binding_repo=bindings)
-
-        await svc.set_builtin_tools(
-            agent_id=existing.agent_id,
-            enabled={"web_search", "code_exec"},
-            actor_user_id=_USER_ID,
-            actor_ip=None,
-        )
-        # code_exec is newly added; web_search already exists so it is not re-added
-        # and not removed (only non-target builtins would be).
-        added_refs = {c.kwargs["reference"] for c in bindings.add.await_args_list}
-        assert added_refs == {"code_exec"}
-        assert bindings.remove.await_count == 0
-
-    @patch("contexts.agents.application.agent_service.audit.emit", new_callable=AsyncMock)
-    async def test_set_builtin_tools_all_on_clears_bindings(self, _audit) -> None:
-        existing = McpBinding(
-            id=uuid.uuid4(),
-            agent_id=uuid.uuid4(),
-            source=McpSource.BUILTIN,
-            reference="web_search",
-            allowed_tools=(),
-            config={},
-            created_at=_NOW,
-        )
-        agents = AsyncMock()
-        agents.get.return_value = _make_agent()
-        bindings = AsyncMock()
-        bindings.list.return_value = [existing]
-        svc = _make_service(agent_repo=agents, binding_repo=bindings)
-
-        await svc.set_builtin_tools(
-            agent_id=existing.agent_id,
-            enabled={"web_search", "code_exec", "file"},
-            actor_user_id=_USER_ID,
-            actor_ip=None,
-        )
-        # All three enabled -> remove the explicit binding, add none (legacy all-on).
-        assert bindings.add.await_count == 0
-        assert bindings.remove.await_count == 1
+        # New agents are seeded with the four singleton hosted tools in one call.
+        tools.provision_singletons.assert_awaited_once()
 
     @patch("contexts.agents.application.agent_service.audit.emit", new_callable=AsyncMock)
     async def test_cap_exceeded_raises(self, _audit) -> None:
@@ -489,56 +432,39 @@ class TestSoftDelete:
 # ---------------------------------------------------------------------------
 
 
-class TestMcpBindings:
-    async def test_list_bindings_checks_agent_exists(self) -> None:
-        agents = AsyncMock()
-        agents.get.return_value = None
-        svc = _make_service(agent_repo=agents)
+# ---------------------------------------------------------------------------
+# MCP config validation (shared by add_tool / patch_tool)
+# ---------------------------------------------------------------------------
 
-        with pytest.raises(AgentNotFound):
-            await svc.list_mcp_bindings(uuid.uuid4())
 
-    @patch("contexts.agents.application.agent_service.audit.emit", new_callable=AsyncMock)
-    async def test_add_binding(self, _audit) -> None:
-        agent = _make_agent()
-        agents = AsyncMock()
-        agents.get.return_value = agent
-        binding = MagicMock(spec=McpBinding)
-        binding.id = uuid.uuid4()
-        bindings = AsyncMock()
-        bindings.add.return_value = binding
-        svc = _make_service(agent_repo=agents, binding_repo=bindings)
-
-        result = await svc.add_mcp_binding(
-            agent_id=agent.id,
-            source=McpSource.URL,
-            reference="https://example.com/mcp",
-            allowed_tools=["tool1"],
-            config={},
-            actor_user_id=_USER_ID,
-            actor_ip=None,
+class TestValidateMcpConfig:
+    def test_accepts_valid(self) -> None:
+        _validate_mcp_config(
+            {"source": "url", "reference": "https://mcp.example.com", "allowed_tools": ["a"]}
         )
 
-        assert result.id == binding.id
-        bindings.add.assert_awaited_once()
+    def test_rejects_bad_source(self) -> None:
+        with pytest.raises(ValueError, match="source"):
+            _validate_mcp_config(
+                {"source": "ftp", "reference": "https://x", "allowed_tools": ["a"]}
+            )
 
-    @patch("contexts.agents.application.agent_service.audit.emit", new_callable=AsyncMock)
-    async def test_remove_binding(self, _audit) -> None:
-        agent = _make_agent()
-        agents = AsyncMock()
-        agents.get.return_value = agent
-        bindings = AsyncMock()
-        svc = _make_service(agent_repo=agents, binding_repo=bindings)
-        binding_id = uuid.uuid4()
+    def test_rejects_missing_reference(self) -> None:
+        with pytest.raises(ValueError, match="reference"):
+            _validate_mcp_config({"source": "url", "allowed_tools": ["a"]})
 
-        await svc.remove_mcp_binding(
-            agent_id=agent.id,
-            binding_id=binding_id,
-            actor_user_id=_USER_ID,
-            actor_ip=None,
-        )
+    def test_rejects_empty_allowed_tools(self) -> None:
+        # H2: an empty allowlist yields zero runtime tools and must be rejected.
+        with pytest.raises(ValueError, match="allowed_tools"):
+            _validate_mcp_config(
+                {"source": "url", "reference": "https://x", "allowed_tools": []}
+            )
 
-        bindings.remove.assert_awaited_once_with(agent_id=agent.id, binding_id=binding_id)
+    def test_rejects_blank_allowed_tool_entry(self) -> None:
+        with pytest.raises(ValueError, match="allowed_tools"):
+            _validate_mcp_config(
+                {"source": "url", "reference": "https://x", "allowed_tools": [""]}
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -569,3 +495,97 @@ class TestAddTool:
             )
 
         tools.add.assert_not_awaited()
+
+    async def test_mcp_empty_allowed_tools_rejected(self) -> None:
+        # H2: adding an MCP tool with no allowlist must fail before persisting.
+        agent = _make_agent()
+        agents = AsyncMock()
+        agents.get.return_value = agent
+        tools = AsyncMock()
+        svc = _make_service(agent_repo=agents, tool_repo=tools)
+
+        with pytest.raises(ValueError, match="allowed_tools"):
+            await svc.add_tool(
+                agent_id=agent.id,
+                tool_type=AgentToolType.HOSTED_MCP,
+                config={"source": "url", "reference": "https://x", "allowed_tools": []},
+                actor_user_id=_USER_ID,
+                actor_ip=None,
+            )
+
+        tools.add.assert_not_awaited()
+
+
+# ---------------------------------------------------------------------------
+# patch_tool
+# ---------------------------------------------------------------------------
+
+
+def _make_mcp_tool(*, agent_id: uuid.UUID, with_auth: bool = True) -> AgentTool:
+    config: dict = {
+        "source": "url",
+        "reference": "https://mcp.example.com",
+        "allowed_tools": ["alpha"],
+    }
+    if with_auth:
+        config["auth"] = {"__sealed__": True, "ciphertext": "opaque"}
+    return AgentTool(
+        id=uuid.uuid4(),
+        agent_id=agent_id,
+        tool_type=AgentToolType.HOSTED_MCP,
+        enabled=True,
+        display_name=None,
+        config=config,
+        created_at=_NOW,
+    )
+
+
+class TestPatchTool:
+    @patch("contexts.agents.application.agent_service.audit.emit", new_callable=AsyncMock)
+    async def test_mcp_partial_patch_preserves_sealed_auth(self, _audit) -> None:
+        # H1: editing allowed_tools without re-sending auth must not drop the secret.
+        agent = _make_agent()
+        existing = _make_mcp_tool(agent_id=agent.id, with_auth=True)
+        agents = AsyncMock()
+        agents.get.return_value = agent
+        tools = AsyncMock()
+        tools.get.return_value = existing
+        tools.patch.return_value = existing
+        svc = _make_service(agent_repo=agents, tool_repo=tools)
+
+        await svc.patch_tool(
+            agent_id=agent.id,
+            tool_id=existing.id,
+            config={"allowed_tools": ["alpha", "beta"]},
+            actor_user_id=_USER_ID,
+            actor_ip=None,
+        )
+
+        patched = tools.patch.await_args.kwargs["config"]
+        assert patched["auth"] == existing.config["auth"]
+        assert patched["allowed_tools"] == ["alpha", "beta"]
+        # Immutable fields are carried over from the stored config.
+        assert patched["source"] == "url"
+        assert patched["reference"] == "https://mcp.example.com"
+
+    @patch("contexts.agents.application.agent_service.audit.emit", new_callable=AsyncMock)
+    async def test_mcp_patch_revalidates_merged_config(self, _audit) -> None:
+        # M2: a patch that makes the merged config invalid must raise, not persist.
+        agent = _make_agent()
+        existing = _make_mcp_tool(agent_id=agent.id, with_auth=True)
+        agents = AsyncMock()
+        agents.get.return_value = agent
+        tools = AsyncMock()
+        tools.get.return_value = existing
+        svc = _make_service(agent_repo=agents, tool_repo=tools)
+
+        with pytest.raises(ValueError, match="allowed_tools"):
+            await svc.patch_tool(
+                agent_id=agent.id,
+                tool_id=existing.id,
+                config={"allowed_tools": []},
+                actor_user_id=_USER_ID,
+                actor_ip=None,
+            )
+
+        tools.patch.assert_not_awaited()
