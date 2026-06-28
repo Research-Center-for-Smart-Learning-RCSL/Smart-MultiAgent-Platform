@@ -275,6 +275,8 @@ function openEditModal(tool: AgentTool): void {
   delete configWithout.reference
   delete configWithout.allowed_tools
   delete configWithout.auth
+  // Backend-only marker; never round-trip it back into the stored config.
+  delete configWithout.auth_present
   configJson.value = JSON.stringify(configWithout, null, 2)
   configJsonError.value = null
   allowedToolsError.value = null
@@ -344,8 +346,10 @@ const onSubmit = handleSubmit((values) => {
 
   const editing = editingTool.value
   if (editing) {
+    // parsedExtraConfig already carries the stored advanced keys (openEditModal
+    // seeds the JSON editor from them), so we don't spread editing.config — that
+    // would re-send backend-only markers like auth_present into stored config.
     const mergedConfig: Record<string, unknown> = {
-      ...editing.config,
       ...parsedExtraConfig,
       source: values.config.source,
       reference: values.config.reference,
@@ -453,7 +457,7 @@ const [fnMethod] = defineFnField('config.http.method')
 const [fnUrl] = defineFnField('config.http.url')
 const fnParamsJson = ref('{\n  "type": "object",\n  "properties": {}\n}')
 const fnParamsError = ref<string | null>(null)
-const fnAuthType = ref<'none' | 'keep' | 'bearer' | 'header'>('none')
+const fnAuthType = ref<'none' | 'keep' | 'remove' | 'bearer' | 'header'>('none')
 const fnHasStoredAuth = ref(false)
 const fnAuthToken = ref('')
 const fnAuthHeaderName = ref('')
@@ -584,6 +588,7 @@ const onFnSubmit = handleFnSubmit((values) => {
       payload: {
         config: { ...values.config, parameters: params },
         ...(authPayload ? { auth: authPayload } : {}),
+        ...(fnAuthType.value === 'remove' ? { clear_auth: true } : {}),
       },
     })
   } else {
@@ -638,7 +643,10 @@ const fnMethodOptions = computed(() => [
 
 const fnAuthOptions = computed(() => [
   ...(fnHasStoredAuth.value
-    ? [{ value: 'keep', label: t('agents.tools.functions.authKeep') }]
+    ? [
+        { value: 'keep', label: t('agents.tools.functions.authKeep') },
+        { value: 'remove', label: t('agents.tools.functions.authRemove') },
+      ]
     : [{ value: 'none', label: t('agents.tools.functions.authNone') }]),
   { value: 'bearer', label: t('agents.tools.functions.authBearer') },
   { value: 'header', label: t('agents.tools.functions.authHeader') },
