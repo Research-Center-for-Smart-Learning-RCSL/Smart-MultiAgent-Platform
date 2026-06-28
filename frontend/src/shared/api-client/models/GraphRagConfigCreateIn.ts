@@ -2,9 +2,10 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
+import type { GraphRagTriggerConfig } from './GraphRagTriggerConfig';
 export type GraphRagConfigCreateIn = {
     agent_id: string;
     builder_key_group_id: string;
-    trigger_config?: Record<string, any>;
+    trigger_config?: GraphRagTriggerConfig;
 };
 

@@ -2,13 +2,12 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
-export type McpBindingOut = {
+export type WorkspaceFileOut = {
     agent_id: string;
-    allowed_tools: Array<string>;
-    config: Record<string, any>;
     created_at: string;
     id: string;
-    reference: string;
-    source: string;
+    mime: string;
+    path: string;
+    size_bytes: number;
 };
 

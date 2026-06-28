@@ -2,8 +2,11 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
-export type McpBindingPatchIn = {
-    allowed_tools?: (Array<string> | null);
+export type AgentToolPatchIn = {
+    auth?: (Record<string, any> | null);
+    clear_auth?: boolean;
     config?: (Record<string, any> | null);
+    display_name?: (string | null);
+    enabled?: (boolean | null);
 };
 

@@ -2,10 +2,10 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
-export type McpTestOut = {
-    duration_ms: number;
-    error?: (string | null);
-    ok: boolean;
-    tool_names: Array<string>;
+export type GraphNodeOut = {
+    build_id: (string | null);
+    degree: number;
+    id: string;
+    type: string;
 };
 

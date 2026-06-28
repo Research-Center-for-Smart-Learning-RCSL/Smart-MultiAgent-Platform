@@ -1,15 +1,3 @@
-﻿python : C:\Users\Leolo\AppData\Local\Programs\Python\Python312\Lib\site-
-packages\pydantic\_internal\_fields.py:172: UserWarning: Field name "json
-" in "LoggingSection" shadows an attribute in parent "BaseSettings"
-At line:1 char:25
-+ cd C:\dev\SMAP\backend; python scripts/export_openapi.py 2>&1 | Out-F .
-..
-+                         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-    + CategoryInfo          : NotSpecified: (C:\Users\Leolo\... "BaseSet 
-   tings":String) [], RemoteException
-    + FullyQualifiedErrorId : NativeCommandError
- 
-  warnings.warn(
 {
   "components": {
     "schemas": {
@@ -644,6 +632,11 @@ At line:1 char:25
             ],
             "title": "Auth"
           },
+          "clear_auth": {
+            "default": false,
+            "title": "Clear Auth",
+            "type": "boolean"
+          },
           "config": {
             "anyOf": [
               {
@@ -702,6 +695,17 @@ At line:1 char:25
           "ok": {
             "title": "Ok",
             "type": "boolean"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status"
           },
           "tool_names": {
             "items": {
@@ -1689,6 +1693,105 @@ At line:1 char:25
         "title": "ForceTransferIn",
         "type": "object"
       },
+      "GraphEdgeOut": {
+        "properties": {
+          "confidence": {
+            "title": "Confidence",
+            "type": "number"
+          },
+          "relation": {
+            "title": "Relation",
+            "type": "string"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          },
+          "target": {
+            "title": "Target",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source",
+          "relation",
+          "target",
+          "confidence"
+        ],
+        "title": "GraphEdgeOut",
+        "type": "object"
+      },
+      "GraphNodeOut": {
+        "properties": {
+          "build_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Build Id"
+          },
+          "degree": {
+            "title": "Degree",
+            "type": "integer"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "type": {
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "degree",
+          "build_id",
+          "type"
+        ],
+        "title": "GraphNodeOut",
+        "type": "object"
+      },
+      "GraphOut": {
+        "description": "Bounded node/edge view for the knowledge-graph visualizer (viz P0).",
+        "properties": {
+          "config_id": {
+            "format": "uuid",
+            "title": "Config Id",
+            "type": "string"
+          },
+          "edges": {
+            "items": {
+              "$ref": "#/components/schemas/GraphEdgeOut"
+            },
+            "title": "Edges",
+            "type": "array"
+          },
+          "nodes": {
+            "items": {
+              "$ref": "#/components/schemas/GraphNodeOut"
+            },
+            "title": "Nodes",
+            "type": "array"
+          },
+          "truncated": {
+            "title": "Truncated",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "config_id",
+          "nodes",
+          "edges",
+          "truncated"
+        ],
+        "title": "GraphOut",
+        "type": "object"
+      },
       "GraphRagBuildOut": {
         "properties": {
           "accepted": {
@@ -1733,8 +1836,7 @@ At line:1 char:25
             "type": "string"
           },
           "trigger_config": {
-            "title": "Trigger Config",
-            "type": "object"
+            "$ref": "#/components/schemas/GraphRagTriggerConfig"
           }
         },
         "required": [
@@ -1845,13 +1947,12 @@ At line:1 char:25
           "trigger_config": {
             "anyOf": [
               {
-                "type": "object"
+                "$ref": "#/components/schemas/GraphRagTriggerConfig"
               },
               {
                 "type": "null"
               }
-            ],
-            "title": "Trigger Config"
+            ]
           }
         },
         "title": "GraphRagConfigPatchIn",
@@ -1898,6 +1999,45 @@ At line:1 char:25
           "last_build_error"
         ],
         "title": "GraphRagStatusOut",
+        "type": "object"
+      },
+      "GraphRagTriggerConfig": {
+        "additionalProperties": false,
+        "description": "Typed GraphRAG build-trigger config (audit M11).\n\nReplaces the previously untyped ``dict[str, object]`` that was persisted\nverbatim as JSON. Unknown keys are rejected and numeric bounds are\nenforced so arbitrary/oversized payloads can't be stored.",
+        "properties": {
+          "every_n_messages": {
+            "anyOf": [
+              {
+                "maximum": 100000.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Every N Messages"
+          },
+          "manual": {
+            "default": false,
+            "title": "Manual",
+            "type": "boolean"
+          },
+          "silence_minutes": {
+            "anyOf": [
+              {
+                "maximum": 100000.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Silence Minutes"
+          }
+        },
+        "title": "GraphRagTriggerConfig",
         "type": "object"
       },
       "GroupDetailOut": {
@@ -3946,6 +4086,24 @@ At line:1 char:25
           "ip_inet"
         ],
         "title": "SessionOut",
+        "type": "object"
+      },
+      "SessionPolicyOut": {
+        "properties": {
+          "idle_timeout_seconds": {
+            "title": "Idle Timeout Seconds",
+            "type": "integer"
+          },
+          "idle_warning_seconds": {
+            "title": "Idle Warning Seconds",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "idle_timeout_seconds",
+          "idle_warning_seconds"
+        ],
+        "title": "SessionPolicyOut",
         "type": "object"
       },
       "StepOut": {
@@ -7548,6 +7706,28 @@ At line:1 char:25
         ]
       }
     },
+    "/api/auth/session-policy": {
+      "get": {
+        "description": "Idle-timeout policy for the SPA's inactivity logout (R6.03-adjacent).\n\nUnauthenticated by design \u2014 it carries no secrets, only the two timing\nvalues the client needs to drive its \"are you still there?\" countdown so the\nwarning UI and the server-enforced idle window share one source of truth.",
+        "operationId": "session_policy_api_auth_session_policy_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionPolicyOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Session Policy",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
     "/api/auth/sessions": {
       "get": {
         "operationId": "list_sessions_api_auth_sessions_get",
@@ -8715,6 +8895,62 @@ At line:1 char:25
           }
         },
         "summary": "Trigger Build",
+        "tags": [
+          "graphrag"
+        ]
+      }
+    },
+    "/api/graphrag/{config_id}/graph": {
+      "get": {
+        "description": "Read a bounded view of the config's knowledge graph (viz P0).\n\nAuthZ matches ``read_config``: membership at the config's project. The\nfacade assembles the read model; the limit is clamped so a large graph can\nnever stream an unbounded payload to the browser.",
+        "operationId": "read_graph_api_graphrag__config_id__graph_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "config_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Config Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 500,
+              "maximum": 2000,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GraphOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Read Graph",
         "tags": [
           "graphrag"
         ]

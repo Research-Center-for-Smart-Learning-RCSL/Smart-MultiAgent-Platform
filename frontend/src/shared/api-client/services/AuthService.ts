@@ -13,6 +13,7 @@ import type { PasswordResetRequestIn } from '../models/PasswordResetRequestIn';
 import type { RefreshIn } from '../models/RefreshIn';
 import type { RegisterIn } from '../models/RegisterIn';
 import type { SessionOut } from '../models/SessionOut';
+import type { SessionPolicyOut } from '../models/SessionPolicyOut';
 import type { TokenPairOut } from '../models/TokenPairOut';
 import type { UpdateProfileIn } from '../models/UpdateProfileIn';
 import type { UserOut } from '../models/UserOut';
@@ -254,6 +255,22 @@ export class AuthService {
             errors: {
                 422: `Validation Error`,
             },
+        });
+    }
+    /**
+     * Session Policy
+     * Idle-timeout policy for the SPA's inactivity logout (R6.03-adjacent).
+     *
+     * Unauthenticated by design — it carries no secrets, only the two timing
+     * values the client needs to drive its "are you still there?" countdown so the
+     * warning UI and the server-enforced idle window share one source of truth.
+     * @returns SessionPolicyOut Successful Response
+     * @throws ApiError
+     */
+    public static sessionPolicyApiAuthSessionPolicyGet(): CancelablePromise<SessionPolicyOut> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/auth/session-policy',
         });
     }
     /**
