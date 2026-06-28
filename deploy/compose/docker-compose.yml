@@ -112,6 +112,12 @@ services:
     env_file:
       - path: ../../.env
         required: false
+    environment:
+      # Sandbox readiness gate (R12.05): fail fast with a clear, doc-pointing
+      # error when the gVisor runsc runtime is missing host-wide, instead of a
+      # cryptic Docker APIError per spawn. No depends_on: the gate fails open if
+      # the supervisor is unreachable, so it must not gate backend startup.
+      SANDBOX_SUPERVISOR_URL: http://mcp-sandbox-supervisor:9090
     depends_on:
       postgres: { condition: service_healthy }
       redis: { condition: service_healthy }
@@ -143,6 +149,10 @@ services:
     env_file:
       - path: ../../.env
         required: false
+    environment:
+      # Sandbox readiness gate (R12.05) — see backend-web. The worker also spawns
+      # gVisor containers (turn engine, file staging), so it gets the same gate.
+      SANDBOX_SUPERVISOR_URL: http://mcp-sandbox-supervisor:9090
     depends_on:
       redis: { condition: service_healthy }
       postgres: { condition: service_healthy }
