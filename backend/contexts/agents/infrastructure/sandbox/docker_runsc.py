@@ -158,6 +158,14 @@ _MAX_CONCURRENT_CONTAINERS = 8
 _CONTAINER_LABEL = "smap.sandbox"
 _container_semaphore: asyncio.Semaphore | None = None
 
+# Sandbox runtime readiness gate (R12.05). The healthy/skipped verdict from the
+# supervisor probe is cached process-wide for this TTL so a burst of spawns
+# shares one round-trip; the frozen runner is rebuilt every turn, so this lives
+# at module scope alongside the other process caches (_KERNELS, docker client).
+_SUPERVISOR_TIMEOUT_S = 3.0
+_RUNTIME_READY_TTL_S = 10.0
+_runtime_ready_at: float | None = None
+
 
 def _get_semaphore() -> asyncio.Semaphore:
     global _container_semaphore
@@ -260,10 +268,84 @@ class DockerRunscSandbox:
     egress_network: str = _EGRESS_NETWORK
     egress_proxy_url: str = ""
     egress_shared_secret: bytes = b""
+    supervisor_url: str = ""
 
     def _client(self) -> Any:
         """Lazy-import the docker SDK so unit tests don't need it installed."""
         return _docker_client()
+
+    async def _ensure_runtime_ready(self) -> None:
+        """Sandbox runtime readiness gate (R12.05).
+
+        Before spawning, ask the mcp-sandbox-supervisor's ``/healthz`` whether
+        the gVisor ``runsc`` runtime is registered host-wide. A missing runtime
+        then surfaces once, with the supervisor's actionable detail, instead of
+        a cryptic Docker ``APIError`` on every spawn. The healthy/skipped verdict
+        is cached for a short window so a burst of spawns shares one probe.
+
+        Posture (deliberate): this gate is **not** the security boundary —
+        :meth:`_assert_runsc` already fails closed per container. So it must
+        never become a single point of failure: an *unreachable* supervisor
+        fails **open** (warn + proceed); only an explicit ``503`` verdict (runsc
+        not registered / daemon down) fails **closed**. Disabled when no
+        ``supervisor_url`` is configured.
+        """
+        if not self.supervisor_url:
+            return
+        global _runtime_ready_at
+        now = time.monotonic()
+        if _runtime_ready_at is not None and now - _runtime_ready_at < _RUNTIME_READY_TTL_S:
+            return
+        healthy, detail = await self._probe_supervisor()
+        if healthy is False:
+            # Explicit unhealthy verdict — fail closed with the actionable
+            # detail. Not cached, so the operator installing gVisor is picked
+            # up on the very next spawn rather than after the TTL.
+            raise SandboxRuntimeViolation(f"sandbox runtime not ready: {detail}")
+        # healthy is True (ok) or None (unreachable → fail open). Either way we
+        # proceed; cache the decision so a window of spawns shares one probe.
+        _runtime_ready_at = now
+
+    async def _probe_supervisor(self) -> tuple[bool | None, str]:
+        """GET the supervisor health endpoint. Returns ``(verdict, detail)`` where
+        verdict is ``True`` (healthy), ``False`` (explicit unhealthy → fail closed),
+        or ``None`` (unreachable / unexpected → fail open)."""
+        import httpx
+
+        url = self.supervisor_url.rstrip("/") + "/healthz"
+        try:
+            async with httpx.AsyncClient(timeout=_SUPERVISOR_TIMEOUT_S) as client:
+                resp = await client.get(url)
+        except Exception as exc:
+            _log.warning("sandbox readiness gate: supervisor %s unreachable (%s); failing open", url, exc)
+            return None, str(exc)
+        detail = ""
+        if resp.status_code != 200:
+            try:
+                payload = resp.json()
+                detail = str(payload.get("detail") or "") if isinstance(payload, dict) else ""
+            except ValueError:
+                detail = ""
+            if not detail:
+                detail = (resp.text or "").strip()
+        return self._classify_supervisor_status(resp.status_code, detail)
+
+    @staticmethod
+    def _classify_supervisor_status(status_code: int, detail: str) -> tuple[bool | None, str]:
+        """Map a supervisor HTTP status to a gate verdict (pure; unit-tested).
+
+        Only the supervisor's defined ``503`` blocks; any other non-200 (e.g. a
+        misrouted URL) fails open so a misconfiguration cannot wedge sandboxing.
+        """
+        if status_code == 200:
+            return True, "ok"
+        if status_code == 503:
+            return False, detail or "gVisor runsc runtime not registered on the Docker host"
+        _log.warning(
+            "sandbox readiness gate: supervisor returned unexpected HTTP %s; failing open",
+            status_code,
+        )
+        return None, f"unexpected supervisor status HTTP {status_code}"
 
     def _egress_env(self, project_id: uuid.UUID) -> dict[str, str]:
         """Pre-signed egress credentials for the sandbox's URL-MCP path (K.5).
@@ -373,6 +455,7 @@ class DockerRunscSandbox:
         as an entrypoint that prints JSON on stdout. Egress denial surfaces
         as a specific exit code the driver sets.
         """
+        await self._ensure_runtime_ready()
         async with _get_semaphore():
             client = self._client()
             host_config = self._base_host_config()
@@ -431,6 +514,7 @@ class DockerRunscSandbox:
         auth: dict[str, Any] | None = None,
         timeout_s: float = 60.0,
     ) -> ToolCallResult:
+        await self._ensure_runtime_ready()
         async with _get_semaphore():
             client = self._client()
             host_config = self._base_host_config()
@@ -493,6 +577,7 @@ class DockerRunscSandbox:
         data: bytes | None = None,
         timeout_s: float = 10.0,
     ) -> ToolCallResult:
+        await self._ensure_runtime_ready()
         async with _get_semaphore():
             client = self._client()
             volume = f"smap-agent-fs-{agent_id}"
@@ -577,6 +662,7 @@ class DockerRunscSandbox:
         timeout_s: float = 30.0,
         chatroom_id: uuid.UUID | None = None,
     ) -> ToolCallResult:
+        await self._ensure_runtime_ready()
         # Session path: a chat turn reuses a persistent kernel so in-memory
         # state survives across calls. Headless turns (A2A, no room) keep the
         # original run-and-burn behaviour below.
@@ -868,6 +954,7 @@ class DockerRunscSandbox:
         """
         if not files:
             return []
+        await self._ensure_runtime_ready()
         client = self._client()
         volume = f"smap-agent-fs-{agent_id}"
         rel_dir = f"sessions/{chatroom_id}/inputs"
@@ -918,6 +1005,7 @@ class DockerRunscSandbox:
             _, cached_staged = _tar_staged_inputs(rel_dir="agent-files", files=files)
             return _fix_paths(cached_staged)
 
+        await self._ensure_runtime_ready()
         client = self._client()
         volume = f"smap-agent-fs-{agent_id}"
         archive, raw_staged = _tar_staged_inputs(rel_dir="agent-files", files=files)
@@ -1047,6 +1135,7 @@ def docker_runsc_sandbox_from_settings() -> DockerRunscSandbox:
         code_exec_image=cfg.sandbox.code_exec_image,
         egress_proxy_url=cfg.egress.proxy_url,
         egress_shared_secret=secret,
+        supervisor_url=cfg.sandbox.supervisor_url,
     )
 
 

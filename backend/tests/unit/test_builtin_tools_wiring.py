@@ -417,7 +417,9 @@ def test_sandbox_from_settings_reads_pins(monkeypatch) -> None:
 
     fake = SimpleNamespace(
         sandbox=SimpleNamespace(
-            mcp_image="smap/mcp-runtime@sha256:abc", code_exec_image="smap/code-exec@sha256:def"
+            mcp_image="smap/mcp-runtime@sha256:abc",
+            code_exec_image="smap/code-exec@sha256:def",
+            supervisor_url="http://mcp-sandbox-supervisor:9090",
         ),
         egress=SimpleNamespace(proxy_url="http://egress-proxy:8080", shared_secret="0a0b"),
     )
@@ -426,3 +428,4 @@ def test_sandbox_from_settings_reads_pins(monkeypatch) -> None:
     assert sandbox.mcp_image == "smap/mcp-runtime@sha256:abc"
     assert sandbox.code_exec_image == "smap/code-exec@sha256:def"
     assert sandbox.egress_shared_secret == bytes.fromhex("0a0b")
+    assert sandbox.supervisor_url == "http://mcp-sandbox-supervisor:9090"

@@ -245,6 +245,15 @@ class SandboxSection(BaseSettings):
         default="smap/code-exec:pinned",
         validation_alias=AliasChoices("SANDBOX_CODE_EXEC_IMAGE", "SMAP_SANDBOX_CODE_EXEC_IMAGE"),
     )
+    # Readiness gate (R12.05): base URL of the mcp-sandbox-supervisor health
+    # probe, e.g. ``http://mcp-sandbox-supervisor:9090``. Empty disables the
+    # gate, in which case the per-container ``_assert_runsc`` check remains the
+    # sole (and security-sufficient) gVisor guarantee. The gate only adds a
+    # fail-fast, doc-pointing error when the runtime is missing host-wide.
+    supervisor_url: str = Field(
+        default="",
+        validation_alias=AliasChoices("SANDBOX_SUPERVISOR_URL", "SMAP_SANDBOX_SUPERVISOR_URL"),
+    )
 
 
 class EmailSection(BaseSettings):
@@ -328,7 +337,7 @@ class Settings(BaseSettings):
     email: EmailSection = Field(default_factory=EmailSection)
 
 
-_EGRESS_DEV_DEFAULT = "0" * 63 + "1"  # noqa: S105 — known dev sentinel
+_EGRESS_DEV_DEFAULT = "0" * 63 + "1"  # known dev sentinel
 
 
 def _check_prod_secrets(s: Settings) -> None:
