@@ -309,6 +309,37 @@ def _unseal_tool_auth_safe(tool: AgentTool) -> dict[str, Any] | None:
         return None
 
 
+def resolve_tool_auth(tool: AgentTool) -> tuple[dict[str, Any] | None, bool]:
+    """Resolve a tool's upstream auth, distinguishing 'no auth' from 'unsealable'.
+
+    Returns ``(auth, unsealable)``. ``unsealable`` is True when the tool stores
+    sealed credentials that could not be decrypted — callers MUST fail closed
+    (surface an error) rather than fall back to an unauthenticated call, which
+    the upstream could treat as a different identity.
+    """
+    sealed = tool.config.get("auth") if isinstance(tool.config, dict) else None
+    auth = _unseal_tool_auth_safe(tool)
+    unsealable = bool(isinstance(sealed, dict) and sealed.get("__sealed__") and auth is None)
+    return auth, unsealable
+
+
+async def function_egress_allowed(
+    db: AsyncSession, *, project_id: uuid.UUID, url: str
+) -> tuple[str, bool]:
+    """Return ``(host, allowed)`` for a function URL against the egress allowlist.
+
+    Shared by the live function invocation and the reachability probe so the two
+    never disagree on host normalization or allowlist semantics.
+    """
+    from urllib.parse import urlsplit
+
+    from contexts.agents.infrastructure.mcp_repositories import EgressAllowlistRepository
+
+    host = (urlsplit(url).hostname or "").lower()
+    allowed = await EgressAllowlistRepository(db).is_allowed(project_id=project_id, hostname=host)
+    return host, allowed
+
+
 _ALLOWED_UPSTREAM_AUTH_NAMES = frozenset({"authorization", "x-api-key", "x-auth-token"})
 
 
@@ -368,23 +399,14 @@ def _build_mcp_tool_from_agent_tool(
     deps: BuiltinToolDeps,
 ) -> Tool:
     async def _invoke(args: dict[str, Any]) -> ToolResult:
-        from contexts.agents.application.tool_auth import unseal_tool_auth
-
-        sealed = tool.config.get("auth") if isinstance(tool.config, dict) else None
-        auth = None
-        if sealed and isinstance(sealed, dict) and sealed.get("__sealed__"):
-            try:
-                auth = unseal_tool_auth(tool.id, sealed)
-            except Exception:
-                # Fail closed: the binding has stored credentials, so never fall back
-                # to an unauthenticated call (the upstream could treat that as a
-                # different identity). Surface an error instead.
-                logger.error("Failed to unseal tool auth", exc_info=True)
-                await _audit_tool_invoke(db, agent, tool, mcp_tool, ok=False)
-                return ToolResult(
-                    content=f"mcp tool {mcp_tool} failed: stored credentials could not be unsealed",
-                    is_error=True,
-                )
+        auth, unsealable = resolve_tool_auth(tool)
+        if unsealable:
+            # Fail closed: stored credentials exist but could not be unsealed.
+            await _audit_tool_invoke(db, agent, tool, mcp_tool, ok=False)
+            return ToolResult(
+                content=f"mcp tool {mcp_tool} failed: stored credentials could not be unsealed",
+                is_error=True,
+            )
         try:
             res = await deps.runner.invoke_mcp_tool(
                 agent_id=agent.id,
@@ -425,17 +447,11 @@ def _build_function_tool(
     fn_params = cfg.get("parameters", {"type": "object", "additionalProperties": True})
 
     async def _invoke(args: dict[str, Any]) -> ToolResult:
-        from urllib.parse import urlsplit
-
         from contexts.agents.domain.errors import McpEgressDenied
-        from contexts.agents.infrastructure.mcp_repositories import EgressAllowlistRepository
 
         url = str(http_cfg.get("url", ""))
-        host = (urlsplit(url).hostname or "").lower()
-        if not await EgressAllowlistRepository(db).is_allowed(
-            project_id=agent.project_id,
-            hostname=host,
-        ):
+        host, allowed = await function_egress_allowed(db, project_id=agent.project_id, url=url)
+        if not allowed:
             return ToolResult(
                 content=f"function blocked: host {host} is not on the project egress allowlist.",
                 is_error=True,
@@ -464,14 +480,10 @@ def _build_function_tool(
             )
 
         headers = dict(http_cfg.get("headers") or {})
-        sealed_auth = cfg.get("auth") if isinstance(cfg, dict) else None
-        auth = _unseal_tool_auth_safe(tool)
-        if (
-            isinstance(sealed_auth, dict)
-            and sealed_auth.get("__sealed__")
-            and auth is None
-        ):
+        auth, unsealable = resolve_tool_auth(tool)
+        if unsealable:
             # Fail closed: stored credentials exist but could not be unsealed.
+            await _audit_tool_invoke(db, agent, tool, fn_name, ok=False)
             return ToolResult(
                 content="function blocked: stored credentials could not be unsealed.",
                 is_error=True,

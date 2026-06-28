@@ -589,3 +589,57 @@ class TestPatchTool:
             )
 
         tools.patch.assert_not_awaited()
+
+    @patch("contexts.agents.application.agent_service.audit.emit", new_callable=AsyncMock)
+    async def test_legacy_empty_allowlist_stays_editable(self, _audit) -> None:
+        # A migrated binding backfilled with allowed_tools=[] must remain patchable.
+        agent = _make_agent()
+        existing = AgentTool(
+            id=uuid.uuid4(),
+            agent_id=agent.id,
+            tool_type=AgentToolType.HOSTED_MCP,
+            enabled=True,
+            display_name=None,
+            config={"source": "url", "reference": "https://x", "allowed_tools": []},
+            created_at=_NOW,
+        )
+        agents = AsyncMock()
+        agents.get.return_value = agent
+        tools = AsyncMock()
+        tools.get.return_value = existing
+        tools.patch.return_value = existing
+        svc = _make_service(agent_repo=agents, tool_repo=tools)
+
+        await svc.patch_tool(
+            agent_id=agent.id,
+            tool_id=existing.id,
+            config={"advanced": "x"},
+            actor_user_id=_USER_ID,
+            actor_ip=None,
+        )
+
+        tools.patch.assert_awaited_once()
+
+    @patch("contexts.agents.application.agent_service.audit.emit", new_callable=AsyncMock)
+    async def test_clear_auth_drops_stored_credential(self, _audit) -> None:
+        agent = _make_agent()
+        existing = _make_mcp_tool(agent_id=agent.id, with_auth=True)
+        agents = AsyncMock()
+        agents.get.return_value = agent
+        tools = AsyncMock()
+        tools.get.return_value = existing
+        tools.patch.return_value = existing
+        svc = _make_service(agent_repo=agents, tool_repo=tools)
+
+        await svc.patch_tool(
+            agent_id=agent.id,
+            tool_id=existing.id,
+            clear_auth=True,
+            actor_user_id=_USER_ID,
+            actor_ip=None,
+        )
+
+        patched = tools.patch.await_args.kwargs["config"]
+        assert "auth" not in patched
+        # Other config is left intact.
+        assert patched["reference"] == "https://mcp.example.com"
