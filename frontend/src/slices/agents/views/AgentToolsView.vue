@@ -32,7 +32,6 @@ import {
   STextarea,
   SCodeEditor,
   SAccordion,
-  SAlert,
   SEmptyState,
 } from '@shared/ui'
 import { useConfirmDialog, useServerErrors, useToast } from '@shared/composables'
@@ -114,6 +113,10 @@ function toggleSingleton(tool: AgentTool | undefined, value: boolean): void {
   toggleMutation.mutate({ toolId: tool.id, enabled: value })
 }
 
+// File Search needs a knowledge source (RAG config) attached to the agent; the
+// backend rejects enabling it otherwise, so gate the toggle in the UI too.
+const hasKnowledge = computed(() => !!agentQuery.data.value?.rag_config_id)
+
 // Singleton card rows for template iteration
 const singletonCards = computed(() => [
   {
@@ -121,24 +124,36 @@ const singletonCards = computed(() => [
     tool: webSearch.value,
     label: t('agents.tools.webSearch.label'),
     description: t('agents.tools.webSearch.description'),
+    disabled: false,
+    disabledHint: '',
   },
   {
     key: 'codeInterpreter' as const,
     tool: codeInterpreter.value,
     label: t('agents.tools.codeInterpreter.label'),
     description: t('agents.tools.codeInterpreter.description'),
+    disabled: false,
+    disabledHint: '',
   },
   {
     key: 'fileWorkspace' as const,
     tool: fileWorkspace.value,
     label: t('agents.tools.fileWorkspace.label'),
     description: t('agents.tools.fileWorkspace.description'),
+    disabled: false,
+    disabledHint: '',
   },
   {
     key: 'fileSearch' as const,
     tool: fileSearch.value,
     label: t('agents.tools.fileSearch.label'),
     description: t('agents.tools.fileSearch.description'),
+    // Allow turning an already-enabled tool off, but block enabling without knowledge.
+    disabled: !hasKnowledge.value && !fileSearch.value?.enabled,
+    disabledHint:
+      !hasKnowledge.value && !fileSearch.value?.enabled
+        ? t('agents.tools.fileSearch.needsKnowledge')
+        : '',
   },
 ])
 
@@ -146,7 +161,9 @@ const singletonCards = computed(() => [
 const wsFilesQuery = useQuery({
   queryKey: agentKeys.workspaceFiles(agentId),
   queryFn: async () => (await agentsApi.listWorkspaceFiles(agentId)).data,
-  enabled: computed(() => !!codeInterpreter.value?.enabled),
+  enabled: computed(
+    () => !!codeInterpreter.value?.enabled || !!fileWorkspace.value?.enabled,
+  ),
 })
 const wsFiles = computed<WorkspaceFile[]>(() => wsFilesQuery.data.value ?? [])
 const wsFileInput = ref<HTMLInputElement | null>(null)
@@ -206,6 +223,7 @@ const showModal = ref(false)
 const editingTool = ref<AgentTool | null>(null)
 const isEditing = computed(() => !!editingTool.value)
 const configJsonError = ref<string | null>(null)
+const allowedToolsError = ref<string | null>(null)
 
 const schema = toTypedSchema(mcpToolCreateSchema)
 const { handleSubmit, errors, defineField, resetForm, setErrors } =
@@ -233,6 +251,7 @@ function openAddModal(): void {
   allowedToolsRaw.value = ''
   configJson.value = '{}'
   configJsonError.value = null
+  allowedToolsError.value = null
   showModal.value = true
 }
 
@@ -258,6 +277,7 @@ function openEditModal(tool: AgentTool): void {
   delete configWithout.auth
   configJson.value = JSON.stringify(configWithout, null, 2)
   configJsonError.value = null
+  allowedToolsError.value = null
   showModal.value = true
 }
 
@@ -316,6 +336,11 @@ const onSubmit = handleSubmit((values) => {
   }
   configJsonError.value = null
   const allowed_tools = parseTools(allowedToolsRaw.value)
+  if (allowed_tools.length === 0) {
+    allowedToolsError.value = t('agents.tools.mcp.allowedToolsRequired')
+    return
+  }
+  allowedToolsError.value = null
 
   const editing = editingTool.value
   if (editing) {
@@ -364,7 +389,7 @@ async function confirmDelete(tool: AgentTool): Promise<void> {
 }
 
 function onMcpAction(key: string, row: AgentTool): void {
-  if (key === 'test') runTest(row.id)
+  if (key === 'test') runTest(row.id, 'mcp')
   else if (key === 'edit') openEditModal(row)
   else if (key === 'delete') void confirmDelete(row)
 }
@@ -408,6 +433,7 @@ const {
   errors: fnErrors,
   defineField: defineFnField,
   resetForm: resetFnForm,
+  setErrors: setFnErrors,
 } = useForm<FunctionToolCreateInput>({
   validationSchema: fnSchema,
   initialValues: {
@@ -427,7 +453,8 @@ const [fnMethod] = defineFnField('config.http.method')
 const [fnUrl] = defineFnField('config.http.url')
 const fnParamsJson = ref('{\n  "type": "object",\n  "properties": {}\n}')
 const fnParamsError = ref<string | null>(null)
-const fnAuthType = ref<'none' | 'bearer' | 'header'>('none')
+const fnAuthType = ref<'none' | 'keep' | 'bearer' | 'header'>('none')
+const fnHasStoredAuth = ref(false)
 const fnAuthToken = ref('')
 const fnAuthHeaderName = ref('')
 const fnAuthHeaderValue = ref('')
@@ -437,6 +464,7 @@ function openFnAddModal(): void {
   resetFnForm()
   fnParamsJson.value = '{\n  "type": "object",\n  "properties": {}\n}'
   fnParamsError.value = null
+  fnHasStoredAuth.value = false
   fnAuthType.value = 'none'
   fnAuthToken.value = ''
   fnAuthHeaderName.value = ''
@@ -465,20 +493,17 @@ function openFnEditModal(tool: AgentTool): void {
   })
   fnParamsJson.value = JSON.stringify(cfg.parameters ?? { type: 'object', properties: {} }, null, 2)
   fnParamsError.value = null
-  fnAuthType.value = cfg.auth_present ? 'bearer' : 'none'
+  // The backend never returns stored credentials (only auth_present), so default to
+  // "keep" and only overwrite when the user explicitly enters new credentials.
+  fnHasStoredAuth.value = !!cfg.auth_present
+  fnAuthType.value = cfg.auth_present ? 'keep' : 'none'
   fnAuthToken.value = ''
   fnAuthHeaderName.value = ''
   fnAuthHeaderValue.value = ''
   showFnModal.value = true
 }
 
-const { applyServerErrors: applyFnErrors } = useServerErrors(
-  (errs: Record<string, string>) => {
-    for (const [k, v] of Object.entries(errs)) {
-      fnErrors.value = { ...fnErrors.value, [k]: v }
-    }
-  },
-)
+const { applyServerErrors: applyFnErrors } = useServerErrors(setFnErrors)
 
 const createFnMutation = useMutation({
   mutationFn: async (payload: FunctionToolCreateInput) =>
@@ -514,12 +539,36 @@ const onFnSubmit = handleFnSubmit((values) => {
   let params: Record<string, unknown>
   try {
     params = JSON.parse(fnParamsJson.value) as Record<string, unknown>
-    if (typeof params !== 'object' || params === null) throw new Error()
   } catch {
-    fnParamsError.value = 'Must be valid JSON'
+    fnParamsError.value = t('agents.tools.functions.invalidParamsJson')
+    return
+  }
+  if (
+    typeof params !== 'object' ||
+    params === null ||
+    Array.isArray(params) ||
+    params.type !== 'object'
+  ) {
+    fnParamsError.value = t('agents.tools.functions.invalidParamsSchema')
     return
   }
   fnParamsError.value = null
+
+  // 'keep' (edit) and 'none' (add) send no auth field so the backend leaves any
+  // stored credential untouched. Only an explicit bearer/header overwrites it, and
+  // we refuse to send blank credentials (which would wipe the stored secret).
+  if (fnAuthType.value === 'bearer' && !fnAuthToken.value.trim()) {
+    fnParamsError.value = null
+    toast.error(t('agents.tools.functions.authTokenRequired'))
+    return
+  }
+  if (
+    fnAuthType.value === 'header' &&
+    (!fnAuthHeaderName.value.trim() || !fnAuthHeaderValue.value.trim())
+  ) {
+    toast.error(t('agents.tools.functions.authHeaderRequired'))
+    return
+  }
 
   const authPayload: Record<string, unknown> | undefined =
     fnAuthType.value === 'bearer'
@@ -567,7 +616,7 @@ async function confirmDeleteFn(tool: AgentTool): Promise<void> {
 }
 
 function onFnAction(key: string, row: AgentTool): void {
-  if (key === 'test') runTest(row.id)
+  if (key === 'test') runTest(row.id, 'function')
   else if (key === 'edit') openFnEditModal(row)
   else if (key === 'delete') void confirmDeleteFn(row)
 }
@@ -588,7 +637,9 @@ const fnMethodOptions = computed(() => [
 ])
 
 const fnAuthOptions = computed(() => [
-  { value: 'none', label: t('agents.tools.functions.authNone') },
+  ...(fnHasStoredAuth.value
+    ? [{ value: 'keep', label: t('agents.tools.functions.authKeep') }]
+    : [{ value: 'none', label: t('agents.tools.functions.authNone') }]),
   { value: 'bearer', label: t('agents.tools.functions.authBearer') },
   { value: 'header', label: t('agents.tools.functions.authHeader') },
 ])
@@ -601,6 +652,10 @@ function fnHost(tool: AgentTool): string {
   } catch {
     return ''
   }
+}
+
+function fnLabel(tool: AgentTool): string {
+  return ((tool.config as Record<string, unknown>).name as string) ?? tool.display_name ?? ''
 }
 </script>
 
@@ -636,20 +691,26 @@ function fnHost(tool: AgentTool): string {
               <p class="text-xs text-[var(--color-muted)]">
                 {{ card.description }}
               </p>
+              <p
+                v-if="card.disabledHint"
+                class="text-xs text-[var(--color-warning)] mt-1"
+              >
+                {{ card.disabledHint }}
+              </p>
             </div>
             <SToggle
               :id="`tool-${card.key}`"
               :model-value="card.tool?.enabled ?? false"
-              :disabled="toggleBusy || !card.tool"
+              :disabled="toggleBusy || !card.tool || card.disabled"
               @update:model-value="toggleSingleton(card.tool, $event)"
             />
           </li>
         </ul>
       </SCard>
 
-      <!-- Code Interpreter workspace files -->
+      <!-- Workspace files (shared by Code Interpreter and File Workspace) -->
       <SCard
-        v-if="codeInterpreter?.enabled"
+        v-if="codeInterpreter?.enabled || fileWorkspace?.enabled"
         class="mt-4"
       >
         <div class="flex items-center justify-between mb-3">
@@ -879,6 +940,7 @@ function fnHost(tool: AgentTool): string {
                 <SToggle
                   :model-value="fn.enabled"
                   :disabled="toggleBusy"
+                  :aria-label="t('agents.tools.functions.label') + ': ' + fnLabel(fn)"
                   @update:model-value="toggleSingleton(fn, $event)"
                 />
                 <SDropdown
@@ -993,6 +1055,7 @@ function fnHost(tool: AgentTool): string {
           :label="t('agents.tools.mcp.allowedTools')"
           name="allowed_tools"
           :help="t('agents.tools.mcp.allowedToolsHelp')"
+          :error="allowedToolsError ?? undefined"
         >
           <STextarea
             v-model="allowedToolsRaw"
@@ -1056,7 +1119,7 @@ function fnHost(tool: AgentTool): string {
       />
       <p
         v-if="failedResult"
-        class="text-sm text-[var(--color-text-muted)] mt-2"
+        class="text-sm text-[var(--color-muted)] mt-2"
       >
         {{ t('agents.tools.mcp.testErrorDuration', { ms: failedResult.duration_ms }) }}
       </p>

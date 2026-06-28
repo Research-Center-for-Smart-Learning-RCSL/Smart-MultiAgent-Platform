@@ -25,11 +25,8 @@ import {
   SCodeEditor,
   SButton,
   SBadge,
-  STable,
   SAlert,
-  SEmptyState,
   SSkeleton,
-  SModal,
 } from '@shared/ui'
 import {
   useConfirmDialog,
@@ -39,11 +36,9 @@ import {
 } from '@shared/composables'
 import { ApiError } from '@shared/errors'
 import { keyGroupsApi, keysKeys, type KeyGroup } from '@slices/keys'
-import { agentsApi, type AgentTool } from '../api'
+import { agentsApi, type AgentTool, type AgentToolType } from '../api'
 import { agentKeys } from '../queries'
 import { agentCreateSchema, type AgentCreateInput } from '../types/schemas'
-import { useToolTest } from '../composables/useToolTest'
-import type { Column } from '@shared/ui/STable.vue'
 
 const { t } = useI18n()
 const route = useRoute()
@@ -101,9 +96,79 @@ const thisAgentGraphrag = computed(() =>
   (graphragConfigsQuery.data.value ?? []).find((c) => c.agent_id === agentId),
 )
 
-const mcpTools = computed<AgentTool[]>(() =>
-  (toolsQuery.data.value ?? []).filter((t) => t.tool_type === 'hosted_mcp'),
-)
+const allTools = computed<AgentTool[]>(() => toolsQuery.data.value ?? [])
+
+const singletonEnabled = (type: AgentToolType): boolean =>
+  allTools.value.find((tool) => tool.tool_type === type)?.enabled ?? false
+
+const toolTypeCount = (type: AgentToolType): number =>
+  allTools.value.filter((tool) => tool.tool_type === type).length
+
+const hostedToolRows = computed(() => [
+  {
+    key: 'webSearch',
+    label: t('agents.tools.webSearch.label'),
+    kind: 'toggle' as const,
+    enabled: singletonEnabled('hosted_web_search'),
+  },
+  {
+    key: 'codeInterpreter',
+    label: t('agents.tools.codeInterpreter.label'),
+    kind: 'toggle' as const,
+    enabled: singletonEnabled('hosted_code_interpreter'),
+  },
+  {
+    key: 'fileWorkspace',
+    label: t('agents.tools.fileWorkspace.label'),
+    kind: 'toggle' as const,
+    enabled: singletonEnabled('hosted_file_workspace'),
+  },
+  {
+    key: 'fileSearch',
+    label: t('agents.tools.fileSearch.label'),
+    kind: 'toggle' as const,
+    enabled: singletonEnabled('hosted_file_search'),
+  },
+  {
+    key: 'mcp',
+    label: t('agents.tools.mcp.label'),
+    kind: 'count' as const,
+    count: toolTypeCount('hosted_mcp'),
+  },
+])
+
+const localToolRows = computed(() => [
+  {
+    key: 'functions',
+    label: t('agents.tools.functions.label'),
+    kind: 'count' as const,
+    count: toolTypeCount('local_function'),
+  },
+  {
+    key: 'localShell',
+    label: t('agents.tools.localShell.label'),
+    kind: 'soon' as const,
+  },
+])
+
+const enabledToolCount = computed(() => {
+  const singletons = (
+    [
+      'hosted_web_search',
+      'hosted_code_interpreter',
+      'hosted_file_workspace',
+      'hosted_file_search',
+    ] as AgentToolType[]
+  ).filter((type) => singletonEnabled(type)).length
+  return (
+    singletons +
+    allTools.value.filter(
+      (tool) =>
+        (tool.tool_type === 'hosted_mcp' || tool.tool_type === 'local_function') &&
+        tool.enabled,
+    ).length
+  )
+})
 
 const keyGroups = computed<KeyGroup[]>(() => keyGroupsQuery.data.value ?? [])
 const hasKeyGroups = computed(() => keyGroups.value.length > 0)
@@ -387,15 +452,12 @@ async function onDelete(): Promise<void> {
   deleteMutation.mutate()
 }
 
-// --- MCP test ---
-const { isTesting, runTest, failedResult } = useToolTest(agentId)
-
 // --- Tab config ---
 const tabs = computed(() => [
   { key: 'general', label: t('agents.detail.tabs.general'), icon: Cog6ToothIcon },
   { key: 'prompt', label: t('agents.detail.tabs.prompt'), icon: CommandLineIcon },
   { key: 'knowledge', label: t('agents.detail.tabs.knowledge'), icon: BookOpenIcon },
-  { key: 'tools', label: t('agents.tools.tabLabel'), icon: ServerIcon, badge: mcpTools.value.length > 0 ? String(mcpTools.value.length) : undefined },
+  { key: 'tools', label: t('agents.tools.tabLabel'), icon: ServerIcon, badge: enabledToolCount.value > 0 ? String(enabledToolCount.value) : undefined },
   { key: 'orchestration', label: t('agents.detail.tabs.orchestration'), icon: ArrowsPointingOutIcon },
 ])
 
@@ -440,13 +502,6 @@ const graphragConfigOptions = computed(() => {
   }
   return options
 })
-
-const mcpColumns = computed<Column[]>(() => [
-  { key: 'source', label: t('agents.mcp.colSource'), width: '80px' },
-  { key: 'reference', label: t('agents.mcp.colReference') },
-  { key: 'tools', label: t('agents.mcp.colTools'), width: '100px' },
-  { key: 'actions', label: '', width: '80px', align: 'right' },
-])
 
 const pageTitle = computed(() => {
   if (isCreateMode) return t('agents.detail.new')
@@ -785,68 +840,78 @@ const graphragStatusText = computed(() => {
           class="mt-6"
         >
           <SCard>
-            <h3 class="text-lg font-semibold mb-4">
-              {{ t('agents.detail.tabs.mcp') }}
-            </h3>
+            <div class="flex items-center justify-between mb-4">
+              <h3 class="text-lg font-semibold">
+                {{ t('agents.tools.tabLabel') }}
+              </h3>
+              <SButton
+                v-if="!isCreateMode"
+                variant="link"
+                :to="{ name: 'agents.tools', params: { agentId } }"
+                as="router-link"
+              >
+                {{ t('agents.detail.toolsOverview.manage') }}
+              </SButton>
+            </div>
 
-            <STable
-              v-if="mcpTools.length > 0"
-              :columns="mcpColumns"
-              :data="mcpTools"
-              row-key="id"
+            <p
+              v-if="isCreateMode"
+              class="text-sm text-muted"
             >
-              <template #cell-source="{ row }">
-                <SBadge variant="neutral">
-                  {{ (row.config as Record<string, unknown>).source ?? 'url' }}
-                </SBadge>
-              </template>
+              {{ t('agents.detail.toolsOverview.createHint') }}
+            </p>
 
-              <template #cell-reference="{ row }">
-                <span class="font-mono text-sm break-all">{{ (row.config as Record<string, unknown>).reference ?? row.display_name }}</span>
-              </template>
-
-              <template #cell-tools="{ row }">
-                {{ ((row.config as Record<string, unknown>).allowed_tools as string[] ?? []).length ? t('agents.mcp.nAllowed', { n: ((row.config as Record<string, unknown>).allowed_tools as string[]).length }) : t('agents.mcp.allTools') }}
-              </template>
-
-              <template #actions="{ row }">
-                <SButton
-                  variant="ghost"
-                  size="sm"
-                  :loading="isTesting(row.id)"
-                  @click="runTest(row.id)"
+            <template v-else>
+              <h4 class="text-sm font-semibold text-muted mb-1">
+                {{ t('agents.tools.hosted.title') }}
+              </h4>
+              <ul class="divide-y divide-border">
+                <li
+                  v-for="row in hostedToolRows"
+                  :key="row.key"
+                  class="flex items-center justify-between py-2"
                 >
-                  {{ t('agents.mcp.test') }}
-                </SButton>
-              </template>
-            </STable>
+                  <span class="text-sm">{{ row.label }}</span>
+                  <SBadge
+                    v-if="row.kind === 'toggle'"
+                    :variant="row.enabled ? 'success' : 'neutral'"
+                  >
+                    {{ row.enabled ? t('agents.detail.toolsOverview.on') : t('agents.detail.toolsOverview.off') }}
+                  </SBadge>
+                  <SBadge
+                    v-else
+                    :variant="row.count > 0 ? 'info' : 'neutral'"
+                  >
+                    {{ row.count > 0 ? row.count : t('agents.detail.toolsOverview.none') }}
+                  </SBadge>
+                </li>
+              </ul>
 
-            <SEmptyState
-              v-else-if="!isCreateMode"
-              :icon="ServerIcon"
-              :title="t('agents.mcp.emptyTitle')"
-              :text="t('agents.mcp.emptyDescription')"
-            >
-              <template #action>
-                <SButton
-                  variant="link"
-                  :to="{ name: 'agents.tools', params: { agentId } }"
-                  as="router-link"
+              <h4 class="text-sm font-semibold text-muted mb-1 mt-6">
+                {{ t('agents.tools.local.title') }}
+              </h4>
+              <ul class="divide-y divide-border">
+                <li
+                  v-for="row in localToolRows"
+                  :key="row.key"
+                  class="flex items-center justify-between py-2"
                 >
-                  {{ t('agents.mcp.add') }}
-                </SButton>
-              </template>
-            </SEmptyState>
-
-            <SButton
-              v-if="!isCreateMode && mcpTools.length > 0"
-              variant="link"
-              class="mt-4"
-              :to="{ name: 'agents.tools', params: { agentId } }"
-              as="router-link"
-            >
-              {{ t('agents.form.manageMcp') }}
-            </SButton>
+                  <span class="text-sm">{{ row.label }}</span>
+                  <SBadge
+                    v-if="row.kind === 'soon'"
+                    variant="neutral"
+                  >
+                    {{ t('agents.detail.toolsOverview.comingSoon') }}
+                  </SBadge>
+                  <SBadge
+                    v-else
+                    :variant="row.count > 0 ? 'info' : 'neutral'"
+                  >
+                    {{ row.count > 0 ? row.count : t('agents.detail.toolsOverview.none') }}
+                  </SBadge>
+                </li>
+              </ul>
+            </template>
           </SCard>
         </div>
 
@@ -999,38 +1064,5 @@ const graphragStatusText = computed(() => {
         </SButton>
       </div>
     </template>
-
-    <!-- MCP test failure modal -->
-    <SModal
-      :open="!!failedResult"
-      :title="t('agents.mcp.testErrorTitle')"
-      size="md"
-      @close="failedResult = null"
-    >
-      <SCodeEditor
-        v-if="failedResult"
-        :model-value="failedResult.error"
-        language="text"
-        :rows="6"
-        readonly
-      />
-      <p
-        v-if="failedResult"
-        class="text-sm text-muted mt-2"
-      >
-        {{ t('agents.mcp.testErrorDuration', { ms: failedResult.duration_ms }) }}
-      </p>
-
-      <template #footer>
-        <div class="flex justify-end">
-          <SButton
-            variant="secondary"
-            @click="failedResult = null"
-          >
-            {{ t('app.close') }}
-          </SButton>
-        </div>
-      </template>
-    </SModal>
   </main>
 </template>
