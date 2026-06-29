@@ -51,7 +51,7 @@ export function computeGraphLayout(
     return { id: node.id, x: cx + radius * Math.cos(angle), y: cy + radius * Math.sin(angle) }
   })
 
-  if (n === 1) return [{ id: pos[0].id, x: cx, y: cy }]
+  if (n === 1) return [{ id: pos[0]!.id, x: cx, y: cy }]
   if (n > relaxMax) return pos
 
   const index = new Map(pos.map((p, i) => [p.id, i]))
@@ -69,11 +69,16 @@ export function computeGraphLayout(
   for (let step = 0; step < iterations; step++) {
     const disp = pos.map(() => ({ x: 0, y: 0 }))
 
-    // Repulsion between every pair.
+    // Repulsion between every pair. Indices are in [0, n) so the elements are
+    // always present; hoist them past noUncheckedIndexedAccess once per pair.
     for (let i = 0; i < n; i++) {
+      const pi = pos[i]!
+      const di = disp[i]!
       for (let j = i + 1; j < n; j++) {
-        let dx = pos[i].x - pos[j].x
-        let dy = pos[i].y - pos[j].y
+        const pj = pos[j]!
+        const dj = disp[j]!
+        let dx = pi.x - pj.x
+        let dy = pi.y - pj.y
         let dist = Math.hypot(dx, dy)
         if (dist < 0.01) {
           // Deterministic nudge so coincident nodes separate.
@@ -84,32 +89,38 @@ export function computeGraphLayout(
         const force = (k * k) / dist
         const fx = (dx / dist) * force
         const fy = (dy / dist) * force
-        disp[i].x += fx
-        disp[i].y += fy
-        disp[j].x -= fx
-        disp[j].y -= fy
+        di.x += fx
+        di.y += fy
+        dj.x -= fx
+        dj.y -= fy
       }
     }
 
-    // Attraction along edges.
+    // Attraction along edges. a/b are valid pos indices (built from index.get).
     for (const [a, b] of adjacency) {
-      const dx = pos[a].x - pos[b].x
-      const dy = pos[a].y - pos[b].y
+      const pa = pos[a]!
+      const pb = pos[b]!
+      const da = disp[a]!
+      const db = disp[b]!
+      const dx = pa.x - pb.x
+      const dy = pa.y - pb.y
       const dist = Math.hypot(dx, dy) || 0.01
       const force = (dist * dist) / k
       const fx = (dx / dist) * force
       const fy = (dy / dist) * force
-      disp[a].x -= fx
-      disp[a].y -= fy
-      disp[b].x += fx
-      disp[b].y += fy
+      da.x -= fx
+      da.y -= fy
+      db.x += fx
+      db.y += fy
     }
 
     // Apply displacement capped by the cooling temperature.
     for (let i = 0; i < n; i++) {
-      const d = Math.hypot(disp[i].x, disp[i].y) || 0.01
-      pos[i].x += (disp[i].x / d) * Math.min(d, temperature)
-      pos[i].y += (disp[i].y / d) * Math.min(d, temperature)
+      const di = disp[i]!
+      const pi = pos[i]!
+      const d = Math.hypot(di.x, di.y) || 0.01
+      pi.x += (di.x / d) * Math.min(d, temperature)
+      pi.y += (di.y / d) * Math.min(d, temperature)
     }
     temperature = Math.max(temperature - cooling, 1)
   }
