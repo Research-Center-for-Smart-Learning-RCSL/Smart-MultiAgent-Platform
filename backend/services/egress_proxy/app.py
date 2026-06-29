@@ -40,7 +40,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import Response
 
 from services.egress_proxy.ip_policy import is_blocked_ip
-from shared_kernel.logging.redaction import _mask_str
+from shared_kernel.logging.redaction import mask_str
 
 _log = logging.getLogger("smap.egress_proxy")
 
@@ -108,7 +108,7 @@ def _truncate(raw: bytes) -> str:
     trimmed = raw[:_MAX_BODY_LOG_BYTES]
     # Mask known secret shapes before a body ever reaches the log — MCP/tool
     # traffic can carry provider keys or user secrets.
-    return _mask_str(trimmed.decode("utf-8", errors="replace"))
+    return mask_str(trimmed.decode("utf-8", errors="replace"))
 
 
 async def _read_capped_body(request: Request, max_bytes: int) -> bytes | None:

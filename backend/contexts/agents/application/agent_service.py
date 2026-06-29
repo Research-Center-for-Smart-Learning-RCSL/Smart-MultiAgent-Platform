@@ -27,6 +27,7 @@ from urllib.parse import urlsplit
 import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from contexts.agents.application.runtime.tool_registry import BUILTIN_TOOL_NAMES
 from contexts.agents.domain.errors import (
     AgentCapExceeded,
     AgentNotFound,
@@ -62,21 +63,12 @@ _AGENT_CAP_PER_PROJECT = 1000
 _FUNCTION_NAME_RE = re.compile(r"^[a-z0-9_]{1,64}$")
 _FUNCTION_METHODS = frozenset({"GET", "POST", "PUT", "PATCH", "DELETE"})
 # Built-in / runtime tool names a user function must not shadow. The per-turn
-# ToolRegistry is a name->Tool dict where the last entry wins, so a user function
-# named e.g. `cast_approval_vote` would silently replace the real tool and route
-# the model's intended call to an arbitrary egress URL. MCP tools occupy the
-# `mcp__` prefix.
-_RESERVED_FUNCTION_NAMES: frozenset[str] = frozenset(
-    {
-        "web_search",
-        "code_exec",
-        "file",
-        "file_search",
-        "update_wakeup",
-        "load_prompt_section",
-        "cast_approval_vote",
-    }
-)
+# ToolRegistry is a name->Tool dict, so a user function named e.g.
+# `cast_approval_vote` would shadow the real tool and route the model's intended
+# call to an arbitrary egress URL. Derived from the single canonical set in the
+# tool registry (kept in sync by a drift test) so a new built-in is reserved
+# automatically. MCP tools occupy the `mcp__` prefix.
+_RESERVED_FUNCTION_NAMES = BUILTIN_TOOL_NAMES
 _RESERVED_FUNCTION_PREFIX = "mcp__"
 
 

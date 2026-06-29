@@ -48,7 +48,8 @@ _MAX_DEPTH: Final = 8
 _MAX_ITEMS: Final = 2048
 
 
-def _mask_str(s: str) -> str:
+def mask_str(s: str) -> str:
+    """Mask every known secret shape in a free-text string (public helper)."""
     out = s
     for pat in _SECRET_VALUE_PATTERNS:
         out = pat.sub(_MASK, out)
@@ -79,6 +80,6 @@ def redact(value: Any, *, _depth: int = 0, _counter: list[int] | None = None) ->
         return tuple(redact(v, _depth=_depth + 1, _counter=_counter) for v in value)
 
     if isinstance(value, str):
-        return _mask_str(value)
+        return mask_str(value)
 
     return value

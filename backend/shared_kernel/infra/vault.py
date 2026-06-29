@@ -252,7 +252,20 @@ class VaultClient:
         cur_version, _ = self._current_hmac()
         if version == cur_version:
             return self._hmac_keys[version]
-        got_version, key = self._parse_hmac_kv(self.kv_get_version(_KV_HMAC_PATH, version))
+        # A trimmed KV v2 history (max_versions too small for the rotation grace
+        # window) makes the old version unreadable; surface that as an actionable
+        # error rather than a bare hvac InvalidPath.
+        try:
+            raw = self.kv_get_version(_KV_HMAC_PATH, version)
+        except VaultError:
+            raise
+        except Exception as exc:
+            raise VaultError(
+                f"HMAC seed version {version} is unavailable from KV history "
+                "(max_versions too small for the rotation grace window?); "
+                "envelopes signed with it cannot be verified until it is restored."
+            ) from exc
+        got_version, key = self._parse_hmac_kv(raw)
         if got_version != version:
             raise VaultError(
                 f"HMAC KV version {version}: stored logical version is {got_version} "

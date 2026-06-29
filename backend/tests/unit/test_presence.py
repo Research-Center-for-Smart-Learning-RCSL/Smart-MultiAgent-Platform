@@ -67,6 +67,33 @@ class _FakeRedis:
             self.sets.pop(key, None)
         return n
 
+    def pipeline(self, transaction: bool = False) -> _FakePipe:
+        return _FakePipe(self)
+
+
+class _FakePipe:
+    """Buffers SADD/SREM/EXPIRE and applies them on execute (no transaction)."""
+
+    def __init__(self, redis: _FakeRedis) -> None:
+        self._redis = redis
+        self._ops: list = []
+
+    def sadd(self, key: str, member: str) -> None:
+        self._ops.append(("sadd", key, member))
+
+    def srem(self, key: str, member: str) -> None:
+        self._ops.append(("srem", key, member))
+
+    def expire(self, key: str, ttl: int) -> None:
+        self._ops.append(("expire", key, ttl))
+
+    async def execute(self) -> None:
+        for op in self._ops:
+            if op[0] == "sadd":
+                await self._redis.sadd(op[1], op[2])
+            elif op[0] == "srem":
+                await self._redis.srem(op[1], op[2])
+
 
 @pytest.fixture
 def fake_redis(monkeypatch) -> _FakeRedis:
