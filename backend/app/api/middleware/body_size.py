@@ -45,7 +45,9 @@ class BodySizeLimitMiddleware(BaseHTTPMiddleware):
             length = int(raw_len)
         except ValueError:
             return await call_next(request)
-        if length <= _MAX_JSON_BODY_BYTES:
+        # A malformed (negative) Content-Length is left for the ASGI server to
+        # reject; we only short-circuit a well-formed body that is over the cap.
+        if length < 0 or length <= _MAX_JSON_BODY_BYTES:
             return await call_next(request)
         problem = Problem(
             type=problem_type("payload-too-large"),

@@ -27,7 +27,9 @@ import {
   SBadge,
   SAlert,
   SSkeleton,
+  SCharCount,
 } from '@shared/ui'
+import { INPUT_LIMITS } from '@shared/constants/inputLimits'
 import {
   useConfirmDialog,
   useServerErrors,
@@ -466,14 +468,6 @@ function onTabChange(tab: string): void {
   router.replace({ query: { ...route.query, tab } })
 }
 
-// Prompt character counter
-const promptLength = computed(() => (systemPrompt.value ?? '').length)
-const promptCounterClass = computed(() => {
-  if (promptLength.value >= 99000) return 'text-[var(--color-danger)]'
-  if (promptLength.value >= 90000) return 'text-[var(--color-warning)]'
-  return 'text-[var(--color-muted)]'
-})
-
 // Options
 const modelHintOptions = computed(() => [
   { value: 'claude', label: t('agents.form.modelHints.claude') },
@@ -758,12 +752,10 @@ const graphragStatusText = computed(() => {
                 :placeholder="t('agents.form.systemPromptPlaceholder')"
               />
             </SFormField>
-            <p
-              class="text-xs mt-1"
-              :class="promptCounterClass"
-            >
-              {{ `${promptLength.toLocaleString()} / 100,000` }}
-            </p>
+            <SCharCount
+              :current="(systemPrompt ?? '').length"
+              :max="INPUT_LIMITS.SYSTEM_PROMPT"
+            />
           </SCard>
         </div>
 

@@ -188,7 +188,9 @@ const {
 } = useMentionAutocomplete({
   textarea: textareaRef,
   agents: () => props.agents,
-  onInsert: (value) => emit('update:modelValue', value),
+  // Clamp here too: maxlength only bounds typing, not this programmatic set,
+  // so a mention inserted near the limit could otherwise overflow it.
+  onInsert: (value) => emit('update:modelValue', value.slice(0, INPUT_LIMITS.MESSAGE)),
 })
 
 function onKeydown(e: KeyboardEvent): void {
