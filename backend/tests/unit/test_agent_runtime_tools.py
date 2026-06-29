@@ -98,3 +98,28 @@ async def test_registry_swallows_tool_exception() -> None:
     res = await reg.call("x", {})
     assert res.is_error
     assert "kaboom" in res.content
+
+
+@pytest.mark.asyncio
+async def test_registry_first_registration_wins_on_duplicate() -> None:
+    from contexts.agents.application.runtime.tool_registry import Tool
+
+    async def _a(_args):
+        from contexts.agents.application.runtime.tool_registry import ToolResult
+
+        return ToolResult(content="A")
+
+    async def _b(_args):
+        from contexts.agents.application.runtime.tool_registry import ToolResult
+
+        return ToolResult(content="B")
+
+    reg = ToolRegistry(
+        [
+            Tool(name="dup", description="d", input_schema={}, invoke=_a),
+            Tool(name="dup", description="d", input_schema={}, invoke=_b),
+        ]
+    )
+    assert len(reg) == 1
+    res = await reg.call("dup", {})
+    assert res.content == "A"  # the first registration is kept, the shadow dropped

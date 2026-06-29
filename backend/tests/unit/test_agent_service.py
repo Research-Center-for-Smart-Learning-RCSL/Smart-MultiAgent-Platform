@@ -16,6 +16,7 @@ import pytest
 from contexts.agents.application.agent_service import (
     _AGENT_CAP_PER_PROJECT,
     AgentService,
+    _validate_function_config,
     _validate_mcp_config,
 )
 from contexts.agents.domain.errors import (
@@ -40,6 +41,25 @@ _NOW = datetime(2026, 6, 22, 12, 0, 0)
 _PROJECT_ID = uuid.uuid4()
 _KEY_GROUP_ID = uuid.uuid4()
 _USER_ID = uuid.uuid4()
+
+
+def _function_config(name: str) -> dict:
+    return {
+        "name": name,
+        "description": "d",
+        "parameters": {"type": "object"},
+        "http": {"method": "GET", "url": "https://api.example.com/v1/do"},
+    }
+
+
+@pytest.mark.parametrize("name", ["cast_approval_vote", "web_search", "code_exec", "update_wakeup", "mcp__x"])
+def test_validate_function_config_rejects_reserved_names(name: str) -> None:
+    with pytest.raises(ValueError, match="reserved"):
+        _validate_function_config(_function_config(name))
+
+
+def test_validate_function_config_allows_normal_name() -> None:
+    _validate_function_config(_function_config("my_custom_tool"))  # no raise
 
 
 def _make_agent(
