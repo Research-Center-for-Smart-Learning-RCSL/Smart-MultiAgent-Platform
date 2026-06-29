@@ -29,6 +29,12 @@ class A2AMessageType(str, enum.Enum):
 # worker task per level; this bounds it. Mirrors the instruct depth machinery.
 A2A_CALL_MAX_DEPTH: int = 8
 
+# Hard cap on broadcast fan-out (R9.16). A broadcast writes to one inbox stream
+# per a2a-enabled agent in the project; bound it so a large project cannot turn
+# a single broadcast into an unbounded write/turn storm. Recipients past the cap
+# are dropped with a logged warning rather than silently.
+A2A_BROADCAST_MAX_RECIPIENTS: int = 100
+
 
 @dataclass(frozen=True, slots=True)
 class A2AEnvelope:
@@ -352,6 +358,7 @@ SUBAGENT_INHERITANCE: dict[str, bool] = {
 
 
 __all__ = [
+    "A2A_BROADCAST_MAX_RECIPIENTS",
     "A2A_CALL_MAX_DEPTH",
     "A2AEnvelope",
     "A2AMessageType",

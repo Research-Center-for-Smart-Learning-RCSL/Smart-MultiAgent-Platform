@@ -14,6 +14,7 @@ SoC:
 from __future__ import annotations
 
 import json
+import logging
 import uuid
 from datetime import UTC, datetime
 from typing import Any
@@ -27,7 +28,11 @@ from contexts.agents.application.a2a_scope import (
 from contexts.agents.interfaces.facade import Agent, AgentsFacade
 from contexts.orchestration.application import a2a_call_chain
 from contexts.orchestration.domain.errors import A2ADeliveryFailed, A2AForbidden, A2ATimeout
-from contexts.orchestration.domain.models import A2AEnvelope, A2AMessageType
+from contexts.orchestration.domain.models import (
+    A2A_BROADCAST_MAX_RECIPIENTS,
+    A2AEnvelope,
+    A2AMessageType,
+)
 from contexts.orchestration.infrastructure import a2a_rendezvous, a2a_streams
 from contexts.orchestration.infrastructure.metrics import A2A_MESSAGES
 from contexts.tenancy.interfaces.facade import TenancyFacade
@@ -35,6 +40,8 @@ from shared_kernel import audit
 
 _BROADCAST_PREFIX = "broadcast:workspace"
 _DEFAULT_CALL_TIMEOUT = 60.0
+
+logger = logging.getLogger(__name__)
 
 
 class A2AService:
@@ -296,6 +303,7 @@ class A2AService:
 
         first_stream_id = ""
         delivered_count = 0
+        dropped_over_cap = 0
         for target in agents:
             if target.id == caller.id:
                 continue
@@ -311,6 +319,12 @@ class A2AService:
                     caller_invocation_context_id=caller_invocation_context_id,
                 )
             except A2AForbidden:
+                continue
+
+            # R9.16: bound the fan-out. Past the cap, count and skip (logged
+            # below) rather than silently dropping or storming every inbox.
+            if delivered_count >= A2A_BROADCAST_MAX_RECIPIENTS:
+                dropped_over_cap += 1
                 continue
 
             per_agent = A2AEnvelope(
@@ -343,9 +357,17 @@ class A2AService:
                     "type": envelope.type.value,
                     "broadcast": True,
                     "delivered_count": delivered_count,
+                    "dropped_over_cap": dropped_over_cap,
                 },
             ),
         )
+        if dropped_over_cap:
+            logger.warning(
+                "a2a broadcast from %s capped at %d recipients; %d eligible target(s) dropped",
+                envelope.from_agent,
+                A2A_BROADCAST_MAX_RECIPIENTS,
+                dropped_over_cap,
+            )
         return first_stream_id
 
     # ------------------------------------------------------------------
