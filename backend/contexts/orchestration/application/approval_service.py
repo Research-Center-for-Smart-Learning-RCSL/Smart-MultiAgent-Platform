@@ -42,6 +42,12 @@ from shared_kernel.realtime.pubsub import Publisher
 
 _log = logging.getLogger(__name__)
 
+# Small delay so drive_approver_turn lands after create_gate's enclosing
+# transaction commits (the executor commits just after the node returns). The
+# worker also re-checks/retries when the row is not yet visible, so this only
+# trims the first wasted attempt.
+_APPROVER_TURN_DISPATCH_DELAY_S = 2
+
 
 class ApprovalService:
     """Application-level approval gate orchestration (G.6)."""
@@ -111,9 +117,9 @@ class ApprovalService:
         )
 
         # K.3: notify approver agents so their next turn exposes cast_approval_vote,
-        # and arm the timeout as a deferred job. Best-effort — a Redis/dispatch
-        # hiccup must not fail gate creation (votes can still resolve it; the
-        # timeout merely defaults to the leader's verdict if unscheduled).
+        # and arm the timeout as a deferred job. Approver notifies are best-effort
+        # (a missed one still resolves via timeout), but the timeout arm itself is
+        # load-bearing for liveness and raises on failure (see _notify_and_arm).
         await self._notify_and_arm(
             approval_id=approval_id,
             config=config,
@@ -153,12 +159,16 @@ class ApprovalService:
                 # turn, and nothing else causes one for a headless approver —
                 # without this the gate always falls to the timeout port.
                 # Drive one headless turn per approver; the drained note
-                # supplies the cast_approval_vote tool.
+                # supplies the cast_approval_vote tool. Deferred so the job runs
+                # AFTER this gate's transaction commits — create_gate runs inside
+                # the caller's (executor's) transaction, so a non-deferred job
+                # would observe no approval row and skip every approver.
                 await enqueue(
                     "drive_approver_turn",
                     str(approver),
                     str(approval_id),
                     str(chatroom_id) if chatroom_id else None,
+                    _defer_by=timedelta(seconds=_APPROVER_TURN_DISPATCH_DELAY_S),
                 )
             except Exception:
                 _log.warning(
@@ -167,15 +177,16 @@ class ApprovalService:
                     approver,
                     exc_info=True,
                 )
-        try:
-            await enqueue(
-                "approval_timeout",
-                str(approval_id),
-                str(chatroom_id) if chatroom_id else None,
-                _defer_by=timedelta(seconds=config.timeout_seconds),
-            )
-        except Exception:
-            _log.warning("approval %s: timeout-job arm failed", approval_id, exc_info=True)
+        # The timeout job is the gate's liveness backstop: in MAJORITY/CONSENSUS
+        # a single silent approver otherwise parks the run forever. It is NOT
+        # best-effort — if it cannot be armed, fail gate creation so the caller
+        # rolls back rather than creating a gate that may never resolve.
+        await enqueue(
+            "approval_timeout",
+            str(approval_id),
+            str(chatroom_id) if chatroom_id else None,
+            _defer_by=timedelta(seconds=config.timeout_seconds),
+        )
 
     # ------------------------------------------------------------------
     # Cast vote
@@ -195,6 +206,11 @@ class ApprovalService:
             raise ValueError(f"approval {approval_id} not found")
         if approval.state != ApprovalState.PENDING:
             raise ValueError(f"approval {approval_id} already resolved: {approval.state.value}")
+        # Only designated approvers may cast a ballot. Non-approver votes are
+        # ignored by _evaluate_votes anyway, but persisting them is audit noise
+        # and a foothold for tally-skewing — reject at the boundary.
+        if voter_agent_id not in set(approval.approver_agent_ids):
+            raise ValueError(f"agent {voter_agent_id} is not an approver of {approval_id}")
 
         ballot = await self._votes.cast(
             approval_id=approval_id,
@@ -359,15 +375,25 @@ class ApprovalService:
             return ApprovalState.APPROVED if leader_votes[-1].vote else ApprovalState.REJECTED
 
         if approval.mode == ApprovalMode.MAJORITY:
-            if len(approver_votes) < len(approver_set):
-                return None
-            approves = sum(1 for v in approver_votes if v.vote)
-            rejects = len(approver_votes) - approves
-            if approves > rejects:
+            # Count the latest ballot per approver so a re-vote does not skew the
+            # tally. Last-wins relies on list_for_approval being cast-ordered.
+            latest: dict[uuid.UUID, bool] = {}
+            for v in approver_votes:
+                latest[v.voter_agent_id] = v.vote
+            n = len(approver_set)
+            approves = sum(1 for vote in latest.values() if vote)
+            rejects = len(latest) - approves
+            # Early decision: once a strict majority of *all* approvers has voted
+            # one way, remaining stragglers cannot change the outcome — resolve
+            # immediately instead of stalling on a silent approver.
+            if approves * 2 > n:
                 return ApprovalState.APPROVED
-            if rejects > approves:
+            if rejects * 2 > n:
                 return ApprovalState.REJECTED
-            # Tie: leader breaks it.
+            if len(latest) < n:
+                return None
+            # All voted, no strict majority either way (only possible for even n,
+            # e.g. 2-2). Leader breaks the tie.
             leader_votes = [v for v in approver_votes if v.voter_agent_id == approval.leader_agent_id]
             if leader_votes:
                 return ApprovalState.APPROVED if leader_votes[-1].vote else ApprovalState.REJECTED
