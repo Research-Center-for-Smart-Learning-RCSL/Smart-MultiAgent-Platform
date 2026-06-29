@@ -247,7 +247,7 @@ async def test_wakeup_agent_mention_agent_gone_emits_notice(monkeypatch) -> None
     async def _fake_emit(room_id, agent_id, reason) -> None:
         emitted.append((agent_id, reason))
 
-    monkeypatch.setattr("contexts.conversation.infrastructure.channels.emit_agent_finished_error", _fake_emit)
+    monkeypatch.setattr("contexts.conversation.interfaces.emit_agent_finished_error", _fake_emit)
 
     out = await orch_task.wakeup_agent({}, str(uuid.uuid4()), str(uuid.uuid4()), "mention")
     assert out == "skipped:agent_gone"
@@ -264,7 +264,7 @@ async def test_wakeup_agent_autonomous_agent_gone_is_silent(monkeypatch) -> None
     async def _boom(*_a, **_k) -> None:
         raise AssertionError("autonomous agent_gone must not emit a notice")
 
-    monkeypatch.setattr("contexts.conversation.infrastructure.channels.emit_agent_finished_error", _boom)
+    monkeypatch.setattr("contexts.conversation.interfaces.emit_agent_finished_error", _boom)
 
     out = await orch_task.wakeup_agent({}, str(uuid.uuid4()), str(uuid.uuid4()), "every_n_messages")
     assert out == "skipped:agent_gone"

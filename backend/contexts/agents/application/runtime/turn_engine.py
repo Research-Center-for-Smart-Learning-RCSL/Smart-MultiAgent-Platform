@@ -38,8 +38,8 @@ from contexts.agents.domain.models import Agent
 from contexts.agents.infrastructure.turn_lock import DEFAULT_TURN_TTL_S, turn_lock
 from contexts.agents.interfaces.facade import AgentsFacade
 from contexts.conversation.application.message_service import MessageService
-from contexts.conversation.infrastructure.channels import emit_agent_finished_error, room_channel
 from contexts.conversation.infrastructure.repositories import ChatroomAgentRepository
+from contexts.conversation.interfaces import emit_agent_finished_error, room_channel
 from contexts.keys.application.provider_router import (
     ProviderRequest,
     ProviderRouter,

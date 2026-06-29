@@ -35,7 +35,7 @@ from contexts.conversation.application.triggers import (
     list_bound_agent_ids,
 )
 from contexts.conversation.domain.models import Message
-from contexts.conversation.infrastructure.channels import room_channel
+from contexts.conversation.interfaces import room_channel
 from shared_kernel.auth.context import RequestContext
 from shared_kernel.auth.dependencies import (
     _raise_forbidden,
