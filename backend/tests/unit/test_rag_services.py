@@ -431,7 +431,7 @@ class TestRetrieveQuery:
         svc = _make_retrieve_service(config_repo=configs)
 
         with pytest.raises(RagConfigNotFound):
-            await svc.query(config_id=_CONFIG_ID, text="test")
+            await svc.query(config_id=_CONFIG_ID, text="test", allow_unrestricted=True)
 
     async def test_empty_results(self) -> None:
         configs = AsyncMock()
@@ -442,7 +442,7 @@ class TestRetrieveQuery:
         qdrant.search.return_value = []
         svc = _make_retrieve_service(config_repo=configs, embedder=embedder, qdrant=qdrant)
 
-        result = await svc.query(config_id=_CONFIG_ID, text="test")
+        result = await svc.query(config_id=_CONFIG_ID, text="test", allow_unrestricted=True)
 
         assert result == []
 
@@ -466,7 +466,7 @@ class TestRetrieveQuery:
 
         svc = _make_retrieve_service(config_repo=configs, embedder=embedder, qdrant=qdrant, chunk_repo=chunks)
 
-        result = await svc.query(config_id=_CONFIG_ID, text="question")
+        result = await svc.query(config_id=_CONFIG_ID, text="question", allow_unrestricted=True)
 
         assert len(result) == 2
         assert result[0].text == "first"
@@ -505,7 +505,7 @@ class TestRetrieveQuery:
             reranker=reranker,
         )
 
-        result = await svc.query(config_id=_CONFIG_ID, text="question")
+        result = await svc.query(config_id=_CONFIG_ID, text="question", allow_unrestricted=True)
 
         assert len(result) == 1
         assert result[0].text == "second"
@@ -533,7 +533,7 @@ class TestRetrieveQuery:
         ]
         svc = _make_retrieve_service(config_repo=configs, embedder=embedder, qdrant=qdrant, chunk_repo=chunks)
 
-        result = await svc.query(config_id=_CONFIG_ID, text="q")
+        result = await svc.query(config_id=_CONFIG_ID, text="q", allow_unrestricted=True)
 
         assert len(result) == 1
 
@@ -585,6 +585,45 @@ class TestRetrieveQuery:
 
         assert result == []
         qdrant.search.assert_not_awaited()  # short-circuits before embedding/search
+
+    async def test_query_without_agent_id_requires_opt_in(self) -> None:
+        # Omitting agent_id silently bypasses the per-document allowlist, so it
+        # must be an explicit error unless allow_unrestricted is set.
+        svc = _make_retrieve_service(config_repo=AsyncMock())
+        with pytest.raises(ValueError, match="agent_id"):
+            await svc.query(config_id=_CONFIG_ID, text="q")
+
+    async def test_reranked_results_sorted_by_score(self) -> None:
+        from contexts.knowledge.application.ports import RerankResult
+
+        cfg = _make_config(top_k=3, rerank_enabled=True)
+        configs = AsyncMock()
+        configs.get.return_value = cfg
+        pts = [uuid.uuid4(), uuid.uuid4(), uuid.uuid4()]
+        doc_id = uuid.uuid4()
+        embedder = MagicMock(vector_size=3)
+        embedder.embed_batch = AsyncMock(return_value=[[0.1, 0.2, 0.3]])
+        qdrant = AsyncMock()
+        qdrant.search.return_value = [MagicMock(point_id=p, score=0.5) for p in pts]
+        chunks = AsyncMock()
+        chunks.lookup_points.return_value = [
+            MagicMock(qdrant_point_id=pts[i], chunk_idx=i, document_id=doc_id, text=f"c{i}")
+            for i in range(3)
+        ]
+        reranker = AsyncMock()
+        # Returned deliberately out of score order.
+        reranker.rerank.return_value = [
+            RerankResult(index=0, score=0.10),
+            RerankResult(index=1, score=0.90),
+            RerankResult(index=2, score=0.50),
+        ]
+        svc = _make_retrieve_service(
+            config_repo=configs, embedder=embedder, qdrant=qdrant, chunk_repo=chunks, reranker=reranker
+        )
+        result = await svc.query(config_id=_CONFIG_ID, text="q", allow_unrestricted=True)
+        scores = [c.score for c in result]
+        assert scores == sorted(scores, reverse=True)
+        assert scores[0] == 0.90
 
 
 class TestFormatRagMessage:
