@@ -55,7 +55,10 @@ async def admin_metrics(
     projects_count = (await db.execute(sa.text(_count.format("projects")))).scalar_one()
     audit_count = (
         await db.execute(
-            sa.text("SELECT GREATEST(COALESCE(reltuples, 0), 0)::bigint FROM pg_class WHERE relname = 'audit_logs'")
+            sa.text(
+                "SELECT GREATEST(COALESCE(reltuples, 0), 0)::bigint "
+                "FROM pg_class WHERE relname = 'audit_logs'"
+            )
         )
     ).scalar_one_or_none() or 0
     result = MetricsOut(

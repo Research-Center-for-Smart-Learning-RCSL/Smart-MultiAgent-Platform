@@ -45,7 +45,7 @@ from contexts.keys.application.router_policy import (
     classify_http,
 )
 from contexts.keys.domain.errors import CapabilityMismatch, KeyGroupExhausted, KeyNotFound
-from contexts.keys.domain.groups import HourlyLimits, KeyGroupMember
+from contexts.keys.domain.groups import KeyGroupMember
 from contexts.keys.domain.models import ApiKey
 from contexts.keys.domain.providers import ApiKeyProvider, ProviderCapability, capabilities_of
 from contexts.keys.infrastructure.dek_cache import DEK_CACHE
@@ -587,24 +587,24 @@ class ProviderRouter:
     async def _quota_exceeded(self, em: _EligibleMember) -> bool:
         lim = em.member.limits
         check_tokens = em.member.rotation.rotate_on_token_quota and (
-            lim.max_input_tokens_per_hour is not None
-            or lim.max_output_tokens_per_hour is not None
+            lim.max_input_tokens_per_hour is not None or lim.max_output_tokens_per_hour is not None
         )
         check_requests = lim.max_requests_per_hour is not None
         if not check_tokens and not check_requests:
             return False
         used = await redis_buckets.usage(em.key.id)
         if check_tokens:
-            if lim.max_input_tokens_per_hour is not None and used.input_tokens >= lim.max_input_tokens_per_hour:
+            if (
+                lim.max_input_tokens_per_hour is not None
+                and used.input_tokens >= lim.max_input_tokens_per_hour
+            ):
                 return True
             if (
                 lim.max_output_tokens_per_hour is not None
                 and used.output_tokens >= lim.max_output_tokens_per_hour
             ):
                 return True
-        if check_requests and used.requests >= lim.max_requests_per_hour:  # type: ignore[operator]
-            return True
-        return False
+        return bool(check_requests and used.requests >= lim.max_requests_per_hour)  # type: ignore[operator]
 
     async def _call_member(
         self,
@@ -669,7 +669,6 @@ class _KeyVanished(RuntimeError):
 # R7.01 lookup — derived once at import time from the authoritative table in
 # `contexts.keys.domain.providers` (no duplicated capability matrix here).
 _CAPS: dict[ApiKeyProvider, frozenset[ProviderCapability]] = {p: capabilities_of(p) for p in ApiKeyProvider}
-
 
 
 __all__ = [

@@ -85,16 +85,13 @@ async def workflow_subagent_timeout(
 
     async with async_session() as db:
         from contexts.workflow.application.run_engine import RunEngine
-
         from contexts.workflow.domain.models import RunState
 
         engine = RunEngine(db)
         run = await engine._runs.get(uuid.UUID(run_id))
         if not run or run.state != RunState.WAITING:
             return "no_op"
-        failed = await engine.force_fail(
-            uuid.UUID(run_id), reason=f"subagent_timeout (node {node_id})"
-        )
+        failed = await engine.force_fail(uuid.UUID(run_id), reason=f"subagent_timeout (node {node_id})")
         if failed:
             logger.bind(run_id=run_id, node_id=node_id).warning("subagent timeout: failing run")
             await db.commit()
