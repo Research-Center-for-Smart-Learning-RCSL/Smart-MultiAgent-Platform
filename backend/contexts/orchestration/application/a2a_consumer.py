@@ -41,6 +41,12 @@ _BACKOFF_BASE: Final = 1.0
 # chain (~7 s for 3 attempts) and is refreshed on every failure, so it only
 # ever reaps orphaned records — never one mid-retry.
 _RETRY_KEY_TTL: Final = 3600
+# ASYNC: at-least-once delivery means an entry whose handler succeeded but whose
+# XACK never landed (process crash, Redis hiccup) is re-delivered — and re-runs
+# the agent turn (duplicate LLM spend + side effects). A processed-marker, set on
+# success before the ACK, lets a re-delivery short-circuit to a bare ACK instead
+# of re-running the handler. TTL far exceeds any redelivery/reclaim window.
+_PROCESSED_KEY_TTL: Final = 3600
 # How often run_consumer_loop reclaims inbox entries stranded by a dead or
 # stalled consumer via XAUTOCLAIM (see a2a_streams.xautoclaim_stale).
 _CLAIM_INTERVAL_SECONDS: Final = 30.0
@@ -53,6 +59,11 @@ DlqCallback = Callable[[uuid.UUID, str, str, int], Awaitable[None]]
 def _retry_key(agent_id: uuid.UUID, stream_id: str) -> str:
     """Redis key holding a failing message's retry record (ASYNC-8)."""
     return f"a2a:retry:{agent_id}:{stream_id}"
+
+
+def _processed_key(agent_id: uuid.UUID, stream_id: str) -> str:
+    """Redis key marking a stream entry whose handler already ran successfully."""
+    return f"a2a:done:{agent_id}:{stream_id}"
 
 
 async def consume_once(
@@ -279,7 +290,16 @@ async def _process_entry(
     """
     redis = get_redis()
     retry_key = _retry_key(agent_id, stream_id)
+    processed_key = _processed_key(agent_id, stream_id)
     raw = fields.get("envelope", "{}")
+
+    # Idempotency: a prior delivery already ran the handler but crashed before the
+    # ACK landed. Re-running the turn would duplicate LLM spend and side effects,
+    # so short-circuit to a bare ACK.
+    if await redis.exists(processed_key):
+        await a2a_streams.xack(agent_id, stream_id)
+        await redis.delete(retry_key)
+        return 1
 
     try:
         data = json.loads(raw)
@@ -301,6 +321,9 @@ async def _process_entry(
 
     try:
         await handler(envelope)
+        # Mark processed BEFORE the ACK so a crash in the ACK→delete window still
+        # lets the re-delivery dedup (it finds the marker and just ACKs).
+        await redis.set(processed_key, "1", ex=_PROCESSED_KEY_TTL)
         await a2a_streams.xack(agent_id, stream_id)
         await redis.delete(retry_key)
         return 1
