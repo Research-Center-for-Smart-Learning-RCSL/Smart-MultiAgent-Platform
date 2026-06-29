@@ -36,12 +36,34 @@ def _reply_key(correlation_id: uuid.UUID) -> str:
     return f"a2a:reply:{correlation_id}"
 
 
+def _expect_key(correlation_id: uuid.UUID) -> str:
+    return f"a2a:reply:expect:{correlation_id}"
+
+
+async def register_expected_responder(correlation_id: uuid.UUID, responder_agent_id: uuid.UUID) -> None:
+    """Record which agent is allowed to answer this call (anti-spoof).
+
+    A reply is only as trustworthy as the unguessable correlation_id; binding
+    the expected responder lets ``deliver_reply`` drop a reply forged by any
+    other live agent that learned the id.
+    """
+    await get_redis().set(_expect_key(correlation_id), str(responder_agent_id), ex=_REPLY_TTL_SECONDS)
+
+
 async def deliver_reply(correlation_id: uuid.UUID, envelope: dict[str, Any]) -> None:
     """Hand a reply to whichever ``call`` is waiting on this correlation id.
 
-    The push and its TTL are pipelined so the rendezvous list can never be
-    left without an expiry if the process dies mid-call.
+    Drops the reply if a responder was registered for this call and the reply's
+    ``from_agent`` is not that agent — a different live agent cannot satisfy or
+    hijack the pending call by guessing the correlation_id. The push and its TTL
+    are pipelined so the rendezvous list can never be left without an expiry if
+    the process dies mid-call.
     """
+    expected = await get_redis().get(_expect_key(correlation_id))
+    if expected is not None:
+        from_agent = envelope.get("from_agent")
+        if from_agent is not None and str(from_agent) != expected:
+            return
     key = _reply_key(correlation_id)
     pipe = get_redis().pipeline(transaction=False)
     pipe.rpush(key, json.dumps(envelope, separators=(",", ":")))
@@ -77,4 +99,9 @@ async def await_reply(
     return parsed if isinstance(parsed, dict) else None
 
 
-__all__ = ["A2A_ERROR_KEY", "await_reply", "deliver_reply"]
+__all__ = [
+    "A2A_ERROR_KEY",
+    "await_reply",
+    "deliver_reply",
+    "register_expected_responder",
+]

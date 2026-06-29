@@ -128,7 +128,10 @@ class SubagentService:
                 f"instance {parent_instance_id} is already a sub-agent; " f"depth > 1 not allowed"
             )
 
-        # R15.20: concurrent cap.
+        # R15.20: concurrent cap. Serialise concurrent spawns for this parent
+        # first (advisory xact lock) so the count-then-insert below is atomic —
+        # otherwise two parallel spawns both read alive < cap and breach it.
+        await self._instances.lock_parent(parent_instance_id)
         effective_cap = min(max_concurrent, SUBAGENT_MAX_CONCURRENT_HARD)
         alive = await self._instances.count_alive_children(parent_instance_id)
         if alive >= effective_cap:
