@@ -54,6 +54,7 @@ from shared_kernel.auth.dependencies import (
 )
 from shared_kernel.auth.permissions import Capability, Principal
 from shared_kernel.db.session import db_session
+from shared_kernel.validation import BoundedConfig
 
 # ---------------------------------------------------------------------------
 # Pydantic schemas
@@ -63,25 +64,25 @@ from shared_kernel.db.session import db_session
 class RagConfigCreateIn(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     chunk_strategy: Literal["fixed", "semantic"]
-    chunk_params: dict[str, Any] = Field(default_factory=dict)
+    chunk_params: BoundedConfig = Field(default_factory=dict)
     embed_key_id: uuid.UUID
     embed_provider: Literal["openai", "gemini", "voyage"]
-    embed_model: str
+    embed_model: str = Field(min_length=1, max_length=200)
     rerank_enabled: bool = False
     rerank_key_id: uuid.UUID | None = None
     rerank_provider: Literal["cohere"] | None = None
-    rerank_model: str | None = None
+    rerank_model: str | None = Field(default=None, max_length=200)
     top_k: int = Field(default=8, gt=0, le=100)
 
 
 class RagConfigPatchIn(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=200)
     top_k: int | None = Field(default=None, gt=0, le=100)
-    chunk_params: dict[str, Any] | None = None
+    chunk_params: BoundedConfig | None = None
     rerank_enabled: bool | None = None
     rerank_key_id: uuid.UUID | None = None
     rerank_provider: Literal["cohere"] | None = None
-    rerank_model: str | None = None
+    rerank_model: str | None = Field(default=None, max_length=200)
 
 
 class RagConfigOut(BaseModel):
@@ -118,7 +119,7 @@ class RagDocumentOut(BaseModel):
 class RagDocumentAgentsPatchIn(BaseModel):
     """Replace a document's per-agent allowlist (empty = no agent may see it)."""
 
-    agent_ids: list[uuid.UUID]
+    agent_ids: list[uuid.UUID] = Field(max_length=1_000)
 
 
 def _to_config_out(c) -> RagConfigOut:

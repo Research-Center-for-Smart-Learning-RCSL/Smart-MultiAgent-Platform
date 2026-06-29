@@ -35,6 +35,7 @@ import {
   SEmptyState,
 } from '@shared/ui'
 import { useConfirmDialog, useServerErrors, useToast } from '@shared/composables'
+import { INPUT_LIMITS } from '@shared/constants/inputLimits'
 import {
   agentsApi,
   type AgentTool,
@@ -1051,6 +1052,7 @@ function fnLabel(tool: AgentTool): string {
         >
           <SInput
             v-model="mcpReference"
+            :maxlength="INPUT_LIMITS.MCP_REFERENCE"
             :placeholder="mcpSource === 'url'
               ? t('agents.tools.mcp.referencePlaceholderUrl')
               : t('agents.tools.mcp.referencePlaceholderPackage')"
@@ -1068,6 +1070,7 @@ function fnLabel(tool: AgentTool): string {
           <STextarea
             v-model="allowedToolsRaw"
             :rows="3"
+            :maxlength="INPUT_LIMITS.CONFIG_TEXT"
             :placeholder="t('agents.tools.mcp.allowedToolsPlaceholder')"
           />
         </SFormField>
@@ -1161,6 +1164,7 @@ function fnLabel(tool: AgentTool): string {
         >
           <SInput
             v-model="fnName"
+            :maxlength="INPUT_LIMITS.FUNCTION_NAME"
             :placeholder="t('agents.tools.functions.namePlaceholder')"
             :error="!!fnErrors['config.name']"
           />
@@ -1175,6 +1179,7 @@ function fnLabel(tool: AgentTool): string {
           <STextarea
             v-model="fnDescription"
             :rows="2"
+            :maxlength="INPUT_LIMITS.FUNCTION_DESCRIPTION"
             :placeholder="t('agents.tools.functions.descriptionPlaceholder')"
           />
         </SFormField>
@@ -1218,6 +1223,7 @@ function fnLabel(tool: AgentTool): string {
           >
             <SInput
               v-model="fnUrl"
+              :maxlength="INPUT_LIMITS.URL"
               :placeholder="t('agents.tools.functions.urlPlaceholder')"
               :error="!!fnErrors['config.http.url']"
             />
@@ -1256,6 +1262,7 @@ function fnLabel(tool: AgentTool): string {
             >
               <SInput
                 v-model="fnAuthHeaderName"
+                :maxlength="INPUT_LIMITS.NAME"
                 placeholder="X-Api-Key"
               />
             </SFormField>
@@ -1266,6 +1273,7 @@ function fnLabel(tool: AgentTool): string {
             >
               <SInput
                 v-model="fnAuthHeaderValue"
+                :maxlength="INPUT_LIMITS.URL"
                 type="password"
               />
             </SFormField>

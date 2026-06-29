@@ -27,6 +27,7 @@ import {
   SAlert,
 } from '@shared/ui'
 import { useConfirmDialog, useToast, useBreakpoint } from '@shared/composables'
+import { INPUT_LIMITS } from '@shared/constants/inputLimits'
 import {
   createChatroom,
   deleteChatroom,
@@ -395,7 +396,7 @@ function submitCreate(): void {
             v-model="createName"
             :error="!!createError"
             :disabled="createMutation.isPending.value"
-            maxlength="200"
+            :maxlength="INPUT_LIMITS.NAME"
           />
         </SFormField>
 

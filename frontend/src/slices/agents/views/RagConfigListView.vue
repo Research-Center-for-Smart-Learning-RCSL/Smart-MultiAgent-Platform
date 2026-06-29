@@ -34,6 +34,7 @@ import {
   useToast,
   useClientPagination,
 } from '@shared/composables'
+import { INPUT_LIMITS } from '@shared/constants/inputLimits'
 import { projectKeysApi, CAPABILITIES, keysKeys } from '@slices/keys'
 import { agentsApi, type RagConfig } from '../api'
 import { agentKeys } from '../queries'
@@ -382,6 +383,7 @@ const columns = computed<Column[]>(() => [
         >
           <SInput
             v-model="name"
+            :maxlength="INPUT_LIMITS.NAME"
             :error="!!errors.name"
           />
         </SFormField>
@@ -407,6 +409,7 @@ const columns = computed<Column[]>(() => [
         >
           <SInput
             v-model="embedModel"
+            :maxlength="INPUT_LIMITS.MODEL_ID"
             :placeholder="t('agents.ragForm.embedModelHint')"
             :error="!!errors.embed_model"
           />

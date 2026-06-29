@@ -6,6 +6,7 @@ import { z } from 'zod'
 import { useI18n } from 'vue-i18n'
 import { LockClosedIcon } from '@heroicons/vue/24/outline'
 import { SModal, SFormField, SSelect, SInput, SButton, SBadge, SAlert } from '@shared/ui'
+import { INPUT_LIMITS } from '@shared/constants/inputLimits'
 import { CAPABILITIES, type ApiKeyProvider } from '../api/keys'
 
 const CAP_LABELS: Record<string, string> = {
@@ -109,6 +110,7 @@ function onClose() {
         >
           <SInput
             v-model="name"
+            :maxlength="INPUT_LIMITS.KEY_NAME"
             :placeholder="t('keys.form.namePlaceholder')"
             :error="!!errors.name"
             data-testid="key-name"
@@ -125,6 +127,7 @@ function onClose() {
             v-model="secret"
             type="password"
             autocomplete="new-password"
+            :maxlength="INPUT_LIMITS.KEY_SECRET"
             :placeholder="t('keys.form.secretPlaceholder')"
             :error="!!errors.secret"
             data-testid="key-secret"

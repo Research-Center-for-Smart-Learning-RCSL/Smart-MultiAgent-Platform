@@ -24,9 +24,10 @@ from __future__ import annotations
 
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
-from starlette.responses import JSONResponse, Response
+from starlette.responses import Response
 
 from shared_kernel.auth import ratelimit
+from shared_kernel.errors.handlers import problem_response
 from shared_kernel.errors.problem import Problem, problem_type
 
 # API-9: account-recovery paths get a dedicated IP bucket so reset-email
@@ -102,12 +103,9 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
                 detail=f"Bucket {bucket.value} exceeded",
                 extras={"bucket": bucket.value},
             )
-            body = problem.dump()
-            body["instance"] = path
-            return JSONResponse(
-                status_code=429,
-                content=body,
-                media_type="application/problem+json",
+            return problem_response(
+                problem,
+                instance=path,
                 headers={
                     "Retry-After": str(decision.retry_after_seconds),
                     "X-RateLimit-Limit": str(decision.limit),

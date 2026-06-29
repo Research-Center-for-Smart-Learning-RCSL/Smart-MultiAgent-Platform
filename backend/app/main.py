@@ -26,6 +26,7 @@ from fastapi.responses import ORJSONResponse
 
 import app.db_registry as _db_registry  # noqa: F401 -- side-effect: table imports
 from app.api.middleware.auth import AuthMiddleware
+from app.api.middleware.body_size import BodySizeLimitMiddleware
 from app.api.middleware.impersonation import ImpersonationPolicyMiddleware
 from app.api.middleware.ip_ban import IpBanMiddleware
 from app.api.middleware.rate_limit import RateLimitMiddleware
@@ -99,6 +100,7 @@ def create_app() -> FastAPI:
     app.add_middleware(AuthMiddleware)  # [4] JWT verify + Principal
     app.add_middleware(IpBanMiddleware)  # [3]
     app.add_middleware(TrustedProxyMiddleware)  # [2]
+    app.add_middleware(BodySizeLimitMiddleware)  # [1b] reject oversized JSON before parse
     app.add_middleware(RequestIdMiddleware)  # [1] first on request-in
     # CORS is opt-in: v1 deploys are same-origin behind nginx and ship no
     # CORS layer. If an operator splits origins, they configure

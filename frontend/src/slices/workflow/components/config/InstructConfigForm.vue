@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
 import { useConfigModel, safeNumber } from '../../composables/useConfigModel'
-import { SFormField } from '@shared/ui'
+import { SFormField, SCharCount } from '@shared/ui'
+import { INPUT_LIMITS } from '@shared/constants/inputLimits'
 import OnErrorConfigForm from './OnErrorConfigForm.vue'
 import type { OnErrorConfig } from '../../types'
 
@@ -80,7 +81,13 @@ const { local, update } = useConfigModel(props, emit)
         id="instruct-template"
         :value="(local.instruction_template as string) ?? ''"
         class="wf-input-code"
+        :maxlength="INPUT_LIMITS.CONFIG_TEXT"
         @input="update('instruction_template', ($event.target as HTMLTextAreaElement).value)"
+      />
+      <SCharCount
+        :current="((local.instruction_template as string) ?? '').length"
+        :max="INPUT_LIMITS.CONFIG_TEXT"
+        hide-until-near
       />
     </SFormField>
 

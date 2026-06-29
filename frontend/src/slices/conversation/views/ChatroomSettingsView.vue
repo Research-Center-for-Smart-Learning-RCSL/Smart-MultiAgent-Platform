@@ -21,6 +21,7 @@ import {
   SDivider,
 } from '@shared/ui'
 import { useToast, useConfirmDialog } from '@shared/composables'
+import { INPUT_LIMITS } from '@shared/constants/inputLimits'
 import {
   compactChatroom,
   getGuestLink,
@@ -236,7 +237,7 @@ watchEffect(() => {
             >
               <SInput
                 v-model="name"
-                maxlength="200"
+                :maxlength="INPUT_LIMITS.NAME"
                 :disabled="saving"
               />
             </SFormField>

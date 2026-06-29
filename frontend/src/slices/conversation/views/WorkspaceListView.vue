@@ -24,6 +24,7 @@ import {
   SSkeleton,
 } from '@shared/ui'
 import { useConfirmDialog, useToast } from '@shared/composables'
+import { INPUT_LIMITS } from '@shared/constants/inputLimits'
 import {
   createWorkspace,
   deleteWorkspace,
@@ -257,7 +258,7 @@ function openWorkspace(ws: Workspace): void {
             v-model="createName"
             :error="!!createError"
             :disabled="createMutation.isPending.value"
-            maxlength="200"
+            :maxlength="INPUT_LIMITS.NAME"
           />
         </SFormField>
       </form>

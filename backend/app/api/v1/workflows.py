@@ -38,6 +38,7 @@ from shared_kernel.auth.permissions import (
     decide,
 )
 from shared_kernel.db.session import db_session
+from shared_kernel.validation import BoundedDefinition, BoundedPayload
 
 # ---------------------------------------------------------------------------
 # Routers
@@ -156,13 +157,13 @@ async def _linter_valid_ids(
 
 class WorkflowCreateIn(BaseModel):
     name: str = Field(min_length=1, max_length=200)
-    definition: dict[str, Any]
+    definition: BoundedDefinition
 
 
 class WorkflowPatchIn(BaseModel):
     model_config = {"extra": "forbid"}
     name: str | None = Field(default=None, min_length=1, max_length=200)
-    definition: dict[str, Any] | None = None
+    definition: BoundedDefinition | None = None
 
 
 class WorkflowOut(BaseModel):
@@ -176,7 +177,7 @@ class WorkflowOut(BaseModel):
 
 
 class RunTriggerIn(BaseModel):
-    trigger_payload: dict[str, Any] = Field(default_factory=dict)
+    trigger_payload: BoundedPayload = Field(default_factory=dict)
 
 
 class RunOut(BaseModel):
@@ -222,7 +223,7 @@ class StepOut(BaseModel):
 
 
 class ValidateIn(BaseModel):
-    definition: dict[str, Any]
+    definition: BoundedDefinition
 
 
 class ValidateOut(BaseModel):

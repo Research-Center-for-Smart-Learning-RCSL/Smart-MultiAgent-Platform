@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
-import { SFormField } from '@shared/ui'
+import { SFormField, SCharCount } from '@shared/ui'
+import { INPUT_LIMITS } from '@shared/constants/inputLimits'
 import type { KeyGroup } from '@slices/keys'
 
 interface RagConfigOption {
@@ -49,6 +50,7 @@ const { t } = useI18n()
     <input
       id="name"
       :value="name"
+      :maxlength="INPUT_LIMITS.NAME"
       :aria-describedby="errors.name ? 'name-error' : undefined"
       :aria-invalid="!!errors.name"
       @input="emit('update:name', ($event.target as HTMLInputElement).value)"
@@ -86,6 +88,7 @@ const { t } = useI18n()
     <input
       id="model_id"
       :value="modelId ?? ''"
+      :maxlength="INPUT_LIMITS.MODEL_ID"
       :placeholder="t('agents.form.modelIdPlaceholder')"
       @input="emit('update:modelId', ($event.target as HTMLInputElement).value || null)"
     >
@@ -127,7 +130,13 @@ const { t } = useI18n()
       id="system_prompt"
       :value="systemPrompt"
       :rows="textareaRows ?? 4"
+      :maxlength="INPUT_LIMITS.SYSTEM_PROMPT"
       @input="emit('update:systemPrompt', ($event.target as HTMLTextAreaElement).value)"
+    />
+    <SCharCount
+      :current="(systemPrompt ?? '').length"
+      :max="INPUT_LIMITS.SYSTEM_PROMPT"
+      hide-until-near
     />
   </SFormField>
 

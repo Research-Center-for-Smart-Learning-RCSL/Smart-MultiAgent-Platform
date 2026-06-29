@@ -35,7 +35,7 @@ class RateLimitPatchIn(BaseModel):
     # rate limiting platform-wide; a non-positive window is meaningless.
     window_sec: int | None = Field(default=None, ge=1, le=86_400)
     max_count: int | None = Field(default=None, ge=1)
-    scope: str | None = None
+    scope: str | None = Field(default=None, max_length=256)
 
 
 # ---------------------------------------------------------------------------

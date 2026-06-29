@@ -37,6 +37,7 @@ from shared_kernel.auth.dependencies import (
 )
 from shared_kernel.auth.permissions import Capability, Principal
 from shared_kernel.db.session import db_session
+from shared_kernel.validation import BoundedConfig
 
 # ---------------------------------------------------------------------------
 # Pydantic schemas
@@ -73,8 +74,8 @@ class AgentCreateIn(BaseModel):
     context_mode: Literal["general", "compact"] = "general"
     context_token_cap: int | None = Field(default=None, gt=0)
     a2a_enabled: bool = False
-    wakeup_config: dict[str, Any] = Field(default_factory=dict)
-    workflow_capabilities: dict[str, Any] = Field(default_factory=dict)
+    wakeup_config: BoundedConfig = Field(default_factory=dict)
+    workflow_capabilities: BoundedConfig = Field(default_factory=dict)
 
 
 class AgentPatchIn(BaseModel):
@@ -103,8 +104,8 @@ class AgentPatchIn(BaseModel):
     context_mode: Literal["general", "compact"] | None = None
     context_token_cap: int | None = Field(default=None, gt=0)
     a2a_enabled: bool | None = None
-    wakeup_config: dict[str, Any] | None = None
-    workflow_capabilities: dict[str, Any] | None = None
+    wakeup_config: BoundedConfig | None = None
+    workflow_capabilities: BoundedConfig | None = None
 
 
 class AgentOut(BaseModel):

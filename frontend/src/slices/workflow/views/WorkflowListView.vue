@@ -17,7 +17,7 @@
           v-model="newName"
           required
           minlength="1"
-          maxlength="200"
+          :maxlength="INPUT_LIMITS.NAME"
           class="wf-input"
           :placeholder="$t('workflow.list.namePlaceholder')"
         >
@@ -132,6 +132,7 @@ import {
   SPageHeader,
 } from '@shared/ui'
 import { useConfirmDialog, useToast } from '@shared/composables'
+import { INPUT_LIMITS } from '@shared/constants/inputLimits'
 import { formatDate } from '@shared/utils/datetime'
 import { createWorkflow, deleteWorkflow, listWorkflows } from '../api'
 import { wfKeys } from '../queries'

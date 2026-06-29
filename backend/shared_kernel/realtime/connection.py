@@ -52,6 +52,12 @@ _CLOSE_AUTH_FAILED = 4401  # app-level code, see §22.14
 # slot and the per-user Redis cap entry are released. Generous enough — two-plus
 # missed client heartbeats (60 s TTL) — not to reap a merely-quiet client.
 _IDLE_TIMEOUT_SECONDS = 120.0
+# API-7: inbound frames here are tiny control messages (ping / refresh /
+# typing). Cap the decoded text so a hostile client cannot push a giant frame
+# through json.loads — the WS path bypasses the HTTP body-size middleware. The
+# largest legitimate frame is a `refresh` carrying an access token (a few KB),
+# so 64 KiB is generous headroom.
+_MAX_FRAME_BYTES = 64 * 1024
 # SEC-H2: the handshake authorizes the token once; after `accept` the only
 # re-auth was a *client-initiated* `refresh` frame, so a revoked/expired
 # principal kept receiving events until it chose to disconnect. The auth
@@ -260,6 +266,18 @@ async def connection_loop(
                     connection_id=str(conn.connection_id),
                 ).info("ws idle timeout — closing half-open socket")
                 _request_close(_CLOSE_TRY_AGAIN_LATER, "idle timeout")
+                return
+            # API-7: refuse oversized frames before parsing. A well-behaved
+            # client never approaches this; an abusive one gets the socket torn
+            # down rather than a free pass to the JSON parser. Char count is a
+            # cheap lower bound on byte count (UTF-8 is >=1 byte/char), so the
+            # encode only runs for frames that are already near the cap.
+            if len(raw) > _MAX_FRAME_BYTES or len(raw.encode("utf-8")) > _MAX_FRAME_BYTES:
+                logger.bind(
+                    event="ws_frame_too_large",
+                    connection_id=str(conn.connection_id),
+                ).warning("ws frame exceeds size cap — closing")
+                _request_close(_CLOSE_POLICY_VIOLATION, "frame too large")
                 return
             # ASYNC-7: an inbound frame proves the socket is alive — refresh the
             # connection's heartbeat score in the per-user cap registry.

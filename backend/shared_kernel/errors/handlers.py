@@ -19,15 +19,33 @@ from shared_kernel.errors.problem import Problem, SmapError, problem_type
 _PROBLEM_MEDIA_TYPE = "application/problem+json"
 
 
-def _respond(problem: Problem, request: Request) -> JSONResponse:
+def problem_response(
+    problem: Problem,
+    *,
+    instance: str | None = None,
+    headers: dict[str, str] | None = None,
+) -> JSONResponse:
+    """Serialise a `Problem` to an ``application/problem+json`` response.
+
+    The single place that turns a Problem into the wire response, shared by the
+    exception handlers and by middlewares that short-circuit before the route
+    runs (rate-limit, body-size). `instance` defaults the request path when the
+    Problem did not carry one; `headers` carries any 4xx-specific headers
+    (e.g. ``Retry-After``).
+    """
     body: dict[str, Any] = problem.dump()
-    if "instance" not in body:
-        body["instance"] = str(request.url.path)
+    if instance is not None:
+        body.setdefault("instance", instance)
     return JSONResponse(
         status_code=problem.status,
         content=body,
         media_type=_PROBLEM_MEDIA_TYPE,
+        headers=headers,
     )
+
+
+def _respond(problem: Problem, request: Request) -> JSONResponse:
+    return problem_response(problem, instance=str(request.url.path))
 
 
 async def _smap_error_handler(request: Request, exc: SmapError) -> JSONResponse:

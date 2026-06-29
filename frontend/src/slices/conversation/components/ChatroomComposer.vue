@@ -35,6 +35,7 @@
             : t('conversation.chatroom.composerPlaceholder')"
           :aria-label="t('conversation.chatroom.composerPlaceholder')"
           :readonly="disabled"
+          :maxlength="INPUT_LIMITS.MESSAGE"
           rows="1"
           @input="onInput"
           @keydown="onKeydown"
@@ -79,6 +80,12 @@
         <PaperAirplaneIcon class="w-5 h-5" />
       </SButton>
     </div>
+
+    <SCharCount
+      :current="modelValue.length"
+      :max="INPUT_LIMITS.MESSAGE"
+      hide-until-near
+    />
 
     <ul
       v-if="pendingUploads.length"
@@ -134,7 +141,8 @@ import {
   DocumentIcon,
   ArrowUpTrayIcon,
 } from '@heroicons/vue/24/outline'
-import { SButton, SProgressBar } from '@shared/ui'
+import { SButton, SProgressBar, SCharCount } from '@shared/ui'
+import { INPUT_LIMITS } from '@shared/constants/inputLimits'
 import type { PendingUpload } from '../composables/useChatroomAttachments'
 import { useMentionAutocomplete } from '../composables/useMentionAutocomplete'
 import type { MentionableAgent } from '../utils/mentions'
