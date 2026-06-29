@@ -15,6 +15,7 @@ per-turn ``SectionCache`` over the lazy prompt's body bank). ``web_search`` /
 from __future__ import annotations
 
 import json
+import logging
 import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
@@ -53,11 +54,23 @@ class Tool:
         }
 
 
+logger = logging.getLogger(__name__)
+
+
 class ToolRegistry:
     """Name → Tool table for one turn. Dispatch never raises into the loop."""
 
     def __init__(self, tools: list[Tool]) -> None:
-        self._by_name: dict[str, Tool] = {t.name: t for t in tools}
+        # A duplicate name would silently shadow a built-in (last-wins dict),
+        # so the first registration wins and any collision is dropped + logged.
+        # Reserved-name validation upstream should make this unreachable; this is
+        # the backstop.
+        self._by_name: dict[str, Tool] = {}
+        for t in tools:
+            if t.name in self._by_name:
+                logger.warning("duplicate tool name %r ignored (first registration kept)", t.name)
+                continue
+            self._by_name[t.name] = t
 
     def specs(self) -> list[dict[str, Any]]:
         return [t.spec() for t in self._by_name.values()]

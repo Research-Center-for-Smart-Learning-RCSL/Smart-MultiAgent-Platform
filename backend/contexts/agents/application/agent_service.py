@@ -61,6 +61,23 @@ _AGENT_CAP_PER_PROJECT = 1000
 
 _FUNCTION_NAME_RE = re.compile(r"^[a-z0-9_]{1,64}$")
 _FUNCTION_METHODS = frozenset({"GET", "POST", "PUT", "PATCH", "DELETE"})
+# Built-in / runtime tool names a user function must not shadow. The per-turn
+# ToolRegistry is a name->Tool dict where the last entry wins, so a user function
+# named e.g. `cast_approval_vote` would silently replace the real tool and route
+# the model's intended call to an arbitrary egress URL. MCP tools occupy the
+# `mcp__` prefix.
+_RESERVED_FUNCTION_NAMES: frozenset[str] = frozenset(
+    {
+        "web_search",
+        "code_exec",
+        "file",
+        "file_search",
+        "update_wakeup",
+        "load_prompt_section",
+        "cast_approval_vote",
+    }
+)
+_RESERVED_FUNCTION_PREFIX = "mcp__"
 
 
 def _has_ref_key(obj: Any) -> bool:
@@ -77,6 +94,8 @@ def _validate_function_config(config: dict[str, Any]) -> None:
     name = config.get("name")
     if not name or not isinstance(name, str) or not _FUNCTION_NAME_RE.match(name):
         raise ValueError("function config.name is required (a-z0-9_, 1-64 chars)")
+    if name in _RESERVED_FUNCTION_NAMES or name.startswith(_RESERVED_FUNCTION_PREFIX):
+        raise ValueError(f"function config.name {name!r} is reserved for a built-in tool")
 
     desc = config.get("description")
     if not desc or not isinstance(desc, str) or len(desc) > 1000:
