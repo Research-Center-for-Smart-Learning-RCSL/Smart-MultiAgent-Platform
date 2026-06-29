@@ -175,3 +175,17 @@ groups:
           summary: "Retention worker failing for >10m"
           description: "Worker {{ $labels.worker }} is throwing exceptions. Data may accumulate beyond policy."
           runbook: "Check backend-worker logs for the failing worker. Manual trigger: run the retention task via arq CLI."
+
+      # SEC-M1: X-Forwarded-For arriving from an untrusted peer means the trust
+      # boundary is misconfigured — the header is discarded and every client
+      # collapses to the proxy IP, silently neutering per-IP bans, rate limits,
+      # and the audit trail's actor_ip.
+      - alert: ActorIpCollapse
+        expr: rate(smap_trusted_proxy_untrusted_peer_total[5m]) > 0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "X-Forwarded-For from untrusted peer — client IPs collapsing"
+          description: "{{ $value | humanize }}/s requests have a forwarded header whose peer is not in SMAP_SEC_TRUSTED_PROXIES. All clients are being recorded as one proxy IP; per-IP controls and audit actor_ip are defeated."
+          runbook: "Add the reverse-proxy subnet (Docker bridge + any front proxy like NPM) to SMAP_SEC_TRUSTED_PROXIES, then restart backend-web. Confirm the fix with deploy/scripts/verify-actor-ip.py."

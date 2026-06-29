@@ -18,6 +18,7 @@ from app.config.settings import get_settings
 from shared_kernel.auth.context import RequestContext
 from shared_kernel.auth.trusted_proxy import resolve_actor_ip
 from shared_kernel.errors.problem import Problem, problem_type
+from shared_kernel.observability.metrics import TRUSTED_PROXY_UNTRUSTED_PEER
 
 # Warn at most once per process: a persistent misconfiguration would otherwise
 # log on every request. This is a config smell, not a per-request event.
@@ -74,15 +75,19 @@ class TrustedProxyMiddleware(BaseHTTPMiddleware):
         # NOT in the trust list means a reverse proxy sits in front but its
         # subnet was not configured — so X-Forwarded-For is being discarded and
         # every client collapses to this peer IP, defeating per-IP controls.
-        global _warned_untrusted_peer
-        if not _warned_untrusted_peer and xff and not _peer_trusted(peer, trusted):
-            _warned_untrusted_peer = True
-            logger.bind(event="trusted_proxy_peer_untrusted", peer=peer).warning(
-                "X-Forwarded-For received from untrusted peer {peer}; the header "
-                "is being ignored and all clients collapse to this IP. Add the "
-                "reverse-proxy subnet (e.g. the Docker bridge 172.16.0.0/12) to "
-                "SMAP_SEC_TRUSTED_PROXIES.",
-                peer=peer,
-            )
+        if xff and not _peer_trusted(peer, trusted):
+            # Increment every occurrence so `rate()` can drive an alert; the log
+            # below is throttled to once per process to avoid per-request spam.
+            TRUSTED_PROXY_UNTRUSTED_PEER.inc()
+            global _warned_untrusted_peer
+            if not _warned_untrusted_peer:
+                _warned_untrusted_peer = True
+                logger.bind(event="trusted_proxy_peer_untrusted", peer=peer).warning(
+                    "X-Forwarded-For received from untrusted peer {peer}; the header "
+                    "is being ignored and all clients collapse to this IP. Add the "
+                    "reverse-proxy subnet (e.g. the Docker bridge 172.16.0.0/12) to "
+                    "SMAP_SEC_TRUSTED_PROXIES.",
+                    peer=peer,
+                )
         request.state.auth_ctx = ctx
         return await call_next(request)

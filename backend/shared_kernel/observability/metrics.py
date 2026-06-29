@@ -190,6 +190,17 @@ ADMIN_IMPERSONATION_SESSIONS_ACTIVE = Gauge(
     registry=REGISTRY,
 )
 
+# ---- Trusted-proxy boundary health (SEC-M1) ---------------------------------
+
+TRUSTED_PROXY_UNTRUSTED_PEER = Counter(
+    "smap_trusted_proxy_untrusted_peer_total",
+    "Requests carrying X-Forwarded-For whose immediate peer is NOT in "
+    "SMAP_SEC_TRUSTED_PROXIES. The header is discarded and the client collapses "
+    "to the peer IP — a non-zero rate means per-IP bans/limits and audit actor_ip "
+    "are all keying on a single proxy address.",
+    registry=REGISTRY,
+)
+
 
 class _MetricsMiddleware(BaseHTTPMiddleware):
     """Records `http_requests_total` with the route template, not the raw URL.
@@ -248,6 +259,7 @@ __all__ = [
     "RETENTION_FAILURES",
     "RETENTION_LAST_ROWS",
     "RETENTION_LAST_RUN_TIMESTAMP",
+    "TRUSTED_PROXY_UNTRUSTED_PEER",
     "TUS_UPLOAD_BYTES",
     "USAGE_THRESHOLD_EVENTS_TOTAL",
     "WORKFLOW_RUNS_TOTAL",
