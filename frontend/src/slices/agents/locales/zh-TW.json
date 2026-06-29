@@ -30,7 +30,8 @@
       "duplicate": "複製",
       "confirmDelete": "刪除此代理人？此操作無法復原。",
       "deleted": "代理人已刪除。",
-      "deleteFailed": "刪除代理人失敗。"
+      "deleteFailed": "刪除代理人失敗。",
+      "providerMismatch": "綁定的金鑰群組已無此提供者的有效金鑰，補上對應金鑰前呼叫將會失敗。"
     },
     "detail": {
       "title": "代理人詳情",

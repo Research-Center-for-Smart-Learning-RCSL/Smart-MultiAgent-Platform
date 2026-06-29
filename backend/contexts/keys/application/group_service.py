@@ -43,8 +43,6 @@ from shared_kernel import audit
 _LLM_CHAT = CapabilityRequirement(capability=ProviderCapability.LLM_CHAT)
 
 
-
-
 class KeyGroupService:
     def __init__(self, db: AsyncSession) -> None:
         self._db = db
@@ -57,7 +55,7 @@ class KeyGroupService:
 
     async def list_for_project_with_counts(
         self, project_id: uuid.UUID
-    ) -> list[tuple[KeyGroup, int]]:
+    ) -> list[tuple[KeyGroup, int, list[str]]]:
         return await self._groups.list_for_project_with_counts(project_id)
 
     async def create(

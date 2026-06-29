@@ -8,5 +8,6 @@ export type GroupOut = {
     member_count?: number;
     name: string;
     project_id: string;
+    providers?: Array<string>;
 };
 

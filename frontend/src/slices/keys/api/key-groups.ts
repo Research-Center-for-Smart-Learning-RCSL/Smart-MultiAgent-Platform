@@ -6,6 +6,10 @@ export interface KeyGroup {
   name: string
   created_at: string
   member_count: number
+  // Distinct providers of the group's actively-carried keys. Empty when the
+  // group has no serviceable keys (e.g. all withdrawn). Used to flag agents
+  // whose `model_hint` is no longer serviceable by their bound group.
+  providers: string[]
 }
 
 export interface Rotation {

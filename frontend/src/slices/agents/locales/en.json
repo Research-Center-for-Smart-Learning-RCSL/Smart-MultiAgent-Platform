@@ -30,7 +30,8 @@
       "duplicate": "Duplicate",
       "confirmDelete": "Delete this agent? This cannot be undone.",
       "deleted": "Agent deleted.",
-      "deleteFailed": "Failed to delete agent."
+      "deleteFailed": "Failed to delete agent.",
+      "providerMismatch": "The bound key group no longer has a carried key for this provider. Calls will fail until a matching key is added."
     },
     "detail": {
       "title": "Agent Detail",

@@ -35,7 +35,14 @@ function seed(agents: unknown[]): void {
     http.get('/api/projects/proj_1/agents', () => HttpResponse.json(agents)),
     http.get('/api/projects/proj_1/key-groups', () =>
       HttpResponse.json([
-        { id: 'kg_1', project_id: 'proj_1', name: 'Primary', created_at: '2026-01-01T00:00:00Z' },
+        {
+          id: 'kg_1',
+          project_id: 'proj_1',
+          name: 'Primary',
+          created_at: '2026-01-01T00:00:00Z',
+          member_count: 1,
+          providers: ['claude'],
+        },
       ]),
     ),
     http.get('/api/projects/proj_1/rag-configs', () => HttpResponse.json([])),
