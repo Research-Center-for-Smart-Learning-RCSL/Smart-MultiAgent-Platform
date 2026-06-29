@@ -92,45 +92,59 @@ async def resolve_room_access(
     )
 
 
+def _satisfies_room_flags(access: RoomAccess) -> bool:
+    """Does the caller satisfy at least one enabled §21.1 access tier?
+
+    The single authoritative room-membership matrix, shared by read and send so
+    the four privacy flags gate *confidentiality*, not just sending:
+
+      - allow_project_owners_only — ONLY project/org owners (exclusive: when set,
+        no other flag widens access).
+      - allow_project_members     — project owners + project members.
+      - allow_org_members         — org owners + org members.
+      - allow_guest_links         — users on chatroom_guests.
+
+    Moderators (project/org owner, explicit or org-inherited per R5.03) sit in
+    the most permissive tier and clear every subset.
+    """
+    room = access.chatroom
+    if access.is_moderator:
+        return True
+    if room.allow_project_owners_only:
+        return False
+    if room.allow_project_members and (
+        Role.PROJECT_MEMBER in access.roles or Role.PROJECT_OWNER in access.roles
+    ):
+        return True
+    if room.allow_org_members and (Role.ORG_MEMBER in access.roles or Role.ORG_OWNER in access.roles):
+        return True
+    return bool(room.allow_guest_links and access.is_guest)
+
+
 def ensure_can_read(access: RoomAccess, *, is_admin: bool) -> None:
-    """Membership gate. Any role or guest flag allows read."""
+    """Read gate (R13.04 + §21.1).
+
+    SEC: read confidentiality mirrors the send matrix. Holding *any* role on the
+    parent org/project is not sufficient — the caller must satisfy at least one
+    enabled room access tier, otherwise an org member (or a guest whose link was
+    revoked) could read an owners-only / project-only room. Admin bypasses.
+    """
     if is_admin:
         return
-    if not access.can_read:
-        raise ForbiddenInRoom("caller is not a participant of this chatroom")
+    if not _satisfies_room_flags(access):
+        raise ForbiddenInRoom("caller cannot read this chatroom")
 
 
 def ensure_can_send(access: RoomAccess, *, is_admin: bool) -> None:
     """Evaluate §21.1 flags against the caller's room-scoped roles (R13.04).
 
     Matrix row 17 already screens callers down to {org_*, project_*, guest}
-    before this function is reached. We then intersect with the room flags:
-
-      - allow_project_owners_only — ONLY project/org owners.
-      - allow_project_members     — project owners + project members.
-      - allow_org_members         — org owners + org members.
-      - allow_guest_links         — users on chatroom_guests.
-
-    Admin bypass fires first.
+    before this function is reached. Admin bypass fires first.
     """
     if is_admin:
         return
-    room = access.chatroom
-    # Project owners (explicit role or org-inherited) are always in the most
-    # permissive tier and clear every flag subset.
-    if access.is_moderator:
-        return
-    if room.allow_project_owners_only and not access.is_moderator:
-        raise ForbiddenInRoom("room restricted to project owners")
-    if room.allow_project_members and (
-        Role.PROJECT_MEMBER in access.roles or Role.PROJECT_OWNER in access.roles
-    ):
-        return
-    if room.allow_org_members and (Role.ORG_MEMBER in access.roles or Role.ORG_OWNER in access.roles):
-        return
-    if room.allow_guest_links and access.is_guest:
-        return
-    raise ForbiddenInRoom("caller cannot send in this chatroom")
+    if not _satisfies_room_flags(access):
+        raise ForbiddenInRoom("caller cannot send in this chatroom")
 
 
 __all__ = [
