@@ -21,7 +21,7 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from contexts.conversation.infrastructure.channels import room_channel
+from contexts.conversation.interfaces import room_channel
 from contexts.orchestration.domain.models import (
     Approval,
     ApprovalGateConfig,
@@ -36,7 +36,7 @@ from contexts.orchestration.infrastructure.repositories import (
     ApprovalRepository,
     ApprovalVoteRepository,
 )
-from contexts.workflow.infrastructure.channels import workflow_channel
+from contexts.workflow.interfaces import workflow_channel
 from shared_kernel import audit
 from shared_kernel.realtime.pubsub import Publisher
 

@@ -70,7 +70,7 @@ async def wakeup_agent(
                 # A worker-level guard (agent soft-deleted while still room-bound)
                 # returns before the TurnEngine emits, so without this an @mention
                 # to such an agent would silently produce nothing.
-                from contexts.conversation.infrastructure.channels import (
+                from contexts.conversation.interfaces import (
                     emit_agent_finished_error,
                 )
 
