@@ -36,6 +36,16 @@ _MAP: ErrorMap = {
         502,
         "A2A message delivery exhausted retries",
     ),
+    errors.A2ACallLoop: (
+        "a2a-call-loop",
+        409,
+        "A2A call would re-enter an agent already on the call stack",
+    ),
+    errors.A2ACallDepthExceeded: (
+        "a2a-call-depth-exceeded",
+        429,
+        "A2A synchronous call nesting depth exceeded",
+    ),
     errors.WakeupFieldReadonly: (
         "orchestration/wakeup-field-readonly",
         422,

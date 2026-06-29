@@ -25,6 +25,21 @@ class A2ADeliveryFailed(OrchestrationError):
     code = "a2a-delivery-failed"
 
 
+class A2ACallLoop(OrchestrationError):
+    """Synchronous A2A call would re-enter an agent already on the call stack.
+
+    A CALL runs the callee's turn inline in its consumer loop, so A->B->A would
+    stall both loops to timeout; reject the cycle instead (R9.15)."""
+
+    code = "a2a-call-loop"
+
+
+class A2ACallDepthExceeded(OrchestrationError):
+    """Synchronous A2A call nesting exceeded the hard depth cap (R9.15)."""
+
+    code = "a2a-call-depth-exceeded"
+
+
 class WakeupClampApplied(OrchestrationError):
     """Self-modification value was clamped to hard/soft bounds (R15.07).
 
@@ -73,6 +88,8 @@ class ApprovalTimeoutLeader(OrchestrationError):
 
 
 __all__ = [
+    "A2ACallDepthExceeded",
+    "A2ACallLoop",
     "A2ADeliveryFailed",
     "A2AForbidden",
     "A2ATimeout",

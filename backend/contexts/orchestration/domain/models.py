@@ -24,6 +24,12 @@ class A2AMessageType(str, enum.Enum):
     INSTRUCT = "instruct"
 
 
+# Hard cap on synchronous A2A call nesting (R9.15). A CALL runs the callee's
+# turn inline in its consumer loop, so an unbounded A->B->C... chain pins one
+# worker task per level; this bounds it. Mirrors the instruct depth machinery.
+A2A_CALL_MAX_DEPTH: int = 8
+
+
 @dataclass(frozen=True, slots=True)
 class A2AEnvelope:
     """Wire format for inter-agent messages (R9.13).
@@ -39,6 +45,12 @@ class A2AEnvelope:
     payload: dict[str, Any]
     correlation_id: uuid.UUID
     created_at: datetime
+    # Synchronous CALL chain tracking (R9.15). `call_depth` is the 1-based
+    # nesting level; `call_path` is the ordered tuple of callee agent-id strings
+    # on the current call stack, used to reject A->B->A cycles. Default 0/() for
+    # non-CALL traffic and root (workflow-originated) calls.
+    call_depth: int = 0
+    call_path: tuple[str, ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -50,6 +62,8 @@ class A2AEnvelope:
             "payload": self.payload,
             "correlation_id": str(self.correlation_id),
             "created_at": self.created_at.isoformat(),
+            "call_depth": self.call_depth,
+            "call_path": list(self.call_path),
         }
 
     @classmethod
@@ -63,6 +77,8 @@ class A2AEnvelope:
             payload=data.get("payload") or {},
             correlation_id=uuid.UUID(data["correlation_id"]),
             created_at=datetime.fromisoformat(data["created_at"]),
+            call_depth=int(data.get("call_depth", 0)),
+            call_path=tuple(data.get("call_path") or ()),
         )
 
 
@@ -336,6 +352,7 @@ SUBAGENT_INHERITANCE: dict[str, bool] = {
 
 
 __all__ = [
+    "A2A_CALL_MAX_DEPTH",
     "A2AEnvelope",
     "A2AMessageType",
     "AUTOSTOP_HARD_CAP",
