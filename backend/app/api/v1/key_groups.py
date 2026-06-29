@@ -327,7 +327,7 @@ async def patch_member(
     ctx: RequestContext = Depends(current_context),
     db: AsyncSession = Depends(db_session),
 ) -> None:
-    _PATCHABLE: dict[str, bool] = {
+    patchable: dict[str, bool] = {
         "priority": False,
         "rotate_on_error_codes": True,
         "rotate_on_token_quota": False,
@@ -343,7 +343,7 @@ async def patch_member(
     }
     col_updates: dict[str, object] = {}
     for field_name in payload.model_fields_set:
-        nullable = _PATCHABLE.get(field_name)
+        nullable = patchable.get(field_name)
         if nullable is None:
             continue
         value = getattr(payload, field_name)

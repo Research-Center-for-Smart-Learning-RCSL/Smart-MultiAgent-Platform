@@ -24,8 +24,6 @@ import uuid
 from dataclasses import dataclass
 from typing import Final
 
-_log = logging.getLogger(__name__)
-
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.conversation.application.attachment_service import (
@@ -46,6 +44,8 @@ from contexts.conversation.infrastructure.tus_store import (
     parse_metadata,
 )
 from shared_kernel.observability.metrics import TUS_UPLOAD_BYTES
+
+_log = logging.getLogger(__name__)
 
 TUS_VERSION: Final = "1.0.0"
 TUS_MAX_CHUNK: Final = 16 * 1024 * 1024  # R22.15.04
@@ -231,7 +231,9 @@ class TusService:
                 _log.error(
                     "TUS upload %s: disk write failed AND offset rollback failed "
                     "(expected=%d, target=%d) — upload is now unrecoverable",
-                    upload_id, new_offset, offset,
+                    upload_id,
+                    new_offset,
+                    offset,
                 )
             raise
         TUS_UPLOAD_BYTES.inc(len(chunk))

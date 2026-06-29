@@ -29,12 +29,12 @@ from contexts.conversation.domain.models import (
     MessageEdit,
     SenderType,
 )
+from contexts.conversation.infrastructure import tables as t
 from contexts.conversation.infrastructure.repositories import (
     MessageAttachmentRepository,
     MessageEditRepository,
     MessageRepository,
 )
-from contexts.conversation.infrastructure import tables as t
 from shared_kernel import audit
 from shared_kernel.auth.clients import now
 from shared_kernel.storage import get_minio_client

@@ -26,7 +26,7 @@ from shared_kernel.auth.password import PasswordHasher
 
 from ._common import BootstrapReport
 
-_PASSWORD_SYMBOLS = "!@#%^*-_"
+_PASSWORD_SYMBOLS = "!@#%^*-_"  # noqa: S105 — symbol alphabet for password generation, not a secret
 _PASSWORD_ALPHABET = string.ascii_letters + string.digits + _PASSWORD_SYMBOLS
 
 

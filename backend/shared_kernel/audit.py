@@ -134,12 +134,15 @@ async def emit(session: AsyncSession, event: AuditEvent) -> None:
             request_id=event.request_id,
         ),
     )
-    _queue_tail_event(session, {
-        "action": event.action,
-        "actor_user_id": str(event.actor_user_id) if event.actor_user_id else None,
-        "resource_type": event.resource_type,
-        "resource_id": str(event.resource_id) if event.resource_id else None,
-    })
+    _queue_tail_event(
+        session,
+        {
+            "action": event.action,
+            "actor_user_id": str(event.actor_user_id) if event.actor_user_id else None,
+            "resource_type": event.resource_type,
+            "resource_id": str(event.resource_id) if event.resource_id else None,
+        },
+    )
 
 
 _TAIL_QUEUE_KEY = "_audit_tail_queue"
@@ -163,7 +166,7 @@ async def flush_tail_events(session: AsyncSession) -> None:
     for payload in events:
         try:
             await pub.emit("audit_event", payload)
-        except Exception:  # noqa: BLE001
+        except Exception:
             _log.warning("audit tail publish failed for action=%s", payload.get("action"), exc_info=True)
 
 
