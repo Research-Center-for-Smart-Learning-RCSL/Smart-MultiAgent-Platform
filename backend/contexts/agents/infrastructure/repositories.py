@@ -80,6 +80,28 @@ class AgentRepository:
         ).one()
         return int(row[0])
 
+    async def count_active_by_key_groups(self, group_ids: list[uuid.UUID]) -> dict[uuid.UUID, int]:
+        """Active-agent count grouped by `key_group_id` (cross-context read).
+
+        Lets the keys context report how many agents a carried key actually
+        feeds, per project, without reaching into the agents table itself.
+        """
+        if not group_ids:
+            return {}
+        rows = (
+            await self._db.execute(
+                sa.select(t.agents.c.key_group_id, sa.func.count().label("n"))
+                .where(
+                    sa.and_(
+                        t.agents.c.key_group_id.in_(group_ids),
+                        t.agents.c.deleted_at.is_(None),
+                    )
+                )
+                .group_by(t.agents.c.key_group_id)
+            )
+        ).all()
+        return {row.key_group_id: int(row.n) for row in rows}
+
     async def create(
         self,
         *,
@@ -159,6 +181,20 @@ class AgentRepository:
             q = q.limit(limit)
         rows = (await self._db.execute(q)).all()
         return [_row_to_agent(r) for r in rows]
+
+    async def names_for_ids(self, agent_ids: Sequence[uuid.UUID]) -> dict[uuid.UUID, str]:
+        """Batch-resolve agent_id -> name for the given ids (narrow projection).
+
+        Includes soft-deleted agents so a historical message authored by an agent
+        that was later removed still labels correctly. Unknown ids are absent.
+        """
+        ids = list(set(agent_ids))
+        if not ids:
+            return {}
+        rows = (
+            await self._db.execute(sa.select(t.agents.c.id, t.agents.c.name).where(t.agents.c.id.in_(ids)))
+        ).all()
+        return {r.id: r.name for r in rows}
 
     async def patch(
         self,
@@ -337,11 +373,7 @@ class AgentToolRepository:
         }
         if tool_id is not None:
             values["id"] = tool_id
-        row = (
-            await self._db.execute(
-                t.agent_tools.insert().values(**values).returning(t.agent_tools)
-            )
-        ).one()
+        row = (await self._db.execute(t.agent_tools.insert().values(**values).returning(t.agent_tools))).one()
         return _row_to_tool(row)
 
     async def set_enabled(
@@ -448,9 +480,7 @@ class AgentToolRepository:
                 )
                 .on_conflict_do_nothing(
                     index_elements=["agent_id", "tool_type"],
-                    index_where=t.agent_tools.c.tool_type.in_(
-                        [tt.value for tt in SINGLETON_TOOL_TYPES]
-                    ),
+                    index_where=t.agent_tools.c.tool_type.in_([tt.value for tt in SINGLETON_TOOL_TYPES]),
                 )
             )
             await self._db.execute(stmt)
@@ -524,8 +554,9 @@ class WorkspaceFileRepository:
     async def total_bytes(self, agent_id: uuid.UUID) -> int:
         row = (
             await self._db.execute(
-                sa.select(sa.func.coalesce(sa.func.sum(t.agent_workspace_files.c.size_bytes), 0))
-                .where(t.agent_workspace_files.c.agent_id == agent_id)
+                sa.select(sa.func.coalesce(sa.func.sum(t.agent_workspace_files.c.size_bytes), 0)).where(
+                    t.agent_workspace_files.c.agent_id == agent_id
+                )
             )
         ).one()
         return int(row[0])

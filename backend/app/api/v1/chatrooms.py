@@ -18,6 +18,7 @@ from contexts.conversation.domain.errors import (
     ChatroomNotFound,
     WorkspaceNotFound,
 )
+from contexts.conversation.interfaces.author_labels import prefer_guest_label
 from contexts.conversation.interfaces.facade import ConversationFacade
 from contexts.identity.interfaces.facade import IdentityFacade
 from shared_kernel.auth.context import RequestContext
@@ -432,14 +433,13 @@ async def list_chatroom_members(
     all_ids = sender_ids | set(guest_names)
     account_names = await IdentityFacade(db).get_display_names(list(all_ids))
 
-    def _resolve(uid: uuid.UUID) -> str | None:
-        # A guest's per-room name takes precedence when the guest row carries one
-        # (explicit ``None`` test, so an empty per-room name is not silently
-        # overridden by the account name); otherwise fall back to the account name.
-        guest = guest_names.get(uid)
-        return guest if guest is not None else account_names.get(uid)
-
-    return [ChatroomMemberOut(user_id=uid, display_name=_resolve(uid)) for uid in all_ids]
+    return [
+        ChatroomMemberOut(
+            user_id=uid,
+            display_name=prefer_guest_label(guest_names.get(uid), account_names.get(uid)),
+        )
+        for uid in all_ids
+    ]
 
 
 # --------------------------------------------------------------------------- #
