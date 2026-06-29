@@ -25,6 +25,7 @@ from contexts.agents.application.a2a_scope import (
     evaluate,
 )
 from contexts.agents.interfaces.facade import Agent, AgentsFacade
+from contexts.orchestration.application import a2a_call_chain
 from contexts.orchestration.domain.errors import A2ADeliveryFailed, A2AForbidden, A2ATimeout
 from contexts.orchestration.domain.models import A2AEnvelope, A2AMessageType
 from contexts.orchestration.infrastructure import a2a_rendezvous, a2a_streams
@@ -126,6 +127,10 @@ class A2AService:
         Returns the reply envelope as a dict.
         Raises A2ATimeout after ``timeout_seconds``.
         """
+        # R9.15: reject a recursive / over-deep synchronous call before dispatch.
+        # Reads the chain bound by the enclosing CALL-triggered turn (if any);
+        # at root (workflow-originated) the chain is empty so depth becomes 1.
+        call_depth, call_path = a2a_call_chain.next_hop(str(to_agent_id))
         correlation_id = uuid.uuid4()
         envelope = A2AEnvelope(
             id=uuid.uuid4(),
@@ -136,6 +141,8 @@ class A2AService:
             payload=payload,
             correlation_id=correlation_id,
             created_at=datetime.now(UTC),
+            call_depth=call_depth,
+            call_path=call_path,
         )
 
         await self.send(

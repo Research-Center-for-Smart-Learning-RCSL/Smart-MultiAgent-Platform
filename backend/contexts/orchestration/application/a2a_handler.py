@@ -24,6 +24,7 @@ import logging
 import uuid
 from typing import Any
 
+from contexts.orchestration.application import a2a_call_chain
 from contexts.orchestration.domain.models import A2AEnvelope, A2AMessageType
 from contexts.orchestration.infrastructure import a2a_rendezvous, pending_notify
 from shared_kernel.db.session import async_session
@@ -78,7 +79,11 @@ async def _handle_call(envelope: A2AEnvelope) -> None:
         await _deliver_error(envelope, "call target is not a valid agent id")
         return
     try:
-        result = await _run_turn(to_id, envelope)
+        # R9.15: bind the synchronous call chain for the turn's duration so any
+        # nested A2A call this turn issues inherits depth/path and a cycle/over-
+        # deep hop is rejected at source.
+        with a2a_call_chain.enter(envelope.call_depth, envelope.call_path):
+            result = await _run_turn(to_id, envelope)
     except Exception:  # fail-fast: the caller is blocking on the rendezvous
         logger.exception("a2a call %s turn raised", envelope.correlation_id)
         await _deliver_error(envelope, "agent turn failed")
