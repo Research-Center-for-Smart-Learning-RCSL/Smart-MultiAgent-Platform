@@ -99,11 +99,44 @@ async def list_my_keys(
     principal: Principal = Depends(current_principal),
     db: AsyncSession = Depends(db_session),
 ) -> list[KeyListOut]:
-    """List every key the caller owns (masked, no secrets)."""
+    """List every key the caller owns (masked, no secrets).
+
+    The `project_count` badge counts only carries the caller can still see —
+    project not soft-deleted AND caller still a member — so it matches the
+    per-key detail view's project list, which applies the same filter
+    (otherwise a stale carry into a left/deleted project inflates the badge).
+    """
     svc = KeyService(db)
     keys = await svc.list_owned(principal.user_id, limit=pagination.limit, offset=pagination.offset)
-    counts = await KeysFacade(db).count_projects_for_keys([k.id for k in keys])
-    return [KeyListOut.with_count(k, project_count=counts.get(k.id, 0)) for k in keys]
+    proj_ids_by_key = await KeysFacade(db).carried_project_ids_for_keys([k.id for k in keys])
+    all_ids = list({pid for ids in proj_ids_by_key.values() for pid in ids})
+    tenancy = TenancyFacade(db)
+    member_ids = await tenancy.member_project_ids(principal.user_id, all_ids)
+    existing = await tenancy.get_projects(all_ids)
+    visible = member_ids & existing.keys()
+    return [
+        KeyListOut.with_count(
+            k,
+            project_count=sum(1 for pid in proj_ids_by_key.get(k.id, []) if pid in visible),
+        )
+        for k in keys
+    ]
+
+
+@router.get("/{key_id}", response_model=KeyOut)
+async def get_my_key(
+    key_id: uuid.UUID,
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(db_session),
+) -> KeyOut:
+    """Fetch a single key the caller owns (for the detail view).
+
+    Returns 404 for a missing OR non-owned key so it isn't a cross-user
+    key-id enumeration oracle. Resolving by id avoids the detail view's old
+    'scan the first page of /keys' approach, which 404'd keys past page 1.
+    """
+    key = await KeyService(db).get_owned(key_id, principal.user_id)
+    return KeyOut.from_domain(key)
 
 
 @router.get("/{key_id}/projects", response_model=list[KeyProjectOut])

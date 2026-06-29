@@ -19,19 +19,17 @@ describe('KeyDetailView', () => {
 
   it('shows key details when key is found', async () => {
     server.use(
-      http.get('/api/keys', () =>
-        HttpResponse.json([
-          {
-            id: 'key_1',
-            provider: 'openai',
-            name: 'My Key',
-            masked_preview: 'sk-****abcd',
-            test_status: 'ok',
-            test_error: null,
-            last_test_at: '2026-04-01T00:00:00Z',
-            created_at: '2026-04-01T00:00:00Z',
-          },
-        ]),
+      http.get('/api/keys/key_1', () =>
+        HttpResponse.json({
+          id: 'key_1',
+          provider: 'openai',
+          name: 'My Key',
+          masked_preview: 'sk-****abcd',
+          test_status: 'ok',
+          test_error: null,
+          last_test_at: '2026-04-01T00:00:00Z',
+          created_at: '2026-04-01T00:00:00Z',
+        }),
       ),
     )
     const wrapper = await renderView(KeyDetailView, {

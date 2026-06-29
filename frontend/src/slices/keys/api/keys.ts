@@ -41,6 +41,7 @@ export const CAPABILITIES: Record<ApiKeyProvider, ProviderCapability[]> = {
 
 export const keysApi = {
   list: () => http.get<ApiKey[]>('/keys'),
+  get: (id: string) => http.get<ApiKey>(`/keys/${id}`),
   upload: (provider: ApiKeyProvider, name: string, secret: string) =>
     http.post<ApiKey>('/keys', { provider, name, secret }),
   retest: (id: string) => http.post<ApiKey>(`/keys/${id}/retest`),

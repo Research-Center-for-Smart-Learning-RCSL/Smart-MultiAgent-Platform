@@ -41,6 +41,7 @@ import { agentKeys } from '../queries'
 import { useProjectBreadcrumbs } from '../composables/useProjectBreadcrumbs'
 import { ragConfigCreateSchema, type RagConfigCreateInput } from '../types/schemas'
 import { useRagConfigForm } from '../composables/useRagConfigForm'
+import { useModelCatalog } from '../composables/useModelCatalog'
 import type { Column } from '@shared/ui/STable.vue'
 
 const { t } = useI18n()
@@ -68,10 +69,7 @@ const projectKeysQuery = useQuery({
   queryFn: async () => (await projectKeysApi.listCarried(projectId)).data,
 })
 
-const modelCatalogQuery = useQuery({
-  queryKey: agentKeys.modelCatalog(),
-  queryFn: async () => (await agentsApi.getModelCatalog()).data,
-})
+const modelCatalogQuery = useModelCatalog()
 
 const configs = computed<RagConfig[]>(() => configsQuery.data.value ?? [])
 const loading = computed(() => configsQuery.isLoading.value)

@@ -28,12 +28,11 @@ from contexts.keys.infrastructure.carry_repository import KeyProjectRepository, 
 from contexts.keys.infrastructure.key_revocation_events import publish_carry_revoked
 from contexts.keys.infrastructure.repositories import ApiKeyRepository
 from shared_kernel import audit
-from shared_kernel.infra import redis_buckets
 
 _log = logging.getLogger(__name__)
 
-_WINDOWS: dict[str, timedelta | None] = {
-    "1h": None,  # served from Redis (sliding bucket, accurate to the minute).
+_WINDOWS: dict[str, timedelta] = {
+    "1h": timedelta(hours=1),
     "24h": timedelta(hours=24),
     "7d": timedelta(days=7),
     "30d": timedelta(days=30),
@@ -78,10 +77,13 @@ class CarryService:
             raise KeyNotOwnedByCaller(str(key_id))
         return await self._carries.list_projects_for_key(key_id)
 
-    async def count_projects_for_keys(self, key_ids: list[uuid.UUID]) -> dict[uuid.UUID, int]:
-        """Active-carry project count per key. Caller scopes `key_ids` to the
-        principal's own keys, so no per-row ownership check is needed."""
-        return await self._carries.count_active_by_keys(key_ids)
+    async def carried_project_ids_for_keys(
+        self, key_ids: list[uuid.UUID]
+    ) -> dict[uuid.UUID, list[uuid.UUID]]:
+        """Active-carry project ids per key (batch). The caller filters these by
+        project existence + membership (via the tenancy facade) so the my-keys
+        badge counts exactly what the per-key detail view lists."""
+        return await self._carries.carried_project_ids_for_keys(key_ids)
 
     async def key_owner(self, key_id: uuid.UUID) -> uuid.UUID | None:
         """Return the owner of `key_id`, or None if no such key exists.
@@ -197,44 +199,14 @@ class CarryService:
         delta = _WINDOWS[window]
         # Scope DB queries to agents within the requesting project so usage
         # numbers reflect THIS project's consumption, not cross-project totals.
+        # Every window (including 1h) aggregates from key_usage_events filtered
+        # to this project's agents — the per-key Redis bucket is global and would
+        # leak another project's tokens/requests into this project's 1h panel.
         _agents_in_project = t.key_usage_events.c.agent_id.in_(
             sa.text("SELECT id FROM agents WHERE project_id = :pid AND deleted_at IS NULL").bindparams(
                 pid=project_id
             )
         )
-        if delta is None:
-            used = await redis_buckets.usage(key_id)
-            # Token/request counts come from the Redis sliding window (accurate
-            # to the minute, global per key). Error count is scoped to this
-            # project's agents via a targeted DB query.
-            since_1h = datetime.now(tz=UTC) - timedelta(hours=1)
-            err_count = (
-                await self._db.execute(
-                    sa.select(
-                        sa.func.count(t.key_usage_events.c.id).filter(
-                            sa.or_(
-                                t.key_usage_events.c.http_status.is_(None),
-                                t.key_usage_events.c.http_status < 200,
-                                t.key_usage_events.c.http_status >= 300,
-                            )
-                        )
-                    ).where(
-                        sa.and_(
-                            t.key_usage_events.c.key_id == key_id,
-                            t.key_usage_events.c.at >= since_1h,
-                            _agents_in_project,
-                        )
-                    )
-                )
-            ).scalar_one()
-            return UsageSummary(
-                window=window,
-                input_tokens=used.input_tokens,
-                output_tokens=used.output_tokens,
-                requests=used.requests,
-                errors=int(err_count),
-            )
-
         since = datetime.now(tz=UTC) - delta
         stmt = sa.select(
             sa.func.coalesce(sa.func.sum(t.key_usage_events.c.input_tokens), 0),

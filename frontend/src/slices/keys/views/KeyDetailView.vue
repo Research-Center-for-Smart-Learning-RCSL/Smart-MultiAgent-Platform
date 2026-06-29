@@ -2,6 +2,7 @@
 import { computed, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
+import { useQuery } from '@tanstack/vue-query'
 import {
   ArrowPathIcon,
   TrashIcon,
@@ -20,7 +21,8 @@ import {
 import { useConfirmDialog, useToast } from '@shared/composables'
 import { useMyKeys } from '../composables/useMyKeys'
 import { useKeyProjects } from '../composables/useKeyProjects'
-import type { KeyProject } from '../api/keys'
+import { keysApi, type KeyProject } from '../api/keys'
+import { keysKeys } from '../queries'
 import CapabilityChip from '../components/CapabilityChip.vue'
 
 const { t } = useI18n()
@@ -29,7 +31,7 @@ const router = useRouter()
 const toast = useToast()
 const { confirm } = useConfirmDialog()
 const keyId = computed(() => route.params.id as string)
-const { keys, loading, error, reload, retest, remove } = useMyKeys()
+const { keys, retest, remove } = useMyKeys()
 const {
   projects,
   loading: projectsLoading,
@@ -37,11 +39,21 @@ const {
   withdraw,
 } = useKeyProjects(keyId)
 
+// Fetch the key by id rather than scanning the (page-limited) my-keys list,
+// which would 404 a key past the first page for users with many keys.
+const keyQuery = useQuery({
+  queryKey: computed(() => keysKeys.key(keyId.value)),
+  queryFn: async () => (await keysApi.get(keyId.value)).data,
+})
+const currentLoading = computed(() => keyQuery.isLoading.value)
+
 const retesting = ref(false)
 const deleting = ref(false)
 const withdrawingProjectId = ref<string | null>(null)
 
-const current = computed(() => keys.value.find((k) => k.id === keyId.value))
+const current = computed(
+  () => keyQuery.data.value ?? keys.value.find((k) => k.id === keyId.value),
+)
 
 const breadcrumbs = computed(() => [
   { label: t('keys.list.title'), to: { name: 'keys.list' } },
@@ -57,7 +69,7 @@ async function onRetest() {
   retesting.value = true
   try {
     await retest(keyId.value)
-    const key = keys.value.find((k) => k.id === keyId.value)
+    const { data: key } = await keyQuery.refetch()
     if (key?.test_status === 'ok') {
       toast.success(t('keys.detail.retestValid'))
     } else if (key?.test_status === 'failed') {
@@ -126,7 +138,7 @@ async function onDelete() {
   <main class="p-6">
     <!-- Not found state -->
     <div
-      v-if="!loading && !current"
+      v-if="!currentLoading && !current"
       class="flex justify-center mt-12"
     >
       <SEmptyState

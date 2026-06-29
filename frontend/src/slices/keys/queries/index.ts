@@ -1,5 +1,6 @@
 export const keysKeys = {
   myKeys: () => ['keys', 'myKeys'] as const,
+  key: (keyId: string) => ['keys', 'key', keyId] as const,
   keyProjects: (keyId: string) =>
     ['keys', 'keyProjects', keyId] as const,
   keyGroups: (projectId: string) =>

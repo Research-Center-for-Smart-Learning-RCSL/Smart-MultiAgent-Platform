@@ -60,12 +60,16 @@ export const handlers = [
 
   http.get('/api/keys', () => HttpResponse.json([])),
   http.get('/api/keys/:keyId/projects', () => HttpResponse.json([])),
-  http.get('/api/keys/:keyId', () =>
+  http.get('/api/keys/:keyId', ({ params }) =>
     HttpResponse.json({
-      id: 'key_1',
+      id: params.keyId,
       provider: 'openai',
-      label: 'My Key',
-      masked_key: 'sk-****',
+      name: 'My Key',
+      masked_preview: 'sk-****',
+      test_status: 'ok',
+      test_error: null,
+      last_test_at: null,
+      created_at: '2026-01-01T00:00:00Z',
     }),
   ),
   http.get('/api/key-groups', () => HttpResponse.json([])),

@@ -738,7 +738,11 @@ class TurnEngine:
                 hm.role == "agent" and hm.sender_id not in (None, agent.id) and hm.sender_id in agent_names
                 for hm in history
             )
-            labels_applied = other_agents_present or len(user_names) > 1
+            # Emit the explanatory note whenever ANY turn will carry a "Name:"
+            # prefix. _provider_message prefixes every resolved user/agent label,
+            # so gating the note on >1 user left a single-human room with labelled
+            # turns but no note — the model then treats "Alice:" as literal text.
+            labels_applied = other_agents_present or bool(user_names)
             if labels_applied:
                 system_parts.append(_PARTICIPANT_LABEL_NOTE)
             system_text = "\n\n".join(p for p in system_parts if p)

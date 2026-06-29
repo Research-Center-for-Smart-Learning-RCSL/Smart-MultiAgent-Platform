@@ -40,6 +40,7 @@ import { ApiError } from '@shared/errors'
 import { keyGroupsApi, keysKeys, type KeyGroup } from '@slices/keys'
 import { agentsApi, type AgentTool, type AgentToolType } from '../api'
 import { agentKeys } from '../queries'
+import { useModelCatalog } from '../composables/useModelCatalog'
 import { agentCreateSchema, type AgentCreateInput } from '../types/schemas'
 
 const { t } = useI18n()
@@ -94,10 +95,7 @@ const toolsQuery = useQuery({
   queryFn: async () => (await agentsApi.listTools(agentId)).data,
 })
 
-const modelCatalogQuery = useQuery({
-  queryKey: agentKeys.modelCatalog(),
-  queryFn: async () => (await agentsApi.getModelCatalog()).data,
-})
+const modelCatalogQuery = useModelCatalog()
 
 const thisAgentGraphrag = computed(() =>
   (graphragConfigsQuery.data.value ?? []).find((c) => c.agent_id === agentId),
@@ -219,23 +217,25 @@ const [a2aEnabled] = defineField('a2a_enabled')
 // while the field is empty — an empty model_id otherwise reads as "default".
 const CUSTOM_MODEL = '__custom__'
 const customModel = ref(false)
-const chatModelsForHint = computed(
-  () =>
-    modelCatalogQuery.data.value?.chat.find((c) => c.provider === modelHint.value)?.models ?? [],
+// One lookup of the active provider's catalog entry; models / default /
+// context_limit are all derived from it (no repeated find() per computed).
+const currentChatEntry = computed(() =>
+  modelCatalogQuery.data.value?.chat.find((c) => c.provider === modelHint.value),
 )
+const chatModelsForHint = computed(() => currentChatEntry.value?.models ?? [])
 // The model the runtime uses when model_id is left unset, surfaced in the
 // "provider default" option label so the user sees which model that resolves to.
-const defaultModelForHint = computed(
-  () =>
-    modelCatalogQuery.data.value?.chat.find((c) => c.provider === modelHint.value)?.default ?? '',
-)
+const defaultModelForHint = computed(() => currentChatEntry.value?.default ?? '')
 const isCustomModel = computed(
   () =>
     customModel.value ||
-    // Only treat a saved model_id as "custom" once the catalog has loaded;
-    // while the catalog is in-flight chatModelsForHint = [] and every preset
-    // model_id would incorrectly appear custom, causing a flicker.
-    (!!modelCatalogQuery.data.value && !!modelId.value && !chatModelsForHint.value.includes(modelId.value)),
+    (!!modelId.value &&
+      // Catalog loaded and the saved id isn't a preset -> custom. Also show the
+      // free-text input when the catalog FAILED to load, so a saved custom model
+      // stays viewable/editable instead of vanishing behind an empty dropdown.
+      // While the catalog is still in-flight, neither branch fires (no flicker).
+      ((!!modelCatalogQuery.data.value && !chatModelsForHint.value.includes(modelId.value)) ||
+        modelCatalogQuery.isError.value)),
 )
 const modelSelectValue = computed<string>({
   get: () => (isCustomModel.value ? CUSTOM_MODEL : (modelId.value ?? '')),
@@ -419,17 +419,19 @@ watch(contextMode, (mode) => {
   if (mode === 'general') contextTokenCap.value = null
 })
 
-// When the user changes provider, the previous model_id is invalid for the new
-// provider — clear it so a stale cross-provider ID never reaches the save payload.
-watch(modelHint, () => {
+// Clearing model_id on a provider switch must happen ONLY for a user-initiated
+// change (handled by the model-hint <SSelect> below). A watch(modelHint) would
+// also fire during the edit-load resetForm — which flips the hint from the
+// 'claude' create-default to the loaded agent's provider — and wipe the saved
+// model_id for every non-Claude agent.
+function onModelHintChange(value: string | number): void {
+  modelHint.value = String(value) as AgentCreateInput['model_hint']
   modelId.value = null
   customModel.value = false
-})
+}
 
 const contextTokenCapPlaceholder = computed(() => {
-  const contextLimit =
-    modelCatalogQuery.data.value?.chat.find((c) => c.provider === modelHint.value)?.context_limit ??
-    128_000
+  const contextLimit = currentChatEntry.value?.context_limit ?? 128_000
   const defaultCap = Math.floor(contextLimit * 0.75)
   return t('agents.form.contextTokenCapDefault', { cap: defaultCap.toLocaleString() })
 })
@@ -743,8 +745,9 @@ const graphragStatusText = computed(() => {
                 required
               >
                 <SSelect
-                  v-model="modelHint"
+                  :model-value="modelHint"
                   :options="modelHintOptions"
+                  @update:model-value="onModelHintChange"
                 />
               </SFormField>
               <SFormField

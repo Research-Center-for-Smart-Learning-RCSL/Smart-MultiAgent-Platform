@@ -59,6 +59,19 @@ class KeyService:
     ) -> list[ApiKey]:
         return await self._repo.list_owned(owner_user_id, limit=limit, offset=offset)
 
+    async def get_owned(self, key_id: uuid.UUID, owner_user_id: uuid.UUID) -> ApiKey:
+        """Return the caller's own key, or raise KeyNotFound.
+
+        A key owned by someone else is reported as not-found (not forbidden) so
+        the endpoint can't be used as a cross-user key-id enumeration oracle.
+        Lets the detail view fetch a key directly instead of scanning a
+        page-limited my-keys list (which misses keys past the first page).
+        """
+        key = await self._repo.get_active(key_id)
+        if key is None or key.owner_user_id != owner_user_id:
+            raise KeyNotFound(str(key_id))
+        return key
+
     async def upload(
         self,
         *,
