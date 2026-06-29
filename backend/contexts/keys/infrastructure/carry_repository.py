@@ -165,18 +165,31 @@ class KeyProjectRepository:
             for pid in ordered
         ]
 
-    async def count_active_by_keys(self, key_ids: list[uuid.UUID]) -> dict[uuid.UUID, int]:
-        """Active-carry project count per key (for the my-keys list badge)."""
+    async def carried_project_ids_for_keys(
+        self, key_ids: list[uuid.UUID]
+    ) -> dict[uuid.UUID, list[uuid.UUID]]:
+        """Active-carry project ids per key (batch, for the my-keys list badge).
+
+        Returns the raw carried project ids; the API layer filters them by
+        project existence + caller membership (via the tenancy facade) so the
+        badge count matches the per-key detail view, which applies the same
+        filter. Cross-context joins (to ``projects``/``project_members``) are
+        deliberately kept out of this keys-context repository.
+        """
         if not key_ids:
             return {}
         kp = t.key_projects
-        stmt = (
-            sa.select(kp.c.key_id, sa.func.count().label("n"))
-            .where(sa.and_(kp.c.key_id.in_(key_ids), kp.c.carried.is_(True)))
-            .group_by(kp.c.key_id)
-        )
-        rows = (await self._db.execute(stmt)).all()
-        return {row.key_id: int(row.n) for row in rows}
+        rows = (
+            await self._db.execute(
+                sa.select(kp.c.key_id, kp.c.project_id).where(
+                    sa.and_(kp.c.key_id.in_(key_ids), kp.c.carried.is_(True))
+                )
+            )
+        ).all()
+        out: dict[uuid.UUID, list[uuid.UUID]] = {}
+        for row in rows:
+            out.setdefault(row.key_id, []).append(row.project_id)
+        return out
 
     async def list_active_carries_for_user(
         self, *, user_id: uuid.UUID, project_id: uuid.UUID

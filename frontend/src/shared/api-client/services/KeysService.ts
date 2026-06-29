@@ -15,6 +15,11 @@ export class KeysService {
     /**
      * List My Keys
      * List every key the caller owns (masked, no secrets).
+     *
+     * The `project_count` badge counts only carries the caller can still see —
+     * project not soft-deleted AND caller still a member — so it matches the
+     * per-key detail view's project list, which applies the same filter
+     * (otherwise a stale carry into a left/deleted project inflates the badge).
      * @returns KeyListOut Successful Response
      * @throws ApiError
      */
@@ -84,6 +89,32 @@ export class KeysService {
     }): CancelablePromise<void> {
         return __request(OpenAPI, {
             method: 'DELETE',
+            url: '/api/keys/{key_id}',
+            path: {
+                'key_id': keyId,
+            },
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * Get My Key
+     * Fetch a single key the caller owns (for the detail view).
+     *
+     * Returns 404 for a missing OR non-owned key so it isn't a cross-user
+     * key-id enumeration oracle. Resolving by id avoids the detail view's old
+     * 'scan the first page of /keys' approach, which 404'd keys past page 1.
+     * @returns KeyOut Successful Response
+     * @throws ApiError
+     */
+    public static getMyKeyApiKeysKeyIdGet({
+        keyId,
+    }: {
+        keyId: string,
+    }): CancelablePromise<KeyOut> {
+        return __request(OpenAPI, {
+            method: 'GET',
             url: '/api/keys/{key_id}',
             path: {
                 'key_id': keyId,

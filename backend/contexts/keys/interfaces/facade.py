@@ -52,11 +52,13 @@ class KeysFacade:
             caller_user_id=caller_user_id,
         )
 
-    async def count_projects_for_keys(
+    async def carried_project_ids_for_keys(
         self, key_ids: list[uuid.UUID]
-    ) -> dict[uuid.UUID, int]:
-        """Active-carry project count per key (for the my-keys list badge)."""
-        return await CarryService(self._db).count_projects_for_keys(key_ids)
+    ) -> dict[uuid.UUID, list[uuid.UUID]]:
+        """Active-carry project ids per key (for the my-keys list badge). The
+        API layer filters these by project existence + caller membership so the
+        badge matches the per-key detail view."""
+        return await CarryService(self._db).carried_project_ids_for_keys(key_ids)
 
     async def get_key_group(self, group_id: uuid.UUID) -> KeyGroup | None:
         """Return the active Key Group (or None if missing / soft-deleted).
