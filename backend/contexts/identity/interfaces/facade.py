@@ -64,9 +64,21 @@ class IdentityFacade:
         """Batch-resolve display names for labelling chat authors.
 
         Returns only display names (never email) so callers can surface a human
-        label for a ``sender_id`` without exposing the login identifier.
+        label for a ``sender_id`` without exposing the login identifier. For the
+        model-facing variant that falls back to email, see :pymeth:`get_chat_labels`.
         """
         return await self._users.get_display_names(user_ids)
+
+    async def get_chat_labels(self, user_ids: Sequence[uuid.UUID]) -> dict[uuid.UUID, str]:
+        """Batch-resolve chat author labels for the *model* context, email-fallback.
+
+        Deliberately surfaces the login email when a user has no display name, so
+        an agent always has a stable way to address and tell speakers apart. This
+        is the one sanctioned path that exposes email beyond identity: callers
+        must feed it only into the LLM context, never into responses shown to
+        other room members (use :pymeth:`get_display_names` for that).
+        """
+        return await self._users.get_chat_labels(user_ids)
 
     async def is_admin(self, user_id: uuid.UUID) -> bool:
         return await self._admins.is_admin(user_id)

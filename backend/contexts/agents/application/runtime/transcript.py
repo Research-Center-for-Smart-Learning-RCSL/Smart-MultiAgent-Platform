@@ -41,6 +41,7 @@ class HistoryMessage:
     """Concrete ``MessageLike`` (see ``context.MessageLike``)."""
 
     id: uuid.UUID
+    sender_id: uuid.UUID | None
     role: str
     content: str
     metadata: dict[str, Any]
@@ -75,6 +76,7 @@ def _to_history(msg: Message) -> HistoryMessage:
     role = "system" if _is_summary(msg.metadata) else _ROLE_BY_SENDER.get(msg.sender_type, "user")
     return HistoryMessage(
         id=msg.id,
+        sender_id=msg.sender_id,
         role=role,
         content=msg.content_md,
         metadata=dict(msg.metadata or {}),

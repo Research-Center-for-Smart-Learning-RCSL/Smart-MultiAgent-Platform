@@ -40,6 +40,8 @@ from contexts.agents.interfaces.facade import AgentsFacade
 from contexts.conversation.application.message_service import MessageService
 from contexts.conversation.infrastructure.repositories import ChatroomAgentRepository
 from contexts.conversation.interfaces import emit_agent_finished_error, room_channel
+from contexts.conversation.interfaces.facade import ConversationFacade
+from contexts.identity.interfaces.facade import IdentityFacade
 from contexts.keys.application.provider_router import (
     ProviderRequest,
     ProviderRouter,
@@ -109,6 +111,15 @@ _CONTEXT_LIMITS: dict[str, int] = {
     "openai": 128_000,
     "gemini": 1_000_000,
 }
+
+# Prepended to the system prompt whenever history carries sender labels. The
+# provider sees other participants' turns as "Name: message"; without this note
+# the model tends to mirror the convention and prefix its own reply with its name.
+_PARTICIPANT_LABEL_NOTE = (
+    "Messages from other participants are prefixed with the speaker's name as "
+    '"Name: message". Use these names to tell participants apart. When you reply, '
+    "write only your own message content -- never prefix it with your own name."
+)
 
 
 def _resolve_models(agent: Agent) -> dict[str, str]:
@@ -367,13 +378,11 @@ class TurnEngine:
             from contexts.agents.infrastructure.sandbox.docker_runsc import (
                 docker_runsc_sandbox_from_settings,
             )
-            from contexts.conversation.interfaces.facade import ConversationFacade
 
             agents_facade = AgentsFacade(self._db)
             agent_tools = await agents_facade.list_agent_tools(agent.id)
             if not any(
-                t.enabled and t.tool_type == AgentToolType.HOSTED_CODE_INTERPRETER
-                for t in agent_tools
+                t.enabled and t.tool_type == AgentToolType.HOSTED_CODE_INTERPRETER for t in agent_tools
             ):
                 return None
 
@@ -406,7 +415,9 @@ class TurnEngine:
                     ]
                     if staged:
                         paths = await runner.stage_kernel_inputs(
-                            agent_id=agent.id, chatroom_id=chatroom_id, files=staged,
+                            agent_id=agent.id,
+                            chatroom_id=chatroom_id,
+                            files=staged,
                         )
                         all_paths.extend(paths)
 
@@ -456,7 +467,9 @@ class TurnEngine:
             staged.append(StagedFile(filename=wf.path.rsplit("/", 1)[-1], data=data))
 
         paths = await runner.stage_agent_workspace_files(
-            agent_id=agent.id, files=staged, manifest_sha=manifest_sha,
+            agent_id=agent.id,
+            files=staged,
+            manifest_sha=manifest_sha,
         )
         out_paths.extend(paths)
 
@@ -715,13 +728,25 @@ class TurnEngine:
                 system_parts.append(staged_note)
             if notify_block:
                 system_parts.append(notify_block)
-            system_text = "\n\n".join(p for p in system_parts if p)
 
+            # Label history with sender names so the agent can tell participants
+            # apart (humans by display name, other agents by their configured
+            # name). The running agent's own turns stay unlabelled so the model
+            # is not trained to echo a "Name:" prefix on its reply.
+            agent_names, user_names = await self._participant_labels(agent, chatroom_id, history)
             messages: list[dict[str, Any]] = [
-                {"role": "assistant" if hm.role == "agent" else "user", "content": hm.content}
+                self._provider_message(hm, agent.id, agent_names, user_names)
                 for hm in history
                 if hm.role in ("user", "agent")
             ]
+            labels_applied = bool(user_names) or any(
+                hm.role == "agent" and hm.sender_id not in (None, agent.id) and hm.sender_id in agent_names
+                for hm in history
+            )
+            if labels_applied:
+                system_parts.append(_PARTICIPANT_LABEL_NOTE)
+            system_text = "\n\n".join(p for p in system_parts if p)
+
             if input_text:
                 messages.append({"role": "user", "content": input_text})
             if not messages:
@@ -879,6 +904,54 @@ class TurnEngine:
             return True
 
     # ----------------------------------------------------------------- #
+
+    async def _participant_labels(
+        self,
+        agent: Agent,
+        chatroom_id: uuid.UUID,
+        history: list[tx.HistoryMessage],
+    ) -> tuple[dict[uuid.UUID, str], dict[uuid.UUID, str]]:
+        """Resolve ``(agent_id -> name, user_id -> label)`` for labelling.
+
+        Human authors resolve in precedence order: room guest label, then account
+        display name, then the login email (the model context deliberately falls
+        back to email so an agent can always tell speakers apart -- see
+        ``IdentityFacade.get_chat_labels``), then a generic ``Guest``. Agents
+        resolve to their configured name.
+        """
+        agent_names = {
+            a.id: a.name for a in await AgentsFacade(self._db).list_agents_for_project(agent.project_id)
+        }
+        conv = ConversationFacade(self._db)
+        guest_names = {g.user_id: g.display_name for g in await conv.list_guests(chatroom_id)}
+        user_ids = {hm.sender_id for hm in history if hm.role == "user" and hm.sender_id is not None}
+        account_labels = await IdentityFacade(self._db).get_chat_labels(list(user_ids))
+        user_names: dict[uuid.UUID, str] = {}
+        for uid in user_ids:
+            user_names[uid] = guest_names.get(uid) or account_labels.get(uid) or "Guest"
+        return agent_names, user_names
+
+    @staticmethod
+    def _provider_message(
+        hm: tx.HistoryMessage,
+        running_agent_id: uuid.UUID,
+        agent_names: dict[uuid.UUID, str],
+        user_names: dict[uuid.UUID, str],
+    ) -> dict[str, Any]:
+        """Map one history row to a provider message, prefixing the sender name.
+
+        The running agent's own turns are left unprefixed (and stay ``assistant``)
+        so the model does not learn to echo a ``Name:`` prefix in its reply.
+        """
+        if hm.role == "agent":
+            if hm.sender_id == running_agent_id:
+                return {"role": "assistant", "content": hm.content}
+            label = agent_names.get(hm.sender_id) if hm.sender_id is not None else None
+            content = f"{label}: {hm.content}" if label else hm.content
+            return {"role": "assistant", "content": content}
+        label = user_names.get(hm.sender_id) if hm.sender_id is not None else None
+        content = f"{label}: {hm.content}" if label else hm.content
+        return {"role": "user", "content": content}
 
     async def _assemble_history(
         self,
