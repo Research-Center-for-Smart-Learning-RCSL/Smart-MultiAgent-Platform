@@ -48,6 +48,25 @@ def _conns_key(room_id: uuid.UUID, user_id: uuid.UUID) -> str:
     return f"ws:presence:{room_id}:{user_id}:conns"
 
 
+# Add this connection and report the resulting size in one atomic step, so two
+# concurrent opens for the same user cannot both observe size>1 and neither
+# announce the join (a plain SADD-then-SCARD races across the await boundary).
+_JOIN_LUA = (
+    "redis.call('SADD', KEYS[1], ARGV[1]) "
+    "redis.call('EXPIRE', KEYS[1], ARGV[2]) "
+    "return redis.call('SCARD', KEYS[1])"
+)
+# Remove this connection and report the remaining size atomically, deleting the
+# key when it hits zero — so two concurrent closes cannot both see size 0 and
+# both fire `presence.left`.
+_LEAVE_LUA = (
+    "redis.call('SREM', KEYS[1], ARGV[1]) "
+    "local n = redis.call('SCARD', KEYS[1]) "
+    "if n == 0 then redis.call('DEL', KEYS[1]) end "
+    "return n"
+)
+
+
 class PresenceTracker:
     async def join(
         self,
@@ -62,9 +81,8 @@ class PresenceTracker:
         second tab so a multi-tab user is announced once."""
         r = get_redis()
         ck = _conns_key(room_id, user_id)
-        await r.sadd(ck, str(connection_id))
-        await r.expire(ck, _CONN_TTL_SECONDS)
-        first = await r.scard(ck) == 1
+        size = await r.eval(_JOIN_LUA, 1, ck, str(connection_id), str(_CONN_TTL_SECONDS))
+        first = int(size) == 1
         await r.sadd(_room_key(room_id), str(user_id))
         await r.sadd(_user_rooms_key(user_id), str(room_id))
         await r.expire(_room_key(room_id), _SET_TTL_SECONDS)
@@ -100,10 +118,9 @@ class PresenceTracker:
         the silence timer); False while other tabs remain."""
         r = get_redis()
         ck = _conns_key(room_id, user_id)
-        await r.srem(ck, str(connection_id))
-        if await r.scard(ck) > 0:
+        remaining = await r.eval(_LEAVE_LUA, 1, ck, str(connection_id))
+        if int(remaining) > 0:
             return False
-        await r.delete(ck)
         await r.srem(_room_key(room_id), str(user_id))
         await r.srem(_user_rooms_key(user_id), str(room_id))
         return True

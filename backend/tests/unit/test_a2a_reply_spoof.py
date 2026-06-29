@@ -73,6 +73,15 @@ async def test_reply_from_callee_delivered(fake: _FakeRedis) -> None:
 
 
 @pytest.mark.asyncio
+async def test_reply_with_missing_from_agent_dropped(fake: _FakeRedis) -> None:
+    # A forged reply that omits from_agent must NOT bypass the responder binding.
+    cid = uuid.uuid4()
+    await rv.register_expected_responder(cid, uuid.uuid4())
+    await rv.deliver_reply(cid, {"from_agent": None, "payload": {"reply": "x"}})
+    assert fake.lists.get(rv._reply_key(cid)) is None  # dropped
+
+
+@pytest.mark.asyncio
 async def test_reply_without_registration_delivered(fake: _FakeRedis) -> None:
     # No expected responder bound (e.g. legacy/in-flight) -> deliver as before.
     cid = uuid.uuid4()

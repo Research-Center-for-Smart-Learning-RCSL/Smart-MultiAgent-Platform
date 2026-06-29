@@ -53,6 +53,20 @@ class _FakeRedis:
             if key.startswith(prefix):
                 yield key
 
+    async def eval(self, script: str, numkeys: int, *args):
+        # Emulate the presence JOIN (SADD+SCARD) and LEAVE (SREM+SCARD+DEL) scripts.
+        key, member = args[0], args[1]
+        if "SADD" in script:
+            self.sets.setdefault(key, set()).add(member)
+            return len(self.sets[key])
+        s = self.sets.get(key)
+        if s and member in s:
+            s.discard(member)
+        n = len(self.sets.get(key, set()))
+        if n == 0:
+            self.sets.pop(key, None)
+        return n
+
 
 @pytest.fixture
 def fake_redis(monkeypatch) -> _FakeRedis:

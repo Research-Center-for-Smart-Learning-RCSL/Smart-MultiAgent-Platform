@@ -171,7 +171,7 @@ class WebSearchTool:
         from shared_kernel.security import envelope as env
 
         repo = SearchKeyRepository(self.db)
-        loaded = await repo.get_active_with_envelope(key_id)
+        loaded = await repo.get_active_with_envelope(key_id, project_id=self.project_id)
         if loaded is None:
             raise SearchKeyNotConfigured(str(key_id))
         _sk, record = loaded
