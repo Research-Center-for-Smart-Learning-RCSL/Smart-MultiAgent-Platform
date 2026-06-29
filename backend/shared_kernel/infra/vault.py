@@ -221,7 +221,16 @@ class VaultClient:
         now = time.monotonic()
         if self._hmac_current_at and (now - self._hmac_current_at) < _HMAC_CURRENT_TTL:
             return self._hmac_current_version, self._hmac_keys[self._hmac_current_version]
-        version, key = self._parse_hmac_kv(self.kv_get(_KV_HMAC_PATH))
+        try:
+            version, key = self._parse_hmac_kv(self.kv_get(_KV_HMAC_PATH))
+        except Exception:
+            # A transient Vault outage at the refresh boundary must not fail
+            # signing when a usable seed is already cached — keep using the
+            # current version (a rotation is picked up on a later successful
+            # refresh). Only the very first load, with nothing cached, propagates.
+            if self._hmac_current_version in self._hmac_keys:
+                return self._hmac_current_version, self._hmac_keys[self._hmac_current_version]
+            raise
         self._hmac_keys[version] = key
         self._hmac_current_version = version
         self._hmac_current_at = now

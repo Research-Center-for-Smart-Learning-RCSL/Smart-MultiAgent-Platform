@@ -61,8 +61,12 @@ async def deliver_reply(correlation_id: uuid.UUID, envelope: dict[str, Any]) -> 
     """
     expected = await get_redis().get(_expect_key(correlation_id))
     if expected is not None:
+        # Fail closed: once a responder is bound, a reply is accepted only if it
+        # is from exactly that agent. A missing/None from_agent must be dropped
+        # too — otherwise a forged reply omitting the field would bypass the
+        # check (the legitimate callee always sets from_agent to itself).
         from_agent = envelope.get("from_agent")
-        if from_agent is not None and str(from_agent) != expected:
+        if from_agent is None or str(from_agent) != expected:
             return
     key = _reply_key(correlation_id)
     pipe = get_redis().pipeline(transaction=False)
