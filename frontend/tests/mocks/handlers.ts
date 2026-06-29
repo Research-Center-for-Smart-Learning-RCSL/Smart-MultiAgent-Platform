@@ -85,6 +85,8 @@ export const handlers = [
       name: 'Test Agent',
       project_id: 'proj_1',
       model_hint: 'claude',
+      model_id: null,
+      effort: null,
       key_group_id: 'kg_1',
       system_prompt: '',
       prompt_strategy: 'full',

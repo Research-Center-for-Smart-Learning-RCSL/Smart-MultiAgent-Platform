@@ -26,6 +26,7 @@ const AGENT = {
   name: 'My Bot',
   model_hint: 'openai',
   model_id: null,
+  effort: null,
   key_group_id: 'kg_1',
   system_prompt: 'You are helpful.',
   prompt_strategy: 'full',

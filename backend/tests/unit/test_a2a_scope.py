@@ -21,6 +21,7 @@ def _agent(project_id: uuid.UUID, *, enabled: bool, wakeup: dict | None = None) 
         name="x",
         model_hint=AgentModelHint.CLAUDE,
         model_id=None,
+        effort=None,
         key_group_id=uuid.uuid4(),
         system_prompt="",
         prompt_strategy=PromptStrategy.FULL,

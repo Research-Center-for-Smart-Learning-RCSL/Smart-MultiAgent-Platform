@@ -16,6 +16,7 @@ export interface Agent {
   name: string
   model_hint: string
   model_id: string | null
+  effort: string | null
   key_group_id: string
   system_prompt: string
   prompt_strategy: string
@@ -75,6 +76,7 @@ export interface ChatModelProvider {
   provider: string
   models: string[]
   default: string
+  context_limit: number
 }
 
 export interface EmbedModelOption {

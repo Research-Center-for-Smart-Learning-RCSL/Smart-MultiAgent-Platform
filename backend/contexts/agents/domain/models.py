@@ -37,6 +37,24 @@ DEFAULT_CHAT_MODELS: dict[str, str] = {
     "gemini": "gemini-3.5-flash",
 }
 
+# Per-provider context-window limits exposed through the model-catalog API so
+# the frontend never maintains a second copy that could drift from the runtime.
+CONTEXT_LIMITS: dict[str, int] = {
+    "claude": 200_000,
+    "openai": 128_000,
+    "gemini": 1_000_000,
+}
+
+assert set(DEFAULT_CHAT_MODELS) == set(CHAT_MODEL_CATALOG), (
+    "DEFAULT_CHAT_MODELS and CHAT_MODEL_CATALOG must have identical provider keys"
+)
+assert all(
+    DEFAULT_CHAT_MODELS[p] in models for p, models in CHAT_MODEL_CATALOG.items()
+), "every DEFAULT_CHAT_MODELS value must appear in its provider's CHAT_MODEL_CATALOG tuple"
+assert set(CONTEXT_LIMITS) == set(CHAT_MODEL_CATALOG), (
+    "CONTEXT_LIMITS and CHAT_MODEL_CATALOG must have identical provider keys"
+)
+
 
 @dataclass(frozen=True, slots=True)
 class ChatModelCatalogEntry:
@@ -45,11 +63,17 @@ class ChatModelCatalogEntry:
     provider: str
     models: tuple[str, ...]
     default: str
+    context_limit: int
 
 
 def chat_model_catalog() -> tuple[ChatModelCatalogEntry, ...]:
     return tuple(
-        ChatModelCatalogEntry(provider=p, models=models, default=DEFAULT_CHAT_MODELS[p])
+        ChatModelCatalogEntry(
+            provider=p,
+            models=models,
+            default=DEFAULT_CHAT_MODELS[p],
+            context_limit=CONTEXT_LIMITS[p],
+        )
         for p, models in CHAT_MODEL_CATALOG.items()
     )
 
@@ -62,6 +86,18 @@ class PromptStrategy(str, enum.Enum):
 class ContextMode(str, enum.Enum):
     GENERAL = "general"
     COMPACT = "compact"
+
+
+class AgentEffort(str, enum.Enum):
+    """Cross-provider reasoning-effort level. The common subset all three
+    providers accept; mapped per-provider at the adapter boundary
+    (Claude ``output_config.effort`` / OpenAI ``reasoning_effort`` /
+    Gemini ``thinkingConfig.thinkingLevel``). ``None`` on an agent means the
+    parameter is not sent and the provider's own default applies."""
+
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
 
 
 class McpSource(str, enum.Enum):
@@ -97,6 +133,7 @@ class Agent:
     name: str
     model_hint: AgentModelHint
     model_id: str | None
+    effort: AgentEffort | None
     key_group_id: uuid.UUID
     system_prompt: str
     prompt_strategy: PromptStrategy
@@ -184,6 +221,7 @@ class AgentDraft:
     name: str | None = None
     model_hint: AgentModelHint | None = None
     model_id: str | None = None
+    effort: AgentEffort | None = None
     key_group_id: uuid.UUID | None = None
     system_prompt: str | None = None
     prompt_strategy: PromptStrategy | None = None
@@ -198,6 +236,7 @@ class AgentDraft:
     # cannot tell "omitted" from "null" via `None` alone, so the service
     # drives this via explicit booleans set by the router.
     clear_model_id: bool = False
+    clear_effort: bool = False
     clear_rag_config: bool = False
     clear_graphrag_config: bool = False
     clear_context_token_cap: bool = False
@@ -205,9 +244,11 @@ class AgentDraft:
 
 __all__ = [
     "CHAT_MODEL_CATALOG",
+    "CONTEXT_LIMITS",
     "DEFAULT_CHAT_MODELS",
     "Agent",
     "AgentDraft",
+    "AgentEffort",
     "AgentModelHint",
     "AgentTool",
     "AgentToolType",

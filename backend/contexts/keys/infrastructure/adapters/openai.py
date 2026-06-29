@@ -96,6 +96,10 @@ def _chat_body(request: ProviderRequest, *, stream: bool) -> dict[str, Any]:
         body["max_tokens"] = payload["max_tokens"]
     if payload.get("temperature") is not None:
         body["temperature"] = payload["temperature"]
+    # Cross-provider effort -> Chat Completions reasoning_effort (reasoning
+    # models only; a non-reasoning model rejects it, surfaced as a normal error).
+    if payload.get("effort"):
+        body["reasoning_effort"] = payload["effort"]
     tools = _tools(payload)
     if tools:
         body["tools"] = tools

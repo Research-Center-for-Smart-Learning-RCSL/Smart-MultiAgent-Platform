@@ -34,6 +34,11 @@ agents = sa.Table(
         nullable=False,
     ),
     sa.Column("model_id", sa.Text, nullable=True),
+    sa.Column(
+        "effort",
+        pg.ENUM("low", "medium", "high", name="agent_effort", create_type=False),
+        nullable=True,
+    ),
     sa.Column("system_prompt", sa.Text, nullable=False, server_default=sa.text("''")),
     sa.Column(
         "prompt_strategy",

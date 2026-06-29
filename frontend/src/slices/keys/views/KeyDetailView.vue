@@ -112,9 +112,7 @@ async function onDelete() {
   deleting.value = true
   try {
     await remove(keyId.value)
-    if (!error.value) {
-      await router.replace({ name: 'keys.list' })
-    }
+    await router.replace({ name: 'keys.list' })
   } catch {
     toast.error(t('keys.detail.deleteFailed'))
   } finally {

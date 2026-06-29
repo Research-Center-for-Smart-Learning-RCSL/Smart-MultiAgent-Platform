@@ -440,8 +440,15 @@ const columns = computed<Column[]>(() => [
           required
         >
           <SSelect
+            v-if="embedModelOptions.length > 0"
             v-model="embedModel"
             :options="embedModelOptions"
+            :placeholder="t('agents.ragForm.embedModelPlaceholder')"
+            :error="!!errors.embed_model"
+          />
+          <SInput
+            v-else
+            v-model="embedModel"
             :placeholder="t('agents.ragForm.embedModelPlaceholder')"
             :error="!!errors.embed_model"
           />

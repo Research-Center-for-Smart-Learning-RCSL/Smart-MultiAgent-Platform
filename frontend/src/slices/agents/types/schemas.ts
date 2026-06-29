@@ -20,6 +20,11 @@ export const agentCreateSchema = z.object({
     emptyToNull,
     z.string().trim().max(200).nullable().default(null),
   ),
+  // Cross-provider reasoning effort. null = provider default (param not sent).
+  effort: z.preprocess(
+    emptyToNull,
+    z.enum(['low', 'medium', 'high']).nullable().default(null),
+  ),
   key_group_id: z.string().uuid(),
   system_prompt: z.string().max(100_000).default(''),
   prompt_strategy: z.enum(['full', 'lazy']).default('full'),

@@ -23,6 +23,7 @@ from app.api.v1.deps import PaginationParams
 from contexts.agents.application.agent_service import AgentService
 from contexts.agents.domain.models import (
     AgentDraft,
+    AgentEffort,
     AgentModelHint,
     ContextMode,
     PromptStrategy,
@@ -57,6 +58,7 @@ class AgentCreateIn(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     model_hint: Literal["claude", "openai", "gemini"]
     model_id: str | None = Field(default=None, max_length=200)
+    effort: Literal["low", "medium", "high"] | None = None
     key_group_id: uuid.UUID
 
     @field_validator("model_id", mode="before")
@@ -87,6 +89,7 @@ class AgentPatchIn(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=200)
     model_hint: Literal["claude", "openai", "gemini"] | None = None
     model_id: str | None = Field(default=None, max_length=200)
+    effort: Literal["low", "medium", "high"] | None = None
     key_group_id: uuid.UUID | None = None
 
     @field_validator("model_id", mode="before")
@@ -116,6 +119,7 @@ class AgentOut(BaseModel):
     name: str
     model_hint: str
     model_id: str | None
+    effort: str | None
     key_group_id: uuid.UUID
     system_prompt: str
     prompt_strategy: str
@@ -138,6 +142,7 @@ def _to_agent_out(a) -> AgentOut:
         name=a.name,
         model_hint=a.model_hint.value,
         model_id=a.model_id,
+        effort=a.effort.value if a.effort else None,
         key_group_id=a.key_group_id,
         system_prompt=a.system_prompt,
         prompt_strategy=a.prompt_strategy.value,
@@ -206,6 +211,7 @@ async def create_agent(
         name=body.name,
         model_hint=AgentModelHint(body.model_hint),
         model_id=body.model_id,
+        effort=AgentEffort(body.effort) if body.effort else None,
         key_group_id=body.key_group_id,
         system_prompt=body.system_prompt,
         prompt_strategy=PromptStrategy(body.prompt_strategy),
@@ -300,6 +306,7 @@ async def patch_agent(
         name=fields.get("name"),
         model_hint=AgentModelHint(fields["model_hint"]) if "model_hint" in fields else None,
         model_id=fields.get("model_id"),
+        effort=AgentEffort(fields["effort"]) if fields.get("effort") else None,
         key_group_id=fields.get("key_group_id"),
         system_prompt=fields.get("system_prompt"),
         prompt_strategy=(PromptStrategy(fields["prompt_strategy"]) if "prompt_strategy" in fields else None),
@@ -312,6 +319,7 @@ async def patch_agent(
         workflow_capabilities=fields.get("workflow_capabilities"),
         # Distinguish "explicit null" from "omitted".
         clear_model_id="model_id" in fields and fields["model_id"] is None,
+        clear_effort="effort" in fields and fields["effort"] is None,
         clear_rag_config="rag_config_id" in fields and fields["rag_config_id"] is None,
         clear_graphrag_config=("graphrag_config_id" in fields and fields["graphrag_config_id"] is None),
         clear_context_token_cap=("context_token_cap" in fields and fields["context_token_cap"] is None),

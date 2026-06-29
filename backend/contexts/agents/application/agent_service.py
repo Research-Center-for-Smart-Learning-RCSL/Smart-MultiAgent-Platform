@@ -204,9 +204,7 @@ class AgentService:
         if group is None or group.project_id != project_id:
             raise KeyGroupOutOfProject(f"key_group {key_group_id} is not in project {project_id}")
 
-    async def _assert_key_group_has_provider(
-        self, *, key_group_id: uuid.UUID, model_hint: str
-    ) -> None:
+    async def _assert_key_group_has_provider(self, *, key_group_id: uuid.UUID, model_hint: str) -> None:
         if not await self._keys.has_carried_provider_in_group(key_group_id, model_hint):
             raise KeyGroupNoMatchingProvider(
                 f"key_group {key_group_id} has no carried keys for provider {model_hint!r}"
@@ -284,6 +282,7 @@ class AgentService:
             name=draft.name.strip(),
             model_hint=draft.model_hint,
             model_id=draft.model_id,
+            effort=draft.effort,
             key_group_id=draft.key_group_id,
             system_prompt=draft.system_prompt or "",
             prompt_strategy=draft.prompt_strategy or PromptStrategy.FULL,
@@ -389,6 +388,10 @@ class AgentService:
             values["model_id"] = None
         elif draft.model_id is not None:
             values["model_id"] = draft.model_id
+        if draft.clear_effort:
+            values["effort"] = None
+        elif draft.effort is not None:
+            values["effort"] = draft.effort.value
         if draft.key_group_id is not None:
             values["key_group_id"] = draft.key_group_id
         if draft.system_prompt is not None:
@@ -741,9 +744,7 @@ class AgentService:
 
         host, allowed = await function_egress_allowed(self._db, project_id=agent.project_id, url=url)
         if not allowed:
-            return ToolProbeResult(
-                ok=False, error=f"host {host} is not on the project egress allowlist"
-            )
+            return ToolProbeResult(ok=False, error=f"host {host} is not on the project egress allowlist")
 
         auth, unsealable = resolve_tool_auth(tool)
         if unsealable:

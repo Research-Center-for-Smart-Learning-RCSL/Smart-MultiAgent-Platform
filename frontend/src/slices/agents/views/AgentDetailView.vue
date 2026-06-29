@@ -189,6 +189,7 @@ const { handleSubmit, errors, defineField, resetForm, setErrors, meta } =
       name: '',
       model_hint: 'claude',
       model_id: null,
+      effort: null,
       key_group_id: '',
       system_prompt: '',
       prompt_strategy: 'full',
@@ -203,6 +204,7 @@ const { handleSubmit, errors, defineField, resetForm, setErrors, meta } =
 const [name] = defineField('name')
 const [modelHint] = defineField('model_hint')
 const [modelId] = defineField('model_id')
+const [effort] = defineField('effort')
 const [keyGroupId] = defineField('key_group_id')
 const [systemPrompt] = defineField('system_prompt')
 const [promptStrategy] = defineField('prompt_strategy')
@@ -228,7 +230,12 @@ const defaultModelForHint = computed(
     modelCatalogQuery.data.value?.chat.find((c) => c.provider === modelHint.value)?.default ?? '',
 )
 const isCustomModel = computed(
-  () => customModel.value || (!!modelId.value && !chatModelsForHint.value.includes(modelId.value)),
+  () =>
+    customModel.value ||
+    // Only treat a saved model_id as "custom" once the catalog has loaded;
+    // while the catalog is in-flight chatModelsForHint = [] and every preset
+    // model_id would incorrectly appear custom, causing a flicker.
+    (!!modelCatalogQuery.data.value && !!modelId.value && !chatModelsForHint.value.includes(modelId.value)),
 )
 const modelSelectValue = computed<string>({
   get: () => (isCustomModel.value ? CUSTOM_MODEL : (modelId.value ?? '')),
@@ -257,6 +264,14 @@ const modelIdOptions = computed(() => [
   },
   ...chatModelsForHint.value.map((m) => ({ value: m, label: m })),
   { value: CUSTOM_MODEL, label: t('agents.form.modelCustom') },
+])
+
+// Reasoning effort: empty = provider default (stored as null via schema preprocess).
+const effortOptions = computed(() => [
+  { value: '', label: t('agents.form.effortDefault') },
+  { value: 'low', label: t('agents.form.effortLevels.low') },
+  { value: 'medium', label: t('agents.form.effortLevels.medium') },
+  { value: 'high', label: t('agents.form.effortLevels.high') },
 ])
 
 // Wakeup config decomposed fields. New agents default to replying to every
@@ -309,6 +324,7 @@ watch(
         name: agent.name,
         model_hint: agent.model_hint as AgentCreateInput['model_hint'],
         model_id: agent.model_id ?? null,
+        effort: (agent.effort ?? null) as AgentCreateInput['effort'],
         key_group_id: agent.key_group_id,
         system_prompt: agent.system_prompt,
         prompt_strategy: agent.prompt_strategy as AgentCreateInput['prompt_strategy'],
@@ -403,14 +419,18 @@ watch(contextMode, (mode) => {
   if (mode === 'general') contextTokenCap.value = null
 })
 
-const CONTEXT_LIMITS: Record<string, number> = {
-  claude: 200_000,
-  openai: 128_000,
-  gemini: 1_000_000,
-}
+// When the user changes provider, the previous model_id is invalid for the new
+// provider — clear it so a stale cross-provider ID never reaches the save payload.
+watch(modelHint, () => {
+  modelId.value = null
+  customModel.value = false
+})
 
 const contextTokenCapPlaceholder = computed(() => {
-  const defaultCap = Math.floor((CONTEXT_LIMITS[modelHint.value] ?? 128_000) * 0.75)
+  const contextLimit =
+    modelCatalogQuery.data.value?.chat.find((c) => c.provider === modelHint.value)?.context_limit ??
+    128_000
+  const defaultCap = Math.floor(contextLimit * 0.75)
   return t('agents.form.contextTokenCapDefault', { cap: defaultCap.toLocaleString() })
 })
 
@@ -747,6 +767,19 @@ const graphragStatusText = computed(() => {
                 />
               </SFormField>
             </div>
+
+            <SFormField
+              :label="t('agents.form.effort')"
+              name="effort"
+              :error="errors.effort"
+              :help="t('agents.form.effortHelp')"
+              class="mt-4"
+            >
+              <SSelect
+                v-model="effort"
+                :options="effortOptions"
+              />
+            </SFormField>
 
             <SFormField
               :label="t('agents.form.keyGroup')"
