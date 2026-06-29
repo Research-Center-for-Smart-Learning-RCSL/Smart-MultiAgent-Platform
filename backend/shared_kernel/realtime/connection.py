@@ -269,10 +269,13 @@ async def connection_loop(
                 return
             # API-7: refuse oversized frames before parsing. A well-behaved
             # client never approaches this; an abusive one gets the socket torn
-            # down rather than a free pass to the JSON parser. Char count is a
-            # cheap lower bound on byte count (UTF-8 is >=1 byte/char), so the
-            # encode only runs for frames that are already near the cap.
-            if len(raw) > _MAX_FRAME_BYTES or len(raw.encode("utf-8")) > _MAX_FRAME_BYTES:
+            # down rather than a free pass to the JSON parser. Char count bounds
+            # byte count (UTF-8 is 1-4 bytes/char): len > cap is always too big,
+            # len*4 <= cap is always small enough, so only the band between the
+            # two needs the actual encode — control frames skip it entirely.
+            if len(raw) > _MAX_FRAME_BYTES or (
+                len(raw) * 4 > _MAX_FRAME_BYTES and len(raw.encode("utf-8")) > _MAX_FRAME_BYTES
+            ):
                 logger.bind(
                     event="ws_frame_too_large",
                     connection_id=str(conn.connection_id),

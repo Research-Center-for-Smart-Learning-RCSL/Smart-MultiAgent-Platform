@@ -36,7 +36,7 @@ const tone = computed(() => {
     :class="tone"
     role="status"
     aria-live="polite"
-    :aria-label="t('app.charCount.label', { current, max })"
+    :aria-label="t('app.charCount.label', { current: n(current), max: n(max) })"
   >
     {{ `${n(current)} / ${n(max)}` }}
   </p>

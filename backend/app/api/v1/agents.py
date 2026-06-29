@@ -387,8 +387,8 @@ class AgentToolCreateIn(BaseModel):
     model_config = {"extra": "forbid"}
     tool_type: Literal["hosted_mcp", "local_function"]
     display_name: str | None = Field(default=None, max_length=_MAX_DISPLAY_NAME)
-    config: dict[str, Any] = Field(default_factory=dict)
-    auth: dict[str, Any] | None = None
+    config: BoundedConfig = Field(default_factory=dict)
+    auth: BoundedConfig | None = None
 
     @field_validator("config")
     @classmethod
@@ -409,8 +409,8 @@ class AgentToolPatchIn(BaseModel):
     model_config = {"extra": "forbid"}
     enabled: bool | None = None
     display_name: str | None = Field(default=None, max_length=_MAX_DISPLAY_NAME)
-    config: dict[str, Any] | None = None
-    auth: dict[str, Any] | None = None
+    config: BoundedConfig | None = None
+    auth: BoundedConfig | None = None
     # Explicitly remove a stored credential (auth=None is "unchanged", not "clear").
     clear_auth: bool = False
 
@@ -670,9 +670,7 @@ async def test_agent_tool(
     if tool is None:
         raise HTTPException(status_code=404, detail="tool not found")
     if tool.tool_type not in (AgentToolType.HOSTED_MCP, AgentToolType.LOCAL_FUNCTION):
-        raise HTTPException(
-            status_code=422, detail="only hosted_mcp and local_function tools can be tested"
-        )
+        raise HTTPException(status_code=422, detail="only hosted_mcp and local_function tools can be tested")
 
     result = await service.probe_tool(
         agent=agent,
