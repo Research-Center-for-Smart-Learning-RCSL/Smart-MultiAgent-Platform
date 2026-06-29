@@ -17,7 +17,8 @@ sanitised HTML per R13.14) and ensures anything persisted is safe.
 
 from __future__ import annotations
 
-import bleach
+from bleach.html5lib_shim import Filter
+from bleach.sanitizer import Cleaner
 from markdown_it import MarkdownIt
 
 from shared_kernel.observability.metrics import MESSAGE_SANITIZE_REJECTIONS
@@ -76,6 +77,33 @@ _ALLOWED_ATTRS: dict[str, list[str]] = {
 _ALLOWED_PROTOCOLS: list[str] = ["http", "https", "mailto"]
 
 
+class _ForceRelNoopenerFilter(Filter):
+    """Force ``rel="noopener noreferrer"`` on any anchor that sets ``target``.
+
+    Runs after the bleach sanitizer (so the injected ``rel`` is not re-stripped)
+    and closes the reverse-tabnabbing gap for ``target="_blank"`` links carried
+    in supplied fragments — the opened page can no longer reach ``window.opener``.
+    """
+
+    def __iter__(self):  # type: ignore[no-untyped-def]
+        for token in super().__iter__():
+            if token.get("name") == "a" and token.get("type") in ("StartTag", "EmptyTag"):
+                data = token.get("data")
+                if data and any(name == "target" for (_ns, name) in data):
+                    data[(None, "rel")] = "noopener noreferrer"
+            yield token
+
+
+_cleaner = Cleaner(
+    tags=list(_ALLOWED_TAGS),
+    attributes=_ALLOWED_ATTRS,
+    protocols=_ALLOWED_PROTOCOLS,
+    strip=True,
+    strip_comments=True,
+    filters=[_ForceRelNoopenerFilter],
+)
+
+
 _md = MarkdownIt("commonmark", {"html": True, "breaks": False, "linkify": True})
 _md.enable("table")
 
@@ -95,14 +123,7 @@ def sanitize_html(raw_html: str) -> str:
     pass gave false confidence: it never handled unquoted `style` values and
     duplicated a control bleach already enforces unconditionally.
     """
-    cleaned = bleach.clean(
-        raw_html,
-        tags=list(_ALLOWED_TAGS),
-        attributes=_ALLOWED_ATTRS,
-        protocols=_ALLOWED_PROTOCOLS,
-        strip=True,
-        strip_comments=True,
-    )
+    cleaned = _cleaner.clean(raw_html)
     # bleach.linkify is intentionally NOT called — we let markdown-it's
     # linkify pass handle that server-side so the output is deterministic
     # across the two entry points (render_safe_html + sanitize_html).
