@@ -541,6 +541,10 @@ def build_agent_tools(
     Dispatches by ``tool_type``; disabled rows and ``local_shell`` are skipped.
     """
     out: list[Tool] = []
+    # User LOCAL_FUNCTION tools are collected separately and appended LAST, so the
+    # registry's first-registration-wins backstop always keeps a built-in over a
+    # same-named user function even if the reserved-name guard ever drifts.
+    functions: list[Tool] = []
     for t in tools:
         if not t.enabled:
             continue
@@ -573,10 +577,10 @@ def build_agent_tools(
                         )
                     )
             case AgentToolType.LOCAL_FUNCTION:
-                out.append(_build_function_tool(db, agent=agent, tool=t, deps=deps))
+                functions.append(_build_function_tool(db, agent=agent, tool=t, deps=deps))
             case AgentToolType.LOCAL_SHELL:
                 continue
-    return out
+    return out + functions
 
 
 __all__ = [

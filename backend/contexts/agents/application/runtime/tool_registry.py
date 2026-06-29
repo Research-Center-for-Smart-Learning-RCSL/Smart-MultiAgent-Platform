@@ -29,6 +29,24 @@ from contexts.agents.application.prompt_loader import (
 
 ToolInvoke = Callable[[dict[str, Any]], Awaitable["ToolResult"]]
 
+# Canonical set of built-in / runtime tool names a user LOCAL_FUNCTION must not
+# shadow. Single source of truth: agent_service derives its reserved-name guard
+# from this, and a drift test (test_builtin_tools_wiring) asserts every hosted
+# built-in tool actually built carries a name listed here — so adding a new
+# built-in without reserving it fails CI rather than silently allowing a user
+# function to shadow it. MCP tools occupy the separate `mcp__` prefix.
+BUILTIN_TOOL_NAMES: frozenset[str] = frozenset(
+    {
+        "update_wakeup",
+        "load_prompt_section",
+        "cast_approval_vote",
+        "web_search",
+        "code_exec",
+        "file",
+        "file_search",
+    }
+)
+
 
 @dataclass(frozen=True, slots=True)
 class ToolResult:
@@ -257,6 +275,7 @@ def _opt_int(value: Any) -> int | None:
 
 
 __all__ = [
+    "BUILTIN_TOOL_NAMES",
     "Tool",
     "ToolRegistry",
     "ToolResult",

@@ -152,6 +152,18 @@ class ApprovalService:
             # opaque approval_id and cannot make an informed decision.
             "question": config.question,
         }
+        # Arm the timeout FIRST. It is the gate's liveness backstop (in
+        # MAJORITY/CONSENSUS a single silent approver otherwise parks the run
+        # forever) and is NOT best-effort — if it cannot be armed, fail gate
+        # creation so the caller rolls back. Doing it before the approver jobs
+        # means a failed arm leaves no orphaned drive_approver_turn jobs behind
+        # (those are non-transactional and would otherwise survive the rollback).
+        await enqueue(
+            "approval_timeout",
+            str(approval_id),
+            str(chatroom_id) if chatroom_id else None,
+            _defer_by=timedelta(seconds=config.timeout_seconds),
+        )
         for approver in config.approvers:
             try:
                 await pending_notify.push(approver, dict(note))
@@ -177,16 +189,6 @@ class ApprovalService:
                     approver,
                     exc_info=True,
                 )
-        # The timeout job is the gate's liveness backstop: in MAJORITY/CONSENSUS
-        # a single silent approver otherwise parks the run forever. It is NOT
-        # best-effort — if it cannot be armed, fail gate creation so the caller
-        # rolls back rather than creating a gate that may never resolve.
-        await enqueue(
-            "approval_timeout",
-            str(approval_id),
-            str(chatroom_id) if chatroom_id else None,
-            _defer_by=timedelta(seconds=config.timeout_seconds),
-        )
 
     # ------------------------------------------------------------------
     # Cast vote

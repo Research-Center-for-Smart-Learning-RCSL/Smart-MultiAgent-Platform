@@ -118,6 +118,38 @@ def test_assembles_singletons_plus_mcp_tools() -> None:
     assert any(n.endswith("__alpha") for n in mcp_names)
 
 
+def test_hosted_builtin_names_are_all_reserved() -> None:
+    # Drift guard: every hosted built-in tool actually built must carry a name in
+    # the canonical reserved set, so a new built-in cannot be shadowed by a user
+    # function that the reserved-name validation forgot to block.
+    from contexts.agents.application.runtime.tool_registry import BUILTIN_TOOL_NAMES
+
+    tools = bt.build_agent_tools(
+        AsyncMock(),
+        agent=_agent(),
+        tools=_singletons(web_search=True, code_exec=True, file=True, file_search=True),
+        deps=_deps(),
+    )
+    hosted = [t.name for t in tools if not t.name.startswith("mcp__")]
+    assert hosted, "expected hosted built-in tools to be built"
+    for name in hosted:
+        assert name in BUILTIN_TOOL_NAMES, f"built-in {name!r} not in BUILTIN_TOOL_NAMES (drift)"
+
+
+def test_user_functions_are_appended_after_builtins() -> None:
+    # First-registration-wins in ToolRegistry must always keep a built-in over a
+    # same-named user function, so functions are assembled last regardless of row order.
+    tools = bt.build_agent_tools(
+        AsyncMock(),
+        agent=_agent(),
+        tools=[_function("aaa_user"), *_singletons()],
+        deps=_deps(),
+    )
+    names = [t.name for t in tools]
+    assert names[-1] == "aaa_user"
+    assert "web_search" in names[:-1]
+
+
 def test_only_enabled_singletons_yield_tools() -> None:
     tools = bt.build_agent_tools(AsyncMock(), agent=_agent(), tools=_singletons(), deps=_deps())
     assert {t.name for t in tools} == {"web_search", "code_exec", "file"}

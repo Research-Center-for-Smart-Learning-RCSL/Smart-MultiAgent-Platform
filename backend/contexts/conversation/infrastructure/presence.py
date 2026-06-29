@@ -83,10 +83,13 @@ class PresenceTracker:
         ck = _conns_key(room_id, user_id)
         size = await r.eval(_JOIN_LUA, 1, ck, str(connection_id), str(_CONN_TTL_SECONDS))
         first = int(size) == 1
-        await r.sadd(_room_key(room_id), str(user_id))
-        await r.sadd(_user_rooms_key(user_id), str(room_id))
-        await r.expire(_room_key(room_id), _SET_TTL_SECONDS)
-        await r.expire(_user_rooms_key(user_id), _SET_TTL_SECONDS)
+        # Independent roster/back-reference writes — pipeline to one round trip.
+        pipe = r.pipeline(transaction=False)
+        pipe.sadd(_room_key(room_id), str(user_id))
+        pipe.sadd(_user_rooms_key(user_id), str(room_id))
+        pipe.expire(_room_key(room_id), _SET_TTL_SECONDS)
+        pipe.expire(_user_rooms_key(user_id), _SET_TTL_SECONDS)
+        await pipe.execute()
         return first
 
     async def heartbeat(
@@ -100,11 +103,14 @@ class PresenceTracker:
         every inbound WS frame so presence never lapses under a live socket."""
         r = get_redis()
         ck = _conns_key(room_id, user_id)
-        # Re-assert membership in case the SET lapsed between frames.
-        await r.sadd(ck, str(connection_id))
-        await r.expire(ck, _CONN_TTL_SECONDS)
-        await r.expire(_room_key(room_id), _SET_TTL_SECONDS)
-        await r.expire(_user_rooms_key(user_id), _SET_TTL_SECONDS)
+        # Re-assert membership in case the SET lapsed between frames. Runs on
+        # every inbound frame, so pipeline the independent writes to one RTT.
+        pipe = r.pipeline(transaction=False)
+        pipe.sadd(ck, str(connection_id))
+        pipe.expire(ck, _CONN_TTL_SECONDS)
+        pipe.expire(_room_key(room_id), _SET_TTL_SECONDS)
+        pipe.expire(_user_rooms_key(user_id), _SET_TTL_SECONDS)
+        await pipe.execute()
 
     async def leave(
         self,
@@ -121,8 +127,10 @@ class PresenceTracker:
         remaining = await r.eval(_LEAVE_LUA, 1, ck, str(connection_id))
         if int(remaining) > 0:
             return False
-        await r.srem(_room_key(room_id), str(user_id))
-        await r.srem(_user_rooms_key(user_id), str(room_id))
+        pipe = r.pipeline(transaction=False)
+        pipe.srem(_room_key(room_id), str(user_id))
+        pipe.srem(_user_rooms_key(user_id), str(room_id))
+        await pipe.execute()
         return True
 
     async def list_room(self, room_id: uuid.UUID) -> list[uuid.UUID]:
