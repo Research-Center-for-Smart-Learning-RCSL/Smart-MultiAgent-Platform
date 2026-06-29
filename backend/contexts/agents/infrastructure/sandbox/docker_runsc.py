@@ -403,6 +403,25 @@ class DockerRunscSandbox:
         with contextlib.suppress(Exception):
             await asyncio.to_thread(container.remove, force=True)
 
+    async def _create_verified(self, client: Any, **create_kwargs: Any) -> Any:
+        """Create the sandbox container, confirm it is on gVisor, and return it
+        still in the CREATED state for the caller to ``start``.
+
+        Asserting the runtime BEFORE the workload starts closes the window where
+        untrusted code could execute on a non-runsc runtime. The daemon already
+        rejects an *unknown* runtime at create time (so a missing gVisor never
+        runs anything), but this is defense in depth against a silent runtime
+        substitution and against the previous order, where some paths started
+        the container and only then verified the runtime.
+        """
+        container = await asyncio.to_thread(client.containers.create, **create_kwargs)
+        try:
+            await self._assert_runsc(container)
+        except Exception:
+            await self._remove_quietly(container)
+            raise
+        return container
+
     async def probe(
         self,
         *,
@@ -467,18 +486,17 @@ class DockerRunscSandbox:
                 "SMAP_MCP_AUTH_JSON": json.dumps(auth or {}),
                 **self._egress_env(project_id),
             }
-            container = await asyncio.to_thread(
-                client.containers.run,
+            container = await self._create_verified(
+                client,
                 image=self.mcp_image,
                 command=["probe"],
                 environment=env,
                 user=_SANDBOX_UID,
                 tmpfs=_sandbox_tmpfs(),
-                detach=True,
                 **host_config,
             )
             try:
-                await self._assert_runsc(container)
+                await asyncio.to_thread(container.start)
                 try:
                     exit_status = await asyncio.to_thread(container.wait, timeout=timeout_s)
                 except Exception as exc:
@@ -530,18 +548,17 @@ class DockerRunscSandbox:
                 **self._egress_env(project_id),
             }
             start = time.monotonic()
-            container = await asyncio.to_thread(
-                client.containers.run,
+            container = await self._create_verified(
+                client,
                 image=self.mcp_image,
                 command=["invoke"],
                 environment=env,
                 user=_SANDBOX_UID,
                 tmpfs=_sandbox_tmpfs(),
-                detach=True,
                 **host_config,
             )
             try:
-                await self._assert_runsc(container)
+                await asyncio.to_thread(container.start)
                 try:
                     exit_status = await asyncio.to_thread(container.wait, timeout=timeout_s)
                 except Exception as exc:
@@ -596,8 +613,8 @@ class DockerRunscSandbox:
                     raise ValueError("write requires data bytes")
                 stage_name = f".smap-stage-{uuid.uuid4().hex}"
                 env["SMAP_FILE_STAGING"] = f"/workspace/{stage_name}"
-                container = await asyncio.to_thread(
-                    client.containers.create,
+                container = await self._create_verified(
+                    client,
                     image=self.mcp_image,
                     command=["file"],
                     environment=env,
@@ -612,17 +629,20 @@ class DockerRunscSandbox:
                     await self._remove_quietly(container)
                     raise
             else:
-                container = await asyncio.to_thread(
-                    client.containers.run,
+                container = await self._create_verified(
+                    client,
                     image=self.mcp_image,
                     command=["file"],
                     environment=env,
                     user=_SANDBOX_UID,
-                    detach=True,
                     **host_config,
                 )
+                try:
+                    await asyncio.to_thread(container.start)
+                except Exception:
+                    await self._remove_quietly(container)
+                    raise
             try:
-                await self._assert_runsc(container)
                 try:
                     exit_status = await asyncio.to_thread(container.wait, timeout=timeout_s)
                 except Exception as exc:
@@ -685,18 +705,17 @@ class DockerRunscSandbox:
                 env["SMAP_CODE_EXEC_STDIN"] = stdin
                 command = ["python", "-c", _STDIN_SHIM, source]
             start = time.monotonic()
-            container = await asyncio.to_thread(
-                client.containers.run,
+            container = await self._create_verified(
+                client,
                 image=self.code_exec_image,
                 command=command,
                 environment=env,
                 user=_SANDBOX_UID,
                 tmpfs=_sandbox_tmpfs(),
-                detach=True,
                 **host_config,
             )
             try:
-                await self._assert_runsc(container)
+                await asyncio.to_thread(container.start)
                 try:
                     exit_status = await asyncio.to_thread(container.wait, timeout=min(timeout_s, 30.0))
                 except Exception as exc:
@@ -791,7 +810,15 @@ class DockerRunscSandbox:
     def _kernel_exec_call(
         self, client: Any, container_id: str, source: str, stdin: str, timeout_s: float
     ) -> tuple[int, bytes, bytes]:
-        """Blocking exec of the messenger into a live kernel (runs in a thread)."""
+        """Blocking exec of the messenger into a live kernel (runs in a thread).
+
+        The thread is bounded by the caller, not by a client read timeout: the
+        Docker SDK's ``exec_run`` reads the exec output over a hijacked stream
+        that ignores the client ``timeout`` (verified empirically — a bounded
+        client did NOT interrupt a long exec). The real bound is the enclosing
+        ``asyncio.wait_for`` firing at ``budget + 5s`` and ``_reset_kernel``
+        force-removing the container, which unblocks this exec within ~0.2s.
+        """
         container = _get_container_quietly(client, container_id)
         if container is None or not _is_running(container):
             raise _KernelGone(container_id)
@@ -892,19 +919,18 @@ class DockerRunscSandbox:
             _KERNEL_LABEL: "1",
             "smap.kernel.session": _session_key(agent_id, chatroom_id),
         }
-        container = await asyncio.to_thread(
-            client.containers.run,
+        container = await self._create_verified(
+            client,
             image=self.code_exec_image,
             command=["python", "/opt/kernel/kernel.py"],
             environment={"SMAP_AGENT_ID": str(agent_id), "SMAP_KERNEL_ROOM": str(chatroom_id)},
             user=_SANDBOX_UID,
             tmpfs={"/tmp": f"size={_TMP_TMPFS_BYTES}"},  # noqa: S108 — in-container tmpfs
-            detach=True,
             name=name,
             **host_config,
         )
         try:
-            await self._assert_runsc(container)
+            await asyncio.to_thread(container.start)
         except Exception:
             await self._remove_quietly(container)
             raise
