@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { RouterLink } from 'vue-router'
 import BrandLogo from '@app/components/BrandLogo.vue'
 </script>
 
@@ -6,7 +7,9 @@ import BrandLogo from '@app/components/BrandLogo.vue'
   <div class="auth-layout">
     <div class="auth-layout__wrapper">
       <div class="auth-layout__logo">
-        <BrandLogo size="lg" />
+        <RouterLink to="/" class="auth-layout__logo-link">
+          <BrandLogo size="lg" />
+        </RouterLink>
       </div>
       <slot />
     </div>
@@ -26,6 +29,12 @@ import BrandLogo from '@app/components/BrandLogo.vue'
 .auth-layout__wrapper {
   width: 100%;
   max-width: 420px;
+}
+
+.auth-layout__logo-link {
+  display: inline-flex;
+  border-radius: 4px;
+  outline-offset: 4px;
 }
 
 .auth-layout__logo {
