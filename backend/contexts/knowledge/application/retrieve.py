@@ -31,8 +31,6 @@ import uuid
 from dataclasses import dataclass
 from typing import Any
 
-_log = logging.getLogger(__name__)
-
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.knowledge.application.ports import Embedder, Reranker
@@ -44,6 +42,8 @@ from contexts.knowledge.infrastructure.repositories import (
     RagConfigRepository,
     RagDocumentRepository,
 )
+
+_log = logging.getLogger(__name__)
 
 __all__ = ["RetrievedChunk", "RetrieveService"]
 
@@ -87,7 +87,15 @@ class RetrieveService:
         agent_id: uuid.UUID | None = None,
         top_k: int | None = None,
         rerank: bool | None = None,
+        allow_unrestricted: bool = False,
     ) -> list[RetrievedChunk]:
+        # R10.11: the per-document agent allowlist is only applied when an
+        # agent_id is given. Omitting it silently widens retrieval to every
+        # retrievable document in the config, so require an explicit opt-in
+        # (`allow_unrestricted`, for admin/test entry points) rather than letting
+        # a caller that forgets agent_id quietly bypass the allowlist.
+        if agent_id is None and not allow_unrestricted:
+            raise ValueError("retrieval requires agent_id (or allow_unrestricted=True for admin use)")
         cfg = await self._load_config(config_id)
         effective_top_k = top_k or cfg.top_k or 8
         do_rerank = cfg.rerank_enabled if rerank is None else rerank
@@ -170,7 +178,11 @@ class RetrieveService:
                         "reranker returned out-of-bounds index %d (candidates=%d) — dropped",
                         r.index, len(candidates),
                     )
-            return reranked
+            # Do not trust the provider's ordering — sort by descending score so
+            # the injected context is genuinely ranked even if a reranker ever
+            # returns results in input order.
+            reranked.sort(key=lambda c: c.score, reverse=True)
+            return reranked[:effective_top_k]
 
         return candidates[:effective_top_k]
 

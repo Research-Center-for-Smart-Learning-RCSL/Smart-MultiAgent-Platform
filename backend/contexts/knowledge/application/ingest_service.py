@@ -41,6 +41,7 @@ import mimetypes
 import uuid
 from dataclasses import dataclass
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.knowledge.application.ports import BlobStore, Embedder
@@ -176,16 +177,27 @@ class IngestService:
             content_type=mime,
         )
 
-        doc = await self._docs.create(
-            rag_config_id=cfg.id,
-            filename=ipt.filename,
-            mime=mime,
-            size_bytes=len(ipt.data),
-            sha256=sha,
-            minio_path=minio_path,
-            uploaded_by=ipt.uploaded_by,
-            agent_ids=ipt.agent_ids,
-        )
+        try:
+            doc = await self._docs.create(
+                rag_config_id=cfg.id,
+                filename=ipt.filename,
+                mime=mime,
+                size_bytes=len(ipt.data),
+                sha256=sha,
+                minio_path=minio_path,
+                uploaded_by=ipt.uploaded_by,
+                agent_ids=ipt.agent_ids,
+            )
+        except IntegrityError:
+            # Concurrent ingest of the same (rag_config_id, sha256) won the
+            # find_by_sha -> create race. Roll back the failed insert and resolve
+            # to the winner (dedup) instead of surfacing a 500. The blob is keyed
+            # by sha, so the put above was an idempotent overwrite.
+            await self._db.rollback()
+            existing = await self._docs.find_by_sha(rag_config_id=cfg.id, sha256=sha)
+            if existing is not None:
+                return existing
+            raise
         await audit.emit(
             self._db,
             audit.AuditEvent(
@@ -385,6 +397,12 @@ class IngestService:
                 "ingestion.completed", {"document_id": str(doc.id), "chunks": len(pieces)}
             )
         except Exception as exc:  # — any failure → mark + surface
+            # Sweep any Qdrant points written by partial batches of this attempt
+            # NOW (not just on a future retry), so an abandoned document — one
+            # never re-uploaded — does not leak vectors forever. Filtered by
+            # doc_id, so it touches only this document's points.
+            with contextlib.suppress(Exception):
+                await self._qdrant.delete_document(project_id=cfg.project_id, document_id=doc.id)
             # Best-effort status flip; if this fails the enclosing transaction
             # rolls back anyway, dropping the row in the same unit of work.
             with contextlib.suppress(Exception):
