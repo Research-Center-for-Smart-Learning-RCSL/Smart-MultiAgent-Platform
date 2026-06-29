@@ -46,6 +46,10 @@ from app.config.settings import VaultSection
 
 _KV_HMAC_PATH: Final = "smap/config/hmac-key"
 _HMAC_KEY_BYTES: Final = 32
+# How long the *current* HMAC seed (used to sign new envelopes) is trusted before
+# re-reading from KV, so a long-running process picks up a rotation. Per-version
+# seeds used for verification are immutable and cached without expiry.
+_HMAC_CURRENT_TTL: Final = 300.0
 _DEK_BITS: Final = 256
 _GCM_NONCE_BYTES: Final = 12
 
@@ -66,9 +70,10 @@ class EnvelopeRecord:
     Version fields are captured at write time so D.10 (`smap-rotation rotate-transit`)
     can (a) locate rows that still reference a retired transit version and
     (b) decide whether a stored HMAC is still in the accepted grace window.
-    They are metadata only — `decrypt_envelope` does not consult them because
-    Vault self-describes the transit version in the wrap prefix and the HMAC
-    key is addressed by the row's version directly.
+    The transit version is self-described by Vault in the wrap prefix, but the
+    HMAC seed is NOT, so `decrypt_envelope` addresses it by `hmac_key_version`:
+    the seed that signed this row is fetched (and cached) for verification,
+    which is what makes an HMAC-seed rotation grace window possible.
     """
 
     ciphertext: bytes
@@ -94,8 +99,11 @@ class VaultClient:
         self._pubkey_cache: dict[int, RSAPublicKey] = {}
         self._pubkey_fetched_at: float = 0.0
         self._key_config: dict[str, Any] = {}
-        self._hmac_key: bytes | None = None
-        self._hmac_version: int = 1
+        # Per-logical-version HMAC seeds (immutable once written), plus the
+        # current version + when it was last refreshed for signing.
+        self._hmac_keys: dict[int, bytes] = {}
+        self._hmac_current_version: int = 1
+        self._hmac_current_at: float = 0.0
         self._last_login: float = 0.0
         self._login()
 
@@ -167,8 +175,9 @@ class VaultClient:
         finally:
             # Best-effort zeroization — Python does not guarantee it.
             dek = b"\x00" * len(dek)
+        version, key = self._current_hmac()
         mac = hmac.new(
-            self._load_hmac_key(),
+            key,
             ciphertext + nonce + aad,
             sha256,
         ).digest()
@@ -178,12 +187,12 @@ class VaultClient:
             dek_wrapped=wrapped,
             ciphertext_hmac=mac,
             transit_key_version=_parse_transit_version(wrapped),
-            hmac_key_version=self._hmac_version,
+            hmac_key_version=version,
         )
 
     def decrypt_envelope(self, record: EnvelopeRecord, aad: bytes) -> bytes:
         expected = hmac.new(
-            self._load_hmac_key(),
+            self._hmac_for_version(record.hmac_key_version),
             record.ciphertext + record.nonce + aad,
             sha256,
         ).digest()
@@ -203,10 +212,48 @@ class VaultClient:
         finally:
             dek = b"\x00" * len(dek)
 
-    def _load_hmac_key(self) -> bytes:
-        if self._hmac_key is not None:
-            return self._hmac_key
-        raw = self.kv_get(_KV_HMAC_PATH)
+    def _current_hmac(self) -> tuple[int, bytes]:
+        """Latest HMAC seed + its logical version, for signing new envelopes.
+
+        Re-read from KV at most every ``_HMAC_CURRENT_TTL`` so a rotation is
+        eventually picked up by a long-running process (the previous single-shot
+        cache never did, so a rotated seed was never adopted)."""
+        now = time.monotonic()
+        if self._hmac_current_at and (now - self._hmac_current_at) < _HMAC_CURRENT_TTL:
+            return self._hmac_current_version, self._hmac_keys[self._hmac_current_version]
+        version, key = self._parse_hmac_kv(self.kv_get(_KV_HMAC_PATH))
+        self._hmac_keys[version] = key
+        self._hmac_current_version = version
+        self._hmac_current_at = now
+        return version, key
+
+    def _hmac_for_version(self, version: int) -> bytes:
+        """HMAC seed for a specific logical version, to verify a stored envelope.
+
+        Per-version seeds are immutable, so cache indefinitely. A version other
+        than the current one is fetched from KV v2 history (logical version is
+        kept in lockstep with the KV v2 version by bootstrap + rotation); a
+        mismatch fails loud rather than verifying against the wrong seed.
+        """
+        cached = self._hmac_keys.get(version)
+        if cached is not None:
+            return cached
+        # Pull the current seed first — the common case (no rotation) where the
+        # requested version IS the current one, avoiding a history read.
+        cur_version, _ = self._current_hmac()
+        if version == cur_version:
+            return self._hmac_keys[version]
+        got_version, key = self._parse_hmac_kv(self.kv_get_version(_KV_HMAC_PATH, version))
+        if got_version != version:
+            raise VaultError(
+                f"HMAC KV version {version}: stored logical version is {got_version} "
+                "(KV history not in lockstep with hmac_key_version)."
+            )
+        self._hmac_keys[version] = key
+        return key
+
+    @staticmethod
+    def _parse_hmac_kv(raw: dict[str, Any]) -> tuple[int, bytes]:
         encoded = raw.get("key")
         if not encoded:
             raise VaultError(f"KV {_KV_HMAC_PATH!r} missing key `key` — run `smap.bootstrap vault-init`.")
@@ -221,9 +268,7 @@ class VaultClient:
             raise VaultError(f"KV {_KV_HMAC_PATH!r} has non-integer `version`.") from exc
         if version < 1:
             raise VaultError(f"HMAC key version must be >= 1; got {version}.")
-        self._hmac_key = key
-        self._hmac_version = version
-        return key
+        return version, key
 
     def rewrap_dek(self, wrapped: str) -> str:
         """Re-wrap an existing DEK against the current Transit version.
@@ -367,6 +412,17 @@ class VaultClient:
             self._client.secrets.kv.v2.read_secret_version,
             mount_point=self._cfg.kv_mount,
             path=path,
+            raise_on_deleted_version=True,
+        )
+        return dict(resp["data"]["data"])
+
+    def kv_get_version(self, path: str, version: int) -> dict[str, Any]:
+        """Read a specific KV v2 secret version (used for HMAC grace window)."""
+        resp = self._call(
+            self._client.secrets.kv.v2.read_secret_version,
+            mount_point=self._cfg.kv_mount,
+            path=path,
+            version=version,
             raise_on_deleted_version=True,
         )
         return dict(resp["data"]["data"])
