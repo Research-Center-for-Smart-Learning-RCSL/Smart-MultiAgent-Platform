@@ -9,6 +9,7 @@ import {
   PlusIcon,
 } from '@heroicons/vue/24/outline'
 import { useWorkspaceStore } from '@shared/stores/workspace'
+import { useSessionStore } from '@shared/stores/session'
 import { tenancyKeys, orgsApi, projectsApi, type Org, type Project } from '@slices/tenancy'
 
 defineProps<{
@@ -18,6 +19,7 @@ defineProps<{
 const { t } = useI18n()
 const router = useRouter()
 const workspace = useWorkspaceStore()
+const session = useSessionStore()
 
 const isOpen = ref(false)
 const panelRef = ref<HTMLElement | null>(null)
@@ -30,21 +32,33 @@ const orgsQuery = useQuery({
 
 const orgs = computed(() => orgsQuery.data.value ?? [])
 
-const projectsEnabled = computed(() => !!workspace.orgId)
+const projectsScope = computed(() =>
+  workspace.orgId
+    ? { scope: 'org' as const, id: workspace.orgId }
+    : { scope: 'user' as const, id: session.me?.id ?? null },
+)
+
+const projectsEnabled = computed(() => !!projectsScope.value.id)
 
 const projectsQuery = useQuery({
   queryKey: computed(() =>
-    tenancyKeys.projects('org', workspace.orgId ?? ''),
+    tenancyKeys.projects(projectsScope.value.scope, projectsScope.value.id),
   ),
   queryFn: () =>
-    projectsApi.list('org', workspace.orgId!).then((r) => r.data),
+    projectsApi
+      .list(projectsScope.value.scope, projectsScope.value.id!)
+      .then((r) => r.data),
   enabled: projectsEnabled,
 })
 
 const projects = computed(() => projectsQuery.data.value ?? [])
 
 const displayText = computed(() => {
-  if (!workspace.hasOrg) return ''
+  if (!workspace.hasOrg) {
+    return workspace.hasProject
+      ? `${t('app.switcher.personal')} / ${workspace.projectName}`
+      : t('app.switcher.personal')
+  }
   if (!workspace.hasProject) return workspace.orgName
   return `${workspace.orgName} / ${workspace.projectName}`
 })
@@ -59,6 +73,10 @@ function close() {
 
 function selectOrg(org: Org) {
   workspace.selectOrg(org.id, org.name)
+}
+
+function selectPersonal() {
+  workspace.clear()
 }
 
 function selectProject(project: Project) {
@@ -76,7 +94,7 @@ function goCreateProject() {
   router.push({
     name: 'tenancy.projectList',
     query: {
-      ...(workspace.orgId ? { scope: workspace.orgId } : {}),
+      scope: workspace.orgId ?? 'personal',
       create: '1',
     },
   })
@@ -127,7 +145,6 @@ onBeforeUnmount(() => {
       ref="triggerRef"
       class="switcher__trigger"
       :class="{
-        'switcher__trigger--empty': !workspace.hasOrg,
         'switcher__trigger--compact': compact,
       }"
       type="button"
@@ -136,7 +153,7 @@ onBeforeUnmount(() => {
       @click.stop="toggle"
     >
       <span class="switcher__text">
-        {{ workspace.hasOrg ? displayText : t('app.switcher.placeholder') }}
+        {{ displayText }}
       </span>
       <ChevronDownIcon
         class="switcher__chevron"
@@ -167,6 +184,22 @@ onBeforeUnmount(() => {
           role="listbox"
         >
           <li
+            class="switcher__item"
+            :class="{ 'switcher__item--active': !workspace.hasOrg }"
+            role="option"
+            tabindex="0"
+            :aria-selected="!workspace.hasOrg"
+            @click="selectPersonal"
+            @keydown.enter="selectPersonal"
+            @keydown.space.prevent="selectPersonal"
+          >
+            <span class="switcher__item-label">{{ t('app.switcher.personal') }}</span>
+            <CheckIcon
+              v-if="!workspace.hasOrg"
+              class="switcher__check"
+            />
+          </li>
+          <li
             v-for="org in orgs"
             :key="org.id"
             class="switcher__item"
@@ -194,8 +227,8 @@ onBeforeUnmount(() => {
           {{ t('app.switcher.createOrg') }}
         </button>
 
-        <!-- Projects section (shown when org selected) -->
-        <template v-if="workspace.hasOrg">
+        <!-- Projects section (shown for the active org or personal scope) -->
+        <template v-if="projectsEnabled">
           <div class="switcher__divider" />
           <div class="switcher__section-header">
             {{ t('app.switcher.projects') }}
@@ -280,10 +313,6 @@ onBeforeUnmount(() => {
 .switcher__trigger:focus-visible {
   outline: none;
   box-shadow: var(--focus-ring);
-}
-
-.switcher__trigger--empty {
-  color: var(--color-muted);
 }
 
 .switcher__trigger--compact {
