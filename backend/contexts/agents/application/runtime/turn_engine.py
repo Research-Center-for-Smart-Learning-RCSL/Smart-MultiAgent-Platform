@@ -483,9 +483,13 @@ class TurnEngine:
             prepared: list[tuple[str, str, bytes]] = []
             for art in artifacts:
                 rel = str(art.get("rel_path") or art.get("filename") or "")
-                if rel in seen:
-                    continue
-                seen.add(rel)
+                # Only dedup *named* artifacts. A blank key would otherwise make
+                # the first unnamed artifact poison the set so every later
+                # unnamed one (real charts/files) is silently dropped.
+                if rel:
+                    if rel in seen:
+                        continue
+                    seen.add(rel)
                 b64 = art.get("b64")
                 if not b64:
                     # Large artifact not inlined by the kernel — skipped in v1.

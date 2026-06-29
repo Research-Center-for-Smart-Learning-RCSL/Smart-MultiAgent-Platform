@@ -47,6 +47,17 @@ async def test_run_captures_stdout_stderr_and_exit() -> None:
 
 
 @pytest.mark.asyncio
+async def test_run_rejects_oversized_source() -> None:
+    from contexts.agents.application.tools.code_exec import _MAX_SOURCE_BYTES
+
+    runner = _FakeRunner(ToolCallResult(ok=True, stdout="", stderr="", exit_code=0, duration_ms=1))
+    tool = CodeExecTool(agent_id=uuid.uuid4(), runner=runner)
+    with pytest.raises(ValueError, match="too large"):
+        await tool.run("x" * (_MAX_SOURCE_BYTES + 1))
+    assert runner.calls == []  # never reached the sandbox
+
+
+@pytest.mark.asyncio
 async def test_run_non_zero_exit_returned() -> None:
     expected = ToolCallResult(
         ok=False,
