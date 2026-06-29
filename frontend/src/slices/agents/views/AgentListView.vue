@@ -10,6 +10,7 @@ import {
   TrashIcon,
   CpuChipIcon,
   EllipsisVerticalIcon,
+  ExclamationTriangleIcon,
 } from '@heroicons/vue/24/outline'
 import {
   SPageHeader,
@@ -79,6 +80,25 @@ const error = computed(() => query.error.value)
 const keyGroupById = computed(() =>
   new Map((keyGroupsQuery.data.value ?? []).map((g: KeyGroup) => [g.id, g.name])),
 )
+const keyGroupProvidersById = computed(
+  () =>
+    new Map(
+      (keyGroupsQuery.data.value ?? []).map((g: KeyGroup) => [g.id, g.providers ?? []]),
+    ),
+)
+
+// True only when the bound group is loaded AND its actively-carried keys no
+// longer cover the agent's model_hint provider — i.e. the displayed provider
+// can no longer be serviced. Unknown/loading groups never warn.
+function isProviderMismatch(agent: Agent): boolean {
+  const providers = keyGroupProvidersById.value.get(agent.key_group_id)
+  if (!providers) return false
+  return !providers.includes(agent.model_hint)
+}
+
+function modelHintLabel(hint: string): string {
+  return t(`agents.form.modelHints.${hint}`, hint)
+}
 const ragConfigById = computed(() =>
   new Map((ragConfigsQuery.data.value ?? []).map((c) => [c.id, c.name])),
 )
@@ -269,11 +289,17 @@ function onRowClick(row: Agent): void {
               {{ agent.name }}
             </p>
             <SBadge
-              variant="neutral"
+              :variant="isProviderMismatch(agent) ? 'warning' : 'neutral'"
               size="sm"
               class="mt-1"
+              :title="isProviderMismatch(agent) ? t('agents.list.providerMismatch') : undefined"
             >
-              {{ agent.model_hint }}
+              <ExclamationTriangleIcon
+                v-if="isProviderMismatch(agent)"
+                class="w-3 h-3 mr-1"
+                aria-hidden="true"
+              />
+              {{ modelHintLabel(agent.model_hint) }}
             </SBadge>
           </div>
           <SDropdown
@@ -314,8 +340,16 @@ function onRowClick(row: Agent): void {
       </template>
 
       <template #cell-model_hint="{ row }">
-        <SBadge variant="neutral">
-          {{ row.model_hint }}
+        <SBadge
+          :variant="isProviderMismatch(row) ? 'warning' : 'neutral'"
+          :title="isProviderMismatch(row) ? t('agents.list.providerMismatch') : undefined"
+        >
+          <ExclamationTriangleIcon
+            v-if="isProviderMismatch(row)"
+            class="w-3.5 h-3.5 mr-1"
+            aria-hidden="true"
+          />
+          {{ modelHintLabel(row.model_hint) }}
         </SBadge>
       </template>
 

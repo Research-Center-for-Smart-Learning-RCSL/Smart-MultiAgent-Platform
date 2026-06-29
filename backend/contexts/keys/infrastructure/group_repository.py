@@ -75,29 +75,41 @@ class KeyGroupRepository:
 
     async def list_for_project_with_counts(
         self, project_id: uuid.UUID
-    ) -> list[tuple[KeyGroup, int]]:
+    ) -> list[tuple[KeyGroup, int, list[str]]]:
         m = t.key_group_members
         kp = t.key_projects
         ak = t.api_keys
+        # Both aggregates share the same actively-carried-member join: a member
+        # counts (and contributes its provider) only when its key is carried
+        # into the group's project and not soft-deleted. This mirrors the
+        # runtime router's eligibility check, so the provider set reflects what
+        # the group can actually service — not bare membership.
+        carried_member = m.join(
+            kp,
+            sa.and_(
+                kp.c.key_id == m.c.key_id,
+                kp.c.project_id == t.key_groups.c.project_id,
+                kp.c.carried.is_(True),
+            ),
+        ).join(ak, sa.and_(ak.c.id == m.c.key_id, ak.c.deleted_at.is_(None)))
         carried_count = (
             sa.select(sa.func.count(m.c.key_id))
-            .select_from(
-                m.join(
-                    kp,
-                    sa.and_(
-                        kp.c.key_id == m.c.key_id,
-                        kp.c.project_id == t.key_groups.c.project_id,
-                        kp.c.carried.is_(True),
-                    ),
-                ).join(ak, sa.and_(ak.c.id == m.c.key_id, ak.c.deleted_at.is_(None)))
-            )
+            .select_from(carried_member)
             .where(m.c.group_id == t.key_groups.c.id)
             .correlate(t.key_groups)
             .scalar_subquery()
             .label("member_count")
         )
+        carried_providers = (
+            sa.select(sa.func.array_agg(sa.distinct(ak.c.provider)))
+            .select_from(carried_member)
+            .where(m.c.group_id == t.key_groups.c.id)
+            .correlate(t.key_groups)
+            .scalar_subquery()
+            .label("providers")
+        )
         stmt = (
-            sa.select(t.key_groups, carried_count)
+            sa.select(t.key_groups, carried_count, carried_providers)
             .where(
                 sa.and_(
                     t.key_groups.c.project_id == project_id,
@@ -107,7 +119,7 @@ class KeyGroupRepository:
             .order_by(t.key_groups.c.created_at.desc())
         )
         rows = (await self._db.execute(stmt)).all()
-        return [(_row_to_group(r), r.member_count) for r in rows]
+        return [(_row_to_group(r), r.member_count, list(r.providers or [])) for r in rows]
 
     async def rename(self, group_id: uuid.UUID, name: str) -> None:
         await self._db.execute(t.key_groups.update().where(t.key_groups.c.id == group_id).values(name=name))

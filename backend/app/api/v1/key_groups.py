@@ -52,15 +52,26 @@ class GroupOut(BaseModel):
     name: str
     created_at: str
     member_count: int = 0
+    # Distinct providers of the group's actively-carried keys. Lets callers
+    # (e.g. the agents UI) flag when an agent's `model_hint` is no longer
+    # serviceable by its bound group after a key withdrawal.
+    providers: list[str] = Field(default_factory=list)
 
     @classmethod
-    def from_domain(cls, g: KeyGroup, *, member_count: int = 0) -> GroupOut:
+    def from_domain(
+        cls,
+        g: KeyGroup,
+        *,
+        member_count: int = 0,
+        providers: list[str] | None = None,
+    ) -> GroupOut:
         return cls(
             id=g.id,
             project_id=g.project_id,
             name=g.name,
             created_at=g.created_at.isoformat(),
             member_count=member_count,
+            providers=providers or [],
         )
 
 
@@ -121,7 +132,7 @@ class AddMemberIn(BaseModel):
 
 class MemberPatchIn(BaseModel):
     priority: int | None = Field(default=None, ge=1)
-    rotate_on_error_codes: list[int] | None = None
+    rotate_on_error_codes: list[int] | None = Field(default=None, max_length=100)
     rotate_on_token_quota: bool | None = None
     retry_on_error: bool | None = None
     retry_initial_delay_ms: int | None = Field(default=None, ge=0)
@@ -135,7 +146,7 @@ class MemberPatchIn(BaseModel):
 
 
 class ReorderIn(BaseModel):
-    priorities: dict[uuid.UUID, int]
+    priorities: dict[uuid.UUID, int] = Field(max_length=1_000)
 
 
 class GroupPatchIn(BaseModel):
@@ -159,7 +170,7 @@ async def list_groups(
 ) -> list[GroupOut]:
     rows = await KeyGroupService(db).list_for_project_with_counts(project_id)
     rows = rows[pagination.offset : pagination.offset + pagination.limit]
-    return [GroupOut.from_domain(g, member_count=cnt) for g, cnt in rows]
+    return [GroupOut.from_domain(g, member_count=cnt, providers=providers) for g, cnt, providers in rows]
 
 
 @project_router.post(
