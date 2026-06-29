@@ -477,6 +477,7 @@ const columns = computed<Column[]>(() => [
         >
           <SToggle
             v-model="rerankEnabled"
+            variant="robot"
             :disabled="!hasRerankKeys"
           />
         </SFormField>
