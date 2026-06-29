@@ -16,7 +16,12 @@ from contexts.knowledge.domain.graphrag import GraphRagConfig
 
 if TYPE_CHECKING:
     from contexts.knowledge.application.graphrag_graph_service import GraphView
-from contexts.knowledge.domain.models import RagConfig, RagDocument
+from contexts.knowledge.domain.models import (
+    EmbedCatalogEntry,
+    RagConfig,
+    RagDocument,
+    embedding_catalog,
+)
 from contexts.knowledge.infrastructure.graphrag_repositories import (
     GraphRagConfigRepository,
 )
@@ -28,6 +33,10 @@ class KnowledgeFacade:
         self._db = db
         self._configs = RagConfigRepository(db)
         self._graphrag = GraphRagConfigRepository(db)
+
+    def embedding_catalog(self) -> tuple[EmbedCatalogEntry, ...]:
+        """Per-provider whitelisted embedding models + dimensions for the RAG UI."""
+        return embedding_catalog()
 
     async def get_rag_config(
         self, config_id: uuid.UUID, *, include_deleted: bool = False

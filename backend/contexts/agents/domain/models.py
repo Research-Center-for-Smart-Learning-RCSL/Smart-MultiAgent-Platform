@@ -15,6 +15,45 @@ class AgentModelHint(str, enum.Enum):
     GEMINI = "gemini"
 
 
+# Per-provider chat-model catalog surfaced to the agent-config UI as preset
+# choices. `DEFAULT_CHAT_MODELS` is the model the runtime falls back to when an
+# agent leaves `model_id` unset — turn_engine imports it from here so the
+# default advertised to the UI and the default the runtime actually uses can
+# never drift. Each provider's default MUST appear in its catalog tuple.
+#
+# Curated preset lists per provider. Verified against each provider's official
+# model docs in 2026-06 — re-check periodically, since provider model lineups
+# move fast (BYO-key users can always pick "custom" for a model id not listed
+# here, so this list only needs to cover the common choices, not every model).
+CHAT_MODEL_CATALOG: dict[str, tuple[str, ...]] = {
+    "claude": ("claude-opus-4-8", "claude-sonnet-4-6", "claude-haiku-4-5"),
+    "openai": ("gpt-5.5", "gpt-5.4", "gpt-5.4-mini"),
+    "gemini": ("gemini-3.5-flash", "gemini-2.5-pro", "gemini-2.5-flash"),
+}
+
+DEFAULT_CHAT_MODELS: dict[str, str] = {
+    "claude": "claude-sonnet-4-6",
+    "openai": "gpt-5.4",
+    "gemini": "gemini-3.5-flash",
+}
+
+
+@dataclass(frozen=True, slots=True)
+class ChatModelCatalogEntry:
+    """One provider's preset chat models plus its runtime default."""
+
+    provider: str
+    models: tuple[str, ...]
+    default: str
+
+
+def chat_model_catalog() -> tuple[ChatModelCatalogEntry, ...]:
+    return tuple(
+        ChatModelCatalogEntry(provider=p, models=models, default=DEFAULT_CHAT_MODELS[p])
+        for p, models in CHAT_MODEL_CATALOG.items()
+    )
+
+
 class PromptStrategy(str, enum.Enum):
     FULL = "full"
     LAZY = "lazy"
@@ -165,15 +204,19 @@ class AgentDraft:
 
 
 __all__ = [
+    "CHAT_MODEL_CATALOG",
+    "DEFAULT_CHAT_MODELS",
     "Agent",
     "AgentDraft",
     "AgentModelHint",
     "AgentTool",
     "AgentToolType",
+    "ChatModelCatalogEntry",
     "ContextMode",
     "McpBinding",
     "McpSource",
     "PromptStrategy",
     "SINGLETON_TOOL_TYPES",
     "WorkspaceFile",
+    "chat_model_catalog",
 ]

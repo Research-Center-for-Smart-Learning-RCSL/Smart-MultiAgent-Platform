@@ -24,7 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from contexts.keys.domain.errors import KeyNotFound, KeyNotOwnedByCaller
 from contexts.keys.domain.models import ApiKey
 from contexts.keys.infrastructure import tables as t
-from contexts.keys.infrastructure.carry_repository import KeyProjectRepository
+from contexts.keys.infrastructure.carry_repository import KeyProjectRepository, KeyProjectUsage
 from contexts.keys.infrastructure.key_revocation_events import publish_carry_revoked
 from contexts.keys.infrastructure.repositories import ApiKeyRepository
 from shared_kernel import audit
@@ -57,6 +57,31 @@ class CarryService:
 
     async def list_in_project(self, project_id: uuid.UUID) -> list[ApiKey]:
         return await self._carries.list_active_in_project(project_id)
+
+    async def projects_for_key(
+        self,
+        *,
+        key_id: uuid.UUID,
+        caller_user_id: uuid.UUID,
+    ) -> list[KeyProjectUsage]:
+        """List the projects `key_id` is carried into (owner-only read).
+
+        Powers the `GET /api/keys/{key_id}/projects` reverse view. Ownership is
+        enforced here — a key's project footprint is no one else's business
+        (R7.03). The agents-side binding count is layered on cross-context by
+        the HTTP handler; this method stays inside the keys context.
+        """
+        key = await self._keys.get_active(key_id)
+        if key is None:
+            raise KeyNotFound(str(key_id))
+        if key.owner_user_id != caller_user_id:
+            raise KeyNotOwnedByCaller(str(key_id))
+        return await self._carries.list_projects_for_key(key_id)
+
+    async def count_projects_for_keys(self, key_ids: list[uuid.UUID]) -> dict[uuid.UUID, int]:
+        """Active-carry project count per key. Caller scopes `key_ids` to the
+        principal's own keys, so no per-row ownership check is needed."""
+        return await self._carries.count_active_by_keys(key_ids)
 
     async def key_owner(self, key_id: uuid.UUID) -> uuid.UUID | None:
         """Return the owner of `key_id`, or None if no such key exists.
@@ -173,9 +198,9 @@ class CarryService:
         # Scope DB queries to agents within the requesting project so usage
         # numbers reflect THIS project's consumption, not cross-project totals.
         _agents_in_project = t.key_usage_events.c.agent_id.in_(
-            sa.text(
-                "SELECT id FROM agents WHERE project_id = :pid AND deleted_at IS NULL"
-            ).bindparams(pid=project_id)
+            sa.text("SELECT id FROM agents WHERE project_id = :pid AND deleted_at IS NULL").bindparams(
+                pid=project_id
+            )
         )
         if delta is None:
             used = await redis_buckets.usage(key_id)
@@ -279,7 +304,9 @@ class CarryService:
                 except Exception:
                     _log.warning(
                         "carry revocation pubsub failed key=%s project=%s",
-                        key_id, project_id, exc_info=True,
+                        key_id,
+                        project_id,
+                        exc_info=True,
                     )
         return revoked
 
@@ -330,7 +357,9 @@ class CarryService:
             except Exception:
                 _log.warning(
                     "carry revocation pubsub failed key=%s project=%s",
-                    row.key_id, row.project_id, exc_info=True,
+                    row.key_id,
+                    row.project_id,
+                    exc_info=True,
                 )
         return len(affected)
 

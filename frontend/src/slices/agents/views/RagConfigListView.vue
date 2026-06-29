@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/vue-query'
@@ -66,6 +66,11 @@ const configsQuery = useQuery({
 const projectKeysQuery = useQuery({
   queryKey: keysKeys.projectKeys(projectId),
   queryFn: async () => (await projectKeysApi.listCarried(projectId)).data,
+})
+
+const modelCatalogQuery = useQuery({
+  queryKey: agentKeys.modelCatalog(),
+  queryFn: async () => (await agentsApi.getModelCatalog()).data,
 })
 
 const configs = computed<RagConfig[]>(() => configsQuery.data.value ?? [])
@@ -142,6 +147,33 @@ const {
   rerankProvider,
   rerankModel,
 })
+
+// Embedding model is a dropdown sourced from the backend whitelist (the model
+// determines the vector dimension, so free-text would only ever produce errors).
+const embedModelOptions = computed(() => {
+  const entry = modelCatalogQuery.data.value?.embedding.find(
+    (e) => e.provider === embedProvider.value,
+  )
+  return (entry?.models ?? []).map((m) => ({ value: m.model, label: `${m.model} (${m.dimension})` }))
+})
+
+// Keep embed_model valid for the active provider: when the provider changes (it
+// is derived from the chosen key), the catalog loads, or the field is cleared on
+// modal reset, snap to the provider's recommended default. Converges — setting a
+// value that is in `embedModelOptions` re-fires the watch to a no-op.
+watch(
+  [embedProvider, embedModel, () => modelCatalogQuery.data.value],
+  () => {
+    const opts = embedModelOptions.value
+    if (!opts.length) return
+    if (opts.some((o) => o.value === embedModel.value)) return
+    const entry = modelCatalogQuery.data.value?.embedding.find(
+      (e) => e.provider === embedProvider.value,
+    )
+    embedModel.value = entry?.default ?? opts[0]!.value
+  },
+  { immediate: true },
+)
 
 // Rerank needs a Cohere key; if the toggle is on without one the backend rejects
 // with CapabilityMismatch, so disable the toggle when none exist and block submit
@@ -407,10 +439,10 @@ const columns = computed<Column[]>(() => [
           :error="errors.embed_model"
           required
         >
-          <SInput
+          <SSelect
             v-model="embedModel"
-            :maxlength="INPUT_LIMITS.MODEL_ID"
-            :placeholder="t('agents.ragForm.embedModelHint')"
+            :options="embedModelOptions"
+            :placeholder="t('agents.ragForm.embedModelPlaceholder')"
             :error="!!errors.embed_model"
           />
         </SFormField>

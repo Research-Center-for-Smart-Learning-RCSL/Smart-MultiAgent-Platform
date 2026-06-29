@@ -59,6 +59,7 @@ export const handlers = [
   http.get('/api/projects/:projectId/members', () => HttpResponse.json([])),
 
   http.get('/api/keys', () => HttpResponse.json([])),
+  http.get('/api/keys/:keyId/projects', () => HttpResponse.json([])),
   http.get('/api/keys/:keyId', () =>
     HttpResponse.json({
       id: 'key_1',
@@ -97,6 +98,28 @@ export const handlers = [
       version: 1,
       created_at: '2026-01-01T00:00:00Z',
       deleted_at: null,
+    }),
+  ),
+
+  http.get('/api/model-catalog', () =>
+    HttpResponse.json({
+      chat: [
+        { provider: 'claude', models: ['claude-opus-4-8', 'claude-sonnet-4-6'], default: 'claude-sonnet-4-6' },
+        { provider: 'openai', models: ['gpt-5.5', 'gpt-5.4', 'gpt-5.4-mini'], default: 'gpt-5.4' },
+        { provider: 'gemini', models: ['gemini-3.5-flash', 'gemini-2.5-flash'], default: 'gemini-3.5-flash' },
+      ],
+      embedding: [
+        {
+          provider: 'openai',
+          models: [
+            { model: 'text-embedding-3-small', dimension: 1536 },
+            { model: 'text-embedding-3-large', dimension: 3072 },
+          ],
+          default: 'text-embedding-3-small',
+        },
+        { provider: 'gemini', models: [{ model: 'text-embedding-004', dimension: 768 }], default: 'text-embedding-004' },
+        { provider: 'voyage', models: [{ model: 'voyage-3', dimension: 1024 }], default: 'voyage-3' },
+      ],
     }),
   ),
 

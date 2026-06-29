@@ -25,4 +25,6 @@ export const agentKeys = {
     ['agents', 'workspaceFiles', agentId] as const,
   egressAllowlist: (projectId: string) =>
     ['agents', 'egressAllowlist', projectId] as const,
+  modelCatalog: () =>
+    ['agents', 'modelCatalog'] as const,
 }

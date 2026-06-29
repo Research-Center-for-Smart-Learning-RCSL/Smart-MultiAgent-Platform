@@ -12,14 +12,29 @@ import uuid
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.agents.domain.errors import AgentVersionMismatch
-from contexts.agents.domain.models import Agent, AgentDraft, AgentTool, WorkspaceFile
+from contexts.agents.domain.models import (
+    Agent,
+    AgentDraft,
+    AgentTool,
+    ChatModelCatalogEntry,
+    WorkspaceFile,
+    chat_model_catalog,
+)
 from contexts.agents.infrastructure.repositories import (
     AgentRepository,
     AgentToolRepository,
     WorkspaceFileRepository,
 )
 
-__all__ = ["Agent", "AgentDraft", "AgentTool", "AgentVersionMismatch", "AgentsFacade", "WorkspaceFile"]
+__all__ = [
+    "Agent",
+    "AgentDraft",
+    "AgentTool",
+    "AgentVersionMismatch",
+    "AgentsFacade",
+    "ChatModelCatalogEntry",
+    "WorkspaceFile",
+]
 
 
 class AgentsFacade:
@@ -28,6 +43,10 @@ class AgentsFacade:
         self._agents = AgentRepository(db)
         self._tools = AgentToolRepository(db)
         self._workspace_files = WorkspaceFileRepository(db)
+
+    def chat_model_catalog(self) -> tuple[ChatModelCatalogEntry, ...]:
+        """Per-provider preset chat models + runtime default for the agent UI."""
+        return chat_model_catalog()
 
     async def get_agent(self, agent_id: uuid.UUID, *, include_deleted: bool = False) -> Agent | None:
         return await self._agents.get(agent_id, include_deleted=include_deleted)
@@ -41,6 +60,11 @@ class AgentsFacade:
     async def list_agents_with_authored_snapshot(self) -> list[Agent]:
         """Active agents with non-null wakeup_authored_snapshot (G.5)."""
         return list(await self._agents.list_with_authored_snapshot())
+
+    async def count_agents_for_key_groups(self, group_ids: list[uuid.UUID]) -> dict[uuid.UUID, int]:
+        """Active-agent count per Key Group — consumed by the keys context to
+        annotate a key's per-project binding footprint."""
+        return await self._agents.count_active_by_key_groups(group_ids)
 
     # ------------------------------------------------------------------
     # Write surface exposed to orchestration (G.4 / G.5)

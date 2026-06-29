@@ -14,6 +14,19 @@ export interface ApiKey {
   test_error: string | null
   last_test_at: string | null
   created_at: string
+  // Number of projects this key is actively carried into. Present on the
+  // my-keys list; 0 on the project-carried surface where it is not computed.
+  project_count?: number
+}
+
+// Mirrors backend `KeyProjectOut` — one project this key is carried into,
+// with its binding footprint (groups + agents that consume it there).
+export interface KeyProject {
+  project_id: string
+  project_name: string
+  carried_at: string
+  group_count: number
+  agent_count: number
 }
 
 // Authoritative table — must match R7.01. Views consult this to decide
@@ -32,4 +45,5 @@ export const keysApi = {
     http.post<ApiKey>('/keys', { provider, name, secret }),
   retest: (id: string) => http.post<ApiKey>(`/keys/${id}/retest`),
   remove: (id: string) => http.delete(`/keys/${id}`),
+  projects: (id: string) => http.get<KeyProject[]>(`/keys/${id}/projects`),
 }

@@ -51,6 +51,42 @@ def embed_dimension(provider: str, model: str) -> int:
         raise ValueError(f"unknown embedding model ({provider}, {model})") from exc
 
 
+# Recommended default model per embedding provider — surfaced to the RAG-config
+# UI as the pre-selected choice. Each entry MUST be a key of
+# EMBED_MODEL_DIMENSIONS (the whitelist is the single source of truth).
+DEFAULT_EMBED_MODELS: dict[str, str] = {
+    "openai": "text-embedding-3-small",
+    "gemini": "text-embedding-004",
+    "voyage": "voyage-3",
+}
+
+
+@dataclass(frozen=True, slots=True)
+class EmbedModelOption:
+    model: str
+    dimension: int
+
+
+@dataclass(frozen=True, slots=True)
+class EmbedCatalogEntry:
+    """One provider's whitelisted embedding models plus its recommended default."""
+
+    provider: str
+    models: tuple[EmbedModelOption, ...]
+    default: str
+
+
+def embedding_catalog() -> tuple[EmbedCatalogEntry, ...]:
+    """Group the embedding whitelist by provider for the RAG-config UI."""
+    by_provider: dict[str, list[EmbedModelOption]] = {}
+    for (provider, model), dim in EMBED_MODEL_DIMENSIONS.items():
+        by_provider.setdefault(provider, []).append(EmbedModelOption(model=model, dimension=dim))
+    return tuple(
+        EmbedCatalogEntry(provider=p, models=tuple(models), default=DEFAULT_EMBED_MODELS[p])
+        for p, models in by_provider.items()
+    )
+
+
 # R10.04 — chunk parameter defaults.
 DEFAULT_FIXED_CHUNK_PARAMS: dict[str, int] = {
     "chunk_size_tokens": 512,
@@ -129,15 +165,19 @@ class RagConfigDraft:
 
 __all__ = [
     "ChunkStrategy",
+    "DEFAULT_EMBED_MODELS",
     "DEFAULT_FIXED_CHUNK_PARAMS",
     "DEFAULT_SEMANTIC_CHUNK_PARAMS",
     "DocumentStatus",
     "EMBED_MODEL_DIMENSIONS",
     "EMBED_MODEL_WHITELIST",
+    "EmbedCatalogEntry",
+    "EmbedModelOption",
     "RagChunk",
     "RagConfig",
     "RagConfigDraft",
     "RagDocument",
     "ScanStatus",
     "embed_dimension",
+    "embedding_catalog",
 ]

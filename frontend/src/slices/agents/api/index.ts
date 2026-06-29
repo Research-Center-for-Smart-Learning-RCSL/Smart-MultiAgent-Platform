@@ -68,6 +68,31 @@ export interface RagConfig {
   created_at: string
 }
 
+// Mirrors backend `ModelCatalogOut` (backend/app/api/v1/model_catalog.py).
+// Preset provider/model choices rendered as dropdowns in the agent + RAG forms.
+// `default` is the model used when none is chosen (chat: empty model_id).
+export interface ChatModelProvider {
+  provider: string
+  models: string[]
+  default: string
+}
+
+export interface EmbedModelOption {
+  model: string
+  dimension: number
+}
+
+export interface EmbedModelProvider {
+  provider: string
+  models: EmbedModelOption[]
+  default: string
+}
+
+export interface ModelCatalog {
+  chat: ChatModelProvider[]
+  embedding: EmbedModelProvider[]
+}
+
 // The backend 2PC build state machine (BuildState). A closed set — kept as a
 // union so the badge/variant maps and socket logic stay exhaustive instead of
 // falling through on a typo (audit L8).
@@ -282,6 +307,11 @@ export const agentsApi = {
 
   patchRagConfig: (configId: string, payload: RagConfigPatchInput) =>
     http.patch<RagConfig>(`/rag-configs/${configId}`, payload),
+
+  // Provider/model presets for the agent + RAG config forms. Global, static
+  // catalog (not project-scoped) — cached by Vue Query under agentKeys.modelCatalog.
+  getModelCatalog: () =>
+    http.get<ModelCatalog>('/model-catalog'),
 
   listDocuments: (configId: string) =>
     http.get<RagDocument[]>(`/rag-configs/${configId}/documents`),

@@ -34,7 +34,7 @@ from contexts.agents.application.runtime.tool_registry import (
     build_cast_approval_vote_tool,
     build_registry,
 )
-from contexts.agents.domain.models import Agent
+from contexts.agents.domain.models import DEFAULT_CHAT_MODELS, Agent
 from contexts.agents.infrastructure.repositories import AgentRepository
 from contexts.agents.infrastructure.turn_lock import DEFAULT_TURN_TTL_S, turn_lock
 from contexts.agents.interfaces.facade import AgentsFacade
@@ -103,11 +103,9 @@ AGENT_STREAM_TOKENS_TOTAL = Counter(
 # Per-provider chat-model defaults — passed to the adapter as a ``models`` map.
 # When an agent has a ``model_id`` configured, ``_resolve_models`` overrides
 # the entry for that provider so the adapter uses the agent's chosen model.
-_DEFAULT_CHAT_MODELS: dict[str, str] = {
-    "claude": "claude-sonnet-4-6",
-    "openai": "gpt-4o",
-    "gemini": "gemini-2.0-flash",
-}
+# Sourced from the agents domain so the runtime default and the default the
+# model-catalog API advertises to the UI stay in lock-step.
+_DEFAULT_CHAT_MODELS: dict[str, str] = dict(DEFAULT_CHAT_MODELS)
 _CONTEXT_LIMITS: dict[str, int] = {
     "claude": 200_000,
     "openai": 128_000,
