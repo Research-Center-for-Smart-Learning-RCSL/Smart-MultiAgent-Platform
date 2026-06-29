@@ -147,6 +147,56 @@ def test_rewrap_bumps_transit_version_and_keeps_plaintext(vault_fixture) -> None
     assert env.decrypt_envelope(rewrapped, aad) == b"secret-payload"
 
 
+def test_hmac_rotation_grace_window(monkeypatch: pytest.MonkeyPatch) -> None:
+    # KV with version history: rotating appends a new logical version.
+    history: list[dict[str, Any]] = [
+        {"key": base64.b64encode(b"\x11" * 32).decode(), "version": 1},
+    ]
+
+    class _HistKv:
+        def read_secret_version(
+            self, *, mount_point: str, path: str, version: int | None = None, raise_on_deleted_version: bool = True
+        ) -> dict[str, Any]:
+            if path != "smap/config/hmac-key":
+                import hvac.exceptions
+
+                raise hvac.exceptions.InvalidPath(f"{mount_point}/{path}")
+            entry = history[-1] if version is None else history[version - 1]
+            return {"data": {"data": entry}}
+
+        def create_or_update_secret(self, *, mount_point: str, path: str, secret: dict[str, Any]) -> None:
+            history.append(secret)
+
+    kv = _HistKv()
+
+    class _FakeClient:
+        def __init__(self, url: str, **_kw: Any) -> None:
+            self.token = None
+            self.secrets = SimpleNamespace(transit=_FakeTransit(), kv=SimpleNamespace(v2=kv))
+
+        def is_authenticated(self) -> bool:
+            return self.token is not None
+
+    monkeypatch.setattr("shared_kernel.infra.vault.hvac.Client", _FakeClient)
+    client = VaultClient(VaultSection(dev_token="root"))
+    aad = env.api_key_aad(uuid.uuid4())
+
+    rec1 = client.encrypt_envelope(b"old-secret", aad)
+    assert rec1.hmac_key_version == 1
+
+    # Rotate the HMAC seed to version 2 and let the current-key cache expire.
+    history.append({"key": base64.b64encode(b"\x22" * 32).decode(), "version": 2})
+    client._hmac_current_at = 0.0
+    rec2 = client.encrypt_envelope(b"new-secret", aad)
+    assert rec2.hmac_key_version == 2
+
+    # Force the version-addressed history read for the old row, then verify both.
+    client._hmac_keys.clear()
+    client._hmac_current_at = 0.0
+    assert client.decrypt_envelope(rec1, aad) == b"old-secret"
+    assert client.decrypt_envelope(rec2, aad) == b"new-secret"
+
+
 def test_unknown_hmac_version_shape_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
     kv = _FakeKv(
         {
