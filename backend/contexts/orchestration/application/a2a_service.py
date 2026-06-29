@@ -74,7 +74,10 @@ class A2AService:
             raise A2AForbidden(f"to_agent is not a valid agent id: {envelope.to_agent!r}") from exc
 
         # When from_agent is None the call originates from the workflow engine
-        # (a trusted internal caller) — skip caller validation and scope check.
+        # (a trusted internal caller), so the agent-to-agent scope check does not
+        # apply — but the tenant boundary still must: the workflow run's project
+        # has to own the callee, otherwise a workflow could invoke an agent in
+        # another project. The agent path (from_agent set) keeps its full scope check.
         if envelope.from_agent is not None:
             caller = await self._require_agent(envelope.from_agent)
             callee = await self._require_agent(to_agent_id)
@@ -86,8 +89,8 @@ class A2AService:
                 caller_invocation_context_id=caller_invocation_context_id,
             )
         else:
-            # Still validate the callee exists even for workflow calls.
-            await self._require_agent(to_agent_id)
+            callee = await self._require_agent(to_agent_id)
+            await self._enforce_workflow_tenant(envelope.workflow_run_id, callee)
 
         await a2a_streams.ensure_consumer_group(to_agent_id)
         envelope_json = json.dumps(envelope.to_dict(), separators=(",", ":"))
@@ -384,6 +387,39 @@ class A2AService:
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
+
+    async def _enforce_workflow_tenant(self, workflow_run_id: uuid.UUID | None, callee: Agent) -> None:
+        """Tenant boundary for workflow-originated (from_agent=None) calls.
+
+        The workflow run's project must own the callee. Fails closed: a call with
+        no run context to authorize against, or a project mismatch, is denied
+        rather than allowed through unattributed.
+        """
+        if workflow_run_id is None:
+            raise A2AForbidden("workflow-originated a2a requires a workflow_run_id to authorize against")
+        # Lazy import: the workflow context's agent_invocation executor reaches
+        # OrchestrationFacade -> A2AService, so importing WorkflowFacade at module
+        # load would risk an import cycle.
+        from contexts.workflow.interfaces.facade import WorkflowFacade
+
+        run_project = await WorkflowFacade(self._db).get_run_project_id(workflow_run_id)
+        if run_project is None or run_project != callee.project_id:
+            await audit.emit(
+                self._db,
+                audit.AuditEvent(
+                    action="a2a.forbidden",
+                    resource_type="a2a_message",
+                    metadata={
+                        "callee_agent_id": str(callee.id),
+                        "workflow_run_id": str(workflow_run_id),
+                        "reason": "workflow run project does not own callee",
+                    },
+                ),
+            )
+            raise A2AForbidden(
+                f"workflow run {workflow_run_id} (project {run_project}) may not "
+                f"call agent {callee.id} in project {callee.project_id}"
+            )
 
     async def _require_agent(self, agent_id: uuid.UUID) -> Agent:
         agent = await self._agents.get_agent(agent_id)
