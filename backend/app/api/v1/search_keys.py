@@ -22,6 +22,7 @@ from shared_kernel.auth.dependencies import (
 )
 from shared_kernel.auth.permissions import Capability, Principal
 from shared_kernel.db.session import db_session
+from shared_kernel.validation import BoundedConfig
 
 router = APIRouter(prefix="/api/projects", tags=["search-keys"])
 
@@ -29,7 +30,7 @@ router = APIRouter(prefix="/api/projects", tags=["search-keys"])
 class SearchKeyIn(BaseModel):
     provider: SearchProvider
     secret: str = Field(min_length=1, max_length=4096, repr=False)
-    config: dict[str, Any] = Field(default_factory=dict)
+    config: BoundedConfig = Field(default_factory=dict)
 
 
 class SearchKeyOut(BaseModel):

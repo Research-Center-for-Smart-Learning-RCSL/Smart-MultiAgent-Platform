@@ -3,6 +3,7 @@ import { ref, computed, onMounted, nextTick } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { SFormField, SInput, SButton, SAlert } from '@shared/ui'
+import { INPUT_LIMITS } from '@shared/constants/inputLimits'
 import { isProblemWithType } from '@shared/transport'
 import { RateLimitError } from '@shared/errors'
 import { useRateLimitCountdown, safeRedirect } from '@shared/composables'
@@ -155,6 +156,7 @@ async function submit(): Promise<void> {
           v-model="email"
           type="email"
           autocomplete="email"
+          :maxlength="INPUT_LIMITS.EMAIL"
           :disabled="submitting || rateLimit.active.value"
           :error="!!fieldErrors.email"
           @blur="validateEmail"
@@ -172,6 +174,7 @@ async function submit(): Promise<void> {
           v-model="password"
           type="password"
           autocomplete="current-password"
+          :maxlength="INPUT_LIMITS.PASSWORD"
           :disabled="submitting || rateLimit.active.value"
           :error="!!fieldErrors.password"
           @blur="validatePassword"

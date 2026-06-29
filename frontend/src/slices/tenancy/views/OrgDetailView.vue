@@ -10,6 +10,7 @@ import {
 import { useInlineRename, useToast } from '@shared/composables'
 import { useSessionStore } from '@shared/stores/session'
 import { isProblemWithType } from '@shared/transport'
+import { INPUT_LIMITS } from '@shared/constants/inputLimits'
 import {
   PencilIcon, UserGroupIcon, ArrowsRightLeftIcon,
   ClipboardIcon, TrashIcon, ArrowPathIcon,
@@ -204,6 +205,7 @@ const breadcrumbs = computed(() => [
         >
           <SInput
             v-model="rename.nameDraft.value"
+            :maxlength="INPUT_LIMITS.NAME"
             class="rename-input"
           />
           <SButton

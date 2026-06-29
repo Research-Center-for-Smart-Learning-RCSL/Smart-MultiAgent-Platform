@@ -7,6 +7,7 @@ withDefaults(defineProps<{
   error?: boolean
   resize?: 'none' | 'vertical' | 'both'
   id?: string | undefined
+  maxlength?: number | undefined
 }>(), {
   modelValue: '',
   placeholder: '',
@@ -15,6 +16,7 @@ withDefaults(defineProps<{
   error: false,
   resize: 'vertical',
   id: undefined,
+  maxlength: undefined,
 })
 
 const emit = defineEmits<{
@@ -42,6 +44,7 @@ function onInput(event: Event) {
     :placeholder="placeholder"
     :rows="rows"
     :disabled="disabled"
+    :maxlength="maxlength"
     @input="onInput"
   />
 </template>
