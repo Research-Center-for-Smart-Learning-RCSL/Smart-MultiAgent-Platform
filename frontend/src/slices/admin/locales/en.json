@@ -168,7 +168,7 @@
       "restoreFailed": "Restore failed.",
       "typeOrg": "Organisation",
       "typeProject": "Project",
-      "typeAgent": "Agent",
+      "typeAgent": "AI Agent",
       "typeWorkflow": "Workflow",
       "typeChatroom": "Chatroom",
       "typeUser": "User"
