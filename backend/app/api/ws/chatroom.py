@@ -83,10 +83,36 @@ async def ws_chatroom(ws: WebSocket, chatroom_id: uuid.UUID) -> None:
                 _last_typing_ts = now
             await publisher.emit(msg_type, {"user_id": str(conn.principal.user_id)})
 
+    async def on_heartbeat(conn: ChannelConnection) -> None:
+        # Every inbound frame proves the socket is alive — keep this user's
+        # presence in the room from lapsing under a live connection (R13.19).
+        await presence.heartbeat(
+            room_id=chatroom_id,
+            user_id=conn.principal.user_id,
+            connection_id=conn.connection_id,
+        )
+
+    async def authorize(conn: ChannelConnection) -> bool:
+        # Re-resolve room access mid-socket so a revoked guest link / lost
+        # membership / tightened ACL tears the connection down (SEC-H2). Reads
+        # the current (possibly refreshed) principal off `conn`.
+        try:
+            async with sm() as session, session.begin():
+                access = await resolve_room_access(
+                    session,
+                    principal=conn.principal,
+                    chatroom_id=chatroom_id,
+                )
+                ensure_can_read(access, is_admin=conn.principal.is_admin)
+            return True
+        except (ChatroomNotFound, ForbiddenInRoom):
+            return False
+
     async def on_open(conn: ChannelConnection) -> None:
         added = await presence.join(
             room_id=chatroom_id,
             user_id=conn.principal.user_id,
+            connection_id=conn.connection_id,
         )
         if added:
             await publisher.emit(
@@ -104,6 +130,7 @@ async def ws_chatroom(ws: WebSocket, chatroom_id: uuid.UUID) -> None:
         left = await presence.leave(
             room_id=chatroom_id,
             user_id=conn.principal.user_id,
+            connection_id=conn.connection_id,
         )
         if left:
             await publisher.emit(
@@ -125,6 +152,8 @@ async def ws_chatroom(ws: WebSocket, chatroom_id: uuid.UUID) -> None:
         on_open=on_open,
         on_close=on_close,
         on_client_message=on_client_message,
+        on_heartbeat=on_heartbeat,
+        authorize=authorize,
     )
 
 

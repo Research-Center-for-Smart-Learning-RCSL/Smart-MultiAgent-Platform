@@ -61,6 +61,14 @@ _IDLE_TIMEOUT_SECONDS = 120.0
 # per-request guarantee the HTTP middleware upholds. 30 s is well under the
 # access-token TTL while keeping the Redis EXISTS probe rate negligible.
 _AUTH_RECHECK_SECONDS = 30.0
+# SEC-H2: the handshake authorizes room/channel access once; without this a user
+# removed from a room (guest link revoked, project membership lost, ACL tightened)
+# kept receiving the room's events until their access token expired. The watchdog
+# re-runs the caller-supplied `authorize` probe on this cadence (a multiple of the
+# auth re-check tick) and tears the socket down on access loss, matching the
+# per-request ACL guarantee the HTTP path upholds.
+_ROOM_REAUTH_EVERY_N_TICKS = 2  # ~60s at the 30s watchdog tick
+_CLOSE_FORBIDDEN = 4403  # app-level code — access revoked mid-socket (see §22.14)
 # ASYNC-7: a connection refreshes its heartbeat score in the per-user cap ZSET
 # on every inbound frame. A score older than this — deliberately longer than
 # the idle timeout, so a live connection is always fresh — means the owning
@@ -169,6 +177,8 @@ async def connection_loop(
     on_open: Callable[[ChannelConnection], Awaitable[None]] | None = None,
     on_close: Callable[[ChannelConnection], Awaitable[None]] | None = None,
     on_client_message: (Callable[[ChannelConnection, dict[str, Any]], Awaitable[None]] | None) = None,
+    on_heartbeat: Callable[[ChannelConnection], Awaitable[None]] | None = None,
+    authorize: Callable[[ChannelConnection], Awaitable[bool]] | None = None,
 ) -> None:
     """Drive a single WS connection until it closes.
 
@@ -177,6 +187,13 @@ async def connection_loop(
     teardown in `on_close`. Inbound messages the connection-layer doesn't
     own (refresh, ping) are handled here; everything else falls through to
     `on_client_message` if the endpoint opted in.
+
+    `on_heartbeat` (optional) runs on every inbound frame — used to refresh
+    out-of-band liveness state such as room presence. `authorize` (optional) is
+    re-run periodically by the auth watchdog so an endpoint whose access can be
+    revoked mid-socket (room ACL) tears the connection down on access loss; it
+    returns False to deny. Both are kept here (not imported from a context) so
+    `shared_kernel` stays free of context dependencies.
     """
     conn = ChannelConnection(
         ws=ws,
@@ -247,6 +264,11 @@ async def connection_loop(
             # ASYNC-7: an inbound frame proves the socket is alive — refresh the
             # connection's heartbeat score in the per-user cap registry.
             await _touch_user_connection(conn.principal.user_id, conn.connection_id)
+            if on_heartbeat is not None:
+                # Out-of-band liveness (presence) — a Redis blip here must not
+                # kill the reader; the next frame retries.
+                with suppress(Exception):
+                    await on_heartbeat(conn)
             try:
                 msg = json.loads(raw)
             except json.JSONDecodeError:
@@ -321,11 +343,29 @@ async def connection_loop(
         # refresh is honoured. This task never writes to the socket; it only
         # records the intended close frame and returns, leaving the single
         # authoritative ws.close() to connection_loop's finally-block.
+        ticks = 0
         while True:
             await asyncio.sleep(_AUTH_RECHECK_SECONDS)
+            ticks += 1
             if conn.token_expires_at is not None and now() >= conn.token_expires_at:
                 _request_close(_CLOSE_AUTH_FAILED, "token expired")
                 return
+            # SEC-H2: re-check room/channel access on a coarser cadence than the
+            # token probe, so a mid-socket ACL change (membership loss, guest
+            # revoke) tears the connection down. A transient error fails open for
+            # this window and retries — same posture as the denylist probe.
+            if authorize is not None and ticks % _ROOM_REAUTH_EVERY_N_TICKS == 0:
+                try:
+                    allowed = await authorize(conn)
+                except Exception:
+                    logger.bind(
+                        event="ws_reauth_check_error",
+                        connection_id=str(conn.connection_id),
+                    ).warning("ws room re-auth failed; retrying next window")
+                else:
+                    if not allowed:
+                        _request_close(_CLOSE_FORBIDDEN, "room access revoked")
+                        return
             jti = conn.token_jti
             if jti is None:
                 continue
@@ -362,7 +402,7 @@ async def connection_loop(
     # still get a task that loops forever — harmless, but the explicit gate
     # keeps the no-metadata path (tests) free of a Redis-touching background
     # task. With metadata, expiry is always enforced; denylist when reachable.
-    if token_expires_at is not None or token_jti is not None:
+    if token_expires_at is not None or token_jti is not None or authorize is not None:
         tasks.append(
             asyncio.create_task(
                 _auth_watchdog(),
