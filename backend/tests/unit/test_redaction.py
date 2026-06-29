@@ -35,6 +35,30 @@ def test_case_insensitive_keys() -> None:
     assert all(v == "***" for v in out.values())
 
 
+def test_redacts_compound_key_names() -> None:
+    out = redact(
+        {
+            "access_token": "a",
+            "refresh_token": "b",
+            "client_secret": "c",
+            "x-api-key": "d",
+            "proxy-authorization": "e",
+        }
+    )
+    assert all(v == "***" for v in out.values())
+
+
+def test_redacts_gemini_and_voyage_and_vault_values() -> None:
+    out = redact(
+        {
+            "blob": "g=AIza" + "a" * 35 + " v=pa-" + "b" * 25 + " t=hvs." + "c" * 30,
+        }
+    )
+    assert "AIza" not in out["blob"]
+    assert "pa-" + "b" * 25 not in out["blob"]
+    assert "hvs." not in out["blob"]
+
+
 def test_depth_cap() -> None:
     nested: dict = {"a": {}}
     cur = nested["a"]
