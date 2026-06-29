@@ -585,7 +585,10 @@ const showProgress = computed(() =>
                 name="rerank_enabled"
                 class="mt-4"
               >
-                <SToggle v-model="rerankEnabled" />
+                <SToggle
+                  v-model="rerankEnabled"
+                  variant="robot"
+                />
               </SFormField>
 
               <template v-if="rerankEnabled">

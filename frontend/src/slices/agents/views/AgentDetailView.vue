@@ -921,7 +921,10 @@ const graphragStatusText = computed(() => {
               name="a2a_enabled"
               :help="t('agents.form.a2aHelp')"
             >
-              <SToggle v-model="a2aEnabled" />
+              <SToggle
+                v-model="a2aEnabled"
+                variant="robot"
+              />
             </SFormField>
           </SCard>
 
