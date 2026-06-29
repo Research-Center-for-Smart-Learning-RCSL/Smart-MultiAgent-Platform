@@ -20,16 +20,14 @@ import uuid
 from contexts.keys.application.provider_router import ProviderRequest, ProviderRouter
 from contexts.keys.domain.providers import ProviderCapability
 from contexts.knowledge.application.ports import Embedder
+from contexts.knowledge.domain.models import EMBED_MODEL_DIMENSIONS
 
 __all__ = ["EmbeddingError", "RouterEmbedder", "router_embedder_for"]
 
 
-_VECTOR_SIZES: dict[tuple[str, str], int] = {
-    ("openai", "text-embedding-3-small"): 1536,
-    ("openai", "text-embedding-3-large"): 3072,
-    ("gemini", "text-embedding-004"): 768,
-    ("voyage", "voyage-3"): 1024,
-}
+# Single source of truth lives in the domain (kept in lockstep with the embed
+# whitelist there); aliased to the existing private name.
+_VECTOR_SIZES = EMBED_MODEL_DIMENSIONS
 
 
 class EmbeddingError(RuntimeError):

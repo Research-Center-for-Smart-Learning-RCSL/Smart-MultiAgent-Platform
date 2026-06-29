@@ -28,15 +28,27 @@ class ScanStatus(str, enum.Enum):
     SKIPPED = "skipped"
 
 
-# R10.05 — embedding model whitelist.
-EMBED_MODEL_WHITELIST: frozenset[tuple[str, str]] = frozenset(
-    {
-        ("openai", "text-embedding-3-small"),
-        ("openai", "text-embedding-3-large"),
-        ("gemini", "text-embedding-004"),
-        ("voyage", "voyage-3"),
-    }
-)
+# R10.05 — embedding model whitelist + each model's vector dimension. A project
+# shares one Qdrant collection (`rag_{project_id}`) sized to the first config's
+# dimension, so all of a project's configs must embed at the same dimension —
+# enforced at config create/update against this map (single source of truth; the
+# infrastructure embedder reads it too).
+EMBED_MODEL_DIMENSIONS: dict[tuple[str, str], int] = {
+    ("openai", "text-embedding-3-small"): 1536,
+    ("openai", "text-embedding-3-large"): 3072,
+    ("gemini", "text-embedding-004"): 768,
+    ("voyage", "voyage-3"): 1024,
+}
+
+EMBED_MODEL_WHITELIST: frozenset[tuple[str, str]] = frozenset(EMBED_MODEL_DIMENSIONS)
+
+
+def embed_dimension(provider: str, model: str) -> int:
+    """Vector dimension for a whitelisted embedding model."""
+    try:
+        return EMBED_MODEL_DIMENSIONS[(provider, model)]
+    except KeyError as exc:
+        raise ValueError(f"unknown embedding model ({provider}, {model})") from exc
 
 
 # R10.04 — chunk parameter defaults.
@@ -120,10 +132,12 @@ __all__ = [
     "DEFAULT_FIXED_CHUNK_PARAMS",
     "DEFAULT_SEMANTIC_CHUNK_PARAMS",
     "DocumentStatus",
+    "EMBED_MODEL_DIMENSIONS",
     "EMBED_MODEL_WHITELIST",
     "RagChunk",
     "RagConfig",
     "RagConfigDraft",
     "RagDocument",
     "ScanStatus",
+    "embed_dimension",
 ]

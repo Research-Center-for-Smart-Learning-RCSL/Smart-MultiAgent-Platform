@@ -20,6 +20,7 @@ from contexts.keys.interfaces.facade import (
 )
 from contexts.knowledge.domain.errors import (
     CapabilityMismatch,
+    EmbedDimensionConflict,
     EmbedModelNotWhitelisted,
     RagConfigNotFound,
 )
@@ -28,6 +29,7 @@ from contexts.knowledge.domain.models import (
     RagConfig,
     RagConfigDraft,
     RagDocument,
+    embed_dimension,
 )
 from contexts.knowledge.infrastructure.repositories import (
     RagConfigRepository,
@@ -85,6 +87,23 @@ class RagConfigService:
         # R10.05 whitelist.
         if (draft.embed_provider, draft.embed_model) not in EMBED_MODEL_WHITELIST:
             raise EmbedModelNotWhitelisted(f"{draft.embed_provider}:{draft.embed_model} not whitelisted")
+
+        # §21.4: the project shares one Qdrant collection sized to the first
+        # config's embedding dimension, so a sibling config on a different-
+        # dimension model would fail every upsert. Reject the mismatch up front.
+        new_dim = embed_dimension(draft.embed_provider, draft.embed_model)
+        for existing in await self._configs.list_for_project(project_id):
+            try:
+                existing_dim = embed_dimension(existing.embed_provider, existing.embed_model)
+            except ValueError:
+                # A legacy config on a model no longer in the map — cannot compare,
+                # so do not block on it.
+                continue
+            if existing_dim != new_dim:
+                raise EmbedDimensionConflict(
+                    f"project already has configs at {existing_dim}-dim embeddings; "
+                    f"{draft.embed_provider}:{draft.embed_model} is {new_dim}-dim"
+                )
 
         if draft.embed_key_id is not None:
             await self._validate_embed_key(
