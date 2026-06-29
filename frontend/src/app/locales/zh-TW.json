@@ -111,6 +111,7 @@
     },
     "switcher": {
       "placeholder": "選擇工作區...",
+      "personal": "個人",
       "orgs": "組織",
       "projects": "專案",
       "createOrg": "建立組織",

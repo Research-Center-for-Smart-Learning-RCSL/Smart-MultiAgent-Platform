@@ -111,6 +111,7 @@
     },
     "switcher": {
       "placeholder": "Select workspace...",
+      "personal": "Personal",
       "orgs": "Organizations",
       "projects": "Projects",
       "createOrg": "Create Organization",
