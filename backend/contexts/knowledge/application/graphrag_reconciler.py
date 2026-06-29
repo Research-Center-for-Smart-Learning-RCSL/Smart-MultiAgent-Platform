@@ -100,15 +100,24 @@ class ReconciliationLoop:
         db = self._session_factory()
         try:
             repo = GraphRagConfigRepository(db)
-            stuck: list[GraphRagConfig] = []
+            stuck: list[tuple[BuildState, GraphRagConfig]] = []
             for state in _STUCK_STATES:
-                stuck.extend(await repo.list_in_state(state))
+                stuck.extend((state, cfg) for cfg in await repo.list_in_state(state))
             touched: list[uuid.UUID] = []
-            for cfg in stuck:
+            for state, cfg in stuck:
                 # Audit M1: take the per-config build lock so a still-live build
                 # is never reconciled concurrently. A held lock (busy) means a
                 # worker owns this build right now — skip it this cycle.
-                if self._locks is not None and not await self._locks.acquire(cfg.id, ttl_s=LOCK_TTL_S):
+                if self._locks is not None:
+                    if not await self._locks.acquire(cfg.id, ttl_s=LOCK_TTL_S):
+                        continue
+                elif state is BuildState.RUNNING:
+                    # Without a lock store there is no way to distinguish a live
+                    # RUNNING build from a dead one, and reconciling rolls the
+                    # build back (destructive). Never do that blind — skip.
+                    _log.warning(
+                        "graphrag reconcile: no lock store; skipping RUNNING config %s", cfg.id
+                    )
                     continue
                 try:
                     await self._reconcile_one(db, cfg)

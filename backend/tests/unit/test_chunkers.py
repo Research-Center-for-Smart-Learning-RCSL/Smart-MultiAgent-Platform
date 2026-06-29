@@ -7,10 +7,31 @@ import pytest
 from contexts.knowledge.domain.errors import ChunkParamsInvalid
 from contexts.knowledge.domain.models import ChunkStrategy
 from contexts.knowledge.infrastructure.chunkers import (
+    _split_sentences,
     chunk_document,
     chunk_fixed,
     chunk_semantic,
 )
+
+
+def test_sentence_split_keeps_decimals_and_abbreviations() -> None:
+    out = _split_sentences("The value is 3.14 today. Next sentence here.", max_tokens=100)
+    assert out == ["The value is 3.14 today.", "Next sentence here."]
+
+
+def test_sentence_split_does_not_fragment_version_strings() -> None:
+    out = _split_sentences("Use v1.2 of the U.S.A. spec now.", max_tokens=100)
+    # The embedded dots in v1.2 / U.S.A have no following whitespace, so they no
+    # longer fragment into single tokens (the "A. spec" period+space is still a
+    # boundary — that ambiguity needs NLP to resolve and is out of scope).
+    assert any("v1.2" in s for s in out)
+    assert any("U.S.A." in s for s in out)
+    assert all(len(s) > 2 for s in out)  # no "U"/"S"/"A" single-letter fragments
+
+
+def test_sentence_split_cjk_terminators_zero_width() -> None:
+    out = _split_sentences("你好。世界。", max_tokens=100)
+    assert out == ["你好。", "世界。"]
 
 
 def test_fixed_simple_windowing() -> None:
