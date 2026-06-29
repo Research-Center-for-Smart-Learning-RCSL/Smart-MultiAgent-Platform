@@ -35,11 +35,13 @@ from contexts.agents.application.runtime.tool_registry import (
     build_registry,
 )
 from contexts.agents.domain.models import Agent
+from contexts.agents.infrastructure.repositories import AgentRepository
 from contexts.agents.infrastructure.turn_lock import DEFAULT_TURN_TTL_S, turn_lock
 from contexts.agents.interfaces.facade import AgentsFacade
 from contexts.conversation.application.message_service import MessageService
 from contexts.conversation.infrastructure.repositories import ChatroomAgentRepository
 from contexts.conversation.interfaces import emit_agent_finished_error, room_channel
+from contexts.conversation.interfaces.author_labels import prefer_guest_label
 from contexts.conversation.interfaces.facade import ConversationFacade
 from contexts.identity.interfaces.facade import IdentityFacade
 from contexts.keys.application.provider_router import (
@@ -112,7 +114,7 @@ _CONTEXT_LIMITS: dict[str, int] = {
     "gemini": 1_000_000,
 }
 
-# Prepended to the system prompt whenever history carries sender labels. The
+# Appended to the system prompt whenever history carries sender labels. The
 # provider sees other participants' turns as "Name: message"; without this note
 # the model tends to mirror the convention and prefix its own reply with its name.
 _PARTICIPANT_LABEL_NOTE = (
@@ -919,16 +921,17 @@ class TurnEngine:
         ``IdentityFacade.get_chat_labels``), then a generic ``Guest``. Agents
         resolve to their configured name.
         """
-        agent_names = {
-            a.id: a.name for a in await AgentsFacade(self._db).list_agents_for_project(agent.project_id)
+        agent_ids = {hm.sender_id for hm in history if hm.role == "agent" and hm.sender_id is not None}
+        agent_names = await AgentRepository(self._db).names_for_ids(list(agent_ids))
+        guest_names = {
+            g.user_id: g.display_name for g in await ConversationFacade(self._db).list_guests(chatroom_id)
         }
-        conv = ConversationFacade(self._db)
-        guest_names = {g.user_id: g.display_name for g in await conv.list_guests(chatroom_id)}
         user_ids = {hm.sender_id for hm in history if hm.role == "user" and hm.sender_id is not None}
         account_labels = await IdentityFacade(self._db).get_chat_labels(list(user_ids))
-        user_names: dict[uuid.UUID, str] = {}
-        for uid in user_ids:
-            user_names[uid] = guest_names.get(uid) or account_labels.get(uid) or "Guest"
+        user_names = {
+            uid: (prefer_guest_label(guest_names.get(uid), account_labels.get(uid)) or "Guest")
+            for uid in user_ids
+        }
         return agent_names, user_names
 
     @staticmethod
