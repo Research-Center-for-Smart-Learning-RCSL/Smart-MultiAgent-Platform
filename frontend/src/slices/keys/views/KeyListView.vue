@@ -16,6 +16,7 @@ import {
   SButton,
   SDropdown,
   SStatusBadge,
+  SBadge,
   SEmptyState,
   SAlert,
   SPagination,
@@ -45,6 +46,7 @@ const columns = computed<Column[]>(() => [
   { key: 'name', label: t('keys.list.name') },
   { key: 'masked_preview', label: t('keys.list.preview'), width: '120px' },
   { key: 'test_status', label: t('keys.list.status'), width: '120px', align: 'center' },
+  { key: 'projects', label: t('keys.list.projects'), width: '120px', align: 'center' },
   { key: 'actions', label: '', width: '80px', align: 'right' },
 ])
 
@@ -176,6 +178,20 @@ function onAction(key: string, row: { id: string }) {
         >
           {{ row.test_error }}
         </small>
+      </template>
+
+      <template #cell-projects="{ row }">
+        <SBadge
+          v-if="row.project_count && row.project_count > 0"
+          variant="info"
+          size="sm"
+        >
+          {{ row.project_count }}
+        </SBadge>
+        <span
+          v-else
+          class="text-xs text-[var(--color-muted)]"
+        >—</span>
       </template>
 
       <template #actions="{ row }">

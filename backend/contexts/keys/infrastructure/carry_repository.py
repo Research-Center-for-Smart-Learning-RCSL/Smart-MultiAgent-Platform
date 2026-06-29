@@ -27,6 +27,21 @@ class Carry:
     withdrawn_at: datetime | None
 
 
+@dataclass(frozen=True, slots=True)
+class KeyProjectUsage:
+    """Reverse view of a single key's footprint in one project.
+
+    `group_ids` is every *active* Key Group inside `project_id` that lists the
+    key as a member — empty when the key is merely carried but not yet wired
+    into any group. The agents-side binding count is resolved separately
+    (cross-context) by the caller via the agents facade.
+    """
+
+    project_id: uuid.UUID
+    carried_at: datetime
+    group_ids: tuple[uuid.UUID, ...]
+
+
 class KeyProjectRepository:
     def __init__(self, db: AsyncSession) -> None:
         self._db = db
@@ -107,6 +122,62 @@ class KeyProjectRepository:
         rows = (await self._db.execute(stmt)).all()
         return [_row_to_apikey(r) for r in rows]
 
+    async def list_projects_for_key(self, key_id: uuid.UUID) -> list[KeyProjectUsage]:
+        """Every project `key_id` is actively carried into, plus the active Key
+        Groups in each project that contain the key.
+
+        One left-join walk so a carried-but-ungrouped project still surfaces
+        (with an empty `group_ids`). Group membership in *other* projects is
+        excluded by pinning ``key_groups.project_id = key_projects.project_id``.
+        """
+        kp = t.key_projects
+        kgm = t.key_group_members
+        kg = t.key_groups
+        stmt = (
+            sa.select(kp.c.project_id, kp.c.added_at, kg.c.id.label("group_id"))
+            .select_from(
+                kp.outerjoin(kgm, kgm.c.key_id == kp.c.key_id).outerjoin(
+                    kg,
+                    sa.and_(
+                        kg.c.id == kgm.c.group_id,
+                        kg.c.project_id == kp.c.project_id,
+                        kg.c.deleted_at.is_(None),
+                    ),
+                )
+            )
+            .where(sa.and_(kp.c.key_id == key_id, kp.c.carried.is_(True)))
+            .order_by(kp.c.added_at.desc())
+        )
+        rows = (await self._db.execute(stmt)).all()
+        ordered: list[uuid.UUID] = []
+        carried_at: dict[uuid.UUID, datetime] = {}
+        groups: dict[uuid.UUID, list[uuid.UUID]] = {}
+        for row in rows:
+            pid = row.project_id
+            if pid not in groups:
+                ordered.append(pid)
+                groups[pid] = []
+                carried_at[pid] = row.added_at
+            if row.group_id is not None and row.group_id not in groups[pid]:
+                groups[pid].append(row.group_id)
+        return [
+            KeyProjectUsage(project_id=pid, carried_at=carried_at[pid], group_ids=tuple(groups[pid]))
+            for pid in ordered
+        ]
+
+    async def count_active_by_keys(self, key_ids: list[uuid.UUID]) -> dict[uuid.UUID, int]:
+        """Active-carry project count per key (for the my-keys list badge)."""
+        if not key_ids:
+            return {}
+        kp = t.key_projects
+        stmt = (
+            sa.select(kp.c.key_id, sa.func.count().label("n"))
+            .where(sa.and_(kp.c.key_id.in_(key_ids), kp.c.carried.is_(True)))
+            .group_by(kp.c.key_id)
+        )
+        rows = (await self._db.execute(stmt)).all()
+        return {row.key_id: int(row.n) for row in rows}
+
     async def list_active_carries_for_user(
         self, *, user_id: uuid.UUID, project_id: uuid.UUID
     ) -> list[uuid.UUID]:
@@ -147,4 +218,4 @@ def _row_to_apikey(row: Any) -> ApiKey:
     )
 
 
-__all__ = ["Carry", "KeyProjectRepository"]
+__all__ = ["Carry", "KeyProjectRepository", "KeyProjectUsage"]

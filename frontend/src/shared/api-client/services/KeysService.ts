@@ -4,6 +4,7 @@
 /* eslint-disable */
 import type { CarryIn } from '../models/CarryIn';
 import type { KeyOut } from '../models/KeyOut';
+import type { KeyProjectOut } from '../models/KeyProjectOut';
 import type { KeyUploadIn } from '../models/KeyUploadIn';
 import type { UsageOut } from '../models/UsageOut';
 import type { CancelablePromise } from '../core/CancelablePromise';
@@ -83,6 +84,33 @@ export class KeysService {
         return __request(OpenAPI, {
             method: 'DELETE',
             url: '/api/keys/{key_id}',
+            path: {
+                'key_id': keyId,
+            },
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * List Key Projects
+     * Reverse view: which projects this key is carried into (owner-only).
+     *
+     * Ownership is enforced inside `CarryService.projects_for_key` (OWN_ONLY,
+     * mirroring retest/delete). Project names come from tenancy and the agent
+     * binding count from agents — both via facade so the keys context never
+     * reaches across boundaries itself.
+     * @returns KeyProjectOut Successful Response
+     * @throws ApiError
+     */
+    public static listKeyProjectsApiKeysKeyIdProjectsGet({
+        keyId,
+    }: {
+        keyId: string,
+    }): CancelablePromise<Array<KeyProjectOut>> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/keys/{key_id}/projects',
             path: {
                 'key_id': keyId,
             },

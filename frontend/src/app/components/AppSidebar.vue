@@ -92,10 +92,7 @@ function isActive(path: string): boolean {
   >
     <nav class="sidebar__nav">
       <!-- Global — Workspace -->
-      <SidebarGroup
-        :label="t('app.sidebar.groupWorkspace')"
-        storage-key="workspace"
-      >
+      <div class="sidebar__section">
         <RouterLink
           v-for="item in workspaceNav"
           :key="item.route"
@@ -109,7 +106,7 @@ function isActive(path: string): boolean {
           />
           <span class="nav-label">{{ item.label }}</span>
         </RouterLink>
-      </SidebarGroup>
+      </div>
 
       <!-- Global — Personal -->
       <SidebarGroup

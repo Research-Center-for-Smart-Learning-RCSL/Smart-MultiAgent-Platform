@@ -94,6 +94,11 @@ const toolsQuery = useQuery({
   queryFn: async () => (await agentsApi.listTools(agentId)).data,
 })
 
+const modelCatalogQuery = useQuery({
+  queryKey: agentKeys.modelCatalog(),
+  queryFn: async () => (await agentsApi.getModelCatalog()).data,
+})
+
 const thisAgentGraphrag = computed(() =>
   (graphragConfigsQuery.data.value ?? []).find((c) => c.agent_id === agentId),
 )
@@ -206,6 +211,53 @@ const [contextTokenCap] = defineField('context_token_cap')
 const [ragConfigId] = defineField('rag_config_id')
 const [graphragConfigId] = defineField('graphrag_config_id')
 const [a2aEnabled] = defineField('a2a_enabled')
+
+// Model-id combobox: per-provider preset list + "provider default" (stores null)
+// + "custom" (free-text). `customModel` captures the intent to type a custom id
+// while the field is empty — an empty model_id otherwise reads as "default".
+const CUSTOM_MODEL = '__custom__'
+const customModel = ref(false)
+const chatModelsForHint = computed(
+  () =>
+    modelCatalogQuery.data.value?.chat.find((c) => c.provider === modelHint.value)?.models ?? [],
+)
+// The model the runtime uses when model_id is left unset, surfaced in the
+// "provider default" option label so the user sees which model that resolves to.
+const defaultModelForHint = computed(
+  () =>
+    modelCatalogQuery.data.value?.chat.find((c) => c.provider === modelHint.value)?.default ?? '',
+)
+const isCustomModel = computed(
+  () => customModel.value || (!!modelId.value && !chatModelsForHint.value.includes(modelId.value)),
+)
+const modelSelectValue = computed<string>({
+  get: () => (isCustomModel.value ? CUSTOM_MODEL : (modelId.value ?? '')),
+  set: (v) => {
+    const s = String(v)
+    if (s === CUSTOM_MODEL) {
+      customModel.value = true
+    } else {
+      customModel.value = false
+      modelId.value = s === '' ? null : s
+    }
+  },
+})
+const customModelId = computed<string>({
+  get: () => modelId.value ?? '',
+  set: (v) => {
+    modelId.value = v.trim() === '' ? null : v
+  },
+})
+const modelIdOptions = computed(() => [
+  {
+    value: '',
+    label: defaultModelForHint.value
+      ? t('agents.form.modelDefaultNamed', { model: defaultModelForHint.value })
+      : t('agents.form.modelDefault'),
+  },
+  ...chatModelsForHint.value.map((m) => ({ value: m, label: m })),
+  { value: CUSTOM_MODEL, label: t('agents.form.modelCustom') },
+])
 
 // Wakeup config decomposed fields. New agents default to replying to every
 // message (every_n=1): without an enabled trigger an agent is inert and never
@@ -350,6 +402,26 @@ function assemblePayload(values: AgentCreateInput): AgentCreateInput {
 watch(contextMode, (mode) => {
   if (mode === 'general') contextTokenCap.value = null
 })
+
+const CONTEXT_LIMITS: Record<string, number> = {
+  claude: 200_000,
+  openai: 128_000,
+  gemini: 1_000_000,
+}
+
+const contextTokenCapPlaceholder = computed(() => {
+  const defaultCap = Math.floor((CONTEXT_LIMITS[modelHint.value] ?? 128_000) * 0.75)
+  return t('agents.form.contextTokenCapDefault', { cap: defaultCap.toLocaleString() })
+})
+
+function insertLazyTemplate(): void {
+  const existing = (systemPrompt.value ?? '').trimEnd()
+  if (!existing) {
+    systemPrompt.value = t('agents.form.promptStrategyLazyTemplate')
+  } else {
+    systemPrompt.value = existing + t('agents.form.promptStrategyLazySectionAppend')
+  }
+}
 
 const saveDisabled = computed(
   () => !isCreateMode && !meta.value.dirty && !extrasDirty.value,
@@ -661,9 +733,17 @@ const graphragStatusText = computed(() => {
                 :error="errors.model_id"
                 :help="t('agents.form.modelIdHelp')"
               >
+                <SSelect
+                  v-model="modelSelectValue"
+                  :options="modelIdOptions"
+                />
                 <SInput
-                  v-model="modelId"
+                  v-if="isCustomModel"
+                  v-model="customModelId"
+                  :maxlength="INPUT_LIMITS.MODEL_ID"
                   :placeholder="t('agents.form.modelIdPlaceholder')"
+                  :error="!!errors.model_id"
+                  class="mt-2"
                 />
               </SFormField>
             </div>
@@ -714,6 +794,7 @@ const graphragStatusText = computed(() => {
               <SInput
                 v-model="contextTokenCap"
                 type="number"
+                :placeholder="contextTokenCapPlaceholder"
               />
             </SFormField>
           </SCard>
@@ -732,12 +813,33 @@ const graphragStatusText = computed(() => {
               :label="t('agents.form.promptStrategy')"
               name="prompt_strategy"
               :error="errors.prompt_strategy"
+              :help="promptStrategy === 'full' ? t('agents.form.promptStrategyFullHelp') : t('agents.form.promptStrategyLazyHelp')"
             >
               <SSelect
                 v-model="promptStrategy"
                 :options="promptStrategyOptions"
               />
             </SFormField>
+
+            <SAlert
+              v-if="promptStrategy === 'lazy'"
+              variant="info"
+              :title="t('agents.form.promptStrategyLazyCalloutTitle')"
+              class="mt-3"
+            >
+              {{ t('agents.form.promptStrategyLazyCallout') }}
+              <pre class="mt-2 text-xs font-mono rounded px-3 py-2 overflow-x-auto whitespace-pre opacity-80">{{ t('agents.form.promptStrategyLazyFormatExample') }}</pre>
+              <template #actions>
+                <SButton
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  @click="insertLazyTemplate"
+                >
+                  {{ t('agents.form.promptStrategyLazyInsert') }}
+                </SButton>
+              </template>
+            </SAlert>
 
             <SFormField
               :label="t('agents.form.systemPrompt')"

@@ -8,6 +8,7 @@ export type KeyOut = {
     last_test_at: (string | null);
     masked_preview: string;
     name: string;
+    project_count?: number;
     provider: string;
     test_error: (string | null);
     test_status: string;

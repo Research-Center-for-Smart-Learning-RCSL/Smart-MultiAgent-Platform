@@ -86,6 +86,9 @@ def _build_registry() -> list[RouterEntry]:
         messages as message_routes,
     )
     from app.api.v1 import (
+        model_catalog as model_catalog_routes,
+    )
+    from app.api.v1 import (
         notifications as notification_routes,
     )
     from app.api.v1 import (
@@ -166,6 +169,8 @@ def _build_registry() -> list[RouterEntry]:
         RouterEntry(agent_routes.project_router),
         RouterEntry(agent_routes.agent_router),
         RouterEntry(agent_workspace_routes.router),
+        # Model catalog (provider/model presets for the config UI)
+        RouterEntry(model_catalog_routes.router),
         # RAG
         RouterEntry(rag_routes.project_router),
         RouterEntry(rag_routes.config_router),

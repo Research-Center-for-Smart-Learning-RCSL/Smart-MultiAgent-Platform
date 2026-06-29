@@ -7,9 +7,20 @@ import {
   TrashIcon,
   ExclamationTriangleIcon,
 } from '@heroicons/vue/24/outline'
-import { SPageHeader, SCard, SButton, SStatusBadge, SEmptyState } from '@shared/ui'
+import {
+  SPageHeader,
+  SCard,
+  SButton,
+  SStatusBadge,
+  SBadge,
+  SEmptyState,
+  SLoadingSpinner,
+  SAlert,
+} from '@shared/ui'
 import { useConfirmDialog, useToast } from '@shared/composables'
 import { useMyKeys } from '../composables/useMyKeys'
+import { useKeyProjects } from '../composables/useKeyProjects'
+import type { KeyProject } from '../api/keys'
 import CapabilityChip from '../components/CapabilityChip.vue'
 
 const { t } = useI18n()
@@ -19,9 +30,16 @@ const toast = useToast()
 const { confirm } = useConfirmDialog()
 const keyId = computed(() => route.params.id as string)
 const { keys, loading, error, reload, retest, remove } = useMyKeys()
+const {
+  projects,
+  loading: projectsLoading,
+  error: projectsError,
+  withdraw,
+} = useKeyProjects(keyId)
 
 const retesting = ref(false)
 const deleting = ref(false)
+const withdrawingProjectId = ref<string | null>(null)
 
 const current = computed(() => keys.value.find((k) => k.id === keyId.value))
 
@@ -49,6 +67,37 @@ async function onRetest() {
     toast.error(t('keys.detail.retestFailed'))
   } finally {
     retesting.value = false
+  }
+}
+
+async function onWithdraw(project: KeyProject) {
+  const message =
+    project.agent_count > 0 || project.group_count > 0
+      ? t('keys.detail.withdrawImpact', {
+          name: current.value?.name ?? '',
+          project: project.project_name,
+          agents: project.agent_count,
+          groups: project.group_count,
+        })
+      : t('keys.detail.withdrawImpactNone', {
+          name: current.value?.name ?? '',
+          project: project.project_name,
+        })
+  const ok = await confirm({
+    title: t('keys.detail.withdrawTitle'),
+    message,
+    confirmLabel: t('keys.detail.withdrawConfirm'),
+    variant: 'error',
+  })
+  if (!ok) return
+  withdrawingProjectId.value = project.project_id
+  try {
+    await withdraw(project.project_id)
+    toast.success(t('keys.detail.withdrawn'))
+  } catch {
+    toast.error(t('keys.detail.withdrawFailed'))
+  } finally {
+    withdrawingProjectId.value = null
   }
 }
 
@@ -168,6 +217,78 @@ async function onDelete() {
           </div>
         </dl>
       </SCard>
+
+      <SCard
+        variant="elevated"
+        padding="lg"
+        class="mt-6"
+      >
+        <h2 class="text-sm font-semibold text-[var(--color-fg)]">
+          {{ $t('keys.detail.projectsTitle') }}
+        </h2>
+        <p class="text-xs text-[var(--color-muted)] mt-1 mb-4">
+          {{ $t('keys.detail.projectsDescription') }}
+        </p>
+
+        <div
+          v-if="projectsLoading"
+          class="flex justify-center py-6"
+        >
+          <SLoadingSpinner />
+        </div>
+        <SAlert
+          v-else-if="projectsError"
+          variant="danger"
+        >
+          {{ $t('keys.detail.projectsError') }}
+        </SAlert>
+        <p
+          v-else-if="projects.length === 0"
+          class="text-sm text-[var(--color-muted)] py-2"
+        >
+          {{ $t('keys.detail.projectsEmpty') }}
+        </p>
+        <ul
+          v-else
+          class="flex flex-col"
+        >
+          <li
+            v-for="p in projects"
+            :key="p.project_id"
+            class="project-row"
+          >
+            <div class="min-w-0">
+              <div class="text-sm font-medium text-[var(--color-fg)] truncate">
+                {{ p.project_name }}
+              </div>
+              <div class="mt-1">
+                <SBadge
+                  v-if="p.group_count > 0"
+                  variant="info"
+                  size="sm"
+                >
+                  {{ $t('keys.detail.bindingSummary', { groups: p.group_count, agents: p.agent_count }) }}
+                </SBadge>
+                <SBadge
+                  v-else
+                  variant="neutral"
+                  size="sm"
+                >
+                  {{ $t('keys.detail.carriedOnly') }}
+                </SBadge>
+              </div>
+            </div>
+            <SButton
+              variant="ghost"
+              size="sm"
+              :loading="withdrawingProjectId === p.project_id"
+              @click="onWithdraw(p)"
+            >
+              {{ $t('keys.detail.withdraw') }}
+            </SButton>
+          </li>
+        </ul>
+      </SCard>
     </template>
   </main>
 </template>
@@ -183,6 +304,19 @@ async function onDelete() {
   align-items: center;
   min-height: 40px;
   border-bottom: 1px solid var(--color-border);
+}
+
+.project-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.project-row:last-child {
+  border-bottom: 0;
 }
 
 .detail-row dt {

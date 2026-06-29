@@ -15,9 +15,12 @@ from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.deps import PaginationParams
+from contexts.agents.interfaces.facade import AgentsFacade
+from contexts.keys.application.carry_service import CarryService
 from contexts.keys.application.key_service import KeyService
 from contexts.keys.domain.models import ApiKey
 from contexts.keys.domain.providers import ApiKeyProvider
+from contexts.tenancy.interfaces.facade import TenancyFacade
 from shared_kernel.auth.context import RequestContext
 from shared_kernel.auth.dependencies import current_context, current_principal
 from shared_kernel.auth.permissions import Principal
@@ -48,9 +51,13 @@ class KeyOut(BaseModel):
     test_error: str | None
     last_test_at: str | None
     created_at: str
+    # Number of projects this key is actively carried into. Populated only on
+    # the my-keys list; defaults to 0 on the project-carried surface where it
+    # would be meaningless.
+    project_count: int = 0
 
     @classmethod
-    def from_domain(cls, key: ApiKey) -> KeyOut:
+    def from_domain(cls, key: ApiKey, *, project_count: int = 0) -> KeyOut:
         return cls(
             id=key.id,
             provider=key.provider.value,
@@ -60,7 +67,18 @@ class KeyOut(BaseModel):
             test_error=key.test_error,
             last_test_at=(key.last_test_at.isoformat() if key.last_test_at else None),
             created_at=key.created_at.isoformat(),
+            project_count=project_count,
         )
+
+
+class KeyProjectOut(BaseModel):
+    """One project a key is carried into, with its binding footprint."""
+
+    project_id: uuid.UUID
+    project_name: str
+    carried_at: str
+    group_count: int
+    agent_count: int
 
 
 # ---------------------------------------------------------------------------
@@ -77,7 +95,44 @@ async def list_my_keys(
     """List every key the caller owns (masked, no secrets)."""
     svc = KeyService(db)
     keys = await svc.list_owned(principal.user_id, limit=pagination.limit, offset=pagination.offset)
-    return [KeyOut.from_domain(k) for k in keys]
+    counts = await CarryService(db).count_projects_for_keys([k.id for k in keys])
+    return [KeyOut.from_domain(k, project_count=counts.get(k.id, 0)) for k in keys]
+
+
+@router.get("/{key_id}/projects", response_model=list[KeyProjectOut])
+async def list_key_projects(
+    key_id: uuid.UUID,
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(db_session),
+) -> list[KeyProjectOut]:
+    """Reverse view: which projects this key is carried into (owner-only).
+
+    Ownership is enforced inside `CarryService.projects_for_key` (OWN_ONLY,
+    mirroring retest/delete). Project names come from tenancy and the agent
+    binding count from agents — both via facade so the keys context never
+    reaches across boundaries itself.
+    """
+    usages = await CarryService(db).projects_for_key(key_id=key_id, caller_user_id=principal.user_id)
+    all_group_ids = [gid for u in usages for gid in u.group_ids]
+    agent_counts = await AgentsFacade(db).count_agents_for_key_groups(all_group_ids)
+    tenancy = TenancyFacade(db)
+    out: list[KeyProjectOut] = []
+    for u in usages:
+        project = await tenancy.get_project(u.project_id)
+        if project is None:
+            # Project was hard-deleted out from under an orphaned carry; skip
+            # rather than surface a nameless row.
+            continue
+        out.append(
+            KeyProjectOut(
+                project_id=u.project_id,
+                project_name=project.name,
+                carried_at=u.carried_at.isoformat(),
+                group_count=len(u.group_ids),
+                agent_count=sum(agent_counts.get(gid, 0) for gid in u.group_ids),
+            )
+        )
+    return out
 
 
 @router.post("", response_model=KeyOut, status_code=status.HTTP_201_CREATED)

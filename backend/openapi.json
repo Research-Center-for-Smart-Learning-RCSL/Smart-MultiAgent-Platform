@@ -1355,6 +1355,32 @@
         "title": "ChangePasswordIn",
         "type": "object"
       },
+      "ChatModelProviderOut": {
+        "properties": {
+          "default": {
+            "title": "Default",
+            "type": "string"
+          },
+          "models": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Models",
+            "type": "array"
+          },
+          "provider": {
+            "title": "Provider",
+            "type": "string"
+          }
+        },
+        "required": [
+          "provider",
+          "models",
+          "default"
+        ],
+        "title": "ChatModelProviderOut",
+        "type": "object"
+      },
       "ChatroomCreateIn": {
         "properties": {
           "allow_guest_links": {
@@ -1558,6 +1584,50 @@
           "password"
         ],
         "title": "DeleteAccountIn",
+        "type": "object"
+      },
+      "EmbedModelOut": {
+        "properties": {
+          "dimension": {
+            "title": "Dimension",
+            "type": "integer"
+          },
+          "model": {
+            "title": "Model",
+            "type": "string"
+          }
+        },
+        "required": [
+          "model",
+          "dimension"
+        ],
+        "title": "EmbedModelOut",
+        "type": "object"
+      },
+      "EmbedModelProviderOut": {
+        "properties": {
+          "default": {
+            "title": "Default",
+            "type": "string"
+          },
+          "models": {
+            "items": {
+              "$ref": "#/components/schemas/EmbedModelOut"
+            },
+            "title": "Models",
+            "type": "array"
+          },
+          "provider": {
+            "title": "Provider",
+            "type": "string"
+          }
+        },
+        "required": [
+          "provider",
+          "models",
+          "default"
+        ],
+        "title": "EmbedModelProviderOut",
         "type": "object"
       },
       "ExportCreateIn": {
@@ -2300,6 +2370,11 @@
             "title": "Name",
             "type": "string"
           },
+          "project_count": {
+            "default": 0,
+            "title": "Project Count",
+            "type": "integer"
+          },
           "provider": {
             "title": "Provider",
             "type": "string"
@@ -2331,6 +2406,41 @@
           "created_at"
         ],
         "title": "KeyOut",
+        "type": "object"
+      },
+      "KeyProjectOut": {
+        "description": "One project a key is carried into, with its binding footprint.",
+        "properties": {
+          "agent_count": {
+            "title": "Agent Count",
+            "type": "integer"
+          },
+          "carried_at": {
+            "title": "Carried At",
+            "type": "string"
+          },
+          "group_count": {
+            "title": "Group Count",
+            "type": "integer"
+          },
+          "project_id": {
+            "format": "uuid",
+            "title": "Project Id",
+            "type": "string"
+          },
+          "project_name": {
+            "title": "Project Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "project_id",
+          "project_name",
+          "carried_at",
+          "group_count",
+          "agent_count"
+        ],
+        "title": "KeyProjectOut",
         "type": "object"
       },
       "KeyUploadIn": {
@@ -2666,6 +2776,30 @@
           "total_audit_entries"
         ],
         "title": "MetricsOut",
+        "type": "object"
+      },
+      "ModelCatalogOut": {
+        "properties": {
+          "chat": {
+            "items": {
+              "$ref": "#/components/schemas/ChatModelProviderOut"
+            },
+            "title": "Chat",
+            "type": "array"
+          },
+          "embedding": {
+            "items": {
+              "$ref": "#/components/schemas/EmbedModelProviderOut"
+            },
+            "title": "Embedding",
+            "type": "array"
+          }
+        },
+        "required": [
+          "chat",
+          "embedding"
+        ],
+        "title": "ModelCatalogOut",
         "type": "object"
       },
       "NotificationOut": {
@@ -9740,6 +9874,54 @@
         ]
       }
     },
+    "/api/keys/{key_id}/projects": {
+      "get": {
+        "description": "Reverse view: which projects this key is carried into (owner-only).\n\nOwnership is enforced inside `CarryService.projects_for_key` (OWN_ONLY,\nmirroring retest/delete). Project names come from tenancy and the agent\nbinding count from agents \u2014 both via facade so the keys context never\nreaches across boundaries itself.",
+        "operationId": "list_key_projects_api_keys__key_id__projects_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "key_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Key Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/KeyProjectOut"
+                  },
+                  "title": "Response List Key Projects Api Keys  Key Id  Projects Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Key Projects",
+        "tags": [
+          "keys"
+        ]
+      }
+    },
     "/api/keys/{key_id}/retest": {
       "post": {
         "description": "Re-run the provider probe against the stored key.",
@@ -9918,6 +10100,27 @@
         "summary": "Edit Message",
         "tags": [
           "messages"
+        ]
+      }
+    },
+    "/api/model-catalog": {
+      "get": {
+        "operationId": "get_model_catalog_api_model_catalog_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelCatalogOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Model Catalog",
+        "tags": [
+          "model-catalog"
         ]
       }
     },
