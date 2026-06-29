@@ -40,6 +40,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import Response
 
 from services.egress_proxy.ip_policy import is_blocked_ip
+from shared_kernel.logging.redaction import _mask_str
 
 _log = logging.getLogger("smap.egress_proxy")
 
@@ -105,7 +106,27 @@ def _truncate(raw: bytes) -> str:
     if not raw:
         return ""
     trimmed = raw[:_MAX_BODY_LOG_BYTES]
-    return trimmed.decode("utf-8", errors="replace")
+    # Mask known secret shapes before a body ever reaches the log — MCP/tool
+    # traffic can carry provider keys or user secrets.
+    return _mask_str(trimmed.decode("utf-8", errors="replace"))
+
+
+async def _read_capped_body(request: Request, max_bytes: int) -> bytes | None:
+    """Buffer the request body up to ``max_bytes``; return None once it exceeds.
+
+    Reads the ASGI stream incrementally so an unbounded chunked body is rejected
+    before it is fully materialised in memory.
+    """
+    chunks: list[bytes] = []
+    received = 0
+    async for chunk in request.stream():
+        if not chunk:
+            continue
+        received += len(chunk)
+        if received > max_bytes:
+            return None
+        chunks.append(chunk)
+    return b"".join(chunks)
 
 
 def _verify_hmac(*, secret: bytes, project_id: str, signature: str) -> bool:
@@ -348,12 +369,15 @@ def create_app(settings: EgressProxySettings) -> FastAPI:
                     )
             except ValueError:
                 pass
-        body = await request.body()
-        if len(body) > settings.request_max_bytes:
+        # Read incrementally and abort at the cap, so a chunked / content-length-
+        # less body cannot OOM the proxy before the size check (the old
+        # ``await request.body()`` buffered the whole stream first).
+        body = await _read_capped_body(request, settings.request_max_bytes)
+        if body is None:
             return _problem(
                 413,
                 "mcp-egress-denied",
-                f"request body too large ({len(body)} > {settings.request_max_bytes})",
+                f"request body exceeded cap of {settings.request_max_bytes} bytes",
             )
         max_bytes = settings.response_max_bytes
         hop_by_hop = {

@@ -98,12 +98,12 @@ class SearchKeyService:
         actor_user_id: uuid.UUID,
         request_id: uuid.UUID | None = None,
     ) -> SearchKey:
-        loaded = await self._repo.get_active_with_envelope(key_id)
+        loaded = await self._repo.get_active_with_envelope(key_id, project_id=project_id)
         if loaded is None:
             raise KeyNotFound(str(key_id))
         sk, record = loaded
-        # Path project scope must match the row's — otherwise any member of
-        # project B could retest a key belonging to project A.
+        # Project scope is enforced in the query above; this stays as a
+        # belt-and-braces guard.
         if sk.project_id != project_id:
             raise KeyNotFound(str(key_id))
         plaintext = bytearray(env.decrypt_envelope(record, env.search_key_aad(key_id)))

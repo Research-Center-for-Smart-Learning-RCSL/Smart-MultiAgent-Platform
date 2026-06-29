@@ -112,12 +112,19 @@ class SearchKeyRepository:
         ).first()
         return _row_to_sk(row) if row else None
 
-    async def get_active_with_envelope(self, key_id: uuid.UUID) -> tuple[SearchKey, EnvelopeRecord] | None:
+    async def get_active_with_envelope(
+        self, key_id: uuid.UUID, *, project_id: uuid.UUID
+    ) -> tuple[SearchKey, EnvelopeRecord] | None:
+        # Project scope is a WHERE predicate, not just a caller-side check, so the
+        # decryptable envelope can never be loaded for another tenant's key even
+        # if a future caller forgets to compare project_id (the AAD binds only the
+        # key_id, so it would not catch a cross-tenant decrypt on its own).
         row = (
             await self._db.execute(
                 t.search_keys.select().where(
                     sa.and_(
                         t.search_keys.c.id == key_id,
+                        t.search_keys.c.project_id == project_id,
                         t.search_keys.c.deleted_at.is_(None),
                     )
                 )

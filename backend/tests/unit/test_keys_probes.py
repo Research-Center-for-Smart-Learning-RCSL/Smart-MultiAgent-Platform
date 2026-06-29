@@ -43,13 +43,14 @@ async def test_openai_probe_ok() -> None:
 
 @pytest.mark.asyncio
 @respx.mock
-async def test_gemini_probe_uses_query_key() -> None:
+async def test_gemini_probe_uses_header_key() -> None:
     route = respx.get("https://generativelanguage.googleapis.com/v1/models").respond(200, json={})
     result = await probe(ApiKeyProvider.GEMINI, "AIzaSecret")
     assert result.status is ProbeStatus.OK
-    # Key must be on the query string, not a header.
-    assert "key=AIzaSecret" in str(route.calls.last.request.url)
-    assert "authorization" not in route.calls.last.request.headers
+    # Key must be in the x-goog-api-key header, never on the URL (where httpx /
+    # upstream / proxy loggers could capture it).
+    assert route.calls.last.request.headers["x-goog-api-key"] == "AIzaSecret"
+    assert "key=AIzaSecret" not in str(route.calls.last.request.url)
 
 
 @pytest.mark.asyncio
