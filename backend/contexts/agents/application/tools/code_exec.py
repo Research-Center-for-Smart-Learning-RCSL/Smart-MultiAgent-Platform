@@ -17,6 +17,10 @@ from contexts.agents.domain.mcp import ToolCallResult
 from shared_kernel import audit
 
 _MAX_WALL_S = 30.0
+# Cap source size so an oversized program cannot blow the ``python -c`` argv past
+# ARG_MAX in the run-and-burn path (which surfaces as an opaque OS spawn error
+# rather than a clean tool error). 256 KiB is far above any realistic snippet.
+_MAX_SOURCE_BYTES = 256 * 1024
 
 
 @dataclass(frozen=True, slots=True)
@@ -37,6 +41,8 @@ class CodeExecTool:
     ) -> ToolCallResult:
         if not isinstance(source, str) or not source:
             raise ValueError("source must be a non-empty string")
+        if len(source.encode("utf-8")) > _MAX_SOURCE_BYTES:
+            raise ValueError(f"source too large (max {_MAX_SOURCE_BYTES} bytes)")
         # Clamp to the hard cap — accepting a caller-supplied shorter budget,
         # rejecting anything larger than R12.05's 30-second wall.
         budget = _MAX_WALL_S if timeout_s is None else min(float(timeout_s), _MAX_WALL_S)
