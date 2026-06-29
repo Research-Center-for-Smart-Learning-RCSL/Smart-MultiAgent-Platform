@@ -41,6 +41,11 @@ _MAP: ErrorMap = {
         422,
         "API key capability mismatch",
     ),
+    errors.EmbedDimensionConflict: (
+        "knowledge/embed-dimension-conflict",
+        422,
+        "All RAG configs in a project must share one embedding dimension",
+    ),
     errors.DocumentTooLarge: (
         "knowledge/document-too-large",
         413,

@@ -37,6 +37,15 @@ class CapabilityMismatch(KnowledgeError):
     code = "capability-mismatch"
 
 
+class EmbedDimensionConflict(KnowledgeError):
+    """A project's RAG configs must all embed at the same vector dimension.
+
+    They share one Qdrant collection sized to the first config's dimension, so a
+    sibling config on a different-dimension model would fail every upsert."""
+
+    code = "knowledge/embed-dimension-conflict"
+
+
 class DocumentTooLarge(KnowledgeError):
     code = "knowledge/document-too-large"
 
@@ -93,6 +102,7 @@ __all__ = [
     "CapabilityMismatch",
     "ChunkParamsInvalid",
     "DocumentTooLarge",
+    "EmbedDimensionConflict",
     "EmbedModelNotWhitelisted",
     "GraphRagAgentProjectMismatch",
     "GraphRagBuildBusy",
