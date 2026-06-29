@@ -148,6 +148,11 @@ class A2AService:
             call_path=call_path,
         )
 
+        # Bind the only agent allowed to answer this call before dispatch, so a
+        # reply forged by another live agent that learned the correlation_id is
+        # dropped by the rendezvous (anti-spoof, R9.15).
+        await a2a_rendezvous.register_expected_responder(correlation_id, to_agent_id)
+
         await self.send(
             envelope=envelope,
             caller_invocation_context_id=caller_invocation_context_id,

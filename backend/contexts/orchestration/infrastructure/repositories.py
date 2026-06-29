@@ -522,6 +522,18 @@ class AgentInstanceRepository:
             .values(state=state, destroyed_at=datetime.now(UTC)),
         )
 
+    async def lock_parent(self, parent_id: uuid.UUID) -> None:
+        """Serialise concurrent spawns for one parent (R15.20).
+
+        A transaction-level advisory lock held until commit makes the
+        count-alive-then-insert cap check in ``SubagentService.spawn`` atomic
+        across concurrent sessions, so two parallel spawns cannot both read
+        ``alive < cap`` and breach the hard concurrency cap. The UUID is folded
+        into a signed 64-bit key for ``pg_advisory_xact_lock``.
+        """
+        key = int.from_bytes(parent_id.bytes[:8], "big", signed=True)
+        await self._db.execute(sa.text("SELECT pg_advisory_xact_lock(:k)"), {"k": key})
+
     async def count_alive_children(self, parent_id: uuid.UUID) -> int:
         result = await self._db.execute(
             sa.select(sa.func.count())
