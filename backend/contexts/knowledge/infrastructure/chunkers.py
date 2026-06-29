@@ -60,9 +60,12 @@ class _Embedder(Protocol):
 # or hold every sentence vector at once (mirrors IngestService._EMBED_BATCH).
 _SENTENCE_EMBED_BATCH = 128
 
-# Sentence/paragraph boundaries: after an ASCII or CJK/full-width terminator
-# (optional trailing whitespace — CJK has none), or on a blank line.
-_SENTENCE_RE = re.compile(r"(?<=[.!?。！？；;])\s*|\n{2,}")
+# Sentence/paragraph boundaries:
+#   - after an ASCII terminator (. ! ? ;) ONLY when whitespace follows, so
+#     "3.14", "v1.2", "U.S.A." do not fragment on the embedded dots;
+#   - after a CJK/full-width terminator, which has no following space (zero-width);
+#   - on a blank line.
+_SENTENCE_RE = re.compile(r"(?<=[.!?;])\s+|(?<=[。！？；])\s*|\n{2,}")
 
 
 def _is_cjk(ch: str) -> bool:

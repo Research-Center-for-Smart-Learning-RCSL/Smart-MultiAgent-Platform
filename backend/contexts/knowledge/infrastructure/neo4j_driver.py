@@ -248,7 +248,10 @@ class Neo4jAsyncDriver:
             "                endNode(edge).name AS object, "
             "                edge.confidence AS confidence, "
             "                edge.evidence_msg_ids AS evidence_msg_ids "
-            "ORDER BY confidence DESC "
+            # coalesce: a NULL confidence sorts as the largest value in Neo4j, so
+            # legacy/restored edges with no confidence would otherwise consume the
+            # LIMIT ahead of genuinely strong edges. Treat missing as 0.0.
+            "ORDER BY coalesce(confidence, 0.0) DESC "
             "LIMIT 50"
         )
         async with driver.session() as session:
@@ -286,7 +289,9 @@ class Neo4jAsyncDriver:
             "(o:Entity {graphrag_config_id: $cid}) "
             "RETURN s.name AS subject, r.relation AS relation, "
             "       o.name AS object, r.confidence AS confidence "
-            "ORDER BY r.confidence DESC, subject ASC "
+            # coalesce: NULL sorts highest under DESC in Neo4j, so a missing
+            # confidence must not outrank real edges in the truncated view.
+            "ORDER BY coalesce(r.confidence, 0.0) DESC, subject ASC "
             "LIMIT $edge_limit"
         )
         async with driver.session() as session:
