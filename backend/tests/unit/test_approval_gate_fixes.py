@@ -127,10 +127,31 @@ async def test_drive_approver_turn_skips_resolved_gate(monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
-async def test_drive_approver_turn_skips_missing_gate(monkeypatch) -> None:
+async def test_drive_approver_turn_retries_not_yet_visible_gate(monkeypatch) -> None:
+    # A gate created inside the caller's uncommitted transaction is not yet
+    # visible — the task must retry (within budget), not skip the approver.
     captured = _wire_task(monkeypatch, None)
-    out = await tasks_appr.drive_approver_turn({}, str(uuid.uuid4()), str(uuid.uuid4()), None)
-    assert out == "skipped:not_pending"
+    enqueued: list = []
+
+    class _Redis:
+        async def enqueue_job(self, *a, **k):
+            enqueued.append((a, k))
+
+    out = await tasks_appr.drive_approver_turn(
+        {"redis": _Redis()}, str(uuid.uuid4()), str(uuid.uuid4()), None
+    )
+    assert out == "retry:not_visible"
+    assert len(enqueued) == 1
+    assert "turn_kwargs" not in captured  # no provider call spent
+
+
+@pytest.mark.asyncio
+async def test_drive_approver_turn_gives_up_after_max_attempts(monkeypatch) -> None:
+    captured = _wire_task(monkeypatch, None)
+    out = await tasks_appr.drive_approver_turn(
+        {}, str(uuid.uuid4()), str(uuid.uuid4()), None, tasks_appr._NOT_VISIBLE_MAX_ATTEMPTS
+    )
+    assert out == "skipped:not_visible"
     assert "turn_kwargs" not in captured
 
 
