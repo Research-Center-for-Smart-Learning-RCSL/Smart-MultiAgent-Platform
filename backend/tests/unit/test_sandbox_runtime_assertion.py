@@ -20,6 +20,7 @@ class _FakeContainer:
         self._reload_raises = reload_raises
         self.killed = False
         self.removed = False
+        self.started = False
         self.attrs: dict[str, object] = {}
 
     def reload(self) -> None:
@@ -32,6 +33,27 @@ class _FakeContainer:
 
     def remove(self, *, force: bool = False) -> None:
         self.removed = True
+
+    def start(self) -> None:
+        self.started = True
+
+
+class _FakeClient:
+    def __init__(self, container: _FakeContainer) -> None:
+        self._container = container
+        self.create_kwargs: dict | None = None
+
+    class _Containers:
+        def __init__(self, outer: _FakeClient) -> None:
+            self._outer = outer
+
+        def create(self, **kwargs):
+            self._outer.create_kwargs = kwargs
+            return self._outer._container
+
+    @property
+    def containers(self) -> _FakeClient._Containers:
+        return _FakeClient._Containers(self)
 
 
 @pytest.mark.asyncio
@@ -64,3 +86,26 @@ async def test_uninspectable_container_fails_closed() -> None:
     with pytest.raises(SandboxRuntimeViolation):
         await DockerRunscSandbox._assert_runsc(container)
     assert container.killed is True
+
+
+@pytest.mark.asyncio
+async def test_create_verified_never_starts_on_wrong_runtime() -> None:
+    # SEC-M5 / #32: the gVisor check happens BEFORE start, so a container that
+    # lands on the wrong runtime is removed without ever executing the workload.
+    container = _FakeContainer("runc")
+    client = _FakeClient(container)
+    with pytest.raises(SandboxRuntimeViolation):
+        await DockerRunscSandbox()._create_verified(client, image="x", command=["c"])
+    assert container.started is False
+    assert container.removed is True
+
+
+@pytest.mark.asyncio
+async def test_create_verified_returns_unstarted_container_when_runsc() -> None:
+    container = _FakeContainer("runsc")
+    client = _FakeClient(container)
+    out = await DockerRunscSandbox()._create_verified(client, image="x", command=["c"])
+    # Verified but NOT started — the caller starts it after any pre-start setup.
+    assert out is container
+    assert container.started is False
+    assert container.killed is False
