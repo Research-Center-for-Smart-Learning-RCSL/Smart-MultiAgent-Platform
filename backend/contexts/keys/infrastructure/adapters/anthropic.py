@@ -98,6 +98,10 @@ def _body(request: ProviderRequest, *, stream: bool) -> dict[str, Any]:
         body["tools"] = payload["tools"]
     if payload.get("temperature") is not None:
         body["temperature"] = payload["temperature"]
+    # Cross-provider effort -> Claude effort (Opus 4.5+/Sonnet 4.6/Fable 5 only;
+    # an unsupported model 400s, surfaced as a normal provider error).
+    if payload.get("effort"):
+        body["output_config"] = {"effort": payload["effort"]}
     if stream:
         body["stream"] = True
     return body

@@ -531,3 +531,50 @@ async def test_resolve_model_required() -> None:
     )
     with pytest.raises(ValueError):
         await AnthropicAdapter().invoke(secret=_SECRET, request=req)
+
+
+# --------------------------------------------------------------------------- #
+# Cross-provider effort -> per-provider reasoning-effort parameter             #
+# --------------------------------------------------------------------------- #
+@pytest.mark.asyncio
+@respx.mock
+async def test_anthropic_maps_effort_to_output_config() -> None:
+    route = respx.post("https://api.anthropic.com/v1/messages").respond(
+        200, json={"content": [{"type": "text", "text": "ok"}], "stop_reason": "end", "usage": {}}
+    )
+    await AnthropicAdapter().invoke(secret=_SECRET, request=_chat("claude-x", effort="high"))
+    body = json.loads(route.calls.last.request.content)
+    assert body["output_config"] == {"effort": "high"}
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_openai_maps_effort_to_reasoning_effort() -> None:
+    route = respx.post("https://api.openai.com/v1/chat/completions").respond(
+        200, json={"choices": [{"message": {"content": "ok"}, "finish_reason": "stop"}], "usage": {}}
+    )
+    await OpenAIAdapter().invoke(secret=_SECRET, request=_chat("gpt-5.4", effort="medium"))
+    assert json.loads(route.calls.last.request.content)["reasoning_effort"] == "medium"
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_gemini_maps_effort_to_thinking_level_uppercase() -> None:
+    route = respx.post(
+        "https://generativelanguage.googleapis.com/v1beta/models/gemini-x:generateContent"
+    ).respond(200, json={"candidates": [{"content": {"parts": [{"text": "ok"}]}}]})
+    await GeminiAdapter().invoke(secret=_SECRET, request=_chat("gemini-x", effort="low"))
+    gen = json.loads(route.calls.last.request.content)["generationConfig"]
+    assert gen["thinkingConfig"] == {"thinkingLevel": "LOW"}
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_effort_omitted_when_unset() -> None:
+    # Opt-in: with no effort in the payload the parameter is never sent, so the
+    # provider's own default applies (and non-reasoning models don't 400).
+    route = respx.post("https://api.openai.com/v1/chat/completions").respond(
+        200, json={"choices": [{"message": {"content": "ok"}, "finish_reason": "stop"}], "usage": {}}
+    )
+    await OpenAIAdapter().invoke(secret=_SECRET, request=_chat("gpt-4o"))
+    assert "reasoning_effort" not in json.loads(route.calls.last.request.content)

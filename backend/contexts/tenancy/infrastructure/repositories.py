@@ -318,6 +318,19 @@ class ProjectRepository:
         row = (await self._db.execute(t.projects.select().where(predicate))).first()
         return _row_to_project(row) if row else None
 
+    async def list_by_ids(
+        self, project_ids: Sequence[uuid.UUID], *, include_deleted: bool = False
+    ) -> list[Project]:
+        """Batch-fetch projects by id (one query) for callers that resolve many
+        ids at once — avoids an N+1 of single `get` calls."""
+        if not project_ids:
+            return []
+        predicate: sa.ColumnElement[bool] = t.projects.c.id.in_(list(project_ids))
+        if not include_deleted:
+            predicate = sa.and_(predicate, t.projects.c.deleted_at.is_(None))
+        rows = (await self._db.execute(t.projects.select().where(predicate))).all()
+        return [_row_to_project(r) for r in rows]
+
     async def list_by_user(self, user_id: uuid.UUID) -> Sequence[Project]:
         rows = (
             await self._db.execute(
@@ -331,9 +344,7 @@ class ProjectRepository:
         ).all()
         return [_row_to_project(r) for r in rows]
 
-    async def list_by_org(
-        self, org_id: uuid.UUID, *, include_deleted: bool = False
-    ) -> Sequence[Project]:
+    async def list_by_org(self, org_id: uuid.UUID, *, include_deleted: bool = False) -> Sequence[Project]:
         predicate = t.projects.c.owner_org_id == org_id
         if not include_deleted:
             predicate = sa.and_(predicate, t.projects.c.deleted_at.is_(None))
@@ -445,6 +456,24 @@ class ProjectMemberRepository:
             joined_at=row.joined_at,
         )
 
+    async def member_project_ids(
+        self, *, user_id: uuid.UUID, project_ids: Sequence[uuid.UUID]
+    ) -> set[uuid.UUID]:
+        """Of `project_ids`, return the subset the user is a member of (one query)."""
+        if not project_ids:
+            return set()
+        rows = (
+            await self._db.execute(
+                sa.select(t.project_members.c.project_id).where(
+                    sa.and_(
+                        t.project_members.c.user_id == user_id,
+                        t.project_members.c.project_id.in_(list(project_ids)),
+                    )
+                )
+            )
+        ).all()
+        return {r.project_id for r in rows}
+
     async def remove(self, *, project_id: uuid.UUID, user_id: uuid.UUID) -> None:
         await self._db.execute(
             t.project_members.delete().where(
@@ -455,9 +484,7 @@ class ProjectMemberRepository:
             )
         )
 
-    async def remove_user_from_projects(
-        self, *, user_id: uuid.UUID, project_ids: list[uuid.UUID]
-    ) -> int:
+    async def remove_user_from_projects(self, *, user_id: uuid.UUID, project_ids: list[uuid.UUID]) -> int:
         if not project_ids:
             return 0
         result = await self._db.execute(

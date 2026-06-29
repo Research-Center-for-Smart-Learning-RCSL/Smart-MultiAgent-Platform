@@ -3,6 +3,7 @@
 /* tslint:disable */
 /* eslint-disable */
 import type { CarryIn } from '../models/CarryIn';
+import type { KeyListOut } from '../models/KeyListOut';
 import type { KeyOut } from '../models/KeyOut';
 import type { KeyProjectOut } from '../models/KeyProjectOut';
 import type { KeyUploadIn } from '../models/KeyUploadIn';
@@ -14,7 +15,7 @@ export class KeysService {
     /**
      * List My Keys
      * List every key the caller owns (masked, no secrets).
-     * @returns KeyOut Successful Response
+     * @returns KeyListOut Successful Response
      * @throws ApiError
      */
     public static listMyKeysApiKeysGet({
@@ -29,7 +30,7 @@ export class KeysService {
          * Number of items to skip
          */
         offset?: number,
-    }): CancelablePromise<Array<KeyOut>> {
+    }): CancelablePromise<Array<KeyListOut>> {
         return __request(OpenAPI, {
             method: 'GET',
             url: '/api/keys',
@@ -96,10 +97,10 @@ export class KeysService {
      * List Key Projects
      * Reverse view: which projects this key is carried into (owner-only).
      *
-     * Ownership is enforced inside `CarryService.projects_for_key` (OWN_ONLY,
-     * mirroring retest/delete). Project names come from tenancy and the agent
-     * binding count from agents — both via facade so the keys context never
-     * reaches across boundaries itself.
+     * Ownership is enforced inside `KeysFacade.projects_for_key`. Results are
+     * filtered to projects the caller is still a member of — a key owner who has
+     * left a project must not see that project's data even if the carry revocation
+     * fanout had not yet run (R7.03 / CLAUDE.md AuthZ rule).
      * @returns KeyProjectOut Successful Response
      * @throws ApiError
      */

@@ -77,6 +77,14 @@
       "modelDefault": "Provider default",
       "modelDefaultNamed": "Provider default ({model})",
       "modelCustom": "Custom model ID...",
+      "effort": "Reasoning Effort",
+      "effortHelp": "How hard the model reasons before answering. Applies only to reasoning-capable models; leave at Provider default otherwise.",
+      "effortDefault": "Provider default",
+      "effortLevels": {
+        "low": "Low",
+        "medium": "Medium",
+        "high": "High"
+      },
       "keyGroup": "Key Group",
       "keyGroupPlaceholder": "Select a key group...",
       "noKeyGroups": "This project has no key groups yet. Create one in the Keys section before adding an agent.",

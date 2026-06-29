@@ -34,14 +34,13 @@ from contexts.agents.application.runtime.tool_registry import (
     build_cast_approval_vote_tool,
     build_registry,
 )
-from contexts.agents.domain.models import DEFAULT_CHAT_MODELS, Agent
+from contexts.agents.domain.models import CONTEXT_LIMITS, DEFAULT_CHAT_MODELS, Agent
 from contexts.agents.infrastructure.repositories import AgentRepository
 from contexts.agents.infrastructure.turn_lock import DEFAULT_TURN_TTL_S, turn_lock
 from contexts.agents.interfaces.facade import AgentsFacade
 from contexts.conversation.application.message_service import MessageService
 from contexts.conversation.infrastructure.repositories import ChatroomAgentRepository
 from contexts.conversation.interfaces import emit_agent_finished_error, room_channel
-from contexts.conversation.interfaces.author_labels import prefer_guest_label
 from contexts.conversation.interfaces.facade import ConversationFacade
 from contexts.identity.interfaces.facade import IdentityFacade
 from contexts.keys.application.provider_router import (
@@ -106,11 +105,7 @@ AGENT_STREAM_TOKENS_TOTAL = Counter(
 # Sourced from the agents domain so the runtime default and the default the
 # model-catalog API advertises to the UI stay in lock-step.
 _DEFAULT_CHAT_MODELS: dict[str, str] = dict(DEFAULT_CHAT_MODELS)
-_CONTEXT_LIMITS: dict[str, int] = {
-    "claude": 200_000,
-    "openai": 128_000,
-    "gemini": 1_000_000,
-}
+_CONTEXT_LIMITS: dict[str, int] = dict(CONTEXT_LIMITS)
 
 # Appended to the system prompt whenever history carries sender labels. The
 # provider sees other participants' turns as "Name: message"; without this note
@@ -739,10 +734,11 @@ class TurnEngine:
                 for hm in history
                 if hm.role in ("user", "agent")
             ]
-            labels_applied = bool(user_names) or any(
+            other_agents_present = any(
                 hm.role == "agent" and hm.sender_id not in (None, agent.id) and hm.sender_id in agent_names
                 for hm in history
             )
+            labels_applied = other_agents_present or len(user_names) > 1
             if labels_applied:
                 system_parts.append(_PARTICIPANT_LABEL_NOTE)
             system_text = "\n\n".join(p for p in system_parts if p)
@@ -927,7 +923,7 @@ class TurnEngine:
         user_ids = {hm.sender_id for hm in history if hm.role == "user" and hm.sender_id is not None}
         account_labels = await IdentityFacade(self._db).get_chat_labels(list(user_ids))
         user_names = {
-            uid: (prefer_guest_label(guest_names.get(uid), account_labels.get(uid)) or "Guest")
+            uid: (guest_names.get(uid) or account_labels.get(uid) or "Guest")
             for uid in user_ids
         }
         return agent_names, user_names
@@ -949,7 +945,10 @@ class TurnEngine:
                 return {"role": "assistant", "content": hm.content}
             label = agent_names.get(hm.sender_id) if hm.sender_id is not None else None
             content = f"{label}: {hm.content}" if label else hm.content
-            return {"role": "assistant", "content": content}
+            # Other agents are external actors from this agent's perspective;
+            # mapping them to "user" prevents consecutive assistant turns which
+            # the Anthropic and OpenAI APIs reject with a 400.
+            return {"role": "user", "content": content}
         label = user_names.get(hm.sender_id) if hm.sender_id is not None else None
         content = f"{label}: {hm.content}" if label else hm.content
         return {"role": "user", "content": content}
@@ -1097,6 +1096,8 @@ class TurnEngine:
             }
             if tool_specs:
                 payload["tools"] = tool_specs
+            if agent.effort:
+                payload["effort"] = agent.effort.value
             request = ProviderRequest(
                 capability=ProviderCapability.LLM_CHAT,
                 payload=payload,
@@ -1167,6 +1168,8 @@ class TurnEngine:
             "messages": final_messages,
             "max_tokens": _DEFAULT_MAX_TOKENS,
         }
+        if agent.effort:
+            final_payload["effort"] = agent.effort.value
         final_request = ProviderRequest(
             capability=ProviderCapability.LLM_CHAT,
             payload=final_payload,

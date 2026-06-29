@@ -6,6 +6,7 @@ export type AgentCreateIn = {
     a2a_enabled?: boolean;
     context_mode?: 'general' | 'compact';
     context_token_cap?: (number | null);
+    effort?: ('low' | 'medium' | 'high' | null);
     graphrag_config_id?: (string | null);
     key_group_id: string;
     model_hint: 'claude' | 'openai' | 'gemini';

@@ -29,6 +29,7 @@ class ChatModelProviderOut(BaseModel):
     provider: str
     models: list[str]
     default: str
+    context_limit: int
 
 
 class EmbedModelOut(BaseModel):
@@ -56,7 +57,13 @@ async def get_model_catalog(
     embedding = KnowledgeFacade(db).embedding_catalog()
     return ModelCatalogOut(
         chat=[
-            ChatModelProviderOut(provider=c.provider, models=list(c.models), default=c.default) for c in chat
+            ChatModelProviderOut(
+                provider=c.provider,
+                models=list(c.models),
+                default=c.default,
+                context_limit=c.context_limit,
+            )
+            for c in chat
         ],
         embedding=[
             EmbedModelProviderOut(

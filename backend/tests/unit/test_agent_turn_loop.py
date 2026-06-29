@@ -80,7 +80,7 @@ async def test_stream_with_tools_runs_one_tool_round(monkeypatch) -> None:
     engine = te.TurnEngine.__new__(te.TurnEngine)
     engine._router = _FakeRouter()  # type: ignore[attr-defined]
     registry = _FakeRegistry()
-    agent = SimpleNamespace(id=uuid.uuid4(), key_group_id=uuid.uuid4())
+    agent = SimpleNamespace(id=uuid.uuid4(), key_group_id=uuid.uuid4(), effort=None)
     messages: list = [{"role": "user", "content": "set my cadence"}]
 
     text, rounds = await engine._stream_with_tools(
@@ -134,7 +134,7 @@ async def test_stream_with_tools_no_tools_single_round(monkeypatch) -> None:
     monkeypatch.setattr(te, "Publisher", _Pub)
     engine = te.TurnEngine.__new__(te.TurnEngine)
     engine._router = _PlainRouter()  # type: ignore[attr-defined]
-    agent = SimpleNamespace(id=uuid.uuid4(), key_group_id=uuid.uuid4())
+    agent = SimpleNamespace(id=uuid.uuid4(), key_group_id=uuid.uuid4(), effort=None)
 
     text, rounds = await engine._stream_with_tools(
         agent=agent,

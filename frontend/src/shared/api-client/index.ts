@@ -73,6 +73,7 @@ export type { HTTPValidationError } from './models/HTTPValidationError';
 export type { ImpersonateOut } from './models/ImpersonateOut';
 export type { IpBanIn } from './models/IpBanIn';
 export type { IpBanOut } from './models/IpBanOut';
+export type { KeyListOut } from './models/KeyListOut';
 export type { KeyOut } from './models/KeyOut';
 export type { KeyProjectOut } from './models/KeyProjectOut';
 export type { KeyUploadIn } from './models/KeyUploadIn';

@@ -26,6 +26,7 @@ from contexts.keys.domain.providers import (
     supports,
 )
 from contexts.keys.infrastructure import tables as _t
+from contexts.keys.infrastructure.carry_repository import KeyProjectUsage
 from contexts.keys.infrastructure.group_repository import KeyGroupRepository
 from contexts.keys.infrastructure.repositories import ApiKeyRepository
 from shared_kernel.auth.clients import now
@@ -38,6 +39,24 @@ class KeysFacade:
 
     async def list_keys_carried_in_project(self, project_id: uuid.UUID) -> list[ApiKey]:
         return await CarryService(self._db).list_in_project(project_id)
+
+    async def projects_for_key(
+        self,
+        *,
+        key_id: uuid.UUID,
+        caller_user_id: uuid.UUID,
+    ) -> list[KeyProjectUsage]:
+        """Reverse view: projects a key is carried into (ownership-checked)."""
+        return await CarryService(self._db).projects_for_key(
+            key_id=key_id,
+            caller_user_id=caller_user_id,
+        )
+
+    async def count_projects_for_keys(
+        self, key_ids: list[uuid.UUID]
+    ) -> dict[uuid.UUID, int]:
+        """Active-carry project count per key (for the my-keys list badge)."""
+        return await CarryService(self._db).count_projects_for_keys(key_ids)
 
     async def get_key_group(self, group_id: uuid.UUID) -> KeyGroup | None:
         """Return the active Key Group (or None if missing / soft-deleted).
@@ -318,6 +337,7 @@ class KeysFacade:
 __all__ = [
     "ApiKeyProvider",
     "CapabilityRequirement",
+    "KeyProjectUsage",
     "KeysCapabilityMismatch",
     "KeysFacade",
     "ProviderCapability",

@@ -76,6 +76,7 @@ def _make_agent(
         name="Test Agent",
         model_hint=AgentModelHint.CLAUDE,
         model_id=None,
+        effort=None,
         key_group_id=_KEY_GROUP_ID,
         system_prompt="You are helpful.",
         prompt_strategy=PromptStrategy.FULL,

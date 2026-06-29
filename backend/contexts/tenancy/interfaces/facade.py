@@ -56,6 +56,16 @@ class TenancyFacade:
     async def get_project(self, project_id: uuid.UUID, *, include_deleted: bool = False) -> Project | None:
         return await self._projects.get(project_id, include_deleted=include_deleted)
 
+    async def get_projects(self, project_ids: Sequence[uuid.UUID]) -> dict[uuid.UUID, Project]:
+        """Batch-resolve projects by id, keyed by id, for N+1-free name lookups."""
+        return {p.id: p for p in await self._projects.list_by_ids(project_ids)}
+
+    async def member_project_ids(
+        self, user_id: uuid.UUID, project_ids: Sequence[uuid.UUID]
+    ) -> set[uuid.UUID]:
+        """Subset of `project_ids` the user currently belongs to (one query)."""
+        return await self._project_members.member_project_ids(user_id=user_id, project_ids=project_ids)
+
     # ----- account self-deletion (R8.14 / R8.18) --------------------------
     #
     # Called from the identity context (AuthService.delete_account) which owns
@@ -80,7 +90,6 @@ class TenancyFacade:
             actor_ip=actor_ip,
             request_id=request_id,
         )
-
 
     async def prepare_hard_delete(
         self,

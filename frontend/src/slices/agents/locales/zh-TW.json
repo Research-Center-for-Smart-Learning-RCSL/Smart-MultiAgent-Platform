@@ -77,6 +77,14 @@
       "modelDefault": "提供者預設",
       "modelDefaultNamed": "提供者預設（{model}）",
       "modelCustom": "自訂模型 ID...",
+      "effort": "推理強度",
+      "effortHelp": "模型回答前投入的推理程度。僅對支援推理的模型有效；其餘維持「提供者預設」即可。",
+      "effortDefault": "提供者預設",
+      "effortLevels": {
+        "low": "低",
+        "medium": "中",
+        "high": "高"
+      },
       "keyGroup": "金鑰群組",
       "keyGroupPlaceholder": "選擇金鑰群組…",
       "noKeyGroups": "此專案尚未建立任何金鑰群組。請先到金鑰頁面建立，才能新增 AI Agent。",

@@ -3,6 +3,7 @@
 /* tslint:disable */
 /* eslint-disable */
 export type ChatModelProviderOut = {
+    context_limit: number;
     default: string;
     models: Array<string>;
     provider: string;

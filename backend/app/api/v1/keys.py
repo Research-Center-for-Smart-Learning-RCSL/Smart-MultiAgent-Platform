@@ -16,10 +16,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.deps import PaginationParams
 from contexts.agents.interfaces.facade import AgentsFacade
-from contexts.keys.application.carry_service import CarryService
 from contexts.keys.application.key_service import KeyService
 from contexts.keys.domain.models import ApiKey
 from contexts.keys.domain.providers import ApiKeyProvider
+from contexts.keys.interfaces.facade import KeysFacade
 from contexts.tenancy.interfaces.facade import TenancyFacade
 from shared_kernel.auth.context import RequestContext
 from shared_kernel.auth.dependencies import current_context, current_principal
@@ -51,13 +51,9 @@ class KeyOut(BaseModel):
     test_error: str | None
     last_test_at: str | None
     created_at: str
-    # Number of projects this key is actively carried into. Populated only on
-    # the my-keys list; defaults to 0 on the project-carried surface where it
-    # would be meaningless.
-    project_count: int = 0
 
     @classmethod
-    def from_domain(cls, key: ApiKey, *, project_count: int = 0) -> KeyOut:
+    def from_domain(cls, key: ApiKey) -> KeyOut:
         return cls(
             id=key.id,
             provider=key.provider.value,
@@ -67,8 +63,19 @@ class KeyOut(BaseModel):
             test_error=key.test_error,
             last_test_at=(key.last_test_at.isoformat() if key.last_test_at else None),
             created_at=key.created_at.isoformat(),
-            project_count=project_count,
         )
+
+
+class KeyListOut(KeyOut):
+    """`KeyOut` plus the active-carry count. Exposed only on the my-keys list so
+    the shared `KeyOut` (also returned by the project-carried surface) stays free
+    of a field that has no meaning there."""
+
+    project_count: int
+
+    @classmethod
+    def with_count(cls, key: ApiKey, *, project_count: int) -> KeyListOut:
+        return cls(**KeyOut.from_domain(key).model_dump(), project_count=project_count)
 
 
 class KeyProjectOut(BaseModel):
@@ -86,17 +93,17 @@ class KeyProjectOut(BaseModel):
 # ---------------------------------------------------------------------------
 
 
-@router.get("", response_model=list[KeyOut])
+@router.get("", response_model=list[KeyListOut])
 async def list_my_keys(
     pagination: PaginationParams = Depends(),
     principal: Principal = Depends(current_principal),
     db: AsyncSession = Depends(db_session),
-) -> list[KeyOut]:
+) -> list[KeyListOut]:
     """List every key the caller owns (masked, no secrets)."""
     svc = KeyService(db)
     keys = await svc.list_owned(principal.user_id, limit=pagination.limit, offset=pagination.offset)
-    counts = await CarryService(db).count_projects_for_keys([k.id for k in keys])
-    return [KeyOut.from_domain(k, project_count=counts.get(k.id, 0)) for k in keys]
+    counts = await KeysFacade(db).count_projects_for_keys([k.id for k in keys])
+    return [KeyListOut.with_count(k, project_count=counts.get(k.id, 0)) for k in keys]
 
 
 @router.get("/{key_id}/projects", response_model=list[KeyProjectOut])
@@ -107,21 +114,27 @@ async def list_key_projects(
 ) -> list[KeyProjectOut]:
     """Reverse view: which projects this key is carried into (owner-only).
 
-    Ownership is enforced inside `CarryService.projects_for_key` (OWN_ONLY,
-    mirroring retest/delete). Project names come from tenancy and the agent
-    binding count from agents — both via facade so the keys context never
-    reaches across boundaries itself.
+    Ownership is enforced inside `KeysFacade.projects_for_key`. Results are
+    filtered to projects the caller is still a member of — a key owner who has
+    left a project must not see that project's data even if the carry revocation
+    fanout had not yet run (R7.03 / CLAUDE.md AuthZ rule).
     """
-    usages = await CarryService(db).projects_for_key(key_id=key_id, caller_user_id=principal.user_id)
+    usages = await KeysFacade(db).projects_for_key(key_id=key_id, caller_user_id=principal.user_id)
+    project_ids = [u.project_id for u in usages]
     all_group_ids = [gid for u in usages for gid in u.group_ids]
     agent_counts = await AgentsFacade(db).count_agents_for_key_groups(all_group_ids)
     tenancy = TenancyFacade(db)
+    # Batch both per-project lookups into one query each (no N+1): membership
+    # filter first (a key owner who has left a project must not see its data,
+    # even if the carry-revocation fanout has not yet run), then names.
+    member_ids = await tenancy.member_project_ids(principal.user_id, project_ids)
+    projects = await tenancy.get_projects(project_ids)
     out: list[KeyProjectOut] = []
     for u in usages:
-        project = await tenancy.get_project(u.project_id)
+        if u.project_id not in member_ids:
+            continue
+        project = projects.get(u.project_id)
         if project is None:
-            # Project was hard-deleted out from under an orphaned carry; skip
-            # rather than surface a nameless row.
             continue
         out.append(
             KeyProjectOut(

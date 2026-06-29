@@ -60,6 +60,14 @@ DEFAULT_EMBED_MODELS: dict[str, str] = {
     "voyage": "voyage-3",
 }
 
+_embed_providers = {p for p, _ in EMBED_MODEL_DIMENSIONS}
+assert set(DEFAULT_EMBED_MODELS) == _embed_providers, (
+    "DEFAULT_EMBED_MODELS and EMBED_MODEL_DIMENSIONS must cover the same providers"
+)
+assert all(
+    (p, m) in EMBED_MODEL_DIMENSIONS for p, m in DEFAULT_EMBED_MODELS.items()
+), "every DEFAULT_EMBED_MODELS value must be a key of EMBED_MODEL_DIMENSIONS"
+
 
 @dataclass(frozen=True, slots=True)
 class EmbedModelOption:

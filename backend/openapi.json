@@ -102,6 +102,22 @@
             ],
             "title": "Context Token Cap"
           },
+          "effort": {
+            "anyOf": [
+              {
+                "enum": [
+                  "low",
+                  "medium",
+                  "high"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Effort"
+          },
           "graphrag_config_id": {
             "anyOf": [
               {
@@ -226,6 +242,17 @@
             ],
             "title": "Deleted At"
           },
+          "effort": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Effort"
+          },
           "graphrag_config_id": {
             "anyOf": [
               {
@@ -311,6 +338,7 @@
           "name",
           "model_hint",
           "model_id",
+          "effort",
           "key_group_id",
           "system_prompt",
           "prompt_strategy",
@@ -368,6 +396,22 @@
               }
             ],
             "title": "Context Token Cap"
+          },
+          "effort": {
+            "anyOf": [
+              {
+                "enum": [
+                  "low",
+                  "medium",
+                  "high"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Effort"
           },
           "graphrag_config_id": {
             "anyOf": [
@@ -1357,6 +1401,10 @@
       },
       "ChatModelProviderOut": {
         "properties": {
+          "context_limit": {
+            "title": "Context Limit",
+            "type": "integer"
+          },
           "default": {
             "title": "Default",
             "type": "string"
@@ -1376,7 +1424,8 @@
         "required": [
           "provider",
           "models",
-          "default"
+          "default",
+          "context_limit"
         ],
         "title": "ChatModelProviderOut",
         "type": "object"
@@ -2340,7 +2389,8 @@
         "title": "IpBanOut",
         "type": "object"
       },
-      "KeyOut": {
+      "KeyListOut": {
+        "description": "`KeyOut` plus the active-carry count. Exposed only on the my-keys list so\nthe shared `KeyOut` (also returned by the project-carried surface) stays free\nof a field that has no meaning there.",
         "properties": {
           "created_at": {
             "title": "Created At",
@@ -2371,9 +2421,72 @@
             "type": "string"
           },
           "project_count": {
-            "default": 0,
             "title": "Project Count",
             "type": "integer"
+          },
+          "provider": {
+            "title": "Provider",
+            "type": "string"
+          },
+          "test_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Test Error"
+          },
+          "test_status": {
+            "title": "Test Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "provider",
+          "name",
+          "masked_preview",
+          "test_status",
+          "test_error",
+          "last_test_at",
+          "created_at",
+          "project_count"
+        ],
+        "title": "KeyListOut",
+        "type": "object"
+      },
+      "KeyOut": {
+        "properties": {
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "last_test_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Test At"
+          },
+          "masked_preview": {
+            "title": "Masked Preview",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
           },
           "provider": {
             "title": "Provider",
@@ -9771,7 +9884,7 @@
               "application/json": {
                 "schema": {
                   "items": {
-                    "$ref": "#/components/schemas/KeyOut"
+                    "$ref": "#/components/schemas/KeyListOut"
                   },
                   "title": "Response List My Keys Api Keys Get",
                   "type": "array"
@@ -9876,7 +9989,7 @@
     },
     "/api/keys/{key_id}/projects": {
       "get": {
-        "description": "Reverse view: which projects this key is carried into (owner-only).\n\nOwnership is enforced inside `CarryService.projects_for_key` (OWN_ONLY,\nmirroring retest/delete). Project names come from tenancy and the agent\nbinding count from agents \u2014 both via facade so the keys context never\nreaches across boundaries itself.",
+        "description": "Reverse view: which projects this key is carried into (owner-only).\n\nOwnership is enforced inside `KeysFacade.projects_for_key`. Results are\nfiltered to projects the caller is still a member of \u2014 a key owner who has\nleft a project must not see that project's data even if the carry revocation\nfanout had not yet run (R7.03 / CLAUDE.md AuthZ rule).",
         "operationId": "list_key_projects_api_keys__key_id__projects_get",
         "parameters": [
           {
