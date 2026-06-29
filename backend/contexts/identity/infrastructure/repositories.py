@@ -112,6 +112,24 @@ class UserRepository:
         ).all()
         return {r.id: r.display_name for r in rows}
 
+    async def get_chat_labels(self, user_ids: Sequence[uuid.UUID]) -> dict[uuid.UUID, str]:
+        """Batch-resolve user_id -> a human label, falling back to email.
+
+        Unlike :pymeth:`get_display_names`, this DOES surface the login email when
+        no display name is set. It is the model-context counterpart used to give
+        agents a stable name for each speaker; callers must keep the result out of
+        anything shown to other room members. Unknown ids are absent.
+        """
+        ids = list(set(user_ids))
+        if not ids:
+            return {}
+        rows = (
+            await self._db.execute(
+                sa.select(t.users.c.id, t.users.c.display_name, t.users.c.email).where(t.users.c.id.in_(ids))
+            )
+        ).all()
+        return {r.id: (r.display_name or r.email) for r in rows}
+
     async def set_email(self, user_id: uuid.UUID, new_email: str) -> None:
         # Only demote active/pending users to pending on email change. If the
         # account is banned or deleted, preserve that status — we must never
