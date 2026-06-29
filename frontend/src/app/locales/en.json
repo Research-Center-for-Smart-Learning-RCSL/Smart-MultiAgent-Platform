@@ -51,7 +51,7 @@
       "introSkip": "Click anywhere to skip",
       "welcomeBack": "Welcome back, {name}",
       "authedSubtitle": "Jump back into a recent chatroom, or head into your workspace.",
-      "authedSubtitleEmpty": "Head into your workspace to start chatting with your agent groups.",
+      "authedSubtitleEmpty": "Head into your workspace to start chatting with your ai agent groups.",
       "openRecentRoom": "Open recent chatroom",
       "enterWorkspace": "Enter workspace",
       "recentTitle": "Jump back in",
@@ -60,7 +60,7 @@
       "features": {
         "compose": {
           "title": "Compose",
-          "desc": "Build agents from any provider and group them into collaborative teams."
+          "desc": "Build ai agents from any provider and group them into collaborative teams."
         },
         "orchestrate": {
           "title": "Orchestrate",
@@ -71,7 +71,7 @@
           "desc": "Talk to your agent groups in real time with streaming, RAG, and tools."
         }
       },
-      "footerTagline": "Your keys. Your infrastructure. Your agents.",
+      "footerTagline": "Your keys. Your infrastructure. Your ai agents.",
       "trust": {
         "selfHosted": "Self-hosted",
         "byoKey": "Bring your own keys",
@@ -92,7 +92,7 @@
       "notifications": "Notifications",
       "invites": "Invites",
       "projectContext": "Project",
-      "agents": "Agents",
+      "agents": "AI Agents",
       "ragConfigs": "RAG Configs",
       "graphrag": "GraphRAG",
       "projectKeys": "Project Keys",
