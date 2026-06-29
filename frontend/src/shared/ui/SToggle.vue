@@ -74,9 +74,9 @@ function toggle() {
   position: relative;
   display: flex;
   align-items: center;
-  border: 1.5px solid var(--color-border);
+  border: 1.5px solid color-mix(in srgb, var(--color-border), var(--color-fg) 12%);
   border-radius: var(--radius-full);
-  background: var(--color-bg);
+  background: var(--color-border);
   cursor: pointer;
   padding: 0;
   transition:
