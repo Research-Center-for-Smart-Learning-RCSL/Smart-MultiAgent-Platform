@@ -5,17 +5,22 @@
 import { ref } from 'vue'
 
 import { useI18n } from 'vue-i18n'
+import { useToast } from '@shared/composables'
 import { tusUpload, resourceToAttachmentId } from '@shared/transport'
+
+export type UploadStatus = 'uploading' | 'ready' | 'error'
 
 export interface PendingUpload {
   id: string
   filename: string
   progress: number
   attachmentId: string | null
+  status: UploadStatus
 }
 
 export function useChatroomAttachments(chatroomId: string, projectId: string) {
   const { t } = useI18n()
+  const toast = useToast()
   const pendingUploads = ref<PendingUpload[]>([])
 
   async function uploadFiles(files: File[]): Promise<void> {
@@ -25,6 +30,7 @@ export function useChatroomAttachments(chatroomId: string, projectId: string) {
         filename: file.name,
         progress: 0,
         attachmentId: null,
+        status: 'uploading',
       }
       pendingUploads.value.push(record)
       try {
@@ -37,9 +43,18 @@ export function useChatroomAttachments(chatroomId: string, projectId: string) {
             record.progress = total === 0 ? 1 : done / total
           },
         })
-        record.attachmentId = resourceToAttachmentId(result.resourceHeader)
+        const id = resourceToAttachmentId(result.resourceHeader)
+        if (!id) {
+          // Upload streamed but the server never returned a resource handle:
+          // treat as failed rather than silently dropping the attachment at
+          // send time (which is what an unresolved id would do).
+          throw new Error('missing X-SMAP-Resource')
+        }
+        record.attachmentId = id
+        record.status = 'ready'
       } catch {
-        record.filename = t('conversation.chatroom.uploadFailed', { filename: record.filename })
+        record.status = 'error'
+        toast.error(t('conversation.chatroom.uploadFailed', { filename: file.name }))
       }
     }
   }
