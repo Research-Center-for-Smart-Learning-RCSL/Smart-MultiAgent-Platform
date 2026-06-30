@@ -127,8 +127,22 @@ message_attachments = sa.Table(
     sa.Column("mime", sa.Text, nullable=False),
     sa.Column("size_bytes", sa.BigInteger, nullable=False),
     sa.Column("minio_path", sa.Text, nullable=False),
-    sa.Column("status", sa.Text, nullable=False, server_default=sa.text("'active'")),
-    sa.Column("scan_status", sa.Text, nullable=False, server_default=sa.text("'pending'")),
+    # PG ENUMs created in migration 0017 — must match the DB type, not sa.Text,
+    # or asyncpg binds a VARCHAR param into the enum column and every WHERE/SET
+    # on these columns fails (operator does not exist: <enum> = character varying).
+    # Same fix as sender_type above.
+    sa.Column(
+        "status",
+        pg.ENUM("active", "quarantined", "expired", name="message_attachment_status", create_type=False),
+        nullable=False,
+        server_default=sa.text("'active'::message_attachment_status"),
+    ),
+    sa.Column(
+        "scan_status",
+        pg.ENUM("pending", "clean", "quarantined", "skipped", name="message_scan_status", create_type=False),
+        nullable=False,
+        server_default=sa.text("'pending'::message_scan_status"),
+    ),
     sa.Column("scan_at", sa.TIMESTAMP(timezone=True), nullable=True),
     sa.Column("expires_at", sa.TIMESTAMP(timezone=True), nullable=True),
     sa.Column(
