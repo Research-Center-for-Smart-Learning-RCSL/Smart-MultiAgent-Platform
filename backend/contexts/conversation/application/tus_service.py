@@ -100,6 +100,7 @@ class TusService:
         user_id: uuid.UUID,
         upload_length: int,
         metadata_raw: str,
+        project_id: uuid.UUID,
     ) -> TusCreateResult:
         if upload_length > TUS_MAX_BYTES:
             raise AttachmentTooLarge(
@@ -123,7 +124,9 @@ class TusService:
             raise TusMetadataInvalid(
                 "Upload-Metadata must include filename and mime",
             )
-        project_id = _must_uuid(meta, "project_id")
+        # project_id is authoritative (derived by the caller from the chatroom /
+        # rag config), NOT taken from client metadata — a forged or empty value
+        # in Upload-Metadata is ignored.
         chatroom_id = _optional_uuid(meta, "chatroom_id")
         rag_config_id = _optional_uuid(meta, "rag_config_id")
         if purpose == "chat_attachment" and chatroom_id is None:
@@ -318,14 +321,6 @@ class TusService:
         with contextlib.suppress(OSError):  # pragma: no cover
             os.remove(upload.staging_path)
         await self._store.delete(upload_id)
-
-
-def _must_uuid(meta: dict[str, str], key: str) -> uuid.UUID:
-    v = meta.get(key, "")
-    try:
-        return uuid.UUID(v)
-    except (ValueError, TypeError) as exc:
-        raise TusMetadataInvalid(f"Upload-Metadata.{key} must be a UUID") from exc
 
 
 def _optional_uuid(meta: dict[str, str], key: str) -> uuid.UUID | None:
