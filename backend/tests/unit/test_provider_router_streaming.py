@@ -204,6 +204,31 @@ async def test_stream_all_fail_raises_exhausted(monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
+async def test_stream_aborts_group_on_request_rejection_without_rotating(monkeypatch) -> None:
+    # A deterministic 400 (bad request) must NOT rotate to the sibling key — it
+    # would 400 identically and burn the group. Abort after the first member.
+    k1, k2 = uuid.uuid4(), uuid.uuid4()
+    bad = _StreamAdapter(
+        ApiKeyProvider.OPENAI, [StreamComplete(ProviderCallResult(400, {"error": "HTTP 400"}))]
+    )
+    sibling = _StreamAdapter(
+        ApiKeyProvider.CLAUDE,
+        [TokenDelta("ok"), StreamComplete(ProviderCallResult(200, {"text": "ok"}, 1, 1))],
+    )
+    router, recorded = _make_router(
+        monkeypatch,
+        {ApiKeyProvider.OPENAI: bad, ApiKeyProvider.CLAUDE: sibling},
+        [_Member(k1), _Member(k2)],
+        {k1: _Key(k1, ApiKeyProvider.OPENAI), k2: _Key(k2, ApiKeyProvider.CLAUDE)},
+    )
+    with pytest.raises(KeyGroupExhausted) as ei:
+        await _drain(router.call_stream(group_id=uuid.uuid4(), request=_CHAT))
+    assert ei.value.reason == "request_rejected"
+    # Only the first (400) member was tried + accounted; the sibling never ran.
+    assert {r["http_status"] for r in recorded} == {400}
+
+
+@pytest.mark.asyncio
 async def test_stream_consumer_abort_records_client_abort(monkeypatch) -> None:
     # Consumer walks away after the first token: accounting must still fire
     # (via the aclose chain) and label it `client_abort`, NOT `transport_error`.

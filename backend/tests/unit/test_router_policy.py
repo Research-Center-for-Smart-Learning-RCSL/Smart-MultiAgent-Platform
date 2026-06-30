@@ -45,6 +45,23 @@ def test_classify_unknown_status_rotates() -> None:
     assert out.reason is RotationReason.ROTATE
 
 
+def test_classify_request_rejections_abort_group() -> None:
+    # 400/404/422 mean the request itself is bad — identical on every key, so
+    # the whole group aborts rather than rotating and burning siblings.
+    policy = RotationPolicy()
+    for status in (400, 404, 422):
+        out = classify_http(status, policy)
+        assert out.reason is RotationReason.ABORT, status
+        assert out.error_code == f"http_{status}"
+
+
+def test_classify_400_honours_explicit_rotate_override() -> None:
+    # An operator who lists 400 in rotate_on_error_codes wins over the ABORT
+    # default (some self-hosted gateways return 400 for transient conditions).
+    policy = RotationPolicy(rotate_on_error_codes=(400,), retry_on_error=False)
+    assert classify_http(400, policy).reason is RotationReason.ROTATE
+
+
 def test_backoff_grows_and_caps() -> None:
     # With zero jitter, attempt N gives exactly initial * multiplier^(N-1),
     # capped at max.

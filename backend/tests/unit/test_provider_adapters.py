@@ -578,3 +578,39 @@ async def test_effort_omitted_when_unset() -> None:
     )
     await OpenAIAdapter().invoke(secret=_SECRET, request=_chat("gpt-4o"))
     assert "reasoning_effort" not in json.loads(route.calls.last.request.content)
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_openai_reasoning_model_uses_max_completion_tokens_and_drops_temperature() -> None:
+    # o-series / gpt-5 reject the legacy `max_tokens` and a custom temperature;
+    # the body must use `max_completion_tokens` and omit temperature, or it 400s.
+    route = respx.post("https://api.openai.com/v1/chat/completions").respond(
+        200, json={"choices": [{"message": {"content": "ok"}, "finish_reason": "stop"}], "usage": {}}
+    )
+    await OpenAIAdapter().invoke(
+        secret=_SECRET, request=_chat("o3-mini", effort="high", max_tokens=256, temperature=0.7)
+    )
+    sent = json.loads(route.calls.last.request.content)
+    assert sent["reasoning_effort"] == "high"
+    assert sent["max_completion_tokens"] == 256
+    assert "max_tokens" not in sent
+    assert "temperature" not in sent
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_openai_non_reasoning_model_drops_effort_keeps_classic_params() -> None:
+    # Setting effort on a gpt-4o agent must not 400: `reasoning_effort` is
+    # dropped while the legacy max_tokens/temperature fields are preserved.
+    route = respx.post("https://api.openai.com/v1/chat/completions").respond(
+        200, json={"choices": [{"message": {"content": "ok"}, "finish_reason": "stop"}], "usage": {}}
+    )
+    await OpenAIAdapter().invoke(
+        secret=_SECRET, request=_chat("gpt-4o", effort="high", max_tokens=256, temperature=0.7)
+    )
+    sent = json.loads(route.calls.last.request.content)
+    assert "reasoning_effort" not in sent
+    assert "max_completion_tokens" not in sent
+    assert sent["max_tokens"] == 256
+    assert sent["temperature"] == 0.7

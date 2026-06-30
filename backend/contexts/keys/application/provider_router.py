@@ -149,6 +149,18 @@ class _RotateStream(RuntimeError):
     """Internal — a stream failed *before* the first token; rotate to next key."""
 
 
+class _AbortGroup(RuntimeError):
+    """Internal — a request-level deterministic rejection (HTTP 400/404/422).
+
+    Identical on every key, so abort the whole group instead of replaying the
+    same bad request against each remaining member.
+    """
+
+    def __init__(self, http_status: int) -> None:
+        super().__init__(f"request rejected (HTTP {http_status}); not retryable across keys")
+        self.http_status = http_status
+
+
 # ---------------------------------------------------------------------------
 # Usage accountant — unified recording for all provider call paths.
 # ---------------------------------------------------------------------------
@@ -301,6 +313,11 @@ class ProviderRouter:
                 if result is not None:
                     return result
                 # _try_member flipped `st.exhausted` for non-OK terminal outcomes.
+                if st.last_outcome is not None and st.last_outcome.reason is RotationReason.ABORT:
+                    # Deterministic request rejection — every sibling key 400s
+                    # identically, so stop now rather than burning the group.
+                    KEY_GROUP_EXHAUSTED_TOTAL.labels(reason="request_rejected").inc()
+                    raise KeyGroupExhausted(group_id=group_id, reason="request_rejected")
 
             # End of pass. Decide whether to exit or queue-wait.
             any_quota = any(s.quota_blocked and not s.exhausted for s in state.values())
@@ -361,6 +378,10 @@ class ProviderRouter:
                 return  # streamed to completion
             except (_RotateStream, _KeyVanished):
                 continue
+            except _AbortGroup:
+                # Deterministic request rejection — do not rotate to siblings.
+                KEY_GROUP_EXHAUSTED_TOTAL.labels(reason="request_rejected").inc()
+                raise KeyGroupExhausted(group_id=group_id, reason="request_rejected") from None
             finally:
                 await inner.aclose()
         # Nothing produced a stream.
@@ -462,6 +483,8 @@ class ProviderRouter:
             # Non-OK terminal status.
             if first_token:
                 raise ProviderStreamError(complete.result.http_status)
+            if outcome.reason is RotationReason.ABORT:
+                raise _AbortGroup(complete.result.http_status)
             raise _RotateStream
         finally:
             await _account()
@@ -494,7 +517,10 @@ class ProviderRouter:
             if outcome.reason is RotationReason.OK:
                 assert result is not None
                 return result
-            if outcome.reason is RotationReason.FATAL:
+            if outcome.reason in (RotationReason.FATAL, RotationReason.ABORT):
+                # FATAL: bad secret on this key — caller may still rotate to a
+                # sibling. ABORT: bad request — caller stops the group (it reads
+                # st.last_outcome). Either way this member is done.
                 st.exhausted = True
                 return None
             if outcome.reason is RotationReason.RETRY and st.attempts <= retry_max:
