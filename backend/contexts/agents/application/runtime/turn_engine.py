@@ -27,6 +27,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.agents.application import context as ctxmod
 from contexts.agents.application.prompt_loader import LazyPrompt, SectionCache, assemble
+from contexts.agents.application.runtime import model_attachments as mattach
 from contexts.agents.application.runtime import transcript as tx
 from contexts.agents.application.runtime.summariser import RouterSummariser
 from contexts.agents.application.runtime.tool_registry import (
@@ -729,8 +730,24 @@ class TurnEngine:
             # name). The running agent's own turns stay unlabelled so the model
             # is not trained to echo a "Name:" prefix on its reply.
             agent_names, user_names = await self._participant_labels(agent, chatroom_id, history)
+            # Attachments on the triggering user message become content blocks so
+            # the agent can see the file. When this turn carries fresh `input_text`,
+            # the trigger is that appended message (below); otherwise it's the
+            # latest user message already in history.
+            attach_blocks = await self._model_attachment_blocks(chatroom_id)
+            history_attach_id = (
+                next((h.id for h in reversed(history) if h.role == "user"), None)
+                if attach_blocks and not input_text
+                else None
+            )
             messages: list[dict[str, Any]] = [
-                self._provider_message(hm, agent.id, agent_names, user_names)
+                self._provider_message(
+                    hm,
+                    agent.id,
+                    agent_names,
+                    user_names,
+                    attachment_blocks=attach_blocks if hm.id == history_attach_id else None,
+                )
                 for hm in history
                 if hm.role in ("user", "agent")
             ]
@@ -748,7 +765,15 @@ class TurnEngine:
             system_text = "\n\n".join(p for p in system_parts if p)
 
             if input_text:
-                messages.append({"role": "user", "content": input_text})
+                if attach_blocks:
+                    messages.append(
+                        {
+                            "role": "user",
+                            "content": [{"type": "text", "text": input_text}, *attach_blocks],
+                        }
+                    )
+                else:
+                    messages.append({"role": "user", "content": input_text})
             if not messages:
                 await Publisher(room).emit("agent.finished", {"agent_id": str(agent.id)})
                 await self._audit(agent, chatroom_id, "agent.turn_finished", {"empty": True})
@@ -926,10 +951,7 @@ class TurnEngine:
         }
         user_ids = {hm.sender_id for hm in history if hm.role == "user" and hm.sender_id is not None}
         account_labels = await IdentityFacade(self._db).get_chat_labels(list(user_ids))
-        user_names = {
-            uid: (guest_names.get(uid) or account_labels.get(uid) or "Guest")
-            for uid in user_ids
-        }
+        user_names = {uid: (guest_names.get(uid) or account_labels.get(uid) or "Guest") for uid in user_ids}
         return agent_names, user_names
 
     @staticmethod
@@ -938,11 +960,17 @@ class TurnEngine:
         running_agent_id: uuid.UUID,
         agent_names: dict[uuid.UUID, str],
         user_names: dict[uuid.UUID, str],
+        attachment_blocks: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         """Map one history row to a provider message, prefixing the sender name.
 
         The running agent's own turns are left unprefixed (and stay ``assistant``)
         so the model does not learn to echo a ``Name:`` prefix in its reply.
+
+        When ``attachment_blocks`` is supplied (only for the triggering user
+        message), the message carries multi-part content — the prefixed text
+        followed by the neutral attachment blocks — so the adapters can render
+        the file for the model to see.
         """
         if hm.role == "agent":
             if hm.sender_id == running_agent_id:
@@ -955,7 +983,27 @@ class TurnEngine:
             return {"role": "user", "content": content}
         label = user_names.get(hm.sender_id) if hm.sender_id is not None else None
         content = f"{label}: {hm.content}" if label else hm.content
+        if attachment_blocks:
+            text_blocks = [{"type": "text", "text": content}] if content else []
+            return {"role": "user", "content": text_blocks + attachment_blocks}
         return {"role": "user", "content": content}
+
+    async def _model_attachment_blocks(self, chatroom_id: uuid.UUID) -> list[dict[str, Any]]:
+        """Neutral content blocks for the triggering message's attachments, so
+        the agent can see uploaded images/PDFs/text. Best-effort — a storage or
+        decode fault must never abort the turn."""
+        try:
+            facade = ConversationFacade(self._db)
+            attachments = await facade.latest_user_attachments(chatroom_id)
+            if not attachments:
+                return []
+            attachments = list(attachments[: mattach.MAX_ATTACH_FILES])
+            blobs = await facade.read_attachments_bytes(attachments)
+            items = [(att.filename, att.mime, data) for att, data in zip(attachments, blobs, strict=True)]
+            return mattach.build_blocks(items)
+        except Exception:
+            _log.warning("model attachment assembly failed for room %s", chatroom_id, exc_info=True)
+            return []
 
     async def _assemble_history(
         self,
