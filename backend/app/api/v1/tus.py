@@ -103,6 +103,10 @@ async def tus_create(
             chatroom_id=chatroom_id,
         )
         ensure_can_send(access, is_admin=principal.is_admin)
+        # Authoritative project: derived from the room, never the client metadata
+        # (the chatroom route carries no projectId, so the client cannot supply a
+        # reliable one).
+        project_id = access.project_id
     elif purpose == "rag_source":
         # Authorise against the config's REAL project (not the client-declared
         # project_id in metadata): resolve the rag_config, then require the
@@ -140,6 +144,7 @@ async def tus_create(
             project_id=cfg.project_id,
             agent_ids=rag_agent_ids,
         )
+        project_id = cfg.project_id
     elif purpose == "agent_workspace":
         try:
             agent_id = uuid.UUID(meta.get("agent_id", ""))
@@ -149,6 +154,7 @@ async def tus_create(
 
         agent_svc = AgentService(db)
         agent = await agent_svc.get(agent_id)
+        project_id = agent.project_id
         if not principal.is_admin:
             from shared_kernel.auth.dependencies import _raise_forbidden, get_role_resolver
             from shared_kernel.auth.permissions import Capability as Cap
@@ -175,6 +181,7 @@ async def tus_create(
         user_id=principal.user_id,
         upload_length=upload_length,
         metadata_raw=upload_metadata,
+        project_id=project_id,
     )
     _ = ctx
     headers = _tus_base_headers() | {
