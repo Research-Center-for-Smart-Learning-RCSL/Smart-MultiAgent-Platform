@@ -135,6 +135,7 @@
       "attach": "Attach files",
       "reconnecting": "Reconnecting…",
       "uploadReady": "Ready",
+      "uploadErrored": "Upload failed",
       "removeUpload": "Remove",
       "dropFiles": "Drop files here",
       "searchResultsCount": "{count} results for \"{query}\"",

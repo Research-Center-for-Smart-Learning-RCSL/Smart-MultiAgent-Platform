@@ -99,15 +99,19 @@
         <DocumentIcon class="upload__icon" />
         <span class="upload__name">{{ u.filename }}</span>
         <SProgressBar
-          v-if="u.attachmentId === null"
+          v-if="u.status === 'uploading'"
           :value="Math.round(u.progress * 100)"
           size="sm"
           class="upload__bar"
         />
         <span
-          v-else
+          v-else-if="u.status === 'ready'"
           class="upload__ready"
         >{{ t('conversation.chatroom.uploadReady') }}</span>
+        <span
+          v-else
+          class="upload__error"
+        >{{ t('conversation.chatroom.uploadErrored') }}</span>
         <SButton
           type="button"
           variant="ghost"
@@ -171,9 +175,15 @@ const fileInput = ref<HTMLInputElement | null>(null)
 const textareaRef = ref<HTMLTextAreaElement | null>(null)
 const dragActive = ref(false)
 
-const canSend = computed(
-  () => !props.disabled && (props.modelValue.trim().length > 0 || props.pendingUploads.length > 0),
-)
+const canSend = computed(() => {
+  if (props.disabled) return false
+  // Block sending while any upload is still in flight: the send path only
+  // attaches uploads whose id has resolved, so firing now would silently drop
+  // the not-yet-ready attachment.
+  if (props.pendingUploads.some((u) => u.status === 'uploading')) return false
+  const hasReady = props.pendingUploads.some((u) => u.status === 'ready')
+  return props.modelValue.trim().length > 0 || hasReady
+})
 
 // ---- @mention autocomplete ------------------------------------------------
 const {
@@ -206,7 +216,9 @@ function onKeydown(e: KeyboardEvent): void {
     !e.isComposing
   ) {
     e.preventDefault()
-    emit('submit')
+    // Mirror the send button's gate so Enter can't bypass the in-flight /
+    // empty-message guard.
+    if (canSend.value) emit('submit')
     return
   }
   if (e.key === 'Escape') {
@@ -371,6 +383,11 @@ function onDropEvent(e: DragEvent): void {
 .upload__ready {
   font-size: 12px;
   color: var(--color-success);
+}
+
+.upload__error {
+  font-size: 12px;
+  color: var(--color-danger, #dc2626);
 }
 
 .composer__overlay {
