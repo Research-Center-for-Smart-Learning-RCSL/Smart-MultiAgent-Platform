@@ -8,6 +8,7 @@ Auth via ``Authorization: Bearer``; model id is always caller-supplied.
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import AsyncGenerator
 from typing import Any
 
@@ -23,6 +24,18 @@ from contexts.keys.infrastructure.adapters import base
 
 _CHAT_URL = "https://api.openai.com/v1/chat/completions"
 _EMBED_URL = "https://api.openai.com/v1/embeddings"
+
+# Reasoning families (o-series, gpt-5+) diverge from the classic Chat
+# Completions contract: they take ``reasoning_effort``, require
+# ``max_completion_tokens`` (the legacy ``max_tokens`` 400s), and accept only
+# the default ``temperature``. Non-reasoning models (gpt-4o, gpt-4.1, …) are
+# the inverse — ``reasoning_effort`` 400s. Shaping the body per family is what
+# keeps a single ``effort`` setting from turning every turn into a 400.
+_REASONING_MODEL_RE = re.compile(r"^(?:o\d|gpt-5)")
+
+
+def _is_reasoning_model(model: str) -> bool:
+    return bool(_REASONING_MODEL_RE.match(model.strip().lower()))
 
 
 def _headers(secret: str) -> dict[str, str]:
@@ -88,17 +101,19 @@ def _tools(payload: dict[str, Any]) -> list[dict[str, Any]] | None:
 
 def _chat_body(request: ProviderRequest, *, stream: bool) -> dict[str, Any]:
     payload = request.payload
-    body: dict[str, Any] = {
-        "model": base.resolve_model(payload, ApiKeyProvider.OPENAI),
-        "messages": _messages(payload),
-    }
+    model = base.resolve_model(payload, ApiKeyProvider.OPENAI)
+    reasoning = _is_reasoning_model(model)
+    body: dict[str, Any] = {"model": model, "messages": _messages(payload)}
     if payload.get("max_tokens") is not None:
-        body["max_tokens"] = payload["max_tokens"]
-    if payload.get("temperature") is not None:
+        # Reasoning models renamed the field and 400 on the legacy `max_tokens`.
+        body["max_completion_tokens" if reasoning else "max_tokens"] = payload["max_tokens"]
+    if payload.get("temperature") is not None and not reasoning:
+        # Reasoning models accept only the default temperature; a custom one 400s.
         body["temperature"] = payload["temperature"]
-    # Cross-provider effort -> Chat Completions reasoning_effort (reasoning
-    # models only; a non-reasoning model rejects it, surfaced as a normal error).
-    if payload.get("effort"):
+    # Cross-provider effort -> Chat Completions reasoning_effort, but only where
+    # the model supports it. A non-reasoning model 400s on the parameter, so we
+    # drop it there and let the model run at its normal setting rather than fail.
+    if payload.get("effort") and reasoning:
         body["reasoning_effort"] = payload["effort"]
     tools = _tools(payload)
     if tools:

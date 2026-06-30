@@ -14,7 +14,16 @@ class RotationReason(str, enum.Enum):
     ROTATE = "rotate"  # recoverable error on this member → try next
     RETRY = "retry"  # same member, backoff then retry
     QUOTA = "token_quota"  # bucket cap hit; treat as temporarily unavailable
-    FATAL = "fatal"  # do not retry / do not rotate — surface error
+    FATAL = "fatal"  # bad secret on THIS member → skip it, but a sibling key
+    # (different secret) may still work, so the group keeps rotating.
+    ABORT = "abort"  # the request itself is rejected (bad/invalid body, unknown
+    # model) → identical on every key, so abort the whole group, don't rotate.
+
+
+# Deterministic request-level rejections: the provider faulted the *request*,
+# not the key. Rotating to another key replays the same bad request and only
+# burns the rest of the group (cf. the agent adapters' empty-message guards).
+_ABORT_STATUSES = frozenset({400, 404, 422})
 
 
 @dataclass(frozen=True, slots=True)
@@ -27,9 +36,12 @@ class ErrorOutcome:
 def classify_http(status: int, policy: RotationPolicy) -> ErrorOutcome:
     """Decide what to do with a `status`-returning provider call.
 
-    - Listed in `rotate_on_error_codes` → retry (if `retry_on_error`) else rotate.
-    - 401/403 → FATAL (bad secret; rotation won't help, the user must re-key).
     - 2xx → OK.
+    - Listed in `rotate_on_error_codes` → retry (if `retry_on_error`) else
+      rotate. An explicit policy entry wins over the defaults below.
+    - 401/403 → FATAL (bad secret on this key; a sibling key may still work).
+    - 400/404/422 → ABORT (the request is malformed/invalid; every key 400s the
+      same, so rotating only burns the group).
     - Everything else → rotate (the provider returned something we don't
       understand; moving on is safer than hammering).
     """
@@ -40,6 +52,8 @@ def classify_http(status: int, policy: RotationPolicy) -> ErrorOutcome:
     if status in policy.rotate_on_error_codes:
         reason = RotationReason.RETRY if policy.retry_on_error else RotationReason.ROTATE
         return ErrorOutcome(reason, status, f"http_{status}")
+    if status in _ABORT_STATUSES:
+        return ErrorOutcome(RotationReason.ABORT, status, f"http_{status}")
     return ErrorOutcome(RotationReason.ROTATE, status, f"http_{status}")
 
 
