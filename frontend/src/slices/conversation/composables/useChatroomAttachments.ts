@@ -2,7 +2,7 @@
 // — matches the backend limits). Extracted from useChatroomMessages so the
 // composer's compose+send surface stays focused (ISP).
 
-import { ref } from 'vue'
+import { ref, toValue, type MaybeRefOrGetter } from 'vue'
 
 import { useI18n } from 'vue-i18n'
 import { useToast } from '@shared/composables'
@@ -18,12 +18,24 @@ export interface PendingUpload {
   status: UploadStatus
 }
 
-export function useChatroomAttachments(chatroomId: string, projectId: string) {
+export function useChatroomAttachments(
+  chatroomId: string,
+  // The chatroom route carries no projectId, so this is resolved reactively
+  // (room -> workspace -> project) and read at upload time, not at setup.
+  projectId: MaybeRefOrGetter<string | undefined>,
+) {
   const { t } = useI18n()
   const toast = useToast()
   const pendingUploads = ref<PendingUpload[]>([])
 
   async function uploadFiles(files: File[]): Promise<void> {
+    const resolvedProjectId = toValue(projectId)
+    if (!resolvedProjectId) {
+      // Sending an empty project_id makes the tus-create 400; surface a
+      // transient error instead so the user retries once the room has loaded.
+      toast.error(t('conversation.chatroom.uploadNotReady'))
+      return
+    }
     for (const file of files) {
       const record: PendingUpload = {
         id: crypto.randomUUID(),
@@ -37,7 +49,7 @@ export function useChatroomAttachments(chatroomId: string, projectId: string) {
         const result = await tusUpload({
           file,
           purpose: 'chat_attachment',
-          projectId,
+          projectId: resolvedProjectId,
           chatroomId,
           onProgress: (done, total) => {
             record.progress = total === 0 ? 1 : done / total

@@ -373,7 +373,10 @@ const {
   removeUpload,
   attachmentIds,
   clear: clearAttachments,
-} = useChatroomAttachments(chatroomId, projectId)
+} = useChatroomAttachments(
+  chatroomId,
+  () => workspaceQuery.data.value?.project_id || projectId || undefined,
+)
 
 const { streamingEntries } = useAgentStreams(chatroomId)
 

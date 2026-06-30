@@ -136,6 +136,7 @@
       "reconnecting": "重新連線中…",
       "uploadReady": "就緒",
       "uploadErrored": "上傳失敗",
+      "uploadNotReady": "附件尚未就緒，請稍候再試。",
       "removeUpload": "移除",
       "dropFiles": "將檔案拖放到這裡",
       "searchResultsCount": "「{query}」的 {count} 筆結果",
