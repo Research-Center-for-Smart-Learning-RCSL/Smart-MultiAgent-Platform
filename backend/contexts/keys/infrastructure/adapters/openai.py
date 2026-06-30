@@ -65,8 +65,19 @@ def _content_parts(blocks: list[dict[str, Any]], model: str) -> list[dict[str, A
         elif kind == "image" and vision:
             url = f"data:{b.get('media_type', 'image/png')};base64,{b.get('data', '')}"
             parts.append({"type": "image_url", "image_url": {"url": url}})
+        elif kind == "document" and vision:
+            # PDF document understanding via the Chat Completions `file` part
+            # (base64 data URL). Same multimodal model set as vision; text-only
+            # models still get the note below.
+            data_url = f"data:{b.get('media_type', 'application/pdf')};base64,{b.get('data', '')}"
+            parts.append(
+                {
+                    "type": "file",
+                    "file": {"filename": b.get("filename", "attachment.pdf"), "file_data": data_url},
+                }
+            )
         else:
-            # Non-image attachment, or image for a text-only model -> note.
+            # Unsupported attachment, or any attachment for a text-only model -> note.
             parts.append(_attachment_note(b))
     return parts
 
