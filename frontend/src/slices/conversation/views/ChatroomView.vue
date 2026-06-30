@@ -122,7 +122,6 @@
       class="chatroom__composer"
       :pending-uploads="pendingUploads"
       :agents="mentionables"
-      :disabled="!connected"
       @submit="send"
       @typing="emitTyping"
       @drop="onDrop"
@@ -408,7 +407,10 @@ async function send(): Promise<void> {
 let typingTimer: ReturnType<typeof setTimeout> | null = null
 const TYPING_DEBOUNCE_MS = 3000
 
-const { connected, connectionState, channel: wsChannel } = useChatroomSocket(chatroomId)
+// NB: message sending is REST (sendMessage), independent of this socket, so the
+// composer is intentionally NOT gated on `connected` — a flapping/degraded WS
+// must not lock the user out of sending. The pill shows `connectionState`.
+const { connectionState, channel: wsChannel } = useChatroomSocket(chatroomId)
 
 wsChannel.subscribe('message.updated', (ev) => void refreshOlderMessage(ev.message_id as string))
 wsChannel.subscribe('message.deleted', (ev) => dropOlderMessage(ev.message_id as string))
