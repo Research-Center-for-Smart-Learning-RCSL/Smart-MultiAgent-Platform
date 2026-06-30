@@ -76,11 +76,52 @@ def _translate_messages(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
             out.append({"role": "assistant", "content": blocks})
             continue
         content = m.get("content", "")
+        if isinstance(content, list):
+            # Multi-part user content (text + image/document attachment blocks).
+            blocks = _content_blocks(content)
+            if not blocks:
+                continue
+            out.append({"role": "assistant" if role == "assistant" else "user", "content": blocks})
+            continue
         if not content:
             # Anthropic 400s on empty content — a deterministic 400 would burn
             # every key in the group via rotation, so drop the message instead.
             continue
         out.append({"role": "assistant" if role == "assistant" else "user", "content": content})
+    return out
+
+
+def _content_blocks(blocks: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Neutral attachment blocks -> Anthropic content blocks. Claude is vision-
+    and PDF-capable across the current model line, so no per-model gating here."""
+    out: list[dict[str, Any]] = []
+    for b in blocks:
+        kind = b.get("type")
+        if kind == "text":
+            if b.get("text"):
+                out.append({"type": "text", "text": b["text"]})
+        elif kind == "image":
+            out.append(
+                {
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": b.get("media_type", "image/png"),
+                        "data": b.get("data", ""),
+                    },
+                }
+            )
+        elif kind == "document":
+            out.append(
+                {
+                    "type": "document",
+                    "source": {
+                        "type": "base64",
+                        "media_type": b.get("media_type", "application/pdf"),
+                        "data": b.get("data", ""),
+                    },
+                }
+            )
     return out
 
 

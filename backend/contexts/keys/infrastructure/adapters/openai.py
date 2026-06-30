@@ -33,16 +33,49 @@ _EMBED_URL = "https://api.openai.com/v1/embeddings"
 # keeps a single ``effort`` setting from turning every turn into a 400.
 _REASONING_MODEL_RE = re.compile(r"^(?:o\d|gpt-5)")
 
+# Vision-capable families. A non-vision model 400s on image content (which, per
+# the router's deterministic-4xx handling, aborts the key group), so unsupported
+# models get a filename note instead of the image.
+_VISION_MODEL_RE = re.compile(r"^(?:gpt-4o|gpt-4\.1|gpt-5|o[134]|gpt-4-turbo|gpt-4-vision|chatgpt-4o)")
+
 
 def _is_reasoning_model(model: str) -> bool:
     return bool(_REASONING_MODEL_RE.match(model.strip().lower()))
+
+
+def _supports_vision(model: str) -> bool:
+    return bool(_VISION_MODEL_RE.match(model.strip().lower()))
+
+
+def _attachment_note(b: dict[str, Any]) -> dict[str, Any]:
+    name = b.get("filename", "a file")
+    mime = b.get("media_type", "?")
+    return {"type": "text", "text": f"[User attached {name} ({mime}); this model cannot view it.]"}
+
+
+def _content_parts(blocks: list[dict[str, Any]], model: str) -> list[dict[str, Any]]:
+    """Neutral attachment blocks -> OpenAI Chat Completions content parts."""
+    vision = _supports_vision(model)
+    parts: list[dict[str, Any]] = []
+    for b in blocks:
+        kind = b.get("type")
+        if kind == "text":
+            if b.get("text"):
+                parts.append({"type": "text", "text": b["text"]})
+        elif kind == "image" and vision:
+            url = f"data:{b.get('media_type', 'image/png')};base64,{b.get('data', '')}"
+            parts.append({"type": "image_url", "image_url": {"url": url}})
+        else:
+            # Non-image attachment, or image for a text-only model -> note.
+            parts.append(_attachment_note(b))
+    return parts
 
 
 def _headers(secret: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {secret}", "Content-Type": "application/json"}
 
 
-def _messages(payload: dict[str, Any]) -> list[dict[str, Any]]:
+def _messages(payload: dict[str, Any], model: str) -> list[dict[str, Any]]:
     msgs: list[dict[str, Any]] = []
     if payload.get("system"):
         # OpenAI carries the system prompt as the first message, not a field.
@@ -76,9 +109,10 @@ def _messages(payload: dict[str, Any]) -> list[dict[str, Any]]:
                 }
             )
         else:
-            msgs.append(
-                {"role": role if role in ("user", "assistant") else "user", "content": m.get("content", "")}
-            )
+            content = m.get("content", "")
+            if isinstance(content, list):
+                content = _content_parts(content, model)
+            msgs.append({"role": role if role in ("user", "assistant") else "user", "content": content})
     return msgs
 
 
@@ -103,7 +137,7 @@ def _chat_body(request: ProviderRequest, *, stream: bool) -> dict[str, Any]:
     payload = request.payload
     model = base.resolve_model(payload, ApiKeyProvider.OPENAI)
     reasoning = _is_reasoning_model(model)
-    body: dict[str, Any] = {"model": model, "messages": _messages(payload)}
+    body: dict[str, Any] = {"model": model, "messages": _messages(payload, model)}
     if payload.get("max_tokens") is not None:
         # Reasoning models renamed the field and 400 on the legacy `max_tokens`.
         body["max_completion_tokens" if reasoning else "max_tokens"] = payload["max_tokens"]

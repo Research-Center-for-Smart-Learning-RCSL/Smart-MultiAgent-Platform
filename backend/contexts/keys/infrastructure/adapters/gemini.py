@@ -63,8 +63,25 @@ def _contents(payload: dict[str, Any]) -> list[dict[str, Any]]:
         if isinstance(content, str):
             out.append({"role": grole, "parts": [{"text": content}]})
         elif isinstance(content, list):
-            out.append({"role": grole, "parts": content})
+            parts = _content_parts(content)
+            if parts:
+                out.append({"role": grole, "parts": parts})
     return out
+
+
+def _content_parts(blocks: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Neutral attachment blocks -> Gemini parts. Gemini multimodal models take
+    images and PDFs as ``inlineData`` (base64); current chat models are all
+    multimodal, so no per-model gating is needed."""
+    parts: list[dict[str, Any]] = []
+    for b in blocks:
+        kind = b.get("type")
+        if kind == "text":
+            if b.get("text"):
+                parts.append({"text": b["text"]})
+        elif kind in ("image", "document"):
+            parts.append({"inlineData": {"mimeType": b.get("media_type", ""), "data": b.get("data", "")}})
+    return parts
 
 
 def _chat_body(payload: dict[str, Any]) -> dict[str, Any]:
