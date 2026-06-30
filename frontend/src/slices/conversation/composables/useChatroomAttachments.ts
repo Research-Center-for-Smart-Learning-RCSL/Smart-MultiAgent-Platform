@@ -28,6 +28,16 @@ export function useChatroomAttachments(
   const toast = useToast()
   const pendingUploads = ref<PendingUpload[]>([])
 
+  // Update one record immutably (replace the array element) instead of mutating
+  // a pushed object in place: Vue does not track property writes to a raw object
+  // that was pushed into the ref array, so an in-place `record.status = 'ready'`
+  // updates the live value but never invalidates computeds that read it (e.g.
+  // the composer's `canSend`), leaving the send button wedged off. Reassigning
+  // the array triggers reactivity for both the chip and those computeds.
+  function patchUpload(id: string, patch: Partial<PendingUpload>): void {
+    pendingUploads.value = pendingUploads.value.map((u) => (u.id === id ? { ...u, ...patch } : u))
+  }
+
   async function uploadFiles(files: File[]): Promise<void> {
     const resolvedProjectId = toValue(projectId)
     if (!resolvedProjectId) {
@@ -37,14 +47,17 @@ export function useChatroomAttachments(
       return
     }
     for (const file of files) {
-      const record: PendingUpload = {
-        id: crypto.randomUUID(),
-        filename: file.name,
-        progress: 0,
-        attachmentId: null,
-        status: 'uploading',
-      }
-      pendingUploads.value.push(record)
+      const uploadId = crypto.randomUUID()
+      pendingUploads.value = [
+        ...pendingUploads.value,
+        {
+          id: uploadId,
+          filename: file.name,
+          progress: 0,
+          attachmentId: null,
+          status: 'uploading',
+        },
+      ]
       try {
         const result = await tusUpload({
           file,
@@ -52,7 +65,7 @@ export function useChatroomAttachments(
           projectId: resolvedProjectId,
           chatroomId,
           onProgress: (done, total) => {
-            record.progress = total === 0 ? 1 : done / total
+            patchUpload(uploadId, { progress: total === 0 ? 1 : done / total })
           },
         })
         const id = resourceToAttachmentId(result.resourceHeader)
@@ -62,10 +75,9 @@ export function useChatroomAttachments(
           // send time (which is what an unresolved id would do).
           throw new Error('missing X-SMAP-Resource')
         }
-        record.attachmentId = id
-        record.status = 'ready'
+        patchUpload(uploadId, { attachmentId: id, status: 'ready' })
       } catch {
-        record.status = 'error'
+        patchUpload(uploadId, { status: 'error' })
         toast.error(t('conversation.chatroom.uploadFailed', { filename: file.name }))
       }
     }
