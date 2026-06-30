@@ -67,7 +67,7 @@ class _DbDeltaLoader:
                 # have no inherent ordering, so the cursor must include
                 # created_at to stay consistent with the sort.
                 cursor_clause = (
-                    "AND (m.created_at, m.id) > (:last_created_at::timestamptz, :last_id::uuid) "
+                    "AND (m.created_at, m.id) > (CAST(:last_created_at AS timestamptz), CAST(:last_id AS uuid)) "
                     if last_id is not None
                     else ""
                 )
@@ -89,7 +89,7 @@ class _DbDeltaLoader:
                             "JOIN chatroom_agents ca ON ca.chatroom_id = cr.id "
                             "WHERE ca.agent_id = :agent_id "
                             "  AND m.deleted_at IS NULL "
-                            "  AND (:since::timestamptz IS NULL OR m.created_at > :since) "
+                            "  AND (CAST(:since AS timestamptz) IS NULL OR m.created_at > :since) "
                             f"{cursor_clause}"
                             "ORDER BY m.created_at, m.id "
                             "LIMIT :batch_size"
