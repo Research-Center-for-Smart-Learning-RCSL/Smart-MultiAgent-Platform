@@ -131,10 +131,9 @@ async def _ev_fetcher(ids: list[uuid.UUID]) -> list[str]:
 
 
 @pytest.mark.asyncio
-async def test_context_provider_fetches_message_evidence_excerpts(monkeypatch) -> None:
+async def test_context_provider_fetches_message_evidence_excerpts() -> None:
     from contexts.conversation.domain.models import Message, SenderType
-    from contexts.knowledge.application import graphrag_context_provider as provider_mod
-    from contexts.knowledge.application.graphrag_context_provider import GraphRagContextProvider
+    from contexts.knowledge.application.graphrag_context_provider import build_evidence_fetcher
 
     message_id = uuid.uuid4()
     missing_id = uuid.uuid4()
@@ -148,19 +147,11 @@ async def test_context_provider_fetches_message_evidence_excerpts(monkeypatch) -
         )
     }
 
-    class _Facade:
-        def __init__(self, db) -> None:
-            pass
+    async def get_message(mid: uuid.UUID):
+        return messages.get(mid)
 
-        async def get_message(self, message_id: uuid.UUID):
-            return messages.get(message_id)
-
-    monkeypatch.setattr(provider_mod, "ConversationFacade", _Facade)
-    provider = GraphRagContextProvider(None, router=object())  # type: ignore[arg-type]
-
-    excerpts = await provider._fetch_evidence_excerpts(
-        [message_id, missing_id, message_id]
-    )
+    fetcher = build_evidence_fetcher(get_message)
+    excerpts = await fetcher([message_id, missing_id, message_id])
 
     assert excerpts == ["user: Alice confirmed the roadmap milestone."]
 
