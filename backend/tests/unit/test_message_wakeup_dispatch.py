@@ -12,6 +12,7 @@ import uuid
 
 import pytest
 
+import app.api.v1.messages as messages_mod
 import contexts.conversation.application.triggers as triggers
 import contexts.orchestration.interfaces.facade as facade_mod
 
@@ -54,3 +55,38 @@ async def test_evaluate_message_wakeups_uses_provided_binding(monkeypatch) -> No
         object(), chatroom_id=uuid.uuid4(), sender_is_user=True, bound_agent_ids=[a1]
     )
     assert woken == [a1]
+
+
+@pytest.mark.asyncio
+async def test_dispatch_graphrag_builds_enqueues_fired_configs(monkeypatch) -> None:
+    agent_id = uuid.uuid4()
+    config_id = uuid.uuid4()
+    enqueued: list[tuple[tuple[object, ...], dict[str, object]]] = []
+
+    class _Trigger:
+        def __init__(self) -> None:
+            self.config_id = config_id
+            self.triggered_by = "every_n_messages"
+
+    class _Facade:
+        def __init__(self, db) -> None:
+            pass
+
+        async def evaluate_graphrag_message_triggers(self, *, agent_ids):
+            assert agent_ids == [agent_id]
+            return [_Trigger()]
+
+    async def _enqueue(*args, **kwargs) -> None:
+        enqueued.append((args, kwargs))
+
+    monkeypatch.setattr(messages_mod, "KnowledgeFacade", _Facade)
+    monkeypatch.setattr(messages_mod, "enqueue", _enqueue)
+
+    await messages_mod._dispatch_graphrag_builds(object(), uuid.uuid4(), [agent_id])
+
+    assert enqueued == [
+        (
+            ("graphrag_build",),
+            {"config_id": str(config_id), "triggered_by": "every_n_messages"},
+        )
+    ]

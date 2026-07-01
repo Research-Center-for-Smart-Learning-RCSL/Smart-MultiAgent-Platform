@@ -36,6 +36,7 @@ from contexts.conversation.application.triggers import (
 )
 from contexts.conversation.domain.models import Message
 from contexts.conversation.interfaces import room_channel
+from contexts.knowledge.interfaces.facade import KnowledgeFacade
 from shared_kernel.auth.context import RequestContext
 from shared_kernel.auth.dependencies import (
     _raise_forbidden,
@@ -225,6 +226,7 @@ async def send_message(
     # evaluations (every_n + @mention) so a mention send issues one query, not two.
     bound_ids = await _list_bound_agents_for_dispatch(db, chatroom_id)
     woken = await _dispatch_message_wakeups(db, chatroom_id, bound_ids)
+    await _dispatch_graphrag_builds(db, chatroom_id, bound_ids)
     await _dispatch_mention_wakeups(
         db, chatroom_id, body.mention_agent_ids, already_woken=woken, bound_agent_ids=bound_ids
     )
@@ -282,6 +284,37 @@ async def _dispatch_message_wakeups(
         )
         await _rollback_quietly(db)
     return woken
+
+
+async def _dispatch_graphrag_builds(
+    db: AsyncSession,
+    chatroom_id: uuid.UUID,
+    bound_agent_ids: list[uuid.UUID] | None = None,
+) -> None:
+    """Evaluate GraphRAG message triggers and enqueue builds post-commit.
+
+    GraphRAG builds are background maintenance; a Redis / queue / DB hiccup must
+    never turn a successfully persisted chat message into a client-visible error.
+    """
+    if not bound_agent_ids:
+        return
+    try:
+        fired = await KnowledgeFacade(db).evaluate_graphrag_message_triggers(
+            agent_ids=bound_agent_ids
+        )
+        for trigger in fired:
+            await enqueue(
+                "graphrag_build",
+                config_id=str(trigger.config_id),
+                triggered_by=trigger.triggered_by,
+            )
+    except Exception:  # pragma: no cover - defensive; exercised via wiring tier
+        _log.warning(
+            "GraphRAG build dispatch failed for room %s; message persisted",
+            chatroom_id,
+            exc_info=True,
+        )
+        await _rollback_quietly(db)
 
 
 async def _dispatch_mention_wakeups(

@@ -97,6 +97,27 @@ class GraphRagConfigRepository:
         ).all()
         return [_row_to_config(r) for r in rows]
 
+    async def list_for_agents(
+        self,
+        agent_ids: Sequence[uuid.UUID],
+    ) -> Sequence[GraphRagConfig]:
+        ids = list(dict.fromkeys(agent_ids))
+        if not ids:
+            return []
+        rows = (
+            await self._db.execute(
+                t.graphrag_configs.select()
+                .where(
+                    sa.and_(
+                        t.graphrag_configs.c.agent_id.in_(ids),
+                        t.graphrag_configs.c.deleted_at.is_(None),
+                    )
+                )
+                .order_by(t.graphrag_configs.c.created_at.desc())
+            )
+        ).all()
+        return [_row_to_config(r) for r in rows]
+
     async def list_in_state(
         self,
         state: BuildState,
