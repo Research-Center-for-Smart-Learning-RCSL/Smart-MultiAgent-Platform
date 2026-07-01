@@ -21,6 +21,7 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 _log = logging.getLogger(__name__)
+_MAX_SOURCE_LABEL_CHARS = 160
 
 
 @dataclass(frozen=True, slots=True)
@@ -141,8 +142,8 @@ class RagContextProvider:
                 chunks = sorted(by_ref.values(), key=lambda c: c.score, reverse=True)[:effective_top_k]
                 if not chunks:
                     return None
-                block = str(svc.format_as_rag_message(chunks)["content"])
                 sources = await self._build_sources(chunks)
+                block = _format_rag_block(chunks, sources)
                 return RagContext(block=block, sources=sources)
             finally:
                 await qclient.close()
@@ -184,6 +185,33 @@ def _normalise_queries(*, query_text: str | None, query_texts: Sequence[str] | N
         if text and text not in queries:
             queries.append(text)
     return queries
+
+
+def _format_rag_block(chunks: list[Any], sources: list[dict[str, Any]]) -> str:
+    source_by_ref: dict[tuple[uuid.UUID, int], dict[str, Any]] = {}
+    for source in sources:
+        try:
+            key = (uuid.UUID(str(source["document_id"])), int(source["chunk_idx"]))
+        except (KeyError, TypeError, ValueError):
+            continue
+        source_by_ref[key] = source
+    body_lines: list[str] = ["Retrieved context:"]
+    for c in chunks:
+        source = source_by_ref.get((c.document_id, c.chunk_idx), {})
+        label = _source_label(source.get("filename"))
+        if label:
+            ref = f"source={label} doc={c.document_id} chunk={c.chunk_idx} score={c.score:.3f}"
+        else:
+            ref = f"doc={c.document_id} chunk={c.chunk_idx} score={c.score:.3f}"
+        body_lines.append(f"[{ref}]\n{c.text}")
+    return "\n\n".join(body_lines)
+
+
+def _source_label(value: object) -> str:
+    label = " ".join(str(value or "").split())
+    if len(label) <= _MAX_SOURCE_LABEL_CHARS:
+        return label
+    return label[: _MAX_SOURCE_LABEL_CHARS - 3].rstrip() + "..."
 
 
 __all__ = ["RagContext", "RagContextProvider"]
