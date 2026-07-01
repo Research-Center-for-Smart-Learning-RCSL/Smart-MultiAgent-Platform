@@ -640,6 +640,28 @@ class TestFormatRagMessage:
 
 
 class TestRagContextProviderSources:
+    def test_format_rag_block_includes_source_filename(self) -> None:
+        from contexts.knowledge.application.rag_context_provider import _format_rag_block
+
+        doc_id = uuid.uuid4()
+        chunks = [
+            RetrievedChunk(document_id=doc_id, chunk_idx=2, text="alpha policy", score=0.8765)
+        ]
+        sources = [
+            {
+                "document_id": str(doc_id),
+                "filename": "guide.pdf",
+                "chunk_idx": 2,
+                "score": 0.8765,
+            }
+        ]
+
+        block = _format_rag_block(chunks, sources)
+
+        assert "source=guide.pdf" in block
+        assert f"doc={doc_id}" in block
+        assert "alpha policy" in block
+
     async def test_build_sources_resolves_filenames(self, monkeypatch) -> None:
         # The provider shapes retrieved chunks into citable sources (one per
         # chunk, ranked order, filename resolved) that the turn engine persists
