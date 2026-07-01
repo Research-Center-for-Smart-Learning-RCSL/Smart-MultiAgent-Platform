@@ -19,6 +19,8 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from contexts.conversation.interfaces.facade import ConversationFacade
+
 _log = logging.getLogger(__name__)
 
 # Default embedding model per provider for GraphRAG retrieval — mirrors the
@@ -29,6 +31,8 @@ _GRAPHRAG_EMBED_MODELS: dict[str, str] = {
     "gemini": "text-embedding-004",
     "voyage": "voyage-3",
 }
+_MAX_EVIDENCE_EXCERPTS = 10
+_MAX_EVIDENCE_CHARS = 280
 
 
 class GraphRagContextProvider:
@@ -142,11 +146,25 @@ class GraphRagContextProvider:
                 neo4j=driver,
                 vector_store=GraphRagVectorStore(qclient),
                 embedder_factory=_embedder_factory,
+                evidence_fetcher=self._fetch_evidence_excerpts,
             )
             return await svc.query(config_id=config_id, text=query)
         finally:
             await qclient.close()
             await driver.close()
+
+    async def _fetch_evidence_excerpts(self, ids: list[uuid.UUID]) -> list[str]:
+        facade = ConversationFacade(self._db)
+        excerpts: list[str] = []
+        for message_id in list(dict.fromkeys(ids))[:_MAX_EVIDENCE_EXCERPTS]:
+            msg = await facade.get_message(message_id)
+            if msg is None:
+                continue
+            text = _compact_excerpt(msg.content_md)
+            if not text:
+                continue
+            excerpts.append(f"{msg.sender_type.value}: {text}")
+        return excerpts
 
     async def _resolve_embed_key(
         self,
@@ -184,6 +202,13 @@ def _normalise_queries(*, query_text: str | None, query_texts: Sequence[str] | N
         if text and text not in queries:
             queries.append(text)
     return queries
+
+
+def _compact_excerpt(text: str) -> str:
+    compact = " ".join(text.split())
+    if len(compact) <= _MAX_EVIDENCE_CHARS:
+        return compact
+    return compact[: _MAX_EVIDENCE_CHARS - 3].rstrip() + "..."
 
 
 def _merge_bundles(bundles: Sequence[Any]) -> Any:
