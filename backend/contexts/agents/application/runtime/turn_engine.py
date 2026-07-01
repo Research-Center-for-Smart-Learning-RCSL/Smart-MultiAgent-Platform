@@ -43,7 +43,7 @@ from contexts.agents.interfaces.facade import AgentsFacade
 from contexts.conversation.application.message_service import MessageService
 from contexts.conversation.infrastructure.repositories import ChatroomAgentRepository
 from contexts.conversation.interfaces import emit_agent_finished_error, room_channel
-from contexts.conversation.interfaces.facade import ConversationFacade
+from contexts.conversation.interfaces.facade import ConversationFacade, MessageAttachment
 from contexts.identity.interfaces.facade import IdentityFacade
 from contexts.keys.application.provider_router import (
     ProviderRequest,
@@ -136,18 +136,40 @@ def _queued_trigger_key(agent_id: uuid.UUID, chatroom_id: uuid.UUID) -> str:
     return f"turn:queued:{agent_id}:{chatroom_id}"
 
 
-async def _mark_trigger_queued(agent_id: uuid.UUID, chatroom_id: uuid.UUID, trigger: str) -> None:
+def _queued_trigger_message_key(agent_id: uuid.UUID, chatroom_id: uuid.UUID) -> str:
+    return f"turn:queued:msg:{agent_id}:{chatroom_id}"
+
+
+async def _mark_trigger_queued(
+    agent_id: uuid.UUID,
+    chatroom_id: uuid.UUID,
+    trigger: str,
+    trigger_message_id: uuid.UUID | None = None,
+) -> None:
     """Record (at most once — SETNX) that a trigger landed while a turn held
-    the lock, so the lock holder re-enqueues exactly one follow-up turn."""
+    the lock, so the lock holder re-enqueues exactly one follow-up turn.
+
+    The triggering message id is tracked in a separate key with last-write-wins
+    semantics (plain SET, not NX): when several messages coalesce into the one
+    follow-up turn, the most recently arrived id is the most relevant anchor
+    for attachment resolution — matching how an uncontended turn would resolve
+    against whatever is currently latest."""
     try:
         from shared_kernel.auth.clients import get_redis
 
-        await get_redis().set(
+        redis = get_redis()
+        await redis.set(
             _queued_trigger_key(agent_id, chatroom_id),
             trigger,
             nx=True,
             ex=DEFAULT_TURN_TTL_S,
         )
+        if trigger_message_id is not None:
+            await redis.set(
+                _queued_trigger_message_key(agent_id, chatroom_id),
+                str(trigger_message_id),
+                ex=DEFAULT_TURN_TTL_S,
+            )
     except Exception:
         _log.warning(
             "failed to queue coalesced trigger agent=%s room=%s",
@@ -157,12 +179,17 @@ async def _mark_trigger_queued(agent_id: uuid.UUID, chatroom_id: uuid.UUID, trig
         )
 
 
-async def _pop_queued_trigger(agent_id: uuid.UUID, chatroom_id: uuid.UUID) -> str | None:
-    """Atomically read-and-clear the coalesced-trigger flag (GETDEL)."""
+async def _pop_queued_trigger(
+    agent_id: uuid.UUID, chatroom_id: uuid.UUID
+) -> tuple[str, uuid.UUID | None] | None:
+    """Atomically read-and-clear the coalesced-trigger flag (GETDEL) and its
+    associated (last-write-wins) triggering message id, if any."""
     try:
         from shared_kernel.auth.clients import get_redis
 
-        val = await get_redis().getdel(_queued_trigger_key(agent_id, chatroom_id))
+        redis = get_redis()
+        val = await redis.getdel(_queued_trigger_key(agent_id, chatroom_id))
+        mid_raw = await redis.getdel(_queued_trigger_message_key(agent_id, chatroom_id))
     except Exception:
         _log.warning(
             "failed to read coalesced trigger agent=%s room=%s",
@@ -173,7 +200,15 @@ async def _pop_queued_trigger(agent_id: uuid.UUID, chatroom_id: uuid.UUID) -> st
         return None
     if not val:
         return None
-    return val.decode() if isinstance(val, bytes) else str(val)
+    trigger = val.decode() if isinstance(val, bytes) else str(val)
+    message_id: uuid.UUID | None = None
+    if mid_raw:
+        mid_str = mid_raw.decode() if isinstance(mid_raw, bytes) else str(mid_raw)
+        try:
+            message_id = uuid.UUID(mid_str)
+        except ValueError:
+            message_id = None
+    return trigger, message_id
 
 
 @dataclass(frozen=True, slots=True)
@@ -224,6 +259,7 @@ class TurnEngine:
         parent_agent_id: uuid.UUID | None = None,
         input_text: str | None = None,
         request_id: uuid.UUID | None = None,
+        trigger_message_id: uuid.UUID | None = None,
     ) -> TurnResult:
         started = time.monotonic()
         async with turn_lock(agent_id, chatroom_id) as acquired:
@@ -232,7 +268,7 @@ class TurnEngine:
                 # trigger (SETNX = at most one) so the lock holder re-enqueues
                 # a follow-up turn after release — without this, a user message
                 # landing mid-turn would never get a reply.
-                await _mark_trigger_queued(agent_id, chatroom_id, trigger)
+                await _mark_trigger_queued(agent_id, chatroom_id, trigger, trigger_message_id)
                 AGENT_TURNS_TOTAL.labels(result="skipped").inc()
                 return TurnResult(status="skipped", reason="locked")
             result = await self._run_locked(
@@ -242,15 +278,27 @@ class TurnEngine:
                 parent_agent_id=parent_agent_id,
                 input_text=input_text,
                 request_id=request_id,
+                trigger_message_id=trigger_message_id,
             )
         # Lock released — drain the coalesced trigger (if any) into exactly one
         # follow-up wakeup so the message that arrived mid-turn gets a reply.
+        # The associated message id (last-write-wins across whatever coalesced)
+        # is threaded through so the follow-up turn resolves attachments
+        # deterministically instead of re-querying "whatever's latest" — the
+        # same race this fix closes for the uncontended dispatch path.
         queued = await _pop_queued_trigger(agent_id, chatroom_id)
         if queued is not None:
+            queued_trigger, queued_message_id = queued
             try:
                 from shared_kernel.queue import enqueue
 
-                await enqueue("wakeup_agent", str(agent_id), str(chatroom_id), queued)
+                await enqueue(
+                    "wakeup_agent",
+                    str(agent_id),
+                    str(chatroom_id),
+                    queued_trigger,
+                    str(queued_message_id) if queued_message_id else None,
+                )
             except Exception:
                 _log.warning(
                     "coalesced wakeup enqueue failed agent=%s room=%s",
@@ -367,7 +415,25 @@ class TurnEngine:
             _log.warning("agent tool assembly failed for agent %s", agent.id, exc_info=True)
             return []
 
-    async def _stage_workspace_inputs(self, agent: Agent, chatroom_id: uuid.UUID) -> str | None:
+    async def _resolve_trigger_attachments(
+        self, chatroom_id: uuid.UUID, trigger_message_id: uuid.UUID | None
+    ) -> list[MessageAttachment]:
+        """Resolve the triggering message's active attachments once per turn.
+
+        Shared by ``_stage_workspace_inputs`` and ``_model_attachment_blocks``
+        so both consumers see the same snapshot — two independent reads could
+        otherwise observe different attachment status (e.g. an AV scan
+        quarantining the file between the two calls), staging a file into the
+        sandbox that the model-visible blocks then silently omit, or vice versa.
+        """
+        facade = ConversationFacade(self._db)
+        if trigger_message_id is not None:
+            return await facade.attachments_for_message(trigger_message_id)
+        return await facade.latest_user_attachments(chatroom_id)
+
+    async def _stage_workspace_inputs(
+        self, agent: Agent, chatroom_id: uuid.UUID, attachments: list[MessageAttachment]
+    ) -> str | None:
         """Stage the agent's persisted files and the triggering message's
         attachments into the code_exec workspace.
 
@@ -398,9 +464,8 @@ class TurnEngine:
             except Exception:
                 _log.warning("agent workspace file staging failed for %s", agent.id, exc_info=True)
 
-            # --- triggering message's attachments (existing) ---
+            # --- triggering message's attachments (resolved by the caller) ---
             facade = ConversationFacade(self._db)
-            attachments = await facade.latest_user_attachments(chatroom_id)
             if attachments:
                 chosen: list[Any] = []
                 total = 0
@@ -635,6 +700,7 @@ class TurnEngine:
         parent_agent_id: uuid.UUID | None,
         input_text: str | None,
         request_id: uuid.UUID | None,
+        trigger_message_id: uuid.UUID | None = None,
     ) -> TurnResult:
         agent = await AgentsFacade(self._db).get_agent(agent_id)
         if agent is None:
@@ -724,9 +790,12 @@ class TurnEngine:
             extra_tools = extra_tools + await self._builtin_tools(
                 agent, chatroom_id=chatroom_id, artifact_sink=artifact_sink
             )
+            # Resolved once and shared by both consumers below so they see the
+            # same snapshot (see _resolve_trigger_attachments docstring).
+            trigger_attachments = await self._resolve_trigger_attachments(chatroom_id, trigger_message_id)
             # Stage the triggering message's uploads into the kernel workspace so
             # code_exec can read them; the returned note tells the model the paths.
-            staged_note = await self._stage_workspace_inputs(agent, chatroom_id)
+            staged_note = await self._stage_workspace_inputs(agent, chatroom_id, trigger_attachments)
             if staged_note:
                 system_parts.append(staged_note)
             if notify_block:
@@ -740,13 +809,28 @@ class TurnEngine:
             # Attachments on the triggering user message become content blocks so
             # the agent can see the file. When this turn carries fresh `input_text`,
             # the trigger is that appended message (below); otherwise it's the
-            # latest user message already in history.
-            attach_blocks = await self._model_attachment_blocks(chatroom_id)
-            history_attach_id = (
-                next((h.id for h in reversed(history) if h.role == "user"), None)
-                if attach_blocks and not input_text
-                else None
-            )
+            # message identified by `trigger_message_id` — falling back to the
+            # latest user message already in history only when no id was supplied
+            # (silence_minutes / coalesced re-enqueue with no tracked id).
+            attach_blocks = await self._model_attachment_blocks(chatroom_id, trigger_attachments)
+            history_attach_id = None
+            if attach_blocks and not input_text:
+                if trigger_message_id is not None:
+                    # Only anchor to the exact triggering message. If it already
+                    # fell out of the loaded history (e.g. folded into a compact
+                    # summary between enqueue and this turn running), there is no
+                    # historically-correct row left to attach these blocks to —
+                    # splicing them onto some other message would misattribute
+                    # the file and wrongly suppress that other message's own
+                    # attachment_excerpt (see _provider_message).
+                    user_ids_in_history = {h.id for h in history if h.role == "user"}
+                    if trigger_message_id in user_ids_in_history:
+                        history_attach_id = trigger_message_id
+                else:
+                    # No specific trigger: attach_blocks came from the room's
+                    # current latest attachment, so anchor to the latest user
+                    # row already in history (the same message it resolved from).
+                    history_attach_id = next((h.id for h in reversed(history) if h.role == "user"), None)
             messages: list[dict[str, Any]] = [
                 self._provider_message(
                     hm,
@@ -978,6 +1062,12 @@ class TurnEngine:
         message), the message carries multi-part content — the prefixed text
         followed by the neutral attachment blocks — so the adapters can render
         the file for the model to see.
+
+        An older user message's ``attachment_excerpt`` (bounded extracted text
+        from a file that is no longer the triggering message) is folded into
+        the plain text instead — but only when this row does NOT already carry
+        live ``attachment_blocks``, so a file's content is never shown twice
+        (once as rich vision/PDF blocks, once as a plain-text excerpt).
         """
         if hm.role == "agent":
             if hm.sender_id == running_agent_id:
@@ -990,20 +1080,23 @@ class TurnEngine:
             return {"role": "user", "content": content}
         label = user_names.get(hm.sender_id) if hm.sender_id is not None else None
         content = f"{label}: {hm.content}" if label else hm.content
+        if hm.attachment_excerpt and not attachment_blocks:
+            content = f"{content}\n\n{hm.attachment_excerpt}" if content else hm.attachment_excerpt
         if attachment_blocks:
             text_blocks = [{"type": "text", "text": content}] if content else []
             return {"role": "user", "content": text_blocks + attachment_blocks}
         return {"role": "user", "content": content}
 
-    async def _model_attachment_blocks(self, chatroom_id: uuid.UUID) -> list[dict[str, Any]]:
+    async def _model_attachment_blocks(
+        self, chatroom_id: uuid.UUID, attachments: list[MessageAttachment]
+    ) -> list[dict[str, Any]]:
         """Neutral content blocks for the triggering message's attachments, so
         the agent can see uploaded images/PDFs/text. Best-effort — a storage or
         decode fault must never abort the turn."""
         try:
-            facade = ConversationFacade(self._db)
-            attachments = await facade.latest_user_attachments(chatroom_id)
             if not attachments:
                 return []
+            facade = ConversationFacade(self._db)
             attachments = list(attachments[: mattach.MAX_ATTACH_FILES])
             blobs = await facade.read_attachments_bytes(attachments)
             items = [(att.filename, att.mime, data) for att, data in zip(attachments, blobs, strict=True)]

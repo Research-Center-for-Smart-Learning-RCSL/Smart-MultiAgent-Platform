@@ -8,7 +8,10 @@ runs only if ``tesseract`` is present on PATH and the extracted text is
 empty — we never pay the OCR cost on text-bearing PDFs.
 
 SoC: parser functions are pure byte-in / str-out; they do not touch the
-DB, MinIO, or Qdrant. The ingest service wires them together.
+DB, MinIO, or Qdrant. Callers (RAG ingest, chat attachment extraction) wire
+them together. Lives in shared_kernel because both the ``knowledge`` and
+``conversation`` bounded contexts need it and contexts must not import each
+other's infrastructure.
 """
 
 from __future__ import annotations

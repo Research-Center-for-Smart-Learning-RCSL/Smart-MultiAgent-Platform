@@ -154,6 +154,24 @@ message_attachments = sa.Table(
         sa.ForeignKey("users.id", ondelete="SET NULL"),
         nullable=True,
     ),
+    sa.Column("extracted_text", sa.Text, nullable=True),
+    # PG ENUM created in migration 0040 — must match the DB type, not sa.Text
+    # (see the sender_type/status comments above for the asyncpg constraint).
+    sa.Column(
+        "extraction_status",
+        pg.ENUM(
+            "pending",
+            "extracted",
+            "empty",
+            "unsupported",
+            "failed",
+            name="message_attachment_extraction_status",
+            create_type=False,
+        ),
+        nullable=False,
+        server_default=sa.text("'pending'::message_attachment_extraction_status"),
+    ),
+    sa.Column("extracted_at", sa.TIMESTAMP(timezone=True), nullable=True),
 )
 
 

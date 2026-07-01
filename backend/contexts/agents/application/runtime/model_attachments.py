@@ -54,6 +54,15 @@ def _note(filename: str, mime: str, reason: str) -> dict[str, str]:
     return {"type": "text", "text": f"[Attached file {filename} ({_norm_mime(mime)}) — {reason}]"}
 
 
+def format_attachment_text(filename: str, body: str) -> str:
+    """Shared '[Attached file: X]\\n...' tag for a text-bearing attachment.
+
+    Used both here (live inlining for the triggering message) and by
+    ``transcript.py``'s historical excerpt replay, so the model sees the same
+    framing for a file's content regardless of which turn produced it."""
+    return f"[Attached file: {filename}]\n{body}"
+
+
 def build_blocks(items: Sequence[tuple[str, str, bytes | None]]) -> list[dict[str, str]]:
     """Build neutral content blocks from ``(filename, mime, data)`` triples.
 
@@ -98,7 +107,7 @@ def build_blocks(items: Sequence[tuple[str, str, bytes | None]]) -> list[dict[st
             )
         elif kind == "text":
             text = data.decode("utf-8", errors="replace")[:MAX_TEXT_CHARS]
-            blocks.append({"type": "text", "text": f"[Attached file: {filename}]\n{text}"})
+            blocks.append({"type": "text", "text": format_attachment_text(filename, text)})
         else:
             blocks.append(_note(filename, mime, "preview not supported"))
             continue
@@ -112,4 +121,5 @@ __all__ = [
     "MAX_ATTACH_TOTAL_BYTES",
     "build_blocks",
     "classify",
+    "format_attachment_text",
 ]

@@ -54,7 +54,6 @@ from contexts.knowledge.domain.errors import (
 from contexts.knowledge.domain.models import DocumentStatus, RagConfig, RagDocument
 from contexts.knowledge.infrastructure.channels import rag_channel
 from contexts.knowledge.infrastructure.chunkers import chunk_document
-from contexts.knowledge.infrastructure.parsers import MIME_TO_PARSER
 from contexts.knowledge.infrastructure.qdrant_store import QdrantStore
 from contexts.knowledge.infrastructure.repositories import (
     RagChunkRepository,
@@ -63,6 +62,7 @@ from contexts.knowledge.infrastructure.repositories import (
 )
 from shared_kernel import audit
 from shared_kernel.realtime.pubsub import Publisher
+from shared_kernel.text_extraction.parsers import MIME_TO_PARSER
 
 _log = logging.getLogger(__name__)
 

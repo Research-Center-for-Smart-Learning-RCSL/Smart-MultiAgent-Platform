@@ -30,6 +30,7 @@ from contexts.conversation.domain.errors import (
     AttachmentTooLarge,
 )
 from contexts.conversation.domain.models import (
+    AttachmentExtractionStatus,
     AttachmentStatus,
     MessageAttachment,
     ScanStatus,
@@ -50,6 +51,10 @@ _log = logging.getLogger(__name__)
 SINGLE_SHOT_MAX_BYTES = 32 * 1024 * 1024  # R22.15 switch-to-tus threshold
 TUS_MAX_BYTES = 1024 * 1024 * 1024  # 1 GiB (R22.15.02)
 ATTACHMENT_TTL = timedelta(days=3)  # §21.5 chat-uploads lifecycle
+# Bounds how much of a single attachment's extracted text is stored, so the
+# durable-text replay in later turns (transcript.py) can't be driven by an
+# unbounded document.
+MAX_STORED_EXTRACTED_TEXT_CHARS = 20_000
 
 # MIME types we are willing to serve *inline* from the storage origin. Anything
 # scriptable in a browser (text/html, image/svg+xml, …) is deliberately absent,
@@ -249,6 +254,10 @@ class AttachmentService:
         # the upload. The worker is imported lazily so the web image can
         # function without the worker module loaded.
         await _enqueue_scan(attachment_id=row.id)
+        # Text extraction is likewise best-effort and independent of the AV
+        # scan outcome — it only feeds the durable-text replay in later turns
+        # (transcript.py), never the live turn, so it can run concurrently.
+        await _enqueue_extraction(attachment_id=row.id)
         return row
 
     # ---- reads ------------------------------------------------------------
@@ -407,6 +416,20 @@ class AttachmentService:
                 ),
             )
 
+    async def record_extraction_result(
+        self,
+        *,
+        attachment_id: uuid.UUID,
+        extraction_status: AttachmentExtractionStatus,
+        extracted_text: str | None,
+    ) -> None:
+        await self._repo.record_extraction(
+            attachment_id=attachment_id,
+            extraction_status=extraction_status,
+            extracted_text=extracted_text,
+            extracted_at=now(),
+        )
+
 
 async def _enqueue_scan(*, attachment_id: uuid.UUID) -> None:
     """Lazy-import the Arq pool so the worker module isn't required at
@@ -426,10 +449,28 @@ async def _enqueue_scan(*, attachment_id: uuid.UUID) -> None:
         )
 
 
+async def _enqueue_extraction(*, attachment_id: uuid.UUID) -> None:
+    """Lazy-import the Arq pool so the worker module isn't required at
+    web-image import time. Silently no-ops if Redis can't be reached —
+    the attachment simply stays 'pending' and later turns behave exactly
+    as they do today (no durable text to replay)."""
+    try:
+        from shared_kernel.queue import enqueue
+
+        await enqueue("extract_attachment_text", str(attachment_id), _job_id=f"extract:{attachment_id}")
+    except Exception:  # pragma: no cover — best-effort
+        _log.warning(
+            "extraction enqueue failed for attachment %s; no durable text will be available",
+            attachment_id,
+            exc_info=True,
+        )
+
+
 __all__ = [
     "ATTACHMENT_TTL",
     "AttachmentPointer",
     "AttachmentService",
+    "MAX_STORED_EXTRACTED_TEXT_CHARS",
     "SINGLE_SHOT_MAX_BYTES",
     "TUS_MAX_BYTES",
 ]

@@ -90,3 +90,56 @@ async def test_dispatch_graphrag_builds_enqueues_fired_configs(monkeypatch) -> N
             {"config_id": str(config_id), "triggered_by": "every_n_messages"},
         )
     ]
+
+
+@pytest.mark.asyncio
+async def test_dispatch_message_wakeups_enqueues_with_trigger_message_id(monkeypatch) -> None:
+    agent_id = uuid.uuid4()
+    room_id = uuid.uuid4()
+    trigger_message_id = uuid.uuid4()
+    enqueued: list[tuple[object, ...]] = []
+
+    async def _evaluate_message_wakeups(*_a, **_k):
+        return [agent_id]
+
+    async def _enqueue(*args, **_kwargs) -> None:
+        enqueued.append(args)
+
+    monkeypatch.setattr(messages_mod, "evaluate_message_wakeups", _evaluate_message_wakeups)
+    monkeypatch.setattr(messages_mod, "enqueue", _enqueue)
+
+    woken = await messages_mod._dispatch_message_wakeups(
+        object(), room_id, [agent_id], trigger_message_id=trigger_message_id
+    )
+
+    assert woken == {agent_id}
+    assert enqueued == [
+        ("wakeup_agent", str(agent_id), str(room_id), "every_n_messages", str(trigger_message_id))
+    ]
+
+
+@pytest.mark.asyncio
+async def test_dispatch_mention_wakeups_enqueues_with_trigger_message_id(monkeypatch) -> None:
+    agent_id = uuid.uuid4()
+    room_id = uuid.uuid4()
+    trigger_message_id = uuid.uuid4()
+    enqueued: list[tuple[object, ...]] = []
+
+    async def _filter_mentioned_bound_agents(*_a, **_k):
+        return [agent_id]
+
+    async def _enqueue(*args, **_kwargs) -> None:
+        enqueued.append(args)
+
+    monkeypatch.setattr(messages_mod, "filter_mentioned_bound_agents", _filter_mentioned_bound_agents)
+    monkeypatch.setattr(messages_mod, "enqueue", _enqueue)
+
+    await messages_mod._dispatch_mention_wakeups(
+        object(),
+        room_id,
+        [agent_id],
+        already_woken=set(),
+        trigger_message_id=trigger_message_id,
+    )
+
+    assert enqueued == [("wakeup_agent", str(agent_id), str(room_id), "mention", str(trigger_message_id))]

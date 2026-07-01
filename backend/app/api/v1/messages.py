@@ -225,10 +225,15 @@ async def send_message(
     # Fetch the room's agent binding once and share it across both wake-up
     # evaluations (every_n + @mention) so a mention send issues one query, not two.
     bound_ids = await _list_bound_agents_for_dispatch(db, chatroom_id)
-    woken = await _dispatch_message_wakeups(db, chatroom_id, bound_ids)
+    woken = await _dispatch_message_wakeups(db, chatroom_id, bound_ids, trigger_message_id=msg.id)
     await _dispatch_graphrag_builds(db, chatroom_id, bound_ids)
     await _dispatch_mention_wakeups(
-        db, chatroom_id, body.mention_agent_ids, already_woken=woken, bound_agent_ids=bound_ids
+        db,
+        chatroom_id,
+        body.mention_agent_ids,
+        already_woken=woken,
+        bound_agent_ids=bound_ids,
+        trigger_message_id=msg.id,
     )
     await _dispatch_message_workflow_signal(chatroom_id, body.content_md)
     return _to_out(msg, await service.list_attachments(msg.id))
@@ -241,9 +246,7 @@ async def _rollback_quietly(db: AsyncSession) -> None:
         await db.rollback()
 
 
-async def _list_bound_agents_for_dispatch(
-    db: AsyncSession, chatroom_id: uuid.UUID
-) -> list[uuid.UUID] | None:
+async def _list_bound_agents_for_dispatch(db: AsyncSession, chatroom_id: uuid.UUID) -> list[uuid.UUID] | None:
     """Fetch the room binding once for the post-commit wake-up dispatch. Best-
     effort: on failure return None so each evaluator falls back to its own
     (try-protected) fetch rather than the send failing."""
@@ -258,6 +261,8 @@ async def _dispatch_message_wakeups(
     db: AsyncSession,
     chatroom_id: uuid.UUID,
     bound_agent_ids: list[uuid.UUID] | None = None,
+    *,
+    trigger_message_id: uuid.UUID,
 ) -> set[uuid.UUID]:
     """Evaluate every_n_messages for the room's bound agents and enqueue a
     ``wakeup_agent`` turn for each that fired. Returns the woken agent ids so the
@@ -274,6 +279,7 @@ async def _dispatch_message_wakeups(
                 str(agent_id),
                 str(chatroom_id),
                 "every_n_messages",
+                str(trigger_message_id),
             )
             woken.add(agent_id)
     except Exception:  # pragma: no cover — defensive; exercised via wiring tier
@@ -299,9 +305,7 @@ async def _dispatch_graphrag_builds(
     if not bound_agent_ids:
         return
     try:
-        fired = await KnowledgeFacade(db).evaluate_graphrag_message_triggers(
-            agent_ids=bound_agent_ids
-        )
+        fired = await KnowledgeFacade(db).evaluate_graphrag_message_triggers(agent_ids=bound_agent_ids)
         for trigger in fired:
             await enqueue(
                 "graphrag_build",
@@ -324,6 +328,7 @@ async def _dispatch_mention_wakeups(
     *,
     already_woken: set[uuid.UUID],
     bound_agent_ids: list[uuid.UUID] | None = None,
+    trigger_message_id: uuid.UUID,
 ) -> None:
     """Wake each @mentioned agent that is bound to the room and wasn't already
     woken by every_n_messages. A mention is an explicit call, so the turn runs
@@ -346,6 +351,7 @@ async def _dispatch_mention_wakeups(
                 str(agent_id),
                 str(chatroom_id),
                 "mention",
+                str(trigger_message_id),
             )
     except Exception:  # pragma: no cover — defensive; exercised via wiring tier
         _log.warning(
@@ -427,10 +433,7 @@ async def edit_message(
         actor_ip=ctx.actor_ip,
         request_id=ctx.request_id,
     )
-    by_moderator = (
-        (authority.is_admin or authority.is_moderator)
-        and authority.actor_user_id != msg.sender_id
-    )
+    by_moderator = (authority.is_admin or authority.is_moderator) and authority.actor_user_id != msg.sender_id
     await db.commit()
     try:
         await Publisher(room_channel(msg.chatroom_id)).emit(

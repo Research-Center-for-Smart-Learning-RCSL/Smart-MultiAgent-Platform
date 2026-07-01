@@ -28,13 +28,20 @@ async def wakeup_agent(
     agent_id: str,
     room_id: str,
     trigger: str = "every_n_messages",
+    trigger_message_id: str | None = None,
 ) -> str:
     """Fire a wake-up for a single agent in a single room (K.3, link b).
 
     Enqueued by the wake-up evaluator (``every_n_messages`` from the message
     endpoint, ``silence_minutes`` from the silence sweep). Runs a real agent
     turn through the K.2 ``TurnEngine`` and records ``wakeup.fired`` *after*
-    the turn. Guards before spending a provider call:
+    the turn. ``trigger_message_id`` pins the turn to the exact message that
+    fired it (every_n_messages / mention), so attachment resolution doesn't
+    race a fast follow-up message that becomes "latest" before this job runs.
+    ``silence_minutes`` has no specific triggering message and always passes
+    ``None`` here — the turn falls back to resolving against the room's
+    current latest user message, which is correct for a time-based trigger.
+    Guards before spending a provider call:
 
     - room still live (not soft-deleted);
     - agent still exists (``get_agent`` filters deleted);
@@ -96,7 +103,19 @@ async def wakeup_agent(
             qdrant_url=settings.qdrant.url,
             qdrant_api_key=settings.qdrant.api_key,
         )
-        result = await engine.run_turn(agent_id=aid, chatroom_id=rid, trigger=trigger)
+        mid: uuid.UUID | None = None
+        if trigger_message_id:
+            try:
+                mid = uuid.UUID(trigger_message_id)
+            except ValueError:
+                # Degrade like the "no trigger message" case (silence_minutes)
+                # rather than hard-failing the job over a malformed optional id.
+                logger.bind(agent_id=agent_id, room_id=room_id).warning(
+                    "wakeup_agent: malformed trigger_message_id {!r}, falling back to latest-attachment"
+                    " resolution",
+                    trigger_message_id,
+                )
+        result = await engine.run_turn(agent_id=aid, chatroom_id=rid, trigger=trigger, trigger_message_id=mid)
 
         # Result-accurate audit slug: `wakeup.fired` is reserved for turns that
         # actually produced a reply (mirrors the agent.turn_* naming).
@@ -206,6 +225,10 @@ async def evaluate_silence(ctx: dict[str, Any]) -> str:
             checked += 1
             try:
                 if await svc.evaluate_silence_trigger(agent_id=agent_id, room_id=room_id):
+                    # No trigger_message_id: silence is time-based, not tied to a
+                    # specific message, so the turn intentionally falls back to
+                    # resolving attachments against the room's current latest
+                    # user message (wakeup_agent's default).
                     await redis.enqueue_job(
                         "wakeup_agent",
                         str(agent_id),
