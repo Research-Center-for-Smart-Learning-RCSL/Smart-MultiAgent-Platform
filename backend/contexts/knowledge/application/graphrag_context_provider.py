@@ -14,12 +14,12 @@ from __future__ import annotations
 
 import logging
 import uuid
-from collections.abc import Sequence
+from collections.abc import Awaitable, Callable, Sequence
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from contexts.conversation.interfaces.facade import ConversationFacade
+from contexts.knowledge.application.graphrag_retrieve import EvidenceFetcher
 
 _log = logging.getLogger(__name__)
 
@@ -49,11 +49,13 @@ class GraphRagContextProvider:
         router: object,  # ProviderRouter — typed as object to avoid circular import
         qdrant_url: str | None = None,
         qdrant_api_key: str | None = None,
+        evidence_fetcher: EvidenceFetcher | None = None,
     ) -> None:
         self._db = db
         self._router = router
         self._qdrant_url = qdrant_url
         self._qdrant_api_key = qdrant_api_key
+        self._evidence_fetcher = evidence_fetcher
 
     async def query(
         self,
@@ -146,25 +148,12 @@ class GraphRagContextProvider:
                 neo4j=driver,
                 vector_store=GraphRagVectorStore(qclient),
                 embedder_factory=_embedder_factory,
-                evidence_fetcher=self._fetch_evidence_excerpts,
+                evidence_fetcher=self._evidence_fetcher,
             )
             return await svc.query(config_id=config_id, text=query)
         finally:
             await qclient.close()
             await driver.close()
-
-    async def _fetch_evidence_excerpts(self, ids: list[uuid.UUID]) -> list[str]:
-        facade = ConversationFacade(self._db)
-        excerpts: list[str] = []
-        for message_id in list(dict.fromkeys(ids))[:_MAX_EVIDENCE_EXCERPTS]:
-            msg = await facade.get_message(message_id)
-            if msg is None:
-                continue
-            text = _compact_excerpt(msg.content_md)
-            if not text:
-                continue
-            excerpts.append(f"{msg.sender_type.value}: {text}")
-        return excerpts
 
     async def _resolve_embed_key(
         self,
@@ -211,6 +200,30 @@ def _compact_excerpt(text: str) -> str:
     return compact[: _MAX_EVIDENCE_CHARS - 3].rstrip() + "..."
 
 
+def build_evidence_fetcher(
+    get_message: Callable[[uuid.UUID], Awaitable[Any]],
+) -> EvidenceFetcher:
+    """Return an EvidenceFetcher that formats conversation messages as excerpts.
+
+    Callers supply ``get_message`` so this module stays free of conversation
+    context imports.  Inject via ``GraphRagContextProvider(evidence_fetcher=...)``.
+    """
+
+    async def _fetch(ids: list[uuid.UUID]) -> list[str]:
+        excerpts: list[str] = []
+        for message_id in list(dict.fromkeys(ids))[:_MAX_EVIDENCE_EXCERPTS]:
+            msg = await get_message(message_id)
+            if msg is None:
+                continue
+            text = _compact_excerpt(msg.content_md)
+            if not text:
+                continue
+            excerpts.append(f"{msg.sender_type.value}: {text}")
+        return excerpts
+
+    return _fetch
+
+
 def _merge_bundles(bundles: Sequence[Any]) -> Any:
     if not bundles:
         return None
@@ -240,4 +253,4 @@ def _merge_bundles(bundles: Sequence[Any]) -> Any:
     )
 
 
-__all__ = ["GraphRagContextProvider"]
+__all__ = ["GraphRagContextProvider", "build_evidence_fetcher"]

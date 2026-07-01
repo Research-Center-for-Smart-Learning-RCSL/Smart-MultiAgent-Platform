@@ -56,7 +56,10 @@ from contexts.keys.domain.errors import KeyGroupExhausted
 from contexts.keys.domain.providers import ProviderCapability
 from contexts.keys.infrastructure.adapters import build_router
 from contexts.keys.infrastructure.group_repository import KeyGroupRepository
-from contexts.knowledge.application.graphrag_context_provider import GraphRagContextProvider
+from contexts.knowledge.application.graphrag_context_provider import (
+    GraphRagContextProvider,
+    build_evidence_fetcher,
+)
 from contexts.knowledge.application.rag_context_provider import RagContext, RagContextProvider
 from shared_kernel import audit
 from shared_kernel.observability.metrics import REGISTRY
@@ -206,6 +209,7 @@ class TurnEngine:
             router=self._router,
             qdrant_url=qdrant_url,
             qdrant_api_key=qdrant_api_key,
+            evidence_fetcher=build_evidence_fetcher(ConversationFacade(db).get_message),
         )
         # Rooms whose one-shot POST /compact flag this engine consumed — used
         # to re-arm the flag if the turn that consumed it fails.
