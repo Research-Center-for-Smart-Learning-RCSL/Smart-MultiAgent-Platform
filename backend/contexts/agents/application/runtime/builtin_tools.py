@@ -19,6 +19,7 @@ from __future__ import annotations
 import json
 import logging
 import uuid
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any, Protocol
 
@@ -39,7 +40,8 @@ class RagProviderProto(Protocol):
         self,
         *,
         rag_config_id: uuid.UUID | None,
-        query_text: str | None,
+        query_text: str | None = ...,
+        query_texts: Sequence[str] | None = ...,
         agent_id: uuid.UUID | None = ...,
         top_k: int | None = ...,
     ) -> Any: ...

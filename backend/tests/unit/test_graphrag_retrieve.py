@@ -131,6 +131,55 @@ async def _ev_fetcher(ids: list[uuid.UUID]) -> list[str]:
 
 
 @pytest.mark.asyncio
+async def test_context_provider_merges_multi_query_bundles() -> None:
+    from contexts.knowledge.application.graphrag_context_provider import GraphRagContextProvider
+    from contexts.knowledge.domain.graphrag import GraphRagBundle, RelationEdge
+
+    class _Provider(GraphRagContextProvider):
+        def __init__(self) -> None:
+            self.queries: list[str] = []
+
+        async def _graphrag_query(self, config_id: uuid.UUID, query: str):
+            self.queries.append(query)
+            if query == "first":
+                return GraphRagBundle(
+                    entities=("alice",),
+                    relations=(
+                        RelationEdge(
+                            subject="alice",
+                            relation="owns",
+                            object="roadmap",
+                            confidence=0.7,
+                            evidence_msg_ids=(),
+                        ),
+                    ),
+                    evidence_excerpts=("excerpt A",),
+                )
+            return GraphRagBundle(
+                entities=("roadmap",),
+                relations=(
+                    RelationEdge(
+                        subject="roadmap",
+                        relation="targets",
+                        object="q3",
+                        confidence=0.9,
+                        evidence_msg_ids=(),
+                    ),
+                ),
+                evidence_excerpts=("excerpt B",),
+            )
+
+    provider = _Provider()
+    text = await provider.query(graphrag_config_id=uuid.uuid4(), query_texts=["first", "second"])
+
+    assert provider.queries == ["first", "second"]
+    assert text is not None
+    assert "alice" in text
+    assert "roadmap" in text
+    assert "targets" in text
+
+
+@pytest.mark.asyncio
 async def test_empty_vector_hits_returns_empty_bundle() -> None:
     cfg = _cfg()
     service = GraphRagRetrieveService(

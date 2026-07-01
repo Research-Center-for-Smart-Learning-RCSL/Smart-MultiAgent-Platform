@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import logging
 import uuid
+from collections.abc import Sequence
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -54,17 +55,24 @@ class GraphRagContextProvider:
         self,
         *,
         graphrag_config_id: uuid.UUID | None,
-        query_text: str | None,
+        query_text: str | None = None,
+        query_texts: Sequence[str] | None = None,
     ) -> str | None:
         """Return a formatted GraphRAG context string, or ``None`` if unavailable.
 
         Safe to call unconditionally — returns ``None`` when the config is
         missing, infrastructure is not configured, or retrieval fails.
         """
-        if graphrag_config_id is None or not query_text:
+        queries = _normalise_queries(query_text=query_text, query_texts=query_texts)
+        if graphrag_config_id is None or not queries:
             return None
         try:
-            bundle = await self._graphrag_query(graphrag_config_id, query_text)
+            bundles = []
+            for query in queries:
+                bundle = await self._graphrag_query(graphrag_config_id, query)
+                if bundle is not None:
+                    bundles.append(bundle)
+            bundle = _merge_bundles(bundles)
             if bundle is None or not (bundle.entities or bundle.relations):
                 return None
             return str(bundle.as_system_message()["content"])
@@ -167,6 +175,44 @@ class GraphRagContextProvider:
                 continue
             return provider, model, key.id
         return None
+
+
+def _normalise_queries(*, query_text: str | None, query_texts: Sequence[str] | None) -> list[str]:
+    queries: list[str] = []
+    for raw in ([query_text] if query_text is not None else []) + list(query_texts or []):
+        text = " ".join(str(raw or "").split())
+        if text and text not in queries:
+            queries.append(text)
+    return queries
+
+
+def _merge_bundles(bundles: Sequence[Any]) -> Any:
+    if not bundles:
+        return None
+    from contexts.knowledge.domain.graphrag import GraphRagBundle
+
+    entities: list[str] = []
+    relation_by_key: dict[tuple[str, str, str], Any] = {}
+    evidence: list[str] = []
+    for bundle in bundles:
+        for entity in bundle.entities:
+            if entity not in entities:
+                entities.append(entity)
+        for rel in bundle.relations:
+            key = (rel.subject, rel.relation, rel.object)
+            previous = relation_by_key.get(key)
+            if previous is None or rel.confidence > previous.confidence:
+                relation_by_key[key] = rel
+        for excerpt in bundle.evidence_excerpts:
+            if excerpt not in evidence:
+                evidence.append(excerpt)
+
+    relations = sorted(relation_by_key.values(), key=lambda r: r.confidence, reverse=True)
+    return GraphRagBundle(
+        entities=tuple(entities),
+        relations=tuple(relations),
+        evidence_excerpts=tuple(evidence[:10]),
+    )
 
 
 __all__ = ["GraphRagContextProvider"]

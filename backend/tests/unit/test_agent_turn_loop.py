@@ -148,3 +148,31 @@ async def test_stream_with_tools_no_tools_single_round(monkeypatch) -> None:
     )
     assert text == "hi there"
     assert rounds == 0
+
+
+def test_knowledge_queries_include_recent_context() -> None:
+    current = "What risks does that plan have?"
+    history = [
+        SimpleNamespace(role="user", content="We are discussing the Q3 migration plan."),
+        SimpleNamespace(role="agent", content="The plan moves billing first, then chat."),
+        SimpleNamespace(role="user", content=current),
+    ]
+
+    queries = te._knowledge_queries(history, input_text=None)
+
+    assert queries[0] == current
+    assert len(queries) == 2
+    assert "Q3 migration plan" in queries[1]
+    assert "Current question:" in queries[1]
+
+
+def test_knowledge_queries_include_compact_summary() -> None:
+    history = [
+        SimpleNamespace(role="system", content="Earlier: Alice chose vendor B for latency."),
+        SimpleNamespace(role="user", content="Why did we choose them?"),
+    ]
+
+    queries = te._knowledge_queries(history, input_text=None)
+
+    assert len(queries) == 2
+    assert "Alice chose vendor B" in queries[1]
