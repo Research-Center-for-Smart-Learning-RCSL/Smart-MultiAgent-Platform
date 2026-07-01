@@ -8,14 +8,12 @@ for permission filtering).
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
 from typing import TYPE_CHECKING
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.knowledge.domain.graphrag import GraphRagConfig
-
-if TYPE_CHECKING:
-    from contexts.knowledge.application.graphrag_graph_service import GraphView
 from contexts.knowledge.domain.models import (
     EmbedCatalogEntry,
     RagConfig,
@@ -26,6 +24,10 @@ from contexts.knowledge.infrastructure.graphrag_repositories import (
     GraphRagConfigRepository,
 )
 from contexts.knowledge.infrastructure.repositories import RagConfigRepository
+
+if TYPE_CHECKING:
+    from contexts.knowledge.application.graphrag_graph_service import GraphView
+    from contexts.knowledge.application.graphrag_triggers import GraphRagBuildTrigger
 
 
 class KnowledgeFacade:
@@ -69,6 +71,18 @@ class KnowledgeFacade:
         )
 
         return await GraphRagGraphService(self._db).get_graph(config_id=config_id, limit=limit)
+
+    async def evaluate_graphrag_message_triggers(
+        self,
+        *,
+        agent_ids: Sequence[uuid.UUID],
+    ) -> Sequence[GraphRagBuildTrigger]:
+        """Return GraphRAG configs whose message triggers fired after a user send."""
+        from contexts.knowledge.application.graphrag_triggers import (
+            evaluate_graphrag_message_triggers,
+        )
+
+        return await evaluate_graphrag_message_triggers(self._db, agent_ids=agent_ids)
 
     async def finalize_rag_upload(
         self,
