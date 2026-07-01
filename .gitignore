@@ -39,6 +39,7 @@ env/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+.import_linter_cache/
 .coverage
 .coverage.*
 htmlcov/
@@ -91,7 +92,9 @@ deploy/vault/certs/
 # ---- Drawio backups ----
 .$*.drawio.bkp
 
-# Claude Code
+# Claude Code / agents
 .claude/*
 !.claude/skills/
+.agents/*
+!.agents/skills/
 .sixth/
