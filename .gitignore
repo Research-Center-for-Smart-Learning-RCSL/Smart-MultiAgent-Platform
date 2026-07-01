@@ -94,7 +94,7 @@ deploy/vault/certs/
 
 # Claude Code / agents
 .claude/*
-!.claude/skills/
 .agents/*
-!.agents/skills/
 .sixth/
+CLAUDE.md
+AGENTS.md
