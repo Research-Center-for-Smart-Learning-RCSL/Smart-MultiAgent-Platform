@@ -154,7 +154,47 @@ class TestCreate:
         assert result.id == agent.id
         agents.create.assert_awaited_once()
         # New agents are seeded with the four singleton hosted tools in one call.
-        tools.provision_singletons.assert_awaited_once()
+        tools.provision_singletons.assert_awaited_once_with(
+            agent_id=agent.id,
+            web_search=True,
+            code_interpreter=False,
+            file_workspace=True,
+            file_search_enabled=False,
+        )
+
+    @patch("contexts.agents.application.agent_service.audit.emit", new_callable=AsyncMock)
+    async def test_rag_create_enables_file_search_singleton(self, _audit) -> None:
+        rag_id = uuid.uuid4()
+        agent = _make_agent(rag_config_id=rag_id)
+        agents = AsyncMock()
+        agents.count_active.return_value = 0
+        agents.create.return_value = agent
+        keys = AsyncMock()
+        keys.get_key_group.return_value = MagicMock(project_id=_PROJECT_ID)
+        knowledge = AsyncMock()
+        knowledge.get_rag_config.return_value = MagicMock(project_id=_PROJECT_ID)
+        tools = AsyncMock()
+        svc = _make_service(
+            agent_repo=agents,
+            keys_facade=keys,
+            knowledge_facade=knowledge,
+            tool_repo=tools,
+        )
+
+        await svc.create(
+            project_id=_PROJECT_ID,
+            draft=_make_draft(rag_config_id=rag_id),
+            actor_user_id=_USER_ID,
+            actor_ip="1.2.3.4",
+        )
+
+        tools.provision_singletons.assert_awaited_once_with(
+            agent_id=agent.id,
+            web_search=True,
+            code_interpreter=False,
+            file_workspace=True,
+            file_search_enabled=True,
+        )
 
     @patch("contexts.agents.application.agent_service.audit.emit", new_callable=AsyncMock)
     async def test_cap_exceeded_raises(self, _audit) -> None:
