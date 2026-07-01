@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import logging
 import uuid
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -59,7 +60,8 @@ class RagContextProvider:
         self,
         *,
         rag_config_id: uuid.UUID | None,
-        query_text: str | None,
+        query_text: str | None = None,
+        query_texts: Sequence[str] | None = None,
         agent_id: uuid.UUID | None = None,
         top_k: int | None = None,
     ) -> RagContext | None:
@@ -68,13 +70,14 @@ class RagContextProvider:
         Safe to call unconditionally — returns ``None`` when the config is
         missing, Qdrant is not configured, or retrieval fails for any reason.
         """
-        if rag_config_id is None or self._qdrant_url is None or not query_text:
+        queries = _normalise_queries(query_text=query_text, query_texts=query_texts)
+        if rag_config_id is None or self._qdrant_url is None or not queries:
             return None
         try:
             from qdrant_client import AsyncQdrantClient
 
             from contexts.knowledge.application.ports import Reranker
-            from contexts.knowledge.application.retrieve import RetrieveService
+            from contexts.knowledge.application.retrieve import RetrievedChunk, RetrieveService
             from contexts.knowledge.infrastructure.embedders import router_embedder_for
             from contexts.knowledge.infrastructure.qdrant_store import QdrantStore
             from contexts.knowledge.infrastructure.repositories import RagConfigRepository
@@ -119,15 +122,23 @@ class RagContextProvider:
                     qdrant=QdrantStore(qclient),
                     reranker=reranker,
                 )
-                chunks = await svc.query(
-                    config_id=rag_config_id,
-                    text=query_text,
-                    agent_id=agent_id,
-                    top_k=top_k,
-                    # rerank=None defers to cfg.rerank_enabled; without a
-                    # reranker instance force it off so query() stays cheap.
-                    rerank=None if reranker is not None else False,
-                )
+                by_ref: dict[tuple[uuid.UUID, int], RetrievedChunk] = {}
+                for query in queries:
+                    for chunk in await svc.query(
+                        config_id=rag_config_id,
+                        text=query,
+                        agent_id=agent_id,
+                        top_k=top_k,
+                        # rerank=None defers to cfg.rerank_enabled; without a
+                        # reranker instance force it off so query() stays cheap.
+                        rerank=None if reranker is not None else False,
+                    ):
+                        ref = (chunk.document_id, chunk.chunk_idx)
+                        previous = by_ref.get(ref)
+                        if previous is None or chunk.score > previous.score:
+                            by_ref[ref] = chunk
+                effective_top_k = top_k or cfg.top_k or 8
+                chunks = sorted(by_ref.values(), key=lambda c: c.score, reverse=True)[:effective_top_k]
                 if not chunks:
                     return None
                 block = str(svc.format_as_rag_message(chunks)["content"])
@@ -164,6 +175,15 @@ class RagContextProvider:
             }
             for c in chunks
         ]
+
+
+def _normalise_queries(*, query_text: str | None, query_texts: Sequence[str] | None) -> list[str]:
+    queries: list[str] = []
+    for raw in ([query_text] if query_text is not None else []) + list(query_texts or []):
+        text = " ".join(str(raw or "").split())
+        if text and text not in queries:
+            queries.append(text)
+    return queries
 
 
 __all__ = ["RagContext", "RagContextProvider"]

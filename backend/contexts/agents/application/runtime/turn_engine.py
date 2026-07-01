@@ -19,6 +19,7 @@ import json
 import logging
 import time
 import uuid
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any, cast
 
@@ -77,6 +78,8 @@ _TURN_RATE_MAX_TURNS = 30
 _MAX_STAGED_FILES = 10
 _MAX_STAGED_BYTES = 64 * 1024 * 1024
 _MAX_AGENT_FILES_BYTES = 128 * 1024 * 1024
+_MAX_KNOWLEDGE_QUERIES = 3
+_MAX_KNOWLEDGE_QUERY_CHARS = 1200
 
 # ---- Turn observability (same pattern as PROVIDER_CALL_TOTAL) ---------------
 
@@ -701,11 +704,11 @@ class TurnEngine:
                     system_parts.append(f"[Earlier conversation summary]\n{hm.content}")
             # Retrieval keys off the *current* input when this turn carries one
             # (run_input_turn); otherwise the latest user message in history.
-            query_text = input_text or next((h.content for h in reversed(history) if h.role == "user"), None)
-            rag_ctx = await self._rag_context(agent, query_text)
+            knowledge_queries = _knowledge_queries(history, input_text=input_text)
+            rag_ctx = await self._rag_context(agent, knowledge_queries)
             if rag_ctx:
                 system_parts.append(rag_ctx.block)
-            graphrag_block = await self._graphrag_context(agent, query_text)
+            graphrag_block = await self._graphrag_context(agent, knowledge_queries)
             if graphrag_block:
                 system_parts.append(graphrag_block)
             # Drain queued A2A notifications (R9.16); approval requests also add
@@ -1245,19 +1248,19 @@ class TurnEngine:
             _log.warning("final no-tools call failed; falling back to last tool-round text")
             return last_text, MAX_TOOL_ROUNDS
 
-    async def _rag_context(self, agent: Agent, query: str | None) -> RagContext | None:
+    async def _rag_context(self, agent: Agent, queries: Sequence[str]) -> RagContext | None:
         """Delegate to the knowledge-context :class:`RagContextProvider`."""
         return await self._rag_provider.query(
             rag_config_id=agent.rag_config_id,
-            query_text=query,
+            query_texts=queries,
             agent_id=agent.id,
         )
 
-    async def _graphrag_context(self, agent: Agent, query: str | None) -> str | None:
+    async def _graphrag_context(self, agent: Agent, queries: Sequence[str]) -> str | None:
         """Delegate to the knowledge-context :class:`GraphRagContextProvider`."""
         return await self._graphrag_provider.query(
             graphrag_config_id=agent.graphrag_config_id,
-            query_text=query,
+            query_texts=queries,
         )
 
     async def _audit(
@@ -1287,6 +1290,54 @@ def _err_kind(exc: Exception) -> str:
     if isinstance(exc, ProviderStreamError):
         return "provider_stream_failed"
     return exc.__class__.__name__
+
+
+def _knowledge_queries(history: Sequence[tx.HistoryMessage], *, input_text: str | None) -> list[str]:
+    """Build compact retrieval queries from the current turn plus nearby context."""
+    current = (input_text or "").strip()
+    if not current:
+        current = next(
+            (h.content.strip() for h in reversed(history) if h.role == "user" and h.content.strip()),
+            "",
+        )
+    if not current:
+        return []
+
+    queries: list[str] = []
+
+    def add(raw: str) -> None:
+        text = " ".join(raw.split())
+        if not text:
+            return
+        clipped = text[:_MAX_KNOWLEDGE_QUERY_CHARS]
+        if clipped not in queries:
+            queries.append(clipped)
+
+    add(current)
+
+    recent: list[str] = []
+    skipped_current = input_text is not None
+    for msg in reversed(history):
+        if msg.role not in {"user", "agent"} or not msg.content.strip():
+            continue
+        if not skipped_current and msg.role == "user" and msg.content.strip() == current:
+            skipped_current = True
+            continue
+        label = "User" if msg.role == "user" else "Assistant"
+        recent.append(f"{label}: {msg.content.strip()}")
+        if len(recent) >= 4:
+            break
+    if recent:
+        add("Recent conversation:\n" + "\n".join(reversed(recent)) + f"\nCurrent question:\n{current}")
+
+    summary = next(
+        (h.content.strip() for h in reversed(history) if h.role == "system" and h.content.strip()),
+        "",
+    )
+    if summary:
+        add(f"Earlier conversation summary:\n{summary}\nCurrent question:\n{current}")
+
+    return queries[:_MAX_KNOWLEDGE_QUERIES]
 
 
 __all__ = ["MAX_TOOL_ROUNDS", "TurnEngine", "TurnResult"]
