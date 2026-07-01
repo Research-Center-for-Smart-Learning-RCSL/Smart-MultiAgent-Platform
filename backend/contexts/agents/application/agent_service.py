@@ -298,7 +298,10 @@ class AgentService:
             wakeup_authored_snapshot=wakeup,
             workflow_capabilities=draft.workflow_capabilities or {},
         )
-        await self.provision_tool_singletons(agent.id)
+        await self.provision_tool_singletons(
+            agent.id,
+            file_search_enabled=agent.rag_config_id is not None,
+        )
         await audit.emit(
             self._db,
             audit.AuditEvent(
@@ -810,14 +813,19 @@ class AgentService:
             error=result.error,
         )
 
-    async def provision_tool_singletons(self, agent_id: uuid.UUID) -> None:
+    async def provision_tool_singletons(
+        self,
+        agent_id: uuid.UUID,
+        *,
+        file_search_enabled: bool = False,
+    ) -> None:
         """Called on agent create — idempotent insertion of the 4 singleton rows."""
         await self._tools.provision_singletons(
             agent_id=agent_id,
             web_search=True,
             code_interpreter=False,
             file_workspace=True,
-            file_search_enabled=False,
+            file_search_enabled=file_search_enabled,
         )
 
 
