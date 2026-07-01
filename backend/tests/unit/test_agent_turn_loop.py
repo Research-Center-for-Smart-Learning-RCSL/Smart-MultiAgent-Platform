@@ -12,6 +12,7 @@ from types import SimpleNamespace
 
 import pytest
 
+import contexts.agents.application.runtime.transcript as tx
 import contexts.agents.application.runtime.turn_engine as te
 from contexts.agents.application.runtime.tool_registry import ToolResult
 from contexts.keys.application.provider_router import (
@@ -176,3 +177,45 @@ def test_knowledge_queries_include_compact_summary() -> None:
 
     assert len(queries) == 2
     assert "Alice chose vendor B" in queries[1]
+
+
+def _history_message(*, content, attachment_excerpt=None, sender_id=None):
+    return tx.HistoryMessage(
+        id=uuid.uuid4(),
+        sender_id=sender_id,
+        role="user",
+        content=content,
+        metadata={},
+        token_count=1,
+        attachment_excerpt=attachment_excerpt,
+    )
+
+
+def test_provider_message_folds_excerpt_when_no_live_attachment_blocks() -> None:
+    hm = _history_message(
+        content="what did the file say?", attachment_excerpt="[Attached file: a.txt]\nkey facts"
+    )
+
+    msg = te.TurnEngine._provider_message(hm, uuid.uuid4(), {}, {}, attachment_blocks=None)
+
+    assert msg["content"] == "what did the file say?\n\n[Attached file: a.txt]\nkey facts"
+
+
+def test_provider_message_suppresses_excerpt_when_live_attachment_blocks_present() -> None:
+    # The triggering message carries rich vision/PDF blocks already — the
+    # excerpt must not also be spliced in, or the file's content would be
+    # shown to the model twice.
+    hm = _history_message(content="analyze this", attachment_excerpt="[Attached file: a.txt]\nkey facts")
+    blocks = [{"type": "document", "media_type": "application/pdf", "data": "abc", "filename": "a.pdf"}]
+
+    msg = te.TurnEngine._provider_message(hm, uuid.uuid4(), {}, {}, attachment_blocks=blocks)
+
+    assert msg["content"] == [{"type": "text", "text": "analyze this"}, *blocks]
+
+
+def test_provider_message_no_excerpt_is_unchanged() -> None:
+    hm = _history_message(content="plain message")
+
+    msg = te.TurnEngine._provider_message(hm, uuid.uuid4(), {}, {}, attachment_blocks=None)
+
+    assert msg == {"role": "user", "content": "plain message"}

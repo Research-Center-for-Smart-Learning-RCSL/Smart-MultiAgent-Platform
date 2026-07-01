@@ -28,6 +28,14 @@ class ScanStatus(str, enum.Enum):
     SKIPPED = "skipped"
 
 
+class AttachmentExtractionStatus(str, enum.Enum):
+    PENDING = "pending"
+    EXTRACTED = "extracted"
+    EMPTY = "empty"
+    UNSUPPORTED = "unsupported"
+    FAILED = "failed"
+
+
 @dataclass(frozen=True, slots=True)
 class Workspace:
     id: uuid.UUID
@@ -104,9 +112,13 @@ class MessageAttachment:
     expires_at: datetime | None
     chatroom_id: uuid.UUID | None = None
     uploaded_by_user_id: uuid.UUID | None = None
+    extracted_text: str | None = None
+    extraction_status: AttachmentExtractionStatus = AttachmentExtractionStatus.PENDING
+    extracted_at: datetime | None = None
 
 
 __all__ = [
+    "AttachmentExtractionStatus",
     "AttachmentStatus",
     "Chatroom",
     "ChatroomAgent",

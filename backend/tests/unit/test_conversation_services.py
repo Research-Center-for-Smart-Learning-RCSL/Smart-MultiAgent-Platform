@@ -38,6 +38,7 @@ from contexts.conversation.domain.errors import (
     MessageNotFound,
 )
 from contexts.conversation.domain.models import (
+    AttachmentExtractionStatus,
     AttachmentStatus,
     Chatroom,
     Message,
@@ -589,10 +590,11 @@ class TestMessageDelete:
 
 
 class TestAttachmentSingleShot:
+    @patch("contexts.conversation.application.attachment_service._enqueue_extraction", new_callable=AsyncMock)
     @patch("contexts.conversation.application.attachment_service._enqueue_scan", new_callable=AsyncMock)
     @patch("contexts.conversation.application.attachment_service.audit.emit", new_callable=AsyncMock)
     @patch("contexts.conversation.application.attachment_service.now", return_value=_NOW)
-    async def test_ingest_success(self, _now, _audit, _scan) -> None:
+    async def test_ingest_success(self, _now, _audit, _scan, _extract) -> None:
         att = _attachment()
         repo = AsyncMock()
         repo.create.return_value = att
@@ -615,6 +617,7 @@ class TestAttachmentSingleShot:
         minio.put_object.assert_awaited_once()
         repo.create.assert_awaited_once()
         _scan.assert_awaited_once()
+        _extract.assert_awaited_once()
 
     @patch("contexts.conversation.application.attachment_service.SINGLE_SHOT_MAX_BYTES", 1024)
     async def test_ingest_too_large_raises(self) -> None:
@@ -634,10 +637,11 @@ class TestAttachmentSingleShot:
 
 
 class TestAttachmentFinalizeTus:
+    @patch("contexts.conversation.application.attachment_service._enqueue_extraction", new_callable=AsyncMock)
     @patch("contexts.conversation.application.attachment_service._enqueue_scan", new_callable=AsyncMock)
     @patch("contexts.conversation.application.attachment_service.audit.emit", new_callable=AsyncMock)
     @patch("contexts.conversation.application.attachment_service.now", return_value=_NOW)
-    async def test_finalize_tus_success(self, _now, _audit, _scan) -> None:
+    async def test_finalize_tus_success(self, _now, _audit, _scan, _extract) -> None:
         att = _attachment()
         repo = AsyncMock()
         repo.create.return_value = att
@@ -660,6 +664,8 @@ class TestAttachmentFinalizeTus:
 
         assert result.id == att.id
         minio.put_file.assert_awaited_once()
+        _scan.assert_awaited_once()
+        _extract.assert_awaited_once()
 
 
 class TestAttachmentDownload:
@@ -742,6 +748,39 @@ class TestAttachmentScanResult:
 
         repo.mark_scan.assert_awaited_once()
         _audit.assert_not_awaited()
+
+
+class TestAttachmentExtractionResult:
+    @patch("contexts.conversation.application.attachment_service.now", return_value=_NOW)
+    async def test_records_extracted_text(self, _now) -> None:
+        repo = AsyncMock()
+        svc = _make_attachment_service(repo=repo)
+
+        await svc.record_extraction_result(
+            attachment_id=uuid.uuid4(),
+            extraction_status=AttachmentExtractionStatus.EXTRACTED,
+            extracted_text="hello world",
+        )
+
+        repo.record_extraction.assert_awaited_once()
+        kwargs = repo.record_extraction.call_args.kwargs
+        assert kwargs["extraction_status"] == AttachmentExtractionStatus.EXTRACTED
+        assert kwargs["extracted_text"] == "hello world"
+        assert kwargs["extracted_at"] == _NOW
+
+    async def test_records_failed_with_no_text(self) -> None:
+        repo = AsyncMock()
+        svc = _make_attachment_service(repo=repo)
+
+        await svc.record_extraction_result(
+            attachment_id=uuid.uuid4(),
+            extraction_status=AttachmentExtractionStatus.FAILED,
+            extracted_text=None,
+        )
+
+        kwargs = repo.record_extraction.call_args.kwargs
+        assert kwargs["extraction_status"] == AttachmentExtractionStatus.FAILED
+        assert kwargs["extracted_text"] is None
 
 
 class TestAttachmentBind:

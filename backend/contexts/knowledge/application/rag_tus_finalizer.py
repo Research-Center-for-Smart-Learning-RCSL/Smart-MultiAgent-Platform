@@ -30,7 +30,6 @@ from contexts.knowledge.application.ingest_service import (
 from contexts.knowledge.domain.errors import RagConfigNotFound, UnsupportedMime
 from contexts.knowledge.domain.models import DocumentStatus, RagDocument
 from contexts.knowledge.infrastructure.channels import rag_channel
-from contexts.knowledge.infrastructure.parsers import MIME_TO_PARSER
 from contexts.knowledge.infrastructure.repositories import (
     RagConfigRepository,
     RagDocumentRepository,
@@ -39,6 +38,7 @@ from shared_kernel import audit
 from shared_kernel.queue import enqueue
 from shared_kernel.realtime.pubsub import Publisher
 from shared_kernel.storage import get_minio_client
+from shared_kernel.text_extraction.parsers import MIME_TO_PARSER
 
 _SHA_BLOCK = 1024 * 1024  # 1 MiB streaming read — never loads the whole file
 

@@ -11,6 +11,7 @@ import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.conversation.domain.models import (
+    AttachmentExtractionStatus,
     AttachmentStatus,
     MessageAttachment,
     ScanStatus,
@@ -19,6 +20,7 @@ from contexts.conversation.infrastructure import tables as t
 
 
 def _row_to_attachment(r: Any) -> MessageAttachment:
+    extraction_status = getattr(r, "extraction_status", None)
     return MessageAttachment(
         id=r.id,
         message_id=r.message_id,
@@ -32,6 +34,13 @@ def _row_to_attachment(r: Any) -> MessageAttachment:
         expires_at=r.expires_at,
         chatroom_id=getattr(r, "chatroom_id", None),
         uploaded_by_user_id=getattr(r, "uploaded_by_user_id", None),
+        extracted_text=getattr(r, "extracted_text", None),
+        extraction_status=(
+            AttachmentExtractionStatus(extraction_status)
+            if extraction_status is not None
+            else AttachmentExtractionStatus.PENDING
+        ),
+        extracted_at=getattr(r, "extracted_at", None),
     )
 
 
@@ -228,6 +237,24 @@ class MessageAttachmentRepository:
             t.message_attachments.update()
             .where(t.message_attachments.c.id == attachment_id)
             .values(**values),
+        )
+
+    async def record_extraction(
+        self,
+        *,
+        attachment_id: uuid.UUID,
+        extraction_status: AttachmentExtractionStatus,
+        extracted_text: str | None,
+        extracted_at: datetime,
+    ) -> None:
+        await self._db.execute(
+            t.message_attachments.update()
+            .where(t.message_attachments.c.id == attachment_id)
+            .values(
+                extraction_status=extraction_status.value,
+                extracted_text=extracted_text,
+                extracted_at=extracted_at,
+            ),
         )
 
     async def mark_expired(self, attachment_id: uuid.UUID) -> None:

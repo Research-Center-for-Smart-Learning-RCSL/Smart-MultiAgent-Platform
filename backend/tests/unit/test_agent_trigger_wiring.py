@@ -184,8 +184,8 @@ def _patch_task_env(
         def __init__(self, db, *, qdrant_url=None, qdrant_api_key=None) -> None:
             pass
 
-        async def run_turn(self, *, agent_id, chatroom_id, trigger):
-            rec["run_turn"].append((agent_id, chatroom_id, trigger))
+        async def run_turn(self, *, agent_id, chatroom_id, trigger, trigger_message_id=None):
+            rec["run_turn"].append((agent_id, chatroom_id, trigger, trigger_message_id))
             return SimpleNamespace(status=turn_status, reason=None)
 
     monkeypatch.setattr("contexts.agents.application.runtime.turn_engine.TurnEngine", _TurnEngine)
@@ -291,7 +291,8 @@ async def test_wakeup_agent_runs_turn_and_counts_round(monkeypatch) -> None:
     out = await orch_task.wakeup_agent({}, str(aid), str(rid), "silence_minutes")
 
     assert out == "completed"
-    assert rec["run_turn"] == [(aid, rid, "silence_minutes")]
+    # silence_minutes has no specific triggering message — falls back to None.
+    assert rec["run_turn"] == [(aid, rid, "silence_minutes", None)]
     # autostop bumped exactly once, only because the turn completed.
     assert rec["on_agent_message_sent"] == [(aid, rid)]
     assert "wakeup.fired" in rec["audit"]
@@ -312,7 +313,7 @@ async def test_wakeup_agent_mention_bypasses_autostop(monkeypatch) -> None:
     out = await orch_task.wakeup_agent({}, str(aid), str(rid), "mention")
 
     assert out == "completed"
-    assert rec["run_turn"] == [(aid, rid, "mention")]
+    assert rec["run_turn"] == [(aid, rid, "mention", None)]
 
 
 @pytest.mark.asyncio
@@ -322,6 +323,16 @@ async def test_wakeup_agent_skipped_turn_does_not_count_round(monkeypatch) -> No
     out = await orch_task.wakeup_agent({}, str(aid), str(rid))
 
     assert out == "skipped"
-    assert rec["run_turn"] == [(aid, rid, "every_n_messages")]
+    assert rec["run_turn"] == [(aid, rid, "every_n_messages", None)]
     # A turn that did not produce a reply must not advance autostop.
     assert rec["on_agent_message_sent"] == []
+
+
+@pytest.mark.asyncio
+async def test_wakeup_agent_forwards_trigger_message_id(monkeypatch) -> None:
+    aid, rid, mid = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+    rec = _patch_task_env(monkeypatch, room=SimpleNamespace(id=rid), agent=_agent(), turn_status="completed")
+    out = await orch_task.wakeup_agent({}, str(aid), str(rid), "every_n_messages", str(mid))
+
+    assert out == "completed"
+    assert rec["run_turn"] == [(aid, rid, "every_n_messages", mid)]

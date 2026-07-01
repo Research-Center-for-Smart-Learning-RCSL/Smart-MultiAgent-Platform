@@ -8,13 +8,14 @@ they never import repositories or tables directly.
 from __future__ import annotations
 
 import uuid
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from datetime import timedelta
 
 import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.conversation.domain.models import (
+    AttachmentExtractionStatus,
     AttachmentStatus,
     Chatroom,
     ChatroomGuest,
@@ -133,8 +134,10 @@ class ConversationFacade:
     async def latest_user_attachments(self, chatroom_id: uuid.UUID) -> list[MessageAttachment]:
         """Active attachments on the room's most recent user message.
 
-        Used to stage chat uploads into the ``code_exec`` workspace before a
-        turn; agents read them from ``inputs/<filename>``.
+        This is the fallback resolver for turns with no specific triggering
+        message (``silence_minutes`` wake-ups, coalesced re-enqueues) — see
+        ``attachments_for_message`` for the primary, race-free resolver keyed
+        on an explicit message id.
         """
         recent = await self._messages.list(chatroom_id=chatroom_id, before=None, limit=20)
         user_msg = next((m for m in recent if m.sender_type is SenderType.USER), None)
@@ -142,6 +145,38 @@ class ConversationFacade:
             return []
         attachments = await self._attachments.list_for_message(user_msg.id)
         return [a for a in attachments if a.status is AttachmentStatus.ACTIVE]
+
+    async def attachments_for_message(self, message_id: uuid.UUID) -> list[MessageAttachment]:
+        """Active attachments bound to *message_id*.
+
+        Resolves against the exact message that triggered a turn, fixing the
+        race where a fast follow-up message made ``latest_user_attachments``
+        return the wrong (attachment-less) row.
+        """
+        attachments = await self._attachments.list_for_message(message_id)
+        return [a for a in attachments if a.status is AttachmentStatus.ACTIVE]
+
+    async def list_attachments_for_messages(
+        self,
+        message_ids: Sequence[uuid.UUID],
+    ) -> Mapping[uuid.UUID, Sequence[MessageAttachment]]:
+        """Group attachments by message id for a page of messages (one query).
+
+        Used by the turn-history loader to batch-fetch attachments for a
+        whole room window without an N+1 query.
+
+        Unlike ``attachments_for_message``/``latest_user_attachments``, this
+        does NOT filter by ``AttachmentStatus`` — it mirrors
+        ``MessageService.list_attachments_for``'s "return everything for this
+        page of messages" contract (display/grouping use cases may need
+        quarantined/expired rows too). Callers that need only model-visible
+        attachments must filter on ``AttachmentStatus.ACTIVE`` themselves, as
+        ``transcript.py``'s excerpt builder already does."""
+        grouped: dict[uuid.UUID, list[MessageAttachment]] = {}
+        for a in await self._attachments.list_for_messages(message_ids):
+            if a.message_id is not None:
+                grouped.setdefault(a.message_id, []).append(a)
+        return grouped
 
     async def read_attachments_bytes(self, attachments: Sequence[MessageAttachment]) -> list[bytes | None]:
         """Fetch several attachments' bytes from object storage concurrently.
@@ -194,4 +229,11 @@ class ConversationFacade:
         return result.rowcount or 0
 
 
-__all__ = ["ConversationFacade", "Message", "SenderType"]
+__all__ = [
+    "AttachmentExtractionStatus",
+    "AttachmentStatus",
+    "ConversationFacade",
+    "Message",
+    "MessageAttachment",
+    "SenderType",
+]

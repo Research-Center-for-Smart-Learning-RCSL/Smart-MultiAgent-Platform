@@ -3,6 +3,7 @@
 Task registry:
   - `noop`                        — liveness smoke
   - `file_scan_requested`         — F.5 attachment AV pass (no-op by default)
+  - `extract_attachment_text`     — best-effort chat attachment text extraction
   - `chat_export`                 — F.10 chat export → JSON manifest in MinIO
   - `retention_sweep`             — I.4 nightly consolidated retention sweep (cron)
   - `key_usage_threshold_sample`  — D.8 80% hourly-limit sampler (every 30 s)
@@ -34,6 +35,7 @@ from app.workers.tasks.approvals import drive_approver_turn
 from app.workers.tasks.conversation import (
     chat_export,
     compact_chatroom,
+    extract_attachment_text,
     file_scan_requested,
 )
 from app.workers.tasks.graphrag import graphrag_build, graphrag_reconcile
@@ -229,6 +231,7 @@ class WorkerSettings:
     functions: ClassVar[list[Any]] = [
         noop,
         file_scan_requested,
+        extract_attachment_text,
         chat_export,
         wakeup_agent,
         evaluate_silence,
