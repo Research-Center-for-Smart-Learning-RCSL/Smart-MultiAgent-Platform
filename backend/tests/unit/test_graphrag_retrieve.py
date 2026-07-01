@@ -131,6 +131,41 @@ async def _ev_fetcher(ids: list[uuid.UUID]) -> list[str]:
 
 
 @pytest.mark.asyncio
+async def test_context_provider_fetches_message_evidence_excerpts(monkeypatch) -> None:
+    from contexts.conversation.domain.models import Message, SenderType
+    from contexts.knowledge.application import graphrag_context_provider as provider_mod
+    from contexts.knowledge.application.graphrag_context_provider import GraphRagContextProvider
+
+    message_id = uuid.uuid4()
+    missing_id = uuid.uuid4()
+    messages = {
+        message_id: Message(
+            id=message_id,
+            chatroom_id=uuid.uuid4(),
+            sender_type=SenderType.USER,
+            sender_id=uuid.uuid4(),
+            content_md="  Alice\n\nconfirmed   the roadmap milestone.  ",
+        )
+    }
+
+    class _Facade:
+        def __init__(self, db) -> None:
+            pass
+
+        async def get_message(self, message_id: uuid.UUID):
+            return messages.get(message_id)
+
+    monkeypatch.setattr(provider_mod, "ConversationFacade", _Facade)
+    provider = GraphRagContextProvider(None, router=object())  # type: ignore[arg-type]
+
+    excerpts = await provider._fetch_evidence_excerpts(
+        [message_id, missing_id, message_id]
+    )
+
+    assert excerpts == ["user: Alice confirmed the roadmap milestone."]
+
+
+@pytest.mark.asyncio
 async def test_context_provider_merges_multi_query_bundles() -> None:
     from contexts.knowledge.application.graphrag_context_provider import GraphRagContextProvider
     from contexts.knowledge.domain.graphrag import GraphRagBundle, RelationEdge
