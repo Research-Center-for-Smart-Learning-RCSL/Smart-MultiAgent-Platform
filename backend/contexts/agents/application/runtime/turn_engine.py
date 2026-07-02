@@ -23,8 +23,6 @@ from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
 from typing import Any, cast
 
-CancelCheck = Callable[[], Awaitable[bool]]
-
 from prometheus_client import Counter, Histogram
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -40,7 +38,7 @@ from contexts.agents.application.runtime.tool_registry import (
 )
 from contexts.agents.domain.models import CONTEXT_LIMITS, DEFAULT_CHAT_MODELS, Agent
 from contexts.agents.infrastructure.repositories import AgentRepository
-from contexts.agents.infrastructure.turn_lock import DEFAULT_TURN_TTL_S, turn_lock
+from contexts.agents.infrastructure.turn_lock import turn_lock
 from contexts.agents.interfaces.facade import AgentsFacade
 from contexts.conversation.application.message_service import MessageService
 from contexts.conversation.infrastructure.repositories import ChatroomAgentRepository
@@ -69,12 +67,12 @@ from shared_kernel.realtime.pubsub import Publisher
 
 _log = logging.getLogger(__name__)
 
+CancelCheck = Callable[[], Awaitable[bool]]
+
 MAX_TOOL_ROUNDS = 8
 _DEFAULT_MAX_TOKENS = 4096
 
-_HISTORY_RESUME_NOTE = (
-    "[Conversation resumes; earlier turns were summarized in the system prompt.]"
-)
+_HISTORY_RESUME_NOTE = "[Conversation resumes; earlier turns were summarized in the system prompt.]"
 
 # Per-(agent, room) turn rate limit — backstop against trigger storms. Not yet
 # surfaced in `settings.limits` (no agent-runtime settings section exists);
@@ -402,7 +400,9 @@ class TurnEngine:
             _log.info("a2a turn cancelled agent=%s after %d rounds", agent_id, tc.rounds_completed)
             try:
                 await self._audit(
-                    agent, None, "agent.turn_cancelled",
+                    agent,
+                    None,
+                    "agent.turn_cancelled",
                     {"mode": "a2a", "rounds_completed": tc.rounds_completed},
                 )
                 await self._db.commit()
@@ -1086,9 +1086,7 @@ class TurnEngine:
                     str(message_id),
                 )
             if bound:
-                triggers = await KnowledgeFacade(self._db).evaluate_graphrag_message_triggers(
-                    agent_ids=bound
-                )
+                triggers = await KnowledgeFacade(self._db).evaluate_graphrag_message_triggers(agent_ids=bound)
                 for trig in triggers:
                     await enqueue(
                         "graphrag_build",

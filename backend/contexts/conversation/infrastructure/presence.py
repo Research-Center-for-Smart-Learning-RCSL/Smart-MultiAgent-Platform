@@ -68,10 +68,7 @@ _ROSTER_JOIN_LUA = (
     "redis.call('EXPIRE', KEYS[1], ARGV[2]) "
     "return redis.call('SCARD', KEYS[1])"
 )
-_ROSTER_LEAVE_LUA = (
-    "redis.call('SREM', KEYS[1], ARGV[1]) "
-    "return redis.call('SCARD', KEYS[1])"
-)
+_ROSTER_LEAVE_LUA = "redis.call('SREM', KEYS[1], ARGV[1]) " "return redis.call('SCARD', KEYS[1])"
 
 
 class PresenceTracker:
@@ -95,9 +92,7 @@ class PresenceTracker:
         size = await r.eval(_CONN_JOIN_LUA, 1, ck, str(connection_id), str(_CONN_TTL_SECONDS))
         first = int(size) == 1
         rk = _room_key(room_id)
-        roster_size = int(
-            await r.eval(_ROSTER_JOIN_LUA, 1, rk, str(user_id), str(_SET_TTL_SECONDS))
-        )
+        roster_size = int(await r.eval(_ROSTER_JOIN_LUA, 1, rk, str(user_id), str(_SET_TTL_SECONDS)))
         pipe = r.pipeline(transaction=False)
         pipe.sadd(_user_rooms_key(user_id), str(room_id))
         pipe.expire(_user_rooms_key(user_id), _SET_TTL_SECONDS)

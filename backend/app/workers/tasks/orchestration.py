@@ -93,7 +93,8 @@ async def wakeup_agent(
         # FIX-01: autostop_rounds=0 falls back to autostop_max_default instead
         # of "unlimited" — with agent-message counting a zero limit would permit
         # indefinite A<->B ping-pong.
-        effective_limit = autostop_limit if autostop_limit > 0 else cfg.triggers.silence_minutes.autostop_max_default
+        fallback = cfg.triggers.silence_minutes.autostop_max_default
+        effective_limit = autostop_limit if autostop_limit > 0 else fallback
         if trigger != "mention" and autostop_count >= effective_limit:
             logger.bind(agent_id=agent_id, room_id=room_id, autostop=autostop_count).info(
                 "wakeup skipped: autostop tripped"
