@@ -62,6 +62,7 @@ class WakeupService:
         *,
         room_id: uuid.UUID,
         sender_is_user: bool,
+        sender_agent_id: uuid.UUID | None = None,
         agent_ids: list[uuid.UUID],
     ) -> list[uuid.UUID]:
         """Called when any message is created in a room.
@@ -69,8 +70,12 @@ class WakeupService:
         ``agent_ids`` is the set of agents bound to this room.
         Returns the list of agent_ids that should wake up.
 
-        Evaluates every_n_messages trigger (R15.01) and resets
-        autostop when a user sends a message.
+        Evaluates every_n_messages trigger (R15.01/Q49: counts all messages in
+        the room — user + agent) and resets autostop only on user messages.
+        Loop protection is the job of ``autostop_rounds`` (R15.03/R15.04).
+
+        ``sender_agent_id`` — when set, the author is excluded from its own
+        wake list (an agent must not be woken by its own reply).
         """
         wake_list: list[uuid.UUID] = []
 
@@ -83,25 +88,20 @@ class WakeupService:
             if cfg.is_inert() or cfg.triggers.call_only.enabled:
                 continue
 
-            # Touch silence timer on any activity.
             await wakeup_state.touch_silence_timestamp(agent_id, room_id)
 
             if sender_is_user:
                 await wakeup_state.reset_autostop(agent_id, room_id)
 
-            # every_n_messages: counts user-sent messages only (agent replies
-            # don't flow through evaluate_message_wakeups to avoid self-trigger loops).
             if cfg.triggers.every_n_messages.enabled:
                 count = await wakeup_state.increment_message_count(agent_id, room_id)
                 n = cfg.triggers.every_n_messages.n
                 if n > 0 and count % n == 0:
-                    # Check allow_self_open: if room is empty and flag is false, skip.
+                    if agent_id == sender_agent_id:
+                        continue
                     if not cfg.allow_self_open:
                         members = await self._presence.list_room(room_id)
                         if not members:
-                            # The trigger fired but the agent may not open an
-                            # empty room on its own — otherwise this silence is a
-                            # mystery to the owner. Heads-up, debounced per room.
                             await self._notify_wakeup_gated(agent, room_id)
                             continue
                     WAKEUP_FIRES.labels(kind="every_n_messages").inc()

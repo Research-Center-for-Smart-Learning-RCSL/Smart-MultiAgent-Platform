@@ -90,7 +90,11 @@ async def wakeup_agent(
         # A `mention` is an explicit user call (not an autonomous round), so it
         # bypasses the autostop backstop — a user summoning the agent must always
         # get a reply even after the agent has stalled on consecutive self-rounds.
-        if trigger != "mention" and autostop_limit > 0 and autostop_count >= autostop_limit:
+        # FIX-01: autostop_rounds=0 falls back to autostop_max_default instead
+        # of "unlimited" — with agent-message counting a zero limit would permit
+        # indefinite A<->B ping-pong.
+        effective_limit = autostop_limit if autostop_limit > 0 else cfg.triggers.silence_minutes.autostop_max_default
+        if trigger != "mention" and autostop_count >= effective_limit:
             logger.bind(agent_id=agent_id, room_id=room_id, autostop=autostop_count).info(
                 "wakeup skipped: autostop tripped"
             )
