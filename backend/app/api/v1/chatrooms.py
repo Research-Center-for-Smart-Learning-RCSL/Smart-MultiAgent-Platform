@@ -500,4 +500,34 @@ async def compact_chatroom(
     return {"status": "accepted", "chatroom_id": str(chatroom_id)}
 
 
+# --------------------------------------------------------------------------- #
+# Presence snapshot — FIX-05
+# --------------------------------------------------------------------------- #
+
+
+class PresenceOut(BaseModel):
+    user_ids: list[str]
+
+
+@chatroom_router.get(
+    "/{chatroom_id}/presence",
+    summary="Snapshot of users currently present via WebSocket",
+)
+async def get_chatroom_presence(
+    chatroom_id: uuid.UUID = Path(...),
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(db_session),
+) -> PresenceOut:
+    from contexts.conversation.application.access import (
+        ensure_can_read,
+        resolve_room_access,
+    )
+    from contexts.conversation.interfaces import PresenceTracker
+
+    access = await resolve_room_access(db, principal=principal, chatroom_id=chatroom_id)
+    ensure_can_read(access, is_admin=principal.is_admin)
+    members = await PresenceTracker().list_room(chatroom_id)
+    return PresenceOut(user_ids=[str(uid) for uid in members])
+
+
 __all__ = ["chatroom_router", "workspace_router"]
