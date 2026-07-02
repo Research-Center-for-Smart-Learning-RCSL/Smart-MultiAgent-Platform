@@ -89,6 +89,8 @@ async def _handle_call(envelope: A2AEnvelope) -> None:
         await _deliver_error(envelope, "agent turn failed")
         return
 
+    if result.status == "skipped" and result.reason == "cancelled":
+        return
     if result.status != "completed":
         await _deliver_error(envelope, f"agent turn {result.status}: {result.reason or ''}".strip())
         return
@@ -171,13 +173,18 @@ async def _run_turn_with_db(db: Any, to_id: uuid.UUID, envelope: A2AEnvelope) ->
         qdrant_url=settings.qdrant.url,
         qdrant_api_key=settings.qdrant.api_key,
     )
+    cancel_check = None
+    if envelope.type is A2AMessageType.CALL and envelope.correlation_id:
+        from contexts.orchestration.infrastructure import a2a_rendezvous
+
+        cid = envelope.correlation_id
+        cancel_check = lambda: a2a_rendezvous.is_call_cancelled(cid)  # noqa: E731
     return await engine.run_input_turn(
         agent_id=to_id,
         input_text=_input_from_payload(envelope.payload),
-        # Attribute the turn's usage to the calling agent (guarded: a non-UUID
-        # sender simply yields no attribution rather than failing the turn).
         parent_agent_id=_maybe_uuid(envelope.from_agent),
         workflow_run_id=envelope.workflow_run_id,
+        cancel_check=cancel_check,
     )
 
 

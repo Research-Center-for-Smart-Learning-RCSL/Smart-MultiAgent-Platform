@@ -242,7 +242,7 @@
         "target_chatroom_id":  { "type": "string", "format": "uuid",
                                  "description": "Override the chatroom the agent writes to. Defaults to the workflow's chatroom context." },
         "stream_to_chatroom":  { "type": "boolean", "default": true },
-        "timeout_seconds":     { "type": "integer", "minimum": 1, "maximum": 600, "default": 120 },
+        "timeout_seconds":     { "type": "integer", "minimum": 1, "maximum": 600, "default": 300 },
         "on_error":            { "$ref": "#/$defs/on_error" }
       }
     },

@@ -40,6 +40,20 @@ def _expect_key(correlation_id: uuid.UUID) -> str:
     return f"a2a:reply:expect:{correlation_id}"
 
 
+def _cancel_key(correlation_id: uuid.UUID) -> str:
+    return f"a2a:cancel:{correlation_id}"
+
+
+async def mark_call_cancelled(correlation_id: uuid.UUID) -> None:
+    """Signal a timed-out CALL so the callee can stop at the next round boundary."""
+    await get_redis().set(_cancel_key(correlation_id), "1", ex=_REPLY_TTL_SECONDS)
+
+
+async def is_call_cancelled(correlation_id: uuid.UUID) -> bool:
+    """Check whether the caller has timed out and cancelled this CALL."""
+    return await get_redis().get(_cancel_key(correlation_id)) == b"1"
+
+
 async def register_expected_responder(correlation_id: uuid.UUID, responder_agent_id: uuid.UUID) -> None:
     """Record which agent is allowed to answer this call (anti-spoof).
 

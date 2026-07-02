@@ -25,7 +25,7 @@ if (local.stream_to_chatroom === undefined) {
   local.stream_to_chatroom = true
 }
 if (local.timeout_seconds === undefined) {
-  local.timeout_seconds = 120
+  local.timeout_seconds = 300
 }
 </script>
 
@@ -134,7 +134,7 @@ if (local.timeout_seconds === undefined) {
       <input
         id="timeout-seconds"
         type="number"
-        :value="local.timeout_seconds ?? 120"
+        :value="local.timeout_seconds ?? 300"
         min="1"
         max="600"
         class="wf-input"

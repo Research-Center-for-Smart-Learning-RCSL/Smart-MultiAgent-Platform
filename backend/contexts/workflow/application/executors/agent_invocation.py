@@ -43,7 +43,7 @@ async def execute(ctx: RunContext, node: NodeSpec, db: AsyncSession) -> StepOutc
             to_agent_id=uuid.UUID(agent_id),
             payload={"input": rendered_input, "origin": "workflow"},
             workflow_run_id=ctx.run_id,
-            timeout_seconds=float(config.get("timeout_seconds", 120)),
+            timeout_seconds=float(config.get("timeout_seconds", 300)),
         )
 
         reply = result.get("reply", result.get("output", ""))

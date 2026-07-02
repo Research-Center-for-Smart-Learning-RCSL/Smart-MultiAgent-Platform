@@ -19,9 +19,11 @@ import json
 import logging
 import time
 import uuid
-from collections.abc import Sequence
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
 from typing import Any, cast
+
+CancelCheck = Callable[[], Awaitable[bool]]
 
 from prometheus_client import Counter, Histogram
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -229,6 +231,14 @@ class TurnResult:
     tool_rounds: int = 0
 
 
+class _TurnCancelled(Exception):
+    """Raised by _stream_with_tools when a cancel_check fires."""
+
+    def __init__(self, rounds_completed: int) -> None:
+        self.rounds_completed = rounds_completed
+        super().__init__(f"turn cancelled after {rounds_completed} rounds")
+
+
 class TurnEngine:
     def __init__(
         self,
@@ -336,6 +346,7 @@ class TurnEngine:
         input_text: str,
         parent_agent_id: uuid.UUID | None = None,
         workflow_run_id: uuid.UUID | None = None,
+        cancel_check: CancelCheck | None = None,
     ) -> TurnResult:
         """Headless input→reply turn for A2A ``call`` / ``instruct`` (K.3 Pass 2).
 
@@ -344,6 +355,10 @@ class TurnEngine:
         stream (there is no room subscriber). Drains any queued notifications so
         an approver agent can ``cast_approval_vote`` here. Returns the reply text
         in ``TurnResult.text`` for the caller to put on the A2A reply envelope.
+
+        ``cancel_check`` — when set (A2A CALL turns only), checked at each tool
+        round boundary; a True return stops the turn to save the user's provider
+        spend when the caller has already timed out.
         """
         agent = await AgentsFacade(self._db).get_agent(agent_id)
         if agent is None:
@@ -378,10 +393,24 @@ class TurnEngine:
                 models=models,
                 registry=registry,
                 room=None,
+                cancel_check=cancel_check,
             )
             await self._audit(agent, None, "agent.turn_finished", {"mode": "a2a", "tool_rounds": rounds})
             await self._db.commit()
             return TurnResult(status="completed", text=final_text, tool_rounds=rounds)
+        except _TurnCancelled as tc:
+            _log.info("a2a turn cancelled agent=%s after %d rounds", agent_id, tc.rounds_completed)
+            try:
+                await self._audit(
+                    agent, None, "agent.turn_cancelled",
+                    {"mode": "a2a", "rounds_completed": tc.rounds_completed},
+                )
+                await self._db.commit()
+            except Exception:
+                _log.exception("a2a turn cancel-path bookkeeping failed")
+            if tc.rounds_completed == 0:
+                await self._requeue_notifications(agent, pending_notes)
+            return TurnResult(status="skipped", reason="cancelled")
         except Exception as exc:
             _log.exception("a2a turn failed agent=%s", agent_id)
             await self._db.rollback()
@@ -390,7 +419,6 @@ class TurnEngine:
                 await self._db.commit()
             except Exception:
                 _log.exception("a2a turn failure-path bookkeeping failed")
-            # The agent never saw the drained notifications — put them back.
             await self._requeue_notifications(agent, pending_notes)
             return TurnResult(status="failed", reason=_err_kind(exc))
 
@@ -1329,10 +1357,13 @@ class TurnEngine:
         models: dict[str, str],
         registry: Any,
         room: str | None,
+        cancel_check: CancelCheck | None = None,
     ) -> tuple[str, int]:
         tool_specs = registry.specs()
         last_text = ""
         for rounds in range(1, MAX_TOOL_ROUNDS + 1):
+            if cancel_check is not None and await cancel_check():
+                raise _TurnCancelled(rounds - 1)
             payload: dict[str, Any] = {
                 "models": models,
                 "system": system_text,
@@ -1382,6 +1413,8 @@ class TurnEngine:
         # tools so it can formulate a coherent reply from the accumulated tool
         # results instead of returning the partial text from the last tool-use
         # response (which is typically "let me check…" or empty).
+        if cancel_check is not None and await cancel_check():
+            raise _TurnCancelled(MAX_TOOL_ROUNDS)
         #
         # Strip tool_calls / role:tool from the history so the provider API
         # doesn't require a `tools` field (Anthropic rejects tool_use/tool_result
@@ -1530,4 +1563,4 @@ def _knowledge_queries(history: Sequence[tx.HistoryMessage], *, input_text: str 
     return queries[:_MAX_KNOWLEDGE_QUERIES]
 
 
-__all__ = ["MAX_TOOL_ROUNDS", "TurnEngine", "TurnResult"]
+__all__ = ["CancelCheck", "MAX_TOOL_ROUNDS", "TurnEngine", "TurnResult"]
