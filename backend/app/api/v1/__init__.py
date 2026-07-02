@@ -92,6 +92,9 @@ def _build_registry() -> list[RouterEntry]:
         notifications as notification_routes,
     )
     from app.api.v1 import (
+        observations as observation_routes,
+    )
+    from app.api.v1 import (
         orchestration as orchestration_routes,
     )
     from app.api.v1 import (
@@ -188,6 +191,7 @@ def _build_registry() -> list[RouterEntry]:
         RouterEntry(chatroom_routes.chatroom_router),
         RouterEntry(message_routes.chatroom_router),
         RouterEntry(message_routes.message_router),
+        RouterEntry(observation_routes.observation_router),
         RouterEntry(attachment_routes.chatroom_router),
         RouterEntry(attachment_routes.attachment_router),
         RouterEntry(tus_routes.router),

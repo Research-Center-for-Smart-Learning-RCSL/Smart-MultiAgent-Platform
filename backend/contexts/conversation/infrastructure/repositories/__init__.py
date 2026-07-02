@@ -19,6 +19,9 @@ from contexts.conversation.infrastructure.repositories.message_repo import (
     MessageEditRepository,
     MessageRepository,
 )
+from contexts.conversation.infrastructure.repositories.observation_repo import (
+    ObservationRepository,
+)
 from contexts.conversation.infrastructure.repositories.workspace_repo import (
     WorkspaceRepository,
 )
@@ -30,6 +33,7 @@ __all__ = [
     "MessageAttachmentRepository",
     "MessageEditRepository",
     "MessageRepository",
+    "ObservationRepository",
     "WorkspaceRepository",
     "_new_guest_token",
 ]

@@ -67,7 +67,8 @@ class _DbDeltaLoader:
                 # have no inherent ordering, so the cursor must include
                 # created_at to stay consistent with the sort.
                 cursor_clause = (
-                    "AND (m.created_at, m.id) > (CAST(:last_created_at AS timestamptz), CAST(:last_id AS uuid)) "
+                    "AND (m.created_at, m.id) > "
+                    "(CAST(:last_created_at AS timestamptz), CAST(:last_id AS uuid)) "
                     if last_id is not None
                     else ""
                 )
