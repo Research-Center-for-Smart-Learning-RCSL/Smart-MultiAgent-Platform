@@ -6,7 +6,7 @@ import { ref } from 'vue'
 
 import { useToast } from '@shared/composables'
 import { useI18n } from 'vue-i18n'
-import { editMessage as apiEditMessage } from '../api'
+import { editMessage as apiEditMessage, getMessage } from '../api'
 import { convKeys } from '../queries'
 import type { Message } from '../types'
 
@@ -52,13 +52,25 @@ export function useChatroomMessageEditing(chatroomId: string) {
         prev?.map((m) => (m.id === updated.id ? updated : m)),
       )
     } catch {
-      // Rollback the optimistic content AND reopen the editor with the user's
-      // rewritten text, so a failed save (409 conflict / network) never discards
-      // it — they can fix and retry in place.
-      if (prevRecent) qc.setQueryData(key, prevRecent)
+      // FIX-09: rollback the optimistic content, reopen the editor, and
+      // refresh the version from the server so a 412 conflict doesn't loop.
+      const original = prevRecent?.find((m) => m.id === id)
+      if (original) {
+        qc.setQueryData<Message[]>(key, (prev) =>
+          prev?.map((m) => (m.id === id ? original : m)),
+        )
+      }
       editingId.value = id
       editDraft.value = text
-      editVersion.value = version
+      try {
+        const fresh = await getMessage(id)
+        editVersion.value = fresh.version
+        qc.setQueryData<Message[]>(key, (prev) =>
+          prev?.map((m) => (m.id === fresh.id ? fresh : m)),
+        )
+      } catch {
+        editVersion.value = version
+      }
       toast.error(t('conversation.chatroom.editFailed'))
     }
   }
