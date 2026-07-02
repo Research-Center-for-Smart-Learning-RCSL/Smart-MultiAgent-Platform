@@ -69,6 +69,7 @@ function emitDegraded(degraded: boolean): void {
 function mountSocket(): {
   wrapper: VueWrapper
   store: ReturnType<typeof useConversationStore>
+  qc: QueryClient
 } {
   const pinia = createPinia()
   setActivePinia(pinia)
@@ -84,7 +85,16 @@ function mountSocket(): {
   const wrapper = mount(Host, {
     global: { plugins: [pinia, [VueQueryPlugin, { queryClient: qc }]] },
   })
-  return { wrapper, store: useConversationStore() }
+  return { wrapper, store: useConversationStore(), qc }
+}
+
+/** Simulate useChatroomMessages' initial fetch having already populated the
+ *  cache, so the QueryCache subscription seeds a cursor before any WS event
+ *  fires — mirrors production, where both composables mount together. */
+function seedCursor(qc: QueryClient, messageId: string, createdAt = '2024-01-01T00:00:00.000Z'): void {
+  qc.setQueryData(['conversation', 'messages', ROOM], [
+    { id: messageId, created_at: createdAt, sender_type: 'user', sender_id: 'u1' },
+  ])
 }
 
 describe('useChatroomSocket agent streaming', () => {
@@ -175,8 +185,10 @@ describe('useChatroomSocket agent streaming', () => {
   it('clears a stale badge when the recovery reply arrives via delta-replay', async () => {
     const mounted = mountSocket()
     wrapper = mounted.wrapper
-    // Seed a cursor, then fail the agent so the badge is lit.
-    emit({ type: 'message.created', message_id: 'm_seed', sender_type: 'user', sender_id: 'u1' })
+    // Seed a cursor (mirrors useChatroomMessages' initial fetch), then fail
+    // the agent so the badge is lit.
+    seedCursor(mounted.qc, 'm_seed')
+    await flushPromises()
     emit({ type: 'agent.finished', error: 'rate_limited', agent_id: AGENT })
     expect(mounted.store.agentErrors[ROOM]?.[AGENT]).toBe('rate_limited')
     // On reconnect the agent's recovery reply is recovered via REST delta, not
@@ -232,20 +244,27 @@ describe('useChatroomSocket agent streaming', () => {
     expect(mounted.store.agentStreams[ROOM]?.[AGENT]).toBe('in progress')
   })
 
-  it('clears agent stream on agent message.created', () => {
+  it('clears agent stream on agent message.created', async () => {
     const mounted = mountSocket()
     wrapper = mounted.wrapper
+    seedCursor(mounted.qc, 'm_seed')
+    await flushPromises()
     emit({ type: 'agent.thinking', agent_id: AGENT })
     emit({ type: 'agent.token', text: 'done', agent_id: AGENT })
+    listMessagesMock.mockResolvedValueOnce([
+      { id: 'm_agent', created_at: '2024-01-01T00:00:01.000Z', sender_type: 'agent', sender_id: AGENT },
+    ] as unknown as Awaited<ReturnType<typeof listMessagesMock>>)
     emit({ type: 'message.created', message_id: 'm_agent', sender_type: 'agent', sender_id: AGENT })
+    await flushPromises()
     expect(mounted.store.agentStreams[ROOM]?.[AGENT]).toBeUndefined()
   })
 
-  it('polls the message delta every 10s while the socket is degraded (§7.1)', () => {
+  it('polls the message delta every 10s while the socket is degraded (§7.1)', async () => {
     const mounted = mountSocket()
     wrapper = mounted.wrapper
     // Seed a cursor so replayDelta has a `since` to fetch from.
-    emit({ type: 'message.created', message_id: 'm_seed', sender_type: 'user', sender_id: 'u1' })
+    seedCursor(mounted.qc, 'm_seed')
+    await flushPromises()
     listMessagesMock.mockClear()
 
     emitDegraded(true)

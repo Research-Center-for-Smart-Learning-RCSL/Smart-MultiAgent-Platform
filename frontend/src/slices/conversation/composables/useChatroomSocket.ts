@@ -140,6 +140,12 @@ export function useChatroomSocket(roomId: string) {
         // FIX-04: delta append instead of blind invalidation so the additive
         // merge cache is never replaced with a smaller window.
         void replayDelta()
+        // clearAgentError stays eager (synchronous, from the event's own
+        // payload) — only clearAgentStream defers to applyMessageCreated
+        // (post-append) to avoid the streamed-draft flicker.
+        if (ev.sender_type === 'agent' && agentId) {
+          store.clearAgentError(roomId, agentId)
+        }
         break
       }
       case 'message.updated': {
