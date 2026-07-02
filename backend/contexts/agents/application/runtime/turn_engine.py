@@ -289,9 +289,15 @@ class TurnEngine:
                         # now so the post-release pop doesn't re-enqueue a
                         # redundant follow-up for a trigger we're about to serve.
                         parked = await _pop_queued_trigger(agent_id, chatroom_id)
-                        if parked is not None:
-                            trigger, parked_mid = parked
-                            trigger_message_id = parked_mid or trigger_message_id
+                        if parked is None:
+                            # Someone else already popped our mark — that was
+                            # the previous holder's post-release drain, which
+                            # has already enqueued a follow-up turn for it.
+                            # Running here too would duplicate that turn, so
+                            # let the enqueued follow-up serve it instead.
+                            break
+                        trigger, parked_mid = parked
+                        trigger_message_id = parked_mid or trigger_message_id
                     result = await self._run_locked(
                         agent_id=agent_id,
                         chatroom_id=chatroom_id,
