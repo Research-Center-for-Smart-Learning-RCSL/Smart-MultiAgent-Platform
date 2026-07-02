@@ -39,7 +39,7 @@ from contexts.tenancy.interfaces.facade import TenancyFacade
 from shared_kernel import audit
 
 _BROADCAST_PREFIX = "broadcast:workspace"
-_DEFAULT_CALL_TIMEOUT = 60.0
+_DEFAULT_CALL_TIMEOUT = 300.0
 
 logger = logging.getLogger(__name__)
 
@@ -172,6 +172,7 @@ class A2AService:
         # block on the rendezvous instead.
         reply = await a2a_rendezvous.await_reply(correlation_id, timeout_seconds)
         if reply is None:
+            await a2a_rendezvous.mark_call_cancelled(correlation_id)
             raise A2ATimeout(
                 f"sync call from {from_agent_id} to {to_agent_id} "
                 f"timed out after {timeout_seconds}s "
