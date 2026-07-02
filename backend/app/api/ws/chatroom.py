@@ -119,10 +119,13 @@ async def ws_chatroom(ws: WebSocket, chatroom_id: uuid.UUID) -> None:
                 "presence.joined",
                 {"user_id": str(conn.principal.user_id)},
             )
-        # FIX-03: atomic Lua guarantees exactly one concurrent first-joiner
-        # observes roster_size == 1, so the transition fires exactly once.
-        if roster_size == 1:
-            await _notify_presence(chatroom_id, has_live_users=True)
+            # FIX-03: atomic Lua guarantees exactly one concurrent first-joiner
+            # observes roster_size == 1, so the transition fires exactly once.
+            # Must stay nested under `added` — the roster SADD is idempotent,
+            # so a second tab/reconnect of an already-present lone user would
+            # also see roster_size == 1 and must NOT re-fire the transition.
+            if roster_size == 1:
+                await _notify_presence(chatroom_id, has_live_users=True)
 
     async def on_close(conn: ChannelConnection) -> None:
         left, roster_size = await presence.leave(
