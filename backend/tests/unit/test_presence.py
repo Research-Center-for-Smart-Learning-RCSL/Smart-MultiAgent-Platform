@@ -109,17 +109,21 @@ async def test_multi_tab_announces_once_and_leaves_on_last(fake_redis: _FakeRedi
     user = uuid.uuid4()
     c1, c2 = uuid.uuid4(), uuid.uuid4()
 
-    assert await p.join(room_id=room, user_id=user, connection_id=c1) is True
-    # Second tab: same user, must NOT re-announce.
-    assert await p.join(room_id=room, user_id=user, connection_id=c2) is False
+    added, roster_size = await p.join(room_id=room, user_id=user, connection_id=c1)
+    assert (added, roster_size) == (True, 1)
+    # Second tab: same user, must NOT re-announce; roster stays size 1.
+    added, roster_size = await p.join(room_id=room, user_id=user, connection_id=c2)
+    assert (added, roster_size) == (False, 1)
     assert await p.list_room(room) == [user]
 
     # Closing the first tab while the second is live must NOT drop the user.
-    assert await p.leave(room_id=room, user_id=user, connection_id=c1) is False
+    left, roster_size = await p.leave(room_id=room, user_id=user, connection_id=c1)
+    assert left is False
     assert await p.list_room(room) == [user]
 
     # Closing the last tab fully removes the user.
-    assert await p.leave(room_id=room, user_id=user, connection_id=c2) is True
+    left, roster_size = await p.leave(room_id=room, user_id=user, connection_id=c2)
+    assert (left, roster_size) == (True, 0)
     assert await p.list_room(room) == []
 
 

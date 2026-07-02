@@ -46,8 +46,13 @@ async def test_evaluate_message_wakeups_returns_wake_list(monkeypatch) -> None:
         def __init__(self, db) -> None:
             pass
 
-        async def on_message_created(self, *, room_id, sender_is_user, agent_ids):
-            captured.update(room_id=room_id, sender_is_user=sender_is_user, agent_ids=list(agent_ids))
+        async def on_message_created(self, *, room_id, sender_is_user, sender_agent_id=None, agent_ids):
+            captured.update(
+                room_id=room_id,
+                sender_is_user=sender_is_user,
+                sender_agent_id=sender_agent_id,
+                agent_ids=list(agent_ids),
+            )
             return [a1]  # only a1's every_n trigger fired
 
     monkeypatch.setattr(facade_mod, "OrchestrationFacade", _Facade)
