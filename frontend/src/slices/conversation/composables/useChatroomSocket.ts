@@ -8,12 +8,12 @@
 // so the client recovers the delta the server did not replay.
 
 import { useQueryClient } from '@tanstack/vue-query'
-import { computed, onActivated, onBeforeUnmount, onDeactivated, onMounted, ref, watch } from 'vue'
+import { computed, onActivated, onBeforeUnmount, onDeactivated, onMounted, ref } from 'vue'
 
 import { wsManager, type ChannelEvent } from '@shared/transport'
 import { useOrchestrationStore } from '@shared/stores/orchestration'
 import type { ApprovalWithVotes } from '@shared/types/workflow'
-import { listMessages } from '../api'
+import { getMessage, listMessages } from '../api'
 import { useConversationStore } from '../stores/conversation'
 import type { Message } from '../types'
 
@@ -95,9 +95,8 @@ export function useChatroomSocket(roomId: string) {
       return [...prev, m]
     })
     lastSeenMessageId.value = m.id
-    // A reply recovered via delta-replay (reconnect/degraded polling) means the
-    // agent acted — drop any stale error badge, mirroring the live handler.
     if (m.sender_type === 'agent' && m.sender_id) {
+      store.clearAgentStream(roomId, m.sender_id)
       store.clearAgentError(roomId, m.sender_id)
     }
   }
@@ -128,23 +127,35 @@ export function useChatroomSocket(roomId: string) {
 
     switch (ev.type) {
       case 'message.created': {
-        const mid = ev.message_id as string
-        qc.invalidateQueries({ queryKey: ['conversation', 'messages', roomId] })
-        lastSeenMessageId.value = mid
-        // Only clear the streaming draft for the specific agent whose
-        // persisted reply just landed — a user message must not wipe an
-        // in-progress agent stream (BUG-4).
-        if (ev.sender_type === 'agent' && agentId) {
-          store.clearAgentStream(roomId, agentId)
-          // The agent produced a reply — drop any stale error badge.
-          store.clearAgentError(roomId, agentId)
+        // FIX-04: delta append instead of blind invalidation so the additive
+        // merge cache is never replaced with a smaller window.
+        void replayDelta()
+        break
+      }
+      case 'message.updated': {
+        const updatedId = ev.message_id as string
+        if (updatedId) {
+          getMessage(updatedId)
+            .then((fresh) => {
+              qc.setQueryData<Message[]>(
+                ['conversation', 'messages', roomId],
+                (prev) => prev?.map((m) => (m.id === fresh.id ? fresh : m)),
+              )
+            })
+            .catch(() => {})
         }
         break
       }
-      case 'message.updated':
-      case 'message.deleted':
-        qc.invalidateQueries({ queryKey: ['conversation', 'messages', roomId] })
+      case 'message.deleted': {
+        const deletedId = ev.message_id as string
+        if (deletedId) {
+          qc.setQueryData<Message[]>(
+            ['conversation', 'messages', roomId],
+            (prev) => prev?.filter((m) => m.id !== deletedId),
+          )
+        }
         break
+      }
       case 'presence.joined':
         store.joinPresence(roomId, ev.user_id as string)
         break
@@ -279,19 +290,32 @@ export function useChatroomSocket(roomId: string) {
     unsubscribeEvent()
     unsubscribeStatus()
     unsubscribeDegraded()
+    unsubCache()
     wsManager.close(`/chatroom/${roomId}`)
     store.resetRoom(roomId)
   })
 
-  watch(
-    () => qc.getQueryData<Message[]>(['conversation', 'messages', roomId]),
-    (messages) => {
-      if (messages && messages.length > 0) {
-        lastSeenMessageId.value = messages[messages.length - 1]!.id
-      }
-    },
-    { immediate: true },
-  )
+  // FIX-04: seed the cursor from the query cache via a QueryCache subscription
+  // (the old `watch` over `qc.getQueryData` had no reactive dependency and
+  // fired exactly once while the initial fetch was in flight).
+  const messagesKey = ['conversation', 'messages', roomId]
+  const unsubCache = qc.getQueryCache().subscribe((event) => {
+    if (event.type !== 'updated') return
+    const k = event.query.queryKey
+    if (k[0] !== messagesKey[0] || k[1] !== messagesKey[1] || k[2] !== messagesKey[2]) return
+    const data = event.query.state.data as Message[] | undefined
+    if (!data || data.length === 0) return
+    let newest = data[0]!
+    for (const m of data) {
+      if (m.created_at > newest.created_at) newest = m
+    }
+    if (
+      lastSeenMessageId.value === null ||
+      newest.created_at > (data.find((m) => m.id === lastSeenMessageId.value)?.created_at ?? '')
+    ) {
+      lastSeenMessageId.value = newest.id
+    }
+  })
 
   return { connected, connectionState, lastSeenMessageId, channel }
 }
