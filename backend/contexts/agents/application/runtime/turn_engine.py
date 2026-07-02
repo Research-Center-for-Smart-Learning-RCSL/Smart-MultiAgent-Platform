@@ -136,6 +136,11 @@ def _resolve_models(agent: Agent) -> dict[str, str]:
     return models
 
 
+# Must exceed any realistic heartbeat-extended turn; the flag is popped
+# after every turn so it never lingers under normal operation.
+_QUEUED_TRIGGER_TTL_S = 3600
+
+
 def _queued_trigger_key(agent_id: uuid.UUID, chatroom_id: uuid.UUID) -> str:
     return f"turn:queued:{agent_id}:{chatroom_id}"
 
@@ -166,13 +171,13 @@ async def _mark_trigger_queued(
             _queued_trigger_key(agent_id, chatroom_id),
             trigger,
             nx=True,
-            ex=DEFAULT_TURN_TTL_S,
+            ex=_QUEUED_TRIGGER_TTL_S,
         )
         if trigger_message_id is not None:
             await redis.set(
                 _queued_trigger_message_key(agent_id, chatroom_id),
                 str(trigger_message_id),
-                ex=DEFAULT_TURN_TTL_S,
+                ex=_QUEUED_TRIGGER_TTL_S,
             )
     except Exception:
         _log.warning(
@@ -266,30 +271,40 @@ class TurnEngine:
         trigger_message_id: uuid.UUID | None = None,
     ) -> TurnResult:
         started = time.monotonic()
-        async with turn_lock(agent_id, chatroom_id) as acquired:
-            if not acquired:
-                # A turn is already running for this (agent, room). Park the
-                # trigger (SETNX = at most one) so the lock holder re-enqueues
-                # a follow-up turn after release — without this, a user message
-                # landing mid-turn would never get a reply.
+        result: TurnResult | None = None
+        for attempt in range(2):
+            async with turn_lock(agent_id, chatroom_id) as acquired:
+                if acquired:
+                    if attempt > 0:
+                        # Acquired on retry — our mark from attempt 0 (or an
+                        # earlier stranded one) may still be parked. Consume it
+                        # now so the post-release pop doesn't re-enqueue a
+                        # redundant follow-up for a trigger we're about to serve.
+                        parked = await _pop_queued_trigger(agent_id, chatroom_id)
+                        if parked is not None:
+                            trigger, parked_mid = parked
+                            trigger_message_id = parked_mid or trigger_message_id
+                    result = await self._run_locked(
+                        agent_id=agent_id,
+                        chatroom_id=chatroom_id,
+                        trigger=trigger,
+                        parent_agent_id=parent_agent_id,
+                        input_text=input_text,
+                        request_id=request_id,
+                        trigger_message_id=trigger_message_id,
+                    )
+                    break
                 await _mark_trigger_queued(agent_id, chatroom_id, trigger, trigger_message_id)
-                AGENT_TURNS_TOTAL.labels(result="skipped").inc()
-                return TurnResult(status="skipped", reason="locked")
-            result = await self._run_locked(
-                agent_id=agent_id,
-                chatroom_id=chatroom_id,
-                trigger=trigger,
-                parent_agent_id=parent_agent_id,
-                input_text=input_text,
-                request_id=request_id,
-                trigger_message_id=trigger_message_id,
-            )
+                # Re-check: the holder may have released AND popped before our
+                # mark landed — if the lock is now free we take it; if still held
+                # the holder's post-release pop sees our mark.
+            if result is None and attempt == 0:
+                continue
+        if result is None:
+            AGENT_TURNS_TOTAL.labels(result="skipped").inc()
+            return TurnResult(status="skipped", reason="locked")
         # Lock released — drain the coalesced trigger (if any) into exactly one
         # follow-up wakeup so the message that arrived mid-turn gets a reply.
-        # The associated message id (last-write-wins across whatever coalesced)
-        # is threaded through so the follow-up turn resolves attachments
-        # deterministically instead of re-querying "whatever's latest" — the
-        # same race this fix closes for the uncontended dispatch path.
         queued = await _pop_queued_trigger(agent_id, chatroom_id)
         if queued is not None:
             queued_trigger, queued_message_id = queued
