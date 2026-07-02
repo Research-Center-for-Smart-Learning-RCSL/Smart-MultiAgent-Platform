@@ -29,6 +29,8 @@
       {{ roomName }}
     </h1>
 
+    <ObserverDisclosureChip v-if="observersPresent" />
+
     <span
       class="chat-header__pill"
       :class="pill.cls"
@@ -126,12 +128,14 @@ import {
   ArrowPathIcon,
 } from '@heroicons/vue/24/outline'
 import { SButton, SDropdown } from '@shared/ui'
+import ObserverDisclosureChip from './ObserverDisclosureChip.vue'
 
 const props = defineProps<{
   roomName: string
   connectionState: 'connecting' | 'live' | 'reconnecting' | 'degraded'
   isMobile: boolean
   isDesktop: boolean
+  observersPresent?: boolean
 }>()
 
 const emit = defineEmits<{

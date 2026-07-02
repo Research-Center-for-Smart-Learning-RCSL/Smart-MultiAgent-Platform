@@ -10,6 +10,7 @@
       :connection-state="connectionState"
       :is-mobile="isMobile"
       :is-desktop="isDesktop"
+      :observers-present="roomQuery.data.value?.observers_present ?? false"
       @back="goBack"
       @search="searchOpen = true"
       @settings="goSettings"
@@ -129,12 +130,43 @@
       @remove-upload="removeUpload"
     />
 
-    <ChatroomPresence
+    <!-- Desktop right rail: tabbed People/Observer for the creator of a room
+         with observers; plain presence panel otherwise. -->
+    <div
       v-if="isDesktop"
       class="chatroom__presence"
-      :online-users="onlineUsers"
-      :agents="agentList"
-    />
+    >
+      <STabs
+        v-if="showObserverTab"
+        v-model="railTab"
+        :tabs="railTabs"
+      >
+        <template #tab-people>
+          <ChatroomPresence
+            :online-users="onlineUsers"
+            :agents="agentList"
+          />
+        </template>
+        <template #tab-observer>
+          <ObserverPanel
+            :observer-agents="observations.observerAgents.value"
+            :observations="observations.observations.value"
+            :loading="observations.observationsLoading.value"
+            :has-more="observations.hasMore.value"
+            :loading-more="observations.loadingMore.value"
+            :agent-names="agentNames"
+            @release="openRelease"
+            @delete="onObservationDelete"
+            @load-earlier="observations.loadEarlier"
+          />
+        </template>
+      </STabs>
+      <ChatroomPresence
+        v-else
+        :online-users="onlineUsers"
+        :agents="agentList"
+      />
+    </div>
 
     <!-- Agents drawer: mobile only (tablet keeps the agents rail). -->
     <SDrawer
@@ -154,7 +186,33 @@
       :title="t('conversation.chatroom.people')"
       @close="peopleDrawerOpen = false"
     >
+      <STabs
+        v-if="showObserverTab"
+        v-model="railTab"
+        :tabs="railTabs"
+      >
+        <template #tab-people>
+          <ChatroomPresence
+            :online-users="onlineUsers"
+            :agents="agentList"
+          />
+        </template>
+        <template #tab-observer>
+          <ObserverPanel
+            :observer-agents="observations.observerAgents.value"
+            :observations="observations.observations.value"
+            :loading="observations.observationsLoading.value"
+            :has-more="observations.hasMore.value"
+            :loading-more="observations.loadingMore.value"
+            :agent-names="agentNames"
+            @release="openRelease"
+            @delete="onObservationDelete"
+            @load-earlier="observations.loadEarlier"
+          />
+        </template>
+      </STabs>
       <ChatroomPresence
+        v-else
         :online-users="onlineUsers"
         :agents="agentList"
       />
@@ -166,6 +224,16 @@
       @close="exportOpen = false"
       @submit="onExportSubmit"
     />
+
+    <ObservationReleaseDialog
+      ref="releaseDialogRef"
+      :open="releaseTarget !== null"
+      :observation="releaseTarget"
+      :disclose="roomQuery.data.value?.disclose_observers ?? true"
+      :normal-agents="releasableAgents"
+      @close="releaseTarget = null"
+      @submit="onReleaseSubmit"
+    />
   </section>
 </template>
 
@@ -175,14 +243,16 @@ import { useRoute, useRouter } from 'vue-router'
 import { useQuery } from '@tanstack/vue-query'
 import { useI18n } from 'vue-i18n'
 
-import { useToast, useBreakpoint, useVisualViewport } from '@shared/composables'
-import { SDrawer, SEmptyState } from '@shared/ui'
-import { ChatBubbleLeftRightIcon } from '@heroicons/vue/24/outline'
+import { useToast, useBreakpoint, useVisualViewport, useConfirmDialog } from '@shared/composables'
+import { SDrawer, SEmptyState, STabs } from '@shared/ui'
+import { ChatBubbleLeftRightIcon, EyeIcon, UsersIcon } from '@heroicons/vue/24/outline'
+import { isAxiosError } from 'axios'
 import { useSessionStore } from '@shared/stores/session'
 import { useOrchestrationStore } from '@shared/stores/orchestration'
 import { ApprovalCard } from '@slices/workflow'
 
 import { useChatroomSocket } from '../composables/useChatroomSocket'
+import { useObservations } from '../composables/useObservations'
 import { useChatroomMessages } from '../composables/useChatroomMessages'
 import { useChatroomMessageEditing } from '../composables/useChatroomMessageEditing'
 import { useChatroomAttachments } from '../composables/useChatroomAttachments'
@@ -193,10 +263,10 @@ import { useAgentStreams } from '../composables/useAgentStreams'
 import { useMarkdownEnhance } from '../composables/useMarkdownEnhance'
 import { useConversationStore } from '../stores/conversation'
 import { AGENT_ERROR_MESSAGE_KEYS, AGENT_ERROR_FALLBACK_KEY } from '../constants/agentErrors'
-import { getChatroom, getWorkspace, listChatroomAgents, listChatroomMembers, listProjectAgents, type ExportOptions } from '../api'
+import { getChatroom, getWorkspace, listChatroomAgents, listChatroomMembers, listProjectAgents, type ExportOptions, type ReleaseBody } from '../api'
 import { convKeys } from '../queries'
 import type { AgentStatus } from '../components/ChatroomAgentStatusItem.vue'
-import type { Message, SearchHit } from '../types'
+import type { Message, Observation, SearchHit } from '../types'
 
 import ChatroomHeader from '../components/ChatroomHeader.vue'
 import ChatroomAgentSidebar from '../components/ChatroomAgentSidebar.vue'
@@ -209,9 +279,12 @@ import ChatroomSearchPanel from '../components/ChatroomSearchPanel.vue'
 import ChatroomExportModal from '../components/ChatroomExportModal.vue'
 import ChatroomNewMessagesPill from '../components/ChatroomNewMessagesPill.vue'
 import ChatroomLoadEarlier from '../components/ChatroomLoadEarlier.vue'
+import ObserverPanel from '../components/ObserverPanel.vue'
+import ObservationReleaseDialog from '../components/ObservationReleaseDialog.vue'
 
 const { t } = useI18n()
 const toast = useToast()
+const { confirm } = useConfirmDialog()
 const route = useRoute()
 const router = useRouter()
 const store = useConversationStore()
@@ -297,13 +370,20 @@ function agentStatus(id: string): AgentStatus {
   return 'idle'
 }
 
+// Observers are excluded from every shared surface (R28.10, locked decision
+// 7): the sidebar/presence rail, mention autocomplete, and the streaming
+// bubbles all derive from `agentList`, so this single filter keeps the shared
+// UI identical on the creator's screen and a member's screen (matters for
+// screen-sharing). Observers live only in the creator-only Observer tab.
 const agentList = computed(() =>
-  (boundAgentsQuery.data.value ?? []).map((id) => ({
-    id,
-    name: agentNames.value[id] ?? id.slice(0, 8),
-    status: agentStatus(id),
-    errorReason: store.agentErrors[chatroomId]?.[id],
-  })),
+  (boundAgentsQuery.data.value ?? [])
+    .filter((a) => a.role !== 'observer')
+    .map((a) => ({
+      id: a.agent_id,
+      name: agentNames.value[a.agent_id] ?? a.agent_id.slice(0, 8),
+      status: agentStatus(a.agent_id),
+      errorReason: store.agentErrors[chatroomId]?.[a.agent_id],
+    })),
 )
 
 // Autocomplete-only mention source: bound agents plus named human members.
@@ -320,6 +400,87 @@ const mentionables = computed<{ id: string; name: string }[]>(() => {
     .map((m) => ({ id: m.user_id, name: m.display_name }))
   return [...agentList.value, ...users]
 })
+
+// ---- observer agents (creator-only, R28.03) -------------------------------
+
+const observerProjectId = computed(
+  () => workspaceQuery.data.value?.project_id || projectId || undefined,
+)
+const observations = useObservations(chatroomId, {
+  room: computed(() => roomQuery.data.value),
+  projectId: observerProjectId,
+  boundAgents: computed(() => boundAgentsQuery.data.value),
+  agentNames,
+})
+
+// Right rail switches to a tabbed People/Observer view only for the creator of
+// a room that actually has observers bound; everyone else keeps the plain
+// presence panel (and never learns an observer exists beyond the neutral
+// disclosure chip).
+const showObserverTab = computed(
+  () => observations.isCreator.value && observations.observerAgents.value.length > 0,
+)
+const railTab = ref<'people' | 'observer'>('people')
+const railTabs = computed(() => [
+  { key: 'people', label: t('conversation.chatroom.people'), icon: UsersIcon },
+  {
+    key: 'observer',
+    label: t('conversation.observers.tab'),
+    icon: EyeIcon,
+    badge: observations.unreadCount.value || undefined,
+  },
+])
+watch(railTab, (tab) => observations.setPanelOpen(tab === 'observer'))
+
+// Normal-role bound agents (names resolved) offered as private-release targets.
+const releasableAgents = computed(() =>
+  (boundAgentsQuery.data.value ?? [])
+    .filter((a) => a.role !== 'observer')
+    .map((a) => ({ id: a.agent_id, name: agentNames.value[a.agent_id] ?? a.agent_id.slice(0, 8) })),
+)
+
+const releaseTarget = ref<Observation | null>(null)
+const releaseDialogRef = ref<InstanceType<typeof ObservationReleaseDialog> | null>(null)
+
+function openRelease(o: Observation): void {
+  releaseTarget.value = o
+}
+
+async function onReleaseSubmit(body: ReleaseBody): Promise<void> {
+  const target = releaseTarget.value
+  if (!target) return
+  releaseDialogRef.value?.setSubmitting(true)
+  try {
+    await observations.release(target.id, body)
+    releaseTarget.value = null
+    toast.success(t('conversation.observers.releaseSuccess'))
+  } catch (err) {
+    if (isAxiosError(err) && err.response?.status === 409) {
+      // Already released by a concurrent action — refetch and dismiss.
+      await observations.refetch()
+      releaseTarget.value = null
+      toast.info(t('conversation.observers.alreadyReleased'))
+      return
+    }
+    releaseDialogRef.value?.setError(t('conversation.observers.releaseFailed'))
+  } finally {
+    releaseDialogRef.value?.setSubmitting(false)
+  }
+}
+
+async function onObservationDelete(o: Observation): Promise<void> {
+  const ok = await confirm({
+    title: t('conversation.observers.deleteTitle'),
+    message: t('conversation.observers.deleteConfirm'),
+    variant: 'warning',
+  })
+  if (!ok) return
+  try {
+    await observations.remove(o.id)
+  } catch {
+    toast.error(t('conversation.observers.deleteFailed'))
+  }
+}
 
 // ---- composables ----------------------------------------------------------
 

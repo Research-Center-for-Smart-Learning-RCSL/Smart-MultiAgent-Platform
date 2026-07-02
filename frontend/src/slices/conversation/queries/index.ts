@@ -21,4 +21,6 @@ export const convKeys = {
   search: (chatroomId: string, q: string) =>
     ['conversation', 'search', chatroomId, q] as const,
   export: (jobId: string) => ['conversation', 'export', jobId] as const,
+  observations: (chatroomId: string) =>
+    ['conversation', 'observations', chatroomId] as const,
 }

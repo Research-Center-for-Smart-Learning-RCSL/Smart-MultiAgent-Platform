@@ -28,6 +28,9 @@ export function useChatroomSettings(chatroomId: string) {
     allow_project_members: true,
     allow_project_owners_only: false,
     allow_guest_links: false,
+    // R28.09 — creator-only; the server rejects a non-creator patch of this
+    // field, so the UI only exposes the toggle to the creator.
+    disclose_observers: true,
   })
   const room = ref<Chatroom | null>(null)
 
@@ -44,6 +47,7 @@ export function useChatroomSettings(chatroomId: string) {
     flags.allow_project_members = found.allow_project_members
     flags.allow_project_owners_only = found.allow_project_owners_only
     flags.allow_guest_links = found.allow_guest_links
+    flags.disclose_observers = found.disclose_observers
   }
 
   /** Find this chatroom in any cached `['conversation','chatrooms']` list. */
@@ -81,10 +85,15 @@ export function useChatroomSettings(chatroomId: string) {
     saving.value = true
     saveError.value = null
     try {
+      // Deliberately omit `disclose_observers` — it is creator-only on the
+      // server (R28.09). Including it in every generic save would 403 a
+      // non-creator moderator editing the other access flags. Disclosure has
+      // its own save path (`saveDisclosure`).
+      const { disclose_observers: _omit, ...patchFlags } = flags
       applyRoom(
         await patchChatroom(chatroomId, room.value.version, {
           name: name.value,
-          ...flags,
+          ...patchFlags,
         }),
       )
       await qc.invalidateQueries({ queryKey: ['conversation', 'chatrooms'] })
@@ -96,6 +105,37 @@ export function useChatroomSettings(chatroomId: string) {
           room.value = await getChatroom(chatroomId)
         } catch {
           /* keep the form as-is; the inline error already explains the retry */
+        }
+      } else {
+        saveError.value = 'conversation.settings.saveFailed'
+      }
+    } finally {
+      saving.value = false
+    }
+  }
+
+  /** Creator-only patch of just `disclose_observers` (R28.09). Kept separate
+   *  from `onSave` so the field is never sent by a non-creator. */
+  async function saveDisclosure(value: boolean): Promise<void> {
+    if (!room.value || saving.value) return
+    saving.value = true
+    saveError.value = null
+    flags.disclose_observers = value
+    try {
+      applyRoom(
+        await patchChatroom(chatroomId, room.value.version, {
+          disclose_observers: value,
+        }),
+      )
+      await qc.invalidateQueries({ queryKey: ['conversation', 'chatrooms'] })
+      toast.success(t('conversation.settings.saved'))
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 409) {
+        saveError.value = 'conversation.settings.versionConflict'
+        try {
+          room.value = await getChatroom(chatroomId)
+        } catch {
+          /* keep the form as-is */
         }
       } else {
         saveError.value = 'conversation.settings.saveFailed'
@@ -135,6 +175,7 @@ export function useChatroomSettings(chatroomId: string) {
     applyRoom,
     loadRoom,
     onSave,
+    saveDisclosure,
     onDelete,
   }
 }

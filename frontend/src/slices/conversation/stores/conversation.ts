@@ -28,6 +28,12 @@ export const useConversationStore = defineStore('conversation', () => {
   // room-level `agentError` above, which fires the one-shot toast.
   const agentErrors = ref<Record<string, Record<string, string>>>({})
   const typingUsers = ref<Record<string, Set<string>>>({})
+  // Per-room set of observer agent IDs currently running an analysis turn
+  // (observation.started/.created/.failed on the /user channel — R28.13).
+  // Creator-only by construction: the events never reach anyone else.
+  const observerAnalyzing = ref<Record<string, Set<string>>>({})
+  // Per-room per-observer error kind, persisted until the observer next acts.
+  const observerErrors = ref<Record<string, Record<string, string>>>({})
 
   function addTyping(roomId: string, userId: string): void {
     const set = typingUsers.value[roomId] ?? new Set<string>()
@@ -131,6 +137,33 @@ export const useConversationStore = defineStore('conversation', () => {
     }
   }
 
+  function setObserverAnalyzing(roomId: string, agentId: string, value: boolean): void {
+    const set = new Set(observerAnalyzing.value[roomId] ?? [])
+    if (value) {
+      set.add(agentId)
+    } else {
+      set.delete(agentId)
+    }
+    observerAnalyzing.value = { ...observerAnalyzing.value, [roomId]: set }
+  }
+
+  function setObserverErrorKind(roomId: string, agentId: string, kind: string): void {
+    const room = observerErrors.value[roomId] ?? {}
+    observerErrors.value = { ...observerErrors.value, [roomId]: { ...room, [agentId]: kind } }
+  }
+
+  function clearObserverError(roomId: string, agentId: string): void {
+    const room = observerErrors.value[roomId]
+    if (!room || !(agentId in room)) return
+    const { [agentId]: _, ...rest } = room
+    if (Object.keys(rest).length === 0) {
+      const { [roomId]: _r, ...roomsRest } = observerErrors.value
+      observerErrors.value = roomsRest
+    } else {
+      observerErrors.value = { ...observerErrors.value, [roomId]: rest }
+    }
+  }
+
   function setActive(id: string | null): void {
     activeChatroomId.value = id
   }
@@ -148,6 +181,10 @@ export const useConversationStore = defineStore('conversation', () => {
     agentErrors.value = restAgentErrors
     const { [roomId]: _t, ...restTyping } = typingUsers.value
     typingUsers.value = restTyping
+    const { [roomId]: _oa, ...restObserverAnalyzing } = observerAnalyzing.value
+    observerAnalyzing.value = restObserverAnalyzing
+    const { [roomId]: _oe, ...restObserverErrors } = observerErrors.value
+    observerErrors.value = restObserverErrors
   }
 
   function clearAll(): void {
@@ -157,6 +194,8 @@ export const useConversationStore = defineStore('conversation', () => {
     agentError.value = {}
     agentErrors.value = {}
     typingUsers.value = {}
+    observerAnalyzing.value = {}
+    observerErrors.value = {}
     activeChatroomId.value = null
   }
 
@@ -172,6 +211,11 @@ export const useConversationStore = defineStore('conversation', () => {
     agentError,
     agentErrors,
     typingUsers,
+    observerAnalyzing,
+    observerErrors,
+    setObserverAnalyzing,
+    setObserverErrorKind,
+    clearObserverError,
     addTyping,
     removeTyping,
     joinPresence,

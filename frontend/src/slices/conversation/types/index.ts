@@ -19,9 +19,45 @@ export interface Chatroom {
   guest_token: string
   version: number
   created_at: string
+  created_by_user_id: string | null
+  disclose_observers: boolean
+  // "You are notified that observers are enabled" — false whenever disclosure
+  // is off, regardless of actual bindings (R28.09).
+  observers_present: boolean
 }
 
 export type SenderType = 'user' | 'agent' | 'system'
+
+// R28.01 — binding role. `role` is present on bound-agent rows only for the
+// room creator (R28.10); everyone else receives a shape identical to the
+// pre-observer API.
+export type ChatroomAgentRole = 'normal' | 'observer'
+
+export type ReleaseTarget =
+  | { kind: 'room'; message_id?: string }
+  | { kind: 'agents'; agent_ids: string[]; woken: boolean }
+
+// R28.03 — observer output. Never a Message; delivered creator-only.
+export interface Observation {
+  id: string
+  chatroom_id: string
+  agent_id: string
+  content_md: string
+  metadata: Record<string, unknown>
+  trigger: 'every_n_messages' | 'silence_minutes' | string
+  trigger_message_id: string | null
+  released_at: string | null
+  release_target: ReleaseTarget | null
+  released_by_user_id: string | null
+  created_at: string | null
+}
+
+// R28.13 — creator-only events on the /user/{id} channel.
+export type ObservationEventType =
+  | 'observation.started'
+  | 'observation.created'
+  | 'observation.failed'
+  | 'observation.released'
 
 // One retrieved RAG chunk cited on an agent reply. Lives in
 // `Message.metadata.rag_sources` (populated by the backend turn engine).

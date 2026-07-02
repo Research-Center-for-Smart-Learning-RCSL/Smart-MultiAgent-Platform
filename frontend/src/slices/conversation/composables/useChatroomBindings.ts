@@ -11,16 +11,19 @@ import {
   listChatroomAgents,
   listProjectAgents,
   removeChatroomAgent,
+  setChatroomAgentRole,
 } from '../api'
 import { patchAgentWakeupConfig, toEditableWakeup } from '@slices/workflow'
 import type { WakeupConfig } from '@shared/types/workflow'
 import type { Agent } from '@slices/agents'
-import type { Chatroom } from '../types'
+import type { Chatroom, ChatroomAgentRole } from '../types'
 
 export interface BoundAgent {
   id: string
   name?: string
   wakeup_config?: WakeupConfig
+  // Present only when the caller is the room creator (R28.10).
+  role?: ChatroomAgentRole
 }
 
 export function useChatroomBindings(
@@ -33,7 +36,10 @@ export function useChatroomBindings(
 
   const projectAgents = ref<Agent[]>([])
   const boundAgentIds = ref<string[]>([])
+  // agent_id → role, populated only for the creator (server omits it otherwise).
+  const boundRoles = ref<Record<string, ChatroomAgentRole | undefined>>({})
   const selectedAgentId = ref('')
+  const selectedRole = ref<ChatroomAgentRole>('normal')
   const bindingBusy = ref(false)
   const bindingError = ref<string | null>(null)
 
@@ -45,6 +51,7 @@ export function useChatroomBindings(
         id: a.id,
         name: a.name,
         wakeup_config: toEditableWakeup(a.wakeup_config),
+        role: boundRoles.value[a.id],
       })),
   )
 
@@ -67,12 +74,13 @@ export function useChatroomBindings(
     bindingError.value = null
     try {
       const ws = await getWorkspace(room.workspace_id)
-      const [agents, boundIds] = await Promise.all([
+      const [agents, bound] = await Promise.all([
         listProjectAgents(ws.project_id),
         listChatroomAgents(chatroomId),
       ])
       projectAgents.value = agents
-      boundAgentIds.value = boundIds
+      boundAgentIds.value = bound.map((b) => b.agent_id)
+      boundRoles.value = Object.fromEntries(bound.map((b) => [b.agent_id, b.role]))
     } catch {
       bindingError.value = 'conversation.settings.bindingsLoadFailed'
     }
@@ -83,11 +91,30 @@ export function useChatroomBindings(
     bindingBusy.value = true
     bindingError.value = null
     try {
-      await addChatroomAgent(chatroomId, selectedAgentId.value)
+      await addChatroomAgent(
+        chatroomId,
+        selectedAgentId.value,
+        selectedRole.value === 'observer' ? 'observer' : undefined,
+      )
       selectedAgentId.value = ''
+      selectedRole.value = 'normal'
       await loadBindings()
     } catch {
       bindingError.value = 'conversation.settings.bindFailed'
+    } finally {
+      bindingBusy.value = false
+    }
+  }
+
+  async function onSetRole(agentId: string, role: ChatroomAgentRole): Promise<void> {
+    if (bindingBusy.value || boundRoles.value[agentId] === role) return
+    bindingBusy.value = true
+    bindingError.value = null
+    try {
+      await setChatroomAgentRole(chatroomId, agentId, role)
+      await loadBindings()
+    } catch {
+      bindingError.value = 'conversation.settings.roleChangeFailed'
     } finally {
       bindingBusy.value = false
     }
@@ -148,6 +175,7 @@ export function useChatroomBindings(
     projectAgents,
     boundAgentIds,
     selectedAgentId,
+    selectedRole,
     bindingBusy,
     bindingError,
     boundAgents,
@@ -156,6 +184,7 @@ export function useChatroomBindings(
     loadBindings,
     onAddAgent,
     onRemoveAgent,
+    onSetRole,
     saveWakeupConfig,
   }
 }
