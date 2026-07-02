@@ -1136,6 +1136,8 @@ class TurnEngine:
         context_limit: int,
         models: dict[str, str],
     ) -> list[tx.HistoryMessage]:
+        from shared_kernel.realtime.distributed_lock import distributed_lock
+
         history = await tx.load_model_history(self._db, chatroom_id=chatroom_id)
         projected = sum(h.token_count for h in history)
         # A POST /compact sets a one-shot flag (G.10); honour it regardless of
@@ -1152,36 +1154,49 @@ class TurnEngine:
             cap = agent.context_token_cap
         else:
             return history
-        summariser = RouterSummariser(
-            router=self._router,
-            key_group_id=agent.key_group_id,
-            models=models,
-            agent_id=agent.id,
-        )
-        store = tx.MessagesTranscriptStore(self._db, chatroom_id=chatroom_id)
-        try:
-            did = await ctxmod.run_compact(
-                # HistoryMessage structurally satisfies MessageLike; the cast
-                # bridges frozen-dataclass attrs vs the Protocol's writable ones.
-                messages=cast("list[ctxmod.MessageLike]", history),
-                projected_tokens=projected,
-                context_token_cap=cap,
-                provider_context_limit=context_limit,
-                summariser=summariser,
-                store=store,
-            )
-        except ctxmod.CompactFailed as exc:
-            # R9.11 — keep the un-compacted history and audit; do not fail the turn.
-            _log.warning("compaction failed agent=%s: %s", agent.id, exc)
-            await self._audit(agent, chatroom_id, "agent.compact_failed", {"error": str(exc)})
-            return history
-        if not did:
-            # Compaction was a no-op — restore the one-shot flag that
-            # _consume_compact_flag removed via GETDEL so a subsequent
-            # turn can retry (the user's POST /compact intent is preserved).
+        # FIX-11: room-scoped lock prevents duplicate summaries when two agents'
+        # turns in the same room both cross the cap concurrently.
+        async with distributed_lock(f"compact:lock:{chatroom_id}", ttl_s=300) as acquired:
+            if not acquired:
+                if forced:
+                    await self._restore_compact_flag(chatroom_id)
+                return history
+            # Re-check staleness: another turn may have compacted while we waited.
+            history = await tx.load_model_history(self._db, chatroom_id=chatroom_id)
+            projected = sum(h.token_count for h in history)
             if forced:
-                await self._restore_compact_flag(chatroom_id)
-            return history
+                cap = max(1, projected // 2)
+            elif not ctxmod.should_compact(
+                mode="compact",
+                projected_tokens=projected,
+                context_token_cap=agent.context_token_cap,
+                provider_context_limit=context_limit,
+            ):
+                return history
+            summariser = RouterSummariser(
+                router=self._router,
+                key_group_id=agent.key_group_id,
+                models=models,
+                agent_id=agent.id,
+            )
+            store = tx.MessagesTranscriptStore(self._db, chatroom_id=chatroom_id)
+            try:
+                did = await ctxmod.run_compact(
+                    messages=cast("list[ctxmod.MessageLike]", history),
+                    projected_tokens=projected,
+                    context_token_cap=cap,
+                    provider_context_limit=context_limit,
+                    summariser=summariser,
+                    store=store,
+                )
+            except ctxmod.CompactFailed as exc:
+                _log.warning("compaction failed agent=%s: %s", agent.id, exc)
+                await self._audit(agent, chatroom_id, "agent.compact_failed", {"error": str(exc)})
+                return history
+            if not did:
+                if forced:
+                    await self._restore_compact_flag(chatroom_id)
+                return history
         # Reload so the summary replaces the folded range.
         reloaded = await tx.load_model_history(self._db, chatroom_id=chatroom_id)
         await self._audit(
