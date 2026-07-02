@@ -22,6 +22,7 @@ from contexts.agents.application.agent_service import (
 from contexts.agents.domain.errors import (
     AgentCapExceeded,
     AgentNotFound,
+    GraphRagBuilderKeyGroupConflict,
     GraphRagConfigOutOfProject,
     KeyGroupOutOfProject,
     RagConfigOutOfProject,
@@ -321,6 +322,28 @@ class TestCreate:
                 actor_ip=None,
             )
 
+    @patch("contexts.agents.application.agent_service.audit.emit", new_callable=AsyncMock)
+    async def test_graphrag_builder_key_group_conflict_raises_on_create(self, _audit) -> None:
+        agents = AsyncMock()
+        agents.count_active.return_value = 0
+        keys = AsyncMock()
+        keys.get_key_group.return_value = MagicMock(project_id=_PROJECT_ID)
+        keys.has_carried_provider_in_group.return_value = True
+        knowledge = AsyncMock()
+        # Builder key group matches the draft's own key_group_id (_KEY_GROUP_ID).
+        knowledge.get_graphrag_config.return_value = MagicMock(
+            project_id=_PROJECT_ID, builder_key_group_id=_KEY_GROUP_ID
+        )
+        svc = _make_service(agent_repo=agents, keys_facade=keys, knowledge_facade=knowledge)
+
+        with pytest.raises(GraphRagBuilderKeyGroupConflict):
+            await svc.create(
+                project_id=_PROJECT_ID,
+                draft=_make_draft(graphrag_config_id=uuid.uuid4()),
+                actor_user_id=_USER_ID,
+                actor_ip=None,
+            )
+
 
 # ---------------------------------------------------------------------------
 # get + list
@@ -462,6 +485,107 @@ class TestPatch:
         call_values = agents.patch.call_args.kwargs["values"]
         assert call_values["rag_config_id"] is None
 
+    @patch("contexts.agents.application.agent_service.audit.emit", new_callable=AsyncMock)
+    async def test_patch_key_group_conflicts_with_existing_graphrag_builder(self, _audit) -> None:
+        # R11.01 reverse direction: the agent already has a GraphRAG config
+        # attached, and this patch tries to move the agent's own key_group_id
+        # onto that config's builder_key_group_id.
+        shared_kg = uuid.uuid4()
+        current = _make_agent(graphrag_config_id=uuid.uuid4())
+        agents = AsyncMock()
+        agents.get.return_value = current
+        keys = AsyncMock()
+        keys.get_key_group.return_value = MagicMock(project_id=_PROJECT_ID)
+        keys.has_carried_provider_in_group.return_value = True
+        knowledge = AsyncMock()
+        knowledge.get_graphrag_config.return_value = MagicMock(
+            project_id=_PROJECT_ID, builder_key_group_id=shared_kg
+        )
+        svc = _make_service(agent_repo=agents, keys_facade=keys, knowledge_facade=knowledge)
+
+        with pytest.raises(GraphRagBuilderKeyGroupConflict):
+            await svc.patch(
+                agent_id=current.id,
+                draft=AgentDraft(key_group_id=shared_kg),
+                expected_version=1,
+                actor_user_id=_USER_ID,
+                actor_ip=None,
+            )
+
+    @patch("contexts.agents.application.agent_service.audit.emit", new_callable=AsyncMock)
+    async def test_patch_key_group_distinct_from_graphrag_builder_allowed(self, _audit) -> None:
+        current = _make_agent(graphrag_config_id=uuid.uuid4())
+        updated = _make_agent(graphrag_config_id=current.graphrag_config_id, version=2)
+        agents = AsyncMock()
+        agents.get.return_value = current
+        agents.patch.return_value = updated
+        keys = AsyncMock()
+        keys.get_key_group.return_value = MagicMock(project_id=_PROJECT_ID)
+        keys.has_carried_provider_in_group.return_value = True
+        knowledge = AsyncMock()
+        knowledge.get_graphrag_config.return_value = MagicMock(
+            project_id=_PROJECT_ID, builder_key_group_id=uuid.uuid4()
+        )
+        svc = _make_service(agent_repo=agents, keys_facade=keys, knowledge_facade=knowledge)
+
+        result = await svc.patch(
+            agent_id=current.id,
+            draft=AgentDraft(key_group_id=uuid.uuid4()),
+            expected_version=1,
+            actor_user_id=_USER_ID,
+            actor_ip=None,
+        )
+
+        assert result.version == 2
+
+    @patch("contexts.agents.application.agent_service.audit.emit", new_callable=AsyncMock)
+    async def test_patch_key_group_unaffected_by_soft_deleted_graphrag_config(self, _audit) -> None:
+        # Regression: the agent's graphrag_config_id points at a config that
+        # was soft-deleted (no cascade clears the agent's reference). An
+        # unrelated key_group_id-only patch must still succeed instead of
+        # 404ing on the dangling reference.
+        current = _make_agent(graphrag_config_id=uuid.uuid4())
+        updated = _make_agent(graphrag_config_id=current.graphrag_config_id, version=2)
+        agents = AsyncMock()
+        agents.get.return_value = current
+        agents.patch.return_value = updated
+        keys = AsyncMock()
+        keys.get_key_group.return_value = MagicMock(project_id=_PROJECT_ID)
+        keys.has_carried_provider_in_group.return_value = True
+        knowledge = AsyncMock()
+        knowledge.get_graphrag_config.return_value = None  # soft-deleted / gone
+        svc = _make_service(agent_repo=agents, keys_facade=keys, knowledge_facade=knowledge)
+
+        result = await svc.patch(
+            agent_id=current.id,
+            draft=AgentDraft(key_group_id=uuid.uuid4()),
+            expected_version=1,
+            actor_user_id=_USER_ID,
+            actor_ip=None,
+        )
+
+        assert result.version == 2
+
+    @patch("contexts.agents.application.agent_service.audit.emit", new_callable=AsyncMock)
+    async def test_patch_explicit_graphrag_attach_of_missing_config_still_rejected(self, _audit) -> None:
+        # require_exists must stay True for an explicit attach -- only the
+        # implicit recheck of an untouched, already-attached config relaxes.
+        current = _make_agent()
+        agents = AsyncMock()
+        agents.get.return_value = current
+        knowledge = AsyncMock()
+        knowledge.get_graphrag_config.return_value = None
+        svc = _make_service(agent_repo=agents, knowledge_facade=knowledge)
+
+        with pytest.raises(GraphRagConfigOutOfProject):
+            await svc.patch(
+                agent_id=current.id,
+                draft=AgentDraft(graphrag_config_id=uuid.uuid4()),
+                expected_version=1,
+                actor_user_id=_USER_ID,
+                actor_ip=None,
+            )
+
 
 # ---------------------------------------------------------------------------
 # soft_delete
@@ -506,9 +630,7 @@ class TestValidateMcpConfig:
 
     def test_rejects_bad_source(self) -> None:
         with pytest.raises(ValueError, match="source"):
-            _validate_mcp_config(
-                {"source": "ftp", "reference": "https://x", "allowed_tools": ["a"]}
-            )
+            _validate_mcp_config({"source": "ftp", "reference": "https://x", "allowed_tools": ["a"]})
 
     def test_rejects_missing_reference(self) -> None:
         with pytest.raises(ValueError, match="reference"):
@@ -517,15 +639,11 @@ class TestValidateMcpConfig:
     def test_rejects_empty_allowed_tools(self) -> None:
         # H2: an empty allowlist yields zero runtime tools and must be rejected.
         with pytest.raises(ValueError, match="allowed_tools"):
-            _validate_mcp_config(
-                {"source": "url", "reference": "https://x", "allowed_tools": []}
-            )
+            _validate_mcp_config({"source": "url", "reference": "https://x", "allowed_tools": []})
 
     def test_rejects_blank_allowed_tool_entry(self) -> None:
         with pytest.raises(ValueError, match="allowed_tools"):
-            _validate_mcp_config(
-                {"source": "url", "reference": "https://x", "allowed_tools": [""]}
-            )
+            _validate_mcp_config({"source": "url", "reference": "https://x", "allowed_tools": [""]})
 
 
 # ---------------------------------------------------------------------------

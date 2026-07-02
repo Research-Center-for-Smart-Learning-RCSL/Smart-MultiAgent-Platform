@@ -43,6 +43,11 @@ _MAP: ErrorMap = {
         404,
         "GraphRAG config not found",
     ),
+    errors.GraphRagBuilderKeyGroupConflict: (
+        "agents/graphrag-builder-key-group-conflict",
+        422,
+        "Key Group must differ from the attached GraphRAG config's builder key group",
+    ),
     errors.A2AForbidden: ("a2a-forbidden", 403, "A2A call forbidden"),
     errors.McpBindingNotFound: (
         "agents/mcp-binding-not-found",
