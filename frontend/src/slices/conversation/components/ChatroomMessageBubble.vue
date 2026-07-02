@@ -1,7 +1,26 @@
 <template>
+  <!-- Released observation (SRS §28): a creator-published analysis. Full-width
+       flat card, attributed to the room owner, not a chat bubble. -->
+  <li
+    v-if="isReleasedObservation"
+    :id="`msg-${message.id}`"
+    class="released"
+    :class="{ 'msg--flash': flash }"
+  >
+    <p class="released__head">
+      {{ releasedHeader }}
+    </p>
+    <!-- Rendered via renderMarkdown() → DOMPurify (same contract as bubbles). -->
+    <!-- eslint-disable-next-line vue/no-v-html -->
+    <div
+      class="released__body"
+      v-html="html"
+    />
+  </li>
+
   <!-- System messages: centered, compact, no bubble. -->
   <li
-    v-if="message.sender_type === 'system'"
+    v-else-if="message.sender_type === 'system'"
     :id="`msg-${message.id}`"
     class="sys"
     :class="{ 'msg--flash': flash }"
@@ -246,6 +265,23 @@ const emit = defineEmits<{
 const isAgent = computed(() => props.message.sender_type === 'agent')
 const time = computed(() => formatTime(props.message.created_at))
 const { t } = useI18n()
+
+// A creator-released observation (R28.06): a system message tagged in metadata.
+// Metadata is untyped at runtime — guard defensively so a drifted entry falls
+// back to the plain system divider instead of throwing.
+const isReleasedObservation = computed(
+  () =>
+    props.message.sender_type === 'system' &&
+    props.message.metadata?.type === 'released_observation',
+)
+const releasedHeader = computed(() => {
+  const observer = props.message.metadata?.observer_agent_id
+  // Observer name is present only when the room disclosed observers at release
+  // time (R28.09); otherwise attribute to the owner alone.
+  return typeof observer === 'string' && observer
+    ? t('conversation.observers.releasedByOwnerNamed', { name: observer.slice(0, 8) })
+    : t('conversation.observers.releasedByOwner')
+})
 
 // RAG citations the backend attached to this agent reply (R10.09).
 const ragSources = computed<RagSource[]>(() => {
@@ -520,5 +556,28 @@ function isImage(mime: string): boolean {
   font-size: 12px;
   font-style: italic;
   color: var(--color-muted);
+}
+
+.released {
+  margin: 12px 0;
+  padding: 12px 14px;
+  border: 1px solid var(--color-border);
+  border-left: 3px solid var(--color-accent);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  list-style: none;
+}
+
+.released__head {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-muted);
+  margin: 0 0 6px;
+}
+
+.released__body {
+  font-size: 14px;
+  color: var(--color-fg);
+  overflow-wrap: anywhere;
 }
 </style>

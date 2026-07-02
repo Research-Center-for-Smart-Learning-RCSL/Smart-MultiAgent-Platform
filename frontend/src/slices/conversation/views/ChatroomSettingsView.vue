@@ -21,10 +21,14 @@ import {
   SDivider,
 } from '@shared/ui'
 import { useToast, useConfirmDialog } from '@shared/composables'
+import { useSessionStore } from '@shared/stores/session'
+import { tenancyKeys, projectsApi } from '@slices/tenancy'
+import { useQuery } from '@tanstack/vue-query'
 import { INPUT_LIMITS } from '@shared/constants/inputLimits'
 import {
   compactChatroom,
   getGuestLink,
+  getWorkspace,
   listChatrooms,
 } from '../api'
 import { DlqViewer, WakeupConfigEditor } from '@slices/workflow'
@@ -52,6 +56,7 @@ const {
   saveError,
   loadRoom: loadRoomBase,
   onSave,
+  saveDisclosure,
   onDelete,
 } = useChatroomSettings(chatroomId)
 
@@ -59,6 +64,7 @@ const {
 
 const {
   selectedAgentId,
+  selectedRole,
   bindingBusy,
   bindingError,
   boundAgents,
@@ -67,8 +73,52 @@ const {
   loadBindings,
   onAddAgent,
   onRemoveAgent,
+  onSetRole,
   saveWakeupConfig,
 } = useChatroomBindings(chatroomId, () => room.value)
+
+// ---- creator gate (R28.02 mirror; server is authoritative) ----------------
+
+const session = useSessionStore()
+const projectId = ref<string | undefined>(undefined)
+watchEffect(async () => {
+  const r = room.value
+  if (r && !projectId.value) {
+    try {
+      projectId.value = (await getWorkspace(r.workspace_id)).project_id
+    } catch {
+      /* leave undefined — creator gate stays closed, which is safe */
+    }
+  }
+})
+
+const membersQuery = useQuery({
+  queryKey: computed(() => tenancyKeys.projectMembers(projectId.value ?? '')),
+  queryFn: () => projectsApi.listMembers(projectId.value!).then((r) => r.data),
+  enabled: computed(() => !!projectId.value && room.value?.created_by_user_id === null),
+})
+
+const isCreator = computed<boolean>(() => {
+  const me = session.me
+  const r = room.value
+  if (!me || !r) return false
+  if (me.is_admin) return true
+  if (r.created_by_user_id !== null) return r.created_by_user_id === me.id
+  const membership = membersQuery.data.value?.find((m) => m.user_id === me.id)
+  return membership?.role === 'owner'
+})
+
+const roleOptions = computed(() => [
+  { value: 'normal', label: t('conversation.observers.roleParticipant') },
+  { value: 'observer', label: t('conversation.observers.roleObserver') },
+])
+
+// Show the guest-observer callout only when a guest link is open, observers
+// exist, and disclosure is off (external guests observed without notice).
+const hasObserver = computed(() => boundAgents.value.some((a) => a.role === 'observer'))
+const showGuestObserverCallout = computed(
+  () => flags.allow_guest_links && hasObserver.value && !flags.disclose_observers,
+)
 
 // ---- derived state --------------------------------------------------------
 
@@ -336,6 +386,36 @@ watchEffect(() => {
               @update:model-value="(v) => setFlag('allow_guest_links', v)"
             />
           </div>
+
+          <!-- Observer disclosure: creator-only (R28.09). -->
+          <div
+            v-if="isCreator"
+            class="access-row"
+          >
+            <div class="access-row__text">
+              <p class="access-row__label">
+                {{ t('conversation.observers.discloseLabel') }}
+              </p>
+              <p class="access-row__desc">
+                {{ flags.disclose_observers
+                  ? t('conversation.observers.discloseOnHelp')
+                  : t('conversation.observers.discloseOffHelp') }}
+              </p>
+            </div>
+            <SToggle
+              :model-value="flags.disclose_observers"
+              :disabled="saving"
+              @update:model-value="(v) => saveDisclosure(v)"
+            />
+          </div>
+
+          <SAlert
+            v-if="showGuestObserverCallout"
+            variant="warning"
+            class="mt-2"
+          >
+            {{ t('conversation.observers.guestObserverCallout') }}
+          </SAlert>
         </SCard>
 
         <!-- Guest Link -->
@@ -382,6 +462,13 @@ watchEffect(() => {
               :disabled="bindingBusy || !agentOptions.length"
               class="agent-add__select"
             />
+            <SSelect
+              v-if="isCreator"
+              v-model="selectedRole"
+              :options="roleOptions"
+              :disabled="bindingBusy"
+              class="agent-add__role"
+            />
             <SButton
               type="submit"
               variant="primary"
@@ -415,15 +502,31 @@ watchEffect(() => {
               <p class="agent-head__name">
                 {{ agent.name ?? agent.id.slice(0, 8) }}
               </p>
-              <SButton
-                variant="danger"
-                size="sm"
-                :disabled="bindingBusy"
-                @click="onRemoveAgent(agent.id)"
-              >
-                {{ t('conversation.settings.removeAgent') }}
-              </SButton>
+              <div class="agent-head__actions">
+                <SSelect
+                  v-if="isCreator"
+                  :model-value="agent.role ?? 'normal'"
+                  :options="roleOptions"
+                  size="sm"
+                  :disabled="bindingBusy"
+                  @update:model-value="(v) => onSetRole(agent.id, v as 'normal' | 'observer')"
+                />
+                <SButton
+                  variant="danger"
+                  size="sm"
+                  :disabled="bindingBusy"
+                  @click="onRemoveAgent(agent.id)"
+                >
+                  {{ t('conversation.settings.removeAgent') }}
+                </SButton>
+              </div>
             </div>
+            <p
+              v-if="agent.role === 'observer'"
+              class="access-row__desc agent-observer-note"
+            >
+              {{ t('conversation.observers.observerRoleHelp') }}
+            </p>
             <WakeupConfigEditor
               v-if="agent.wakeup_config"
               :model-value="agent.wakeup_config"
@@ -609,6 +712,20 @@ watchEffect(() => {
 
 .agent-head__name--muted {
   color: var(--color-muted);
+}
+
+.agent-head__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.agent-add__role {
+  min-width: 130px;
+}
+
+.agent-observer-note {
+  margin-bottom: 8px;
 }
 
 .danger-zone {

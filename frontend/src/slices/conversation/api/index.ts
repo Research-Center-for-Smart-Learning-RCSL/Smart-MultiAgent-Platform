@@ -7,8 +7,10 @@ import type {
   Attachment,
   AttachmentDownload,
   Chatroom,
+  ChatroomAgentRole,
   ExportStatus,
   Message,
+  Observation,
   SearchResponse,
   Workspace,
 } from '../types'
@@ -101,11 +103,20 @@ export async function listProjectAgents(projectId: string): Promise<Agent[]> {
   return data
 }
 
-export async function listChatroomAgents(chatroomId: string): Promise<string[]> {
-  const { data } = await http.get<{ agent_id: string }[]>(
+// `role` is present only for the room creator (R28.10) — never default it
+// client-side; its absence means "you are not told".
+export interface BoundAgentRef {
+  agent_id: string
+  role?: ChatroomAgentRole
+}
+
+export async function listChatroomAgents(
+  chatroomId: string,
+): Promise<BoundAgentRef[]> {
+  const { data } = await http.get<BoundAgentRef[]>(
     `/chatrooms/${chatroomId}/agents`,
   )
-  return data.map((r) => r.agent_id)
+  return data
 }
 
 // Human participants (message authors + guests) with their resolved display
@@ -128,8 +139,20 @@ export async function listChatroomMembers(
 export async function addChatroomAgent(
   chatroomId: string,
   agentId: string,
+  role?: ChatroomAgentRole,
 ): Promise<void> {
-  await http.post(`/chatrooms/${chatroomId}/agents`, { agent_id: agentId })
+  await http.post(`/chatrooms/${chatroomId}/agents`, {
+    agent_id: agentId,
+    ...(role ? { role } : {}),
+  })
+}
+
+export async function setChatroomAgentRole(
+  chatroomId: string,
+  agentId: string,
+  role: ChatroomAgentRole,
+): Promise<void> {
+  await http.patch(`/chatrooms/${chatroomId}/agents/${agentId}`, { role })
 }
 
 export async function removeChatroomAgent(
@@ -137,6 +160,42 @@ export async function removeChatroomAgent(
   agentId: string,
 ): Promise<void> {
   await http.delete(`/chatrooms/${chatroomId}/agents/${agentId}`)
+}
+
+// ---- observations (creator-only, R28.03) -----------------------------------
+
+export async function listObservations(
+  chatroomId: string,
+  params: { before?: string; limit?: number } = {},
+): Promise<Observation[]> {
+  const { data } = await http.get<Observation[]>(
+    `/chatrooms/${chatroomId}/observations`,
+    { params },
+  )
+  return data
+}
+
+export type ReleaseBody =
+  | { target: 'room'; content_override?: string }
+  | { target: 'agents'; agent_ids: string[]; wake: boolean; content_override?: string }
+
+export async function releaseObservation(
+  chatroomId: string,
+  observationId: string,
+  body: ReleaseBody,
+): Promise<Observation> {
+  const { data } = await http.post<Observation>(
+    `/chatrooms/${chatroomId}/observations/${observationId}/release`,
+    body,
+  )
+  return data
+}
+
+export async function deleteObservation(
+  chatroomId: string,
+  observationId: string,
+): Promise<void> {
+  await http.delete(`/chatrooms/${chatroomId}/observations/${observationId}`)
 }
 
 // ---- messages ------------------------------------------------------------

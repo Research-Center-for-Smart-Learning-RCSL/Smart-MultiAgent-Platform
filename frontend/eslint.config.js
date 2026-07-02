@@ -228,6 +228,9 @@ export default [
       'src/slices/conversation/components/ChatroomMessageBubble.vue',
       'src/slices/conversation/components/ChatroomStreamingBubble.vue',
       'src/slices/conversation/components/ChatroomSearchPanel.vue',
+      // Observer analyses (SRS §28) render through the same renderMarkdown()
+      // → DOMPurify pipeline; same single-sanitiser contract.
+      'src/slices/conversation/components/ObservationCard.vue',
     ],
     rules: {
       'vue/no-v-html': 'off',
