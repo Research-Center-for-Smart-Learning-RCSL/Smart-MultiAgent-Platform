@@ -72,8 +72,10 @@ def _wire_locked(
         def __init__(self, db) -> None:
             pass
 
-        async def is_registered(self, *, chatroom_id, agent_id):
-            return bound
+        async def role_of(self, *, chatroom_id, agent_id):
+            from contexts.conversation.domain.models import ChatroomAgentRole
+
+            return ChatroomAgentRole.NORMAL if bound else None
 
     monkeypatch.setattr(te, "ChatroomAgentRepository", _ChatroomAgentRepo)
 
