@@ -23,13 +23,20 @@ import contexts.orchestration.interfaces.facade as facade_mod
 # --------------------------------------------------------------------------- #
 
 
-def _fake_agent_repo(agent_ids):
+def _fake_agent_repo(agent_ids, roles=None):
+    from contexts.conversation.domain.models import ChatroomAgentRole
+
+    role_by_id = roles or {}
+
     class _Repo:
         def __init__(self, db) -> None:
             self._db = db
 
         async def list(self, chatroom_id):
-            return [SimpleNamespace(agent_id=a) for a in agent_ids]
+            return [
+                SimpleNamespace(agent_id=a, role=role_by_id.get(a, ChatroomAgentRole.NORMAL))
+                for a in agent_ids
+            ]
 
     return _Repo
 
@@ -92,6 +99,27 @@ async def test_filter_mentioned_bound_agents_keeps_only_bound(monkeypatch) -> No
     )
     # Unbound dropped, duplicates collapsed, mention order preserved.
     assert out == [a2, a1]
+
+
+@pytest.mark.asyncio
+async def test_filter_mentioned_bound_agents_drops_observers(monkeypatch) -> None:
+    """R28.04 — a smuggled observer id gets the same silent drop as an unbound
+    id, so mentions cannot be used as an observer-existence oracle."""
+    from contexts.conversation.domain.models import ChatroomAgentRole
+
+    normal, observer = uuid.uuid4(), uuid.uuid4()
+    monkeypatch.setattr(
+        triggers,
+        "ChatroomAgentRepository",
+        _fake_agent_repo([normal, observer], roles={observer: ChatroomAgentRole.OBSERVER}),
+    )
+
+    out = await triggers.filter_mentioned_bound_agents(
+        object(),
+        chatroom_id=uuid.uuid4(),
+        mention_agent_ids=[observer, normal],
+    )
+    assert out == [normal]
 
 
 @pytest.mark.asyncio
@@ -319,6 +347,24 @@ async def test_wakeup_agent_mention_bypasses_autostop(monkeypatch) -> None:
 
     assert out == "completed"
     assert rec["run_turn"] == [(aid, rid, "mention", None)]
+
+
+@pytest.mark.asyncio
+async def test_wakeup_agent_release_bypasses_autostop(monkeypatch) -> None:
+    # R28.07 — a creator-released observation with wake=true is an explicit
+    # call, same shape as a mention: it must run even after autostop tripped.
+    aid, rid = uuid.uuid4(), uuid.uuid4()
+    rec = _patch_task_env(
+        monkeypatch,
+        room=SimpleNamespace(id=rid),
+        agent=_agent(autostop_rounds=3),
+        autostop_count=5,
+        turn_status="completed",
+    )
+    out = await orch_task.wakeup_agent({}, str(aid), str(rid), "release")
+
+    assert out == "completed"
+    assert rec["run_turn"] == [(aid, rid, "release", None)]
 
 
 @pytest.mark.asyncio

@@ -25,15 +25,32 @@ class _BoomRepo:
 
 
 @pytest.mark.asyncio
-async def test_filter_mentioned_bound_agents_uses_provided_binding(monkeypatch) -> None:
+async def test_filter_mentioned_bound_agents_narrows_with_provided_binding(monkeypatch) -> None:
+    """The caller-supplied binding still narrows the candidate set, but the
+    role-aware fetch is unconditional (R28.04) — the fake repo below IS
+    queried; only ids present in both survive."""
+    from types import SimpleNamespace
+
+    from contexts.conversation.domain.models import ChatroomAgentRole
+
     a1, a2 = uuid.uuid4(), uuid.uuid4()
-    monkeypatch.setattr(triggers, "ChatroomAgentRepository", _BoomRepo)
+
+    class _RoleRepo:
+        def __init__(self, db) -> None:
+            pass
+
+        async def list(self, chatroom_id):
+            return [
+                SimpleNamespace(agent_id=a, role=ChatroomAgentRole.NORMAL) for a in (a1, a2)
+            ]
+
+    monkeypatch.setattr(triggers, "ChatroomAgentRepository", _RoleRepo)
 
     out = await triggers.filter_mentioned_bound_agents(
         object(),
         chatroom_id=uuid.uuid4(),
         mention_agent_ids=[a1, a2],
-        bound_agent_ids=[a1],  # shared fetch — a2 is not bound
+        bound_agent_ids=[a1],  # shared fetch — a2 is not in the narrowed set
     )
     assert out == [a1]
 
