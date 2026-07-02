@@ -51,7 +51,7 @@ async def mark_call_cancelled(correlation_id: uuid.UUID) -> None:
 
 async def is_call_cancelled(correlation_id: uuid.UUID) -> bool:
     """Check whether the caller has timed out and cancelled this CALL."""
-    return await get_redis().get(_cancel_key(correlation_id)) == b"1"
+    return await get_redis().get(_cancel_key(correlation_id)) == "1"
 
 
 async def register_expected_responder(correlation_id: uuid.UUID, responder_agent_id: uuid.UUID) -> None:
