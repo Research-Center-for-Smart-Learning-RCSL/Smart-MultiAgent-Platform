@@ -47,7 +47,7 @@ async def test_evaluate_message_wakeups_uses_provided_binding(monkeypatch) -> No
         def __init__(self, db) -> None:
             pass
 
-        async def on_message_created(self, *, room_id, sender_is_user, agent_ids):
+        async def on_message_created(self, *, room_id, sender_is_user, sender_agent_id=None, agent_ids):
             return list(agent_ids)
 
     monkeypatch.setattr(facade_mod, "OrchestrationFacade", _Facade)

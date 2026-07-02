@@ -276,7 +276,9 @@ async def test_try_resolve_second_resolution_noops(monkeypatch) -> None:
     )
     svc, effects = _service(monkeypatch, approval=approval, votes=[vote], cas_wins=False)
 
-    await svc._try_resolve(approval)
+    state = await svc._resolve_state(approval)
+    if state is not None:
+        await svc._emit_resolution_effects(approval, state)
 
     kinds = [e[0] for e in effects]
     assert kinds == ["cas"]  # lost the race: nothing published, nothing enqueued
@@ -295,7 +297,9 @@ async def test_try_resolve_winner_publishes_once(monkeypatch) -> None:
     )
     svc, effects = _service(monkeypatch, approval=approval, votes=[vote], cas_wins=True)
 
-    await svc._try_resolve(approval)
+    state = await svc._resolve_state(approval)
+    if state is not None:
+        await svc._emit_resolution_effects(approval, state)
 
     assert ("cas", approval.id, ApprovalState.APPROVED) in effects
     assert ("audit", "approval.resolved") in effects
