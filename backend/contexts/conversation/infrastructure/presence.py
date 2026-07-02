@@ -48,22 +48,29 @@ def _conns_key(room_id: uuid.UUID, user_id: uuid.UUID) -> str:
     return f"ws:presence:{room_id}:{user_id}:conns"
 
 
-# Add this connection and report the resulting size in one atomic step, so two
-# concurrent opens for the same user cannot both observe size>1 and neither
-# announce the join (a plain SADD-then-SCARD races across the await boundary).
-_JOIN_LUA = (
+# Per-user conns SET: add/remove a connection and report cardinality atomically.
+_CONN_JOIN_LUA = (
     "redis.call('SADD', KEYS[1], ARGV[1]) "
     "redis.call('EXPIRE', KEYS[1], ARGV[2]) "
     "return redis.call('SCARD', KEYS[1])"
 )
-# Remove this connection and report the remaining size atomically, deleting the
-# key when it hits zero — so two concurrent closes cannot both see size 0 and
-# both fire `presence.left`.
-_LEAVE_LUA = (
+_CONN_LEAVE_LUA = (
     "redis.call('SREM', KEYS[1], ARGV[1]) "
     "local n = redis.call('SCARD', KEYS[1]) "
     "if n == 0 then redis.call('DEL', KEYS[1]) end "
     "return n"
+)
+
+# FIX-03: Room roster mutation + cardinality in one atomic step so concurrent
+# first-joins/last-leaves cannot both miss the transition edge.
+_ROSTER_JOIN_LUA = (
+    "redis.call('SADD', KEYS[1], ARGV[1]) "
+    "redis.call('EXPIRE', KEYS[1], ARGV[2]) "
+    "return redis.call('SCARD', KEYS[1])"
+)
+_ROSTER_LEAVE_LUA = (
+    "redis.call('SREM', KEYS[1], ARGV[1]) "
+    "return redis.call('SCARD', KEYS[1])"
 )
 
 
@@ -74,23 +81,28 @@ class PresenceTracker:
         room_id: uuid.UUID,
         user_id: uuid.UUID,
         connection_id: uuid.UUID,
-    ) -> bool:
-        """Record a connection's presence. Returns True only when this is the
-        user's FIRST live connection in the room (caller publishes
-        `presence.joined` and arms the silence timer in that case); False for a
-        second tab so a multi-tab user is announced once."""
+    ) -> tuple[bool, int]:
+        """Record a connection's presence.
+
+        Returns ``(first_connection_of_user, roster_size_after)``.
+        ``first_connection_of_user`` is True only when this is the user's FIRST
+        live connection in the room; ``roster_size_after`` is the room roster
+        cardinality AFTER the join (atomically read via Lua so exactly one
+        concurrent first-joiner observes ``roster_size_after == 1``).
+        """
         r = get_redis()
         ck = _conns_key(room_id, user_id)
-        size = await r.eval(_JOIN_LUA, 1, ck, str(connection_id), str(_CONN_TTL_SECONDS))
+        size = await r.eval(_CONN_JOIN_LUA, 1, ck, str(connection_id), str(_CONN_TTL_SECONDS))
         first = int(size) == 1
-        # Independent roster/back-reference writes — pipeline to one round trip.
+        rk = _room_key(room_id)
+        roster_size = int(
+            await r.eval(_ROSTER_JOIN_LUA, 1, rk, str(user_id), str(_SET_TTL_SECONDS))
+        )
         pipe = r.pipeline(transaction=False)
-        pipe.sadd(_room_key(room_id), str(user_id))
         pipe.sadd(_user_rooms_key(user_id), str(room_id))
-        pipe.expire(_room_key(room_id), _SET_TTL_SECONDS)
         pipe.expire(_user_rooms_key(user_id), _SET_TTL_SECONDS)
         await pipe.execute()
-        return first
+        return first, roster_size
 
     async def heartbeat(
         self,
@@ -118,20 +130,26 @@ class PresenceTracker:
         room_id: uuid.UUID,
         user_id: uuid.UUID,
         connection_id: uuid.UUID,
-    ) -> bool:
-        """Remove a connection. Returns True only when that was the user's LAST
-        live connection in the room (caller publishes `presence.left` and pauses
-        the silence timer); False while other tabs remain."""
+    ) -> tuple[bool, int]:
+        """Remove a connection.
+
+        Returns ``(last_connection_of_user, roster_size_after)``.
+        ``last_connection_of_user`` is True only when that was the user's LAST
+        live connection in the room; ``roster_size_after`` is the room roster
+        cardinality AFTER the leave (atomically read via Lua so exactly one
+        concurrent last-leaver observes ``0``).
+        """
         r = get_redis()
         ck = _conns_key(room_id, user_id)
-        remaining = await r.eval(_LEAVE_LUA, 1, ck, str(connection_id))
+        remaining = await r.eval(_CONN_LEAVE_LUA, 1, ck, str(connection_id))
         if int(remaining) > 0:
-            return False
+            return False, -1  # -1 sentinel: roster unchanged, caller ignores
+        rk = _room_key(room_id)
+        roster_size = int(await r.eval(_ROSTER_LEAVE_LUA, 1, rk, str(user_id)))
         pipe = r.pipeline(transaction=False)
-        pipe.srem(_room_key(room_id), str(user_id))
         pipe.srem(_user_rooms_key(user_id), str(room_id))
         await pipe.execute()
-        return True
+        return True, roster_size
 
     async def list_room(self, room_id: uuid.UUID) -> list[uuid.UUID]:
         raw = await get_redis().smembers(_room_key(room_id))

@@ -109,7 +109,7 @@ async def ws_chatroom(ws: WebSocket, chatroom_id: uuid.UUID) -> None:
             return False
 
     async def on_open(conn: ChannelConnection) -> None:
-        added = await presence.join(
+        added, roster_size = await presence.join(
             room_id=chatroom_id,
             user_id=conn.principal.user_id,
             connection_id=conn.connection_id,
@@ -119,15 +119,13 @@ async def ws_chatroom(ws: WebSocket, chatroom_id: uuid.UUID) -> None:
                 "presence.joined",
                 {"user_id": str(conn.principal.user_id)},
             )
-            # Only on the empty→occupied transition: start bound agents' silence
-            # timers once (R15.05b). Re-notifying on every joiner would keep
-            # re-touching the timer and could stop a busy room ever going silent.
-            members = await presence.list_room(chatroom_id)
-            if len(members) == 1:
-                await _notify_presence(chatroom_id, has_live_users=True)
+        # FIX-03: atomic Lua guarantees exactly one concurrent first-joiner
+        # observes roster_size == 1, so the transition fires exactly once.
+        if roster_size == 1:
+            await _notify_presence(chatroom_id, has_live_users=True)
 
     async def on_close(conn: ChannelConnection) -> None:
-        left = await presence.leave(
+        left, roster_size = await presence.leave(
             room_id=chatroom_id,
             user_id=conn.principal.user_id,
             connection_id=conn.connection_id,
@@ -137,9 +135,7 @@ async def ws_chatroom(ws: WebSocket, chatroom_id: uuid.UUID) -> None:
                 "presence.left",
                 {"user_id": str(conn.principal.user_id)},
             )
-            # Only on the occupied→empty transition: pause silence timers once.
-            remaining = await presence.list_room(chatroom_id)
-            if not remaining:
+            if roster_size == 0:
                 await _notify_presence(chatroom_id, has_live_users=False)
 
     await connection_loop(
