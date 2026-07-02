@@ -55,6 +55,16 @@ export const useConversationStore = defineStore('conversation', () => {
     presence.value = { ...presence.value, [roomId]: set }
   }
 
+  function setPresence(roomId: string, userIds: string[]): void {
+    presence.value = { ...presence.value, [roomId]: new Set(userIds) }
+  }
+
+  function clearTyping(roomId: string): void {
+    const current = typing.value[roomId]
+    if (!current || current.size === 0) return
+    typing.value = { ...typing.value, [roomId]: new Set<string>() }
+  }
+
   function setAgentThinking(roomId: string, agentId: string, value: boolean): void {
     const set = agentThinking.value[roomId] ?? new Set<string>()
     if (value) {
@@ -166,6 +176,8 @@ export const useConversationStore = defineStore('conversation', () => {
     removeTyping,
     joinPresence,
     leavePresence,
+    setPresence,
+    clearTyping,
     setAgentThinking,
     clearAllAgentThinking,
     isAnyAgentThinking,

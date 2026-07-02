@@ -13,7 +13,7 @@ import { computed, onActivated, onBeforeUnmount, onDeactivated, onMounted, ref }
 import { wsManager, type ChannelEvent } from '@shared/transport'
 import { useOrchestrationStore } from '@shared/stores/orchestration'
 import type { ApprovalWithVotes } from '@shared/types/workflow'
-import { getMessage, listMessages } from '../api'
+import { getChatroomPresence, getMessage, listMessages } from '../api'
 import { useConversationStore } from '../stores/conversation'
 import type { Message } from '../types'
 
@@ -84,6 +84,16 @@ export function useChatroomSocket(roomId: string) {
       if (generation === replayGeneration) {
         qc.invalidateQueries({ queryKey: ['conversation', 'messages', roomId] })
       }
+    }
+  }
+
+  async function resyncPresence(): Promise<void> {
+    try {
+      const ids = await getChatroomPresence(roomId)
+      store.setPresence(roomId, ids)
+      store.clearTyping(roomId)
+    } catch {
+      // best-effort; deltas keep flowing
     }
   }
 
@@ -250,16 +260,12 @@ export function useChatroomSocket(roomId: string) {
         : 'connecting'
     if (isConnected) {
       everConnected = true
-      // The socket is back — the degraded poll (if any) is now redundant.
       stopPolling()
-      // Clear stale thinking state from a prior session: if the agent
-      // finished while we were disconnected (KeepAlive deactivation or
-      // network drop), no agent.finished event was received and the
-      // spinner would stick forever without this reset.
       store.clearAllAgentThinking(roomId)
       store.clearAgentStream(roomId)
       clearThinkingTimeout()
       void replayDelta()
+      void resyncPresence()
     }
   })
 

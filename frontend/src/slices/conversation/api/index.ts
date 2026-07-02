@@ -168,6 +168,13 @@ export async function getMessage(messageId: string): Promise<Message> {
   return data
 }
 
+export async function getChatroomPresence(chatroomId: string): Promise<string[]> {
+  const { data } = await http.get<{ user_ids: string[] }>(
+    `/chatrooms/${chatroomId}/presence`,
+  )
+  return data.user_ids
+}
+
 export async function editMessage(
   messageId: string,
   version: number,
