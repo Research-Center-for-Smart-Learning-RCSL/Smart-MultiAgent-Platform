@@ -71,6 +71,57 @@ function attachment(over: Partial<Attachment>): Attachment {
   }
 }
 
+function systemMessage(metadata: Record<string, unknown>): DisplayMessage {
+  return {
+    id: 's1',
+    chatroom_id: 'c1',
+    sender_type: 'system',
+    sender_id: null,
+    content_md: 'released analysis',
+    metadata,
+    version: 1,
+    created_at: '2026-01-01T00:00:00Z',
+    edited_at: null,
+    deleted_at: null,
+  }
+}
+
+// The test i18n harness echoes keys, so assert on structure + the chosen key.
+describe('ChatroomMessageBubble released observation (R28.06)', () => {
+  it('renders a released observation as an owner-attributed card', async () => {
+    const wrapper = await renderView(ChatroomMessageBubble, {
+      props: {
+        ...baseProps,
+        html: '<p>released analysis</p>',
+        message: systemMessage({ type: 'released_observation' }),
+      },
+    })
+    expect(wrapper.find('.released').exists()).toBe(true)
+    expect(wrapper.find('.released__head').text()).toBe('conversation.observers.releasedByOwner')
+    expect(wrapper.find('.released__body').text()).toContain('released analysis')
+  })
+
+  it('uses the named attribution key only when disclosed (observer_agent_id present)', async () => {
+    const wrapper = await renderView(ChatroomMessageBubble, {
+      props: {
+        ...baseProps,
+        html: '<p>x</p>',
+        message: systemMessage({ type: 'released_observation', observer_agent_id: 'abcdef12' }),
+      },
+    })
+    // Named key selected; interpolation is not exercised under the key-echo harness.
+    expect(wrapper.find('.released__head').text()).toBe('conversation.observers.releasedByOwnerNamed')
+  })
+
+  it('falls back to the plain system divider when metadata is not a released observation', async () => {
+    const wrapper = await renderView(ChatroomMessageBubble, {
+      props: { ...baseProps, html: '<p>x</p>', message: systemMessage({}) },
+    })
+    expect(wrapper.find('.released').exists()).toBe(false)
+    expect(wrapper.find('.sys').exists()).toBe(true)
+  })
+})
+
 describe('ChatroomMessageBubble attachments', () => {
   it('renders an image attachment inline (not as a download chip)', async () => {
     server.use(
