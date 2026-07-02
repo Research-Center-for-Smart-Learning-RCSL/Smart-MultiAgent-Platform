@@ -41,25 +41,34 @@ def _headers(secret: str) -> dict[str, str]:
 
 
 def _translate_messages(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Neutral messages → Anthropic shape (tool_use / tool_result round-trip)."""
+    """Neutral messages → Anthropic shape (tool_use / tool_result round-trip).
+
+    Consecutive tool messages are coalesced into a single user message whose
+    content is the list of tool_result blocks — Anthropic requires all results
+    for one parallel tool-use turn inside one user message.
+    """
     out: list[dict[str, Any]] = []
+    tool_result_buf: list[dict[str, Any]] = []
+
+    def _flush_tool_results() -> None:
+        if not tool_result_buf:
+            return
+        out.append({"role": "user", "content": list(tool_result_buf)})
+        tool_result_buf.clear()
+
     for m in messages:
         role = m.get("role")
         if role == "tool":
-            out.append(
+            tool_result_buf.append(
                 {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "tool_result",
-                            "tool_use_id": m.get("tool_call_id"),
-                            "content": m.get("content", ""),
-                            "is_error": bool(m.get("is_error", False)),
-                        }
-                    ],
+                    "type": "tool_result",
+                    "tool_use_id": m.get("tool_call_id"),
+                    "content": m.get("content", ""),
+                    "is_error": bool(m.get("is_error", False)),
                 }
             )
             continue
+        _flush_tool_results()
         if role == "assistant" and m.get("tool_calls"):
             blocks: list[dict[str, Any]] = []
             if m.get("content"):
@@ -88,6 +97,7 @@ def _translate_messages(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
             # every key in the group via rotation, so drop the message instead.
             continue
         out.append({"role": "assistant" if role == "assistant" else "user", "content": content})
+    _flush_tool_results()
     return out
 
 

@@ -70,6 +70,10 @@ _log = logging.getLogger(__name__)
 MAX_TOOL_ROUNDS = 8
 _DEFAULT_MAX_TOKENS = 4096
 
+_HISTORY_RESUME_NOTE = (
+    "[Conversation resumes; earlier turns were summarized in the system prompt.]"
+)
+
 # Per-(agent, room) turn rate limit — backstop against trigger storms. Not yet
 # surfaced in `settings.limits` (no agent-runtime settings section exists);
 # promote these to settings when one lands.
@@ -865,6 +869,11 @@ class TurnEngine:
                     )
                 else:
                     messages.append({"role": "user", "content": input_text})
+            # FIX-02: providers (Anthropic in particular) reject a leading
+            # assistant turn. Compaction can fold the range so the first
+            # survivor is this agent's own reply — anchor with a neutral turn.
+            if messages and messages[0].get("role") == "assistant":
+                messages.insert(0, {"role": "user", "content": _HISTORY_RESUME_NOTE})
             if not messages:
                 await Publisher(room).emit("agent.finished", {"agent_id": str(agent.id)})
                 await self._audit(agent, chatroom_id, "agent.turn_finished", {"empty": True})
