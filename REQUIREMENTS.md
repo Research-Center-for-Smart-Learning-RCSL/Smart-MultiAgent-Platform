@@ -1925,4 +1925,39 @@ Every requirement `[Rxx.yy]` corresponds to a Q&A decision or a design recommend
 
 ---
 
+## 28. Observer Agents
+
+Added by the 2026-07-02 design session (construction plan: `docs/observer-agents/`). An **observer** is a chatroom agent binding role whose turns read the room but whose output is delivered privately to the room creator instead of the room. The creator may *release* an observation — publicly into the room, or privately into selected agents' contexts.
+
+### 28.1 Roles and bindings
+
+- **[R28.01]** A chatroom agent binding carries a role `normal | observer` (`chatroom_agents.role`, PG enum `chatroom_agent_role`, default `normal`). Observer output is never persisted as a room message and never emitted on the room WS channel.
+- **[R28.04]** Observers wake via the existing `every_n_messages` and `silence_minutes` triggers; they are excluded from the @mention candidate set and from mention resolution (a smuggled observer id in `mention_agent_ids` is dropped silently).
+- **[R28.10]** Non-creators receive only normal-role bindings from `GET /chatrooms/{id}/agents`; the creator (and admin) receive all bindings with roles.
+
+### 28.2 Creator identity
+
+- **[R28.02]** `chatrooms.created_by_user_id` records the creating user (backfilled from `audit_logs` `chatroom.created` rows, earliest actor wins). Rooms whose creator is NULL fall back to moderator semantics (project/org owner). `principal.is_admin` bypasses. Guests are always denied observer surfaces, including when `allow_guest_links` grants room read.
+
+### 28.3 Observations
+
+- **[R28.03]** Observer output is persisted in `agent_observations` (never in `messages`) and is readable only by the room creator per R28.02 resolution.
+- **[R28.05]** Observer turns read the full room transcript plus a bounded window of the observer's own prior observations, folded into the system context.
+- **[R28.12]** Observer turns reuse the per-(agent, chatroom) turn lock, trigger coalescing, and the standard turn rate limit; they differ from normal turns only in output routing.
+- **[R28.13]** The creator receives `observation.started / created / failed / released` on `ws:user:{creator_id}`; payloads carry ids only, bodies are fetched over REST.
+- **[R28.14]** The creator can soft-delete an observation.
+
+### 28.4 Release
+
+- **[R28.06]** The creator can release an observation to the room; the result is a `sender_type=system` message with `metadata.type='released_observation'`, attributed to the creator, that then follows the standard broadcast and wake-up paths. The observer's identity is attached only when disclosure (R28.09) is on at release time.
+- **[R28.07]** The creator can release an observation privately to one or more normal-role agents of the same room via the `pending_notify` queue (direct push — deliberately not gated by A2A `a2a_enabled` policy, because the act is creator-authorized). The room sees nothing. Waking the targets is opt-in per release; an explicit release wake bypasses autostop like a mention.
+- **[R28.08]** Release accepts an optional content override; the stored observation is immutable. A release is single-shot (concurrent double release resolves to exactly one winner; the loser receives 409).
+
+### 28.5 Disclosure and audit
+
+- **[R28.09]** `chatrooms.disclose_observers` (default `true`) controls whether non-creators see a neutral "observers enabled" indicator. Only the creator can change it. Which agent observes, and any observation content, is never disclosed to non-creators regardless of the flag.
+- **[R28.11]** Releases, observer bind/role changes, and disclosure changes are audited. Observation content never appears in audit metadata or logs.
+
+---
+
 *End of document.*
