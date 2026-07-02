@@ -44,11 +44,15 @@ async def evaluate_message_wakeups(
     *,
     chatroom_id: uuid.UUID,
     sender_is_user: bool,
+    sender_agent_id: uuid.UUID | None = None,
     bound_agent_ids: list[uuid.UUID] | None = None,
 ) -> list[uuid.UUID]:
     """Return the agent ids whose ``every_n_messages`` trigger fired for this
     message. Side effects (counter increment, autostop reset on user sends,
     silence-timer touch) happen inside the orchestration facade.
+
+    ``sender_agent_id`` — set when the message was authored by a room-bound
+    agent; used to exclude the author from its own wake list (R15.01/Q49).
 
     ``bound_agent_ids`` lets the caller supply an already-fetched room binding;
     when omitted it is queried here. Returns an empty list when no agent is
@@ -59,13 +63,12 @@ async def evaluate_message_wakeups(
     )
     if not agent_ids:
         return []
-    # Deferred import: orchestration → conversation has no cycle today, but the
-    # function-local import keeps it impossible to introduce one accidentally.
     from contexts.orchestration.interfaces.facade import OrchestrationFacade
 
     return await OrchestrationFacade(db).on_message_created(
         room_id=chatroom_id,
         sender_is_user=sender_is_user,
+        sender_agent_id=sender_agent_id,
         agent_ids=agent_ids,
     )
 

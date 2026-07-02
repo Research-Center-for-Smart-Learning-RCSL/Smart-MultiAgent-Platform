@@ -974,6 +974,10 @@ class TurnEngine:
             # like user sends do (sender_filter agent/any). Best-effort,
             # post-commit — never fails the turn.
             await self._dispatch_agent_message_signal(chatroom_id, final_text)
+            # R15.01: an agent reply counts toward other bound agents'
+            # every_n triggers and touches their silence timers; R11.02:
+            # it also feeds GraphRAG message triggers.
+            await self._dispatch_agent_reply_wakeups(agent, chatroom_id, msg.id)
             return TurnResult(status="completed", message_id=msg.id, text=final_text, tool_rounds=rounds)
 
         except Exception as exc:
@@ -1021,6 +1025,56 @@ class TurnEngine:
                 chatroom_id,
                 exc_info=True,
             )
+
+    async def _dispatch_agent_reply_wakeups(
+        self, agent: Agent, chatroom_id: uuid.UUID, message_id: uuid.UUID
+    ) -> None:
+        """R15.01: an agent reply counts toward other bound agents' every_n
+        triggers and touches their silence timers; R11.02: it also feeds
+        GraphRAG message triggers. Best-effort and post-commit — a failure
+        here must never fail the turn."""
+        try:
+            from contexts.conversation.application.triggers import (
+                evaluate_message_wakeups,
+                list_bound_agent_ids,
+            )
+            from contexts.knowledge.interfaces.facade import KnowledgeFacade
+            from shared_kernel.queue import enqueue
+
+            bound = await list_bound_agent_ids(self._db, chatroom_id)
+            fired = await evaluate_message_wakeups(
+                self._db,
+                chatroom_id=chatroom_id,
+                sender_is_user=False,
+                sender_agent_id=agent.id,
+                bound_agent_ids=bound,
+            )
+            for aid in fired:
+                await enqueue(
+                    "wakeup_agent",
+                    str(aid),
+                    str(chatroom_id),
+                    "every_n_messages",
+                    str(message_id),
+                )
+            if bound:
+                triggers = await KnowledgeFacade(self._db).evaluate_graphrag_message_triggers(
+                    agent_ids=bound
+                )
+                for trig in triggers:
+                    await enqueue(
+                        "graphrag_build",
+                        config_id=str(trig.config_id),
+                        triggered_by=trig.triggered_by,
+                    )
+        except Exception:
+            _log.warning(
+                "agent-reply wakeup dispatch failed room=%s",
+                chatroom_id,
+                exc_info=True,
+            )
+            with contextlib.suppress(Exception):
+                await self._db.rollback()
 
     async def _turn_rate_allowed(self, agent_id: uuid.UUID, chatroom_id: uuid.UUID) -> bool:
         """Sliding-window per-(agent, room) turn cap. Fails open: a rate-limit
