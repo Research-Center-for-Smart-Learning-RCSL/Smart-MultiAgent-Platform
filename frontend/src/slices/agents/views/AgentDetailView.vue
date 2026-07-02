@@ -37,6 +37,7 @@ import {
   useBreakpoint,
 } from '@shared/composables'
 import { ApiError } from '@shared/errors'
+import { isProblemWithType } from '@shared/transport'
 import { keyGroupsApi, keysKeys, type KeyGroup } from '@slices/keys'
 import { agentsApi, type AgentTool, type AgentToolType } from '../api'
 import { agentKeys } from '../queries'
@@ -449,6 +450,17 @@ const saveDisabled = computed(
   () => !isCreateMode && !meta.value.dirty && !extrasDirty.value,
 )
 
+// The backend maps this domain error to a plain RFC 7807 problem (no
+// `field_errors`), so `applyServerErrors` can't route it -- catch it by slug
+// and attach it to the key_group_id field ourselves (R11.01).
+function applyAgentSaveError(err: unknown, fallbackMessage: string): void {
+  if (isProblemWithType(err, '/agents/graphrag-builder-key-group-conflict')) {
+    setErrors({ key_group_id: t('agents.form.keyGroupGraphragConflictError') })
+    return
+  }
+  if (!applyServerErrors(err)) toast.error(fallbackMessage)
+}
+
 // --- Create mutation ---
 const createMutation = useMutation({
   mutationFn: async (values: AgentCreateInput) => {
@@ -459,9 +471,7 @@ const createMutation = useMutation({
     toast.success(t('agents.list.created'))
     router.replace({ name: 'agents.detail', params: { agentId: agent.id } })
   },
-  onError: (err) => {
-    if (!applyServerErrors(err)) toast.error(t('agents.list.createFailed'))
-  },
+  onError: (err) => applyAgentSaveError(err, t('agents.list.createFailed')),
 })
 
 // --- Patch mutation ---
@@ -482,7 +492,7 @@ const patchMutation = useMutation({
       conflictDetected.value = true
       return
     }
-    if (!applyServerErrors(err)) toast.error(t('agents.detail.saveFailed'))
+    applyAgentSaveError(err, t('agents.detail.saveFailed'))
   },
 })
 
@@ -788,6 +798,7 @@ const graphragStatusText = computed(() => {
               :label="t('agents.form.keyGroup')"
               name="key_group_id"
               :error="errors.key_group_id"
+              :help="graphragConfigId ? t('agents.form.keyGroupGraphragHelp') : undefined"
               required
               class="mt-4"
             >
