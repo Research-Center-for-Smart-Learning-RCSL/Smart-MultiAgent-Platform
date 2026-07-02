@@ -32,24 +32,27 @@ def _headers(secret: str) -> dict[str, str]:
 
 def _contents(payload: dict[str, Any]) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
+    func_resp_buf: list[dict[str, Any]] = []
+
+    def _flush_func_responses() -> None:
+        if not func_resp_buf:
+            return
+        out.append({"role": "user", "parts": list(func_resp_buf)})
+        func_resp_buf.clear()
+
     for m in payload["messages"]:
         role = m.get("role")
         if role == "tool":
-            # Gemini keys a function response by the function *name*, not an id.
-            out.append(
+            func_resp_buf.append(
                 {
-                    "role": "user",
-                    "parts": [
-                        {
-                            "functionResponse": {
-                                "name": m.get("name"),
-                                "response": {"result": m.get("content", "")},
-                            }
-                        }
-                    ],
+                    "functionResponse": {
+                        "name": m.get("name"),
+                        "response": {"result": m.get("content", "")},
+                    }
                 }
             )
             continue
+        _flush_func_responses()
         if role == "assistant" and m.get("tool_calls"):
             parts: list[dict[str, Any]] = []
             if m.get("content"):
@@ -66,6 +69,7 @@ def _contents(payload: dict[str, Any]) -> list[dict[str, Any]]:
             parts = _content_parts(content)
             if parts:
                 out.append({"role": grole, "parts": parts})
+    _flush_func_responses()
     return out
 
 
