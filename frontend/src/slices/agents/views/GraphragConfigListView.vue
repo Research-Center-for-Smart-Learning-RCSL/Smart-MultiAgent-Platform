@@ -36,6 +36,7 @@ import {
   useServerErrors,
   useToast,
 } from '@shared/composables'
+import { isProblemWithType } from '@shared/transport'
 import { keyGroupsApi, keysKeys } from '@slices/keys'
 import {
   agentsApi,
@@ -102,7 +103,25 @@ const availableAgents = computed(() =>
   (agentsQuery.data.value ?? []).filter((a) => !configuredAgentIds.value.has(a.id)),
 )
 const hasKeyGroups = computed(() => (keyGroupsQuery.data.value?.length ?? 0) > 0)
-const canCreate = computed(() => availableAgents.value.length > 0 && hasKeyGroups.value)
+// The builder key group must differ from the chosen agent's own key group, so
+// with only one key group in the project no agent can ever satisfy the picker.
+const hasEnoughKeyGroups = computed(() => (keyGroupsQuery.data.value?.length ?? 0) >= 2)
+const canCreate = computed(() => availableAgents.value.length > 0 && hasEnoughKeyGroups.value)
+
+// The three project-state warnings are mutually exclusive; resolve to at
+// most one i18n key so the template only has a single SAlert to maintain.
+const eligibilityWarningKey = computed<string | null>(() => {
+  if (!agentsQuery.isLoading.value && (agentsQuery.data.value?.length ?? 0) === 0) {
+    return 'agents.graphragList.noAgents'
+  }
+  if (!keyGroupsQuery.isLoading.value && !hasKeyGroups.value) {
+    return 'agents.graphragList.noKeyGroups'
+  }
+  if (!keyGroupsQuery.isLoading.value && !hasEnoughKeyGroups.value) {
+    return 'agents.graphragList.needSecondKeyGroup'
+  }
+  return null
+})
 
 // A config is only "active" when its agent points back at it (turn_engine reads
 // agent.graphrag_config_id). A built-but-unbound config has already consumed the
@@ -229,6 +248,10 @@ const createMutation = useMutation({
     toast.success(t('agents.graphragList.created'))
   },
   onError: (err) => {
+    if (isProblemWithType(err, '/knowledge/graphrag-builder-key-group-conflict')) {
+      setErrors({ builder_key_group_id: t('agents.graphragForm.builderKeyGroupSameError') })
+      return
+    }
     if (!applyServerErrors(err)) toast.error(t('agents.graphragList.createFailed'))
   },
 })
@@ -350,18 +373,11 @@ const columns = computed<Column[]>(() => [
     </SPageHeader>
 
     <SAlert
-      v-if="!agentsQuery.isLoading.value && (agentsQuery.data.value?.length ?? 0) === 0"
+      v-if="eligibilityWarningKey"
       variant="warning"
       class="mt-4"
     >
-      {{ t('agents.graphragList.noAgents') }}
-    </SAlert>
-    <SAlert
-      v-else-if="!keyGroupsQuery.isLoading.value && !hasKeyGroups"
-      variant="warning"
-      class="mt-4"
-    >
-      {{ t('agents.graphragList.noKeyGroups') }}
+      {{ t(eligibilityWarningKey) }}
     </SAlert>
 
     <STable
@@ -483,6 +499,7 @@ const columns = computed<Column[]>(() => [
           :label="t('agents.graphragForm.builderKeyGroup')"
           name="builder_key_group_id"
           :error="errors.builder_key_group_id"
+          :help="t('agents.graphragList.builderHint')"
           required
         >
           <SSelect
