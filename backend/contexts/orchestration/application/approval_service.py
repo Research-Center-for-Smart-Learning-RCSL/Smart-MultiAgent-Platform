@@ -221,7 +221,10 @@ class ApprovalService:
             rationale=rationale,
         )
 
-        await self._try_resolve(approval, chatroom_id=chatroom_id)
+        state = await self._resolve_state(approval)
+        await self._db.commit()
+        if state is not None:
+            await self._emit_resolution_effects(approval, state, chatroom_id=chatroom_id)
         return ballot
 
     # ------------------------------------------------------------------
@@ -259,15 +262,8 @@ class ApprovalService:
 
         resolved_state = ApprovalState.TIMEOUT_LEADER
         if not await self._approvals.update_state(approval_id, resolved_state):
-            # A vote resolved the gate between our read and the CAS — that
-            # resolution path owns the audit/publish/resume side effects.
             refreshed = await self._approvals.get(approval_id)
             return refreshed.state if refreshed else None
-
-        APPROVAL_RESOLUTIONS.labels(
-            mode=approval.mode.value,
-            outcome=resolved_state.value,
-        ).inc()
 
         await audit.emit(
             self._db,
@@ -282,7 +278,12 @@ class ApprovalService:
                 },
             ),
         )
+        await self._db.commit()
 
+        APPROVAL_RESOLUTIONS.labels(
+            mode=approval.mode.value,
+            outcome=resolved_state.value,
+        ).inc()
         await self._publish_resolved(
             approval,
             resolved_state,
@@ -295,26 +296,22 @@ class ApprovalService:
     # Resolution logic
     # ------------------------------------------------------------------
 
-    async def _try_resolve(
+    async def _resolve_state(
         self,
         approval: Approval,
-        *,
-        chatroom_id: uuid.UUID | None = None,
-    ) -> None:
+    ) -> ApprovalState | None:
+        """Evaluate votes and CAS the gate to a resolved state (DB only).
+
+        Returns the resolved state, or None if no resolution condition is met
+        or the gate was already resolved by a concurrent path.
+        """
         votes = await self._votes.list_for_approval(approval.id)
         resolved_state = self._evaluate_votes(approval, votes)
         if resolved_state is None:
-            return
+            return None
 
         if not await self._approvals.update_state(approval.id, resolved_state):
-            # Already resolved by a concurrent vote or the timeout job — the
-            # winning path owns the audit/publish/resume side effects.
-            return
-
-        APPROVAL_RESOLUTIONS.labels(
-            mode=approval.mode.value,
-            outcome=resolved_state.value,
-        ).inc()
+            return None
 
         meta: dict[str, Any] = {
             "state": resolved_state.value,
@@ -340,12 +337,21 @@ class ApprovalService:
                 metadata=meta,
             ),
         )
+        return resolved_state
 
-        await self._publish_resolved(
-            approval,
-            resolved_state,
-            chatroom_id=chatroom_id,
-        )
+    async def _emit_resolution_effects(
+        self,
+        approval: Approval,
+        state: ApprovalState,
+        *,
+        chatroom_id: uuid.UUID | None = None,
+    ) -> None:
+        """Post-commit side effects: metrics, WS publish, workflow resume."""
+        APPROVAL_RESOLUTIONS.labels(
+            mode=approval.mode.value,
+            outcome=state.value,
+        ).inc()
+        await self._publish_resolved(approval, state, chatroom_id=chatroom_id)
         await self._enqueue_workflow_resume(approval.id)
 
     async def _enqueue_workflow_resume(self, approval_id: uuid.UUID) -> None:
