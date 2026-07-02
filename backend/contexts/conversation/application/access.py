@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from contexts.conversation.domain.errors import (
     ChatroomNotFound,
     ForbiddenInRoom,
+    NotRoomCreator,
     WorkspaceNotFound,
 )
 from contexts.conversation.domain.models import Chatroom
@@ -135,6 +136,30 @@ def ensure_can_read(access: RoomAccess, *, is_admin: bool) -> None:
         raise ForbiddenInRoom("caller cannot read this chatroom")
 
 
+def is_room_creator(access: RoomAccess, *, principal: Principal) -> bool:
+    """R28.02 — who may see observer surfaces (observations, roles, disclosure).
+
+    Creator when `created_by_user_id` matches; legacy rooms (NULL creator,
+    pre-0041 backfill miss) fall back to moderator semantics. Admin bypasses.
+    Pure guests are never creators — `ensure_can_read` alone does NOT exclude
+    them (guest links satisfy the read flags), so the explicit branch here is
+    load-bearing.
+    """
+    if principal.is_admin:
+        return True
+    if access.is_guest and not access.roles:
+        return False
+    room = access.chatroom
+    if room.created_by_user_id is not None:
+        return principal.user_id == room.created_by_user_id
+    return access.is_moderator
+
+
+def ensure_room_creator(access: RoomAccess, *, principal: Principal) -> None:
+    if not is_room_creator(access, principal=principal):
+        raise NotRoomCreator("caller is not this chatroom's creator")
+
+
 def ensure_can_send(access: RoomAccess, *, is_admin: bool) -> None:
     """Evaluate §21.1 flags against the caller's room-scoped roles (R13.04).
 
@@ -151,5 +176,7 @@ __all__ = [
     "RoomAccess",
     "ensure_can_read",
     "ensure_can_send",
+    "ensure_room_creator",
+    "is_room_creator",
     "resolve_room_access",
 ]

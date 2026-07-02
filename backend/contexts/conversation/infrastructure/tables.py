@@ -38,6 +38,13 @@ chatrooms = sa.Table(
     sa.Column("version", sa.Integer, nullable=False, server_default=sa.text("1")),
     sa.Column("created_at", sa.TIMESTAMP(timezone=True), nullable=False, server_default=sa.text("now()")),
     sa.Column("deleted_at", sa.TIMESTAMP(timezone=True), nullable=True),
+    sa.Column(
+        "created_by_user_id",
+        pg.UUID(as_uuid=True),
+        sa.ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    ),
+    sa.Column("disclose_observers", sa.Boolean, nullable=False, server_default=sa.text("true")),
 )
 
 chatroom_agents = sa.Table(
@@ -52,6 +59,43 @@ chatroom_agents = sa.Table(
     sa.Column(
         "agent_id", pg.UUID(as_uuid=True), sa.ForeignKey("agents.id", ondelete="CASCADE"), primary_key=True
     ),
+    # PG ENUM created in migration 0041 — must match the DB type, not sa.Text
+    # (see the sender_type comment below for the asyncpg constraint).
+    sa.Column(
+        "role",
+        pg.ENUM("normal", "observer", name="chatroom_agent_role", create_type=False),
+        nullable=False,
+        server_default=sa.text("'normal'::chatroom_agent_role"),
+    ),
+)
+
+agent_observations = sa.Table(
+    "agent_observations",
+    metadata,
+    sa.Column("id", pg.UUID(as_uuid=True), primary_key=True, server_default=sa.text("gen_random_uuid()")),
+    sa.Column(
+        "chatroom_id",
+        pg.UUID(as_uuid=True),
+        sa.ForeignKey("chatrooms.id", ondelete="CASCADE"),
+        nullable=False,
+    ),
+    sa.Column(
+        "agent_id", pg.UUID(as_uuid=True), sa.ForeignKey("agents.id", ondelete="CASCADE"), nullable=False
+    ),
+    sa.Column("content_md", sa.Text, nullable=False),
+    sa.Column("metadata", pg.JSONB, nullable=False, server_default=sa.text("'{}'::jsonb")),
+    sa.Column("trigger", sa.Text, nullable=False),
+    sa.Column("trigger_message_id", pg.UUID(as_uuid=True), nullable=True),
+    sa.Column("released_at", sa.TIMESTAMP(timezone=True), nullable=True),
+    sa.Column("release_target", pg.JSONB, nullable=True),
+    sa.Column(
+        "released_by_user_id",
+        pg.UUID(as_uuid=True),
+        sa.ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    ),
+    sa.Column("created_at", sa.TIMESTAMP(timezone=True), nullable=False, server_default=sa.text("now()")),
+    sa.Column("deleted_at", sa.TIMESTAMP(timezone=True), nullable=True),
 )
 
 chatroom_guests = sa.Table(
@@ -176,6 +220,7 @@ message_attachments = sa.Table(
 
 
 __all__ = [
+    "agent_observations",
     "chatroom_agents",
     "chatroom_guests",
     "chatrooms",

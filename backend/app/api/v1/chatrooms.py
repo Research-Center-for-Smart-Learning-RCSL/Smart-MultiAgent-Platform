@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from typing import Literal
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Path, Request, status
 from pydantic import BaseModel, Field
@@ -10,6 +11,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.deps import PaginationParams
 from contexts.agents.interfaces.facade import AgentsFacade
+from contexts.conversation.application.access import (
+    ensure_room_creator,
+    is_room_creator,
+    resolve_room_access,
+)
 from contexts.conversation.application.chatroom_service import (
     ChatroomFlagsPatch,
     ChatroomService,
@@ -18,6 +24,7 @@ from contexts.conversation.domain.errors import (
     ChatroomNotFound,
     WorkspaceNotFound,
 )
+from contexts.conversation.domain.models import ChatroomAgentRole
 from contexts.conversation.interfaces.author_labels import prefer_guest_label
 from contexts.conversation.interfaces.facade import ConversationFacade
 from contexts.identity.interfaces.facade import IdentityFacade
@@ -59,6 +66,9 @@ class ChatroomPatchIn(BaseModel):
     allow_project_members: bool | None = None
     allow_project_owners_only: bool | None = None
     allow_guest_links: bool | None = None
+    # R28.09 — creator-only (per-field gate in the handler; the capability
+    # check above it covers the other fields).
+    disclose_observers: bool | None = None
 
 
 class ChatroomOut(BaseModel):
@@ -72,6 +82,11 @@ class ChatroomOut(BaseModel):
     version: int
     created_at: str
     deleted_at: str | None
+    created_by_user_id: uuid.UUID | None
+    disclose_observers: bool
+    # "You are notified that observers are enabled" — false whenever
+    # disclosure is off, regardless of actual bindings (R28.09).
+    observers_present: bool
 
 
 class GuestLinkOut(BaseModel):
@@ -82,6 +97,14 @@ class GuestLinkOut(BaseModel):
 
 class AgentRef(BaseModel):
     agent_id: uuid.UUID
+    # Response-side: populated only for the room creator (R28.10); the field
+    # is dropped from serialization when None. Request-side (POST body):
+    # optional, defaults to a normal binding.
+    role: Literal["normal", "observer"] | None = None
+
+
+class AgentRolePatchIn(BaseModel):
+    role: Literal["normal", "observer"]
 
 
 class ChatroomMemberOut(BaseModel):
@@ -89,7 +112,7 @@ class ChatroomMemberOut(BaseModel):
     display_name: str | None
 
 
-def _to_out(r) -> ChatroomOut:
+def _to_out(r, *, has_observers: bool = False) -> ChatroomOut:
     return ChatroomOut(
         id=r.id,
         workspace_id=r.workspace_id,
@@ -101,6 +124,9 @@ def _to_out(r) -> ChatroomOut:
         version=r.version,
         created_at=r.created_at.isoformat(),
         deleted_at=r.deleted_at.isoformat() if r.deleted_at else None,
+        created_by_user_id=r.created_by_user_id,
+        disclose_observers=r.disclose_observers,
+        observers_present=bool(r.disclose_observers and has_observers),
     )
 
 
@@ -184,7 +210,8 @@ async def list_chatrooms(
         limit=pagination.limit,
         offset=pagination.offset,
     )
-    return [_to_out(r) for r in rows]
+    with_observers = await service.rooms_with_observers([r.id for r in rows])
+    return [_to_out(r, has_observers=r.id in with_observers) for r in rows]
 
 
 @workspace_router.post(
@@ -241,7 +268,8 @@ async def read_chatroom(
             _raise_forbidden("not a participant of this room")
     service = ChatroomService(db)
     room = await service.get(chatroom_id)
-    return _to_out(room)
+    with_observers = await service.rooms_with_observers([chatroom_id])
+    return _to_out(room, has_observers=chatroom_id in with_observers)
 
 
 @chatroom_router.patch("/{chatroom_id}")
@@ -260,6 +288,11 @@ async def patch_chatroom(
         project_id,
         Capability.RESOURCE_CREATE_EDIT,
     )
+    if body.disclose_observers is not None:
+        # R28.09: disclosure is the creator's call, not any RESOURCE_CREATE_EDIT
+        # holder's — per-field gate on top of the capability check above.
+        access = await resolve_room_access(db, principal=principal, chatroom_id=chatroom_id)
+        ensure_room_creator(access, principal=principal)
     expected = _parse_if_match(if_match)
     service = ChatroomService(db)
     room = await service.patch(
@@ -270,7 +303,8 @@ async def patch_chatroom(
         actor_ip=ctx.actor_ip,
         request_id=ctx.request_id,
     )
-    return _to_out(room)
+    with_observers = await service.rooms_with_observers([chatroom_id])
+    return _to_out(room, has_observers=chatroom_id in with_observers)
 
 
 @chatroom_router.delete(
@@ -305,7 +339,7 @@ async def delete_chatroom(
 # --------------------------------------------------------------------------- #
 
 
-@chatroom_router.get("/{chatroom_id}/agents")
+@chatroom_router.get("/{chatroom_id}/agents", response_model_exclude_none=True)
 async def list_chatroom_agents(
     chatroom_id: uuid.UUID = Path(...),
     pagination: PaginationParams = Depends(),
@@ -320,10 +354,16 @@ async def list_chatroom_agents(
             Scope(project_id=project_id),
         ):
             _raise_forbidden("not a member of the project")
+    # R28.10: only the creator sees observer bindings (and roles at all) — for
+    # everyone else the response is shape-identical to the pre-observer API.
+    access = await resolve_room_access(db, principal=principal, chatroom_id=chatroom_id)
+    creator = is_room_creator(access, principal=principal)
     service = ChatroomService(db)
-    rows = await service.list_agents(chatroom_id)
+    rows = list(await service.list_agents(chatroom_id))
+    if not creator:
+        rows = [r for r in rows if r.role is ChatroomAgentRole.NORMAL]
     rows = rows[pagination.offset : pagination.offset + pagination.limit]
-    return [AgentRef(agent_id=r.agent_id) for r in rows]
+    return [AgentRef(agent_id=r.agent_id, role=r.role.value if creator else None) for r in rows]
 
 
 @chatroom_router.post(
@@ -354,14 +394,49 @@ async def add_chatroom_agent(
             status_code=422,
             detail="agent does not belong to this chatroom's project",
         )
+    role = ChatroomAgentRole(body.role) if body.role else ChatroomAgentRole.NORMAL
+    if role is ChatroomAgentRole.OBSERVER:
+        # R28.02: only the creator may plant an observer — a non-creator
+        # moderator would be binding an agent whose output they cannot read.
+        access = await resolve_room_access(db, principal=principal, chatroom_id=chatroom_id)
+        ensure_room_creator(access, principal=principal)
     service = ChatroomService(db)
     await service.add_agent(
         chatroom_id=chatroom_id,
         agent_id=body.agent_id,
         actor_user_id=principal.user_id,
         actor_ip=ctx.actor_ip,
+        role=role,
         request_id=ctx.request_id,
     )
+
+
+@chatroom_router.patch(
+    "/{chatroom_id}/agents/{agent_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_model=None,
+)
+async def patch_chatroom_agent_role(
+    body: AgentRolePatchIn,
+    chatroom_id: uuid.UUID = Path(...),
+    agent_id: uuid.UUID = Path(...),
+    ctx: RequestContext = Depends(current_context),
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(db_session),
+) -> None:
+    access = await resolve_room_access(db, principal=principal, chatroom_id=chatroom_id)
+    ensure_room_creator(access, principal=principal)
+    service = ChatroomService(db)
+    changed = await service.set_agent_role(
+        chatroom_id=chatroom_id,
+        agent_id=agent_id,
+        role=ChatroomAgentRole(body.role),
+        actor_user_id=principal.user_id,
+        actor_ip=ctx.actor_ip,
+        request_id=ctx.request_id,
+    )
+    if not changed:
+        raise HTTPException(status_code=404, detail="agent is not bound to this chatroom")
 
 
 @chatroom_router.delete(

@@ -22,6 +22,7 @@ import uuid
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from contexts.conversation.domain.models import ChatroomAgentRole
 from contexts.conversation.infrastructure.repositories import ChatroomAgentRepository
 
 __all__ = [
@@ -86,15 +87,22 @@ async def filter_mentioned_bound_agents(
     is the authorization boundary: a client can only summon agents the room
     already grants — never an arbitrary agent id.
 
-    ``bound_agent_ids`` lets the caller supply an already-fetched room binding
-    (shared with every_n evaluation) instead of re-querying. Returns an empty
-    list when nothing matches or no agent is bound.
+    ``bound_agent_ids`` can narrow the candidate set further (caller-supplied
+    superset from every_n evaluation), but the role check below always runs
+    against a fresh role-aware fetch. Returns an empty list when nothing
+    matches or no agent is bound.
     """
     if not mention_agent_ids:
         return []
-    bound = set(
-        bound_agent_ids if bound_agent_ids is not None else await list_bound_agent_ids(db, chatroom_id)
-    )
+    # R28.04: mentions may only summon normal-role bindings. Observer ids are
+    # dropped silently — the same response as "not bound", so a probing client
+    # cannot use mentions as an existence oracle. The role fetch is
+    # unconditional (never trusts a caller-supplied list) so the gate cannot
+    # be bypassed by a role-blind call site.
+    rows = await ChatroomAgentRepository(db).list(chatroom_id)
+    bound = {a.agent_id for a in rows if a.role is ChatroomAgentRole.NORMAL}
+    if bound_agent_ids is not None:
+        bound &= set(bound_agent_ids)
     out: list[uuid.UUID] = []
     seen: set[uuid.UUID] = set()
     for agent_id in mention_agent_ids:

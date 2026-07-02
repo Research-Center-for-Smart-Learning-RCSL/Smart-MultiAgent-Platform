@@ -90,6 +90,31 @@ class TusMetadataInvalid(ConversationError):
     code = "conversation/tus-metadata-invalid"
 
 
+# ---- §28 observer errors -------------------------------------------------- #
+
+
+class NotRoomCreator(ConversationError):
+    """R28.02 — observer surfaces are creator-only (moderator on legacy NULL rooms)."""
+
+    code = "conversation/not-room-creator"
+
+
+class ObservationNotFound(ConversationError):
+    code = "conversation/observation-not-found"
+
+
+class ObservationAlreadyReleased(ConversationError):
+    """R28.08 — a release is single-shot; the CAS loser lands here."""
+
+    code = "conversation/observation-already-released"
+
+
+class InvalidReleaseTarget(ConversationError):
+    """R28.07 — targets must be normal-role bindings of the same room."""
+
+    code = "conversation/invalid-release-target"
+
+
 # ---- F.10 export errors -------------------------------------------------- #
 
 
@@ -112,10 +137,14 @@ __all__ = [
     "ExportJobNotReady",
     "ForbiddenInRoom",
     "GuestTokenInvalid",
+    "InvalidReleaseTarget",
     "MessageEditWindowExceeded",
     "MessageImmutable",
     "MessageNotFound",
     "NameTaken",
+    "NotRoomCreator",
+    "ObservationAlreadyReleased",
+    "ObservationNotFound",
     "TusMetadataInvalid",
     "TusOffsetMismatch",
     "TusUploadNotFound",

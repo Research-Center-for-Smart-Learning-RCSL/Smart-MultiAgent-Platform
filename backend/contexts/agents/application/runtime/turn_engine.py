@@ -41,9 +41,15 @@ from contexts.agents.infrastructure.repositories import AgentRepository
 from contexts.agents.infrastructure.turn_lock import turn_lock
 from contexts.agents.interfaces.facade import AgentsFacade
 from contexts.conversation.application.message_service import MessageService
-from contexts.conversation.infrastructure.repositories import ChatroomAgentRepository
+from contexts.conversation.application.observation_service import ObservationService
+from contexts.conversation.domain.models import ChatroomAgentRole
+from contexts.conversation.infrastructure.repositories import (
+    ChatroomAgentRepository,
+    ObservationRepository,
+)
 from contexts.conversation.interfaces import emit_agent_finished_error, room_channel
 from contexts.conversation.interfaces.facade import ConversationFacade, MessageAttachment
+from contexts.identity.interfaces import user_channel
 from contexts.identity.interfaces.facade import IdentityFacade
 from contexts.keys.application.provider_router import (
     ProviderRequest,
@@ -73,6 +79,19 @@ MAX_TOOL_ROUNDS = 8
 _DEFAULT_MAX_TOKENS = 4096
 
 _HISTORY_RESUME_NOTE = "[Conversation resumes; earlier turns were summarized in the system prompt.]"
+
+# R28.05 — how many of the observer's own past observations fold into its
+# system context so successive analyses build on each other.
+OBSERVER_MEMORY_WINDOW = 10
+
+# R28.01 — fixed framing for observer turns. Code-side (not user-editable
+# prompt text) so an observer never addresses the room as if it could reply.
+_OBSERVER_SYSTEM_NOTE = (
+    "[Observer role]\n"
+    "You are a silent observer of this conversation. Your reply is delivered "
+    "privately to the room owner as an analysis; the participants cannot see "
+    "it. Do not address the participants directly."
+)
 
 # Per-(agent, room) turn rate limit — backstop against trigger storms. Not yet
 # surfaced in `settings.limits` (no agent-runtime settings section exists);
@@ -718,6 +737,10 @@ class TurnEngine:
                 )
                 if n.get("question"):
                     lines.append(f"  Question: {n['question']}")
+            elif n.get("kind") == "released_observation" and n.get("content"):
+                # R28.07 — creator-released analysis; readable prose instead of
+                # a raw JSON dump so long analyses stay usable in the prompt.
+                lines.append(f"- The room owner shared an analysis with you:\n{n['content']}")
             else:
                 lines.append(f"- {json.dumps(n, separators=(',', ':'))}")
         tools: list[Tool] = []
@@ -763,14 +786,14 @@ class TurnEngine:
                 await emit_agent_finished_error(chatroom_id, agent_id, "agent_gone")
             return TurnResult(status="skipped", reason="agent_gone")
         # AuthZ tap: re-validate the agent↔room binding at turn start (defends
-        # against an unbind racing the trigger).
-        bound = await ChatroomAgentRepository(self._db).is_registered(
-            chatroom_id=chatroom_id, agent_id=agent_id
-        )
-        if not bound:
+        # against an unbind racing the trigger). The same query resolves the
+        # binding role — observers (R28.01) differ only in output routing.
+        role = await ChatroomAgentRepository(self._db).role_of(chatroom_id=chatroom_id, agent_id=agent_id)
+        if role is None:
             if trigger == "mention":
                 await emit_agent_finished_error(chatroom_id, agent_id, "not_bound")
             return TurnResult(status="skipped", reason="not_bound")
+        is_observer = role is ChatroomAgentRole.OBSERVER
         # AuthZ tap: the agent's key group must still belong to the agent's
         # project (defends against a key-group move/delete racing the trigger).
         group = await KeyGroupRepository(self._db).get_active(agent.key_group_id)
@@ -784,7 +807,13 @@ class TurnEngine:
             await self._db.commit()
             # Actionable for any trigger: a present user otherwise sees the agent
             # fall silent with no hint the key group was moved or deleted.
-            await emit_agent_finished_error(chatroom_id, agent.id, "key_group_scope")
+            # Observer variant goes to the creator channel only (R28.01).
+            if is_observer:
+                await self._emit_observation_event(
+                    chatroom_id, agent.id, "observation.failed", {"kind": "key_group_scope"}
+                )
+            else:
+                await emit_agent_finished_error(chatroom_id, agent.id, "key_group_scope")
             return TurnResult(status="skipped", reason="key_group_scope")
         # Per-(agent, room) turn rate bucket — backstop against trigger storms.
         if not await self._turn_rate_allowed(agent_id, chatroom_id):
@@ -797,21 +826,33 @@ class TurnEngine:
             await self._db.commit()
             # Actionable for any trigger: the rate backstop is informative
             # regardless of who or what triggered the suppressed turn.
-            await emit_agent_finished_error(chatroom_id, agent.id, "rate_limited")
+            if is_observer:
+                await self._emit_observation_event(
+                    chatroom_id, agent.id, "observation.failed", {"kind": "rate_limited"}
+                )
+            else:
+                await emit_agent_finished_error(chatroom_id, agent.id, "rate_limited")
             return TurnResult(status="skipped", reason="rate_limited")
 
         provider = agent.model_hint.value
         models = _resolve_models(agent)
         context_limit = _CONTEXT_LIMITS.get(provider, 128_000)
 
-        room = room_channel(chatroom_id)
+        # Observer turns get NO room channel at all (R28.01): every emit below
+        # is guarded on `room is not None`, and _stream_with_tools already
+        # suppresses token deltas for a None room (the headless-turn path). A
+        # future emit added without a guard fails closed, not open.
+        room = None if is_observer else room_channel(chatroom_id)
         pending_notes: list[dict[str, Any]] = []
 
         try:
             # Emitted inside the try so any failure still routes to the
             # finished/turn_failed path — the room never stays "thinking".
             await self._audit(agent, chatroom_id, "agent.turn_started", {"trigger": trigger})
-            await Publisher(room).emit("agent.thinking", {"agent_id": str(agent.id)})
+            if room is not None:
+                await Publisher(room).emit("agent.thinking", {"agent_id": str(agent.id)})
+            else:
+                await self._emit_observation_event(chatroom_id, agent.id, "observation.started", {})
 
             # Prompt resolution (R9.04–R9.08).
             base_system, lazy_prompt, section_cache = self._resolve_prompt(agent)
@@ -822,6 +863,13 @@ class TurnEngine:
             # Context blocks fold into the system prompt (providers take system
             # as a top-level field, not an in-array role).
             system_parts = [base_system] if base_system else []
+            if is_observer:
+                # R28.01 framing + R28.05 self-memory: the observer's own past
+                # analyses fold in so successive turns are cumulative.
+                system_parts.append(_OBSERVER_SYSTEM_NOTE)
+                memory_block = await self._observer_memory_block(agent, chatroom_id)
+                if memory_block:
+                    system_parts.append(memory_block)
             for hm in history:
                 if hm.role == "system":  # compact_summary
                     system_parts.append(f"[Earlier conversation summary]\n{hm.content}")
@@ -924,7 +972,8 @@ class TurnEngine:
             if messages and messages[0].get("role") == "assistant":
                 messages.insert(0, {"role": "user", "content": _HISTORY_RESUME_NOTE})
             if not messages:
-                await Publisher(room).emit("agent.finished", {"agent_id": str(agent.id)})
+                if room is not None:
+                    await Publisher(room).emit("agent.finished", {"agent_id": str(agent.id)})
                 await self._audit(agent, chatroom_id, "agent.turn_finished", {"empty": True})
                 await self._db.commit()
                 self._compact_forced_rooms.discard(chatroom_id)
@@ -969,15 +1018,49 @@ class TurnEngine:
                 )
                 await self._db.commit()
                 self._compact_forced_rooms.discard(chatroom_id)
-                await Publisher(room).emit(
-                    "agent.finished", {"reason": "empty_reply", "agent_id": str(agent.id)}
-                )
+                if room is not None:
+                    await Publisher(room).emit(
+                        "agent.finished", {"reason": "empty_reply", "agent_id": str(agent.id)}
+                    )
                 return TurnResult(status="skipped", reason="empty_reply", tool_rounds=rounds)
 
             reply_meta: dict[str, Any] = {"trigger": trigger, "tool_rounds": rounds}
             if rag_ctx and rag_ctx.sources:
                 # Persist what RAG retrieved so the UI can cite it (R10.09).
                 reply_meta["rag_sources"] = rag_ctx.sources
+
+            if is_observer:
+                # R28.03: observer output is an observation, never a message —
+                # no room emit, no workflow signal, no reply wake-ups.
+                obs = await ObservationService(self._db).record(
+                    chatroom_id=chatroom_id,
+                    agent_id=agent.id,
+                    content_md=final_text,
+                    trigger=trigger,
+                    trigger_message_id=trigger_message_id,
+                    metadata=reply_meta,
+                )
+                await self._audit(
+                    agent,
+                    chatroom_id,
+                    "agent.turn_finished",
+                    {"tool_rounds": rounds, "observer": True},
+                )
+                await self._db.commit()
+                self._compact_forced_rooms.discard(chatroom_id)
+                # Post-commit, mirroring message.created: the creator's refetch
+                # must see the committed row.
+                await self._emit_observation_event(
+                    chatroom_id,
+                    agent.id,
+                    "observation.created",
+                    {
+                        "observation_id": str(obs.id),
+                        "created_at": obs.created_at.isoformat() if obs.created_at else None,
+                    },
+                )
+                return TurnResult(status="completed", message_id=None, text=final_text, tool_rounds=rounds)
+
             msg = await MessageService(self._db).send_agent(
                 chatroom_id=chatroom_id,
                 agent_id=agent.id,
@@ -993,17 +1076,20 @@ class TurnEngine:
             await self._persist_artifacts(agent, chatroom_id, msg.id, artifact_sink)
             # Publish AFTER commit so a client's refetch sees the committed row
             # (agent replies have no optimistic echo, unlike user sends).
-            pub = Publisher(room)
-            await pub.emit(
-                "message.created",
-                {
-                    "message_id": str(msg.id),
-                    "sender_type": "agent",
-                    "sender_id": str(agent.id),
-                    "created_at": msg.created_at.isoformat() if msg.created_at else None,
-                },
-            )
-            await pub.emit("agent.finished", {"message_id": str(msg.id), "agent_id": str(agent.id)})
+            # `room is not None` always holds here (the observer branch returned
+            # above) — the guard exists to narrow the type and stay fail-closed.
+            if room is not None:
+                pub = Publisher(room)
+                await pub.emit(
+                    "message.created",
+                    {
+                        "message_id": str(msg.id),
+                        "sender_type": "agent",
+                        "sender_id": str(agent.id),
+                        "created_at": msg.created_at.isoformat() if msg.created_at else None,
+                    },
+                )
+                await pub.emit("agent.finished", {"message_id": str(msg.id), "agent_id": str(agent.id)})
             # K.4: agent replies feed workflow `message` triggers/waits exactly
             # like user sends do (sender_filter agent/any). Best-effort,
             # post-commit — never fails the turn.
@@ -1021,9 +1107,14 @@ class TurnEngine:
             # audit row are independently guarded: a Redis outage must not
             # swallow the agent.turn_failed audit (DB), and vice versa.
             try:
-                await Publisher(room).emit(
-                    "agent.finished", {"error": _err_kind(exc), "agent_id": str(agent.id)}
-                )
+                if room is not None:
+                    await Publisher(room).emit(
+                        "agent.finished", {"error": _err_kind(exc), "agent_id": str(agent.id)}
+                    )
+                else:
+                    await self._emit_observation_event(
+                        chatroom_id, agent.id, "observation.failed", {"kind": _err_kind(exc)}
+                    )
             except Exception:
                 _log.exception("agent turn failure-path WS emit failed")
             try:
@@ -1036,6 +1127,47 @@ class TurnEngine:
             # Re-arm the one-shot /compact flag this turn consumed but wasted.
             await self._restore_compact_flag(chatroom_id)
             return TurnResult(status="failed", reason=_err_kind(exc))
+
+    async def _observer_memory_block(self, agent: Agent, chatroom_id: uuid.UUID) -> str | None:
+        """R28.05 — the observer's own recent observations, oldest-first.
+        Best-effort: a DB hiccup costs the memory block, not the turn."""
+        try:
+            rows = await ObservationRepository(self._db).list_recent_for_agent(
+                chatroom_id=chatroom_id, agent_id=agent.id, limit=OBSERVER_MEMORY_WINDOW
+            )
+        except Exception:
+            _log.warning("observer memory fetch failed for agent %s", agent.id, exc_info=True)
+            with contextlib.suppress(Exception):
+                await self._db.rollback()
+            return None
+        if not rows:
+            return None
+        lines = [f"- ({o.created_at.isoformat() if o.created_at else '?'}) {o.content_md}" for o in rows]
+        return "[Your previous observations]\n" + "\n".join(lines)
+
+    async def _emit_observation_event(
+        self,
+        chatroom_id: uuid.UUID,
+        agent_id: uuid.UUID,
+        event: str,
+        payload: dict[str, Any],
+    ) -> None:
+        """Emit an ``observation.*`` event on the creator's user channel
+        (R28.13). Ids only — bodies are fetched over REST. Legacy NULL-creator
+        rooms have no push recipient; moderators read over REST instead.
+        Best-effort: a Redis hiccup never fails the turn."""
+        try:
+            recipient = await ObservationService(self._db).recipient_user_id(chatroom_id)
+            if recipient is None:
+                return
+            await Publisher(user_channel(recipient)).emit(
+                event,
+                {"chatroom_id": str(chatroom_id), "agent_id": str(agent_id), **payload},
+            )
+        except Exception:
+            _log.warning("observation event emit failed for room %s", chatroom_id, exc_info=True)
+            with contextlib.suppress(Exception):
+                await self._db.rollback()
 
     async def _dispatch_agent_message_signal(self, chatroom_id: uuid.UUID, content: str) -> None:
         """Mirror of the user-send route's workflow signal dispatch

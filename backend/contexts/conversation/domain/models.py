@@ -15,6 +15,11 @@ class SenderType(str, enum.Enum):
     SYSTEM = "system"
 
 
+class ChatroomAgentRole(str, enum.Enum):
+    NORMAL = "normal"
+    OBSERVER = "observer"
+
+
 class AttachmentStatus(str, enum.Enum):
     ACTIVE = "active"
     QUARANTINED = "quarantined"
@@ -58,12 +63,15 @@ class Chatroom:
     version: int
     created_at: datetime
     deleted_at: datetime | None
+    created_by_user_id: uuid.UUID | None = None
+    disclose_observers: bool = True
 
 
 @dataclass(frozen=True, slots=True)
 class ChatroomAgent:
     chatroom_id: uuid.UUID
     agent_id: uuid.UUID
+    role: ChatroomAgentRole = ChatroomAgentRole.NORMAL
 
 
 @dataclass(frozen=True, slots=True)
@@ -86,6 +94,22 @@ class Message:
     version: int = 1
     created_at: datetime | None = None
     edited_at: datetime | None = None
+    deleted_at: datetime | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class AgentObservation:
+    id: uuid.UUID
+    chatroom_id: uuid.UUID
+    agent_id: uuid.UUID
+    content_md: str
+    trigger: str
+    metadata: dict[str, Any] = field(default_factory=dict)
+    trigger_message_id: uuid.UUID | None = None
+    released_at: datetime | None = None
+    release_target: dict[str, Any] | None = None
+    released_by_user_id: uuid.UUID | None = None
+    created_at: datetime | None = None
     deleted_at: datetime | None = None
 
 
@@ -118,10 +142,12 @@ class MessageAttachment:
 
 
 __all__ = [
+    "AgentObservation",
     "AttachmentExtractionStatus",
     "AttachmentStatus",
     "Chatroom",
     "ChatroomAgent",
+    "ChatroomAgentRole",
     "ChatroomGuest",
     "Message",
     "MessageAttachment",

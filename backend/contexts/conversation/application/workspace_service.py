@@ -56,6 +56,7 @@ class WorkspaceService:
         default_room = await self._chatrooms.create(
             workspace_id=workspace.id,
             name=default_room_name,
+            created_by_user_id=actor_user_id,
         )
         await audit.emit(
             self._db,

@@ -91,6 +91,26 @@ _MAP: ErrorMap = {
         400,
         "Upload metadata invalid",
     ),
+    errors.NotRoomCreator: (
+        "conversation/not-room-creator",
+        403,
+        "Only the chatroom creator may access observer surfaces",
+    ),
+    errors.ObservationNotFound: (
+        "conversation/observation-not-found",
+        404,
+        "Observation not found",
+    ),
+    errors.ObservationAlreadyReleased: (
+        "conversation/observation-already-released",
+        409,
+        "Observation already released",
+    ),
+    errors.InvalidReleaseTarget: (
+        "conversation/invalid-release-target",
+        422,
+        "Release targets must be normal-role agents bound to this chatroom",
+    ),
     errors.ExportJobNotFound: (
         "conversation/export-not-found",
         404,

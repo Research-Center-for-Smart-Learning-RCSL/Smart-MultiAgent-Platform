@@ -12,6 +12,7 @@ from contexts.conversation.domain.errors import ChatroomNotFound
 from contexts.conversation.domain.models import (
     Chatroom,
     ChatroomAgent,
+    ChatroomAgentRole,
     ChatroomGuest,
 )
 from contexts.conversation.infrastructure.repositories import (
@@ -30,6 +31,7 @@ class ChatroomFlagsPatch:
     allow_project_members: bool | None = None
     allow_project_owners_only: bool | None = None
     allow_guest_links: bool | None = None
+    disclose_observers: bool | None = None
 
 
 class ChatroomService:
@@ -73,6 +75,12 @@ class ChatroomService:
     ) -> Sequence[ChatroomGuest]:
         return await self._guests.list(chatroom_id)
 
+    async def rooms_with_observers(
+        self,
+        chatroom_ids: Sequence[uuid.UUID],
+    ) -> set[uuid.UUID]:
+        return await self._agents.rooms_with_observers(chatroom_ids)
+
     # ---- commands --------------------------------------------------------
 
     async def create(
@@ -95,6 +103,7 @@ class ChatroomService:
             allow_project_members=allow_project_members,
             allow_project_owners_only=allow_project_owners_only,
             allow_guest_links=allow_guest_links,
+            created_by_user_id=actor_user_id,
         )
         await audit.emit(
             self._db,
@@ -140,6 +149,10 @@ class ChatroomService:
             values["allow_project_owners_only"] = patch.allow_project_owners_only
         if patch.allow_guest_links is not None:
             values["allow_guest_links"] = patch.allow_guest_links
+        old_disclose: bool | None = None
+        if patch.disclose_observers is not None:
+            old_disclose = (await self.get(chatroom_id)).disclose_observers
+            values["disclose_observers"] = patch.disclose_observers
         if not values:
             # Nothing to change; return existing row as-is.
             return await self.get(chatroom_id)
@@ -160,6 +173,19 @@ class ChatroomService:
                 request_id=request_id,
             ),
         )
+        if patch.disclose_observers is not None and patch.disclose_observers != old_disclose:
+            await audit.emit(
+                self._db,
+                audit.AuditEvent(
+                    action="chatroom.disclosure_changed",
+                    actor_user_id=actor_user_id,
+                    actor_ip=actor_ip,
+                    resource_type="chatroom",
+                    resource_id=chatroom_id,
+                    metadata={"old": old_disclose, "new": patch.disclose_observers},
+                    request_id=request_id,
+                ),
+            )
         return room
 
     async def soft_delete(
@@ -193,6 +219,7 @@ class ChatroomService:
             default_room = await self._rooms.create(
                 workspace_id=room.workspace_id,
                 name="general",
+                created_by_user_id=actor_user_id,
             )
             await audit.emit(
                 self._db,
@@ -237,21 +264,58 @@ class ChatroomService:
         agent_id: uuid.UUID,
         actor_user_id: uuid.UUID,
         actor_ip: str | None,
+        role: ChatroomAgentRole = ChatroomAgentRole.NORMAL,
         request_id: uuid.UUID | None = None,
     ) -> None:
-        await self._agents.add(chatroom_id=chatroom_id, agent_id=agent_id)
+        await self._agents.add(chatroom_id=chatroom_id, agent_id=agent_id, role=role)
+        action = "chatroom.observer_bound" if role is ChatroomAgentRole.OBSERVER else "chatroom.agent_added"
         await audit.emit(
             self._db,
             audit.AuditEvent(
-                action="chatroom.agent_added",
+                action=action,
                 actor_user_id=actor_user_id,
                 actor_ip=actor_ip,
                 resource_type="chatroom_agent",
                 resource_id=chatroom_id,
-                metadata={"agent_id": str(agent_id)},
+                metadata={"agent_id": str(agent_id), "role": role.value},
                 request_id=request_id,
             ),
         )
+
+    async def set_agent_role(
+        self,
+        *,
+        chatroom_id: uuid.UUID,
+        agent_id: uuid.UUID,
+        role: ChatroomAgentRole,
+        actor_user_id: uuid.UUID,
+        actor_ip: str | None,
+        request_id: uuid.UUID | None = None,
+    ) -> bool:
+        old_role = await self._agents.role_of(chatroom_id=chatroom_id, agent_id=agent_id)
+        if old_role is None:
+            return False
+        if old_role is role:
+            return True
+        changed = await self._agents.set_role(chatroom_id=chatroom_id, agent_id=agent_id, role=role)
+        if changed:
+            await audit.emit(
+                self._db,
+                audit.AuditEvent(
+                    action="chatroom.observer_role_changed",
+                    actor_user_id=actor_user_id,
+                    actor_ip=actor_ip,
+                    resource_type="chatroom_agent",
+                    resource_id=chatroom_id,
+                    metadata={
+                        "agent_id": str(agent_id),
+                        "old_role": old_role.value,
+                        "new_role": role.value,
+                    },
+                    request_id=request_id,
+                ),
+            )
+        return changed
 
     async def remove_agent(
         self,

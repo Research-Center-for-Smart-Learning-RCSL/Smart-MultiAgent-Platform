@@ -16,6 +16,7 @@ from contexts.conversation.domain.errors import VersionMismatch
 from contexts.conversation.domain.models import (
     Chatroom,
     ChatroomAgent,
+    ChatroomAgentRole,
     ChatroomGuest,
 )
 from contexts.conversation.infrastructure import tables as t
@@ -35,6 +36,8 @@ def _row_to_chatroom(row: Any) -> Chatroom:
         version=row.version,
         created_at=row.created_at,
         deleted_at=row.deleted_at,
+        created_by_user_id=row.created_by_user_id,
+        disclose_observers=row.disclose_observers,
     )
 
 
@@ -64,6 +67,7 @@ class ChatroomRepository:
         allow_project_members: bool = True,
         allow_project_owners_only: bool = False,
         allow_guest_links: bool = False,
+        created_by_user_id: uuid.UUID | None = None,
     ) -> Chatroom:
         token = _new_guest_token()
         row = (
@@ -77,6 +81,7 @@ class ChatroomRepository:
                     allow_project_owners_only=allow_project_owners_only,
                     allow_guest_links=allow_guest_links,
                     guest_token=token,
+                    created_by_user_id=created_by_user_id,
                 )
                 .returning(t.chatrooms)
             )
@@ -202,12 +207,21 @@ class ChatroomAgentRepository:
     def __init__(self, db: AsyncSession) -> None:
         self._db = db
 
-    async def add(self, *, chatroom_id: uuid.UUID, agent_id: uuid.UUID) -> None:
+    async def add(
+        self,
+        *,
+        chatroom_id: uuid.UUID,
+        agent_id: uuid.UUID,
+        role: ChatroomAgentRole = ChatroomAgentRole.NORMAL,
+    ) -> None:
+        # on_conflict_do_nothing: re-adding an existing binding never
+        # overwrites its role (role changes go through set_role only).
         stmt = (
             pg.insert(t.chatroom_agents)
             .values(
                 chatroom_id=chatroom_id,
                 agent_id=agent_id,
+                role=role.value,
             )
             .on_conflict_do_nothing()
         )
@@ -231,7 +245,14 @@ class ChatroomAgentRepository:
                 )
             )
         ).all()
-        return [ChatroomAgent(chatroom_id=r.chatroom_id, agent_id=r.agent_id) for r in rows]
+        return [
+            ChatroomAgent(
+                chatroom_id=r.chatroom_id,
+                agent_id=r.agent_id,
+                role=ChatroomAgentRole(r.role),
+            )
+            for r in rows
+        ]
 
     async def is_registered(
         self,
@@ -252,6 +273,67 @@ class ChatroomAgentRepository:
             )
         ).first()
         return row is not None
+
+    async def role_of(
+        self,
+        *,
+        chatroom_id: uuid.UUID,
+        agent_id: uuid.UUID,
+    ) -> ChatroomAgentRole | None:
+        row = (
+            await self._db.execute(
+                sa.select(t.chatroom_agents.c.role).where(
+                    sa.and_(
+                        t.chatroom_agents.c.chatroom_id == chatroom_id,
+                        t.chatroom_agents.c.agent_id == agent_id,
+                    )
+                )
+            )
+        ).first()
+        return ChatroomAgentRole(row.role) if row else None
+
+    async def set_role(
+        self,
+        *,
+        chatroom_id: uuid.UUID,
+        agent_id: uuid.UUID,
+        role: ChatroomAgentRole,
+    ) -> bool:
+        result = await self._db.execute(
+            t.chatroom_agents.update()
+            .where(
+                sa.and_(
+                    t.chatroom_agents.c.chatroom_id == chatroom_id,
+                    t.chatroom_agents.c.agent_id == agent_id,
+                )
+            )
+            .values(role=role.value)
+        )
+        return bool(result.rowcount)
+
+    async def rooms_with_observers(
+        self,
+        chatroom_ids: Sequence[uuid.UUID],
+    ) -> set[uuid.UUID]:
+        """Which of *chatroom_ids* have at least one observer binding.
+
+        One query for a whole room list, so DTO mapping stays O(1) queries.
+        """
+        if not chatroom_ids:
+            return set()
+        rows = (
+            await self._db.execute(
+                sa.select(t.chatroom_agents.c.chatroom_id)
+                .distinct()
+                .where(
+                    sa.and_(
+                        t.chatroom_agents.c.chatroom_id.in_(list(chatroom_ids)),
+                        t.chatroom_agents.c.role == ChatroomAgentRole.OBSERVER.value,
+                    )
+                )
+            )
+        ).all()
+        return {r.chatroom_id for r in rows}
 
     async def list_live_bindings(
         self,
