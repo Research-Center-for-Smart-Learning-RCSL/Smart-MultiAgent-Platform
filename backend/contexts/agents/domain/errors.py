@@ -53,6 +53,19 @@ class GraphRagConfigOutOfProject(AgentsError):
     code = "agents/graphrag-config-not-found"
 
 
+class GraphRagBuilderKeyGroupConflict(AgentsError):
+    """R11.01 — agent's key_group_id must differ from its attached GraphRAG
+    config's builder_key_group_id (billing/quota separation).
+
+    Mirrors ``knowledge.GraphRagBuilderKeyGroupConflict``, which enforces the
+    same invariant when the GraphRAG config's builder key group changes; this
+    covers the reverse direction — the agent's own key_group_id changing
+    after a GraphRAG config is already attached.
+    """
+
+    code = "agents/graphrag-builder-key-group-conflict"
+
+
 class A2AForbidden(AgentsError):
     """R9.17 — scope check failed."""
 
@@ -154,6 +167,7 @@ __all__ = [
     "AgentVersionMismatch",
     "AgentsError",
     "CapabilityMismatch",
+    "GraphRagBuilderKeyGroupConflict",
     "GraphRagConfigOutOfProject",
     "KeyGroupNoMatchingProvider",
     "KeyGroupOutOfProject",

@@ -8,7 +8,9 @@ at retrieval time (the Qdrant collection is keyed on the config's project_id).
 
 These tests exercise the guard methods directly with a fake knowledge facade —
 no DB needed — covering the three branches: same project (allowed), foreign
-project (rejected), and missing/soft-deleted config (rejected).
+project (rejected), and missing/soft-deleted config (rejected). The GraphRAG
+guard also covers R11.01: the agent's key_group_id must differ from its
+GraphRAG config's builder_key_group_id.
 """
 
 from __future__ import annotations
@@ -20,6 +22,7 @@ import pytest
 
 from contexts.agents.application.agent_service import AgentService
 from contexts.agents.domain.errors import (
+    GraphRagBuilderKeyGroupConflict,
     GraphRagConfigOutOfProject,
     RagConfigOutOfProject,
 )
@@ -47,8 +50,11 @@ def _svc(knowledge: _FakeKnowledge) -> AgentService:
     return svc
 
 
-def _cfg(project_id: uuid.UUID) -> types.SimpleNamespace:
-    return types.SimpleNamespace(project_id=project_id)
+def _cfg(project_id: uuid.UUID, builder_key_group_id: uuid.UUID | None = None) -> types.SimpleNamespace:
+    return types.SimpleNamespace(
+        project_id=project_id,
+        builder_key_group_id=builder_key_group_id or uuid.uuid4(),
+    )
 
 
 # ---- RAG ----------------------------------------------------------------
@@ -78,16 +84,83 @@ async def test_rag_missing_rejected() -> None:
 async def test_graphrag_same_project_allowed() -> None:
     pid = uuid.uuid4()
     svc = _svc(_FakeKnowledge(graph=_cfg(pid)))
-    await svc._assert_graphrag_config_in_project(graphrag_config_id=uuid.uuid4(), project_id=pid)
+    await svc._assert_graphrag_config_compatible(
+        graphrag_config_id=uuid.uuid4(), project_id=pid, key_group_id=uuid.uuid4()
+    )
 
 
 async def test_graphrag_cross_project_rejected() -> None:
     svc = _svc(_FakeKnowledge(graph=_cfg(uuid.uuid4())))
     with pytest.raises(GraphRagConfigOutOfProject):
-        await svc._assert_graphrag_config_in_project(graphrag_config_id=uuid.uuid4(), project_id=uuid.uuid4())
+        await svc._assert_graphrag_config_compatible(
+            graphrag_config_id=uuid.uuid4(), project_id=uuid.uuid4(), key_group_id=uuid.uuid4()
+        )
 
 
 async def test_graphrag_missing_rejected() -> None:
     svc = _svc(_FakeKnowledge(graph=None))
     with pytest.raises(GraphRagConfigOutOfProject):
-        await svc._assert_graphrag_config_in_project(graphrag_config_id=uuid.uuid4(), project_id=uuid.uuid4())
+        await svc._assert_graphrag_config_compatible(
+            graphrag_config_id=uuid.uuid4(), project_id=uuid.uuid4(), key_group_id=uuid.uuid4()
+        )
+
+
+# ---- R11.01 builder/consumer key-group split -----------------------------
+
+
+async def test_graphrag_builder_key_group_conflict_rejected() -> None:
+    pid = uuid.uuid4()
+    shared_kg = uuid.uuid4()
+    svc = _svc(_FakeKnowledge(graph=_cfg(pid, builder_key_group_id=shared_kg)))
+    with pytest.raises(GraphRagBuilderKeyGroupConflict):
+        await svc._assert_graphrag_config_compatible(
+            graphrag_config_id=uuid.uuid4(), project_id=pid, key_group_id=shared_kg
+        )
+
+
+async def test_graphrag_distinct_key_groups_allowed() -> None:
+    pid = uuid.uuid4()
+    svc = _svc(_FakeKnowledge(graph=_cfg(pid, builder_key_group_id=uuid.uuid4())))
+    await svc._assert_graphrag_config_compatible(
+        graphrag_config_id=uuid.uuid4(), project_id=pid, key_group_id=uuid.uuid4()
+    )
+
+
+# ---- require_exists=False (implicit recheck of an already-attached config) --
+
+
+async def test_graphrag_missing_skipped_when_not_required() -> None:
+    # A config that was soft-deleted out from under the agent must not turn
+    # an unrelated field edit into a 404 when the caller isn't attaching it.
+    svc = _svc(_FakeKnowledge(graph=None))
+    await svc._assert_graphrag_config_compatible(
+        graphrag_config_id=uuid.uuid4(),
+        project_id=uuid.uuid4(),
+        key_group_id=uuid.uuid4(),
+        require_exists=False,
+    )
+
+
+async def test_graphrag_cross_project_skipped_when_not_required() -> None:
+    svc = _svc(_FakeKnowledge(graph=_cfg(uuid.uuid4())))
+    await svc._assert_graphrag_config_compatible(
+        graphrag_config_id=uuid.uuid4(),
+        project_id=uuid.uuid4(),
+        key_group_id=uuid.uuid4(),
+        require_exists=False,
+    )
+
+
+async def test_graphrag_builder_conflict_still_enforced_when_not_required() -> None:
+    # require_exists only relaxes the existence/project check -- the R11.01
+    # conflict itself must still be enforced once the config is found.
+    pid = uuid.uuid4()
+    shared_kg = uuid.uuid4()
+    svc = _svc(_FakeKnowledge(graph=_cfg(pid, builder_key_group_id=shared_kg)))
+    with pytest.raises(GraphRagBuilderKeyGroupConflict):
+        await svc._assert_graphrag_config_compatible(
+            graphrag_config_id=uuid.uuid4(),
+            project_id=pid,
+            key_group_id=shared_kg,
+            require_exists=False,
+        )

@@ -6,6 +6,9 @@ Guardrails enforced here:
 - **Key Group must live in the same project** as the agent (R7.02 spirit:
   Key Groups are project-scoped; an agent pointing at another project's
   Group would silently break isolation).
+- **Key Group must differ from the attached GraphRAG builder key group**
+  (R11.01 billing/quota separation) — checked on create/attach and again
+  whenever the agent's own `key_group_id` changes.
 - **Optimistic locking** on patch / delete via `If-Match: <version>`.
 - **Audit tap** for every state-changing call.
 
@@ -34,6 +37,7 @@ from contexts.agents.domain.errors import (
     AgentToolNotFound,
     AgentToolTypeImmutable,
     FileSearchNeedsKnowledge,
+    GraphRagBuilderKeyGroupConflict,
     GraphRagConfigOutOfProject,
     KeyGroupNoMatchingProvider,
     KeyGroupOutOfProject,
@@ -220,14 +224,40 @@ class AgentService:
         if cfg is None or cfg.project_id != project_id:
             raise RagConfigOutOfProject(f"rag_config {rag_config_id} is not in project {project_id}")
 
-    async def _assert_graphrag_config_in_project(
-        self, *, graphrag_config_id: uuid.UUID, project_id: uuid.UUID
+    async def _assert_graphrag_config_compatible(
+        self,
+        *,
+        graphrag_config_id: uuid.UUID,
+        project_id: uuid.UUID,
+        key_group_id: uuid.UUID,
+        require_exists: bool = True,
     ) -> None:
-        """SEC-H1 — same cross-tenant guard for an attached GraphRAG config."""
+        """SEC-H1 cross-tenant guard + R11.01 builder/consumer key-group split.
+
+        `graphrag_config_service` enforces the builder-vs-consumer split when
+        the GraphRAG config's own builder_key_group_id changes; this mirrors
+        it for the reverse direction — the agent's key_group_id changing (or
+        a config being attached) after the fact must not silently collapse
+        the two key groups back together.
+
+        `require_exists=False` is for re-checking a config the caller is
+        *not* attaching in this call (an already-attached config the patch
+        payload doesn't mention). If that config was soft-deleted out from
+        under the agent, there is nothing left to protect against, so the
+        check is skipped instead of turning an unrelated field edit into a
+        404 -- only an explicit attach must fail loudly on a bad id.
+        """
         cfg = await self._knowledge.get_graphrag_config(graphrag_config_id)
         if cfg is None or cfg.project_id != project_id:
+            if not require_exists:
+                return
             raise GraphRagConfigOutOfProject(
                 f"graphrag_config {graphrag_config_id} is not in project {project_id}"
+            )
+        if cfg.builder_key_group_id == key_group_id:
+            raise GraphRagBuilderKeyGroupConflict(
+                f"agent key_group_id must differ from its GraphRAG config's "
+                f"builder_key_group_id ({key_group_id})"
             )
 
     async def create(
@@ -269,9 +299,10 @@ class AgentService:
                 project_id=project_id,
             )
         if draft.graphrag_config_id is not None:
-            await self._assert_graphrag_config_in_project(
+            await self._assert_graphrag_config_compatible(
                 graphrag_config_id=draft.graphrag_config_id,
                 project_id=project_id,
+                key_group_id=draft.key_group_id,
             )
 
         # `is not None` (not truthiness): an explicit empty {} means "inert by
@@ -368,18 +399,34 @@ class AgentService:
                 key_group_id=effective_kg,
                 model_hint=effective_hint,
             )
-        # SEC-H1 — same project guard when (re)attaching a RAG / GraphRAG
-        # config. `clear_*` wins over a stale id, so only validate an actual
-        # attach (the create path does the same check).
+        # SEC-H1 project guard + R11.01 builder/consumer key-group split when
+        # (re)attaching a RAG / GraphRAG config. `clear_*` wins over a stale
+        # id, so only validate an actual attach (the create path does the
+        # same check).
         if not draft.clear_rag_config and draft.rag_config_id is not None:
             await self._assert_rag_config_in_project(
                 rag_config_id=draft.rag_config_id,
                 project_id=current.project_id,
             )
-        if not draft.clear_graphrag_config and draft.graphrag_config_id is not None:
-            await self._assert_graphrag_config_in_project(
-                graphrag_config_id=draft.graphrag_config_id,
+        effective_graphrag_id = (
+            None
+            if draft.clear_graphrag_config
+            else draft.graphrag_config_id
+            if draft.graphrag_config_id is not None
+            else current.graphrag_config_id
+        )
+        is_explicit_attach = draft.graphrag_config_id is not None
+        # Re-validate whenever an attach could newly introduce the R11.01
+        # conflict: an explicit (re)attach, or the agent's own key_group_id
+        # moving while a config is already attached. An explicit attach must
+        # fail loudly on a bad id; the implicit recheck must not (see
+        # `require_exists` on `_assert_graphrag_config_compatible`).
+        if effective_graphrag_id is not None and (is_explicit_attach or effective_kg != current.key_group_id):
+            await self._assert_graphrag_config_compatible(
+                graphrag_config_id=effective_graphrag_id,
                 project_id=current.project_id,
+                key_group_id=effective_kg,
+                require_exists=is_explicit_attach,
             )
 
         values: dict[str, Any] = {}
