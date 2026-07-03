@@ -1,21 +1,34 @@
 # Task Dossier Contract
 
-This directory holds one folder per unit of work: a feature, a bugfix, a refactor, or an
-audit. A dossier is the single source of truth for that task — what was asked, what was
+A dossier is the single source of truth for one unit of work — what was asked, what was
 decided, what was done, and what was deliberately left out. The `/spec`, `/build`, and
 `/audit` skills read and write dossiers according to this contract; humans reviewing a PR
 read the same files. Keep dossiers factual, not aspirational: if the implementation
 deviated from the plan, the dossier says so.
 
-## Layout
+## Two trees: audits vs tasks
+
+Findings and specs are different kinds of artifact with different lifecycles, so they
+live in separate trees. An **audit** is an investigation record — it produces knowledge,
+not a change. A **task** is actionable, buildable work. Audits spawn tasks; the two link
+across trees but never share a folder, so a path alone tells you which you are looking at.
 
 ```
-docs/tasks/
-  README.md                    this contract
-  YYYY-MM-DD-<slug>/           one folder per task; date is the creation date
-    spec.md                    feature / bugfix / refactor tasks
-    findings.md                audit tasks
+docs/
+  audits/
+    <this contract applies>       audits reference docs/tasks/README.md for the shared rules
+    YYYY-MM-DD-<slug>/
+      findings.md                 /audit output — type: audit
+  tasks/
+    README.md                     this contract
+    YYYY-MM-DD-<slug>/
+      spec.md                     /spec + /build work — type: feature | bugfix | refactor
 ```
+
+- `/audit` writes only under `docs/audits/`. `findings.md` links the task slugs it spawns
+  in its hand-off section.
+- `/spec` and `/build` operate only under `docs/tasks/`. A spec born from an audit cites
+  that audit's `docs/audits/<slug>/findings.md` in its summary.
 
 Slugs are short kebab-case English (`2026-07-03-agent-avatar-upload`). Everything under
 `docs/` is English-only; dossiers are no exception.
