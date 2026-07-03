@@ -1,5 +1,7 @@
-// Thin API modules per resource. Every call returns parsed JSON; RFC 7807
-// errors surface as AxiosError with `response.data` typed as ProblemJson.
+// Thin API modules per resource. Every call returns parsed JSON. The transport
+// interceptor (shared/transport/axios.ts) converts RFC 7807 responses into
+// typed ApiError/ValidationError subclasses and throws those — callers branch
+// on `err instanceof ApiError`, never on a raw AxiosError.
 
 import { http } from '@shared/transport'
 import type { Agent } from '@slices/agents'
