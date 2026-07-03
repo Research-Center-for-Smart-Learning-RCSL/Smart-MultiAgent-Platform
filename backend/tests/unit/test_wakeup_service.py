@@ -90,3 +90,108 @@ async def test_allow_self_open_false_still_does_not_fire_into_empty_room(monkeyp
     fired = await svc.evaluate_silence_trigger(agent_id=agent.id, room_id=uuid.uuid4())
 
     assert fired is False
+
+
+# --------------------------------------------------------------------------- #
+# O-2 (F-2): observer bindings are exempt from the empty-room presence gates —
+# observer output is out-of-band (R28.04), so "don't fire into an empty room"
+# does not apply, and the gated-wakeup bell must never name an observer
+# (R28.09/R28.10).
+# --------------------------------------------------------------------------- #
+
+
+async def test_observer_silence_fires_in_empty_room_even_when_paused(monkeypatch) -> None:
+    agent = _agent(wakeup_config=_silence_config(allow_self_open=False))
+    svc = _make_service(agent=agent, room_members=[])
+    _stub_stale_but_ready_silence_state(monkeypatch)
+    # The role-blind presence pause set the flag inactive when the room
+    # emptied — an observer must fire regardless.
+    monkeypatch.setattr(
+        "contexts.orchestration.application.wakeup_service.wakeup_state.is_silence_active",
+        _async_return(False),
+    )
+
+    fired = await svc.evaluate_silence_trigger(
+        agent_id=agent.id, room_id=uuid.uuid4(), is_observer=True
+    )
+
+    assert fired is True
+
+
+async def test_normal_silence_still_respects_paused_flag(monkeypatch) -> None:
+    agent = _agent(wakeup_config=_silence_config(allow_self_open=True))
+    svc = _make_service(agent=agent, room_members=[uuid.uuid4()])
+    _stub_stale_but_ready_silence_state(monkeypatch)
+    monkeypatch.setattr(
+        "contexts.orchestration.application.wakeup_service.wakeup_state.is_silence_active",
+        _async_return(False),
+    )
+
+    fired = await svc.evaluate_silence_trigger(agent_id=agent.id, room_id=uuid.uuid4())
+
+    assert fired is False
+
+
+def _every_n_config(*, allow_self_open: bool = False) -> dict:
+    return {
+        "triggers": {"every_n_messages": {"enabled": True, "n": 1}},
+        "allow_self_open": allow_self_open,
+    }
+
+
+def _stub_every_n_state(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "contexts.orchestration.application.wakeup_service.wakeup_state.touch_silence_timestamp",
+        _async_return(None),
+    )
+    monkeypatch.setattr(
+        "contexts.orchestration.application.wakeup_service.wakeup_state.reset_autostop",
+        _async_return(None),
+    )
+    monkeypatch.setattr(
+        "contexts.orchestration.application.wakeup_service.wakeup_state.increment_message_count",
+        _async_return(1),
+    )
+
+
+async def test_observer_every_n_fires_with_empty_presence_and_no_gated_bell(monkeypatch) -> None:
+    agent = _agent(wakeup_config=_every_n_config(allow_self_open=False))
+    svc = _make_service(agent=agent, room_members=[])
+    _stub_every_n_state(monkeypatch)
+    bells: list[uuid.UUID] = []
+
+    async def _gated(a, room_id):
+        bells.append(a.id)
+
+    svc._notify_wakeup_gated = _gated  # type: ignore[method-assign]
+
+    woken = await svc.on_message_created(
+        room_id=uuid.uuid4(),
+        sender_is_user=True,
+        agent_ids=[agent.id],
+        observer_agent_ids={agent.id},
+    )
+
+    assert woken == [agent.id]
+    assert bells == []
+
+
+async def test_normal_every_n_still_gated_with_bell_when_room_empty(monkeypatch) -> None:
+    agent = _agent(wakeup_config=_every_n_config(allow_self_open=False))
+    svc = _make_service(agent=agent, room_members=[])
+    _stub_every_n_state(monkeypatch)
+    bells: list[uuid.UUID] = []
+
+    async def _gated(a, room_id):
+        bells.append(a.id)
+
+    svc._notify_wakeup_gated = _gated  # type: ignore[method-assign]
+
+    woken = await svc.on_message_created(
+        room_id=uuid.uuid4(),
+        sender_is_user=True,
+        agent_ids=[agent.id],
+    )
+
+    assert woken == []
+    assert bells == [agent.id]

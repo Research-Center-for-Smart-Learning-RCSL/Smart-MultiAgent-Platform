@@ -64,6 +64,7 @@ class WakeupService:
         sender_is_user: bool,
         sender_agent_id: uuid.UUID | None = None,
         agent_ids: list[uuid.UUID],
+        observer_agent_ids: set[uuid.UUID] | frozenset[uuid.UUID] = frozenset(),
     ) -> list[uuid.UUID]:
         """Called when any message is created in a room.
 
@@ -76,6 +77,11 @@ class WakeupService:
 
         ``sender_agent_id`` — when set, the author is excluded from its own
         wake list (an agent must not be woken by its own reply).
+
+        ``observer_agent_ids`` — observer-role bindings (O-2/R28.04): their
+        output is out-of-band, so the empty-room presence gate does not apply
+        and the gated-wakeup owner bell must never fire for them — it would
+        name the observer to non-creators (R28.09).
         """
         wake_list: list[uuid.UUID] = []
 
@@ -99,7 +105,7 @@ class WakeupService:
                 if n > 0 and count % n == 0:
                     if agent_id == sender_agent_id:
                         continue
-                    if not cfg.allow_self_open:
+                    if agent_id not in observer_agent_ids and not cfg.allow_self_open:
                         members = await self._presence.list_room(room_id)
                         if not members:
                             await self._notify_wakeup_gated(agent, room_id)
@@ -181,10 +187,16 @@ class WakeupService:
         *,
         agent_id: uuid.UUID,
         room_id: uuid.UUID,
+        is_observer: bool = False,
     ) -> bool:
         """Check if silence_minutes trigger should fire (R15.02).
 
         Returns True if the agent should wake up due to silence.
+
+        ``is_observer`` (O-2/R28.04): observer output never enters the room,
+        so the empty-room suppressions — the presence-paused silence flag and
+        the live-roster re-check — do not apply to observer bindings; an
+        observer keeps observing rooms nobody is watching.
         """
         agent = await self._agents_facade.get_agent(agent_id)
         if agent is None or agent.deleted_at is not None:
@@ -197,7 +209,7 @@ class WakeupService:
             return False
 
         # R15.05b: only fire when live users are present.
-        if not await wakeup_state.is_silence_active(agent_id, room_id):
+        if not is_observer and not await wakeup_state.is_silence_active(agent_id, room_id):
             return False
 
         last_ts = await wakeup_state.get_silence_timestamp(agent_id, room_id)
@@ -218,9 +230,10 @@ class WakeupService:
         # between an unclean disconnect and the retention scrub reconciling
         # it (see `_scrub_stale_presence`), so allow_self_open=true must not
         # skip this check based on that flag alone.
-        members = await self._presence.list_room(room_id)
-        if not members:
-            return False
+        if not is_observer:
+            members = await self._presence.list_room(room_id)
+            if not members:
+                return False
 
         WAKEUP_FIRES.labels(kind="silence_minutes").inc()
         return True

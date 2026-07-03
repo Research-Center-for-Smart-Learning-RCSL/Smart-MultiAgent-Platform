@@ -19,25 +19,28 @@ module free of any arq / app dependency and unit-testable in isolation.
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from contexts.conversation.domain.models import ChatroomAgentRole
+from contexts.conversation.domain.models import ChatroomAgent, ChatroomAgentRole
 from contexts.conversation.infrastructure.repositories import ChatroomAgentRepository
 
 __all__ = [
     "evaluate_message_wakeups",
     "evaluate_presence_change",
     "filter_mentioned_bound_agents",
-    "list_bound_agent_ids",
+    "list_bound_agents",
 ]
 
 
-async def list_bound_agent_ids(db: AsyncSession, chatroom_id: uuid.UUID) -> list[uuid.UUID]:
-    """List the agent ids bound to a room. Exposed so a caller evaluating more
-    than one trigger for the same message (every_n + @mention) can fetch the
-    binding once and pass it into both, instead of querying per evaluation."""
-    return [a.agent_id for a in await ChatroomAgentRepository(db).list(chatroom_id)]
+async def list_bound_agents(db: AsyncSession, chatroom_id: uuid.UUID) -> Sequence[ChatroomAgent]:
+    """Fetch the room's binding rows (agent id + role) once. Exposed so a
+    caller evaluating more than one trigger for the same message (every_n +
+    @mention + GraphRAG) can share the read instead of querying per
+    evaluation. Rows, not bare ids — ``evaluate_message_wakeups`` needs the
+    role to exempt observers from the presence gate (O-2/R28.04)."""
+    return await ChatroomAgentRepository(db).list(chatroom_id)
 
 
 async def evaluate_message_wakeups(
@@ -46,7 +49,7 @@ async def evaluate_message_wakeups(
     chatroom_id: uuid.UUID,
     sender_is_user: bool,
     sender_agent_id: uuid.UUID | None = None,
-    bound_agent_ids: list[uuid.UUID] | None = None,
+    bound_agents: Sequence[ChatroomAgent] | None = None,
 ) -> list[uuid.UUID]:
     """Return the agent ids whose ``every_n_messages`` trigger fired for this
     message. Side effects (counter increment, autostop reset on user sends,
@@ -55,15 +58,16 @@ async def evaluate_message_wakeups(
     ``sender_agent_id`` — set when the message was authored by a room-bound
     agent; used to exclude the author from its own wake list (R15.01/Q49).
 
-    ``bound_agent_ids`` lets the caller supply an already-fetched room binding;
-    when omitted it is queried here. Returns an empty list when no agent is
-    bound to the room.
+    ``bound_agents`` lets the caller supply the already-fetched binding rows
+    (see ``list_bound_agents``); when omitted they are queried here. The rows
+    carry the role so observer bindings are flagged to orchestration
+    (O-2/R28.04). Returns an empty list when no agent is bound to the room.
     """
-    agent_ids = (
-        bound_agent_ids if bound_agent_ids is not None else await list_bound_agent_ids(db, chatroom_id)
-    )
-    if not agent_ids:
+    rows = bound_agents if bound_agents is not None else await ChatroomAgentRepository(db).list(chatroom_id)
+    if not rows:
         return []
+    agent_ids = [a.agent_id for a in rows]
+    observer_ids = {a.agent_id for a in rows if a.role is ChatroomAgentRole.OBSERVER}
     from contexts.orchestration.interfaces.facade import OrchestrationFacade
 
     return await OrchestrationFacade(db).on_message_created(
@@ -71,6 +75,7 @@ async def evaluate_message_wakeups(
         sender_is_user=sender_is_user,
         sender_agent_id=sender_agent_id,
         agent_ids=agent_ids,
+        observer_agent_ids=observer_ids,
     )
 
 

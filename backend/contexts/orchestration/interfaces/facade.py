@@ -123,12 +123,14 @@ class OrchestrationFacade:
         sender_is_user: bool,
         sender_agent_id: uuid.UUID | None = None,
         agent_ids: list[uuid.UUID],
+        observer_agent_ids: set[uuid.UUID] | frozenset[uuid.UUID] = frozenset(),
     ) -> list[uuid.UUID]:
         return await self._wakeup.on_message_created(
             room_id=room_id,
             sender_is_user=sender_is_user,
             sender_agent_id=sender_agent_id,
             agent_ids=agent_ids,
+            observer_agent_ids=observer_agent_ids,
         )
 
     async def on_presence_changed(

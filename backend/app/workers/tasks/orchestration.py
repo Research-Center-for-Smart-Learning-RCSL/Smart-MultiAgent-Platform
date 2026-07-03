@@ -208,6 +208,7 @@ async def evaluate_silence(ctx: dict[str, Any]) -> str:
     the next T-minute window instead of re-firing on every 30 s sweep — an
     interim debounce until the Phase H agent runtime owns the timer.
     """
+    from contexts.conversation.domain.models import ChatroomAgentRole
     from contexts.conversation.infrastructure.repositories import (
         ChatroomAgentRepository,
     )
@@ -232,10 +233,14 @@ async def evaluate_silence(ctx: dict[str, Any]) -> str:
                 break
             offset += batch_size
 
-        for agent_id, room_id in pairs:
+        for agent_id, room_id, role in pairs:
             checked += 1
             try:
-                if await svc.evaluate_silence_trigger(agent_id=agent_id, room_id=room_id):
+                if await svc.evaluate_silence_trigger(
+                    agent_id=agent_id,
+                    room_id=room_id,
+                    is_observer=role is ChatroomAgentRole.OBSERVER,
+                ):
                     # No trigger_message_id: silence is time-based, not tied to a
                     # specific message, so the turn intentionally falls back to
                     # resolving attachments against the room's current latest
