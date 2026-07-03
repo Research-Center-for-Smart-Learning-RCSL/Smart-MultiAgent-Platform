@@ -126,7 +126,6 @@
 import { computed, ref, useId, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { SAlert, SButton, SCharCount, SCheckbox, SEmptyState, SModal, SRadio, STextarea, SToggle } from '@shared/ui'
-import { useToast } from '@shared/composables'
 import type { ReleaseBody } from '../api'
 import type { Observation } from '../types'
 
@@ -146,7 +145,6 @@ const emit = defineEmits<{
 }>()
 
 const { t } = useI18n()
-const toast = useToast()
 const contentId = useId()
 
 const original = computed(() => props.observation?.content_md ?? '')
@@ -186,8 +184,11 @@ const canSubmit = computed(() => {
   return true
 })
 
-async function submit(): Promise<void> {
+function submit(): void {
   if (!canSubmit.value || submitting.value) return
+  // W-2 (B.4.3): the parent owns the async release and drives `submitting`
+  // via setSubmitting — resetting it here would race the parent's await
+  // (emits are synchronous) and drop the pending state for the whole request.
   submitting.value = true
   errorMessage.value = ''
   const override = content.value !== original.value ? content.value : undefined
@@ -200,13 +201,7 @@ async function submit(): Promise<void> {
           wake: wake.value,
           ...(override ? { content_override: override } : {}),
         }
-  try {
-    emit('submit', body)
-  } finally {
-    // Parent owns the async call + toast; keep the button responsive if it
-    // chooses not to close immediately.
-    submitting.value = false
-  }
+  emit('submit', body)
 }
 
 // Exposed so the parent can drive submitting/error state during the release
@@ -216,8 +211,9 @@ defineExpose({
     submitting.value = v
   },
   setError: (msg: string) => {
+    // W-8: inline only — the dialog is always open when this runs, so a
+    // toast would duplicate the visible SAlert and outlive the dialog.
     errorMessage.value = msg
-    if (msg) toast.error(msg)
   },
 })
 </script>
