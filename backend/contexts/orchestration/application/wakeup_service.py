@@ -213,11 +213,14 @@ class WakeupService:
         if autostop_count >= cfg.triggers.silence_minutes.autostop_rounds:
             return False
 
-        # R15.05: allow_self_open check.
-        if not cfg.allow_self_open:
-            members = await self._presence.list_room(room_id)
-            if not members:
-                return False
+        # R15.05b defense-in-depth: re-check the live roster unconditionally,
+        # independent of allow_self_open. `is_silence_active` can go stale
+        # between an unclean disconnect and the retention scrub reconciling
+        # it (see `_scrub_stale_presence`), so allow_self_open=true must not
+        # skip this check based on that flag alone.
+        members = await self._presence.list_room(room_id)
+        if not members:
+            return False
 
         WAKEUP_FIRES.labels(kind="silence_minutes").inc()
         return True
