@@ -32,9 +32,9 @@ from contexts.conversation.application.message_service import (
 from contexts.conversation.application.triggers import (
     evaluate_message_wakeups,
     filter_mentioned_bound_agents,
-    list_bound_agent_ids,
+    list_bound_agents,
 )
-from contexts.conversation.domain.models import Message
+from contexts.conversation.domain.models import ChatroomAgent, Message
 from contexts.conversation.interfaces import room_channel
 from contexts.knowledge.interfaces.facade import KnowledgeFacade
 from shared_kernel.auth.context import RequestContext
@@ -224,8 +224,11 @@ async def send_message(
         _log.error("realtime publish failed for message.created %s", msg.id, exc_info=True)
     # Fetch the room's agent binding once and share it across both wake-up
     # evaluations (every_n + @mention) so a mention send issues one query, not two.
-    bound_ids = await _list_bound_agents_for_dispatch(db, chatroom_id)
-    woken = await _dispatch_message_wakeups(db, chatroom_id, bound_ids, trigger_message_id=msg.id)
+    # Rows (id + role), not bare ids — the every_n evaluator flags observer
+    # bindings to orchestration (O-2/R28.04).
+    bound_rows = await _list_bound_agents_for_dispatch(db, chatroom_id)
+    bound_ids = None if bound_rows is None else [a.agent_id for a in bound_rows]
+    woken = await _dispatch_message_wakeups(db, chatroom_id, bound_rows, trigger_message_id=msg.id)
     await _dispatch_graphrag_builds(db, chatroom_id, bound_ids)
     await _dispatch_mention_wakeups(
         db,
@@ -246,12 +249,14 @@ async def _rollback_quietly(db: AsyncSession) -> None:
         await db.rollback()
 
 
-async def _list_bound_agents_for_dispatch(db: AsyncSession, chatroom_id: uuid.UUID) -> list[uuid.UUID] | None:
-    """Fetch the room binding once for the post-commit wake-up dispatch. Best-
-    effort: on failure return None so each evaluator falls back to its own
+async def _list_bound_agents_for_dispatch(
+    db: AsyncSession, chatroom_id: uuid.UUID
+) -> Sequence[ChatroomAgent] | None:
+    """Fetch the room binding rows once for the post-commit wake-up dispatch.
+    Best-effort: on failure return None so each evaluator falls back to its own
     (try-protected) fetch rather than the send failing."""
     try:
-        return await list_bound_agent_ids(db, chatroom_id)
+        return await list_bound_agents(db, chatroom_id)
     except Exception:  # pragma: no cover — defensive; exercised via wiring tier
         await _rollback_quietly(db)
         return None
@@ -260,7 +265,7 @@ async def _list_bound_agents_for_dispatch(db: AsyncSession, chatroom_id: uuid.UU
 async def _dispatch_message_wakeups(
     db: AsyncSession,
     chatroom_id: uuid.UUID,
-    bound_agent_ids: list[uuid.UUID] | None = None,
+    bound_agents: Sequence[ChatroomAgent] | None = None,
     *,
     trigger_message_id: uuid.UUID,
 ) -> set[uuid.UUID]:
@@ -271,7 +276,7 @@ async def _dispatch_message_wakeups(
     woken: set[uuid.UUID] = set()
     try:
         fired = await evaluate_message_wakeups(
-            db, chatroom_id=chatroom_id, sender_is_user=True, bound_agent_ids=bound_agent_ids
+            db, chatroom_id=chatroom_id, sender_is_user=True, bound_agents=bound_agents
         )
         for agent_id in fired:
             await enqueue(

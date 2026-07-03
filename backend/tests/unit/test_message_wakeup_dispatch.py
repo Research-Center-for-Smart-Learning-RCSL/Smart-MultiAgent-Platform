@@ -2,8 +2,9 @@
 wake-up evaluations (every_n_messages + @mention).
 
 A message that carries @mentions used to query the room binding twice — once in
-``evaluate_message_wakeups`` and once in ``filter_mentioned_bound_agents``. Both
-now accept a pre-fetched ``bound_agent_ids`` so the send path fetches once.
+``evaluate_message_wakeups`` and once in ``filter_mentioned_bound_agents``.
+The send path now fetches once via ``list_bound_agents`` (rows with roles,
+O-2/R28.04) and passes rows / ids into the evaluators.
 """
 
 from __future__ import annotations
@@ -57,6 +58,10 @@ async def test_filter_mentioned_bound_agents_narrows_with_provided_binding(monke
 
 @pytest.mark.asyncio
 async def test_evaluate_message_wakeups_uses_provided_binding(monkeypatch) -> None:
+    from types import SimpleNamespace
+
+    from contexts.conversation.domain.models import ChatroomAgentRole
+
     a1 = uuid.uuid4()
     monkeypatch.setattr(triggers, "ChatroomAgentRepository", _BoomRepo)
 
@@ -64,12 +69,17 @@ async def test_evaluate_message_wakeups_uses_provided_binding(monkeypatch) -> No
         def __init__(self, db) -> None:
             pass
 
-        async def on_message_created(self, *, room_id, sender_is_user, sender_agent_id=None, agent_ids):
+        async def on_message_created(
+            self, *, room_id, sender_is_user, sender_agent_id=None, agent_ids, observer_agent_ids=frozenset()
+        ):
             return list(agent_ids)
 
     monkeypatch.setattr(facade_mod, "OrchestrationFacade", _Facade)
     woken = await triggers.evaluate_message_wakeups(
-        object(), chatroom_id=uuid.uuid4(), sender_is_user=True, bound_agent_ids=[a1]
+        object(),
+        chatroom_id=uuid.uuid4(),
+        sender_is_user=True,
+        bound_agents=[SimpleNamespace(agent_id=a1, role=ChatroomAgentRole.NORMAL)],
     )
     assert woken == [a1]
 

@@ -53,12 +53,15 @@ async def test_evaluate_message_wakeups_returns_wake_list(monkeypatch) -> None:
         def __init__(self, db) -> None:
             pass
 
-        async def on_message_created(self, *, room_id, sender_is_user, sender_agent_id=None, agent_ids):
+        async def on_message_created(
+            self, *, room_id, sender_is_user, sender_agent_id=None, agent_ids, observer_agent_ids=frozenset()
+        ):
             captured.update(
                 room_id=room_id,
                 sender_is_user=sender_is_user,
                 sender_agent_id=sender_agent_id,
                 agent_ids=list(agent_ids),
+                observer_agent_ids=set(observer_agent_ids),
             )
             return [a1]  # only a1's every_n trigger fired
 
@@ -70,6 +73,39 @@ async def test_evaluate_message_wakeups_returns_wake_list(monkeypatch) -> None:
     assert captured["room_id"] == room
     assert captured["sender_is_user"] is True
     assert captured["agent_ids"] == [a1, a2]
+    assert captured["observer_agent_ids"] == set()
+
+
+@pytest.mark.asyncio
+async def test_evaluate_message_wakeups_passes_observer_ids(monkeypatch) -> None:
+    """O-2 (F-2): the conversation edge owns roles — observer bindings must be
+    identified to the orchestration facade so the presence gate can exempt them."""
+    from contexts.conversation.domain.models import ChatroomAgentRole
+
+    normal, observer = uuid.uuid4(), uuid.uuid4()
+    room = uuid.uuid4()
+    captured: dict = {}
+
+    monkeypatch.setattr(
+        triggers,
+        "ChatroomAgentRepository",
+        _fake_agent_repo([normal, observer], roles={observer: ChatroomAgentRole.OBSERVER}),
+    )
+
+    class _Facade:
+        def __init__(self, db) -> None:
+            pass
+
+        async def on_message_created(self, *, agent_ids, observer_agent_ids=frozenset(), **kw):
+            captured.update(agent_ids=list(agent_ids), observer_agent_ids=set(observer_agent_ids))
+            return []
+
+    monkeypatch.setattr(facade_mod, "OrchestrationFacade", _Facade)
+
+    await triggers.evaluate_message_wakeups(object(), chatroom_id=room, sender_is_user=True)
+
+    assert captured["agent_ids"] == [normal, observer]
+    assert captured["observer_agent_ids"] == {observer}
 
 
 @pytest.mark.asyncio

@@ -348,17 +348,20 @@ class ChatroomAgentRepository:
         *,
         limit: int = 500,
         offset: int = 0,
-    ) -> list[tuple[uuid.UUID, uuid.UUID]]:  # type: ignore[valid-type]
-        """Return (agent_id, chatroom_id) pairs for non-deleted chatrooms.
+    ) -> list[tuple[uuid.UUID, uuid.UUID, ChatroomAgentRole]]:  # type: ignore[valid-type]
+        """Return (agent_id, chatroom_id, role) triples for non-deleted chatrooms.
 
         Used by the silence-trigger sweep (M19) so the SQL join stays in the
-        repository instead of the worker task.
+        repository instead of the worker task. The role rides along so the
+        sweep can exempt observer bindings from the presence gate (O-2/R28.04)
+        without a per-pair role lookup.
         """
         rows = (
             await self._db.execute(
                 sa.select(
                     t.chatroom_agents.c.agent_id,
                     t.chatroom_agents.c.chatroom_id,
+                    t.chatroom_agents.c.role,
                 )
                 .select_from(
                     t.chatroom_agents.join(
@@ -372,7 +375,7 @@ class ChatroomAgentRepository:
                 .offset(offset)
             )
         ).all()
-        return [(r.agent_id, r.chatroom_id) for r in rows]
+        return [(r.agent_id, r.chatroom_id, ChatroomAgentRole(r.role)) for r in rows]
 
 
 class ChatroomGuestRepository:

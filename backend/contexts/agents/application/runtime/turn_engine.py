@@ -1248,18 +1248,18 @@ class TurnEngine:
         try:
             from contexts.conversation.application.triggers import (
                 evaluate_message_wakeups,
-                list_bound_agent_ids,
+                list_bound_agents,
             )
             from contexts.knowledge.interfaces.facade import KnowledgeFacade
             from shared_kernel.queue import enqueue
 
-            bound = await list_bound_agent_ids(self._db, chatroom_id)
+            bound = await list_bound_agents(self._db, chatroom_id)
             fired = await evaluate_message_wakeups(
                 self._db,
                 chatroom_id=chatroom_id,
                 sender_is_user=False,
                 sender_agent_id=agent.id,
-                bound_agent_ids=bound,
+                bound_agents=bound,
             )
             for aid in fired:
                 await enqueue(
@@ -1270,7 +1270,9 @@ class TurnEngine:
                     str(message_id),
                 )
             if bound:
-                triggers = await KnowledgeFacade(self._db).evaluate_graphrag_message_triggers(agent_ids=bound)
+                triggers = await KnowledgeFacade(self._db).evaluate_graphrag_message_triggers(
+                    agent_ids=[a.agent_id for a in bound]
+                )
                 for trig in triggers:
                     await enqueue(
                         "graphrag_build",
