@@ -24,8 +24,8 @@ const { t } = useI18n()
     <SButton
       v-if="user.status === 'active'"
       variant="danger"
-      :disabled="isPending"
-      :loading="isPending"
+      :disabled="isPending ?? false"
+      :loading="isPending ?? false"
       @click="$emit('ban')"
     >
       {{ t('admin.users.ban') }}
@@ -33,8 +33,8 @@ const { t } = useI18n()
     <SButton
       v-if="user.status === 'banned'"
       variant="secondary"
-      :disabled="isPending"
-      :loading="isPending"
+      :disabled="isPending ?? false"
+      :loading="isPending ?? false"
       @click="$emit('unban')"
     >
       {{ t('admin.users.unban') }}
@@ -42,8 +42,8 @@ const { t } = useI18n()
     <SButton
       v-if="user.status === 'active'"
       variant="danger"
-      :disabled="isPending"
-      :loading="isPending"
+      :disabled="isPending ?? false"
+      :loading="isPending ?? false"
       @click="$emit('soft-delete')"
     >
       {{ t('admin.userDetail.softDelete') }}
@@ -51,8 +51,8 @@ const { t } = useI18n()
     <SButton
       v-if="user.deleted_at"
       variant="danger"
-      :disabled="isPending"
-      :loading="isPending"
+      :disabled="isPending ?? false"
+      :loading="isPending ?? false"
       @click="$emit('hard-delete')"
     >
       {{ t('admin.userDetail.hardDelete') }}
@@ -60,8 +60,8 @@ const { t } = useI18n()
     <SButton
       v-if="user.status === 'active'"
       variant="secondary"
-      :disabled="isPending"
-      :loading="isPending"
+      :disabled="isPending ?? false"
+      :loading="isPending ?? false"
       @click="$emit('impersonate')"
     >
       {{ t('admin.userDetail.impersonate') }}
