@@ -13,7 +13,6 @@ from datetime import UTC, datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
-import pytest
 from sqlalchemy.dialects import postgresql
 
 from contexts.conversation.infrastructure.repositories.message_repo import MessageRepository
