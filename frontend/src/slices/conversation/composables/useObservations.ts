@@ -81,7 +81,7 @@ export function useObservations(chatroomId: string, opts: UseObservationsOptions
           id: a.agent_id,
           name: opts.agentNames.value[a.agent_id] ?? a.agent_id.slice(0, 8),
           status: analyzing ? 'analyzing' : errorReason ? 'error' : 'idle',
-          errorReason,
+          ...(errorReason !== undefined && { errorReason }),
         }
       }),
   )

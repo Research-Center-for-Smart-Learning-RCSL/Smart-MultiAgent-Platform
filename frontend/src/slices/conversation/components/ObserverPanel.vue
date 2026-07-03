@@ -5,7 +5,9 @@
         v-for="a in observerAgents"
         :key="a.id"
         class="obs-panel__roster-item"
-        :title="a.status === 'error' ? t('conversation.observers.status.error') : undefined"
+        v-bind="
+          a.status === 'error' ? { title: t('conversation.observers.status.error') } : {}
+        "
       >
         <span class="obs-panel__roster-name">{{ a.name }}</span>
         <span

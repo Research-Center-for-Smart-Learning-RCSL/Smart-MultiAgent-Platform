@@ -379,12 +379,15 @@ function agentStatus(id: string): AgentStatus {
 const agentList = computed(() =>
   (boundAgentsQuery.data.value ?? [])
     .filter((a) => a.role !== 'observer')
-    .map((a) => ({
-      id: a.agent_id,
-      name: agentNames.value[a.agent_id] ?? a.agent_id.slice(0, 8),
-      status: agentStatus(a.agent_id),
-      errorReason: store.agentErrors[chatroomId]?.[a.agent_id],
-    })),
+    .map((a) => {
+      const errorReason = store.agentErrors[chatroomId]?.[a.agent_id]
+      return {
+        id: a.agent_id,
+        name: agentNames.value[a.agent_id] ?? a.agent_id.slice(0, 8),
+        status: agentStatus(a.agent_id),
+        ...(errorReason !== undefined && { errorReason }),
+      }
+    }),
 )
 
 // Autocomplete-only mention source: bound agents plus named human members.
@@ -428,7 +431,7 @@ const railTabs = computed(() => [
     key: 'observer',
     label: t('conversation.observers.tab'),
     icon: EyeIcon,
-    badge: observations.unreadCount.value || undefined,
+    ...(observations.unreadCount.value && { badge: observations.unreadCount.value }),
   },
 ])
 watch(railTab, (tab) => observations.setPanelOpen(tab === 'observer'))

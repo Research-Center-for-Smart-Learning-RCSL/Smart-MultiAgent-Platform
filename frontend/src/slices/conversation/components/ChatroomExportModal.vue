@@ -98,7 +98,7 @@
         >
           <SInput
             v-model="start"
-            type="date"
+            :type="dateInputType"
           />
         </SFormField>
         <SFormField
@@ -107,7 +107,7 @@
         >
           <SInput
             v-model="end"
-            type="date"
+            :type="dateInputType"
           />
         </SFormField>
       </div>
@@ -167,6 +167,12 @@ const emit = defineEmits<{
 }>()
 
 const { t } = useI18n()
+
+// SInput's `type` prop union omits 'date', but SInput forwards the value
+// unmodified to the native <input type>, coercing only 'number' inputs in its
+// input handler — so 'date' is genuinely runtime-compatible even though the
+// prop type doesn't declare it.
+const dateInputType = 'date' as unknown as 'text'
 
 const format = ref<NonNullable<ExportOptions['format']>>('markdown')
 const dateRange = ref<NonNullable<ExportOptions['date_range']>>('all')

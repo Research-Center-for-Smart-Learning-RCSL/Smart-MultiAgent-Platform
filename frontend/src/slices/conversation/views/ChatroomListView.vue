@@ -70,14 +70,21 @@ const filtered = computed(() => {
   return rooms.value.filter((r) => r.name.toLowerCase().includes(q))
 })
 
+// STable's generic constrains T to Record<string, unknown>; Chatroom has no
+// index signature by design, so intersect it in only for this cast (the
+// runtime shape is unchanged — plain chatroom objects from the API).
+type ChatroomRow = Chatroom & Record<string, unknown>
+
+const tableRows = computed<ChatroomRow[]>(() => filtered.value as unknown as ChatroomRow[])
+
 const breadcrumbs = computed(() => {
   const ws = workspaceQuery.data.value
   return [
     {
       label: t('conversation.workspaces.title'),
-      to: ws
-        ? { name: 'conversation.workspaces', params: { projectId: ws.project_id } }
-        : undefined,
+      ...(ws && {
+        to: { name: 'conversation.workspaces', params: { projectId: ws.project_id } },
+      }),
     },
   ]
 })
@@ -309,7 +316,7 @@ function submitCreate(): void {
     <STable
       v-if="!isMobile"
       :columns="columns"
-      :data="filtered"
+      :data="tableRows"
       :loading="loading"
       row-key="id"
       sticky-header
@@ -389,7 +396,7 @@ function submitCreate(): void {
         <SFormField
           :label="t('conversation.chatrooms.colName')"
           name="chatroomName"
-          :error="createError ?? undefined"
+          v-bind="createError ? { error: createError } : {}"
           required
         >
           <SInput

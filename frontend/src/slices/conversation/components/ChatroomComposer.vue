@@ -10,7 +10,7 @@
         variant="ghost"
         icon-only
         size="sm"
-        :disabled="disabled"
+        :disabled="disabled ?? false"
         :aria-label="t('conversation.chatroom.attach')"
         @click="openPicker"
       >
@@ -34,7 +34,7 @@
             ? t('conversation.chatroom.reconnecting')
             : t('conversation.chatroom.composerPlaceholder')"
           :aria-label="t('conversation.chatroom.composerPlaceholder')"
-          :readonly="disabled"
+          :readonly="disabled ?? false"
           :maxlength="INPUT_LIMITS.MESSAGE"
           rows="1"
           @input="onInput"
@@ -158,7 +158,7 @@ const props = withDefaults(
     agents?: MentionableAgent[]
     disabled?: boolean
   }>(),
-  { agents: () => [] },
+  { agents: () => [], disabled: false },
 )
 
 const emit = defineEmits<{

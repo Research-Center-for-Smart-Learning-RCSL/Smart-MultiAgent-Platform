@@ -1,7 +1,7 @@
 <template>
   <li
     class="agent-status-item"
-    :title="errorTooltip"
+    v-bind="errorTooltip !== undefined ? { title: errorTooltip } : {}"
   >
     <SAvatar
       :name="agent.name"
