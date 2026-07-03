@@ -318,3 +318,12 @@ correctness bug; all are maintainability/consistency observations, none blocking
   clone/list-field helper duplicated across the pair. Several smaller identity-slice and
   `useChatroomBindings.ts`/`useChatroomMessages.ts` observations are in the full
   check-quality transcript if useful context for a future cleanup pass.
+- **FU-12 (pre-existing, test flakiness)**: `src/app/__tests__/Landing.test.ts`'s
+  "forwards a logged-out deep-link visitor on to login" test passed reliably 3/3 in
+  isolation but failed in ~3 of 4 full-suite runs during this session's final
+  verification. Confirmed unrelated to this diff — `git log` shows none of the files in
+  its execution path (`Landing.vue`, `Landing.test.ts`, `safeRedirect.ts`,
+  `tests/utils/routes.ts`, `tests/utils/render.ts`) were touched by any commit in this
+  task. The test's bounded `setTimeout`-based retry loop likely doesn't get enough real
+  wall-clock time under full-suite parallel worker-pool contention. Worth switching to
+  fake timers or a `vi.waitFor`-style deterministic wait.
