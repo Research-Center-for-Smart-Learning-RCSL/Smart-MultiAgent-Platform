@@ -175,6 +175,7 @@ async function submit(): Promise<void> {
       <SAlert
         v-if="serverError"
         variant="danger"
+        focus-on-mount
       >
         {{ serverError }}
       </SAlert>

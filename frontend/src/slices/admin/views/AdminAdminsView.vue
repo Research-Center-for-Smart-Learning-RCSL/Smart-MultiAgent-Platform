@@ -23,6 +23,7 @@
     <SAlert
       v-if="promoteError"
       variant="danger"
+      focus-on-mount
       class="mt-2"
       role="alert"
     >

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, onMounted, useTemplateRef } from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
   InformationCircleIcon,
@@ -18,15 +18,35 @@ const props = withDefaults(
     variant: Variant
     title?: string
     dismissible?: boolean
+    /** When true, on mount the alert scrolls itself into view and takes focus.
+     *  Use for transient submit/server errors so they never surface below the
+     *  fold in long forms. Requires the alert to remount on each error — reset
+     *  the gating condition to falsy before re-triggering. */
+    focusOnMount?: boolean
   }>(),
   {
     dismissible: false,
+    focusOnMount: false,
   },
 )
 
 const emit = defineEmits<{
   dismiss: []
 }>()
+
+const rootRef = useTemplateRef<HTMLDivElement>('root')
+
+onMounted(() => {
+  if (!props.focusOnMount) return
+  const el = rootRef.value
+  if (!el) return
+  // jsdom (tests) implements neither scrollIntoView nor matchMedia; guard both.
+  if (typeof el.scrollIntoView === 'function') {
+    const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+    el.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'center' })
+  }
+  el.focus()
+})
 
 const iconComponent = computed(() => {
   const map = {
@@ -41,9 +61,11 @@ const iconComponent = computed(() => {
 
 <template>
   <div
+    ref="root"
     class="s-alert"
     :class="`s-alert--${variant}`"
     role="alert"
+    v-bind="focusOnMount ? { tabindex: -1 } : {}"
   >
     <component
       :is="iconComponent"
@@ -94,6 +116,17 @@ const iconComponent = computed(() => {
   padding: 12px 16px;
   border-left: 4px solid;
   border-radius: var(--radius-md);
+}
+
+/* Programmatic focus (focusOnMount) must not draw a ring for mouse users; only
+   a real keyboard landing (focus-visible) does. */
+.s-alert:focus {
+  outline: none;
+}
+
+.s-alert:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
 }
 
 /* Variant colors */

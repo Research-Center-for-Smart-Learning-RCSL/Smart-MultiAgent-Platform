@@ -305,6 +305,7 @@ watchEffect(() => {
           <SAlert
             v-if="saveError"
             variant="danger"
+            focus-on-mount
             class="mt-2"
           >
             {{ t(saveError) }}
@@ -488,6 +489,7 @@ watchEffect(() => {
           <SAlert
             v-if="bindingError"
             variant="danger"
+            focus-on-mount
             class="mt-2"
           >
             {{ t(bindingError) }}

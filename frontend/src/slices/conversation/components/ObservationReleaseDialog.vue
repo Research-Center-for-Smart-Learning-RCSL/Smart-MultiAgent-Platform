@@ -99,6 +99,7 @@
       <SAlert
         v-if="errorMessage"
         variant="danger"
+        focus-on-mount
         :title="errorMessage"
       />
     </div>
