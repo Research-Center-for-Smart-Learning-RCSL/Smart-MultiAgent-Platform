@@ -25,7 +25,7 @@ import { useConfirmDialog, useToast, useClientPagination } from '@shared/composa
 import { useMyKeys } from '../composables/useMyKeys'
 import KeyUploadForm from '../components/KeyUploadForm.vue'
 import CapabilityChip from '../components/CapabilityChip.vue'
-import type { ApiKeyProvider } from '../api/keys'
+import type { ApiKey, ApiKeyProvider } from '../api/keys'
 import MaskedPreview from '../components/MaskedPreview.vue'
 import type { Column } from '@shared/ui/STable.vue'
 
@@ -55,6 +55,12 @@ const actionItems = computed(() => [
   { key: 'retest', label: t('keys.list.retest'), icon: ArrowPathIcon },
   { key: 'delete', label: t('keys.list.delete'), icon: TrashIcon, danger: true },
 ])
+
+// ApiKey is a TS `interface` (no index signature), so it doesn't structurally
+// satisfy STable's `T extends Record<string, unknown>` constraint; map to fresh
+// objects so STable's generic resolves to the real row shape instead of falling
+// back to `Record<string, unknown>`.
+const tableKeys = computed(() => paginatedKeys.value.map((k) => ({ ...k })))
 
 async function onUpload(p: { provider: ApiKeyProvider; name: string; secret: string }) {
   if (uploading.value) return
@@ -146,27 +152,27 @@ function onAction(key: string, row: { id: string }) {
 
     <STable
       :columns="columns"
-      :data="paginatedKeys"
+      :data="tableKeys"
       :loading="loading"
       row-key="id"
       class="mt-6"
     >
-      <template #cell-provider="{ row }">
+      <template #cell-provider="{ row }: { row: ApiKey }">
         <CapabilityChip :provider="row.provider" />
       </template>
 
-      <template #cell-name="{ row }">
+      <template #cell-name="{ row }: { row: ApiKey }">
         <span class="truncate max-w-[40ch] inline-block">{{ row.name }}</span>
       </template>
 
-      <template #cell-masked_preview="{ row }">
+      <template #cell-masked_preview="{ row }: { row: ApiKey }">
         <MaskedPreview
           :value="row.masked_preview"
           :aria-label="$t('keys.list.maskedKey')"
         />
       </template>
 
-      <template #cell-test_status="{ row }">
+      <template #cell-test_status="{ row }: { row: ApiKey }">
         <SStatusBadge
           :status="row.test_status"
           :aria-label="`${$t('keys.list.status')}: ${row.test_status}`"
@@ -180,7 +186,7 @@ function onAction(key: string, row: { id: string }) {
         </small>
       </template>
 
-      <template #cell-projects="{ row }">
+      <template #cell-projects="{ row }: { row: ApiKey }">
         <SBadge
           v-if="row.project_count && row.project_count > 0"
           variant="info"
@@ -194,7 +200,7 @@ function onAction(key: string, row: { id: string }) {
         >—</span>
       </template>
 
-      <template #actions="{ row }">
+      <template #actions="{ row }: { row: ApiKey }">
         <SDropdown
           :items="actionItems"
           placement="bottom-end"

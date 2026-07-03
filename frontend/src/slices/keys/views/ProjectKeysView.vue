@@ -26,6 +26,7 @@ import { useProjectKeys } from '../composables/useProjectKeys'
 import CapabilityChip from '../components/CapabilityChip.vue'
 import UsageDashboard from '../components/UsageDashboard.vue'
 import MaskedPreview from '../components/MaskedPreview.vue'
+import type { ApiKey } from '../api/keys'
 import type { Column } from '@shared/ui/STable.vue'
 
 const { t } = useI18n()
@@ -69,6 +70,13 @@ const availableColumns = computed<Column[]>(() => [
   { key: 'test_status', label: t('keys.project.status'), width: '100px', align: 'center' },
   { key: 'actions', label: '', width: '100px', align: 'right' },
 ])
+
+// ApiKey is a TS `interface` (no index signature), so it doesn't structurally
+// satisfy STable's `T extends Record<string, unknown>` constraint; map to fresh
+// objects so STable's generic resolves to the real row shape instead of falling
+// back to `Record<string, unknown>`.
+const tableCarried = computed(() => paginatedCarried.value.map((k) => ({ ...k })))
+const tableCarriable = computed(() => carriable.value.map((k) => ({ ...k })))
 
 function toggleUsage(keyId: string) {
   expandedKeyId.value = expandedKeyId.value === keyId ? null : keyId
@@ -127,23 +135,23 @@ async function onCarry(keyId: string) {
       <template #tab-carried>
         <STable
           :columns="carriedColumns"
-          :data="paginatedCarried"
+          :data="tableCarried"
           :loading="loading"
           row-key="id"
         >
-          <template #cell-provider="{ row }">
+          <template #cell-provider="{ row }: { row: ApiKey }">
             <CapabilityChip :provider="row.provider" />
           </template>
 
-          <template #cell-masked_preview="{ row }">
+          <template #cell-masked_preview="{ row }: { row: ApiKey }">
             <MaskedPreview :value="row.masked_preview" />
           </template>
 
-          <template #cell-test_status="{ row }">
+          <template #cell-test_status="{ row }: { row: ApiKey }">
             <SStatusBadge :status="row.test_status" />
           </template>
 
-          <template #cell-usage="{ row }">
+          <template #cell-usage="{ row }: { row: ApiKey }">
             <SButton
               variant="ghost"
               size="sm"
@@ -155,7 +163,7 @@ async function onCarry(keyId: string) {
             </SButton>
           </template>
 
-          <template #actions="{ row }">
+          <template #actions="{ row }: { row: ApiKey }">
             <SButton
               variant="ghost"
               size="sm"
@@ -212,22 +220,22 @@ async function onCarry(keyId: string) {
       <template #tab-available>
         <STable
           :columns="availableColumns"
-          :data="carriable"
+          :data="tableCarriable"
           row-key="id"
         >
-          <template #cell-provider="{ row }">
+          <template #cell-provider="{ row }: { row: ApiKey }">
             <CapabilityChip :provider="row.provider" />
           </template>
 
-          <template #cell-masked_preview="{ row }">
+          <template #cell-masked_preview="{ row }: { row: ApiKey }">
             <MaskedPreview :value="row.masked_preview" />
           </template>
 
-          <template #cell-test_status="{ row }">
+          <template #cell-test_status="{ row }: { row: ApiKey }">
             <SStatusBadge :status="row.test_status" />
           </template>
 
-          <template #actions="{ row }">
+          <template #actions="{ row }: { row: ApiKey }">
             <SButton
               variant="primary"
               size="sm"
