@@ -1,0 +1,37 @@
+import { describe, it, expect } from 'vitest'
+import { mount } from '@vue/test-utils'
+import STabs from '../STabs.vue'
+
+describe('STabs', () => {
+  it('renders per-tab aria-label and a polite live badge when requested', () => {
+    const wrapper = mount(STabs, {
+      props: {
+        modelValue: 'a',
+        tabs: [
+          { key: 'a', label: 'A' },
+          { key: 'b', label: 'B', badge: 3, ariaLabel: 'B tab, 3 unread', badgeLive: true },
+        ],
+      },
+    })
+    const tabB = wrapper.findAll('[role="tab"]')[1]
+    expect(tabB.attributes('aria-label')).toBe('B tab, 3 unread')
+    const badge = wrapper.find('.s-tabs__badge')
+    expect(badge.text()).toBe('3')
+    expect(badge.attributes('aria-live')).toBe('polite')
+  })
+
+  it('omits aria attributes when the optional fields are unset (backward compatible)', () => {
+    const wrapper = mount(STabs, {
+      props: {
+        modelValue: 'a',
+        tabs: [
+          { key: 'a', label: 'A' },
+          { key: 'b', label: 'B', badge: 1 },
+        ],
+      },
+    })
+    const tabB = wrapper.findAll('[role="tab"]')[1]
+    expect(tabB.attributes('aria-label')).toBeUndefined()
+    expect(wrapper.find('.s-tabs__badge').attributes('aria-live')).toBeUndefined()
+  })
+})

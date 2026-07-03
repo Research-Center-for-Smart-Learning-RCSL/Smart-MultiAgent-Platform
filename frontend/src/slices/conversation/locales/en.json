@@ -169,8 +169,14 @@
       "status": {
         "analyzing": "analyzing...",
         "error": "error",
+        "skipped": "skipped",
         "idle": "idle"
       },
+      "skip": {
+        "no_input": "Nothing new to analyze",
+        "empty_reply": "Had nothing to add"
+      },
+      "badgeAria": "Observer tab, {n} unread observations",
       "trigger": {
         "every_n_messages": "message trigger",
         "silence_minutes": "silence trigger",
