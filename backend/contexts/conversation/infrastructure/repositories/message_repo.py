@@ -94,7 +94,15 @@ class MessageRepository:
             anchor = (
                 await self._db.execute(
                     sa.select(t.messages.c.created_at, t.messages.c.id).where(
-                        t.messages.c.id == before,
+                        sa.and_(
+                            t.messages.c.id == before,
+                            # Scoped by room like the page query below -- an id
+                            # from a different room the caller belongs to must
+                            # 404 like any other missing cursor, not silently
+                            # page this room using it.
+                            t.messages.c.chatroom_id == chatroom_id,
+                            t.messages.c.deleted_at.is_(None),
+                        )
                     )
                 )
             ).first()
@@ -114,7 +122,11 @@ class MessageRepository:
             anchor = (
                 await self._db.execute(
                     sa.select(t.messages.c.created_at, t.messages.c.id).where(
-                        t.messages.c.id == since,
+                        sa.and_(
+                            t.messages.c.id == since,
+                            t.messages.c.chatroom_id == chatroom_id,
+                            t.messages.c.deleted_at.is_(None),
+                        )
                     )
                 )
             ).first()
