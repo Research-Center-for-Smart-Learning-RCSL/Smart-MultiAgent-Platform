@@ -92,8 +92,9 @@ deploy/vault/certs/
 # ---- Drawio backups ----
 .$*.drawio.bkp
 
-# Claude Code / agents
+# Claude Code / agents (skills are versioned project assets)
 .claude/*
+!.claude/skills/
 .agents/*
 .sixth/
 CLAUDE.md
