@@ -40,6 +40,13 @@ function roleBadgeVariant(org: Org): 'info' | 'neutral' {
   return org.creator_user_id ? 'info' : 'neutral'
 }
 
+// STable's generic constrains T to Record<string, unknown>; Org has no index
+// signature by design, so intersect it in only for this cast (the runtime
+// shape is unchanged — plain Org objects from the API).
+type OrgRow = Org & Record<string, unknown>
+
+const tableData = computed<OrgRow[]>(() => (orgs.value ?? []) as unknown as OrgRow[])
+
 function openCreate(): void {
   createName.value = ''
   createError.value = null
@@ -68,7 +75,7 @@ async function submitCreate(): Promise<void> {
   }
 }
 
-function onRowClick(row: Org): void {
+function onRowClick(row: OrgRow): void {
   router.push({ name: 'tenancy.orgDetail', params: { id: row.id } })
 }
 
@@ -115,7 +122,7 @@ const breadcrumbs = computed(() => [
     <STable
       v-else
       :columns="columns"
-      :data="orgs ?? []"
+      :data="tableData"
       :loading="isLoading"
       row-key="id"
       @row-click="onRowClick"
@@ -125,7 +132,7 @@ const breadcrumbs = computed(() => [
       </template>
 
       <template #cell-role="{ row }">
-        <SBadge :variant="roleBadgeVariant(row as Org)">
+        <SBadge :variant="roleBadgeVariant(row)">
           {{ row.creator_user_id ? t('tenancy.role.originalCreator') : t('tenancy.role.owner') }}
         </SBadge>
       </template>
@@ -165,7 +172,7 @@ const breadcrumbs = computed(() => [
         <SFormField
           :label="t('tenancy.breadcrumb.organizations')"
           name="orgName"
-          :error="createError ?? undefined"
+          :error="createError ?? ''"
           :help="t('tenancy.org.nameHelp')"
           required
         >

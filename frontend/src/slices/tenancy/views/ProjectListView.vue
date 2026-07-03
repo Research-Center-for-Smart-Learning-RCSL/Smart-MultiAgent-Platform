@@ -106,6 +106,13 @@ function ownerDisplay(project: Project): string {
   return project.owner_name ?? project.owner_id.slice(0, 8)
 }
 
+// STable's generic constrains T to Record<string, unknown>; Project has no
+// index signature by design, so intersect it in only for this cast (the
+// runtime shape is unchanged — plain Project objects from the API).
+type ProjectRow = Project & Record<string, unknown>
+
+const tableData = computed<ProjectRow[]>(() => (projects.value ?? []) as unknown as ProjectRow[])
+
 function emptyText(): string {
   if (activeTab.value === 'all') return t('tenancy.project.emptyAll')
   if (activeTab.value === 'personal') return t('tenancy.project.emptyPersonal')
@@ -149,7 +156,7 @@ async function submitCreate(): Promise<void> {
   }
 }
 
-function onRowClick(row: Project): void {
+function onRowClick(row: ProjectRow): void {
   router.push({ name: 'tenancy.projectDetail', params: { id: row.id } })
 }
 
@@ -208,7 +215,7 @@ const breadcrumbs = computed(() => [
     <STable
       v-else
       :columns="columns"
-      :data="projects ?? []"
+      :data="tableData"
       :loading="isLoading"
       row-key="id"
       @row-click="onRowClick"
@@ -223,7 +230,7 @@ const breadcrumbs = computed(() => [
             :is="row.owner_type === 'user' ? UserIcon : BuildingOffice2Icon"
             class="w-4 h-4 owner-icon"
           />
-          {{ ownerDisplay(row as Project) }}
+          {{ ownerDisplay(row) }}
         </span>
       </template>
 
@@ -293,7 +300,7 @@ const breadcrumbs = computed(() => [
         <SFormField
           :label="t('tenancy.breadcrumb.projects')"
           name="projectName"
-          :error="createError ?? undefined"
+          :error="createError ?? ''"
           :help="t('tenancy.project.nameHelp')"
           required
         >

@@ -81,6 +81,13 @@ function isInherited(member: ProjectMember): boolean {
   return member.is_inherited === true
 }
 
+// STable's generic constrains T to Record<string, unknown>; ProjectMember has
+// no index signature by design, so intersect it in only for this cast (the
+// runtime shape is unchanged — plain ProjectMember objects from the API).
+type ProjectMemberRow = ProjectMember & Record<string, unknown>
+
+const tableData = computed<ProjectMemberRow[]>(() => (members.value ?? []) as unknown as ProjectMemberRow[])
+
 async function onInvite(): Promise<void> {
   const email = inviteEmail.value.trim()
   if (!email) return
@@ -131,7 +138,7 @@ const breadcrumbs = computed(() => [
         <SFormField
           :label="'Email'"
           name="inviteEmail"
-          :error="inviteError ?? undefined"
+          :error="inviteError ?? ''"
           required
           class="invite-email"
         >
@@ -189,7 +196,7 @@ const breadcrumbs = computed(() => [
     <STable
       v-else
       :columns="columns"
-      :data="members ?? []"
+      :data="tableData"
       :loading="isLoading"
       row-key="user_id"
     >
@@ -203,7 +210,7 @@ const breadcrumbs = computed(() => [
       <template #cell-email="{ row }">
         {{ row.email }}
         <span
-          v-if="isMe(row as ProjectMember)"
+          v-if="isMe(row)"
           class="you-label"
         >
           {{ t('tenancy.member.you') }}
@@ -213,10 +220,10 @@ const breadcrumbs = computed(() => [
       <template #cell-role="{ row }">
         <span class="role-badges">
           <SBadge variant="neutral">
-            {{ roleLabel(row as ProjectMember, t) }}
+            {{ roleLabel(row, t) }}
           </SBadge>
           <STooltip
-            v-if="isInherited(row as ProjectMember)"
+            v-if="isInherited(row)"
             :content="t('tenancy.member.inheritedTooltip')"
           >
             <SBadge variant="neutral">
@@ -232,9 +239,9 @@ const breadcrumbs = computed(() => [
 
       <template #cell-actions="{ row }">
         <SDropdown
-          v-if="getRowActions(row as ProjectMember).length > 0"
-          :items="getRowActions(row as ProjectMember)"
-          @select="(key: string) => onAction(projectId, key, row as ProjectMember)"
+          v-if="getRowActions(row).length > 0"
+          :items="getRowActions(row)"
+          @select="(key: string) => onAction(projectId, key, row)"
         >
           <template #trigger>
             <SButton

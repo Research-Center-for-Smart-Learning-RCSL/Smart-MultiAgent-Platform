@@ -234,7 +234,7 @@ const breadcrumbs = computed(() => [
             <SFormField
               :label="t('tenancy.transfer.targetLabel')"
               name="targetUserId"
-              :error="fieldError ?? undefined"
+              :error="fieldError ?? ''"
               :help="t('tenancy.transfer.targetHelp')"
               required
             >
@@ -271,7 +271,10 @@ const breadcrumbs = computed(() => [
           </SBadge>
         </div>
 
-        <dl class="transfer-details">
+        <dl
+          v-if="pending"
+          class="transfer-details"
+        >
           <div class="detail-row">
             <dt>{{ t('tenancy.transfer.targetField') }}</dt>
             <dd>{{ memberEmail(pending.target_user_id) }}</dd>
@@ -309,7 +312,10 @@ const breadcrumbs = computed(() => [
           {{ t('tenancy.transfer.targetNotice') }}
         </SAlert>
 
-        <dl class="transfer-details">
+        <dl
+          v-if="pending"
+          class="transfer-details"
+        >
           <div class="detail-row">
             <dt>{{ t('tenancy.transfer.initiatedByField') }}</dt>
             <dd>{{ memberEmail(pending.initiator_user_id) }}</dd>

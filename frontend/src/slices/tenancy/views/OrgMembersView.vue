@@ -77,6 +77,13 @@ function isMe(member: OrgMember): boolean {
   return session.me?.id === member.user_id
 }
 
+// STable's generic constrains T to Record<string, unknown>; OrgMember has no
+// index signature by design, so intersect it in only for this cast (the
+// runtime shape is unchanged — plain OrgMember objects from the API).
+type OrgMemberRow = OrgMember & Record<string, unknown>
+
+const tableData = computed<OrgMemberRow[]>(() => (members.value ?? []) as unknown as OrgMemberRow[])
+
 async function onInvite(): Promise<void> {
   const email = inviteEmail.value.trim()
   if (!email) return
@@ -127,7 +134,7 @@ const breadcrumbs = computed(() => [
         <SFormField
           :label="'Email'"
           name="inviteEmail"
-          :error="inviteError ?? undefined"
+          :error="inviteError ?? ''"
           required
           class="invite-email"
         >
@@ -185,7 +192,7 @@ const breadcrumbs = computed(() => [
     <STable
       v-else
       :columns="columns"
-      :data="members ?? []"
+      :data="tableData"
       :loading="isLoading"
       row-key="user_id"
     >
@@ -199,7 +206,7 @@ const breadcrumbs = computed(() => [
       <template #cell-email="{ row }">
         {{ row.email }}
         <span
-          v-if="isMe(row as OrgMember)"
+          v-if="isMe(row)"
           class="you-label"
         >
           {{ t('tenancy.member.you') }}
@@ -207,8 +214,8 @@ const breadcrumbs = computed(() => [
       </template>
 
       <template #cell-role="{ row }">
-        <SBadge :variant="roleBadgeVariant(row as OrgMember)">
-          {{ roleLabel(row as OrgMember, t) }}
+        <SBadge :variant="roleBadgeVariant(row)">
+          {{ roleLabel(row, t) }}
         </SBadge>
       </template>
 
@@ -218,9 +225,9 @@ const breadcrumbs = computed(() => [
 
       <template #cell-actions="{ row }">
         <SDropdown
-          v-if="getRowActions(row as OrgMember).length > 0"
-          :items="getRowActions(row as OrgMember)"
-          @select="(key: string) => onAction(orgId, key, row as OrgMember)"
+          v-if="getRowActions(row).length > 0"
+          :items="getRowActions(row)"
+          @select="(key: string) => onAction(orgId, key, row)"
         >
           <template #trigger>
             <SButton
