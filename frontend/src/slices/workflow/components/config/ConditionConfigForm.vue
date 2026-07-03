@@ -39,7 +39,9 @@ function getBranches(): Branch[] {
 
 function updateBranchField(index: number, field: keyof Branch, value: string) {
   const branches = structuredClone(getBranches())
-  branches[index][field] = value
+  const branch = branches[index]
+  if (!branch) return
+  branch[field] = value
   update('branches', branches)
 }
 

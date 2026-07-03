@@ -9,7 +9,7 @@ import type {
   NodeChange,
   EdgeChange,
 } from '@vue-flow/core'
-import { computed, ref } from 'vue'
+import { computed, ref, type ComputedRef, type Ref } from 'vue'
 
 import { useConfirmDialog, useToast } from '@shared/composables'
 import { useI18n } from 'vue-i18n'
@@ -17,7 +17,49 @@ import { NODE_DEFAULTS } from '../constants'
 import { useWorkflowStore } from '../stores/workflow'
 import type { NodeType, WorkflowDefinition, WorkflowNode } from '../types'
 
-export function useWorkflowEditor() {
+interface SelectedEdgeSummary {
+  id: string
+  source: string
+  target: string
+  port: string
+  guard: string
+}
+
+// vue-tsc's `composite` project-reference build needs a nameable return type
+// for declaration emit; without it, the inferred type (which structurally
+// expands vue-flow/vue-i18n internals) exceeds the compiler's serialization
+// limit (TS7056/TS2742). This interface is purely a type-level pin — the
+// function body is unchanged.
+export interface WorkflowEditorApi {
+  definition: Ref<WorkflowDefinition>
+  flowNodes: Ref<FlowNode[]>
+  flowEdges: Ref<FlowEdge[]>
+  selectedEdgeId: Ref<string | null>
+  paletteOpen: Ref<boolean>
+  allNodeIds: ComputedRef<string[]>
+  selectedNode: ComputedRef<WorkflowNode | null>
+  selectedEdge: ComputedRef<SelectedEdgeSummary | null>
+  seedNodeCounter: (nodes: FlowNode[]) => void
+  defToFlow: (def: WorkflowDefinition) => void
+  flowToDef: () => WorkflowDefinition
+  addNode: (type: NodeType) => void
+  onDeleteNode: () => Promise<void>
+  onConnect: (connection: Connection) => void
+  deleteSelectedEdge: () => void
+  onEdgeGuardUpdate: (guard: string) => void
+  onNodeClick: (payload: { node: GraphNode }) => void
+  onEdgeClick: (payload: { edge: FlowEdge }) => void
+  onPaneClick: () => void
+  onCanvasKeydown: (event: KeyboardEvent) => void
+  onConfigUpdate: (config: Record<string, unknown>) => void
+  onLabelUpdate: (label: string) => void
+  onNodesChange: (changes: NodeChange[]) => boolean
+  onEdgesChange: (changes: EdgeChange[]) => boolean
+  onUndo: () => void
+  onRedo: () => void
+}
+
+export function useWorkflowEditor(): WorkflowEditorApi {
   const { t } = useI18n()
   const toast = useToast()
   const { confirm } = useConfirmDialog()
