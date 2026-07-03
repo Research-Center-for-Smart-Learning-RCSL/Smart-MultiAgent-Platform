@@ -137,8 +137,9 @@ async def test_scrub_removes_user_without_conns(fake_redis: _FakeRedis) -> None:
     # Simulate the conns SET expiring (connection died without clean leave).
     fake_redis.sets.pop(f"ws:presence:{room}:{user}:conns", None)
 
-    removed = await presence_mod.scrub_stale_presence()
+    removed, emptied_rooms = await presence_mod.scrub_stale_presence()
     assert removed == 1
+    assert emptied_rooms == {room}
     assert await p.list_room(room) == []
     assert f"ws:user:{user}:rooms" not in fake_redis.sets
 
@@ -150,6 +151,26 @@ async def test_scrub_keeps_live_user(fake_redis: _FakeRedis) -> None:
     user = uuid.uuid4()
     await p.join(room_id=room, user_id=user, connection_id=uuid.uuid4())
 
-    removed = await presence_mod.scrub_stale_presence()
+    removed, emptied_rooms = await presence_mod.scrub_stale_presence()
     assert removed == 0
+    assert emptied_rooms == set()
     assert await p.list_room(room) == [user]
+
+
+@pytest.mark.asyncio
+async def test_scrub_does_not_report_room_still_holding_a_live_user(fake_redis: _FakeRedis) -> None:
+    """B1: a room with one stale and one live member is not "emptied" by the
+    sweep — the retention hook must not pause silence timers for a room that
+    still has a live user in it."""
+    p = PresenceTracker()
+    room = uuid.uuid4()
+    stale_user = uuid.uuid4()
+    live_user = uuid.uuid4()
+    await p.join(room_id=room, user_id=stale_user, connection_id=uuid.uuid4())
+    await p.join(room_id=room, user_id=live_user, connection_id=uuid.uuid4())
+    fake_redis.sets.pop(f"ws:presence:{room}:{stale_user}:conns", None)
+
+    removed, emptied_rooms = await presence_mod.scrub_stale_presence()
+    assert removed == 1
+    assert emptied_rooms == set()
+    assert await p.list_room(room) == [live_user]

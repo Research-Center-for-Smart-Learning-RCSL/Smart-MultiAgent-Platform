@@ -432,11 +432,71 @@ class TestFacadeDelegatingPolicies:
         from app.workers.tasks.retention import _scrub_stale_presence
 
         session = AsyncMock()
-        with patch(
-            "contexts.conversation.infrastructure.presence.scrub_stale_presence",
-            new_callable=AsyncMock,
-            return_value=7,
+        with (
+            patch(
+                "contexts.conversation.infrastructure.presence.scrub_stale_presence",
+                new_callable=AsyncMock,
+                return_value=(7, set()),
+            ),
+            patch(
+                "contexts.conversation.application.triggers.evaluate_presence_change",
+                new_callable=AsyncMock,
+            ) as _notify,
         ):
             count = await _scrub_stale_presence(session)
 
         assert count == 7
+        _notify.assert_not_awaited()
+
+    @patch("app.workers.tasks.retention.audit.emit", new_callable=AsyncMock)
+    async def test_scrub_stale_presence_pauses_silence_for_emptied_rooms(self, _audit) -> None:
+        """B1: a room the sweep left empty must run the same presence-changed
+        (silence-pause) path a clean last-leave would -- otherwise a
+        self-opening silence agent can still fire into the now-empty room."""
+        from app.workers.tasks.retention import _scrub_stale_presence
+
+        session = AsyncMock()
+        room_a, room_b = uuid.uuid4(), uuid.uuid4()
+        with (
+            patch(
+                "contexts.conversation.infrastructure.presence.scrub_stale_presence",
+                new_callable=AsyncMock,
+                return_value=(3, {room_a, room_b}),
+            ),
+            patch(
+                "contexts.conversation.application.triggers.evaluate_presence_change",
+                new_callable=AsyncMock,
+            ) as _notify,
+        ):
+            count = await _scrub_stale_presence(session)
+
+        assert count == 3
+        notified_rooms = {c.kwargs["chatroom_id"] for c in _notify.await_args_list}
+        assert notified_rooms == {room_a, room_b}
+        for call in _notify.await_args_list:
+            assert call.kwargs["has_live_users"] is False
+
+    @patch("app.workers.tasks.retention.audit.emit", new_callable=AsyncMock)
+    async def test_scrub_stale_presence_survives_one_room_dispatch_failure(self, _audit) -> None:
+        """A single room's presence-changed dispatch failing must not lose the
+        redis-scrub count or block notifying the other emptied rooms."""
+        from app.workers.tasks.retention import _scrub_stale_presence
+
+        session = AsyncMock()
+        room_a, room_b = uuid.uuid4(), uuid.uuid4()
+        with (
+            patch(
+                "contexts.conversation.infrastructure.presence.scrub_stale_presence",
+                new_callable=AsyncMock,
+                return_value=(2, {room_a, room_b}),
+            ),
+            patch(
+                "contexts.conversation.application.triggers.evaluate_presence_change",
+                new_callable=AsyncMock,
+                side_effect=[RuntimeError("boom"), None],
+            ) as _notify,
+        ):
+            count = await _scrub_stale_presence(session)
+
+        assert count == 2
+        assert _notify.await_count == 2
