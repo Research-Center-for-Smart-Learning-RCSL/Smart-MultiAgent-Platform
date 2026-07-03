@@ -40,7 +40,9 @@ function getAssignments(): Assignment[] {
 
 function updateAssignment(index: number, field: keyof Assignment, value: string) {
   const assignments = structuredClone(getAssignments())
-  assignments[index][field] = value
+  const assignment = assignments[index]
+  if (!assignment) return
+  assignment[field] = value
   update('assignments', assignments)
 }
 

@@ -297,7 +297,7 @@
 
 <script setup lang="ts">
 import { VueFlow } from '@vue-flow/core'
-import type { NodeChange, EdgeChange } from '@vue-flow/core'
+import type { NodeChange, EdgeChange, NodeComponent, NodeTypesObject } from '@vue-flow/core'
 import { Background } from '@vue-flow/background'
 import { Controls } from '@vue-flow/controls'
 import { useMutation, useQueryClient } from '@tanstack/vue-query'
@@ -349,8 +349,15 @@ const agents = ref<Array<{ id: string; name: string }>>([])
 const chatrooms = ref<Array<{ id: string; name: string }>>([])
 
 // Custom node type registration — markRaw prevents Vue from making the
-// component definition reactive (VueFlow requirement).
-const nodeTypes = { 'workflow-node': markRaw(WorkflowNodeComponent) }
+// component definition reactive (VueFlow requirement). WorkflowNodeComponent
+// only declares the `id`/`data` subset of vue-flow's full NodeProps (the
+// standard vue-flow custom-node pattern — VueFlow injects the rest of
+// NodeProps at render time and the component simply ignores what it doesn't
+// destructure), so it is runtime-compatible with NodeComponent despite the
+// narrower prop signature.
+const nodeTypes: NodeTypesObject = {
+  'workflow-node': markRaw(WorkflowNodeComponent) as unknown as NodeComponent,
+}
 
 // ---- composables ----------------------------------------------------------
 

@@ -23,7 +23,9 @@ function defaults(): OnErrorConfig {
 
 const configModelProps = {
   get modelValue() {
-    return (props.modelValue ?? defaults()) as Record<string, unknown>
+    // OnErrorConfig is plain JSON data (strategy + optional scalars), so its
+    // runtime shape is genuinely compatible with Record<string, unknown>.
+    return (props.modelValue ?? defaults()) as unknown as Record<string, unknown>
   },
 }
 const { local } = useConfigModel(
@@ -32,7 +34,9 @@ const { local } = useConfigModel(
 )
 
 function emitUpdate(): void {
-  emit('update:modelValue', { ...local } as OnErrorConfig)
+  // local always carries a 'strategy' field (set by defaults()/onStrategyChange),
+  // so its runtime shape genuinely satisfies OnErrorConfig.
+  emit('update:modelValue', { ...local } as unknown as OnErrorConfig)
 }
 
 function onStrategyChange(event: Event): void {

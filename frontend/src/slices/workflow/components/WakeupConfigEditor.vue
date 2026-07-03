@@ -56,7 +56,7 @@ const isInert = computed(() =>
         <input
           v-model="local.triggers.every_n_messages.enabled"
           type="checkbox"
-          :disabled="readonly"
+          :disabled="readonly ?? false"
           @change="emitUpdate"
         >
         <span class="text-xs">{{ t('workflow.wakeup.enabled') }}</span>
@@ -84,7 +84,7 @@ const isInert = computed(() =>
         <input
           v-model="local.triggers.silence_minutes.enabled"
           type="checkbox"
-          :disabled="readonly"
+          :disabled="readonly ?? false"
           @change="emitUpdate"
         >
         <span class="text-xs">{{ t('workflow.wakeup.enabled') }}</span>
@@ -136,7 +136,7 @@ const isInert = computed(() =>
         <input
           v-model="local.triggers.call_only.enabled"
           type="checkbox"
-          :disabled="readonly"
+          :disabled="readonly ?? false"
           @change="emitUpdate"
         >
         <span class="text-xs">{{ t('workflow.wakeup.callOnlyEnabled') }}</span>
@@ -149,7 +149,7 @@ const isInert = computed(() =>
         <input
           v-model="local.allow_self_open"
           type="checkbox"
-          :disabled="readonly"
+          :disabled="readonly ?? false"
           @change="emitUpdate"
         >
         <span class="text-xs">{{ t('workflow.wakeup.allowSelfOpen') }}</span>
@@ -162,7 +162,7 @@ const isInert = computed(() =>
           min="1"
           max="720"
           class="border rounded px-1 py-0.5 w-20 text-xs"
-          :disabled="readonly"
+          :disabled="readonly ?? false"
           @change="emitUpdate"
         >
       </label>
