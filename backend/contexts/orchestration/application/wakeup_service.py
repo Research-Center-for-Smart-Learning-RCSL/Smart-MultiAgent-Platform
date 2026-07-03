@@ -220,9 +220,11 @@ class WakeupService:
         if elapsed_minutes < cfg.triggers.silence_minutes.t_minutes:
             return False
 
-        # Check autostop (R15.03 / R15.04).
+        # Check autostop (R15.03 / R15.04); observers use their own cap (O-3/R28.12).
+        sm = cfg.triggers.silence_minutes
+        autostop_limit = sm.observer_autostop_rounds if is_observer else sm.autostop_rounds
         autostop_count = await wakeup_state.get_autostop_count(agent_id, room_id)
-        if autostop_count >= cfg.triggers.silence_minutes.autostop_rounds:
+        if autostop_count >= autostop_limit:
             return False
 
         # R15.05b defense-in-depth: re-check the live roster unconditionally,

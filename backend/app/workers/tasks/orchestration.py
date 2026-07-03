@@ -56,7 +56,11 @@ async def wakeup_agent(
     from app.config.settings import get_settings
     from contexts.agents.application.runtime.turn_engine import TurnEngine
     from contexts.agents.interfaces.facade import AgentsFacade
-    from contexts.conversation.infrastructure.repositories import ChatroomRepository
+    from contexts.conversation.domain.models import ChatroomAgentRole
+    from contexts.conversation.infrastructure.repositories import (
+        ChatroomAgentRepository,
+        ChatroomRepository,
+    )
     from contexts.orchestration.domain.models import WakeupConfig
     from contexts.orchestration.infrastructure import wakeup_state
     from contexts.orchestration.interfaces.facade import OrchestrationFacade
@@ -89,7 +93,14 @@ async def wakeup_agent(
             logger.bind(agent_id=agent_id, room_id=room_id).info("wakeup skipped: agent gone")
             return "skipped:agent_gone"
         cfg = WakeupConfig.from_dict(agent.wakeup_config)
-        autostop_limit = cfg.triggers.silence_minutes.autostop_rounds
+        # O-3 (R28.12): observer bindings use their own, higher round cap —
+        # autostop resets only on user messages, and the prime observer use
+        # case is a room no human is currently speaking in.
+        role = await ChatroomAgentRepository(db).role_of(chatroom_id=rid, agent_id=aid)
+        sm = cfg.triggers.silence_minutes
+        autostop_limit = (
+            sm.observer_autostop_rounds if role is ChatroomAgentRole.OBSERVER else sm.autostop_rounds
+        )
         autostop_count = await wakeup_state.get_autostop_count(aid, rid)
         # A `mention` is an explicit user call (not an autonomous round), so it
         # bypasses the autostop backstop — a user summoning the agent must always
@@ -99,7 +110,7 @@ async def wakeup_agent(
         # FIX-01: autostop_rounds=0 falls back to autostop_max_default instead
         # of "unlimited" — with agent-message counting a zero limit would permit
         # indefinite A<->B ping-pong.
-        fallback = cfg.triggers.silence_minutes.autostop_max_default
+        fallback = sm.autostop_max_default
         effective_limit = autostop_limit if autostop_limit > 0 else fallback
         if trigger not in ("mention", "release") and autostop_count >= effective_limit:
             logger.bind(agent_id=agent_id, room_id=room_id, autostop=autostop_count).info(
