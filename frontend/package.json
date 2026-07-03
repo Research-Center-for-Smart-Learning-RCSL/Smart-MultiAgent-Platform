@@ -5,11 +5,11 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vue-tsc --noEmit && vite build",
+    "build": "vue-tsc --build --noEmit && vite build",
     "preview": "vite preview",
     "lint": "eslint . --max-warnings=0",
     "fmt": "prettier --write .",
-    "typecheck": "vue-tsc --noEmit",
+    "typecheck": "vue-tsc --build --noEmit",
     "test": "vitest run",
     "gen:api": "openapi --input ../backend/openapi.json --output src/shared/api-client --client axios --useOptions --useUnionTypes",
     "check:openapi-drift": "bash scripts/check-openapi-drift.sh",
