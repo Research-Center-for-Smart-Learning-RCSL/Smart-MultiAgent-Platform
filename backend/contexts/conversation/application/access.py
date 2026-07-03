@@ -140,9 +140,11 @@ def is_room_creator(access: RoomAccess, *, principal: Principal) -> bool:
     """R28.02 — who may see observer surfaces (observations, roles, disclosure).
 
     Creator when `created_by_user_id` matches AND the caller still holds a
-    role in the project (O-7: authority does not survive removal from the
-    project); legacy rooms (NULL creator, pre-0041 backfill miss) fall back to
-    moderator semantics. Admin bypasses. Pure guests are never creators —
+    role in the project or its parent org (O-7: authority does not survive
+    losing all membership — `access.roles` is the live project/org role set;
+    an org-level role is retained deliberately, matching moderator semantics);
+    legacy rooms (NULL creator, pre-0041 backfill miss) fall back to moderator
+    semantics. Admin bypasses. Pure guests are never creators —
     `ensure_can_read` alone does NOT exclude them (guest links satisfy the
     read flags), so the explicit branch here is load-bearing.
     """

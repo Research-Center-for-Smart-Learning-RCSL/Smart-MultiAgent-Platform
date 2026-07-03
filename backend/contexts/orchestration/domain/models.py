@@ -114,6 +114,12 @@ class SilenceMinutesTrigger:
     # user messages, which an unattended room may never see).
     observer_autostop_rounds: int = 50
 
+    def autostop_limit_for(self, *, is_observer: bool) -> int:
+        """The configured autostop round cap for a binding of this role
+        (O-3/R28.12). Single source of truth so the worker gate and the
+        domain evaluator can't diverge."""
+        return self.observer_autostop_rounds if is_observer else self.autostop_rounds
+
 
 @dataclass(frozen=True, slots=True)
 class CallOnlyTrigger:

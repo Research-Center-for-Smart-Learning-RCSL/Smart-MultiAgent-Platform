@@ -98,9 +98,7 @@ async def wakeup_agent(
         # case is a room no human is currently speaking in.
         role = await ChatroomAgentRepository(db).role_of(chatroom_id=rid, agent_id=aid)
         sm = cfg.triggers.silence_minutes
-        autostop_limit = (
-            sm.observer_autostop_rounds if role is ChatroomAgentRole.OBSERVER else sm.autostop_rounds
-        )
+        autostop_limit = sm.autostop_limit_for(is_observer=role is ChatroomAgentRole.OBSERVER)
         autostop_count = await wakeup_state.get_autostop_count(aid, rid)
         # A `mention` is an explicit user call (not an autonomous round), so it
         # bypasses the autostop backstop — a user summoning the agent must always
