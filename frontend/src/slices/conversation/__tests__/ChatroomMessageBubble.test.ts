@@ -1,8 +1,10 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, afterEach } from 'vitest'
 import { http, HttpResponse } from 'msw'
 import { server } from '../../../../tests/mocks/server'
 import { renderView } from '../../../../tests/utils'
+import { i18n } from '@shared/i18n'
 import ChatroomMessageBubble from '../components/ChatroomMessageBubble.vue'
+import conversationEn from '../locales/en.json'
 import type { Attachment, DisplayMessage } from '../types'
 
 function agentMessage(metadata: Record<string, unknown>): DisplayMessage {
@@ -111,6 +113,46 @@ describe('ChatroomMessageBubble released observation (R28.06)', () => {
     })
     // Named key selected; interpolation is not exercised under the key-echo harness.
     expect(wrapper.find('.released__head').text()).toBe('conversation.observers.releasedByOwnerNamed')
+  })
+
+  // These two load the real conversation locale bundle (the harness normally
+  // echoes untranslated keys, which can't reveal whether the right *value*
+  // was interpolated) so the resolved name is actually observable, then
+  // restore the empty catalogue afterward so the key-echo tests above are
+  // unaffected by test order.
+  describe('with real i18n messages loaded', () => {
+    afterEach(() => {
+      i18n.global.setLocaleMessage('en', {})
+    })
+
+    it('resolves observer_agent_id against agentNames instead of showing a raw id', async () => {
+      i18n.global.mergeLocaleMessage('en', conversationEn)
+      const wrapper = await renderView(ChatroomMessageBubble, {
+        props: {
+          ...baseProps,
+          html: '<p>x</p>',
+          message: systemMessage({ type: 'released_observation', observer_agent_id: 'agent-123' }),
+          agentNames: { 'agent-123': 'Research Bot' },
+        },
+      })
+      expect(wrapper.find('.released__head').text()).toContain('Research Bot')
+      expect(wrapper.find('.released__head').text()).not.toContain('agent-123')
+    })
+
+    it('falls back to a truncated id when the agent is not in agentNames', async () => {
+      i18n.global.mergeLocaleMessage('en', conversationEn)
+      const wrapper = await renderView(ChatroomMessageBubble, {
+        props: {
+          ...baseProps,
+          html: '<p>x</p>',
+          message: systemMessage({
+            type: 'released_observation',
+            observer_agent_id: 'abcdef1234567890',
+          }),
+        },
+      })
+      expect(wrapper.find('.released__head').text()).toContain('abcdef12')
+    })
   })
 
   it('falls back to the plain system divider when metadata is not a released observation', async () => {
