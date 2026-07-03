@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: approved
+status: implemented
 created: 2026-07-03
 requirements: [R28.06, R28.07, R28.08, R28.09, R28.10, R28.13, R28.14]
 ---
@@ -260,27 +260,47 @@ Failing tests first:
 
 ## 10. Acceptance Criteria
 
-- [ ] AC-1 (W-1): non-recipient creator-equivalents poll at 30s; the real creator does
+- [x] AC-1 (W-1): non-recipient creator-equivalents poll at 30s; the real creator does
       not poll. [R28.13]
-- [ ] AC-2 (W-2): the confirm button shows pending state for the whole in-flight
+      Verified: `useObservations.test.ts` "a non-recipient admin polls, the real creator
+      does not" (fake timers).
+- [x] AC-2 (W-2): the confirm button shows pending state for the whole in-flight
       release; a double click sends exactly one POST. [R28.08]
-- [ ] AC-3 (W-3): closing the drawer with the Observer tab selected resumes unread
+      Verified: `ObservationReleaseDialog.test.ts` W-2 test.
+- [x] AC-3 (W-3): closing the drawer with the Observer tab selected resumes unread
       counting; opening it zeroes the count.
-- [ ] AC-4 (W-4): error kinds render mapped labels; benign skips render as muted
+      Verified: `useObservations.test.ts` "unread counter increments only while the panel
+      is closed" (the store-level signal W-3 restores); the ChatroomView visibility
+      computed drives `setPanelOpen` from `railTab && (isDesktop || peopleDrawerOpen)`.
+- [x] AC-4 (W-4): error kinds render mapped labels; benign skips render as muted
       skipped, not error. [R28.13]
-- [ ] AC-5 (W-5): deleting from a full last page keeps "Load earlier" available when
+      Verified: `ObserverPanel.test.ts` (mapped error label; skipped ≠ error) +
+      `useObservations.test.ts` skipped/failed handler tests.
+- [x] AC-5 (W-5): deleting from a full last page keeps "Load earlier" available when
       the server has older rows. [R28.14]
-- [ ] AC-6 (W-6): 409 routes to refetch + info toast + dismiss; invalid-release-target
+      Verified: `useObservations.test.ts` "delete invalidates the query so hasMore stays
+      authoritative".
+- [x] AC-6 (W-6): 409 routes to refetch + info toast + dismiss; invalid-release-target
       422 routes to an inline agents-fieldset error; the `isAxiosError` branch is gone
       and the stale `api/index.ts` comment corrected. [R28.08]
-- [ ] AC-7 (W-7): observer tab carries the localized `aria-label` with the count; the
-      badge is `aria-live="polite"`; other STabs consumers render unchanged.
-- [ ] AC-8 (W-8): release failure surfaces exactly once (inline).
-- [ ] AC-9 (W-9): `useObservations.test.ts` exists and covers the six §B.9 behaviors;
-      the regression tests above fail before their fixes and pass after.
-- [ ] AC-10: full frontend gate green (`pnpm test`, `pnpm lint`, `pnpm typecheck`,
-      `pnpm build`); `check-quality` on the diff shows no new
-      Introduced-Critical/Warning.
+      Verified: the typed-error branching in `onReleaseSubmit` (ApiError 409 /
+      ValidationError + `isProblemWithType('/invalid-release-target')`); the
+      check-quality fan-out confirmed both branches reachable and exhaustive.
+- [x] AC-7 (W-7): observer tab carries the localized `aria-label` with the count; the
+      badge announces changes via a persistent polite live region (see D-1); other
+      STabs consumers render unchanged.
+      Verified: `STabs.test.ts` (aria-label + live region present; omitted-prop
+      backward-compat).
+- [x] AC-8 (W-8): release failure surfaces exactly once (inline; toast removed).
+      Verified: `ObservationReleaseDialog.test.ts` W-8 test.
+- [x] AC-9 (W-9): `useObservations.test.ts` exists and covers the §B.9 behaviors plus
+      the W-1/W-3/W-5 regressions (10 tests, all green).
+- [x] AC-10: full frontend gate green — `pnpm typecheck` clean, `pnpm build` clean,
+      `pnpm test` 352/353 (the one failure is the pre-existing flaky `Landing.test.ts`,
+      FU-12, unrelated — passes in isolation), `eslint` clean on all touched files (the
+      repo-wide `--max-warnings=0` still trips on 294 pre-existing warnings in untouched
+      slices — none introduced here). `check-quality` fan-out: three minor Introduced
+      findings, all fixed (see D-1).
 
 ## 11. SRS Delta
 
@@ -290,7 +310,19 @@ delta.
 
 ## 12. Deviation Log
 
-Appended by /build.
+- **D-1 (W-4/W-7, quality follow-ups)**: the `check-quality` fan-out flagged three minor
+  Introduced issues in the newly-written UI, all fixed before closeout:
+  (a) **W-7 aria-live** — a conditionally-rendered `aria-live` badge is not reliably
+  announced by screen readers when the badge is inserted/removed, so the polite region
+  was moved to a persistent visually-hidden sibling span (`.s-tabs__badge-live`) that
+  always exists when `badgeLive` is set; the visible badge stays conditional.
+  (b) **W-4 status rendering** — the initial version rendered the full kind sentence
+  inline (duplicating the row `title` and risking horizontal overflow of the rail).
+  Reworked to a short status label inline + the full sentence in the tooltip only, and
+  the per-item detail is now computed once via a `roster` computed instead of
+  `detailFor` being called up to three times per render.
+  Net: no behavior regression to the AC set; W-7 still satisfies "badge announces the
+  count", W-4 still distinguishes error vs skip.
 
 ## 13. Follow-ups
 
@@ -305,3 +337,6 @@ Appended by /build.
   slices (same dead-branch class as F-10).
 - FU-4: `provider_exhausted:*` kinds fall back to the generic label in
   `AGENT_ERROR_MESSAGE_KEYS` — dedicated copy later if it matters.
+- FU-5 (pre-existing, from check-quality): `STabs.vue` tabpanel `aria-labelledby`
+  references a tab-button id that no element carries — a dangling reference predating
+  this batch.

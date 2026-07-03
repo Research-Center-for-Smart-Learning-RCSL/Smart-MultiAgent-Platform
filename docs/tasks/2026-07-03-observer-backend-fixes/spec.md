@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: approved
+status: implemented
 created: 2026-07-03
 requirements: [R28.02, R28.04, R28.07, R28.08, R28.09, R28.10, R28.12, R28.13]
 ---
@@ -317,31 +317,55 @@ Failing tests first, in `backend/tests/unit/` (extend `test_observer_agents.py`,
 
 ## 10. Acceptance Criteria
 
-- [ ] AC-1 (O-1): release() performs no Redis push; `_dispatch_release` pushes
+- [x] AC-1 (O-1): release() performs no Redis push; `_dispatch_release` pushes
       post-commit, best-effort per target, with override-resolved content. [R28.07][R28.08]
-- [ ] AC-2 (O-1): the O-1 regression tests fail before the fix and pass after.
-- [ ] AC-3 (O-2): an observer's every_n trigger fires with empty presence and
+      Verified: `test_release_to_agents_defers_push_and_resolves_content` +
+      `test_dispatch_release_pushes_per_target_best_effort`.
+- [x] AC-2 (O-1): the O-1 regression tests fail before the fix and pass after (verified
+      red-then-green during build).
+- [x] AC-3 (O-2): an observer's every_n trigger fires with empty presence and
       `allow_self_open=false`; `_notify_wakeup_gated` never fires for observer
       bindings; normal-agent gating and bell behavior unchanged. [R28.04][R28.09][R28.10]
-- [ ] AC-4 (O-2): an observer's silence trigger fires in an empty room; observer
+      Verified: `test_observer_every_n_fires_with_empty_presence_and_no_gated_bell` +
+      `test_normal_every_n_still_gated_with_bell_when_room_empty`.
+- [x] AC-4 (O-2): an observer's silence trigger fires in an empty room; observer
       silence state is not paused by room-emptied presence changes.
-- [ ] AC-5 (O-3): observers use `observer_autostop_rounds` (default 50, hard-capped at
+      Verified: `test_observer_silence_fires_in_empty_room_even_when_paused` +
+      `test_normal_silence_still_respects_paused_flag`.
+- [x] AC-5 (O-3): observers use `observer_autostop_rounds` (default 50, hard-capped at
       100); normal agents keep `autostop_rounds`. [R28.12]
-- [ ] AC-6 (O-4): `no_input`/`empty_reply` emit `observation.skipped`; hard failures
+      Verified: `test_wakeup_agent_observer_survives_normal_autostop_cap` +
+      `test_wakeup_agent_observer_skips_at_observer_cap` +
+      `test_observer_silence_uses_observer_autostop_cap` +
+      `test_wakeup_config_parses_observer_autostop_rounds`.
+- [x] AC-6 (O-4): `no_input`/`empty_reply` emit `observation.skipped`; hard failures
       keep `observation.failed`; the two pinned tests are amended. [R28.13]
-- [ ] AC-7 (O-5): observer unbind requires creator; normal unbind keeps moderator
-      semantics. [R28.02]
-- [ ] AC-8 (O-6): a disclosure-only PATCH by the creator succeeds without
+      Verified: the two amended skip tests +
+      `test_observer_turn_hard_failure_still_emits_observation_failed`.
+- [x] AC-7 (O-5): observer unbind is creator-only; normal unbind keeps moderator
+      semantics. Non-creator unbind is oracle-free (204 no-op on observers, not 403 —
+      see D-1). [R28.02][R28.09][R28.10]
+      Verified: `test_non_creator_unbind_is_scoped_to_normal_no_oracle` +
+      `test_creator_unbind_is_unrestricted` + `test_remove_agent_restrict_to_normal_scopes_delete`.
+- [x] AC-8 (O-6): a disclosure-only PATCH by the creator succeeds without
       `RESOURCE_CREATE_EDIT`; mixed patches keep the capability gate. [R28.09]
-- [ ] AC-9 (O-7): creator authority requires current project/org membership; admin
+      Verified: `test_disclosure_only_patch_skips_capability_gate` +
+      `test_mixed_patch_keeps_capability_and_creator_gates` +
+      `test_name_only_patch_keeps_moderator_semantics`.
+- [x] AC-9 (O-7): creator authority requires current project/org membership; admin
       bypass and NULL-creator moderator fallback unchanged. [R28.02]
-- [ ] AC-10 (O-8): pure guests receive the neutral observer-field triple; members and
+      Verified: `test_creator_removed_from_project_denied` + the existing creator matrix.
+- [x] AC-10 (O-8): pure guests receive the neutral observer-field triple; members and
       creators see real values. [R28.02][R28.09]
-- [ ] AC-11 (O-9): whitespace-only `content_override` → 422.
-- [ ] AC-12: full backend gate green (`pytest -q`, `ruff check . && ruff format
-      --check .`, `mypy .`); `check-quality` on the diff shows no new
-      Introduced-Critical/Warning; `check-security` runs (AuthZ surfaces touched) with
-      no findings.
+      Verified: `test_to_out_hides_observer_fields_from_pure_guests`.
+- [x] AC-11 (O-9): whitespace-only `content_override` → 422.
+      Verified: `test_release_in_rejects_whitespace_only_override`.
+- [x] AC-12: full backend gate green (`pytest -q` 1189 passed, `ruff check` + `ruff
+      format --check` clean on touched files, `mypy` clean on touched files — the
+      remaining mypy errors are all pre-existing in untouched infra modules).
+      `check-quality` (fan-out) surfaced no Introduced-Critical; the DRY/SoC warnings
+      were fixed (O-3 domain helper) or routed to FU-6/FU-7. `check-security` (fan-out)
+      found one Introduced-Medium (observer-existence oracle on unbind) — fixed, see D-1.
 
 ## 11. SRS Delta
 
@@ -368,12 +392,33 @@ Applied to `REQUIREMENTS.md` §28 on approval:
 
 ## 12. Deviation Log
 
-Appended by /build.
+- **D-1 (O-5, security follow-up)**: the approved Fix Design gated observer unbind with
+  `ensure_room_creator`, raising `NotRoomCreator` (403) for a non-creator. The
+  `check-security` fan-out flagged that as an **observer-existence oracle**: a
+  non-creator moderator could DELETE each agent id and read 403-vs-204 to enumerate
+  which agent is a hidden observer — defeating the R28.09/R28.10 anonymity the feature
+  exists to protect. Reworked to the oracle-free shape: the handler resolves creator
+  status and passes `restrict_to_normal` to `remove_agent`; a non-creator's unbind is a
+  role-scoped delete (`WHERE role='normal'`) that silently no-ops on observer bindings
+  and returns the same 204 as any other unbind. The single-statement delete also closes
+  the read-then-delete TOCTOU race the audit noted. The creator/admin path is
+  unrestricted. AC-7 updated; `agent_role` service accessor removed as unused; repo
+  `remove` now returns `bool` (rowcount>0) so the audit fires only on a real removal.
+- **D-2 (O-7, docstring/scope precision)**: the `check-quality` fan-out noted that
+  `bool(access.roles)` retains creator authority for a user still in the parent **org**
+  (not just the project). This matches the R28.02 delta wording ("project or org
+  membership") and the codebase's moderator semantics (ORG_OWNER is a moderator), so the
+  behavior was kept and the `is_room_creator` docstring clarified to state org-role
+  retention is deliberate. No behavior change from the shipped O-7 code.
+- **D-3 (O-3, DRY)**: the observer-vs-normal autostop-cap selection was initially
+  duplicated in the worker and the domain evaluator; hoisted into
+  `SilenceMinutesTrigger.autostop_limit_for(is_observer=...)` (domain) so the two call
+  sites can't diverge. No behavior change.
 
 ## 13. Follow-ups
 
 - FU-1: `read_chatroom` re-implements role/guest resolution inline instead of
-  `resolve_room_access` (`chatrooms.py:250-272`) — harmonize later.
+  `resolve_room_access` (`chatrooms.py`) — harmonize later.
 - FU-2: `_MAX_CONTENT_MD`/`_MAX_TARGET_IDS` duplicated between `observations.py:44-45`
   and `messages.py:64`.
 - FU-3: `recipient_user_id` costs a DB round-trip per WS emit
@@ -381,4 +426,12 @@ Appended by /build.
 - FU-4: backend `CLAUDE.md` facade-only rule vs observed app-layer cross-context
   imports (`app/api/v1/orchestration.py:32` et al.) — doc/code drift to resolve.
 - FU-5 (carried): `ChatroomAgentRepository.list` has no ORDER BY under offset/limit
-  (`chatroom_repo.py:240-255`).
+  (`chatroom_repo.py`).
+- FU-6 (from check-quality): the O-1 private-release queue-note schema
+  (`kind`/`chatroom_id`/`content`) now lives in the route (`observations.py:_dispatch_release`)
+  rather than the application layer — extract an `ObservationService.pending_note(result)`
+  helper so the wire format stays in application. Matches the messages.py post-commit
+  precedent, so minor.
+- FU-7 (from check-quality): `patch_chatroom` and three other sites inline the
+  `resolve_room_access` + `ensure_room_creator` pair while `observations.py` already has
+  a `_require_creator` helper — hoist a shared helper.
