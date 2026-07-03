@@ -196,9 +196,7 @@ async def test_remove_observer_binding_requires_creator(monkeypatch) -> None:
     """O-5 (R28.02): a non-creator moderator cannot unbind an observer."""
     removed: list = []
     access = _access(created_by=uuid.uuid4(), roles=frozenset({Role.PROJECT_OWNER}))
-    mod = _wire_remove_handler(
-        monkeypatch, role=ChatroomAgentRole.OBSERVER, access=access, removed=removed
-    )
+    mod = _wire_remove_handler(monkeypatch, role=ChatroomAgentRole.OBSERVER, access=access, removed=removed)
 
     with pytest.raises(NotRoomCreator):
         await mod.remove_chatroom_agent(
@@ -216,9 +214,7 @@ async def test_remove_observer_binding_allows_creator(monkeypatch) -> None:
     uid = uuid.uuid4()
     removed: list = []
     access = _access(created_by=uid, roles=frozenset({Role.PROJECT_OWNER}))
-    mod = _wire_remove_handler(
-        monkeypatch, role=ChatroomAgentRole.OBSERVER, access=access, removed=removed
-    )
+    mod = _wire_remove_handler(monkeypatch, role=ChatroomAgentRole.OBSERVER, access=access, removed=removed)
 
     await mod.remove_chatroom_agent(
         chatroom_id=uuid.uuid4(),
@@ -233,9 +229,7 @@ async def test_remove_observer_binding_allows_creator(monkeypatch) -> None:
 @pytest.mark.asyncio
 async def test_remove_normal_binding_keeps_moderator_semantics(monkeypatch) -> None:
     removed: list = []
-    mod = _wire_remove_handler(
-        monkeypatch, role=ChatroomAgentRole.NORMAL, access=None, removed=removed
-    )
+    mod = _wire_remove_handler(monkeypatch, role=ChatroomAgentRole.NORMAL, access=None, removed=removed)
 
     await mod.remove_chatroom_agent(
         chatroom_id=uuid.uuid4(),

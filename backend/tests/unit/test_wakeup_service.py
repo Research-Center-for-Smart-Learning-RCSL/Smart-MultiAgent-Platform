@@ -111,9 +111,7 @@ async def test_observer_silence_fires_in_empty_room_even_when_paused(monkeypatch
         _async_return(False),
     )
 
-    fired = await svc.evaluate_silence_trigger(
-        agent_id=agent.id, room_id=uuid.uuid4(), is_observer=True
-    )
+    fired = await svc.evaluate_silence_trigger(agent_id=agent.id, room_id=uuid.uuid4(), is_observer=True)
 
     assert fired is True
 
@@ -151,9 +149,7 @@ def test_wakeup_config_parses_observer_autostop_rounds() -> None:
     from contexts.orchestration.domain.models import WakeupConfig
 
     assert WakeupConfig.from_dict({}).triggers.silence_minutes.observer_autostop_rounds == 50
-    cfg = WakeupConfig.from_dict(
-        {"triggers": {"silence_minutes": {"observer_autostop_rounds": 999}}}
-    )
+    cfg = WakeupConfig.from_dict({"triggers": {"silence_minutes": {"observer_autostop_rounds": 999}}})
     assert cfg.triggers.silence_minutes.observer_autostop_rounds == 100
     assert cfg.to_dict()["triggers"]["silence_minutes"]["observer_autostop_rounds"] == 100
 
