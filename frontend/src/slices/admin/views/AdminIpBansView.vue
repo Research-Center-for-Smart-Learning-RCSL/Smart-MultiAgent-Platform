@@ -39,7 +39,7 @@
       v-else
       class="mt-4"
       :columns="columns"
-      :data="query.data.value ?? []"
+      :data="rows"
       :loading="query.isPending.value"
       :loading-label="$t('admin.common.loading')"
       row-key="id"
@@ -92,6 +92,7 @@ import { useConfirmDialog } from '@shared/composables'
 import { adminApi } from '../api/admin'
 import { adminKeys } from '../queries'
 import { useAdminActions } from '../composables/useAdminActions'
+import type { IpBan } from '../types'
 
 const { t } = useI18n()
 const { confirm } = useConfirmDialog()
@@ -109,6 +110,13 @@ const query = useQuery({
   queryKey: adminKeys.ipBans(),
   queryFn: () => adminApi.listIpBans(),
 })
+
+// STable's generic constrains T to Record<string, unknown>; IpBan has no
+// index signature by design, so intersect it in only for this cast (the
+// runtime shape is unchanged — plain ip-ban objects from the API).
+type IpBanRow = IpBan & Record<string, unknown>
+
+const rows = computed<IpBanRow[]>(() => (query.data.value ?? []) as unknown as IpBanRow[])
 
 const actions = useAdminActions()
 

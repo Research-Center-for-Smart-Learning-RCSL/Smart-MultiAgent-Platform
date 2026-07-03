@@ -38,7 +38,7 @@
       v-else
       class="mt-4"
       :columns="columns"
-      :data="query.data.value ?? []"
+      :data="rows"
       :loading="query.isPending.value"
       :loading-label="$t('admin.common.loading')"
       row-key="id"
@@ -118,6 +118,7 @@ import { adminApi } from '../api/admin'
 import { adminKeys } from '../queries'
 import { useAdminActions } from '../composables/useAdminActions'
 import { userStatusLabelKey } from '../utils/userStatus'
+import type { UserSummary } from '../types'
 
 const { t } = useI18n()
 
@@ -153,11 +154,20 @@ const query = useQuery({
   queryFn: ({ queryKey }) => {
     const params = queryKey[2] as { q?: string; status?: string } | undefined
     return adminApi.listUsers({
-      q: params?.q || undefined,
-      status: params?.status || undefined,
+      // Omit falsy keys entirely rather than assigning an explicit
+      // `undefined` value (exactOptionalPropertyTypes).
+      ...(params?.q ? { q: params.q } : {}),
+      ...(params?.status ? { status: params.status } : {}),
     })
   },
 })
+
+// STable's generic constrains T to Record<string, unknown>; UserSummary has no
+// index signature by design, so intersect it in only for this cast (the
+// runtime shape is unchanged — plain user-summary objects from the API).
+type UserRow = UserSummary & Record<string, unknown>
+
+const rows = computed<UserRow[]>(() => (query.data.value ?? []) as unknown as UserRow[])
 
 const actions = useAdminActions()
 const { confirm } = useConfirmDialog()

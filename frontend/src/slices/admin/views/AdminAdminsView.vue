@@ -41,7 +41,7 @@
       v-else
       class="mt-4"
       :columns="columns"
-      :data="query.data.value ?? []"
+      :data="rows"
       :loading="query.isPending.value"
       :loading-label="$t('admin.common.loading')"
       row-key="user_id"
@@ -100,6 +100,7 @@ import { adminKeys } from '../queries'
 import { useConfirmDialog } from '@shared/composables'
 import { useAdminActions } from '../composables/useAdminActions'
 import { isProblemWithType } from '@shared/transport'
+import type { AdminEntry } from '../types'
 
 const { t } = useI18n()
 const { confirm } = useConfirmDialog()
@@ -117,6 +118,13 @@ const query = useQuery({
   queryKey: adminKeys.admins(),
   queryFn: () => adminApi.listAdmins(),
 })
+
+// STable's generic constrains T to Record<string, unknown>; AdminEntry has no
+// index signature by design, so intersect it in only for this cast (the
+// runtime shape is unchanged — plain admin-entry objects from the API).
+type AdminRow = AdminEntry & Record<string, unknown>
+
+const rows = computed<AdminRow[]>(() => (query.data.value ?? []) as unknown as AdminRow[])
 
 const actions = useAdminActions()
 

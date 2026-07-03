@@ -138,12 +138,35 @@ import { formatDateTime } from '@shared/utils/datetime'
 import { useToast } from '@shared/composables'
 import { adminApi } from '../api/admin'
 import { adminKeys } from '../queries'
-import type { AuditFilter } from '../types'
+import type { AuditEntry, AuditFilter } from '../types'
 
 const { t } = useI18n()
 const toast = useToast()
 
-const filters = reactive<AuditFilter>({})
+// Local form shape keeps every field a plain string (never undefined) so
+// v-model bindings satisfy exactOptionalPropertyTypes; AuditFilter itself
+// stays optional-field-based for the API request payload below.
+interface AuditFiltersForm {
+  action: string
+  actor_user_id: string
+  resource_type: string
+  resource_id: string
+  ip_prefix: string
+  session_id: string
+  from: string
+  to: string
+}
+
+const filters = reactive<AuditFiltersForm>({
+  action: '',
+  actor_user_id: '',
+  resource_type: '',
+  resource_id: '',
+  ip_prefix: '',
+  session_id: '',
+  from: '',
+  to: '',
+})
 const appliedFilters = ref<AuditFilter>({})
 
 const columns = computed<Column[]>(() => [
@@ -173,13 +196,25 @@ function applyFilters(): void {
 const query = useInfiniteQuery({
   queryKey: computed(() => adminKeys.audit(appliedFilters.value)),
   queryFn: ({ pageParam }) =>
-    adminApi.queryAudit({ ...appliedFilters.value, cursor: pageParam }),
+    adminApi.queryAudit({
+      ...appliedFilters.value,
+      // Omit the key entirely on the first page instead of assigning an
+      // explicit `undefined` cursor (exactOptionalPropertyTypes).
+      ...(pageParam !== undefined && { cursor: pageParam }),
+    }),
   initialPageParam: undefined as number | undefined,
   getNextPageParam: (lastPage) => lastPage.next_cursor ?? undefined,
   refetchOnWindowFocus: false,
 })
 
-const allItems = computed(() => (query.data.value?.pages ?? []).flatMap((p) => p.items))
+// STable's generic constrains T to Record<string, unknown>; AuditEntry has no
+// index signature by design, so intersect it in only for this cast (the
+// runtime shape is unchanged — plain audit-entry objects from the API).
+type AuditRow = AuditEntry & Record<string, unknown>
+
+const allItems = computed<AuditRow[]>(
+  () => (query.data.value?.pages ?? []).flatMap((p) => p.items) as unknown as AuditRow[],
+)
 
 async function onExport(): Promise<void> {
   if (!appliedFilters.value.from || !appliedFilters.value.to) {

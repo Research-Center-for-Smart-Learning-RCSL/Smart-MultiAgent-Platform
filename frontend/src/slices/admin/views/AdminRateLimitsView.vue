@@ -14,7 +14,7 @@
       v-else
       class="mt-4"
       :columns="columns"
-      :data="query.data.value ?? []"
+      :data="rows"
       :loading="query.isPending.value"
       :loading-label="$t('admin.common.loading')"
       row-key="key"
@@ -24,9 +24,12 @@
       </template>
 
       <template #cell-window_sec="{ row }">
+        <!-- The `v-if` on this element guarantees `edits[row.key]` is defined
+             whenever the v-model binding below runs (TS can't narrow a
+             dynamic index access, so the `!` documents that invariant). -->
         <SInput
           v-if="edits[row.key]"
-          v-model="edits[row.key].window_sec"
+          v-model="edits[row.key]!.window_sec"
           type="number"
           size="sm"
           class="admin-rate-limits__input"
@@ -35,9 +38,11 @@
       </template>
 
       <template #cell-max_count="{ row }">
+        <!-- Same invariant as the window_sec cell above: `v-if` guarantees
+             `edits[row.key]` is defined for the v-model binding. -->
         <SInput
           v-if="edits[row.key]"
-          v-model="edits[row.key].max_count"
+          v-model="edits[row.key]!.max_count"
           type="number"
           size="sm"
           class="admin-rate-limits__input"
@@ -82,6 +87,7 @@ import { useQuery } from '@tanstack/vue-query'
 import { adminApi } from '../api/admin'
 import { adminKeys } from '../queries'
 import { useAdminActions } from '../composables/useAdminActions'
+import type { RateLimitPolicy } from '../types'
 
 const { t } = useI18n()
 const toast = useToast()
@@ -107,6 +113,15 @@ const query = useQuery({
   queryKey: adminKeys.rateLimits(),
   queryFn: () => adminApi.listRateLimits(),
 })
+
+// STable's generic constrains T to Record<string, unknown>; RateLimitPolicy has
+// no index signature by design, so intersect it in only for this cast (the
+// runtime shape is unchanged — plain rate-limit-policy objects from the API).
+type RateLimitRow = RateLimitPolicy & Record<string, unknown>
+
+const rows = computed<RateLimitRow[]>(
+  () => (query.data.value ?? []) as unknown as RateLimitRow[],
+)
 
 watch(
   () => query.data.value,

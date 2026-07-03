@@ -14,7 +14,7 @@
       v-else
       class="mt-4"
       :columns="columns"
-      :data="query.data.value ?? []"
+      :data="rows"
       :loading="query.isPending.value"
       :loading-label="$t('admin.common.loading')"
       row-key="id"
@@ -55,6 +55,7 @@ import { formatDate } from '@shared/utils/datetime'
 import { useQuery } from '@tanstack/vue-query'
 import { adminApi } from '../api/admin'
 import { adminKeys } from '../queries'
+import type { ProjectSummary } from '../types'
 
 const { t } = useI18n()
 
@@ -70,4 +71,11 @@ const query = useQuery({
   queryKey: adminKeys.projects(),
   queryFn: () => adminApi.listProjects(),
 })
+
+// STable's generic constrains T to Record<string, unknown>; ProjectSummary has
+// no index signature by design, so intersect it in only for this cast (the
+// runtime shape is unchanged — plain project-summary objects from the API).
+type ProjectRow = ProjectSummary & Record<string, unknown>
+
+const rows = computed<ProjectRow[]>(() => (query.data.value ?? []) as unknown as ProjectRow[])
 </script>

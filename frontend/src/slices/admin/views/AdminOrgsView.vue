@@ -14,7 +14,7 @@
       v-else
       class="mt-4"
       :columns="columns"
-      :data="query.data.value ?? []"
+      :data="rows"
       :loading="query.isPending.value"
       :loading-label="$t('admin.common.loading')"
       row-key="id"
@@ -94,6 +94,7 @@ import { useConfirmDialog } from '@shared/composables'
 import { adminApi } from '../api/admin'
 import { adminKeys } from '../queries'
 import { useAdminActions } from '../composables/useAdminActions'
+import type { OrgSummary } from '../types'
 
 const { t } = useI18n()
 const { confirm, prompt } = useConfirmDialog()
@@ -110,6 +111,13 @@ const query = useQuery({
   queryKey: adminKeys.orgs(),
   queryFn: () => adminApi.listOrgs(),
 })
+
+// STable's generic constrains T to Record<string, unknown>; OrgSummary has no
+// index signature by design, so intersect it in only for this cast (the
+// runtime shape is unchanged — plain org-summary objects from the API).
+type OrgRow = OrgSummary & Record<string, unknown>
+
+const rows = computed<OrgRow[]>(() => (query.data.value ?? []) as unknown as OrgRow[])
 
 const actions = useAdminActions()
 
