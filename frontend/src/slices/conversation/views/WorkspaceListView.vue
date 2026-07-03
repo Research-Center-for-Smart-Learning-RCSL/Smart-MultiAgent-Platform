@@ -251,7 +251,7 @@ function openWorkspace(ws: Workspace): void {
         <SFormField
           :label="t('conversation.workspaces.name')"
           name="workspaceName"
-          :error="createError ?? undefined"
+          v-bind="createError ? { error: createError } : {}"
           required
         >
           <SInput

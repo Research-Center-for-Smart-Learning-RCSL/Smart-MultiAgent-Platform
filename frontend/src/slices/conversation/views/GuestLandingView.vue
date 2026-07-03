@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useForm } from 'vee-validate'
@@ -43,6 +43,16 @@ const { handleSubmit, errors, defineField } = useForm({
 })
 
 const [displayName] = defineField('displayName')
+// vee-validate's typed field ref is `string | undefined` regardless of the
+// zod schema (which requires a non-empty string) — the initial value is
+// always '', so this fallback never changes behavior, just satisfies
+// exactOptionalPropertyTypes for SInput's `modelValue: string | number`.
+const displayNameModel = computed({
+  get: () => displayName.value ?? '',
+  set: (v: string) => {
+    displayName.value = v
+  },
+})
 
 const doEnroll = handleSubmit(async (values) => {
   state.value = 'enrolling'
@@ -84,11 +94,11 @@ const doEnroll = handleSubmit(async (values) => {
           <SFormField
             :label="t('conversation.guest.displayName')"
             name="displayName"
-            :error="errors.displayName"
+            v-bind="errors.displayName ? { error: errors.displayName } : {}"
             required
           >
             <SInput
-              v-model="displayName"
+              v-model="displayNameModel"
               :maxlength="100"
               :placeholder="t('conversation.guest.displayNamePlaceholder')"
               :error="!!errors.displayName"
@@ -98,7 +108,7 @@ const doEnroll = handleSubmit(async (values) => {
             type="submit"
             variant="primary"
             class="state-action"
-            :disabled="!displayName.trim()"
+            :disabled="!displayNameModel.trim()"
           >
             {{ t('conversation.guest.enterChatroom') }}
           </SButton>

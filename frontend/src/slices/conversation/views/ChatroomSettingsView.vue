@@ -127,13 +127,13 @@ const breadcrumbs = computed(() => {
   return [
     {
       label: t('conversation.chatrooms.title'),
-      to: r
-        ? { name: 'conversation.chatrooms', params: { workspaceId: r.workspace_id } }
-        : undefined,
+      ...(r && {
+        to: { name: 'conversation.chatrooms', params: { workspaceId: r.workspace_id } },
+      }),
     },
     {
       label: r?.name ?? '',
-      to: r ? { name: 'conversation.chatroom', params: { chatroomId } } : undefined,
+      ...(r && { to: { name: 'conversation.chatroom', params: { chatroomId } } }),
     },
   ]
 })

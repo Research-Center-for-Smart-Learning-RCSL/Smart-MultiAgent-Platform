@@ -230,7 +230,7 @@ export function useChatroomMessages(
       const created = await sendMessage(chatroomId, {
         content_md: text,
         attachment_ids: attachmentIds,
-        mention_agent_ids: mentionIds.length ? mentionIds : undefined,
+        ...(mentionIds.length ? { mention_agent_ids: mentionIds } : {}),
       })
       // Seed the cache with the persisted message before dropping the optimistic
       // one, so the bubble never flickers out and back in. The WS echo /

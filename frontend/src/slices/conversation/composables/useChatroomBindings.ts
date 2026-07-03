@@ -47,12 +47,16 @@ export function useChatroomBindings(
     boundAgentIds.value
       .map((id) => projectAgents.value.find((a) => a.id === id))
       .filter((a): a is Agent => a != null)
-      .map((a) => ({
-        id: a.id,
-        name: a.name,
-        wakeup_config: toEditableWakeup(a.wakeup_config),
-        role: boundRoles.value[a.id],
-      })),
+      .map((a) => {
+        const wakeupConfig = toEditableWakeup(a.wakeup_config)
+        const role = boundRoles.value[a.id]
+        return {
+          id: a.id,
+          name: a.name,
+          ...(wakeupConfig !== undefined && { wakeup_config: wakeupConfig }),
+          ...(role !== undefined && { role }),
+        }
+      }),
   )
 
   const availableAgents = computed<Agent[]>(() =>
