@@ -55,7 +55,16 @@ def _access(*, created_by=None, roles=frozenset(), is_guest=False):
 
 def test_creator_match_allows() -> None:
     uid = uuid.uuid4()
-    assert is_room_creator(_access(created_by=uid), principal=_principal(uid)) is True
+    access = _access(created_by=uid, roles=frozenset({Role.PROJECT_MEMBER}))
+    assert is_room_creator(access, principal=_principal(uid)) is True
+
+
+def test_creator_removed_from_project_denied() -> None:
+    """O-7 (R28.02): creator authority requires current membership — a user
+    removed from the project keeps the created_by match but loses all roles."""
+    uid = uuid.uuid4()
+    access = _access(created_by=uid, roles=frozenset(), is_guest=False)
+    assert is_room_creator(access, principal=_principal(uid)) is False
 
 
 def test_non_creator_member_denied() -> None:
