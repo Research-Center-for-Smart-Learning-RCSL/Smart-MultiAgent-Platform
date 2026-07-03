@@ -100,9 +100,9 @@ silently skipped.
 4. **Behavioral verification** — if user-visible behavior changed, use the `verify`
    skill to run the app and observe the behavior; unit tests passing is not the same as
    the feature working.
-5. **Quality audit** — run the `check-quality` skill on the diff. Critical findings must
-   be fixed; Warning findings fixed or explicitly deferred as FU-n with the user's
-   knowledge.
+5. **Quality audit** — run the `check-quality` skill on the diff. Introduced-Critical
+   findings must be fixed; Introduced-Warning findings fixed or explicitly deferred as
+   FU-n with the user's knowledge; Pre-existing findings route to FU-n and never block.
 6. **Security audit (conditional)** — run `check-security` when the diff touches auth,
    provider keys, tenant boundaries, WebSocket, file upload, or user-input processing.
 7. **Self-audit** — re-read the complete diff end-to-end with fresh eyes, hunting for

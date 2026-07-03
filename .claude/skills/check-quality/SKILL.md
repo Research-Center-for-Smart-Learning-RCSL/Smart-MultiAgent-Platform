@@ -1,19 +1,52 @@
 ---
 name: check-quality
-description: Professional-grade code quality audit — 12 dimensions covering structural integrity, SOLID principles, runtime safety, and maintainability. Use when finishing a feature or before committing.
+description: Professional-grade code quality audit — 12 dimensions covering structural integrity, SOLID principles, runtime safety, and maintainability. Use when finishing a feature, before committing, as the quality gate in /build's Definition of Done, or whenever the user asks to review code quality, check for code smells, verify architecture/layer boundaries, or asks "is this code clean" about recent changes.
 ---
 
 ## Task
 
-Audit the **changed files** in the current working tree (or the last commit if the tree is clean) for code quality issues across 12 dimensions. For each finding, trace the dependency chain to verify the violation. Produce a single structured report.
+Audit the **changed files** in the current working tree (or the last commit if the tree
+is clean) for code quality issues across 12 dimensions. Produce a single structured
+report of verified findings.
+
+## Ground Rules
+
+These four rules control the signal-to-noise ratio of the whole audit; they outrank any
+individual dimension below.
+
+1. **Verify before reporting.** Every finding cites `path:line` and survives an attempt
+   to refute it: read the actual import, trace the actual chain, check whether a guard
+   or abstraction you missed makes the code correct. A pattern that merely looks like a
+   violation is not reportable — false positives train readers to ignore the report.
+2. **Classify Introduced vs Pre-existing.** An issue caused by this change is
+   *Introduced* and gates the commit. An issue that was already present in touched code
+   is *Pre-existing*: report it in its own section so it can route to a follow-up
+   (FU-n in the task dossier, if one exists) instead of blocking today's work. When
+   this change makes a pre-existing problem worse, that worsening is Introduced.
+3. **Don't duplicate the mechanical toolchain.** ruff, mypy, eslint, and vue-tsc already
+   catch unused imports, formatting, and obvious type gaps deterministically — assume
+   they run and skip hand-auditing what they cover. Do flag what silences them
+   (`# type: ignore` without justification, `as any`, eslint-disable) and what they
+   cannot see: architecture, semantics, resource lifecycles, duplicated intent.
+4. **Numeric thresholds are calibration points, not tripwires.** A 55-line function
+   with one linear responsibility can be fine; a 30-line function mixing validation,
+   persistence, and notification is not. When a threshold triggers, judge whether the
+   underlying design problem is actually present, and report the problem — not the
+   number.
 
 ## Scope Detection
 
-1. Run `git diff --name-only HEAD` to find uncommitted changes.
-2. If empty, run `git diff --name-only HEAD~1 HEAD` to use the last commit.
-3. Filter to `.py`, `.ts`, `.vue` files only.
-4. Read each changed file in full.
-5. For each changed file, also read its direct imports to verify dependency direction.
+1. Collect changed files: `git status --porcelain` (captures staged, unstaged, AND
+   untracked files — new files are the most common place quality issues hide). If the
+   tree is clean, use `git diff --name-only HEAD~1 HEAD`.
+2. Filter to `.py`, `.ts`, `.vue`. Exclude deleted files and generated code (the
+   generated api-client under `frontend/src/shared/`, alembic version stubs' boilerplate
+   — though migration *content* is in scope for dimension 10).
+3. Read each changed file in full; for each, read the direct imports needed to verify
+   dependency direction and reuse claims.
+4. **Large scope** (more than ~10 changed files): fan out subagents — one per Part
+   (A–D) across all files, or one per area for very wide changes — then merge, dedupe,
+   and apply Ground Rule 1 to the merged set in the main context.
 
 ---
 
@@ -91,9 +124,12 @@ Implementation details must not cross layer boundaries:
 
 ### 5. Single Responsibility
 
-- Flag classes with more than 8 public methods — likely doing too much.
+Calibration: ~8 public methods on a class, ~20 methods on a facade. The question to
+answer is "how many reasons does this unit have to change?" — report when the answer
+is more than one.
+
 - Flag functions that perform more than one conceptual operation (e.g., validate AND persist AND notify).
-- Flag facades with 20+ methods — consider splitting by subdomain.
+- Flag facades grown past coherence — consider splitting by subdomain.
 - Flag Vue components with both data-fetching logic AND complex rendering logic — extract into composable + presentational component.
 
 ### 6. Open/Closed
@@ -125,13 +161,19 @@ Implementation details must not cross layer boundaries:
 - Flag `@lru_cache` on methods that take mutable arguments.
 - Flag global/module-level variables modified at import time (side effects on import).
 - Frontend: flag `reactive()` objects shared across components without explicit store — race condition risk.
+- Frontend: flag in-place mutation of objects inside a `ref` array (`items.value[i].x = y`)
+  where computeds/watchers depend on the result — a known pitfall in this codebase;
+  updates must be immutable (replace the element or the array).
 
-### 10. Resource Management
+### 10. Resource Management & Persistence Consistency
 
 - Flag `await session.execute()` outside an `async with session:` context manager.
 - Flag opened file handles, HTTP clients, or DB connections without cleanup (`async with`, `try/finally`).
 - Flag missing `await` on coroutines (fire-and-forget async calls that silently drop errors).
 - Flag event listeners or subscriptions registered without corresponding cleanup in `onUnmounted`.
+- Flag ORM column types in `tables.py` that don't match the migration-created PG types
+  (e.g., a column declared `sa.Text` where the migration created a PG ENUM) — asyncpg
+  fails at runtime on the mismatch; this has caused production 500s in this repo.
 
 ### 11. Error Handling Quality
 
@@ -156,20 +198,18 @@ Implementation details must not cross layer boundaries:
 **DRY:**
 - Flag identical or near-identical code blocks (>5 lines) within or across changed files.
 - Flag repeated patterns extractable into a shared utility, composable, or base class.
-- Check if a similar helper already exists in `shared_kernel/` or `shared/composables/`.
+- Check if a similar helper already exists in `shared_kernel/` or `shared/composables/` — reimplementing an existing helper is the highest-value DRY finding.
 
-**Complexity:**
-- Flag functions exceeding 50 lines or nesting depth > 4 levels.
-- Flag files exceeding 400 lines — suggest splitting.
-- Flag functions with > 5 parameters — suggest options object or builder.
+**Complexity** (calibration points — see Ground Rule 4):
+- Functions around 50+ lines or nesting depth > 4; files past ~400 lines; functions with > 5 parameters.
 - Flag boolean parameters that change behavior (flag arguments) — suggest separate methods.
 
-**Type Safety:**
-- Backend: flag `Any` annotations, bare `dict` returns, `# type: ignore` without explanation.
-- Frontend: flag `as any` casts, missing prop types, untyped `ref()`/`reactive()`.
+**Type Safety** (what the toolchain can't catch):
+- Flag `# type: ignore` / `as any` / eslint-disable without a justifying comment.
+- Flag `Any` annotations and bare `dict` returns on public boundaries (facades, composables) — internal helpers matter less.
 
-**Dead Code:**
-- Flag unused imports, unreferenced functions, commented-out blocks (>3 lines), write-only variables.
+**Dead Code** (beyond what ruff/eslint report):
+- Flag commented-out blocks (>3 lines), unreferenced exported functions, write-only variables.
 
 **API Consistency:**
 - Flag inconsistent pagination patterns (some endpoints use `limit/offset`, others `page/size`).
@@ -183,19 +223,21 @@ Implementation details must not cross layer boundaries:
 ```markdown
 ## Code Quality Report
 
-**Scope:** N files checked (list files)
+**Scope:** N files checked (list files). Not covered: <excluded/generated/skipped, if any>
 
-### Critical (must fix before commit)
-- [Upward Dep] file:line — `infrastructure/foo.py` imports from `app/api/v1/bar.py` (lower layer depends on upper)
-- [Circular] file:line — cycle: A → B → C → A
+### Introduced by this change
 
-### Warning (should fix)
-- [SRP] file:line — `FooService` has 12 public methods, consider splitting
-- [Abstraction Leak] file:line — ORM model `UserTable` returned from facade
+#### Critical (must fix before commit)
+- [Upward Dep] file:line — `infrastructure/foo.py` imports from `app/api/v1/bar.py` (lower layer depends on upper). Fix: invert via interface in application layer.
 
-### Info (consider improving)
-- [Complexity] file:line — function `process_data` is 67 lines, nesting depth 5
-- [DRY] file:line — duplicated validation pattern, see `shared_kernel/validators.py`
+#### Warning (fix, or defer explicitly)
+- [SRP] file:line — `FooService` mixes key validation and usage metering. Fix: extract metering into its own service.
+
+#### Info (consider improving)
+- [Complexity] file:line — `process_data` nests 5 levels deep. Fix: early returns.
+
+### Pre-existing in touched code
+- [Abstraction Leak] file:line — ORM model returned from facade (predates this change). Route to follow-up.
 
 ### Summary
 | Dimension | Critical | Warning | Info |
@@ -207,7 +249,17 @@ Implementation details must not cross layer boundaries:
 | **Total** | **0** | **0** | **0** |
 ```
 
+Every finding carries a one-clause fix direction — a finding without a direction forces
+the reader to redo the analysis.
+
+**Clean result:** if no findings survive verification, say so explicitly and state what
+was checked — "12 dimensions over N files, no verified findings" is a meaningful result;
+an empty report is not.
+
 **Severity rules:**
-- **Critical**: upward dependency, circular dependency, abstraction leak across API boundary, silently swallowed security-relevant errors.
+- **Critical**: upward dependency, circular dependency, abstraction leak across API boundary, silently swallowed security-relevant errors, ORM/migration type mismatch.
 - **Warning**: SRP/OCP/DIP violations, missing error handling, side effects, resource leaks, DRY violations > 10 lines.
 - **Info**: complexity, dead code, type safety gaps, API inconsistency, minor DRY.
+
+Consumers: `/build`'s Definition of Done treats Introduced-Critical as blocking and
+Introduced-Warning as fix-or-defer-as-FU-n; Pre-existing findings inform but never block.
