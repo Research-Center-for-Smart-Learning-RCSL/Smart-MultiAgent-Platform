@@ -15,6 +15,7 @@ const AGENT = {
   name: 'Researcher',
   model_hint: 'claude',
   model_id: null,
+  effort: 'high',
   key_group_id: 'kg_1',
   system_prompt: '',
   prompt_strategy: 'full',
@@ -77,5 +78,29 @@ describe('AgentListView', () => {
     const createBtn = wrapper.find('button.s-btn--primary')
     expect(createBtn.exists()).toBe(true)
     expect(createBtn.attributes('disabled')).toBeUndefined()
+  })
+
+  it('carries the source agent effort over when duplicating', async () => {
+    seed([AGENT])
+    let capturedBody: Record<string, unknown> | undefined
+    server.use(
+      http.post('/api/projects/proj_1/agents', async ({ request }) => {
+        capturedBody = (await request.json()) as Record<string, unknown>
+        return HttpResponse.json({ ...AGENT, id: 'agent_2' })
+      }),
+    )
+    const wrapper = await renderView(AgentListView, {
+      routes,
+      initialRoute: '/projects/proj_1/agents',
+    })
+    await settle(wrapper)
+
+    const dropdowns = wrapper.findAllComponents({ name: 'SDropdown' })
+    expect(dropdowns.length).toBeGreaterThan(0)
+    dropdowns[0]!.vm.$emit('select', 'duplicate')
+    await settle(wrapper)
+
+    expect(capturedBody).toBeDefined()
+    expect(capturedBody?.effort).toBe('high')
   })
 })
