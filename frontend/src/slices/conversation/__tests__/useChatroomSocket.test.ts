@@ -282,4 +282,31 @@ describe('useChatroomSocket agent streaming', () => {
     vi.advanceTimersByTime(30_000)
     expect(listMessagesMock).not.toHaveBeenCalled()
   })
+
+  it('does not resurrect a message deleted while its create-delta is in flight (B2)', async () => {
+    const mounted = mountSocket()
+    wrapper = mounted.wrapper
+    seedCursor(mounted.qc, 'm_seed')
+    await flushPromises()
+
+    let resolveDelta!: (messages: unknown) => void
+    listMessagesMock.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveDelta = resolve
+      }),
+    )
+    // message.created kicks off the delta fetch, but it does not resolve yet.
+    emit({ type: 'message.created', message_id: 'm_new', sender_type: 'user', sender_id: 'u1' })
+
+    // The delete WS frame for the same message beats the HTTP response back.
+    emit({ type: 'message.deleted', message_id: 'm_new' })
+
+    resolveDelta([
+      { id: 'm_new', created_at: '2024-01-01T00:00:01.000Z', sender_type: 'user', sender_id: 'u1' },
+    ])
+    await flushPromises()
+
+    const cache = mounted.qc.getQueryData(['conversation', 'messages', ROOM]) as Array<{ id: string }>
+    expect(cache.some((m) => m.id === 'm_new')).toBe(false)
+  })
 })
