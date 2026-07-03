@@ -23,7 +23,7 @@ export const i18n = createI18n<false, Messages>({
   // the active locale and the English fallback isn't loaded yet — e.g. a stale
   // translation or a failed active-locale chunk), pull the fallback bundles in
   // once; vue-i18n re-resolves against the merged fallback on the next render.
-  missing: (_locale, key) => {
+  missing: (_locale: Locale, key: string) => {
     if (!fallbackRequested) {
       fallbackRequested = true
       ensureLocaleLoaded(FALLBACK_LOCALE).catch(() => {

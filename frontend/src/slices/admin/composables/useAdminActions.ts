@@ -105,7 +105,7 @@ export function useAdminActions() {
       if (type === 'user') {
         _invalidateUserQueries()
       } else {
-        const keyMap: Record<string, unknown[]> = {
+        const keyMap: Record<string, readonly unknown[]> = {
           org: adminKeys.orgs(),
           project: adminKeys.projects(),
         }

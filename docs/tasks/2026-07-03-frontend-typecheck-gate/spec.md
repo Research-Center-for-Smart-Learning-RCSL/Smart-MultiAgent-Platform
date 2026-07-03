@@ -118,8 +118,13 @@ isn't red for the whole task.
       pass unchanged.
 - [ ] AC-4: the gate cannot silently regress to a no-op — the characterization check from
       §6 is in CI.
-- [ ] AC-5: the 8 real TS2304/TS2339 defects are each fixed or have a linked bugfix
-      dossier (no silent suppression via `@ts-ignore`/`as any`).
+- [ ] AC-5: the real TS2304/TS2339 defects found on re-verification (5, not the original
+      8 — 3 were already resolved by the conversation-bugfixes dossier) are each fixed or
+      have a linked bugfix dossier (no silent suppression via `@ts-ignore`/`as any`).
+      `ProjectListView.vue` TS2304 (missing `watch` import) fixed via
+      `docs/tasks/2026-07-03-project-list-watch-import` (implemented). The remaining 4
+      (`SearchKeyView.vue` TS2339 x4) are a type-declaration gap, not a behavior bug — see
+      Deviation Log.
 
 ## 10. SRS Delta
 
