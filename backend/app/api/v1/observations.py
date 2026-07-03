@@ -13,7 +13,7 @@ import uuid
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.conversation.application.access import (
@@ -52,6 +52,17 @@ class ReleaseIn(BaseModel):
     agent_ids: list[uuid.UUID] = Field(default_factory=list, max_length=_MAX_TARGET_IDS)
     wake: bool = False
     content_override: str | None = Field(default=None, min_length=1, max_length=_MAX_CONTENT_MD)
+
+    @field_validator("content_override", mode="before")
+    @classmethod
+    def _strip_override(cls, v: Any) -> Any:
+        # Mirrors agents.py's model_id strip: a whitespace-only override would
+        # otherwise become the released message body verbatim (O-9).
+        if isinstance(v, str):
+            v = v.strip()
+            if not v:
+                raise ValueError("content_override must not be blank")
+        return v
 
     @model_validator(mode="after")
     def _agents_target_needs_ids(self) -> ReleaseIn:

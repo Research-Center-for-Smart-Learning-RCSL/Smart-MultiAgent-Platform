@@ -304,6 +304,18 @@ async def test_release_to_agents_defers_push_and_resolves_content(monkeypatch) -
     assert result.target_agent_ids == (target,)
 
 
+def test_release_in_rejects_whitespace_only_override() -> None:
+    """O-9 (P-9): a content_override that is empty after strip is a 422, and a
+    padded override is stored stripped."""
+    from pydantic import ValidationError
+
+    from app.api.v1.observations import ReleaseIn
+
+    with pytest.raises(ValidationError):
+        ReleaseIn(target="room", content_override="   ")
+    assert ReleaseIn(target="room", content_override=" x ").content_override == "x"
+
+
 @pytest.mark.asyncio
 async def test_dispatch_release_pushes_per_target_best_effort(monkeypatch) -> None:
     """O-1 (F-1): the post-commit dispatcher pushes once per target with the
