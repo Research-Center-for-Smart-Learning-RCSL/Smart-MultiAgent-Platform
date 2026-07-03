@@ -670,9 +670,9 @@ async def test_observer_turn_folds_memory_and_framing_into_system(monkeypatch) -
 
 
 @pytest.mark.asyncio
-async def test_observer_turn_no_input_emits_observation_failed(monkeypatch) -> None:
-    """Benign skip paths must still clear the creator's 'analyzing' indicator
-    (R28.13) — previously only key_group_scope/rate_limited/exception did."""
+async def test_observer_turn_no_input_emits_observation_skipped(monkeypatch) -> None:
+    """O-4 (P-2): benign skips emit observation.skipped, not observation.failed.
+    The event must still fire so the creator's 'analyzing' indicator clears."""
     agent = _observer_agent()
     creator = uuid.uuid4()
     engine, _recorded, _stream_seen = _wire_observer_engine(monkeypatch, agent, creator_id=creator)
@@ -697,12 +697,13 @@ async def test_observer_turn_no_input_emits_observation_failed(monkeypatch) -> N
     room_events = [e for e in _PublisherSpy.emitted if e[0].startswith("ws:room:")]
     assert room_events == []
     user_events = [e for e in _PublisherSpy.emitted if e[0] == f"ws:user:{creator}"]
-    assert [e[1] for e in user_events] == ["observation.started", "observation.failed"]
+    assert [e[1] for e in user_events] == ["observation.started", "observation.skipped"]
     assert user_events[-1][2]["kind"] == "no_input"
 
 
 @pytest.mark.asyncio
-async def test_observer_turn_empty_reply_emits_observation_failed(monkeypatch) -> None:
+async def test_observer_turn_empty_reply_emits_observation_skipped(monkeypatch) -> None:
+    """O-4 (P-2): benign skips emit observation.skipped, not observation.failed."""
     agent = _observer_agent()
     creator = uuid.uuid4()
     engine, _recorded, _stream_seen = _wire_observer_engine(monkeypatch, agent, creator_id=creator)
@@ -727,8 +728,37 @@ async def test_observer_turn_empty_reply_emits_observation_failed(monkeypatch) -
     room_events = [e for e in _PublisherSpy.emitted if e[0].startswith("ws:room:")]
     assert room_events == []
     user_events = [e for e in _PublisherSpy.emitted if e[0] == f"ws:user:{creator}"]
-    assert [e[1] for e in user_events] == ["observation.started", "observation.failed"]
+    assert [e[1] for e in user_events] == ["observation.started", "observation.skipped"]
     assert user_events[-1][2]["kind"] == "empty_reply"
+
+
+@pytest.mark.asyncio
+async def test_observer_turn_hard_failure_still_emits_observation_failed(monkeypatch) -> None:
+    """O-4 (P-2) contrast pin: real errors keep the observation.failed event."""
+    agent = _observer_agent()
+    creator = uuid.uuid4()
+    engine, _recorded, _stream_seen = _wire_observer_engine(monkeypatch, agent, creator_id=creator)
+
+    async def _boom_stream(**kw):
+        raise RuntimeError("provider exploded")
+
+    engine._stream_with_tools = _boom_stream  # type: ignore[attr-defined]
+
+    result = await engine._run_locked(
+        agent_id=agent.id,
+        chatroom_id=uuid.uuid4(),
+        trigger="every_n_messages",
+        parent_agent_id=None,
+        input_text=None,
+        request_id=None,
+        trigger_message_id=None,
+    )
+
+    assert result.status == "failed"
+    room_events = [e for e in _PublisherSpy.emitted if e[0].startswith("ws:room:")]
+    assert room_events == []
+    user_events = [e for e in _PublisherSpy.emitted if e[0] == f"ws:user:{creator}"]
+    assert [e[1] for e in user_events] == ["observation.started", "observation.failed"]
 
 
 # --------------------------------------------------------------------------- #

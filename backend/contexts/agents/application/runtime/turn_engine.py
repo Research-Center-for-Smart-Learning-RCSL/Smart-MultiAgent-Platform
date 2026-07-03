@@ -1001,8 +1001,10 @@ class TurnEngine:
                 if room is not None:
                     await Publisher(room).emit("agent.finished", {"agent_id": str(agent.id)})
                 elif is_observer:
+                    # O-4 (R28.13): a benign skip is not a failure — distinct
+                    # event so the creator UI can tell them apart.
                     await self._emit_observation_event(
-                        chatroom_id, agent.id, "observation.failed", {"kind": "no_input"}
+                        chatroom_id, agent.id, "observation.skipped", {"kind": "no_input"}
                     )
                 await self._audit(agent, chatroom_id, "agent.turn_finished", {"empty": True})
                 await self._db.commit()
@@ -1053,8 +1055,9 @@ class TurnEngine:
                         "agent.finished", {"reason": "empty_reply", "agent_id": str(agent.id)}
                     )
                 elif is_observer:
+                    # O-4 (R28.13): benign skip, not a failure.
                     await self._emit_observation_event(
-                        chatroom_id, agent.id, "observation.failed", {"kind": "empty_reply"}
+                        chatroom_id, agent.id, "observation.skipped", {"kind": "empty_reply"}
                     )
                 return TurnResult(status="skipped", reason="empty_reply", tool_rounds=rounds)
 
