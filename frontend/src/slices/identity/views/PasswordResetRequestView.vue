@@ -88,6 +88,7 @@ async function submit(): Promise<void> {
         <SAlert
           v-if="serverError"
           :variant="isRateLimited ? 'warning' : 'danger'"
+          focus-on-mount
         >
           {{ serverError }}
         </SAlert>

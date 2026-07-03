@@ -722,6 +722,7 @@ const graphragStatusText = computed(() => {
         v-if="conflictDetected"
         variant="warning"
         class="mt-4"
+        focus-on-mount
       >
         {{ t('agents.detail.conflictAlert') }}
         <template #actions>

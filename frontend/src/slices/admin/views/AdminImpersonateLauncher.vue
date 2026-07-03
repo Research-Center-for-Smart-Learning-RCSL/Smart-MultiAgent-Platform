@@ -48,7 +48,7 @@
       v-if="error"
       variant="danger"
       class="mt-2"
-      role="alert"
+      focus-on-mount
     >
       {{ error }}
     </SAlert>

@@ -83,6 +83,7 @@ async function submit(): Promise<void> {
         <SAlert
           v-if="saved"
           variant="success"
+          focus-on-mount
         >
           {{ $t('identity.profile.saved') }}
         </SAlert>
