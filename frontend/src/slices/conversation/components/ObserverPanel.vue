@@ -2,16 +2,16 @@
   <div class="obs-panel">
     <ul class="obs-panel__roster">
       <li
-        v-for="a in observerAgents"
+        v-for="a in roster"
         :key="a.id"
         class="obs-panel__roster-item"
-        v-bind="detailFor(a) ? { title: detailFor(a) } : {}"
+        v-bind="a.detail ? { title: a.detail } : {}"
       >
         <span class="obs-panel__roster-name">{{ a.name }}</span>
         <span
           class="obs-panel__roster-status"
           :class="`obs-panel__roster-status--${a.status}`"
-        >{{ statusText(a) }}</span>
+        >{{ a.label }}</span>
       </li>
     </ul>
 
@@ -69,6 +69,7 @@
 </template>
 
 <script setup lang="ts">
+import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { EyeIcon } from '@heroicons/vue/24/outline'
 import { SButton, SDivider, SEmptyState, SSkeleton } from '@shared/ui'
@@ -98,23 +99,30 @@ function nameFor(agentId: string): string {
   return props.agentNames[agentId] ?? agentId.slice(0, 8)
 }
 
-// W-4 (B.3): failure kinds mirror agent.finished — reuse the room path's
-// kind→label map; benign skips get their own muted copy, never the error one.
+// W-4 (B.3): the roster shows a short status label inline (kept narrow so it
+// never overflows the rail) and the full kind sentence in the row tooltip.
+// Failure kinds mirror agent.finished — reuse the room path's kind→label map;
+// benign skips get their own muted copy, never the error one.
 function detailFor(a: ObserverEntry): string {
   if (a.status === 'error') {
     return t(AGENT_ERROR_MESSAGE_KEYS[a.errorReason ?? ''] ?? AGENT_ERROR_FALLBACK_KEY)
   }
   if (a.status === 'skipped' && a.skipReason) {
     const key = `conversation.observers.skip.${a.skipReason}`
-    return te(key) ? t(key) : t('conversation.observers.status.skipped')
+    return te(key) ? t(key) : ''
   }
   return ''
 }
 
-function statusText(a: ObserverEntry): string {
-  const detail = detailFor(a)
-  return detail || t(`conversation.observers.status.${a.status}`)
-}
+const roster = computed(() =>
+  props.observerAgents.map((a) => ({
+    id: a.id,
+    name: a.name,
+    status: a.status,
+    label: t(`conversation.observers.status.${a.status}`),
+    detail: detailFor(a),
+  })),
+)
 </script>
 
 <style scoped>

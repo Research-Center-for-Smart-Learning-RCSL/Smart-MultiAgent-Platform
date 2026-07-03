@@ -17,7 +17,12 @@ describe('STabs', () => {
     expect(tabB.attributes('aria-label')).toBe('B tab, 3 unread')
     const badge = wrapper.find('.s-tabs__badge')
     expect(badge.text()).toBe('3')
-    expect(badge.attributes('aria-live')).toBe('polite')
+    // The polite live region is a persistent, visually-hidden sibling so
+    // badge changes are announced (not the conditionally-rendered visible badge).
+    const live = wrapper.find('.s-tabs__badge-live')
+    expect(live.exists()).toBe(true)
+    expect(live.attributes('aria-live')).toBe('polite')
+    expect(live.text()).toBe('3')
   })
 
   it('omits aria attributes when the optional fields are unset (backward compatible)', () => {
@@ -32,6 +37,6 @@ describe('STabs', () => {
     })
     const tabB = wrapper.findAll('[role="tab"]')[1]
     expect(tabB.attributes('aria-label')).toBeUndefined()
-    expect(wrapper.find('.s-tabs__badge').attributes('aria-live')).toBeUndefined()
+    expect(wrapper.find('.s-tabs__badge-live').exists()).toBe(false)
   })
 })

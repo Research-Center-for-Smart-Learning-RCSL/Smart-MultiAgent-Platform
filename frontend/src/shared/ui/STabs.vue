@@ -109,10 +109,18 @@ function onKeydown(e: KeyboardEvent) {
         <span
           v-if="tab.badge != null"
           class="s-tabs__badge"
-          v-bind="tab.badgeLive ? { 'aria-live': 'polite' } : {}"
         >
           {{ tab.badge }}
         </span>
+        <!-- W-7: a persistent polite live region announces badge changes even
+             when the visible badge is added/removed (a newly-inserted live
+             region is not reliably announced). Visually hidden; the button's
+             aria-label carries the count on focus. -->
+        <span
+          v-if="tab.badgeLive"
+          class="s-tabs__badge-live"
+          aria-live="polite"
+        >{{ tab.badge ?? '' }}</span>
       </button>
     </div>
     <div class="s-tabs__panels">
@@ -206,6 +214,18 @@ function onKeydown(e: KeyboardEvent) {
   border-radius: var(--radius-full);
   background: var(--color-surface);
   color: var(--color-muted);
+}
+
+.s-tabs__badge-live {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 .s-tabs__panels {
