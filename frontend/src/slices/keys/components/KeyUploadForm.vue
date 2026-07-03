@@ -76,15 +76,16 @@ function onClose() {
         <SFormField
           :label="t('keys.form.provider')"
           name="provider"
-          :error="errors.provider"
+          :error="errors.provider ?? ''"
           required
         >
           <SSelect
-            v-model="provider"
+            :model-value="provider ?? null"
             :options="providerOptions"
             :placeholder="t('keys.form.providerPlaceholder')"
             :error="!!errors.provider"
             data-testid="key-provider"
+            @update:model-value="(v) => (provider = v as ApiKeyProvider)"
           />
         </SFormField>
 
@@ -105,32 +106,34 @@ function onClose() {
         <SFormField
           :label="t('keys.form.name')"
           name="name"
-          :error="errors.name"
+          :error="errors.name ?? ''"
           required
         >
           <SInput
-            v-model="name"
+            :model-value="name ?? ''"
             :maxlength="INPUT_LIMITS.KEY_NAME"
             :placeholder="t('keys.form.namePlaceholder')"
             :error="!!errors.name"
             data-testid="key-name"
+            @update:model-value="(v) => (name = String(v))"
           />
         </SFormField>
 
         <SFormField
           :label="t('keys.form.secret')"
           name="secret"
-          :error="errors.secret"
+          :error="errors.secret ?? ''"
           required
         >
           <SInput
-            v-model="secret"
+            :model-value="secret ?? ''"
             type="password"
             autocomplete="new-password"
             :maxlength="INPUT_LIMITS.KEY_SECRET"
             :placeholder="t('keys.form.secretPlaceholder')"
             :error="!!errors.secret"
             data-testid="key-secret"
+            @update:model-value="(v) => (secret = String(v))"
           />
         </SFormField>
 

@@ -22,6 +22,7 @@ import {
 } from '@shared/ui'
 import { useConfirmDialog, useToast } from '@shared/composables'
 import { useKeyGroups } from '../composables/useKeyGroups'
+import type { KeyGroup } from '../api/key-groups'
 import type { Column } from '@shared/ui/STable.vue'
 
 const { t } = useI18n()
@@ -48,6 +49,12 @@ const actionItems = computed(() => [
   { key: 'view', label: t('keys.groups.viewGroup'), icon: EyeIcon },
   { key: 'delete', label: t('keys.groups.deleteGroup'), icon: TrashIcon, danger: true },
 ])
+
+// KeyGroup is a TS `interface` (no index signature), so it doesn't structurally
+// satisfy STable's `T extends Record<string, unknown>` constraint; map to fresh
+// objects so STable's generic resolves to the real row shape instead of falling
+// back to `Record<string, unknown>`.
+const tableGroups = computed(() => groups.value.map((g) => ({ ...g })))
 
 async function onCreate() {
   const n = newName.value.trim()
@@ -135,12 +142,12 @@ function formatDate(iso: string): string {
 
     <STable
       :columns="columns"
-      :data="groups"
+      :data="tableGroups"
       row-key="id"
       class="mt-6"
       @row-click="onRowClick"
     >
-      <template #cell-name="{ row }">
+      <template #cell-name="{ row }: { row: KeyGroup }">
         <router-link
           :to="{ name: 'keys.groupDetail', params: { projectId, id: row.id } }"
           class="text-[var(--color-accent)] hover:underline"
@@ -149,15 +156,15 @@ function formatDate(iso: string): string {
         </router-link>
       </template>
 
-      <template #cell-members="{ row }">
+      <template #cell-members="{ row }: { row: KeyGroup }">
         {{ $t('keys.groups.memberCount', { n: row.member_count ?? 0 }) }}
       </template>
 
-      <template #cell-created_at="{ row }">
+      <template #cell-created_at="{ row }: { row: KeyGroup }">
         {{ formatDate(row.created_at) }}
       </template>
 
-      <template #actions="{ row }">
+      <template #actions="{ row }: { row: KeyGroup }">
         <SDropdown
           :items="actionItems"
           placement="bottom-end"

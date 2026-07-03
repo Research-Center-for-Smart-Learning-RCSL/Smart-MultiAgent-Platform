@@ -25,7 +25,7 @@ import {
 import { useConfirmDialog, useToast, useClientPagination } from '@shared/composables'
 import { useSearchKeys } from '../composables/useSearchKeys'
 import SearchKeyUploadForm from '../components/SearchKeyUploadForm.vue'
-import type { SearchProvider } from '../api/search-keys'
+import type { SearchKey, SearchProvider } from '../api/search-keys'
 import MaskedPreview from '../components/MaskedPreview.vue'
 import type { Column } from '@shared/ui/STable.vue'
 
@@ -65,6 +65,12 @@ const actionItems = computed(() => [
   { key: 'retest', label: t('keys.search.retest'), icon: ArrowPathIcon },
   { key: 'delete', label: t('keys.search.delete'), icon: TrashIcon, danger: true },
 ])
+
+// SearchKey is a TS `interface` (no index signature), so it doesn't structurally
+// satisfy STable's `T extends Record<string, unknown>` constraint; map to fresh
+// objects so STable's generic resolves to the real row shape instead of falling
+// back to `Record<string, unknown>`.
+const tableKeys = computed(() => paginatedKeys.value.map((k) => ({ ...k })))
 
 async function onUpload(payload: { provider: SearchProvider; secret: string; config: Record<string, unknown> }) {
   try {
@@ -160,13 +166,13 @@ function onAction(key: string, row: { id: string }) {
 
     <STable
       :columns="columns"
-      :data="paginatedKeys"
+      :data="tableKeys"
       row-key="id"
       class="mt-6"
     >
-      <template #cell-provider="{ row }">
+      <template #cell-provider="{ row }: { row: SearchKey }">
         <div>
-          <span class="text-sm font-medium">{{ PROVIDER_DISPLAY[row.provider as SearchProvider] }}</span>
+          <span class="text-sm font-medium">{{ PROVIDER_DISPLAY[row.provider] }}</span>
           <div
             v-if="row.provider === 'google_cse' && row.config?.cx"
             class="text-xs text-[var(--color-muted)] mt-0.5"
@@ -187,11 +193,11 @@ function onAction(key: string, row: { id: string }) {
         </div>
       </template>
 
-      <template #cell-masked_preview="{ row }">
+      <template #cell-masked_preview="{ row }: { row: SearchKey }">
         <MaskedPreview :value="row.masked_preview" />
       </template>
 
-      <template #cell-test_status="{ row }">
+      <template #cell-test_status="{ row }: { row: SearchKey }">
         <SStatusBadge :status="row.test_status" />
         <small
           v-if="row.test_status === 'failed' && row.test_error"
@@ -202,13 +208,13 @@ function onAction(key: string, row: { id: string }) {
         </small>
       </template>
 
-      <template #cell-last_test_at="{ row }">
+      <template #cell-last_test_at="{ row }: { row: SearchKey }">
         <span class="text-sm text-[var(--color-muted)]">
           {{ row.last_test_at ? new Date(row.last_test_at).toLocaleString() : $t('keys.search.never') }}
         </span>
       </template>
 
-      <template #cell-is_active="{ row }">
+      <template #cell-is_active="{ row }: { row: SearchKey }">
         <STooltip
           v-if="row.test_status === 'failed'"
           :content="$t('keys.search.cannotActivateInvalid')"
@@ -232,7 +238,7 @@ function onAction(key: string, row: { id: string }) {
         />
       </template>
 
-      <template #actions="{ row }">
+      <template #actions="{ row }: { row: SearchKey }">
         <SDropdown
           :items="actionItems"
           placement="bottom-end"

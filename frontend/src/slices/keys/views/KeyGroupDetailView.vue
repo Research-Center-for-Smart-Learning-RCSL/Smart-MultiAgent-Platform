@@ -217,7 +217,10 @@ async function onDeleteGroup() {
 
 <template>
   <main class="p-6">
-    <SPageHeader :breadcrumbs="breadcrumbs">
+    <SPageHeader
+      title=""
+      :breadcrumbs="breadcrumbs"
+    >
       <template #default>
         <div class="flex items-center gap-2">
           <template v-if="!rename.renaming.value">
