@@ -60,6 +60,12 @@ export interface WorkflowEdge {
 }
 
 export interface WorkflowDefinition {
+  /** Required by the backend on create (docs/workflow.schema.json); absent on
+      definitions that predate the field or aren't yet round-tripped through it. */
+  schema_version?: string
+  /** Also required by the backend on create (docs/workflow.schema.json); see
+      schema_version above — same "not every code path populates it yet" caveat. */
+  name?: string
   entry_node_id: string
   nodes: WorkflowNode[]
   edges: WorkflowEdge[]

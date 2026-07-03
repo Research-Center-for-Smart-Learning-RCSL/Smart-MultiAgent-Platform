@@ -86,12 +86,12 @@ export function useWorkflowEditor() {
       source: e.from,
       target: e.to,
       sourceHandle: e.from_port ?? 'default',
-      label: e.from_port && e.from_port !== 'default' ? e.from_port : undefined,
       animated: false,
+      ...(e.from_port && e.from_port !== 'default' && { label: e.from_port }),
       // Carry the guard through the graph so a save round-trip preserves it.
       // The editor has no guard UI yet, but API/backend-authored guards must
       // survive an edit-and-save instead of being silently dropped.
-      data: e.guard != null ? { guard: e.guard } : undefined,
+      ...(e.guard != null && { data: { guard: e.guard } }),
     }))
   }
 
@@ -186,8 +186,8 @@ export function useWorkflowEditor() {
         source: connection.source,
         target: connection.target,
         sourceHandle: handle,
-        label: handle !== 'default' ? handle : undefined,
         animated: false,
+        ...(handle !== 'default' && { label: handle }),
       },
     ]
     store.markDirty()

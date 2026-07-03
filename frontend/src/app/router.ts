@@ -55,10 +55,13 @@ router.beforeEach((to: RouteLocationNormalized) => {
     isAdmin,
     roles,
   }
+  const metaRequiresAuth = to.meta.requiresAuth as boolean | undefined
+  const metaRequiresVerifiedEmail = to.meta.requiresVerifiedEmail as boolean | undefined
+  const metaRequiredRoles = to.meta.requiredRoles as string[] | undefined
   const meta: RouteMeta = {
-    requiresAuth: to.meta.requiresAuth as boolean | undefined,
-    requiresVerifiedEmail: to.meta.requiresVerifiedEmail as boolean | undefined,
-    requiredRoles: to.meta.requiredRoles as string[] | undefined,
+    ...(metaRequiresAuth !== undefined && { requiresAuth: metaRequiresAuth }),
+    ...(metaRequiresVerifiedEmail !== undefined && { requiresVerifiedEmail: metaRequiresVerifiedEmail }),
+    ...(metaRequiredRoles !== undefined && { requiredRoles: metaRequiredRoles }),
   }
   return runGuards(meta, ctx, to.fullPath)
 })

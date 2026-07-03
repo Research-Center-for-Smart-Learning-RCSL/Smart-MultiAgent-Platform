@@ -22,12 +22,7 @@ export class ApiError extends Error {
     this.detail = problem.detail
     this.instance = problem.instance
 
-    const extra = { ...problem }
-    delete extra.type
-    delete extra.title
-    delete extra.status
-    delete extra.detail
-    delete extra.instance
+    const { type: _type, title: _title, status: _status, detail: _detail, instance: _instance, ...extra } = problem
     this.extra = extra
   }
 }

@@ -11,7 +11,7 @@
 // the sanitised string only; the component calls `highlightInDom(node)` on
 // `onMounted` / `onUpdated`.
 
-import DOMPurify from 'dompurify'
+import DOMPurify, { type Config } from 'dompurify'
 import MarkdownIt from 'markdown-it'
 
 let mermaidInited = false
@@ -25,7 +25,7 @@ let _md: MarkdownIt | null = null
 
 function getMd(): MarkdownIt {
   if (_md) return _md
-  const md = new MarkdownIt({
+  const md: MarkdownIt = new MarkdownIt({
     html: true,
     linkify: true,
     breaks: false,
@@ -43,7 +43,7 @@ function getMd(): MarkdownIt {
 
 // Strict DOMPurify config — event handlers, javascript: URIs, etc. are
 // already stripped by the default. We also remove `style`.
-const PURIFY_CONFIG: DOMPurify.Config = {
+const PURIFY_CONFIG: Config = {
   ALLOWED_TAGS: [
     'a',
     'abbr',
