@@ -64,6 +64,19 @@ export function useChatroomSocket(roomId: string) {
   // resolve last and re-apply an older delta over fresher data (R24.23).
   let replayGeneration = 0
 
+  // B2: a message.deleted frame can beat an in-flight create-delta HTTP
+  // response back to the client (the delta was fetched from the server
+  // before the delete committed). Tombstone the id so the delta's stale
+  // snapshot of it doesn't get re-added to the cache once it resolves.
+  // Self-evicting so this never grows unbounded across a long-lived room.
+  const DELETE_TOMBSTONE_TTL_MS = 30_000
+  const deletedTombstones = new Set<string>()
+
+  function tombstoneDeletedMessage(messageId: string): void {
+    deletedTombstones.add(messageId)
+    setTimeout(() => deletedTombstones.delete(messageId), DELETE_TOMBSTONE_TTL_MS)
+  }
+
   async function replayDelta(): Promise<void> {
     if (!lastSeenMessageId.value) {
       // No cursor yet (empty or never-synced room): there is no delta to fetch,
@@ -98,12 +111,14 @@ export function useChatroomSocket(roomId: string) {
   }
 
   function applyMessageCreated(m: Message): void {
-    const key = ['conversation', 'messages', roomId]
-    qc.setQueryData<Message[]>(key, (prev) => {
-      if (!prev) return [m]
-      if (prev.some((x) => x.id === m.id)) return prev
-      return [...prev, m]
-    })
+    if (!deletedTombstones.has(m.id)) {
+      const key = ['conversation', 'messages', roomId]
+      qc.setQueryData<Message[]>(key, (prev) => {
+        if (!prev) return [m]
+        if (prev.some((x) => x.id === m.id)) return prev
+        return [...prev, m]
+      })
+    }
     lastSeenMessageId.value = m.id
     if (m.sender_type === 'agent' && m.sender_id) {
       store.clearAgentStream(roomId, m.sender_id)
@@ -165,6 +180,7 @@ export function useChatroomSocket(roomId: string) {
       case 'message.deleted': {
         const deletedId = ev.message_id as string
         if (deletedId) {
+          tombstoneDeletedMessage(deletedId)
           qc.setQueryData<Message[]>(
             ['conversation', 'messages', roomId],
             (prev) => prev?.filter((m) => m.id !== deletedId),
