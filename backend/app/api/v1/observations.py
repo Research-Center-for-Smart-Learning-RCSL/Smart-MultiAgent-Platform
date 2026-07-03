@@ -22,6 +22,7 @@ from contexts.conversation.application.access import (
     resolve_room_access,
 )
 from contexts.conversation.application.observation_service import (
+    RELEASED_OBSERVATION_TYPE,
     ObservationService,
     ReleaseResult,
 )
@@ -29,6 +30,7 @@ from contexts.conversation.application.triggers import evaluate_message_wakeups
 from contexts.conversation.domain.models import AgentObservation
 from contexts.conversation.interfaces import room_channel
 from contexts.identity.interfaces import user_channel
+from contexts.orchestration.infrastructure import pending_notify
 from shared_kernel.auth.context import RequestContext
 from shared_kernel.auth.dependencies import current_context, current_principal
 from shared_kernel.auth.permissions import Principal
@@ -202,14 +204,32 @@ async def _dispatch_release(
             _log.warning("wake-up dispatch failed after release in room %s", chatroom_id, exc_info=True)
             with contextlib.suppress(Exception):
                 await db.rollback()
-    elif result.wake:
-        # R28.07: explicit creator wake — trigger literal "release" bypasses
-        # autostop like a mention (orchestration worker special-case).
+    else:
+        # R28.07: direct queue push, deliberately NOT A2AService.notify — the
+        # A2A scope evaluator vetoes on either party's a2a_enabled flag, and
+        # agent-level A2A policy must not block a creator-authorized release.
+        # Best-effort per target: the release is committed, so one target's
+        # Redis failure must neither surface as an error nor block the rest.
         for agent_id in result.target_agent_ids:
             try:
-                await enqueue("wakeup_agent", str(agent_id), str(chatroom_id), "release", None)
+                await pending_notify.push(
+                    agent_id,
+                    {
+                        "kind": RELEASED_OBSERVATION_TYPE,
+                        "chatroom_id": str(chatroom_id),
+                        "content": result.content,
+                    },
+                )
             except Exception:
-                _log.warning("release wake enqueue failed for agent %s", agent_id, exc_info=True)
+                _log.error("pending-notify push failed for agent %s", agent_id, exc_info=True)
+        if result.wake:
+            # R28.07: explicit creator wake — trigger literal "release" bypasses
+            # autostop like a mention (orchestration worker special-case).
+            for agent_id in result.target_agent_ids:
+                try:
+                    await enqueue("wakeup_agent", str(agent_id), str(chatroom_id), "release", None)
+                except Exception:
+                    _log.warning("release wake enqueue failed for agent %s", agent_id, exc_info=True)
     try:
         recipient = await service.recipient_user_id(chatroom_id)
         if recipient is not None:
