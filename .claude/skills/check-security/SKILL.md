@@ -10,6 +10,9 @@ is clean) for security vulnerabilities across 13 dimensions. For API routes, tra
 full call chain (route → facade → service → repository) to verify security controls.
 Produce a structured report of findings with traced attack scenarios.
 
+This skill is report-only — it changes no files and makes no commits. When it runs as a
+gate inside `/build`, that skill owns the commits per the CLAUDE.md commit discipline.
+
 ## Threat Model
 
 Attacker personas, in priority order for this product:

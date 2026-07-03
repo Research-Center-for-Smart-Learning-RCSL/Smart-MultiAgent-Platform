@@ -9,6 +9,9 @@ Audit the **changed files** in the current working tree (or the last commit if t
 is clean) for code quality issues across 12 dimensions. Produce a single structured
 report of verified findings.
 
+This skill is report-only — it changes no files and makes no commits. When it runs as a
+gate inside `/build`, that skill owns the commits per the CLAUDE.md commit discipline.
+
 ## Ground Rules
 
 These four rules control the signal-to-noise ratio of the whole audit; they outrank any
