@@ -31,8 +31,9 @@ const PAGE_SIZE = 50
 export interface ObserverEntry {
   id: string
   name: string
-  status: 'analyzing' | 'error' | 'idle'
+  status: 'analyzing' | 'error' | 'skipped' | 'idle'
   errorReason?: string
+  skipReason?: string
 }
 
 export interface UseObservationsOptions {
@@ -77,11 +78,13 @@ export function useObservations(chatroomId: string, opts: UseObservationsOptions
       .map((a) => {
         const analyzing = store.observerAnalyzing[chatroomId]?.has(a.agent_id)
         const errorReason = store.observerErrors[chatroomId]?.[a.agent_id]
+        const skipReason = store.observerSkips[chatroomId]?.[a.agent_id]
         return {
           id: a.agent_id,
           name: opts.agentNames.value[a.agent_id] ?? a.agent_id.slice(0, 8),
-          status: analyzing ? 'analyzing' : errorReason ? 'error' : 'idle',
+          status: analyzing ? 'analyzing' : errorReason ? 'error' : skipReason ? 'skipped' : 'idle',
           ...(errorReason !== undefined && { errorReason }),
+          ...(skipReason !== undefined && { skipReason }),
         }
       }),
   )
@@ -100,6 +103,12 @@ export function useObservations(chatroomId: string, opts: UseObservationsOptions
       lastPage.length === PAGE_SIZE ? lastPage[lastPage.length - 1]!.id : undefined,
     enabled: isCreator,
     retry: false,
+    // W-1 (R28.13): observation.* events go only to the literal creator's
+    // user channel. Admins and NULL-creator moderator-fallback viewers pass
+    // the REST gate but never receive events — poll for them so the panel is
+    // not silently stale. The real creator keeps the pure WS path.
+    refetchInterval: () =>
+      isCreator.value && session.me?.id !== opts.room.value?.created_by_user_id ? 30_000 : false,
   })
 
   const observations = computed<Observation[]>(
@@ -137,6 +146,13 @@ export function useObservations(chatroomId: string, opts: UseObservationsOptions
           const agentId = ev.agent_id as string
           store.setObserverAnalyzing(chatroomId, agentId, true)
           store.clearObserverError(chatroomId, agentId)
+          store.clearObserverSkip(chatroomId, agentId)
+        }),
+        channel.subscribe('observation.skipped', (ev: ChannelEvent) => {
+          if (!forThisRoom(ev)) return
+          const agentId = ev.agent_id as string
+          store.setObserverAnalyzing(chatroomId, agentId, false)
+          store.setObserverSkipKind(chatroomId, agentId, String(ev.kind ?? 'skipped'))
         }),
         channel.subscribe('observation.created', (ev: ChannelEvent) => {
           if (!forThisRoom(ev)) return
@@ -206,6 +222,11 @@ export function useObservations(chatroomId: string, opts: UseObservationsOptions
           ? { ...data, pages: data.pages.map((p) => p.filter((o) => o.id !== observationId)) }
           : data,
     )
+    // W-5: the optimistic filter can shrink a full last page below PAGE_SIZE,
+    // which flips the length-based getNextPageParam to "no more pages" while
+    // older rows still exist server-side. Refetch to restore an authoritative
+    // hasNextPage (same discipline as the observation.created handler).
+    void qc.invalidateQueries({ queryKey: convKeys.observations(chatroomId) })
   }
 
   return {
