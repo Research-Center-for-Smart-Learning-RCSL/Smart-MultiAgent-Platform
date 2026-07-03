@@ -66,9 +66,9 @@ export const useConversationStore = defineStore('conversation', () => {
   }
 
   function clearTyping(roomId: string): void {
-    const current = typing.value[roomId]
+    const current = typingUsers.value[roomId]
     if (!current || current.size === 0) return
-    typing.value = { ...typing.value, [roomId]: new Set<string>() }
+    typingUsers.value = { ...typingUsers.value, [roomId]: new Set<string>() }
   }
 
   function setAgentThinking(roomId: string, agentId: string, value: boolean): void {
