@@ -5,15 +5,13 @@
         v-for="a in observerAgents"
         :key="a.id"
         class="obs-panel__roster-item"
-        v-bind="
-          a.status === 'error' ? { title: t('conversation.observers.status.error') } : {}
-        "
+        v-bind="detailFor(a) ? { title: detailFor(a) } : {}"
       >
         <span class="obs-panel__roster-name">{{ a.name }}</span>
         <span
           class="obs-panel__roster-status"
           :class="`obs-panel__roster-status--${a.status}`"
-        >{{ t(`conversation.observers.status.${a.status}`) }}</span>
+        >{{ statusText(a) }}</span>
       </li>
     </ul>
 
@@ -74,6 +72,7 @@
 import { useI18n } from 'vue-i18n'
 import { EyeIcon } from '@heroicons/vue/24/outline'
 import { SButton, SDivider, SEmptyState, SSkeleton } from '@shared/ui'
+import { AGENT_ERROR_FALLBACK_KEY, AGENT_ERROR_MESSAGE_KEYS } from '../constants/agentErrors'
 import ObservationCard from './ObservationCard.vue'
 import type { ObserverEntry } from '../composables/useObservations'
 import type { Observation } from '../types'
@@ -93,10 +92,28 @@ const emit = defineEmits<{
   'load-earlier': []
 }>()
 
-const { t } = useI18n()
+const { t, te } = useI18n()
 
 function nameFor(agentId: string): string {
   return props.agentNames[agentId] ?? agentId.slice(0, 8)
+}
+
+// W-4 (B.3): failure kinds mirror agent.finished — reuse the room path's
+// kind→label map; benign skips get their own muted copy, never the error one.
+function detailFor(a: ObserverEntry): string {
+  if (a.status === 'error') {
+    return t(AGENT_ERROR_MESSAGE_KEYS[a.errorReason ?? ''] ?? AGENT_ERROR_FALLBACK_KEY)
+  }
+  if (a.status === 'skipped' && a.skipReason) {
+    const key = `conversation.observers.skip.${a.skipReason}`
+    return te(key) ? t(key) : t('conversation.observers.status.skipped')
+  }
+  return ''
+}
+
+function statusText(a: ObserverEntry): string {
+  const detail = detailFor(a)
+  return detail || t(`conversation.observers.status.${a.status}`)
 }
 </script>
 
@@ -147,6 +164,11 @@ function nameFor(agentId: string): string {
 
 .obs-panel__roster-status--error {
   color: var(--color-danger);
+}
+
+.obs-panel__roster-status--skipped {
+  color: var(--color-muted);
+  font-style: italic;
 }
 
 .obs-panel__loading {
