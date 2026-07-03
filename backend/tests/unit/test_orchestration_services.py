@@ -322,6 +322,16 @@ class TestApprovalCreateGate:
         _audit.assert_awaited_once()
         assert _audit.call_args[0][1].action == "approval.requested"
 
+        # B5: the room-channel payload must carry workflow_run_id so a
+        # frontend viewer can resolve the run without a second fetch.
+        room_payloads = [
+            c.args[1]
+            for c in _pub_cls.return_value.emit.call_args_list
+            if c.args[0] == "approval.requested" and "mode" in c.args[1]
+        ]
+        assert room_payloads
+        assert room_payloads[0]["workflow_run_id"] == str(_RUN)
+
 
 class TestApprovalCastVote:
     @patch(
