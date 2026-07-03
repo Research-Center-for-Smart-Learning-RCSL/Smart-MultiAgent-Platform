@@ -423,6 +423,23 @@ const mcpColumns = computed<Column[]>(() => [
   { key: 'actions', label: '', width: '120px', align: 'right' },
 ])
 
+// STable's row generic (`T extends Record<string, unknown> = Record<string, unknown>`)
+// falls back to its default type instead of inferring from `:data`/slot usage here (a
+// Volar limitation with generic script-setup props that declare a default type
+// argument). Pin it explicitly so `row` in slots resolves to `AgentTool` instead of
+// `Record<string, unknown>`.
+const _fixedSTable = STable<Record<string, unknown>>
+type STablePropsBase = Parameters<typeof _fixedSTable>[0]
+function typedSTable<T extends object>() {
+  return STable as unknown as new () => {
+    $props: Omit<STablePropsBase, 'data'> & { data?: T[] }
+    $slots: {
+      [key: string]: (arg: { row: T; value: unknown; index: number }) => unknown
+    }
+  }
+}
+const McpToolsTable = typedSTable<AgentTool>()
+
 const mcpAccordionItems = computed(() => [
   { key: 'config', title: t('agents.tools.mcp.advancedConfig') },
 ])
@@ -817,7 +834,7 @@ function fnLabel(tool: AgentTool): string {
           </SButton>
         </div>
 
-        <STable
+        <McpToolsTable
           :columns="mcpColumns"
           :data="mcpTools"
           :loading="loading"
@@ -886,7 +903,7 @@ function fnLabel(tool: AgentTool): string {
               </template>
             </SEmptyState>
           </template>
-        </STable>
+        </McpToolsTable>
       </SCard>
     </section>
 
@@ -1033,7 +1050,7 @@ function fnLabel(tool: AgentTool): string {
         <SFormField
           :label="t('agents.tools.mcp.source')"
           name="config.source"
-          :error="errors['config.source']"
+          :error="errors['config.source'] ?? ''"
           required
         >
           <SSelect
@@ -1046,7 +1063,7 @@ function fnLabel(tool: AgentTool): string {
         <SFormField
           :label="t('agents.tools.mcp.reference')"
           name="config.reference"
-          :error="errors['config.reference']"
+          :error="errors['config.reference'] ?? ''"
           :help="referenceHelp"
           required
         >
@@ -1065,7 +1082,7 @@ function fnLabel(tool: AgentTool): string {
           :label="t('agents.tools.mcp.allowedTools')"
           name="allowed_tools"
           :help="t('agents.tools.mcp.allowedToolsHelp')"
-          :error="allowedToolsError ?? undefined"
+          :error="allowedToolsError ?? ''"
         >
           <STextarea
             v-model="allowedToolsRaw"
@@ -1158,7 +1175,7 @@ function fnLabel(tool: AgentTool): string {
         <SFormField
           :label="t('agents.tools.functions.name')"
           name="config.name"
-          :error="fnErrors['config.name']"
+          :error="fnErrors['config.name'] ?? ''"
           :help="t('agents.tools.functions.nameHelp')"
           required
         >
@@ -1173,7 +1190,7 @@ function fnLabel(tool: AgentTool): string {
         <SFormField
           :label="t('agents.tools.functions.fnDescription')"
           name="config.description"
-          :error="fnErrors['config.description']"
+          :error="fnErrors['config.description'] ?? ''"
           required
         >
           <STextarea
@@ -1216,7 +1233,7 @@ function fnLabel(tool: AgentTool): string {
           <SFormField
             :label="t('agents.tools.functions.url')"
             name="config.http.url"
-            :error="fnErrors['config.http.url']"
+            :error="fnErrors['config.http.url'] ?? ''"
             :help="t('agents.tools.functions.urlHelp')"
             class="flex-1"
             required

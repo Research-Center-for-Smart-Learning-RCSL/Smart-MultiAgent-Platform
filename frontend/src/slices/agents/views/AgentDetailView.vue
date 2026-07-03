@@ -284,6 +284,22 @@ const wakeupSilence = ref<number | null>(null)
 const wakeupCallOnly = ref(false)
 const wakeupAutostop = ref<number | null>(null)
 
+// SInput's model-value accepts `string | number` (no `null`); these fields are
+// nullable numbers (unset = provider default). Bridge to '' for display only —
+// SInput type="number" always emits a number, so the field keeps storing
+// `number | null` exactly as before.
+function nullableNumberModel(field: { value: number | null }) {
+  return computed<string | number>({
+    get: () => field.value ?? '',
+    set: (v) => {
+      field.value = v === '' ? null : Number(v)
+    },
+  })
+}
+const wakeupEveryNModel = nullableNumberModel(wakeupEveryN)
+const wakeupSilenceModel = nullableNumberModel(wakeupSilence)
+const wakeupAutostopModel = nullableNumberModel(wakeupAutostop)
+
 // Mirrors the backend WakeupConfig.is_inert() check: with no trigger enabled the
 // agent never auto-responds (it can still be summoned by @mention in a room).
 const wakeupInert = computed(
@@ -436,6 +452,7 @@ const contextTokenCapPlaceholder = computed(() => {
   const defaultCap = Math.floor(contextLimit * 0.75)
   return t('agents.form.contextTokenCapDefault', { cap: defaultCap.toLocaleString() })
 })
+const contextTokenCapModel = nullableNumberModel(contextTokenCap)
 
 function insertLazyTemplate(): void {
   const existing = (systemPrompt.value ?? '').trimEnd()
@@ -563,13 +580,21 @@ const tabs = computed(() => [
   { key: 'general', label: t('agents.detail.tabs.general'), icon: Cog6ToothIcon },
   { key: 'prompt', label: t('agents.detail.tabs.prompt'), icon: CommandLineIcon },
   { key: 'knowledge', label: t('agents.detail.tabs.knowledge'), icon: BookOpenIcon },
-  { key: 'tools', label: t('agents.tools.tabLabel'), icon: ServerIcon, badge: enabledToolCount.value > 0 ? String(enabledToolCount.value) : undefined },
+  {
+    key: 'tools',
+    label: t('agents.tools.tabLabel'),
+    icon: ServerIcon,
+    ...(enabledToolCount.value > 0 && { badge: String(enabledToolCount.value) }),
+  },
   { key: 'orchestration', label: t('agents.detail.tabs.orchestration'), icon: ArrowsPointingOutIcon },
 ])
 
-function onTabChange(tab: string): void {
-  activeTab.value = tab
-  router.replace({ query: { ...route.query, tab } })
+// STabs/SSelect emit `string | number` for model-value; tab keys here are always
+// strings, so normalize defensively without changing behavior for existing callers.
+function onTabChange(tab: string | number): void {
+  const key = String(tab)
+  activeTab.value = key
+  router.replace({ query: { ...route.query, tab: key } })
 }
 
 // Options
@@ -607,7 +632,12 @@ const pageTitle = computed(() => {
 })
 
 const breadcrumbs = computed(() => [
-  { label: t('agents.breadcrumb.agents'), to: pickerProjectId.value ? { name: 'agents.list', params: { projectId: pickerProjectId.value } } : undefined },
+  {
+    label: t('agents.breadcrumb.agents'),
+    ...(pickerProjectId.value && {
+      to: { name: 'agents.list', params: { projectId: pickerProjectId.value } },
+    }),
+  },
   { label: pageTitle.value },
 ])
 
@@ -738,7 +768,7 @@ const graphragStatusText = computed(() => {
             <SFormField
               :label="t('agents.form.name')"
               name="name"
-              :error="errors.name"
+              :error="errors.name ?? ''"
               required
             >
               <SInput
@@ -751,7 +781,7 @@ const graphragStatusText = computed(() => {
               <SFormField
                 :label="t('agents.form.modelHint')"
                 name="model_hint"
-                :error="errors.model_hint"
+                :error="errors.model_hint ?? ''"
                 required
               >
                 <SSelect
@@ -763,7 +793,7 @@ const graphragStatusText = computed(() => {
               <SFormField
                 :label="t('agents.form.modelId')"
                 name="model_id"
-                :error="errors.model_id"
+                :error="errors.model_id ?? ''"
                 :help="t('agents.form.modelIdHelp')"
               >
                 <SSelect
@@ -784,7 +814,7 @@ const graphragStatusText = computed(() => {
             <SFormField
               :label="t('agents.form.effort')"
               name="effort"
-              :error="errors.effort"
+              :error="errors.effort ?? ''"
               :help="t('agents.form.effortHelp')"
               class="mt-4"
             >
@@ -797,8 +827,8 @@ const graphragStatusText = computed(() => {
             <SFormField
               :label="t('agents.form.keyGroup')"
               name="key_group_id"
-              :error="errors.key_group_id"
-              :help="graphragConfigId ? t('agents.form.keyGroupGraphragHelp') : undefined"
+              :error="errors.key_group_id ?? ''"
+              :help="graphragConfigId ? t('agents.form.keyGroupGraphragHelp') : ''"
               required
               class="mt-4"
             >
@@ -834,12 +864,12 @@ const graphragStatusText = computed(() => {
               v-if="contextMode === 'compact'"
               :label="t('agents.form.contextTokenCap')"
               name="context_token_cap"
-              :error="errors.context_token_cap"
+              :error="errors.context_token_cap ?? ''"
               :help="t('agents.form.contextTokenCapHelp')"
               class="mt-4"
             >
               <SInput
-                v-model="contextTokenCap"
+                v-model="contextTokenCapModel"
                 type="number"
                 :placeholder="contextTokenCapPlaceholder"
               />
@@ -859,7 +889,7 @@ const graphragStatusText = computed(() => {
             <SFormField
               :label="t('agents.form.promptStrategy')"
               name="prompt_strategy"
-              :error="errors.prompt_strategy"
+              :error="errors.prompt_strategy ?? ''"
               :help="promptStrategy === 'full' ? t('agents.form.promptStrategyFullHelp') : t('agents.form.promptStrategyLazyHelp')"
             >
               <SSelect
@@ -891,7 +921,7 @@ const graphragStatusText = computed(() => {
             <SFormField
               :label="t('agents.form.systemPrompt')"
               name="system_prompt"
-              :error="errors.system_prompt"
+              :error="errors.system_prompt ?? ''"
               class="mt-4"
             >
               <SCodeEditor
@@ -920,7 +950,7 @@ const graphragStatusText = computed(() => {
             <SFormField
               :label="t('agents.form.ragConfig')"
               name="rag_config_id"
-              :error="errors.rag_config_id"
+              :error="errors.rag_config_id ?? ''"
               :help="t('agents.form.manageRagConfigs')"
             >
               <SSelect
@@ -949,7 +979,7 @@ const graphragStatusText = computed(() => {
             <SFormField
               :label="t('agents.form.graphragConfig')"
               name="graphrag_config_id"
-              :error="errors.graphrag_config_id"
+              :error="errors.graphrag_config_id ?? ''"
             >
               <SSelect
                 v-model="graphragConfigId"
@@ -1094,7 +1124,7 @@ const graphragStatusText = computed(() => {
                 name="wakeup_every_n"
               >
                 <SInput
-                  v-model="wakeupEveryN"
+                  v-model="wakeupEveryNModel"
                   type="number"
                   :disabled="wakeupCallOnly"
                 />
@@ -1104,7 +1134,7 @@ const graphragStatusText = computed(() => {
                 name="wakeup_silence"
               >
                 <SInput
-                  v-model="wakeupSilence"
+                  v-model="wakeupSilenceModel"
                   type="number"
                   :disabled="wakeupCallOnly"
                 />
@@ -1120,7 +1150,7 @@ const graphragStatusText = computed(() => {
                 name="wakeup_autostop"
               >
                 <SInput
-                  v-model="wakeupAutostop"
+                  v-model="wakeupAutostopModel"
                   type="number"
                 />
               </SFormField>
