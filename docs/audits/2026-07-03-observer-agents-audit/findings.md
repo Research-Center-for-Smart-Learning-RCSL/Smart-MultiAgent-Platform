@@ -1,6 +1,6 @@
 ---
 type: audit
-status: reviewed
+status: closed
 created: 2026-07-03
 ---
 
@@ -185,6 +185,22 @@ Known open follow-ups from `docs/tasks/2026-07-03-conversation-bugfixes/spec.md`
 - **Blast radius**: a11y for creator users.
 - **Intent source**: `B-frontend.md` §B.7/§B.8 (badgeAria key + `aria-live="polite"`).
 
+## F-10: Release 409 handling is dead code — `isAxiosError` never matches the typed transport errors
+
+- **Severity**: minor
+- **Verdict**: confirmed (found during fix-design investigation, 2026-07-03; corrects
+  the earlier "409 double-release handling: clean" note in the coverage section)
+- **Evidence**: `frontend/src/shared/transport/axios.ts:176-181` (interceptor throws
+  typed `ApiError`/`ValidationError` via `parseProblem`, not `AxiosError`),
+  `frontend/src/slices/conversation/views/ChatroomView.vue:461-469`
+  (`isAxiosError(err) && err.response?.status === 409` — always false), stale comment
+  `frontend/src/slices/conversation/api/index.ts:1-2`.
+- **Failure scenario**: concurrent double release — the loser's 409 falls through to
+  the generic "Failed to release" error instead of the designed refetch + "already
+  released" info path. No test pins the 409 branch.
+- **Blast radius**: every non-2xx on release; also blocks F-8's 422 mapping.
+- **Intent source**: `B-frontend.md` §B.4.3; [R28.08].
+
 ## Plausible findings and design tensions (not fully traced defects)
 
 - **P-1** (plausible, design tension): observer turns bump autostop and reset only on
@@ -247,7 +263,12 @@ project membership); P-7 → observer fields hidden from guests. Spawned task do
 - `docs/tasks/2026-07-03-observer-backend-fixes/` — F-1, F-2, P-1, P-2 (backend),
   P-4, P-5, P-6, P-7, P-9.
 - `docs/tasks/2026-07-03-observer-frontend-fixes/` — F-3, F-4, F-5, F-6 (+P-2
-  frontend), F-7, F-8, F-9, P-8, FU-1.
+  frontend), F-7, F-8, F-9, F-10, P-8, FU-1.
+
+P-3 (cancellation watchdog parity) was deliberately left unspecced: it is symmetric
+with the normal-agent path and low value until streaming lands. FU-2 (bindings list
+ORDER BY) and FU-3 (released payload ids-only coupling) are carried in the spawned
+dossiers' follow-up sections.
 
 ## Coverage
 
