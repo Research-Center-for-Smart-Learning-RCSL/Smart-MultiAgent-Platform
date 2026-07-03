@@ -346,17 +346,17 @@ async def list_chatroom_agents(
     principal: Principal = Depends(current_principal),
     db: AsyncSession = Depends(db_session),
 ) -> list[AgentRef]:
-    project_id = await _project_id_for_chatroom(db, chatroom_id)
-    if not principal.is_admin:
-        resolver = await get_role_resolver(db)
-        if not await resolver.roles_for(
-            principal,
-            Scope(project_id=project_id),
-        ):
-            _raise_forbidden("not a member of the project")
+    # Single fetch for both checks below: resolve_room_access already loads
+    # the chatroom + workspace + project and resolves roles (chatroom_id in
+    # its Scope is inert for role resolution — TenancyRoleResolver.roles_for
+    # only reads org_id/project_id — so access.roles is exactly the project
+    # membership set a separate `_project_id_for_chatroom` +
+    # `roles_for(Scope(project_id=...))` call would have computed).
+    access = await resolve_room_access(db, principal=principal, chatroom_id=chatroom_id)
+    if not principal.is_admin and not access.roles:
+        _raise_forbidden("not a member of the project")
     # R28.10: only the creator sees observer bindings (and roles at all) — for
     # everyone else the response is shape-identical to the pre-observer API.
-    access = await resolve_room_access(db, principal=principal, chatroom_id=chatroom_id)
     creator = is_room_creator(access, principal=principal)
     service = ChatroomService(db)
     rows = list(await service.list_agents(chatroom_id))

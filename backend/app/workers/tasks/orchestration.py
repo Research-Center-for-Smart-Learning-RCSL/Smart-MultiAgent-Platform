@@ -73,10 +73,14 @@ async def wakeup_agent(
             return "skipped:room_gone"
         agent = await AgentsFacade(db).get_agent(aid)
         if agent is None:
-            if trigger == "mention":
+            if trigger in ("mention", "release"):
                 # A worker-level guard (agent soft-deleted while still room-bound)
                 # returns before the TurnEngine emits, so without this an @mention
-                # to such an agent would silently produce nothing.
+                # — or an explicit creator release-wake (R28.07), which is the
+                # same shape of explicit call and must not fail silently either
+                # (this mirrors the autostop bypass a few lines below, which
+                # already treats "release" the same as "mention") — to such an
+                # agent would silently produce nothing.
                 from contexts.conversation.interfaces import (
                     emit_agent_finished_error,
                 )

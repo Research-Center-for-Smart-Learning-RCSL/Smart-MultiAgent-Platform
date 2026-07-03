@@ -297,14 +297,22 @@ class ChatroomAgentRepository:
         *,
         chatroom_id: uuid.UUID,
         agent_id: uuid.UUID,
+        expected_role: ChatroomAgentRole,
         role: ChatroomAgentRole,
     ) -> bool:
+        """CAS on ``expected_role``: the UPDATE only matches if the row's role
+        is still what the caller observed, so two concurrent role-change
+        requests racing off the same stale read can't both report having
+        performed the transition (which would otherwise double-log an
+        inaccurate ``old_role`` in the audit trail — see chatroom_service.py::
+        set_agent_role)."""
         result = await self._db.execute(
             t.chatroom_agents.update()
             .where(
                 sa.and_(
                     t.chatroom_agents.c.chatroom_id == chatroom_id,
                     t.chatroom_agents.c.agent_id == agent_id,
+                    t.chatroom_agents.c.role == expected_role.value,
                 )
             )
             .values(role=role.value)
