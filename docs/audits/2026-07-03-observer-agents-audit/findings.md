@@ -1,6 +1,6 @@
 ---
 type: audit
-status: draft
+status: reviewed
 created: 2026-07-03
 ---
 
@@ -234,6 +234,20 @@ Known open follow-ups from `docs/tasks/2026-07-03-conversation-bugfixes/spec.md`
   `observation.released` payload directly (`useObservations.ts:155-158`); R28.13's
   "ids-only" wording and this payload disagree — trimming the payload later would
   silently blank release chips.
+
+## Triage (2026-07-03)
+
+The user selected all findings for fixing ("全數處理") and ruled on the design
+tensions: P-1 → a separate observer autostop cap; P-2 → backend splits benign skips
+from failures and the frontend renders kinds (absorbs F-6); P-4/P-5/P-6 → fully
+creator-anchored authority (observer unbind creator-only, disclosure toggle reachable
+by the creator regardless of capability demotion, creator authority requires current
+project membership); P-7 → observer fields hidden from guests. Spawned task dossiers:
+
+- `docs/tasks/2026-07-03-observer-backend-fixes/` — F-1, F-2, P-1, P-2 (backend),
+  P-4, P-5, P-6, P-7, P-9.
+- `docs/tasks/2026-07-03-observer-frontend-fixes/` — F-3, F-4, F-5, F-6 (+P-2
+  frontend), F-7, F-8, F-9, P-8, FU-1.
 
 ## Coverage
 
