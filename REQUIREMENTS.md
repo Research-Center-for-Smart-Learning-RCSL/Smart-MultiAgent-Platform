@@ -1932,19 +1932,19 @@ Added by the 2026-07-02 design session (construction plan: `docs/observer-agents
 ### 28.1 Roles and bindings
 
 - **[R28.01]** A chatroom agent binding carries a role `normal | observer` (`chatroom_agents.role`, PG enum `chatroom_agent_role`, default `normal`). Observer output is never persisted as a room message and never emitted on the room WS channel.
-- **[R28.04]** Observers wake via the existing `every_n_messages` and `silence_minutes` triggers; they are excluded from the @mention candidate set and from mention resolution (a smuggled observer id in `mention_agent_ids` is dropped silently).
+- **[R28.04]** Observers wake via the existing `every_n_messages` and `silence_minutes` triggers; they are excluded from the @mention candidate set and from mention resolution (a smuggled observer id in `mention_agent_ids` is dropped silently). Observer wake-ups are exempt from the empty-room presence gate on both triggers (observer output is out-of-band), and the presence-gated wake-up notification is never sent for observer bindings.
 - **[R28.10]** Non-creators receive only normal-role bindings from `GET /chatrooms/{id}/agents`; the creator (and admin) receive all bindings with roles.
 
 ### 28.2 Creator identity
 
-- **[R28.02]** `chatrooms.created_by_user_id` records the creating user (backfilled from `audit_logs` `chatroom.created` rows, earliest actor wins). Rooms whose creator is NULL fall back to moderator semantics (project/org owner). `principal.is_admin` bypasses. Guests are always denied observer surfaces, including when `allow_guest_links` grants room read.
+- **[R28.02]** `chatrooms.created_by_user_id` records the creating user (backfilled from `audit_logs` `chatroom.created` rows, earliest actor wins). Rooms whose creator is NULL fall back to moderator semantics (project/org owner). `principal.is_admin` bypasses. Guests are always denied observer surfaces, including when `allow_guest_links` grants room read. Creator authority additionally requires current project or org membership: a `created_by_user_id` match no longer grants observer surfaces once the user holds no role in the project. Unbinding an observer is creator-gated like binding and role change. Guests receive neutral values (`created_by_user_id=null`, `disclose_observers=false`, `observers_present=false`) in the chatroom DTO.
 
 ### 28.3 Observations
 
 - **[R28.03]** Observer output is persisted in `agent_observations` (never in `messages`) and is readable only by the room creator per R28.02 resolution.
 - **[R28.05]** Observer turns read the full room transcript plus a bounded window of the observer's own prior observations, folded into the system context.
-- **[R28.12]** Observer turns reuse the per-(agent, chatroom) turn lock, trigger coalescing, and the standard turn rate limit; they differ from normal turns only in output routing.
-- **[R28.13]** The creator receives `observation.started / created / failed / released` on `ws:user:{creator_id}`; payloads carry ids only, bodies are fetched over REST.
+- **[R28.12]** Observer turns reuse the per-(agent, chatroom) turn lock, trigger coalescing, and the standard turn rate limit; they differ from normal turns only in output routing. Observer bindings use a separate `observer_autostop_rounds` limit (default 50, hard cap 100) in place of `autostop_rounds`.
+- **[R28.13]** The creator receives `observation.started / created / skipped / failed / released` on `ws:user:{creator_id}`; payloads carry ids only, bodies are fetched over REST. `observation.skipped` carries benign kinds (`no_input`, `empty_reply`); `observation.failed` carries error kinds.
 - **[R28.14]** The creator can soft-delete an observation.
 
 ### 28.4 Release
@@ -1955,7 +1955,7 @@ Added by the 2026-07-02 design session (construction plan: `docs/observer-agents
 
 ### 28.5 Disclosure and audit
 
-- **[R28.09]** `chatrooms.disclose_observers` (default `true`) controls whether non-creators see a neutral "observers enabled" indicator. Only the creator can change it. Which agent observes, and any observation content, is never disclosed to non-creators regardless of the flag.
+- **[R28.09]** `chatrooms.disclose_observers` (default `true`) controls whether non-creators see a neutral "observers enabled" indicator. Only the creator can change it; the creator may change it without holding `RESOURCE_CREATE_EDIT` — creator authority is sufficient for a disclosure-only patch. Which agent observes, and any observation content, is never disclosed to non-creators regardless of the flag.
 - **[R28.11]** Releases, observer bind/role changes, and disclosure changes are audited. Observation content never appears in audit metadata or logs.
 
 ---
