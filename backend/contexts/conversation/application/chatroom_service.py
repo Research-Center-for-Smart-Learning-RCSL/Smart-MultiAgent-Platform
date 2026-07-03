@@ -81,16 +81,6 @@ class ChatroomService:
     ) -> set[uuid.UUID]:
         return await self._agents.rooms_with_observers(chatroom_ids)
 
-    async def agent_role(
-        self,
-        *,
-        chatroom_id: uuid.UUID,
-        agent_id: uuid.UUID,
-    ) -> ChatroomAgentRole | None:
-        """Role of a single binding, or None when the agent is not bound.
-        Used by the unbind endpoint's observer creator-gate (O-5/R28.02)."""
-        return await self._agents.role_of(chatroom_id=chatroom_id, agent_id=agent_id)
-
     # ---- commands --------------------------------------------------------
 
     async def create(
@@ -356,8 +346,19 @@ class ChatroomService:
         actor_user_id: uuid.UUID,
         actor_ip: str | None,
         request_id: uuid.UUID | None = None,
+        restrict_to_normal: bool = False,
     ) -> None:
-        await self._agents.remove(chatroom_id=chatroom_id, agent_id=agent_id)
+        """Unbind an agent. ``restrict_to_normal`` (O-5): a non-creator unbind
+        targets normal bindings only, so an observer binding is a silent no-op
+        — the response is 204 either way, never revealing whether the target
+        was a hidden observer. Audit is emitted only when a row was removed."""
+        removed = await self._agents.remove(
+            chatroom_id=chatroom_id,
+            agent_id=agent_id,
+            only_role=ChatroomAgentRole.NORMAL if restrict_to_normal else None,
+        )
+        if not removed:
+            return
         await audit.emit(
             self._db,
             audit.AuditEvent(
