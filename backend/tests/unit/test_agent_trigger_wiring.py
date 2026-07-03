@@ -209,10 +209,26 @@ def _patch_task_env(
     agent,
     autostop_count=0,
     turn_status="completed",
+    role=None,
 ):
     """Wire the function-local imports in ``wakeup_agent`` to fakes. Returns a
     dict of recorders the test asserts on."""
+    from contexts.conversation.domain.models import ChatroomAgentRole
+
     rec: dict = {"run_turn": [], "on_agent_message_sent": [], "audit": []}
+    binding_role = role or ChatroomAgentRole.NORMAL
+
+    class _BindingRepo:
+        def __init__(self, db) -> None:
+            pass
+
+        async def role_of(self, *, chatroom_id, agent_id):
+            return binding_role
+
+    monkeypatch.setattr(
+        "contexts.conversation.infrastructure.repositories.ChatroomAgentRepository",
+        _BindingRepo,
+    )
 
     @asynccontextmanager
     async def _fake_session():
@@ -368,6 +384,46 @@ async def test_wakeup_agent_skips_when_autostop_tripped(monkeypatch) -> None:
         autostop_count=3,
     )
     out = await orch_task.wakeup_agent({}, str(uuid.uuid4()), str(uuid.uuid4()))
+    assert out == "skipped:autostop"
+    assert rec["run_turn"] == []
+
+
+@pytest.mark.asyncio
+async def test_wakeup_agent_observer_survives_normal_autostop_cap(monkeypatch) -> None:
+    """O-3 (P-1): observer bindings use observer_autostop_rounds (default 50),
+    not the normal autostop_rounds, so a long agent-only exchange keeps being
+    observed past the normal cap."""
+    from contexts.conversation.domain.models import ChatroomAgentRole
+
+    aid, rid = uuid.uuid4(), uuid.uuid4()
+    rec = _patch_task_env(
+        monkeypatch,
+        room=SimpleNamespace(id=rid),
+        agent=_agent(autostop_rounds=3),
+        autostop_count=5,
+        turn_status="completed",
+        role=ChatroomAgentRole.OBSERVER,
+    )
+    out = await orch_task.wakeup_agent({}, str(aid), str(rid), "every_n_messages")
+
+    assert out == "completed"
+    assert rec["run_turn"] == [(aid, rid, "every_n_messages", None)]
+
+
+@pytest.mark.asyncio
+async def test_wakeup_agent_observer_skips_at_observer_cap(monkeypatch) -> None:
+    from contexts.conversation.domain.models import ChatroomAgentRole
+
+    aid, rid = uuid.uuid4(), uuid.uuid4()
+    rec = _patch_task_env(
+        monkeypatch,
+        room=SimpleNamespace(id=rid),
+        agent=_agent(autostop_rounds=3),
+        autostop_count=50,
+        role=ChatroomAgentRole.OBSERVER,
+    )
+    out = await orch_task.wakeup_agent({}, str(aid), str(rid), "every_n_messages")
+
     assert out == "skipped:autostop"
     assert rec["run_turn"] == []
 

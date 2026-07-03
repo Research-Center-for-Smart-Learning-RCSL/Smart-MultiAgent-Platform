@@ -109,6 +109,10 @@ class SilenceMinutesTrigger:
     t_minutes: int = 2
     autostop_rounds: int = 5
     autostop_max_default: int = 100
+    # O-3 (R28.12): observer bindings get their own, higher round cap so a
+    # long agent-only exchange keeps being observed (autostop resets only on
+    # user messages, which an unattended room may never see).
+    observer_autostop_rounds: int = 50
 
 
 @dataclass(frozen=True, slots=True)
@@ -148,6 +152,9 @@ class WakeupConfig:
                     t_minutes=int(sm.get("t_minutes", 2)),
                     autostop_rounds=min(int(sm.get("autostop_rounds", 5)), AUTOSTOP_HARD_CAP),
                     autostop_max_default=int(sm.get("autostop_max_default", 100)),
+                    observer_autostop_rounds=min(
+                        int(sm.get("observer_autostop_rounds", 50)), AUTOSTOP_HARD_CAP
+                    ),
                 ),
                 call_only=CallOnlyTrigger(
                     enabled=bool(co.get("enabled", False)),
@@ -169,6 +176,7 @@ class WakeupConfig:
                     "t_minutes": self.triggers.silence_minutes.t_minutes,
                     "autostop_rounds": self.triggers.silence_minutes.autostop_rounds,
                     "autostop_max_default": self.triggers.silence_minutes.autostop_max_default,
+                    "observer_autostop_rounds": self.triggers.silence_minutes.observer_autostop_rounds,
                 },
                 "call_only": {
                     "enabled": self.triggers.call_only.enabled,

@@ -132,6 +132,32 @@ async def test_normal_silence_still_respects_paused_flag(monkeypatch) -> None:
     assert fired is False
 
 
+async def test_observer_silence_uses_observer_autostop_cap(monkeypatch) -> None:
+    """O-3 (P-1): the silence evaluator applies observer_autostop_rounds
+    (default 50) to observer bindings instead of autostop_rounds."""
+    agent = _agent(wakeup_config=_silence_config(allow_self_open=False))  # autostop_rounds=5
+    svc = _make_service(agent=agent, room_members=[])
+    room_id = uuid.uuid4()
+
+    _stub_stale_but_ready_silence_state(monkeypatch, autostop_count=10)  # >= 5, < 50
+    assert await svc.evaluate_silence_trigger(agent_id=agent.id, room_id=room_id, is_observer=True)
+
+    _stub_stale_but_ready_silence_state(monkeypatch, autostop_count=50)
+    assert not await svc.evaluate_silence_trigger(agent_id=agent.id, room_id=room_id, is_observer=True)
+
+
+def test_wakeup_config_parses_observer_autostop_rounds() -> None:
+    """O-3 (P-1): default 50, hard-capped at 100, round-trips through to_dict."""
+    from contexts.orchestration.domain.models import WakeupConfig
+
+    assert WakeupConfig.from_dict({}).triggers.silence_minutes.observer_autostop_rounds == 50
+    cfg = WakeupConfig.from_dict(
+        {"triggers": {"silence_minutes": {"observer_autostop_rounds": 999}}}
+    )
+    assert cfg.triggers.silence_minutes.observer_autostop_rounds == 100
+    assert cfg.to_dict()["triggers"]["silence_minutes"]["observer_autostop_rounds"] == 100
+
+
 def _every_n_config(*, allow_self_open: bool = False) -> dict:
     return {
         "triggers": {"every_n_messages": {"enabled": True, "n": 1}},
