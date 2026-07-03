@@ -1,6 +1,6 @@
 ---
 type: refactor
-status: approved
+status: in-progress
 created: 2026-07-03
 requirements: []
 supersedes:

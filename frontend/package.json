@@ -17,6 +17,7 @@
     "check:global-css": "bash scripts/check-global-css.sh",
     "check:view-tests": "bash scripts/check-view-tests.sh",
     "check:type-coverage": "bash scripts/check-type-coverage.sh",
+    "check:typecheck-gate": "bash scripts/check-typecheck-gate.sh",
     "test:e2e": "playwright test",
     "test:coverage": "vitest run --coverage"
   },
