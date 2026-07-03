@@ -24,16 +24,23 @@ const clampedValue = computed(() => Math.min(100, Math.max(0, props.value)))
 const fillStyle = computed(() =>
   props.indeterminate ? {} : { width: `${clampedValue.value}%` },
 )
+
+// aria-value* attrs are omitted entirely (not present when indeterminate)
+// rather than passing an explicit `undefined` value, which
+// exactOptionalPropertyTypes forbids.
+const progressAttrs = computed(() =>
+  props.indeterminate
+    ? {}
+    : { 'aria-valuenow': clampedValue.value, 'aria-valuemin': 0, 'aria-valuemax': 100 },
+)
 </script>
 
 <template>
   <div
+    v-bind="progressAttrs"
     class="s-progress"
     :class="`s-progress--${props.size}`"
     role="progressbar"
-    :aria-valuenow="props.indeterminate ? undefined : clampedValue"
-    :aria-valuemin="props.indeterminate ? undefined : 0"
-    :aria-valuemax="props.indeterminate ? undefined : 100"
   >
     <div
       class="s-progress__fill"

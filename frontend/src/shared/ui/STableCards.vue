@@ -19,8 +19,6 @@ const props = withDefaults(
   {
     data: () => [],
     loading: false,
-    emptyTitle: undefined,
-    emptyDescription: undefined,
     selectable: false,
     selected: () => [],
     rowKey: 'id',
@@ -51,12 +49,30 @@ function isRowSelected(row: T): boolean {
 }
 
 const skeletonRows = 5
+
+// row[props.rowKey] indexes the generic T with a non-literal string key, which
+// TypeScript cannot resolve through T's Record<string, unknown> constraint
+// (the constraint guarantees a value exists, but not a type narrower than
+// unknown). By convention rowKey names a field holding a unique row id
+// (string or number), which is what Vue's :key requires.
+function rowIdentity(row: T, index: number): PropertyKey {
+  const value = row[props.rowKey] as unknown
+  return (value as PropertyKey | undefined) ?? index
+}
+
+// emptyTitle/emptyDescription are genuinely optional (no default); omit the
+// attrs entirely rather than passing an explicit `undefined` value, which
+// exactOptionalPropertyTypes forbids.
+const emptyStateAttrs = computed(() => ({
+  ...(props.emptyTitle !== undefined && { title: props.emptyTitle }),
+  ...(props.emptyDescription !== undefined && { text: props.emptyDescription }),
+}))
 </script>
 
 <template>
   <div
     class="s-cards"
-    :aria-busy="loading"
+    :aria-busy="props.loading"
   >
     <!-- Loading skeleton cards -->
     <template v-if="loading">
@@ -77,12 +93,9 @@ const skeletonRows = 5
     </template>
 
     <!-- Empty state -->
-    <template v-else-if="data.length === 0">
+    <template v-else-if="props.data.length === 0">
       <slot name="empty">
-        <SEmptyState
-          :title="emptyTitle"
-          :text="emptyDescription"
-        />
+        <SEmptyState v-bind="emptyStateAttrs" />
       </slot>
     </template>
 
@@ -90,8 +103,8 @@ const skeletonRows = 5
          itself (.self), so activating a nested control does not also fire it. -->
     <template v-else>
       <div
-        v-for="(row, index) in data"
-        :key="row[rowKey] ?? index"
+        v-for="(row, index) in props.data"
+        :key="rowIdentity(row, index)"
         class="s-cards__card"
         :class="{ 's-cards__card--selected': selectable && isRowSelected(row) }"
         role="button"

@@ -52,9 +52,6 @@ const props = withDefaults(
   {
     data: () => [],
     loading: false,
-    emptyTitle: undefined,
-    emptyDescription: undefined,
-    sortBy: undefined,
     sortOrder: 'asc',
     selectable: false,
     selected: () => [],
@@ -100,6 +97,14 @@ function ariaSort(col: Column): 'ascending' | 'descending' | 'none' | undefined 
   if (!col.sortable) return undefined
   if (props.sortBy !== col.key) return 'none'
   return props.sortOrder === 'asc' ? 'ascending' : 'descending'
+}
+
+// aria-sort is genuinely conditional (absent for non-sortable columns); omit
+// the attr entirely rather than passing an explicit `undefined` value, which
+// exactOptionalPropertyTypes forbids.
+function thAttrs(col: Column) {
+  const sort = ariaSort(col)
+  return sort !== undefined ? { 'aria-sort': sort } : {}
 }
 
 const totalColumns = computed(() => {
@@ -161,6 +166,24 @@ function onRowClick(row: T) {
 
 const skeletonRows = 5
 
+// row[props.rowKey] indexes the generic T with a non-literal string key, which
+// TypeScript cannot resolve through T's Record<string, unknown> constraint
+// (the constraint guarantees a value exists, but not a type narrower than
+// unknown). By convention rowKey names a field holding a unique row id
+// (string or number), which is what Vue's :key requires.
+function rowIdentity(row: T, index: number): PropertyKey {
+  const value = row[props.rowKey] as unknown
+  return (value as PropertyKey | undefined) ?? index
+}
+
+// emptyTitle/emptyDescription are genuinely optional (no default); omit the
+// props entirely rather than passing an explicit `undefined` value, which
+// exactOptionalPropertyTypes forbids.
+const cardEmptyAttrs = computed(() => ({
+  ...(props.emptyTitle !== undefined && { emptyTitle: props.emptyTitle }),
+  ...(props.emptyDescription !== undefined && { emptyDescription: props.emptyDescription }),
+}))
+
 // Per-column skeleton geometry so a loading cell roughly matches the shape of
 // the data it stands in for (§2.4). 'user' is rendered separately (avatar +
 // name) in the template.
@@ -192,20 +215,20 @@ function skeletonStyle(col: Column): Record<string, string> {
 
     <!-- Bulk actions bar -->
     <div
-      v-if="selectable && selected.length > 0"
+      v-if="selectable && props.selected.length > 0"
       class="s-table-bulk"
     >
       <slot
         name="bulk-actions"
-        :selected="selected"
-        :count="selected.length"
+        :selected="props.selected"
+        :count="props.selected.length"
       />
     </div>
 
     <table
       v-if="!isCardList"
       class="s-table"
-      :aria-busy="loading"
+      :aria-busy="props.loading"
     >
       <thead :class="{ 's-table__thead--sticky': stickyHeader }">
         <tr>
@@ -228,6 +251,7 @@ function skeletonStyle(col: Column): Record<string, string> {
           <th
             v-for="col in visibleColumns"
             :key="col.key"
+            v-bind="thAttrs(col)"
             class="s-table__th"
             :class="{
               's-table__th--sortable': col.sortable,
@@ -237,7 +261,6 @@ function skeletonStyle(col: Column): Record<string, string> {
               width: col.width,
               textAlign: col.align || 'left',
             }"
-            :aria-sort="ariaSort(col)"
             @click="handleSort(col)"
           >
             <span class="s-table__th-content">
@@ -326,7 +349,7 @@ function skeletonStyle(col: Column): Record<string, string> {
         </template>
 
         <!-- Empty state -->
-        <template v-else-if="data.length === 0">
+        <template v-else-if="props.data.length === 0">
           <tr>
             <td
               :colspan="totalColumns"
@@ -355,8 +378,8 @@ function skeletonStyle(col: Column): Record<string, string> {
         <!-- Data rows -->
         <template v-else>
           <tr
-            v-for="(row, index) in data"
-            :key="row[rowKey] ?? index"
+            v-for="(row, index) in props.data"
+            :key="rowIdentity(row, index)"
             class="s-table__row s-table__row--clickable"
             :class="{ 's-table__row--selected': selectable && isRowSelected(row) }"
             @click="onRowClick(row)"
@@ -413,14 +436,13 @@ function skeletonStyle(col: Column): Record<string, string> {
          Slots are forwarded so cell-*/actions/mobile-card/empty work in cards. -->
     <STableCards
       v-else
+      v-bind="cardEmptyAttrs"
       :columns="cardColumns"
-      :data="data"
-      :loading="loading"
-      :selectable="selectable"
-      :selected="selected"
-      :row-key="rowKey"
-      :empty-title="emptyTitle"
-      :empty-description="emptyDescription"
+      :data="props.data"
+      :loading="props.loading"
+      :selectable="props.selectable"
+      :selected="props.selected"
+      :row-key="props.rowKey"
       @row-click="onRowClick"
       @toggle-select="toggleRow"
     >

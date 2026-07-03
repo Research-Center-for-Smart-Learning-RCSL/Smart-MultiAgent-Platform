@@ -17,7 +17,6 @@ const props = withDefaults(defineProps<{
   role?: 'dialog' | 'alertdialog'
 }>(), {
   open: false,
-  title: undefined,
   size: 'md',
   closable: true,
   persistent: false,
@@ -35,7 +34,12 @@ const { isMobile } = useBreakpoint()
 
 const titleId = useId()
 // Only label by the rendered <h2>; a custom header slot owns its own labelling.
-const labelledBy = computed(() => (props.title && !slots.header ? titleId : undefined))
+// aria-labelledby is genuinely optional; omit the attr entirely rather than
+// passing an explicit `undefined` value, which exactOptionalPropertyTypes
+// forbids.
+const labelledByAttrs = computed(() =>
+  props.title && !slots.header ? { 'aria-labelledby': titleId } : {},
+)
 
 const panelRef = ref<HTMLElement | null>(null)
 const { trapTab } = useFocusTrap(panelRef, () => props.open)
@@ -70,12 +74,12 @@ function onBackdropClick() {
           @keydown.enter="onBackdropClick"
         />
         <div
+          v-bind="labelledByAttrs"
           ref="panelRef"
           class="s-modal__panel"
           :class="`s-modal__panel--${size}`"
-          :role="role"
+          :role="props.role"
           aria-modal="true"
-          :aria-labelledby="labelledBy"
           tabindex="-1"
         >
           <div class="s-modal__header">

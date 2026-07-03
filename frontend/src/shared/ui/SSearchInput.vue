@@ -7,7 +7,6 @@ const props = withDefaults(defineProps<{
   placeholder?: string
   loading?: boolean
 }>(), {
-  placeholder: undefined,
   loading: false,
 })
 
@@ -18,6 +17,13 @@ const emit = defineEmits<{
 }>()
 
 const hasValue = computed(() => props.modelValue.length > 0)
+
+// placeholder is genuinely optional (no default); omit the attr entirely
+// rather than passing an explicit `undefined` value, which
+// exactOptionalPropertyTypes forbids.
+const placeholderAttrs = computed(() =>
+  props.placeholder !== undefined ? { placeholder: props.placeholder } : {},
+)
 
 function onInput(e: Event) {
   const target = e.target as HTMLInputElement
@@ -66,10 +72,10 @@ function onClear() {
       aria-hidden="true"
     />
     <input
+      v-bind="placeholderAttrs"
       class="search-input__field"
       type="text"
-      :value="modelValue"
-      :placeholder="placeholder"
+      :value="props.modelValue"
       aria-label="Search"
       @input="onInput"
       @keydown="onKeydown"

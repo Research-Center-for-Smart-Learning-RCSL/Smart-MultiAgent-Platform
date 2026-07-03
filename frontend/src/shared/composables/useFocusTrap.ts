@@ -50,6 +50,7 @@ export function useFocusTrap(
     }
     const first = els[0]
     const last = els[els.length - 1]
+    if (!first || !last) return
     if (e.shiftKey) {
       if (document.activeElement === first) {
         e.preventDefault()
@@ -68,7 +69,7 @@ export function useFocusTrap(
       holdsLock = true
       await nextTick()
       const els = focusable()
-      if (els.length > 0) els[0].focus()
+      if (els[0]) els[0].focus()
       else panelRef.value?.focus()
     } else {
       if (holdsLock) {

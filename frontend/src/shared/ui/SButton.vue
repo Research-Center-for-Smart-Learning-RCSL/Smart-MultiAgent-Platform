@@ -19,7 +19,6 @@ const props = withDefaults(defineProps<{
   iconOnly: false,
   type: 'button',
   as: 'button',
-  to: undefined,
 })
 
 const tag = computed(() => {

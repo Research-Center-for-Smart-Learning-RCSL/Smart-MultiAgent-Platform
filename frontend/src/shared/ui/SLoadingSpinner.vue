@@ -1,16 +1,23 @@
 <script setup lang="ts">
-defineProps<{
+import { computed } from 'vue'
+
+const props = defineProps<{
   text?: string
   label?: string
   size?: 'sm' | 'md' | 'lg'
 }>()
+
+// aria-label is genuinely optional (no default); omit the attr entirely
+// rather than passing an explicit `undefined` value, which
+// exactOptionalPropertyTypes forbids.
+const labelAttrs = computed(() => (props.label !== undefined ? { 'aria-label': props.label } : {}))
 </script>
 
 <template>
   <div
+    v-bind="labelAttrs"
     class="s-spinner"
     role="status"
-    :aria-label="label"
   >
     <svg
       class="s-spinner__icon"

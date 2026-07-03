@@ -89,15 +89,22 @@ function onKeydown(e: KeyboardEvent) {
   if (e.key === 'ArrowDown') {
     e.preventDefault()
     const nextPos = currentPos < actionable.length - 1 ? currentPos + 1 : 0
-    itemRefs.value[actionable[nextPos]]?.focus()
+    const nextIndex = actionable[nextPos]
+    if (nextIndex !== undefined) {
+      itemRefs.value[nextIndex]?.focus()
+    }
   } else if (e.key === 'ArrowUp') {
     e.preventDefault()
     const prevPos = currentPos > 0 ? currentPos - 1 : actionable.length - 1
-    itemRefs.value[actionable[prevPos]]?.focus()
+    const prevIndex = actionable[prevPos]
+    if (prevIndex !== undefined) {
+      itemRefs.value[prevIndex]?.focus()
+    }
   } else if (e.key === 'Enter' || e.key === ' ') {
     e.preventDefault()
-    if (currentIndex >= 0) {
-      selectItem(props.items[currentIndex])
+    const currentItem = currentIndex >= 0 ? props.items[currentIndex] : undefined
+    if (currentItem) {
+      selectItem(currentItem)
     }
   }
 }
@@ -142,8 +149,9 @@ watch(isOpen, async (open) => {
     window.addEventListener('resize', onScrollWhileOpen, { passive: true })
     await nextTick()
     const actionable = getActionableIndices()
-    if (actionable.length > 0) {
-      itemRefs.value[actionable[0]]?.focus()
+    const firstIndex = actionable[0]
+    if (firstIndex !== undefined) {
+      itemRefs.value[firstIndex]?.focus()
     }
   } else {
     document.removeEventListener('click', onClickOutside, { capture: true })
@@ -203,7 +211,7 @@ onBeforeUnmount(() => {
               }"
               role="menuitem"
               type="button"
-              :disabled="item.disabled"
+              :disabled="item.disabled ?? false"
               tabindex="-1"
               @click.stop="selectItem(item)"
             >

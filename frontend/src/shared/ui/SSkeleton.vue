@@ -13,7 +13,6 @@ const props = withDefaults(
   {
     variant: 'text',
     width: '100%',
-    height: undefined,
     lines: 1,
   },
 )

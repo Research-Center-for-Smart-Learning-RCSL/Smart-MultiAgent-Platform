@@ -62,7 +62,9 @@ function onKeydown(e: KeyboardEvent) {
   }
 
   const nextIndex = enabled[nextPos]
+  if (nextIndex === undefined) return
   const nextTab = props.tabs[nextIndex]
+  if (!nextTab) return
   selectTab(nextTab.key)
   tabRefs.value[nextIndex]?.focus()
 }
@@ -90,7 +92,7 @@ function onKeydown(e: KeyboardEvent) {
         :aria-selected="modelValue === tab.key"
         :aria-controls="`tabpanel-${tab.key}`"
         :tabindex="modelValue === tab.key ? 0 : -1"
-        :disabled="tab.disabled"
+        :disabled="tab.disabled ?? false"
         @click="!tab.disabled && selectTab(tab.key)"
       >
         <component

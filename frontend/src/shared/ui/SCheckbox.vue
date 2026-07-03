@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 
 const props = withDefaults(defineProps<{
   modelValue?: boolean
@@ -10,7 +10,6 @@ const props = withDefaults(defineProps<{
   modelValue: false,
   disabled: false,
   indeterminate: false,
-  id: undefined,
 })
 
 const emit = defineEmits<{
@@ -18,6 +17,10 @@ const emit = defineEmits<{
 }>()
 
 const inputRef = ref<HTMLInputElement | null>(null)
+
+// id is genuinely optional (no default); omit the attr entirely rather than
+// passing an explicit `undefined` value, which exactOptionalPropertyTypes forbids.
+const idAttrs = computed(() => (props.id !== undefined ? { id: props.id } : {}))
 
 watch(() => props.indeterminate, (val) => {
   if (inputRef.value) {
@@ -36,13 +39,13 @@ function onChange() {
     :class="{ 's-checkbox--disabled': disabled }"
   >
     <input
-      :id="id"
+      v-bind="idAttrs"
       ref="inputRef"
       type="checkbox"
       class="s-checkbox__native"
-      :checked="modelValue"
-      :disabled="disabled"
-      :indeterminate="indeterminate"
+      :checked="props.modelValue"
+      :disabled="props.disabled"
+      :indeterminate="props.indeterminate"
       @change="onChange"
     >
     <span

@@ -1,5 +1,7 @@
 <script setup lang="ts">
-withDefaults(defineProps<{
+import { computed } from 'vue'
+
+const props = withDefaults(defineProps<{
   modelValue?: string
   placeholder?: string
   rows?: number
@@ -15,13 +17,23 @@ withDefaults(defineProps<{
   disabled: false,
   error: false,
   resize: 'vertical',
-  id: undefined,
-  maxlength: undefined,
 })
 
 const emit = defineEmits<{
   'update:modelValue': [value: string]
 }>()
+
+// `id`/`maxlength` are genuinely optional with no default. Vue already omits
+// an attribute whose bound value is `undefined` at runtime, but vue-tsc's
+// template type-check rejects an explicitly-`undefined`-typed value under
+// `exactOptionalPropertyTypes` even though the runtime behavior is exactly
+// "attribute absent" — these casts only narrow the *static* type, the
+// *value* is unchanged. Kept as literal `:id`/`:maxlength` bindings (not
+// folded into a `v-bind` spread) so the id stays visible to
+// vuejs-accessibility/form-control-has-label, which only recognizes a named
+// attribute.
+const idAttr = computed(() => props.id as string)
+const maxlengthAttr = computed(() => props.maxlength as number)
 
 function onInput(event: Event) {
   const target = event.target as HTMLTextAreaElement
@@ -31,7 +43,7 @@ function onInput(event: Event) {
 
 <template>
   <textarea
-    :id="id"
+    :id="idAttr"
     class="s-textarea"
     :class="[
       {
@@ -40,11 +52,11 @@ function onInput(event: Event) {
       },
     ]"
     :style="{ resize }"
-    :value="modelValue"
-    :placeholder="placeholder"
-    :rows="rows"
-    :disabled="disabled"
-    :maxlength="maxlength"
+    :value="props.modelValue"
+    :placeholder="props.placeholder"
+    :rows="props.rows"
+    :disabled="props.disabled"
+    :maxlength="maxlengthAttr"
     @input="onInput"
   />
 </template>
