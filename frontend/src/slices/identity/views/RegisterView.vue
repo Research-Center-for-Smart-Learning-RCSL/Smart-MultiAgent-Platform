@@ -8,7 +8,7 @@ import { isProblemWithType } from '@shared/transport'
 import { RateLimitError } from '@shared/errors'
 import { useRateLimitCountdown, safeRedirect } from '@shared/composables'
 import { authApi, type CaptchaConfig } from '../api/auth'
-import { emailSchema, passwordSchema, validateField } from '../validation'
+import { emailSchema, passwordSchema, validateField, errorAttrs } from '../validation'
 import CaptchaWidget from '../components/CaptchaWidget.vue'
 
 const { t } = useI18n()
@@ -125,7 +125,7 @@ async function submit(): Promise<void> {
       <SFormField
         :label="$t('identity.register.email')"
         name="email"
-        :error="fieldErrors.email"
+        v-bind="errorAttrs(fieldErrors.email)"
         required
       >
         <SInput
@@ -134,7 +134,7 @@ async function submit(): Promise<void> {
           type="email"
           autocomplete="email"
           :maxlength="INPUT_LIMITS.EMAIL"
-          :disabled="submitting || rateLimit.active.value"
+          :disabled="!!(submitting || rateLimit.active.value)"
           :error="!!fieldErrors.email"
           @blur="validateEmail"
         />
@@ -143,7 +143,7 @@ async function submit(): Promise<void> {
       <SFormField
         :label="$t('identity.register.password')"
         name="password"
-        :error="fieldErrors.password"
+        v-bind="errorAttrs(fieldErrors.password)"
         :help="$t('identity.register.passwordHelp')"
         required
       >
@@ -152,7 +152,7 @@ async function submit(): Promise<void> {
           type="password"
           autocomplete="new-password"
           :maxlength="INPUT_LIMITS.PASSWORD"
-          :disabled="submitting || rateLimit.active.value"
+          :disabled="!!(submitting || rateLimit.active.value)"
           :error="!!fieldErrors.password"
           @blur="validatePassword"
         />
@@ -184,7 +184,7 @@ async function submit(): Promise<void> {
         variant="primary"
         size="md"
         :loading="submitting"
-        :disabled="submitting || rateLimit.active.value"
+        :disabled="!!(submitting || rateLimit.active.value)"
         :aria-busy="submitting"
         class="form-submit"
       >

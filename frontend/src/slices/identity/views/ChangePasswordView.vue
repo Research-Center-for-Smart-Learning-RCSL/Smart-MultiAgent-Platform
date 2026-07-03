@@ -8,7 +8,7 @@ import { RateLimitError } from '@shared/errors'
 import { useRateLimitCountdown } from '@shared/composables'
 import { authApi } from '../api/auth'
 import { useSessionStore } from '../stores/session'
-import { passwordSchema, validateField, validatePasswordMatch } from '../validation'
+import { passwordSchema, validateField, validatePasswordMatch, errorAttrs } from '../validation'
 
 const { t } = useI18n()
 const router = useRouter()
@@ -105,7 +105,7 @@ async function submit(): Promise<void> {
         <SFormField
           :label="$t('identity.changePassword.current')"
           name="currentPassword"
-          :error="fieldErrors.currentPassword"
+          v-bind="errorAttrs(fieldErrors.currentPassword)"
           required
         >
           <SInput
@@ -113,7 +113,7 @@ async function submit(): Promise<void> {
             v-model="currentPassword"
             type="password"
             autocomplete="current-password"
-            :disabled="submitting || rateLimit.active.value"
+            :disabled="!!(submitting || rateLimit.active.value)"
             :error="!!fieldErrors.currentPassword"
           />
         </SFormField>
@@ -121,7 +121,7 @@ async function submit(): Promise<void> {
         <SFormField
           :label="$t('identity.changePassword.new')"
           name="newPassword"
-          :error="fieldErrors.newPassword"
+          v-bind="errorAttrs(fieldErrors.newPassword)"
           :help="$t('identity.common.passwordPolicy')"
           required
         >
@@ -129,7 +129,7 @@ async function submit(): Promise<void> {
             v-model="newPassword"
             type="password"
             autocomplete="new-password"
-            :disabled="submitting || rateLimit.active.value"
+            :disabled="!!(submitting || rateLimit.active.value)"
             :error="!!fieldErrors.newPassword"
             @blur="validateNewPassword"
           />
@@ -138,14 +138,14 @@ async function submit(): Promise<void> {
         <SFormField
           :label="$t('identity.changePassword.confirm')"
           name="confirmPassword"
-          :error="fieldErrors.confirmPassword"
+          v-bind="errorAttrs(fieldErrors.confirmPassword)"
           required
         >
           <SInput
             v-model="confirmPassword"
             type="password"
             autocomplete="new-password"
-            :disabled="submitting || rateLimit.active.value"
+            :disabled="!!(submitting || rateLimit.active.value)"
             :error="!!fieldErrors.confirmPassword"
             @blur="validateConfirmPassword"
           />
@@ -163,7 +163,7 @@ async function submit(): Promise<void> {
           variant="primary"
           size="md"
           :loading="submitting"
-          :disabled="submitting || rateLimit.active.value"
+          :disabled="!!(submitting || rateLimit.active.value)"
           :aria-busy="submitting"
           class="form-submit"
         >

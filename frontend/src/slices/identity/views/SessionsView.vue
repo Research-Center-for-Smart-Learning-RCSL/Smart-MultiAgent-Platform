@@ -42,7 +42,7 @@ function parseUserAgent(ua: string | null): string {
   const browserMatch = ua.match(/(Chrome|Firefox|Safari|Edge|Opera|Brave)\/[\d.]+/)
   const osMatch = ua.match(/(Windows|macOS|Mac OS X|Linux|Android|iOS|iPhone|iPad)/)
   const browser = browserMatch ? browserMatch[1] : t('identity.sessions.unknownBrowser')
-  const os = osMatch ? osMatch[1].replace('Mac OS X', 'macOS') : t('identity.sessions.unknownOs')
+  const os = osMatch && osMatch[1] ? osMatch[1].replace('Mac OS X', 'macOS') : t('identity.sessions.unknownOs')
   return t('identity.sessions.browserOnOs', { browser, os })
 }
 

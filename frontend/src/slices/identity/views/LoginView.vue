@@ -8,7 +8,7 @@ import { isProblemWithType } from '@shared/transport'
 import { RateLimitError } from '@shared/errors'
 import { useRateLimitCountdown, safeRedirect } from '@shared/composables'
 import { useSessionStore } from '../stores/session'
-import { emailSchema, validateField } from '../validation'
+import { emailSchema, validateField, errorAttrs } from '../validation'
 
 const { t } = useI18n()
 const router = useRouter()
@@ -148,7 +148,7 @@ async function submit(): Promise<void> {
       <SFormField
         :label="$t('identity.login.email')"
         name="email"
-        :error="fieldErrors.email"
+        v-bind="errorAttrs(fieldErrors.email)"
         required
       >
         <SInput
@@ -157,7 +157,7 @@ async function submit(): Promise<void> {
           type="email"
           autocomplete="email"
           :maxlength="INPUT_LIMITS.EMAIL"
-          :disabled="submitting || rateLimit.active.value"
+          :disabled="!!(submitting || rateLimit.active.value)"
           :error="!!fieldErrors.email"
           @blur="validateEmail"
         />
@@ -166,7 +166,7 @@ async function submit(): Promise<void> {
       <SFormField
         :label="$t('identity.login.password')"
         name="password"
-        :error="fieldErrors.password"
+        v-bind="errorAttrs(fieldErrors.password)"
         required
       >
         <SInput
@@ -175,7 +175,7 @@ async function submit(): Promise<void> {
           type="password"
           autocomplete="current-password"
           :maxlength="INPUT_LIMITS.PASSWORD"
-          :disabled="submitting || rateLimit.active.value"
+          :disabled="!!(submitting || rateLimit.active.value)"
           :error="!!fieldErrors.password"
           @blur="validatePassword"
         />
@@ -205,7 +205,7 @@ async function submit(): Promise<void> {
         variant="primary"
         size="md"
         :loading="submitting"
-        :disabled="submitting || rateLimit.active.value"
+        :disabled="!!(submitting || rateLimit.active.value)"
         :aria-busy="submitting"
         class="form-submit"
       >

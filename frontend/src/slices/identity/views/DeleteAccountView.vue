@@ -12,6 +12,7 @@ import { useConfirmDialog, useRateLimitCountdown } from '@shared/composables'
 import { authApi } from '../api/auth'
 import { useSessionStore } from '../stores/session'
 import { orgsApi } from '@slices/tenancy'
+import { errorAttrs } from '../validation'
 
 const { t } = useI18n()
 const router = useRouter()
@@ -97,7 +98,7 @@ async function submit(): Promise<void> {
         <SFormField
           :label="$t('identity.deleteAccount.password')"
           name="password"
-          :error="fieldErrors.password"
+          v-bind="errorAttrs(fieldErrors.password)"
           :help="$t('identity.deleteAccount.passwordHelp')"
           required
         >
@@ -105,7 +106,7 @@ async function submit(): Promise<void> {
             v-model="password"
             type="password"
             autocomplete="current-password"
-            :disabled="submitting || rateLimit.active.value"
+            :disabled="!!(submitting || rateLimit.active.value)"
             :error="!!fieldErrors.password"
           />
         </SFormField>
@@ -117,7 +118,7 @@ async function submit(): Promise<void> {
         >
           <SCheckbox
             v-model="confirmed"
-            :disabled="submitting || rateLimit.active.value"
+            :disabled="!!(submitting || rateLimit.active.value)"
           >
             {{ $t('identity.deleteAccount.confirm') }}
           </SCheckbox>
@@ -146,7 +147,7 @@ async function submit(): Promise<void> {
           variant="danger"
           size="md"
           :loading="submitting"
-          :disabled="submitting || !confirmed || !password || rateLimit.active.value"
+          :disabled="!!(submitting || !confirmed || !password || rateLimit.active.value)"
           :aria-disabled="!confirmed || !password ? true : undefined"
           :aria-busy="submitting"
           class="form-submit"
