@@ -25,4 +25,12 @@ describe('ProjectListView', () => {
     expect(wrapper.text()).toContain('All')
     expect(wrapper.find('button').exists()).toBe(true)
   })
+
+  it('does not throw when opened with ?create=1', async () => {
+    const wrapper = await renderView(ProjectListView, {
+      routes,
+      initialRoute: '/projects?create=1',
+    })
+    expect(wrapper.exists()).toBe(true)
+  })
 })
