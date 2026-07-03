@@ -275,7 +275,10 @@ async def test_release_to_room_undisclosed_hides_observer_identity(monkeypatch) 
 
 
 @pytest.mark.asyncio
-async def test_release_to_agents_pushes_pending_notify_only(monkeypatch) -> None:
+async def test_release_to_agents_defers_push_and_resolves_content(monkeypatch) -> None:
+    """O-1 (F-1): release() must NOT touch Redis pre-commit — the push happens
+    post-commit in _dispatch_release. The service resolves the override into
+    ReleaseResult.content so the dispatcher can build the note."""
     target = uuid.uuid4()
     obs = _observation(uuid.uuid4(), uuid.uuid4())
     service, room_id, _repo, messages, _audits, pushes = _wire_service(
@@ -293,15 +296,51 @@ async def test_release_to_agents_pushes_pending_notify_only(monkeypatch) -> None
         content_override="edited analysis",
     )
 
-    # R28.07: queue push, never a room message.
+    # R28.07: never a room message; R28.08: no delivery before the commit.
     assert messages.created == []
-    assert len(pushes) == 1
-    pushed_agent, note = pushes[0]
-    assert pushed_agent == target
-    assert note["kind"] == "released_observation"
-    assert note["content"] == "edited analysis"
+    assert pushes == []
+    assert result.content == "edited analysis"
     assert result.wake is True
     assert result.target_agent_ids == (target,)
+
+
+@pytest.mark.asyncio
+async def test_dispatch_release_pushes_per_target_best_effort(monkeypatch) -> None:
+    """O-1 (F-1): the post-commit dispatcher pushes once per target with the
+    resolved content; one target's Redis failure neither raises nor blocks the
+    remaining targets (mirrors the room path's best-effort discipline)."""
+    from app.api.v1 import observations as obs_api
+
+    a, b, c = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+    pushes: list = []
+
+    async def _push(agent_id, note):
+        if agent_id == b:
+            raise RuntimeError("redis down")
+        pushes.append((agent_id, note))
+
+    monkeypatch.setattr("contexts.orchestration.infrastructure.pending_notify.push", _push)
+
+    result = obs_svc.ReleaseResult(
+        observation=SimpleNamespace(id=uuid.uuid4(), release_target={"kind": "agents"}),
+        message=None,
+        target_agent_ids=(a, b, c),
+        wake=False,
+        content="the analysis",
+    )
+
+    class _Svc:
+        async def recipient_user_id(self, chatroom_id):
+            return None
+
+    room_id = uuid.uuid4()
+    await obs_api._dispatch_release(object(), chatroom_id=room_id, service=_Svc(), result=result)
+
+    assert [agent for agent, _ in pushes] == [a, c]
+    for _, note in pushes:
+        assert note["kind"] == "released_observation"
+        assert note["chatroom_id"] == str(room_id)
+        assert note["content"] == "the analysis"
 
 
 @pytest.mark.asyncio

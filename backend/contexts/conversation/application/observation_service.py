@@ -49,6 +49,7 @@ class ReleaseResult:
     message: Message | None  # set for room releases; the route emits/dispatches post-commit
     target_agent_ids: tuple[uuid.UUID, ...]  # set for private releases
     wake: bool
+    content: str  # override-resolved body; the post-commit dispatcher builds the queue note from it
 
 
 class ObservationService:
@@ -184,22 +185,9 @@ class ObservationService:
                 observation_id=observation_id,
                 release_target=release_target,
             )
-        else:
-            # Direct queue push, deliberately NOT A2AService.notify: the A2A
-            # scope evaluator vetoes on either party's a2a_enabled flag, and
-            # agent-level A2A policy must not block a creator-authorized
-            # release (R28.07). Precedents: approval_service, turn engine.
-            from contexts.orchestration.infrastructure import pending_notify
-
-            for target in targets:
-                await pending_notify.push(
-                    target,
-                    {
-                        "kind": RELEASED_OBSERVATION_TYPE,
-                        "chatroom_id": str(chatroom_id),
-                        "content": content,
-                    },
-                )
+        # R28.08: the queue push for private targets happens post-commit in the
+        # route's _dispatch_release — nothing may reach Redis for a release the
+        # DB could still roll back.
 
         # R28.11: content never enters audit metadata.
         await audit.emit(
@@ -227,6 +215,7 @@ class ObservationService:
             message=message,
             target_agent_ids=targets,
             wake=wake and not target_room,
+            content=content,
         )
 
     async def delete(
