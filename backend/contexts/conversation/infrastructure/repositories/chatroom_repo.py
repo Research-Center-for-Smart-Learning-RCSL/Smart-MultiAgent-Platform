@@ -227,15 +227,28 @@ class ChatroomAgentRepository:
         )
         await self._db.execute(stmt)
 
-    async def remove(self, *, chatroom_id: uuid.UUID, agent_id: uuid.UUID) -> None:
-        await self._db.execute(
-            t.chatroom_agents.delete().where(
-                sa.and_(
-                    t.chatroom_agents.c.chatroom_id == chatroom_id,
-                    t.chatroom_agents.c.agent_id == agent_id,
-                )
-            )
+    async def remove(
+        self,
+        *,
+        chatroom_id: uuid.UUID,
+        agent_id: uuid.UUID,
+        only_role: ChatroomAgentRole | None = None,
+    ) -> bool:
+        """Delete a binding, returning whether a row was actually removed.
+
+        ``only_role`` scopes the delete to a single role in the same statement
+        (O-5): a non-creator unbind targets normal bindings only, so an
+        observer binding is an atomic no-op — no separate role read that a
+        concurrent promotion could race, and no 403-vs-204 response difference
+        that would out a hidden observer (R28.09/R28.10)."""
+        predicate = sa.and_(
+            t.chatroom_agents.c.chatroom_id == chatroom_id,
+            t.chatroom_agents.c.agent_id == agent_id,
         )
+        if only_role is not None:
+            predicate = sa.and_(predicate, t.chatroom_agents.c.role == only_role.value)
+        result = await self._db.execute(t.chatroom_agents.delete().where(predicate))
+        return result.rowcount > 0
 
     async def list(self, chatroom_id: uuid.UUID) -> Sequence[ChatroomAgent]:
         rows = (

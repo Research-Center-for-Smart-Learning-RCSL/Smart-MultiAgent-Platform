@@ -160,7 +160,57 @@ def test_to_out_hides_observer_fields_from_pure_guests() -> None:
 _CTX = SimpleNamespace(actor_ip=None, request_id=None)
 
 
-def _wire_remove_handler(monkeypatch, *, role, access, removed):
+@pytest.mark.asyncio
+async def test_remove_agent_restrict_to_normal_scopes_delete(monkeypatch) -> None:
+    """O-5: restrict_to_normal maps to a role-scoped repo delete; a no-op
+    delete (observer target, rowcount 0) emits no audit."""
+    from contexts.conversation.application import chatroom_service as cs
+
+    calls: list = []
+    audits: list = []
+
+    class _Repo:
+        def __init__(self, db) -> None:
+            pass
+
+        async def remove(self, *, chatroom_id, agent_id, only_role=None):
+            calls.append(only_role)
+            return only_role is None  # observer no-op when scoped to NORMAL
+
+    monkeypatch.setattr(cs, "ChatroomAgentRepository", _Repo)
+    monkeypatch.setattr(cs, "ChatroomRepository", lambda db: object())
+    monkeypatch.setattr(cs, "ChatroomGuestRepository", lambda db: object())
+    monkeypatch.setattr(cs, "WorkspaceRepository", lambda db: object())
+
+    async def _emit(db, event):
+        audits.append(event.action)
+
+    monkeypatch.setattr(cs.audit, "emit", _emit)
+
+    service = cs.ChatroomService(object())
+    # Non-creator path: scoped to NORMAL, observer target → no delete, no audit.
+    await service.remove_agent(
+        chatroom_id=uuid.uuid4(),
+        agent_id=uuid.uuid4(),
+        actor_user_id=uuid.uuid4(),
+        actor_ip=None,
+        restrict_to_normal=True,
+    )
+    assert calls[-1] is ChatroomAgentRole.NORMAL
+    assert audits == []
+
+    # Creator path: unrestricted, removes and audits.
+    await service.remove_agent(
+        chatroom_id=uuid.uuid4(),
+        agent_id=uuid.uuid4(),
+        actor_user_id=uuid.uuid4(),
+        actor_ip=None,
+    )
+    assert calls[-1] is None
+    assert audits == ["chatroom.agent_removed"]
+
+
+def _wire_remove_handler(monkeypatch, *, access, removed):
     import app.api.v1.chatrooms as chatrooms_mod
 
     async def _pid(db, chatroom_id):
@@ -170,16 +220,11 @@ def _wire_remove_handler(monkeypatch, *, role, access, removed):
         return None
 
     async def _resolve(db, *, principal, chatroom_id):
-        if access is None:
-            raise AssertionError("resolve_room_access must not run for normal-role unbinds")
         return access
 
     class _Service:
         def __init__(self, db) -> None:
             pass
-
-        async def agent_role(self, *, chatroom_id, agent_id):
-            return role
 
         async def remove_agent(self, **kw):
             removed.append(kw)
@@ -192,44 +237,13 @@ def _wire_remove_handler(monkeypatch, *, role, access, removed):
 
 
 @pytest.mark.asyncio
-async def test_remove_observer_binding_requires_creator(monkeypatch) -> None:
-    """O-5 (R28.02): a non-creator moderator cannot unbind an observer."""
+async def test_non_creator_unbind_is_scoped_to_normal_no_oracle(monkeypatch) -> None:
+    """O-5 (R28.09/R28.10): a non-creator moderator's unbind is restricted to
+    normal bindings — never a 403 that would out a hidden observer. The
+    role-scoped delete makes an observer target a silent 204 no-op."""
     removed: list = []
     access = _access(created_by=uuid.uuid4(), roles=frozenset({Role.PROJECT_OWNER}))
-    mod = _wire_remove_handler(monkeypatch, role=ChatroomAgentRole.OBSERVER, access=access, removed=removed)
-
-    with pytest.raises(NotRoomCreator):
-        await mod.remove_chatroom_agent(
-            chatroom_id=uuid.uuid4(),
-            agent_id=uuid.uuid4(),
-            ctx=_CTX,
-            principal=_principal(),
-            db=object(),
-        )
-    assert removed == []
-
-
-@pytest.mark.asyncio
-async def test_remove_observer_binding_allows_creator(monkeypatch) -> None:
-    uid = uuid.uuid4()
-    removed: list = []
-    access = _access(created_by=uid, roles=frozenset({Role.PROJECT_OWNER}))
-    mod = _wire_remove_handler(monkeypatch, role=ChatroomAgentRole.OBSERVER, access=access, removed=removed)
-
-    await mod.remove_chatroom_agent(
-        chatroom_id=uuid.uuid4(),
-        agent_id=uuid.uuid4(),
-        ctx=_CTX,
-        principal=_principal(uid),
-        db=object(),
-    )
-    assert len(removed) == 1
-
-
-@pytest.mark.asyncio
-async def test_remove_normal_binding_keeps_moderator_semantics(monkeypatch) -> None:
-    removed: list = []
-    mod = _wire_remove_handler(monkeypatch, role=ChatroomAgentRole.NORMAL, access=None, removed=removed)
+    mod = _wire_remove_handler(monkeypatch, access=access, removed=removed)
 
     await mod.remove_chatroom_agent(
         chatroom_id=uuid.uuid4(),
@@ -239,6 +253,26 @@ async def test_remove_normal_binding_keeps_moderator_semantics(monkeypatch) -> N
         db=object(),
     )
     assert len(removed) == 1
+    assert removed[0]["restrict_to_normal"] is True
+
+
+@pytest.mark.asyncio
+async def test_creator_unbind_is_unrestricted(monkeypatch) -> None:
+    """O-5: the creator (or admin) may unbind any binding, observers included."""
+    uid = uuid.uuid4()
+    removed: list = []
+    access = _access(created_by=uid, roles=frozenset({Role.PROJECT_OWNER}))
+    mod = _wire_remove_handler(monkeypatch, access=access, removed=removed)
+
+    await mod.remove_chatroom_agent(
+        chatroom_id=uuid.uuid4(),
+        agent_id=uuid.uuid4(),
+        ctx=_CTX,
+        principal=_principal(uid),
+        db=object(),
+    )
+    assert len(removed) == 1
+    assert removed[0]["restrict_to_normal"] is False
 
 
 def _wire_patch_handler(monkeypatch, *, access, cap_calls, patched):

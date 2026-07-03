@@ -477,20 +477,20 @@ async def remove_chatroom_agent(
         project_id,
         Capability.RESOURCE_CREATE_EDIT,
     )
+    # O-5 (R28.02/R28.09/R28.10): unbinding an observer is creator-only, like
+    # binding and role change. A non-creator moderator's unbind is scoped to
+    # normal bindings, so an observer target is a silent no-op that returns the
+    # same 204 as any other unbind — never a 403 that would out a hidden
+    # observer, and the role-scoped delete closes the read-then-delete race.
+    access = await resolve_room_access(db, principal=principal, chatroom_id=chatroom_id)
     service = ChatroomService(db)
-    role = await service.agent_role(chatroom_id=chatroom_id, agent_id=agent_id)
-    if role is ChatroomAgentRole.OBSERVER:
-        # O-5 (R28.02): unbinding an observer is creator-gated like binding
-        # and role change — a non-creator moderator must not silently tear
-        # down the creator's observer setup.
-        access = await resolve_room_access(db, principal=principal, chatroom_id=chatroom_id)
-        ensure_room_creator(access, principal=principal)
     await service.remove_agent(
         chatroom_id=chatroom_id,
         agent_id=agent_id,
         actor_user_id=principal.user_id,
         actor_ip=ctx.actor_ip,
         request_id=ctx.request_id,
+        restrict_to_normal=not is_room_creator(access, principal=principal),
     )
 
 
