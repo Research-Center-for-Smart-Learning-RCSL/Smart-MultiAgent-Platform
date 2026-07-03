@@ -100,6 +100,7 @@ class ApprovalService:
                 "approval.requested",
                 {
                     "approval_id": str(approval_id),
+                    "workflow_run_id": str(workflow_run_id),
                     "mode": config.mode.value,
                     "leader_agent_id": str(config.leader_agent_id),
                     "approver_agent_ids": [str(a) for a in config.approvers],
