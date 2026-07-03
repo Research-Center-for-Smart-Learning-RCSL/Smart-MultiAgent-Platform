@@ -28,6 +28,7 @@
         v-if="resetResult"
         :variant="resetResult.ok ? 'success' : 'danger'"
         class="mt-2"
+        focus-on-mount
       >
         {{ resetResult.text }}
       </SAlert>
@@ -65,6 +66,7 @@
         v-if="restoreResult"
         :variant="restoreResult.ok ? 'success' : 'danger'"
         class="mt-2"
+        focus-on-mount
       >
         {{ restoreResult.text }}
       </SAlert>
