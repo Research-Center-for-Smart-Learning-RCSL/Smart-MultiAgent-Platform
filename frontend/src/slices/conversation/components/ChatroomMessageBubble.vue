@@ -250,6 +250,11 @@ const props = defineProps<{
   canEdit: boolean
   canDelete: boolean
   flash?: boolean
+  // agent_id -> display name, for resolving a released observation's
+  // observer_agent_id (R28.06) to something readable. Optional: most
+  // messages never touch it, and the fallback below still degrades to a
+  // truncated id when a name isn't resolvable.
+  agentNames?: Record<string, string>
 }>()
 
 const emit = defineEmits<{
@@ -277,9 +282,14 @@ const isReleasedObservation = computed(
 const releasedHeader = computed(() => {
   const observer = props.message.metadata?.observer_agent_id
   // Observer name is present only when the room disclosed observers at release
-  // time (R28.09); otherwise attribute to the owner alone.
+  // time (R28.09); otherwise attribute to the owner alone. The metadata only
+  // ever carries the agent's id, so resolve it against agentNames the same
+  // way every other sender label does — falling back to a truncated id when
+  // the map doesn't have it (e.g. the agent was later removed from the project).
   return typeof observer === 'string' && observer
-    ? t('conversation.observers.releasedByOwnerNamed', { name: observer.slice(0, 8) })
+    ? t('conversation.observers.releasedByOwnerNamed', {
+        name: props.agentNames?.[observer] ?? observer.slice(0, 8),
+      })
     : t('conversation.observers.releasedByOwner')
 })
 

@@ -60,6 +60,7 @@
             :message="m"
             :html="rendered[m.id] ?? ''"
             :sender-name="senderName(m)"
+            :agent-names="agentNames"
             :editing="editingId === m.id"
             :edit-draft="editDraft"
             :can-edit="canEdit(m)"

@@ -142,7 +142,6 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   close: []
-  released: [observation: Observation]
   submit: [body: ReleaseBody]
 }>()
 
