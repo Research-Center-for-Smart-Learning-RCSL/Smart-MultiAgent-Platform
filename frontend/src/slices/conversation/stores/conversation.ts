@@ -34,6 +34,9 @@ export const useConversationStore = defineStore('conversation', () => {
   const observerAnalyzing = ref<Record<string, Set<string>>>({})
   // Per-room per-observer error kind, persisted until the observer next acts.
   const observerErrors = ref<Record<string, Record<string, string>>>({})
+  // Per-room per-observer benign-skip kind (observation.skipped — O-4/R28.13).
+  // Distinct from observerErrors so a "nothing to add" never renders as a failure.
+  const observerSkips = ref<Record<string, Record<string, string>>>({})
 
   function addTyping(roomId: string, userId: string): void {
     const set = typingUsers.value[roomId] ?? new Set<string>()
@@ -164,6 +167,23 @@ export const useConversationStore = defineStore('conversation', () => {
     }
   }
 
+  function setObserverSkipKind(roomId: string, agentId: string, kind: string): void {
+    const room = observerSkips.value[roomId] ?? {}
+    observerSkips.value = { ...observerSkips.value, [roomId]: { ...room, [agentId]: kind } }
+  }
+
+  function clearObserverSkip(roomId: string, agentId: string): void {
+    const room = observerSkips.value[roomId]
+    if (!room || !(agentId in room)) return
+    const { [agentId]: _, ...rest } = room
+    if (Object.keys(rest).length === 0) {
+      const { [roomId]: _r, ...roomsRest } = observerSkips.value
+      observerSkips.value = roomsRest
+    } else {
+      observerSkips.value = { ...observerSkips.value, [roomId]: rest }
+    }
+  }
+
   function setActive(id: string | null): void {
     activeChatroomId.value = id
   }
@@ -185,6 +205,8 @@ export const useConversationStore = defineStore('conversation', () => {
     observerAnalyzing.value = restObserverAnalyzing
     const { [roomId]: _oe, ...restObserverErrors } = observerErrors.value
     observerErrors.value = restObserverErrors
+    const { [roomId]: _os, ...restObserverSkips } = observerSkips.value
+    observerSkips.value = restObserverSkips
   }
 
   function clearAll(): void {
@@ -196,6 +218,7 @@ export const useConversationStore = defineStore('conversation', () => {
     typingUsers.value = {}
     observerAnalyzing.value = {}
     observerErrors.value = {}
+    observerSkips.value = {}
     activeChatroomId.value = null
   }
 
@@ -213,9 +236,12 @@ export const useConversationStore = defineStore('conversation', () => {
     typingUsers,
     observerAnalyzing,
     observerErrors,
+    observerSkips,
     setObserverAnalyzing,
     setObserverErrorKind,
     clearObserverError,
+    setObserverSkipKind,
+    clearObserverSkip,
     addTyping,
     removeTyping,
     joinPresence,
