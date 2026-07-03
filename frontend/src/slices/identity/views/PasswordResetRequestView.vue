@@ -5,7 +5,7 @@ import { EnvelopeIcon } from '@heroicons/vue/24/outline'
 import { SFormField, SInput, SButton, SAlert } from '@shared/ui'
 import { RateLimitError } from '@shared/errors'
 import { authApi } from '../api/auth'
-import { emailSchema, validateField } from '../validation'
+import { emailSchema, validateField, errorAttrs } from '../validation'
 
 const { t } = useI18n()
 
@@ -71,7 +71,7 @@ async function submit(): Promise<void> {
         <SFormField
           :label="$t('identity.passwordReset.email')"
           name="email"
-          :error="fieldErrors.email"
+          v-bind="errorAttrs(fieldErrors.email)"
           required
         >
           <SInput

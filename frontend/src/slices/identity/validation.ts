@@ -29,11 +29,25 @@ export function validateField(
 ): boolean {
   const result = schema.safeParse(value)
   if (!result.success) {
-    fieldErrors.value[fieldKey] = t(result.error.issues[0].message)
+    // zod guarantees at least one issue on a failed safeParse; guard anyway
+    // rather than asserting, per noUncheckedIndexedAccess.
+    const issue = result.error.issues[0]
+    if (issue) {
+      fieldErrors.value[fieldKey] = t(issue.message)
+    }
     return false
   }
   fieldErrors.value[fieldKey] = undefined
   return true
+}
+
+// SFormField/SInput/SCheckbox declare their `error`/`disabled` props as
+// optional (`?:`) rather than `| undefined`; exactOptionalPropertyTypes
+// forbids passing an explicit `undefined` value for those. Build a v-bind
+// object that omits the key entirely when there's nothing to show, e.g.
+// `v-bind="errorAttrs(fieldErrors.email)"`.
+export function errorAttrs(message: string | undefined): { error?: string } {
+  return message !== undefined ? { error: message } : {}
 }
 
 export function validatePasswordMatch(

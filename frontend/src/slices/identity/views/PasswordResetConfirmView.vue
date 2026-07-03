@@ -6,7 +6,7 @@ import { ExclamationTriangleIcon } from '@heroicons/vue/24/outline'
 import { SFormField, SInput, SButton, SAlert } from '@shared/ui'
 import { isProblemWithType } from '@shared/transport'
 import { authApi } from '../api/auth'
-import { passwordSchema, validateField, validatePasswordMatch } from '../validation'
+import { passwordSchema, validateField, validatePasswordMatch, errorAttrs } from '../validation'
 
 const { t } = useI18n()
 const router = useRouter()
@@ -120,7 +120,7 @@ async function submit(): Promise<void> {
         <SFormField
           :label="$t('identity.passwordReset.newPassword')"
           name="newPassword"
-          :error="fieldErrors.newPassword"
+          v-bind="errorAttrs(fieldErrors.newPassword)"
           :help="$t('identity.common.passwordPolicy')"
           required
         >
@@ -138,7 +138,7 @@ async function submit(): Promise<void> {
         <SFormField
           :label="$t('identity.passwordReset.confirmPassword')"
           name="confirmPassword"
-          :error="fieldErrors.confirmPassword"
+          v-bind="errorAttrs(fieldErrors.confirmPassword)"
           required
         >
           <SInput

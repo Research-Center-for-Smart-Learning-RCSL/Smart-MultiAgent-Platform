@@ -4,7 +4,7 @@ import { useI18n } from 'vue-i18n'
 import { SPageHeader, SCard, SFormField, SInput, SButton, SAlert } from '@shared/ui'
 import { authApi } from '../api/auth'
 import { useSessionStore } from '../stores/session'
-import { displayNameSchema, DISPLAY_NAME_MAX_LENGTH, validateField } from '../validation'
+import { displayNameSchema, DISPLAY_NAME_MAX_LENGTH, validateField, errorAttrs } from '../validation'
 
 const { t } = useI18n()
 const session = useSessionStore()
@@ -64,7 +64,7 @@ async function submit(): Promise<void> {
         <SFormField
           :label="$t('identity.profile.displayName')"
           name="displayName"
-          :error="fieldErrors.displayName"
+          v-bind="errorAttrs(fieldErrors.displayName)"
           :help="$t('identity.profile.displayNameHelp')"
         >
           <SInput

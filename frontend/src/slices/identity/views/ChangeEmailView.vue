@@ -9,7 +9,7 @@ import { RateLimitError } from '@shared/errors'
 import { useRateLimitCountdown } from '@shared/composables'
 import { authApi } from '../api/auth'
 import { useSessionStore } from '../stores/session'
-import { emailSchema, validateField } from '../validation'
+import { emailSchema, validateField, errorAttrs } from '../validation'
 
 const { t } = useI18n()
 const router = useRouter()
@@ -140,7 +140,7 @@ async function submit(): Promise<void> {
           <SFormField
             :label="$t('identity.changeEmail.newEmail')"
             name="newEmail"
-            :error="fieldErrors.newEmail"
+            v-bind="errorAttrs(fieldErrors.newEmail)"
             required
           >
             <SInput
@@ -148,7 +148,7 @@ async function submit(): Promise<void> {
               v-model="newEmail"
               type="email"
               autocomplete="email"
-              :disabled="submitting || rateLimit.active.value"
+              :disabled="!!(submitting || rateLimit.active.value)"
               :error="!!fieldErrors.newEmail"
               @blur="validateNewEmail"
             />
@@ -157,7 +157,7 @@ async function submit(): Promise<void> {
           <SFormField
             :label="$t('identity.changeEmail.password')"
             name="password"
-            :error="fieldErrors.password"
+            v-bind="errorAttrs(fieldErrors.password)"
             :help="$t('identity.changeEmail.passwordHelp')"
             required
           >
@@ -166,7 +166,7 @@ async function submit(): Promise<void> {
               v-model="password"
               type="password"
               autocomplete="current-password"
-              :disabled="submitting || rateLimit.active.value"
+              :disabled="!!(submitting || rateLimit.active.value)"
               :error="!!fieldErrors.password"
             />
           </SFormField>
@@ -183,7 +183,7 @@ async function submit(): Promise<void> {
             variant="primary"
             size="md"
             :loading="submitting"
-            :disabled="submitting || rateLimit.active.value"
+            :disabled="!!(submitting || rateLimit.active.value)"
             :aria-busy="submitting"
             class="form-submit"
           >
