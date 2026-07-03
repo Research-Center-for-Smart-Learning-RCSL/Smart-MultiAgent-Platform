@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: approved
+status: implemented
 created: 2026-07-03
 requirements: [R13.16, R13.20, R13.24, R15.05b, R15.02, R13.19, R15.10]
 supersedes:
@@ -180,22 +180,36 @@ Each failing test is written first (test-first per /build).
 
 ## 10. Acceptance Criteria
 
-- [ ] AC-1 (B1): the B1 regression test fails before the fix and passes after; an
+- [x] AC-1 (B1): the B1 regression test fails before the fix and passes after; an
       `allow_self_open=true` silence agent does not fire after an unclean disconnect
       empties the room. [R15.05b]
-- [ ] AC-2 (B1): `evaluate_silence_trigger`'s empty-roster check no longer depends on
-      `allow_self_open`.
-- [ ] AC-3 (B2): the B2 regression test fails before and passes after; a message deleted
+      Verified: `test_wakeup_service.py::test_allow_self_open_true_does_not_fire_into_empty_room`
+      + `test_retention_deep.py::test_scrub_stale_presence_pauses_silence_for_emptied_rooms`.
+- [x] AC-2 (B1): `evaluate_silence_trigger`'s empty-roster check no longer depends on
+      `allow_self_open`. Verified: `wakeup_service.py:216-223`.
+- [x] AC-3 (B2): the B2 regression test fails before and passes after; a message deleted
       during an in-flight replay does not appear in the cache. [R13.16][R13.24]
-- [ ] AC-4 (B3): a foreign-room cursor id raises not-found (→ 422) for both `before` and
+      Verified: `useChatroomSocket.test.ts::"does not resurrect a message deleted while
+      its create-delta is in flight (B2)"`.
+- [x] AC-4 (B3): a foreign-room cursor id raises not-found (→ 422) for both `before` and
       `since`; regression test mirrors the observation sibling.
-- [ ] AC-5 (B3): the anchor lookup also excludes soft-deleted rows (FU-2 folded in).
-- [ ] AC-6 (B4): `clearTyping` clears the room's typing set without throwing; covered by a
-      new store test.
-- [ ] AC-7 (B5): the room-channel `approval.requested` payload includes a non-empty
+      Verified: `test_message_repo.py::test_before_anchor_scoped_by_chatroom_id` +
+      `test_since_anchor_scoped_by_chatroom_id`.
+- [x] AC-5 (B3): the anchor lookup also excludes soft-deleted rows (FU-2 folded in).
+      Verified: `test_message_repo.py::test_before_anchor_excludes_soft_deleted`.
+- [x] AC-6 (B4): `clearTyping` clears the room's typing set without throwing; covered by a
+      new store test. Verified: `stores/__tests__/conversation.test.ts`.
+- [x] AC-7 (B5): the room-channel `approval.requested` payload includes a non-empty
       `workflow_run_id`; the frontend no longer defaults to `''`.
-- [ ] AC-8: `check-quality` on the diff shows no new Introduced-Critical∕Warning; the B1
+      Verified: `test_orchestration_services.py::test_create_gate` (backend) +
+      `useChatroomSocket.ts:250` (frontend, `??  ''` fallback removed).
+- [x] AC-8: `check-quality` on the diff shows no new Introduced-Critical∕Warning; the B1
       fix introduces no cross-context (SoC) upward import.
+      `check-quality` ran clean after one self-caught fix (traceback logging in the new
+      per-room dispatch catch, folded into the B1 commits). `check-security` also ran
+      (diff touches WebSocket message handling and room-scoping) — no findings; B3
+      confirmed not a cross-room leak (page query was already room-scoped), matching
+      the audit's original characterization.
 
 ## 11. SRS Delta
 
@@ -204,7 +218,18 @@ None. All five restore or align with already-documented behavior
 
 ## 12. Deviation Log
 
-Appended by /build.
+None. Implementation matches the approved Fix Design (§7) for all five findings,
+including the B1 hook placement resolved for Q-3: `scrub_stale_presence` now returns
+`(removed, emptied_rooms)`, and the retention worker wrapper `_scrub_stale_presence`
+(`app/workers/tasks/retention.py`) drives `evaluate_presence_change` for each emptied
+room via the pre-existing `conversation/application/triggers.py` bridge — the exact
+shape recommended, no new upward import.
+
+One in-flight self-correction (not a spec deviation): the B1 per-room exception handler
+initially logged via `logger.bind(...).warning(...)` without a traceback; `check-quality`
+flagged the lost diagnostic context against the sibling pattern (`_notify_presence` in
+`app/api/ws/chatroom.py` logs with `exc_info=True`), so it was changed to
+`.opt(exception=True).warning(...)` before commit.
 
 ## 13. Follow-ups
 
@@ -215,5 +240,9 @@ Appended by /build.
   compensation for cancellation between steps.
 - FU-5 (minor): released-observation `message.created` hardcodes `sender_id: None`, so the
   agent's error badge isn't eagerly cleared on release.
-- `message.updated` pre-edit-content stranding when the row isn't cached yet (audit
-  hunch) — verify and file if real.
+- FU-6 (confirmed during B2): `message.updated`'s handler
+  (`useChatroomSocket.ts:166-179`) is a no-op when the updated message isn't in the
+  TanStack cache yet (`prev?.map(...)` over an absent id changes nothing) — same
+  ordering-race family as B2, but for edits instead of deletes. Confirmed real; not
+  fixed here (out of scope per the original audit hunch). A concurrent editor's fresh
+  content can be stranded behind a pending create-delta the same way B2's delete was.
