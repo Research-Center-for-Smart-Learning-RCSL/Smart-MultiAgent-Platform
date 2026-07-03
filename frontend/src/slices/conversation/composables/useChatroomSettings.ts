@@ -115,9 +115,16 @@ export function useChatroomSettings(chatroomId: string) {
   }
 
   /** Creator-only patch of just `disclose_observers` (R28.09). Kept separate
-   *  from `onSave` so the field is never sent by a non-creator. */
+   *  from `onSave` so the field is never sent by a non-creator.
+   *
+   *  Optimistic: the toggle flips immediately, but every failure path must
+   *  leave `flags.disclose_observers` matching the server's actual value —
+   *  otherwise the creator sees a toggle position that doesn't reflect
+   *  whether the room actually discloses observers, which matters for what
+   *  members/guests are told. */
   async function saveDisclosure(value: boolean): Promise<void> {
     if (!room.value || saving.value) return
+    const previous = flags.disclose_observers
     saving.value = true
     saveError.value = null
     flags.disclose_observers = value
@@ -133,12 +140,16 @@ export function useChatroomSettings(chatroomId: string) {
       if (e instanceof ApiError && e.status === 409) {
         saveError.value = 'conversation.settings.versionConflict'
         try {
-          room.value = await getChatroom(chatroomId)
+          // applyRoom resyncs flags.* (including disclose_observers) from
+          // the authoritative server state, not just `room.value`.
+          applyRoom(await getChatroom(chatroomId))
         } catch {
-          /* keep the form as-is */
+          /* fetch itself failed; fall through to the manual revert below */
+          flags.disclose_observers = previous
         }
       } else {
         saveError.value = 'conversation.settings.saveFailed'
+        flags.disclose_observers = previous
       }
     } finally {
       saving.value = false
