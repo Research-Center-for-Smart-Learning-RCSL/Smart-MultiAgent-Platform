@@ -386,6 +386,8 @@ jobs:
           restore-keys: ${{ runner.os }}-pnpm-
       - run: pnpm install --frozen-lockfile
       - run: pnpm run typecheck
+      - name: "Typecheck gate cannot regress to a no-op"
+        run: pnpm run check:typecheck-gate
 
   # Unit + integration tests (Vitest)
   frontend-test:
