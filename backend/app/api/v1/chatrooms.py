@@ -130,9 +130,7 @@ def _to_out(r, *, has_observers: bool = False, viewer_is_pure_guest: bool = Fals
         deleted_at=r.deleted_at.isoformat() if r.deleted_at else None,
         created_by_user_id=None if viewer_is_pure_guest else r.created_by_user_id,
         disclose_observers=False if viewer_is_pure_guest else r.disclose_observers,
-        observers_present=bool(
-            not viewer_is_pure_guest and r.disclose_observers and has_observers
-        ),
+        observers_present=bool(not viewer_is_pure_guest and r.disclose_observers and has_observers),
     )
 
 

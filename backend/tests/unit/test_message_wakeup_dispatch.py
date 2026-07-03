@@ -41,9 +41,7 @@ async def test_filter_mentioned_bound_agents_narrows_with_provided_binding(monke
             pass
 
         async def list(self, chatroom_id):
-            return [
-                SimpleNamespace(agent_id=a, role=ChatroomAgentRole.NORMAL) for a in (a1, a2)
-            ]
+            return [SimpleNamespace(agent_id=a, role=ChatroomAgentRole.NORMAL) for a in (a1, a2)]
 
     monkeypatch.setattr(triggers, "ChatroomAgentRepository", _RoleRepo)
 
