@@ -393,7 +393,7 @@ class TurnEngine:
             await self._audit(agent, None, "agent.turn_started", {"mode": "a2a", "workflow_run_id": wf})
             base_system, lazy_prompt, section_cache = self._resolve_prompt(agent)
             system_parts = [base_system] if base_system else []
-            notify_block, extra_tools, pending_notes = await self._pending_context_and_tools(agent)
+            notify_block, extra_tools, pending_notes = await self._pending_context_and_tools(agent, None)
             extra_tools = extra_tools + await self._builtin_tools(agent)
             if notify_block:
                 system_parts.append(notify_block)
@@ -697,14 +697,23 @@ class TurnEngine:
         return base_system, lazy_prompt, section_cache
 
     async def _pending_context_and_tools(
-        self, agent: Agent
+        self, agent: Agent, chatroom_id: uuid.UUID | None
     ) -> tuple[str | None, list[Tool], list[dict[str, Any]]]:
         """Drain queued A2A notifications for this agent into a context block
         (R9.16) and, for approval-request notifications, the ``cast_approval_vote``
         tool scoped to exactly the pending gate ids. Best-effort: a Redis hiccup
         yields no context rather than failing the turn.
 
-        Also returns the raw drained notes so a turn that fails (or skips)
+        ``chatroom_id`` — the room this turn is running in (``None`` for a
+        headless A2A turn). ``pending_notify`` is keyed only by agent id, not
+        by room, so a ``released_observation`` note (R28.07 private release)
+        addressed to a *different* room than this turn — or drained during a
+        headless turn, which has no room at all — is put back immediately
+        rather than rendered: it must never leak that room's private content
+        into another room's context.
+
+        Also returns the notes actually consumed this turn (excluding any
+        already-requeued misrouted ones) so a turn that fails (or skips)
         before the agent sees them can :meth:`_requeue_notifications`."""
         from contexts.orchestration.infrastructure import pending_notify
 
@@ -718,9 +727,24 @@ class TurnEngine:
             return None, [], []
         if not notes:
             return None, [], []
+
+        misrouted: list[dict[str, Any]] = []
+        usable: list[dict[str, Any]] = []
+        for n in notes:
+            if n.get("kind") == "released_observation" and (
+                chatroom_id is None or str(n.get("chatroom_id")) != str(chatroom_id)
+            ):
+                misrouted.append(n)
+            else:
+                usable.append(n)
+        if misrouted:
+            await self._requeue_notifications(agent, misrouted)
+        if not usable:
+            return None, [], []
+
         approvals: dict[uuid.UUID, uuid.UUID | None] = {}
         lines: list[str] = []
-        for n in notes:
+        for n in usable:
             if n.get("kind") == "approval_request" and n.get("approval_id"):
                 try:
                     approval_id = uuid.UUID(str(n["approval_id"]))
@@ -748,7 +772,7 @@ class TurnEngine:
             tools.append(
                 build_cast_approval_vote_tool(self._db, agent_id=agent.id, allowed_approvals=approvals)
             )
-        return "[Incoming notifications]\n" + "\n".join(lines), tools, notes
+        return "[Incoming notifications]\n" + "\n".join(lines), tools, usable
 
     async def _requeue_notifications(self, agent: Agent, notes: list[dict[str, Any]]) -> None:
         """Restore drained-but-unseen notifications (turn failed / skipped
@@ -884,7 +908,9 @@ class TurnEngine:
                 system_parts.append(graphrag_block)
             # Drain queued A2A notifications (R9.16); approval requests also add
             # the cast_approval_vote tool for this turn.
-            notify_block, extra_tools, pending_notes = await self._pending_context_and_tools(agent)
+            notify_block, extra_tools, pending_notes = await self._pending_context_and_tools(
+                agent, chatroom_id
+            )
             # code_exec artifacts (charts/files) produced this turn land here and
             # are attached to the reply after it's persisted (Code Interpreter).
             artifact_sink: list[dict[str, Any]] = []
@@ -974,6 +1000,10 @@ class TurnEngine:
             if not messages:
                 if room is not None:
                     await Publisher(room).emit("agent.finished", {"agent_id": str(agent.id)})
+                elif is_observer:
+                    await self._emit_observation_event(
+                        chatroom_id, agent.id, "observation.failed", {"kind": "no_input"}
+                    )
                 await self._audit(agent, chatroom_id, "agent.turn_finished", {"empty": True})
                 await self._db.commit()
                 self._compact_forced_rooms.discard(chatroom_id)
@@ -1021,6 +1051,10 @@ class TurnEngine:
                 if room is not None:
                     await Publisher(room).emit(
                         "agent.finished", {"reason": "empty_reply", "agent_id": str(agent.id)}
+                    )
+                elif is_observer:
+                    await self._emit_observation_event(
+                        chatroom_id, agent.id, "observation.failed", {"kind": "empty_reply"}
                     )
                 return TurnResult(status="skipped", reason="empty_reply", tool_rounds=rounds)
 
@@ -1130,15 +1164,18 @@ class TurnEngine:
 
     async def _observer_memory_block(self, agent: Agent, chatroom_id: uuid.UUID) -> str | None:
         """R28.05 — the observer's own recent observations, oldest-first.
-        Best-effort: a DB hiccup costs the memory block, not the turn."""
+        Best-effort: a DB hiccup costs the memory block, not the turn. The
+        query runs under a SAVEPOINT so a failure rolls back only this
+        lookup — a plain ``self._db.rollback()`` would discard the whole
+        transaction, including the turn's already-pending
+        ``agent.turn_started`` audit insert."""
         try:
-            rows = await ObservationRepository(self._db).list_recent_for_agent(
-                chatroom_id=chatroom_id, agent_id=agent.id, limit=OBSERVER_MEMORY_WINDOW
-            )
+            async with self._db.begin_nested():
+                rows = await ObservationRepository(self._db).list_recent_for_agent(
+                    chatroom_id=chatroom_id, agent_id=agent.id, limit=OBSERVER_MEMORY_WINDOW
+                )
         except Exception:
             _log.warning("observer memory fetch failed for agent %s", agent.id, exc_info=True)
-            with contextlib.suppress(Exception):
-                await self._db.rollback()
             return None
         if not rows:
             return None
@@ -1155,19 +1192,25 @@ class TurnEngine:
         """Emit an ``observation.*`` event on the creator's user channel
         (R28.13). Ids only — bodies are fetched over REST. Legacy NULL-creator
         rooms have no push recipient; moderators read over REST instead.
-        Best-effort: a Redis hiccup never fails the turn."""
+        Best-effort: a Redis hiccup never fails the turn. The recipient
+        lookup runs under a SAVEPOINT — same rationale as
+        :meth:`_observer_memory_block` — so a DB hiccup here can't discard
+        the turn's already-pending ``agent.turn_started`` audit insert."""
         try:
-            recipient = await ObservationService(self._db).recipient_user_id(chatroom_id)
-            if recipient is None:
-                return
+            async with self._db.begin_nested():
+                recipient = await ObservationService(self._db).recipient_user_id(chatroom_id)
+        except Exception:
+            _log.warning("observation event emit failed for room %s", chatroom_id, exc_info=True)
+            return
+        if recipient is None:
+            return
+        try:
             await Publisher(user_channel(recipient)).emit(
                 event,
                 {"chatroom_id": str(chatroom_id), "agent_id": str(agent_id), **payload},
             )
         except Exception:
             _log.warning("observation event emit failed for room %s", chatroom_id, exc_info=True)
-            with contextlib.suppress(Exception):
-                await self._db.rollback()
 
     async def _dispatch_agent_message_signal(self, chatroom_id: uuid.UUID, content: str) -> None:
         """Mirror of the user-send route's workflow signal dispatch

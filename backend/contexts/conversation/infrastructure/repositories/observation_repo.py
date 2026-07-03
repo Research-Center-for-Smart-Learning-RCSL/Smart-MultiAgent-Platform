@@ -103,7 +103,14 @@ class ObservationRepository:
             anchor = (
                 await self._db.execute(
                     sa.select(t.agent_observations.c.created_at, t.agent_observations.c.id).where(
-                        t.agent_observations.c.id == before,
+                        sa.and_(
+                            t.agent_observations.c.id == before,
+                            # Scoped by room like the page query below — an id
+                            # from a different room the caller isn't the
+                            # creator of must 404 like any other missing
+                            # cursor, not silently page this room using it.
+                            t.agent_observations.c.chatroom_id == chatroom_id,
+                        )
                     )
                 )
             ).first()

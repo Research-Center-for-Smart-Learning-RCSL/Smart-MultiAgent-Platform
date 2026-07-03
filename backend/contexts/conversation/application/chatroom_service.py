@@ -282,6 +282,12 @@ class ChatroomService:
             ),
         )
 
+    # Bounded retry for the read-then-CAS-write loop below — generous relative
+    # to how rarely two role-change requests for the same binding actually
+    # race (a human clicking a settings dropdown), while keeping the loop
+    # provably terminating.
+    _SET_ROLE_MAX_ATTEMPTS = 5
+
     async def set_agent_role(
         self,
         *,
@@ -292,13 +298,27 @@ class ChatroomService:
         actor_ip: str | None,
         request_id: uuid.UUID | None = None,
     ) -> bool:
-        old_role = await self._agents.role_of(chatroom_id=chatroom_id, agent_id=agent_id)
-        if old_role is None:
-            return False
-        if old_role is role:
-            return True
-        changed = await self._agents.set_role(chatroom_id=chatroom_id, agent_id=agent_id, role=role)
-        if changed:
+        """CAS the transition on the role actually observed (mirrors the
+        observation-release CAS in observation_repo.py) so concurrent
+        role-change requests can't both win and both audit-log the same
+        old_role -> new_role transition when only one of them really
+        happened. A losing attempt re-reads the fresh role and retries —
+        it may discover the target role was already reached (no-op) or
+        needs a different transition than the one it started with."""
+        for _attempt in range(self._SET_ROLE_MAX_ATTEMPTS):
+            old_role = await self._agents.role_of(chatroom_id=chatroom_id, agent_id=agent_id)
+            if old_role is None:
+                return False
+            if old_role is role:
+                return True
+            won = await self._agents.set_role(
+                chatroom_id=chatroom_id,
+                agent_id=agent_id,
+                expected_role=old_role,
+                role=role,
+            )
+            if not won:
+                continue  # lost the race — re-read and retry against the fresh value
             await audit.emit(
                 self._db,
                 audit.AuditEvent(
@@ -315,7 +335,8 @@ class ChatroomService:
                     request_id=request_id,
                 ),
             )
-        return changed
+            return True
+        return False
 
     async def remove_agent(
         self,
