@@ -291,6 +291,25 @@ async def test_wakeup_agent_mention_agent_gone_emits_notice(monkeypatch) -> None
 
 
 @pytest.mark.asyncio
+async def test_wakeup_agent_release_agent_gone_emits_notice(monkeypatch) -> None:
+    # R28.07 — a creator's explicit release-wake is the same shape of explicit
+    # call as a mention; it must not silently no-op when the target agent was
+    # removed between the release commit and this job running.
+    rec = _patch_task_env(monkeypatch, room=SimpleNamespace(id=uuid.uuid4()), agent=None)
+    emitted: list[tuple[uuid.UUID, str]] = []
+
+    async def _fake_emit(room_id, agent_id, reason) -> None:
+        emitted.append((agent_id, reason))
+
+    monkeypatch.setattr("contexts.conversation.interfaces.emit_agent_finished_error", _fake_emit)
+
+    out = await orch_task.wakeup_agent({}, str(uuid.uuid4()), str(uuid.uuid4()), "release")
+    assert out == "skipped:agent_gone"
+    assert rec["run_turn"] == []
+    assert emitted[0][1] == "agent_gone"
+
+
+@pytest.mark.asyncio
 async def test_wakeup_agent_autonomous_agent_gone_is_silent(monkeypatch) -> None:
     rec = _patch_task_env(monkeypatch, room=SimpleNamespace(id=uuid.uuid4()), agent=None)
 

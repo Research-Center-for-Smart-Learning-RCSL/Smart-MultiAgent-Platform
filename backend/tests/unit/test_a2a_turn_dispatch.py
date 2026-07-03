@@ -149,7 +149,8 @@ async def test_pending_context_adds_approval_tool(monkeypatch) -> None:
 
     engine = te.TurnEngine.__new__(te.TurnEngine)
     engine._db = object()  # type: ignore[attr-defined]
-    block, tools, _notes = await engine._pending_context_and_tools(_agent())
+    engine._requeue_notifications = _async_return(None)  # type: ignore[attr-defined]
+    block, tools, _notes = await engine._pending_context_and_tools(_agent(), room_id)
 
     assert block is not None
     assert str(approval_id) in block
@@ -163,7 +164,7 @@ async def test_pending_context_empty(monkeypatch) -> None:
     monkeypatch.setattr("contexts.orchestration.infrastructure.pending_notify.drain", _async_return([]))
     engine = te.TurnEngine.__new__(te.TurnEngine)
     engine._db = object()  # type: ignore[attr-defined]
-    block, tools, _notes = await engine._pending_context_and_tools(_agent())
+    block, tools, _notes = await engine._pending_context_and_tools(_agent(), uuid.uuid4())
     assert block is None
     assert tools == []
 
