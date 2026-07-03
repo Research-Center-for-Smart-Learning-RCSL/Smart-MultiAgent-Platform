@@ -16,6 +16,7 @@ Desktop.ini
 .claude/*
 !.claude/skills/
 !.claude/settings.json
+!.claude/hooks/
 .agents/*
 !.agents/skills/
 .sixth/
