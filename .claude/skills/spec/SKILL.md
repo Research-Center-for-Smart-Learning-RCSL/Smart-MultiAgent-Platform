@@ -96,3 +96,12 @@ was chosen over, ACs, risks, and the SRS Delta if any. On explicit approval:
 If the user requests changes, revise and re-present. Never flip the status yourself
 without the user's explicit approval — `/build` refuses draft dossiers by design, and
 that gate only means something if this skill honors it.
+
+## Step 7 — Commit
+
+Commit the dossier following the CLAUDE.md commit discipline: English message, no
+co-author trailer, and stage only the files this task produced — the dossier folder and,
+if the SRS Delta was applied, `REQUIREMENTS.md`. Never `git add -A`/`.`/`-a`; the tree
+may hold unrelated in-progress work. Commit the draft when it's written and again after
+approval flips the status (two milestones), or once at approval if the user reviewed
+before you wrote. Do not push without explicit user confirmation.

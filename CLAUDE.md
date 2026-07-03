@@ -42,6 +42,19 @@ type(scope): subject
 Types: `feat`, `fix`, `refactor`, `test`, `docs`, `style`, `chore`, `perf`
 Scopes: `backend`, `frontend`, `deploy`, `nginx`, `ci`, `obs`, `e2e`, `review`, `deps`, `build`
 
+### Commit discipline
+
+- **Commit at each completed milestone**, not in one lump at the end. A milestone is a
+  coherent, self-contained step (a fix plus its test, a migration, one refactor stage) —
+  small enough to revert cleanly, complete enough to stand on its own.
+- **English messages**, following the `type(scope): subject` format above.
+- **No co-author trailer** and no other attribution footer.
+- **Stage only the files this change touched** — list them explicitly
+  (`git add <path> ...`). Never `git add -A`, `git add .`, or `git commit -a`: the working
+  tree may hold unrelated in-progress work from another task, and sweeping it into your
+  commit is a defect.
+- Never `git push` without explicit user confirmation.
+
 ## Security Constraints
 
 - Never hardcode secrets — all credentials via environment variables or Vault KV

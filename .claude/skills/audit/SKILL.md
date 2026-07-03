@@ -83,3 +83,12 @@ bugfix dossier via `/spec` (bugfix mode) — the finding pre-fills Observed vs E
 evidence, and reproduction, so the spec step is fast. Set `findings.md` to
 `status: reviewed` once the user has triaged, and `closed` when every selected finding
 has a linked dossier.
+
+## Step 6 — Commit
+
+Commit `findings.md` following the CLAUDE.md commit discipline: English message
+(`docs(review): ...`), no co-author trailer, and stage only the audit dossier folder —
+never `git add -A`/`.`/`-a`, since the tree may hold unrelated in-progress work. Commit
+the draft when written and again after triage flips the status. This skill changes no
+source code, so these are the only commits it makes. Do not push without explicit user
+confirmation.

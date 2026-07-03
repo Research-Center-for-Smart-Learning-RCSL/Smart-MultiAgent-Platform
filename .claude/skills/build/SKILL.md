@@ -119,6 +119,8 @@ silently skipped.
 2. Append **FU-n** entries for out-of-scope discoveries. Do not fix them in this task
    unless they block an AC.
 3. Set `status: implemented`.
-4. Commit per the CLAUDE.md format, keeping implementation and test commits separate
-   (matching the repo's existing convention). Do not push without explicit user
-   confirmation.
+4. Commit following the CLAUDE.md commit discipline: commit at each completed milestone
+   rather than one lump at the end (a fix and its test as separate commits, each
+   migration, each refactor stage), English messages, no co-author trailer, and stage
+   only the files this task changed — never `git add -A`/`.`/`-a`, since the tree may
+   hold unrelated in-progress work. Do not push without explicit user confirmation.
