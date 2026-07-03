@@ -104,7 +104,8 @@ silently skipped.
    findings must be fixed; Introduced-Warning findings fixed or explicitly deferred as
    FU-n with the user's knowledge; Pre-existing findings route to FU-n and never block.
 6. **Security audit (conditional)** — run `check-security` when the diff touches auth,
-   provider keys, tenant boundaries, WebSocket, file upload, or user-input processing.
+   provider keys, tenant boundaries, WebSocket, file upload, user-input processing,
+   agent/LLM prompt or tool surfaces, dependency manifests, or deploy configs.
 7. **Self-audit** — re-read the complete diff end-to-end with fresh eyes, hunting for
    your own bugs: unhandled error paths, reactivity pitfalls, boundary conditions,
    leftover debug code. You are the last reviewer before the user.

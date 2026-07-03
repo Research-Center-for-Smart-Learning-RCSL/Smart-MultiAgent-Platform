@@ -73,9 +73,9 @@ area, write three things into the spec:
    components the implementation should use instead of re-inventing. This list is the
    single most effective duplicate-code prevention we have; be thorough.
 
-If the task touches auth, provider keys, tenant boundaries, WebSocket, file upload, or
-any user-input processing, add a Security Considerations section informed by the
-`check-security` dimensions for that surface.
+If the task touches auth, provider keys, tenant boundaries, WebSocket, file upload,
+any user-input processing, or agent/LLM prompt and tool surfaces, add a Security
+Considerations section informed by the `check-security` dimensions for that surface.
 
 ## Step 5 — Write the dossier
 
