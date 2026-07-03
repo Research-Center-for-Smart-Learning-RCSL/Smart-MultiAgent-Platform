@@ -10,10 +10,13 @@ room-channel traffic across a full observer turn.
 from __future__ import annotations
 
 import uuid
+from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import ClassVar
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from sqlalchemy.dialects import postgresql
 
 import contexts.agents.application.runtime.turn_engine as te
 import contexts.conversation.application.observation_service as obs_svc
@@ -33,6 +36,7 @@ from contexts.conversation.domain.models import (
     ChatroomAgentRole,
     SenderType,
 )
+from contexts.conversation.infrastructure.repositories.observation_repo import ObservationRepository
 from shared_kernel.auth.permissions import Principal, Role
 
 # --------------------------------------------------------------------------- #
@@ -392,12 +396,26 @@ async def test_release_audit_never_contains_content(monkeypatch) -> None:
 # --------------------------------------------------------------------------- #
 
 
+class _FakeSavepoint:
+    """Stands in for the SQLAlchemy AsyncSessionTransaction returned by
+    ``begin_nested()``: an async context manager, not itself awaited."""
+
+    async def __aenter__(self) -> _FakeSavepoint:
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb) -> bool:
+        return False  # never swallow — matches real SAVEPOINT semantics
+
+
 class _FakeDB:
     async def commit(self) -> None:
         return None
 
     async def rollback(self) -> None:
         return None
+
+    def begin_nested(self) -> _FakeSavepoint:
+        return _FakeSavepoint()
 
 
 class _PublisherSpy:
@@ -502,7 +520,7 @@ def _wire_observer_engine(monkeypatch, agent, *, creator_id):
     async def _empty_list(*a, **k):
         return []
 
-    async def _pending(agent_):
+    async def _pending(agent_, chatroom_id_):
         return None, [], []
 
     stream_seen: dict = {}
@@ -600,6 +618,68 @@ async def test_observer_turn_folds_memory_and_framing_into_system(monkeypatch) -
     assert "[Your previous observations]" in system_text
 
 
+@pytest.mark.asyncio
+async def test_observer_turn_no_input_emits_observation_failed(monkeypatch) -> None:
+    """Benign skip paths must still clear the creator's 'analyzing' indicator
+    (R28.13) — previously only key_group_scope/rate_limited/exception did."""
+    agent = _observer_agent()
+    creator = uuid.uuid4()
+    engine, _recorded, _stream_seen = _wire_observer_engine(monkeypatch, agent, creator_id=creator)
+
+    async def _empty_history(agent_, chatroom_id, context_limit, models):
+        return []
+
+    engine._assemble_history = _empty_history  # type: ignore[attr-defined]
+
+    result = await engine._run_locked(
+        agent_id=agent.id,
+        chatroom_id=uuid.uuid4(),
+        trigger="every_n_messages",
+        parent_agent_id=None,
+        input_text=None,
+        request_id=None,
+        trigger_message_id=None,
+    )
+
+    assert result.status == "skipped"
+    assert result.reason == "no_input"
+    room_events = [e for e in _PublisherSpy.emitted if e[0].startswith("ws:room:")]
+    assert room_events == []
+    user_events = [e for e in _PublisherSpy.emitted if e[0] == f"ws:user:{creator}"]
+    assert [e[1] for e in user_events] == ["observation.started", "observation.failed"]
+    assert user_events[-1][2]["kind"] == "no_input"
+
+
+@pytest.mark.asyncio
+async def test_observer_turn_empty_reply_emits_observation_failed(monkeypatch) -> None:
+    agent = _observer_agent()
+    creator = uuid.uuid4()
+    engine, _recorded, _stream_seen = _wire_observer_engine(monkeypatch, agent, creator_id=creator)
+
+    async def _blank_stream(**kw):
+        return ("   ", 1)
+
+    engine._stream_with_tools = _blank_stream  # type: ignore[attr-defined]
+
+    result = await engine._run_locked(
+        agent_id=agent.id,
+        chatroom_id=uuid.uuid4(),
+        trigger="every_n_messages",
+        parent_agent_id=None,
+        input_text=None,
+        request_id=None,
+        trigger_message_id=None,
+    )
+
+    assert result.status == "skipped"
+    assert result.reason == "empty_reply"
+    room_events = [e for e in _PublisherSpy.emitted if e[0].startswith("ws:room:")]
+    assert room_events == []
+    user_events = [e for e in _PublisherSpy.emitted if e[0] == f"ws:user:{creator}"]
+    assert [e[1] for e in user_events] == ["observation.started", "observation.failed"]
+    assert user_events[-1][2]["kind"] == "empty_reply"
+
+
 # --------------------------------------------------------------------------- #
 # pending_notify renderer branch (R28.07)
 # --------------------------------------------------------------------------- #
@@ -607,7 +687,8 @@ async def test_observer_turn_folds_memory_and_framing_into_system(monkeypatch) -
 
 @pytest.mark.asyncio
 async def test_pending_context_renders_released_observation(monkeypatch) -> None:
-    notes = [{"kind": "released_observation", "chatroom_id": str(uuid.uuid4()), "content": "the brief"}]
+    room_id = uuid.uuid4()
+    notes = [{"kind": "released_observation", "chatroom_id": str(room_id), "content": "the brief"}]
 
     async def _drain(agent_id):
         return notes
@@ -616,10 +697,179 @@ async def test_pending_context_renders_released_observation(monkeypatch) -> None
 
     engine = te.TurnEngine.__new__(te.TurnEngine)
     engine._db = object()  # type: ignore[attr-defined]
-    block, tools, drained = await engine._pending_context_and_tools(_observer_agent())
+    block, tools, drained = await engine._pending_context_and_tools(_observer_agent(), room_id)
 
     assert block is not None
     assert "The room owner shared an analysis with you:" in block
     assert "the brief" in block
     assert tools == []
     assert drained == notes
+
+
+@pytest.mark.asyncio
+async def test_pending_context_requeues_released_observation_for_a_different_room(monkeypatch) -> None:
+    """R28.07 leak fix — pending_notify is keyed only by agent id, not room, so a
+    note released into room A must never render into a turn running in room B."""
+    room_a, room_b = uuid.uuid4(), uuid.uuid4()
+    notes = [{"kind": "released_observation", "chatroom_id": str(room_a), "content": "room A's secret"}]
+
+    async def _drain(agent_id):
+        return notes
+
+    monkeypatch.setattr("contexts.orchestration.infrastructure.pending_notify.drain", _drain)
+    requeued: list[tuple[uuid.UUID, list]] = []
+
+    async def _requeue(agent_id, requeued_notes):
+        requeued.append((agent_id, requeued_notes))
+
+    monkeypatch.setattr("contexts.orchestration.infrastructure.pending_notify.requeue", _requeue)
+
+    agent = _observer_agent()
+    engine = te.TurnEngine.__new__(te.TurnEngine)
+    engine._db = object()  # type: ignore[attr-defined]
+    block, tools, drained = await engine._pending_context_and_tools(agent, room_b)
+
+    assert block is None
+    assert tools == []
+    assert drained == []
+    # Put back for room A's next turn — never rendered, never dropped.
+    assert requeued == [(agent.id, notes)]
+
+
+@pytest.mark.asyncio
+async def test_pending_context_requeues_released_observation_for_headless_turn(monkeypatch) -> None:
+    """A headless A2A turn has no room context at all, so any released
+    observation note must be put back rather than rendered."""
+    notes = [{"kind": "released_observation", "chatroom_id": str(uuid.uuid4()), "content": "secret"}]
+
+    async def _drain(agent_id):
+        return notes
+
+    monkeypatch.setattr("contexts.orchestration.infrastructure.pending_notify.drain", _drain)
+    requeued: list[tuple[uuid.UUID, list]] = []
+
+    async def _requeue(agent_id, requeued_notes):
+        requeued.append((agent_id, requeued_notes))
+
+    monkeypatch.setattr("contexts.orchestration.infrastructure.pending_notify.requeue", _requeue)
+
+    agent = _observer_agent()
+    engine = te.TurnEngine.__new__(te.TurnEngine)
+    engine._db = object()  # type: ignore[attr-defined]
+    block, tools, drained = await engine._pending_context_and_tools(agent, None)
+
+    assert block is None
+    assert drained == []
+    assert requeued == [(agent.id, notes)]
+
+
+# --------------------------------------------------------------------------- #
+# best-effort helpers must not roll back the whole turn transaction
+# --------------------------------------------------------------------------- #
+
+
+class _RollbackAssertingDB(_FakeDB):
+    def __init__(self) -> None:
+        self.rollback_called = False
+
+    async def rollback(self) -> None:
+        self.rollback_called = True
+
+
+@pytest.mark.asyncio
+async def test_observer_memory_block_failure_does_not_rollback_whole_transaction(monkeypatch) -> None:
+    """A DB hiccup fetching self-memory must not wipe the turn's already-
+    pending agent.turn_started audit insert — only the SAVEPOINT rolls back,
+    never self._db.rollback()."""
+
+    class _BoomRepo:
+        def __init__(self, db) -> None:
+            pass
+
+        async def list_recent_for_agent(self, **kw):
+            raise RuntimeError("transient db error")
+
+    monkeypatch.setattr(te, "ObservationRepository", _BoomRepo)
+
+    engine = te.TurnEngine.__new__(te.TurnEngine)
+    db = _RollbackAssertingDB()
+    engine._db = db  # type: ignore[attr-defined]
+
+    result = await engine._observer_memory_block(_observer_agent(), uuid.uuid4())
+
+    assert result is None
+    assert db.rollback_called is False
+
+
+@pytest.mark.asyncio
+async def test_emit_observation_event_recipient_lookup_failure_does_not_rollback(monkeypatch) -> None:
+    class _BoomObsService:
+        def __init__(self, db) -> None:
+            pass
+
+        async def recipient_user_id(self, chatroom_id):
+            raise RuntimeError("transient db error")
+
+    monkeypatch.setattr(te, "ObservationService", _BoomObsService)
+
+    engine = te.TurnEngine.__new__(te.TurnEngine)
+    db = _RollbackAssertingDB()
+    engine._db = db  # type: ignore[attr-defined]
+
+    await engine._emit_observation_event(uuid.uuid4(), uuid.uuid4(), "observation.failed", {"kind": "x"})
+
+    assert db.rollback_called is False
+
+
+@pytest.mark.asyncio
+async def test_observer_memory_block_succeeds_normally(monkeypatch) -> None:
+    """Confirms the SAVEPOINT wrapping doesn't break the happy path."""
+
+    class _OkRepo:
+        def __init__(self, db) -> None:
+            pass
+
+        async def list_recent_for_agent(self, **kw):
+            return [SimpleNamespace(created_at=None, content_md="earlier note")]
+
+    monkeypatch.setattr(te, "ObservationRepository", _OkRepo)
+
+    engine = te.TurnEngine.__new__(te.TurnEngine)
+    engine._db = _FakeDB()  # type: ignore[attr-defined]
+
+    result = await engine._observer_memory_block(_observer_agent(), uuid.uuid4())
+
+    assert result is not None
+    assert "earlier note" in result
+
+
+# --------------------------------------------------------------------------- #
+# ObservationRepository.list — before-cursor cross-room scoping
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.asyncio
+async def test_observation_list_before_anchor_scoped_by_chatroom_id() -> None:
+    """The before-cursor anchor lookup must not resolve a different room's
+    observation id; it must be scoped by chatroom_id exactly like the page
+    query is — otherwise a creator could page room A using the timestamp of
+    an observation id borrowed from room B."""
+    room_id = uuid.uuid4()
+    before_id = uuid.uuid4()
+
+    db = AsyncMock()
+    anchor_result = MagicMock()
+    anchor_result.first.return_value = SimpleNamespace(
+        created_at=datetime(2026, 1, 1, tzinfo=UTC), id=before_id
+    )
+    page_result = MagicMock()
+    page_result.all.return_value = []
+    db.execute.side_effect = [anchor_result, page_result]
+
+    repo = ObservationRepository(db)
+    await repo.list(chatroom_id=room_id, before=before_id, limit=10)
+
+    anchor_stmt = db.execute.await_args_list[0].args[0]
+    compiled = str(anchor_stmt.compile(dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True}))
+    assert str(room_id) in compiled
+    assert str(before_id) in compiled

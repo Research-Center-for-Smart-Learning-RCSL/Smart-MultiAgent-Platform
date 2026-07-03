@@ -41,6 +41,7 @@ from contexts.conversation.domain.models import (
     AttachmentExtractionStatus,
     AttachmentStatus,
     Chatroom,
+    ChatroomAgentRole,
     Message,
     MessageAttachment,
     ScanStatus,
@@ -326,6 +327,122 @@ class TestChatroomAgentRegistry:
 
         agents_repo.remove.assert_awaited_once()
         assert _audit.call_args[0][1].action == "chatroom.agent_removed"
+
+
+class TestChatroomSetAgentRole:
+    @patch("contexts.conversation.application.chatroom_service.audit.emit", new_callable=AsyncMock)
+    async def test_changes_role_and_audits_once(self, _audit) -> None:
+        agents_repo = AsyncMock()
+        agents_repo.role_of.return_value = ChatroomAgentRole.NORMAL
+        agents_repo.set_role.return_value = True
+        svc = _make_chatroom_service(agents=agents_repo)
+
+        changed = await svc.set_agent_role(
+            chatroom_id=_ROOM,
+            agent_id=_AGENT,
+            role=ChatroomAgentRole.OBSERVER,
+            actor_user_id=_USER,
+            actor_ip=None,
+        )
+
+        assert changed is True
+        agents_repo.set_role.assert_awaited_once_with(
+            chatroom_id=_ROOM,
+            agent_id=_AGENT,
+            expected_role=ChatroomAgentRole.NORMAL,
+            role=ChatroomAgentRole.OBSERVER,
+        )
+        _audit.assert_awaited_once()
+        assert _audit.call_args[0][1].metadata["old_role"] == "normal"
+        assert _audit.call_args[0][1].metadata["new_role"] == "observer"
+
+    async def test_unbound_agent_returns_false_without_audit(self) -> None:
+        agents_repo = AsyncMock()
+        agents_repo.role_of.return_value = None
+        svc = _make_chatroom_service(agents=agents_repo)
+
+        with patch(
+            "contexts.conversation.application.chatroom_service.audit.emit",
+            new_callable=AsyncMock,
+        ) as _audit:
+            changed = await svc.set_agent_role(
+                chatroom_id=_ROOM,
+                agent_id=_AGENT,
+                role=ChatroomAgentRole.OBSERVER,
+                actor_user_id=_USER,
+                actor_ip=None,
+            )
+
+        assert changed is False
+        agents_repo.set_role.assert_not_awaited()
+        _audit.assert_not_awaited()
+
+    async def test_already_at_target_role_is_a_noop(self) -> None:
+        agents_repo = AsyncMock()
+        agents_repo.role_of.return_value = ChatroomAgentRole.OBSERVER
+        svc = _make_chatroom_service(agents=agents_repo)
+
+        with patch(
+            "contexts.conversation.application.chatroom_service.audit.emit",
+            new_callable=AsyncMock,
+        ) as _audit:
+            changed = await svc.set_agent_role(
+                chatroom_id=_ROOM,
+                agent_id=_AGENT,
+                role=ChatroomAgentRole.OBSERVER,
+                actor_user_id=_USER,
+                actor_ip=None,
+            )
+
+        assert changed is True
+        agents_repo.set_role.assert_not_awaited()
+        _audit.assert_not_awaited()
+
+    @patch("contexts.conversation.application.chatroom_service.audit.emit", new_callable=AsyncMock)
+    async def test_lost_cas_race_retries_and_audits_exactly_once(self, _audit) -> None:
+        """Simulates the concurrency bug the CAS fixes: a first call already
+        flipped normal->observer between our read and write. The losing
+        attempt's `set_role` call (CAS on the stale `normal`) must fail, and
+        the retry must re-read the fresh role, discover the target is already
+        reached, and audit nothing — never double-logging old_role=normal."""
+        agents_repo = AsyncMock()
+        agents_repo.role_of.side_effect = [ChatroomAgentRole.NORMAL, ChatroomAgentRole.OBSERVER]
+        agents_repo.set_role.return_value = False  # CAS miss: role changed underneath us
+        svc = _make_chatroom_service(agents=agents_repo)
+
+        changed = await svc.set_agent_role(
+            chatroom_id=_ROOM,
+            agent_id=_AGENT,
+            role=ChatroomAgentRole.OBSERVER,
+            actor_user_id=_USER,
+            actor_ip=None,
+        )
+
+        assert changed is True
+        agents_repo.set_role.assert_awaited_once()  # only one CAS attempt was made
+        _audit.assert_not_awaited()  # the winner (the other request) already audited
+
+    async def test_exhausting_retries_on_persistent_contention_returns_false(self) -> None:
+        agents_repo = AsyncMock()
+        agents_repo.role_of.return_value = ChatroomAgentRole.NORMAL
+        agents_repo.set_role.return_value = False  # always loses the CAS
+        svc = _make_chatroom_service(agents=agents_repo)
+
+        with patch(
+            "contexts.conversation.application.chatroom_service.audit.emit",
+            new_callable=AsyncMock,
+        ) as _audit:
+            changed = await svc.set_agent_role(
+                chatroom_id=_ROOM,
+                agent_id=_AGENT,
+                role=ChatroomAgentRole.OBSERVER,
+                actor_user_id=_USER,
+                actor_ip=None,
+            )
+
+        assert changed is False
+        assert agents_repo.set_role.await_count == ChatroomService._SET_ROLE_MAX_ATTEMPTS
+        _audit.assert_not_awaited()
 
 
 # ===========================================================================
