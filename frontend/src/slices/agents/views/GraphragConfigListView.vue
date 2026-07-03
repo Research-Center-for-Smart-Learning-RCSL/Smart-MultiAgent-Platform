@@ -223,6 +223,21 @@ const triggerEveryN = ref<number | null>(null)
 const triggerSilence = ref<number | null>(null)
 const triggerManual = ref(false)
 
+// SInput's model-value accepts `string | number` (no `null`); these fields are
+// nullable numbers (unset = trigger disabled). Bridge to '' for display only —
+// SInput type="number" always emits a number, so the field keeps storing
+// `number | null` exactly as before.
+function nullableNumberModel(field: { value: number | null }) {
+  return computed<string | number>({
+    get: () => field.value ?? '',
+    set: (v) => {
+      field.value = v === '' ? null : Number(v)
+    },
+  })
+}
+const triggerEveryNModel = nullableNumberModel(triggerEveryN)
+const triggerSilenceModel = nullableNumberModel(triggerSilence)
+
 const builderKeyGroups = computed(() => {
   const consumer = agentId.value ? agentById.value.get(agentId.value)?.key_group_id : undefined
   return (keyGroupsQuery.data.value ?? []).filter((g) => g.id !== consumer)
@@ -350,6 +365,23 @@ const columns = computed<Column[]>(() => [
   { key: 'last_build_at', label: t('agents.graphragList.colLastBuilt'), width: '120px' },
   { key: 'actions', label: '', width: '120px', align: 'right' },
 ])
+
+// STable's row generic (`T extends Record<string, unknown> = Record<string, unknown>`)
+// falls back to its default type instead of inferring from `:data`/slot usage here (a
+// Volar limitation with generic script-setup props that declare a default type
+// argument). Pin it explicitly so `row` in slots resolves to `GraphragConfig` instead
+// of `Record<string, unknown>`.
+const _fixedSTable = STable<Record<string, unknown>>
+type STablePropsBase = Parameters<typeof _fixedSTable>[0]
+function typedSTable<T extends object>() {
+  return STable as unknown as new () => {
+    $props: Omit<STablePropsBase, 'data'> & { data?: T[] }
+    $slots: {
+      [key: string]: (arg: { row: T; value: unknown; index: number }) => unknown
+    }
+  }
+}
+const GraphragTable = typedSTable<GraphragConfig>()
 </script>
 
 <template>
@@ -380,7 +412,7 @@ const columns = computed<Column[]>(() => [
       {{ t(eligibilityWarningKey) }}
     </SAlert>
 
-    <STable
+    <GraphragTable
       :columns="columns"
       :data="configs"
       :loading="configsQuery.isLoading.value"
@@ -472,7 +504,7 @@ const columns = computed<Column[]>(() => [
           </template>
         </SEmptyState>
       </template>
-    </STable>
+    </GraphragTable>
 
     <!-- Create modal -->
     <SModal
@@ -485,7 +517,7 @@ const columns = computed<Column[]>(() => [
         <SFormField
           :label="t('agents.graphragForm.agent')"
           name="agent_id"
-          :error="errors.agent_id"
+          :error="errors.agent_id ?? ''"
           required
         >
           <SSelect
@@ -498,7 +530,7 @@ const columns = computed<Column[]>(() => [
         <SFormField
           :label="t('agents.graphragForm.builderKeyGroup')"
           name="builder_key_group_id"
-          :error="errors.builder_key_group_id"
+          :error="errors.builder_key_group_id ?? ''"
           :help="t('agents.graphragList.builderHint')"
           required
         >
@@ -523,7 +555,7 @@ const columns = computed<Column[]>(() => [
               name="trigger_every_n"
             >
               <SInput
-                v-model="triggerEveryN"
+                v-model="triggerEveryNModel"
                 type="number"
               />
             </SFormField>
@@ -532,7 +564,7 @@ const columns = computed<Column[]>(() => [
               name="trigger_silence"
             >
               <SInput
-                v-model="triggerSilence"
+                v-model="triggerSilenceModel"
                 type="number"
               />
             </SFormField>

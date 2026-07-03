@@ -125,6 +125,17 @@ const [rerankModel] = defineField('rerank_model')
 const [topK] = defineField('top_k')
 const [rerankProvider] = defineField('rerank_provider')
 
+// SInput's model-value accepts `string | number` (no `null`); rerank_model is
+// nullable (unset when reranking is off). Bridge to '' for display only — SInput
+// always emits a string for a text input, so the field keeps storing
+// `string | null` exactly as before.
+const rerankModelDisplay = computed<string | number>({
+  get: () => rerankModel.value ?? '',
+  set: (v) => {
+    rerankModel.value = v === '' ? null : String(v)
+  },
+})
+
 const {
   chunkSizeTokens,
   chunkOverlapTokens,
@@ -263,6 +274,26 @@ const columns = computed<Column[]>(() => [
   { key: 'rerank_enabled', label: t('agents.ragList.colRerank'), width: '80px' },
   { key: 'actions', label: '', width: '48px', align: 'right' },
 ])
+
+// STable's row generic (`T extends Record<string, unknown> = Record<string, unknown>`)
+// falls back to its default type instead of inferring from `:data`/slot usage here (a
+// Volar limitation with generic script-setup props that declare a default type
+// argument). Pin it explicitly so `row` in slots/emits resolves to `RagConfig` instead
+// of `Record<string, unknown>`.
+const _fixedSTable = STable<Record<string, unknown>>
+type STablePropsBase = Parameters<typeof _fixedSTable>[0]
+function typedSTable<T extends object>() {
+  return STable as unknown as new () => {
+    $props: Omit<STablePropsBase, 'data'> & {
+      data?: T[]
+      onRowClick?: (row: T) => void
+    }
+    $slots: {
+      [key: string]: (arg: { row: T; value: unknown; index: number }) => unknown
+    }
+  }
+}
+const RagConfigTable = typedSTable<RagConfig>()
 </script>
 
 <template>
@@ -307,7 +338,7 @@ const columns = computed<Column[]>(() => [
       />
     </div>
 
-    <STable
+    <RagConfigTable
       :columns="columns"
       :data="paginatedItems"
       :loading="loading"
@@ -383,7 +414,7 @@ const columns = computed<Column[]>(() => [
           </template>
         </SEmptyState>
       </template>
-    </STable>
+    </RagConfigTable>
 
     <SPagination
       v-if="filteredConfigs.length > pageSize"
@@ -408,7 +439,7 @@ const columns = computed<Column[]>(() => [
         <SFormField
           :label="t('agents.ragForm.name')"
           name="name"
-          :error="errors.name"
+          :error="errors.name ?? ''"
           required
         >
           <SInput
@@ -421,7 +452,7 @@ const columns = computed<Column[]>(() => [
         <SFormField
           :label="t('agents.ragForm.embedKey')"
           name="embed_key_id"
-          :error="errors.embed_key_id"
+          :error="errors.embed_key_id ?? ''"
           required
         >
           <SSelect
@@ -434,7 +465,7 @@ const columns = computed<Column[]>(() => [
         <SFormField
           :label="t('agents.ragForm.embedModel')"
           name="embed_model"
-          :error="errors.embed_model"
+          :error="errors.embed_model ?? ''"
           required
         >
           <SSelect
@@ -455,7 +486,7 @@ const columns = computed<Column[]>(() => [
         <SFormField
           :label="t('agents.ragForm.chunkStrategy')"
           name="chunk_strategy"
-          :error="errors.chunk_strategy"
+          :error="errors.chunk_strategy ?? ''"
         >
           <SSelect
             v-model="chunkStrategy"
@@ -499,7 +530,7 @@ const columns = computed<Column[]>(() => [
         <SFormField
           :label="t('agents.ragForm.topK')"
           name="top_k"
-          :error="errors.top_k"
+          :error="errors.top_k ?? ''"
         >
           <SInput
             v-model="topK"
@@ -510,7 +541,7 @@ const columns = computed<Column[]>(() => [
         <SFormField
           :label="t('agents.ragForm.rerankEnabled')"
           name="rerank_enabled"
-          :help="!hasRerankKeys ? t('agents.ragForm.noRerankKeys') : undefined"
+          :help="!hasRerankKeys ? t('agents.ragForm.noRerankKeys') : ''"
         >
           <SToggle
             v-model="rerankEnabled"
@@ -523,7 +554,7 @@ const columns = computed<Column[]>(() => [
           <SFormField
             :label="t('agents.ragForm.rerankKey')"
             name="rerank_key_id"
-            :error="errors.rerank_key_id"
+            :error="errors.rerank_key_id ?? ''"
           >
             <SSelect
               v-model="rerankKeyId"
@@ -534,9 +565,9 @@ const columns = computed<Column[]>(() => [
           <SFormField
             :label="t('agents.ragForm.rerankModel')"
             name="rerank_model"
-            :error="errors.rerank_model"
+            :error="errors.rerank_model ?? ''"
           >
-            <SInput v-model="rerankModel" />
+            <SInput v-model="rerankModelDisplay" />
           </SFormField>
         </template>
       </form>

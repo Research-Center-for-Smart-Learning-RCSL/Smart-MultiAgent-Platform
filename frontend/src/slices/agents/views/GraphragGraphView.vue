@@ -95,7 +95,9 @@ const baseNodes = computed(() => {
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        textAlign: 'center',
+        // Vue Flow's Node.style is typed as CSSProperties, whose `textAlign` is a
+        // literal union (not `string`); pin the literal so it matches.
+        textAlign: 'center' as const,
         opacity: 1,
         background: `${color}33`,
         borderColor: color,

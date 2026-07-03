@@ -183,6 +183,17 @@ const [topK] = defineField('top_k')
 const [rerankProvider] = defineField('rerank_provider')
 defineField('name')
 
+// SInput's model-value accepts `string | number` (no `null`); rerank_model is
+// nullable (unset when reranking is off). Bridge to '' for display only — SInput
+// always emits a string for a text input, so the field keeps storing
+// `string | null` exactly as before.
+const rerankModelDisplay = computed<string | number>({
+  get: () => rerankModel.value ?? '',
+  set: (v) => {
+    rerankModel.value = v === '' ? null : String(v)
+  },
+})
+
 const {
   chunkSizeTokens,
   chunkOverlapTokens,
@@ -351,13 +362,16 @@ const tabs = computed(() => [
     key: 'documents',
     label: t('agents.ragForm.tabs.documents'),
     icon: DocumentIcon,
-    badge: docs.value.length > 0 ? String(docs.value.length) : undefined,
+    ...(docs.value.length > 0 && { badge: String(docs.value.length) }),
   },
 ])
 
-function onTabChange(tab: string): void {
-  activeTab.value = tab
-  router.replace({ query: { ...route.query, tab } })
+// STabs emits `string | number` for model-value; tab keys here are always strings,
+// so normalize defensively without changing behavior for existing callers.
+function onTabChange(tab: string | number): void {
+  const key = String(tab)
+  activeTab.value = key
+  router.replace({ query: { ...route.query, tab: key } })
 }
 
 const chunkStrategyOptions = computed(() => [
@@ -373,6 +387,23 @@ const docColumns = computed<Column[]>(() => [
   { key: 'agents', label: t('agents.rag.colAgents'), width: '140px' },
   { key: 'actions', label: '', width: '48px', align: 'right' },
 ])
+
+// STable's row generic (`T extends Record<string, unknown> = Record<string, unknown>`)
+// falls back to its default type instead of inferring from `:data`/slot usage here (a
+// Volar limitation with generic script-setup props that declare a default type
+// argument). Pin it explicitly so `row` in slots resolves to `RagDocument` instead of
+// `Record<string, unknown>`.
+const _fixedSTable = STable<Record<string, unknown>>
+type STablePropsBase = Parameters<typeof _fixedSTable>[0]
+function typedSTable<T extends object>() {
+  return STable as unknown as new () => {
+    $props: Omit<STablePropsBase, 'data'> & { data?: T[] }
+    $slots: {
+      [key: string]: (arg: { row: T; value: unknown; index: number }) => unknown
+    }
+  }
+}
+const DocsTable = typedSTable<RagDocument>()
 
 const progressText = computed(() => {
   const p = progress.value
@@ -487,7 +518,7 @@ const showProgress = computed(() =>
                 <SFormField
                   :label="t('agents.ragForm.embedKey')"
                   name="embed_key_id"
-                  :error="errors.embed_key_id"
+                  :error="errors.embed_key_id ?? ''"
                   required
                 >
                   <SSelect
@@ -500,7 +531,7 @@ const showProgress = computed(() =>
                 <SFormField
                   :label="t('agents.ragForm.embedModel')"
                   name="embed_model"
-                  :error="errors.embed_model"
+                  :error="errors.embed_model ?? ''"
                   required
                 >
                   <SInput
@@ -572,7 +603,7 @@ const showProgress = computed(() =>
               <SFormField
                 :label="t('agents.ragForm.topK')"
                 name="top_k"
-                :error="errors.top_k"
+                :error="errors.top_k ?? ''"
               >
                 <SInput
                   v-model="topK"
@@ -596,7 +627,7 @@ const showProgress = computed(() =>
                   <SFormField
                     :label="t('agents.ragForm.rerankKey')"
                     name="rerank_key_id"
-                    :error="errors.rerank_key_id"
+                    :error="errors.rerank_key_id ?? ''"
                   >
                     <SSelect
                       v-model="rerankKeyId"
@@ -607,9 +638,9 @@ const showProgress = computed(() =>
                   <SFormField
                     :label="t('agents.ragForm.rerankModel')"
                     name="rerank_model"
-                    :error="errors.rerank_model"
+                    :error="errors.rerank_model ?? ''"
                   >
-                    <SInput v-model="rerankModel" />
+                    <SInput v-model="rerankModelDisplay" />
                   </SFormField>
                 </div>
               </template>
@@ -676,7 +707,7 @@ const showProgress = computed(() =>
                 {{ t('agents.ragForm.tabs.documents') }}
               </h3>
 
-              <STable
+              <DocsTable
                 :columns="docColumns"
                 :data="docs"
                 :loading="docsQuery.isLoading.value"
@@ -735,7 +766,7 @@ const showProgress = computed(() =>
                     :text="t('agents.rag.emptyDescription')"
                   />
                 </template>
-              </STable>
+              </DocsTable>
 
               <div
                 v-if="showProgress"

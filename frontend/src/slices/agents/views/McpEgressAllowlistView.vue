@@ -80,6 +80,17 @@ const { handleSubmit, errors, defineField, resetForm, setErrors } = useForm<AddI
 const [hostname] = defineField('hostname')
 const [note] = defineField('note')
 
+// SInput's model-value accepts `string | number` (no `null`); note is nullable
+// (unset by default). Bridge to '' for display only — SInput always emits a
+// string for a text input, so the field keeps storing `string | null` exactly
+// as before.
+const noteDisplay = computed<string | number>({
+  get: () => note.value ?? '',
+  set: (v) => {
+    note.value = v === '' ? null : String(v)
+  },
+})
+
 const { applyServerErrors } = useServerErrors(setErrors)
 
 const addMutation = useMutation({
@@ -137,6 +148,23 @@ const columns = computed<Column[]>(() => {
   )
   return cols
 })
+
+// STable's row generic (`T extends Record<string, unknown> = Record<string, unknown>`)
+// falls back to its default type instead of inferring from `:data`/slot usage here (a
+// Volar limitation with generic script-setup props that declare a default type
+// argument). Pin it explicitly so `row` in slots resolves to `EgressAllowlistEntry`
+// instead of `Record<string, unknown>`.
+const _fixedSTable = STable<Record<string, unknown>>
+type STablePropsBase = Parameters<typeof _fixedSTable>[0]
+function typedSTable<T extends object>() {
+  return STable as unknown as new () => {
+    $props: Omit<STablePropsBase, 'data'> & { data?: T[] }
+    $slots: {
+      [key: string]: (arg: { row: T; value: unknown; index: number }) => unknown
+    }
+  }
+}
+const EgressTable = typedSTable<EgressAllowlistEntry>()
 </script>
 
 <template>
@@ -165,7 +193,7 @@ const columns = computed<Column[]>(() => {
           <SFormField
             :label="t('agents.egress.hostname')"
             name="hostname"
-            :error="errors.hostname"
+            :error="errors.hostname ?? ''"
             required
           >
             <SInput
@@ -179,9 +207,9 @@ const columns = computed<Column[]>(() => {
           <SFormField
             :label="t('agents.egress.note')"
             name="note"
-            :error="errors.note"
+            :error="errors.note ?? ''"
           >
-            <SInput v-model="note" />
+            <SInput v-model="noteDisplay" />
           </SFormField>
         </div>
         <SButton
@@ -221,7 +249,7 @@ const columns = computed<Column[]>(() => {
       </template>
     </SAlert>
 
-    <STable
+    <EgressTable
       :columns="columns"
       :data="entries"
       :loading="loading"
@@ -281,6 +309,6 @@ const columns = computed<Column[]>(() => {
           :text="t('agents.egress.emptyDescription')"
         />
       </template>
-    </STable>
+    </EgressTable>
   </main>
 </template>
