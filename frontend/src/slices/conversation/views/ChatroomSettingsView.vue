@@ -19,6 +19,7 @@ import {
   SAlert,
   SSkeleton,
   SDivider,
+  SWakeupEditor,
 } from '@shared/ui'
 import { useToast, useConfirmDialog } from '@shared/composables'
 import { useSessionStore } from '@shared/stores/session'
@@ -31,7 +32,7 @@ import {
   getWorkspace,
   listChatrooms,
 } from '../api'
-import { DlqViewer, WakeupConfigEditor } from '@slices/workflow'
+import { DlqViewer } from '@slices/workflow'
 import { useChatroomSettings } from '../composables/useChatroomSettings'
 import { useChatroomBindings } from '../composables/useChatroomBindings'
 
@@ -529,8 +530,7 @@ watchEffect(() => {
             >
               {{ t('conversation.observers.observerRoleHelp') }}
             </p>
-            <WakeupConfigEditor
-              v-if="agent.wakeup_config"
+            <SWakeupEditor
               :model-value="agent.wakeup_config"
               @update:model-value="(v) => saveWakeupConfig(agent.id, v)"
             />

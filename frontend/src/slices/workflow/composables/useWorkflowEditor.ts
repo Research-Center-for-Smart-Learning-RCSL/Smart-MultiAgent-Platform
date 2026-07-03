@@ -12,6 +12,7 @@ import type {
 import { computed, ref, type ComputedRef, type Ref } from 'vue'
 
 import { useConfirmDialog, useToast } from '@shared/composables'
+import { deepCloneJSON } from '@shared/utils/deepClone'
 import { useI18n } from 'vue-i18n'
 import { NODE_DEFAULTS } from '../constants'
 import { useWorkflowStore } from '../stores/workflow'
@@ -178,7 +179,7 @@ export function useWorkflowEditor(): WorkflowEditorApi {
         id,
         type: 'workflow-node',
         position: pos,
-        data: { label: id, nodeType: type, config: JSON.parse(JSON.stringify(NODE_DEFAULTS[type])) },
+        data: { label: id, nodeType: type, config: deepCloneJSON(NODE_DEFAULTS[type]) },
       },
     ]
     store.selectNode(id)

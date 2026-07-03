@@ -28,7 +28,14 @@ import {
   SAlert,
   SSkeleton,
   SCharCount,
+  SWakeupEditor,
 } from '@shared/ui'
+import {
+  defaultWakeupConfig,
+  normalizeWakeupConfig,
+  type WakeupConfig,
+} from '@shared/types/workflow'
+import { deepCloneJSON } from '@shared/utils/deepClone'
 import { INPUT_LIMITS } from '@shared/constants/inputLimits'
 import {
   useConfirmDialog,
@@ -275,14 +282,14 @@ const effortOptions = computed(() => [
   { value: 'high', label: t('agents.form.effortLevels.high') },
 ])
 
-// Wakeup config decomposed fields. New agents default to replying to every
-// message (every_n=1): without an enabled trigger an agent is inert and never
-// responds, which is a surprising default for a chat agent. Edit mode loads the
-// agent's real config in the query watcher below.
-const wakeupEveryN = ref<number | null>(isCreateMode ? 1 : null)
-const wakeupSilence = ref<number | null>(null)
-const wakeupCallOnly = ref(false)
-const wakeupAutostop = ref<number | null>(null)
+// Wakeup config. New agents default to replying to every message (every_n=1):
+// without an enabled trigger an agent is inert and never responds, which is a
+// surprising default for a chat agent. Edit mode loads the agent's real config
+// in the query watcher below.
+const wakeupConfig = ref<WakeupConfig>(defaultWakeupConfig())
+if (isCreateMode) {
+  wakeupConfig.value.triggers.every_n_messages = { enabled: true, n: 1 }
+}
 
 // SInput's model-value accepts `string | number` (no `null`); these fields are
 // nullable numbers (unset = provider default). Bridge to '' for display only —
@@ -296,15 +303,6 @@ function nullableNumberModel(field: { value: number | null }) {
     },
   })
 }
-const wakeupEveryNModel = nullableNumberModel(wakeupEveryN)
-const wakeupSilenceModel = nullableNumberModel(wakeupSilence)
-const wakeupAutostopModel = nullableNumberModel(wakeupAutostop)
-
-// Mirrors the backend WakeupConfig.is_inert() check: with no trigger enabled the
-// agent never auto-responds (it can still be summoned by @mention in a room).
-const wakeupInert = computed(
-  () => !wakeupEveryN.value && !wakeupSilence.value && !wakeupCallOnly.value,
-)
 
 // Workflow capabilities decomposed fields
 const canInstruct = ref(false)
@@ -318,10 +316,7 @@ const maxAliveSubagents = ref(5)
 // orchestration leaves Save permanently disabled).
 function extrasSnapshot(): string {
   return JSON.stringify([
-    wakeupEveryN.value,
-    wakeupSilence.value,
-    wakeupCallOnly.value,
-    wakeupAutostop.value,
+    wakeupConfig.value,
     canInstruct.value,
     canApprove.value,
     canCreateSubagent.value,
@@ -352,23 +347,7 @@ watch(
         a2a_enabled: agent.a2a_enabled,
       },
     })
-    const wc = agent.wakeup_config as Record<string, unknown>
-    if (wc?.triggers) {
-      const triggers = wc.triggers as Record<string, Record<string, unknown>>
-      const enm = triggers.every_n_messages ?? {}
-      const sm = triggers.silence_minutes ?? {}
-      const co = triggers.call_only ?? {}
-      wakeupEveryN.value = enm.enabled ? (enm.n as number) ?? null : null
-      wakeupSilence.value = sm.enabled ? (sm.t_minutes as number) ?? null : null
-      wakeupCallOnly.value = (co.enabled as boolean) ?? false
-      wakeupAutostop.value = (sm.autostop_rounds as number) ?? null
-    } else {
-      // Legacy flat format saved before the nested triggers schema
-      wakeupEveryN.value = (wc?.every_n_messages as number) || null
-      wakeupSilence.value = (wc?.silence_minutes as number) || null
-      wakeupCallOnly.value = (wc?.call_only as boolean) ?? false
-      wakeupAutostop.value = (wc?.autostop_rounds as number) || null
-    }
+    wakeupConfig.value = normalizeWakeupConfig(agent.wakeup_config)
 
     const wf = agent.workflow_capabilities as Record<string, boolean | number>
     canInstruct.value = (wf.can_instruct as boolean) ?? false
@@ -398,27 +377,11 @@ watch(
 const { applyServerErrors } = useServerErrors(setErrors)
 
 function assemblePayload(values: AgentCreateInput): AgentCreateInput {
-  // Call-only is mutually exclusive with the autonomous triggers (the inputs
-  // are disabled in the UI), so never ship their `enabled` flags alongside it —
-  // otherwise the saved config is self-contradictory (the backend would ignore
-  // every_n/silence, but the stored data reads as if both were active).
-  const callOnly = wakeupCallOnly.value
-  const wakeup_config: Record<string, unknown> = {
-    triggers: {
-      every_n_messages: {
-        enabled: !callOnly && !!wakeupEveryN.value,
-        n: wakeupEveryN.value || 3,
-      },
-      silence_minutes: {
-        enabled: !callOnly && !!wakeupSilence.value,
-        t_minutes: wakeupSilence.value || 2,
-        autostop_rounds: wakeupAutostop.value || 5,
-      },
-      call_only: {
-        enabled: callOnly,
-      },
-    },
-  }
+  // normalizeWakeupConfig (run when wakeupConfig was loaded) and SWakeupEditor's
+  // mode toggle both enforce call_only being mutually exclusive with the
+  // autonomous triggers, so the config here is already self-consistent. Clone it
+  // so the reactive object isn't shared into (and mutated after) the payload.
+  const wakeup_config = deepCloneJSON(wakeupConfig.value) as unknown as Record<string, unknown>
 
   const workflow_capabilities: Record<string, unknown> = {
     can_instruct: canInstruct.value,
@@ -1112,50 +1075,7 @@ const graphragStatusText = computed(() => {
             <h3 class="text-lg font-semibold mb-4">
               {{ t('agents.form.wakeupHelp') }}
             </h3>
-            <SAlert
-              v-if="wakeupInert"
-              variant="warning"
-              class="mb-4"
-            >
-              {{ t('agents.form.wakeupInertWarning') }}
-            </SAlert>
-            <div class="space-y-4">
-              <SFormField
-                :label="t('agents.form.wakeupEveryN')"
-                name="wakeup_every_n"
-              >
-                <SInput
-                  v-model="wakeupEveryNModel"
-                  type="number"
-                  :disabled="wakeupCallOnly"
-                />
-              </SFormField>
-              <SFormField
-                :label="t('agents.form.wakeupSilence')"
-                name="wakeup_silence"
-              >
-                <SInput
-                  v-model="wakeupSilenceModel"
-                  type="number"
-                  :disabled="wakeupCallOnly"
-                />
-              </SFormField>
-              <SFormField
-                :label="t('agents.form.wakeupCallOnly')"
-                name="wakeup_call_only"
-              >
-                <SToggle v-model="wakeupCallOnly" />
-              </SFormField>
-              <SFormField
-                :label="t('agents.form.wakeupAutostop')"
-                name="wakeup_autostop"
-              >
-                <SInput
-                  v-model="wakeupAutostopModel"
-                  type="number"
-                />
-              </SFormField>
-            </div>
+            <SWakeupEditor v-model="wakeupConfig" />
           </SCard>
 
           <SCard>

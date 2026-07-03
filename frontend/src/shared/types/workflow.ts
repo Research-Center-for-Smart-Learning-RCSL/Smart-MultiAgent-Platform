@@ -2,6 +2,8 @@
 // (conversation, workflow, agents).  Moved here from the workflow slice to
 // break the conversation -> workflow type coupling (H15).
 
+import { deepCloneJSON } from '@shared/utils/deepClone'
+
 // ---------------------------------------------------------------------------
 // Approval DTOs (G.6–G.8)
 // ---------------------------------------------------------------------------
@@ -54,4 +56,94 @@ export interface WakeupConfig {
   }
   allow_self_open: boolean
   refresh_every_hours: number
+}
+
+// Canonical fully-populated wakeup config. Most agents persist a partial (or
+// empty) wakeup_config; SWakeupEditor dereferences the nested trigger shape at
+// setup and would crash on a partial one, so every consumer must merge defaults
+// before handing a config to the editor. autostop_max_default mirrors the
+// backend's own default (WakeupConfig.autostop_max_default in
+// contexts/orchestration/domain/models.py) so a value this module invents
+// client-side never disagrees with what an omitted field would resolve to
+// server-side.
+const DEFAULT_WAKEUP: WakeupConfig = {
+  triggers: {
+    every_n_messages: { enabled: false, n: 5 },
+    silence_minutes: {
+      enabled: false,
+      t_minutes: 30,
+      autostop_rounds: 3,
+      autostop_max_default: 100,
+    },
+    call_only: { enabled: false },
+  },
+  allow_self_open: false,
+  refresh_every_hours: 24,
+}
+
+/** A fresh, fully-populated default config (safe to mutate). */
+export function defaultWakeupConfig(): WakeupConfig {
+  return deepCloneJSON(DEFAULT_WAKEUP)
+}
+
+function normalizeNestedTriggers(
+  tg: Record<string, Record<string, unknown>>,
+): WakeupConfig['triggers'] {
+  return {
+    every_n_messages: { ...DEFAULT_WAKEUP.triggers.every_n_messages, ...(tg.every_n_messages ?? {}) },
+    silence_minutes: { ...DEFAULT_WAKEUP.triggers.silence_minutes, ...(tg.silence_minutes ?? {}) },
+    call_only: { ...DEFAULT_WAKEUP.triggers.call_only, ...(tg.call_only ?? {}) },
+  }
+}
+
+// Format written before the nested `triggers` schema (pre commit 4b39447,
+// 2026-06-26): fields sat directly on the wakeup_config root instead of under
+// `triggers`. Old rows in this shape were never migrated, so this fallback
+// keeps their values visible/editable instead of silently resetting them to
+// defaults the moment they're opened.
+function normalizeLegacyFlatTriggers(r: Record<string, unknown>): WakeupConfig['triggers'] {
+  return {
+    every_n_messages: {
+      ...DEFAULT_WAKEUP.triggers.every_n_messages,
+      enabled: !!r.every_n_messages,
+      ...(typeof r.every_n_messages === 'number' ? { n: r.every_n_messages } : {}),
+    },
+    silence_minutes: {
+      ...DEFAULT_WAKEUP.triggers.silence_minutes,
+      enabled: !!r.silence_minutes,
+      ...(typeof r.silence_minutes === 'number' ? { t_minutes: r.silence_minutes } : {}),
+      ...(typeof r.autostop_rounds === 'number' ? { autostop_rounds: r.autostop_rounds } : {}),
+    },
+    call_only: {
+      ...DEFAULT_WAKEUP.triggers.call_only,
+      enabled: (r.call_only as boolean) ?? false,
+    },
+  }
+}
+
+/**
+ * Merge a stored (possibly partial, empty, or legacy-flat) wakeup_config over
+ * the defaults so the result always has the three trigger sub-objects the
+ * editor requires, and enforce the call_only / autonomous-trigger mutual
+ * exclusivity invariant. This is the single normalization funnel every
+ * consumer uses, so a contradictory or legacy-shaped stored config is
+ * corrected the moment it's loaded rather than silently persisted or
+ * discarded.
+ */
+export function normalizeWakeupConfig(raw: unknown): WakeupConfig {
+  const r = (raw ?? {}) as Record<string, unknown>
+  const triggers = r.triggers !== undefined
+    ? normalizeNestedTriggers(r.triggers as Record<string, Record<string, unknown>>)
+    : normalizeLegacyFlatTriggers(r)
+
+  if (triggers.call_only.enabled) {
+    triggers.every_n_messages.enabled = false
+    triggers.silence_minutes.enabled = false
+  }
+
+  return {
+    triggers,
+    allow_self_open: (r.allow_self_open as boolean) ?? DEFAULT_WAKEUP.allow_self_open,
+    refresh_every_hours: (r.refresh_every_hours as number) ?? DEFAULT_WAKEUP.refresh_every_hours,
+  }
 }

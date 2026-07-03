@@ -13,15 +13,15 @@ import {
   removeChatroomAgent,
   setChatroomAgentRole,
 } from '../api'
-import { patchAgentWakeupConfig, toEditableWakeup } from '@slices/workflow'
-import type { WakeupConfig } from '@shared/types/workflow'
+import { patchAgentWakeupConfig } from '@slices/workflow'
+import { normalizeWakeupConfig, type WakeupConfig } from '@shared/types/workflow'
 import type { Agent } from '@slices/agents'
 import type { Chatroom, ChatroomAgentRole } from '../types'
 
 export interface BoundAgent {
   id: string
   name?: string
-  wakeup_config?: WakeupConfig
+  wakeup_config: WakeupConfig
   // Present only when the caller is the room creator (R28.10).
   role?: ChatroomAgentRole
 }
@@ -48,12 +48,11 @@ export function useChatroomBindings(
       .map((id) => projectAgents.value.find((a) => a.id === id))
       .filter((a): a is Agent => a != null)
       .map((a) => {
-        const wakeupConfig = toEditableWakeup(a.wakeup_config)
         const role = boundRoles.value[a.id]
         return {
           id: a.id,
           name: a.name,
-          ...(wakeupConfig !== undefined && { wakeup_config: wakeupConfig }),
+          wakeup_config: normalizeWakeupConfig(a.wakeup_config),
           ...(role !== undefined && { role }),
         }
       }),

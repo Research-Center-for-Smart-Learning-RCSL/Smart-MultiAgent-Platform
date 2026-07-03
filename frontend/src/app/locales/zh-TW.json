@@ -16,6 +16,29 @@
     "charCount": {
       "label": "已使用 {current} / {max} 個字元"
     },
+    "wakeup": {
+      "inert": "未啟用任何觸發條件，此 Agent 不會自動發言；仍可在聊天室以 {'@'}提及 手動呼叫。",
+      "modeLabel": "喚醒方式",
+      "modeAuto": "自動喚醒",
+      "modeAutoDesc": "依訊息則數或靜默時間主動發言。",
+      "modeCall": "僅被呼叫時",
+      "modeCallDesc": "只有在被 {'@'}提及 時才回應。",
+      "triggersHint": "可同時啟用多個條件。",
+      "everyNTitle": "每 N 則訊息",
+      "everyNFieldLabel": "每幾則訊息回應一次",
+      "silenceTitle": "靜默後喚醒",
+      "silenceFieldLabel": "靜默多久後主動發言",
+      "autostopFieldLabel": "最多連續回合數",
+      "autostopHelp": "達到指定回合數後自動停止，避免無限自問自答。",
+      "advanced": "進階設定",
+      "maxCapLabel": "自動停止回合上限",
+      "allowSelfOpenLabel": "允許自行開啟新話題",
+      "refreshLabel": "設定刷新頻率",
+      "suffixMessages": "則",
+      "suffixMinutes": "分鐘",
+      "suffixRounds": "回合",
+      "suffixHours": "小時"
+    },
     "errorBoundary": {
       "title": "發生錯誤",
       "message": "此頁面發生未預期的錯誤。您可以重試，或前往其他頁面。",

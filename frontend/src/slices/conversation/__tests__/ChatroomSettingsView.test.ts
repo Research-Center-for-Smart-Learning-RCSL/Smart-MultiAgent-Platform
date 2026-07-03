@@ -183,8 +183,11 @@ describe('ChatroomSettingsView', () => {
     expect(wrapper.findAll('.agent-head button')).toHaveLength(1)
   })
 
-  it('hides the wakeup editor for a malformed config without crashing', async () => {
-    // `triggers` present but missing the sub-objects the editor dereferences.
+  it('normalizes a malformed config instead of hiding the wakeup editor', async () => {
+    // `triggers` present but missing the sub-objects the editor dereferences —
+    // normalizeWakeupConfig fills them with defaults rather than the editor
+    // being hidden (which would leave the agent's wakeup unconfigurable from
+    // this page even though AgentDetailView shows it fine for the same data).
     const partial = makeAgent('agent_1', 'Partial Agent')
     partial.wakeup_config = { triggers: {} }
     server.use(
@@ -203,8 +206,7 @@ describe('ChatroomSettingsView', () => {
     await flushPromises()
     await flushPromises()
 
-    // Row renders, but the editor is guarded out (would otherwise throw).
     expect(wrapper.text()).toContain('Partial Agent')
-    expect(wrapper.find('.wakeup-editor').exists()).toBe(false)
+    expect(wrapper.find('.wakeup-editor').exists()).toBe(true)
   })
 })
