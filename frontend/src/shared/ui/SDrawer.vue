@@ -11,7 +11,6 @@ const props = withDefaults(defineProps<{
   size?: 'sm' | 'md' | 'lg'
 }>(), {
   open: false,
-  title: undefined,
   side: 'right',
   size: 'md',
 })
@@ -24,7 +23,10 @@ const slots = useSlots()
 const { t } = useI18n()
 
 const titleId = useId()
-const labelledBy = computed(() => (props.title ? titleId : undefined))
+// aria-labelledby is genuinely optional (only when a title exists); omit the
+// attr entirely rather than passing an explicit `undefined` value, which
+// exactOptionalPropertyTypes forbids.
+const labelledByAttrs = computed(() => (props.title ? { 'aria-labelledby': titleId } : {}))
 
 const panelRef = ref<HTMLElement | null>(null)
 const { trapTab } = useFocusTrap(panelRef, () => props.open)
@@ -66,9 +68,9 @@ function onBackdropClick() {
               `s-drawer__panel--${side}`,
               `s-drawer__panel--${size}`,
             ]"
+            v-bind="labelledByAttrs"
             role="dialog"
             aria-modal="true"
-            :aria-labelledby="labelledBy"
             tabindex="-1"
           >
             <div class="s-drawer__header">

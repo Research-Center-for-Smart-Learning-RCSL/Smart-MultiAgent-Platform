@@ -22,22 +22,22 @@ export function useToast() {
     success: (msg: string, opts?: ToastOptions) =>
       toast.success(msg, {
         duration: TOAST_DURATION_MS.success,
-        description: opts?.description,
+        ...(opts?.description !== undefined && { description: opts.description }),
       }),
     error: (msg: string, opts?: ToastOptions) =>
       toast.error(msg, {
         duration: TOAST_DURATION_MS.error,
-        description: opts?.description,
+        ...(opts?.description !== undefined && { description: opts.description }),
       }),
     warning: (msg: string, opts?: ToastOptions) =>
       toast.warning(msg, {
         duration: TOAST_DURATION_MS.warning,
-        description: opts?.description,
+        ...(opts?.description !== undefined && { description: opts.description }),
       }),
     info: (msg: string, opts?: ToastOptions) =>
       toast.info(msg, {
         duration: TOAST_DURATION_MS.info,
-        description: opts?.description,
+        ...(opts?.description !== undefined && { description: opts.description }),
       }),
   }
 }

@@ -65,6 +65,13 @@ function goTo(p: number) {
     emit('update:page', p)
   }
 }
+
+// aria-current is genuinely conditional; omit the attr entirely rather than
+// passing an explicit `undefined` value, which exactOptionalPropertyTypes
+// forbids.
+function ariaCurrentAttrs(item: number) {
+  return item === props.page ? { 'aria-current': 'page' as const } : {}
+}
 </script>
 
 <template>
@@ -98,11 +105,11 @@ function goTo(p: number) {
         </span>
         <button
           v-else
+          v-bind="ariaCurrentAttrs(item)"
           class="s-pagination__btn"
           :class="{ 's-pagination__btn--active': item === page }"
           type="button"
           :aria-label="t('app.pagination.page', { page: item })"
-          :aria-current="item === page ? 'page' : undefined"
           @click="goTo(item)"
         >
           {{ item }}

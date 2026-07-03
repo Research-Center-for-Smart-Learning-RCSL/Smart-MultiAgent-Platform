@@ -16,7 +16,6 @@ const props = withDefaults(defineProps<{
   disabled: false,
   error: false,
   size: 'md',
-  id: undefined,
 })
 
 const emit = defineEmits<{
@@ -26,6 +25,16 @@ const emit = defineEmits<{
 const showPlaceholder = computed(() => {
   return props.modelValue === null || props.modelValue === ''
 })
+
+// `id` is genuinely optional with no default. Vue already omits an attribute
+// whose bound value is `undefined` at runtime, but vue-tsc's template
+// type-check rejects an explicitly-`undefined`-typed value under
+// `exactOptionalPropertyTypes` even though the runtime behavior is exactly
+// "attribute absent" — this cast only narrows the *static* type, the *value*
+// is unchanged. Kept as a literal `:id` binding (not folded into a `v-bind`
+// spread) so it stays visible to vuejs-accessibility/form-control-has-label,
+// which only recognizes a named attribute.
+const idAttr = computed(() => props.id as string)
 
 function onChange(event: Event) {
   const target = event.target as HTMLSelectElement
@@ -49,10 +58,10 @@ function onChange(event: Event) {
     ]"
   >
     <select
-      :id="id"
+      :id="idAttr"
       class="s-select__native"
-      :value="modelValue ?? ''"
-      :disabled="disabled"
+      :value="props.modelValue ?? ''"
+      :disabled="props.disabled"
       @change="onChange"
     >
       <option
@@ -66,7 +75,7 @@ function onChange(event: Event) {
         v-for="opt in options"
         :key="opt.value"
         :value="opt.value"
-        :disabled="opt.disabled"
+        :disabled="opt.disabled ?? false"
       >
         {{ opt.label }}
       </option>

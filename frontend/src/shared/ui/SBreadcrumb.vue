@@ -16,11 +16,11 @@ const visibleItems = computed<(BreadcrumbItem | { ellipsis: true })[]>(() => {
   if (props.items.length <= 5) {
     return props.items
   }
-  return [
-    props.items[0],
-    { ellipsis: true } as { ellipsis: true },
-    ...props.items.slice(-3),
-  ]
+  const first = props.items[0]
+  if (!first) {
+    return props.items
+  }
+  return [first, { ellipsis: true } as { ellipsis: true }, ...props.items.slice(-3)]
 })
 
 function isEllipsis(item: BreadcrumbItem | { ellipsis: true }): item is { ellipsis: true } {

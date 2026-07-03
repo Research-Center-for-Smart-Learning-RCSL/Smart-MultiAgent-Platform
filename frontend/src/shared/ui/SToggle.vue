@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { computed } from 'vue'
+
 const props = withDefaults(defineProps<{
   modelValue?: boolean
   disabled?: boolean
@@ -10,12 +12,16 @@ const props = withDefaults(defineProps<{
   disabled: false,
   size: 'md',
   variant: 'switch',
-  id: undefined,
 })
 
 const emit = defineEmits<{
   'update:modelValue': [value: boolean]
 }>()
+
+// id is genuinely optional (no default); omit the attr entirely rather than
+// passing an explicit `undefined` value, which exactOptionalPropertyTypes
+// forbids.
+const idAttrs = computed(() => (props.id !== undefined ? { id: props.id } : {}))
 
 function toggle() {
   if (props.disabled) return
@@ -29,11 +35,11 @@ function toggle() {
     :class="{ 's-toggle--disabled': disabled }"
   >
     <button
-      :id="id"
+      v-bind="idAttrs"
       type="button"
       role="switch"
-      :aria-checked="modelValue"
-      :disabled="disabled"
+      :aria-checked="props.modelValue"
+      :disabled="props.disabled"
       class="s-toggle__track"
       :class="[
         variant === 'robot' ? 's-toggle__track--robot' : `s-toggle__track--${size}`,

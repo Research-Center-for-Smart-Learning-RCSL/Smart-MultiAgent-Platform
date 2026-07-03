@@ -18,8 +18,6 @@ const props = withDefaults(defineProps<{
   disabled: false,
   error: false,
   size: 'md',
-  id: undefined,
-  maxlength: undefined,
 })
 
 const emit = defineEmits<{
@@ -34,6 +32,21 @@ const internalType = computed(() => {
   if (props.type === 'password' && passwordVisible.value) return 'text'
   return props.type
 })
+
+// `id`/`maxlength` are genuinely optional native attrs with no default value.
+// Vue already omits an attribute whose bound value is `undefined` at runtime
+// (patchProp behavior, unaffected by TS types), but vue-tsc's template
+// type-check validates the whole compiled attrs object against
+// `InputHTMLAttributes` in one shot under `exactOptionalPropertyTypes`, which
+// rejects an explicitly-`undefined`-typed value even though the runtime
+// behavior is exactly "attribute absent". These casts only narrow the
+// *static* type; the *value* is unchanged, so an unset id/maxlength still
+// renders with the attribute omitted. Kept as literal `:id`/`:maxlength`
+// bindings (not folded into a `v-bind` spread) so the id stays visible to
+// vuejs-accessibility/form-control-has-label, which only recognizes a named
+// attribute, not one hidden inside an object spread.
+const idAttr = computed(() => props.id as string)
+const maxlengthAttr = computed(() => props.maxlength as number)
 
 const hasPrefix = computed(() => !!slots.prefix)
 const hasSuffix = computed(() => !!slots.suffix)
@@ -70,13 +83,13 @@ function togglePasswordVisibility() {
       <slot name="prefix" />
     </span>
     <input
-      :id="id"
+      :id="idAttr"
       class="s-input__field"
       :type="internalType"
-      :value="modelValue"
-      :placeholder="placeholder"
-      :disabled="disabled"
-      :maxlength="maxlength"
+      :value="props.modelValue"
+      :placeholder="props.placeholder"
+      :disabled="props.disabled"
+      :maxlength="maxlengthAttr"
       @input="onInput"
     >
     <span
@@ -88,7 +101,7 @@ function togglePasswordVisibility() {
         v-if="isPassword"
         type="button"
         class="s-input__eye-toggle"
-        :disabled="disabled"
+        :disabled="props.disabled"
         tabindex="-1"
         @click="togglePasswordVisibility"
       >

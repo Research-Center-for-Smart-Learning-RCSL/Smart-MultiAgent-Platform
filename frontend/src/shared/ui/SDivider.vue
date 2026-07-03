@@ -8,7 +8,6 @@ const props = withDefaults(
   }>(),
   {
     orientation: 'horizontal',
-    label: undefined,
   },
 )
 </script>

@@ -9,11 +9,9 @@ const props = withDefaults(defineProps<{
   readonly?: boolean
   id?: string
 }>(), {
-  placeholder: undefined,
   language: 'text',
   rows: 8,
   readonly: false,
-  id: undefined,
 })
 
 const emit = defineEmits<{
@@ -21,6 +19,18 @@ const emit = defineEmits<{
 }>()
 
 const minHeight = computed(() => `${props.rows * 1.5 * 13}px`)
+
+// `id`/`placeholder` are genuinely optional with no default. Vue already
+// omits an attribute whose bound value is `undefined` at runtime, but
+// vue-tsc's template type-check rejects an explicitly-`undefined`-typed
+// value under `exactOptionalPropertyTypes` even though the runtime behavior
+// is exactly "attribute absent" — these casts only narrow the *static* type,
+// the *value* is unchanged. Kept as literal `:id`/`:placeholder` bindings
+// (not folded into a `v-bind` spread) so the id stays visible to
+// vuejs-accessibility/form-control-has-label, which only recognizes a named
+// attribute.
+const idAttr = computed(() => props.id as string)
+const placeholderAttr = computed(() => props.placeholder as string)
 
 function onInput(e: Event) {
   const target = e.target as HTMLTextAreaElement
@@ -46,13 +56,13 @@ function onKeydown(e: KeyboardEvent) {
 
 <template>
   <textarea
-    :id="id"
+    :id="idAttr"
     class="code-editor"
     :class="`code-editor--${language}`"
     :value="modelValue"
-    :placeholder="placeholder"
-    :readonly="readonly"
-    :rows="rows"
+    :placeholder="placeholderAttr"
+    :readonly="props.readonly"
+    :rows="props.rows"
     :style="{ minHeight }"
     spellcheck="false"
     autocomplete="off"

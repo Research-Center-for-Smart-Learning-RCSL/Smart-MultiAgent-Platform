@@ -66,8 +66,9 @@ async function createUpload(opts: TusUploadOptions): Promise<string> {
   })
   const location = (res.headers['location'] ?? '') as string
   const match = /\/api\/tus\/([0-9a-f-]{36})/i.exec(location)
-  if (!match) throw new Error(`TUS creation missing Location header: ${location}`)
-  return match[1]
+  const id = match?.[1]
+  if (!id) throw new Error(`TUS creation missing Location header: ${location}`)
+  return id
 }
 
 async function patchChunk(
@@ -82,7 +83,7 @@ async function patchChunk(
       'Upload-Offset': String(offset),
       'Content-Type': 'application/offset+octet-stream',
     },
-    signal,
+    ...(signal !== undefined && { signal }),
     transformRequest: [(d) => d], // axios would JSON-stringify otherwise
   })
   return {
@@ -109,11 +110,11 @@ export async function tusUpload(opts: TusUploadOptions): Promise<TusUploadResult
 export function resourceToAttachmentId(header: string | null): string | null {
   if (!header) return null
   const m = /\/api\/attachments\/([0-9a-f-]{36})/i.exec(header)
-  return m ? m[1] : null
+  return m?.[1] ?? null
 }
 
 export function resourceToRagDocumentId(header: string | null): string | null {
   if (!header) return null
   const m = /\/api\/rag-documents\/([0-9a-f-]{36})/i.exec(header)
-  return m ? m[1] : null
+  return m?.[1] ?? null
 }

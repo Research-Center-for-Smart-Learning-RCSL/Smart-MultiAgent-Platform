@@ -9,8 +9,6 @@ const props = withDefaults(defineProps<{
   multiple?: boolean
   disabled?: boolean
 }>(), {
-  accept: undefined,
-  maxSize: undefined,
   multiple: false,
   disabled: false,
 })
@@ -25,6 +23,11 @@ const selectedFiles = ref<File[]>([])
 const isDragOver = ref(false)
 
 const hasFiles = computed(() => selectedFiles.value.length > 0)
+
+// accept is genuinely optional (no default); omit the attr entirely rather
+// than passing an explicit `undefined` value, which exactOptionalPropertyTypes
+// forbids.
+const acceptAttrs = computed(() => (props.accept !== undefined ? { accept: props.accept } : {}))
 
 function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`
@@ -120,12 +123,12 @@ defineExpose({ clear })
       </slot>
     </div>
     <input
+      v-bind="acceptAttrs"
       ref="fileInputRef"
       type="file"
       class="file-upload__input"
-      :accept="accept"
-      :multiple="multiple"
-      :disabled="disabled"
+      :multiple="props.multiple"
+      :disabled="props.disabled"
       aria-label="File upload"
       @change="onFileChange"
     >

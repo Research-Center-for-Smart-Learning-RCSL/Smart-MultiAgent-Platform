@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { computed } from 'vue'
+
 const props = withDefaults(defineProps<{
   modelValue?: string
   value: string
@@ -9,12 +11,16 @@ const props = withDefaults(defineProps<{
   modelValue: '',
   disabled: false,
   name: '',
-  id: undefined,
 })
 
 const emit = defineEmits<{
   'update:modelValue': [value: string]
 }>()
+
+// id is genuinely optional (no default); omit the attr entirely rather than
+// passing an explicit `undefined` value, which exactOptionalPropertyTypes
+// forbids.
+const idAttrs = computed(() => (props.id !== undefined ? { id: props.id } : {}))
 
 function onChange() {
   emit('update:modelValue', props.value)
@@ -27,13 +33,13 @@ function onChange() {
     :class="{ 's-radio--disabled': disabled }"
   >
     <input
-      :id="id"
+      v-bind="idAttrs"
       type="radio"
       class="s-radio__native"
-      :name="name"
-      :value="value"
-      :checked="modelValue === value"
-      :disabled="disabled"
+      :name="props.name"
+      :value="props.value"
+      :checked="props.modelValue === props.value"
+      :disabled="props.disabled"
       @change="onChange"
     >
     <span

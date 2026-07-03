@@ -20,7 +20,6 @@ const props = withDefaults(
     dismissible?: boolean
   }>(),
   {
-    title: undefined,
     dismissible: false,
   },
 )

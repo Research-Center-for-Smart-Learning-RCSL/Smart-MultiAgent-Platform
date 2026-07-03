@@ -19,14 +19,21 @@ const parsed = computed(() => {
   return Number.isNaN(d.getTime()) ? null : d
 })
 
-const isoDatetime = computed(() => parsed.value?.toISOString())
 const absolute = computed(() => formatDateTime(props.value))
 const relative = computed(() => formatRelativeTime(props.value, now.value, locale.value))
+
+// datetime is genuinely conditional (only when the value parses); omit the
+// attr entirely rather than passing an explicit `undefined` value, which
+// exactOptionalPropertyTypes forbids.
+const datetimeAttrs = computed(() => {
+  const iso = parsed.value?.toISOString()
+  return iso !== undefined ? { datetime: iso } : {}
+})
 </script>
 
 <template>
   <time
-    :datetime="isoDatetime"
+    v-bind="datetimeAttrs"
     :title="absolute"
   >{{ relative }}</time>
 </template>
