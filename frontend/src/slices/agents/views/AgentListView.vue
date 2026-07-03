@@ -145,6 +145,26 @@ const columns = computed<Column[]>(() => [
   { key: 'actions', label: '', width: '48px', align: 'right' },
 ])
 
+// STable's row generic (`T extends Record<string, unknown> = Record<string, unknown>`)
+// falls back to its default type instead of inferring from `:data`/slot usage here (a
+// Volar limitation with generic script-setup props that declare a default type
+// argument). Pin it explicitly so `row` in slots/emits resolves to `Agent` instead of
+// `Record<string, unknown>`.
+const _fixedSTable = STable<Record<string, unknown>>
+type STablePropsBase = Parameters<typeof _fixedSTable>[0]
+function typedSTable<T extends object>() {
+  return STable as unknown as new () => {
+    $props: Omit<STablePropsBase, 'data'> & {
+      data?: T[]
+      onRowClick?: (row: T) => void
+    }
+    $slots: {
+      [key: string]: (arg: { row: T; value: unknown; index: number }) => unknown
+    }
+  }
+}
+const AgentTable = typedSTable<Agent>()
+
 const actionItems = computed(() => [
   { key: 'edit', label: t('common.edit', 'Edit'), icon: PencilSquareIcon },
   { key: 'duplicate', label: t('agents.list.duplicate'), icon: DocumentDuplicateIcon },
@@ -186,6 +206,7 @@ const duplicateMutation = useMutation({
       name: `${agent.name} (copy)`,
       model_hint: agent.model_hint as AgentCreateInput['model_hint'],
       model_id: agent.model_id ?? null,
+      effort: (agent.effort ?? null) as AgentCreateInput['effort'],
       key_group_id: agent.key_group_id,
       system_prompt: agent.system_prompt,
       prompt_strategy: agent.prompt_strategy as AgentCreateInput['prompt_strategy'],
@@ -323,7 +344,7 @@ function onRowClick(row: Agent): void {
     </div>
 
     <!-- Desktop: table layout -->
-    <STable
+    <AgentTable
       v-if="!isMobile"
       :columns="columns"
       :data="paginatedItems"
@@ -414,7 +435,7 @@ function onRowClick(row: Agent): void {
           </template>
         </SEmptyState>
       </template>
-    </STable>
+    </AgentTable>
 
     <SPagination
       v-if="filteredAgents.length > pageSize"
