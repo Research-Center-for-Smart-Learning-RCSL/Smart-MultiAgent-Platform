@@ -1,13 +1,14 @@
 ---
 name: audit
-description: Hunt for functional bugs — behavior that deviates from documented intent — in a chosen area of the codebase, adversarially verify every candidate finding, and produce a findings dossier (docs/tasks/) whose entries convert into bugfix specs. Use when the user wants to audit, sweep, or search an area for bugs or defects ("audit the conversation slice", "are there functional bugs in workflow execution?", "check the keys context for logic errors"). Not for structural quality (check-quality), vulnerabilities (check-security), or diff review (code-review) — this skill judges behavior against intent, area-wide.
+description: Hunt for functional bugs — behavior that deviates from documented intent — in a chosen area of the codebase, adversarially verify every candidate finding, and produce a findings dossier (docs/audits/) whose entries convert into bugfix specs. Use when the user wants to audit, sweep, or search an area for bugs or defects ("audit the conversation slice", "are there functional bugs in workflow execution?", "check the keys context for logic errors"). Not for structural quality (check-quality), vulnerabilities (check-security), or diff review (code-review) — this skill judges behavior against intent, area-wide.
 ---
 
 ## Purpose
 
-Investigation only — this skill changes no code. The deliverable is `findings.md` in a
-task dossier: a verified, evidence-backed list of functional defects, each convertible
-into a bugfix spec. The dossier contract in `docs/tasks/README.md` governs the output —
+Investigation only — this skill changes no code. The deliverable is `findings.md` in an
+audit dossier under `docs/audits/`: a verified, evidence-backed list of functional
+defects, each convertible into a bugfix spec. The dossier contract in
+`docs/tasks/README.md` governs the output (it covers both the audits and tasks trees) —
 read it first.
 
 **Boundary with the other review skills**: this skill answers "does the behavior match
@@ -58,7 +59,7 @@ already pin the behavior, trace the alleged failure scenario step by step.
 
 ## Step 4 — Write findings.md
 
-Create `docs/tasks/YYYY-MM-DD-<slug>/findings.md` with `type: audit`, `status: draft`.
+Create `docs/audits/YYYY-MM-DD-<slug>/findings.md` with `type: audit`, `status: draft`.
 Order findings by severity. Each entry:
 
 ```markdown

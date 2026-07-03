@@ -9,7 +9,7 @@ supersedes:
 # Conversation Vertical — Bugfix Batch (F-1..F-5)
 
 Fixes the five verified findings from the 2026-07-03 conversation-vertical audit
-(`docs/tasks/2026-07-03-conversation-vertical-audit/findings.md`). Batched into one
+(`docs/audits/2026-07-03-conversation-vertical-audit/findings.md`). Batched into one
 dossier by decision Q-1; each finding keeps its own root cause, fix, regression test, and
 acceptance criteria (B1..B5) so `/build` can still commit them as independent fix∕test
 pairs.
