@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: approved
+status: implemented
 created: 2026-07-03
 requirements: []
 supersedes:
@@ -61,9 +61,9 @@ Change `frontend/src/slices/workflow/components/ApprovalCard.vue:78-80` from
 
 ## 6. Acceptance Criteria
 
-- [ ] AC-1: `ApprovalCard` renders with the `s-card--flat` and `s-card--pad-sm` classes;
+- [x] AC-1: `ApprovalCard` renders with the `s-card--flat` and `s-card--pad-sm` classes;
       verified by the new regression test.
-- [ ] AC-2: `pnpm typecheck` no longer reports TS2322 for these two bindings.
+- [x] AC-2: `pnpm typecheck` no longer reports TS2322 for these two bindings.
 
 ## 7. SRS Delta
 
