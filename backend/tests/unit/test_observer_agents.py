@@ -115,6 +115,237 @@ def test_ensure_room_creator_raises() -> None:
 
 
 # --------------------------------------------------------------------------- #
+# Chatroom handler gates — unbind (O-5), disclosure-only patch (O-6),
+# guest-neutral DTO (O-8)
+# --------------------------------------------------------------------------- #
+
+
+def _room_row(*, created_by=None, disclose=True):
+    now = datetime.now(UTC)
+    return SimpleNamespace(
+        id=uuid.uuid4(),
+        workspace_id=uuid.uuid4(),
+        name="room",
+        allow_org_members=False,
+        allow_project_members=True,
+        allow_project_owners_only=False,
+        allow_guest_links=True,
+        version=1,
+        created_at=now,
+        deleted_at=None,
+        created_by_user_id=created_by,
+        disclose_observers=disclose,
+    )
+
+
+def test_to_out_hides_observer_fields_from_pure_guests() -> None:
+    """O-8 (R28.02): a pure guest gets fail-closed neutral values for every
+    observer-related DTO field; members keep the real values."""
+    import app.api.v1.chatrooms as chatrooms_mod
+
+    creator = uuid.uuid4()
+    room = _room_row(created_by=creator, disclose=True)
+
+    guest_view = chatrooms_mod._to_out(room, has_observers=True, viewer_is_pure_guest=True)
+    assert guest_view.created_by_user_id is None
+    assert guest_view.disclose_observers is False
+    assert guest_view.observers_present is False
+
+    member_view = chatrooms_mod._to_out(room, has_observers=True)
+    assert member_view.created_by_user_id == creator
+    assert member_view.disclose_observers is True
+    assert member_view.observers_present is True
+
+
+_CTX = SimpleNamespace(actor_ip=None, request_id=None)
+
+
+def _wire_remove_handler(monkeypatch, *, role, access, removed):
+    import app.api.v1.chatrooms as chatrooms_mod
+
+    async def _pid(db, chatroom_id):
+        return uuid.uuid4()
+
+    async def _cap(db, principal, project_id, capability):
+        return None
+
+    async def _resolve(db, *, principal, chatroom_id):
+        if access is None:
+            raise AssertionError("resolve_room_access must not run for normal-role unbinds")
+        return access
+
+    class _Service:
+        def __init__(self, db) -> None:
+            pass
+
+        async def agent_role(self, *, chatroom_id, agent_id):
+            return role
+
+        async def remove_agent(self, **kw):
+            removed.append(kw)
+
+    monkeypatch.setattr(chatrooms_mod, "_project_id_for_chatroom", _pid)
+    monkeypatch.setattr(chatrooms_mod, "_require_project_cap", _cap)
+    monkeypatch.setattr(chatrooms_mod, "resolve_room_access", _resolve)
+    monkeypatch.setattr(chatrooms_mod, "ChatroomService", _Service)
+    return chatrooms_mod
+
+
+@pytest.mark.asyncio
+async def test_remove_observer_binding_requires_creator(monkeypatch) -> None:
+    """O-5 (R28.02): a non-creator moderator cannot unbind an observer."""
+    removed: list = []
+    access = _access(created_by=uuid.uuid4(), roles=frozenset({Role.PROJECT_OWNER}))
+    mod = _wire_remove_handler(
+        monkeypatch, role=ChatroomAgentRole.OBSERVER, access=access, removed=removed
+    )
+
+    with pytest.raises(NotRoomCreator):
+        await mod.remove_chatroom_agent(
+            chatroom_id=uuid.uuid4(),
+            agent_id=uuid.uuid4(),
+            ctx=_CTX,
+            principal=_principal(),
+            db=object(),
+        )
+    assert removed == []
+
+
+@pytest.mark.asyncio
+async def test_remove_observer_binding_allows_creator(monkeypatch) -> None:
+    uid = uuid.uuid4()
+    removed: list = []
+    access = _access(created_by=uid, roles=frozenset({Role.PROJECT_OWNER}))
+    mod = _wire_remove_handler(
+        monkeypatch, role=ChatroomAgentRole.OBSERVER, access=access, removed=removed
+    )
+
+    await mod.remove_chatroom_agent(
+        chatroom_id=uuid.uuid4(),
+        agent_id=uuid.uuid4(),
+        ctx=_CTX,
+        principal=_principal(uid),
+        db=object(),
+    )
+    assert len(removed) == 1
+
+
+@pytest.mark.asyncio
+async def test_remove_normal_binding_keeps_moderator_semantics(monkeypatch) -> None:
+    removed: list = []
+    mod = _wire_remove_handler(
+        monkeypatch, role=ChatroomAgentRole.NORMAL, access=None, removed=removed
+    )
+
+    await mod.remove_chatroom_agent(
+        chatroom_id=uuid.uuid4(),
+        agent_id=uuid.uuid4(),
+        ctx=_CTX,
+        principal=_principal(),
+        db=object(),
+    )
+    assert len(removed) == 1
+
+
+def _wire_patch_handler(monkeypatch, *, access, cap_calls, patched):
+    import app.api.v1.chatrooms as chatrooms_mod
+
+    async def _pid(db, chatroom_id):
+        return uuid.uuid4()
+
+    async def _cap(db, principal, project_id, capability):
+        cap_calls.append(capability)
+
+    async def _resolve(db, *, principal, chatroom_id):
+        if access is None:
+            raise AssertionError("resolve_room_access must not run without a disclosure field")
+        return access
+
+    class _Service:
+        def __init__(self, db) -> None:
+            pass
+
+        async def patch(self, **kw):
+            patched.append(kw)
+            return _room_row()
+
+        async def rooms_with_observers(self, ids):
+            return set()
+
+    monkeypatch.setattr(chatrooms_mod, "_project_id_for_chatroom", _pid)
+    monkeypatch.setattr(chatrooms_mod, "_require_project_cap", _cap)
+    monkeypatch.setattr(chatrooms_mod, "resolve_room_access", _resolve)
+    monkeypatch.setattr(chatrooms_mod, "ChatroomService", _Service)
+    return chatrooms_mod
+
+
+@pytest.mark.asyncio
+async def test_disclosure_only_patch_skips_capability_gate(monkeypatch) -> None:
+    """O-6 (R28.09): a creator demoted below project owner can still toggle
+    disclosure — the capability gate is skipped for a disclosure-only patch."""
+    import app.api.v1.chatrooms as chatrooms_mod
+
+    uid = uuid.uuid4()
+    cap_calls: list = []
+    patched: list = []
+    access = _access(created_by=uid, roles=frozenset({Role.PROJECT_MEMBER}))
+    mod = _wire_patch_handler(monkeypatch, access=access, cap_calls=cap_calls, patched=patched)
+
+    await mod.patch_chatroom(
+        chatrooms_mod.ChatroomPatchIn(disclose_observers=False),
+        chatroom_id=uuid.uuid4(),
+        if_match="1",
+        ctx=_CTX,
+        principal=_principal(uid),
+        db=object(),
+    )
+    assert cap_calls == []
+    assert len(patched) == 1
+
+
+@pytest.mark.asyncio
+async def test_mixed_patch_keeps_capability_and_creator_gates(monkeypatch) -> None:
+    import app.api.v1.chatrooms as chatrooms_mod
+
+    cap_calls: list = []
+    patched: list = []
+    access = _access(created_by=uuid.uuid4(), roles=frozenset({Role.PROJECT_OWNER}))
+    mod = _wire_patch_handler(monkeypatch, access=access, cap_calls=cap_calls, patched=patched)
+
+    with pytest.raises(NotRoomCreator):
+        await mod.patch_chatroom(
+            chatrooms_mod.ChatroomPatchIn(name="renamed", disclose_observers=False),
+            chatroom_id=uuid.uuid4(),
+            if_match="1",
+            ctx=_CTX,
+            principal=_principal(),
+            db=object(),
+        )
+    assert len(cap_calls) == 1
+    assert patched == []
+
+
+@pytest.mark.asyncio
+async def test_name_only_patch_keeps_moderator_semantics(monkeypatch) -> None:
+    import app.api.v1.chatrooms as chatrooms_mod
+
+    cap_calls: list = []
+    patched: list = []
+    mod = _wire_patch_handler(monkeypatch, access=None, cap_calls=cap_calls, patched=patched)
+
+    await mod.patch_chatroom(
+        chatrooms_mod.ChatroomPatchIn(name="renamed"),
+        chatroom_id=uuid.uuid4(),
+        if_match="1",
+        ctx=_CTX,
+        principal=_principal(),
+        db=object(),
+    )
+    assert len(cap_calls) == 1
+    assert len(patched) == 1
+
+
+# --------------------------------------------------------------------------- #
 # ObservationService.release (R28.06/R28.07/R28.08/R28.11)
 # --------------------------------------------------------------------------- #
 

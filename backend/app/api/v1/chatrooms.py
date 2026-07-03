@@ -112,7 +112,11 @@ class ChatroomMemberOut(BaseModel):
     display_name: str | None
 
 
-def _to_out(r, *, has_observers: bool = False) -> ChatroomOut:
+def _to_out(r, *, has_observers: bool = False, viewer_is_pure_guest: bool = False) -> ChatroomOut:
+    # O-8 (R28.02): guests are denied every observer surface — a pure guest
+    # (guest link only, no project role) receives fail-closed neutral values,
+    # indistinguishable from a room with disclosure off and no creator on
+    # record, so the DTO is not an observer-existence oracle.
     return ChatroomOut(
         id=r.id,
         workspace_id=r.workspace_id,
@@ -124,9 +128,11 @@ def _to_out(r, *, has_observers: bool = False) -> ChatroomOut:
         version=r.version,
         created_at=r.created_at.isoformat(),
         deleted_at=r.deleted_at.isoformat() if r.deleted_at else None,
-        created_by_user_id=r.created_by_user_id,
-        disclose_observers=r.disclose_observers,
-        observers_present=bool(r.disclose_observers and has_observers),
+        created_by_user_id=None if viewer_is_pure_guest else r.created_by_user_id,
+        disclose_observers=False if viewer_is_pure_guest else r.disclose_observers,
+        observers_present=bool(
+            not viewer_is_pure_guest and r.disclose_observers and has_observers
+        ),
     )
 
 
@@ -254,6 +260,7 @@ async def read_chatroom(
     db: AsyncSession = Depends(db_session),
 ) -> ChatroomOut:
     project_id = await _project_id_for_chatroom(db, chatroom_id)
+    pure_guest = False
     if not principal.is_admin:
         resolver = await get_role_resolver(db)
         roles = await resolver.roles_for(
@@ -266,10 +273,15 @@ async def read_chatroom(
         )
         if not roles and not is_guest:
             _raise_forbidden("not a participant of this room")
+        pure_guest = not roles and is_guest
     service = ChatroomService(db)
     room = await service.get(chatroom_id)
     with_observers = await service.rooms_with_observers([chatroom_id])
-    return _to_out(room, has_observers=chatroom_id in with_observers)
+    return _to_out(
+        room,
+        has_observers=chatroom_id in with_observers,
+        viewer_is_pure_guest=pure_guest,
+    )
 
 
 @chatroom_router.patch("/{chatroom_id}")
@@ -281,18 +293,27 @@ async def patch_chatroom(
     principal: Principal = Depends(current_principal),
     db: AsyncSession = Depends(db_session),
 ) -> ChatroomOut:
-    project_id = await _project_id_for_chatroom(db, chatroom_id)
-    await _require_project_cap(
-        db,
-        principal,
-        project_id,
-        Capability.RESOURCE_CREATE_EDIT,
-    )
-    if body.disclose_observers is not None:
-        # R28.09: disclosure is the creator's call, not any RESOURCE_CREATE_EDIT
-        # holder's — per-field gate on top of the capability check above.
+    fields = set(body.model_dump(exclude_unset=True))
+    if fields == {"disclose_observers"}:
+        # O-6 (R28.09): a disclosure-only patch is the creator's call and must
+        # not additionally demand RESOURCE_CREATE_EDIT — a creator demoted
+        # below project owner keeps control of their observers' disclosure.
         access = await resolve_room_access(db, principal=principal, chatroom_id=chatroom_id)
         ensure_room_creator(access, principal=principal)
+    else:
+        project_id = await _project_id_for_chatroom(db, chatroom_id)
+        await _require_project_cap(
+            db,
+            principal,
+            project_id,
+            Capability.RESOURCE_CREATE_EDIT,
+        )
+        if body.disclose_observers is not None:
+            # R28.09: disclosure is the creator's call, not any
+            # RESOURCE_CREATE_EDIT holder's — per-field gate on top of the
+            # capability check above.
+            access = await resolve_room_access(db, principal=principal, chatroom_id=chatroom_id)
+            ensure_room_creator(access, principal=principal)
     expected = _parse_if_match(if_match)
     service = ChatroomService(db)
     room = await service.patch(
@@ -459,6 +480,13 @@ async def remove_chatroom_agent(
         Capability.RESOURCE_CREATE_EDIT,
     )
     service = ChatroomService(db)
+    role = await service.agent_role(chatroom_id=chatroom_id, agent_id=agent_id)
+    if role is ChatroomAgentRole.OBSERVER:
+        # O-5 (R28.02): unbinding an observer is creator-gated like binding
+        # and role change — a non-creator moderator must not silently tear
+        # down the creator's observer setup.
+        access = await resolve_room_access(db, principal=principal, chatroom_id=chatroom_id)
+        ensure_room_creator(access, principal=principal)
     await service.remove_agent(
         chatroom_id=chatroom_id,
         agent_id=agent_id,

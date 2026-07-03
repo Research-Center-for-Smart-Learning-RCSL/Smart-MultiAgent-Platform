@@ -81,6 +81,16 @@ class ChatroomService:
     ) -> set[uuid.UUID]:
         return await self._agents.rooms_with_observers(chatroom_ids)
 
+    async def agent_role(
+        self,
+        *,
+        chatroom_id: uuid.UUID,
+        agent_id: uuid.UUID,
+    ) -> ChatroomAgentRole | None:
+        """Role of a single binding, or None when the agent is not bound.
+        Used by the unbind endpoint's observer creator-gate (O-5/R28.02)."""
+        return await self._agents.role_of(chatroom_id=chatroom_id, agent_id=agent_id)
+
     # ---- commands --------------------------------------------------------
 
     async def create(
