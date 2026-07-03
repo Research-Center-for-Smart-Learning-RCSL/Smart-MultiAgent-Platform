@@ -95,6 +95,7 @@ deploy/vault/certs/
 # Claude Code / agents (skills are versioned project assets)
 .claude/*
 !.claude/skills/
+!.claude/skills/build/
 .agents/*
 .sixth/
 CLAUDE.md
