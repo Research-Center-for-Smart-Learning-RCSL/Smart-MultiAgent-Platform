@@ -76,8 +76,8 @@ function voteForAgent(agentId: string) {
 
 <template>
   <SCard
-    variant="surface"
-    padding="compact"
+    variant="flat"
+    padding="sm"
     class="my-2"
   >
     <div class="flex items-center justify-between mb-2">
