@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: approved
+status: implemented
 created: 2026-07-03
 requirements: []
 supersedes:
@@ -57,9 +57,9 @@ duplicate actually carry over the field it was always supposed to.
 
 ## 6. Acceptance Criteria
 
-- [ ] AC-1: duplicating an agent with a non-null `effort` produces a create payload that
+- [x] AC-1: duplicating an agent with a non-null `effort` produces a create payload that
       includes the same `effort` value; verified by the new regression test.
-- [ ] AC-2: `pnpm typecheck` no longer reports TS2345 for this call site.
+- [x] AC-2: `pnpm typecheck` no longer reports TS2345 for this call site.
 
 ## 7. SRS Delta
 
