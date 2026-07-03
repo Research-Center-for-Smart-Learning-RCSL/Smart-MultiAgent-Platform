@@ -151,7 +151,7 @@ class PresenceTracker:
         return [uuid.UUID(v) for v in raw]
 
 
-async def scrub_stale_presence() -> int:
+async def scrub_stale_presence() -> tuple[int, set[uuid.UUID]]:
     """Reconcile roster SETs against per-user conns SETs (ASYNC-7).
 
     A connection that dies without a clean :meth:`PresenceTracker.leave` leaves
@@ -160,11 +160,16 @@ async def scrub_stale_presence() -> int:
     walks every room roster and drops any member whose conns SET is gone,
     removing the matching back-reference too.
 
-    Returns the number of stale ``(room, user)`` memberships removed. Idempotent
-    and safe to run repeatedly -- invoked by the retention worker.
+    Returns ``(removed, emptied_rooms)`` -- the number of stale ``(room, user)``
+    memberships removed, and the set of room ids whose roster this sweep left
+    empty (B1: the caller must drive the same presence-changed/silence-pause
+    path a clean last-leave would, since this bypasses `PresenceTracker.leave`
+    entirely). Idempotent and safe to run repeatedly -- invoked by the
+    retention worker.
     """
     r = get_redis()
     removed = 0
+    emptied_rooms: set[uuid.UUID] = set()
     async for room_key in r.scan_iter(match="ws:presence:*", count=200):
         # `ws:presence:*` also matches the per-(room,user) conns keys
         # (`ws:presence:{room}:{user}:conns`, four ':' separators). A room roster
@@ -172,6 +177,7 @@ async def scrub_stale_presence() -> int:
         if room_key.count(":") != 2:
             continue
         room_id_str = room_key.split(":", 2)[2]
+        room_had_removal = False
         for user_id_str in await r.smembers(room_key):
             conns_key = f"ws:presence:{room_id_str}:{user_id_str}:conns"
             if await r.exists(conns_key):
@@ -180,7 +186,10 @@ async def scrub_stale_presence() -> int:
             await r.srem(room_key, user_id_str)
             await r.srem(f"ws:user:{user_id_str}:rooms", room_id_str)
             removed += 1
-    return removed
+            room_had_removal = True
+        if room_had_removal and not await r.exists(room_key):
+            emptied_rooms.add(uuid.UUID(room_id_str))
+    return removed, emptied_rooms
 
 
 __all__ = ["PresenceTracker", "scrub_stale_presence"]

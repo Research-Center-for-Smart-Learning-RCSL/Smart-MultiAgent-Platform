@@ -430,12 +430,26 @@ async def _scrub_stale_presence(session: AsyncSession) -> int:
     A connection that dies without a clean disconnect leaves its user in the
     room presence SETs even though the 60 s heartbeat key is long gone. This
     reconciles the SETs so room rosters do not accumulate ghosts. The Redis walk
-    lives in ``shared_kernel.realtime.presence`` so the key layout stays in one
-    place.
+    lives in ``contexts.conversation.infrastructure.presence`` so the key
+    layout stays in one place.
+
+    B1: a room this sweep leaves empty bypassed `PresenceTracker.leave`
+    entirely, so the presence-changed/silence-pause hook a clean last-leave
+    triggers (`app/api/ws/chatroom.py`'s `_notify_presence`) never ran for it.
+    Drive the same hook here for each emptied room so a self-opening silence
+    agent doesn't fire into a room whose last member dropped uncleanly.
     """
+    from contexts.conversation.application.triggers import evaluate_presence_change
     from contexts.conversation.infrastructure.presence import scrub_stale_presence
 
-    removed = await scrub_stale_presence()
+    removed, emptied_rooms = await scrub_stale_presence()
+    for room_id in emptied_rooms:
+        try:
+            await evaluate_presence_change(session, chatroom_id=room_id, has_live_users=False)
+        except Exception:  # best-effort per room, mirrors _notify_presence
+            logger.bind(event="retention_presence_notify_failed", room_id=str(room_id)).warning(
+                "presence-changed dispatch failed for stale-scrubbed room"
+            )
     await _emit_summary(session, "retention.presence.scrubbed", removed)
     return removed
 
