@@ -148,20 +148,6 @@
       "spawned": "生成於 {time}",
       "destroyed": "銷毀於 {time}"
     },
-    "wakeup": {
-      "inert": "所有觸發器皆已停用 — 代理處於惰性狀態。",
-      "everyNMessages": "every_n_messages",
-      "silenceMinutes": "silence_minutes",
-      "callOnly": "call_only",
-      "enabled": "啟用",
-      "n": "n:",
-      "tMinutes": "t_minutes:",
-      "autostop": "自動停止:",
-      "maxCap": "上限:",
-      "callOnlyEnabled": "啟用（忽略其他觸發器）",
-      "allowSelfOpen": "allow_self_open",
-      "refreshEveryHours": "refresh_every_hours:"
-    },
     "nodeTypes": {
       "trigger": "觸發器",
       "agentInvocation": "Agent 呼叫",

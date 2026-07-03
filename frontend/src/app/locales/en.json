@@ -16,6 +16,29 @@
     "charCount": {
       "label": "{current} of {max} characters used"
     },
+    "wakeup": {
+      "inert": "No trigger is enabled, so this agent will not speak up on its own. It can still be summoned by {'@'}mention.",
+      "modeLabel": "Wake behavior",
+      "modeAuto": "Automatic",
+      "modeAutoDesc": "Speaks up on message count or after a quiet period.",
+      "modeCall": "On mention only",
+      "modeCallDesc": "Responds only when {'@'}mentioned.",
+      "triggersHint": "Enable one or both triggers.",
+      "everyNTitle": "Every N messages",
+      "everyNFieldLabel": "Reply once every",
+      "silenceTitle": "After a quiet period",
+      "silenceFieldLabel": "Speak up after silence of",
+      "autostopFieldLabel": "Stop after at most",
+      "autostopHelp": "Once this many consecutive self-turns are reached the agent stops, preventing an endless self-conversation.",
+      "advanced": "Advanced settings",
+      "maxCapLabel": "Auto-stop round ceiling",
+      "allowSelfOpenLabel": "Allow starting new topics on its own",
+      "refreshLabel": "Config refresh interval",
+      "suffixMessages": "messages",
+      "suffixMinutes": "min",
+      "suffixRounds": "rounds",
+      "suffixHours": "hours"
+    },
     "errorBoundary": {
       "title": "Something went wrong",
       "message": "This page hit an unexpected error. You can retry, or navigate elsewhere.",

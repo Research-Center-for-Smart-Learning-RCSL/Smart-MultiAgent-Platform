@@ -150,20 +150,6 @@
       "spawned": "Spawned {time}",
       "destroyed": "Destroyed {time}"
     },
-    "wakeup": {
-      "inert": "All triggers disabled — agent is inert.",
-      "everyNMessages": "every_n_messages",
-      "silenceMinutes": "silence_minutes",
-      "callOnly": "call_only",
-      "enabled": "Enabled",
-      "n": "n:",
-      "tMinutes": "t_minutes:",
-      "autostop": "autostop:",
-      "maxCap": "max cap:",
-      "callOnlyEnabled": "Enabled (ignores other triggers)",
-      "allowSelfOpen": "allow_self_open",
-      "refreshEveryHours": "refresh_every_hours:"
-    },
     "nodeTypes": {
       "trigger": "Trigger",
       "agentInvocation": "Agent Call",

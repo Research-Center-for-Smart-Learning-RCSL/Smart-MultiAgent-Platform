@@ -4,12 +4,11 @@ import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import { useToast } from '@shared/composables'
-import { SPageHeader } from '@shared/ui'
+import { SPageHeader, SWakeupEditor } from '@shared/ui'
+import { normalizeWakeupConfig, type WakeupConfig } from '@shared/types/workflow'
 import { agentsApi, agentKeys } from '@slices/agents'
 
 import { patchAgentWakeupConfig } from '../api'
-import type { WakeupConfig } from '../types'
-import WakeupConfigEditor from '../components/WakeupConfigEditor.vue'
 import DlqViewer from '../components/DlqViewer.vue'
 
 const { t } = useI18n()
@@ -28,35 +27,6 @@ const breadcrumbs = computed(() => [
   { label: t('workflow.agentOps.breadcrumb') },
 ])
 
-const DEFAULT_WAKEUP: WakeupConfig = {
-  triggers: {
-    every_n_messages: { enabled: false, n: 5 },
-    silence_minutes: {
-      enabled: false,
-      t_minutes: 30,
-      autostop_rounds: 3,
-      autostop_max_default: 10,
-    },
-    call_only: { enabled: false },
-  },
-  allow_self_open: false,
-  refresh_every_hours: 24,
-}
-
-function withDefaults(raw: unknown): WakeupConfig {
-  const r = (raw ?? {}) as Record<string, unknown>
-  const t0 = (r.triggers ?? {}) as Record<string, Record<string, unknown>>
-  return {
-    triggers: {
-      every_n_messages: { ...DEFAULT_WAKEUP.triggers.every_n_messages, ...(t0.every_n_messages ?? {}) },
-      silence_minutes: { ...DEFAULT_WAKEUP.triggers.silence_minutes, ...(t0.silence_minutes ?? {}) },
-      call_only: { ...DEFAULT_WAKEUP.triggers.call_only, ...(t0.call_only ?? {}) },
-    },
-    allow_self_open: (r.allow_self_open as boolean) ?? DEFAULT_WAKEUP.allow_self_open,
-    refresh_every_hours: (r.refresh_every_hours as number) ?? DEFAULT_WAKEUP.refresh_every_hours,
-  }
-}
-
 const config = ref<WakeupConfig | null>(null)
 const saving = ref(false)
 const version = ref(0)
@@ -64,7 +34,7 @@ const initialized = ref(false)
 
 watch(() => agentQuery.data.value, (agent) => {
   if (!agent || initialized.value) return
-  config.value = withDefaults(agent.wakeup_config)
+  config.value = normalizeWakeupConfig(agent.wakeup_config)
   version.value = agent.version
   initialized.value = true
 }, { immediate: true })
@@ -106,7 +76,7 @@ async function save(): Promise<void> {
         {{ t('workflow.agentOps.loadError') }}
       </p>
       <template v-else-if="config">
-        <WakeupConfigEditor v-model="config" />
+        <SWakeupEditor v-model="config" />
         <button
           class="btn btn-primary mt-2"
           type="button"

@@ -11,6 +11,8 @@ const props = withDefaults(defineProps<{
   size?: 'sm' | 'md'
   id?: string | undefined
   maxlength?: number | undefined
+  min?: string | number | undefined
+  max?: string | number | undefined
 }>(), {
   modelValue: '',
   type: 'text',
@@ -47,6 +49,8 @@ const internalType = computed(() => {
 // attribute, not one hidden inside an object spread.
 const idAttr = computed(() => props.id as string)
 const maxlengthAttr = computed(() => props.maxlength as number)
+const minAttr = computed(() => props.min as string | number)
+const maxAttr = computed(() => props.max as string | number)
 
 const hasPrefix = computed(() => !!slots.prefix)
 const hasSuffix = computed(() => !!slots.suffix)
@@ -90,6 +94,8 @@ function togglePasswordVisibility() {
       :placeholder="props.placeholder"
       :disabled="props.disabled"
       :maxlength="maxlengthAttr"
+      :min="minAttr"
+      :max="maxAttr"
       @input="onInput"
     >
     <span
