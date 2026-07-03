@@ -17,7 +17,12 @@ Desktop.ini
 !.claude/skills/
 !.claude/settings.json
 .agents/*
+!.agents/skills/
 .sixth/
+
+# The global build/ rule below shadows the skills' build/ folders; re-include them.
+!.claude/skills/build/
+!.agents/skills/build/
 
 # ==== Env / secrets ====
 .env
