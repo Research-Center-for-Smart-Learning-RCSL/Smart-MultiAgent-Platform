@@ -231,7 +231,7 @@ export function useChatroomSocket(roomId: string) {
         const approval = ev as unknown as { approval_id: string } & ApprovalWithVotes
         orchStore.upsertApproval(roomId, {
           id: approval.approval_id ?? (ev.approval_id as string),
-          workflow_run_id: (ev.workflow_run_id as string) ?? '',
+          workflow_run_id: ev.workflow_run_id as string,
           mode: (ev.mode as ApprovalWithVotes['mode']) ?? 'single',
           leader_agent_id: (ev.leader_agent_id as string) ?? '',
           approver_agent_ids: (ev.approver_agent_ids as string[]) ?? [],
