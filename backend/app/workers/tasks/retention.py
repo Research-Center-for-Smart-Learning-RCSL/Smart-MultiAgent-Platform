@@ -447,9 +447,9 @@ async def _scrub_stale_presence(session: AsyncSession) -> int:
         try:
             await evaluate_presence_change(session, chatroom_id=room_id, has_live_users=False)
         except Exception:  # best-effort per room, mirrors _notify_presence
-            logger.bind(event="retention_presence_notify_failed", room_id=str(room_id)).warning(
-                "presence-changed dispatch failed for stale-scrubbed room"
-            )
+            logger.bind(event="retention_presence_notify_failed", room_id=str(room_id)).opt(
+                exception=True
+            ).warning("presence-changed dispatch failed for stale-scrubbed room")
     await _emit_summary(session, "retention.presence.scrubbed", removed)
     return removed
 
