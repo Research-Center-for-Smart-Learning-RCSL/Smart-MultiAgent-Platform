@@ -169,8 +169,14 @@
       "status": {
         "analyzing": "分析中...",
         "error": "錯誤",
+        "skipped": "已跳過",
         "idle": "閒置"
       },
+      "skip": {
+        "no_input": "沒有新內容可分析",
+        "empty_reply": "沒有可補充的內容"
+      },
+      "badgeAria": "觀察者分頁，{n} 則未讀觀察",
       "trigger": {
         "every_n_messages": "訊息觸發",
         "silence_minutes": "靜默觸發",

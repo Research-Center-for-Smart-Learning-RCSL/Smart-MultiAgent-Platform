@@ -7,6 +7,10 @@ interface TabItem {
   icon?: Component
   badge?: string | number
   disabled?: boolean
+  /** Overrides the tab button's accessible name (e.g. to include the badge count). */
+  ariaLabel?: string
+  /** Announce badge changes to assistive tech while the tab is unfocused. */
+  badgeLive?: boolean
 }
 
 const props = defineProps<{
@@ -90,6 +94,7 @@ function onKeydown(e: KeyboardEvent) {
           's-tabs__tab--disabled': tab.disabled,
         }"
         :aria-selected="modelValue === tab.key"
+        v-bind="tab.ariaLabel ? { 'aria-label': tab.ariaLabel } : {}"
         :aria-controls="`tabpanel-${tab.key}`"
         :tabindex="modelValue === tab.key ? 0 : -1"
         :disabled="tab.disabled ?? false"
@@ -104,6 +109,7 @@ function onKeydown(e: KeyboardEvent) {
         <span
           v-if="tab.badge != null"
           class="s-tabs__badge"
+          v-bind="tab.badgeLive ? { 'aria-live': 'polite' } : {}"
         >
           {{ tab.badge }}
         </span>

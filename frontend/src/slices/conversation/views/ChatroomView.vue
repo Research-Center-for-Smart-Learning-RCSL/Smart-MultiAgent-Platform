@@ -247,7 +247,8 @@ import { useI18n } from 'vue-i18n'
 import { useToast, useBreakpoint, useVisualViewport, useConfirmDialog } from '@shared/composables'
 import { SDrawer, SEmptyState, STabs } from '@shared/ui'
 import { ChatBubbleLeftRightIcon, EyeIcon, UsersIcon } from '@heroicons/vue/24/outline'
-import { isAxiosError } from 'axios'
+import { ApiError, ValidationError } from '@shared/errors'
+import { isProblemWithType } from '@shared/transport'
 import { useSessionStore } from '@shared/stores/session'
 import { useOrchestrationStore } from '@shared/stores/orchestration'
 import { ApprovalCard } from '@slices/workflow'
@@ -424,6 +425,9 @@ const observations = useObservations(chatroomId, {
 const showObserverTab = computed(
   () => observations.isCreator.value && observations.observerAgents.value.length > 0,
 )
+// Declared here (ahead of its drawer markup) so the W-3 visibility computed
+// below can read it without a temporal-dead-zone hit under the immediate watch.
+const peopleDrawerOpen = ref(false)
 const railTab = ref<'people' | 'observer'>('people')
 const railTabs = computed(() => [
   { key: 'people', label: t('conversation.chatroom.people'), icon: UsersIcon },
@@ -431,10 +435,20 @@ const railTabs = computed(() => [
     key: 'observer',
     label: t('conversation.observers.tab'),
     icon: EyeIcon,
+    ariaLabel: t('conversation.observers.badgeAria', { n: observations.unreadCount.value }),
+    badgeLive: true,
     ...(observations.unreadCount.value && { badge: observations.unreadCount.value }),
   },
 ])
-watch(railTab, (tab) => observations.setPanelOpen(tab === 'observer'))
+// W-3 (B.3/B.8): the panel is only actually visible when the Observer tab is
+// selected AND its container is on screen — the desktop rail is always shown,
+// but on mobile/tablet the tab lives inside the people drawer. Tracking railTab
+// alone left `panelOpen` stuck true after the drawer closed, so the unread
+// badge stopped counting.
+const observerPanelVisible = computed(
+  () => railTab.value === 'observer' && (isDesktop.value || peopleDrawerOpen.value),
+)
+watch(observerPanelVisible, (visible) => observations.setPanelOpen(visible), { immediate: true })
 
 // Normal-role bound agents (names resolved) offered as private-release targets.
 const releasableAgents = computed(() =>
@@ -459,11 +473,19 @@ async function onReleaseSubmit(body: ReleaseBody): Promise<void> {
     releaseTarget.value = null
     toast.success(t('conversation.observers.releaseSuccess'))
   } catch (err) {
-    if (isAxiosError(err) && err.response?.status === 409) {
+    // W-6 (F-10): the transport throws typed ApiError/ValidationError, never
+    // an AxiosError — branch on those, not on err.response.
+    if (err instanceof ApiError && err.status === 409) {
       // Already released by a concurrent action — refetch and dismiss.
       await observations.refetch()
       releaseTarget.value = null
       toast.info(t('conversation.observers.alreadyReleased'))
+      return
+    }
+    if (err instanceof ValidationError && isProblemWithType(err, '/invalid-release-target')) {
+      // Targets became ineligible (e.g. an agent unbound/role-flipped since
+      // the dialog opened) — surface the server's specific detail inline.
+      releaseDialogRef.value?.setError(err.detail ?? t('conversation.observers.releaseFailed'))
       return
     }
     releaseDialogRef.value?.setError(t('conversation.observers.releaseFailed'))
@@ -648,7 +670,6 @@ const searchOpen = ref(false)
 const searching = ref(false)
 const exportOpen = ref(false)
 const agentsDrawerOpen = ref(false)
-const peopleDrawerOpen = ref(false)
 
 function goBack(): void {
   router.back()
