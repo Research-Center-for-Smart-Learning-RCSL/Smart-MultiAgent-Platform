@@ -1,7 +1,8 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useConfigModel, safeNumber } from '../../composables/useConfigModel'
-import { SFormField, SCharCount } from '@shared/ui'
+import { SCharCount, SCheckbox, SFormField, SInput, SSelect, STextarea } from '@shared/ui'
 import { INPUT_LIMITS } from '@shared/constants/inputLimits'
 import OnErrorConfigForm from './OnErrorConfigForm.vue'
 import type { OnErrorConfig } from '../../types'
@@ -20,6 +21,11 @@ const emit = defineEmits<{
 }>()
 
 const { local, update } = useConfigModel(props, emit)
+
+const agentOptions = computed(() => [
+  { value: '', label: t('workflow.config.none') },
+  ...props.agents.map((agent) => ({ value: agent.id, label: agent.name })),
+])
 </script>
 
 <template>
@@ -29,23 +35,12 @@ const { local, update } = useConfigModel(props, emit)
       :label="t('workflow.config.issuerAgentId')"
       name="instruct-issuer-agent"
     >
-      <select
+      <SSelect
         id="instruct-issuer-agent"
-        :value="local.issuer_agent_id ?? ''"
-        class="wf-input"
-        @change="update('issuer_agent_id', ($event.target as HTMLSelectElement).value)"
-      >
-        <option value="">
-          {{ t('workflow.config.none') }}
-        </option>
-        <option
-          v-for="agent in agents"
-          :key="agent.id"
-          :value="agent.id"
-        >
-          {{ agent.name }}
-        </option>
-      </select>
+        :model-value="(local.issuer_agent_id as string) ?? ''"
+        :options="agentOptions"
+        @update:model-value="update('issuer_agent_id', $event)"
+      />
     </SFormField>
 
     <!-- Target Agent -->
@@ -53,23 +48,12 @@ const { local, update } = useConfigModel(props, emit)
       :label="t('workflow.config.targetAgentId')"
       name="instruct-target-agent"
     >
-      <select
+      <SSelect
         id="instruct-target-agent"
-        :value="local.target_agent_id ?? ''"
-        class="wf-input"
-        @change="update('target_agent_id', ($event.target as HTMLSelectElement).value)"
-      >
-        <option value="">
-          {{ t('workflow.config.none') }}
-        </option>
-        <option
-          v-for="agent in agents"
-          :key="agent.id"
-          :value="agent.id"
-        >
-          {{ agent.name }}
-        </option>
-      </select>
+        :model-value="(local.target_agent_id as string) ?? ''"
+        :options="agentOptions"
+        @update:model-value="update('target_agent_id', $event)"
+      />
     </SFormField>
 
     <!-- Instruction Template -->
@@ -77,12 +61,12 @@ const { local, update } = useConfigModel(props, emit)
       :label="t('workflow.config.instructionTemplate')"
       name="instruct-template"
     >
-      <textarea
+      <STextarea
         id="instruct-template"
-        :value="(local.instruction_template as string) ?? ''"
-        class="wf-input-code"
+        :model-value="(local.instruction_template as string) ?? ''"
+        mono
         :maxlength="INPUT_LIMITS.CONFIG_TEXT"
-        @input="update('instruction_template', ($event.target as HTMLTextAreaElement).value)"
+        @update:model-value="update('instruction_template', $event)"
       />
       <SCharCount
         :current="((local.instruction_template as string) ?? '').length"
@@ -96,32 +80,32 @@ const { local, update } = useConfigModel(props, emit)
       :label="t('workflow.config.waitForCompletion')"
       name="instruct-wait"
     >
-      <label class="flex items-center gap-2">
-        <input
-          id="instruct-wait"
-          type="checkbox"
-          :checked="local.wait_for_completion !== false"
-          @change="update('wait_for_completion', ($event.target as HTMLInputElement).checked)"
-        >
-        <span class="text-sm">{{ t('workflow.config.waitForCompletion') }}</span>
-      </label>
+      <SCheckbox
+        id="instruct-wait"
+        :model-value="local.wait_for_completion !== false"
+        @update:model-value="update('wait_for_completion', $event)"
+      >
+        {{ t('workflow.config.waitForCompletion') }}
+      </SCheckbox>
     </SFormField>
 
     <!-- Completion Timeout (only when wait_for_completion) -->
+    <!-- Native @input (bubbles through SInput's wrapper) so safeNumber sees the
+         raw string; SInput's update:modelValue coerces a cleared field to 0,
+         which would bypass the min=1 fallback. -->
     <SFormField
       v-if="local.wait_for_completion !== false"
       :label="t('workflow.config.completionTimeoutSeconds')"
       name="instruct-timeout"
     >
-      <input
+      <SInput
         id="instruct-timeout"
-        :value="local.completion_timeout_seconds ?? 120"
+        :model-value="(local.completion_timeout_seconds as number) ?? 120"
         type="number"
         min="1"
         max="600"
-        class="wf-input"
         @input="update('completion_timeout_seconds', safeNumber(($event.target as HTMLInputElement).value, 1))"
-      >
+      />
     </SFormField>
 
     <!-- Output Variable -->
@@ -129,13 +113,12 @@ const { local, update } = useConfigModel(props, emit)
       :label="t('workflow.config.outputVariable')"
       name="instruct-output-var"
     >
-      <input
+      <SInput
         id="instruct-output-var"
-        :value="(local.output_variable as string) ?? ''"
+        :model-value="(local.output_variable as string) ?? ''"
         type="text"
-        class="wf-input"
-        @input="update('output_variable', ($event.target as HTMLInputElement).value)"
-      >
+        @update:model-value="update('output_variable', $event)"
+      />
     </SFormField>
 
     <!-- On Error -->

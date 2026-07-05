@@ -1,7 +1,8 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useConfigModel, safeNumber } from '../../composables/useConfigModel'
-import { SFormField } from '@shared/ui'
+import { SCheckbox, SFormField, SInput, SSelect, STextarea } from '@shared/ui'
 import OnErrorConfigForm from './OnErrorConfigForm.vue'
 import type { OnErrorConfig } from '../../types'
 
@@ -27,6 +28,16 @@ if (local.stream_to_chatroom === undefined) {
 if (local.timeout_seconds === undefined) {
   local.timeout_seconds = 300
 }
+
+const agentOptions = computed(() => [
+  { value: '', label: t('workflow.config.none'), disabled: true },
+  ...props.agents.map((agent) => ({ value: agent.id, label: agent.name })),
+])
+
+const chatroomOptions = computed(() => [
+  { value: '', label: t('workflow.config.defaultChatroom') },
+  ...props.chatrooms.map((room) => ({ value: room.id, label: room.name })),
+])
 </script>
 
 <template>
@@ -37,26 +48,12 @@ if (local.timeout_seconds === undefined) {
       name="agent-id"
       required
     >
-      <select
+      <SSelect
         id="agent-id"
-        :value="local.agent_id ?? ''"
-        class="wf-input"
-        @change="update('agent_id', ($event.target as HTMLSelectElement).value)"
-      >
-        <option
-          value=""
-          disabled
-        >
-          {{ t('workflow.config.none') }}
-        </option>
-        <option
-          v-for="agent in agents"
-          :key="agent.id"
-          :value="agent.id"
-        >
-          {{ agent.name }}
-        </option>
-      </select>
+        :model-value="(local.agent_id as string) ?? ''"
+        :options="agentOptions"
+        @update:model-value="update('agent_id', $event)"
+      />
     </SFormField>
 
     <!-- Input Template (required) -->
@@ -65,11 +62,11 @@ if (local.timeout_seconds === undefined) {
       name="input-template"
       required
     >
-      <textarea
+      <STextarea
         id="input-template"
-        :value="(local.input_template as string) ?? ''"
-        class="wf-input-code"
-        @input="update('input_template', ($event.target as HTMLTextAreaElement).value)"
+        :model-value="(local.input_template as string) ?? ''"
+        mono
+        @update:model-value="update('input_template', $event)"
       />
     </SFormField>
 
@@ -78,13 +75,12 @@ if (local.timeout_seconds === undefined) {
       :label="t('workflow.config.outputVariable')"
       name="output-variable"
     >
-      <input
+      <SInput
         id="output-variable"
         type="text"
-        :value="(local.output_variable as string) ?? ''"
-        class="wf-input"
-        @input="update('output_variable', ($event.target as HTMLInputElement).value)"
-      >
+        :model-value="(local.output_variable as string) ?? ''"
+        @update:model-value="update('output_variable', $event)"
+      />
     </SFormField>
 
     <!-- Target Chatroom (optional, with Default option) -->
@@ -92,23 +88,12 @@ if (local.timeout_seconds === undefined) {
       :label="t('workflow.config.targetChatroomId')"
       name="target-chatroom-id"
     >
-      <select
+      <SSelect
         id="target-chatroom-id"
-        :value="local.target_chatroom_id ?? ''"
-        class="wf-input"
-        @change="update('target_chatroom_id', ($event.target as HTMLSelectElement).value || null)"
-      >
-        <option value="">
-          {{ t('workflow.config.defaultChatroom') }}
-        </option>
-        <option
-          v-for="room in chatrooms"
-          :key="room.id"
-          :value="room.id"
-        >
-          {{ room.name }}
-        </option>
-      </select>
+        :model-value="(local.target_chatroom_id as string | null) ?? ''"
+        :options="chatroomOptions"
+        @update:model-value="update('target_chatroom_id', $event || null)"
+      />
     </SFormField>
 
     <!-- Stream to Chatroom -->
@@ -116,30 +101,30 @@ if (local.timeout_seconds === undefined) {
       :label="t('workflow.config.streamToChatroom')"
       name="stream-to-chatroom"
     >
-      <label class="flex items-center gap-2">
-        <input
-          type="checkbox"
-          :checked="local.stream_to_chatroom !== false"
-          @change="update('stream_to_chatroom', ($event.target as HTMLInputElement).checked)"
-        >
-        <span class="text-sm">{{ t('workflow.config.streamToChatroom') }}</span>
-      </label>
+      <SCheckbox
+        :model-value="local.stream_to_chatroom !== false"
+        @update:model-value="update('stream_to_chatroom', $event)"
+      >
+        {{ t('workflow.config.streamToChatroom') }}
+      </SCheckbox>
     </SFormField>
 
     <!-- Timeout Seconds -->
+    <!-- Native @input (bubbles through SInput's wrapper) so safeNumber sees the
+         raw string; SInput's update:modelValue coerces a cleared field to 0,
+         which would bypass the min=1 fallback. -->
     <SFormField
       :label="t('workflow.config.timeoutSeconds')"
       name="timeout-seconds"
     >
-      <input
+      <SInput
         id="timeout-seconds"
         type="number"
-        :value="local.timeout_seconds ?? 300"
+        :model-value="(local.timeout_seconds as number) ?? 300"
         min="1"
         max="600"
-        class="wf-input"
         @input="update('timeout_seconds', safeNumber(($event.target as HTMLInputElement).value, 1))"
-      >
+      />
     </SFormField>
 
     <!-- On Error -->

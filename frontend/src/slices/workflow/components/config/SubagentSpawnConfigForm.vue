@@ -1,7 +1,8 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useConfigModel, safeNumber } from '../../composables/useConfigModel'
-import { SFormField } from '@shared/ui'
+import { SCheckbox, SFormField, SInput, SSelect, STextarea } from '@shared/ui'
 import OnErrorConfigForm from './OnErrorConfigForm.vue'
 import type { OnErrorConfig } from '../../types'
 
@@ -19,6 +20,11 @@ const emit = defineEmits<{
 }>()
 
 const { local, update } = useConfigModel(props, emit)
+
+const agentOptions = computed(() => [
+  { value: '', label: t('workflow.config.none') },
+  ...props.agents.map((agent) => ({ value: agent.id, label: agent.name })),
+])
 </script>
 
 <template>
@@ -28,23 +34,12 @@ const { local, update } = useConfigModel(props, emit)
       :label="t('workflow.config.parentAgentId')"
       name="subagent-parent-agent"
     >
-      <select
+      <SSelect
         id="subagent-parent-agent"
-        :value="local.parent_agent_id ?? ''"
-        class="wf-input"
-        @change="update('parent_agent_id', ($event.target as HTMLSelectElement).value)"
-      >
-        <option value="">
-          {{ t('workflow.config.none') }}
-        </option>
-        <option
-          v-for="agent in agents"
-          :key="agent.id"
-          :value="agent.id"
-        >
-          {{ agent.name }}
-        </option>
-      </select>
+        :model-value="(local.parent_agent_id as string) ?? ''"
+        :options="agentOptions"
+        @update:model-value="update('parent_agent_id', $event)"
+      />
     </SFormField>
 
     <!-- Task Template -->
@@ -52,28 +47,30 @@ const { local, update } = useConfigModel(props, emit)
       :label="t('workflow.config.taskTemplate')"
       name="subagent-task-template"
     >
-      <textarea
+      <STextarea
         id="subagent-task-template"
-        :value="(local.task_template as string) ?? ''"
-        class="wf-input-code"
-        @input="update('task_template', ($event.target as HTMLTextAreaElement).value)"
+        :model-value="(local.task_template as string) ?? ''"
+        mono
+        @update:model-value="update('task_template', $event)"
       />
     </SFormField>
 
     <!-- Max Alive Simultaneously -->
+    <!-- Native @input (bubbles through SInput's wrapper) so safeNumber sees the
+         raw string; SInput's update:modelValue coerces a cleared field to 0,
+         which would bypass the min=1 fallback. -->
     <SFormField
       :label="t('workflow.config.maxAliveSimultaneously')"
       name="subagent-max-alive"
     >
-      <input
+      <SInput
         id="subagent-max-alive"
-        :value="local.max_alive_simultaneously ?? 3"
+        :model-value="(local.max_alive_simultaneously as number) ?? 3"
         type="number"
         min="1"
         max="20"
-        class="wf-input"
         @input="update('max_alive_simultaneously', safeNumber(($event.target as HTMLInputElement).value, 1))"
-      >
+      />
     </SFormField>
 
     <!-- Wait for All -->
@@ -81,15 +78,13 @@ const { local, update } = useConfigModel(props, emit)
       :label="t('workflow.config.waitForAll')"
       name="subagent-wait-all"
     >
-      <label class="flex items-center gap-2">
-        <input
-          id="subagent-wait-all"
-          type="checkbox"
-          :checked="local.wait_for_all !== false"
-          @change="update('wait_for_all', ($event.target as HTMLInputElement).checked)"
-        >
-        <span class="text-sm">{{ t('workflow.config.waitForAll') }}</span>
-      </label>
+      <SCheckbox
+        id="subagent-wait-all"
+        :model-value="local.wait_for_all !== false"
+        @update:model-value="update('wait_for_all', $event)"
+      >
+        {{ t('workflow.config.waitForAll') }}
+      </SCheckbox>
     </SFormField>
 
     <!-- Timeout Seconds -->
@@ -97,15 +92,14 @@ const { local, update } = useConfigModel(props, emit)
       :label="t('workflow.config.timeoutSeconds')"
       name="subagent-timeout"
     >
-      <input
+      <SInput
         id="subagent-timeout"
-        :value="local.timeout_seconds ?? 180"
+        :model-value="(local.timeout_seconds as number) ?? 180"
         type="number"
         min="1"
         max="600"
-        class="wf-input"
         @input="update('timeout_seconds', safeNumber(($event.target as HTMLInputElement).value, 1))"
-      >
+      />
     </SFormField>
 
     <!-- Output Variable -->
@@ -113,13 +107,12 @@ const { local, update } = useConfigModel(props, emit)
       :label="t('workflow.config.outputVariable')"
       name="subagent-output-var"
     >
-      <input
+      <SInput
         id="subagent-output-var"
-        :value="(local.output_variable as string) ?? ''"
+        :model-value="(local.output_variable as string) ?? ''"
         type="text"
-        class="wf-input"
-        @input="update('output_variable', ($event.target as HTMLInputElement).value)"
-      >
+        @update:model-value="update('output_variable', $event)"
+      />
     </SFormField>
 
     <!-- On Error -->

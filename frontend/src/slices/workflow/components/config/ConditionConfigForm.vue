@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
 import { useConfigModel } from '../../composables/useConfigModel'
-import { SFormField } from '@shared/ui'
+import { SFormField, SInput, STextarea } from '@shared/ui'
 
 const { t } = useI18n()
 
@@ -93,12 +93,12 @@ function removeBranch(index: number) {
           >
             {{ t('workflow.config.when') }}
           </label>
-          <textarea
+          <STextarea
             :id="`condition-when-${idx}`"
-            :value="branch.when"
-            class="wf-input-code"
+            :model-value="branch.when"
+            mono
             :placeholder="t('workflow.config.when')"
-            @input="updateBranchField(idx, 'when', ($event.target as HTMLTextAreaElement).value)"
+            @update:model-value="updateBranchField(idx, 'when', $event)"
           />
 
           <label
@@ -107,14 +107,13 @@ function removeBranch(index: number) {
           >
             {{ t('workflow.config.port') }}
           </label>
-          <input
+          <SInput
             :id="`condition-port-${idx}`"
-            :value="branch.port"
+            :model-value="branch.port"
             type="text"
-            class="wf-input"
             :placeholder="t('workflow.config.port')"
-            @input="updateBranchField(idx, 'port', ($event.target as HTMLInputElement).value)"
-          >
+            @update:model-value="updateBranchField(idx, 'port', String($event))"
+          />
         </div>
       </div>
 
@@ -132,13 +131,12 @@ function removeBranch(index: number) {
       :label="t('workflow.config.defaultPort')"
       name="condition-default-port"
     >
-      <input
+      <SInput
         id="condition-default-port"
-        :value="local.default_port ?? 'default'"
+        :model-value="(local.default_port as string) ?? 'default'"
         type="text"
-        class="wf-input"
-        @input="update('default_port', ($event.target as HTMLInputElement).value)"
-      >
+        @update:model-value="update('default_port', $event)"
+      />
     </SFormField>
   </div>
 </template>

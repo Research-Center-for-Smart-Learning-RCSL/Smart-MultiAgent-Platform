@@ -85,7 +85,7 @@ function toggle(): void {
         v-else
         class="overflow-x-auto"
       >
-        <table class="table text-xs">
+        <table class="dlq-table text-xs">
           <thead>
             <tr class="text-muted">
               <th>
@@ -134,8 +134,21 @@ function toggle(): void {
 </template>
 
 <style scoped>
-.table th,
-.table td {
+/* Compact diagnostic table — deliberately denser than STable, so it styles
+   itself instead of pulling in the full table component. */
+.dlq-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.dlq-table th,
+.dlq-table td {
   padding: 0.25rem 0.5rem;
+  border-bottom: 1px solid var(--color-border);
+  text-align: left;
+}
+
+.dlq-table th {
+  font-weight: var(--weight-semibold);
 }
 </style>

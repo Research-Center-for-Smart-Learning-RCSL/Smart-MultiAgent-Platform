@@ -1,7 +1,8 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useConfigModel } from '../../composables/useConfigModel'
-import { SFormField } from '@shared/ui'
+import { SFormField, SInput, SSelect } from '@shared/ui'
 import type { OnErrorConfig, OnErrorStrategy } from '../../types'
 
 const { t } = useI18n()
@@ -33,30 +34,56 @@ const { local } = useConfigModel(
   emit as unknown as (event: 'update:modelValue', value: Record<string, unknown>) => void,
 )
 
+const strategyOptions = computed(() =>
+  STRATEGIES.map((s) => ({ value: s, label: t(`workflow.config.errorStrategy_${s}`) })),
+)
+
+// SSelect option values cannot be null, so the "none" fallback option uses ''
+// as sentinel; the stored config value stays null as before.
+const fallbackNodeOptions = computed(() => [
+  { value: '', label: t('workflow.config.noneFallback') },
+  ...props.allNodeIds.map((nodeId) => ({ value: nodeId, label: nodeId })),
+])
+
 function emitUpdate(): void {
   // local always carries a 'strategy' field (set by defaults()/onStrategyChange),
   // so its runtime shape genuinely satisfies OnErrorConfig.
   emit('update:modelValue', { ...local } as unknown as OnErrorConfig)
 }
 
-function onStrategyChange(event: Event): void {
-  const value = (event.target as HTMLSelectElement).value as OnErrorStrategy
-  local.strategy = value
+function onStrategyChange(value: string | number): void {
+  const strategy = value as OnErrorStrategy
+  local.strategy = strategy
 
   // Reset strategy-specific fields when switching
-  if (value !== 'retry') {
+  if (strategy !== 'retry') {
     delete local.retry_max
     delete local.retry_backoff_ms
   } else {
     local.retry_max = local.retry_max ?? 3
     local.retry_backoff_ms = local.retry_backoff_ms ?? 1000
   }
-  if (value !== 'fallback') {
+  if (strategy !== 'fallback') {
     delete local.fallback_node_id
   } else {
     local.fallback_node_id = local.fallback_node_id ?? null
   }
 
+  emitUpdate()
+}
+
+// Reads the raw string from the native input event (which bubbles through
+// SInput's wrapper) to mirror the previous v-model.number semantics: keep the
+// raw string when it is not parseable instead of coercing '' to 0.
+function onRetryInput(field: 'retry_max' | 'retry_backoff_ms', event: Event): void {
+  const raw = (event.target as HTMLInputElement).value
+  const parsed = parseFloat(raw)
+  local[field] = Number.isNaN(parsed) ? raw : parsed
+  emitUpdate()
+}
+
+function onFallbackChange(value: string | number): void {
+  local.fallback_node_id = value === '' ? null : value
   emitUpdate()
 }
 </script>
@@ -72,20 +99,12 @@ function onStrategyChange(event: Event): void {
         :label="t('workflow.config.errorStrategy')"
         name="on-error-strategy"
       >
-        <select
+        <SSelect
           id="on-error-strategy"
-          :value="local.strategy"
-          class="wf-input"
-          @change="onStrategyChange"
-        >
-          <option
-            v-for="s in STRATEGIES"
-            :key="s"
-            :value="s"
-          >
-            {{ t(`workflow.config.errorStrategy_${s}`) }}
-          </option>
-        </select>
+          :model-value="(local.strategy as string)"
+          :options="strategyOptions"
+          @update:model-value="onStrategyChange"
+        />
       </SFormField>
 
       <!-- Retry fields -->
@@ -94,31 +113,28 @@ function onStrategyChange(event: Event): void {
           :label="t('workflow.config.retryMax')"
           name="on-error-retry-max"
         >
-          <input
+          <SInput
             id="on-error-retry-max"
-            v-model.number="local.retry_max"
             type="number"
+            :model-value="(local.retry_max as number) ?? 3"
             min="0"
             max="10"
-            class="wf-input"
-            @input="emitUpdate"
-          >
+            @input="onRetryInput('retry_max', $event)"
+          />
         </SFormField>
 
         <SFormField
           :label="t('workflow.config.retryBackoffMs')"
           name="on-error-retry-backoff"
         >
-          <input
+          <SInput
             id="on-error-retry-backoff"
-            v-model.number="local.retry_backoff_ms"
             type="number"
+            :model-value="(local.retry_backoff_ms as number) ?? 1000"
             min="0"
             max="60000"
-            step="100"
-            class="wf-input"
-            @input="emitUpdate"
-          >
+            @input="onRetryInput('retry_backoff_ms', $event)"
+          />
         </SFormField>
       </template>
 
@@ -128,23 +144,12 @@ function onStrategyChange(event: Event): void {
         :label="t('workflow.config.fallbackNodeId')"
         name="on-error-fallback-node"
       >
-        <select
+        <SSelect
           id="on-error-fallback-node"
-          v-model="local.fallback_node_id"
-          class="wf-input"
-          @change="emitUpdate"
-        >
-          <option :value="null">
-            {{ t('workflow.config.noneFallback') }}
-          </option>
-          <option
-            v-for="nodeId in allNodeIds"
-            :key="nodeId"
-            :value="nodeId"
-          >
-            {{ nodeId }}
-          </option>
-        </select>
+          :model-value="(local.fallback_node_id as string | null) ?? ''"
+          :options="fallbackNodeOptions"
+          @update:model-value="onFallbackChange"
+        />
       </SFormField>
     </div>
   </details>

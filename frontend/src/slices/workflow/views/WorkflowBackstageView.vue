@@ -6,25 +6,18 @@
     />
 
     <!-- Run selector -->
-    <div class="mb-4">
-      <label class="text-sm font-medium block mb-1">
-        {{ $t('workflow.backstage.selectRun') }}
-        <select
+    <div class="mb-4 max-w-xs">
+      <SFormField
+        :label="$t('workflow.backstage.selectRun')"
+        name="backstage-run"
+      >
+        <SSelect
+          id="backstage-run"
           v-model="selectedRunId"
-          class="border rounded px-2 py-1 text-sm w-full max-w-xs"
-        >
-          <option value="">
-            —
-          </option>
-          <option
-            v-for="r in runs"
-            :key="r.id"
-            :value="r.id"
-          >
-            {{ r.trigger_type }} · {{ r.state }} · {{ new Date(r.started_at).toLocaleString() }}
-          </option>
-        </select>
-      </label>
+          :options="runOptions"
+          size="sm"
+        />
+      </SFormField>
     </div>
 
     <template v-if="selectedRunId">
@@ -144,7 +137,7 @@ import { useQuery } from '@tanstack/vue-query'
 import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
-import { SPageHeader, STATUS_BG_MAP } from '@shared/ui'
+import { SFormField, SPageHeader, SSelect, STATUS_BG_MAP } from '@shared/ui'
 import { getApproval, getInstruction, listApprovalsForRun, listRuns, listSteps } from '../api'
 import { wfKeys } from '../queries'
 import type { ApprovalWithVotes } from '../types'
@@ -182,6 +175,16 @@ const runsQuery = useQuery({
 })
 
 const runs = computed(() => runsQuery.data.value ?? [])
+
+// The em-dash entry is a real, selectable option (not a disabled placeholder)
+// so the user can clear back to "no run selected", as before the migration.
+const runOptions = computed(() => [
+  { value: '', label: '—' },
+  ...runs.value.map((r) => ({
+    value: r.id,
+    label: `${r.trigger_type} · ${r.state} · ${new Date(r.started_at).toLocaleString()}`,
+  })),
+])
 
 const stepsQuery = useQuery({
   queryKey: computed(() => wfKeys.steps(selectedRunId.value)),

@@ -1,7 +1,8 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useConfigModel, safeNumber } from '../../composables/useConfigModel'
-import { SFormField } from '@shared/ui'
+import { SCheckbox, SFormField, SInput, SSelect, STextarea } from '@shared/ui'
 
 const { t } = useI18n()
 
@@ -21,6 +22,24 @@ const { local, update } = useConfigModel(props, emit)
 const EVENT_TYPES = ['message_in_room', 'a2a_message', 'timer', 'variable_matches'] as const
 const SENDER_FILTERS = ['any', 'user', 'agent', 'guest'] as const
 const A2A_TYPES = ['call', 'reply', 'notify', 'instruct'] as const
+
+const eventTypeOptions = computed(() =>
+  EVENT_TYPES.map((et) => ({ value: et, label: t('workflow.config.eventType_' + et) })),
+)
+
+const senderFilterOptions = computed(() =>
+  SENDER_FILTERS.map((sf) => ({ value: sf, label: t('workflow.config.senderFilter_' + sf) })),
+)
+
+const chatroomOptions = computed(() => [
+  { value: '', label: t('workflow.config.none') },
+  ...props.chatrooms.map((room) => ({ value: room.id, label: room.name })),
+])
+
+const agentOptions = computed(() => [
+  { value: '', label: t('workflow.config.none') },
+  ...props.agents.map((agent) => ({ value: agent.id, label: agent.name })),
+])
 
 function getTypes(): string[] {
   if (Array.isArray(local.types)) {
@@ -49,36 +68,30 @@ function toggleType(type: string) {
       :label="t('workflow.config.eventType')"
       name="wait-event-type"
     >
-      <select
+      <SSelect
         id="wait-event-type"
-        :value="local.event_type ?? 'message_in_room'"
-        class="wf-input"
-        @change="update('event_type', ($event.target as HTMLSelectElement).value)"
-      >
-        <option
-          v-for="et in EVENT_TYPES"
-          :key="et"
-          :value="et"
-        >
-          {{ t('workflow.config.eventType_' + et) }}
-        </option>
-      </select>
+        :model-value="(local.event_type as string) ?? 'message_in_room'"
+        :options="eventTypeOptions"
+        @update:model-value="update('event_type', $event)"
+      />
     </SFormField>
 
     <!-- Timeout -->
+    <!-- Native @input (bubbles through SInput's wrapper) so safeNumber sees the
+         raw string; SInput's update:modelValue coerces a cleared field to 0,
+         which would bypass the min=1 fallback. -->
     <SFormField
       :label="t('workflow.config.timeoutSeconds')"
       name="wait-timeout"
     >
-      <input
+      <SInput
         id="wait-timeout"
-        :value="local.timeout_seconds ?? 300"
+        :model-value="(local.timeout_seconds as number) ?? 300"
         type="number"
         min="1"
         max="86400"
-        class="wf-input"
         @input="update('timeout_seconds', safeNumber(($event.target as HTMLInputElement).value, 1))"
-      >
+      />
     </SFormField>
 
     <!-- message_in_room fields -->
@@ -87,56 +100,36 @@ function toggleType(type: string) {
         :label="t('workflow.config.chatroomId')"
         name="wait-chatroom"
       >
-        <select
+        <SSelect
           id="wait-chatroom"
-          :value="local.chatroom_id ?? ''"
-          class="wf-input"
-          @change="update('chatroom_id', ($event.target as HTMLSelectElement).value)"
-        >
-          <option value="">
-            {{ t('workflow.config.none') }}
-          </option>
-          <option
-            v-for="room in chatrooms"
-            :key="room.id"
-            :value="room.id"
-          >
-            {{ room.name }}
-          </option>
-        </select>
+          :model-value="(local.chatroom_id as string) ?? ''"
+          :options="chatroomOptions"
+          @update:model-value="update('chatroom_id', $event)"
+        />
       </SFormField>
 
       <SFormField
         :label="t('workflow.config.senderFilter')"
         name="wait-sender-filter"
       >
-        <select
+        <SSelect
           id="wait-sender-filter"
-          :value="local.sender_filter ?? 'any'"
-          class="wf-input"
-          @change="update('sender_filter', ($event.target as HTMLSelectElement).value)"
-        >
-          <option
-            v-for="sf in SENDER_FILTERS"
-            :key="sf"
-            :value="sf"
-          >
-            {{ t('workflow.config.senderFilter_' + sf) }}
-          </option>
-        </select>
+          :model-value="(local.sender_filter as string) ?? 'any'"
+          :options="senderFilterOptions"
+          @update:model-value="update('sender_filter', $event)"
+        />
       </SFormField>
 
       <SFormField
         :label="t('workflow.config.contentRegex')"
         name="wait-content-regex"
       >
-        <input
+        <SInput
           id="wait-content-regex"
-          :value="local.content_regex ?? ''"
+          :model-value="(local.content_regex as string) ?? ''"
           type="text"
-          class="wf-input"
-          @input="update('content_regex', ($event.target as HTMLInputElement).value)"
-        >
+          @update:model-value="update('content_regex', $event)"
+        />
       </SFormField>
     </template>
 
@@ -146,42 +139,27 @@ function toggleType(type: string) {
         :label="t('workflow.config.agentId')"
         name="wait-agent"
       >
-        <select
+        <SSelect
           id="wait-agent"
-          :value="local.agent_id ?? ''"
-          class="wf-input"
-          @change="update('agent_id', ($event.target as HTMLSelectElement).value)"
-        >
-          <option value="">
-            {{ t('workflow.config.none') }}
-          </option>
-          <option
-            v-for="agent in agents"
-            :key="agent.id"
-            :value="agent.id"
-          >
-            {{ agent.name }}
-          </option>
-        </select>
+          :model-value="(local.agent_id as string) ?? ''"
+          :options="agentOptions"
+          @update:model-value="update('agent_id', $event)"
+        />
       </SFormField>
 
       <SFormField
         :label="t('workflow.config.types')"
         name="wait-a2a-types"
       >
-        <div class="space-y-1">
-          <label
+        <div class="flex flex-col gap-1">
+          <SCheckbox
             v-for="at in A2A_TYPES"
             :key="at"
-            class="flex items-center gap-2"
+            :model-value="getTypes().includes(at)"
+            @update:model-value="toggleType(at)"
           >
-            <input
-              type="checkbox"
-              :checked="getTypes().includes(at)"
-              @change="toggleType(at)"
-            >
-            <span class="text-sm">{{ t('workflow.config.eventType_' + at) }}</span>
-          </label>
+            {{ t('workflow.config.eventType_' + at) }}
+          </SCheckbox>
         </div>
       </SFormField>
     </template>
@@ -192,15 +170,14 @@ function toggleType(type: string) {
         :label="t('workflow.config.delaySeconds')"
         name="wait-delay"
       >
-        <input
+        <SInput
           id="wait-delay"
-          :value="local.delay_seconds ?? 60"
+          :model-value="(local.delay_seconds as number) ?? 60"
           type="number"
           min="1"
           max="86400"
-          class="wf-input"
           @input="update('delay_seconds', safeNumber(($event.target as HTMLInputElement).value, 1))"
-        >
+        />
       </SFormField>
     </template>
 
@@ -210,11 +187,11 @@ function toggleType(type: string) {
         :label="t('workflow.config.expression')"
         name="wait-expression"
       >
-        <textarea
+        <STextarea
           id="wait-expression"
-          :value="(local.expression as string) ?? ''"
-          class="wf-input-code"
-          @input="update('expression', ($event.target as HTMLTextAreaElement).value)"
+          :model-value="(local.expression as string) ?? ''"
+          mono
+          @update:model-value="update('expression', $event)"
         />
       </SFormField>
     </template>

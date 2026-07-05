@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
 import { useConfigModel } from '../../composables/useConfigModel'
-import { SFormField, SCharCount } from '@shared/ui'
+import { SFormField, SCharCount, SInput, STextarea } from '@shared/ui'
 import { INPUT_LIMITS } from '@shared/constants/inputLimits'
 
 const { t } = useI18n()
@@ -93,15 +93,14 @@ function removeAssignment(index: number) {
           >
             {{ t('workflow.config.variable') }}
           </label>
-          <input
+          <SInput
             :id="`set-var-variable-${idx}`"
-            :value="assignment.variable"
+            :model-value="assignment.variable"
             type="text"
-            class="wf-input"
             :maxlength="INPUT_LIMITS.NAME"
             :placeholder="t('workflow.config.variable')"
-            @input="updateAssignment(idx, 'variable', ($event.target as HTMLInputElement).value)"
-          >
+            @update:model-value="updateAssignment(idx, 'variable', String($event))"
+          />
 
           <label
             :for="`set-var-expression-${idx}`"
@@ -109,13 +108,13 @@ function removeAssignment(index: number) {
           >
             {{ t('workflow.config.expression') }}
           </label>
-          <textarea
+          <STextarea
             :id="`set-var-expression-${idx}`"
-            :value="assignment.expression"
-            class="wf-input-code"
+            :model-value="assignment.expression"
+            mono
             :maxlength="INPUT_LIMITS.CONFIG_TEXT"
             :placeholder="t('workflow.config.expression')"
-            @input="updateAssignment(idx, 'expression', ($event.target as HTMLTextAreaElement).value)"
+            @update:model-value="updateAssignment(idx, 'expression', $event)"
           />
           <SCharCount
             :current="(assignment.expression ?? '').length"
