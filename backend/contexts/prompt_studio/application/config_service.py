@@ -22,7 +22,7 @@ from contexts.prompt_studio.domain.errors import (
     PinnedKeyNotOwned,
     VersionMismatch,
 )
-from contexts.prompt_studio.domain.models import AssistantConfig, PromptScope
+from contexts.prompt_studio.domain.models import AssistantConfig, AssistantFile, PromptScope
 from contexts.prompt_studio.infrastructure.repositories import AssistantConfigRepository
 from contexts.tenancy.interfaces.facade import TenancyFacade
 from shared_kernel import audit
@@ -136,6 +136,9 @@ class ConfigService:
         if platform is not None and platform.enabled:
             return platform
         return None
+
+    async def list_files(self, config_id: uuid.UUID) -> list[AssistantFile]:
+        return await self._configs.list_files(config_id)
 
     async def get_config_or_raise(self, config_id: uuid.UUID) -> AssistantConfig:
         config = await self._configs.get_by_id(config_id)

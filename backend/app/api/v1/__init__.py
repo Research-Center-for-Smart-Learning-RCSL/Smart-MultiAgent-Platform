@@ -107,6 +107,9 @@ def _build_registry() -> list[RouterEntry]:
         projects as project_routes,
     )
     from app.api.v1 import (
+        prompt_studio as prompt_studio_routes,
+    )
+    from app.api.v1 import (
         rag as rag_routes,
     )
     from app.api.v1 import (
@@ -132,6 +135,9 @@ def _build_registry() -> list[RouterEntry]:
     )
     from app.api.ws import (
         graphrag as ws_graphrag,
+    )
+    from app.api.ws import (
+        prompt_assistant as ws_prompt_assistant,
     )
     from app.api.ws import (
         rag_configs as ws_rag_configs,
@@ -203,6 +209,12 @@ def _build_registry() -> list[RouterEntry]:
         RouterEntry(workflow_routes.workspace_router),
         RouterEntry(workflow_routes.workflow_router),
         RouterEntry(workflow_routes.run_router),
+        # Prompt studio (assistant + templates, §29)
+        RouterEntry(prompt_studio_routes.me_router),
+        RouterEntry(prompt_studio_routes.org_router),
+        RouterEntry(prompt_studio_routes.admin_router),
+        RouterEntry(prompt_studio_routes.project_router),
+        RouterEntry(prompt_studio_routes.session_router),
         # Notifications
         RouterEntry(notification_routes.router),
         # Orchestration
@@ -214,6 +226,7 @@ def _build_registry() -> list[RouterEntry]:
         RouterEntry(ws_rag_configs.router),
         RouterEntry(ws_graphrag.router),
         RouterEntry(ws_admin_tail.router),
+        RouterEntry(ws_prompt_assistant.router),
     ]
 
 
