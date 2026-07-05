@@ -46,7 +46,7 @@ class SessionService:
         content: str,
         editor_draft: str | None,
     ) -> None:
-        session = await self._require_owned_session(session_id, actor_user_id)
+        session = await self.require_owned_session(session_id, actor_user_id)
         if self._store.at_message_cap(session):
             raise SessionLimitReached(str(session_id))
 
@@ -59,7 +59,9 @@ class SessionService:
         if used > config.daily_request_limit_per_user:
             raise DailyQuotaExceeded(str(actor_user_id))
 
-        updated = await self._store.append_message(session, SessionMessage(role="user", content=content))
+        updated = await self._store.append_message(session_id, SessionMessage(role="user", content=content))
+        if updated is None:
+            raise SessionNotFound(str(session_id))
         await enqueue(
             "prompt_assistant_turn",
             str(session_id),
@@ -67,11 +69,14 @@ class SessionService:
             _job_id=f"prompt:{session_id}:{len(updated.messages)}",
         )
 
-    async def _require_owned_session(
+    async def require_owned_session(
         self, session_id: uuid.UUID, actor_user_id: uuid.UUID
     ) -> AssistantSession:
+        """Fetch the session, verifying ownership. Public: also called by the WS route via the facade.
+
+        A mismatched owner reads as not-found — never leak another user's session.
+        """
         session = await self._store.get(session_id)
-        # A mismatched owner reads as not-found — never leak another user's session.
         if session is None or session.user_id != actor_user_id:
             raise SessionNotFound(str(session_id))
         return session

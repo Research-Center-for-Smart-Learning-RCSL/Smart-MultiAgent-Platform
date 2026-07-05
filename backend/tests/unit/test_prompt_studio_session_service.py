@@ -63,14 +63,17 @@ class _FakeStore:
     async def incr_daily_quota(self, *, config_id, user_id, day):
         return self._quota
 
-    async def append_message(self, session, message):
+    async def append_message(self, session_id, message):
         self.appended.append(message)
-        return AssistantSession(
+        session = self._session
+        updated = AssistantSession(
             session_id=session.session_id,
             user_id=session.user_id,
             project_id=session.project_id,
             messages=(*session.messages, message),
         )
+        self._session = updated
+        return updated
 
     async def create(self, *, user_id, project_id):
         return AssistantSession(session_id=uuid.uuid4(), user_id=user_id, project_id=project_id, messages=())

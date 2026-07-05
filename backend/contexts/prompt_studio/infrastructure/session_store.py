@@ -57,8 +57,20 @@ class SessionStore:
             messages=tuple(SessionMessage(role=m["role"], content=m["content"]) for m in data["messages"]),
         )
 
-    async def append_message(self, session: AssistantSession, message: SessionMessage) -> AssistantSession:
-        """Append a message and persist (TTL refreshed). Caller enforces caps."""
+    async def append_message(self, session_id: uuid.UUID, message: SessionMessage) -> AssistantSession | None:
+        """Re-fetch the session, append, and persist (TTL refreshed). Caller enforces caps.
+
+        Takes the session id rather than a caller-held snapshot: this is a
+        read-modify-write against Redis, so appending must start from the
+        latest stored state, not a copy read earlier by the caller (e.g. a
+        worker that read the session before streaming a reply must not
+        clobber a message the user posted while that reply was streaming).
+        Returns None if the session expired/was removed since the caller last
+        saw it.
+        """
+        session = await self.get(session_id)
+        if session is None:
+            return None
         updated = AssistantSession(
             session_id=session.session_id,
             user_id=session.user_id,
@@ -93,6 +105,17 @@ class SessionStore:
         pipe.expire(key, _DAY_SECONDS)
         count, _ = await pipe.execute()
         return int(count)
+
+    async def decr_daily_quota(self, *, config_id: uuid.UUID, user_id: uuid.UUID, day: str) -> int:
+        """Refund one unit of the daily counter.
+
+        Used when the web process charged the quota optimistically but the
+        worker then found the turn genuinely couldn't run (config/key
+        vanished, or no model could be resolved) — the user made no
+        effective use of a request, so it shouldn't count against their cap.
+        """
+        key = _quota_key(config_id, user_id, day)
+        return int(await self._redis.decr(key))
 
 
 __all__ = ["SessionStore"]

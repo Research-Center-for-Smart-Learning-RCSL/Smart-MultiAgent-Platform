@@ -15,20 +15,28 @@ import logging
 import uuid
 from typing import Any
 
+from contexts.agents.interfaces.facade import AgentsFacade
 from contexts.keys.application.provider_router import ProviderRequest, StreamComplete, TokenDelta
 from contexts.keys.domain.providers import ProviderCapability
 from contexts.keys.infrastructure.adapters import build_router
+from contexts.keys.interfaces.facade import KeysFacade
 from contexts.prompt_studio.application.config_service import ConfigService
 from contexts.prompt_studio.application.prompts import build_system_text
 from contexts.prompt_studio.domain.models import ASSISTANT_MAX_TOKENS, ScanStatus, SessionMessage
 from contexts.prompt_studio.infrastructure.channels import prompt_assistant_channel
 from contexts.prompt_studio.infrastructure.repositories import AssistantConfigRepository
 from contexts.prompt_studio.infrastructure.session_store import SessionStore
-from shared_kernel.auth.clients import get_redis
+from shared_kernel.auth.clients import get_redis, now
 from shared_kernel.db.session import get_sessionmaker
 from shared_kernel.realtime.pubsub import Publisher
 
 _log = logging.getLogger(__name__)
+
+
+async def _refund_quota(store: SessionStore, *, config_id: uuid.UUID, user_id: uuid.UUID) -> None:
+    """Undo the web process's optimistic quota charge for a turn that never reached the provider."""
+    with contextlib.suppress(Exception):
+        await store.decr_daily_quota(config_id=config_id, user_id=user_id, day=now().strftime("%Y%m%d"))
 
 
 async def prompt_assistant_turn(ctx: dict[str, Any], session_id: str, editor_draft: str) -> str:
@@ -50,12 +58,37 @@ async def prompt_assistant_turn(ctx: dict[str, Any], session_id: str, editor_dra
             project_id=session.project_id, user_id=session.user_id
         )
         if config is None or config.key_id is None:
+            # No refund here: the quota key is (config_id, user_id, day), and
+            # without a resolved config there's no id to identify which
+            # counter the web process charged. The paths below, once a
+            # config is resolved, do know the id and refund on failure.
             await publisher.emit(
                 "prompt.error",
                 {"code": "prompt-studio/unavailable", "message": "assistant is not available"},
             )
             return "no resolvable config / key revoked"
-        if not config.model_id:
+
+        key = await KeysFacade(db).get_key(config.key_id)
+        if key is None:
+            await _refund_quota(store, config_id=config.id, user_id=session.user_id)
+            await publisher.emit(
+                "prompt.error",
+                {"code": "prompt-studio/unavailable", "message": "assistant is not available"},
+            )
+            return "pinned key revoked"
+
+        # A null model_id means "use the provider's default", mirroring the
+        # agent runtime's per-agent model_id override (turn_engine._resolve_models):
+        # the default is never invented by the adapter itself (K.1 contract),
+        # so it's resolved here from the same catalog the config UI advertises
+        # "Provider default" against.
+        resolved_model_id = config.model_id
+        if not resolved_model_id:
+            catalog = AgentsFacade(db).chat_model_catalog()
+            entry = next((c for c in catalog if c.provider == key.provider.value), None)
+            resolved_model_id = entry.default if entry is not None else None
+        if not resolved_model_id:
+            await _refund_quota(store, config_id=config.id, user_id=session.user_id)
             await publisher.emit(
                 "prompt.error",
                 {"code": "prompt-studio/no-model", "message": "no model configured"},
@@ -78,7 +111,7 @@ async def prompt_assistant_turn(ctx: dict[str, Any], session_id: str, editor_dra
         request = ProviderRequest(
             capability=ProviderCapability.LLM_CHAT,
             payload={
-                "models": [config.model_id],
+                "model": resolved_model_id,
                 "system": system_text,
                 "messages": messages,
                 "max_tokens": ASSISTANT_MAX_TOKENS,
@@ -111,7 +144,7 @@ async def prompt_assistant_turn(ctx: dict[str, Any], session_id: str, editor_dra
 
     reply = "".join(parts)
     with contextlib.suppress(Exception):
-        await store.append_message(session, SessionMessage(role="assistant", content=reply))
+        await store.append_message(sid, SessionMessage(role="assistant", content=reply))
     await publisher.emit("prompt.finished", {"text": reply})
     return "ok"
 
