@@ -13,6 +13,7 @@ import {
   WrenchScrewdriverIcon,
   AdjustmentsHorizontalIcon,
   ChartBarIcon,
+  SparklesIcon,
 } from '@heroicons/vue/24/outline'
 import { useBreakpoint } from '@shared/composables'
 import { SSelect } from '@shared/ui'
@@ -33,6 +34,7 @@ const navItems = [
   { name: 'admin.ops', label: 'admin.nav.ops', icon: WrenchScrewdriverIcon },
   { name: 'admin.rateLimits', label: 'admin.nav.rateLimits', icon: AdjustmentsHorizontalIcon },
   { name: 'admin.metrics', label: 'admin.nav.metrics', icon: ChartBarIcon },
+  { name: 'admin.promptStudio', label: 'admin.nav.promptStudio', icon: SparklesIcon },
 ] as const
 
 // >=lg: vertical sidebar · md: horizontal tabs · <md: dropdown selector.

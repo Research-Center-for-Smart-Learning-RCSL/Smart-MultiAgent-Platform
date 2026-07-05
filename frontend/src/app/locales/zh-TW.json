@@ -145,6 +145,7 @@
       "profile": "個人資料",
       "account": "帳號設定",
       "sessions": "工作階段",
+      "promptAssistant": "提示詞助手",
       "theme": "主題：{theme}",
       "admin": "管理控制台",
       "logout": "登出"

@@ -46,6 +46,7 @@ import {
 import { ApiError } from '@shared/errors'
 import { isProblemWithType } from '@shared/transport'
 import { keyGroupsApi, keysKeys, type KeyGroup } from '@slices/keys'
+import { PromptAssistantPanel, PromptTemplatePicker } from '@slices/prompt-studio'
 import { agentsApi, type AgentTool, type AgentToolType } from '../api'
 import { agentKeys } from '../queries'
 import { useModelCatalog } from '../composables/useModelCatalog'
@@ -424,6 +425,18 @@ function insertLazyTemplate(): void {
   } else {
     systemPrompt.value = existing + t('agents.form.promptStrategyLazySectionAppend')
   }
+}
+
+// Prompt Assistant applies a whole draft (it confirms overwrite itself when the
+// editor is non-empty); the template picker inserts a template body, appending
+// with a blank-line separator so it never silently clobbers existing content.
+function onAssistantDraft(text: string): void {
+  systemPrompt.value = text
+}
+
+function onTemplateInsert(body: string): void {
+  const existing = (systemPrompt.value ?? '').trimEnd()
+  systemPrompt.value = existing ? `${existing}\n\n${body}` : body
 }
 
 const saveDisabled = computed(
@@ -844,62 +857,79 @@ const graphragStatusText = computed(() => {
         <!-- Tab: Prompt -->
         <div
           v-show="activeTab === 'prompt'"
-          class="mt-6 space-y-6"
+          class="mt-6"
         >
-          <SCard>
-            <h3 class="text-lg font-semibold mb-4">
-              {{ t('agents.form.systemPrompt') }}
-            </h3>
-            <SFormField
-              :label="t('agents.form.promptStrategy')"
-              name="prompt_strategy"
-              :error="errors.prompt_strategy ?? ''"
-              :help="promptStrategy === 'full' ? t('agents.form.promptStrategyFullHelp') : t('agents.form.promptStrategyLazyHelp')"
-            >
-              <SSelect
-                v-model="promptStrategy"
-                :options="promptStrategyOptions"
-              />
-            </SFormField>
+          <div class="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_22rem]">
+            <SCard>
+              <div class="flex items-center justify-between mb-4">
+                <h3 class="text-lg font-semibold">
+                  {{ t('agents.form.systemPrompt') }}
+                </h3>
+                <PromptTemplatePicker
+                  v-if="pickerProjectId"
+                  :project-id="pickerProjectId"
+                  @insert="onTemplateInsert"
+                />
+              </div>
+              <SFormField
+                :label="t('agents.form.promptStrategy')"
+                name="prompt_strategy"
+                :error="errors.prompt_strategy ?? ''"
+                :help="promptStrategy === 'full' ? t('agents.form.promptStrategyFullHelp') : t('agents.form.promptStrategyLazyHelp')"
+              >
+                <SSelect
+                  v-model="promptStrategy"
+                  :options="promptStrategyOptions"
+                />
+              </SFormField>
 
-            <SAlert
-              v-if="promptStrategy === 'lazy'"
-              variant="info"
-              :title="t('agents.form.promptStrategyLazyCalloutTitle')"
-              class="mt-3"
-            >
-              {{ t('agents.form.promptStrategyLazyCallout') }}
-              <pre class="mt-2 text-xs font-mono rounded px-3 py-2 overflow-x-auto whitespace-pre opacity-80">{{ t('agents.form.promptStrategyLazyFormatExample') }}</pre>
-              <template #actions>
-                <SButton
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  @click="insertLazyTemplate"
-                >
-                  {{ t('agents.form.promptStrategyLazyInsert') }}
-                </SButton>
-              </template>
-            </SAlert>
+              <SAlert
+                v-if="promptStrategy === 'lazy'"
+                variant="info"
+                :title="t('agents.form.promptStrategyLazyCalloutTitle')"
+                class="mt-3"
+              >
+                {{ t('agents.form.promptStrategyLazyCallout') }}
+                <pre class="mt-2 text-xs font-mono rounded px-3 py-2 overflow-x-auto whitespace-pre opacity-80">{{ t('agents.form.promptStrategyLazyFormatExample') }}</pre>
+                <template #actions>
+                  <SButton
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    @click="insertLazyTemplate"
+                  >
+                    {{ t('agents.form.promptStrategyLazyInsert') }}
+                  </SButton>
+                </template>
+              </SAlert>
 
-            <SFormField
-              :label="t('agents.form.systemPrompt')"
-              name="system_prompt"
-              :error="errors.system_prompt ?? ''"
-              class="mt-4"
-            >
-              <SCodeEditor
-                v-model="systemPrompt"
-                language="markdown"
-                :rows="16"
-                :placeholder="t('agents.form.systemPromptPlaceholder')"
+              <SFormField
+                :label="t('agents.form.systemPrompt')"
+                name="system_prompt"
+                :error="errors.system_prompt ?? ''"
+                class="mt-4"
+              >
+                <SCodeEditor
+                  v-model="systemPrompt"
+                  language="markdown"
+                  :rows="16"
+                  :placeholder="t('agents.form.systemPromptPlaceholder')"
+                />
+              </SFormField>
+              <SCharCount
+                :current="(systemPrompt ?? '').length"
+                :max="INPUT_LIMITS.SYSTEM_PROMPT"
               />
-            </SFormField>
-            <SCharCount
-              :current="(systemPrompt ?? '').length"
-              :max="INPUT_LIMITS.SYSTEM_PROMPT"
+            </SCard>
+
+            <PromptAssistantPanel
+              v-if="pickerProjectId"
+              :project-id="pickerProjectId"
+              :current-draft="systemPrompt ?? ''"
+              class="min-h-[32rem] lg:sticky lg:top-6 lg:self-start lg:h-[calc(100vh-8rem)]"
+              @apply-draft="onAssistantDraft"
             />
-          </SCard>
+          </div>
         </div>
 
         <!-- Tab: Knowledge -->

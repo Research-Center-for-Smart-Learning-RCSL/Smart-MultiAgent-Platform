@@ -63,6 +63,11 @@ export const adminRoutes: RouteRecordRaw[] = [
         name: 'admin.metrics',
         component: () => import('./views/AdminMetricsView.vue'),
       },
+      {
+        path: 'prompt-assistant',
+        name: 'admin.promptStudio',
+        component: () => import('@slices/prompt-studio').then((m) => m.AdminPromptStudioView),
+      },
     ],
   },
   {
