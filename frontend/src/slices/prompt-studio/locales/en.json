@@ -1,0 +1,94 @@
+{
+  "promptStudio": {
+    "actions": {
+      "edit": "Edit",
+      "remove": "Remove"
+    },
+    "scope": {
+      "platform": "Platform",
+      "org": "Organization",
+      "user": "Personal"
+    },
+    "personal": {
+      "title": "Prompt Assistant",
+      "subtitle": "Configure your personal prompt assistant and templates."
+    },
+    "org": {
+      "title": "Organization Prompt Assistant",
+      "subtitle": "Configure the assistant and templates for this organization's projects."
+    },
+    "admin": {
+      "title": "Platform Prompt Assistant",
+      "subtitle": "Configure the platform-wide prompt assistant and templates."
+    },
+    "config": {
+      "heading": "Assistant configuration",
+      "loadFailed": "Could not load the configuration.",
+      "noKey": "No key selected",
+      "systemPromptLabel": "Assistant system prompt",
+      "systemPromptHelp": "Instructions that shape how the assistant helps draft agent prompts.",
+      "systemPromptPlaceholder": "e.g. Help the user write concise, task-focused agent prompts.",
+      "keyRevokedTitle": "Configured key unavailable",
+      "keyRevokedBody": "The pinned key was removed. Select another key to re-enable the assistant.",
+      "keyLabel": "Pinned key",
+      "keyHelp": "A chat-capable key you own; the assistant runs on it.",
+      "modelLabel": "Model",
+      "modelDefault": "Provider default ({model})",
+      "dailyCapLabel": "Daily requests per user",
+      "dailyCapHelp": "Maximum assistant messages a user may send per day.",
+      "enabledLabel": "Enable the assistant",
+      "hidePlatformTemplatesLabel": "Hide platform templates from this organization's projects",
+      "filesTitle": "Reference files",
+      "filesHint": "PDF, DOCX, MD or TXT, up to 5 MB. Text is inlined into the assistant's context.",
+      "chars": "chars",
+      "saved": "Configuration saved.",
+      "saveFailed": "Could not save the configuration.",
+      "conflict": "The configuration changed elsewhere. Reload and try again.",
+      "keyNotOwned": "You can only pin a key you own.",
+      "keyCapability": "The selected key's provider does not support chat.",
+      "fileUploaded": "File added.",
+      "uploadFailed": "Could not upload the file.",
+      "budgetError": "This file would exceed the 200 KB reference-text budget.",
+      "formatError": "Unsupported file format.",
+      "infectedError": "The file failed the virus scan.",
+      "saveFirst": "Save the configuration before uploading files."
+    },
+    "templates": {
+      "heading": "Prompt templates",
+      "title": "Templates",
+      "new": "New template",
+      "empty": "No templates yet.",
+      "editTitle": "Edit template",
+      "newTitle": "New template",
+      "nameLabel": "Name",
+      "descriptionLabel": "Description",
+      "bodyLabel": "Template body",
+      "created": "Template created.",
+      "updated": "Template updated.",
+      "conflict": "The template changed elsewhere. Reload and try again.",
+      "saveFailed": "Could not save the template.",
+      "limitError": "You have reached the maximum number of templates for this scope.",
+      "deleteTitle": "Delete template",
+      "deleteBody": "This template will be permanently removed."
+    },
+    "panel": {
+      "title": "Prompt Assistant",
+      "unavailable": "No prompt assistant is configured for this project.",
+      "intro": "Ask the assistant to help draft or improve this agent's system prompt.",
+      "composerPlaceholder": "Describe what this agent should do...",
+      "send": "Send",
+      "applyDraft": "Apply to editor",
+      "applyConfirmTitle": "Replace the current prompt?",
+      "applyConfirmBody": "This will overwrite the system prompt in the editor.",
+      "applyConfirm": "Replace",
+      "quotaError": "You have reached your daily assistant request limit. Try again tomorrow.",
+      "turnError": "The assistant could not complete the request."
+    },
+    "picker": {
+      "button": "Insert template",
+      "title": "Prompt templates",
+      "empty": "No templates available.",
+      "insert": "Insert"
+    }
+  }
+}

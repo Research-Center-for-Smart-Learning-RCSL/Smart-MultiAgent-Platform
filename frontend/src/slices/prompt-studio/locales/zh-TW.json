@@ -1,0 +1,94 @@
+{
+  "promptStudio": {
+    "actions": {
+      "edit": "編輯",
+      "remove": "移除"
+    },
+    "scope": {
+      "platform": "平台",
+      "org": "組織",
+      "user": "個人"
+    },
+    "personal": {
+      "title": "提示詞助手",
+      "subtitle": "設定你的個人提示詞助手與範本。"
+    },
+    "org": {
+      "title": "組織提示詞助手",
+      "subtitle": "為此組織的專案設定助手與範本。"
+    },
+    "admin": {
+      "title": "平台提示詞助手",
+      "subtitle": "設定平台層級的提示詞助手與範本。"
+    },
+    "config": {
+      "heading": "助手設定",
+      "loadFailed": "無法載入設定。",
+      "noKey": "未選擇金鑰",
+      "systemPromptLabel": "助手系統提示詞",
+      "systemPromptHelp": "用於引導助手如何協助撰寫代理提示詞的指示。",
+      "systemPromptPlaceholder": "例如：協助使用者撰寫精簡、聚焦任務的代理提示詞。",
+      "keyRevokedTitle": "設定的金鑰無法使用",
+      "keyRevokedBody": "所綁定的金鑰已被移除。請選擇另一把金鑰以重新啟用助手。",
+      "keyLabel": "綁定金鑰",
+      "keyHelp": "你擁有且支援對話的金鑰；助手會使用它。",
+      "modelLabel": "模型",
+      "modelDefault": "供應商預設（{model}）",
+      "dailyCapLabel": "每位使用者每日請求數",
+      "dailyCapHelp": "每位使用者每日可傳送的助手訊息上限。",
+      "enabledLabel": "啟用助手",
+      "hidePlatformTemplatesLabel": "在此組織的專案中隱藏平台範本",
+      "filesTitle": "參考檔案",
+      "filesHint": "PDF、DOCX、MD 或 TXT，最大 5 MB。文字內容會內嵌至助手的上下文。",
+      "chars": "字元",
+      "saved": "設定已儲存。",
+      "saveFailed": "無法儲存設定。",
+      "conflict": "設定已在他處變更。請重新載入後再試。",
+      "keyNotOwned": "你只能綁定自己擁有的金鑰。",
+      "keyCapability": "所選金鑰的供應商不支援對話。",
+      "fileUploaded": "檔案已新增。",
+      "uploadFailed": "無法上傳檔案。",
+      "budgetError": "此檔案會超過 200 KB 的參考文字額度。",
+      "formatError": "不支援的檔案格式。",
+      "infectedError": "檔案未通過病毒掃描。",
+      "saveFirst": "請先儲存設定再上傳檔案。"
+    },
+    "templates": {
+      "heading": "提示詞範本",
+      "title": "範本",
+      "new": "新增範本",
+      "empty": "尚無範本。",
+      "editTitle": "編輯範本",
+      "newTitle": "新增範本",
+      "nameLabel": "名稱",
+      "descriptionLabel": "說明",
+      "bodyLabel": "範本內容",
+      "created": "範本已建立。",
+      "updated": "範本已更新。",
+      "conflict": "範本已在他處變更。請重新載入後再試。",
+      "saveFailed": "無法儲存範本。",
+      "limitError": "此範圍的範本數量已達上限。",
+      "deleteTitle": "刪除範本",
+      "deleteBody": "此範本將被永久移除。"
+    },
+    "panel": {
+      "title": "提示詞助手",
+      "unavailable": "此專案尚未設定提示詞助手。",
+      "intro": "請助手協助撰寫或改善此代理的系統提示詞。",
+      "composerPlaceholder": "描述這個代理應該做什麼……",
+      "send": "傳送",
+      "applyDraft": "套用至編輯器",
+      "applyConfirmTitle": "取代目前的提示詞？",
+      "applyConfirmBody": "這會覆寫編輯器中的系統提示詞。",
+      "applyConfirm": "取代",
+      "quotaError": "你已達每日助手請求上限。請明天再試。",
+      "turnError": "助手無法完成此請求。"
+    },
+    "picker": {
+      "button": "插入範本",
+      "title": "提示詞範本",
+      "empty": "沒有可用的範本。",
+      "insert": "插入"
+    }
+  }
+}
