@@ -39,9 +39,9 @@ class FakeResolver:
         return self.room_participant
 
 
-# Static-assert the matrix has exactly 24 capabilities and 6 roles.
-def test_matrix_shape_is_24x6() -> None:
-    assert len(list(Capability)) == 24
+# Static-assert the matrix has exactly 25 capabilities and 6 roles.
+def test_matrix_shape_is_25x6() -> None:
+    assert len(list(Capability)) == 25
     assert len(list(Role)) == 6
 
 
@@ -115,6 +115,7 @@ _EXPECTED_ALLOW: dict[Capability, set[Role]] = {
     Capability.USER_BAN: set(),
     Capability.USER_DELETE_ANY: set(),
     Capability.USER_READ_ANY: set(),
+    Capability.PROMPT_STUDIO_ORG_MANAGE: {Role.ORG_OWNER},
 }
 
 

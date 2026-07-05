@@ -135,8 +135,21 @@ def upgrade() -> None:
     op.create_index("ix_prompt_templates_user", "prompt_templates", ["user_id"])
     op.create_index("ix_prompt_templates_scope", "prompt_templates", ["scope"])
 
+    # Single-mechanism optimistic locking (DB-5): the generic smap_bump_version()
+    # BEFORE-UPDATE trigger bumps `version` for the two versioned tables, so no
+    # repository method hand-increments it.
+    for tbl in ("prompt_assistant_configs", "prompt_templates"):
+        op.execute(
+            f"CREATE TRIGGER trg_{tbl}_bump_version "
+            f"BEFORE UPDATE ON {tbl} FOR EACH ROW "
+            f"EXECUTE FUNCTION smap_bump_version();"
+        )
+
 
 def downgrade() -> None:
+    for tbl in ("prompt_assistant_configs", "prompt_templates"):
+        op.execute(f"DROP TRIGGER IF EXISTS trg_{tbl}_bump_version ON {tbl};")
+
     op.drop_index("ix_prompt_templates_scope", table_name="prompt_templates")
     op.drop_index("ix_prompt_templates_user", table_name="prompt_templates")
     op.drop_index("ix_prompt_templates_org", table_name="prompt_templates")
