@@ -23,13 +23,19 @@ Defined in the `@theme` block of `main.css`:
 | `--transition-fast` | 150ms ease | hovers, small state flips |
 | `--transition-normal` | 200ms ease | elevation, color, lifts |
 | `--transition-slow` | 300ms ease | layout (sidebar collapse) |
+| `--duration-fast` | 150ms | pair with a custom easing below |
+| `--duration-normal` | 200ms | pair with a custom easing below |
+| `--duration-slow` | 300ms | pair with a custom easing below |
 | `--motion-rise` | 6px | entrance translate distance |
 | `--motion-lift` | 2px | hover lift distance |
 | `--ease-out-soft` | cubic-bezier(0.25, 0.8, 0.4, 1) | entrances |
 | `--ease-spring` | cubic-bezier(0.34, 1.3, 0.5, 1) | playful one-shots only, never hover |
 
 Note: `--transition-*` are duration+easing shorthands — never append another
-easing after them in a `transition` declaration.
+easing after them in a `transition` declaration (the resulting value has two
+timing-functions and the whole declaration is dropped as invalid). When a
+site needs a different easing than the baked-in `ease`, use the matching
+`--duration-*` token with an explicit easing instead.
 
 ## Patterns
 

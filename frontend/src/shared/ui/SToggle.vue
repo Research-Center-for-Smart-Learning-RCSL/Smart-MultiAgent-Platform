@@ -237,7 +237,7 @@ function toggle() {
   left: 3px;
   width: 24px;
   height: 24px;
-  transition: transform var(--transition-normal) cubic-bezier(0.34, 1.56, 0.64, 1);
+  transition: transform var(--duration-normal) cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
 .s-toggle__robot-slot--on {
@@ -284,7 +284,7 @@ function toggle() {
   fill: var(--color-muted);
   transform: scaleY(0.16);
   transition:
-    transform var(--transition-normal) ease,
+    transform var(--transition-normal),
     fill var(--transition-fast);
 }
 
@@ -345,7 +345,7 @@ function toggle() {
 
 /* One-shot hop the instant the robot wakes. */
 .s-robot--on {
-  animation: s-robot-hop var(--transition-slow) ease-out;
+  animation: s-robot-hop var(--duration-slow) ease-out;
 }
 
 @keyframes s-robot-hop {

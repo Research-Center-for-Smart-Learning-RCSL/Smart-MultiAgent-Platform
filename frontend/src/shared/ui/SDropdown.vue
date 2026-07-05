@@ -302,8 +302,8 @@ onBeforeUnmount(() => {
 .s-dropdown-enter-active,
 .s-dropdown-leave-active {
   transition:
-    opacity var(--transition-fast) ease,
-    transform var(--transition-fast) ease;
+    opacity var(--transition-fast),
+    transform var(--transition-fast);
 }
 
 .s-dropdown-enter-from,

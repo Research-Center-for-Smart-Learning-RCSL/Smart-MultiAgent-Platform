@@ -69,6 +69,13 @@
   --transition-normal: 200ms ease;
   --transition-slow: 300ms ease;
 
+  /* Duration-only counterparts: use these instead of --transition-* when a
+     custom easing (not plain `ease`) is required — never append an easing
+     after --transition-* itself, see note below. */
+  --duration-fast: 150ms;
+  --duration-normal: 200ms;
+  --duration-slow: 300ms;
+
   --z-sidebar: 100;
   --z-topbar: 200;
   --z-dropdown: 300;
