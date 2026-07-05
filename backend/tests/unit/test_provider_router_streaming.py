@@ -25,6 +25,7 @@ from contexts.keys.application.provider_router import (
 )
 from contexts.keys.domain.errors import CapabilityMismatch, KeyGroupExhausted, KeyNotFound
 from contexts.keys.domain.providers import ApiKeyProvider, ProviderCapability
+from shared_kernel.observability.metrics import PROVIDER_CALL_TOTAL
 
 _CHAT = ProviderRequest(
     capability=ProviderCapability.LLM_CHAT,
@@ -35,6 +36,7 @@ _CHAT = ProviderRequest(
 class _Rot:
     rotate_on_error_codes: frozenset[int] = frozenset()
     retry_on_error = False
+    retry_max = 0  # used only by the non-streaming call()/_try_member path
 
 
 class _Member:
@@ -458,6 +460,97 @@ async def test_single_key_stream_unknown_key_raises(monkeypatch) -> None:
     with pytest.raises(KeyNotFound):
         await _drain(router.call_single_key_stream(key_id=kid, request=_ASSISTANT_CHAT))
     assert recorded == []
+
+
+def _metric(provider: str, status: str) -> float:
+    return PROVIDER_CALL_TOTAL.labels(provider=provider, status=status)._value.get()
+
+
+@pytest.mark.asyncio
+async def test_single_key_stream_transport_error_records_provider_metric(monkeypatch) -> None:
+    # Regression: the transport-error accounting branch omitted `provider=`,
+    # so a failed pinned-key stream call never reached PROVIDER_CALL_TOTAL
+    # even though the success branch does.
+    kid = uuid.uuid4()
+    adapter = _StreamAdapter(ApiKeyProvider.OPENAI, [httpx.ConnectError("boom")])
+    router, recorded = _make_router(
+        monkeypatch, {ApiKeyProvider.OPENAI: adapter}, [], {kid: _Key(kid, ApiKeyProvider.OPENAI)}
+    )
+    before = _metric("openai", "transport_error")
+    with pytest.raises(httpx.ConnectError):
+        await _drain(router.call_single_key_stream(key_id=kid, request=_ASSISTANT_CHAT))
+    assert _metric("openai", "transport_error") == before + 1
+    assert recorded[0]["error_code"] == "transport_error"
+
+
+@pytest.mark.asyncio
+async def test_single_key_stream_consumer_abort_records_provider_metric(monkeypatch) -> None:
+    kid = uuid.uuid4()
+    adapter = _StreamAdapter(
+        ApiKeyProvider.OPENAI,
+        [TokenDelta("a"), TokenDelta("b"), StreamComplete(ProviderCallResult(200, {"text": "ab"}, 1, 2))],
+    )
+    router, recorded = _make_router(
+        monkeypatch, {ApiKeyProvider.OPENAI: adapter}, [], {kid: _Key(kid, ApiKeyProvider.OPENAI)}
+    )
+    before = _metric("openai", "client_abort")
+    agen = router.call_single_key_stream(key_id=kid, request=_ASSISTANT_CHAT)
+    async for _e in agen:
+        break
+    await agen.aclose()
+    assert _metric("openai", "client_abort") == before + 1
+    assert recorded[0]["error_code"] == "client_abort"
+
+
+class _BoomAdapter:
+    """A non-streaming adapter whose invoke() always raises a transport error."""
+
+    def __init__(self, provider: ApiKeyProvider) -> None:
+        self.provider = provider
+
+    async def invoke(self, *, secret: str, request: ProviderRequest) -> ProviderCallResult:
+        raise httpx.ConnectError("boom")
+
+    async def stream(self, *, secret: str, request: ProviderRequest):
+        raise NotImplementedError
+        yield  # pragma: no cover -- makes this an async generator function
+
+
+@pytest.mark.asyncio
+async def test_single_key_transport_error_records_provider_metric(monkeypatch) -> None:
+    kid = uuid.uuid4()
+    router, recorded = _make_router(
+        monkeypatch,
+        {ApiKeyProvider.VOYAGE: _BoomAdapter(ApiKeyProvider.VOYAGE)},
+        [],
+        {kid: _Key(kid, ApiKeyProvider.VOYAGE)},
+    )
+    embed_req = ProviderRequest(
+        capability=ProviderCapability.EMBEDDING, payload={"model": "voyage-3", "input": ["x"]}
+    )
+    before = _metric("voyage", "transport_error")
+    with pytest.raises(httpx.ConnectError):
+        await router.call_single_key(key_id=kid, request=embed_req)
+    assert _metric("voyage", "transport_error") == before + 1
+    assert recorded[0]["error_code"] == "transport_error"
+
+
+@pytest.mark.asyncio
+async def test_call_member_transport_error_records_provider_metric(monkeypatch) -> None:
+    # _call_member (the multi-key rotation path's non-streaming call) shares
+    # the same accounting asymmetry fix.
+    kid = uuid.uuid4()
+    router, recorded = _make_router(
+        monkeypatch,
+        {ApiKeyProvider.OPENAI: _BoomAdapter(ApiKeyProvider.OPENAI)},
+        [_Member(kid)],
+        {kid: _Key(kid, ApiKeyProvider.OPENAI)},
+    )
+    before = _metric("openai", "transport_error")
+    with pytest.raises(KeyGroupExhausted):
+        await router.call(group_id=uuid.uuid4(), request=_CHAT)
+    assert _metric("openai", "transport_error") == before + 1
+    assert recorded[0]["error_code"] == "transport_error"
 
 
 @pytest.mark.asyncio
