@@ -49,6 +49,8 @@ _TUS_PREFIX = "/api/tus"
 _MESSAGE_SEGMENT = "/messages"
 _ATTACHMENT_SEGMENT = "/attachments"
 _DOCUMENT_SEGMENT = "/documents"
+# §29 prompt-assistant reference-file uploads (all three scopes end this way).
+_PROMPT_FILES_SEGMENT = "/prompt-assistant/config/files"
 
 
 def _bucket_for(path: str, method: str) -> ratelimit.Bucket:
@@ -62,7 +64,10 @@ def _bucket_for(path: str, method: str) -> ratelimit.Bucket:
     # R19.02 + F.5 -- only the *Creation* POST and single-shot attachment POSTs
     # count against the 10/min/user upload bucket.
     if method == "POST" and (
-        path.startswith(_TUS_PREFIX) or _ATTACHMENT_SEGMENT in path or _DOCUMENT_SEGMENT in path
+        path.startswith(_TUS_PREFIX)
+        or _ATTACHMENT_SEGMENT in path
+        or _DOCUMENT_SEGMENT in path
+        or _PROMPT_FILES_SEGMENT in path
     ):
         return ratelimit.Bucket.UPLOAD
     return ratelimit.Bucket.OTHER
