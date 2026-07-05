@@ -179,7 +179,7 @@ const isDisabled = computed(() => props.disabled || props.loading)
 }
 
 .s-btn--secondary:hover:not(.s-btn--disabled) {
-  background: var(--color-border);
+  background: var(--color-surface-hover);
 }
 
 .s-btn--danger {
@@ -200,7 +200,7 @@ const isDisabled = computed(() => props.disabled || props.loading)
 }
 
 .s-btn--ghost:hover:not(.s-btn--disabled) {
-  background: var(--color-surface);
+  background: var(--color-surface-hover);
 }
 
 .s-btn--link {
