@@ -73,6 +73,14 @@ def _template(scope: PromptScope, *, org_id=None, user_id=None, name="t") -> Pro
 @dataclass
 class _FakeConfigRepo:
     by_scope: dict[tuple, AssistantConfig]
+    meta_calls: list = None  # type: ignore[assignment]
+    full_calls: list = None  # type: ignore[assignment]
+
+    def __post_init__(self):
+        if self.meta_calls is None:
+            self.meta_calls = []
+        if self.full_calls is None:
+            self.full_calls = []
 
     async def get_by_scope(self, scope, *, org_id=None, user_id=None):
         if scope is PromptScope.PLATFORM:
@@ -80,6 +88,14 @@ class _FakeConfigRepo:
         if scope is PromptScope.ORG:
             return self.by_scope.get(("org", org_id))
         return self.by_scope.get(("user", user_id))
+
+    async def list_files_meta(self, config_id):
+        self.meta_calls.append(config_id)
+        return []
+
+    async def list_files(self, config_id):
+        self.full_calls.append(config_id)
+        return []
 
 
 @dataclass
@@ -266,6 +282,21 @@ async def test_put_config_existing_requires_if_match(monkeypatch) -> None:
         )
 
 
+@pytest.mark.asyncio
+async def test_list_files_uses_metadata_only_projection(monkeypatch) -> None:
+    # Regression: the API layer's response DTOs never serialize extracted_text
+    # (up to 200 KB/config) -- ConfigService.list_files must route through the
+    # metadata-only repository query, not the full-row one the worker uses.
+    repo = _FakeConfigRepo({})
+    svc = _make_config_service(configs=repo, monkeypatch=monkeypatch)
+    config_id = uuid.uuid4()
+
+    await svc.list_files(config_id)
+
+    assert repo.meta_calls == [config_id]
+    assert repo.full_calls == []
+
+
 # --- template service ------------------------------------------------------
 
 
@@ -289,6 +320,26 @@ class _FakeTemplateRepo:
 
     async def create(self, **kw):
         return _template(kw["scope"], org_id=kw["org_id"], user_id=kw["user_id"], name=kw["name"])
+
+    async def update(self, template_id, *, expected_version, values):
+        tpl = self._by_id[template_id]
+        if tpl.version != expected_version:
+            raise VersionMismatch(str(template_id))
+        updated = PromptTemplate(
+            id=tpl.id,
+            scope=tpl.scope,
+            org_id=tpl.org_id,
+            user_id=tpl.user_id,
+            name=values.get("name", tpl.name),
+            description=values.get("description", tpl.description),
+            body=values.get("body", tpl.body),
+            position=values.get("position", tpl.position),
+            version=tpl.version + 1,
+            created_at=tpl.created_at,
+            updated_at=tpl.updated_at,
+        )
+        self._by_id[template_id] = updated
+        return updated
 
 
 def _make_template_service(*, templates, configs=None, tenancy=None, monkeypatch) -> TemplateService:
@@ -351,6 +402,43 @@ async def test_update_template_rejects_other_users_template(monkeypatch) -> None
             draft=TemplateDraft(name="x"),
             actor_user_id=attacker,
         )
+
+
+@pytest.mark.asyncio
+async def test_update_template_noop_patch_still_checks_version(monkeypatch) -> None:
+    # An empty-body PATCH (no fields set) must not bypass optimistic
+    # concurrency -- a stale If-Match still has to 412.
+    owner = uuid.uuid4()
+    tpl = _template(PromptScope.USER, user_id=owner)
+    svc = _make_template_service(templates=_FakeTemplateRepo([tpl]), monkeypatch=monkeypatch)
+    with pytest.raises(VersionMismatch):
+        await svc.update_template(
+            template_id=tpl.id,
+            scope=PromptScope.USER,
+            org_id=None,
+            user_id=owner,
+            expected_version=tpl.version + 1,
+            draft=TemplateDraft(),
+            actor_user_id=owner,
+        )
+
+
+@pytest.mark.asyncio
+async def test_update_template_noop_patch_with_correct_version_succeeds(monkeypatch) -> None:
+    owner = uuid.uuid4()
+    tpl = _template(PromptScope.USER, user_id=owner)
+    svc = _make_template_service(templates=_FakeTemplateRepo([tpl]), monkeypatch=monkeypatch)
+    result = await svc.update_template(
+        template_id=tpl.id,
+        scope=PromptScope.USER,
+        org_id=None,
+        user_id=owner,
+        expected_version=tpl.version,
+        draft=TemplateDraft(),
+        actor_user_id=owner,
+    )
+    assert result.id == tpl.id
+    assert result.version == tpl.version
 
 
 @pytest.mark.asyncio

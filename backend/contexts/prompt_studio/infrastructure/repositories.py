@@ -63,6 +63,52 @@ def _row_to_file(row: Any) -> AssistantFile:
     )
 
 
+# Columns for the metadata-only file listing (everything response DTOs
+# serialize) -- excludes extracted_text, which can be up to the 200 KB
+# per-config budget and is only ever read by the assistant's context builder.
+_FILE_META_COLUMNS = (
+    t.prompt_assistant_files.c.id,
+    t.prompt_assistant_files.c.config_id,
+    t.prompt_assistant_files.c.filename,
+    t.prompt_assistant_files.c.size_bytes,
+    t.prompt_assistant_files.c.sha256,
+    t.prompt_assistant_files.c.mime,
+    t.prompt_assistant_files.c.minio_key,
+    t.prompt_assistant_files.c.scan_status,
+    t.prompt_assistant_files.c.extracted_chars,
+    t.prompt_assistant_files.c.created_at,
+)
+
+
+def _row_to_file_meta(row: Any) -> AssistantFile:
+    return AssistantFile(
+        id=row.id,
+        config_id=row.config_id,
+        filename=row.filename,
+        size_bytes=row.size_bytes,
+        sha256=row.sha256,
+        mime=row.mime,
+        minio_key=row.minio_key,
+        scan_status=ScanStatus(row.scan_status),
+        extracted_chars=row.extracted_chars,
+        extracted_text=None,
+        created_at=row.created_at,
+    )
+
+
+def _scope_pred(
+    table: sa.Table, scope: PromptScope, *, org_id: uuid.UUID | None, user_id: uuid.UUID | None
+) -> sa.ColumnElement[bool]:
+    """Shared (scope, org_id, user_id) predicate — both prompt_studio tables share this shape."""
+    c = table.c
+    pred: sa.ColumnElement[bool] = c.scope == scope.value
+    if scope is PromptScope.ORG:
+        pred = sa.and_(pred, c.org_id == org_id)
+    elif scope is PromptScope.USER:
+        pred = sa.and_(pred, c.user_id == user_id)
+    return pred
+
+
 def _row_to_template(row: Any) -> PromptTemplate:
     return PromptTemplate(
         id=row.id,
@@ -98,12 +144,7 @@ class AssistantConfigRepository:
         org_id: uuid.UUID | None = None,
         user_id: uuid.UUID | None = None,
     ) -> AssistantConfig | None:
-        c = t.prompt_assistant_configs.c
-        pred = c.scope == scope.value
-        if scope is PromptScope.ORG:
-            pred = sa.and_(pred, c.org_id == org_id)
-        elif scope is PromptScope.USER:
-            pred = sa.and_(pred, c.user_id == user_id)
+        pred = _scope_pred(t.prompt_assistant_configs, scope, org_id=org_id, user_id=user_id)
         row = (await self._db.execute(t.prompt_assistant_configs.select().where(pred))).first()
         return _row_to_config(row) if row else None
 
@@ -144,6 +185,7 @@ class AssistantConfigRepository:
     # -- reference files -----------------------------------------------------
 
     async def list_files(self, config_id: uuid.UUID) -> list[AssistantFile]:
+        """Full rows, including extracted_text -- for the assistant's context builder only."""
         rows = (
             await self._db.execute(
                 t.prompt_assistant_files.select()
@@ -152,6 +194,17 @@ class AssistantConfigRepository:
             )
         ).all()
         return [_row_to_file(r) for r in rows]
+
+    async def list_files_meta(self, config_id: uuid.UUID) -> list[AssistantFile]:
+        """Metadata only (extracted_text always None) -- for response DTOs, which never serialize it."""
+        rows = (
+            await self._db.execute(
+                sa.select(*_FILE_META_COLUMNS)
+                .where(t.prompt_assistant_files.c.config_id == config_id)
+                .order_by(t.prompt_assistant_files.c.created_at)
+            )
+        ).all()
+        return [_row_to_file_meta(r) for r in rows]
 
     async def get_file(self, config_id: uuid.UUID, file_id: uuid.UUID) -> AssistantFile | None:
         c = t.prompt_assistant_files.c
@@ -254,7 +307,7 @@ class PromptTemplateRepository:
     async def count_for_scope(
         self, scope: PromptScope, *, org_id: uuid.UUID | None = None, user_id: uuid.UUID | None = None
     ) -> int:
-        pred = self._scope_pred(scope, org_id=org_id, user_id=user_id)
+        pred = _scope_pred(t.prompt_templates, scope, org_id=org_id, user_id=user_id)
         return int(
             (
                 await self._db.execute(sa.select(sa.func.count()).select_from(t.prompt_templates).where(pred))
@@ -265,23 +318,11 @@ class PromptTemplateRepository:
         self, scope: PromptScope, *, org_id: uuid.UUID | None = None, user_id: uuid.UUID | None = None
     ) -> list[PromptTemplate]:
         c = t.prompt_templates.c
-        pred = self._scope_pred(scope, org_id=org_id, user_id=user_id)
+        pred = _scope_pred(t.prompt_templates, scope, org_id=org_id, user_id=user_id)
         rows = (
             await self._db.execute(t.prompt_templates.select().where(pred).order_by(c.position, c.created_at))
         ).all()
         return [_row_to_template(r) for r in rows]
-
-    @staticmethod
-    def _scope_pred(
-        scope: PromptScope, *, org_id: uuid.UUID | None, user_id: uuid.UUID | None
-    ) -> sa.ColumnElement[bool]:
-        c = t.prompt_templates.c
-        pred: sa.ColumnElement[bool] = c.scope == scope.value
-        if scope is PromptScope.ORG:
-            pred = sa.and_(pred, c.org_id == org_id)
-        elif scope is PromptScope.USER:
-            pred = sa.and_(pred, c.user_id == user_id)
-        return pred
 
 
 __all__ = ["AssistantConfigRepository", "PromptTemplateRepository"]

@@ -16,6 +16,7 @@ import uuid
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.keys.interfaces.facade import KeysFacade, ProviderCapability
+from contexts.prompt_studio.application._scoping import resolve_owning_org_id
 from contexts.prompt_studio.domain.errors import (
     AssistantConfigNotFound,
     PinnedKeyCapabilityMismatch,
@@ -126,9 +127,9 @@ class ConfigService:
         if personal is not None and personal.enabled:
             return personal
 
-        project = await self._tenancy.get_project(project_id)
-        if project is not None and project.owner_org_id is not None:
-            org_cfg = await self._configs.get_by_scope(PromptScope.ORG, org_id=project.owner_org_id)
+        owning_org_id = await resolve_owning_org_id(self._tenancy, project_id)
+        if owning_org_id is not None:
+            org_cfg = await self._configs.get_by_scope(PromptScope.ORG, org_id=owning_org_id)
             if org_cfg is not None and org_cfg.enabled:
                 return org_cfg
 
@@ -138,7 +139,8 @@ class ConfigService:
         return None
 
     async def list_files(self, config_id: uuid.UUID) -> list[AssistantFile]:
-        return await self._configs.list_files(config_id)
+        """Metadata only -- the API layer's response DTOs never serialize extracted_text."""
+        return await self._configs.list_files_meta(config_id)
 
     async def get_config_or_raise(self, config_id: uuid.UUID) -> AssistantConfig:
         config = await self._configs.get_by_id(config_id)

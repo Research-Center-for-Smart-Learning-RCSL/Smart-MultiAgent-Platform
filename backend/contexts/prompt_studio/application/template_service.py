@@ -12,9 +12,11 @@ import uuid
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from contexts.prompt_studio.application._scoping import resolve_owning_org_id
 from contexts.prompt_studio.domain.errors import (
     TemplateLimitReached,
     TemplateNotFound,
+    VersionMismatch,
 )
 from contexts.prompt_studio.domain.models import (
     TEMPLATES_PER_SCOPE_MAX,
@@ -99,9 +101,13 @@ class TemplateService:
             if v is not None
         }
         if not values:
-            # Nothing to change; return the current row unchanged.
+            # Nothing to change, but an empty-body PATCH is not exempt from
+            # optimistic concurrency: a stale If-Match must still 412, the
+            # same as it would via the repository's UPDATE ... WHERE version=.
             current = await self._templates.get(template_id)
             assert current is not None  # _assert_owned guarantees existence
+            if current.version != expected_version:
+                raise VersionMismatch(str(template_id))
             return current
         template = await self._templates.update(template_id, expected_version=expected_version, values=values)
         await self._emit("prompt_studio.template_updated", template, actor_user_id, actor_ip, request_id)
@@ -149,8 +155,7 @@ class TemplateService:
         returned template carries its own ``scope`` so the API groups by source.
         """
         merged: list[PromptTemplate] = []
-        project = await self._tenancy.get_project(project_id)
-        owning_org_id = project.owner_org_id if project is not None else None
+        owning_org_id = await resolve_owning_org_id(self._tenancy, project_id)
 
         hide_platform = False
         if owning_org_id is not None:
