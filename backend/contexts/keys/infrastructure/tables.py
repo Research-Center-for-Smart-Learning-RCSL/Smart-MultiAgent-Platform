@@ -144,6 +144,9 @@ key_usage_events = sa.Table(
     sa.Column("request_ms", sa.Integer, nullable=False, server_default=sa.text("0")),
     sa.Column("http_status", sa.Integer, nullable=True),
     sa.Column("error_code", sa.Text, nullable=True),
+    # Non-agent call discriminator (e.g. 'prompt_assistant'); NULL for ordinary
+    # agent/chatroom traffic, GraphRAG-builder, embed and rerank calls.
+    sa.Column("usage_context", sa.Text, nullable=True),
     sa.Column("at", sa.TIMESTAMP(timezone=True), nullable=False, server_default=sa.text("now()")),
 )
 
