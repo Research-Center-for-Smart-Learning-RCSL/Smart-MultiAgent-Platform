@@ -3,12 +3,16 @@ import { renderView } from '../../../tests/utils'
 import AgentConstellation from '../components/AgentConstellation.vue'
 
 describe('AgentConstellation', () => {
-  it('renders a decorative svg hidden from assistive tech', async () => {
+  it('renders a decorative figure hidden from assistive tech', async () => {
     const wrapper = await renderView(AgentConstellation)
-    const svg = wrapper.find('svg.constellation')
-    expect(svg.exists()).toBe(true)
-    expect(svg.attributes('aria-hidden')).toBe('true')
-    expect(svg.attributes('role')).toBe('presentation')
+    // The wrapper carries the decorative semantics for the whole figure
+    // (svg + particle canvas layers beneath it).
+    const root = wrapper.find('.constellation-wrap')
+    expect(root.exists()).toBe(true)
+    expect(root.attributes('aria-hidden')).toBe('true')
+    expect(root.attributes('role')).toBe('presentation')
+    expect(wrapper.find('svg.constellation').exists()).toBe(true)
+    expect(wrapper.find('canvas.particle-field').exists()).toBe(true)
   })
 
   it('draws a shell, a fill core, and one flow edge per satellite', async () => {

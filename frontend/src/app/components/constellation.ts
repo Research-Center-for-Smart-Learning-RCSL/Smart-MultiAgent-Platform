@@ -39,3 +39,16 @@ export const SATELLITES: ConstellationNode[] = NODES.map((n, i) => {
 
 // Every ball in the glyph: the ring satellites plus the central hub.
 export const BALL_COUNT = SATELLITES.length + 1
+
+// Edges are gently bowed quadratic curves rather than straight spokes — more
+// organic, and both renders of the glyph must share the exact same curve so
+// the intro dock stays pixel-identical. The bow is a perpendicular offset at
+// the midpoint, alternating sides so the figure stays balanced.
+const EDGE_BOW = 16
+
+export function edgePath(node: ConstellationNode): string {
+  const sign = node.id % 2 === 0 ? 1 : -1
+  const cx = Math.round((CENTER.x + node.x) / 2 - node.sin * EDGE_BOW * sign)
+  const cy = Math.round((CENTER.y + node.y) / 2 + node.cos * EDGE_BOW * sign)
+  return `M ${CENTER.x} ${CENTER.y} Q ${cx} ${cy} ${node.x} ${node.y}`
+}

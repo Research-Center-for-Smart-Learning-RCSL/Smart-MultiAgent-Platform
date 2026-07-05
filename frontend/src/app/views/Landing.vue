@@ -378,7 +378,8 @@ useDocumentMeta({
 }
 
 /* Decorative depth: a soft radial wash plus a faint dot grid, both fading out
-   before the edges so text never sits on busy texture. */
+   before the edges so text never sits on busy texture. Two slow aurora blobs
+   (below) drift over it so the page stays quietly alive. */
 .hero__bg {
   position: absolute;
   inset: -40px -24px 0;
@@ -395,6 +396,61 @@ useDocumentMeta({
   -webkit-mask-image: radial-gradient(80% 80% at 50% 40%, #000 40%, transparent 100%);
   mask-image: radial-gradient(80% 80% at 50% 40%, #000 40%, transparent 100%);
   opacity: 0.5;
+}
+
+/* Aurora layer: two blurred accent blobs on 28s/34s alternating drifts —
+   transform-only, so the blur is rasterized once and animation stays cheap.
+   The parent mask keeps their edges away from the copy; the global
+   reduced-motion freeze parks them at their resting keyframe. */
+.hero__bg::before,
+.hero__bg::after {
+  content: '';
+  position: absolute;
+  width: 52%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  filter: blur(56px);
+  will-change: transform;
+}
+
+.hero__bg::before {
+  top: -8%;
+  right: 4%;
+  background: radial-gradient(
+    circle,
+    color-mix(in srgb, var(--color-accent) 16%, transparent),
+    transparent 70%
+  );
+  animation: hero-aurora-a 28s ease-in-out infinite alternate;
+}
+
+.hero__bg::after {
+  bottom: -4%;
+  left: 8%;
+  background: radial-gradient(
+    circle,
+    color-mix(in srgb, var(--color-accent-2) 12%, transparent),
+    transparent 70%
+  );
+  animation: hero-aurora-b 34s ease-in-out infinite alternate;
+}
+
+@keyframes hero-aurora-a {
+  from {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  to {
+    transform: translate3d(-7%, 9%, 0) scale(1.18);
+  }
+}
+
+@keyframes hero-aurora-b {
+  from {
+    transform: translate3d(0, 0, 0) scale(1.06);
+  }
+  to {
+    transform: translate3d(9%, -7%, 0) scale(0.94);
+  }
 }
 
 .hero__copy,
