@@ -1803,10 +1803,11 @@ Three tiers, clearly named:
 
 ### 24.9 Styling and design tokens
 
-- **[R24.27]** Base library: **Element Plus** (chosen over Naive UI for more mature mobile support and larger ecosystem). Imported on-demand via `unplugin-auto-import` to keep bundle size small.
-- **[R24.28]** Design tokens live in `shared/styles/tokens.css` as CSS custom properties (`--color-bg-surface`, `--color-accent`, `--radius-md`, …) and are themed light/dark by toggling a `data-theme` attribute on `<html>`.
-- **[R24.29]** No Tailwind in v1 — to avoid collision with Element Plus utility classes. Layouts use CSS Grid / Flex via scoped `<style>` blocks.
-- **[R24.30]** **Scoped styles only.** Global CSS is restricted to `tokens.css`, `reset.css`, and Element Plus overrides. A lint rule bans `<style>` (non-scoped) in any `.vue` file outside `shared/styles/`.
+- **[R24.27]** *(amended 2026-07-05)* Base library: the in-house `S*` component library under `frontend/src/shared/ui/` (43 components). No external UI kit; Element Plus was dropped before v1 implementation.
+- **[R24.28]** *(amended 2026-07-05)* Design tokens live in `frontend/src/shared/styles/main.css` in the Tailwind v4 `@theme` block as CSS custom properties, themed light/dark via the `data-theme` attribute on `<html>`. The token vocabulary covers color (semantic + status tint/on), spacing, typography, radius, shadow/elevation, motion (duration/easing/distance), focus ring, layout, and z-index scales.
+- **[R24.29]** *(amended 2026-07-05)* Tailwind CSS v4 is the utility layer (via `@tailwindcss/vite`); component styling uses scoped `<style>` blocks consuming the `@theme` tokens.
+- **[R24.30]** *(amended 2026-07-05)* Scoped styles only. Global CSS is restricted to `shared/styles/` (tokens, base, a11y utilities `.sr-only`/`.skip-link`, third-party overrides). Enforced by lint gate 6.
+- **[R24.49]** *(added 2026-07-05)* Motion language: interface motion follows a documented restrained-professional spec — route transitions 150-200 ms fade + ≤ 6 px rise, hover elevation lift 1-2 px, first-load-only list stagger ≤ 300 ms total, easings and durations from the motion tokens. All motion collapses under `prefers-reduced-motion: reduce`.
 
 ### 24.10 Responsive and mobile
 
