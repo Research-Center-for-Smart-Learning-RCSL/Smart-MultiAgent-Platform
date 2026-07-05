@@ -1,6 +1,6 @@
 ---
 type: feature
-status: draft
+status: approved
 created: 2026-07-05
 requirements: [R29.01, R29.02, R29.03, R29.04, R29.05, R29.06, R29.07, R29.08, R29.09, R29.10, R29.11, R29.12, R29.13, R29.14, R9.02, R5.03, R7.15]
 ---

@@ -46,7 +46,7 @@ SMAP (Smart Multi-Agent Platform) is a self-hosted web application that lets use
 - Public programmatic API for third parties.
 - Automated backups and DR tooling (operator responsibility).
 - Native mobile apps (responsive web is sufficient).
-- Agent versioning, export/import, or template library.
+- Agent versioning and export/import. (Prompt templates are in scope as of §29.)
 - Cross-organization project migration or cloning.
 - SSO, OAuth, or MFA in v1 (email + password only).
 - Voice/audio input.
@@ -200,6 +200,8 @@ Legend: ✓ allowed, ✗ denied, ∘ allowed only on resources the user owns, `�
 | 22 | Ban user / IP | ✓ | ✗ | ✗ | ✗ | ✗ | ✗ |
 | 23 | Delete any user | ✓ | ✗ | ✗ | ✗ | ✗ | ✗ |
 | 24 | Read *any* user's data | ✓ | ✗ | ✗ | ✗ | ✗ | ✗ |
+| 25 | Configure org prompt assistant / org templates (§29) | ✓ | ✓ | ✗ | ✗ | ✗ | ✗ |
+| 26 | Configure personal prompt assistant / personal templates (§29) | ✓ (own) | ✓ (own) | ✓ (own) | ✓ (own) | ✓ (own) | ✗ |
 
 **[R5.05]** All authorization MUST be enforced server-side in a single `permissions` service. Frontend visibility is advisory only.
 
@@ -391,7 +393,7 @@ An Agent is defined by:
 | `workflow_capabilities` | JSON | `{can_instruct, can_approve, can_create_subagent, max_subagents_alive}` — booleans + max-subagents cap per §15.6. |
 
 - **[R9.01]** A Project Owner may create unlimited agents. Hard platform cap: 1 000 agents per project (prevents runaway DoS).
-- **[R9.02]** Agents are not versioned; no export/import; no templates (Q41). Editing overwrites in place.
+- **[R9.02]** Agents are not versioned; no export/import (Q41). Editing overwrites in place. Prompt templates (§29) may be inserted at authoring time; an applied template leaves no persistent link to its source.
 - **[R9.03]** Deleting an Agent soft-deletes it for 60 days (consistent with R8.11) since agents may be referenced by historical chat messages.
 
 ### 9.2 Prompt Read Strategy (Q36 — Recommendation applied)
@@ -1314,6 +1316,7 @@ Both with payload filters: `doc_id`, `chunk_idx`, `agent_ids`, `kind`, `project_
 - `chat-uploads` (lifecycle: 3-day expiration).
 - `rag-sources` (kept as long as the RAG document row exists).
 - `exports` (lifecycle: 24-hour expiration).
+- `prompt-assistant-files` (no TTL; kept as long as the assistant reference-file row exists, §29).
 
 ---
 
@@ -1547,6 +1550,7 @@ All under `/api/admin/*`. Role = Admin required.
 | `/ws/workflow-runs/{id}` | step transitions, approval prompts |
 | `/ws/rag-configs/{id}` | `document.ingesting / ready / failed`, per-document progress (percent) for configs the caller may read |
 | `/ws/admin/tail` | Admin-only live audit tail |
+| `/ws/prompt-assistant/{session_id}` | `assistant.token / finished / error` for the session owner (§29) |
 
 All WS connections are authenticated via the access token passed in the `Sec-WebSocket-Protocol` subprotocol (format: `bearer.<access_token>`; clients send `Sec-WebSocket-Protocol: bearer.<token>` and the server echoes the protocol in the handshake response). Reauth upon token expiry via a `refresh` message on the same socket (JSON `{"type":"refresh","access_token":"..."}`).
 
@@ -1573,6 +1577,21 @@ All file uploads larger than the 32 MB single-shot cap (R22.10 attachments, R10.
   - A custom header `X-SMAP-Resource: /api/{chat|rag}/.../{new_id}` pointing to the materialized resource (attachment or rag document) the client can then reference in subsequent calls.
 - **[R22.15.06]** The Creation POST itself is rate-limited (§19) at 20 / min / user, separate from the per-chunk PATCH calls which are 300 / min / user.
 - **[R22.15.07]** Virus scanning hook: after completion, the backend dispatches a `file.scan_requested` worker task. Operators may configure ClamAV or equivalent; if not configured, a no-op passes the file. Files that fail the scan are quarantined, the parent resource is flagged `status = 'quarantined'`, and an audit event `attachment.quarantined` / `rag.document.quarantined` is written.
+
+### 22.16 Prompt Assistant & Prompt Templates (§29)
+
+| Method & Path | Purpose |
+|---|---|
+| `GET/PUT /api/me/prompt-assistant/config`, `POST/DELETE .../files` | Personal assistant config + reference files |
+| `GET/POST/PATCH/DELETE /api/me/prompt-templates[/{id}]` | Personal templates |
+| `GET/PUT /api/orgs/{org_id}/prompt-assistant/config`, `POST/DELETE .../files` | Org assistant config (Org Owner) |
+| `GET/POST/PATCH/DELETE /api/orgs/{org_id}/prompt-templates[/{id}]` | Org templates (Org Owner) |
+| `GET/PUT /api/admin/prompt-assistant/config`, `POST/DELETE .../files` | Platform assistant config (Admin) |
+| `GET/POST/PATCH/DELETE /api/admin/prompt-templates[/{id}]` | Platform templates (Admin) |
+| `GET /api/projects/{project_id}/prompt-assistant` | Resolved effective config (metadata only; never the key) |
+| `GET /api/projects/{project_id}/prompt-templates` | Merged template list for the project |
+| `POST /api/projects/{project_id}/prompt-assistant/sessions` | Create ephemeral session → `session_id` |
+| `POST /api/prompt-assistant/sessions/{session_id}/messages` | Send message → 202; reply streams over WS |
 
 ---
 
@@ -1957,6 +1976,38 @@ Added by the 2026-07-02 design session (construction plan: `docs/observer-agents
 
 - **[R28.09]** `chatrooms.disclose_observers` (default `true`) controls whether non-creators see a neutral "observers enabled" indicator. Only the creator can change it; the creator may change it without holding `RESOURCE_CREATE_EDIT` — creator authority is sufficient for a disclosure-only patch. Which agent observes, and any observation content, is never disclosed to non-creators regardless of the flag.
 - **[R28.11]** Releases, observer bind/role changes, and disclosure changes are audited. Observation content never appears in audit metadata or logs.
+
+---
+
+## 29. Prompt Assistant & Prompt Templates
+
+Added by the 2026-07-05 design session (task dossier: `docs/tasks/2026-07-05-prompt-assistant-templates/`). An AI assistant embedded in the agent authoring flow helps users draft the agent's `system_prompt`; plain-text prompt templates are offered alongside. Both are configurable at platform, org, and personal scope.
+
+### 29.1 Assistant and configuration scopes
+
+- **[R29.01]** The agent create/edit view offers an AI prompt assistant as a side chat panel scoped to drafting the agent's `system_prompt`. The assistant has no tool access.
+- **[R29.02]** Assistant configurations exist at three scopes: platform (Admin), org (Org Owner), personal (any verified Individual). At most one configuration per scope holder.
+- **[R29.03]** A configuration comprises: assistant system prompt (≤ 20 000 chars), reference files, one pinned provider key owned by the configurer, model selection, per-user daily request cap, and an enabled flag.
+- **[R29.04]** Effective-config resolution for a project: requesting user's enabled personal config → owning org's enabled config (org-owned projects only) → enabled platform config → assistant unavailable. Disabled configs are skipped.
+
+### 29.2 Invocation and quotas
+
+- **[R29.05]** Assistant calls MUST go through the provider router with the configuration's pinned key; key plaintext never crosses out of the worker call path (extends R7.15). Usage is recorded per R7.12 with null agent/chatroom attribution.
+- **[R29.06]** Reference files: formats pdf/docx/md/txt; ≤ 5 MB per file; extracted text inlined into assistant context, hard total budget 200 KB per configuration; virus scan per R22.15.07 semantics before extraction.
+- **[R29.07]** Assistant sessions are ephemeral (Redis, 2 h TTL, ≤ 40 messages); no server-side conversation history beyond the live session.
+- **[R29.08]** Streaming to the browser uses the existing WS + Redis pub/sub transport; provider calls execute only in the worker.
+- **[R29.09]** Per-user daily request caps are enforced per configuration; breach returns 429. Platform-scope configurations MUST have a cap (no unlimited).
+
+### 29.3 Prompt templates
+
+- **[R29.10]** Prompt templates (name ≤ 100, description ≤ 300, plain-text body ≤ 100 000) exist at the same three scopes with the same ownership rules; no variables, no versioning.
+- **[R29.11]** The agent authoring view shows the merged template list grouped by source: platform + org (org-owned projects) or personal (user-owned projects) + the user's personal templates. Applying a template copies its body into the editor; no persistent link.
+- **[R29.12]** An Org Owner may hide platform templates from their org's projects.
+
+### 29.4 Audit and key hygiene
+
+- **[R29.13]** All configuration, file, and template mutations are audit-logged (§17).
+- **[R29.14]** All assistant/template API responses expose key metadata only; plaintext never (extends R7.03).
 
 ---
 
