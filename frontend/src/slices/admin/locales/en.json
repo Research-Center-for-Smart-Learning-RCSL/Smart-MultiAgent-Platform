@@ -23,7 +23,8 @@
       "audit": "Audit Log",
       "ops": "Operations",
       "rateLimits": "Rate Limits",
-      "metrics": "Metrics"
+      "metrics": "Metrics",
+      "promptStudio": "Prompt Assistant"
     },
     "users": {
       "title": "Users",

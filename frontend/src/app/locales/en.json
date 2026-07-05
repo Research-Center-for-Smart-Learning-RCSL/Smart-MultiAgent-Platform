@@ -145,6 +145,7 @@
       "profile": "Profile",
       "account": "Account Settings",
       "sessions": "Sessions",
+      "promptAssistant": "Prompt Assistant",
       "theme": "Theme: {theme}",
       "admin": "Admin Console",
       "logout": "Log Out"

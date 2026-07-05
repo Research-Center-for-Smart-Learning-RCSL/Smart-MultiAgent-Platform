@@ -8,6 +8,7 @@ import {
   ShieldExclamationIcon,
   ArrowRightOnRectangleIcon,
   UserCircleIcon,
+  SparklesIcon,
   SunIcon,
   MoonIcon,
 } from '@heroicons/vue/24/outline'
@@ -76,6 +77,16 @@ const menuItems = computed(() => {
     },
   )
 
+  // The personal prompt assistant page requires a verified email (R29.03), so
+  // only surface it once the account is verified.
+  if (session.isVerified) {
+    items.push({
+      key: 'promptStudio',
+      label: t('app.userMenu.promptAssistant'),
+      icon: SparklesIcon,
+    })
+  }
+
   if (isMobile.value) {
     items.push({ key: 'div-theme', label: '', divider: true })
     items.push({
@@ -115,6 +126,9 @@ async function onSelect(key: string) {
       break
     case 'sessions':
       router.push({ name: 'identity.sessions' })
+      break
+    case 'promptStudio':
+      router.push({ name: 'prompt-studio.personal' })
       break
     case 'admin':
       router.push({ name: 'admin.home' })

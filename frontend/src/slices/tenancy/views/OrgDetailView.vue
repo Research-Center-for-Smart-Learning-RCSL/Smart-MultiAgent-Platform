@@ -13,7 +13,7 @@ import { isProblemWithType } from '@shared/transport'
 import { INPUT_LIMITS } from '@shared/constants/inputLimits'
 import {
   PencilIcon, UserGroupIcon, ArrowsRightLeftIcon,
-  ClipboardIcon, TrashIcon, ArrowPathIcon,
+  ClipboardIcon, TrashIcon, ArrowPathIcon, SparklesIcon,
 } from '@heroicons/vue/24/outline'
 import { orgsApi, type OrgMember } from '../api/orgs'
 import { tenancyKeys } from '../queries'
@@ -166,6 +166,18 @@ const breadcrumbs = computed(() => [
                 <UserGroupIcon class="w-4 h-4" />
               </template>
               {{ t('tenancy.breadcrumb.members') }}
+            </SButton>
+
+            <SButton
+              v-if="isOwner"
+              variant="secondary"
+              as="router-link"
+              :to="{ name: 'prompt-studio.org', params: { orgId: org.id } }"
+            >
+              <template #icon-left>
+                <SparklesIcon class="w-4 h-4" />
+              </template>
+              {{ t('tenancy.org.promptAssistant') }}
             </SButton>
 
             <SButton

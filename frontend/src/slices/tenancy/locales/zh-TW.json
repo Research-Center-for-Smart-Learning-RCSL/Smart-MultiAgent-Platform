@@ -16,6 +16,7 @@
       "restoreBody": "此操作將還原組織並恢復啟用狀態。",
       "restoreConfirm": "還原組織",
       "restored": "組織已還原",
+      "promptAssistant": "提示詞助手",
       "deletedBanner": "此組織已於 {date} 刪除，將於 {permanentDate} 永久移除。"
     },
     "project": {
