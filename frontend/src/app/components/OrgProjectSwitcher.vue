@@ -455,8 +455,8 @@ onBeforeUnmount(() => {
 .switcher-panel-enter-active,
 .switcher-panel-leave-active {
   transition:
-    opacity var(--transition-fast) ease,
-    transform var(--transition-fast) ease;
+    opacity var(--transition-fast),
+    transform var(--transition-fast);
 }
 
 .switcher-panel-enter-from,

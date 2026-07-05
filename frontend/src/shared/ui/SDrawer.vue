@@ -59,7 +59,10 @@ function onBackdropClick() {
           @click="onBackdropClick"
           @keydown.enter="onBackdropClick"
         />
-        <Transition :name="side === 'right' ? 's-drawer-slide-right' : 's-drawer-slide-left'">
+        <Transition
+          :name="side === 'right' ? 's-drawer-slide-right' : 's-drawer-slide-left'"
+          appear
+        >
           <div
             v-if="open"
             ref="panelRef"
@@ -233,7 +236,7 @@ function onBackdropClick() {
 /* -- Backdrop fade -- */
 .s-drawer-backdrop-enter-active,
 .s-drawer-backdrop-leave-active {
-  transition: opacity var(--transition-normal) ease;
+  transition: opacity var(--transition-normal);
 }
 
 .s-drawer-backdrop-enter-from,
@@ -244,7 +247,7 @@ function onBackdropClick() {
 /* -- Slide right -- */
 .s-drawer-slide-right-enter-active,
 .s-drawer-slide-right-leave-active {
-  transition: transform var(--transition-slow) ease;
+  transition: transform var(--transition-slow);
 }
 
 .s-drawer-slide-right-enter-from,
@@ -255,7 +258,7 @@ function onBackdropClick() {
 /* -- Slide left -- */
 .s-drawer-slide-left-enter-active,
 .s-drawer-slide-left-leave-active {
-  transition: transform var(--transition-slow) ease;
+  transition: transform var(--transition-slow);
 }
 
 .s-drawer-slide-left-enter-from,

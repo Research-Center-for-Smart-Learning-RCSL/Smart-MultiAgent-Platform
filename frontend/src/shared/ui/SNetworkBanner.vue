@@ -55,8 +55,8 @@ const { online, retryNow } = useNetworkStatus()
 .s-net-banner-enter-active,
 .s-net-banner-leave-active {
   transition:
-    opacity var(--transition-normal) ease,
-    transform var(--transition-normal) ease;
+    opacity var(--transition-normal),
+    transform var(--transition-normal);
 }
 
 .s-net-banner-enter-from,

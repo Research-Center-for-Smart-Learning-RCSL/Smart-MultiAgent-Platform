@@ -1,4 +1,4 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 import { ref, useSlots, useId, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { XMarkIcon, ArrowLeftIcon } from '@heroicons/vue/24/outline'
@@ -12,7 +12,7 @@ const props = withDefaults(defineProps<{
   persistent?: boolean
   /** When false, clicking the backdrop does NOT close the modal, but Escape
    *  still does (unless `persistent`). Lets a destructive-confirm dialog resist
-   *  an accidental backdrop click while staying keyboard-dismissible (§3.1). */
+   *  an accidental backdrop click while staying keyboard-dismissible (禮3.1). */
   closeOnBackdrop?: boolean
   role?: 'dialog' | 'alertdialog'
 }>(), {
@@ -232,12 +232,12 @@ function onBackdropClick() {
 /* -- Enter/Leave transitions -- */
 .s-modal-enter-active,
 .s-modal-leave-active {
-  transition: opacity var(--transition-normal) ease;
+  transition: opacity var(--transition-normal);
 }
 
 .s-modal-enter-active .s-modal__panel,
 .s-modal-leave-active .s-modal__panel {
-  transition: transform var(--transition-normal) ease, opacity var(--transition-normal) ease;
+  transition: transform var(--transition-normal), opacity var(--transition-normal);
 }
 
 .s-modal-enter-from,
