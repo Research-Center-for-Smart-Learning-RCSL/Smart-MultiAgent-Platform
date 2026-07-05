@@ -164,6 +164,54 @@ class _AbortGroup(RuntimeError):
         self.http_status = http_status
 
 
+@dataclass
+class _StreamTerminal:
+    """Mutable box `_drive_adapter_stream` writes into for its caller to read."""
+
+    complete: StreamComplete | None = None
+    transport_exc: Exception | None = None
+
+
+async def _drive_adapter_stream(
+    agen: AsyncGenerator[StreamEvent, None],
+    terminal: _StreamTerminal,
+    *,
+    key_id: uuid.UUID,
+    log_prefix: str,
+) -> AsyncGenerator[TokenDelta, None]:
+    """Consume one adapter stream, yielding `TokenDelta` events.
+
+    Stashes the terminal `StreamComplete` or a provider transport exception on
+    *terminal* for the caller to inspect once the loop ends. Shared by
+    `_stream_member` (multi-key rotation) and `call_single_key_stream` (pinned
+    key, no rotation) — only the post-loop decision differs between them.
+    """
+    while True:
+        try:
+            ev = await agen.__anext__()
+        except StopAsyncIteration:
+            return
+        except Exception as exc:  # provider transport error
+            terminal.transport_exc = exc
+            _log.warning("%s transport error key=%s err=%s", log_prefix, key_id, exc)
+            return
+        if isinstance(ev, TokenDelta):
+            # A consumer exception / GeneratorExit lands here, outside the
+            # inner try — never miscounted as a provider failure.
+            yield ev
+        else:  # StreamComplete
+            terminal.complete = ev
+
+
+def _classify_pinned_status(status: int) -> str | None:
+    """Status -> error_code for pinned-key calls (no rotation policy involved)."""
+    if 200 <= status < 300:
+        return None
+    if status in (401, 403):
+        return "provider_unauthorized"
+    return f"http_{status}"
+
+
 # ---------------------------------------------------------------------------
 # Usage accountant — unified recording for all provider call paths.
 # ---------------------------------------------------------------------------
@@ -220,6 +268,7 @@ class UsageAccountant:
             if provider is not None:
                 PROVIDER_CALL_TOTAL.labels(provider=provider.value, status=str(result.http_status)).inc()
         else:
+            resolved_error_code = error_code or "transport_error"
             await redis_buckets.record(key_id, requests=1)
             await record_usage_event(
                 self._db,
@@ -228,12 +277,14 @@ class UsageAccountant:
                 output_tokens=0,
                 request_ms=elapsed_ms,
                 http_status=None,
-                error_code=error_code or "transport_error",
+                error_code=resolved_error_code,
                 agent_id=request.agent_id,
                 parent_agent_id=request.parent_agent_id,
                 chatroom_id=request.chatroom_id,
                 usage_context=request.usage_context,
             )
+            if provider is not None:
+                PROVIDER_CALL_TOTAL.labels(provider=provider.value, status=resolved_error_code).inc()
 
 
 # ---------------------------------------------------------------------------
@@ -419,19 +470,20 @@ class ProviderRouter:
         secret_bytes = await self._unwrap_secret(em.key.id)
         t0 = time.monotonic()
         first_token = False
-        complete: StreamComplete | None = None
-        transport_exc: Exception | None = None
+        terminal = _StreamTerminal()
 
         async def _account() -> None:
             # Best-effort and self-contained: we run inside a `finally`, so a
             # DB/Redis hiccup must never mask the real control-flow outcome.
             try:
                 elapsed_ms = int((time.monotonic() - t0) * 1000)
-                if complete is not None:
-                    error_code = classify_http(complete.result.http_status, em.member.rotation).error_code
+                if terminal.complete is not None:
+                    error_code = classify_http(
+                        terminal.complete.result.http_status, em.member.rotation
+                    ).error_code
                     await self._accountant.record_call(
                         key_id=em.key.id,
-                        result=complete.result,
+                        result=terminal.complete.result,
                         request=request,
                         elapsed_ms=elapsed_ms,
                         error_code=error_code,
@@ -442,54 +494,42 @@ class ProviderRouter:
                     # consumer walked away mid-stream (token counts unknown).
                     # Still a request against the key — count it toward
                     # max_requests_per_hour (timeouts must not be free).
-                    code = "transport_error" if transport_exc is not None else "client_abort"
+                    code = "transport_error" if terminal.transport_exc is not None else "client_abort"
                     await self._accountant.record_call(
                         key_id=em.key.id,
                         result=None,
                         request=request,
                         elapsed_ms=elapsed_ms,
                         error_code=code,
+                        provider=em.key.provider,
                     )
             except Exception:
                 _log.exception("stream usage accounting failed key=%s", em.key.id)
 
         agen = adapter.stream(secret=secret_bytes.decode("utf-8"), request=request)
         try:
-            while True:
-                try:
-                    ev = await agen.__anext__()
-                except StopAsyncIteration:
-                    break
-                except Exception as exc:  # provider transport error
-                    transport_exc = exc
-                    _log.warning("stream transport error key=%s err=%s", em.key.id, exc)
-                    break
-                if isinstance(ev, TokenDelta):
-                    first_token = True
-                    # A consumer exception / GeneratorExit lands HERE, outside the
-                    # inner try — so it is never miscounted as a provider failure.
-                    yield ev
-                else:  # StreamComplete
-                    complete = ev
+            async for ev in _drive_adapter_stream(agen, terminal, key_id=em.key.id, log_prefix="stream"):
+                first_token = True
+                yield ev
 
-            if transport_exc is not None:
+            if terminal.transport_exc is not None:
                 if first_token:
-                    raise transport_exc
-                raise _RotateStream from transport_exc
-            if complete is None:
+                    raise terminal.transport_exc
+                raise _RotateStream from terminal.transport_exc
+            if terminal.complete is None:
                 # Adapter closed without a terminal event — dry failure.
                 if first_token:
                     raise ProviderStreamError(0)
                 raise _RotateStream
-            outcome = classify_http(complete.result.http_status, em.member.rotation)
+            outcome = classify_http(terminal.complete.result.http_status, em.member.rotation)
             if outcome.reason is RotationReason.OK:
-                yield complete
+                yield terminal.complete
                 return
             # Non-OK terminal status.
             if first_token:
-                raise ProviderStreamError(complete.result.http_status)
+                raise ProviderStreamError(terminal.complete.result.http_status)
             if outcome.reason is RotationReason.ABORT:
-                raise _AbortGroup(complete.result.http_status)
+                raise _AbortGroup(terminal.complete.result.http_status)
             raise _RotateStream
         finally:
             await _account()
@@ -568,6 +608,7 @@ class ProviderRouter:
                 request=request,
                 elapsed_ms=elapsed_ms,
                 error_code="transport_error",
+                provider=key.provider,
             )
             raise
         finally:
@@ -576,13 +617,7 @@ class ProviderRouter:
             secret = b"\x00" * len(secret)
         elapsed_ms = int((time.monotonic() - t0) * 1000)
 
-        status = result.http_status
-        if 200 <= status < 300:
-            error_code: str | None = None
-        elif status in (401, 403):
-            error_code = "provider_unauthorized"
-        else:
-            error_code = f"http_{status}"
+        error_code = _classify_pinned_status(result.http_status)
         await self._accountant.record_call(
             key_id=key_id,
             result=result,
@@ -621,25 +656,18 @@ class ProviderRouter:
 
         secret_bytes = await self._unwrap_secret(key_id)
         t0 = time.monotonic()
-        complete: StreamComplete | None = None
-        transport_exc: Exception | None = None
+        terminal = _StreamTerminal()
 
         async def _account() -> None:
             # Best-effort inside `finally`: a DB/Redis hiccup must never mask the
             # real control-flow outcome.
             try:
                 elapsed_ms = int((time.monotonic() - t0) * 1000)
-                if complete is not None:
-                    status = complete.result.http_status
-                    if 200 <= status < 300:
-                        error_code: str | None = None
-                    elif status in (401, 403):
-                        error_code = "provider_unauthorized"
-                    else:
-                        error_code = f"http_{status}"
+                if terminal.complete is not None:
+                    error_code = _classify_pinned_status(terminal.complete.result.http_status)
                     await self._accountant.record_call(
                         key_id=key_id,
-                        result=complete.result,
+                        result=terminal.complete.result,
                         request=request,
                         elapsed_ms=elapsed_ms,
                         error_code=error_code,
@@ -648,42 +676,32 @@ class ProviderRouter:
                 else:
                     # No terminal event: provider transport error or the consumer
                     # walked away. Still one request against the key.
-                    code = "transport_error" if transport_exc is not None else "client_abort"
+                    code = "transport_error" if terminal.transport_exc is not None else "client_abort"
                     await self._accountant.record_call(
                         key_id=key_id,
                         result=None,
                         request=request,
                         elapsed_ms=elapsed_ms,
                         error_code=code,
+                        provider=key.provider,
                     )
             except Exception:
                 _log.exception("single-key stream accounting failed key=%s", key_id)
 
         agen = adapter_obj.stream(secret=secret_bytes.decode("utf-8"), request=request)
         try:
-            while True:
-                try:
-                    ev = await agen.__anext__()
-                except StopAsyncIteration:
-                    break
-                except Exception as exc:  # provider transport error
-                    transport_exc = exc
-                    _log.warning("single-key stream transport error key=%s err=%s", key_id, exc)
-                    break
-                if isinstance(ev, TokenDelta):
-                    # A consumer exception / GeneratorExit lands here, outside the
-                    # inner try — never miscounted as a provider failure.
-                    yield ev
-                else:  # StreamComplete
-                    complete = ev
+            async for ev in _drive_adapter_stream(
+                agen, terminal, key_id=key_id, log_prefix="single-key stream"
+            ):
+                yield ev
 
-            if transport_exc is not None:
-                raise transport_exc
-            if complete is None:
+            if terminal.transport_exc is not None:
+                raise terminal.transport_exc
+            if terminal.complete is None:
                 raise ProviderStreamError(0)
-            status = complete.result.http_status
+            status = terminal.complete.result.http_status
             if 200 <= status < 300:
-                yield complete
+                yield terminal.complete
                 return
             raise ProviderStreamError(status)
         finally:
@@ -757,6 +775,7 @@ class ProviderRouter:
                 request=request,
                 elapsed_ms=elapsed_ms,
                 error_code="transport_error",
+                provider=em.key.provider,
             )
             return ErrorOutcome(RotationReason.RETRY, None, "transport_error"), None
         finally:
