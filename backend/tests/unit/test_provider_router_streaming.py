@@ -23,7 +23,7 @@ from contexts.keys.application.provider_router import (
     StreamComplete,
     TokenDelta,
 )
-from contexts.keys.domain.errors import CapabilityMismatch, KeyGroupExhausted
+from contexts.keys.domain.errors import CapabilityMismatch, KeyGroupExhausted, KeyNotFound
 from contexts.keys.domain.providers import ApiKeyProvider, ProviderCapability
 
 _CHAT = ProviderRequest(
@@ -393,3 +393,88 @@ async def test_single_key_capability_mismatch(monkeypatch) -> None:
     # VOYAGE serves EMBEDDING only — an LLM_CHAT request must be refused.
     with pytest.raises(CapabilityMismatch):
         await router.call_single_key(key_id=kid, request=_CHAT)
+
+
+# ---------------------------------------------------------------------------
+# §29 — call_single_key_stream (pinned-key streaming) + usage_context threading
+# ---------------------------------------------------------------------------
+
+_ASSISTANT_CHAT = ProviderRequest(
+    capability=ProviderCapability.LLM_CHAT,
+    payload={"model": "m", "messages": [{"role": "user", "content": "hi"}]},
+    usage_context="prompt_assistant",
+)
+
+
+@pytest.mark.asyncio
+async def test_single_key_stream_success_records_usage_context(monkeypatch) -> None:
+    kid = uuid.uuid4()
+    adapter = _StreamAdapter(
+        ApiKeyProvider.OPENAI,
+        [
+            TokenDelta("Hel"),
+            TokenDelta("lo"),
+            StreamComplete(ProviderCallResult(200, {"text": "Hello"}, 5, 2)),
+        ],
+    )
+    router, recorded = _make_router(
+        monkeypatch, {ApiKeyProvider.OPENAI: adapter}, [], {kid: _Key(kid, ApiKeyProvider.OPENAI)}
+    )
+    events = await _drain(router.call_single_key_stream(key_id=kid, request=_ASSISTANT_CHAT))
+    assert [e.text for e in events if isinstance(e, TokenDelta)] == ["Hel", "lo"]
+    assert any(isinstance(e, StreamComplete) for e in events)
+    assert len(recorded) == 1
+    assert recorded[0]["key_id"] == kid
+    assert recorded[0]["error_code"] is None
+    assert recorded[0]["usage_context"] == "prompt_assistant"
+    assert recorded[0]["agent_id"] is None
+    assert recorded[0]["chatroom_id"] is None
+
+
+@pytest.mark.asyncio
+async def test_single_key_stream_error_status_raises(monkeypatch) -> None:
+    kid = uuid.uuid4()
+    adapter = _StreamAdapter(
+        ApiKeyProvider.OPENAI,
+        [StreamComplete(ProviderCallResult(401, {"error": "bad key"}))],
+    )
+    router, recorded = _make_router(
+        monkeypatch, {ApiKeyProvider.OPENAI: adapter}, [], {kid: _Key(kid, ApiKeyProvider.OPENAI)}
+    )
+    with pytest.raises(ProviderStreamError):
+        await _drain(router.call_single_key_stream(key_id=kid, request=_ASSISTANT_CHAT))
+    # A non-OK terminal is still one request against the key.
+    assert len(recorded) == 1
+    assert recorded[0]["error_code"] == "provider_unauthorized"
+    assert recorded[0]["usage_context"] == "prompt_assistant"
+
+
+@pytest.mark.asyncio
+async def test_single_key_stream_unknown_key_raises(monkeypatch) -> None:
+    kid = uuid.uuid4()
+    router, recorded = _make_router(
+        monkeypatch, {ApiKeyProvider.OPENAI: _StreamAdapter(ApiKeyProvider.OPENAI, [])}, [], {}
+    )
+    with pytest.raises(KeyNotFound):
+        await _drain(router.call_single_key_stream(key_id=kid, request=_ASSISTANT_CHAT))
+    assert recorded == []
+
+
+@pytest.mark.asyncio
+async def test_existing_stream_call_records_null_usage_context(monkeypatch) -> None:
+    # Regression: threading usage_context through the accountant must leave
+    # ordinary agent/chatroom traffic recording NULL (additive change).
+    kid = uuid.uuid4()
+    adapter = _StreamAdapter(
+        ApiKeyProvider.OPENAI,
+        [TokenDelta("x"), StreamComplete(ProviderCallResult(200, {"text": "x"}, 1, 1))],
+    )
+    router, recorded = _make_router(
+        monkeypatch,
+        {ApiKeyProvider.OPENAI: adapter},
+        [_Member(kid)],
+        {kid: _Key(kid, ApiKeyProvider.OPENAI)},
+    )
+    await _drain(router.call_stream(group_id=uuid.uuid4(), request=_CHAT))
+    assert len(recorded) == 1
+    assert recorded[0]["usage_context"] is None

@@ -33,6 +33,7 @@ async def record_usage_event(
     agent_id: uuid.UUID | None = None,
     parent_agent_id: uuid.UUID | None = None,
     chatroom_id: uuid.UUID | None = None,
+    usage_context: str | None = None,
 ) -> None:
     try:
         # DB-2: wrap the INSERT in a SAVEPOINT. If it fails (FK violation from a
@@ -48,6 +49,7 @@ async def record_usage_event(
                     agent_id=agent_id,
                     parent_agent_id=parent_agent_id,
                     chatroom_id=chatroom_id,
+                    usage_context=usage_context,
                     input_tokens=input_tokens,
                     output_tokens=output_tokens,
                     request_ms=request_ms,
