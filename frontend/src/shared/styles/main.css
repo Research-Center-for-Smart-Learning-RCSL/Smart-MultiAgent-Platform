@@ -491,6 +491,29 @@
   }
 }
 
+/* ─── Route transition ────────────────────────────────────────────
+   Applied by the <Transition name="route"> wrapper in App.vue: outgoing view
+   fades quickly, incoming view fades in with a small rise (--motion-rise).
+   The global reduced-motion freeze collapses both to an instant swap. */
+.route-enter-active {
+  transition:
+    opacity 180ms var(--ease-out-soft),
+    transform 180ms var(--ease-out-soft);
+}
+
+.route-leave-active {
+  transition: opacity 120ms ease;
+}
+
+.route-enter-from {
+  opacity: 0;
+  transform: translateY(var(--motion-rise));
+}
+
+.route-leave-to {
+  opacity: 0;
+}
+
 /* ─── Third-party overrides ───────────────────────────────────────
    vue-sonner toasts, retinted with the design tokens so notifications match
    both themes and the status tint/on language used by SAlert/SBadge. The

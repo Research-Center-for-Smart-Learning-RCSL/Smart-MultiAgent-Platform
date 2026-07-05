@@ -278,6 +278,7 @@ function isActive(path: string): boolean {
 }
 
 .nav-item {
+  position: relative;
   display: flex;
   align-items: center;
   height: 40px;
@@ -287,7 +288,25 @@ function isActive(path: string): boolean {
   font-weight: 400;
   color: var(--color-sidebar-text);
   text-decoration: none;
-  transition: background-color var(--transition-fast);
+  transition:
+    background-color var(--transition-fast),
+    color var(--transition-fast);
+}
+
+/* Active indicator: a pseudo-element bar that grows in with the activation
+   instead of a static border, so switching items reads as motion. Using a
+   pseudo-element (not border-left) also keeps icon alignment constant. */
+.nav-item::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 8px;
+  bottom: 8px;
+  width: 3px;
+  border-radius: 0 2px 2px 0;
+  background: var(--color-sidebar-active-text);
+  transform: scaleY(0);
+  transition: transform var(--transition-fast);
 }
 
 .nav-item:hover {
@@ -297,8 +316,10 @@ function isActive(path: string): boolean {
 .nav-item--active {
   background-color: var(--color-sidebar-active-bg);
   color: var(--color-sidebar-active-text);
-  border-left: 3px solid var(--color-sidebar-active-text);
-  padding-left: 13px;
+}
+
+.nav-item--active::before {
+  transform: scaleY(1);
 }
 
 .nav-icon {

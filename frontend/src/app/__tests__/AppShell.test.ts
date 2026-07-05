@@ -46,10 +46,14 @@ describe('AppShell sidebar toggle', () => {
     window.innerWidth = 1280
   })
 
+  // The sidebar stays mounted on desktop so the collapse can tween; "closed"
+  // now means the collapsed class plus inert (out of tab order and a11y tree).
   it('starts collapsed on an immersive route (chatroom)', async () => {
     const wrapper = await mountShell('/chatrooms/abc123')
     expect(wrapper.classes()).toContain('app-shell--sidebar-collapsed')
-    expect(wrapper.find('aside.app-shell__sidebar').exists()).toBe(false)
+    const aside = wrapper.find('aside.app-shell__sidebar')
+    expect(aside.classes()).toContain('app-shell__sidebar--collapsed')
+    expect(aside.attributes('inert')).toBeDefined()
   })
 
   // Regression: on immersive routes autoCollapsed is permanently true, so an
@@ -61,7 +65,9 @@ describe('AppShell sidebar toggle', () => {
     await wrapper.find('button.toggle').trigger('click')
 
     expect(wrapper.classes()).not.toContain('app-shell--sidebar-collapsed')
-    expect(wrapper.find('aside.app-shell__sidebar').exists()).toBe(true)
+    const aside = wrapper.find('aside.app-shell__sidebar')
+    expect(aside.classes()).not.toContain('app-shell__sidebar--collapsed')
+    expect(aside.attributes('inert')).toBeUndefined()
   })
 
   it('collapses again on a second toggle', async () => {
@@ -71,7 +77,9 @@ describe('AppShell sidebar toggle', () => {
     await wrapper.find('button.toggle').trigger('click')
 
     expect(wrapper.classes()).toContain('app-shell--sidebar-collapsed')
-    expect(wrapper.find('aside.app-shell__sidebar').exists()).toBe(false)
+    expect(wrapper.find('aside.app-shell__sidebar').classes()).toContain(
+      'app-shell__sidebar--collapsed',
+    )
   })
 
   it('resets the manual override on navigation', async () => {
