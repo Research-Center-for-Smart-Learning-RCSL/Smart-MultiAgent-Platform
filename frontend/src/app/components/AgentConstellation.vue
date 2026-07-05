@@ -354,9 +354,15 @@ onBeforeUnmount(() => {
 }
 
 /* Deepest parallax layer: drifts opposite the pointer at the smallest rate,
-   and bleeds past the figure so the ambience is not a visible box. */
-.constellation-particles {
-  inset: -48px;
+   and bleeds past the figure so the ambience is not a visible box. Explicit
+   box (not inset) because a canvas is a replaced element whose 100% size wins
+   over opposing offsets; the descendant selector outranks the component's own
+   base rule regardless of style injection order. */
+.constellation-wrap > .constellation-particles {
+  top: -48px;
+  left: -48px;
+  width: calc(100% + 96px);
+  height: calc(100% + 96px);
   transform: translate3d(calc(var(--par-x, 0) * -8px), calc(var(--par-y, 0) * -8px), 0);
   transition: transform 200ms ease-out;
 }

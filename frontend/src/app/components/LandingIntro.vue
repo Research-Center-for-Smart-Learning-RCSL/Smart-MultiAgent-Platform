@@ -531,18 +531,31 @@ onBeforeUnmount(() => {
   }
 }
 
+/* Opens at opacity 0: with round linecaps, the parked dash (offset 100) paints
+   a zero-length cap dot at the path end, which would show the gradient's
+   accent-2 tip at every satellite while the edge waits out its delay. */
 @keyframes intro-edge-draw {
-  from {
+  0% {
     stroke-dashoffset: 100;
+    opacity: 0;
   }
-  to {
+  12% {
+    opacity: 1;
+  }
+  100% {
     stroke-dashoffset: 0;
+    opacity: 1;
   }
 }
 
+/* Both waves open at opacity 0 so the `both` fill keeps them invisible while
+   they wait out their delay; the brightness pops in just after launch. */
 @keyframes intro-shock-a {
   0% {
     transform: scale(1);
+    opacity: 0;
+  }
+  12% {
     opacity: 0.55;
   }
   100% {
@@ -554,6 +567,9 @@ onBeforeUnmount(() => {
 @keyframes intro-shock-b {
   0% {
     transform: scale(1);
+    opacity: 0;
+  }
+  12% {
     opacity: 0.35;
   }
   100% {
