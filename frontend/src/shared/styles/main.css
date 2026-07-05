@@ -286,42 +286,43 @@
   }
 }
 
-/* ─── Component classes ───────────────────────────────────────────
-   Accessibility utilities only. Presentational styling belongs to the S*
-   component library (shared/ui) — the old .btn/.table/.auth-*/.wf-input
-   global classes were removed once their last consumers migrated. */
-@layer components {
-  .visually-hidden,
-  .sr-only {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    padding: 0;
-    margin: -1px;
-    overflow: hidden;
-    clip: rect(0, 0, 0, 0);
-    white-space: nowrap;
-    border: 0;
-  }
+/* ─── Custom utilities ────────────────────────────────────────────
+   Accessibility helpers only. Registered via @utility so Tailwind v4 emits
+   them — plain `@layer components { .foo {} }` blocks are silently dropped
+   from the build in v4. Presentational styling belongs to the S* component
+   library (shared/ui). */
 
-  /* "Skip to main content" — hidden until focused, then pinned top-left.
-     First tab stop in AppShell so keyboard users can bypass the chrome. */
-  .skip-link {
-    position: fixed;
-    top: 8px;
-    left: 8px;
-    z-index: var(--z-tooltip);
-    padding: 0.5rem 1rem;
-    background: var(--color-accent);
-    color: #fff;
-    border-radius: var(--radius-md);
-    font-size: 0.875rem;
-    font-weight: 500;
-    transform: translateY(-150%);
-    transition: transform var(--transition-fast);
-  }
+/* Off-screen but readable by assistive tech. Tailwind ships an identical
+   .sr-only utility; this is the semantic alias our components use. */
+@utility visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
 
-  .skip-link:focus {
+/* "Skip to main content" — hidden until focused, then pinned top-left.
+   First tab stop in AppShell so keyboard users can bypass the chrome. */
+@utility skip-link {
+  position: fixed;
+  top: 8px;
+  left: 8px;
+  z-index: var(--z-tooltip);
+  padding: 0.5rem 1rem;
+  background: var(--color-accent);
+  color: #fff;
+  border-radius: var(--radius-md);
+  font-size: 0.875rem;
+  font-weight: 500;
+  transform: translateY(-150%);
+  transition: transform var(--transition-fast);
+
+  &:focus {
     transform: translateY(0);
     text-decoration: none;
   }
