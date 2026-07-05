@@ -108,6 +108,7 @@ def upgrade() -> None:
             server_default=sa.text("'pending'::prompt_file_scan_status"),
         ),
         sa.Column("extracted_chars", sa.Integer(), nullable=False, server_default=sa.text("0")),
+        sa.Column("extracted_text", sa.Text(), nullable=True),
         sa.Column("created_at", sa.TIMESTAMP(timezone=True), nullable=False, server_default=sa.text("now()")),
     )
     op.create_index("ix_prompt_assistant_files_config", "prompt_assistant_files", ["config_id"])

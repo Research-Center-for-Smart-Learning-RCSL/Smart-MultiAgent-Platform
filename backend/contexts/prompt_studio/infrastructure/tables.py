@@ -91,6 +91,10 @@ prompt_assistant_files = sa.Table(
         server_default=sa.text("'pending'::prompt_file_scan_status"),
     ),
     sa.Column("extracted_chars", sa.Integer, nullable=False, server_default=sa.text("0")),
+    # Extracted UTF-8 text inlined into the assistant context at turn time.
+    # Bounded by the 200 KB per-config budget, so storing it in-row is cheap
+    # and avoids re-parsing / a MinIO round-trip on every assistant turn.
+    sa.Column("extracted_text", sa.Text, nullable=True),
     sa.Column("created_at", sa.TIMESTAMP(timezone=True), nullable=False, server_default=sa.text("now()")),
 )
 

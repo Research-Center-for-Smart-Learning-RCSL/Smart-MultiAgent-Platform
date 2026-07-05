@@ -51,6 +51,14 @@ class FileInfected(PromptStudioError):
     code = "prompt-studio/file-infected"
 
 
+class ReferenceFileNotFound(PromptStudioError):
+    code = "prompt-studio/file-not-found"
+
+
+class ReferenceFileExtractionFailed(PromptStudioError):
+    code = "prompt-studio/file-extraction-failed"
+
+
 class TemplateLimitReached(PromptStudioError):
     code = "prompt-studio/template-limit"
 
@@ -84,6 +92,8 @@ __all__ = [
     "PinnedKeyCapabilityMismatch",
     "PinnedKeyNotOwned",
     "PromptStudioError",
+    "ReferenceFileExtractionFailed",
+    "ReferenceFileNotFound",
     "SessionLimitReached",
     "SessionNotFound",
     "TemplateLimitReached",
