@@ -21,7 +21,7 @@ import {
   SAlert,
   SPagination,
 } from '@shared/ui'
-import { useConfirmDialog, useToast, useClientPagination } from '@shared/composables'
+import { useConfirmDialog, useToast, useClientPagination, useListStagger } from '@shared/composables'
 import { useMyKeys } from '../composables/useMyKeys'
 import KeyUploadForm from '../components/KeyUploadForm.vue'
 import CapabilityChip from '../components/CapabilityChip.vue'
@@ -34,6 +34,7 @@ const router = useRouter()
 const toast = useToast()
 const { confirm } = useConfirmDialog()
 const { keys, loading, error, reload, upload, retest, remove } = useMyKeys()
+const staggerClass = useListStagger(loading)
 
 const showUpload = ref(false)
 const retestingId = ref<string | null>(null)
@@ -156,6 +157,7 @@ function onAction(key: string, row: { id: string }) {
       :loading="loading"
       row-key="id"
       class="mt-6"
+      :class="staggerClass"
     >
       <template #cell-provider="{ row }: { row: ApiKey }">
         <CapabilityChip :provider="row.provider" />

@@ -28,6 +28,7 @@ import {
   useConfirmDialog,
   useToast,
   useClientPagination,
+  useListStagger,
 } from '@shared/composables'
 import { useSessionStore } from '@shared/stores/session'
 import { keyGroupsApi, keysKeys, type KeyGroup } from '@slices/keys'
@@ -72,6 +73,7 @@ const ragConfigsQuery = useQuery({
 
 const agents = computed<Agent[]>(() => query.data.value ?? [])
 const loading = computed(() => query.isLoading.value)
+const staggerClass = useListStagger(loading)
 const error = computed(() => query.error.value)
 
 const keyGroupById = computed(() =>
@@ -300,6 +302,7 @@ function onRowClick(row: Agent): void {
       sticky-header
       responsive-mode="card-list"
       class="mt-6"
+      :class="staggerClass"
       @row-click="onRowClick"
     >
       <template #cell-name="{ row }">

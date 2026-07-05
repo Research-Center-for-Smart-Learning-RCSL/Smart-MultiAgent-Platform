@@ -7,7 +7,7 @@ import {
   SPageHeader, SButton, STable, SModal, SFormField, SInput,
   SBadge, SEmptyState, SAlert,
 } from '@shared/ui'
-import { useToast } from '@shared/composables'
+import { useToast, useListStagger } from '@shared/composables'
 import { isProblemWithType } from '@shared/transport'
 import { BuildingOffice2Icon, PlusIcon, ChevronRightIcon } from '@heroicons/vue/24/outline'
 import { orgsApi, type Org } from '../api/orgs'
@@ -23,6 +23,7 @@ const { data: orgs, isLoading, isError, refetch } = useQuery({
   queryKey: tenancyKeys.orgs(),
   queryFn: () => orgsApi.list().then(r => r.data),
 })
+const staggerClass = useListStagger(isLoading)
 
 const showCreate = ref(false)
 const createName = ref('')
@@ -124,6 +125,7 @@ const breadcrumbs = computed(() => [
       :columns="columns"
       :data="tableData"
       :loading="isLoading"
+      :class="staggerClass"
       row-key="id"
       @row-click="onRowClick"
     >
