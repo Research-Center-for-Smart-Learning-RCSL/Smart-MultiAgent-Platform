@@ -49,6 +49,7 @@
       :data="query.data.value ?? []"
       :loading="query.isLoading.value"
       :loading-label="$t('workflow.list.title')"
+      :class="staggerClass"
       row-key="id"
       responsive-mode="card-list"
     >
@@ -110,7 +111,7 @@ import {
   STable,
 } from '@shared/ui'
 import type { Column } from '@shared/ui/STable.vue'
-import { useConfirmDialog, useToast } from '@shared/composables'
+import { useConfirmDialog, useToast, useListStagger } from '@shared/composables'
 import { INPUT_LIMITS } from '@shared/constants/inputLimits'
 import { formatDate } from '@shared/utils/datetime'
 import { createWorkflow, deleteWorkflow, listWorkflows } from '../api'
@@ -144,6 +145,7 @@ const query = useQuery({
   queryKey: wfKeys.workflows(workspaceId),
   queryFn: () => listWorkflows(workspaceId),
 })
+const staggerClass = useListStagger(query.isLoading)
 
 const createMutation = useMutation({
   mutationFn: (name: string) =>

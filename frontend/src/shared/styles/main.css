@@ -315,6 +315,47 @@
   }
 }
 
+/* ─── Motion language (R24.49) ────────────────────────────────────
+   Restrained professional. The rules, in one place:
+   - Route changes: 150-200ms fade + <=6px rise (`route` transition below).
+   - Hover on interactive cards: 1-2px lift + one elevation step
+     (SCard `hoverable`), duration --transition-normal.
+   - List entrances: first load only, 30ms/row stagger capped at 270ms,
+     200ms per row (`.list-stagger` below, armed by useListStagger()).
+   - Easings: --ease-out-soft for entrances, --ease-spring only for playful
+     one-shots (never on hover), plain `ease` for exits.
+   - Never animate: layout-critical position, text while readable, anything
+     on an interval. Everything collapses under prefers-reduced-motion via
+     the global freeze in @layer base.
+   Full guide: docs/frontend-motion.md */
+
+/* First-load list stagger: rows/cards rise in with a capped per-index delay.
+   Targets STable rows and card-mode items; the arming class comes from
+   useListStagger() so refetches render statically. */
+.list-stagger :is(tbody > tr, .s-cards > *) {
+  animation: list-item-in 200ms var(--ease-out-soft) backwards;
+}
+
+.list-stagger :is(tbody > tr, .s-cards > *):nth-child(2) { animation-delay: 30ms; }
+.list-stagger :is(tbody > tr, .s-cards > *):nth-child(3) { animation-delay: 60ms; }
+.list-stagger :is(tbody > tr, .s-cards > *):nth-child(4) { animation-delay: 90ms; }
+.list-stagger :is(tbody > tr, .s-cards > *):nth-child(5) { animation-delay: 120ms; }
+.list-stagger :is(tbody > tr, .s-cards > *):nth-child(6) { animation-delay: 150ms; }
+.list-stagger :is(tbody > tr, .s-cards > *):nth-child(7) { animation-delay: 180ms; }
+.list-stagger :is(tbody > tr, .s-cards > *):nth-child(8) { animation-delay: 210ms; }
+.list-stagger :is(tbody > tr, .s-cards > *):nth-child(n + 9) { animation-delay: 270ms; }
+
+@keyframes list-item-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 /* ─── Route transition ────────────────────────────────────────────
    Applied by the <Transition name="route"> wrapper in App.vue: outgoing view
    fades quickly, incoming view fades in with a small rise (--motion-rise).

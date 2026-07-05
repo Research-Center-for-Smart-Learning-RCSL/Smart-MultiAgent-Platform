@@ -25,7 +25,7 @@ import {
   SEmptyState,
   SAlert,
 } from '@shared/ui'
-import { useConfirmDialog, useToast } from '@shared/composables'
+import { useConfirmDialog, useToast, useListStagger } from '@shared/composables'
 import { INPUT_LIMITS } from '@shared/constants/inputLimits'
 import {
   createChatroom,
@@ -61,6 +61,7 @@ const query = useQuery({
 
 const rooms = computed<Chatroom[]>(() => query.data.value ?? [])
 const loading = computed(() => query.isLoading.value)
+const staggerClass = useListStagger(loading)
 
 const filtered = computed(() => {
   const q = search.value.trim().toLowerCase()
@@ -273,6 +274,7 @@ function submitCreate(): void {
       sticky-header
       responsive-mode="card-list"
       class="mt-6"
+      :class="staggerClass"
       @row-click="onRowClick"
     >
       <template #cell-name="{ row }">
