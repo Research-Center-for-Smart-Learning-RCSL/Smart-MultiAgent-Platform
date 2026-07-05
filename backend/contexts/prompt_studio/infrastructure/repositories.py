@@ -58,6 +58,7 @@ def _row_to_file(row: Any) -> AssistantFile:
         minio_key=row.minio_key,
         scan_status=ScanStatus(row.scan_status),
         extracted_chars=row.extracted_chars,
+        extracted_text=row.extracted_text,
         created_at=row.created_at,
     )
 
@@ -170,15 +171,6 @@ class AssistantConfigRepository:
             )
         ).one()
         return _row_to_file(row)
-
-    async def set_file_scan_result(
-        self, file_id: uuid.UUID, *, scan_status: ScanStatus, extracted_chars: int
-    ) -> None:
-        await self._db.execute(
-            t.prompt_assistant_files.update()
-            .where(t.prompt_assistant_files.c.id == file_id)
-            .values(scan_status=scan_status.value, extracted_chars=extracted_chars)
-        )
 
     async def delete_file(self, config_id: uuid.UUID, file_id: uuid.UUID) -> bool:
         c = t.prompt_assistant_files.c

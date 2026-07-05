@@ -36,6 +36,7 @@ def _policy_document(settings: Settings) -> dict[str, Any]:
         settings.minio.bucket_rag_sources,
         settings.minio.bucket_exports,
         settings.minio.bucket_agent_workspace,
+        settings.minio.bucket_prompt_assistant_files,
     )
     obj_arns = [f"arn:aws:s3:::{b}/*" for b in buckets]
     bucket_arns = [f"arn:aws:s3:::{b}" for b in buckets]
@@ -148,6 +149,7 @@ def run(
         report=report,
     )
     _ensure_bucket(data, settings.minio.bucket_agent_workspace, lifecycle=None, report=report)
+    _ensure_bucket(data, settings.minio.bucket_prompt_assistant_files, lifecycle=None, report=report)
 
     admin = _admin_client(settings)
 

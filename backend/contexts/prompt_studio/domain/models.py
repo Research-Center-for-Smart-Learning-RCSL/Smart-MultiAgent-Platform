@@ -67,6 +67,7 @@ class AssistantFile:
     minio_key: str
     scan_status: ScanStatus
     extracted_chars: int
+    extracted_text: str | None
     created_at: datetime
 
 

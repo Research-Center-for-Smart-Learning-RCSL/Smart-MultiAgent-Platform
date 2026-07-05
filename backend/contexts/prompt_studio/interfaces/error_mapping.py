@@ -40,6 +40,12 @@ _MAP: ErrorMap = {
         "Reference-file extracted-text budget exceeded",
     ),
     errors.FileInfected: ("prompt-studio/file-infected", 422, "Reference file failed virus scan"),
+    errors.ReferenceFileNotFound: ("prompt-studio/file-not-found", 404, "Reference file not found"),
+    errors.ReferenceFileExtractionFailed: (
+        "prompt-studio/file-extraction-failed",
+        422,
+        "Reference file text could not be extracted",
+    ),
     errors.TemplateLimitReached: (
         "prompt-studio/template-limit",
         409,

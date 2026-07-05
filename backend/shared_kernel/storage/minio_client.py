@@ -62,6 +62,10 @@ class MinioClient:
     def exports_bucket(self) -> str:
         return self._cfg.bucket_exports
 
+    @property
+    def prompt_assistant_files_bucket(self) -> str:
+        return self._cfg.bucket_prompt_assistant_files
+
     # ---- operations ------------------------------------------------------
 
     async def put_object(
@@ -248,6 +252,11 @@ def agent_workspace_key(*, agent_id: uuid.UUID, sha256: str) -> str:
     return f"{agent_id}/{sha256}"
 
 
+def prompt_assistant_file_key(*, config_id: uuid.UUID, sha256: str, filename: str) -> str:
+    safe_name = filename.replace("/", "_").replace("\\", "_")
+    return f"{config_id}/{sha256}/{safe_name}"
+
+
 def export_key(*, job_id: uuid.UUID, filename: str) -> str:
     # SEC-L6: sanitise like chat_upload_key / rag_source_key so a filename can
     # never inject path separators into the object key. Keys are UUID-namespaced
@@ -264,6 +273,7 @@ __all__ = [
     "chat_upload_key",
     "export_key",
     "get_minio_client",
+    "prompt_assistant_file_key",
     "rag_source_key",
     "reset_for_tests",
 ]
