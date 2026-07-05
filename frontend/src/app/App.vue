@@ -28,7 +28,20 @@ const layoutComponent = computed(() => {
   <ImpersonationBanner />
   <ErrorBoundary>
     <component :is="layoutComponent">
-      <router-view :key="$route.path" />
+      <!-- Keyed on path (not fullPath): param navigation remounts the view,
+           query-only changes (filters, pagination) never do. The route
+           transition classes live in shared/styles/main.css. -->
+      <router-view v-slot="{ Component }">
+        <Transition
+          name="route"
+          mode="out-in"
+        >
+          <component
+            :is="Component"
+            :key="$route.path"
+          />
+        </Transition>
+      </router-view>
     </component>
   </ErrorBoundary>
   <!-- Toast visuals are token-themed in shared/styles/main.css (third-party

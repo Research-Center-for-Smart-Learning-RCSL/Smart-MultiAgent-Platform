@@ -53,6 +53,21 @@ watch(
 const noPadding = computed(() =>
   route.meta.contentPadding === 'none' || isImmersiveRoute.value,
 )
+
+// Topbar depth: once the content region is scrolled, the topbar picks up a
+// shadow so it reads as floating above the page. rAF-coalesced like every
+// other scroll/pointer handler in the shell.
+const contentEl = ref<HTMLElement | null>(null)
+const scrolled = ref(false)
+let scrollRaf = 0
+
+function onContentScroll(): void {
+  if (scrollRaf) return
+  scrollRaf = requestAnimationFrame(() => {
+    scrollRaf = 0
+    scrolled.value = (contentEl.value?.scrollTop ?? 0) > 0
+  })
+}
 </script>
 
 <template>
@@ -67,13 +82,19 @@ const noPadding = computed(() =>
 
     <AppTopBar
       class="app-shell__topbar"
+      :class="{ 'app-shell__topbar--scrolled': scrolled }"
       :sidebar-open="!sidebarCollapsed || sidebarDrawerOpen"
       @toggle-sidebar="toggleSidebar"
     />
 
+    <!-- Stays mounted on desktop so the grid track can tween on collapse;
+         `inert` + delayed visibility keep the hidden sidebar out of the tab
+         order and accessibility tree. -->
     <aside
-      v-if="isDesktop && !sidebarCollapsed"
+      v-if="isDesktop"
       class="app-shell__sidebar"
+      :class="{ 'app-shell__sidebar--collapsed': sidebarCollapsed }"
+      :inert="sidebarCollapsed || undefined"
     >
       <AppSidebar />
     </aside>
@@ -90,9 +111,11 @@ const noPadding = computed(() =>
 
     <main
       id="main-content"
+      ref="contentEl"
       tabindex="-1"
       class="app-shell__content"
       :class="{ 'app-shell__content--no-pad': noPadding }"
+      @scroll.passive="onContentScroll"
     >
       <slot />
     </main>
@@ -106,6 +129,9 @@ const noPadding = computed(() =>
   grid-template-rows: var(--topbar-height) 1fr;
   height: 100vh;
   overflow: hidden;
+  /* Collapse/expand tweens the first grid track instead of snapping.
+     --transition-slow already carries duration + easing. */
+  transition: grid-template-columns var(--transition-slow);
 }
 
 .app-shell--sidebar-collapsed {
@@ -115,16 +141,32 @@ const noPadding = computed(() =>
 .app-shell__topbar {
   grid-column: 1 / -1;
   grid-row: 1;
+  transition: box-shadow var(--transition-normal);
+}
+
+.app-shell__topbar--scrolled {
+  box-shadow: var(--elevation-2);
 }
 
 .app-shell__sidebar {
   grid-column: 1;
   grid-row: 2;
+  min-width: 0;
   overflow-y: auto;
   overflow-x: hidden;
   background: var(--color-sidebar-bg);
   border-right: 1px solid var(--color-border);
-  transition: width var(--transition-slow);
+  /* Visibility flips only after the track tween finishes, so the sidebar
+     stays visible while it slides shut but is fully hidden (and inert) once
+     closed. */
+  visibility: visible;
+  transition: visibility 0s linear;
+}
+
+.app-shell__sidebar--collapsed {
+  visibility: hidden;
+  /* Matches the --transition-slow duration so hiding waits for the tween. */
+  transition-delay: 300ms;
 }
 
 .app-shell__content {
