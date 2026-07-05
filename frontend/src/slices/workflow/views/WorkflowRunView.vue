@@ -33,12 +33,13 @@
       v-if="run && (run.state === 'running' || run.state === 'waiting')"
       class="mb-4"
     >
-      <button
-        class="btn btn-danger btn-sm"
+      <SButton
+        variant="danger"
+        size="sm"
         @click="onCancel"
       >
         {{ $t('workflow.run.cancel') }}
-      </button>
+      </SButton>
     </div>
 
     <!-- Run details -->
@@ -57,60 +58,31 @@
     <h2 class="font-semibold mb-2">
       {{ $t('workflow.run.steps') }}
     </h2>
-    <p
-      v-if="stepsQuery.isLoading.value"
-      class="text-muted"
+    <StepsTable
+      v-if="stepsQuery.isLoading.value || steps.length"
+      :columns="columns"
+      :data="steps"
+      :loading="stepsQuery.isLoading.value"
+      :loading-label="$t('workflow.run.steps')"
+      row-key="id"
+      responsive-mode="hide-columns"
     >
-      …
-    </p>
-    <div
-      v-else-if="steps.length"
-      class="overflow-x-auto"
-    >
-      <table class="table">
-        <thead>
-          <tr>
-            <th scope="col">
-              {{ $t('workflow.run.nodeId') }}
-            </th>
-            <th scope="col">
-              {{ $t('workflow.run.state') }}
-            </th>
-            <th scope="col">
-              {{ $t('workflow.run.started') }}
-            </th>
-            <th scope="col">
-              {{ $t('workflow.run.ended') }}
-            </th>
-            <th scope="col">
-              {{ $t('workflow.run.error') }}
-            </th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr
-            v-for="step in steps"
-            :key="step.id"
-          >
-            <td class="font-mono text-xs">
-              {{ step.node_id }}
-            </td>
-            <td>
-              <SStatusBadge :status="step.state" />
-            </td>
-            <td class="text-muted">
-              {{ new Date(step.started_at).toLocaleTimeString() }}
-            </td>
-            <td class="text-muted">
-              {{ step.ended_at ? new Date(step.ended_at).toLocaleTimeString() : '—' }}
-            </td>
-            <td class="text-danger text-xs truncate max-w-[200px]">
-              {{ step.error ?? '' }}
-            </td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
+      <template #cell-node_id="{ row }">
+        <span class="font-mono text-xs">{{ row.node_id }}</span>
+      </template>
+      <template #cell-state="{ row }">
+        <SStatusBadge :status="row.state" />
+      </template>
+      <template #cell-started_at="{ row }">
+        <span class="text-muted">{{ new Date(row.started_at).toLocaleTimeString() }}</span>
+      </template>
+      <template #cell-ended_at="{ row }">
+        <span class="text-muted">{{ row.ended_at ? new Date(row.ended_at).toLocaleTimeString() : '—' }}</span>
+      </template>
+      <template #cell-error="{ row }">
+        <span class="text-danger text-xs truncate max-w-[200px] inline-block">{{ row.error ?? '' }}</span>
+      </template>
+    </StepsTable>
     <p
       v-else
       class="text-muted"
@@ -126,12 +98,21 @@ import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 import { useToast } from '@shared/composables'
-import { SStatusBadge } from '@shared/ui'
+import { SButton, SStatusBadge, STable } from '@shared/ui'
+import type { Column } from '@shared/ui/STable.vue'
 import { formatDateTime } from '@shared/utils/datetime'
 import { useI18n } from 'vue-i18n'
 import { cancelRun, getRun, listSteps } from '../api'
+import type { WorkflowStep } from '../types'
 import { useWorkflowRunSocket } from '../composables/useWorkflowRunSocket'
 import { wfKeys } from '../queries'
+
+// Same STable row-generic pin as the other workflow tables.
+const _fixedSTable = STable<Record<string, unknown>>
+type STablePropsBase = Parameters<typeof _fixedSTable>[0]
+const StepsTable = STable as unknown as new () => {
+  $props: Omit<STablePropsBase, 'data'> & { data?: WorkflowStep[] }
+}
 
 const { t } = useI18n()
 const route = useRoute()
@@ -144,6 +125,14 @@ const toast = useToast()
 const { connected } = useWorkflowRunSocket(runId)
 
 const TERMINAL_STATES = new Set<string>(['succeeded', 'failed', 'cancelled'])
+
+const columns = computed<Column[]>(() => [
+  { key: 'node_id', label: t('workflow.run.nodeId'), cellType: 'text' },
+  { key: 'state', label: t('workflow.run.state'), cellType: 'badge' },
+  { key: 'started_at', label: t('workflow.run.started'), cellType: 'date', hideBelow: 'sm' },
+  { key: 'ended_at', label: t('workflow.run.ended'), cellType: 'date', hideBelow: 'sm' },
+  { key: 'error', label: t('workflow.run.error'), cellType: 'text', hideBelow: 'md' },
+])
 
 const runQuery = useQuery({
   queryKey: wfKeys.run(runId),

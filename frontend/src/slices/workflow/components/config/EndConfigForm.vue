@@ -2,7 +2,7 @@
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useConfigModel } from '../../composables/useConfigModel'
-import { SFormField } from '@shared/ui'
+import { SFormField, SInput, SSelect, STextarea } from '@shared/ui'
 
 const { t } = useI18n()
 
@@ -21,6 +21,10 @@ const emit = defineEmits<{
 
 const { local, update } = useConfigModel(props, emit)
 
+const statusOptions = computed(() =>
+  STATUSES.map((s) => ({ value: s, label: t('workflow.config.endStatus_' + s) })),
+)
+
 const returnVariablesDisplay = computed(() => {
   const raw = local.return_variables
   if (Array.isArray(raw)) {
@@ -29,8 +33,8 @@ const returnVariablesDisplay = computed(() => {
   return ''
 })
 
-function onReturnVariablesInput(event: Event) {
-  const text = (event.target as HTMLInputElement).value
+function onReturnVariablesInput(value: string | number) {
+  const text = String(value)
   const arr = text
     .split(',')
     .map((s) => s.trim())
@@ -46,20 +50,12 @@ function onReturnVariablesInput(event: Event) {
       :label="t('workflow.config.status')"
       name="end-status"
     >
-      <select
+      <SSelect
         id="end-status"
-        :value="local.status ?? 'success'"
-        class="wf-input"
-        @change="update('status', ($event.target as HTMLSelectElement).value)"
-      >
-        <option
-          v-for="s in STATUSES"
-          :key="s"
-          :value="s"
-        >
-          {{ t('workflow.config.endStatus_' + s) }}
-        </option>
-      </select>
+        :model-value="(local.status as string) ?? 'success'"
+        :options="statusOptions"
+        @update:model-value="update('status', $event)"
+      />
     </SFormField>
 
     <!-- Return variables -->
@@ -68,13 +64,12 @@ function onReturnVariablesInput(event: Event) {
       :help="t('workflow.config.returnVariablesHelp')"
       name="end-return-vars"
     >
-      <input
+      <SInput
         id="end-return-vars"
-        :value="returnVariablesDisplay"
+        :model-value="returnVariablesDisplay"
         type="text"
-        class="wf-input"
-        @input="onReturnVariablesInput"
-      >
+        @update:model-value="onReturnVariablesInput"
+      />
     </SFormField>
 
     <!-- Failure reason (only when status === 'failure') -->
@@ -83,11 +78,11 @@ function onReturnVariablesInput(event: Event) {
       :label="t('workflow.config.failureReason')"
       name="end-failure-reason"
     >
-      <textarea
+      <STextarea
         id="end-failure-reason"
-        :value="(local.failure_reason as string) ?? ''"
-        class="wf-input-code"
-        @input="update('failure_reason', ($event.target as HTMLTextAreaElement).value)"
+        :model-value="(local.failure_reason as string) ?? ''"
+        mono
+        @update:model-value="update('failure_reason', $event)"
       />
     </SFormField>
   </div>

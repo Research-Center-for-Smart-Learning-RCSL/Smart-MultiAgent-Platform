@@ -9,38 +9,35 @@
           &larr; {{ $t('workflow.runs.backToList') }}
         </router-link>
       </template>
-      <router-link
+      <SButton
         v-if="isAuthorized"
+        variant="secondary"
+        size="sm"
+        as="router-link"
         :to="{ name: 'workflow.backstage', params: { workspaceId, workflowId } }"
-        class="btn btn-sm"
       >
         {{ $t('workflow.runs.backstage') }}
-      </router-link>
-      <button
-        class="btn btn-primary btn-sm"
+      </SButton>
+      <SButton
+        variant="primary"
+        size="sm"
         @click="onTrigger"
       >
         {{ $t('workflow.runs.triggerManual') }}
-      </button>
+      </SButton>
     </SPageHeader>
 
     <div class="mb-3">
-      <label class="text-xs text-muted flex items-center gap-1">
-        <input
-          v-model="showArchive"
-          type="checkbox"
-        >
+      <SCheckbox
+        id="runs-show-archive"
+        v-model="showArchive"
+      >
         {{ $t('workflow.runs.includeArchive') }}
-      </label>
+      </SCheckbox>
     </div>
 
-    <SLoadingSpinner
-      v-if="query.isLoading.value"
-      :label="$t('workflow.runs.title')"
-      class="justify-center py-8"
-    />
     <SAlert
-      v-else-if="query.isError.value"
+      v-if="query.isError.value"
       variant="danger"
     >
       {{ $t('workflow.runs.loadError') }}
@@ -53,69 +50,46 @@
         </button>
       </template>
     </SAlert>
-    <div
-      v-else-if="runsList.length"
-      class="overflow-x-auto"
-    >
-      <table class="table">
-        <thead>
-          <tr>
-            <th scope="col">
-              {{ $t('workflow.runs.state') }}
-            </th>
-            <th scope="col">
-              {{ $t('workflow.runs.trigger') }}
-            </th>
-            <th scope="col">
-              {{ $t('workflow.runs.started') }}
-            </th>
-            <th scope="col">
-              {{ $t('workflow.runs.ended') }}
-            </th>
-            <th />
-          </tr>
-        </thead>
-        <tbody>
-          <tr
-            v-for="r in runsList"
-            :key="r.id"
-          >
-            <td>
-              <SStatusBadge :status="r.state" />
-              <span
-                v-if="r.archived"
-                class="ml-1 text-2xs text-muted"
-              >
-                ({{ $t('workflow.runs.archived') }})
-              </span>
-            </td>
-            <td>
-              {{ r.trigger_type }}
-            </td>
-            <td class="text-muted">
-              {{ formatDateTime(r.started_at) }}
-            </td>
-            <td class="text-muted">
-              {{ r.ended_at ? formatDateTime(r.ended_at) : '—' }}
-            </td>
-            <td>
-              <router-link
-                :to="{ name: 'workflow.run', params: { runId: r.id } }"
-                class="text-accent hover:underline text-xs"
-              >
-                {{ $t('workflow.runs.inspect') }}
-              </router-link>
-            </td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
-    <SEmptyState
+    <RunsTable
       v-else
-      :icon="PlayCircleIcon"
-      :title="$t('workflow.runs.empty')"
-      :text="$t('workflow.runs.emptyHint')"
-    />
+      :columns="columns"
+      :data="runsList"
+      :loading="query.isLoading.value"
+      :loading-label="$t('workflow.runs.title')"
+      row-key="id"
+      responsive-mode="card-list"
+    >
+      <template #cell-state="{ row }">
+        <SStatusBadge :status="row.state" />
+        <span
+          v-if="row.archived"
+          class="ml-1 text-2xs text-muted"
+        >
+          ({{ $t('workflow.runs.archived') }})
+        </span>
+      </template>
+      <template #cell-started_at="{ row }">
+        <span class="text-muted">{{ formatDateTime(row.started_at) }}</span>
+      </template>
+      <template #cell-ended_at="{ row }">
+        <span class="text-muted">{{ row.ended_at ? formatDateTime(row.ended_at) : '—' }}</span>
+      </template>
+      <template #actions="{ row }">
+        <router-link
+          :to="{ name: 'workflow.run', params: { runId: row.id } }"
+          class="text-accent hover:underline text-xs"
+        >
+          {{ $t('workflow.runs.inspect') }}
+        </router-link>
+      </template>
+      <template #empty>
+        <SEmptyState
+          :icon="PlayCircleIcon"
+          :title="$t('workflow.runs.empty')"
+          :text="$t('workflow.runs.emptyHint')"
+        />
+      </template>
+    </RunsTable>
   </section>
 </template>
 
@@ -130,14 +104,25 @@ import { useToast } from '@shared/composables'
 import { formatDateTime } from '@shared/utils/datetime'
 import {
   SAlert,
+  SButton,
+  SCheckbox,
   SEmptyState,
-  SLoadingSpinner,
   SPageHeader,
   SStatusBadge,
+  STable,
 } from '@shared/ui'
+import type { Column } from '@shared/ui/STable.vue'
 import { listRuns, triggerRun } from '../api'
+import type { WorkflowRun } from '../types'
 import { wfKeys } from '../queries'
 import { useProjectRole } from '../composables/useProjectRole'
+
+// Same STable row-generic pin as WorkflowListView / agents list.
+const _fixedSTable = STable<Record<string, unknown>>
+type STablePropsBase = Parameters<typeof _fixedSTable>[0]
+const RunsTable = STable as unknown as new () => {
+  $props: Omit<STablePropsBase, 'data'> & { data?: WorkflowRun[] }
+}
 
 const { t } = useI18n()
 const route = useRoute()
@@ -149,6 +134,13 @@ const showArchive = ref(false)
 
 // Backstage is admin/owner-only; only surface the link to those who can enter.
 const { isAuthorized } = useProjectRole(workspaceId)
+
+const columns = computed<Column[]>(() => [
+  { key: 'state', label: t('workflow.runs.state'), cellType: 'badge' },
+  { key: 'trigger_type', label: t('workflow.runs.trigger'), cellType: 'text' },
+  { key: 'started_at', label: t('workflow.runs.started'), cellType: 'date', hideBelow: 'md' },
+  { key: 'ended_at', label: t('workflow.runs.ended'), cellType: 'date', hideBelow: 'md' },
+])
 
 const query = useQuery({
   queryKey: computed(() => [...wfKeys.runs(workflowId), showArchive.value] as const),

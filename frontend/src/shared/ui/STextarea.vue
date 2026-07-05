@@ -10,6 +10,7 @@ const props = withDefaults(defineProps<{
   resize?: 'none' | 'vertical' | 'both'
   id?: string | undefined
   maxlength?: number | undefined
+  mono?: boolean
 }>(), {
   modelValue: '',
   placeholder: '',
@@ -17,6 +18,7 @@ const props = withDefaults(defineProps<{
   disabled: false,
   error: false,
   resize: 'vertical',
+  mono: false,
 })
 
 const emit = defineEmits<{
@@ -49,6 +51,7 @@ function onInput(event: Event) {
       {
         's-textarea--error': error,
         's-textarea--disabled': disabled,
+        's-textarea--mono': mono,
       },
     ]"
     :style="{ resize }"
@@ -92,6 +95,10 @@ function onInput(event: Event) {
 
 .s-textarea--error:focus {
   box-shadow: 0 0 0 2px var(--color-bg), 0 0 0 4px var(--color-danger);
+}
+
+.s-textarea--mono {
+  font-family: var(--font-mono);
 }
 
 .s-textarea--disabled {

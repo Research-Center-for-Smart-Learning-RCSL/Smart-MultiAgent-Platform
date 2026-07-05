@@ -1,7 +1,8 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useConfigModel, safeNumber } from '../../composables/useConfigModel'
-import { SFormField } from '@shared/ui'
+import { SFormField, SInput, SSelect } from '@shared/ui'
 
 const { t } = useI18n()
 
@@ -19,6 +20,10 @@ const emit = defineEmits<{
 }>()
 
 const { local, update } = useConfigModel(props, emit)
+
+const joinModeOptions = computed(() =>
+  JOIN_MODES.map((m) => ({ value: m, label: t('workflow.config.joinMode_' + m) })),
+)
 </script>
 
 <template>
@@ -28,37 +33,31 @@ const { local, update } = useConfigModel(props, emit)
       :label="t('workflow.config.mode')"
       name="join-mode"
     >
-      <select
+      <SSelect
         id="join-mode"
-        :value="local.mode ?? 'all'"
-        class="wf-input"
-        @change="update('mode', ($event.target as HTMLSelectElement).value)"
-      >
-        <option
-          v-for="m in JOIN_MODES"
-          :key="m"
-          :value="m"
-        >
-          {{ t('workflow.config.joinMode_' + m) }}
-        </option>
-      </select>
+        :model-value="(local.mode as string) ?? 'all'"
+        :options="joinModeOptions"
+        @update:model-value="update('mode', $event)"
+      />
     </SFormField>
 
     <!-- Count (only when mode === 'count') -->
+    <!-- Native @input (bubbles through SInput's wrapper) so safeNumber sees the
+         raw string; SInput's update:modelValue coerces a cleared field to 0,
+         which would bypass the min=1 fallback. -->
     <SFormField
       v-if="local.mode === 'count'"
       :label="t('workflow.config.count')"
       name="join-count"
     >
-      <input
+      <SInput
         id="join-count"
-        :value="local.count ?? 1"
+        :model-value="(local.count as number) ?? 1"
         type="number"
         min="1"
         max="50"
-        class="wf-input"
         @input="update('count', safeNumber(($event.target as HTMLInputElement).value, 1))"
-      >
+      />
     </SFormField>
 
     <!-- Timeout -->
@@ -66,15 +65,14 @@ const { local, update } = useConfigModel(props, emit)
       :label="t('workflow.config.timeoutSeconds')"
       name="join-timeout"
     >
-      <input
+      <SInput
         id="join-timeout"
-        :value="local.timeout_seconds ?? 600"
+        :model-value="(local.timeout_seconds as number) ?? 600"
         type="number"
         min="1"
         max="86400"
-        class="wf-input"
         @input="update('timeout_seconds', safeNumber(($event.target as HTMLInputElement).value, 1))"
-      >
+      />
     </SFormField>
   </div>
 </template>

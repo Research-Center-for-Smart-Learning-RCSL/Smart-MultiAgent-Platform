@@ -4,7 +4,7 @@ import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import { useToast } from '@shared/composables'
-import { SPageHeader, SWakeupEditor } from '@shared/ui'
+import { SButton, SPageHeader, SWakeupEditor } from '@shared/ui'
 import { normalizeWakeupConfig, type WakeupConfig } from '@shared/types/workflow'
 import { agentsApi, agentKeys } from '@slices/agents'
 
@@ -77,14 +77,15 @@ async function save(): Promise<void> {
       </p>
       <template v-else-if="config">
         <SWakeupEditor v-model="config" />
-        <button
-          class="btn btn-primary mt-2"
+        <SButton
+          variant="primary"
+          class="mt-2"
           type="button"
-          :disabled="saving"
+          :loading="saving"
           @click="save"
         >
           {{ t('workflow.agentOps.save') }}
-        </button>
+        </SButton>
       </template>
     </div>
 

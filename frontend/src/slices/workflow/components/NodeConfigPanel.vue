@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch, type Component } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { SFormField } from '@shared/ui'
+import { SButton, SFormField, SInput } from '@shared/ui'
 import type { WorkflowNode, NodeType } from '../types'
 
 import TriggerConfigForm from './config/TriggerConfigForm.vue'
@@ -69,13 +69,12 @@ const configComponent = computed(() => CONFIG_FORM_MAP[props.node.type] ?? null)
       :label="t('workflow.config.label')"
       name="node-label"
     >
-      <input
+      <SInput
         id="node-label"
-        v-model="localLabel"
         type="text"
-        class="wf-input"
-        @input="$emit('update:label', localLabel)"
-      >
+        :model-value="localLabel"
+        @update:model-value="localLabel = String($event); $emit('update:label', localLabel)"
+      />
     </SFormField>
 
     <!-- Type-specific config form (dynamic component) -->
@@ -89,13 +88,14 @@ const configComponent = computed(() => CONFIG_FORM_MAP[props.node.type] ?? null)
     />
 
     <!-- Delete button — disabled (not hidden) for the trigger entry node -->
-    <button
-      class="btn btn-danger w-full mt-4"
+    <SButton
+      variant="danger"
+      class="w-full mt-4"
       :disabled="node.type === 'trigger'"
       :title="node.type === 'trigger' ? t('workflow.config.cannotDeleteTrigger') : ''"
       @click="$emit('delete')"
     >
       {{ t('workflow.config.deleteNode') }}
-    </button>
+    </SButton>
   </div>
 </template>

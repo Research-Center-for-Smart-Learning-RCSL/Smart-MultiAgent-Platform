@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
 import { useConfigModel } from '../../composables/useConfigModel'
-import { SFormField } from '@shared/ui'
+import { SFormField, STextarea } from '@shared/ui'
 
 const { t } = useI18n()
 
@@ -25,11 +25,11 @@ const { local, update } = useConfigModel(props, emit)
       :label="t('workflow.config.description')"
       name="parallel-description"
     >
-      <textarea
+      <STextarea
         id="parallel-description"
-        :value="(local.description as string) ?? ''"
-        class="wf-input min-h-[60px]"
-        @input="update('description', ($event.target as HTMLTextAreaElement).value)"
+        :model-value="(local.description as string) ?? ''"
+        class="min-h-[60px]"
+        @update:model-value="update('description', $event)"
       />
     </SFormField>
   </div>

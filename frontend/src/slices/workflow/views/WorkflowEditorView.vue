@@ -27,12 +27,13 @@
         <template v-if="isDesktop">
           <!-- Add Node dropdown -->
           <div class="relative">
-            <button
-              class="btn btn-sm"
+            <SButton
+              variant="secondary"
+              size="sm"
               @click="paletteOpen = !paletteOpen"
             >
               + {{ $t('workflow.palette.addNode') }}
-            </button>
+            </SButton>
             <div
               v-if="paletteOpen"
               class="absolute top-full left-0 mt-1 bg-bg border rounded shadow-lg z-50 w-52 py-1"
@@ -56,50 +57,55 @@
             </div>
           </div>
 
-          <button
-            class="btn btn-sm"
+          <SButton
+            variant="secondary"
+            size="sm"
             :disabled="!store.canUndo"
             :title="$t('workflow.editor.undo')"
             :aria-label="$t('workflow.editor.undo')"
             @click="onUndo"
           >
             <span aria-hidden="true">↶</span>
-          </button>
-          <button
-            class="btn btn-sm"
+          </SButton>
+          <SButton
+            variant="secondary"
+            size="sm"
             :disabled="!store.canRedo"
             :title="$t('workflow.editor.redo')"
             :aria-label="$t('workflow.editor.redo')"
             @click="onRedo"
           >
             <span aria-hidden="true">↷</span>
-          </button>
+          </SButton>
         </template>
 
-        <button
-          class="btn btn-sm"
+        <SButton
+          variant="secondary"
+          size="sm"
           @click="onValidate"
         >
           {{ $t('workflow.editor.validate') }}
-        </button>
+        </SButton>
 
         <template v-if="isDesktop">
-          <button
-            class="btn btn-primary btn-sm"
+          <SButton
+            variant="primary"
+            size="sm"
             :disabled="saveMutation.isPending.value || !store.dirty"
             @click="onSave"
           >
             {{ $t('workflow.editor.save') }}
-          </button>
+          </SButton>
 
-          <button
-            class="btn btn-sm"
+          <SButton
+            variant="secondary"
+            size="sm"
             :disabled="dryRunBusy || store.dirty"
             :title="store.dirty ? $t('workflow.editor.saveBeforeDryRun') : ''"
             @click="onDryRun"
           >
             {{ $t('workflow.editor.dryRun') }}
-          </button>
+          </SButton>
         </template>
       </div>
     </header>
@@ -272,23 +278,27 @@
             >
               {{ $t('workflow.editor.edgeGuard') }}
             </label>
-            <textarea
+            <!-- font-mono on the wrapper reaches the textarea via preflight's
+                 font: inherit on form controls. -->
+            <STextarea
               id="edge-guard"
-              :value="selectedEdge.guard"
-              class="wf-input min-h-[60px] font-mono"
+              :model-value="selectedEdge.guard ?? ''"
+              :rows="3"
+              class="font-mono"
               :placeholder="$t('workflow.editor.edgeGuardPlaceholder')"
-              @input="onEdgeGuardUpdate(($event.target as HTMLTextAreaElement).value)"
+              @update:model-value="onEdgeGuardUpdate"
             />
             <p class="text-2xs text-muted mt-1">
               {{ $t('workflow.editor.edgeGuardHelp') }}
             </p>
           </div>
-          <button
-            class="btn btn-danger w-full mt-2"
+          <SButton
+            variant="danger"
+            class="w-full mt-2"
             @click="deleteSelectedEdge"
           >
             {{ $t('workflow.editor.deleteEdge') }}
-          </button>
+          </SButton>
         </div>
       </aside>
     </div>
@@ -307,6 +317,7 @@ import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute, useRouter } from 'vu
 import { useConfirmDialog, useToast } from '@shared/composables'
 import { useI18n } from 'vue-i18n'
 import { useBreakpoint } from '@shared/composables'
+import { SButton, STextarea } from '@shared/ui'
 import { ApiError } from '@shared/errors'
 import {
   dryRun,

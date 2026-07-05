@@ -1,7 +1,8 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useConfigModel, safeNumber } from '../../composables/useConfigModel'
-import { SFormField } from '@shared/ui'
+import { SCheckbox, SFormField, SInput, SSelect, STextarea } from '@shared/ui'
 import OnErrorConfigForm from './OnErrorConfigForm.vue'
 import type { OnErrorConfig } from '../../types'
 
@@ -21,6 +22,15 @@ const emit = defineEmits<{
 const { local, update } = useConfigModel(props, emit)
 
 const MODE_OPTIONS = ['single', 'majority', 'consensus'] as const
+
+const modeOptions = computed(() =>
+  MODE_OPTIONS.map((m) => ({ value: m, label: t('workflow.config.approvalMode_' + m) })),
+)
+
+const leaderAgentOptions = computed(() => [
+  { value: '', label: t('workflow.config.none'), disabled: true },
+  ...props.agents.map((agent) => ({ value: agent.id, label: agent.name })),
+])
 
 function toggleApprover(agentId: string): void {
   const current = Array.isArray(local.approvers) ? [...(local.approvers as string[])] : []
@@ -46,20 +56,12 @@ function isApprover(agentId: string): boolean {
       name="approval-mode"
       required
     >
-      <select
+      <SSelect
         id="approval-mode"
-        :value="local.mode ?? 'single'"
-        class="wf-input"
-        @change="update('mode', ($event.target as HTMLSelectElement).value)"
-      >
-        <option
-          v-for="m in MODE_OPTIONS"
-          :key="m"
-          :value="m"
-        >
-          {{ t('workflow.config.approvalMode_' + m) }}
-        </option>
-      </select>
+        :model-value="(local.mode as string) ?? 'single'"
+        :options="modeOptions"
+        @update:model-value="update('mode', $event)"
+      />
     </SFormField>
 
     <!-- Leader Agent -->
@@ -68,26 +70,12 @@ function isApprover(agentId: string): boolean {
       name="leader-agent-id"
       required
     >
-      <select
+      <SSelect
         id="leader-agent-id"
-        :value="local.leader_agent_id ?? ''"
-        class="wf-input"
-        @change="update('leader_agent_id', ($event.target as HTMLSelectElement).value)"
-      >
-        <option
-          value=""
-          disabled
-        >
-          {{ t('workflow.config.none') }}
-        </option>
-        <option
-          v-for="agent in agents"
-          :key="agent.id"
-          :value="agent.id"
-        >
-          {{ agent.name }}
-        </option>
-      </select>
+        :model-value="(local.leader_agent_id as string) ?? ''"
+        :options="leaderAgentOptions"
+        @update:model-value="update('leader_agent_id', $event)"
+      />
     </SFormField>
 
     <!-- Approvers (checkbox per agent) -->
@@ -95,36 +83,34 @@ function isApprover(agentId: string): boolean {
       :label="t('workflow.config.approvers')"
       name="approvers"
     >
-      <div class="space-y-1">
-        <label
+      <div class="flex flex-col gap-1">
+        <SCheckbox
           v-for="agent in agents"
           :key="agent.id"
-          class="flex items-center gap-2"
+          :model-value="isApprover(agent.id)"
+          @update:model-value="toggleApprover(agent.id)"
         >
-          <input
-            type="checkbox"
-            :checked="isApprover(agent.id)"
-            @change="toggleApprover(agent.id)"
-          >
-          <span class="text-sm">{{ agent.name }}</span>
-        </label>
+          {{ agent.name }}
+        </SCheckbox>
       </div>
     </SFormField>
 
     <!-- Timeout Seconds -->
+    <!-- Native @input (bubbles through SInput's wrapper) so safeNumber sees the
+         raw string; SInput's update:modelValue coerces a cleared field to 0,
+         which would bypass the min=1 fallback. -->
     <SFormField
       :label="t('workflow.config.timeoutSeconds')"
       name="timeout-seconds"
     >
-      <input
+      <SInput
         id="timeout-seconds"
         type="number"
-        :value="local.timeout_seconds ?? 3600"
+        :model-value="(local.timeout_seconds as number) ?? 3600"
         min="1"
         max="86400"
-        class="wf-input"
         @input="update('timeout_seconds', safeNumber(($event.target as HTMLInputElement).value, 1))"
-      >
+      />
     </SFormField>
 
     <!-- Question Template -->
@@ -133,11 +119,11 @@ function isApprover(agentId: string): boolean {
       name="question-template"
       required
     >
-      <textarea
+      <STextarea
         id="question-template"
-        :value="(local.question_template as string) ?? ''"
-        class="wf-input-code"
-        @input="update('question_template', ($event.target as HTMLTextAreaElement).value)"
+        :model-value="(local.question_template as string) ?? ''"
+        mono
+        @update:model-value="update('question_template', $event)"
       />
     </SFormField>
 

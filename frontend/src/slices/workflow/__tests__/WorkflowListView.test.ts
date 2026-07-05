@@ -35,7 +35,9 @@ describe('WorkflowListView', () => {
       initialRoute: '/workspaces/ws_1/workflows',
     })
     expect(wrapper.find('form').exists()).toBe(true)
-    expect(wrapper.find('input[required]').exists()).toBe(true)
+    // The name field is an SInput; empty submissions are guarded in onCreate
+    // rather than by the native required attribute.
+    expect(wrapper.find('input#workflow-name').exists()).toBe(true)
     expect(wrapper.find('button[type="submit"]').exists()).toBe(true)
   })
 })

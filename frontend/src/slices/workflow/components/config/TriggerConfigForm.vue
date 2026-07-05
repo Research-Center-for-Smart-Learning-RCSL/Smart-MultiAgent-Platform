@@ -1,7 +1,8 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useConfigModel } from '../../composables/useConfigModel'
-import { SFormField } from '@shared/ui'
+import { SCheckbox, SFormField, SInput, SSelect } from '@shared/ui'
 
 const { t } = useI18n()
 
@@ -35,6 +36,24 @@ const EVENT_TYPE_OPTIONS = ['call', 'reply', 'notify', 'instruct'] as const
 const CRON_PLACEHOLDER = '0 9 * * MON-FRI'
 const TIMEZONE_PLACEHOLDER = 'UTC'
 
+const triggerTypeOptions = computed(() =>
+  TRIGGER_TYPES.map((tt) => ({ value: tt, label: t('workflow.config.triggerType_' + tt) })),
+)
+
+const senderFilterOptions = computed(() =>
+  SENDER_FILTER_OPTIONS.map((sf) => ({ value: sf, label: t('workflow.config.senderFilter_' + sf) })),
+)
+
+const chatroomOptions = computed(() => [
+  { value: '', label: t('workflow.config.none') },
+  ...props.chatrooms.map((room) => ({ value: room.id, label: room.name })),
+])
+
+const agentOptions = computed(() => [
+  { value: '', label: t('workflow.config.none') },
+  ...props.agents.map((agent) => ({ value: agent.id, label: agent.name })),
+])
+
 function toggleArrayItem(field: string, item: string): void {
   const current = Array.isArray(local[field]) ? [...(local[field] as string[])] : []
   const idx = current.indexOf(item)
@@ -59,20 +78,12 @@ function isInArray(field: string, item: string): boolean {
       name="trigger-type"
       required
     >
-      <select
+      <SSelect
         id="trigger-type"
-        :value="local.trigger_type ?? 'manual'"
-        class="wf-input"
-        @change="update('trigger_type', ($event.target as HTMLSelectElement).value)"
-      >
-        <option
-          v-for="tt in TRIGGER_TYPES"
-          :key="tt"
-          :value="tt"
-        >
-          {{ t('workflow.config.triggerType_' + tt) }}
-        </option>
-      </select>
+        :model-value="(local.trigger_type as string) ?? 'manual'"
+        :options="triggerTypeOptions"
+        @update:model-value="update('trigger_type', $event)"
+      />
     </SFormField>
 
     <!-- Manual: allowed_roles checkboxes -->
@@ -81,19 +92,15 @@ function isInArray(field: string, item: string): boolean {
         :label="t('workflow.config.allowedRoles')"
         name="allowed-roles"
       >
-        <div class="space-y-1">
-          <label
+        <div class="flex flex-col gap-1">
+          <SCheckbox
             v-for="role in ROLE_OPTIONS"
             :key="role"
-            class="flex items-center gap-2"
+            :model-value="isInArray('allowed_roles', role)"
+            @update:model-value="toggleArrayItem('allowed_roles', role)"
           >
-            <input
-              type="checkbox"
-              :checked="isInArray('allowed_roles', role)"
-              @change="toggleArrayItem('allowed_roles', role)"
-            >
-            <span class="text-sm">{{ t('workflow.config.role_' + role) }}</span>
-          </label>
+            {{ t('workflow.config.role_' + role) }}
+          </SCheckbox>
         </div>
       </SFormField>
     </div>
@@ -108,28 +115,26 @@ function isInArray(field: string, item: string): boolean {
         name="cron-expression"
         required
       >
-        <input
+        <SInput
           id="cron-expression"
           type="text"
-          :value="local.cron_expression ?? ''"
-          class="wf-input"
+          :model-value="(local.cron_expression as string) ?? ''"
           :placeholder="CRON_PLACEHOLDER"
-          @input="update('cron_expression', ($event.target as HTMLInputElement).value)"
-        >
+          @update:model-value="update('cron_expression', $event)"
+        />
       </SFormField>
 
       <SFormField
         :label="t('workflow.config.timezone')"
         name="timezone"
       >
-        <input
+        <SInput
           id="timezone"
           type="text"
-          :value="local.timezone ?? 'UTC'"
-          class="wf-input"
+          :model-value="(local.timezone as string) ?? 'UTC'"
           :placeholder="TIMEZONE_PLACEHOLDER"
-          @input="update('timezone', ($event.target as HTMLInputElement).value)"
-        >
+          @update:model-value="update('timezone', $event)"
+        />
       </SFormField>
     </div>
 
@@ -142,57 +147,37 @@ function isInArray(field: string, item: string): boolean {
         :label="t('workflow.config.chatroomId')"
         name="chatroom-id"
       >
-        <select
+        <SSelect
           id="chatroom-id"
-          :value="local.chatroom_id ?? ''"
-          class="wf-input"
-          @change="update('chatroom_id', ($event.target as HTMLSelectElement).value)"
-        >
-          <option value="">
-            {{ t('workflow.config.none') }}
-          </option>
-          <option
-            v-for="room in chatrooms"
-            :key="room.id"
-            :value="room.id"
-          >
-            {{ room.name }}
-          </option>
-        </select>
+          :model-value="(local.chatroom_id as string) ?? ''"
+          :options="chatroomOptions"
+          @update:model-value="update('chatroom_id', $event)"
+        />
       </SFormField>
 
       <SFormField
         :label="t('workflow.config.senderFilter')"
         name="sender-filter"
       >
-        <select
+        <SSelect
           id="sender-filter"
-          :value="local.sender_filter ?? 'any'"
-          class="wf-input"
-          @change="update('sender_filter', ($event.target as HTMLSelectElement).value)"
-        >
-          <option
-            v-for="sf in SENDER_FILTER_OPTIONS"
-            :key="sf"
-            :value="sf"
-          >
-            {{ t('workflow.config.senderFilter_' + sf) }}
-          </option>
-        </select>
+          :model-value="(local.sender_filter as string) ?? 'any'"
+          :options="senderFilterOptions"
+          @update:model-value="update('sender_filter', $event)"
+        />
       </SFormField>
 
       <SFormField
         :label="t('workflow.config.contentRegex')"
         name="content-regex"
       >
-        <input
+        <SInput
           id="content-regex"
           type="text"
-          :value="local.content_regex ?? ''"
-          class="wf-input"
+          :model-value="(local.content_regex as string) ?? ''"
           placeholder=".*"
-          @input="update('content_regex', ($event.target as HTMLInputElement).value)"
-        >
+          @update:model-value="update('content_regex', $event)"
+        />
       </SFormField>
     </div>
 
@@ -205,42 +190,27 @@ function isInArray(field: string, item: string): boolean {
         :label="t('workflow.config.agentId')"
         name="a2a-agent-id"
       >
-        <select
+        <SSelect
           id="a2a-agent-id"
-          :value="local.agent_id ?? ''"
-          class="wf-input"
-          @change="update('agent_id', ($event.target as HTMLSelectElement).value)"
-        >
-          <option value="">
-            {{ t('workflow.config.none') }}
-          </option>
-          <option
-            v-for="agent in agents"
-            :key="agent.id"
-            :value="agent.id"
-          >
-            {{ agent.name }}
-          </option>
-        </select>
+          :model-value="(local.agent_id as string) ?? ''"
+          :options="agentOptions"
+          @update:model-value="update('agent_id', $event)"
+        />
       </SFormField>
 
       <SFormField
         :label="t('workflow.config.eventTypes')"
         name="event-types"
       >
-        <div class="space-y-1">
-          <label
+        <div class="flex flex-col gap-1">
+          <SCheckbox
             v-for="et in EVENT_TYPE_OPTIONS"
             :key="et"
-            class="flex items-center gap-2"
+            :model-value="isInArray('event_types', et)"
+            @update:model-value="toggleArrayItem('event_types', et)"
           >
-            <input
-              type="checkbox"
-              :checked="isInArray('event_types', et)"
-              @change="toggleArrayItem('event_types', et)"
-            >
-            <span class="text-sm">{{ t('workflow.config.eventType_' + et) }}</span>
-          </label>
+            {{ t('workflow.config.eventType_' + et) }}
+          </SCheckbox>
         </div>
       </SFormField>
     </div>
@@ -251,23 +221,12 @@ function isInArray(field: string, item: string): boolean {
         :label="t('workflow.config.agentId')"
         name="wakeup-agent-id"
       >
-        <select
+        <SSelect
           id="wakeup-agent-id"
-          :value="local.agent_id ?? ''"
-          class="wf-input"
-          @change="update('agent_id', ($event.target as HTMLSelectElement).value)"
-        >
-          <option value="">
-            {{ t('workflow.config.none') }}
-          </option>
-          <option
-            v-for="agent in agents"
-            :key="agent.id"
-            :value="agent.id"
-          >
-            {{ agent.name }}
-          </option>
-        </select>
+          :model-value="(local.agent_id as string) ?? ''"
+          :options="agentOptions"
+          @update:model-value="update('agent_id', $event)"
+        />
       </SFormField>
     </div>
   </div>
