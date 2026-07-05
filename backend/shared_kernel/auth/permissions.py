@@ -70,6 +70,8 @@ class Capability(str, enum.Enum):
     USER_BAN = "user.ban"  # 22
     USER_DELETE_ANY = "user.delete_any"  # 23
     USER_READ_ANY = "user.read_any"  # 24
+    # Prompt studio (§29) — configure the org's prompt assistant + org templates.
+    PROMPT_STUDIO_ORG_MANAGE = "prompt_studio.org.manage"  # 25
 
 
 # ---------------------------------------------------------------------------
@@ -244,6 +246,12 @@ _MATRIX: dict[Capability, dict[Role, Outcome]] = {
     Capability.USER_BAN: {},
     Capability.USER_DELETE_ANY: {},
     Capability.USER_READ_ANY: {},
+    # Row 25 — org prompt-assistant / org-template config: Org Owner only
+    # (Admin bypasses the table). Personal scope is self-service (own /api/me
+    # resources, verified user) and platform scope is Admin-only via require_admin.
+    Capability.PROMPT_STUDIO_ORG_MANAGE: {
+        Role.ORG_OWNER: Outcome.ALLOW,
+    },
 }
 
 
