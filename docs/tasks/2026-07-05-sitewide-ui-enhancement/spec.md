@@ -1,6 +1,6 @@
----
+﻿---
 type: feature
-status: approved
+status: implemented
 created: 2026-07-05
 requirements: [R20.05, R20.08, R24.26, R24.27, R24.28, R24.29, R24.30, R24.31, R24.33, R24.34, R24.39, R24.48]
 ---
@@ -269,42 +269,42 @@ wiring via vee-validate/SFormField).
 
 ## 11. Acceptance Criteria
 
-- [ ] AC-1: `main.css` `@theme` defines spacing (`--space-*`), typography
+- [x] AC-1: `main.css` `@theme` defines spacing (`--space-*`), typography
       (`--text-*`/`--leading-*`/`--weight-*`), elevation (`--elevation-0..3`),
       interactive-state (`--color-surface-hover` etc.), and motion tokens, each with
       dark-theme values where color-bearing.
-- [ ] AC-2: no component or shell style uses `--color-border` as a hover/active fill;
+- [x] AC-2: no component or shell style uses `--color-border` as a hover/active fill;
       they consume the new state tokens (grep-verifiable).
-- [ ] AC-3: SCard `default` and `elevated` are visually distinct; `hoverable` prop
+- [x] AC-3: SCard `default` and `elevated` are visually distinct; `hoverable` prop
       lifts 1-2px with elevation change on hover; `header`/`footer` slots render
       padded, separated sections; all existing SCard call sites render unchanged
       without edits; component test covers the new API.
-- [ ] AC-4: toasts are token-themed in light and dark (no stock sonner palette);
+- [x] AC-4: toasts are token-themed in light and dark (no stock sonner palette);
       success/error/warning/info map to the status tint/on tokens.
-- [ ] AC-5: SSkeleton offers a shimmer variant that degrades to non-animated under
+- [x] AC-5: SSkeleton offers a shimmer variant that degrades to non-animated under
       reduced motion; SEmptyState renders the tinted-halo icon treatment.
-- [ ] AC-6: route changes animate with a 150-200ms fade+rise via `<Transition>`
+- [x] AC-6: route changes animate with a 150-200ms fade+rise via `<Transition>`
       `mode="out-in"`; query-only URL changes do not remount the view; param changes
       that require remount still remount; reduced-motion users get no movement.
-- [ ] AC-7: sidebar active indicator animates between nav items; topbar gains
+- [x] AC-7: sidebar active indicator animates between nav items; topbar gains
       shadow/border depth once scrolled; sidebar collapse/expand tweens instead of
       snapping; all three inert under reduced motion.
-- [ ] AC-8: workflow slice contains zero raw `<button>`, form controls, or `<table>`
+- [x] AC-8: workflow slice contains zero raw `<button>`, form controls, or `<table>`
       styled by legacy classes — S* equivalents throughout; workflow list/run views
       load with skeletons, not SLoadingSpinner; Vue Flow canvas behavior (desktop
       edit / tablet read-only / mobile message) unchanged.
-- [ ] AC-9: the 6 auth-scaffold views and 4 `.auth-form` settings views render via the
+- [x] AC-9: the 6 auth-scaffold views and 4 `.auth-form` settings views render via the
       new shared auth-card treatment; the two local `.auth-heading` overrides are
       gone.
-- [ ] AC-10: `main.css` no longer defines `.btn*`, `.form-page*`, `.wf-input*`,
+- [x] AC-10: `main.css` no longer defines `.btn*`, `.form-page*`, `.wf-input*`,
       `.table`, `.auth-*`, `.truncate-line`; `.sr-only`/`.visually-hidden`/`.skip-link`
       remain; repo-wide grep finds zero consumers of the deleted classes.
-- [ ] AC-11: ChatroomListView and AgentListView have no manual `isMobile` card branch;
+- [x] AC-11: ChatroomListView and AgentListView have no manual `isMobile` card branch;
       mobile rendering goes through STable's card mode.
-- [ ] AC-12: list views show a first-load-only stagger (≤ 300ms total, disabled under
+- [x] AC-12: list views show a first-load-only stagger (≤ 300ms total, disabled under
       reduced motion); the motion spec is documented (`main.css` comment block +
       `docs/frontend-motion.md`).
-- [ ] AC-13: `pnpm test`, `pnpm typecheck`, `pnpm build`, bundle-size check pass; the
+- [x] AC-13: `pnpm test`, `pnpm typecheck`, `pnpm build`, bundle-size check pass; the
       12 lint gates pass on all touched files (repo-wide `pnpm lint` remains red from
       pre-existing warnings — see FU-1); every touched view keeps ≥ 1 passing test.
 
@@ -354,10 +354,55 @@ the SRS truthful and adds the new token/motion requirements):
 
 ## 15. Deviation Log
 
-None yet.
+- D-1: The workflow create-name field lost native `required`/`minlength` validation in
+  the SInput migration (SInput's wrapper does not forward them); empty submissions are
+  guarded by the existing `onCreate` trim check, and `WorkflowListView.test.ts` was
+  updated accordingly. Reason: SInput has no required prop; behavior (no empty create)
+  is preserved, only the browser hint is gone (see FU-7).
+- D-2: `.wf-input-code` sites migrated to `STextarea` with a new `mono` prop rather
+  than `SCodeEditor` (resolves §14's open question) — the config fields are short
+  expressions, not documents; SCodeEditor's weight was not justified.
+- D-3: `DlqViewer.vue`'s compact diagnostic table kept a local scoped `.dlq-table`
+  instead of converting to STable. Reason: deliberately denser than STable's row
+  height; the AC-8 requirement (no legacy classes) is met.
+- D-4: SSkeleton's default animation changed from pulse to the new shimmer (spec only
+  promised a variant). All SSkeleton consumers pick it up; STable's private desktop
+  skeleton is unaffected (see FU-4).
+- D-5: The sidebar collapse keeps the aside mounted (with `inert` + delayed
+  visibility) instead of `v-if`-removal, so the grid track can tween; AppShell tests
+  were updated to assert the new invariant (collapsed class + inert) rather than
+  absence.
 
 ## 16. Follow-ups
 
 - FU-1: repo-wide `pnpm lint` fails on `main` with 295 pre-existing warnings
   (`--max-warnings=0`; mostly unused vars in keys/other slices) — needs its own cleanup
-  task; out of scope here.
+  task; out of scope here. SInput's prop family (id/maxlength/min/max/step) shares a
+  pre-existing `vue/require-default-prop` warning pattern to resolve in that task.
+- FU-2: Pre-existing invalid CSS: composite duration+easing tokens combined with a
+  second easing (`transition: opacity var(--transition-normal) ease` and the SToggle
+  `s-robot-hop` animation) parse-fail and silently disable enter/leave animations in
+  SModal, SDrawer, SDropdown, SNetworkBanner, OrgProjectSwitcher, SToggle. The "already
+  animated" assumption in §4 is wrong at runtime; a one-pass sweep restoring these
+  transitions is high-value and cheap.
+- FU-3: STable renders clickable affordances unconditionally (`s-table__row--clickable`
+  cursor; STableCards `role="button" tabindex="0"`) even when no `@row-click` is bound —
+  now visible in the migrated workflow tables. Gate the affordance on the listener.
+- FU-4: Loading placeholders are inconsistent: STable's private desktop skeleton pulses
+  while SSkeleton (used by STableCards) now shimmers. Align STable's skeleton with the
+  shared shimmer.
+- FU-5: The `.form-stack`/`.submit-btn`/`.card-heading` scoped CSS introduced by the
+  auth migration is copy-pasted across eight identity views — fold into SAuthCard slots
+  or shared classes.
+- FU-6: SInput does not forward arbitrary native input attributes (required, pattern,
+  inputmode); `step` was added as an explicit prop during this task. Consider a
+  deliberate attr-forwarding design for the input family.
+- FU-7: Workflow create form silently no-ops on empty name (D-1); add an inline error
+  or SInput-level required support.
+- FU-8: `Landing.test.ts` "forwards a logged-out deep-link visitor" is flaky under
+  full-suite parallel load (bounded macrotask retry loop); passes in isolation.
+  Stabilize the retry strategy.
+- FU-9: `--color-accent-tint-hover` is defined (light+dark) but has no consumers yet;
+  either adopt it for tinted-hover surfaces or drop it.
+- FU-10: AppShell's sidebar hide `transition-delay: 300ms` hardcodes the
+  `--transition-slow` duration; extract a duration-only token if the scale ever changes.
