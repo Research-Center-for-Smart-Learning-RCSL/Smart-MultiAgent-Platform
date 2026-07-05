@@ -92,7 +92,7 @@ async function submit(): Promise<void> {
       </SAlert>
 
       <form
-        class="auth-form"
+        class="form-stack"
         @submit.prevent="submit"
       >
         <SFormField
@@ -151,7 +151,7 @@ async function submit(): Promise<void> {
           :disabled="!!(submitting || !confirmed || !password || rateLimit.active.value)"
           :aria-disabled="!confirmed || !password ? true : undefined"
           :aria-busy="submitting"
-          class="form-submit"
+          class="submit-btn"
         >
           {{ submitting ? $t('identity.deleteAccount.deleting') : $t('identity.deleteAccount.submit') }}
         </SButton>
@@ -169,7 +169,13 @@ async function submit(): Promise<void> {
   margin-bottom: 20px;
 }
 
-.form-submit {
+.form-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.submit-btn {
   width: 100%;
 }
 

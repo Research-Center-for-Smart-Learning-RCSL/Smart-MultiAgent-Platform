@@ -2,7 +2,7 @@
 import { onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { CheckCircleIcon, XCircleIcon } from '@heroicons/vue/24/outline'
-import { SButton, SLoadingSpinner } from '@shared/ui'
+import { SAuthCard, SButton, SLoadingSpinner } from '@shared/ui'
 import { isProblemWithType } from '@shared/transport'
 import { authApi } from '../api/auth'
 import { useSessionStore } from '../stores/session'
@@ -42,14 +42,10 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div class="auth-card">
-    <h1
-      id="verify-heading"
-      class="auth-heading"
-    >
-      {{ $t('identity.verifyEmail.title') }}
-    </h1>
-
+  <SAuthCard
+    :title="$t('identity.verifyEmail.title')"
+    title-id="verify-heading"
+  >
     <div
       class="verify-content"
       aria-live="polite"
@@ -110,17 +106,10 @@ onMounted(async () => {
         </SButton>
       </template>
     </div>
-  </div>
+  </SAuthCard>
 </template>
 
 <style scoped>
-.auth-heading {
-  font-size: 1.5rem;
-  font-weight: 600;
-  color: var(--color-fg);
-  margin: 0 0 24px;
-}
-
 .verify-content {
   display: flex;
   flex-direction: column;

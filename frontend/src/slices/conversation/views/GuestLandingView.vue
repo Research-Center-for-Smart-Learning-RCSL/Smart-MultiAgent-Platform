@@ -6,7 +6,7 @@ import { useForm } from 'vee-validate'
 import { toTypedSchema } from '@vee-validate/zod'
 import { z } from 'zod'
 import { XCircleIcon } from '@heroicons/vue/24/outline'
-import { SButton, SFormField, SInput, SLoadingSpinner } from '@shared/ui'
+import { SAuthCard, SButton, SFormField, SInput, SLoadingSpinner } from '@shared/ui'
 import { ApiError } from '@shared/errors'
 import { useSessionStore } from '@shared/stores/session'
 import { enrollGuest } from '../api'
@@ -74,11 +74,10 @@ const doEnroll = handleSubmit(async (values) => {
 </script>
 
 <template>
-  <div class="auth-card guest-landing">
-    <h1 class="auth-heading">
-      {{ t('conversation.guest.title') }}
-    </h1>
-
+  <SAuthCard
+    class="guest-landing"
+    :title="t('conversation.guest.title')"
+  >
     <div
       class="guest-content"
       aria-live="polite"
@@ -155,15 +154,12 @@ const doEnroll = handleSubmit(async (values) => {
         </SButton>
       </template>
     </div>
-  </div>
+  </SAuthCard>
 </template>
 
 <style scoped>
-.auth-heading {
-  font-size: 1.5rem;
-  font-weight: 600;
-  color: var(--color-fg);
-  margin: 0 0 24px;
+/* The guest card centers its heading, unlike the default auth card. */
+.guest-landing :deep(.s-auth-card__title) {
   text-align: center;
 }
 

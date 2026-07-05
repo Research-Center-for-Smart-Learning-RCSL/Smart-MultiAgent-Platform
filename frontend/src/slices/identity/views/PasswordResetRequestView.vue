@@ -2,7 +2,7 @@
 import { ref, onMounted, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { EnvelopeIcon } from '@heroicons/vue/24/outline'
-import { SFormField, SInput, SButton, SAlert } from '@shared/ui'
+import { SAuthCard, SFormField, SInput, SButton, SAlert } from '@shared/ui'
 import { RateLimitError } from '@shared/errors'
 import { authApi } from '../api/auth'
 import { emailSchema, validateField, errorAttrs } from '../validation'
@@ -50,11 +50,11 @@ async function submit(): Promise<void> {
 </script>
 
 <template>
-  <div class="auth-card">
+  <SAuthCard>
     <template v-if="!sent">
       <h1
         id="reset-heading"
-        class="auth-heading"
+        class="card-heading"
       >
         {{ $t('identity.passwordReset.requestTitle') }}
       </h1>
@@ -64,7 +64,7 @@ async function submit(): Promise<void> {
       </p>
 
       <form
-        class="auth-form"
+        class="form-stack"
         aria-labelledby="reset-heading"
         @submit.prevent="submit"
       >
@@ -100,7 +100,7 @@ async function submit(): Promise<void> {
           :loading="submitting"
           :disabled="submitting"
           :aria-busy="submitting"
-          class="form-submit"
+          class="submit-btn"
         >
           {{ $t('identity.passwordReset.requestSubmit') }}
         </SButton>
@@ -112,7 +112,7 @@ async function submit(): Promise<void> {
         class="sent-content"
         aria-live="polite"
       >
-        <h1 class="auth-heading">
+        <h1 class="card-heading">
           {{ $t('identity.passwordReset.sentTitle') }}
         </h1>
         <EnvelopeIcon
@@ -126,25 +126,41 @@ async function submit(): Promise<void> {
           variant="primary"
           :to="{ name: 'identity.login' }"
           as="router-link"
-          class="form-submit"
         >
           {{ $t('identity.common.backToLogin') }}
         </SButton>
       </div>
     </template>
-  </div>
 
-  <p
-    v-if="!sent"
-    class="auth-footer"
-  >
-    <RouterLink :to="{ name: 'identity.login' }">
-      {{ $t('identity.common.backToLogin') }}
-    </RouterLink>
-  </p>
+    <template
+      v-if="!sent"
+      #footer
+    >
+      <RouterLink :to="{ name: 'identity.login' }">
+        {{ $t('identity.common.backToLogin') }}
+      </RouterLink>
+    </template>
+  </SAuthCard>
 </template>
 
 <style scoped>
+.card-heading {
+  font-size: var(--font-size-2xl);
+  font-weight: var(--weight-semibold);
+  color: var(--color-fg);
+  margin: 0 0 var(--space-6);
+}
+
+.form-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.submit-btn {
+  width: 100%;
+}
+
 .description {
   font-size: 0.875rem;
   color: var(--color-muted);

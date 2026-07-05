@@ -58,7 +58,7 @@ async function submit(): Promise<void> {
       </dl>
 
       <form
-        class="auth-form"
+        class="form-stack"
         @submit.prevent="submit"
       >
         <SFormField
@@ -103,7 +103,7 @@ async function submit(): Promise<void> {
           :loading="submitting"
           :disabled="submitting"
           :aria-busy="submitting"
-          class="form-submit"
+          class="submit-btn"
         >
           {{ $t('identity.profile.submit') }}
         </SButton>
@@ -133,7 +133,13 @@ async function submit(): Promise<void> {
   margin: 0;
 }
 
-.form-submit {
+.form-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.submit-btn {
   width: 100%;
 }
 

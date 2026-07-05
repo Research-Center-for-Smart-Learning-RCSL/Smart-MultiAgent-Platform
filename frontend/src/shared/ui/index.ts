@@ -1,5 +1,6 @@
 export { default as SAccordion } from './SAccordion.vue'
 export { default as SAlert } from './SAlert.vue'
+export { default as SAuthCard } from './SAuthCard.vue'
 export { default as SAvatar } from './SAvatar.vue'
 export { default as SBadge } from './SBadge.vue'
 export { default as SBreadcrumb } from './SBreadcrumb.vue'

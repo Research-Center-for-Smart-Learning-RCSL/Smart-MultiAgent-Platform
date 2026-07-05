@@ -2,7 +2,7 @@
 import { ref, computed, onMounted, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { SFormField, SInput, SButton, SAlert } from '@shared/ui'
+import { SAuthCard, SFormField, SInput, SButton, SAlert } from '@shared/ui'
 import { INPUT_LIMITS } from '@shared/constants/inputLimits'
 import { isProblemWithType } from '@shared/transport'
 import { RateLimitError } from '@shared/errors'
@@ -109,16 +109,12 @@ async function submit(): Promise<void> {
 </script>
 
 <template>
-  <div class="auth-card">
-    <h1
-      id="register-heading"
-      class="auth-heading"
-    >
-      {{ $t('identity.register.title') }}
-    </h1>
-
+  <SAuthCard
+    :title="$t('identity.register.title')"
+    title-id="register-heading"
+  >
     <form
-      class="auth-form"
+      class="form-stack"
       aria-labelledby="register-heading"
       @submit.prevent="submit"
     >
@@ -187,22 +183,32 @@ async function submit(): Promise<void> {
         :loading="submitting"
         :disabled="!!(submitting || rateLimit.active.value)"
         :aria-busy="submitting"
-        class="form-submit"
+        class="submit-btn"
       >
         {{ submitting ? $t('identity.register.submitting') : $t('identity.register.submit') }}
       </SButton>
     </form>
-  </div>
 
-  <p class="auth-footer">
-    {{ $t('identity.register.loginPrompt') }}
-    <RouterLink :to="loginLinkTo">
-      {{ $t('identity.register.loginLink') }}
-    </RouterLink>
-  </p>
+    <template #footer>
+      {{ $t('identity.register.loginPrompt') }}
+      <RouterLink :to="loginLinkTo">
+        {{ $t('identity.register.loginLink') }}
+      </RouterLink>
+    </template>
+  </SAuthCard>
 </template>
 
 <style scoped>
+.form-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.submit-btn {
+  width: 100%;
+}
+
 .field-error {
   font-size: 0.75rem;
   color: var(--color-danger);
