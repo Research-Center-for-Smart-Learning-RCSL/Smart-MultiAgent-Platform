@@ -2,7 +2,7 @@
 import { ref, computed, onMounted, nextTick } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { SFormField, SInput, SButton, SAlert } from '@shared/ui'
+import { SAuthCard, SFormField, SInput, SButton, SAlert } from '@shared/ui'
 import { INPUT_LIMITS } from '@shared/constants/inputLimits'
 import { isProblemWithType } from '@shared/transport'
 import { RateLimitError } from '@shared/errors'
@@ -121,7 +121,7 @@ async function submit(): Promise<void> {
 </script>
 
 <template>
-  <div class="auth-card">
+  <SAuthCard>
     <SAlert
       v-if="flashMessage && flashVariant"
       :variant="flashVariant"
@@ -135,13 +135,13 @@ async function submit(): Promise<void> {
 
     <h1
       id="login-heading"
-      class="auth-heading"
+      class="card-heading"
     >
       {{ $t('identity.login.title') }}
     </h1>
 
     <form
-      class="auth-form"
+      class="form-stack"
       aria-labelledby="login-heading"
       @submit.prevent="submit"
     >
@@ -208,22 +208,39 @@ async function submit(): Promise<void> {
         :loading="submitting"
         :disabled="!!(submitting || rateLimit.active.value)"
         :aria-busy="submitting"
-        class="form-submit"
+        class="submit-btn"
       >
         {{ submitting ? $t('identity.login.submitting') : $t('identity.login.submit') }}
       </SButton>
     </form>
-  </div>
 
-  <p class="auth-footer">
-    {{ $t('identity.login.registerPrompt') }}
-    <RouterLink :to="registerLinkTo">
-      {{ $t('identity.login.registerLink') }}
-    </RouterLink>
-  </p>
+    <template #footer>
+      {{ $t('identity.login.registerPrompt') }}
+      <RouterLink :to="registerLinkTo">
+        {{ $t('identity.login.registerLink') }}
+      </RouterLink>
+    </template>
+  </SAuthCard>
 </template>
 
 <style scoped>
+.card-heading {
+  font-size: var(--font-size-2xl);
+  font-weight: var(--weight-semibold);
+  color: var(--color-fg);
+  margin: 0 0 var(--space-6);
+}
+
+.form-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.submit-btn {
+  width: 100%;
+}
+
 .flash-alert {
   margin-bottom: 16px;
 }

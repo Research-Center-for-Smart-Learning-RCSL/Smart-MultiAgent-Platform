@@ -98,7 +98,7 @@ async function submit(): Promise<void> {
 
     <SCard class="form-card">
       <form
-        class="auth-form"
+        class="form-stack"
         :aria-describedby="'change-pw-warning'"
         @submit.prevent="submit"
       >
@@ -166,7 +166,7 @@ async function submit(): Promise<void> {
           :loading="submitting"
           :disabled="!!(submitting || rateLimit.active.value)"
           :aria-busy="submitting"
-          class="form-submit"
+          class="submit-btn"
         >
           {{ $t('identity.changePassword.submit') }}
         </SButton>
@@ -187,7 +187,13 @@ async function submit(): Promise<void> {
   max-width: 480px;
 }
 
-.form-submit {
+.form-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.submit-btn {
   width: 100%;
 }
 

@@ -3,7 +3,7 @@ import { ref, onMounted, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { ExclamationTriangleIcon } from '@heroicons/vue/24/outline'
-import { SFormField, SInput, SButton, SAlert } from '@shared/ui'
+import { SAuthCard, SFormField, SInput, SButton, SAlert } from '@shared/ui'
 import { isProblemWithType } from '@shared/transport'
 import { authApi } from '../api/auth'
 import { passwordSchema, validateField, validatePasswordMatch, errorAttrs } from '../validation'
@@ -81,14 +81,14 @@ async function submit(): Promise<void> {
 </script>
 
 <template>
-  <div class="auth-card">
+  <SAuthCard>
     <template v-if="tokenMissing">
       <div class="token-error">
         <ExclamationTriangleIcon
           class="token-error-icon"
           aria-hidden="true"
         />
-        <h1 class="auth-heading">
+        <h1 class="card-heading">
           {{ $t('identity.passwordReset.confirmTitle') }}
         </h1>
         <p class="token-error-text">
@@ -107,13 +107,13 @@ async function submit(): Promise<void> {
     <template v-else>
       <h1
         id="reset-confirm-heading"
-        class="auth-heading"
+        class="card-heading"
       >
         {{ $t('identity.passwordReset.confirmTitle') }}
       </h1>
 
       <form
-        class="auth-form"
+        class="form-stack"
         aria-labelledby="reset-confirm-heading"
         @submit.prevent="submit"
       >
@@ -179,16 +179,33 @@ async function submit(): Promise<void> {
           :loading="submitting"
           :disabled="submitting"
           :aria-busy="submitting"
-          class="form-submit"
+          class="submit-btn"
         >
           {{ $t('identity.passwordReset.confirmSubmit') }}
         </SButton>
       </form>
     </template>
-  </div>
+  </SAuthCard>
 </template>
 
 <style scoped>
+.card-heading {
+  font-size: var(--font-size-2xl);
+  font-weight: var(--weight-semibold);
+  color: var(--color-fg);
+  margin: 0 0 var(--space-6);
+}
+
+.form-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.submit-btn {
+  width: 100%;
+}
+
 .token-error {
   display: flex;
   flex-direction: column;
