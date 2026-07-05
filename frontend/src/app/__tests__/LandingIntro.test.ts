@@ -4,14 +4,17 @@ import LandingIntro from '../components/LandingIntro.vue'
 
 // jsdom has no layout, so getBoundingClientRect is all zeros: the dock
 // measurement fails and the component takes its plain-fade exit path here.
+// getContext is stubbed to null so the particle layer stays inert.
 describe('LandingIntro', () => {
   beforeEach(() => {
     vi.useFakeTimers()
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null)
   })
 
   afterEach(() => {
     vi.runOnlyPendingTimers()
     vi.useRealTimers()
+    vi.restoreAllMocks()
   })
 
   it('renders a decorative overlay hidden from assistive tech', async () => {
@@ -22,17 +25,18 @@ describe('LandingIntro', () => {
     expect(overlay.attributes('role')).toBe('presentation')
   })
 
-  it('draws the seven balls (six satellites + hub) and their links', async () => {
+  it('draws the seven balls (six satellites + hub), their links, and the ambient layer', async () => {
     const wrapper = await renderView(LandingIntro)
     expect(wrapper.findAll('.intro-node')).toHaveLength(7)
     expect(wrapper.findAll('.intro-edge')).toHaveLength(6)
+    expect(wrapper.find('canvas.particle-field').exists()).toBe(true)
   })
 
   it('surfaces the skip hint partway through the timeline', async () => {
     const wrapper = await renderView(LandingIntro)
     expect(wrapper.find('.intro__skip--on').exists()).toBe(false)
 
-    await vi.advanceTimersByTimeAsync(550)
+    await vi.advanceTimersByTimeAsync(900)
     expect(wrapper.find('.intro__skip--on').exists()).toBe(true)
   })
 
@@ -40,7 +44,7 @@ describe('LandingIntro', () => {
     const wrapper = await renderView(LandingIntro)
     expect(wrapper.find('.intro--leaving').exists()).toBe(false)
 
-    await vi.advanceTimersByTimeAsync(1200)
+    await vi.advanceTimersByTimeAsync(2700)
     expect(wrapper.find('.intro--leaving').exists()).toBe(true)
 
     await vi.advanceTimersByTimeAsync(300)
