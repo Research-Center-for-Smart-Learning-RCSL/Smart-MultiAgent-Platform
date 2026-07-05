@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { usePrefersReducedMotion } from '@shared/composables'
-import { createParticleField, type ParticleFieldHandle } from './particleField'
+import { createParticleField, type ParticleFieldHandle } from './particles'
 
 // Ambient particle field rendered behind the landing constellation and the
-// entry overlay. Thin lifecycle adapter over particleField.ts: it wires up
+// entry overlay. Thin lifecycle adapter over particles.ts: it wires up
 // sizing (DPR-aware), viewport pausing, live theme re-reads, and pointer
 // repulsion, and stays fully inert (blank canvas, no rAF loop) under
 // prefers-reduced-motion. Purely decorative — pointer-events: none and hidden
