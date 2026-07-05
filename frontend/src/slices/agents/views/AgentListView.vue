@@ -23,13 +23,11 @@ import {
   SEmptyState,
   SAlert,
   SPagination,
-  SCard,
 } from '@shared/ui'
 import {
   useConfirmDialog,
   useToast,
   useClientPagination,
-  useBreakpoint,
 } from '@shared/composables'
 import { useSessionStore } from '@shared/stores/session'
 import { keyGroupsApi, keysKeys, type KeyGroup } from '@slices/keys'
@@ -45,7 +43,6 @@ const router = useRouter()
 const qc = useQueryClient()
 const toast = useToast()
 const { confirm } = useConfirmDialog()
-const { isMobile } = useBreakpoint()
 const session = useSessionStore()
 const projectId = route.params.projectId as string
 const isAdmin = computed(() => session.me?.is_admin === true)
@@ -293,64 +290,15 @@ function onRowClick(row: Agent): void {
       </template>
     </SAlert>
 
-    <!-- Mobile: card layout -->
-    <div
-      v-if="isMobile && !loading && filteredAgents.length > 0"
-      class="mt-6 space-y-3"
-    >
-      <SCard
-        v-for="agent in paginatedItems"
-        :key="agent.id"
-        class="cursor-pointer"
-        @click="goToAgent(agent.id)"
-      >
-        <div class="flex items-center justify-between">
-          <div>
-            <p class="font-medium">
-              {{ agent.name }}
-            </p>
-            <SBadge
-              :variant="isProviderMismatch(agent) ? 'warning' : 'neutral'"
-              size="sm"
-              class="mt-1"
-              :title="isProviderMismatch(agent) ? t('agents.list.providerMismatch') : undefined"
-            >
-              <ExclamationTriangleIcon
-                v-if="isProviderMismatch(agent)"
-                class="w-3 h-3 mr-1"
-                aria-hidden="true"
-              />
-              {{ modelHintLabel(agent.model_hint) }}
-            </SBadge>
-          </div>
-          <SDropdown
-            :items="actionItems"
-            placement="bottom-end"
-            @select="onAction($event, agent)"
-          >
-            <template #trigger>
-              <SButton
-                variant="ghost"
-                icon-only
-                size="sm"
-                @click.stop
-              >
-                <EllipsisVerticalIcon class="w-4 h-4" />
-              </SButton>
-            </template>
-          </SDropdown>
-        </div>
-      </SCard>
-    </div>
-
-    <!-- Desktop: table layout -->
+    <!-- One table for all viewports: STable's card-list mode replaces the
+         old hand-rolled mobile card branch (which also skipped empty states). -->
     <AgentTable
-      v-if="!isMobile"
       :columns="columns"
       :data="paginatedItems"
       :loading="loading"
       row-key="id"
       sticky-header
+      responsive-mode="card-list"
       class="mt-6"
       @row-click="onRowClick"
     >

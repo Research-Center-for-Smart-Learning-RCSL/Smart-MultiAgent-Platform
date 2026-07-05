@@ -15,7 +15,6 @@ import {
   SPageHeader,
   SSearchInput,
   STable,
-  SCard,
   SBadge,
   SButton,
   SDropdown,
@@ -26,7 +25,7 @@ import {
   SEmptyState,
   SAlert,
 } from '@shared/ui'
-import { useConfirmDialog, useToast, useBreakpoint } from '@shared/composables'
+import { useConfirmDialog, useToast } from '@shared/composables'
 import { INPUT_LIMITS } from '@shared/constants/inputLimits'
 import {
   createChatroom,
@@ -46,7 +45,6 @@ const router = useRouter()
 const qc = useQueryClient()
 const toast = useToast()
 const { confirm } = useConfirmDialog()
-const { isMobile } = useBreakpoint()
 const workspaceId = route.params.workspaceId as string
 
 const search = ref('')
@@ -265,61 +263,15 @@ function submitCreate(): void {
       </template>
     </SAlert>
 
-    <!-- Mobile: card layout -->
-    <div
-      v-if="isMobile && !loading && filtered.length > 0"
-      class="mt-6 space-y-3"
-    >
-      <SCard
-        v-for="room in filtered"
-        :key="room.id"
-        class="cursor-pointer"
-        @click="openRoom(room)"
-      >
-        <div class="flex items-center justify-between">
-          <div class="room-name">
-            <ChatBubbleLeftRightIcon class="w-4 h-4 room-name__icon" />
-            <span class="font-medium">{{ room.name }}</span>
-          </div>
-          <SDropdown
-            :items="actionItems"
-            placement="bottom-end"
-            @select="onAction($event, room)"
-          >
-            <template #trigger>
-              <SButton
-                variant="ghost"
-                icon-only
-                size="sm"
-                :aria-label="t('conversation.chatrooms.actions')"
-                @click.stop
-              >
-                <EllipsisVerticalIcon class="w-4 h-4" />
-              </SButton>
-            </template>
-          </SDropdown>
-        </div>
-        <div class="mt-2 flex flex-wrap gap-1">
-          <SBadge
-            v-for="b in accessBadges(room)"
-            :key="b.label"
-            :variant="b.variant"
-            size="sm"
-          >
-            {{ b.label }}
-          </SBadge>
-        </div>
-      </SCard>
-    </div>
-
-    <!-- Desktop: table layout -->
+    <!-- One table for all viewports: STable's card-list mode replaces the
+         old hand-rolled mobile card branch (which also skipped empty states). -->
     <STable
-      v-if="!isMobile"
       :columns="columns"
       :data="tableRows"
       :loading="loading"
       row-key="id"
       sticky-header
+      responsive-mode="card-list"
       class="mt-6"
       @row-click="onRowClick"
     >
