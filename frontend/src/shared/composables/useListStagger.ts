@@ -1,4 +1,4 @@
-import { ref, watch, type Ref } from 'vue'
+import { onScopeDispose, ref, watch, type Ref } from 'vue'
 
 // How long the stagger window stays armed: max per-row delay (270ms) plus the
 // item animation (200ms) plus margin. After this the class clears so later
@@ -17,13 +17,18 @@ const STAGGER_WINDOW_MS = 700
  */
 export function useListStagger(loading: Ref<boolean>): Ref<string | null> {
   const cls = ref<string | null>(null)
+  let timer: ReturnType<typeof setTimeout> | null = null
 
   function arm(): void {
     cls.value = 'list-stagger'
-    setTimeout(() => {
+    timer = setTimeout(() => {
       cls.value = null
     }, STAGGER_WINDOW_MS)
   }
+
+  onScopeDispose(() => {
+    if (timer) clearTimeout(timer)
+  })
 
   if (!loading.value) {
     arm()

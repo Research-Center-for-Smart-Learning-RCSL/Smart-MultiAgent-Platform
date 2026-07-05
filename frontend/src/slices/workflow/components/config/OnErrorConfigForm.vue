@@ -133,6 +133,7 @@ function onFallbackChange(value: string | number): void {
             :model-value="(local.retry_backoff_ms as number) ?? 1000"
             min="0"
             max="60000"
+            step="100"
             @input="onRetryInput('retry_backoff_ms', $event)"
           />
         </SFormField>
