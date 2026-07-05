@@ -11,17 +11,18 @@ import tsParser from '@typescript-eslint/parser'
 import vueParser from 'vue-eslint-parser'
 import vuejsAccessibility from 'eslint-plugin-vuejs-accessibility'
 
-const SLICES = ['identity', 'tenancy', 'keys', 'agents', 'conversation', 'workflow', 'admin', 'notifications']
+const SLICES = ['identity', 'tenancy', 'keys', 'agents', 'conversation', 'workflow', 'admin', 'notifications', 'prompt-studio']
 
 const SLICE_DEPS = {
   identity:      [],
   tenancy:       ['identity'],
   keys:          ['tenancy', 'identity'],
-  agents:        ['keys', 'tenancy', 'identity'],
+  agents:        ['prompt-studio', 'keys', 'tenancy', 'identity'],
   conversation:  ['agents', 'keys', 'tenancy', 'identity'],
   workflow:      ['conversation', 'agents', 'keys', 'tenancy', 'identity'],
-  admin:         [],
+  admin:         ['prompt-studio'],
   notifications: ['identity'],
+  'prompt-studio': ['keys'],
 }
 
 function buildSliceBoundaryRules() {
@@ -152,7 +153,7 @@ export default [
         allowlist: [
           '—', '…', '⚙', '#', '(', ')', ',', '.', ':', '/', '%', '*', '+', '-',
           '&nbsp;', '|', '×', '→', '←', '↶', '↷', '·', '★',
-          '[', ']', '▶',
+          '[', ']', '▶', '▍',
           'SMAP', 'ID', 'UUID', 'CIDR', 'JSON', 'CSV', 'URL', 'API',
           'OpenAI', 'Claude', 'Gemini', 'Brave', 'Serper', 'Tavily', 'Google CSE',
           'Yes', 'No',
