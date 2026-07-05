@@ -1,6 +1,6 @@
 ---
 type: feature
-status: approved
+status: implemented
 created: 2026-07-05
 requirements: [R29.01, R29.02, R29.03, R29.04, R29.05, R29.06, R29.07, R29.08, R29.09, R29.10, R29.11, R29.12, R29.13, R29.14, R9.02, R5.03, R7.15]
 ---
@@ -411,41 +411,50 @@ templates (org-owned P) + the current user's personal templates, grouped by sour
 
 ## 11. Acceptance Criteria
 
-- [ ] AC-1: In the agent create/edit prompt tab, a user in a project with a resolved,
+- [x] AC-1: In the agent create/edit prompt tab, a user in a project with a resolved,
   enabled assistant config sees the assistant panel; with no resolvable config the
-  panel area shows a disabled hint instead.
-- [ ] AC-2: Sending a message in the panel streams the assistant's reply token-by-token
+  panel area shows a disabled hint instead. (PromptAssistantPanel render-state test.)
+- [~] AC-2: Sending a message in the panel streams the assistant's reply token-by-token
   over WebSocket; the session supports multiple turns and the assistant sees the
-  current editor draft.
-- [ ] AC-3: A prompt draft proposed by the assistant can be applied to the system-prompt
+  current editor draft. (Unit-verified: worker publish path (pytest) +
+  `usePromptAssistantSocket` token/finished/multi-turn reduction test; editor draft
+  threaded via `postMessage(editor_draft)`. Live E2E streaming pending — FU-5.)
+- [~] AC-3: A prompt draft proposed by the assistant can be applied to the system-prompt
   editor with one click, replacing the editor content after a confirm when the editor
-  is non-empty.
-- [ ] AC-4: An Org Owner can create/edit the org assistant config (system prompt,
+  is non-empty. (Implemented: panel `apply()` + `useConfirmDialog`; AgentDetailView
+  `onAssistantDraft`. Live confirm flow pending behavioral verify — FU-5.)
+- [x] AC-4: An Org Owner can create/edit the org assistant config (system prompt,
   pinned key from their own keys, model, caps, enabled) and upload/remove reference
-  files; org members cannot access these endpoints (403).
-- [ ] AC-5: A verified user can create/edit their personal assistant config and
+  files; org members cannot access these endpoints (403). (Backend pytest scope matrix.)
+- [x] AC-5: A verified user can create/edit their personal assistant config and
   templates under `/account/prompt-assistant`; an admin can do the same at platform
-  scope under `/admin/prompt-assistant`; non-admins get 403 on admin routes.
-- [ ] AC-6: Resolution chain holds: personal config wins over org config wins over
+  scope under `/admin/prompt-assistant`; non-admins get 403 on admin routes. (Backend
+  pytest + per-scope view tests.)
+- [x] AC-6: Resolution chain holds: personal config wins over org config wins over
   platform config; in an org-owned project with no personal and no org config, the
-  platform config is used; disabled configs are skipped.
-- [ ] AC-7: Reference-file text is included in the assistant's context (observable:
+  platform config is used; disabled configs are skipped. (Backend resolution-chain tests.)
+- [~] AC-7: Reference-file text is included in the assistant's context (observable:
   assistant answers a question whose answer exists only in an uploaded file). Uploads
   exceeding 5 MB, a disallowed format, or the 200 KB extracted-text budget are rejected
-  with RFC 7807 errors; infected files are quarantined and excluded.
-- [ ] AC-8: Assistant LLM calls are recorded in `key_usage_events` against the pinned
+  with RFC 7807 errors; infected files are quarantined and excluded. (Validation/budget/
+  scan-status rejection unit-verified in pytest; the answer-from-file runtime probe is
+  pending — FU-5.)
+- [x] AC-8: Assistant LLM calls are recorded in `key_usage_events` against the pinned
   key; when a user exhausts the per-user daily request cap the message POST returns 429
-  and the panel shows a quota message.
-- [ ] AC-9: The template picker in the agent form shows platform + (org | personal)
+  and the panel shows a quota message. (Backend accounting + quota/429 tests; panel
+  quota-message branch present.)
+- [x] AC-9: The template picker in the agent form shows platform + (org | personal)
   templates grouped by source; applying one inserts its body into the editor.
-- [ ] AC-10: Org Owner CRUD for org templates, user CRUD for personal templates, admin
+  (PromptTemplatePicker grouping + insert-emit test; AgentDetailView `onTemplateInsert`.)
+- [x] AC-10: Org Owner CRUD for org templates, user CRUD for personal templates, admin
   CRUD for platform templates all work with scope AuthZ enforced server-side (403 on
   wrong role), and the org "hide platform templates" toggle removes platform templates
-  from that org's projects' pickers.
-- [ ] AC-11: No API response anywhere contains key plaintext; the resolved-config
-  endpoint exposes key metadata only.
-- [ ] AC-12: All new UI strings resolve through i18n in both en and zh-TW; no console
-  i18n-missing warnings on the new pages/panel.
+  from that org's projects' pickers. (Backend template-CRUD scope tests.)
+- [x] AC-11: No API response anywhere contains key plaintext; the resolved-config
+  endpoint exposes key metadata only. (KeyMeta-only DTOs; backend response-shape tests.)
+- [x] AC-12: All new UI strings resolve through i18n in both en and zh-TW; no console
+  i18n-missing warnings on the new pages/panel. (en + zh-TW bundles complete with
+  identical key structure; `pnpm build` clean.)
 
 ## 12. Test Plan
 
@@ -530,7 +539,35 @@ resolved-config endpoint mirrors the existing keys-API metadata shape
 
 ## 15. Deviation Log
 
-Appended by /build. Empty means the implementation matches this spec exactly.
+- D-1: Reference-file text extraction runs **synchronously in the upload request**
+  (a threadpool `asyncio.to_thread` parse), not in the arq worker as §8 states. Reason:
+  AC-7 requires a synchronous RFC-7807 rejection when the 200 KB extracted-text budget
+  is exceeded, which is impossible if extraction is deferred to a worker. Files are
+  5 MB-bounded and the parsers are pure, so the bounded parse off the event loop does
+  not block the web process. Agreed with the user during /build.
+- D-2: `AssistantConfig.model_hint` (§6) is implemented as a single nullable `model_id`
+  text column only (no separate `model_hint` enum). Reason: the agents table dropped
+  `model_hint` for `model_id`/`effort` (migrations 0030/0039) after the spec was
+  written; the pinned key already fixes the provider, so `model_id` alone selects the
+  model. Reuses the current agent model-selection shape (freshness note, item 32).
+- D-3: `prompt_assistant_files` gained an `extracted_text` TEXT column not named in §6.
+  Reason: the assistant turn inlines file text every turn (R29.06); storing the
+  already-extracted, budget-bounded (≤200 KB) text in-row avoids re-parsing / a MinIO
+  round-trip per turn. Added in migration 0042.
+- D-4: `backend/openapi.json` + the generated `src/shared/api-client` were NOT
+  regenerated in this environment. Reason: the local `create_app()` produced a spec
+  that *diverged* from the committed snapshot by ~3.4k added / ~1.2k removed lines
+  across unrelated paths (this dev environment lacks config/env that changes conditional
+  routers + fields), so a local regen would corrupt the snapshot. The generated client
+  is drift-check-only and not imported at runtime; the frontend hand-writes its API
+  layer. `pnpm run gen:api` (and the `check:openapi-drift` gate) must be run in the
+  canonical CI/dev environment — see FU-3.
+- D-5: The prompt tab in `AgentDetailView.vue` was restructured into a responsive
+  two-column layout (system-prompt editor + `PromptTemplatePicker` on the left, the
+  `PromptAssistantPanel` on the right, stacked on mobile), and the personal/org/platform
+  entry points were surfaced in existing navigation (`UserMenu` gated on
+  `isVerified`, `OrgDetailView` gated on `isOwner`, and an `AdminNav` section). These
+  are the concrete UI placements the spec left to implementation; noted for the record.
 
 ## 16. Follow-ups
 
@@ -538,3 +575,24 @@ Appended by /build. Empty means the implementation matches this spec exactly.
   budget (Q-7 explicitly deferred this).
 - FU-2: `AgentDetailView.vue` monolith split — pre-existing debt, recorded, not fixed
   here.
+- FU-3: Regenerate `backend/openapi.json` + `src/shared/api-client` in the canonical
+  environment and reconcile the pre-existing drift (the committed snapshot is ~stale by
+  many unrelated paths — observations, presence, releases, captcha, etc., independent of
+  this feature). See D-4.
+- FU-4: Two pre-existing `mypy` errors in `contexts/tenancy/infrastructure/repositories.py`
+  (`ProjectMemberRepository.list` used as a type; unreachable statement) surfaced while
+  typechecking prompt_studio's dependency graph — not introduced here, not fixed here.
+- FU-5: Behavioral (running-stack) verification of AC-2 end-to-end streaming, AC-3
+  apply-draft confirm flow, and the AC-7 "answer-from-file" probe is pending — the local
+  environment has no running Docker/Postgres/Redis stack. Unit/integration coverage
+  exists (backend pytest for the worker/router/session/quota/file paths;
+  `usePromptAssistantSocket` event-reduction test; panel render-state + picker tests),
+  so these ACs are code-complete and unit-verified; only the live E2E observation is
+  deferred. Run the `verify` skill against a dev stack to close them.
+- FU-6: Three pre-existing frontend CI conditions are already red on `main`, independent
+  of this feature and not addressed here: (a) `pnpm lint --max-warnings=0` reports 295
+  warnings on a clean tree (this change adds 0 net new — verified by stash-compare);
+  (b) gate #8 `check:view-tests` fails because `agents/views/AgentToolsView.vue` has no
+  test (this feature's three new views are all covered); (c) `Landing.test.ts`
+  intermittently fails in the full `pnpm test` run due to cross-file session/router state
+  pollution (passes in isolation and on re-run).
