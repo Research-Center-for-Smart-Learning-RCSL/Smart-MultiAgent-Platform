@@ -7,7 +7,7 @@ import { isProblemWithType } from '@shared/transport'
 import { SAlert, SButton, SLoadingSpinner, STextarea } from '@shared/ui'
 
 import { promptStudioApi } from '../api'
-import { usePromptAssistantSocket } from '../composables/usePromptAssistantSocket'
+import { usePromptAssistantSocket, type AssistantMessage } from '../composables/usePromptAssistantSocket'
 import { useResolvedAssistantQuery } from '../queries'
 
 const props = defineProps<{
@@ -72,9 +72,18 @@ function extractDraft(text: string): string | null {
   return match?.[1] ? match[1].trimEnd() : null
 }
 
-async function apply(text: string): Promise<void> {
-  const draft = extractDraft(text)
-  if (draft === null) return
+interface DisplayMessage extends AssistantMessage {
+  draft: string | null
+}
+
+// Computed once per pushed message (messages.value only changes reference on
+// push), not on every render -- streamingText updates on every WS token and
+// would otherwise re-run extractDraft over every prior message each time.
+const displayMessages = computed<DisplayMessage[]>(() =>
+  messages.value.map((m) => ({ ...m, draft: m.role === 'assistant' ? extractDraft(m.content) : null })),
+)
+
+async function apply(draft: string): Promise<void> {
   if (props.currentDraft.trim().length > 0) {
     const ok = await confirm({
       title: t('promptStudio.panel.applyConfirmTitle'),
@@ -131,7 +140,7 @@ watch([messages, streamingText], async () => {
           {{ t('promptStudio.panel.intro') }}
         </p>
         <div
-          v-for="(m, i) in messages"
+          v-for="(m, i) in displayMessages"
           :key="i"
           class="flex"
           :class="m.role === 'user' ? 'justify-end' : 'justify-start'"
@@ -142,14 +151,14 @@ watch([messages, streamingText], async () => {
           >
             {{ m.content }}
             <div
-              v-if="m.role === 'assistant' && extractDraft(m.content)"
+              v-if="m.draft"
               class="mt-2"
             >
               <SButton
                 variant="secondary"
                 size="sm"
                 type="button"
-                @click="apply(m.content)"
+                @click="apply(m.draft)"
               >
                 {{ t('promptStudio.panel.applyDraft') }}
               </SButton>
