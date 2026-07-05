@@ -9,11 +9,16 @@ const props = withDefaults(
     width?: string
     height?: string
     lines?: number
+    // 'shimmer' sweeps a highlight across the placeholder; 'pulse' keeps the
+    // original opacity breathing. Both collapse to a static block under the
+    // global reduced-motion freeze.
+    animation?: 'pulse' | 'shimmer'
   }>(),
   {
     variant: 'text',
     width: '100%',
     lines: 1,
+    animation: 'shimmer',
   },
 )
 
@@ -33,6 +38,7 @@ const lineCount = computed(() =>
       v-for="i in lineCount"
       :key="i"
       class="s-skeleton s-skeleton--text"
+      :class="`s-skeleton--anim-${props.animation}`"
       :style="{
         width: i === lineCount ? '60%' : props.width,
         height: props.height || '1em',
@@ -43,7 +49,7 @@ const lineCount = computed(() =>
   <span
     v-else
     class="s-skeleton"
-    :class="`s-skeleton--${props.variant}`"
+    :class="[`s-skeleton--${props.variant}`, `s-skeleton--anim-${props.animation}`]"
     :style="{
       width: props.variant === 'circle' ? (props.width || '32px') : props.width,
       height: props.variant === 'circle'
@@ -61,7 +67,23 @@ const lineCount = computed(() =>
 .s-skeleton {
   display: inline-block;
   background-color: var(--color-neutral-tint);
+}
+
+.s-skeleton--anim-pulse {
   animation: skeleton-pulse 1.5s ease-in-out infinite;
+}
+
+/* Sweeping highlight: a wide gradient slides across via background-position,
+   so the effect is compositor-cheap and needs no extra elements. */
+.s-skeleton--anim-shimmer {
+  background: linear-gradient(
+    90deg,
+    var(--color-neutral-tint) 30%,
+    color-mix(in srgb, var(--color-neutral-tint) 55%, var(--color-bg)) 50%,
+    var(--color-neutral-tint) 70%
+  );
+  background-size: 300% 100%;
+  animation: skeleton-shimmer 1.4s var(--ease-out-soft) infinite;
 }
 
 .s-skeleton--text {
@@ -89,6 +111,15 @@ const lineCount = computed(() =>
   }
   50% {
     opacity: 1;
+  }
+}
+
+@keyframes skeleton-shimmer {
+  from {
+    background-position: 100% 50%;
+  }
+  to {
+    background-position: 0% 50%;
   }
 }
 </style>

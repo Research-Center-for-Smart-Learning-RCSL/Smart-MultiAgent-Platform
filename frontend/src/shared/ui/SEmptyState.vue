@@ -10,12 +10,16 @@ defineProps<{
 
 <template>
   <div class="s-empty-state">
-    <component
-      :is="icon"
+    <div
       v-if="icon"
-      class="s-empty-state__icon"
+      class="s-empty-state__halo"
       aria-hidden="true"
-    />
+    >
+      <component
+        :is="icon"
+        class="s-empty-state__icon"
+      />
+    </div>
     <p
       v-if="title"
       class="s-empty-state__title"
@@ -50,15 +54,29 @@ defineProps<{
   margin: 0 auto;
 }
 
+/* Tinted halo lifts the icon out of "grey ghost" territory without shouting;
+   the soft outer ring echoes the status-tint language used by badges. */
+.s-empty-state__halo {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 72px;
+  height: 72px;
+  border-radius: var(--radius-full);
+  background: var(--color-info-tint);
+  box-shadow: 0 0 0 8px color-mix(in srgb, var(--color-info-tint) 40%, transparent);
+  margin-bottom: var(--space-2);
+}
+
 .s-empty-state__icon {
-  width: 48px;
-  height: 48px;
-  color: var(--color-muted);
+  width: 32px;
+  height: 32px;
+  color: var(--color-info-on);
 }
 
 .s-empty-state__title {
-  font-size: 1rem;
-  font-weight: 500;
+  font-size: var(--font-size-md);
+  font-weight: var(--weight-semibold);
   color: var(--color-fg);
   margin: 0;
 }

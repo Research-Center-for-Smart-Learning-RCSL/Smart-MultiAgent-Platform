@@ -490,3 +490,50 @@
     white-space: nowrap;
   }
 }
+
+/* ─── Third-party overrides ───────────────────────────────────────
+   vue-sonner toasts, retinted with the design tokens so notifications match
+   both themes and the status tint/on language used by SAlert/SBadge. The
+   double-attribute selectors outrank sonner's runtime-injected base styles. */
+[data-sonner-toaster] [data-sonner-toast][data-styled='true'] {
+  background: var(--color-bg);
+  color: var(--color-fg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--elevation-3);
+  font-family: var(--font-body);
+  font-size: var(--font-size-sm);
+}
+
+[data-sonner-toaster] [data-sonner-toast][data-styled='true'] [data-title] {
+  color: inherit;
+  font-weight: var(--weight-semibold);
+}
+
+[data-sonner-toaster] [data-sonner-toast][data-styled='true'] [data-description] {
+  color: color-mix(in srgb, currentColor 75%, transparent);
+}
+
+[data-sonner-toaster] [data-sonner-toast][data-styled='true'][data-type='success'] {
+  background: var(--color-success-tint);
+  color: var(--color-success-on);
+  border-color: color-mix(in srgb, var(--color-success-on) 25%, transparent);
+}
+
+[data-sonner-toaster] [data-sonner-toast][data-styled='true'][data-type='error'] {
+  background: var(--color-danger-tint);
+  color: var(--color-danger-on);
+  border-color: color-mix(in srgb, var(--color-danger-on) 25%, transparent);
+}
+
+[data-sonner-toaster] [data-sonner-toast][data-styled='true'][data-type='warning'] {
+  background: var(--color-warning-tint);
+  color: var(--color-warning-on);
+  border-color: color-mix(in srgb, var(--color-warning-on) 25%, transparent);
+}
+
+[data-sonner-toaster] [data-sonner-toast][data-styled='true'][data-type='info'] {
+  background: var(--color-info-tint);
+  color: var(--color-info-on);
+  border-color: color-mix(in srgb, var(--color-info-on) 25%, transparent);
+}

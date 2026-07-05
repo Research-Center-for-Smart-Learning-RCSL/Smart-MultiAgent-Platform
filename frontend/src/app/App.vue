@@ -31,10 +31,11 @@ const layoutComponent = computed(() => {
       <router-view :key="$route.path" />
     </component>
   </ErrorBoundary>
+  <!-- Toast visuals are token-themed in shared/styles/main.css (third-party
+       overrides section) so they follow both themes; stock rich-colors is off. -->
   <Toaster
     position="top-right"
     :duration="4000"
-    rich-colors
   />
   <SConfirmDialog />
   <SIdleDialog />
