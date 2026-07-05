@@ -76,6 +76,9 @@ class ProviderRequest:
     agent_id: uuid.UUID | None = None
     parent_agent_id: uuid.UUID | None = None
     chatroom_id: uuid.UUID | None = None
+    # Non-agent traffic discriminator recorded on the usage event (e.g.
+    # 'prompt_assistant'); NULL for ordinary agent/chatroom calls.
+    usage_context: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -212,6 +215,7 @@ class UsageAccountant:
                 agent_id=request.agent_id,
                 parent_agent_id=request.parent_agent_id,
                 chatroom_id=request.chatroom_id,
+                usage_context=request.usage_context,
             )
             if provider is not None:
                 PROVIDER_CALL_TOTAL.labels(provider=provider.value, status=str(result.http_status)).inc()
@@ -228,6 +232,7 @@ class UsageAccountant:
                 agent_id=request.agent_id,
                 parent_agent_id=request.parent_agent_id,
                 chatroom_id=request.chatroom_id,
+                usage_context=request.usage_context,
             )
 
 
@@ -587,6 +592,106 @@ class ProviderRouter:
             provider=key.provider,
         )
         return result
+
+    async def call_single_key_stream(
+        self, *, key_id: uuid.UUID, request: ProviderRequest
+    ) -> AsyncGenerator[StreamEvent, None]:
+        """Pinned-key streaming call — no rotation — for the prompt assistant (§29).
+
+        The streaming analogue of :meth:`call_single_key`: one key, full usage
+        accounting, no key-prefix sniffing. Unlike :meth:`call_stream` there is
+        no rotation — a revoked or failing key surfaces the error to the caller
+        rather than falling through to a sibling, because a pinned-key config
+        has no siblings; the assistant's config-resolution chain handles a dead
+        key one level up. Usage is accounted exactly once in the ``finally`` so
+        it fires on completion, provider transport error, and consumer abort.
+
+        Yields `TokenDelta` events followed by one terminal `StreamComplete`.
+        Raises `KeyNotFound`/`CapabilityMismatch` before any token, and
+        `ProviderStreamError` on a non-OK terminal status or a dry stream.
+        """
+        key = await self._keys_repo.get_active(key_id)
+        if key is None:
+            raise KeyNotFound(str(key_id))
+        if request.capability not in _CAPS[key.provider]:
+            raise CapabilityMismatch(provider=key.provider, required=request.capability)
+        adapter_obj: object = self._adapters.get(key.provider)
+        if not isinstance(adapter_obj, StreamingAdapter):
+            raise ValueError(f"no streaming adapter for provider {key.provider.value}")
+
+        secret_bytes = await self._unwrap_secret(key_id)
+        t0 = time.monotonic()
+        complete: StreamComplete | None = None
+        transport_exc: Exception | None = None
+
+        async def _account() -> None:
+            # Best-effort inside `finally`: a DB/Redis hiccup must never mask the
+            # real control-flow outcome.
+            try:
+                elapsed_ms = int((time.monotonic() - t0) * 1000)
+                if complete is not None:
+                    status = complete.result.http_status
+                    if 200 <= status < 300:
+                        error_code: str | None = None
+                    elif status in (401, 403):
+                        error_code = "provider_unauthorized"
+                    else:
+                        error_code = f"http_{status}"
+                    await self._accountant.record_call(
+                        key_id=key_id,
+                        result=complete.result,
+                        request=request,
+                        elapsed_ms=elapsed_ms,
+                        error_code=error_code,
+                        provider=key.provider,
+                    )
+                else:
+                    # No terminal event: provider transport error or the consumer
+                    # walked away. Still one request against the key.
+                    code = "transport_error" if transport_exc is not None else "client_abort"
+                    await self._accountant.record_call(
+                        key_id=key_id,
+                        result=None,
+                        request=request,
+                        elapsed_ms=elapsed_ms,
+                        error_code=code,
+                    )
+            except Exception:
+                _log.exception("single-key stream accounting failed key=%s", key_id)
+
+        agen = adapter_obj.stream(secret=secret_bytes.decode("utf-8"), request=request)
+        try:
+            while True:
+                try:
+                    ev = await agen.__anext__()
+                except StopAsyncIteration:
+                    break
+                except Exception as exc:  # provider transport error
+                    transport_exc = exc
+                    _log.warning("single-key stream transport error key=%s err=%s", key_id, exc)
+                    break
+                if isinstance(ev, TokenDelta):
+                    # A consumer exception / GeneratorExit lands here, outside the
+                    # inner try — never miscounted as a provider failure.
+                    yield ev
+                else:  # StreamComplete
+                    complete = ev
+
+            if transport_exc is not None:
+                raise transport_exc
+            if complete is None:
+                raise ProviderStreamError(0)
+            status = complete.result.http_status
+            if 200 <= status < 300:
+                yield complete
+                return
+            raise ProviderStreamError(status)
+        finally:
+            await _account()
+            await agen.aclose()
+            # Drop the local reference only — plaintext lifetime is bounded by
+            # the DEK cache TTL.
+            secret_bytes = b"\x00" * len(secret_bytes)
 
     # -----------------------------------------------------------------
 
