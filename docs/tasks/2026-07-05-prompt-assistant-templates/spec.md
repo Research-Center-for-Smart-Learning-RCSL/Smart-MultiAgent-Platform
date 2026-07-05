@@ -59,11 +59,12 @@ SRS Delta in §13 removes/narrows both.
 | Q-2 | Assistant interaction form? | Side chat panel in the create/edit agent view, multi-turn, with apply-to-editor. | Best UX for iterative prompt refinement; one-shot generate button rejected as too limited. |
 | Q-3 | How are reference files fed to the AI? | Initially RAG retrieval — **superseded by Q-7**. | — |
 | Q-4 | Template form? | Plain-text templates (name + description + body), no variables. | Simplicity; variables add editor/validation complexity without a demonstrated need. |
-| Q-5 | Streaming transport? | Reuse the existing WS + Redis pub/sub pipeline; provider calls stay in the arq worker. | User directive. No SSE endpoint exists and the transport gate bans `EventSource`; matches K-gate (`triple_extractor.py:12`). |
+| Q-5 | Streaming transport? | Reuse the existing WS + Redis pub/sub pipeline; provider calls stay in the arq worker. | User directive. No SSE endpoint exists in the codebase and the frontend transport gate bans `EventSource` (`eslint.config.js:141`); the SRS tech-stack table (Q47, `REQUIREMENTS.md:144`) nominally allows SSE for one-way streams, but WS is the only implemented transport. Matches K-gate (`triple_extractor.py:12`). |
 | Q-6 | Resolution chain inside orgs? | Org members MAY override the org config with their personal config. Chain: user config → org config (org-owned projects only) → platform config. | User chose flexibility over strict governance. |
 | Q-7 | Reference-file ingestion, given RAG configs are per-project but assistant configs are org/user/platform scoped? | Downgrade to full-text inline (small files, hard total budget). Supersedes Q-3. | Avoids embedding-key requirement and scope mismatch with per-project `rag_configs`; assistant reference material (style guides, examples) fits comfortably in-context. |
 | Q-8 | Where does the admin-default assistant's key come from? Keys are user-owned, key groups per-project — no platform mount point exists. | Platform key slot: the platform config pins an admin-uploaded key (existing envelope encryption + pinned-key call path). Reuse the key/model selector UI already in the agent form. Add usage caps to prevent abuse. | User decision, with explicit instructions on UI reuse and caps. |
 | Q-9 | Template visibility? | Merged picker grouped by source (platform + org or personal); Org Owner can hide platform templates for org projects. | User chose the hide switch over always-showing platform templates. |
+| Q-10 | Should providers (configurers) get a disable button? | Already covered — the config's `enabled` flag (R29.03) is the disable button; resolution skips disabled configs (R29.04). No change. | User confirmed the existing design suffices. |
 
 ## 4. Current State
 
@@ -128,7 +129,9 @@ Org Owner ⇒ Project Owner inheritance is computed
 `require_admin` (`backend/app/api/v1/admin_deps.py:15-20`).
 
 **File upload.** MinIO via `shared_kernel/storage/minio_client.py:40-64` (buckets
-`chat_uploads`, `rag_sources`, `exports`). Closest model for reference files:
+`chat_uploads`, `rag_sources`, `exports`, plus `bucket_agent_workspace` =
+"agent-workspace", no TTL, in `MinioSection` at `app/config/settings.py:87-90` — the
+direct precedent for this feature's no-TTL bucket). Closest model for reference files:
 `agent_workspace_files` — 32 MB single-shot upload with mime capture
 (`backend/app/api/v1/agent_workspace.py:81-96`), rows with `sha256/mime/minio_key`
 (`backend/contexts/agents/infrastructure/tables.py:97-114`). ClamAV INSTREAM scan +
@@ -139,7 +142,7 @@ for pdf/docx/md/txt exists (`backend/shared_kernel/text_extraction/parsers.py`).
 **Frontend patterns.** Slices hand-write `api/index.ts` over the `http` axios wrapper —
 the generated api-client is drift-check-only (`frontend/eslint.config.js:68,117`,
 `frontend/vite.config.ts:80`). Streaming UI vocabulary `agent.thinking/token/finished`
-handled in `useChatroomSocket.ts:205-245`; `wsManager.channel(path)` singleton with
+handled in `useChatroomSocket.ts:204-245`; `wsManager.channel(path)` singleton with
 ticket auth (`frontend/src/shared/transport/ws-manager.ts:1-16`). Conversation-slice
 components (bubbles, composer) are NOT exported cross-slice
 (`frontend/src/slices/conversation/index.ts`). Upload UI: `shared/ui/SFileUpload.vue`.
@@ -235,13 +238,23 @@ templates (org-owned P) + the current user's personal templates, grouped by sour
   history + editor draft; per-user daily request quota via Redis counter (pattern:
   `provider_router.py:613-633`); publishes `assistant.*` events.
 - Keys context: add `ProviderRouter.call_single_key_stream()` (pinned key, streaming,
-  full usage accounting). No other keys-context changes.
+  full usage accounting; feasible — the `StreamingAdapter` protocol at
+  `provider_router.py:127-132` is implemented by all three chat adapters, and
+  `_stream_member` (`provider_router.py:394-494`) shows the per-key streaming +
+  accounting shape). Additionally, a nullable `usage_context` column on
+  `key_usage_events` (verified: no discriminator exists today — GraphRAG builder,
+  embed, and rerank calls all land with NULL agent/chatroom and no tag,
+  `triple_extractor.py:86-95`, `embedders.py:70-73`); this touches `ProviderRequest`,
+  `UsageAccountant.record_call` (`provider_router.py:179-231`), and
+  `record_usage_event` (`contexts/keys/infrastructure/usage_events.py:24`), all
+  additive with a NULL default so existing call sites are untouched. Without it,
+  assistant rows would be indistinguishable from GraphRAG/embed rows and AC-8 is
+  unverifiable.
 - `interfaces/facade.py`: read surface for other contexts (none needed yet, but the
   context follows the standard layout).
-- Usage attribution: `key_usage_events.agent_id/chatroom_id` NULL for assistant calls;
-  a `context` discriminator is carried in the event row the same way GraphRAG builder
-  calls are recorded (verify exact mechanism at build time; if none exists, add a
-  nullable `usage_context` column in the same migration).
+- Usage attribution: `key_usage_events.agent_id/chatroom_id` stay NULL for assistant
+  calls; the new `usage_context` column (see keys-context bullet above) is set to
+  `prompt_assistant`, added in the same migration.
 - Audit events: config created/updated/deleted, file uploaded/removed, template
   CRUD, per the audit emit pattern in `admin_rate_limits.py:119-126` neighborhood.
 
@@ -257,24 +270,42 @@ templates (org-owned P) + the current user's personal templates, grouped by sour
 - `GET /api/projects/{project_id}/prompt-assistant` — resolved effective config
   (metadata only: enabled, source scope, model; never the key), `require_membership`.
 - `GET /api/projects/{project_id}/prompt-templates` — merged template list.
-- `POST /api/projects/{project_id}/prompt-assistant/sessions` → session_id + WS ticket;
-  `POST /api/prompt-assistant/sessions/{session_id}/messages` → 202, streams over WS.
-- New WS route `/ws/prompt-assistant/{session_id}` in `app/api/ws/`.
+- `POST /api/projects/{project_id}/prompt-assistant/sessions` → session_id only. WS
+  tickets are NOT returned here: they are minted exclusively by the generic
+  `POST /api/auth/ws-ticket` (single-use, 30 s TTL,
+  `backend/shared_kernel/realtime/ws_auth.py:77-89`) and fetched by `wsManager` itself
+  during the handshake (`frontend/src/shared/transport/ws-manager.ts:126-132`) — a
+  ticket returned at session-create would expire before use.
+- `POST /api/prompt-assistant/sessions/{session_id}/messages` → 202, streams over WS.
+- New WS route `/ws/prompt-assistant/{session_id}` in `app/api/ws/`, reusing the
+  subprotocol ticket auth (`authenticate_subprotocol`) with its own session-ownership
+  check, mirroring `ws_chatroom`.
+- Rate limiting: extend the upload bucket classifier `_bucket_for`
+  (`backend/app/api/middleware/rate_limit.py:54-68`) so the new file-upload endpoints
+  fall into `Bucket.UPLOAD` (today it only matches `/api/tus`, `/attachments`,
+  `/documents` — the new paths would silently land in the generic bucket).
 - All request models Pydantic with explicit bounds; RFC 7807 errors.
 
 ### Frontend
 
 - **agents slice**: new `components/` dir — `PromptAssistantPanel.vue` (collapsible
   side panel in the prompt tab: message list, plain-text streaming bubble, composer,
-  apply-draft button), `PromptTemplatePicker.vue` (grouped dropdown/modal, insert into
-  `systemPrompt` field). New `composables/usePromptAssistantSocket.ts` following
+  apply-draft button using the existing `SConfirmDialog`/`useConfirmDialog`),
+  `PromptTemplatePicker.vue` (grouped dropdown/modal, insert into `systemPrompt`
+  field). Note this is real layout work: the prompt tab today is a plain vertical
+  stack with one full-width `SCard` (`AgentDetailView.vue:844-849`) — it must be
+  restructured into a responsive two-column layout (editor + panel) that collapses to
+  stacked on narrow viewports. New `composables/usePromptAssistantSocket.ts` following
   `useChatroomSocket.ts` patterns over `wsManager`. API calls added to a new
   `api/promptStudio.ts` module in the slice (or a small dedicated slice —
   implementer's choice; keep imports within boundaries).
 - **shared/ui**: `SPromptAssistantConfigForm.vue` — presentational config editor
   (system prompt textarea, key/model selectors reusing the agent form's selector
   pattern per Q-8, file list + `SFileUpload`, caps, enabled toggle), used by all three
-  settings pages via props/emits (wakeup-editor precedent, commit `ff5669f`).
+  settings pages via props/emits (wakeup-editor precedent, `SWakeupEditor.vue` from
+  commit `ff5669f`). Boundary constraint: `shared/` may not import from slices, and
+  `useModelCatalog` lives in `slices/agents/composables/` — the form receives model
+  catalog and key options via props; the owning views fetch the data.
   Similarly `SPromptTemplateManager.vue` (list + editor modal).
 - **identity slice**: new `/account/prompt-assistant` route + view (personal config +
   personal templates).
@@ -287,7 +318,8 @@ templates (org-owned P) + the current user's personal templates, grouped by sour
 ### Deploy/config
 
 - New MinIO bucket `prompt-assistant-files` (no TTL) in `MinioSection`
-  (`app/config/settings.py:76`) and provisioning.
+  (`app/config/settings.py:87-90`, alongside `bucket_agent_workspace`), a matching
+  bucket property on the MinIO client class, and provisioning.
 - No new env secrets; the platform key goes through the normal key-upload flow.
 
 ## 7. NFR Checklist
@@ -309,8 +341,8 @@ templates (org-owned P) + the current user's personal templates, grouped by sour
 
 - **Key protection** — the assistant path decrypts keys only inside the arq worker via
   the router (`[R7.15]`); no new decrypt sites; plaintext never in API responses; the
-  resolved-config endpoint returns key *metadata only* (provider, last4 if that is the
-  existing display pattern — verify against keys API at build time).
+  resolved-config endpoint returns key *metadata only*, mirroring the existing shape
+  `provider + name + masked_preview` (`backend/app/api/v1/keys.py:47-49`).
 - **Prompt injection via reference files** — file text is attacker-influenceable (an
   org member could be given a poisoned style guide by the Org Owner — accepted, the
   configurer is trusted for their scope). The fixed platform wrapper prompt instructs
@@ -332,7 +364,7 @@ templates (org-owned P) + the current user's personal templates, grouped by sour
 ## 9. Quality Notes
 
 - **Existing debt** (do not imitate, do not silently fix): `AgentDetailView.vue` is a
-  ~1160-line monolith — the assistant panel must be a separate component, not more
+  1077-line monolith — the assistant panel must be a separate component, not more
   inline template; the agents API router calls `AgentService` directly rather than its
   facade (`app/api/v1/agents.py:23`) — acceptable same-context pattern, but keep the
   new context's router thin over its application services; agents slice has no
@@ -340,7 +372,8 @@ templates (org-owned P) + the current user's personal templates, grouped by sour
 - **Patterns to follow**: migration exemplar `alembic/versions/0011_agents.py`
   (ENUM via `op.execute`, mirrored tables.py types, full downgrade); AuthZ via
   `require(...)`/`require_membership` + `_MATRIX` rows; admin CRUD + audit pattern
-  `admin_rate_limits.py:46-133`; worker-only provider calls + Redis pub/sub events
+  `admin_rate_limits.py:46-133` (audit emit at 107-117, Redis mirror at 119-126);
+  worker-only provider calls + Redis pub/sub events
   `turn_engine.py:1569-1575`; WS route `app/api/ws/chatroom.py`; socket composable
   `useChatroomSocket.ts`; slice layout and locale registration
   `slices/agents/index.ts:1-17`; shared config editor precedent (wakeup editor,
@@ -351,21 +384,26 @@ templates (org-owned P) + the current user's personal templates, grouped by sour
   (`provider_router.py:613-633`); `shared_kernel/text_extraction/parsers.py`;
   `shared_kernel/scanning.py` (ClamAV); `safe_input_name()`; `minio_client.py`;
   `SFileUpload.vue`, `SCodeEditor`, `SCharCount`, `SFormField`, `SAlert`, `STabs`,
-  `SSelect`; `wsManager`/`Channel`; `useServerErrors`; `useModelCatalog` (model
-  dropdowns); vee-validate + Zod schema pattern (`slices/agents/types/schemas.ts`);
+  `SSelect`, `SConfirmDialog` + `useConfirmDialog` (apply-draft confirm);
+  `wsManager`/`Channel`; `useServerErrors`; `useModelCatalog` (model dropdowns —
+  slice-local; data reaches shared components via props, see §6);
+  vee-validate + Zod schema pattern (`slices/agents/types/schemas.ts`);
   TanStack query-key factory pattern (`slices/agents/queries/index.ts`);
   `INPUT_LIMITS` constants.
 
 ## 10. Risks and Rollback
 
-- **Migration** adds three tables + one ENUM + (possibly) one nullable column on
+- **Migration** adds three tables + one ENUM + one nullable `usage_context` column on
   `key_usage_events`; fully reversible downgrade; no data backfill.
 - **Pinned-key revocation** breaks a config silently — mitigated: config resolution
   checks key liveness and falls through the chain; UI shows a "configured key revoked"
   state to the configurer.
-- **Router change** (`call_single_key_stream`) touches the hottest code path's module —
-  additive only, no modification to existing call/rotation logic; covered by unit tests
-  mirroring existing `call_single_key` tests.
+- **Router change** (`call_single_key_stream` + `usage_context` threading through
+  `ProviderRequest`/`UsageAccountant`/`record_usage_event`) touches the hottest code
+  path's module — additive with NULL-default semantics, no modification to existing
+  call/rotation logic; covered by unit tests mirroring existing `call_single_key`
+  tests plus an assertion that existing call sites record `usage_context = NULL`
+  unchanged.
 - **Scope creep risk** in three settings surfaces × two resource types — fenced by
   Non-goals; the shared presentational form keeps the three pages thin.
 - Rollback path: feature is fully additive (new routes, new tables, new components);
@@ -482,13 +520,13 @@ re-extraction per `REQUIREMENTS.md:1921`.
 
 ## 14. Open Questions
 
-- Exact mechanism for tagging assistant calls in `key_usage_events` (existing
-  discriminator vs new nullable `usage_context` column) — decide at build time from
-  how GraphRAG builder calls are recorded.
-- Whether the resolved-config endpoint's key metadata mirrors an existing keys-API
-  display shape (provider + label) — align at build time.
 - Panel placement on mobile viewports (the prompt tab already collapses tabs to a
   select) — UX detail for implementation.
+
+Resolved during verification (2026-07-05): usage tagging requires the new nullable
+`usage_context` column (no existing discriminator — see §6 keys-context bullet); the
+resolved-config endpoint mirrors the existing keys-API metadata shape
+`provider + name + masked_preview` (`backend/app/api/v1/keys.py:47-49`).
 
 ## 15. Deviation Log
 
