@@ -102,9 +102,9 @@
   --space-12: 48px;
 
   /* ── Typography scale ──
-     --font-size-*/--line-*/--weight-* deliberately avoid Tailwind's
-     --text-*/--leading-*/--font-weight-* namespaces so no utility values
-     shift. --font-size-2xs (above) predates this scale. */
+     The --font-size, --line, and --weight prefixes deliberately avoid
+     Tailwind's --text, --leading, and --font-weight namespaces so no utility
+     values shift. --font-size-2xs (above) predates this scale. */
   --font-size-xs: 0.75rem;
   --font-size-sm: 0.875rem;
   --font-size-md: 1rem;
