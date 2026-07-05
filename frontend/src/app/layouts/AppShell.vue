@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, onBeforeUnmount } from 'vue'
 import { useRoute } from 'vue-router'
 import { SDrawer } from '@shared/ui'
 import { useBreakpoint } from '@shared/composables/useBreakpoint'
@@ -54,6 +54,13 @@ const noPadding = computed(() =>
   route.meta.contentPadding === 'none' || isImmersiveRoute.value,
 )
 
+// `true | undefined` (never false) so the attribute is fully removed when the
+// sidebar is open — jsdom lacks the inert property and would otherwise
+// serialize `inert="false"`, which a boolean attribute reads as true. The cast
+// only narrows the static type past exactOptionalPropertyTypes (same pattern
+// as SSelect's id binding); the runtime value is unchanged.
+const sidebarInert = computed(() => (sidebarCollapsed.value || undefined) as unknown as boolean)
+
 // Topbar depth: once the content region is scrolled, the topbar picks up a
 // shadow so it reads as floating above the page. rAF-coalesced like every
 // other scroll/pointer handler in the shell.
@@ -68,6 +75,10 @@ function onContentScroll(): void {
     scrolled.value = (contentEl.value?.scrollTop ?? 0) > 0
   })
 }
+
+onBeforeUnmount(() => {
+  if (scrollRaf) cancelAnimationFrame(scrollRaf)
+})
 </script>
 
 <template>
@@ -94,7 +105,7 @@ function onContentScroll(): void {
       v-if="isDesktop"
       class="app-shell__sidebar"
       :class="{ 'app-shell__sidebar--collapsed': sidebarCollapsed }"
-      :inert="sidebarCollapsed || undefined"
+      :inert="sidebarInert"
     >
       <AppSidebar />
     </aside>

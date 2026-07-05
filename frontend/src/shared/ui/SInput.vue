@@ -13,6 +13,7 @@ const props = withDefaults(defineProps<{
   maxlength?: number | undefined
   min?: string | number | undefined
   max?: string | number | undefined
+  step?: string | number | undefined
 }>(), {
   modelValue: '',
   type: 'text',
@@ -51,6 +52,7 @@ const idAttr = computed(() => props.id as string)
 const maxlengthAttr = computed(() => props.maxlength as number)
 const minAttr = computed(() => props.min as string | number)
 const maxAttr = computed(() => props.max as string | number)
+const stepAttr = computed(() => props.step as string | number)
 
 const hasPrefix = computed(() => !!slots.prefix)
 const hasSuffix = computed(() => !!slots.suffix)
@@ -96,6 +98,7 @@ function togglePasswordVisibility() {
       :maxlength="maxlengthAttr"
       :min="minAttr"
       :max="maxAttr"
+      :step="stepAttr"
       @input="onInput"
     >
     <span
