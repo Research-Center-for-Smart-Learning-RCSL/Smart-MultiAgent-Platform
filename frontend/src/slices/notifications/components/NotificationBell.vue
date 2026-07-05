@@ -90,7 +90,7 @@ const badge = computed(() => (count.value > 99 ? '99+' : String(count.value)))
   height: 22px;
 }
 .notif-bell:hover {
-  background: var(--color-border);
+  background: var(--color-surface-hover);
 }
 .notif-bell__badge {
   position: absolute;

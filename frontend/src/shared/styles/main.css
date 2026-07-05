@@ -80,6 +80,59 @@
   --z-tooltip: 600;
 
   --focus-ring: 0 0 0 2px var(--color-bg), 0 0 0 4px var(--color-accent);
+
+  /* ── Interactive-state fills ──
+     Hover/active surfaces get their own tokens instead of borrowing
+     --color-border as a fill, which reads muddy. */
+  --color-surface-hover: #eef2f7;
+  --color-surface-active: #e2e8f0;
+  --color-accent-tint-hover: #bfdbfe;
+
+  /* ── Spacing scale (4px grid) ──
+     Named --space-* (not --spacing-*) so Tailwind's spacing namespace and
+     utility generation are untouched. */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+
+  /* ── Typography scale ──
+     --font-size-*/--line-*/--weight-* deliberately avoid Tailwind's
+     --text-*/--leading-*/--font-weight-* namespaces so no utility values
+     shift. --font-size-2xs (above) predates this scale. */
+  --font-size-xs: 0.75rem;
+  --font-size-sm: 0.875rem;
+  --font-size-md: 1rem;
+  --font-size-lg: 1.125rem;
+  --font-size-xl: 1.25rem;
+  --font-size-2xl: 1.5rem;
+  --font-size-3xl: 1.875rem;
+  --line-tight: 1.3;
+  --line-normal: 1.5;
+  --line-relaxed: 1.6;
+  --weight-medium: 500;
+  --weight-semibold: 600;
+  --weight-bold: 700;
+
+  /* ── Semantic elevation ──
+     Depth tiers components reach for by meaning, not by raw shadow:
+     0 = flush (border only), 1 = resting card, 2 = raised/hover,
+     3 = overlay. The underlying shadows already switch per theme. */
+  --elevation-0: none;
+  --elevation-1: var(--shadow-sm);
+  --elevation-2: var(--shadow-md);
+  --elevation-3: var(--shadow-lg);
+
+  /* ── Motion tokens (see the motion language block at end of file) ── */
+  --motion-rise: 6px;
+  --motion-lift: 2px;
+  --ease-out-soft: cubic-bezier(0.25, 0.8, 0.4, 1);
+  --ease-spring: cubic-bezier(0.34, 1.3, 0.5, 1);
 }
 
 /* ─── Base layer ──────────────────────────────────────────────── */
@@ -152,6 +205,9 @@
     --color-overlay: rgba(0, 0, 0, 0.65);
     --overlay-backdrop: rgba(0, 0, 0, 0.65);
     --focus-ring: 0 0 0 2px var(--color-bg), 0 0 0 4px var(--color-accent);
+    --color-surface-hover: #273549;
+    --color-surface-active: #2f3f55;
+    --color-accent-tint-hover: #27476e;
   }
 
   /* Restore Preflight-stripped form element chrome (appearance only —

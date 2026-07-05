@@ -98,7 +98,7 @@ const { isMobile } = useBreakpoint()
 }
 
 .topbar__sidebar-toggle:hover {
-  background: var(--color-surface);
+  background: var(--color-surface-hover);
 }
 
 .topbar__sidebar-toggle:focus-visible {
