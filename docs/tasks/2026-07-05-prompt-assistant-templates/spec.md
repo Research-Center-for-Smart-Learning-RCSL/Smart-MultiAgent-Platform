@@ -569,7 +569,27 @@ resolved-config endpoint mirrors the existing keys-API metadata shape
   `isVerified`, `OrgDetailView` gated on `isOwner`, and an `AdminNav` section). These
   are the concrete UI placements the spec left to implementation; noted for the record.
 
-## 16. Follow-ups
+## 16. Build verification (running stack)
+
+Ran against a local Docker stack (postgres/redis/vault/minio up; backend image built
+from `backend/Dockerfile` via the base compose — the dev override's
+`build.context: ../../backend` is a latent bug that breaks the repo-root `COPY backend/`
+Dockerfile, see FU-8):
+
+- **Migration 0042 validated end-to-end.** `alembic upgrade head` reaches
+  `0042_prompt_studio`; the three tables (`prompt_assistant_configs`,
+  `prompt_assistant_files`, `prompt_templates`), both enums (`prompt_studio_scope`,
+  `prompt_file_scan_status`), and `key_usage_events.usage_context` (text) are created.
+  `alembic downgrade -1` cleanly drops all of them — the migration is fully reversible.
+  This closes the previously env-blocked migration contract gate for this feature. (To
+  reach 0042 the pre-existing FU-7 blocker at 0032 was bypassed by pre-creating a
+  `varchar(255)` `alembic_version` table in the throwaway dev DB — a DB-only workaround,
+  no code change.)
+- Still pending (FU-5): live streaming / apply-draft / answer-from-file E2E, which needs a
+  fully bootstrapped stack (Vault Transit keys, MinIO bucket, ClamAV) plus a real provider
+  API key to actually stream an LLM reply.
+
+## 17. Follow-ups
 
 - FU-1: RAG-based retrieval over reference files if configs outgrow the 200 KB inline
   budget (Q-7 explicitly deferred this).
@@ -596,3 +616,22 @@ resolved-config endpoint mirrors the existing keys-API metadata shape
   test (this feature's three new views are all covered); (c) `Landing.test.ts`
   intermittently fails in the full `pnpm test` run due to cross-file session/router state
   pollution (passes in isolation and on re-run).
+- FU-7: **Pre-existing migration-infra bug — fresh `alembic upgrade head` is broken on
+  `main` at 0032.** Alembic's default `alembic_version.version_num` is `VARCHAR(32)`, but
+  two revision slugs overflow it: `0032_audit_retention_delete_grant` (33 chars) and
+  `0040_message_attachment_extracted_text` (39 chars). On an empty DB the chain dies with
+  `StringDataRightTruncation` on `UPDATE alembic_version SET version_num='0032_...'`. This
+  is unrelated to this feature (my slug `0042_prompt_studio` is 18 chars) and predates it;
+  it surfaced only because the migration gate was finally run against a real Postgres. The
+  documented one-line fix (`context.configure(..., version_table_column_type=String(255))`
+  in `alembic/env.py`) was tried and did **not** take effect in this environment — Alembic
+  still created the column at 32 — so a deeper fix is needed (widen the column in a
+  dedicated migration, shorten the offending slugs, or investigate why the option is
+  ignored). Left for a maintainer; no code committed here.
+- FU-8: Pre-existing dev-compose bug. `deploy/compose/docker-compose.override.yml` sets
+  `backend-web`/`backend-worker` `build.context: ../../backend`, but `backend/Dockerfile`
+  is written for a repo-root context (`COPY backend/pyproject.toml`, `COPY docs/...`), as
+  the base `docker-compose.yml` correctly uses (`context: ../..`). With the override
+  merged, `docker compose build` fails ("/backend: not found"). Unrelated to this feature;
+  worked around by building via the base compose file only. A maintainer should reconcile
+  the override's context (and target) with the Dockerfile.
