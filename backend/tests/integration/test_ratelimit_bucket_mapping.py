@@ -31,6 +31,12 @@ from shared_kernel.auth.ratelimit import Bucket, Scope, default_policies
         ("POST", "/api/tus", Bucket.UPLOAD),
         ("POST", "/api/chatrooms/abc/attachments", Bucket.UPLOAD),
         ("POST", "/api/rag/documents", Bucket.UPLOAD),
+        # §29 prompt-assistant reference-file uploads (all three scopes).
+        ("POST", "/api/me/prompt-assistant/config/files", Bucket.UPLOAD),
+        ("POST", "/api/orgs/abc/prompt-assistant/config/files", Bucket.UPLOAD),
+        ("POST", "/api/admin/prompt-assistant/config/files", Bucket.UPLOAD),
+        # ... but non-file prompt-studio POSTs stay in OTHER.
+        ("POST", "/api/me/prompt-templates", Bucket.OTHER),
         # Other default — everything that isn't one of the above.
         ("GET", "/api/orgs", Bucket.OTHER),
         ("POST", "/api/orgs", Bucket.OTHER),
