@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config.settings import get_settings
 from contexts.keys.infrastructure.adapters import build_router
+from contexts.knowledge.application.embed_resolution import resolve_embed_key
 from contexts.knowledge.application.graphrag_builder import GraphRagBuilder
 from contexts.knowledge.application.graphrag_ports import ConfigLike, DeltaMessage
 from contexts.knowledge.infrastructure.embedders import router_embedder_for
@@ -25,12 +26,6 @@ from shared_kernel.db.session import get_sessionmaker
 from shared_kernel.observability.metrics import GRAPHRAG_BUILD_STATE
 
 _log = logging.getLogger(__name__)
-
-_EMBED_MODEL: dict[str, str] = {
-    "openai": "text-embedding-3-small",
-    "gemini": "text-embedding-004",
-    "voyage": "voyage-3",
-}
 
 
 @dataclass
@@ -106,38 +101,12 @@ class _DbDeltaLoader:
         return result
 
 
-async def _resolve_embed_key(
-    db: AsyncSession,
-    builder_key_group_id: uuid.UUID,
-) -> tuple[str, str, uuid.UUID] | None:
-    """Return (provider, model, key_id) for the first embedding key in the group.
-
-    No plaintext leaves this function — the router unwraps on demand and pins
-    this key for the whole build (stable vector dimensions).
-    """
-    from contexts.keys.infrastructure.group_repository import (
-        KeyGroupMemberRepository,
-    )
-    from contexts.keys.infrastructure.repositories import ApiKeyRepository
-
-    members = await KeyGroupMemberRepository(db).list_ordered(builder_key_group_id)
-    for m in members:
-        key = await ApiKeyRepository(db).get_active(m.key_id)
-        if key is None:
-            continue
-        provider = key.provider.value
-        if provider not in _EMBED_MODEL:
-            continue
-        return provider, _EMBED_MODEL[provider], key.id
-    return None
-
-
 def _make_embedder_factory(db: AsyncSession) -> Any:
     """Return an EmbedderFactory resolving a pinned key from the builder group."""
     router = build_router(db)
 
     async def _factory(cfg: ConfigLike) -> Any:
-        resolved = await _resolve_embed_key(db, cfg.builder_key_group_id)
+        resolved = await resolve_embed_key(db, cfg.builder_key_group_id)
         if resolved is None:
             raise RuntimeError(
                 f"builder key group {cfg.builder_key_group_id} has no embedding key " "(openai/gemini/voyage)"

@@ -20,6 +20,7 @@ from contextlib import asynccontextmanager
 from typing import Any
 
 from app.config.settings import get_settings
+from contexts.knowledge.application.embed_resolution import resolve_embed_key
 from contexts.knowledge.application.graphrag_reconciler import (
     ReconciliationLoop,
 )
@@ -48,12 +49,6 @@ def _make_phase2_retry(
 
     async def _retry(*, cfg: Any, build_id: Any) -> None:
         from contexts.keys.infrastructure.adapters import build_router
-        from contexts.keys.infrastructure.group_repository import (
-            KeyGroupMemberRepository,
-        )
-        from contexts.keys.infrastructure.repositories import (
-            ApiKeyRepository,
-        )
         from contexts.knowledge.infrastructure.embedders import (
             router_embedder_for,
         )
@@ -77,28 +72,9 @@ def _make_phase2_retry(
         pairs = build_entity_descriptions((row["subject"], row["relation"], row["object"]) for row in rows)
         descriptions = [desc for _, desc in pairs]
 
-        # Resolve the first embedding key from the builder key group.
-        embed_model: dict[str, str] = {
-            "openai": "text-embedding-3-small",
-            "gemini": "text-embedding-004",
-            "voyage": "voyage-3",
-        }
         maker = get_sessionmaker()
         async with maker() as db:
-            resolved: tuple[str, str, _uuid.UUID] | None = None
-            members = await KeyGroupMemberRepository(db).list_ordered(
-                cfg.builder_key_group_id,
-            )
-            for m in members:
-                key = await ApiKeyRepository(db).get_active(m.key_id)
-                if key is None:
-                    continue
-                prov = key.provider.value
-                if prov not in embed_model:
-                    continue
-                resolved = (prov, embed_model[prov], key.id)
-                break
-
+            resolved = await resolve_embed_key(db, cfg.builder_key_group_id)
             if resolved is None:
                 raise RuntimeError(f"no embedding key in builder group {cfg.builder_key_group_id}")
 
