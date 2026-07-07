@@ -45,15 +45,15 @@ CONTEXT_LIMITS: dict[str, int] = {
     "gemini": 1_000_000,
 }
 
-assert set(DEFAULT_CHAT_MODELS) == set(CHAT_MODEL_CATALOG), (
-    "DEFAULT_CHAT_MODELS and CHAT_MODEL_CATALOG must have identical provider keys"
-)
+assert set(DEFAULT_CHAT_MODELS) == set(
+    CHAT_MODEL_CATALOG
+), "DEFAULT_CHAT_MODELS and CHAT_MODEL_CATALOG must have identical provider keys"
 assert all(
     DEFAULT_CHAT_MODELS[p] in models for p, models in CHAT_MODEL_CATALOG.items()
 ), "every DEFAULT_CHAT_MODELS value must appear in its provider's CHAT_MODEL_CATALOG tuple"
-assert set(CONTEXT_LIMITS) == set(CHAT_MODEL_CATALOG), (
-    "CONTEXT_LIMITS and CHAT_MODEL_CATALOG must have identical provider keys"
-)
+assert set(CONTEXT_LIMITS) == set(
+    CHAT_MODEL_CATALOG
+), "CONTEXT_LIMITS and CHAT_MODEL_CATALOG must have identical provider keys"
 
 
 @dataclass(frozen=True, slots=True)
@@ -138,7 +138,6 @@ class Agent:
     system_prompt: str
     prompt_strategy: PromptStrategy
     rag_config_id: uuid.UUID | None
-    graphrag_config_id: uuid.UUID | None
     context_mode: ContextMode
     context_token_cap: int | None
     a2a_enabled: bool
@@ -226,7 +225,6 @@ class AgentDraft:
     system_prompt: str | None = None
     prompt_strategy: PromptStrategy | None = None
     rag_config_id: uuid.UUID | None = None
-    graphrag_config_id: uuid.UUID | None = None
     context_mode: ContextMode | None = None
     context_token_cap: int | None = None
     a2a_enabled: bool | None = None
@@ -238,7 +236,6 @@ class AgentDraft:
     clear_model_id: bool = False
     clear_effort: bool = False
     clear_rag_config: bool = False
-    clear_graphrag_config: bool = False
     clear_context_token_cap: bool = False
 
 

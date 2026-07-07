@@ -47,7 +47,6 @@ agents = sa.Table(
         server_default=sa.text("'full'::agent_prompt_strategy"),
     ),
     sa.Column("rag_config_id", pg.UUID(as_uuid=True), nullable=True),
-    sa.Column("graphrag_config_id", pg.UUID(as_uuid=True), nullable=True),
     sa.Column(
         "context_mode",
         pg.ENUM("general", "compact", name="agent_context_mode", create_type=False),

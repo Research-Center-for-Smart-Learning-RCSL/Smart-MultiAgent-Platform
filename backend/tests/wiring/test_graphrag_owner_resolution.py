@@ -9,8 +9,8 @@ behavior change.
 
 Covers:
   1. ``GraphRagConfigService.create`` wraps the agent in a singleton
-     ``agent_group`` (member = the agent) and dual-writes owner + legacy
-     ``agent_id`` on the config row.
+     ``agent_group`` (member = the agent) and sets it as the config's owner;
+     the owning agent is derived from the group membership.
   2. ``list_for_agents`` resolves through the membership join and matches the
      legacy ``agent_id`` scope: the owning agent sees its config, an unrelated
      agent sees nothing.
@@ -80,7 +80,6 @@ async def _seed_agent(db, project_id: uuid.UUID, key_group_id: uuid.UUID) -> uui
         system_prompt="deterministic test agent",
         prompt_strategy=PromptStrategy.FULL,
         rag_config_id=None,
-        graphrag_config_id=None,
         context_mode=ContextMode.GENERAL,
         context_token_cap=None,
         a2a_enabled=False,
@@ -106,22 +105,21 @@ async def test_create_wraps_agent_in_singleton_owner_group() -> None:
         )
         await db.commit()
 
-        # Legacy agent_id is dual-written through the expand phase.
+        # The owning agent is derived from the singleton group's membership.
         assert cfg.agent_id == agent_id
 
-        # The owner columns point at a singleton agent_group.
+        # The owner columns point at a singleton agent_group; the legacy
+        # agent_id column is gone (0044).
         row = (
             await db.execute(
                 sa.select(
                     gt.graphrag_configs.c.owner_kind,
                     gt.graphrag_configs.c.owner_agent_group_id,
-                    gt.graphrag_configs.c.agent_id,
                 ).where(gt.graphrag_configs.c.id == cfg.id)
             )
         ).one()
         assert row.owner_kind == "agent_group"
         assert row.owner_agent_group_id is not None
-        assert row.agent_id == agent_id
 
         # Exactly one member — the former owning agent.
         members = (

@@ -80,12 +80,6 @@ class GraphRagConfigAlreadyExists(KnowledgeError):
     code = "knowledge/graphrag-config-already-exists"
 
 
-class GraphRagBuilderKeyGroupConflict(KnowledgeError):
-    """R11.01 — builder key group must differ from the consumer agent's key group."""
-
-    code = "knowledge/graphrag-builder-key-group-conflict"
-
-
 class GraphRagAgentProjectMismatch(KnowledgeError):
     """Agent referenced in the draft does not belong to the target project."""
 
@@ -107,7 +101,6 @@ __all__ = [
     "GraphRagAgentProjectMismatch",
     "GraphRagBuildBusy",
     "GraphRagBuildFailed",
-    "GraphRagBuilderKeyGroupConflict",
     "GraphRagBuilderKeyGroupProjectMismatch",
     "GraphRagConfigAlreadyExists",
     "GraphRagConfigNotFound",

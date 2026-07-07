@@ -268,7 +268,6 @@ class SubagentService:
             "a2a_enabled": False,
             "mcp_servers": True,  # inherited, actual bindings resolved at runtime
             "rag_config_id": None,
-            "graphrag_config_id": None,
             "context_mode": parent.context_mode.value,
             "context_token_cap": parent.context_token_cap,
             "wakeup_config": None,
