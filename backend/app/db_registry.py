@@ -12,6 +12,9 @@ wiring concern, not shared infrastructure).
 
 from __future__ import annotations
 
+from contexts.agent_groups.infrastructure import (  # noqa: F401
+    tables as _agent_groups_tables,
+)
 from contexts.agents.infrastructure import (  # noqa: F401
     mcp_tables as _agents_mcp_tables,
 )

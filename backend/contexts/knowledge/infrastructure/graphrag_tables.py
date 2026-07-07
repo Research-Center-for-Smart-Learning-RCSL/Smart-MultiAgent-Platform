@@ -51,6 +51,32 @@ graphrag_configs = sa.Table(
     sa.Column("last_build_error", sa.Text, nullable=True),
     sa.Column("created_at", sa.TIMESTAMP(timezone=True), nullable=False, server_default=sa.text("now()")),
     sa.Column("deleted_at", sa.TIMESTAMP(timezone=True), nullable=True),
+    # Discriminated owner (Phase 1, R11.05/R11.07/R11.08). Nullable through the
+    # expand phase; the contract migration (0044) makes owner_kind NOT NULL and
+    # adds the exactly-one-owner CHECK. ``agent_id`` above is dropped in 0044.
+    sa.Column(
+        "owner_kind",
+        pg.ENUM("chatroom", "agent_group", "workspace", name="owner_kind", create_type=False),
+        nullable=True,
+    ),
+    sa.Column(
+        "owner_chatroom_id",
+        pg.UUID(as_uuid=True),
+        sa.ForeignKey("chatrooms.id", ondelete="CASCADE"),
+        nullable=True,
+    ),
+    sa.Column(
+        "owner_agent_group_id",
+        pg.UUID(as_uuid=True),
+        sa.ForeignKey("agent_groups.id", ondelete="CASCADE"),
+        nullable=True,
+    ),
+    sa.Column(
+        "owner_workspace_id",
+        pg.UUID(as_uuid=True),
+        sa.ForeignKey("workspaces.id", ondelete="CASCADE"),
+        nullable=True,
+    ),
 )
 
 
