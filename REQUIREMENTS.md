@@ -509,7 +509,7 @@ Maintain a project-scoped knowledge graph (Neo4j) built incrementally from chat 
   3. Upsert nodes/edges into Neo4j with `project_id` and `graphrag_config_id` labels.
   4. Embed node text into Qdrant (collection `graphrag_{project_id}`) so queries can be hybrid vector+graph.
 - **[R11.04]** Each build is transactional across Neo4j and Qdrant using a **two-phase commit with compensation**; a failure does not leave inconsistent state (see §11.2a).
-- **[R11.05]** A Graph RAG config is attached to at most one Agent (1:1 in v1).
+- **[R11.05]** A Concept Map (conversation-derived Graph RAG) is owned by exactly one **owner** identified by `(owner_kind, owner_id)` where `owner_kind ∈ {chatroom, agent_group, workspace}`. The prior 1:1 Agent binding is removed. `UNIQUE(owner_kind, owner_id)`.
 
 ### 11.2a Two-phase commit across Neo4j + Qdrant
 
@@ -531,6 +531,21 @@ Because Neo4j and Qdrant are independent systems, a naïve "write both" sequence
   - Vector search on graphrag collection → top entities.
   - From each top entity, expand 1–2 hops in Neo4j.
   - Return entities + relations + evidence-message excerpts (max 2 KB total) as a system message tagged `type:"graphrag"`.
+
+### 11.4 Concept Map ownership and layering
+
+- **[R11.07]** `agent_group` is a first-class, project-scoped entity with a member set of Agents (`agent_group_members`). It may own a Concept Map.
+- **[R11.08]** The Concept Map delta feed is scoped by owner: `chatroom` → that room's messages; `agent_group` → the union of member agents' room messages; `workspace` → that workspace's room messages.
+- **[R11.09]** At agent invocation, retrieval draws on **every Concept Map covering the agent in the current room** (its chatroom map, each enabled agent_group map it belongs to, and the enabled workspace map), merged under the 2 KB cap with narrow-scope precedence (chatroom > agent_group > workspace) and entity dedup.
+- **[R11.10]** Privacy default-strict: the chatroom Concept Map layer is enabled by default; agent_group and workspace layers require an explicit `concept_map_enabled` flag on the owner, settable only by Project Owner, and their enablement is audit-logged. No Concept Map ever spans projects.
+- **[R11.11]** The Concept Map builder key group is an attribute of the owner (not the replying agent), preserving the builder-vs-consumer billing split of [R11.01].
+
+### 11.5 Knowledge Map — Graph RAG over files (Axis 1)
+
+- **[R11.12]** A Knowledge Map is a designer-authored Graph RAG built from **uploaded documents** (the same sources as §10 file-RAG), not from conversation. It is project-scoped with a per-Agent allowlist, mirroring [R10.11].
+- **[R11.13]** Knowledge Map ingestion reuses the RAG ingestion pipeline (§10.1) to parse documents, then extracts triples via the shared extractor and persists to its own Neo4j subgraph + Qdrant collection, scoped by its config id.
+- **[R11.14]** At agent invocation, an attached Knowledge Map is queried as an Axis-1 system block (`type:"graphrag"` retained) beside file-RAG, independent of any Concept Map.
+- **[R11.15]** Knowledge Map and Concept Map are distinct subsystems (separate config, services, and UI) that share the low-level graph adapters (Neo4j driver, Qdrant store, triple extractor, 2PC runner).
 
 ---
 

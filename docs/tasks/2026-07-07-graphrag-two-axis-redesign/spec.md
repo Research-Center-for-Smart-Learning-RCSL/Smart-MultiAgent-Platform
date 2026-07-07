@@ -1,6 +1,6 @@
 ---
 type: feature
-status: draft
+status: approved
 created: 2026-07-07
 requirements: [R10.06, R10.11, R11.01, R11.02, R11.03, R11.05, R11.06, R11a.01]
 ---
