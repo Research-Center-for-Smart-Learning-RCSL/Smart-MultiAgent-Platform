@@ -57,7 +57,8 @@ class Neo4jAsyncDriver:
         # round-trips entity types (audit L1) and brings back isolated nodes.
         node_cypher = (
             "MATCH (n:Entity {graphrag_config_id: $cid}) "
-            "RETURN n.name AS name, n.type AS type, n.build_id AS build_id"
+            "RETURN n.name AS name, n.type AS type, n.build_id AS build_id, "
+            "n.project_id AS project_id"
         )
         async with driver.session() as session:
             result = await session.run(cypher, cid=str(config_id))
@@ -227,7 +228,10 @@ class Neo4jAsyncDriver:
         node_cypher = (
             "UNWIND $rows AS row "
             "MERGE (n:Entity {graphrag_config_id: $cid, name: row.name}) "
-            "SET n.build_id = row.build_id, n.type = coalesce(row.type, '')"
+            "SET n.build_id = row.build_id, n.type = coalesce(row.type, ''), "
+            # coalesce so an older snapshot (captured before project_id was
+            # self-describing) does not null out a value a later build set.
+            "    n.project_id = coalesce(row.project_id, n.project_id)"
         )
         edge_cypher = (
             "UNWIND $rows AS row "
