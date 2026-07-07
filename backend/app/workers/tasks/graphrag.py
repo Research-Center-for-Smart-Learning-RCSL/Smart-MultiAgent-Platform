@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import uuid
+from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from typing import Any
 
@@ -14,7 +15,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config.settings import get_settings
 from contexts.keys.infrastructure.adapters import build_router
 from contexts.knowledge.application.embed_resolution import resolve_embed_key
-from contexts.knowledge.application.graphrag_builder import GraphRagBuilder, ResolvedEmbedder
+from contexts.knowledge.application.graphrag_builder import (
+    LOCK_TTL_S,
+    GraphRagBuilder,
+    ResolvedEmbedder,
+)
 from contexts.knowledge.application.graphrag_ports import ConfigLike, DeltaMessage
 from contexts.knowledge.infrastructure.embedders import router_embedder_for
 from contexts.knowledge.infrastructure.graphrag_repositories import GraphRagConfigRepository
@@ -27,6 +32,28 @@ from shared_kernel.observability.metrics import GRAPHRAG_BUILD_STATE
 
 _log = logging.getLogger(__name__)
 
+# D3 (R11.16): the job timeout is only a runaway backstop. The build lock
+# (LOCK_TTL_S), refreshed at every window boundary, is the authoritative
+# single-writer guard, so the timeout must have comfortable headroom over the
+# TTL — otherwise the job could be killed while it still legitimately holds the
+# lock. Scoped to graphrag_build via arq's per-function timeout so other lanes
+# keep the default worker job_timeout.
+GRAPHRAG_BUILD_TIMEOUT_S = LOCK_TTL_S * 3
+
+# D1: build-window bounds. A window is flushed at whichever limit trips first —
+# the token budget caps the per-call LLM extraction payload (the real
+# constraint), the message cap bounds the DB/keyset step and guarantees forward
+# progress on pathological single-message sizes (Q-4). The DB fetch page
+# (_BATCH_SIZE) is orthogonal — it is how many rows one query pulls, not the
+# build window.
+_WINDOW_TOKEN_BUDGET = 24_000
+_WINDOW_MSG_CAP = 500
+
+
+def _estimate_tokens(text: str) -> int:
+    """Cheap token estimate (~4 chars/token); min 1 so every message counts."""
+    return max(1, len(text) // 4)
+
 
 @dataclass
 class _DbMsg:
@@ -36,44 +63,48 @@ class _DbMsg:
 
 
 class _DbDeltaLoader:
-    """Load delta messages from chatrooms the agent participates in."""
+    """Load delta messages from chatrooms the agent participates in (D1: as
+    bounded windows so memory and per-call LLM payload stay flat)."""
 
     def __init__(self, *, agent_id: uuid.UUID) -> None:
         self._agent_id = agent_id
 
     _BATCH_SIZE = 2000
 
-    async def load(
+    async def iter_windows(
         self,
         *,
         config_id: Any,
         since: Any,
         mode: Any,
-    ) -> list[DeltaMessage]:
+    ) -> AsyncIterator[list[DeltaMessage]]:
         sm = get_sessionmaker()
-        result: list[DeltaMessage] = []
+        window: list[DeltaMessage] = []
+        window_tokens = 0
         last_created_at: str | None = None
         last_id: str | None = None
-        async with sm() as db:
-            while True:
-                # Composite keyset pagination on (created_at, id) matching the
-                # ORDER BY to avoid loading unbounded result sets.  UUID v4 PKs
-                # have no inherent ordering, so the cursor must include
-                # created_at to stay consistent with the sort.
-                cursor_clause = (
-                    "AND (m.created_at, m.id) > "
-                    "(CAST(:last_created_at AS timestamptz), CAST(:last_id AS uuid)) "
-                    if last_id is not None
-                    else ""
-                )
-                params: dict[str, Any] = {
-                    "agent_id": str(self._agent_id),
-                    "since": since,
-                    "batch_size": self._BATCH_SIZE,
-                }
-                if last_id is not None:
-                    params["last_created_at"] = last_created_at
-                    params["last_id"] = last_id
+        while True:
+            # Composite keyset pagination on (created_at, id) matching the
+            # ORDER BY to avoid loading unbounded result sets.  UUID v4 PKs
+            # have no inherent ordering, so the cursor must include
+            # created_at to stay consistent with the sort. A fresh short-lived
+            # session per fetch page keeps no DB connection open across the slow
+            # per-window extraction the caller runs between yields.
+            cursor_clause = (
+                "AND (m.created_at, m.id) > "
+                "(CAST(:last_created_at AS timestamptz), CAST(:last_id AS uuid)) "
+                if last_id is not None
+                else ""
+            )
+            params: dict[str, Any] = {
+                "agent_id": str(self._agent_id),
+                "since": since,
+                "batch_size": self._BATCH_SIZE,
+            }
+            if last_id is not None:
+                params["last_created_at"] = last_created_at
+                params["last_id"] = last_id
+            async with sm() as db:
                 rows = (
                     await db.execute(
                         sa.text(
@@ -92,13 +123,27 @@ class _DbDeltaLoader:
                         params,
                     )
                 ).all()
-                result.extend(_DbMsg(id=r.id, role=r.role, content=r.content) for r in rows)
-                if len(rows) < self._BATCH_SIZE:
-                    break
-                last_row = rows[-1]
-                last_created_at = str(last_row.created_at)
-                last_id = str(last_row.id)
-        return result
+            for r in rows:
+                content = r.content or ""
+                tokens = _estimate_tokens(content)
+                # Flush the current window before adding a message that would
+                # overflow either bound (never flush an empty window, so a single
+                # oversized message still forms one window and progress is made).
+                if window and (
+                    len(window) >= _WINDOW_MSG_CAP or window_tokens + tokens > _WINDOW_TOKEN_BUDGET
+                ):
+                    yield window
+                    window = []
+                    window_tokens = 0
+                window.append(_DbMsg(id=r.id, role=r.role, content=content))
+                window_tokens += tokens
+            if len(rows) < self._BATCH_SIZE:
+                break
+            last_row = rows[-1]
+            last_created_at = str(last_row.created_at)
+            last_id = str(last_row.id)
+        if window:
+            yield window
 
 
 def _make_embedder_factory(db: AsyncSession) -> Any:

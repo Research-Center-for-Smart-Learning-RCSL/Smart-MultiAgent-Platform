@@ -24,6 +24,7 @@ import logging
 import uuid
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any, Literal
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -51,6 +52,7 @@ from contexts.knowledge.infrastructure.graphrag_vector_store import (
     GraphRagVectorStore,
 )
 from shared_kernel import audit
+from shared_kernel.auth.clients import now
 
 _log = logging.getLogger(__name__)
 
@@ -130,6 +132,12 @@ class GraphRagBuilder:
         cfg = await self._configs.get(config_id)
         if cfg is None:
             raise GraphRagBuildFailed(f"config {config_id} missing")
+        # D10: capture the start watermark BEFORE reading the delta. last_build_at
+        # is stamped with this on success, so any message created while the build
+        # runs (after the delta was read) is picked up by the next build instead
+        # of being skipped. Re-reading a boundary message is harmless — apply is
+        # idempotent and the supersede sweep dedups by entity.
+        build_started_at = now()
         if not await self._locks.acquire(config_id, ttl_s=LOCK_TTL_S):
             raise GraphRagBuildBusy(str(config_id))
 
@@ -140,6 +148,7 @@ class GraphRagBuilder:
                 build_id=build_id,
                 mode=mode,
                 triggered_by=triggered_by,
+                build_started_at=build_started_at,
             )
         finally:
             await self._locks.release(config_id)
@@ -151,6 +160,7 @@ class GraphRagBuilder:
         build_id: uuid.UUID,
         mode: Literal["delta", "full"],
         triggered_by: str,
+        build_started_at: datetime,
     ) -> BuildResult:
         # idle/failed → running. Anything else is a refusal.
         if cfg.last_build_state not in {
@@ -223,21 +233,28 @@ class GraphRagBuilder:
             # just messages newer than the last build. Pass since=None so the
             # loader scans from the beginning.
             since = None if mode == "full" else cfg.last_build_at
-            delta = await self._delta_loader.load(
+            # D1: process history in bounded windows so memory and per-call LLM
+            # payload stay flat regardless of history size. Extraction runs per
+            # window and triples accumulate; Neo4j apply / embed / Qdrant upsert
+            # all happen once for the whole build (one atomic 2PC commit).
+            triples: list[Triple] = []
+            async for window in self._delta_loader.iter_windows(
                 config_id=cfg.id,
                 since=since,
                 mode=mode,
-            )
-            triples = await self._extractor.extract(
-                config_id=cfg.id,
-                builder_key_group_id=cfg.builder_key_group_id,
-                messages=delta,
-            )
-            # Audit review #3: extraction can be slow; refresh the lock and bail
-            # before touching Neo4j if we've lost it (another build may have
-            # taken over after a TTL overrun) so we never write concurrently.
-            if not await self._locks.refresh(cfg.id, ttl_s=LOCK_TTL_S):
-                raise GraphRagBuildBusy(f"lock lost during phase-1 for {cfg.id}")
+            ):
+                window_triples = await self._extractor.extract(
+                    config_id=cfg.id,
+                    builder_key_group_id=cfg.builder_key_group_id,
+                    messages=window,
+                )
+                triples.extend(window_triples)
+                # D3: refresh the lock at every window boundary — extraction can be
+                # slow, so refreshing only at commit points let the TTL lapse
+                # mid-build. Fail closed if the lock was lost (another build may
+                # have taken over) so we never write Neo4j concurrently.
+                if not await self._locks.refresh(cfg.id, ttl_s=LOCK_TTL_S):
+                    raise GraphRagBuildBusy(f"lock lost during phase-1 for {cfg.id}")
             n_triples = await self._neo4j.apply_triples(
                 config_id=cfg.id,
                 project_id=cfg.project_id,
@@ -359,12 +376,12 @@ class GraphRagBuilder:
                 model=resolved_embedder.model,
                 dim=len(embeddings[0].vector),
             )
-        # Final idle state + stamp last_build_at.
+        # Final idle state + stamp last_build_at with the D10 started-at watermark.
         await self._configs.set_state(
             config_id=cfg.id,
             state=BuildState.IDLE,
             error=None,
-            stamp_built_at=True,
+            built_at=build_started_at,
         )
         # Audit review #2: make the terminal IDLE durable BEFORE dropping the
         # Redis snapshot + current-build pointer. Otherwise a crash between the
@@ -478,18 +495,20 @@ class GraphRagBuilder:
 # self-contained without dragging concrete clients into the app layer.
 # ---------------------------------------------------------------------------
 
-from collections.abc import Awaitable, Callable  # noqa: E402
+from collections.abc import AsyncIterator, Awaitable, Callable  # noqa: E402
 from typing import Protocol  # noqa: E402
 
 
 class DeltaLoader(Protocol):
-    async def load(
+    def iter_windows(
         self,
         *,
         config_id: uuid.UUID,
         since: Any,
         mode: Literal["delta", "full"],
-    ) -> list[DeltaMessage]: ...
+    ) -> AsyncIterator[list[DeltaMessage]]:
+        """Yield the delta as bounded windows (D1); one commit spans all windows."""
+        ...
 
 
 class _Embedder(Protocol):

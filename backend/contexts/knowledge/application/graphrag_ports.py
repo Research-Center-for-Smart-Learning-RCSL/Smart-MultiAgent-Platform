@@ -237,6 +237,7 @@ class GraphRagConfigRepositoryPort(Protocol):
         state: BuildState,
         error: str | None = None,
         stamp_built_at: bool = False,
+        built_at: datetime | None = None,
     ) -> None: ...
 
     async def set_embed_pin(
