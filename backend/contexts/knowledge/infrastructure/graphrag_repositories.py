@@ -75,6 +75,13 @@ def _row_to_config(row: Any) -> GraphRagConfig:
     )
 
 
+_OWNER_COLUMN = {
+    "chatroom": "owner_chatroom_id",
+    "agent_group": "owner_agent_group_id",
+    "workspace": "owner_workspace_id",
+}
+
+
 class GraphRagConfigRepository(GraphRagConfigRepositoryPort):
     def __init__(self, db: AsyncSession) -> None:
         self._db = db
@@ -83,35 +90,39 @@ class GraphRagConfigRepository(GraphRagConfigRepositoryPort):
         self,
         *,
         project_id: uuid.UUID,
-        owner_agent_group_id: uuid.UUID,
+        owner_kind: str,
+        owner_id: uuid.UUID,
         builder_key_group_id: uuid.UUID,
         trigger_config: dict[str, Any],
         embed_provider: str | None = None,
         embed_model: str | None = None,
         embed_dim: int | None = None,
     ) -> GraphRagConfig:
+        """Insert a config for a discriminated owner (Phase 2b WS2).
+
+        Sets the single ``owner_*`` column matching ``owner_kind`` (the CHECK and
+        partial-unique indexes from Phase 1 enforce exactly-one ownership and 1:1).
+        """
+        owner_col = _OWNER_COLUMN[owner_kind]
         try:
             await self._db.execute(
                 t.graphrag_configs.insert().values(
                     project_id=project_id,
-                    owner_agent_group_id=owner_agent_group_id,
-                    owner_kind="agent_group",
+                    owner_kind=owner_kind,
                     builder_key_group_id=builder_key_group_id,
                     trigger_config=trigger_config,
                     embed_provider=embed_provider,
                     embed_model=embed_model,
                     embed_dim=embed_dim,
+                    **{owner_col: owner_id},
                 )
             )
         except IntegrityError as exc:
-            # The owner partial-unique (uq_graphrag_configs_owner_agent_group)
-            # enforces 1:1 ownership; a second create for the same owner is a
-            # domain 409, not a 500.
-            raise GraphRagConfigAlreadyExists(str(owner_agent_group_id)) from exc
+            # The per-owner partial-unique enforces 1:1 ownership; a second create
+            # for the same owner is a domain 409, not a 500.
+            raise GraphRagConfigAlreadyExists(str(owner_id)) from exc
         row = (
-            await self._db.execute(
-                _config_select().where(t.graphrag_configs.c.owner_agent_group_id == owner_agent_group_id)
-            )
+            await self._db.execute(_config_select().where(t.graphrag_configs.c[owner_col] == owner_id))
         ).one()
         return _row_to_config(row)
 

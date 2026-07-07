@@ -57,7 +57,17 @@ class GraphRagConfig:
 
 @dataclass(frozen=True, slots=True)
 class GraphRagConfigDraft:
-    agent_id: uuid.UUID
+    """Owner-centric create input (Phase 2b WS2).
+
+    Replaces the Phase 1 agent-centric draft: a Concept Map is created for a
+    discriminated owner (``agent_group`` — a group managed via the member-CRUD
+    surface — or a ``chatroom`` / ``workspace``), not by auto-wrapping a single
+    agent. ``owner_id`` is that owner entity's id; the service validates it lives
+    in the config's project.
+    """
+
+    owner_kind: str
+    owner_id: uuid.UUID
     builder_key_group_id: uuid.UUID
     trigger_config: dict[str, Any] = field(default_factory=dict)
 

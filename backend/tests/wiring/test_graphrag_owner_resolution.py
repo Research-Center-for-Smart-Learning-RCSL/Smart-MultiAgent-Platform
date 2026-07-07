@@ -1,19 +1,11 @@
-"""Wiring tier — GraphRAG owner decoupling (Phase 1 M1/M2, R11.05/R11.07).
+"""Wiring tier — GraphRAG owner resolution (Phase 1 + Phase 2b WS2, R11.05/R11.07).
 
-Exercises the discriminated owner model against **real** Postgres. The expand
-migration (0043) plus the M2 service/repository rewrite must satisfy one
-invariant above all: resolving a config *by ownership* (the agent's singleton
-``agent_group`` membership) returns exactly what the legacy ``WHERE agent_id
-IN (:ids)`` returned, so the contract step can drop ``agent_id`` without any
-behavior change.
-
-Covers:
-  1. ``GraphRagConfigService.create`` wraps the agent in a singleton
-     ``agent_group`` (member = the agent) and sets it as the config's owner;
-     the owning agent is derived from the group membership.
-  2. ``list_for_agents`` resolves through the membership join and matches the
-     legacy ``agent_id`` scope: the owning agent sees its config, an unrelated
-     agent sees nothing.
+Exercises the discriminated owner model against **real** Postgres. Phase 2b WS2
+makes create owner-centric: a config is created for an existing ``agent_group``
+(populated via the member-CRUD service), not by auto-wrapping a single agent.
+The ownership-resolution invariant still holds: ``list_for_agents`` resolves a
+config through the group membership join, so the owning agent sees its config
+and an unrelated agent sees nothing.
 
 The three GraphRAG I/O ports (Neo4j, Qdrant, embedder) are never touched here —
 config CRUD is pure Postgres.
@@ -27,13 +19,17 @@ from types import SimpleNamespace
 import pytest
 import sqlalchemy as sa
 
-from contexts.agent_groups.infrastructure import tables as ag
+from contexts.agent_groups.application.group_service import AgentGroupService
 from contexts.agents.domain.models import AgentModelHint, ContextMode, PromptStrategy
 from contexts.agents.infrastructure.repositories import AgentRepository
-from contexts.conversation.infrastructure.repositories import WorkspaceRepository
+from contexts.conversation.infrastructure.repositories import (
+    ChatroomRepository,
+    WorkspaceRepository,
+)
 from contexts.identity.infrastructure.repositories import UserRepository
 from contexts.keys.infrastructure.group_repository import KeyGroupRepository
 from contexts.knowledge.application.graphrag_config_service import GraphRagConfigService
+from contexts.knowledge.domain.errors import GraphRagOwnerProjectMismatch
 from contexts.knowledge.domain.graphrag import GraphRagConfigDraft
 from contexts.knowledge.infrastructure import graphrag_tables as gt
 from contexts.knowledge.infrastructure.graphrag_repositories import GraphRagConfigRepository
@@ -47,6 +43,17 @@ from contexts.tenancy.infrastructure.repositories import (
 from shared_kernel.db.session import async_session
 
 pytestmark = pytest.mark.wiring
+
+
+async def _group_with_member(
+    db, *, project_id: uuid.UUID, user_id: uuid.UUID, agent_id: uuid.UUID
+) -> uuid.UUID:
+    svc = AgentGroupService(db)
+    gid = await svc.create_group(
+        project_id=project_id, name=f"grp-{uuid.uuid4().hex[:8]}", actor_user_id=user_id, actor_ip=None
+    )
+    await svc.add_member(group_id=gid, agent_id=agent_id, actor_user_id=user_id, actor_ip=None)
+    return gid
 
 
 async def _seed_project(db) -> SimpleNamespace:
@@ -65,8 +72,8 @@ async def _seed_project(db) -> SimpleNamespace:
     await ProjectMemberRepository(db).add(
         project_id=project.id, user_id=user.id, role=ProjectMemberRole.OWNER
     )
-    await WorkspaceRepository(db).create(project_id=project.id, name=f"ws-{u}")
-    return SimpleNamespace(user=user, org=org, project=project)
+    workspace = await WorkspaceRepository(db).create(project_id=project.id, name=f"ws-{u}")
+    return SimpleNamespace(user=user, org=org, project=project, workspace=workspace)
 
 
 async def _seed_agent(db, project_id: uuid.UUID, key_group_id: uuid.UUID) -> uuid.UUID:
@@ -89,27 +96,28 @@ async def _seed_agent(db, project_id: uuid.UUID, key_group_id: uuid.UUID) -> uui
     return agent.id
 
 
-async def test_create_wraps_agent_in_singleton_owner_group() -> None:
+async def test_create_for_agent_group_owner_sets_owner_columns() -> None:
     async with async_session() as db:
         env = await _seed_project(db)
         consumer_kg = await KeyGroupRepository(db).create(project_id=env.project.id, name="consumer")
         builder_kg = await KeyGroupRepository(db).create(project_id=env.project.id, name="builder")
         agent_id = await _seed_agent(db, env.project.id, consumer_kg.id)
+        gid = await _group_with_member(db, project_id=env.project.id, user_id=env.user.id, agent_id=agent_id)
         await db.commit()
 
         cfg = await GraphRagConfigService(db).create(
             project_id=env.project.id,
-            draft=GraphRagConfigDraft(agent_id=agent_id, builder_key_group_id=builder_kg.id),
+            draft=GraphRagConfigDraft(
+                owner_kind="agent_group", owner_id=gid, builder_key_group_id=builder_kg.id
+            ),
             actor_user_id=env.user.id,
             actor_ip=None,
         )
         await db.commit()
 
-        # The owning agent is derived from the singleton group's membership.
+        # The owning agent is still derived from the group's (single) membership.
         assert cfg.agent_id == agent_id
 
-        # The owner columns point at a singleton agent_group; the legacy
-        # agent_id column is gone (0044).
         row = (
             await db.execute(
                 sa.select(
@@ -119,31 +127,26 @@ async def test_create_wraps_agent_in_singleton_owner_group() -> None:
             )
         ).one()
         assert row.owner_kind == "agent_group"
-        assert row.owner_agent_group_id is not None
-
-        # Exactly one member — the former owning agent.
-        members = (
-            await db.execute(
-                sa.select(ag.agent_group_members.c.agent_id).where(
-                    ag.agent_group_members.c.agent_group_id == row.owner_agent_group_id
-                )
-            )
-        ).all()
-        assert [m.agent_id for m in members] == [agent_id]
+        assert row.owner_agent_group_id == gid
 
 
-async def test_list_for_agents_matches_legacy_agent_id_scope() -> None:
+async def test_list_for_agents_resolves_through_membership() -> None:
     async with async_session() as db:
         env = await _seed_project(db)
         consumer_kg = await KeyGroupRepository(db).create(project_id=env.project.id, name="consumer")
         builder_kg = await KeyGroupRepository(db).create(project_id=env.project.id, name="builder")
         owner_agent_id = await _seed_agent(db, env.project.id, consumer_kg.id)
         other_agent_id = await _seed_agent(db, env.project.id, consumer_kg.id)
+        gid = await _group_with_member(
+            db, project_id=env.project.id, user_id=env.user.id, agent_id=owner_agent_id
+        )
         await db.commit()
 
         cfg = await GraphRagConfigService(db).create(
             project_id=env.project.id,
-            draft=GraphRagConfigDraft(agent_id=owner_agent_id, builder_key_group_id=builder_kg.id),
+            draft=GraphRagConfigDraft(
+                owner_kind="agent_group", owner_id=gid, builder_key_group_id=builder_kg.id
+            ),
             actor_user_id=env.user.id,
             actor_ip=None,
         )
@@ -151,10 +154,65 @@ async def test_list_for_agents_matches_legacy_agent_id_scope() -> None:
 
         repo = GraphRagConfigRepository(db)
 
-        # The owning agent resolves its config through the membership join —
-        # exactly what `WHERE agent_id IN (owner_agent_id)` returned pre-decouple.
+        # A member agent resolves its config through the membership join.
         owned = await repo.list_for_agents([owner_agent_id])
         assert [c.id for c in owned] == [cfg.id]
 
-        # An unrelated agent (no owner-group membership) sees nothing.
+        # An unrelated agent (no group membership) sees nothing.
         assert await repo.list_for_agents([other_agent_id]) == []
+
+
+async def test_create_for_chatroom_and_workspace_owners() -> None:
+    # AC-3: chatroom- and workspace-owned configs can be created; the owner
+    # columns are set for the discriminated kind.
+    async with async_session() as db:
+        env = await _seed_project(db)
+        builder_kg = await KeyGroupRepository(db).create(project_id=env.project.id, name="builder")
+        room = await ChatroomRepository(db).create(workspace_id=env.workspace.id, name="r")
+        await db.commit()
+
+        svc = GraphRagConfigService(db)
+        room_cfg = await svc.create(
+            project_id=env.project.id,
+            draft=GraphRagConfigDraft(
+                owner_kind="chatroom", owner_id=room.id, builder_key_group_id=builder_kg.id
+            ),
+            actor_user_id=env.user.id,
+            actor_ip=None,
+        )
+        ws_cfg = await svc.create(
+            project_id=env.project.id,
+            draft=GraphRagConfigDraft(
+                owner_kind="workspace", owner_id=env.workspace.id, builder_key_group_id=builder_kg.id
+            ),
+            actor_user_id=env.user.id,
+            actor_ip=None,
+        )
+        await db.commit()
+
+        assert room_cfg.owner_kind == "chatroom"
+        assert room_cfg.owner_chatroom_id == room.id
+        assert room_cfg.agent_id is None  # a wide owner has no derived agent
+        assert ws_cfg.owner_kind == "workspace"
+        assert ws_cfg.owner_workspace_id == env.workspace.id
+
+
+async def test_create_rejects_owner_from_another_project() -> None:
+    # AC-3: an owner that does not live in the config's project is rejected
+    # (RFC 7807 GraphRagOwnerProjectMismatch).
+    async with async_session() as db:
+        env = await _seed_project(db)
+        other = await _seed_project(db)
+        builder_kg = await KeyGroupRepository(db).create(project_id=env.project.id, name="builder")
+        foreign_room = await ChatroomRepository(db).create(workspace_id=other.workspace.id, name="x")
+        await db.commit()
+
+        with pytest.raises(GraphRagOwnerProjectMismatch):
+            await GraphRagConfigService(db).create(
+                project_id=env.project.id,
+                draft=GraphRagConfigDraft(
+                    owner_kind="chatroom", owner_id=foreign_room.id, builder_key_group_id=builder_kg.id
+                ),
+                actor_user_id=env.user.id,
+                actor_ip=None,
+            )

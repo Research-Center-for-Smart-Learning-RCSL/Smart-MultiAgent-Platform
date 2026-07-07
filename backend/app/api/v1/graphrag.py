@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import logging
 import uuid
+from typing import Literal
 
 from fastapi import APIRouter, Depends, Path, Query, status
 from pydantic import BaseModel, ConfigDict, Field
@@ -67,8 +68,19 @@ class GraphRagTriggerConfig(BaseModel):
     manual: bool = False
 
 
+OwnerKind = Literal["agent_group", "chatroom", "workspace"]
+
+
 class GraphRagConfigCreateIn(BaseModel):
-    agent_id: uuid.UUID
+    """Owner-centric create (Phase 2b WS2).
+
+    ``owner_id`` references an existing owner of ``owner_kind`` in the project:
+    an ``agent_group`` (managed via the member-CRUD surface), a ``chatroom``, or
+    a ``workspace``.
+    """
+
+    owner_kind: OwnerKind
+    owner_id: uuid.UUID
     builder_key_group_id: uuid.UUID
     trigger_config: GraphRagTriggerConfig = Field(default_factory=GraphRagTriggerConfig)
 
@@ -83,7 +95,11 @@ class GraphRagConfigPatchIn(BaseModel):
 class GraphRagConfigOut(BaseModel):
     id: uuid.UUID
     project_id: uuid.UUID
-    agent_id: uuid.UUID
+    owner_kind: str
+    owner_id: uuid.UUID
+    # Derived owning agent — the sole member for a singleton agent_group; ``None``
+    # for a multi-member group or a chatroom/workspace owner.
+    agent_id: uuid.UUID | None
     builder_key_group_id: uuid.UUID
     trigger_config: dict[str, object]
     last_build_state: str
@@ -129,10 +145,20 @@ class GraphOut(BaseModel):
     truncated: bool
 
 
+def _owner_id(cfg: GraphRagConfig) -> uuid.UUID:
+    return {
+        "chatroom": cfg.owner_chatroom_id,
+        "agent_group": cfg.owner_agent_group_id,
+        "workspace": cfg.owner_workspace_id,
+    }[cfg.owner_kind]  # type: ignore[return-value]
+
+
 def _to_out(cfg: GraphRagConfig) -> GraphRagConfigOut:
     return GraphRagConfigOut(
         id=cfg.id,
         project_id=cfg.project_id,
+        owner_kind=cfg.owner_kind,
+        owner_id=_owner_id(cfg),
         agent_id=cfg.agent_id,
         builder_key_group_id=cfg.builder_key_group_id,
         trigger_config=cfg.trigger_config,
@@ -183,7 +209,8 @@ async def create_config(
 ) -> GraphRagConfigOut:
     service = GraphRagConfigService(db)
     draft = GraphRagConfigDraft(
-        agent_id=body.agent_id,
+        owner_kind=body.owner_kind,
+        owner_id=body.owner_id,
         builder_key_group_id=body.builder_key_group_id,
         trigger_config=body.trigger_config.model_dump(exclude_none=True),
     )
