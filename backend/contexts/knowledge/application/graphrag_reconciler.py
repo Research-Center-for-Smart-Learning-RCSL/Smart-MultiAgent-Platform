@@ -23,6 +23,9 @@ from collections.abc import Awaitable, Callable
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from contexts.knowledge.application.graphrag_config_service import (
+    purge_config_external_stores,
+)
 from contexts.knowledge.application.graphrag_events import publish_build_state
 from contexts.knowledge.application.graphrag_ports import (
     BuildLockStore,
@@ -140,37 +143,37 @@ class ReconciliationLoop:
         self,
         db: AsyncSession,
         repo: GraphRagConfigRepositoryPort,
-    ) -> list[uuid.UUID]:
-        """Purge graph data whose Postgres config row no longer exists (backstop).
+    ) -> None:
+        """Purge graph data whose config is no longer live in Postgres (backstop).
 
-        The inline agent-delete cascade (DOM-4) is the primary teardown; this
-        is the safety net for a config hard-deleted out from under its graph
-        (e.g. a retention CASCADE) or an inline purge that failed. An orphan is
-        a subgraph whose ``graphrag_config_id`` is absent from
-        ``list_all_ids(include_deleted=True)`` — soft-deleted configs keep a
-        row and are handled inline, so they are never swept here.
+        The inline delete cascade (DOM-4) is the primary teardown; this is the
+        safety net for graph data left behind when that cascade could not run or
+        did not finish: a config hard-deleted out from under its graph (e.g. a
+        retention CASCADE) *or* one soft-deleted whose best-effort inline purge
+        failed. An orphan is any subgraph whose ``graphrag_config_id`` is not in
+        ``list_all_ids()`` (live, non-deleted). A soft-deleted config is not
+        live, so its still-present graph data is reclaimed here; the purge is
+        idempotent, so a config whose inline purge already succeeded has no graph
+        data left, is absent from ``list_config_ids``, and is never revisited.
 
         Failures are isolated per orphan and never abort the reconcile cycle.
         """
-        live_ids = await repo.list_all_ids(include_deleted=True)
+        live_ids = await repo.list_all_ids()
         try:
             graph_configs = await self._neo4j.list_config_ids()
         except Exception:
             _log.exception("graphrag orphan sweep: failed to enumerate graph config ids")
-            return []
-        purged: list[uuid.UUID] = []
+            return
         for config_id, project_id in graph_configs:
             if config_id in live_ids:
                 continue
             try:
-                await self._neo4j.delete_all(config_id=config_id)
-                # A pre-``project_id`` orphan cannot be Qdrant-swept (FU-B);
-                # the Neo4j purge above still runs so the graph is not leaked.
-                if project_id is not None:
-                    await self._vectors.delete_by_config(
-                        project_id=project_id,
-                        config_id=config_id,
-                    )
+                outcome = await purge_config_external_stores(
+                    config_id=config_id,
+                    project_id=project_id,
+                    neo4j=self._neo4j,
+                    vectors=self._vectors,
+                )
                 await audit.emit(
                     db,
                     audit.AuditEvent(
@@ -179,16 +182,14 @@ class ReconciliationLoop:
                         resource_id=config_id,
                         metadata={
                             "project_id": str(project_id) if project_id else None,
-                            "qdrant_purged": project_id is not None,
+                            **outcome,
                         },
                     ),
                 )
                 await db.commit()
-                purged.append(config_id)
             except Exception:
                 _log.exception("graphrag orphan sweep: purge failed for config %s", config_id)
                 await db.rollback()
-        return purged
 
     async def run_forever(self, *, period_s: float = 60.0) -> None:
         while True:

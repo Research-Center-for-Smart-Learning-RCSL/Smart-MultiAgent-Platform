@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 import uuid
 from collections.abc import Sequence
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -32,6 +32,10 @@ from contexts.knowledge.infrastructure.graphrag_repositories import (
     GraphRagConfigRepository,
 )
 from shared_kernel import audit
+
+if TYPE_CHECKING:
+    from contexts.knowledge.application.graphrag_ports import Neo4jDriver
+    from contexts.knowledge.infrastructure.graphrag_vector_store import GraphRagVectorStore
 
 _log = logging.getLogger(__name__)
 
@@ -283,67 +287,77 @@ class GraphRagConfigService:
         """Best-effort removal of Neo4j subgraph + Qdrant entity vectors.
 
         DOM-4: must be called only *after* the soft-delete + audit row have
-        been committed. Returns a summary dict for the follow-up audit row.
+        been committed. Builds its own short-lived clients (the request path
+        owns no long-lived ones) and delegates the actual teardown to
+        :func:`purge_config_external_stores`, which the reconciler sweep also
+        uses with its own injected clients. Returns a summary dict for the
+        follow-up audit row.
         """
         from app.config.settings import get_settings
 
         settings = get_settings()
-        neo4j_purged = True
-        qdrant_purged = True
 
-        # Cascade the Neo4j subgraph (section 22.8).
-        from contexts.knowledge.infrastructure.neo4j_driver import (
-            Neo4jAsyncDriver,
-        )
+        from contexts.knowledge.infrastructure.neo4j_driver import Neo4jAsyncDriver
 
         neo4j_conf = getattr(settings, "neo4j", None)
-        if neo4j_conf is not None:
-            driver = Neo4jAsyncDriver(
-                uri=neo4j_conf.url,
-                auth=(neo4j_conf.user, neo4j_conf.password),
-            )
-            try:
-                await driver.delete_all(config_id=config_id)
-            except Exception:
-                neo4j_purged = False
-                _log.exception(
-                    "graphrag delete: neo4j cascade failed for config %s",
-                    config_id,
-                )
-            finally:
-                await driver.close()
+        driver = (
+            Neo4jAsyncDriver(uri=neo4j_conf.url, auth=(neo4j_conf.user, neo4j_conf.password))
+            if neo4j_conf is not None
+            else None
+        )
 
-        # DOM-2: delete this config's entity vectors from the shared Qdrant
-        # collection, scoped by the ``config_id`` payload tag.
+        from qdrant_client import AsyncQdrantClient
+
+        from contexts.knowledge.infrastructure.graphrag_vector_store import GraphRagVectorStore
+
+        qclient = AsyncQdrantClient(
+            url=settings.qdrant.url,
+            api_key=settings.qdrant.api_key or None,
+        )
         try:
-            from qdrant_client import AsyncQdrantClient
-
-            from contexts.knowledge.infrastructure.graphrag_vector_store import (
-                GraphRagVectorStore,
+            return await purge_config_external_stores(
+                config_id=config_id,
+                project_id=project_id,
+                neo4j=driver,
+                vectors=GraphRagVectorStore(qclient),
             )
+        finally:
+            if driver is not None:
+                await driver.close()
+            await qclient.close()
 
-            qclient = AsyncQdrantClient(
-                url=settings.qdrant.url,
-                api_key=settings.qdrant.api_key or None,
-            )
-            try:
-                await GraphRagVectorStore(qclient).delete_by_config(
-                    project_id=project_id,
-                    config_id=config_id,
-                )
-            finally:
-                await qclient.close()
+
+async def purge_config_external_stores(
+    *,
+    config_id: uuid.UUID,
+    project_id: uuid.UUID | None,
+    neo4j: Neo4jDriver | None,
+    vectors: GraphRagVectorStore | None,
+) -> dict[str, bool]:
+    """Delete a config's Neo4j subgraph (section 22.8) + Qdrant vectors (DOM-2).
+
+    The single teardown both the request-path cascade and the reconciler orphan
+    sweep share, using caller-owned clients. Each store is best-effort and
+    isolated: a failure on one is reported in the summary dict without aborting
+    the other. ``project_id`` may be ``None`` for a legacy orphan whose nodes
+    predate the self-describing property; the Qdrant collection is
+    project-scoped, so that case is reported ``qdrant_purged=False`` (FU-B).
+    """
+    neo4j_purged = True
+    qdrant_purged = project_id is not None
+    if neo4j is not None:
+        try:
+            await neo4j.delete_all(config_id=config_id)
+        except Exception:
+            neo4j_purged = False
+            _log.exception("graphrag delete: neo4j cascade failed for config %s", config_id)
+    if project_id is not None and vectors is not None:
+        try:
+            await vectors.delete_by_config(project_id=project_id, config_id=config_id)
         except Exception:
             qdrant_purged = False
-            _log.exception(
-                "graphrag delete: qdrant cascade failed for config %s",
-                config_id,
-            )
-
-        return {
-            "neo4j_purged": neo4j_purged,
-            "qdrant_purged": qdrant_purged,
-        }
+            _log.exception("graphrag delete: qdrant cascade failed for config %s", config_id)
+    return {"neo4j_purged": neo4j_purged, "qdrant_purged": qdrant_purged}
 
 
-__all__ = ["GraphRagConfigService"]
+__all__ = ["GraphRagConfigService", "purge_config_external_stores"]

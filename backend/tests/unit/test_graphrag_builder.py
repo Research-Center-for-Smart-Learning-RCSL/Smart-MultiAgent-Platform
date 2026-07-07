@@ -47,6 +47,7 @@ class FakeConfigStore:
         self.cfg = cfg
         self.transitions: list[tuple[BuildState, str | None, bool]] = []
         self.executed: list[Any] = []
+        self.list_all_ids_calls: list[bool] = []
 
     async def execute(self, stmt: Any, *a: Any, **kw: Any) -> Any:
         self.executed.append(stmt)
@@ -70,6 +71,7 @@ class FakeConfigStore:
         return [self.cfg] if self.cfg.last_build_state is state else []
 
     async def list_all_ids(self, *, include_deleted: bool = False) -> set[uuid.UUID]:
+        self.list_all_ids_calls.append(include_deleted)
         return {self.cfg.id}
 
     async def set_state(
@@ -577,6 +579,9 @@ async def test_reconciler_sweeps_orphaned_graph_configs() -> None:
 
     # No stuck configs → nothing healed; the sweep is the only work this cycle.
     assert touched == []
+    # The sweep diffs against LIVE (non-deleted) config ids, not include_deleted:
+    # a soft-deleted config whose inline purge failed is therefore reclaimed here.
+    assert store.list_all_ids_calls == [False]
     # Both orphans are purged from Neo4j; the live config's subgraph is untouched.
     assert set(neo4j.deleted_all) == {orphan_id, legacy_orphan}
     assert cfg.id not in neo4j.deleted_all
