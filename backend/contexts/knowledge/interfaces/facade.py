@@ -66,13 +66,33 @@ class KnowledgeFacade:
         """
         return await self._graphrag.list_for_agents([agent_id])
 
-    async def soft_delete_graph_config(self, config_id: uuid.UUID) -> None:
-        """Soft-delete a GraphRAG config row (does not commit).
+    async def soft_delete_graph_config(
+        self,
+        config_id: uuid.UUID,
+        *,
+        actor_user_id: uuid.UUID,
+        actor_ip: str | None,
+        request_id: uuid.UUID | None = None,
+    ) -> None:
+        """Soft-delete a GraphRAG config via the service (does not commit).
 
-        The caller owns the transaction and must commit before purging
-        external stores (DOM-4).
+        Routes through :class:`GraphRagConfigService` so the agent-delete
+        cascade emits the canonical ``graphrag.deleted`` audit event (and any
+        future service-level side effects) exactly like a direct config delete,
+        rather than silently soft-deleting the row at the repository. The caller
+        owns the transaction and must commit before purging external stores
+        (DOM-4).
         """
-        await self._graphrag.soft_delete(config_id)
+        from contexts.knowledge.application.graphrag_config_service import (
+            GraphRagConfigService,
+        )
+
+        await GraphRagConfigService(self._db).soft_delete(
+            config_id=config_id,
+            actor_user_id=actor_user_id,
+            actor_ip=actor_ip,
+            request_id=request_id,
+        )
 
     @staticmethod
     async def purge_graph_config_external_stores(
