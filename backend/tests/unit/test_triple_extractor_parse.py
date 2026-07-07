@@ -31,6 +31,20 @@ def test_unknown_type_maps_to_other_and_missing_to_blank() -> None:
     assert triples[0].object_type == ""  # absent -> unknown
 
 
+def test_evidence_refs_drop_null_blank_and_oversized() -> None:
+    mid = uuid.uuid4()
+    long_ref = "x" * 200  # exceeds MAX_EVIDENCE_REF_LEN
+    raw = (
+        '[{"subject": "a", "relation": "r", "object": "b", '
+        f'"evidence_msg_ids": ["{mid}", null, "  ", 12345, "{long_ref}"]}}]'
+    )
+    triples = _parse_triples(raw)
+    assert len(triples) == 1
+    # Only the valid, length-bounded string ref survives; a JSON null never
+    # becomes the literal "None", numbers and oversized strings are dropped.
+    assert triples[0].evidence_refs == (str(mid),)
+
+
 def test_norm_type_helper() -> None:
     assert _norm_type("PERSON") == "person"
     assert _norm_type("  Concept ") == "concept"
