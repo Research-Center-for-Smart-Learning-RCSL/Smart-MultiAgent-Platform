@@ -535,17 +535,17 @@ Because Neo4j and Qdrant are independent systems, a naïve "write both" sequence
 ### 11.4 Concept Map ownership and layering
 
 - **[R11.07]** `agent_group` is a first-class, project-scoped entity with a member set of Agents (`agent_group_members`). It may own a Concept Map.
-- **[R11.08]** The Concept Map delta feed is scoped by owner: `chatroom` → that room's messages; `agent_group` → the union of member agents' room messages; `workspace` → that workspace's room messages.
+- **[R11.08]** The Concept Map delta feed is scoped by owner and deduplicated by message id: `chatroom` → that room's messages; `agent_group` → the union of member agents' room messages (`SELECT DISTINCT`, so a message shared by co-present members is ingested once); `workspace` → that workspace's room messages.
 - **[R11.09]** At agent invocation, retrieval draws on **every Concept Map covering the agent in the current room** (its chatroom map, each enabled agent_group map it belongs to, and the enabled workspace map), merged under the 2 KB cap with narrow-scope precedence (chatroom > agent_group > workspace) and entity dedup.
 - **[R11.10]** Privacy default-strict: the chatroom Concept Map layer is enabled by default; agent_group and workspace layers require an explicit `concept_map_enabled` flag on the owner, settable only by Project Owner, and their enablement is audit-logged. No Concept Map ever spans projects.
-- **[R11.11]** The Concept Map builder key group is an attribute of the owner (not the replying agent), preserving the builder-vs-consumer billing split of [R11.01].
+- **[R11.11]** The Concept Map builder key group is declared on the owning config and validated only for project membership. Because a Concept Map has no single consumer agent (it may be consumed by many agents across layers, and chatroom/workspace owners carry no key group), the [R11.01] builder-vs-consumer distinctness rule does not apply to Concept Maps.
 
 ### 11.5 Knowledge Map — Graph RAG over files (Axis 1)
 
 - **[R11.12]** A Knowledge Map is a designer-authored Graph RAG built from **uploaded documents** (the same sources as §10 file-RAG), not from conversation. It is project-scoped with a per-Agent allowlist, mirroring [R10.11].
-- **[R11.13]** Knowledge Map ingestion reuses the RAG ingestion pipeline (§10.1) to parse documents, then extracts triples via the shared extractor and persists to its own Neo4j subgraph + Qdrant collection, scoped by its config id.
+- **[R11.13]** Knowledge Map ingestion reuses the shared document parser (`shared_kernel` `MIME_TO_PARSER`) to obtain document text, extracts triples via a document-oriented extractor, and persists to its own Neo4j subgraph + Qdrant collection (`knowmap_{project_id}`), scoped by its config id.
 - **[R11.14]** At agent invocation, an attached Knowledge Map is queried as an Axis-1 system block (`type:"graphrag"` retained) beside file-RAG, independent of any Concept Map.
-- **[R11.15]** Knowledge Map and Concept Map are distinct subsystems (separate config, services, and UI) that share the low-level graph adapters (Neo4j driver, Qdrant store, triple extractor, 2PC runner).
+- **[R11.15]** Knowledge Map and Concept Map are distinct subsystems (separate config, services, and UI) that share the low-level graph adapters (Neo4j driver, Qdrant store, 2PC runner) and the `TripleExtractor` Protocol. Graph evidence is identified by an opaque reference token — a message id for conversation-sourced triples, a document chunk reference for file-sourced triples.
 
 ---
 
