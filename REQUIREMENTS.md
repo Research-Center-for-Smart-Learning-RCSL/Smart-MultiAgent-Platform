@@ -1750,7 +1750,7 @@ slices/<name>/
 ```
 
 - **[R24.05]** **Barrel rule.** A slice's `index.ts` exports only what other slices may consume: route table, public composables, public types. Everything else (components, stores, queries, internal types) is internal. ESLint's `no-restricted-imports` enforces this.
-- **[R24.06]** **Cross-slice dependency direction.** Allowed: `conversation → agents → keys → tenancy → identity → shared`. Disallowed: any reverse direction. Codified in `.eslintrc` with `boundaries` plugin; violations fail CI.
+- **[R24.06]** **Cross-slice dependency direction.** Allowed: `conversation → agent-groups → agents → keys → tenancy → identity → shared` (plus the orthogonal `workflow`, `admin`, `notifications`, and `prompt-studio` slices, each importing only rightward). Disallowed: any reverse direction. The `agent-groups` slice is a first-class, project-scoped slice owning agent-group CRUD, membership, and the group-owned Concept Map panel; it may import `agents`/`keys`/`tenancy`/`identity`/`shared` and is imported by `conversation`. Codified in `eslint.config.js` with the `boundaries` plugin; violations fail CI.
 - **[R24.07]** `shared/` has **no** imports from any slice. One-way dependency by construction.
 
 ### 24.3 State management
