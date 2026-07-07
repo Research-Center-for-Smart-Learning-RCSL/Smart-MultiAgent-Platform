@@ -1,6 +1,6 @@
 ---
 type: refactor
-status: draft
+status: approved
 created: 2026-07-07
 requirements: [R11.05, R11.07, R11.08]
 ---
