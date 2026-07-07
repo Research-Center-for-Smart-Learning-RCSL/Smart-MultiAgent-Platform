@@ -313,8 +313,7 @@ async def read_graph(
     return GraphOut(
         config_id=view.config_id,
         nodes=[
-            GraphNodeOut(id=n.name, degree=n.degree, build_id=n.build_id, type=n.type)
-            for n in view.nodes
+            GraphNodeOut(id=n.name, degree=n.degree, build_id=n.build_id, type=n.type) for n in view.nodes
         ],
         edges=[
             GraphEdgeOut(
@@ -445,6 +444,7 @@ async def trigger_build(
             state=cfg.last_build_state.value,
         )
 
+    from contexts.knowledge.application.graphrag_triggers import graphrag_build_job_id
     from shared_kernel import audit as _audit
     from shared_kernel.queue import enqueue
 
@@ -460,7 +460,18 @@ async def trigger_build(
             request_id=ctx.request_id,
         ),
     )
-    await enqueue("graphrag_build", config_id=str(config_id), triggered_by="manual")
+    # D5: share the auto-trigger dedup id so a manual click while an auto build
+    # for the same config+watermark is queued collapses onto the one job.
+    await enqueue(
+        "graphrag_build",
+        config_id=str(config_id),
+        triggered_by="manual",
+        _job_id=graphrag_build_job_id(
+            config_id,
+            last_build_state=cfg.last_build_state,
+            last_build_at=cfg.last_build_at,
+        ),
+    )
     return GraphRagBuildOut(
         accepted=True,
         build_id=None,
