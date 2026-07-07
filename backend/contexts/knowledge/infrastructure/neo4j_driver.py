@@ -73,6 +73,7 @@ class Neo4jAsyncDriver:
             "RETURN s.name AS subject, r.relation AS relation, "
             "o.name AS object, r.confidence AS confidence, "
             "r.evidence_msg_ids AS evidence_msg_ids, "
+            "r.source_member_ids AS source_member_ids, "
             "r.build_id AS build_id"
         )
         # Capture nodes (name, type, build_id) too so a compensation restore
@@ -134,7 +135,14 @@ class Neo4jAsyncDriver:
             "                   THEN row.confidence ELSE r.confidence END, "
             "    r.evidence_msg_ids = coalesce(r.evidence_msg_ids, []) + "
             "      [x IN row.evidence_msg_ids "
-            "         WHERE NOT x IN coalesce(r.evidence_msg_ids, [])]"
+            "         WHERE NOT x IN coalesce(r.evidence_msg_ids, [])], "
+            # Phase 2b (R11.22): accumulate the contributing member ids as a set
+            # (dedup on union) exactly like evidence — a relation restated by a
+            # second member gains that member without losing the first, so a
+            # member-scoped retrieval filter stays correct across delta builds.
+            "    r.source_member_ids = coalesce(r.source_member_ids, []) + "
+            "      [x IN row.source_member_ids "
+            "         WHERE NOT x IN coalesce(r.source_member_ids, [])]"
         )
         rows = [
             {
@@ -145,6 +153,7 @@ class Neo4jAsyncDriver:
                 "evidence_msg_ids": list(tr.evidence_refs),
                 "subject_type": tr.subject_type,
                 "object_type": tr.object_type,
+                "source_member_ids": list(tr.source_member_ids),
             }
             for tr in triples
         ]
@@ -195,7 +204,8 @@ class Neo4jAsyncDriver:
             "-[r:REL {graphrag_config_id: $cid, build_id: $bid}]->"
             "(o:Entity {graphrag_config_id: $cid}) "
             "RETURN s.name AS subject, r.relation AS relation, o.name AS object, "
-            "r.confidence AS confidence, r.evidence_msg_ids AS evidence_msg_ids"
+            "r.confidence AS confidence, r.evidence_msg_ids AS evidence_msg_ids, "
+            "r.source_member_ids AS source_member_ids"
         )
         async with driver.session() as session:
             result = await session.run(
@@ -254,7 +264,10 @@ class Neo4jAsyncDriver:
             "                  relation: row.relation}]->(o) "
             "SET r.build_id = row.build_id, "
             "    r.confidence = row.confidence, "
-            "    r.evidence_msg_ids = row.evidence_msg_ids"
+            "    r.evidence_msg_ids = row.evidence_msg_ids, "
+            # coalesce so an older snapshot (taken before member provenance
+            # existed) restores to [] rather than nulling the property.
+            "    r.source_member_ids = coalesce(row.source_member_ids, [])"
         )
         async with driver.session() as session:
             if nodes:
@@ -287,7 +300,8 @@ class Neo4jAsyncDriver:
             "                edge.relation AS relation, "
             "                endNode(edge).name AS object, "
             "                edge.confidence AS confidence, "
-            "                edge.evidence_msg_ids AS evidence_msg_ids "
+            "                edge.evidence_msg_ids AS evidence_msg_ids, "
+            "                edge.source_member_ids AS source_member_ids "
             # coalesce: a NULL confidence sorts as the largest value in Neo4j, so
             # legacy/restored edges with no confidence would otherwise consume the
             # LIMIT ahead of genuinely strong edges. Treat missing as 0.0.

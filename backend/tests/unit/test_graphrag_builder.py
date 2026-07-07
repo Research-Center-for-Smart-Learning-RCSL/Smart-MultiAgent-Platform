@@ -421,6 +421,76 @@ async def test_happy_path_transitions_to_idle() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Phase 2b WS1 (AC-2) — member provenance threads from the delta feed onto the
+# extracted relations the builder hands to Neo4j.
+# ---------------------------------------------------------------------------
+
+
+def _provenance_builder(
+    *, cfg: GraphRagConfig, neo4j: FakeNeo4j, window: list[_Msg], triples: list[Triple]
+) -> GraphRagBuilder:
+    return GraphRagBuilder(
+        FakeDb(),  # type: ignore[arg-type]
+        neo4j=neo4j,
+        vector_store=FakeVectorStore(),  # type: ignore[arg-type]
+        extractor=FakeExtractor(triples),
+        lock_store=FakeLock(),
+        snapshot_store=FakeSnapshots(),
+        delta_loader=FakeWindowLoader([window]),
+        embedder_factory=_embedder_factory,
+        configs=FakeConfigStore(cfg),  # type: ignore[arg-type]
+    )
+
+
+@pytest.mark.asyncio
+async def test_build_tags_relations_with_source_member() -> None:
+    cfg = _make_cfg()
+    member_id, msg_id = uuid.uuid4(), uuid.uuid4()
+    neo4j = FakeNeo4j()
+    # The extractor cites the member's message as evidence; provenance is derived
+    # from that message's source_member_id, never from the extractor output.
+    triples = [
+        Triple(
+            subject="alice",
+            relation="knows",
+            object="bob",
+            confidence=0.9,
+            evidence_refs=(str(msg_id),),
+        )
+    ]
+    window = [_Msg(id=msg_id, role="user", content="hi", source_member_id=member_id)]
+    builder = _provenance_builder(cfg=cfg, neo4j=neo4j, window=window, triples=triples)
+
+    await builder.run(config_id=cfg.id, mode="delta", triggered_by="manual")
+
+    assert neo4j.applied[0][0].source_member_ids == (str(member_id),)
+
+
+@pytest.mark.asyncio
+async def test_build_leaves_relations_untagged_without_member_provenance() -> None:
+    # A single-owner feed (messages carry no source_member_id) must not invent
+    # provenance — the relation stays untagged so nothing is mis-partitioned.
+    cfg = _make_cfg()
+    msg_id = uuid.uuid4()
+    neo4j = FakeNeo4j()
+    triples = [
+        Triple(
+            subject="alice",
+            relation="knows",
+            object="bob",
+            confidence=0.9,
+            evidence_refs=(str(msg_id),),
+        )
+    ]
+    window = [_Msg(id=msg_id, role="user", content="hi")]  # source_member_id=None
+    builder = _provenance_builder(cfg=cfg, neo4j=neo4j, window=window, triples=triples)
+
+    await builder.run(config_id=cfg.id, mode="delta", triggered_by="manual")
+
+    assert neo4j.applied[0][0].source_member_ids == ()
+
+
+# ---------------------------------------------------------------------------
 # D2 self-pin (AC-4) — a legacy null-pin config records its embedding identity
 # ---------------------------------------------------------------------------
 

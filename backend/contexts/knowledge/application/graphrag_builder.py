@@ -23,7 +23,7 @@ from __future__ import annotations
 import logging
 import uuid
 from collections.abc import Iterable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
 from typing import Any, Literal
 
@@ -65,6 +65,23 @@ SNAPSHOT_TTL_S = 24 * 60 * 60  # 24h — reconciler runs at 60s period
 # and fail Phase-2 on every reconciler retry. Bounding it keeps the description
 # representative without unbounded growth.
 MAX_DESC_FRAGMENTS = 40
+
+
+def attach_member_provenance(triple: Triple, msg_member: dict[str, str]) -> Triple:
+    """Tag a triple with the member(s) whose messages produced it (R11.22).
+
+    ``msg_member`` maps message id -> source member agent id (both strings),
+    built from the delta feed. A relation's provenance is the set of members
+    behind its evidence messages: a relation two members independently stated
+    carries both, so a member-scoped retrieval filter returns each member's true
+    contributions. Derived only from message provenance — never from LLM output.
+    Returns the triple unchanged when no evidence resolves to a member (a
+    single-owner build, or a relation the extractor left evidence-less).
+    """
+    members = sorted({msg_member[ref] for ref in triple.evidence_refs if ref in msg_member})
+    if not members:
+        return triple
+    return replace(triple, source_member_ids=tuple(members))
 
 
 def build_entity_descriptions(
@@ -238,11 +255,19 @@ class GraphRagBuilder:
             # window and triples accumulate; Neo4j apply / embed / Qdrant upsert
             # all happen once for the whole build (one atomic 2PC commit).
             triples: list[Triple] = []
+            # Phase 2b (R11.22): message id -> source member agent id, accumulated
+            # across windows so a relation's provenance resolves even when its
+            # evidence spans windows. Empty for a single-owner build, leaving
+            # triples untagged (source_member_ids == ()).
+            msg_member: dict[str, str] = {}
             async for window in self._delta_loader.iter_windows(
                 config_id=cfg.id,
                 since=since,
                 mode=mode,
             ):
+                for m in window:
+                    if m.source_member_id is not None:
+                        msg_member[str(m.id)] = str(m.source_member_id)
                 window_triples = await self._extractor.extract(
                     config_id=cfg.id,
                     builder_key_group_id=cfg.builder_key_group_id,
@@ -255,6 +280,8 @@ class GraphRagBuilder:
                 # have taken over) so we never write Neo4j concurrently.
                 if not await self._locks.refresh(cfg.id, ttl_s=LOCK_TTL_S):
                     raise GraphRagBuildBusy(f"lock lost during phase-1 for {cfg.id}")
+            if msg_member:
+                triples = [attach_member_provenance(tr, msg_member) for tr in triples]
             n_triples = await self._neo4j.apply_triples(
                 config_id=cfg.id,
                 project_id=cfg.project_id,
@@ -542,5 +569,6 @@ __all__ = [
     "MAX_DESC_FRAGMENTS",
     "ResolvedEmbedder",
     "SNAPSHOT_TTL_S",
+    "attach_member_provenance",
     "build_entity_descriptions",
 ]
