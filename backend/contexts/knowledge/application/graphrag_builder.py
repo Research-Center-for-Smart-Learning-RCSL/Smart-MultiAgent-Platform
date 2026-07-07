@@ -31,7 +31,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from contexts.knowledge.application.graphrag_events import publish_build_state
 from contexts.knowledge.application.graphrag_ports import (
     BuildLockStore,
+    ConfigLike,
     DeltaMessage,
+    GraphRagConfigRepositoryPort,
     Neo4jDriver,
     SnapshotStore,
     TripleExtractor,
@@ -43,11 +45,7 @@ from contexts.knowledge.domain.errors import (
 from contexts.knowledge.domain.graphrag import (
     BuildResult,
     BuildState,
-    GraphRagConfig,
     Triple,
-)
-from contexts.knowledge.infrastructure.graphrag_repositories import (
-    GraphRagConfigRepository,
 )
 from contexts.knowledge.infrastructure.graphrag_vector_store import (
     GraphRagVectorStore,
@@ -110,6 +108,7 @@ class GraphRagBuilder:
         snapshot_store: SnapshotStore,
         delta_loader: DeltaLoader,
         embedder_factory: EmbedderFactory,
+        configs: GraphRagConfigRepositoryPort,
     ) -> None:
         self._db = db
         self._neo4j = neo4j
@@ -119,7 +118,7 @@ class GraphRagBuilder:
         self._snapshots = snapshot_store
         self._delta_loader = delta_loader
         self._embedder_factory = embedder_factory
-        self._configs = GraphRagConfigRepository(db)
+        self._configs = configs
 
     async def run(
         self,
@@ -148,7 +147,7 @@ class GraphRagBuilder:
     async def _run_locked(
         self,
         *,
-        cfg: GraphRagConfig,
+        cfg: ConfigLike,
         build_id: uuid.UUID,
         mode: Literal["delta", "full"],
         triggered_by: str,
@@ -428,7 +427,7 @@ class GraphRagBuilder:
     async def _embed_entities(
         self,
         *,
-        cfg: GraphRagConfig,
+        cfg: ConfigLike,
         triples: Sequence[Triple],
     ) -> list[EntityEmbedding]:
         """Build a description per unique entity and embed them in a batch."""
@@ -480,7 +479,7 @@ class _Embedder(Protocol):
     async def embed_batch(self, texts: list[str]) -> list[list[float]]: ...
 
 
-EmbedderFactory = Callable[[GraphRagConfig], Awaitable[_Embedder]]
+EmbedderFactory = Callable[[ConfigLike], Awaitable[_Embedder]]
 
 
 __all__ = [

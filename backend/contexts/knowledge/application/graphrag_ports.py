@@ -8,13 +8,17 @@ Qdrant, LLM providers) live in :mod:`contexts.knowledge.infrastructure`.
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
+from datetime import datetime
 from typing import Any, Protocol
 
-from contexts.knowledge.domain.graphrag import Triple
+from contexts.knowledge.domain.graphrag import BuildState, Triple
 
 __all__ = [
     "BuildLockStore",
+    "ConfigLike",
     "DeltaMessage",
+    "GraphRagConfigRepositoryPort",
     "Neo4jDriver",
     "SnapshotStore",
     "TripleExtractor",
@@ -159,3 +163,57 @@ class TripleExtractor(Protocol):
         builder_key_group_id: uuid.UUID,
         messages: list[DeltaMessage],
     ) -> list[Triple]: ...
+
+
+class ConfigLike(Protocol):
+    """Structural view of the graph-config fields the engine actually reads.
+
+    :class:`~contexts.knowledge.domain.graphrag.GraphRagConfig` (and any future
+    Knowledge Map config) satisfies this without inheritance, so the builder /
+    retrieve / reconciler need not depend on the concrete domain type. Members
+    are read-only ``property`` so that a frozen dataclass satisfies the Protocol.
+    """
+
+    @property
+    def id(self) -> uuid.UUID: ...
+
+    @property
+    def project_id(self) -> uuid.UUID: ...
+
+    @property
+    def builder_key_group_id(self) -> uuid.UUID: ...
+
+    @property
+    def last_build_state(self) -> BuildState: ...
+
+    @property
+    def last_build_at(self) -> datetime | None: ...
+
+
+class GraphRagConfigRepositoryPort(Protocol):
+    """Repository surface the engine depends on (implemented in infrastructure).
+
+    Declared in the application layer so the engine imports no concrete
+    repository; the infrastructure ``GraphRagConfigRepository`` is injected at
+    the wiring edge.
+    """
+
+    async def get(
+        self,
+        config_id: uuid.UUID,
+        *,
+        include_deleted: bool = False,
+    ) -> ConfigLike | None: ...
+
+    async def set_state(
+        self,
+        *,
+        config_id: uuid.UUID,
+        state: BuildState,
+        error: str | None = None,
+        stamp_built_at: bool = False,
+    ) -> None: ...
+
+    async def list_in_state(self, state: BuildState) -> Sequence[ConfigLike]: ...
+
+    async def list_all_ids(self, *, include_deleted: bool = False) -> set[uuid.UUID]: ...

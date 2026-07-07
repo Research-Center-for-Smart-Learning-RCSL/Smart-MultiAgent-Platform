@@ -115,6 +115,9 @@ class GraphRagContextProvider:
             GraphRagRetrieveService,
         )
         from contexts.knowledge.infrastructure.embedders import router_embedder_for
+        from contexts.knowledge.infrastructure.graphrag_repositories import (
+            GraphRagConfigRepository,
+        )
         from contexts.knowledge.infrastructure.graphrag_vector_store import (
             GraphRagVectorStore,
         )
@@ -148,6 +151,7 @@ class GraphRagContextProvider:
                 neo4j=driver,
                 vector_store=GraphRagVectorStore(qclient),
                 embedder_factory=_embedder_factory,
+                configs=GraphRagConfigRepository(self._db),
                 evidence_fetcher=self._evidence_fetcher,
             )
             return await svc.query(config_id=config_id, text=query)

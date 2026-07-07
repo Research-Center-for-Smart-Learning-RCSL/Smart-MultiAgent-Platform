@@ -309,9 +309,8 @@ def _make_builder(
         snapshot_store=snapshots,
         delta_loader=FakeDeltaLoader(),
         embedder_factory=_embedder_factory,
+        configs=store,  # type: ignore[arg-type]
     )
-    # Swap the real repo out for the fake (same public surface).
-    builder._configs = store  # type: ignore[assignment, attr-defined]
     return builder, store, db
 
 
@@ -455,33 +454,17 @@ async def test_reconciler_retry_succeeds() -> None:
 
     recon = ReconciliationLoop(
         session_factory=lambda: store,  # type: ignore[arg-type, return-value]
+        repo_factory=lambda _db: store,  # type: ignore[arg-type, return-value]
         neo4j=neo4j,
         vector_store=vectors,  # type: ignore[arg-type]
         snapshot_store=snaps,
         phase2_retry=phase2,
         sleeper=fake_sleep,
     )
-    # Swap the repo lookup to our fake store — the reconciler's internal
-    # list_in_state call goes through a real repo normally; patch the
-    # factory-returned "db" to be `store` which implements list_in_state.
-    # Also stub commit/close.
+    # The reconciler resolves its repo via the injected factory; point it at
+    # the fake store (which implements list_in_state/set_state). Stub commit/close.
     store.commit = _noop  # type: ignore[attr-defined]
     store.close = _noop  # type: ignore[attr-defined]
-
-    # Monkey-patch the repo class used internally to route through `store`.
-    from contexts.knowledge.application import graphrag_reconciler as rmod
-
-    class _RepoShim:
-        def __init__(self, db: Any) -> None:
-            self._store = db
-
-        async def list_in_state(self, state):
-            return await self._store.list_in_state(state)
-
-        async def set_state(self, **kw):
-            await self._store.set_state(**kw)
-
-    rmod.GraphRagConfigRepository = _RepoShim  # type: ignore[assignment, misc]
 
     touched = await recon.run_once()
     assert touched == [cfg.id]
@@ -518,6 +501,7 @@ async def test_reconciler_exhausted_rolls_back() -> None:
 
     recon = ReconciliationLoop(
         session_factory=lambda: store,  # type: ignore[arg-type, return-value]
+        repo_factory=lambda _db: store,  # type: ignore[arg-type, return-value]
         neo4j=neo4j,
         vector_store=vectors,  # type: ignore[arg-type]
         snapshot_store=snaps,
@@ -526,19 +510,6 @@ async def test_reconciler_exhausted_rolls_back() -> None:
     )
     store.commit = _noop  # type: ignore[attr-defined]
     store.close = _noop  # type: ignore[attr-defined]
-    from contexts.knowledge.application import graphrag_reconciler as rmod
-
-    class _RepoShim:
-        def __init__(self, db: Any) -> None:
-            self._store = db
-
-        async def list_in_state(self, state):
-            return await self._store.list_in_state(state)
-
-        async def set_state(self, **kw):
-            await self._store.set_state(**kw)
-
-    rmod.GraphRagConfigRepository = _RepoShim  # type: ignore[assignment, misc]
 
     await recon.run_once()
     assert store.cfg.last_build_state is BuildState.FAILED

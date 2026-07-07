@@ -23,6 +23,9 @@ from app.config.settings import get_settings
 from contexts.knowledge.application.graphrag_reconciler import (
     ReconciliationLoop,
 )
+from contexts.knowledge.infrastructure.graphrag_repositories import (
+    GraphRagConfigRepository,
+)
 from contexts.knowledge.infrastructure.graphrag_vector_store import (
     GraphRagVectorStore,
 )
@@ -151,6 +154,7 @@ async def _loop() -> AsyncIterator[ReconciliationLoop]:
     maker = get_sessionmaker()
     loop = ReconciliationLoop(
         session_factory=lambda: maker(),
+        repo_factory=GraphRagConfigRepository,
         neo4j=neo4j,
         vector_store=vectors,
         snapshot_store=RedisSnapshotStore(),

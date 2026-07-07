@@ -109,10 +109,9 @@ async def test_hybrid_query_returns_bundle() -> None:
         neo4j=neo4j,
         vector_store=vectors,  # type: ignore[arg-type]
         embedder_factory=_factory,
+        configs=FakeRepo(cfg),  # type: ignore[arg-type]
         evidence_fetcher=lambda ids: _ev_fetcher(ids),
     )
-    # Patch the config repo.
-    service._configs = FakeRepo(cfg)  # type: ignore[assignment, attr-defined]
 
     bundle = await service.query(config_id=cfg.id, text="who knows bob?", top_k=5, hops=2)
 
@@ -213,8 +212,8 @@ async def test_empty_vector_hits_returns_empty_bundle() -> None:
         neo4j=FakeNeo4j(edges=[]),
         vector_store=FakeVectors([]),  # type: ignore[arg-type]
         embedder_factory=_factory,
+        configs=FakeRepo(cfg),  # type: ignore[arg-type]
     )
-    service._configs = FakeRepo(cfg)  # type: ignore[assignment, attr-defined]
 
     bundle = await service.query(config_id=cfg.id, text="empty")
     assert bundle.entities == ()

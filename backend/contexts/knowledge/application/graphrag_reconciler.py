@@ -26,13 +26,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from contexts.knowledge.application.graphrag_events import publish_build_state
 from contexts.knowledge.application.graphrag_ports import (
     BuildLockStore,
+    ConfigLike,
+    GraphRagConfigRepositoryPort,
     Neo4jDriver,
     SnapshotStore,
 )
-from contexts.knowledge.domain.graphrag import BuildState, GraphRagConfig
-from contexts.knowledge.infrastructure.graphrag_repositories import (
-    GraphRagConfigRepository as GraphRagConfigRepository,
-)
+from contexts.knowledge.domain.graphrag import BuildState
 from contexts.knowledge.infrastructure.graphrag_vector_store import (
     GraphRagVectorStore,
 )
@@ -71,6 +70,7 @@ class ReconciliationLoop:
         self,
         *,
         session_factory: Callable[[], AsyncSession],
+        repo_factory: Callable[[AsyncSession], GraphRagConfigRepositoryPort],
         neo4j: Neo4jDriver,
         vector_store: GraphRagVectorStore,
         snapshot_store: SnapshotStore,
@@ -79,6 +79,7 @@ class ReconciliationLoop:
         lock_store: BuildLockStore | None = None,
     ) -> None:
         self._session_factory = session_factory
+        self._repo_factory = repo_factory
         self._neo4j = neo4j
         self._vectors = vector_store
         self._snapshots = snapshot_store
@@ -99,8 +100,8 @@ class ReconciliationLoop:
         """
         db = self._session_factory()
         try:
-            repo = GraphRagConfigRepository(db)
-            stuck: list[tuple[BuildState, GraphRagConfig]] = []
+            repo = self._repo_factory(db)
+            stuck: list[tuple[BuildState, ConfigLike]] = []
             for state in _STUCK_STATES:
                 stuck.extend((state, cfg) for cfg in await repo.list_in_state(state))
             touched: list[uuid.UUID] = []
@@ -115,9 +116,7 @@ class ReconciliationLoop:
                     # Without a lock store there is no way to distinguish a live
                     # RUNNING build from a dead one, and reconciling rolls the
                     # build back (destructive). Never do that blind — skip.
-                    _log.warning(
-                        "graphrag reconcile: no lock store; skipping RUNNING config %s", cfg.id
-                    )
+                    _log.warning("graphrag reconcile: no lock store; skipping RUNNING config %s", cfg.id)
                     continue
                 try:
                     await self._reconcile_one(db, cfg)
@@ -147,12 +146,12 @@ class ReconciliationLoop:
     async def _reconcile_one(
         self,
         db: AsyncSession,
-        cfg: GraphRagConfig,
+        cfg: ConfigLike,
     ) -> None:
         build_id = await self._resolve_build_id(cfg)
         if build_id is None:
             # No snapshot → nothing to compensate; mark failed outright.
-            await GraphRagConfigRepository(db).set_state(
+            await self._repo_factory(db).set_state(
                 config_id=cfg.id,
                 state=BuildState.FAILED,
                 error="no snapshot available for compensation",
@@ -189,7 +188,7 @@ class ReconciliationLoop:
             # build-scoped delete would wipe live entities from earlier delta
             # builds. Any duplicates this recovered build leaves behind are
             # cleared by the next normal build that re-embeds those entities.
-            repo = GraphRagConfigRepository(db)
+            repo = self._repo_factory(db)
             await repo.set_state(
                 config_id=cfg.id,
                 state=BuildState.QDRANT_COMMITTED,
@@ -229,7 +228,7 @@ class ReconciliationLoop:
         self,
         db: AsyncSession,
         *,
-        cfg: GraphRagConfig,
+        cfg: ConfigLike,
         build_id: uuid.UUID,
     ) -> None:
         snapshot = await self._snapshots.get(
@@ -248,7 +247,7 @@ class ReconciliationLoop:
                 )
             except Exception as exc:
                 _log.exception("graphrag rollback failed: %s", exc)
-        await GraphRagConfigRepository(db).set_state(
+        await self._repo_factory(db).set_state(
             config_id=cfg.id,
             state=BuildState.FAILED,
             error="phase2 retries exhausted; rolled back",
@@ -280,7 +279,7 @@ class ReconciliationLoop:
 
     async def _resolve_build_id(
         self,
-        cfg: GraphRagConfig,
+        cfg: ConfigLike,
     ) -> uuid.UUID | None:
         """Resolve the in-flight build_id for a stuck config.
 
@@ -303,7 +302,7 @@ class ReconciliationLoop:
 Phase2Retry = Callable[..., Awaitable[None]]
 """Awaitable that re-runs Phase-2 (embed+upsert) using the provided cfg+build_id.
 
-Signature: ``async def(*, cfg: GraphRagConfig, build_id: uuid.UUID) -> None``.
+Signature: ``async def(*, cfg: ConfigLike, build_id: uuid.UUID) -> None``.
 """
 
 

@@ -18,15 +18,15 @@ from collections.abc import Awaitable, Callable
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from contexts.knowledge.application.graphrag_ports import Neo4jDriver
+from contexts.knowledge.application.graphrag_ports import (
+    ConfigLike,
+    GraphRagConfigRepositoryPort,
+    Neo4jDriver,
+)
 from contexts.knowledge.domain.errors import GraphRagConfigNotFound
 from contexts.knowledge.domain.graphrag import (
     GraphRagBundle,
-    GraphRagConfig,
     RelationEdge,
-)
-from contexts.knowledge.infrastructure.graphrag_repositories import (
-    GraphRagConfigRepository,
 )
 from contexts.knowledge.infrastructure.graphrag_vector_store import (
     GraphRagVectorStore,
@@ -37,7 +37,7 @@ class _Embedder:  # pragma: no cover — Protocol-ish duck typing
     async def embed_batch(self, texts: list[str]) -> list[list[float]]: ...  # type: ignore[empty-body]
 
 
-EmbedderFactory = Callable[[GraphRagConfig], Awaitable[_Embedder]]
+EmbedderFactory = Callable[[ConfigLike], Awaitable[_Embedder]]
 EvidenceFetcher = Callable[[list[uuid.UUID]], Awaitable[list[str]]]
 
 
@@ -49,6 +49,7 @@ class GraphRagRetrieveService:
         neo4j: Neo4jDriver,
         vector_store: GraphRagVectorStore,
         embedder_factory: EmbedderFactory,
+        configs: GraphRagConfigRepositoryPort,
         evidence_fetcher: EvidenceFetcher | None = None,
     ) -> None:
         self._db = db
@@ -56,9 +57,9 @@ class GraphRagRetrieveService:
         self._vectors = vector_store
         self._embedder_factory = embedder_factory
         self._evidence_fetcher = evidence_fetcher
-        self._configs = GraphRagConfigRepository(db)
+        self._configs = configs
 
-    async def _load(self, config_id: uuid.UUID) -> GraphRagConfig:
+    async def _load(self, config_id: uuid.UUID) -> ConfigLike:
         cfg = await self._configs.get(config_id)
         if cfg is None:
             raise GraphRagConfigNotFound(str(config_id))
