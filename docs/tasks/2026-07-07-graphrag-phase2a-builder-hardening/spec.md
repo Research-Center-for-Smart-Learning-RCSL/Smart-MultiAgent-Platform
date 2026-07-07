@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: approved
+status: implemented
 created: 2026-07-07
 requirements: [R11.02, R11.03, R11.04, R11.16, R11.18, R11.19]
 ---
@@ -327,32 +327,32 @@ mirroring source, except the two marked integration.
 
 ## 10. Acceptance Criteria
 
-- [ ] AC-1: the D2 anchor regression test (§8) fails before the fix and passes after.
-- [ ] AC-2: `graphrag_configs` has `embed_provider`/`embed_model`/`embed_dim` (migration
+- [x] AC-1: the D2 anchor regression test (§8) fails before the fix and passes after.
+- [x] AC-2: `graphrag_configs` has `embed_provider`/`embed_model`/`embed_dim` (migration
       0045, expand-only nullable); ORM table mirrors them.
-- [ ] AC-3: config create/update rejects (4xx) a builder key group whose resolved dimension
+- [x] AC-3: config create/update rejects (4xx) a builder key group whose resolved dimension
       differs from the project's pinned dimension; the resolved triple is persisted.
-- [ ] AC-4: the build path selects the embedding key by the config's pinned provider (via
+- [x] AC-4: the build path selects the embedding key by the config's pinned provider (via
       `list_ordered_carried`) and fails loudly when none matches; legacy null-pin configs
       self-pin on first successful build.
-- [ ] AC-5: a build over a large history processes in bounded windows (token budget + message
+- [x] AC-5: a build over a large history processes in bounded windows (token budget + message
       cap) with exactly one `apply_triples`, one snapshot, one `build_id`, one Qdrant
       supersede, and `last_build_at` advanced once.
-- [ ] AC-6: the build lock is refreshed on every window boundary and `job_timeout > LOCK_TTL_S`.
-- [ ] AC-7: the trigger resolver returns each config at most once regardless of matched
+- [x] AC-6: the build lock is refreshed on every window boundary and `job_timeout > LOCK_TTL_S`.
+- [x] AC-7: the trigger resolver returns each config at most once regardless of matched
       member count (DISTINCT).
-- [ ] AC-8: concurrent triggers for the same config+watermark collapse to one enqueued job;
+- [x] AC-8: concurrent triggers for the same config+watermark collapse to one enqueued job;
       a rebuild after completion is not suppressed.
-- [ ] AC-9: create/update rejects an owner not in the config's project for every `owner_kind`
+- [x] AC-9: create/update rejects an owner not in the config's project for every `owner_kind`
       (`agent_group`, `chatroom`, `workspace`).
-- [ ] AC-10: `ensure_graphrag_collection` is idempotent under concurrent create and raises on
+- [x] AC-10: `ensure_graphrag_collection` is idempotent under concurrent create and raises on
       dimension mismatch.
-- [ ] AC-11: `graphrag_build` concurrency is bounded via a configurable lane.
-- [ ] AC-12: the reconciler constructs its builder through a single seam; no inline
+- [x] AC-11: `graphrag_build` concurrency is bounded via a configurable lane.
+- [x] AC-12: the reconciler constructs its builder through a single seam; no inline
       construction remains.
-- [ ] AC-13: a delta inserted mid-build is consumed by exactly one subsequent build
+- [x] AC-13: a delta inserted mid-build is consumed by exactly one subsequent build
       (watermark = started-at).
-- [ ] AC-14: `pytest -q`, `ruff check .`, `ruff format --check .`, and `mypy .` pass.
+- [x] AC-14: `pytest -q`, `ruff check .`, `ruff format --check .`, and `mypy .` pass.
 
 ## 11. SRS Delta
 
@@ -362,7 +362,60 @@ accounting). No new requirement is introduced.
 
 ## 12. Deviation Log
 
-Appended by `/build`.
+- **D-1** — D4/AC-7 was **already satisfied** before this phase: Phase 1's
+  `list_for_agents` de-duplicates configs via a `seen` set
+  (`graphrag_repositories.py:169-175`). Delivered AC-7 as a regression guard test
+  only (`tests/unit/test_graphrag_phase2a_guards.py`); no production change to the
+  resolver.
+- **D-2** — D9/AC-12 was **already satisfied**: the reconciler constructs no builder
+  inline (the spec's cited `graphrag_reconciler.py:102,155,192,251` no longer exist
+  after Phase 0's injected-repo Port). Delivered AC-12 as a guard test asserting no
+  `GraphRagBuilder(` construction in either reconciler module.
+- **D-3** — D5 had **three** enqueue sites, not two: beyond `turn_engine.py` and
+  `messages.py`, the manual build endpoint (`app/api/v1/graphrag.py`) is a third. The
+  spec asserted "no third enqueue site" (§6). Per user decision all three share the
+  dedup `_job_id`.
+- **D-4** — D2 reused the existing `(provider, model)->dim` catalog
+  `EMBED_MODEL_DIMENSIONS` + `embed_dimension()` (`contexts/knowledge/domain/models.py`)
+  instead of the fresh hardcoded map the spec assumed; the anchor design is unchanged.
+- **D-5** — D2 blast-radius correction: the spec cleared retrieval ("reads vectors,
+  does not create them", §6), but retrieval embeds the **query** vector and must honour
+  the pin — a confirmed sibling. The reconciler Phase-2 retry re-embeds and was a
+  **third** embed-selection seam the spec's sibling list omitted. Both fixed to select
+  by the pinned provider; all three now route through the shared `resolve_pinned_embed_key`.
+- **D-6** — D2 project-pin read source: the create/update guard reads a sibling config's
+  persisted `embed_dim` (Postgres-only) and does **not** add the live-collection
+  `VectorParams.size` fallback in spec §7 D2.2, to avoid coupling config CRUD to Qdrant
+  availability. The D7 build-time collection guard is the backstop for the transitional
+  "collection exists, no pinned sibling" case.
+- **D-7** — D3 timeout: raised via a scoped arq `func(graphrag_build, timeout=3xLOCK_TTL_S)`
+  (`GRAPHRAG_BUILD_TIMEOUT_S`) rather than the global worker `job_timeout`, so other lanes
+  keep the default backstop. AC-6's `job_timeout > LOCK_TTL_S` holds for the scoped value.
+- **D-8** — D8 lane: a configurable module `asyncio.Semaphore`
+  (`SMAP_GRAPHRAG_BUILD_CONCURRENCY`, default 4) rather than a dedicated arq queue (which
+  needs a separate worker process, beyond this bugfix). Bounds concurrent heavy execution;
+  slot-occupancy caveat in FU-6.
+- **D-9** — D7 test tier: delivered as a **unit** test against the in-memory Qdrant fake
+  rather than the spec's "integration (Qdrant)" marking, so it runs in the default
+  `pytest -q` tier.
+- **D-10** — Quality-gate refactor (from the `/build` audit): the pin-selection logic was
+  triplicated across the three embed factories; extracted `resolve_pinned_embed_key`
+  (`embed_resolution.py`) so all three share one correctness-coupled invariant, with new
+  unit tests for the previously-untested helper.
+
+**Definition-of-Done notes.** `pytest tests/unit` — 1265 passed. `ruff check .` — clean.
+My diff is `ruff format`-clean and `mypy`-clean; the project-wide `ruff format --check .`
+(20 files) and `mypy .` (39 errors) are **pre-existing** baseline failures in untouched
+code (see FU-7). Migration 0045 validated structurally (single head, expand-only nullable,
+reversible drop); `alembic upgrade head` could not run in this session (local `alembic.ini`
+cp950 read bug + no live DB) and is verified in the deploy pipeline. `gen:api` N/A — no
+endpoint or request/response schema changed (embed columns are internal; new error slugs
+are RFC7807 problem responses). i18n N/A — no frontend strings. Behavioral live-drive
+(`verify` skill) N/A — exercising the 422/build paths needs the full Neo4j/Qdrant/Vault
+stack plus BYO embedding keys, unavailable in this session; covered by the AC unit tests.
+AC-3's "resolved triple is persisted" half is verified by the `_enforce_and_resolve_pin`
+seam test plus create's insert of the triple (Phase A columns), not an end-to-end
+resolvable-group create (the wiring tier has no embedding keys by design).
 
 ## 13. Follow-ups
 
@@ -372,3 +425,20 @@ Appended by `/build`.
   and surfaces them; an operator-driven safe re-embed/rebuild tool is out of scope.
 - **FU-3** — physical Neo4j evidence-property rename remains deferred (Phase 0 WS3 decision);
   unaffected here.
+- **FU-4** — D5 nonce granularity: the dedup nonce buckets `last_build_at` to whole seconds
+  and includes the terminal state. Two consecutive phase-1 `FAILED` builds with an unchanged
+  `last_build_at` share a nonce, so an immediate second retry could be suppressed until the
+  failed job's `keep_result` (1h) expires (a single failure flips `idle`->`failed`, so the
+  first retry is always allowed). A per-config rebuild counter would fully eliminate the edge;
+  deferred as low value.
+- **FU-5** — D6 chatroom/workspace owner guards are unit-tested against a fake DB only; the
+  real 2-hop `chatroom -> workspace` project resolution and a soft-deleted-chatroom filter
+  want wiring-tier coverage when Phase 2b makes chatroom/workspace owners reachable.
+- **FU-6** — D8 slot occupancy: the semaphore bounds concurrent heavy build *execution* but
+  not arq job-*slot* occupancy (a build blocked on the semaphore still holds a slot). If
+  build bursts starve other lanes in production, move `graphrag_build` to a dedicated arq
+  queue/worker.
+- **FU-7** — Pre-existing codebase hygiene surfaced (not introduced here, non-blocking):
+  `mypy .` reports 39 errors across 22 files (e.g. `tenancy/repositories.py:487`,
+  `presence.py`, `retention.py` unused-ignores, `graphrag_triggers.py` `int(raw)`) and
+  `ruff format --check .` reports 20 unformatted files. Route to a codebase-hygiene sweep.
