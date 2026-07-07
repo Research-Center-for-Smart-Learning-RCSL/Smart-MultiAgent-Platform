@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import uuid
-from collections.abc import AsyncIterator, Sequence
+from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from typing import Any
 
@@ -68,20 +68,41 @@ class _DbMsg:
     source_member_id: uuid.UUID | None = None
 
 
-class _DbDeltaLoader:
-    """Load delta messages from chatrooms the owner group's members participate
-    in (D1: bounded windows so memory and per-call LLM payload stay flat).
+@dataclass(frozen=True)
+class _DeltaScope:
+    """Owner-kind-specific SQL fragments that scope the build's message feed.
 
-    Phase 2b WS1: an agent_group owner may have several members, so the feed is
-    the DISTINCT union of every member agent's room messages (R11.08). A message
-    co-present to two members' rooms is ingested exactly once (AC-1), tagged with
-    a deterministic ``source_member_id`` — the smallest member agent id sharing
-    that message — so extracted relations carry stable member provenance (R11.22).
+    Every fragment is a compile-time constant chosen by :func:`_resolve_delta_scope`
+    per ``owner_kind`` — never a data value — so interpolating them into the query
+    text carries no injection surface (the only bound values are ``params`` /
+    ``expanding``). ``empty`` short-circuits a scope that can match nothing (an
+    agent_group with no live members), so the loader yields no windows.
     """
 
-    def __init__(self, *, member_agent_ids: Sequence[uuid.UUID]) -> None:
-        # Deduped so a repeated member never double-expands the IN list.
-        self._member_agent_ids = list(dict.fromkeys(member_agent_ids))
+    select_source: str  # SQL for the source_member_id column ("ca.agent_id" | "NULL")
+    extra_join: str  # extra JOIN after chatrooms, or ""
+    owner_where: str  # owner predicate on the joined rows
+    order_extra: str  # ORDER BY tiebreak suffix, or ""
+    params: dict[str, Any]
+    expanding: tuple[str, ...] = ()
+    empty: bool = False
+
+
+class _DbDeltaLoader:
+    """Load a config's delta messages as bounded windows (D1: memory + per-call
+    LLM payload stay flat).
+
+    Phase 2b generalizes the feed to every owner kind (R11.08) via a
+    :class:`_DeltaScope`: a ``chatroom`` owner ingests that room's messages, a
+    ``workspace`` owner every room in the workspace, and an ``agent_group`` owner
+    the DISTINCT union of its member agents' room messages — a message co-present
+    to two members ingested exactly once (AC-1) and tagged with a deterministic
+    ``source_member_id`` (the smallest member id sharing it) for relation
+    provenance (R11.22). Wide owners carry no member provenance (NULL).
+    """
+
+    def __init__(self, *, scope: _DeltaScope) -> None:
+        self._scope = scope
 
     _BATCH_SIZE = 2000
 
@@ -92,8 +113,9 @@ class _DbDeltaLoader:
         since: Any,
         mode: Any,
     ) -> AsyncIterator[list[DeltaMessage]]:
-        if not self._member_agent_ids:
+        if self._scope.empty:
             return
+        scope = self._scope
         sm = get_sessionmaker()
         window: list[DeltaMessage] = []
         window_tokens = 0
@@ -113,7 +135,7 @@ class _DbDeltaLoader:
                 else ""
             )
             params: dict[str, Any] = {
-                "member_ids": [str(a) for a in self._member_agent_ids],
+                **scope.params,
                 "since": since,
                 "batch_size": self._BATCH_SIZE,
             }
@@ -121,25 +143,28 @@ class _DbDeltaLoader:
                 params["last_created_at"] = last_created_at
                 params["last_id"] = last_id
             # DISTINCT ON (m.created_at, m.id) collapses a message reachable via
-            # several members (shared room) to one row; the ORDER BY tiebreak on
-            # ca.agent_id makes the surviving row — and thus source_member_id —
-            # deterministically the smallest member id. The IN list uses an
-            # expanding bindparam so the member set binds as individual params
-            # (same str->uuid coercion the single-agent form relied on).
+            # several members (a shared room) to one row; the agent_group scope's
+            # ORDER BY tiebreak on ca.agent_id makes the surviving row — and thus
+            # source_member_id — deterministically the smallest member id. All
+            # interpolated fragments come from the static _DeltaScope, so only
+            # bound params carry data.
             stmt = sa.text(
                 "SELECT DISTINCT ON (m.created_at, m.id) "  # noqa: S608
                 "m.id, m.sender_type AS role, m.content_md AS content, "
-                "m.created_at, ca.agent_id AS source_member_id "
+                f"m.created_at, {scope.select_source} AS source_member_id "
                 "FROM messages m "
                 "JOIN chatrooms cr ON cr.id = m.chatroom_id "
-                "JOIN chatroom_agents ca ON ca.chatroom_id = cr.id "
-                "WHERE ca.agent_id IN :member_ids "
+                f"{scope.extra_join} "
+                f"WHERE {scope.owner_where} "
                 "  AND m.deleted_at IS NULL "
+                "  AND cr.deleted_at IS NULL "
                 "  AND (CAST(:since AS timestamptz) IS NULL OR m.created_at > :since) "
                 f"{cursor_clause}"
-                "ORDER BY m.created_at, m.id, ca.agent_id "
+                f"ORDER BY m.created_at, m.id{scope.order_extra} "
                 "LIMIT :batch_size"
-            ).bindparams(sa.bindparam("member_ids", expanding=True))
+            )
+            if scope.expanding:
+                stmt = stmt.bindparams(*[sa.bindparam(n, expanding=True) for n in scope.expanding])
             async with sm() as db:
                 rows = (await db.execute(stmt, params)).all()
             for r in rows:
@@ -167,18 +192,48 @@ class _DbDeltaLoader:
             yield window
 
 
-async def _resolve_member_agent_ids(db: AsyncSession, cfg: Any) -> list[uuid.UUID]:
-    """Member agent ids whose room feeds this build ingests (R11.08).
+async def _resolve_delta_scope(db: AsyncSession, cfg: Any) -> _DeltaScope:
+    """Resolve the owner-kind-specific message scope for this build (R11.08).
 
-    For an ``agent_group`` owner (the only kind Phase 2a/2b-WS1 create produces)
-    this is the group's live membership — the multi-member DISTINCT union the
-    loader fans across. Read live so a removed member drops out of the next
-    build. Falls back to the config's derived owning agent for any other owner
-    kind until WS2 adds the chatroom/workspace delta scopes.
+    - ``agent_group`` — the DISTINCT union of the group's **live** members' room
+      messages (read fresh so a removed member drops out of the next build),
+      tagged with member provenance.
+    - ``chatroom`` — that room's messages, no member provenance.
+    - ``workspace`` — every (non-deleted) room in the workspace, no provenance.
+
+    An owner with a missing/None id, or an agent_group with no members, yields an
+    empty scope so the build produces nothing rather than a malformed query.
     """
     if cfg.owner_kind == "agent_group" and cfg.owner_agent_group_id is not None:
-        return list(await AgentGroupRepository(db).list_member_agent_ids(cfg.owner_agent_group_id))
-    return [cfg.agent_id] if cfg.agent_id is not None else []
+        members = list(await AgentGroupRepository(db).list_member_agent_ids(cfg.owner_agent_group_id))
+        return _DeltaScope(
+            select_source="ca.agent_id",
+            extra_join="JOIN chatroom_agents ca ON ca.chatroom_id = cr.id",
+            owner_where="ca.agent_id IN :member_ids",
+            order_extra=", ca.agent_id",
+            params={"member_ids": [str(a) for a in members]},
+            expanding=("member_ids",),
+            empty=not members,
+        )
+    if cfg.owner_kind == "chatroom" and cfg.owner_chatroom_id is not None:
+        return _DeltaScope(
+            select_source="NULL",
+            extra_join="",
+            owner_where="cr.id = :chatroom_id",
+            order_extra="",
+            params={"chatroom_id": str(cfg.owner_chatroom_id)},
+        )
+    if cfg.owner_kind == "workspace" and cfg.owner_workspace_id is not None:
+        return _DeltaScope(
+            select_source="NULL",
+            extra_join="",
+            owner_where="cr.workspace_id = :workspace_id",
+            order_extra="",
+            params={"workspace_id": str(cfg.owner_workspace_id)},
+        )
+    return _DeltaScope(
+        select_source="NULL", extra_join="", owner_where="false", order_extra="", params={}, empty=True
+    )
 
 
 def _make_embedder_factory(db: AsyncSession) -> EmbedderFactory:
@@ -261,8 +316,8 @@ async def _run_build(*, config_id: str, triggered_by: str = "manual") -> str:
                 return f"config {config_id} not found"
 
             extractor = LlmTripleExtractor(router=build_router(db))
-            member_ids = await _resolve_member_agent_ids(db, cfg)
-            delta_loader = _DbDeltaLoader(member_agent_ids=member_ids)
+            delta_scope = await _resolve_delta_scope(db, cfg)
+            delta_loader = _DbDeltaLoader(scope=delta_scope)
 
             builder = GraphRagBuilder(
                 db=db,
