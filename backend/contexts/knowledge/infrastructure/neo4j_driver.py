@@ -18,6 +18,28 @@ from typing import Any
 from contexts.knowledge.domain.graphrag import Triple
 
 
+def _collapse_config_rows(
+    rows: list[tuple[Any, Any]],
+) -> list[tuple[uuid.UUID, uuid.UUID | None]]:
+    """Collapse ``(graphrag_config_id, project_id)`` rows to one per config.
+
+    The ``list_config_ids`` DISTINCT is over the *pair*, so a config whose nodes
+    carry a mix of NULL and set ``project_id`` (legacy nodes never re-stamped by
+    a rebuild) yields two rows for one config. Keep a single entry per config,
+    preferring a non-NULL ``project_id`` so the reconciler sweep can Qdrant-purge
+    it and never emits a duplicate or misleading orphan-swept audit row.
+    """
+    by_config: dict[uuid.UUID, uuid.UUID | None] = {}
+    for cid_raw, pid_raw in rows:
+        if cid_raw is None:
+            continue
+        cid = uuid.UUID(str(cid_raw))
+        pid = uuid.UUID(str(pid_raw)) if pid_raw is not None else None
+        if pid is not None or cid not in by_config:
+            by_config[cid] = pid
+    return list(by_config.items())
+
+
 class Neo4jAsyncDriver:
     """Adapter implementing :class:`Neo4jDriver` against a real cluster."""
 
@@ -193,22 +215,11 @@ class Neo4jAsyncDriver:
         self,
     ) -> list[tuple[uuid.UUID, uuid.UUID | None]]:
         driver = await self._ensure()
-        cypher = "MATCH (n:Entity) " "RETURN DISTINCT n.graphrag_config_id AS cid, n.project_id AS pid"
-        pairs: list[tuple[uuid.UUID, uuid.UUID | None]] = []
+        cypher = "MATCH (n:Entity) RETURN DISTINCT n.graphrag_config_id AS cid, n.project_id AS pid"
         async with driver.session() as session:
             result = await session.run(cypher)
-            async for rec in result:
-                cid_raw = rec["cid"]
-                if cid_raw is None:
-                    continue
-                pid_raw = rec["pid"]
-                pairs.append(
-                    (
-                        uuid.UUID(str(cid_raw)),
-                        uuid.UUID(str(pid_raw)) if pid_raw is not None else None,
-                    )
-                )
-        return pairs
+            rows = [(rec["cid"], rec["pid"]) async for rec in result]
+        return _collapse_config_rows(rows)
 
     async def restore_from_snapshot(
         self,
