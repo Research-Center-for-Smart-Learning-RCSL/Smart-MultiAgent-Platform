@@ -27,6 +27,7 @@ from contexts.knowledge.domain.errors import GraphRagConfigNotFound
 from contexts.knowledge.domain.graphrag import (
     GraphRagBundle,
     RelationEdge,
+    normalize_evidence_refs,
 )
 from contexts.knowledge.infrastructure.graphrag_vector_store import (
     GraphRagVectorStore,
@@ -113,8 +114,7 @@ class GraphRagRetrieveService:
         relations: list[RelationEdge] = []
         evidence_refs: list[str] = []
         for row in raw_edges:
-            ev_raw = row.get("evidence_msg_ids") or []
-            refs = [s for s in (str(v).strip() for v in ev_raw) if s]
+            refs = normalize_evidence_refs(row.get("evidence_msg_ids"))
             evidence_refs.extend(refs)
             relations.append(
                 RelationEdge(
@@ -122,7 +122,7 @@ class GraphRagRetrieveService:
                     relation=str(row.get("relation") or ""),
                     object=str(row.get("object") or ""),
                     confidence=float(row.get("confidence") or 0.0),
-                    evidence_refs=tuple(refs),
+                    evidence_refs=refs,
                 )
             )
 

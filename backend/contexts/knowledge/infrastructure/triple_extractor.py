@@ -23,7 +23,7 @@ from contexts.keys.application.provider_router import ProviderRequest, ProviderR
 from contexts.keys.domain.errors import KeyGroupExhausted
 from contexts.keys.domain.providers import ProviderCapability
 from contexts.knowledge.application.graphrag_ports import DeltaMessage
-from contexts.knowledge.domain.graphrag import Triple
+from contexts.knowledge.domain.graphrag import Triple, normalize_evidence_refs
 
 _log = logging.getLogger(__name__)
 
@@ -155,20 +155,13 @@ def _parse_triples(raw: str) -> list[Triple]:
             conf = float(conf_raw)
         except (TypeError, ValueError):
             conf = 0.5
-        ev_raw = row.get("evidence_msg_ids") or []
-        ev: list[str] = []
-        if isinstance(ev_raw, list):
-            for v in ev_raw:
-                text = str(v).strip()
-                if text:
-                    ev.append(text)
         out.append(
             Triple(
                 subject=subj.strip(),
                 relation=rel.strip(),
                 object=obj.strip(),
                 confidence=max(0.0, min(1.0, conf)),
-                evidence_refs=tuple(ev),
+                evidence_refs=normalize_evidence_refs(row.get("evidence_msg_ids")),
                 subject_type=_norm_type(row.get("subject_type")),
                 object_type=_norm_type(row.get("object_type")),
             )

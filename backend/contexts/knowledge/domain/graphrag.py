@@ -48,6 +48,34 @@ class GraphRagConfigDraft:
     trigger_config: dict[str, Any] = field(default_factory=dict)
 
 
+# Opaque evidence references (chat message ids today, document chunk refs for a
+# Knowledge Map later) are length-bounded so a hallucinated or malformed extractor
+# value never persists into Neo4j or crowds out real relations in the 2 KB bundle.
+MAX_EVIDENCE_REF_LEN = 128
+
+
+def normalize_evidence_refs(raw: object) -> tuple[str, ...]:
+    """Coerce raw evidence values from LLM output or a Neo4j row into clean refs.
+
+    Accepts a list/tuple of values; keeps only non-blank strings no longer than
+    :data:`MAX_EVIDENCE_REF_LEN`. Non-strings (a JSON ``null`` decodes to
+    ``None``, numbers, nested arrays) are dropped rather than coerced — this is
+    the guard the WS3 opaque-string migration must keep so ``str(None)`` never
+    becomes the literal ref ``"None"``. No UUID format is imposed, so a document
+    Knowledge Map can reuse the same graph with chunk references.
+    """
+    if not isinstance(raw, list | tuple):
+        return ()
+    refs: list[str] = []
+    for v in raw:
+        if not isinstance(v, str):
+            continue
+        text = v.strip()
+        if text and len(text) <= MAX_EVIDENCE_REF_LEN:
+            refs.append(text)
+    return tuple(refs)
+
+
 @dataclass(frozen=True, slots=True)
 class Triple:
     """A single extracted relation (R11.03).
@@ -156,6 +184,7 @@ def _cap_to_2kb(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 __all__ = [
+    "MAX_EVIDENCE_REF_LEN",
     "BuildResult",
     "BuildState",
     "EntityHit",
@@ -164,4 +193,5 @@ __all__ = [
     "GraphRagConfigDraft",
     "RelationEdge",
     "Triple",
+    "normalize_evidence_refs",
 ]
