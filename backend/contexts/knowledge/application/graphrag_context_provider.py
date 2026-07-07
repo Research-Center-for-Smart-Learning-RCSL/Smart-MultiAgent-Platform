@@ -178,9 +178,13 @@ def build_evidence_fetcher(
     context imports.  Inject via ``GraphRagContextProvider(evidence_fetcher=...)``.
     """
 
-    async def _fetch(ids: list[uuid.UUID]) -> list[str]:
+    async def _fetch(refs: list[str]) -> list[str]:
         excerpts: list[str] = []
-        for message_id in list(dict.fromkeys(ids))[:_MAX_EVIDENCE_EXCERPTS]:
+        for ref in list(dict.fromkeys(refs))[:_MAX_EVIDENCE_EXCERPTS]:
+            try:
+                message_id = uuid.UUID(ref)
+            except ValueError:
+                continue
             msg = await get_message(message_id)
             if msg is None:
                 continue

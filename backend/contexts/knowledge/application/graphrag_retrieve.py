@@ -38,7 +38,7 @@ class _Embedder:  # pragma: no cover — Protocol-ish duck typing
 
 
 EmbedderFactory = Callable[[ConfigLike], Awaitable[_Embedder]]
-EvidenceFetcher = Callable[[list[uuid.UUID]], Awaitable[list[str]]]
+EvidenceFetcher = Callable[[list[str]], Awaitable[list[str]]]
 
 
 class GraphRagRetrieveService:
@@ -111,29 +111,24 @@ class GraphRagRetrieveService:
         )
 
         relations: list[RelationEdge] = []
-        evidence_ids: list[uuid.UUID] = []
+        evidence_refs: list[str] = []
         for row in raw_edges:
             ev_raw = row.get("evidence_msg_ids") or []
-            ev_ids: list[uuid.UUID] = []
-            for v in ev_raw:
-                try:
-                    ev_ids.append(uuid.UUID(str(v)))
-                except ValueError:
-                    continue
-            evidence_ids.extend(ev_ids)
+            refs = [s for s in (str(v).strip() for v in ev_raw) if s]
+            evidence_refs.extend(refs)
             relations.append(
                 RelationEdge(
                     subject=str(row.get("subject") or ""),
                     relation=str(row.get("relation") or ""),
                     object=str(row.get("object") or ""),
                     confidence=float(row.get("confidence") or 0.0),
-                    evidence_msg_ids=tuple(ev_ids),
+                    evidence_refs=tuple(refs),
                 )
             )
 
         excerpts: tuple[str, ...] = ()
-        if self._evidence_fetcher is not None and evidence_ids:
-            unique = list(dict.fromkeys(evidence_ids))[:10]
+        if self._evidence_fetcher is not None and evidence_refs:
+            unique = list(dict.fromkeys(evidence_refs))[:10]
             excerpts = tuple(await self._evidence_fetcher(unique))
 
         # Audit M5: order relations by confidence so the 2 KB bundle cap trims

@@ -156,20 +156,19 @@ def _parse_triples(raw: str) -> list[Triple]:
         except (TypeError, ValueError):
             conf = 0.5
         ev_raw = row.get("evidence_msg_ids") or []
-        ev: list[uuid.UUID] = []
+        ev: list[str] = []
         if isinstance(ev_raw, list):
             for v in ev_raw:
-                try:
-                    ev.append(uuid.UUID(str(v)))
-                except ValueError:
-                    continue
+                text = str(v).strip()
+                if text:
+                    ev.append(text)
         out.append(
             Triple(
                 subject=subj.strip(),
                 relation=rel.strip(),
                 object=obj.strip(),
                 confidence=max(0.0, min(1.0, conf)),
-                evidence_msg_ids=tuple(ev),
+                evidence_refs=tuple(ev),
                 subject_type=_norm_type(row.get("subject_type")),
                 object_type=_norm_type(row.get("object_type")),
             )

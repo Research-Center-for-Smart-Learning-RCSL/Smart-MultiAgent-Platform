@@ -284,7 +284,7 @@ def _make_triples() -> list[Triple]:
             relation="knows",
             object="bob",
             confidence=0.9,
-            evidence_msg_ids=(uuid.uuid4(),),
+            evidence_refs=(str(uuid.uuid4()),),
         ),
     ]
 

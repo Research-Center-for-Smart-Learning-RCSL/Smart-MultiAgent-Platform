@@ -52,8 +52,10 @@ class GraphRagConfigDraft:
 class Triple:
     """A single extracted relation (R11.03).
 
-    ``evidence_msg_ids`` carries the chat message ids that justify the
-    triple so downstream retrieval can surface evidence excerpts.
+    ``evidence_refs`` carries opaque source references that justify the triple
+    so downstream retrieval can surface evidence excerpts. For a conversation
+    Concept Map each ref is a chat message id string; the neutral ``str`` type
+    lets a document Knowledge Map reuse the same graph with chunk references.
 
     ``subject_type`` / ``object_type`` are coarse entity categories (e.g.
     person, organization, concept) the extractor classifies the endpoints
@@ -66,7 +68,7 @@ class Triple:
     relation: str
     object: str
     confidence: float
-    evidence_msg_ids: tuple[uuid.UUID, ...]
+    evidence_refs: tuple[str, ...]
     subject_type: str = ""
     object_type: str = ""
 
@@ -88,7 +90,7 @@ class RelationEdge:
     relation: str
     object: str
     confidence: float
-    evidence_msg_ids: tuple[uuid.UUID, ...]
+    evidence_refs: tuple[str, ...]
 
 
 @dataclass(frozen=True, slots=True)

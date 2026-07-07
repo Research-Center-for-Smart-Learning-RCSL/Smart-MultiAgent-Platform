@@ -116,7 +116,7 @@ class Neo4jAsyncDriver:
                 "relation": tr.relation,
                 "object": tr.object,
                 "confidence": tr.confidence,
-                "evidence_msg_ids": [str(x) for x in tr.evidence_msg_ids],
+                "evidence_msg_ids": list(tr.evidence_refs),
                 "subject_type": tr.subject_type,
                 "object_type": tr.object_type,
             }
