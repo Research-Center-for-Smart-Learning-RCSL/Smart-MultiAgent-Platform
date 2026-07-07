@@ -15,10 +15,12 @@ in which method is called.
 from __future__ import annotations
 
 import uuid
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
 
+from contexts.knowledge.domain.errors import GraphRagCollectionDimensionMismatch
 from contexts.knowledge.infrastructure.graphrag_vector_store import (
     GraphRagVectorStore,
 )
@@ -158,6 +160,97 @@ async def test_supersede_missing_collection_is_noop() -> None:
         entities=["alice"],
     )
     assert fake.points == {}
+
+
+# ---------------------------------------------------------------------------
+# D7 (AC-10) — idempotent collection create + dimension guard
+# ---------------------------------------------------------------------------
+
+
+class _CollFake:
+    """Qdrant stand-in for ensure_graphrag_collection: tracks a collection's
+    dimension and can simulate a concurrent create."""
+
+    def __init__(
+        self,
+        *,
+        existing_dim: int | None = None,
+        create_conflicts: bool = False,
+        appears_after_conflict_dim: int | None = None,
+    ) -> None:
+        self._dim = existing_dim
+        self._create_conflicts = create_conflicts
+        self._appears_after_conflict_dim = appears_after_conflict_dim
+        self.created: list[tuple[str, int]] = []
+
+    async def collection_exists(self, name: str) -> bool:
+        return self._dim is not None
+
+    async def get_collection(self, name: str) -> Any:
+        return SimpleNamespace(
+            config=SimpleNamespace(params=SimpleNamespace(vectors=SimpleNamespace(size=self._dim)))
+        )
+
+    async def create_collection(self, *, collection_name: str, vectors_config: Any) -> None:
+        if self._create_conflicts:
+            # A racing writer created it first; surface the collection (possibly
+            # at a different dimension) and raise "already exists".
+            self._dim = self._appears_after_conflict_dim
+            raise RuntimeError("collection already exists")
+        self._dim = vectors_config.size
+        self.created.append((collection_name, vectors_config.size))
+
+
+@pytest.mark.asyncio
+async def test_ensure_raises_on_dimension_mismatch() -> None:
+    store = GraphRagVectorStore(_CollFake(existing_dim=1536))  # type: ignore[arg-type]
+    with pytest.raises(GraphRagCollectionDimensionMismatch):
+        await store.ensure_graphrag_collection(uuid.uuid4(), vector_size=768)
+
+
+@pytest.mark.asyncio
+async def test_ensure_matching_dimension_is_noop() -> None:
+    fake = _CollFake(existing_dim=1536)
+    store = GraphRagVectorStore(fake)  # type: ignore[arg-type]
+    await store.ensure_graphrag_collection(uuid.uuid4(), vector_size=1536)
+    assert fake.created == []  # already exists at the right size → no re-create
+
+
+@pytest.mark.asyncio
+async def test_ensure_creates_when_absent() -> None:
+    fake = _CollFake(existing_dim=None)
+    store = GraphRagVectorStore(fake)  # type: ignore[arg-type]
+    project_id = uuid.uuid4()
+    await store.ensure_graphrag_collection(project_id, vector_size=1024)
+    assert fake.created == [(f"graphrag_{str(project_id).replace('-', '_')}", 1024)]
+
+
+@pytest.mark.asyncio
+async def test_ensure_tolerates_concurrent_create_same_dim() -> None:
+    # Create loses the race but the winner made the collection at the same size:
+    # tolerated, no raise.
+    fake = _CollFake(existing_dim=None, create_conflicts=True, appears_after_conflict_dim=1024)
+    store = GraphRagVectorStore(fake)  # type: ignore[arg-type]
+    await store.ensure_graphrag_collection(uuid.uuid4(), vector_size=1024)
+
+
+@pytest.mark.asyncio
+async def test_ensure_concurrent_create_conflicting_dim_raises() -> None:
+    # Create loses the race and the winner made it at a different size → the
+    # dimension guard still fires.
+    fake = _CollFake(existing_dim=None, create_conflicts=True, appears_after_conflict_dim=768)
+    store = GraphRagVectorStore(fake)  # type: ignore[arg-type]
+    with pytest.raises(GraphRagCollectionDimensionMismatch):
+        await store.ensure_graphrag_collection(uuid.uuid4(), vector_size=1024)
+
+
+@pytest.mark.asyncio
+async def test_ensure_reraises_genuine_create_failure() -> None:
+    # Create fails and the collection is still absent → a real failure, re-raised.
+    fake = _CollFake(existing_dim=None, create_conflicts=True, appears_after_conflict_dim=None)
+    store = GraphRagVectorStore(fake)  # type: ignore[arg-type]
+    with pytest.raises(RuntimeError):
+        await store.ensure_graphrag_collection(uuid.uuid4(), vector_size=1024)
 
 
 @pytest.mark.asyncio
