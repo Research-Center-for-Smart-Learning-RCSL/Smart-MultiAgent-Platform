@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import uuid
 from collections.abc import AsyncIterator
@@ -180,13 +181,48 @@ def _make_embedder_factory(db: AsyncSession) -> Any:
     return _factory
 
 
+_build_semaphore: asyncio.Semaphore | None = None
+
+
+def _graphrag_build_concurrency() -> int:
+    return max(1, get_settings().graphrag.build_concurrency)
+
+
+def _get_build_semaphore() -> asyncio.Semaphore:
+    """Per-worker concurrency gate for graphrag builds (D8).
+
+    Bounds how many builds run their heavy LLM/Neo4j/Qdrant work at once so a
+    burst cannot monopolise the shared worker; the cap is configurable via
+    settings. Lazy + module-scoped so it binds to the worker's running loop.
+    """
+    global _build_semaphore
+    if _build_semaphore is None:
+        _build_semaphore = asyncio.Semaphore(_graphrag_build_concurrency())
+    return _build_semaphore
+
+
+def _reset_build_semaphore() -> None:
+    """Test seam: drop the cached semaphore so a changed cap takes effect."""
+    global _build_semaphore
+    _build_semaphore = None
+
+
 async def graphrag_build(
     ctx: dict[str, Any],
     *,
     config_id: str,
     triggered_by: str = "manual",
 ) -> str:
-    """Run a full GraphRAG build for one config (2PC, R11.04)."""
+    """Run a full GraphRAG build for one config (2PC, R11.04).
+
+    D8: bounded by a per-worker semaphore so a burst of builds cannot starve the
+    other worker lanes.
+    """
+    async with _get_build_semaphore():
+        return await _run_build(config_id=config_id, triggered_by=triggered_by)
+
+
+async def _run_build(*, config_id: str, triggered_by: str = "manual") -> str:
     cfg_id = uuid.UUID(config_id)
     settings = get_settings()
 
