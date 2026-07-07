@@ -11,6 +11,12 @@ class AgentGroupNotFound(AgentGroupError):
     code = "agent-groups/not-found"
 
 
+class AgentGroupNameConflict(AgentGroupError):
+    """Another active group in the project already uses this name."""
+
+    code = "agent-groups/name-conflict"
+
+
 class AgentGroupMemberProjectMismatch(AgentGroupError):
     """An agent being added lives in a different project than the group.
 
@@ -24,5 +30,6 @@ class AgentGroupMemberProjectMismatch(AgentGroupError):
 __all__ = [
     "AgentGroupError",
     "AgentGroupMemberProjectMismatch",
+    "AgentGroupNameConflict",
     "AgentGroupNotFound",
 ]

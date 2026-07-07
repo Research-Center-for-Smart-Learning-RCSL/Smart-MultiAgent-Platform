@@ -39,6 +39,9 @@ def _build_registry() -> list[RouterEntry]:
         admin_ip_bans as admin_ip_ban_routes,
     )
     from app.api.v1 import (
+        agent_groups as agent_group_routes,
+    )
+    from app.api.v1 import (
         agent_workspace as agent_workspace_routes,
     )
     from app.api.v1 import (
@@ -177,6 +180,8 @@ def _build_registry() -> list[RouterEntry]:
         # Agents
         RouterEntry(agent_routes.project_router),
         RouterEntry(agent_routes.agent_router),
+        RouterEntry(agent_group_routes.project_router),
+        RouterEntry(agent_group_routes.group_router),
         RouterEntry(agent_workspace_routes.router),
         # Model catalog (provider/model presets for the config UI)
         RouterEntry(model_catalog_routes.router),

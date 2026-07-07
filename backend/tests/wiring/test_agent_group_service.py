@@ -16,6 +16,7 @@ import pytest
 from contexts.agent_groups.application.group_service import AgentGroupService
 from contexts.agent_groups.domain.errors import (
     AgentGroupMemberProjectMismatch,
+    AgentGroupNameConflict,
     AgentGroupNotFound,
 )
 from contexts.agents.domain.models import AgentModelHint, ContextMode, PromptStrategy
@@ -123,3 +124,18 @@ async def test_mutating_missing_group_raises_not_found() -> None:
         svc = AgentGroupService(db)
         with pytest.raises(AgentGroupNotFound):
             await svc.add_member(group_id=uuid.uuid4(), agent_id=a1, actor_user_id=p1.user.id, actor_ip=None)
+
+
+async def test_duplicate_active_group_name_conflicts() -> None:
+    async with async_session() as db:
+        p1 = await _seed_project(db)
+        svc = AgentGroupService(db)
+        name = f"dup-{uuid.uuid4().hex[:8]}"
+        await svc.create_group(project_id=p1.project.id, name=name, actor_user_id=p1.user.id, actor_ip=None)
+        await db.commit()
+
+        # A second active group with the same name in the project is a 409.
+        with pytest.raises(AgentGroupNameConflict):
+            await svc.create_group(
+                project_id=p1.project.id, name=name, actor_user_id=p1.user.id, actor_ip=None
+            )
