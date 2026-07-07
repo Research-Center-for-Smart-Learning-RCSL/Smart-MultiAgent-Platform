@@ -1,9 +1,8 @@
 ---
 type: refactor
-status: draft
+status: approved
 created: 2026-07-07
 requirements: [R11.15, R11.20]
-supersedes:
 ---
 
 # GraphRAG Phase 0 — Engine de-concreting & graph-data cleanup
