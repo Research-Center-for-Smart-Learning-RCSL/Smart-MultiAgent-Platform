@@ -96,7 +96,6 @@ class GraphRagConfigService:
         )
         cfg = await self._configs.create(
             project_id=project_id,
-            agent_id=draft.agent_id,
             owner_agent_group_id=owner_group_id,
             builder_key_group_id=draft.builder_key_group_id,
             trigger_config=draft.trigger_config,

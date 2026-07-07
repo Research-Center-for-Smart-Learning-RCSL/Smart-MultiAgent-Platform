@@ -23,6 +23,30 @@ from contexts.knowledge.infrastructure import graphrag_tables as t
 from shared_kernel.auth.clients import now
 
 
+def _member_agent_id() -> Any:
+    """Scalar subquery deriving the owning agent from the singleton group member.
+
+    Phase 1 dropped ``graphrag_configs.agent_id`` (0044); the owning agent is
+    now derived from the owner ``agent_group``'s membership. For a Phase-1
+    singleton group there is exactly one member, so this is deterministic and
+    equals the former column. ``LIMIT 1`` keeps it single-valued once multi-
+    member groups arrive (Phase 2b); a non-``agent_group`` owner yields NULL.
+    """
+    m = ag.agent_group_members
+    return (
+        sa.select(m.c.agent_id)
+        .where(m.c.agent_group_id == t.graphrag_configs.c.owner_agent_group_id)
+        .limit(1)
+        .scalar_subquery()
+        .label("agent_id")
+    )
+
+
+def _config_select() -> Any:
+    """SELECT over ``graphrag_configs`` with the derived ``agent_id`` column."""
+    return sa.select(t.graphrag_configs, _member_agent_id())
+
+
 def _row_to_config(row: Any) -> GraphRagConfig:
     return GraphRagConfig(
         id=row.id,
@@ -46,33 +70,30 @@ class GraphRagConfigRepository(GraphRagConfigRepositoryPort):
         self,
         *,
         project_id: uuid.UUID,
-        agent_id: uuid.UUID,
         owner_agent_group_id: uuid.UUID,
         builder_key_group_id: uuid.UUID,
         trigger_config: dict[str, Any],
     ) -> GraphRagConfig:
         try:
-            row = (
-                await self._db.execute(
-                    t.graphrag_configs.insert()
-                    .values(
-                        project_id=project_id,
-                        # Dual-write during the expand phase: `agent_id` is still
-                        # NOT NULL until 0044, `owner_agent_group_id` is the new
-                        # source of truth. The contract step drops `agent_id`.
-                        agent_id=agent_id,
-                        owner_agent_group_id=owner_agent_group_id,
-                        owner_kind="agent_group",
-                        builder_key_group_id=builder_key_group_id,
-                        trigger_config=trigger_config,
-                    )
-                    .returning(t.graphrag_configs)
+            await self._db.execute(
+                t.graphrag_configs.insert().values(
+                    project_id=project_id,
+                    owner_agent_group_id=owner_agent_group_id,
+                    owner_kind="agent_group",
+                    builder_key_group_id=builder_key_group_id,
+                    trigger_config=trigger_config,
                 )
-            ).one()
+            )
         except IntegrityError as exc:
-            # `agent_id` (and the owner partial-unique) enforce 1:1 ownership; a
-            # second create for the same owner is a domain 409, not a 500.
-            raise GraphRagConfigAlreadyExists(str(agent_id)) from exc
+            # The owner partial-unique (uq_graphrag_configs_owner_agent_group)
+            # enforces 1:1 ownership; a second create for the same owner is a
+            # domain 409, not a 500.
+            raise GraphRagConfigAlreadyExists(str(owner_agent_group_id)) from exc
+        row = (
+            await self._db.execute(
+                _config_select().where(t.graphrag_configs.c.owner_agent_group_id == owner_agent_group_id)
+            )
+        ).one()
         return _row_to_config(row)
 
     async def get(
@@ -84,7 +105,7 @@ class GraphRagConfigRepository(GraphRagConfigRepositoryPort):
         pred: sa.ColumnElement[bool] = t.graphrag_configs.c.id == config_id
         if not include_deleted:
             pred = sa.and_(pred, t.graphrag_configs.c.deleted_at.is_(None))
-        row = (await self._db.execute(t.graphrag_configs.select().where(pred))).first()
+        row = (await self._db.execute(_config_select().where(pred))).first()
         return _row_to_config(row) if row else None
 
     async def list_for_project(
@@ -93,7 +114,7 @@ class GraphRagConfigRepository(GraphRagConfigRepositoryPort):
     ) -> Sequence[GraphRagConfig]:
         rows = (
             await self._db.execute(
-                t.graphrag_configs.select()
+                _config_select()
                 .where(
                     sa.and_(
                         t.graphrag_configs.c.project_id == project_id,
@@ -127,7 +148,7 @@ class GraphRagConfigRepository(GraphRagConfigRepositoryPort):
         )
         rows = (
             await self._db.execute(
-                sa.select(gc)
+                sa.select(gc, _member_agent_id())
                 .select_from(joined)
                 .where(
                     sa.and_(
@@ -154,7 +175,7 @@ class GraphRagConfigRepository(GraphRagConfigRepositoryPort):
     ) -> Sequence[GraphRagConfig]:
         rows = (
             await self._db.execute(
-                t.graphrag_configs.select().where(
+                _config_select().where(
                     sa.and_(
                         t.graphrag_configs.c.last_build_state == state.value,
                         t.graphrag_configs.c.deleted_at.is_(None),

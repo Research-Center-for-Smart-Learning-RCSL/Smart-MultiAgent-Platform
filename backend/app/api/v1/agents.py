@@ -75,7 +75,6 @@ class AgentCreateIn(BaseModel):
     system_prompt: str = Field(default="", max_length=_MAX_SYSTEM_PROMPT)
     prompt_strategy: Literal["full", "lazy"] = "full"
     rag_config_id: uuid.UUID | None = None
-    graphrag_config_id: uuid.UUID | None = None
     context_mode: Literal["general", "compact"] = "general"
     context_token_cap: int | None = Field(default=None, gt=0)
     a2a_enabled: bool = False
@@ -85,8 +84,8 @@ class AgentCreateIn(BaseModel):
 
 class AgentPatchIn(BaseModel):
     # Every field is optional; missing → no change.
-    # For nullable fields (`rag_config_id`, `graphrag_config_id`,
-    # `context_token_cap`) send `null` explicitly to clear.
+    # For nullable fields (`rag_config_id`, `context_token_cap`) send `null`
+    # explicitly to clear.
     model_config = {"extra": "forbid", "protected_namespaces": ()}
 
     name: str | None = Field(default=None, min_length=1, max_length=200)
@@ -106,7 +105,6 @@ class AgentPatchIn(BaseModel):
     system_prompt: str | None = Field(default=None, max_length=_MAX_SYSTEM_PROMPT)
     prompt_strategy: Literal["full", "lazy"] | None = None
     rag_config_id: uuid.UUID | None = None
-    graphrag_config_id: uuid.UUID | None = None
     context_mode: Literal["general", "compact"] | None = None
     context_token_cap: int | None = Field(default=None, gt=0)
     a2a_enabled: bool | None = None
@@ -127,7 +125,6 @@ class AgentOut(BaseModel):
     system_prompt: str
     prompt_strategy: str
     rag_config_id: uuid.UUID | None
-    graphrag_config_id: uuid.UUID | None
     context_mode: str
     context_token_cap: int | None
     a2a_enabled: bool
@@ -150,7 +147,6 @@ def _to_agent_out(a) -> AgentOut:
         system_prompt=a.system_prompt,
         prompt_strategy=a.prompt_strategy.value,
         rag_config_id=a.rag_config_id,
-        graphrag_config_id=a.graphrag_config_id,
         context_mode=a.context_mode.value,
         context_token_cap=a.context_token_cap,
         a2a_enabled=a.a2a_enabled,
@@ -219,7 +215,6 @@ async def create_agent(
         system_prompt=body.system_prompt,
         prompt_strategy=PromptStrategy(body.prompt_strategy),
         rag_config_id=body.rag_config_id,
-        graphrag_config_id=body.graphrag_config_id,
         context_mode=ContextMode(body.context_mode),
         context_token_cap=body.context_token_cap,
         a2a_enabled=body.a2a_enabled,
@@ -314,7 +309,6 @@ async def patch_agent(
         system_prompt=fields.get("system_prompt"),
         prompt_strategy=(PromptStrategy(fields["prompt_strategy"]) if "prompt_strategy" in fields else None),
         rag_config_id=fields.get("rag_config_id"),
-        graphrag_config_id=fields.get("graphrag_config_id"),
         context_mode=(ContextMode(fields["context_mode"]) if "context_mode" in fields else None),
         context_token_cap=fields.get("context_token_cap"),
         a2a_enabled=fields.get("a2a_enabled"),
@@ -324,7 +318,6 @@ async def patch_agent(
         clear_model_id="model_id" in fields and fields["model_id"] is None,
         clear_effort="effort" in fields and fields["effort"] is None,
         clear_rag_config="rag_config_id" in fields and fields["rag_config_id"] is None,
-        clear_graphrag_config=("graphrag_config_id" in fields and fields["graphrag_config_id"] is None),
         clear_context_token_cap=("context_token_cap" in fields and fields["context_token_cap"] is None),
     )
     updated = await service.patch(

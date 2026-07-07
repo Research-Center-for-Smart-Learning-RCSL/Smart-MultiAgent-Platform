@@ -81,11 +81,6 @@ _MAP: ErrorMap = {
         409,
         "GraphRAG config already exists for this agent",
     ),
-    errors.GraphRagBuilderKeyGroupConflict: (
-        "knowledge/graphrag-builder-key-group-conflict",
-        422,
-        "Builder key group must differ from the agent's consumer key group",
-    ),
     errors.GraphRagAgentProjectMismatch: (
         "knowledge/graphrag-agent-project-mismatch",
         422,

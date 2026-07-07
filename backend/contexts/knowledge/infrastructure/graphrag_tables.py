@@ -19,13 +19,6 @@ graphrag_configs = sa.Table(
         "project_id", pg.UUID(as_uuid=True), sa.ForeignKey("projects.id", ondelete="CASCADE"), nullable=False
     ),
     sa.Column(
-        "agent_id",
-        pg.UUID(as_uuid=True),
-        sa.ForeignKey("agents.id", ondelete="CASCADE"),
-        nullable=False,
-        unique=True,
-    ),
-    sa.Column(
         "builder_key_group_id",
         pg.UUID(as_uuid=True),
         sa.ForeignKey("key_groups.id", ondelete="RESTRICT"),
@@ -51,13 +44,14 @@ graphrag_configs = sa.Table(
     sa.Column("last_build_error", sa.Text, nullable=True),
     sa.Column("created_at", sa.TIMESTAMP(timezone=True), nullable=False, server_default=sa.text("now()")),
     sa.Column("deleted_at", sa.TIMESTAMP(timezone=True), nullable=True),
-    # Discriminated owner (Phase 1, R11.05/R11.07/R11.08). Nullable through the
-    # expand phase; the contract migration (0044) makes owner_kind NOT NULL and
-    # adds the exactly-one-owner CHECK. ``agent_id`` above is dropped in 0044.
+    # Discriminated owner (Phase 1, R11.05/R11.07/R11.08). The contract migration
+    # (0044) made owner_kind NOT NULL, added the exactly-one-owner CHECK, and
+    # dropped the legacy ``agent_id`` anchor. The owning agent (when the owner is
+    # an agent_group) is derived from the group's membership at read time.
     sa.Column(
         "owner_kind",
         pg.ENUM("chatroom", "agent_group", "workspace", name="owner_kind", create_type=False),
-        nullable=True,
+        nullable=False,
     ),
     sa.Column(
         "owner_chatroom_id",

@@ -263,7 +263,6 @@ async def _seed_fixtures(
         system_prompt="You are a test agent for E2E testing.",
         prompt_strategy=PromptStrategy.FULL,
         rag_config_id=None,
-        graphrag_config_id=None,
         context_mode=ContextMode.GENERAL,
         context_token_cap=None,
         a2a_enabled=False,

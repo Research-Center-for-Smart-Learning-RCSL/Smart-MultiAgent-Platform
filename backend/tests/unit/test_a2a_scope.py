@@ -26,7 +26,6 @@ def _agent(project_id: uuid.UUID, *, enabled: bool, wakeup: dict | None = None) 
         system_prompt="",
         prompt_strategy=PromptStrategy.FULL,
         rag_config_id=None,
-        graphrag_config_id=None,
         context_mode=ContextMode.GENERAL,
         context_token_cap=None,
         a2a_enabled=enabled,
