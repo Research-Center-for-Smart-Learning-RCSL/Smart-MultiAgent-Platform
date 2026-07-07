@@ -66,11 +66,7 @@ class GraphRagContextProvider:
         if graphrag_config_id is None or not queries:
             return None
         try:
-            bundles = []
-            for query in queries:
-                bundle = await self._graphrag_query(graphrag_config_id, query)
-                if bundle is not None:
-                    bundles.append(bundle)
+            bundles = await self._graphrag_query(graphrag_config_id, queries)
             bundle = _merge_bundles(bundles)
             if bundle is None or not (bundle.entities or bundle.relations):
                 return None
@@ -88,9 +84,14 @@ class GraphRagContextProvider:
     async def _graphrag_query(
         self,
         config_id: uuid.UUID,
-        query: str,
-    ) -> Any:
+        queries: Sequence[str],
+    ) -> list[Any]:
         """Production GraphRAG retrieval wiring (E.8).
+
+        Builds the Neo4j + Qdrant clients and resolves the embedding key once,
+        then runs every query through a single retriever — the clients and key
+        are invariant across the queries for one config, so per-query rebuilds
+        would just repeat the connect/auth handshakes and the embed-key lookup.
 
         Seam for unit tests — fakes replace this method to exercise
         :meth:`query` without a live Neo4j/Qdrant stack.
@@ -100,7 +101,7 @@ class GraphRagContextProvider:
         settings = get_settings()
         neo4j_conf = getattr(settings, "neo4j", None)
         if neo4j_conf is None or self._qdrant_url is None:
-            return None
+            return []
 
         from qdrant_client import AsyncQdrantClient
 
@@ -116,19 +117,28 @@ class GraphRagContextProvider:
         )
         from contexts.knowledge.infrastructure.neo4j_driver import Neo4jAsyncDriver
 
+        # Resolve+build the embedder once and reuse it for every query — the
+        # key group and model are the same across a config's queries.
+        embedder_cache: dict[uuid.UUID, Any] = {}
+
         async def _embedder_factory(cfg: Any) -> Any:
+            cached = embedder_cache.get(cfg.id)
+            if cached is not None:
+                return cached
             resolved = await resolve_embed_key(self._db, cfg.builder_key_group_id)
             if resolved is None:
                 raise RuntimeError(
                     f"builder key group {cfg.builder_key_group_id} has no embedding key",
                 )
             provider, model, key_id = resolved
-            return router_embedder_for(
+            embedder = router_embedder_for(
                 router=self._router,  # type: ignore[arg-type]
                 key_id=key_id,
                 provider=provider,
                 model=model,
             )
+            embedder_cache[cfg.id] = embedder
+            return embedder
 
         driver = Neo4jAsyncDriver(
             uri=neo4j_conf.url,
@@ -147,7 +157,12 @@ class GraphRagContextProvider:
                 configs=GraphRagConfigRepository(self._db),
                 evidence_fetcher=self._evidence_fetcher,
             )
-            return await svc.query(config_id=config_id, text=query)
+            bundles: list[Any] = []
+            for query in queries:
+                bundle = await svc.query(config_id=config_id, text=query)
+                if bundle is not None:
+                    bundles.append(bundle)
+            return bundles
         finally:
             await qclient.close()
             await driver.close()
