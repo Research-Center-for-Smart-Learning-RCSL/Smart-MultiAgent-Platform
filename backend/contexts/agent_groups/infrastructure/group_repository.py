@@ -18,8 +18,10 @@ from collections.abc import Sequence
 
 import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from contexts.agent_groups.domain.errors import AgentGroupNameConflict
 from contexts.agent_groups.infrastructure import tables as t
 
 
@@ -28,18 +30,22 @@ class AgentGroupRepository:
         self._db = db
 
     async def create_group(self, *, project_id: uuid.UUID, name: str) -> uuid.UUID:
-        """Insert a group and return its id (caller owns commit)."""
-        return uuid.UUID(
-            str(
-                (
-                    await self._db.execute(
-                        t.agent_groups.insert()
-                        .values(project_id=project_id, name=name)
-                        .returning(t.agent_groups.c.id)
-                    )
-                ).scalar_one()
+        """Insert a group and return its id (caller owns commit).
+
+        The ``uq_agent_groups_project_name_active`` partial-unique makes a
+        duplicate active name in the project a domain 409, not a 500.
+        """
+        try:
+            row = await self._db.execute(
+                t.agent_groups.insert()
+                .values(project_id=project_id, name=name)
+                .returning(t.agent_groups.c.id)
             )
-        )
+        except IntegrityError as exc:
+            raise AgentGroupNameConflict(
+                f"group name {name!r} already exists in project {project_id}"
+            ) from exc
+        return uuid.UUID(str(row.scalar_one()))
 
     async def project_id_of(self, group_id: uuid.UUID) -> uuid.UUID | None:
         """Return the group's project id, or ``None`` if missing/soft-deleted.

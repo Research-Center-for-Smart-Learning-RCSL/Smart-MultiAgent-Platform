@@ -21,6 +21,11 @@ _MAP: ErrorMap = {
         422,
         "Agent does not belong to the group's project",
     ),
+    errors.AgentGroupNameConflict: (
+        "agent-groups/name-conflict",
+        409,
+        "An agent group with this name already exists in the project",
+    ),
 }
 
 
