@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.agent_groups.infrastructure import tables as ag
 from contexts.agents.infrastructure import tables as agents_t
+from contexts.conversation.infrastructure import tables as conv_t
 from contexts.keys.infrastructure import tables as keys_t
 from contexts.knowledge.application.embed_resolution import resolve_embed_key
 from contexts.knowledge.domain.errors import (
@@ -26,6 +27,7 @@ from contexts.knowledge.domain.errors import (
     GraphRagConfigAlreadyExists,
     GraphRagConfigNotFound,
     GraphRagEmbedDimensionConflict,
+    GraphRagOwnerProjectMismatch,
 )
 from contexts.knowledge.domain.graphrag import (
     BuildState,
@@ -105,6 +107,12 @@ class GraphRagConfigService:
 
         owner_group_id = await self._ensure_singleton_agent_group(
             project_id=project_id, agent_id=draft.agent_id
+        )
+        # D6: the owner entity must live in the config's project. The singleton
+        # group is created in-project just above, so this passes today; the guard
+        # is the invariant for when Phase 2b lets a caller pass an arbitrary owner.
+        await self._assert_owner_in_project(
+            owner_kind="agent_group", owner_id=owner_group_id, project_id=project_id
         )
         cfg = await self._configs.create(
             project_id=project_id,
@@ -249,6 +257,78 @@ class GraphRagConfigService:
             )
         return pin
 
+    async def _assert_owner_in_project(
+        self,
+        *,
+        owner_kind: str,
+        owner_id: uuid.UUID,
+        project_id: uuid.UUID,
+    ) -> None:
+        """Reject an owner entity not in the config's project (D6, AC-9).
+
+        Dispatch per ``owner_kind``: ``agent_group`` and ``workspace`` carry
+        ``project_id`` directly; ``chatroom`` reaches it via its workspace
+        (2-hop). Raises :class:`GraphRagOwnerProjectMismatch` (422) on a project
+        mismatch or a missing/deleted owner. Implemented for every kind now even
+        though Phase 1 create only exercises ``agent_group`` — Phase 2b adds the
+        chatroom/workspace owner surfaces and this guard is already in place.
+        """
+        if owner_kind == "agent_group":
+            stmt = sa.select(ag.agent_groups.c.project_id).where(
+                sa.and_(
+                    ag.agent_groups.c.id == owner_id,
+                    ag.agent_groups.c.deleted_at.is_(None),
+                )
+            )
+        elif owner_kind == "workspace":
+            stmt = sa.select(conv_t.workspaces.c.project_id).where(
+                sa.and_(
+                    conv_t.workspaces.c.id == owner_id,
+                    conv_t.workspaces.c.deleted_at.is_(None),
+                )
+            )
+        elif owner_kind == "chatroom":
+            stmt = (
+                sa.select(conv_t.workspaces.c.project_id)
+                .select_from(
+                    conv_t.chatrooms.join(
+                        conv_t.workspaces,
+                        conv_t.workspaces.c.id == conv_t.chatrooms.c.workspace_id,
+                    )
+                )
+                .where(
+                    sa.and_(
+                        conv_t.chatrooms.c.id == owner_id,
+                        conv_t.workspaces.c.deleted_at.is_(None),
+                    )
+                )
+            )
+        else:
+            raise GraphRagOwnerProjectMismatch(f"unknown owner_kind {owner_kind!r}")
+
+        row = (await self._db.execute(stmt)).first()
+        if row is None or row.project_id != project_id:
+            raise GraphRagOwnerProjectMismatch(f"{owner_kind} {owner_id} is not in project {project_id}")
+
+    async def _config_owner(self, config_id: uuid.UUID) -> tuple[str, uuid.UUID]:
+        """Return the config's discriminated owner ``(owner_kind, owner_id)``."""
+        row = (
+            await self._db.execute(
+                sa.select(
+                    gt.graphrag_configs.c.owner_kind,
+                    gt.graphrag_configs.c.owner_chatroom_id,
+                    gt.graphrag_configs.c.owner_agent_group_id,
+                    gt.graphrag_configs.c.owner_workspace_id,
+                ).where(gt.graphrag_configs.c.id == config_id)
+            )
+        ).one()
+        owner_id = {
+            "chatroom": row.owner_chatroom_id,
+            "agent_group": row.owner_agent_group_id,
+            "workspace": row.owner_workspace_id,
+        }[row.owner_kind]
+        return cast(str, row.owner_kind), cast(uuid.UUID, owner_id)
+
     async def get(self, config_id: uuid.UUID) -> GraphRagConfig:
         cfg = await self._configs.get(config_id)
         if cfg is None:
@@ -303,6 +383,12 @@ class GraphRagConfigService:
         there is no per-agent consumer key group for the builder to collide with.
         """
         cfg = await self.get(config_id)
+        # D6: owner is immutable post-create, but re-assert defensively that it
+        # still lives in the config's project before any mutation.
+        owner_kind, owner_id = await self._config_owner(config_id)
+        await self._assert_owner_in_project(
+            owner_kind=owner_kind, owner_id=owner_id, project_id=cfg.project_id
+        )
         group_changed = builder_key_group_id is not None and builder_key_group_id != cfg.builder_key_group_id
         new_pin: tuple[str, str, int] | None = None
         if group_changed:

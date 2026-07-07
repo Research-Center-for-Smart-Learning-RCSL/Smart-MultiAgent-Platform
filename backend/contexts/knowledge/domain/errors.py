@@ -103,6 +103,16 @@ class GraphRagEmbedDimensionConflict(KnowledgeError):
     code = "knowledge/graphrag-embed-dimension-conflict"
 
 
+class GraphRagOwnerProjectMismatch(KnowledgeError):
+    """Phase 2a D6 — the config's owner entity is not in the config's project.
+
+    Enforced for every ``owner_kind`` (agent_group / chatroom / workspace) so a
+    project's builder can never be pointed at an owner in another tenant
+    (multi-tenant AuthZ, blueprint AC-9a)."""
+
+    code = "knowledge/graphrag-owner-project-mismatch"
+
+
 __all__ = [
     "CapabilityMismatch",
     "ChunkParamsInvalid",
@@ -116,6 +126,7 @@ __all__ = [
     "GraphRagConfigAlreadyExists",
     "GraphRagConfigNotFound",
     "GraphRagEmbedDimensionConflict",
+    "GraphRagOwnerProjectMismatch",
     "IngestFailed",
     "KnowledgeError",
     "RagConfigNameTaken",
