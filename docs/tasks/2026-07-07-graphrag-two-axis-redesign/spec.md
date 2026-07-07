@@ -2,7 +2,7 @@
 type: feature
 status: approved
 created: 2026-07-07
-requirements: [R10.06, R10.11, R11.01, R11.02, R11.03, R11.05, R11.06, R11.07, R11.08, R11.09, R11.10, R11.11, R11.12, R11.13, R11.14, R11.15, R11a.01]
+requirements: [R09.17, R10.06, R10.10, R10.11, R11.01, R11.02, R11.03, R11.05, R11.06, R11.07, R11.08, R11.09, R11.10, R11.11, R11.12, R11.13, R11.14, R11.15, R11.16, R11.17, R11.18, R11.19, R11a.01]
 ---
 
 # GraphRAG Two-Axis Redesign — Decouple the Knowledge Graph from a Single Agent
@@ -227,6 +227,138 @@ Recorded so the plan reflects code, not the initial exploration:
   freshly-migrated data (singleton groups); once a group has ≠1 members or a
   chatroom/workspace owner appears, there is no lossless inverse to `UNIQUE agent_id`.
 
+### 4b. Verification pass 2 (2026-07-07) — second-angle findings
+
+A second adversarial round attacked four angles the first missed: build concurrency/2PC/
+scale, AuthZ/tenant/WebSocket, the consume-pointer ripple + multi-block turns, and frontend
+slice boundaries. Findings, with severity and the phase they bind to:
+
+**Build correctness & scale (Phase 2 prerequisites — these bite only once multi-member
+groups or workspace owners exist; a singleton agent_group in Phase 1 has today's bounded
+scope and does not regress):**
+
+- **V-1 — CRITICAL — no windowed extraction exists.** `_DbDeltaLoader.load` paginates the DB
+  (`_BATCH_SIZE=2000`) but accumulates the **entire** delta into one list
+  (`app/workers/tasks/graphrag.py:60,101-107`); the builder passes all of it to ONE
+  `extractor.extract` call (`graphrag_builder.py:227-236`) rendered into one prompt
+  (`triple_extractor.py:84-122`), and embeds all entities in one batch
+  (`graphrag_builder.py:435-440`). No chunk/window logic exists anywhere. A workspace initial
+  build (`since=None`) over ~10k messages is ~800k tokens in one prompt — beyond every model.
+  Failure is **silent**: non-200 -> extractor returns `[]` -> build "succeeds" with zero
+  triples; or an oversized embed batch -> Phase-2 fails -> `FAILED_COMPENSATING` retrying the
+  same oversized batch forever. Windowed/batched extraction is a hard prerequisite for
+  workspace and multi-member-group ownership.
+- **V-2 — HIGH — one project-shared Qdrant collection, one fixed vector dimension.**
+  `graphrag_{project_id}` is created with the first build's `vector_size`
+  (`graphrag_vector_store.py:56-62`). Per-owner configs have their own `builder_key_group_id`
+  -> possibly different embed models -> different dims (1536 vs 1024); the second config's
+  upsert is rejected by Qdrant -> permanent Phase-2 failure. This is a **pre-existing latent
+  bug** (two 1:1 configs in one project with different embed models already hit it) that
+  fan-out makes routine. Fix: pin one embedding model/dimension per project graph collection,
+  or shard the collection per config.
+- **V-3 — HIGH — `job_timeout (600s) == LOCK_TTL (600s)`** (`app/workers/main.py:271`,
+  `graphrag_builder.py:59`). A long fan-out build is killed by arq exactly as its lock
+  expires -> durable `RUNNING`/`NEO4J_COMMITTED` + a re-trigger can start a second build.
+  Raise `job_timeout` above the largest realistic (windowed) build, or make builds resumable.
+- **V-4 — MEDIUM — the covering-config trigger resolver must return DISTINCT configs.**
+  `evaluate_graphrag_message_triggers` increments a counter per returned row
+  (`graphrag_triggers.py:52,56-60`); if the `(agent, chatroom)->covering configs` query
+  reaches a group/workspace config through multiple member agents, its counter multiplies.
+  G8's DISTINCT applies to the trigger set too, not only the feed.
+- **V-5 — MEDIUM — enqueue has no dedup.** `enqueue` passes no `_job_id`
+  (`shared_kernel/queue.py:31`); duplicate triggers enqueue duplicate builds -> the second
+  hits the lock -> `GraphRagBuildBusy` -> the worker sets the Prometheus one-hot to
+  `failed=1` and arq retries (`graphrag.py:234-237`). Fan-out makes false "failed" signals +
+  retry storms routine. The "per-message build dedup" named in §7/§10 must be designed
+  (coalesce via `_job_id` keyed on config + message watermark).
+- **V-6 — LOW — DISTINCT implementation trap + `RUNNING`-state counter pause.** DISTINCT must
+  be full-row with `m.id,m.created_at` in the select (not `DISTINCT ON`, which fights the
+  keyset ORDER BY), and dedup happens before `LIMIT` so batch cost scales with member×room
+  fan-out. The trigger counter is skipped while state is `RUNNING`
+  (`graphrag_triggers.py:58`), so messages during a long build are lost for trigger
+  accounting. Confirmed-safe: per-config locks, Neo4j config-scoping, `apply_triples`
+  idempotency (MERGE + evidence union), the atomic Redis counter, the keyset design.
+
+**AuthZ / tenant isolation (Phase 1-2; building blocks all exist, but none apply to the
+graphrag paths today — they must be wired in, not assumed):**
+
+- **V-7 — HIGH — polymorphic owner->project invariant does not exist.** Today only
+  `graphrag_config_service.py:74` guards `agent_row.project_id != project_id`. Nothing will
+  stop a config with `project_id=P1` from owning a P2 chatroom/workspace/group, violating
+  R11.10. Needs an app-layer `_assert_owner_in_project` (owner resolves project differently
+  per kind) enforced at **create and update** (mirror `:74` and `:195`). Reuse the
+  `_assert_*_in_project` family (`agent_service.py:206-258`).
+- **V-8 — HIGH — map channels/reads use bare project membership, bypassing room ACL.**
+  `ws/graphrag.py:46-52` and `GET /graphrag/{id}/graph` (`app/api/v1/graphrag.py:258-329`)
+  authorize on `roles_for(project_id) != {}`. For a **chatroom-owned** map, any project
+  member — including one barred from an owners-only/project-only room by the §21.1 flags —
+  could read graph content distilled from that room. Authorization must branch on
+  `owner_kind`: chatroom -> `resolve_room_access` + `ensure_can_read`
+  (`conversation/application/access.py:52,125`, as `ws/chatroom.py:59-64`); workspace/
+  agent_group -> project membership + the owner opt-in. The `/graph` content endpoint is the
+  higher-severity vector; the build-status channel leaks only state.
+- **V-9 — MEDIUM — retrieval coverage resolution is authorization-bearing.**
+  `graphrag_context_provider` does zero re-check today (safe because the pointer was
+  validated at attach). The new coverage resolver must derive coverage strictly from the
+  agent's actual room binding + its group memberships + the current room's workspace (never a
+  broader union), filter each wide layer by `concept_map_enabled` **at query time** (a
+  later-disabled layer must stop being read), and confirm project match. The enabled-flag
+  check is load-bearing, not cosmetic (R11.10).
+- **V-10 — MEDIUM — two conflicting "Project Owner" checks.** `RESOURCE_CREATE_EDIT`
+  (`permissions.py:211-214`) admits org-owner-inherited project owners; `is_project_owner`
+  (`tenancy/interfaces/facade.py:48`) is strict. R10.10's upload gate uses the strict one.
+  `concept_map_enabled` (R11.10 "only by Project Owner") must reuse the **strict**
+  `is_project_owner` consistently across enable + membership endpoints. Audit reuse
+  (`shared_kernel/audit.py:42`) is a clean drop-in.
+
+**Consume-pointer ripple & multi-block turns (Phase 2/4):**
+
+- **V-11 — confirmed no orchestration breakage.** `agent.graphrag_config_id` is read only at
+  `turn_engine.py:1669` (retrieval), the agents create/patch validation, ORM/DTO, and two
+  frontend surfaces. Orchestration/A2A/subagent/workflow read it nowhere except the two
+  inheritance maps that already exclude it (`subagent_service.py:271`,
+  `domain/models.py:364`). History/compaction is also safe — RAG/graphrag blocks are
+  ephemeral, never written as message rows (`transcript.py` keys only on `compact_summary`).
+- **V-12 — MEDIUM — DTO/openapi ripple + two live frontend surfaces.** The pointer is a field
+  on `AgentOut`/`AgentCreateIn`/`AgentPatchIn` (`app/api/v1/agents.py`, generated into
+  `shared/api-client/models/*`), and drives the `isBound` badge
+  (`GraphragConfigListView.vue:130-131`, semantically wrong after decouple) and the
+  AgentDetailView graphrag form field. Decoupling ripples through `gen:api` +
+  `check:openapi-drift` and these two surfaces.
+- **V-13 — MEDIUM — no cross-block token budget/order policy.** `_run_locked` joins all
+  context blocks into one system string (`turn_engine.py:983`); today 1 RAG + 1 graphrag
+  block. Under the plan a turn may carry 1 File-RAG + 1 Knowledge-Map + up to 3 Concept-Map
+  layers, each self-capping (graphrag at 2 KB) with **no combined budget** — five blocks can
+  blow the system-prompt budget, and `should_compact` measures history rows, not the system
+  prefix. A combined budget with narrow-scope precedence is a net-new policy.
+- **V-14 — MEDIUM — graph citation persistence does not exist.** `grep graphrag_sources` = 0;
+  `_graphrag_context` returns a bare `str`, discarding the bundle. RAG persists a single
+  `metadata.rag_sources` list (`turn_engine.py:1065-1067`). "N graph blocks with citations"
+  is net-new and must be multi-source-shaped from day one — OR graph blocks stay
+  citation-less as today (Open Q-E). Not required by any goal; scope decision.
+- **V-15 — RAG/graphrag pointer asymmetry.** `rag_config_id` also drives the hosted File
+  Search tool + a tool-singleton gate + doc-scope SQL (`agent_service.py:334,628-635`,
+  `builtin_tools.py`); graphrag mirrors only the retrieval line. The symmetric create/patch
+  clear-flag machinery will deliberately diverge — handle explicitly, update the paired tests.
+
+**Frontend re-home (Phase 4):**
+
+- **V-16 — workspace UI lives in the `conversation` slice, not `tenancy`.** `tenancy` owns
+  only orgs/projects/members (`tenancy/routes.ts`); workspaces are `conversation.workspaces`
+  (`conversation/routes.ts:4-9`). This is fortunate: `conversation` may import `agents`
+  (`eslint.config.js:21`) whereas `tenancy` may not (`:20`), so the workspace Concept Map
+  panel is boundary-legal.
+- **V-17 — the "reusable visualizer" is a route-bound page, not a component.**
+  `GraphragGraphView.vue` reads route params, renders breadcrumbs, calls `agentsApi`, and
+  hardcodes `agents.*` i18n; it is not re-exported from `agents/index.ts`. Reuse requires
+  extracting a props-driven `KnowledgeGraphCanvas` into `shared/ui/` (labels as props; there
+  is no `shared/locales/`) and moving the pure `useGraphLayout` to `shared/`, demoting the
+  current view to a thin wrapper. A real shared-layer refactor, not a re-export.
+- **V-18 — owner-scoped data access is net-new on the frontend too.** `agentsApi.getGraphragGraph`
+  and `useGraphragSocket` are `graphrag_config`-scoped (agent-1:1); an owner-centric panel
+  needs the new owner-scoped endpoints + new API methods. Good news: knowledge state is
+  TanStack-Query-keyed (no Pinia store to split).
+
 ## 5. Design
 
 ### 5.1 The four quadrants, mapped to code
@@ -398,12 +530,21 @@ extractor; parameterized Qdrant prefix; evidence generalization across
 `domain/graphrag.py`, `triple_extractor.py:158-165`, `graphrag_retrieve.py:114-122`,
 `EvidenceFetcher` signature + `build_doc_evidence_fetcher`; `turn_engine` Axis-1 block.
 
-- **API contract** — `gen:api` rerun required: yes.
-- **Frontend** (Phase 4) — split Knowledge tab (Axis-1 stays on agent; Concept Map -> owner
-  panels: chatroom memory, agent_group editor, workspace settings); `agent_groups` UI;
-  reuse `GraphragGraphView.vue`. All strings via `$t()`.
+- **API contract** — `gen:api` rerun required: yes. New **owner-scoped** Concept Map
+  endpoints (create/read/graph/build-status by owner, not `graphrag_config_id`) — the current
+  API is config-scoped/agent-1:1 (§4b-V-18). Decoupling the pointer ripples the agent DTOs
+  through `gen:api` + `check:openapi-drift` (§4b-V-12).
+- **Frontend** (Phase 4, §4b-V-16..V-18) — split Knowledge tab (Axis-1 stays on agent;
+  Concept Map -> owner panels). Panel homes: chatroom memory + workspace settings live in the
+  **`conversation`** slice (workspaces are `conversation.workspaces`, not `tenancy`);
+  agent_group editor in `agents`. Extract a props-driven **`KnowledgeGraphCanvas` into
+  `shared/ui/`** (move pure `useGraphLayout` too) and demote `GraphragGraphView.vue` to a
+  wrapper — the current view is route-bound and not re-exported, so cross-slice reuse needs
+  the shared component, not a re-export. New owner-scoped API methods + a socket that is
+  owner- not config-keyed. Fix the `isBound` badge semantics (§4b-V-12). All strings via
+  `$t()`; canvas labels passed as props (no `shared/locales/`).
 - **Deploy/config** — add `knowmap_{project_id}` to `smap/bootstrap/qdrant_init.py`; no new
-  stores.
+  stores. Confirm one embedding dimension per project graph collection (§4b-V-2).
 
 ## 7. NFR Checklist
 
@@ -413,28 +554,52 @@ extractor; parameterized Qdrant prefix; evidence generalization across
   in-project; no owner spans projects.
 - [ ] Error handling UX — extend `useGraphragSocket` build-status states to Knowledge Map +
   per-owner Concept Maps; RFC 7807 via `knowledge/interfaces/error_mapping.py`.
-- [ ] Performance — layered retrieval is N×M embed+search+traverse round-trips with no
-  shared embeddings (§4a-G6); single-client reuse is a prerequisite, not optional. Build
-  fan-out multiplies worker load — dedup builds per message. Index the new delta-feed
-  predicates. The 2KB cap is a blind binary-search truncation with no scope notion
-  (`domain/graphrag.py:135-153`) — precedence must be render-order, not cap logic.
+- [ ] Performance / retrieval — layered retrieval is N×M embed+search+traverse round-trips
+  with no shared embeddings (§4a-G6); single-client reuse is a prerequisite, not optional.
+  Index the new delta-feed predicates. The 2KB cap is a blind binary-search truncation with
+  no scope notion (`domain/graphrag.py:135-153`) — precedence must be render-order, not cap
+  logic. Multi-block turns need a **combined** token budget across File-RAG + Knowledge-Map +
+  N Concept-Map layers (§4b-V-13); no combined budget exists today.
+- [ ] Performance / build (Phase 2 prerequisites, §4b-V-1..V-6) — **windowed/batched
+  extraction** is mandatory before workspace/multi-member ownership (V-1: unbounded initial
+  build, silent zero-triple failure). **Pin one embedding model/dimension per project graph
+  collection** or shard per config (V-2: dimension-mismatch permanent failure). **Raise
+  `job_timeout` above the largest windowed build** (V-3: killed at lock-TTL). **DISTINCT the
+  covering-config trigger set** (V-4) and **dedup enqueues via `_job_id`** (V-5: BuildBusy
+  retry storms + false `failed` metric).
 
 ## 8. Security Considerations
 
 Touches tenant boundaries, provider keys, user-input processing — required.
 
-- **Cross-scope memory leakage (primary risk).** Wide layers aggregate many rooms;
-  retrieval could surface room B's concepts in room A. Mitigations: (1) wide layers
-  default-disabled, Project-Owner-gated, audited (§5.6); (2) coverage resolved strictly from
-  membership/scope — an agent gets a group layer only if a member and the group is enabled;
-  (3) no layer crosses projects (owner_id validated in-project on every read/build).
+- **Owner->project invariant (§4b-V-7, HIGH).** Nothing today stops a config with
+  `project_id=P1` from owning a P2 chatroom/workspace/group. Add an app-layer
+  `_assert_owner_in_project` (owner resolves project per kind) at **create and update**,
+  mirroring `graphrag_config_service.py:74,195` and the `_assert_*_in_project` family. This
+  is the code R11.10 ("no Concept Map spans projects") depends on and it does not yet exist.
+- **Room-ACL-aware map authorization (§4b-V-8, HIGH).** Graphrag channels/reads authorize on
+  bare project membership (`ws/graphrag.py:46-52`, `GET /graphrag/{id}/graph`
+  `app/api/v1/graphrag.py:258-329`). A chatroom-owned map must inherit the room ACL
+  (`conversation/application/access.py:52,125` `resolve_room_access`/`ensure_can_read`, as
+  `ws/chatroom.py:59-64`) so a project member barred from the room by the §21.1 flags cannot
+  read graph content distilled from it. workspace/agent_group maps -> project membership +
+  owner opt-in. The `/graph` content endpoint outranks the build-status channel.
+- **Retrieval coverage is authorization-bearing (§4b-V-9).** The coverage resolver must
+  derive from the agent's real room binding + group memberships + current-room workspace
+  (never a broader union), filter wide layers by `concept_map_enabled` **at query time**, and
+  confirm project match. The enabled-flag is load-bearing, not cosmetic.
+- **Cross-scope memory leakage (primary risk).** Wide layers aggregate many rooms — surfacing
+  room B's concepts in room A. Mitigated by V-7/V-8/V-9 plus wide-layer default-off,
+  Project-Owner-gated, audited (§5.6).
+- **Project-Owner gate uses the strict check (§4b-V-10).** `concept_map_enabled` and
+  membership endpoints use `is_project_owner` (`tenancy/interfaces/facade.py:48`), matching
+  R10.10's upload gate — not the org-inheriting `RESOURCE_CREATE_EDIT`.
 - **Builder key group.** Concept Map builder key is a config attribute; the R11.01
-  builder-vs-consumer distinctness rule is dropped for Concept Maps (§4a-G2) — ensure the
-  remaining in-project check on `builder_key_group_id` is enforced.
+  distinctness rule is dropped for Concept Maps (§4a-G2). The create path must **skip the
+  agent-load** for non-agent owners (§4b-V-6-adjacent) or it dereferences a null agent; keep
+  the in-project check on `builder_key_group_id`.
 - **Knowledge Map ingestion** reuses file-RAG's validated upload surface (MIME/size gate,
   SHA-256, virus scan, `ingest_service.py:115-423`) — do not open a second unvalidated path.
-- **AuthZ on new endpoints** — agent_group CRUD, membership, owner-scoped Concept Map config
-  each verify org/project membership before returning data.
 - No provider keys logged; evidence excerpts avoid raw keys.
 
 ## 9. Quality Notes
@@ -449,6 +614,13 @@ Touches tenant boundaries, provider keys, user-input processing — required.
     blindly.
   - UUID-hard evidence coercion silently drops non-UUID tokens
     (`triple_extractor.py:163`, `graphrag_retrieve.py:119`) — §4a-G3.
+  - Pre-existing embed-dimension collision on the shared `graphrag_{project_id}` collection
+    (§4b-V-2) — already latent for two 1:1 configs with different embed models; fan-out makes
+    it routine. FU-2.
+  - No windowed extraction; whole delta in one prompt/embed batch (§4b-V-1) — FU-3.
+  - Reconciler Phase-2 retry mints fresh point ids and skips the superseded sweep, leaking
+    duplicate Qdrant points (`graphrag_reconciler.py:130,186-191`) — FU-4.
+  - Enqueue has no dedup / `job_timeout == LOCK_TTL` (§4b-V-3,V-5) — FU-5.
 - **Patterns to follow:** file-RAG many-agent scoping (`domain/models.py:113-148`);
   membership junction `chatroom_agents:50-70`; cross-context read via `EvidenceFetcher`
   injection (`:203-224`); single-client-per-query reuse (`rag_context_provider.py:115-149`);
@@ -470,8 +642,18 @@ Touches tenant boundaries, provider keys, user-input processing — required.
   has ≠1 members or a chatroom/workspace owner exists, there is no lossless inverse.
 - **Layered retrieval regressions** — merge/budget bugs could crowd out the room layer.
   Mitigation: scope-precedence render order + per-layer fail-soft + merge-policy tests.
-- **Build fan-out load** — one message feeding N layers. Mitigation: per-message build dedup,
-  per-config Redis lock (R11a.01), trigger thresholds.
+- **Build fan-out load** — one message feeding N layers. Mitigation: per-message build dedup
+  (`_job_id`, §4b-V-5), per-config Redis lock (R11a.01), trigger thresholds, a dedicated
+  worker lane (§4b-V-6/B3).
+- **Unbounded initial build (§4b-V-1, CRITICAL).** A workspace/multi-member-group first build
+  feeds the whole delta into one prompt/embed batch — silent zero-triple or stuck
+  compensation. Mitigation: windowed extraction is a **hard Phase-2 prerequisite** (AC-14);
+  singleton-group Phase 1 does not regress (bounded like today).
+- **Embed-dimension collision (§4b-V-2, HIGH).** Divergent embed models on the shared project
+  collection permanently fail Phase-2. Mitigation: pin one dimension per collection or shard
+  (AC-15) — also fixes a pre-existing latent bug.
+- **`job_timeout == LOCK_TTL` (§4b-V-3).** Long builds killed at the lock boundary, risking a
+  double build. Mitigation: raise the timeout above the largest windowed build (AC-16).
 - **Evidence generalization** touches shared `Triple`/`RelationEdge` used by Concept Map —
   regression-test conversation evidence after the typing change (Phase 3).
 - **Staging** (`smap.rcsl.online`) has live per-agent configs — migrate in place.
@@ -500,9 +682,15 @@ Touches tenant boundaries, provider keys, user-input processing — required.
 - [ ] AC-8: Per-layer fail-soft — one map erroring drops only that layer; a single
   Neo4j+Qdrant client is reused across all layers in a turn. [P2]
 - [ ] AC-9: agent_group and workspace layers are absent from retrieval unless
-  `concept_map_enabled`; chatroom layer default on; a user in room A never receives concepts
-  sourced solely from room B via an unauthorized wide layer; enablement + membership + admin
-  reset are audit-logged. [P2]
+  `concept_map_enabled` (checked at query time); chatroom layer default on; a user in room A
+  never receives concepts sourced solely from room B via an unauthorized wide layer;
+  enablement + membership + admin reset are audit-logged. [P2]
+- [ ] AC-9a: An `_assert_owner_in_project` invariant rejects any config whose `owner_id`
+  entity is outside the config's project, at create and update. (§4b-V-7) [P1/P2]
+- [ ] AC-9b: A chatroom-owned Concept Map's `/graph` read and build-status channel enforce
+  the room ACL (`resolve_room_access`/`ensure_can_read`); a project member barred from the
+  room cannot read its graph. workspace/agent_group maps use project membership + owner
+  opt-in; `concept_map_enabled` uses the strict `is_project_owner`. (§4b-V-8, V-10) [P2]
 - [ ] AC-10: A Knowledge Map config (its own table) builds from uploaded files via shared
   `MIME_TO_PARSER` + a document `TripleExtractor`, and is queried at turn time as an Axis-1
   block independent of any Concept Map. [P3]
@@ -514,6 +702,24 @@ Touches tenant boundaries, provider keys, user-input processing — required.
   review) [P3]
 - [ ] AC-13: `ruff/mypy/pytest` and `pnpm typecheck/lint/build` pass; `gen:api` regenerated;
   no hardcoded user-facing strings. [all]
+- [ ] AC-14: Concept Map builds extract triples over a bounded message window; an initial
+  build over a large scope (workspace/multi-member group) completes in bounded batches and
+  never sends an over-limit prompt/embed batch nor silently yields zero triples. (§4b-V-1)
+  [P2 prerequisite]
+- [ ] AC-15: All Concept Maps sharing a project's `graphrag_{project_id}` collection use one
+  embedding dimension; a config selecting a divergent embedding is rejected (or collections
+  are sharded per config). (§4b-V-2) [P2 prerequisite]
+- [ ] AC-16: Duplicate build enqueues are coalesced (`_job_id`) and `job_timeout` exceeds the
+  largest windowed build; a busy config does not emit a false `failed` metric or a retry
+  storm. (§4b-V-3, V-5) [P2 prerequisite]
+- [ ] AC-17: The covering-config trigger set is DISTINCT — one message increments each
+  covering config's counter exactly once. (§4b-V-4) [P1/P2]
+- [ ] AC-18: A turn carrying multiple knowledge blocks (File-RAG + Knowledge-Map + N
+  Concept-Map layers) stays within a combined system-prompt budget with narrow-scope
+  precedence. (§4b-V-13) [P2]
+- [ ] AC-19: Removing/dormant-ing `agents.graphrag_config_id` leaves orchestration/A2A/
+  subagent/workflow untouched (already excluded); the agent DTO change is regenerated via
+  `gen:api` and the `isBound` badge + agent form field are corrected. (§4b-V-11, V-12) [P2/P4]
 
 ## 12. Test Plan
 
@@ -572,6 +778,24 @@ Amend:
   runner) and the `TripleExtractor` Protocol. Graph evidence is identified by an opaque
   reference token (a message id for conversation, a document chunk ref for files).
 
+§11.6 Ownership authorization and build robustness (added post-verification):
+
+- **[R11.16]** Every graph config satisfies an owner->project invariant: the entity named by
+  `owner_id` (chatroom, agent_group, or workspace) lives in the config's project. Enforced at
+  create and update; a violating request is rejected.
+- **[R11.17]** A chatroom-owned Concept Map inherits the room's access ACL (§21.1): only
+  principals permitted to read the room may read its graph or subscribe to its build status.
+  agent_group and workspace maps are gated by project membership plus their
+  `concept_map_enabled` opt-in; `concept_map_enabled` is set only by a strict Project Owner.
+- **[R11.18]** Concept Map builds extract triples over a bounded message window; an owner
+  delta larger than the window is processed in bounded batches, so an initial build over a
+  large scope cannot exceed model/embedding limits or silently produce zero triples.
+- **[R11.19]** All Concept Maps sharing a project's graph vector collection use a single
+  embedding model/dimension; a config whose builder key group would select a different
+  embedding dimension is rejected (or the collection is sharded per config). When several
+  knowledge blocks (File RAG, Knowledge Map, Concept Map layers) are injected in one turn,
+  their combined size is bounded with narrow-scope precedence.
+
 ## 14. Open Questions
 
 - Open Q-A: Drop `agents.graphrag_config_id` in Phase 1 or leave dormant until Phase 2's
@@ -581,6 +805,11 @@ Amend:
 - Open Q-C: `agent_group` home confirmed as a sub-module of `agents` — confirm at build.
 - Open Q-D: Second `TripleExtractor` — separate concrete class vs source-parameterized prompt
   on the existing one.
+- Open Q-E: Do graph blocks gain citation persistence (a multi-source-shaped `graph_sources`
+  metadata field + a renderer), or stay citation-less as today? (§4b-V-14) — not required by
+  any goal; scope decision.
+- Open Q-F: Embed-dimension policy (§4b-V-2/R11.19) — pin one model per project collection vs
+  shard the collection per config. Affects Qdrant bootstrap + config validation.
 
 ## Phasing (revised post-verification)
 
@@ -590,17 +819,27 @@ Amend:
    with DISTINCT; owner-conditional key-group validation; trigger + repo + reverse-pointer
    reshape; ~15 source + ~6 test files. AC-1..AC-6. *(agent_group moved into Phase 1 because
    only a singleton group is behavior-equivalent to today; a chatroom owner is not.)*
-2. **Phase 2 — chatroom + workspace layers + layered retrieval + privacy (feature).**
-   chatroom/workspace delta strategies; coverage resolution; provider fan-out (list, client
-   reuse, per-layer fail-soft, scope-precedence); `get_chatroom` fetch; `concept_map_enabled`
-   gating + audit. AC-7, AC-8, AC-9.
-3. **Phase 3 — Knowledge Map (feature).** `knowledge_map_configs`; shared parser + document
+2. **Phase 2a — Builder hardening (prerequisite for wide ownership).** Windowed/batched
+   extraction (AC-14); one embedding dimension per project collection or per-config sharding
+   (AC-15); enqueue dedup + `job_timeout` fix (AC-16); DISTINCT covering-config trigger set
+   (AC-17); owner->project invariant at create/update (AC-9a). These close the CRITICAL/HIGH
+   build + isolation gaps (§4b-V-1..V-7) before any workspace/multi-member owner can build
+   safely. Some (V-2 embed-dimension) also fix pre-existing latent bugs.
+3. **Phase 2b — chatroom + workspace layers + layered retrieval + privacy (feature).**
+   chatroom/workspace delta strategies; coverage resolution (authorization-bearing);
+   provider fan-out (list, client reuse, per-layer fail-soft, scope-precedence); combined
+   multi-block budget; `get_chatroom` fetch; `concept_map_enabled` gating + audit; room-ACL
+   map authorization. AC-7, AC-8, AC-9, AC-9b, AC-18.
+4. **Phase 3 — Knowledge Map (feature).** `knowledge_map_configs`; shared parser + document
    extractor; evidence-identity generalization (shared type change — re-test Concept Map);
    parameterized Qdrant prefix; Axis-1 turn block. AC-10, AC-11, AC-12.
-4. **Phase 4 — Frontend re-home (feature).** Split Knowledge tab; owner-centric Concept Map
-   panels; agent_group UI; reuse visualizer. AC-13 UI parts.
+5. **Phase 4 — Frontend re-home (feature).** Split Knowledge tab; owner-centric Concept Map
+   panels in the correct slices (chatroom/workspace -> `conversation`, agent_group ->
+   `agents`); extract `KnowledgeGraphCanvas` + `useGraphLayout` to `shared/`; owner-scoped
+   API methods + owner-keyed socket; fix `isBound` badge. AC-13 UI parts, AC-19.
 
 Each phase is a separate `/spec`-refined `/build` task linking back to this blueprint.
+Phase 2a is a hard gate: workspace and multi-member-group ownership must not ship before it.
 
 ## 15. Deviation Log
 
@@ -611,3 +850,17 @@ Appended by /build. Empty means the implementation matches this spec exactly.
 - FU-1: De-duplicate the embed-model map / `_resolve_embed_key` shared between
   `graphrag_context_provider.py` and `app/workers/tasks/graphrag.py` (extract to a shared
   `knowledge` helper without violating the no-`app`-import rule).
+- FU-2: Pre-existing embed-dimension collision on the shared `graphrag_{project_id}`
+  collection (§4b-V-2) — pulled into Phase 2a (AC-15) because fan-out makes it routine; if
+  Phase 2a slips, this remains a latent production bug for any project with two graph configs
+  on different embed models.
+- FU-3: No windowed extraction (§4b-V-1) — pulled into Phase 2a (AC-14).
+- FU-4: Reconciler Phase-2 retry mints fresh Qdrant point ids and skips the superseded sweep,
+  leaking duplicate points (`graphrag_reconciler.py:130,186-191`); amplified by fan-out.
+- FU-5: Enqueue lacks dedup and `job_timeout == LOCK_TTL` (§4b-V-3,V-5) — pulled into
+  Phase 2a (AC-16).
+- FU-6: `ensure_graphrag_collection` is check-then-create, not idempotent
+  (`graphrag_vector_store.py:56-62`) — concurrent first builds race to a 409 (§4b-V-2/B2).
+- FU-7: Trigger counter is skipped while a build is `RUNNING`
+  (`graphrag_triggers.py:58`); messages during a long build are lost for trigger accounting
+  (§4b-V-6/C3).
