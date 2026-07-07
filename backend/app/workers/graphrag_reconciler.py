@@ -74,11 +74,22 @@ def _make_phase2_retry(
 
         maker = get_sessionmaker()
         async with maker() as db:
-            resolved = await resolve_embed_key(db, cfg.builder_key_group_id)
+            # D2: recover with the project's pinned embedding provider/model, not
+            # the first carried key — otherwise a builder-group key swap between
+            # the original build and the recovery would re-embed at a different
+            # dimension and mis-index (or fail the D7 collection guard forever).
+            pinned_provider = getattr(cfg, "embed_provider", None)
+            resolved = await resolve_embed_key(db, cfg.builder_key_group_id, provider=pinned_provider)
             if resolved is None:
-                raise RuntimeError(f"no embedding key in builder group {cfg.builder_key_group_id}")
+                detail = (
+                    f"pinned provider {pinned_provider!r}" if pinned_provider is not None else "any provider"
+                )
+                raise RuntimeError(
+                    f"no embedding key for {detail} in builder group {cfg.builder_key_group_id}"
+                )
 
             provider, model, key_id = resolved
+            model = getattr(cfg, "embed_model", None) or model
             # Pinned-key embedder via the router — no plaintext here; usage is
             # accounted and committed with this session (R7.12).
             embedder = router_embedder_for(
