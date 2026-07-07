@@ -1,6 +1,6 @@
 ---
 type: refactor
-status: in-progress
+status: implemented
 created: 2026-07-07
 requirements: [R11.15, R11.20]
 ---
@@ -235,26 +235,30 @@ which they are not — `pnpm` unaffected).
 
 ## 9. Acceptance Criteria
 
-- [ ] AC-1: All pre-existing characterization tests pass unmodified except where they
+- [x] AC-1: All pre-existing characterization tests pass unmodified except where they
   substituted the repo by poke/monkeypatch (updated to constructor injection) — no other
-  behavior change in WS1/WS3. [WS1, WS3]
-- [ ] AC-2: `GraphRagBuilder` / `GraphRagRetrieveService` / `ReconciliationLoop` depend only
+  behavior change in WS1/WS3. [WS1, WS3] — full unit suite 1241 passed.
+- [x] AC-2: `GraphRagBuilder` / `GraphRagRetrieveService` / `ReconciliationLoop` depend only
   on the repo Port + `ConfigLike`; no inline `GraphRagConfigRepository(db)` remains in the
-  three services (grep-verified). [WS1]
-- [ ] AC-3: `GraphRagVectorStore(client, prefix="knowmap")` routes to `knowmap_{project_id}`;
-  the default keeps `graphrag_{project_id}`. [WS1]
-- [ ] AC-4: One `embed_resolution` helper is the single source; both former copies are
+  three services (grep-verified). [WS1] — quality audit confirmed the repo boundary is Port-typed.
+- [x] AC-3: `GraphRagVectorStore(client, prefix="knowmap")` routes to `knowmap_{project_id}`;
+  the default keeps `graphrag_{project_id}`. [WS1] — `test_collection_prefix_routes_to_distinct_collection`.
+- [x] AC-4: One `embed_resolution` helper is the single source; both former copies are
   deleted; the resolver uses `list_ordered_carried`; a revoked-carry key is not selected by
-  the builder path. (SEC-H3 regression test) [WS2]
-- [ ] AC-5: Evidence is `evidence_refs: tuple[str, ...]`; no `uuid.UUID` coercion remains in
+  the builder path. (SEC-H3 regression test) [WS2] — security audit confirmed no `list_ordered`
+  path remains (a third copy was folded in, D-1).
+- [x] AC-5: Evidence is `evidence_refs: tuple[str, ...]`; no `uuid.UUID` coercion remains in
   extract/retrieve; the Neo4j property key stays `evidence_msg_ids`; conversation evidence
   still resolves end-to-end (round-trip test). No stored-data change. [WS3]
-- [ ] AC-6: Deleting an agent purges its Neo4j subgraph + Qdrant points inline (after commit,
-  best-effort, `graphrag.infra_purged` audit); the retention CASCADE is no longer the sole
-  teardown. (regression test) [WS4a]
-- [ ] AC-7: The reconciler purges graph data for config ids absent from Postgres
-  (`list_all_ids(include_deleted=True)` diff); `:Entity` nodes carry `project_id`. [WS4b]
-- [ ] AC-8: `ruff`/`mypy`/`pytest` green after every milestone; FU-1 (embed drift) closed.
+- [x] AC-6: Deleting an agent purges its Neo4j subgraph + Qdrant points inline (after commit,
+  best-effort, `graphrag.config_infra_purged` audit — D-2); the retention CASCADE is no longer
+  the sole teardown. (regression test `test_agent_delete_graph_cascade.py`) [WS4a]
+- [x] AC-7: The reconciler purges graph data for config ids absent from Postgres
+  (`list_all_ids(include_deleted=True)` diff); `:Entity` nodes carry `project_id` (also through
+  snapshot/restore — D-5). [WS4b] — `test_reconciler_sweeps_orphaned_graph_configs`.
+- [x] AC-8: `pytest` (1241 passed) and `ruff check .` green; touched files are `ruff format`-
+  and `mypy`-clean; pre-existing repo-wide format/type drift routed to FU-7. FU-1 (embed drift)
+  closed by WS2.
 
 ## 10. SRS Delta
 
@@ -263,7 +267,25 @@ requirements. WS1-3 are structural.
 
 ## 11. Deviation Log
 
-Appended by /build.
+- D-1: WS2 folded a **third** insecure embed-resolution copy into the consolidation. The
+  spec named two copies (context provider + worker task); a third lived in the reconciler
+  phase-2 retry (`app/workers/graphrag_reconciler._make_phase2_retry`, using the drifted
+  `list_ordered` + an inline model map). Folded in to honor AC-4 "single source" and SEC-H3.
+- D-2: The WS4a / AC-6 audit action is `graphrag.config_infra_purged`, not the spec's literal
+  `graphrag.infra_purged`, to mirror the established `rag.config_infra_purged` sibling
+  (`app/api/v1/rag.py:383`). Behavior identical; only the action string differs.
+- D-3: AC-6 is verified by a direct **route-orchestration** unit test that invokes
+  `delete_agent` with mocked infra (asserting enumerate → soft-delete → commit-before-purge
+  ordering → per-config purge + audit, plus a no-config variant), rather than an integration
+  route test. Rationale: the repo has no agent-delete route-test harness, and
+  `cascade_external_stores` builds live Neo4j/Qdrant clients unsuitable for a unit test.
+- D-4: The WS4b orphan sweep emits a `graphrag.orphan_swept` audit row per purge (not
+  specified). Added because deleting tenant graph data should be auditable; metadata carries
+  only `project_id` + `qdrant_purged`.
+- D-5: `project_id` stamping was extended beyond `apply_triples` to the 2PC snapshot/restore
+  path (`snapshot_subgraph` + `restore_from_snapshot`), so a compensated (rolled-back)
+  subgraph keeps its self-describing tag. Surfaced by the quality audit; without it a
+  rollback would null `project_id` and defeat the Qdrant orphan sweep until the next build.
 
 ## 12. Follow-ups
 
@@ -275,3 +297,32 @@ Appended by /build.
   legacy orphans Qdrant-sweepable), run a one-off `SET n.project_id` script.
 - FU-C: Owner-delete teardown hooks for chatroom/workspace/agent_group (WS4 pattern) land
   with their ownership phases (1/2b), reusing the facade method added here.
+- FU-2 (SoC, quality Introduced-Warning, deferred): the agent-delete cascade orchestration
+  (enumerate → soft-delete loop → mid-handler `db.commit()` DOM-4 barrier → purge + audit loop)
+  lives in the route handler (`agents.py:363-408`), mirroring the pre-existing `delete_rag_config`
+  exemplar (`rag.py:335-395`). Push **both** delete cascades below the HTTP boundary into a
+  facade/service method that owns the DOM-4 ordering. Deferred rather than fixed here: it is a
+  codebase-wide change, and the spec deliberately mirrored the approved sibling — extracting only
+  agent-delete would break sibling consistency.
+- FU-3 (DIP, quality): define a `VectorStorePort` in `knowledge/application` so builder /
+  retrieve / reconciler depend on a Port for the vector store as they now do for the config repo.
+  Consistency gap surfaced (not caused) by WS1.
+- FU-4 (SoC, quality): `embed_resolution` reaches directly into `contexts.keys.infrastructure`
+  repositories; route through a keys facade. Pattern relocated (not introduced) by WS2.
+- FU-5 (efficiency, quality + security): `Neo4jAsyncDriver.list_config_ids` runs a full
+  `MATCH (n:Entity) ... DISTINCT` label scan every 60s in the reconciler sweep. Fine at current
+  scale; at large graph scale replace with a per-config marker/index or batched cursor.
+- FU-6 (security MEDIUM, plausible, **pre-existing**): the evidence fetcher dereferences
+  LLM-supplied message refs via an unscoped `ConversationFacade.get_message(message_id)`
+  (`conversation/interfaces/facade.py:92`). A prompt-injected extractor could emit a foreign
+  (random-UUID, non-enumerable) message id as evidence and surface its content cross-room. WS3's
+  neutralization preserved the exact prior behavior — not introduced. Scope `get_message` to the
+  config's `project_id` (or filter refs to the config's own conversation) before dereferencing.
+- FU-7 (toolchain hygiene, pre-existing): repo-wide drift unrelated to this change — `ruff format
+  --check .` would reformat 22 untouched files, and `mypy .` reports pre-existing errors in
+  untouched files (`tenancy/infrastructure/repositories.py:487,489`,
+  `knowledge/application/graphrag_triggers.py:77`, `conversation/infrastructure/presence.py`,
+  `orchestration/infrastructure/a2a_streams.py:85`, `agents/infrastructure/repositories.py:320`,
+  `conversation/infrastructure/tus_store.py:158`, `keys/application/group_service.py:163`,
+  `workflow/application/workflow_service.py:316`, `app/api/ws/chatroom.py:75`). Every file this
+  task touched is `ruff`- and `mypy`-clean.
