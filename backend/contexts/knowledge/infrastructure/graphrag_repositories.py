@@ -37,6 +37,12 @@ def _member_agent_id() -> Any:
         sa.select(m.c.agent_id)
         .where(m.c.agent_group_id == t.graphrag_configs.c.owner_agent_group_id)
         .limit(1)
+        # Correlate ONLY graphrag_configs. In list_for_agents the outer query
+        # also joins agent_group_members, and without this SQLAlchemy would
+        # auto-correlate the subquery's own agent_group_members away, leaving it
+        # with no FROM clause (InvalidRequestError). Pinning correlation keeps
+        # the subquery's member scan local in every call site.
+        .correlate(t.graphrag_configs)
         .scalar_subquery()
         .label("agent_id")
     )
