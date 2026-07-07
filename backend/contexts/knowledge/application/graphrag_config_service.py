@@ -226,6 +226,7 @@ class GraphRagConfigService:
                 .where(
                     sa.and_(
                         conv_t.chatrooms.c.id == owner_id,
+                        conv_t.chatrooms.c.deleted_at.is_(None),
                         conv_t.workspaces.c.deleted_at.is_(None),
                     )
                 )

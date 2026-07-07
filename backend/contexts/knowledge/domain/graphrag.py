@@ -31,7 +31,10 @@ class BuildState(str, enum.Enum):
 class GraphRagConfig:
     id: uuid.UUID
     project_id: uuid.UUID
-    agent_id: uuid.UUID
+    # Derived owning agent — the sole member of a singleton agent_group. ``None``
+    # for a multi-member agent_group (Phase 2b WS1) or a chatroom/workspace owner
+    # (WS2), which have no single owning agent.
+    agent_id: uuid.UUID | None
     builder_key_group_id: uuid.UUID
     trigger_config: dict[str, Any]
     last_build_at: datetime | None
