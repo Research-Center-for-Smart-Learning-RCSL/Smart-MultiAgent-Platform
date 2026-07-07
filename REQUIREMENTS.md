@@ -509,7 +509,7 @@ Maintain a project-scoped knowledge graph (Neo4j) built incrementally from chat 
   3. Upsert nodes/edges into Neo4j with `project_id` and `graphrag_config_id` labels.
   4. Embed node text into Qdrant (collection `graphrag_{project_id}`) so queries can be hybrid vector+graph.
 - **[R11.04]** Each build is transactional across Neo4j and Qdrant using a **two-phase commit with compensation**; a failure does not leave inconsistent state (see §11.2a).
-- **[R11.05]** A Concept Map (conversation-derived Graph RAG) is owned by exactly one **owner** identified by `(owner_kind, owner_id)` where `owner_kind ∈ {chatroom, agent_group, workspace}`. The prior 1:1 Agent binding is removed. `UNIQUE(owner_kind, owner_id)`.
+- **[R11.05]** A Concept Map (conversation-derived Graph RAG) is owned by exactly one owner — a chatroom, an agent_group, or a workspace — modelled as typed nullable FK columns with an `owner_kind` discriminator and a CHECK enforcing exactly one non-null, plus a per-kind partial unique index (one Concept Map per owner). The prior 1:1 Agent binding is removed. A polymorphic `owner_id` column is explicitly not used, so real FKs preserve referential integrity and enable graph cleanup on owner deletion ([R11.20]).
 
 ### 11.2a Two-phase commit across Neo4j + Qdrant
 
@@ -545,7 +545,7 @@ Because Neo4j and Qdrant are independent systems, a naïve "write both" sequence
 - **[R11.12]** A Knowledge Map is a designer-authored Graph RAG built from **uploaded documents** (the same sources as §10 file-RAG), not from conversation. It is project-scoped with a per-Agent allowlist, mirroring [R10.11].
 - **[R11.13]** Knowledge Map ingestion reuses the shared document parser (`shared_kernel` `MIME_TO_PARSER`) to obtain document text, extracts triples via a document-oriented extractor, and persists to its own Neo4j subgraph + Qdrant collection (`knowmap_{project_id}`), scoped by its config id.
 - **[R11.14]** At agent invocation, an attached Knowledge Map is queried as an Axis-1 system block (`type:"graphrag"` retained) beside file-RAG, independent of any Concept Map.
-- **[R11.15]** Knowledge Map and Concept Map are distinct subsystems (separate config, services, and UI) that share the low-level graph adapters (Neo4j driver, Qdrant store, 2PC runner) and the `TripleExtractor` Protocol. Graph evidence is identified by an opaque reference token — a message id for conversation-sourced triples, a document chunk reference for file-sourced triples.
+- **[R11.15]** Knowledge Map and Concept Map are distinct **product** subsystems (separate config, domain, and UI) that reuse a single shared graph **engine** through Protocol seams (Neo4j driver, Qdrant store with a parameterized collection prefix, 2PC runner, one embedding-resolution helper, build-state machine, and the `TripleExtractor` Protocol) plus a neutral shared graph-domain type. Engine plumbing is never forked per subsystem. Graph evidence is a neutral opaque reference token (`evidence_refs`) decoded per subsystem — a message id for conversation-sourced triples, a document chunk reference for file-sourced triples.
 
 ### 11.6 Ownership authorization and build robustness
 
@@ -553,6 +553,11 @@ Because Neo4j and Qdrant are independent systems, a naïve "write both" sequence
 - **[R11.17]** A chatroom-owned Concept Map inherits the room's access ACL (§21.1): only principals permitted to read the room may read its graph or subscribe to its build status. agent_group and workspace maps are gated by project membership plus their `concept_map_enabled` opt-in, which is set only by a strict Project Owner (the same authority as [R10.10]).
 - **[R11.18]** Concept Map builds extract triples over a bounded message window; an owner delta larger than the window is processed in bounded batches, so an initial build over a large scope (e.g. a workspace) cannot exceed model/embedding limits or silently produce zero triples.
 - **[R11.19]** All Concept Maps sharing a project's graph vector collection use a single embedding model/dimension; a config whose builder Key Group would select a different embedding dimension is rejected (or the collection is sharded per config). When several knowledge blocks (File RAG, Knowledge Map, and Concept Map layers) are injected in one turn, their combined size is bounded with narrow-scope precedence.
+
+### 11.7 Graph data lifecycle and temporal Concept Map
+
+- **[R11.20]** Deleting a graph config, or any owner of one (agent, chatroom, workspace, agent_group), purges the config's Neo4j subgraph and Qdrant points as part of the deleting operation (best-effort, audit-logged); a database cascade is never the sole teardown of an external store. A reconciler sweeps the external stores for graph ids no longer present in Postgres.
+- **[R11.21]** A Concept Map is a temporal knowledge graph: its entities and relations carry first-seen/last-seen timestamps derived from the source messages' timestamps, and the exact User↔Agent conversation timeline is recoverable from the evidence so an agent can reason about ordering and causality. Concept Map retrieval may weight results by recency. Knowledge Maps are non-temporal. (Time-travel / bitemporal "as of date X" queries are a separate future capability.)
 
 ---
 

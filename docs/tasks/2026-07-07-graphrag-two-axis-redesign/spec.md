@@ -2,7 +2,7 @@
 type: feature
 status: approved
 created: 2026-07-07
-requirements: [R09.17, R10.06, R10.10, R10.11, R11.01, R11.02, R11.03, R11.05, R11.06, R11.07, R11.08, R11.09, R11.10, R11.11, R11.12, R11.13, R11.14, R11.15, R11.16, R11.17, R11.18, R11.19, R11a.01]
+requirements: [R09.17, R10.06, R10.10, R10.11, R11.01, R11.02, R11.03, R11.05, R11.06, R11.07, R11.08, R11.09, R11.10, R11.11, R11.12, R11.13, R11.14, R11.15, R11.16, R11.17, R11.18, R11.19, R11.20, R11.21, R11a.01]
 ---
 
 # GraphRAG Two-Axis Redesign — Decouple the Knowledge Graph from a Single Agent
@@ -22,7 +22,7 @@ Axis 1 — RAG (Designer -> AI Agent)        build-time, authored knowledge, rea
 
 Axis 2 — Context (record: User <-> AI Agent) runtime, conversation memory, grows over time
   - General         (exists: flat transcript + compact-summary)
-  - Concept Map     (today's GraphRAG, re-homed here and given a polymorphic owner)
+  - Concept Map     (today's GraphRAG, re-homed here and given a discriminated typed-FK owner)
 ```
 
 This is a blueprint dossier: it fixes the target architecture and the data model, then
@@ -42,17 +42,30 @@ migration). Their material corrections are folded into §4-§13 and recorded in 
   Axis 1 = designer-authored knowledge (File + Knowledge Map); Axis 2 = conversation
   memory (General + Concept Map).
 - Decouple the conversation graph (today's GraphRAG) from the `graphrag_configs.agent_id`
-  UNIQUE 1:1 binding, replacing it with a **polymorphic owner** (`owner_kind` + `owner_id`)
-  over `chatroom`, `agent_group`, and `workspace`.
+  UNIQUE 1:1 binding, replacing it with **typed nullable owner FK columns**
+  (`owner_chatroom_id` / `owner_agent_group_id` / `owner_workspace_id`) + a CHECK (exactly
+  one non-null) + per-kind partial unique indexes — the SMAP-idiomatic discriminated-owner
+  pattern (Q-10, §4b-2 debt round; exemplar `0042_prompt_studio.py`).
 - Introduce `agent_group` as a first-class entity that can own a Concept Map.
 - Support **layered retrieval**: an agent's turn draws on every Concept Map whose scope
   covers it (its room + its groups + its workspace), merged under one retrieval budget
   with narrow-scope precedence.
-- Introduce the **Knowledge Map** (Axis 1) as GraphRAG built from uploaded files, as a
-  distinct config, sharing the low-level graph adapters and the shared document parser.
-- Keep the two subsystems (Knowledge Map, Concept Map) separate at the domain/config/UI
-  level while sharing the low-level graph adapters (Neo4j driver, Qdrant store, 2PC
-  runner) and the `TripleExtractor` Protocol.
+- Introduce the **Knowledge Map** (Axis 1) as GraphRAG built from uploaded files, a distinct
+  product subsystem (own config/domain/UI) that reuses the shared graph **engine** through
+  Protocol seams (Q-11).
+- **Share the graph engine, fork the product+domain** (Q-11): the engine plumbing (Neo4j
+  driver, Qdrant store, 2PC runner, lock/snapshot, embed resolution, build-state, bundle/
+  cap/merge, WS transport, frontend socket/visualizer) is shared via Protocols/factories;
+  each axis owns only its four differing seams (source loader, extractor prompt, scope/authz
+  validation, collection prefix + trigger kind) plus its domain and retrieval strategy.
+- Make the Concept Map a **temporal knowledge graph** (Q-12): edges/entities carry
+  timestamps, the exact User<->Agent conversation timeline is preserved so an agent
+  understands ordering/causality, and the (per-axis) retrieval strategy reserves a
+  recency-weighting hook. Heavier temporal features (time-travel / bitemporal snapshots) are
+  architecturally reserved here and specced separately.
+- **Leave no orphaned graph data** (Q-13, §4b-2 debt round): every config/owner deletion
+  purges its Neo4j subgraph + Qdrant points; a DB cascade is never the sole teardown. Fix the
+  pre-existing agent-delete leak.
 - Enforce **default-strict privacy**: only the chatroom layer is on by default; the
   agent_group and workspace layers must be explicitly enabled on their owner entity.
 
@@ -68,6 +81,10 @@ migration). Their material corrections are folded into §4-§13 and recorded in 
   boundary; no layer ever spans projects.
 - Not overloading `graphrag_configs` for Knowledge Maps — Knowledge Map is its own config
   table (Concept Map keeps `graphrag_configs`, minus `agent_id`).
+- Not a polymorphic `(owner_kind, owner_id)` column — rejected as a relational anti-pattern
+  with no FK/CASCADE and app-only integrity (Q-10).
+- Not fully specifying temporal time-travel here — only the cheap, architecture-fixing
+  temporal parts are in scope; bitemporal/versioned-snapshot time-travel is a separate spec.
 - Not delivering all four quadrants in one shipment — phasing (§ Phasing) splits this into
   independently buildable tasks.
 - Not changing sub-agent inheritance semantics (today sub-agents inherit neither
@@ -87,6 +104,10 @@ migration). Their material corrections are folded into §4-§13 and recorded in 
 | Q-7 | Which Concept Map layers does this cover? | All three: chatroom, agent_group, workspace. | Full layered memory hierarchy. |
 | Q-8 | Cross-scope privacy for wide layers? | Default strict; wide layers require explicit enablement. | Honors the multi-tenant AuthZ hard rule. |
 | Q-9 | First buildable phase? | Arrange after the blueprint is finalized. | Phasing recommended here (revised post-verification, § Phasing). |
+| Q-10 | Owner data model: polymorphic column vs typed FK + CHECK? | **Typed FK columns + CHECK + partial unique indexes.** | Debt round: polymorphic is a non-idiomatic anti-pattern (no FK/CASCADE, orphan debt); typed-FK is SMAP's convention (`0042_prompt_studio.py`, `projects` XOR). |
+| Q-11 | Knowledge/Concept code-sharing boundary? | **Share the engine plumbing via Protocols/factories; product+domain independent per axis.** | Debt round: literal fork = ~2,500 lines twin + 7 drift pairs; sharing the plumbing keeps product separation without the debt and lets Concept Map's domain evolve freely. |
+| Q-12 | Temporal Concept Map — what and in scope? | Timestamps on edges/entities + preserve exact conversation timeline (in scope); recency-weighting hook (reserved on the retrieval strategy); time-travel (separate spec). | User wants the agent to understand ordering/causality; temporal lives on the independent Concept Map domain/strategy side, validating Q-11's cut. |
+| Q-13 | Drop `agents.graphrag_config_id` in Phase 1 or leave dormant? | **Drop in Phase 1** (no shim needed); collapse bind==membership. | Debt round: dormant is misleading dead code (null DTO contract, false `isBound` badge) — exactly the debt to avoid. |
 
 ## 4. Current State
 
@@ -368,33 +389,48 @@ graphrag paths today — they must be wired in, not assumed):**
 | File | 1 | uploaded docs | project + agent allowlist | Exists (§10) |
 | Knowledge Map | 1 | uploaded docs | project + agent allowlist (own config table) | **NEW** |
 | General | 2 | chat history | per agent (transcript) | Exists (§9.3) |
-| Concept Map | 2 | chat history | **polymorphic: chatroom / agent_group / workspace** | Exists as 1:1-agent; re-homed + decoupled |
+| Concept Map | 2 | chat history (temporal) | **typed FK owner: chatroom / agent_group / workspace** | Exists as 1:1-agent; re-homed + decoupled |
 
-### 5.2 Concept Map — polymorphic owner
+### 5.2 Concept Map — discriminated owner via typed FK columns (Q-10)
 
-Replace `graphrag_configs.agent_id UNIQUE` with `owner_kind` + `owner_id`, **in place**
-(§4a-G9), preserving `graphrag_configs.id` so all Neo4j/Qdrant data stays correctly scoped:
+Replace `graphrag_configs.agent_id UNIQUE` **in place** (§4a-G9, preserving
+`graphrag_configs.id` so Neo4j/Qdrant data stays scoped) with the SMAP-idiomatic
+discriminated-owner shape (exemplar `0042_prompt_studio.py:27-88`; `projects` owner-XOR
+`0002_tenancy.py:63-88`):
 
 ```
-owner_kind ENUM('chatroom','agent_group','workspace')   -- new PG enum, create_type=False
-owner_id   UUID
-UNIQUE (owner_kind, owner_id)                            -- was: UNIQUE(agent_id)
+owner_kind        ENUM('chatroom','agent_group','workspace')   -- discriminator, create_type=False
+owner_chatroom_id     UUID NULL  FK -> chatrooms.id
+owner_agent_group_id  UUID NULL  FK -> agent_groups.id
+owner_workspace_id    UUID NULL  FK -> workspaces.id
+CHECK: exactly one owner_* non-null, matching owner_kind   -- style of _SCOPE_CHECK
+-- three partial unique indexes, one per kind (WHERE owner_kind = '...') -- replaces UNIQUE(agent_id)
+project_id  UUID NOT NULL FK -> projects CASCADE            -- kept: belt-and-suspenders sweep
 ```
 
-Each owner scope is its own `graphrag_configs` row -> its own isolated Neo4j subgraph and
-Qdrant points (already scoped by `graphrag_config_id`, `neo4j_driver.py:49-228`,
-`graphrag_vector_store.py:68-115`). `GraphRagConfig` drops `agent_id`, gains `owner`.
+Why typed FKs, not a polymorphic `(owner_kind, owner_id)` column (Q-10, debt round): real
+FKs give DB-enforced referential integrity, per-kind `ON DELETE` behavior, and direct joins;
+a bare polymorphic UUID has none of these and orphans Neo4j/Qdrant data on every owner
+deletion (§5.9). Typed FK is SMAP's established convention; the polymorphic column would be
+its first live polymorphic FK. `owner_kind` is still stored as a fast discriminator so
+per-kind branching (delta feed, coverage) reads it without probing three columns.
+
+Each config is its own row -> isolated Neo4j subgraph + Qdrant points (scoped by
+`graphrag_config_id`, `neo4j_driver.py:49-228`, `graphrag_vector_store.py:68-115`).
+`GraphRagConfig` drops `agent_id`, gains `owner: OwnerRef` (kind + the one id).
 
 **Delta-feed strategy keyed on `owner_kind`** — variants of `app/workers/tasks/graphrag.py:88-91`,
-all with `SELECT DISTINCT m.id` (§4a-G8):
+all full-row `SELECT DISTINCT` with `m.id,m.created_at` in the projection (§4a-G8, §4b-V-6):
 
-- `chatroom`: `WHERE m.chatroom_id = :owner_id`
+- `chatroom`: `WHERE m.chatroom_id = :owner_chatroom_id`
 - `agent_group`: `JOIN chatroom_agents ca ... WHERE ca.agent_id = ANY(:member_ids)` (DISTINCT)
-- `workspace`: `JOIN chatrooms cr ... WHERE cr.workspace_id = :owner_id`
+- `workspace`: `JOIN chatrooms cr ... WHERE cr.workspace_id = :owner_workspace_id`
 
-**Key-group validation becomes owner-conditional** (§4a-G2): drop the builder-vs-consumer
-distinctness check for Concept Maps; keep only the in-project check on
-`builder_key_group_id`. Move authority out of the agents-side mirror.
+**Key-group validation becomes owner-conditional** (§4a-G2): the create path skips the
+agent-load + builder-vs-consumer distinctness check for non-agent owners (else it
+dereferences a null agent, §4b-V-5-adjacent); keep only the in-project check on
+`builder_key_group_id`. Authority moves out of the agents-side mirror into the config
+service.
 
 ### 5.3 `agent_group` — new first-class entity
 
@@ -429,28 +465,31 @@ Concrete changes (§4a-G5/G6/G7):
 - New facade method to resolve covering configs for `(agent_id, chatroom_id)`.
 
 The consume-side reverse pointer `agents.graphrag_config_id` is superseded by this coverage
-resolution; whether to drop the column in Phase 1 or leave it dormant until Phase 2 is
-Open Q-A.
+resolution and is **dropped in Phase 1** (Q-13), not left dormant. Phase 1 builds the
+membership-based covering-config resolver for triggers anyway; retrieval reuses it (with
+`agent.id` in scope), so no shim is needed. The "built-but-unbound" edge collapses to
+bind==membership (the target design; also removes wasted builder-key spend).
 
 ### 5.5 Knowledge Map — GraphRAG over files (Axis 1)
 
-A distinct Axis-1 subsystem (its **own** config table, not `graphrag_configs`), sharing the
-low-level adapters (§4a-G3/G4):
+A distinct Axis-1 **product** subsystem (its **own** config table, domain, and UI) that
+reuses the shared graph **engine** through Protocol seams (§5.7), not a forked stack:
 
 - `knowledge_map_configs`: project-scoped, agent allowlist (mirror `RagConfig` /
   `RagDocument.agent_ids`). No `agent_id`-as-source semantics.
 - Source: uploaded documents parsed via the **shared** `MIME_TO_PARSER`
-  (`shared_kernel/text_extraction/parsers.py`); a **second concrete `TripleExtractor`** with
-  a document-oriented prompt feeds the shared 2PC builder via its own `DeltaLoader`/source
-  shape.
-- Evidence: requires the **generalized opaque evidence identity** (`tuple[str,...]`, §4a-G3)
-  encoding file evidence as `doc:{doc_id}:{chunk_idx}`, plus a `build_doc_evidence_fetcher`
-  mapping those to `rag_chunks` text. No Neo4j/Qdrant schema change.
-- Storage: its own Qdrant collection `knowmap_{project_id}` — requires **parameterizing the
-  collection-prefix** (today a module-level free function `graphrag_collection_name()`); its
-  own Neo4j subgraph via the shared driver scoped by its config id.
+  (`shared_kernel/text_extraction/parsers.py`, the true seam — not `IngestService`, §4a-G4);
+  a **second concrete `TripleExtractor`** with a document prompt feeds the shared 2PC builder
+  via its own source loader (the extractor Protocol + parse half are shared, only prompt +
+  renderer differ, §4b-C-C).
+- Evidence: uses the **neutral opaque `evidence_refs`** (§5.7), encoding file evidence as
+  `doc:{doc_id}:{chunk_idx}` with a `build_doc_evidence_fetcher` -> `rag_chunks` text. No
+  Neo4j/Qdrant schema change (the stores already hold opaque strings).
+- Storage: its own Qdrant collection `knowmap_{project_id}` via the **parameterized**
+  collection prefix (§5.7); its own Neo4j subgraph via the shared driver scoped by config id.
 - Retrieval: a Knowledge Map block in `turn_engine` beside File RAG; read-only; fail-soft.
 - Billing: designer/project key (authored knowledge; not the Axis-2 builder-key split).
+- Non-temporal: Knowledge Map does not carry the Concept Map's temporal semantics (§5.8).
 
 ### 5.6 Privacy model (default strict)
 
@@ -459,44 +498,136 @@ low-level adapters (§4a-G3/G4):
   on the owner, settable only by Project Owner, enablement audit-logged.
 - Retrieval never folds a wide layer an agent's room is not authorized for. See §8.
 
+### 5.7 Engine-sharing architecture — share the plumbing, fork the product+domain (Q-11)
+
+The debt round (§4b-C) showed the two subsystems differ in only **four seams** and share
+the whole engine; a literal fork = ~2,500 lines of twin + 7 drift-prone pairs (embed-model
+map — already drifted, build-state machine, WS payload, error taxonomy, Qdrant prefix,
+metric labels, cascade cleanup). So the boundary runs along **"will it diverge by product?"**,
+not "which subsystem":
+
+**Shared engine (Protocol/factory seams; neither axis redefines it):**
+- `Neo4jAsyncDriver`, `GraphVectorStore` (collection prefix **parameterized** in the
+  constructor, not a module free function), 2PC runner, lock/snapshot ports.
+- One `embed_resolution` helper owning the provider->model map + `_resolve_embed_key` —
+  **retires the existing 2-way FU-1 drift** (`list_ordered` vs `list_ordered_carried`) and
+  blocks the 3rd/4th copy.
+- `BuildState`, `_cap_to_2kb`, `_merge_bundles`, `_render_bundle_text`,
+  `build_entity_descriptions`.
+- De-concreted `GraphRagBuilder` / `RetrieveService` / `ReconciliationLoop` take a **repo
+  Protocol** + a `ConfigLike` Protocol (`id/project_id/key_group_id`) instead of the concrete
+  `GraphRagConfigRepository`/`GraphRagConfig`.
+- WS transport factory `(channel_fn, config_lookup)`; frontend `useGraphBuildSocket(prefix,
+  keys)`, one shared `BuildState` module, one parameterized `GraphVisualizer` /
+  `GraphConfigList` shell (also serves §4b-V-17).
+- Shared error-registration helper + base error set parameterized by slug prefix.
+
+**Neutral shared graph-domain** (`GraphTriple`/`GraphEdge`/`GraphBundle`) with evidence as
+opaque `evidence_refs: tuple[str,...]` and the Neo4j property renamed `evidence_msg_ids ->
+evidence_refs` (§4b-C-C; needs a graph-data migration note). This severs the
+doc<->conversation two-masters coupling that generalizing the shared `Triple` in place would
+create (§4a-G3 refined).
+
+**Per-axis (independent — where Concept Map evolves freely, incl. temporal §5.8):** config
+table + repo + service, source loader, extractor prompt + renderer, scope/authz validation,
+trigger kind, retrieval strategy, and the domain interpretation of `evidence_refs`.
+
+### 5.8 Temporal Concept Map (Q-12)
+
+The Concept Map is a temporal knowledge graph; temporal logic lives entirely on the
+independent Concept Map side (§5.7), so it never touches the shared engine or Knowledge Map.
+
+**In scope (cheap, architecture-fixing — lock in now so decoupling doesn't preclude it):**
+- Concept Map edges/entities carry `first_seen` / `last_seen` timestamps, derived from the
+  source messages' `created_at` (already reachable — edges carry `evidence_refs` that resolve
+  to messages). The shared Neo4j driver stores arbitrary edge properties, so this is a
+  Concept-Map-domain addition, not an engine change — validating the §5.7 cut.
+- The exact User<->Agent conversation timeline is preserved via `evidence_refs` (message ids
+  are already time-ordered), so an agent can reason about ordering/causality.
+- The Concept Map retrieval strategy reserves a **recency-weighting hook** (rank recent
+  concepts/relations higher); the merge/precedence in `_merge_bundles` stays shared, the
+  weighting is a Concept-Map strategy parameter.
+
+**Reserved (separate spec, not built here):** time-travel / "what did we know as of date X"
+needs bitemporal (valid-time + transaction-time) modeling and versioned snapshots; the 2PC
+`build_id` + snapshot mechanism is a natural anchor, but the full feature is out of scope for
+this blueprint. The design above must not preclude it — timestamps + per-build provenance
+are the foundation it will build on.
+
+### 5.9 Deletion & cleanup contract (Q-13, debt round §4b-2-B)
+
+Graph data must never orphan. Today the explicit `DELETE /graphrag/{id}` is clean
+(`cascade_external_stores` -> Neo4j `delete_all` + Qdrant `delete_by_config`,
+`graphrag_config_service.py:277-346`), but **agent deletion leaks** (soft-delete ignores the
+graph; the 60-day retention hard-delete fires the FK cascade, which cannot reach Neo4j/Qdrant,
+`retention.py:141-159`). The plan multiplies this across new owner-delete paths.
+
+Contract (exemplar: RAG's inline teardown `rag.py:335-395` — RAG never relies on a DB cascade
+for external teardown):
+- **One teardown primitive** per subsystem: `cascade_external_stores(config_id, project_id)`.
+- **Every owner-delete path** (agent, chatroom, workspace, agent_group) enumerates owned
+  configs (`list_for_owner_*`) and runs teardown in the deleting request — soft-delete +
+  audit -> commit -> best-effort external purge -> `*.infra_purged` audit row — **before** any
+  DB cascade removes the rows. A DB cascade is never the sole teardown of an external store.
+- **Fix the pre-existing agent-delete leak** (Phase 0): teach the agent delete / retention
+  path to purge external stores per config first (or drop the `agent_id` cascade in favour of
+  explicit teardown). This is a live bug today, independent of the new model.
+- **Reconciler backstop:** extend the existing GraphRAG reconciler to sweep Neo4j/Qdrant for
+  `graphrag_config_id`s no longer present in Postgres, catching best-effort failures at scale.
+
 ### Options considered
 
 **Option A — Single engine, two kinds.** One config table with a `kind` discriminator.
 Least duplication but couples two divergent products. **Rejected per Q-3.**
 
-**Option B — Two subsystems, shared low-level adapters (chosen).** Separate domain,
-config tables, services, UI; shared Neo4j/Qdrant/2PC + `TripleExtractor` Protocol +
-`MIME_TO_PARSER`. Clean boundaries, independent evolution; costs one more config table and
-the evidence-typing generalization (§4a-G3). **Chosen (Q-3, Q-5).**
+**Option B — Two product subsystems sharing the engine via Protocols (chosen).** Separate
+config/domain/UI per axis, but the engine plumbing shared through Protocol/factory seams
+(§5.7); each axis owns only its four differing seams + domain/strategy. Clean product
+boundaries AND DRY; costs the up-front Protocol de-concreting + the neutral graph-domain
+extraction. **Chosen (Q-3, Q-5-refined, Q-11).**
 
-**Option C — Two fully independent stacks.** Duplicates the 2PC/compensation/reconciler —
-the most error-prone code. **Rejected.**
+**Option C — Two fully independent stacks (literal fork).** ~2,500 lines twin + 7 drift
+pairs, incl. the already-drifted embed-model map. **Rejected on debt grounds (Q-11).**
 
-Concept Map owner: **workspace-only** rejected per Q-4; `workflow.id` rejected because
+Owner model: **typed FK + CHECK** chosen over a **polymorphic `(owner_kind, owner_id)`
+column** (Q-10) — the latter loses DB integrity/CASCADE and orphans graph data.
+Concept Map owner scope: **workspace-only** rejected per Q-4; `workflow.id` rejected because
 workflows don't own the chatrooms where agents chat.
 
 ### Decision
 
-Adopt the two-axis model. Concept Map gets a polymorphic in-place owner (§5.2) with
-`agent_group` first-class (§5.3) and layered, narrow-precedence, per-layer-fail-soft
-retrieval (§5.4). Knowledge Map is a separate Axis-1 subsystem with its own config table,
-sharing adapters + parser and requiring the evidence-identity generalization (§5.5).
-Privacy is default-strict (§5.6). Given up: a unified config (Option A) for clean product
-boundaries, and one-shot delivery for phased shipments.
+Adopt the two-axis model. Concept Map gets an in-place **typed-FK discriminated owner**
+(§5.2, Q-10) with `agent_group` first-class (§5.3) and layered, narrow-precedence,
+per-layer-fail-soft retrieval (§5.4). Knowledge Map is a separate Axis-1 **product**
+subsystem that reuses the shared graph **engine via Protocols** (§5.5, §5.7, Q-11), with a
+**neutral graph domain** carrying opaque `evidence_refs`. The Concept Map is **temporal**
+(§5.8, Q-12). Deletion **purges external stores** on every owner path, and the pre-existing
+agent-delete leak is fixed (§5.9, Q-13). Privacy is default-strict (§5.6). Given up: a
+unified config (Option A) and a polymorphic owner column (marginally narrower) in exchange
+for clean product boundaries, DB-enforced integrity, and no orphan/twin debt.
 
 ## 6. Detailed Changes
 
-SoC: the graph **engine** (Neo4j/Qdrant adapters, 2PC runner, `TripleExtractor` Protocol)
-stays in `knowledge`, reused by both subsystems. `conversation` stays the message source
-via facade (never imported by `knowledge`).
+SoC: the graph **engine** (Neo4j/Qdrant adapters, 2PC runner, Protocol seams) stays in
+`knowledge`, reused by both subsystems. `conversation` stays the message source via facade
+(never imported by `knowledge`).
+
+**Engine de-concreting (§5.7, foundational — precedes both subsystems):** inject a repo
+Protocol + `ConfigLike` into `GraphRagBuilder`/`RetrieveService`/`ReconciliationLoop`;
+parameterize the Qdrant collection prefix in the store constructor; extract one
+`embed_resolution` helper (retires FU-1 drift); extract the neutral graph domain
+(`GraphTriple`/`GraphEdge`/`GraphBundle`, opaque `evidence_refs`, Neo4j property rename
+`evidence_msg_ids -> evidence_refs`); WS transport + frontend socket/visualizer factories.
 
 Full decouple surface (§4a-G1) — Concept Map, Phases 1-2:
 
 - **`knowledge` domain**: `GraphRagConfig.agent_id`/draft (`domain/graphrag.py:34,46`) ->
-  `owner`. Evidence typing `Triple`/`RelationEdge` -> `tuple[str,...]` (Phase 3).
+  `owner: OwnerRef`. Evidence -> neutral `evidence_refs: tuple[str,...]` on the shared graph
+  domain (§5.7).
 - **`knowledge` repo** (`graphrag_repositories.py`): `_row_to_config:29`; `create:43-68`;
   409 `GraphRagConfigAlreadyExists(agent_id):64-67` -> per-owner; `list_for_agents:100-119`
-  -> `list_for_owners`; immutability note `:167-171`.
+  -> `list_for_owner_{chatroom,agent_group,workspace}` (typed-FK joins, no owner_kind probe);
+  immutability note `:167-171`. Delete stale 1:1 comments/docstrings (Q-13/§4b-2-D).
 - **`knowledge` config service** (`graphrag_config_service.py`): `create:59-79` +
   `update:173-199` key-group validation -> owner-conditional; `:97-102` owner passthrough;
   audit `:113`.
@@ -510,25 +641,38 @@ Full decouple surface (§4a-G1) — Concept Map, Phases 1-2:
   try/except; scope-precedence in `_merge_bundles`.
 - **runtime** (`turn_engine.py`): `_graphrag_context:1666-1671` -> layered coverage;
   trigger fan-out `:1272-1281` -> all covering configs; add `get_chatroom` fetch.
-- **`agents` context (reverse pointer)**: `models.py:141,229`; `repositories.py:53,119,141`;
-  `agent_service.py:227-261,301-321,411-458`; `api/v1/agents.py:75,106,127,150,219,314,324`.
+- **`agents` context (reverse pointer — DROP in Phase 1, Q-13)**: remove
+  `models.py:141,229,241`; `repositories.py:53,119,141`; the `agent_service.py:227-261,301-321,411-458`
+  attach/validate/clear branches; DTO fields `api/v1/agents.py:75,106,127,150,219,314,324`
+  (ripples `gen:api` + `check:openapi-drift`). Not left dormant.
 - **GraphRAG API** (`app/api/v1/graphrag.py:71,86,132-137,185-189`): `agent_id` ->
-  owner fields.
+  owner fields; add **owner->project invariant** `_assert_owner_in_project` at create+update
+  (§4b-V-7); **owner-kind-branched authz** (chatroom -> room ACL, §4b-V-8).
 - **New** `agent_groups` + `agent_group_members` tables/facade/CRUD; `concept_map_enabled`
-  on group + workspace.
+  on group + workspace (strict `is_project_owner` gate, §4b-V-10).
 - **Migration**: drop `graphrag_configs.agent_id` UNIQUE + deferred reverse FK
-  (`0013_graphrag.py:52-54,80-87`); add owner columns + enum (in-place); backfill singleton
-  groups. New PG enum `owner_kind` via `CREATE TYPE ... ENUM` in `upgrade`, `DROP TYPE` in
-  `downgrade`, column `pg.ENUM(..., create_type=False)` (exemplar: `graphrag_build_state`
-  in `0013_graphrag.py:38-42,65,98`; never `sa.Text`).
+  (`0013_graphrag.py:52-54,80-87`); add `owner_kind` enum + three typed nullable owner FK
+  columns + CHECK (exactly-one) + three partial unique indexes (§5.2, pattern
+  `0042_prompt_studio.py:27-88`); **in place** (stable `id`); backfill each config to a
+  singleton `agent_group` (member = former `agent_id`). New PG enum via `CREATE TYPE` in
+  `upgrade` / `DROP TYPE` in `downgrade`, `pg.ENUM(..., create_type=False)` (exemplar
+  `graphrag_build_state` `0013_graphrag.py:38-42,65,98`; never `sa.Text`).
 - **Tests** (~6): `test_graphrag_triggers.py`, `test_agent_service.py:306-342,489-583`,
   `test_agent_config_project_guard.py`, `test_graphrag_builder.py`, `test_graphrag_retrieve.py`,
-  `test_graphrag_reset.py` — all build `GraphRagConfig(agent_id=...)`.
+  `test_graphrag_reset.py` — all build `GraphRagConfig(agent_id=...)`; also update the stale
+  bound/unbound tests `GraphragConfigListView.test.ts:102-119` (§4b-2-D).
+- **Cleanup (§5.9)**: `cascade_external_stores` invoked on every owner-delete path;
+  Phase-0 fix for the agent-delete leak (`agent_service.py:502-525` / `retention.py:141-159`);
+  reconciler orphan-sweep.
 
-Knowledge Map (Phase 3): `knowledge_map_configs` table + service + facade; second concrete
-extractor; parameterized Qdrant prefix; evidence generalization across
-`domain/graphrag.py`, `triple_extractor.py:158-165`, `graphrag_retrieve.py:114-122`,
-`EvidenceFetcher` signature + `build_doc_evidence_fetcher`; `turn_engine` Axis-1 block.
+Concept Map temporal (§5.8): `first_seen`/`last_seen` on Concept Map edges/entities in the
+per-axis builder; recency-weighting hook on the Concept Map retrieval strategy; timeline via
+`evidence_refs`. Time-travel reserved (separate spec).
+
+Knowledge Map (Phase 3): `knowledge_map_configs` table + service + facade over the shared
+engine (§5.7); second concrete extractor (prompt + renderer only); `build_doc_evidence_fetcher`
+resolving `doc:{id}:{idx}` -> `rag_chunks`; `turn_engine` Axis-1 block. The evidence-typing
+change is done once in the neutral graph domain (§5.7), not per subsystem.
 
 - **API contract** — `gen:api` rerun required: yes. New **owner-scoped** Concept Map
   endpoints (create/read/graph/build-status by owner, not `graphrag_config_id`) — the current
@@ -621,10 +765,14 @@ Touches tenant boundaries, provider keys, user-input processing — required.
   - Reconciler Phase-2 retry mints fresh point ids and skips the superseded sweep, leaking
     duplicate Qdrant points (`graphrag_reconciler.py:130,186-191`) — FU-4.
   - Enqueue has no dedup / `job_timeout == LOCK_TTL` (§4b-V-3,V-5) — FU-5.
-- **Patterns to follow:** file-RAG many-agent scoping (`domain/models.py:113-148`);
-  membership junction `chatroom_agents:50-70`; cross-context read via `EvidenceFetcher`
-  injection (`:203-224`); single-client-per-query reuse (`rag_context_provider.py:115-149`);
-  PG-enum discipline (`graphrag_build_state` in `0013_graphrag.py`); facade-only cross-context.
+- **Patterns to follow:** discriminated owner via typed FK + CHECK + partial unique indexes
+  (`0042_prompt_studio.py:27-88`, `projects` owner-XOR `0002_tenancy.py:63-88`); inline
+  external-store teardown on delete (`rag.py:335-395`, never rely on DB cascade); file-RAG
+  many-agent scoping (`domain/models.py:113-148`); membership junction `chatroom_agents:50-70`;
+  room ACL (`conversation/application/access.py:52,125`); cross-context read via
+  `EvidenceFetcher` injection (`:203-224`); single-client-per-query reuse
+  (`rag_context_provider.py:115-149`); PG-enum discipline (`graphrag_build_state` in
+  `0013_graphrag.py`); facade-only cross-context.
 - **Reuse inventory:** `Neo4jAsyncDriver`, `GraphRagVectorStore`, `LlmTripleExtractor`
   (Protocol only for docs), 2PC runner (`graphrag_builder.py`), `GraphRagRetrieveService`,
   `_merge_bundles`, `RedisLock`, `MIME_TO_PARSER` (`shared_kernel/text_extraction/parsers.py`),
@@ -635,11 +783,17 @@ Touches tenant boundaries, provider keys, user-input processing — required.
 
 - **Migration.** Must mutate `graphrag_configs` rows **in place** (stable `id`) — creating
   new rows orphans 100% of Neo4j/Qdrant data keyed by `graphrag_config_id` (§4a-G9). Forward:
-  add owner columns + `owner_kind` enum, backfill each existing config to a singleton
-  `agent_group` (member = its `agent_id`) — delta-feed is set-identical to today
-  (`ANY(ARRAY[:id])` == `= :id`), subgraphs untouched. Down: rebuild `UNIQUE agent_id` from
-  singleton members. **Reversibility holds only against freshly-migrated data**; once a group
-  has ≠1 members or a chatroom/workspace owner exists, there is no lossless inverse.
+  add `owner_kind` enum + three typed owner FK columns + CHECK + partial unique indexes,
+  backfill each config to a singleton `agent_group` (member = its `agent_id`,
+  `owner_agent_group_id` set) — delta-feed set-identical (`ANY(ARRAY[:id])` == `= :id`),
+  subgraphs untouched. Down: rebuild `UNIQUE agent_id` from singleton members.
+  **Reversibility holds only against freshly-migrated data**; once a group has ≠1 members or a
+  chatroom/workspace owner exists, there is no lossless inverse (acceptable — the reverse
+  pointer is redundant with membership post-migration).
+- **Orphaned graph data (§5.9).** Typed FK CASCADE cleans the PG row but not Neo4j/Qdrant;
+  the pre-existing agent-delete leak is live today. Mitigation: Phase-0 cleanup contract —
+  every owner-delete path purges external stores inline (RAG pattern) + reconciler sweep; a DB
+  cascade is never the sole teardown.
 - **Layered retrieval regressions** — merge/budget bugs could crowd out the room layer.
   Mitigation: scope-precedence render order + per-layer fail-soft + merge-policy tests.
 - **Build fan-out load** — one message feeding N layers. Mitigation: per-message build dedup
@@ -662,8 +816,9 @@ Touches tenant boundaries, provider keys, user-input processing — required.
 
 ## 11. Acceptance Criteria
 
-- [ ] AC-1: `graphrag_configs` loses `agent_id`; gains `owner_kind`+`owner_id`, UNIQUE
-  `(owner_kind, owner_id)`; migration mutates rows in place (id stable); deferred reverse FK
+- [ ] AC-1: `graphrag_configs` loses `agent_id`; gains `owner_kind` + three typed nullable
+  owner FK columns + a CHECK (exactly one non-null, matching `owner_kind`) + three per-kind
+  partial unique indexes; migration mutates rows in place (id stable); deferred reverse FK
   handled. (migration test) [P1]
 - [ ] AC-2: Delta-feed strategy per `owner_kind` uses `SELECT DISTINCT m.id`; agent_group
   variant is set-identical to the legacy query for a singleton member. (loader tests) [P1/P2]
@@ -717,9 +872,25 @@ Touches tenant boundaries, provider keys, user-input processing — required.
 - [ ] AC-18: A turn carrying multiple knowledge blocks (File-RAG + Knowledge-Map + N
   Concept-Map layers) stays within a combined system-prompt budget with narrow-scope
   precedence. (§4b-V-13) [P2]
-- [ ] AC-19: Removing/dormant-ing `agents.graphrag_config_id` leaves orchestration/A2A/
-  subagent/workflow untouched (already excluded); the agent DTO change is regenerated via
-  `gen:api` and the `isBound` badge + agent form field are corrected. (§4b-V-11, V-12) [P2/P4]
+- [ ] AC-19: `agents.graphrag_config_id` is **removed** in Phase 1 (column + DTO fields +
+  form control + `isBound` badge + stale 1:1 comments/tests); orchestration/A2A/subagent/
+  workflow remain untouched (already excluded); `gen:api` regenerated. (§4b-V-11, V-12,
+  §4b-2-D, Q-13) [P1]
+- [ ] AC-20: The graph engine is de-concreted — `GraphRagBuilder`/`RetrieveService`/
+  `ReconciliationLoop` depend on repo + `ConfigLike` Protocols, the Qdrant collection prefix
+  is a constructor param, and one `embed_resolution` helper is the single source (FU-1 drift
+  retired). Knowledge Map adds no duplicated engine code. (structure review, Q-11) [P0/P3]
+- [ ] AC-21: Graph evidence is a neutral opaque `evidence_refs` on a shared graph-domain type;
+  the Neo4j property is `evidence_refs`; Concept Map and Knowledge Map each decode it via their
+  own fetcher without a shared two-master type. (§5.7) [P0/P3]
+- [ ] AC-22: Deleting a config OR any owner (agent, chatroom, workspace, agent_group) purges
+  its Neo4j subgraph + Qdrant points inline (best-effort + audit), never relying on a DB
+  cascade alone; the reconciler sweeps configs absent from Postgres. The pre-existing
+  agent-delete leak is fixed. (§5.9, Q-13) [P0]
+- [ ] AC-23: Concept Map edges/entities carry `first_seen`/`last_seen` timestamps derived from
+  message `created_at`; the conversation timeline is recoverable via `evidence_refs`; the
+  Concept Map retrieval strategy exposes a recency-weighting hook (Knowledge Map unaffected).
+  (§5.8, Q-12) [P2]
 
 ## 12. Test Plan
 
@@ -741,9 +912,11 @@ Applied to `REQUIREMENTS.md` on approval (done). Recorded here as the authoritat
 
 Amend:
 
-- **[R11.05]** A Concept Map (conversation-derived Graph RAG) is owned by exactly one
-  **owner** `(owner_kind, owner_id)`, `owner_kind ∈ {chatroom, agent_group, workspace}`. The
-  1:1 Agent binding is removed. `UNIQUE(owner_kind, owner_id)`.
+- **[R11.05]** A Concept Map (conversation-derived Graph RAG) is owned by exactly one owner —
+  a chatroom, an agent_group, or a workspace — modelled as typed nullable FK columns with a
+  discriminator and a CHECK enforcing exactly one, plus a per-kind partial unique index (one
+  Concept Map per owner). The 1:1 Agent binding is removed. (No polymorphic `owner_id`
+  column: real FKs preserve referential integrity and enable cleanup on owner deletion.)
 
 §11.4 Concept Map ownership and layering:
 
@@ -773,10 +946,13 @@ Amend:
   subgraph + Qdrant collection (`knowmap_{project_id}`), scoped by its config id.
 - **[R11.14]** At agent invocation, an attached Knowledge Map is queried as an Axis-1 system
   block beside file-RAG, independent of any Concept Map.
-- **[R11.15]** Knowledge Map and Concept Map are distinct subsystems (separate config,
-  services, UI) that share the low-level graph adapters (Neo4j driver, Qdrant store, 2PC
-  runner) and the `TripleExtractor` Protocol. Graph evidence is identified by an opaque
-  reference token (a message id for conversation, a document chunk ref for files).
+- **[R11.15]** Knowledge Map and Concept Map are distinct **product** subsystems (separate
+  config, domain, and UI) that reuse a single shared graph **engine** through Protocol seams
+  (Neo4j driver, Qdrant store with a parameterized collection prefix, 2PC runner, one
+  embedding-resolution helper, build-state machine, and the `TripleExtractor` Protocol) plus a
+  neutral shared graph-domain type. Graph evidence is a neutral opaque reference token
+  (`evidence_refs`) decoded per subsystem — a message id for conversation, a document chunk
+  ref for files. Engine plumbing is never forked per subsystem.
 
 §11.6 Ownership authorization and build robustness (added post-verification):
 
@@ -796,10 +972,22 @@ Amend:
   knowledge blocks (File RAG, Knowledge Map, Concept Map layers) are injected in one turn,
   their combined size is bounded with narrow-scope precedence.
 
+§11.7 Graph data lifecycle and temporal Concept Map (added post-debt-review):
+
+- **[R11.20]** Deleting a graph config, or any owner of one (agent, chatroom, workspace,
+  agent_group), purges the config's Neo4j subgraph and Qdrant points as part of the deleting
+  operation (best-effort, audit-logged); a database cascade is never the sole teardown of an
+  external store. A reconciler sweeps external stores for graph ids absent from Postgres.
+- **[R11.21]** A Concept Map is a temporal knowledge graph: its entities and relations carry
+  first-seen/last-seen timestamps derived from the source messages' timestamps, and the exact
+  User<->Agent conversation timeline is recoverable from the evidence so an agent can reason
+  about ordering and causality. Concept Map retrieval may weight results by recency. Knowledge
+  Maps are non-temporal. (Time-travel / bitemporal queries are a separate future capability.)
+
 ## 14. Open Questions
 
-- Open Q-A: Drop `agents.graphrag_config_id` in Phase 1 or leave dormant until Phase 2's
-  coverage resolution replaces it? (retrieval-path decision)
+- Resolved Q-A (Q-13): drop `agents.graphrag_config_id` in Phase 1, collapse bind==membership.
+- Resolved Q-10/Q-11/Q-12/Q-13 in §3.
 - Open Q-B: Neo4j/Qdrant client pooling scope for N-fan-out — per-turn single client
   (minimum) vs a longer-lived pool.
 - Open Q-C: `agent_group` home confirmed as a sub-module of `agents` — confirm at build.
@@ -811,35 +999,47 @@ Amend:
 - Open Q-F: Embed-dimension policy (§4b-V-2/R11.19) — pin one model per project collection vs
   shard the collection per config. Affects Qdrant bootstrap + config validation.
 
-## Phasing (revised post-verification)
+## Phasing (revised post-verification + debt review)
 
-1. **Phase 1 — Decouple to polymorphic owner + agent_group, behavior-preserving (refactor +
-   the agent_group entity).** In-place owner migration; `agent_groups`/`agent_group_members`;
-   backfill singleton groups (reproduces today's scope, AC-4); agent_group delta strategy
-   with DISTINCT; owner-conditional key-group validation; trigger + repo + reverse-pointer
-   reshape; ~15 source + ~6 test files. AC-1..AC-6. *(agent_group moved into Phase 1 because
-   only a singleton group is behavior-equivalent to today; a chatroom owner is not.)*
+0. **Phase 0 — Engine hardening & cleanup (foundational refactor, behavior-preserving).**
+   De-concrete the engine via Protocols + `ConfigLike`; parameterize the Qdrant prefix;
+   extract the single `embed_resolution` helper (retire FU-1 drift); extract the neutral
+   graph domain with opaque `evidence_refs` (rename Neo4j property). Fix the pre-existing
+   agent-delete graph leak and establish the `cascade_external_stores`-on-every-delete
+   contract + reconciler orphan-sweep. AC-20, AC-21, AC-22. *(Pure refactor + live-bug fix;
+   ships value on its own and de-risks every later phase.)*
+1. **Phase 1 — Decouple to typed-FK owner + agent_group, behavior-preserving (refactor +
+   the agent_group entity).** In-place owner migration (typed FK + CHECK + partial unique,
+   §5.2); `agent_groups`/`agent_group_members`; backfill singleton groups (reproduces today's
+   scope, AC-4); agent_group delta strategy with DISTINCT; owner-conditional key-group
+   validation; trigger + repo reshape; **drop the reverse pointer** (AC-19); ~15 source + ~6
+   test files. AC-1..AC-6, AC-17, AC-19. *(agent_group moved into Phase 1 because only a
+   singleton group is behavior-equivalent to today; a chatroom owner is not.)*
 2. **Phase 2a — Builder hardening (prerequisite for wide ownership).** Windowed/batched
    extraction (AC-14); one embedding dimension per project collection or per-config sharding
    (AC-15); enqueue dedup + `job_timeout` fix (AC-16); DISTINCT covering-config trigger set
    (AC-17); owner->project invariant at create/update (AC-9a). These close the CRITICAL/HIGH
    build + isolation gaps (§4b-V-1..V-7) before any workspace/multi-member owner can build
    safely. Some (V-2 embed-dimension) also fix pre-existing latent bugs.
-3. **Phase 2b — chatroom + workspace layers + layered retrieval + privacy (feature).**
-   chatroom/workspace delta strategies; coverage resolution (authorization-bearing);
-   provider fan-out (list, client reuse, per-layer fail-soft, scope-precedence); combined
-   multi-block budget; `get_chatroom` fetch; `concept_map_enabled` gating + audit; room-ACL
-   map authorization. AC-7, AC-8, AC-9, AC-9b, AC-18.
-4. **Phase 3 — Knowledge Map (feature).** `knowledge_map_configs`; shared parser + document
-   extractor; evidence-identity generalization (shared type change — re-test Concept Map);
-   parameterized Qdrant prefix; Axis-1 turn block. AC-10, AC-11, AC-12.
+3. **Phase 2b — chatroom + workspace layers + layered retrieval + privacy + temporal
+   (feature).** chatroom/workspace delta strategies; coverage resolution
+   (authorization-bearing); provider fan-out (list, client reuse, per-layer fail-soft,
+   scope-precedence); combined multi-block budget; `get_chatroom` fetch; `concept_map_enabled`
+   gating + audit; room-ACL map authorization; Concept Map edge/entity timestamps + recency
+   hook (§5.8). AC-7, AC-8, AC-9, AC-9b, AC-18, AC-23.
+4. **Phase 3 — Knowledge Map (feature).** `knowledge_map_configs` over the shared engine;
+   document extractor (prompt+renderer only); `build_doc_evidence_fetcher`; Axis-1 turn block.
+   The neutral-domain / evidence-refs work is already done in Phase 0. AC-10, AC-11, AC-12.
 5. **Phase 4 — Frontend re-home (feature).** Split Knowledge tab; owner-centric Concept Map
    panels in the correct slices (chatroom/workspace -> `conversation`, agent_group ->
    `agents`); extract `KnowledgeGraphCanvas` + `useGraphLayout` to `shared/`; owner-scoped
-   API methods + owner-keyed socket; fix `isBound` badge. AC-13 UI parts, AC-19.
+   API methods + owner-keyed socket. AC-13 UI parts. (The `isBound` badge is removed in
+   Phase 1 with the pointer, AC-19.)
 
 Each phase is a separate `/spec`-refined `/build` task linking back to this blueprint.
-Phase 2a is a hard gate: workspace and multi-member-group ownership must not ship before it.
+Phase 0 de-risks all later phases; Phase 2a is a hard gate — workspace and multi-member-group
+ownership must not ship before it. Time-travel (temporal bitemporal queries) is a separate
+future spec, not a phase here.
 
 ## 15. Deviation Log
 
@@ -847,9 +1047,9 @@ Appended by /build. Empty means the implementation matches this spec exactly.
 
 ## 16. Follow-ups
 
-- FU-1: De-duplicate the embed-model map / `_resolve_embed_key` shared between
-  `graphrag_context_provider.py` and `app/workers/tasks/graphrag.py` (extract to a shared
-  `knowledge` helper without violating the no-`app`-import rule).
+- FU-1: De-duplicate the embed-model map / `_resolve_embed_key` — **pulled into Phase 0**
+  (AC-20) as the single `embed_resolution` helper; also reconcile the already-drifted
+  `list_ordered` vs `list_ordered_carried` call while extracting.
 - FU-2: Pre-existing embed-dimension collision on the shared `graphrag_{project_id}`
   collection (§4b-V-2) — pulled into Phase 2a (AC-15) because fan-out makes it routine; if
   Phase 2a slips, this remains a latent production bug for any project with two graph configs
@@ -864,3 +1064,6 @@ Appended by /build. Empty means the implementation matches this spec exactly.
 - FU-7: Trigger counter is skipped while a build is `RUNNING`
   (`graphrag_triggers.py:58`); messages during a long build are lost for trigger accounting
   (§4b-V-6/C3).
+- FU-8: Temporal time-travel / bitemporal Concept Map queries ("what did we know as of date
+  X") — a dedicated future spec (§5.8, R11.21), building on the timestamps + per-build
+  provenance laid down here.
