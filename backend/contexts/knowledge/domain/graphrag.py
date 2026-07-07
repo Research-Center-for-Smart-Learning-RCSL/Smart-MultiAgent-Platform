@@ -39,6 +39,11 @@ class GraphRagConfig:
     last_build_error: str | None
     created_at: datetime
     deleted_at: datetime | None
+    # Embedding pin (Phase 2a D2). The project's fixed (provider, model, dim);
+    # ``None`` on a pre-2a row that has not yet self-pinned on a build.
+    embed_provider: str | None = None
+    embed_model: str | None = None
+    embed_dim: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
