@@ -29,7 +29,6 @@ export const agentCreateSchema = z.object({
   system_prompt: z.string().max(100_000).default(''),
   prompt_strategy: z.enum(['full', 'lazy']).default('full'),
   rag_config_id: z.preprocess(emptyToNull, z.string().uuid().nullable().default(null)),
-  graphrag_config_id: z.preprocess(emptyToNull, z.string().uuid().nullable().default(null)),
   context_mode: z.enum(['general', 'compact']).default('general'),
   context_token_cap: z.preprocess(
     zeroOrEmptyToNull,

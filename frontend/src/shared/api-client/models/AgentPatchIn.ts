@@ -7,7 +7,6 @@ export type AgentPatchIn = {
     context_mode?: ('general' | 'compact' | null);
     context_token_cap?: (number | null);
     effort?: ('low' | 'medium' | 'high' | null);
-    graphrag_config_id?: (string | null);
     key_group_id?: (string | null);
     model_hint?: ('claude' | 'openai' | 'gemini' | null);
     model_id?: (string | null);

@@ -31,7 +31,6 @@ const AGENT = {
   system_prompt: 'You are helpful.',
   prompt_strategy: 'full',
   rag_config_id: null,
-  graphrag_config_id: null,
   context_mode: 'general',
   context_token_cap: null,
   a2a_enabled: false,

@@ -44,7 +44,6 @@ import {
   useBreakpoint,
 } from '@shared/composables'
 import { ApiError } from '@shared/errors'
-import { isProblemWithType } from '@shared/transport'
 import { keyGroupsApi, keysKeys, type KeyGroup } from '@slices/keys'
 import { PromptAssistantPanel, PromptTemplatePicker } from '@slices/prompt-studio'
 import { agentsApi, type AgentTool, type AgentToolType } from '../api'
@@ -92,12 +91,6 @@ const ragConfigsQuery = useQuery({
   queryFn: async () => (await agentsApi.listRagConfigs(pickerProjectId.value)).data,
 })
 
-const graphragConfigsQuery = useQuery({
-  queryKey: computed(() => agentKeys.graphragConfigs(pickerProjectId.value)),
-  enabled: computed(() => !!pickerProjectId.value),
-  queryFn: async () => (await agentsApi.listGraphragConfigs(pickerProjectId.value)).data,
-})
-
 const toolsQuery = useQuery({
   queryKey: computed(() => agentKeys.tools(agentId)),
   enabled: computed(() => !isCreateMode && !!agentId),
@@ -105,10 +98,6 @@ const toolsQuery = useQuery({
 })
 
 const modelCatalogQuery = useModelCatalog()
-
-const thisAgentGraphrag = computed(() =>
-  (graphragConfigsQuery.data.value ?? []).find((c) => c.agent_id === agentId),
-)
 
 const allTools = computed<AgentTool[]>(() => toolsQuery.data.value ?? [])
 
@@ -201,7 +190,6 @@ const { handleSubmit, errors, defineField, resetForm, setErrors, meta } =
       system_prompt: '',
       prompt_strategy: 'full',
       rag_config_id: null,
-      graphrag_config_id: null,
       context_mode: 'general',
       context_token_cap: null,
       a2a_enabled: false,
@@ -218,7 +206,6 @@ const [promptStrategy] = defineField('prompt_strategy')
 const [contextMode] = defineField('context_mode')
 const [contextTokenCap] = defineField('context_token_cap')
 const [ragConfigId] = defineField('rag_config_id')
-const [graphragConfigId] = defineField('graphrag_config_id')
 const [a2aEnabled] = defineField('a2a_enabled')
 
 // Model-id combobox: per-provider preset list + "provider default" (stores null)
@@ -344,7 +331,6 @@ watch(
         context_mode: agent.context_mode as AgentCreateInput['context_mode'],
         context_token_cap: agent.context_token_cap,
         rag_config_id: agent.rag_config_id,
-        graphrag_config_id: agent.graphrag_config_id,
         a2a_enabled: agent.a2a_enabled,
       },
     })
@@ -443,14 +429,7 @@ const saveDisabled = computed(
   () => !isCreateMode && !meta.value.dirty && !extrasDirty.value,
 )
 
-// The backend maps this domain error to a plain RFC 7807 problem (no
-// `field_errors`), so `applyServerErrors` can't route it -- catch it by slug
-// and attach it to the key_group_id field ourselves (R11.01).
 function applyAgentSaveError(err: unknown, fallbackMessage: string): void {
-  if (isProblemWithType(err, '/agents/graphrag-builder-key-group-conflict')) {
-    setErrors({ key_group_id: t('agents.form.keyGroupGraphragConflictError') })
-    return
-  }
   if (!applyServerErrors(err)) toast.error(fallbackMessage)
 }
 
@@ -501,7 +480,6 @@ const fieldToTab: Record<string, string> = {
   system_prompt: 'prompt',
   prompt_strategy: 'prompt',
   rag_config_id: 'knowledge',
-  graphrag_config_id: 'knowledge',
   a2a_enabled: 'orchestration',
 }
 
@@ -594,14 +572,6 @@ const ragConfigOptions = computed(() => [
   ...(ragConfigsQuery.data.value ?? []).map((c) => ({ value: c.id, label: c.name })),
 ])
 
-const graphragConfigOptions = computed(() => {
-  const options = [{ value: '', label: t('agents.form.noGraphragConfig') }]
-  if (thisAgentGraphrag.value) {
-    options.push({ value: thisAgentGraphrag.value.id, label: t('agents.form.graphragConfigThis') })
-  }
-  return options
-})
-
 const pageTitle = computed(() => {
   if (isCreateMode) return t('agents.detail.new')
   return query.data.value?.name ?? t('agents.detail.title')
@@ -617,28 +587,6 @@ const breadcrumbs = computed(() => [
   { label: pageTitle.value },
 ])
 
-// --- GraphRAG status in Knowledge tab ---
-const graphragStatusQuery = useQuery({
-  queryKey: computed(() => agentKeys.graphragConfig(graphragConfigId.value ?? '')),
-  enabled: computed(() => !!graphragConfigId.value && !isCreateMode),
-  queryFn: async () => (await agentsApi.getGraphragStatus(graphragConfigId.value!)).data,
-})
-
-const graphragStatusText = computed(() => {
-  const status = graphragStatusQuery.data.value
-  if (!status) return ''
-  const stateMap: Record<string, string> = {
-    idle: t('agents.graphragList.states.idle'),
-    running: t('agents.graphragList.states.running'),
-    neo4j_committed: t('agents.graphragList.states.neo4jCommitted'),
-    qdrant_committed: t('agents.graphragList.states.qdrantCommitted'),
-    failed: t('agents.graphragList.states.failed'),
-    failed_compensating: t('agents.graphragList.states.compensating'),
-  }
-  const state = stateMap[status.state] ?? status.state
-  const lastBuilt = status.last_build_at ? new Date(status.last_build_at).toLocaleString() : '--'
-  return t('agents.graphragList.graphragStatusInfo', { state, lastBuilt })
-})
 </script>
 
 <template>
@@ -805,7 +753,6 @@ const graphragStatusText = computed(() => {
               :label="t('agents.form.keyGroup')"
               name="key_group_id"
               :error="errors.key_group_id ?? ''"
-              :help="graphragConfigId ? t('agents.form.keyGroupGraphragHelp') : ''"
               required
               class="mt-4"
             >
@@ -963,38 +910,6 @@ const graphragStatusText = computed(() => {
               as="router-link"
             >
               {{ t('agents.rag.manageLink') }}
-            </SButton>
-          </SCard>
-
-          <SCard>
-            <h3 class="text-lg font-semibold mb-4">
-              {{ t('agents.form.graphragConfig') }}
-            </h3>
-            <SFormField
-              :label="t('agents.form.graphragConfig')"
-              name="graphrag_config_id"
-              :error="errors.graphrag_config_id ?? ''"
-            >
-              <SSelect
-                v-model="graphragConfigId"
-                :options="graphragConfigOptions"
-              />
-            </SFormField>
-            <SAlert
-              v-if="graphragConfigId && graphragStatusQuery.data.value"
-              variant="info"
-              class="mt-3"
-            >
-              {{ graphragStatusText }}
-            </SAlert>
-            <SButton
-              v-if="pickerProjectId"
-              variant="link"
-              class="mt-2"
-              :to="{ name: 'agents.graphragConfigs', params: { projectId: pickerProjectId } }"
-              as="router-link"
-            >
-              {{ t('agents.form.manageGraphragConfigs') }}
             </SButton>
           </SCard>
         </div>
