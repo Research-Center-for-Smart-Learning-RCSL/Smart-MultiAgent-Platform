@@ -1664,9 +1664,21 @@ class TurnEngine:
         )
 
     async def _graphrag_context(self, agent: Agent, queries: Sequence[str]) -> str | None:
-        """Delegate to the knowledge-context :class:`GraphRagContextProvider`."""
+        """Delegate to the knowledge-context :class:`GraphRagContextProvider`.
+
+        Resolves the config through ownership (the agent's singleton owner
+        group) rather than the legacy ``agent.graphrag_config_id`` pointer,
+        so retrieval keeps working once the contract step drops that column.
+        For a Phase-1 singleton group this yields the same config the pointer
+        did; a NULL result means the agent owns no Concept Map.
+        """
+        from contexts.knowledge.interfaces.facade import KnowledgeFacade
+
+        configs = await KnowledgeFacade(self._db).list_graph_configs_for_agent(agent.id)
+        if not configs:
+            return None
         return await self._graphrag_provider.query(
-            graphrag_config_id=agent.graphrag_config_id,
+            graphrag_config_id=configs[0].id,
             query_texts=queries,
         )
 

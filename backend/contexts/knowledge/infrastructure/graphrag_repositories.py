@@ -15,6 +15,7 @@ import sqlalchemy as sa
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from contexts.agent_groups.infrastructure import tables as ag
 from contexts.knowledge.application.graphrag_ports import GraphRagConfigRepositoryPort
 from contexts.knowledge.domain.errors import GraphRagConfigAlreadyExists
 from contexts.knowledge.domain.graphrag import BuildState, GraphRagConfig
@@ -46,6 +47,7 @@ class GraphRagConfigRepository(GraphRagConfigRepositoryPort):
         *,
         project_id: uuid.UUID,
         agent_id: uuid.UUID,
+        owner_agent_group_id: uuid.UUID,
         builder_key_group_id: uuid.UUID,
         trigger_config: dict[str, Any],
     ) -> GraphRagConfig:
@@ -55,7 +57,12 @@ class GraphRagConfigRepository(GraphRagConfigRepositoryPort):
                     t.graphrag_configs.insert()
                     .values(
                         project_id=project_id,
+                        # Dual-write during the expand phase: `agent_id` is still
+                        # NOT NULL until 0044, `owner_agent_group_id` is the new
+                        # source of truth. The contract step drops `agent_id`.
                         agent_id=agent_id,
+                        owner_agent_group_id=owner_agent_group_id,
+                        owner_kind="agent_group",
                         builder_key_group_id=builder_key_group_id,
                         trigger_config=trigger_config,
                     )
@@ -63,8 +70,8 @@ class GraphRagConfigRepository(GraphRagConfigRepositoryPort):
                 )
             ).one()
         except IntegrityError as exc:
-            # R11.05 — `agent_id` is UNIQUE; a second create for the same
-            # agent is a domain 409, not a 500.
+            # `agent_id` (and the owner partial-unique) enforce 1:1 ownership; a
+            # second create for the same owner is a domain 409, not a 500.
             raise GraphRagConfigAlreadyExists(str(agent_id)) from exc
         return _row_to_config(row)
 
@@ -102,22 +109,44 @@ class GraphRagConfigRepository(GraphRagConfigRepositoryPort):
         self,
         agent_ids: Sequence[uuid.UUID],
     ) -> Sequence[GraphRagConfig]:
+        """Configs owned by an agent_group any of ``agent_ids`` belongs to.
+
+        Resolves ownership through the membership join, not the legacy
+        ``agent_id`` column. For a Phase-1 singleton group (one member = the
+        former owning agent) this returns exactly the config the pre-decouple
+        ``WHERE agent_id IN (:ids)`` returned; the dedup keeps the result a set
+        of distinct configs once multi-member groups arrive (Phase 2b).
+        """
         ids = list(dict.fromkeys(agent_ids))
         if not ids:
             return []
+        gc = t.graphrag_configs
+        joined = gc.join(ag.agent_groups, ag.agent_groups.c.id == gc.c.owner_agent_group_id).join(
+            ag.agent_group_members,
+            ag.agent_group_members.c.agent_group_id == ag.agent_groups.c.id,
+        )
         rows = (
             await self._db.execute(
-                t.graphrag_configs.select()
+                sa.select(gc)
+                .select_from(joined)
                 .where(
                     sa.and_(
-                        t.graphrag_configs.c.agent_id.in_(ids),
-                        t.graphrag_configs.c.deleted_at.is_(None),
+                        ag.agent_group_members.c.agent_id.in_(ids),
+                        gc.c.deleted_at.is_(None),
+                        ag.agent_groups.c.deleted_at.is_(None),
                     )
                 )
-                .order_by(t.graphrag_configs.c.created_at.desc())
+                .order_by(gc.c.created_at.desc())
             )
         ).all()
-        return [_row_to_config(r) for r in rows]
+        seen: set[uuid.UUID] = set()
+        out: list[GraphRagConfig] = []
+        for r in rows:
+            if r.id in seen:
+                continue
+            seen.add(r.id)
+            out.append(_row_to_config(r))
+        return out
 
     async def list_in_state(
         self,

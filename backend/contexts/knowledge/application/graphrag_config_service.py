@@ -10,16 +10,16 @@ from __future__ import annotations
 import logging
 import uuid
 from collections.abc import Sequence
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from contexts.agent_groups.infrastructure import tables as ag
 from contexts.agents.infrastructure import tables as agents_t
 from contexts.keys.infrastructure import tables as keys_t
 from contexts.knowledge.domain.errors import (
     GraphRagAgentProjectMismatch,
-    GraphRagBuilderKeyGroupConflict,
     GraphRagBuilderKeyGroupProjectMismatch,
     GraphRagConfigNotFound,
 )
@@ -54,17 +54,14 @@ class GraphRagConfigService:
         actor_ip: str | None,
         request_id: uuid.UUID | None = None,
     ) -> GraphRagConfig:
-        # R11.01 + project-scope — before committing, confirm the agent
-        # lives in this project and the builder key group is distinct from
-        # the agent's consumer key group. Without this, a user could point
-        # the builder at the agent's own keys (defeating the billing
-        # separation intent) or attach a config to an agent in a sibling
-        # project.
+        # Project-scope — confirm the agent lives in this project before we
+        # wrap it in a singleton owner group. (The former builder-vs-consumer
+        # key-group distinctness check is dropped in Phase 1: ownership is an
+        # agent_group, which has no consumer key group to collide with.)
         agent_row = (
             await self._db.execute(
                 sa.select(
                     agents_t.agents.c.project_id,
-                    agents_t.agents.c.key_group_id,
                 ).where(
                     sa.and_(
                         agents_t.agents.c.id == draft.agent_id,
@@ -77,10 +74,6 @@ class GraphRagConfigService:
             raise GraphRagAgentProjectMismatch(str(draft.agent_id))
         if agent_row.project_id != project_id:
             raise GraphRagAgentProjectMismatch(f"agent {draft.agent_id} is not in project {project_id}")
-        if agent_row.key_group_id == draft.builder_key_group_id:
-            raise GraphRagBuilderKeyGroupConflict(
-                f"builder_key_group_id must differ from agent's key_group_id " f"({agent_row.key_group_id})"
-            )
 
         builder_group = (
             await self._db.execute(
@@ -98,9 +91,13 @@ class GraphRagConfigService:
                 f"does not belong to project {project_id}"
             )
 
+        owner_group_id = await self._ensure_singleton_agent_group(
+            project_id=project_id, agent_id=draft.agent_id
+        )
         cfg = await self._configs.create(
             project_id=project_id,
             agent_id=draft.agent_id,
+            owner_agent_group_id=owner_group_id,
             builder_key_group_id=draft.builder_key_group_id,
             trigger_config=draft.trigger_config,
         )
@@ -121,6 +118,49 @@ class GraphRagConfigService:
             ),
         )
         return cfg
+
+    async def _ensure_singleton_agent_group(
+        self,
+        *,
+        project_id: uuid.UUID,
+        agent_id: uuid.UUID,
+    ) -> uuid.UUID:
+        """Return the agent's singleton owner group id, creating it if absent.
+
+        Phase 1 keeps the agent-centric create UX (Q-4): a Concept Map is
+        created for an agent, and the service auto-wraps that agent in a
+        singleton ``agent_group`` used as the config's owner. The synthetic
+        name ``graphrag-owner-{agent_id}`` matches the 0043 backfill, so the
+        create path and the migration converge on the same group shape.
+        """
+        name = f"graphrag-owner-{agent_id}"
+        existing = (
+            await self._db.execute(
+                sa.select(ag.agent_groups.c.id).where(
+                    sa.and_(
+                        ag.agent_groups.c.project_id == project_id,
+                        ag.agent_groups.c.name == name,
+                        ag.agent_groups.c.deleted_at.is_(None),
+                    )
+                )
+            )
+        ).first()
+        if existing is not None:
+            return cast(uuid.UUID, existing.id)
+        group_id = cast(
+            uuid.UUID,
+            (
+                await self._db.execute(
+                    ag.agent_groups.insert()
+                    .values(project_id=project_id, name=name)
+                    .returning(ag.agent_groups.c.id)
+                )
+            ).scalar_one(),
+        )
+        await self._db.execute(
+            ag.agent_group_members.insert().values(agent_group_id=group_id, agent_id=agent_id)
+        )
+        return group_id
 
     async def get(self, config_id: uuid.UUID) -> GraphRagConfig:
         cfg = await self._configs.get(config_id)
@@ -170,22 +210,13 @@ class GraphRagConfigService:
     ) -> GraphRagConfig:
         """R11.05 partial update — edit trigger config or builder key group.
 
-        Re-runs the same builder/agent invariant we enforce at create time so
-        a user can't pivot the builder onto the agent's own consumer keys.
+        Re-checks that a swapped builder key group still lives in the config's
+        project. The former builder-vs-agent-consumer distinctness check is
+        dropped in Phase 1: ownership is an agent_group, not a single agent, so
+        there is no per-agent consumer key group for the builder to collide with.
         """
         cfg = await self.get(config_id)
         if builder_key_group_id is not None and builder_key_group_id != cfg.builder_key_group_id:
-            agent_row = (
-                await self._db.execute(
-                    sa.select(agents_t.agents.c.key_group_id).where(
-                        agents_t.agents.c.id == cfg.agent_id,
-                    )
-                )
-            ).first()
-            if agent_row is not None and agent_row.key_group_id == builder_key_group_id:
-                raise GraphRagBuilderKeyGroupConflict(
-                    "builder_key_group_id must differ from agent's key_group_id"
-                )
             builder_group = (
                 await self._db.execute(
                     sa.select(keys_t.key_groups.c.project_id).where(
