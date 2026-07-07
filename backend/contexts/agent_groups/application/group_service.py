@@ -1,0 +1,135 @@
+"""Agent-group membership use-cases (Phase 2b WS2, R24.06/R11.07/R11.08).
+
+Owns group creation and member add/remove — the surface the GraphRAG
+owner-centric create (WS2) and the layered resolver (WS4) build on — with audit
+emission and the per-project trust-boundary check (a member must live in the
+group's project). Authorization (Project-Owner) is enforced at the route
+boundary via the tenancy facade, matching the codebase convention; this service
+performs the mutation and records the audit trail in the caller's transaction.
+"""
+
+from __future__ import annotations
+
+import uuid
+from collections.abc import Sequence
+
+import sqlalchemy as sa
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from contexts.agent_groups.domain.errors import (
+    AgentGroupMemberProjectMismatch,
+    AgentGroupNotFound,
+)
+from contexts.agent_groups.infrastructure.group_repository import AgentGroupRepository
+from contexts.agents.infrastructure import tables as agents_t
+from shared_kernel import audit
+
+
+class AgentGroupService:
+    def __init__(self, db: AsyncSession) -> None:
+        self._db = db
+        self._repo = AgentGroupRepository(db)
+
+    async def create_group(
+        self,
+        *,
+        project_id: uuid.UUID,
+        name: str,
+        actor_user_id: uuid.UUID,
+        actor_ip: str | None,
+        request_id: uuid.UUID | None = None,
+    ) -> uuid.UUID:
+        group_id = await self._repo.create_group(project_id=project_id, name=name)
+        await audit.emit(
+            self._db,
+            audit.AuditEvent(
+                action="agent_group.created",
+                actor_user_id=actor_user_id,
+                actor_ip=actor_ip,
+                resource_type="agent_group",
+                resource_id=group_id,
+                metadata={"project_id": str(project_id), "name": name},
+                request_id=request_id,
+            ),
+        )
+        return group_id
+
+    async def add_member(
+        self,
+        *,
+        group_id: uuid.UUID,
+        agent_id: uuid.UUID,
+        actor_user_id: uuid.UUID,
+        actor_ip: str | None,
+        request_id: uuid.UUID | None = None,
+    ) -> None:
+        project_id = await self._require_group_project(group_id)
+        # Trust boundary: an agent may only join a group in its own project.
+        agent_row = (
+            await self._db.execute(
+                sa.select(agents_t.agents.c.project_id).where(
+                    sa.and_(
+                        agents_t.agents.c.id == agent_id,
+                        agents_t.agents.c.deleted_at.is_(None),
+                    )
+                )
+            )
+        ).first()
+        if agent_row is None or agent_row.project_id != project_id:
+            raise AgentGroupMemberProjectMismatch(
+                f"agent {agent_id} is not in group {group_id}'s project {project_id}"
+            )
+        await self._repo.add_member(group_id=group_id, agent_id=agent_id)
+        await audit.emit(
+            self._db,
+            audit.AuditEvent(
+                action="agent_group.member_added",
+                actor_user_id=actor_user_id,
+                actor_ip=actor_ip,
+                resource_type="agent_group",
+                resource_id=group_id,
+                metadata={"project_id": str(project_id), "agent_id": str(agent_id)},
+                request_id=request_id,
+            ),
+        )
+
+    async def remove_member(
+        self,
+        *,
+        group_id: uuid.UUID,
+        agent_id: uuid.UUID,
+        actor_user_id: uuid.UUID,
+        actor_ip: str | None,
+        request_id: uuid.UUID | None = None,
+    ) -> bool:
+        project_id = await self._require_group_project(group_id)
+        removed = await self._repo.remove_member(group_id=group_id, agent_id=agent_id)
+        await audit.emit(
+            self._db,
+            audit.AuditEvent(
+                action="agent_group.member_removed",
+                actor_user_id=actor_user_id,
+                actor_ip=actor_ip,
+                resource_type="agent_group",
+                resource_id=group_id,
+                metadata={"project_id": str(project_id), "agent_id": str(agent_id), "removed": removed},
+                request_id=request_id,
+            ),
+        )
+        return removed
+
+    async def list_members(self, group_id: uuid.UUID) -> Sequence[uuid.UUID]:
+        return await self._repo.list_member_agent_ids(group_id)
+
+    async def group_project_id(self, group_id: uuid.UUID) -> uuid.UUID | None:
+        """The group's project id, for the route's Project-Owner authz gate."""
+        return await self._repo.project_id_of(group_id)
+
+    async def _require_group_project(self, group_id: uuid.UUID) -> uuid.UUID:
+        project_id = await self._repo.project_id_of(group_id)
+        if project_id is None:
+            raise AgentGroupNotFound(str(group_id))
+        return project_id
+
+
+__all__ = ["AgentGroupService"]

@@ -36,6 +36,7 @@ from app.api.middleware.trusted_proxy import TrustedProxyMiddleware
 from app.api.v1 import get_router_registry
 from app.bootstrap.startup import INITIALIZERS
 from app.config.settings import get_settings
+from contexts.agent_groups.interfaces import error_mapping as agent_groups_errors
 from contexts.agents.interfaces import error_mapping as agents_errors
 from contexts.conversation.interfaces import error_mapping as conversation_errors
 from contexts.identity.interfaces import error_mapping as identity_errors
@@ -147,6 +148,7 @@ def create_app() -> FastAPI:
     tenancy_errors.register(app)
     keys_errors.register(app)
     agents_errors.register(app)
+    agent_groups_errors.register(app)
     knowledge_errors.register(app)
     conversation_errors.register(app)
     orchestration_errors.register(app)
