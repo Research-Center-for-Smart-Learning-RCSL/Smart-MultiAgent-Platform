@@ -15,14 +15,12 @@ import uuid
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-# Default embedding model per provider. Every GraphRAG config in a project shares
-# one Qdrant collection, so the model — hence the vector dimension — must be stable
-# across the group's keys.
-GRAPHRAG_EMBED_MODELS: dict[str, str] = {
-    "openai": "text-embedding-3-small",
-    "gemini": "text-embedding-004",
-    "voyage": "voyage-3",
-}
+# Default embedding model per provider is owned by the domain catalog, which keeps
+# it in lockstep with the dimension whitelist via a runtime assert. Every GraphRAG
+# config in a project shares one Qdrant collection, so the model — hence the vector
+# dimension — must be stable across the group's keys; reuse the single source of
+# truth rather than a second copy that could drift.
+from contexts.knowledge.domain.models import DEFAULT_EMBED_MODELS
 
 
 async def resolve_embed_key(
@@ -45,7 +43,7 @@ async def resolve_embed_key(
         if key is None:
             continue
         provider = key.provider.value
-        model = GRAPHRAG_EMBED_MODELS.get(provider)
+        model = DEFAULT_EMBED_MODELS.get(provider)
         if model is None:
             continue
         return provider, model, key.id
