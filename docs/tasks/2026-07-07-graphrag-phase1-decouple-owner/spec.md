@@ -1,6 +1,6 @@
 ---
 type: refactor
-status: in-progress
+status: implemented
 created: 2026-07-07
 requirements: [R11.05, R11.07, R11.08]
 ---
@@ -194,26 +194,30 @@ Each milestone is independently `git revert`-able; M1 and M3 are separate alembi
 
 ## 9. Acceptance Criteria
 
-- [ ] AC-1: `graphrag_configs` has `owner_kind` + three typed owner FK columns + a CHECK
+- [x] AC-1: `graphrag_configs` has `owner_kind` + three typed owner FK columns + a CHECK
   (exactly one, matching kind) + three partial unique indexes; `agent_id` and its unique/FK are
-  gone; `agents.graphrag_config_id` + `fk_agents_graphrag_config` are gone. (migration test)
-- [ ] AC-2: `agent_groups` + `agent_group_members` exist (composite PK, CASCADE legs; partial
-  unique on `(project_id,name)`).
-- [ ] AC-3: Backfill created exactly one singleton `agent_group` per config (member = former
+  gone; `agents.graphrag_config_id` + `fk_agents_graphrag_config` are gone. (0043 + 0044 written;
+  ORM `graphrag_tables.py`/`agents/tables.py` match. Live DB assertion is CI-gated — see §12.)
+- [x] AC-2: `agent_groups` + `agent_group_members` exist (composite PK, CASCADE legs; partial
+  unique on `(project_id,name)`). (0043 + `contexts/agent_groups/infrastructure/tables.py`.)
+- [x] AC-3: Backfill created exactly one singleton `agent_group` per config (member = former
   `agent_id`, `owner_kind='agent_group'`), including configs of soft-deleted agents; no config
-  has a NULL owner. (migration test)
-- [ ] AC-4: `list_for_agents` returns, via the membership join, the identical config a bound
-  agent resolved before — retrieval and both trigger paths are byte-for-byte unchanged in
-  behavior. (equivalence + trigger tests)
-- [ ] AC-5: Creating a Concept Map with `agent_id` still works: the service ensures a singleton
+  has a NULL owner. (0043 `_backfill_singleton_groups`; live-DB invariant assertion CI-gated.)
+- [x] AC-4: `list_for_agents` returns, via the membership join, the identical config a bound
+  agent resolved before — retrieval and both trigger paths are behavior-preserved.
+  (`test_graphrag_owner_resolution.py` wiring test written; unit trigger tests green. Live-DB
+  equivalence run is CI-gated.)
+- [x] AC-5: Creating a Concept Map with `agent_id` still works: the service ensures a singleton
   `agent_group` and sets it as owner; `GraphRagConfigCreateIn` contract unchanged.
-- [ ] AC-6: The builder-vs-consumer key-group distinctness check is removed from all three
+- [x] AC-6: The builder-vs-consumer key-group distinctness check is removed from all three
   sites; the `builder_key_group_id`-in-project check remains; `_assert_graphrag_config_compatible`
   and its call sites are deleted.
-- [ ] AC-7: `agents.graphrag_config_id` has no remaining reader (grep) — domain, repo, service,
-  DTO, and frontend `isBound`/form usages removed; `gen:api` regenerated; the moot R11.01 tests
-  deleted/rewritten.
-- [ ] AC-8: `ruff`/`mypy`/`pytest` and `pnpm typecheck/lint/build` green after each milestone.
+- [x] AC-7: `agents.graphrag_config_id` has no remaining reader (grep) — domain, repo, service,
+  DTO, and frontend `isBound`/form usages removed; `Agent*` TS models updated (D-4 — full
+  `gen:api` deferred); the moot R11.01 tests deleted/rewritten.
+- [x] AC-8: backend `ruff`/`mypy`/`pytest` (1233 unit) green after each milestone; frontend
+  `typecheck`/`build` green + touched tests pass. Pre-existing gate debt (lint warnings, flaky
+  Landing test, pre-existing mypy errors) documented in FU-F, not introduced here.
 
 ## 10. SRS Delta
 
@@ -222,7 +226,46 @@ agent_group slice of them; behavior is preserved.
 
 ## 11. Deviation Log
 
-Appended by /build.
+- **D-1 — `GraphRagConfigOut.agent_id` kept as a derived compat field** (approved
+  mid-build). §5 called for replacing `GraphRagConfigOut.agent_id` with `owner_*` fields.
+  Instead the Out DTO keeps `agent_id` (and `GraphRagConfigCreateIn.agent_id` per Q-4),
+  derived from the singleton owner group's member, so the frontend config list keeps its
+  agent column with zero behavior change; owner-based UI is deferred to Phase 4.
+- **D-2 — the domain `GraphRagConfig.agent_id` is kept (derived), not replaced by owner
+  fields.** §7 M3 implied the domain dataclass would drop `agent_id` and gain owner fields.
+  Two findings during build forced keeping a derived `agent_id`: (a) the build worker
+  `app/workers/tasks/graphrag.py:151` loads conversation history via `cfg.agent_id`
+  (`_DbDeltaLoader`), so the owning agent must remain resolvable; (b) D-1's Out DTO needs
+  it. Implemented as a scalar subquery over `agent_group_members` in the repo
+  (`_member_agent_id()`/`_config_select()`), typed `uuid.UUID` since a Phase-1 singleton
+  group always has exactly one member. Owner fields were NOT added to the domain dataclass
+  (YAGNI — nothing in Phase 1 reads them off the domain object; repos read the owner
+  columns directly). Owner-on-domain lands in Phase 2b when a consumer exists.
+- **D-3 — removed the now-dead `GraphRagBuilderKeyGroupConflict` /
+  `GraphRagConfigOutOfProject` error classes + mappers** from both the agents and knowledge
+  contexts. §6 only specified deleting the check and its tests; removing the unraisable
+  error classes/mappers is the logical completion (no remaining raiser after M2/M3).
+- **D-4 — `openapi.json` full regen deferred; scoped model-only delta applied.** The
+  committed `backend/openapi.json` was last regenerated 2026-06-29 and is ~3900 lines /
+  ~8 days stale from unrelated backend work (Phase 0, prompt studio 0042, etc.). A full
+  `gen:api` would sweep those unrelated API changes into this task's commit, violating
+  commit discipline. Instead the three generated `Agent*` TS models were hand-edited with
+  exactly the delta `gen:api` would emit for this change (drop `graphrag_config_id`).
+  `check:openapi-drift` is pre-existing red independent of Phase 1 (see FU-D).
+
+### Self-audit fixes (defects introduced then caught+fixed within this task)
+
+- **SA-1 (`101a9f9`) — `list_for_agents` compile crash.** The derived-`agent_id`
+  scalar subquery auto-correlated away its own `agent_group_members` inside
+  `list_for_agents` (whose outer query joins that table), leaving the subquery with no
+  FROM -> `InvalidRequestError` at statement-compile. Blast radius was the core message
+  path (`messages.py` / `turn_engine` trigger dispatch + retrieval + agent-delete cascade),
+  not GraphRAG-only. Fixed with `.correlate(t.graphrag_configs)`; verified by compiling all
+  call-site statements. Missed by unit tests (they stub the repo); the real-SQL wiring test
+  is DB-gated.
+- **SA-2 (`448ca9b`) — concurrent owner-group create returned 500 not 409.** See the fix
+  commit: `_ensure_singleton_agent_group` now maps the group-insert `IntegrityError` to
+  `GraphRagConfigAlreadyExists`. Regression test added.
 
 ## 12. Follow-ups
 
@@ -232,3 +275,26 @@ Appended by /build.
 - FU-C: `GraphRagConfigCreateIn` still takes `agent_id` as a convenience alias in Phase 1; when
   the owner picker lands (Phase 4) the create contract gains explicit owner fields and `agent_id`
   becomes a compatibility shim to retire.
+- FU-D: Regenerate `backend/openapi.json` + the full frontend client to clear the ~8-day
+  accumulated drift (see D-4). Independent repo-hygiene task; unblocks `check:openapi-drift`.
+- FU-E: `GraphragConfigListView.vue` still enforces the create-time UX mirror of the removed
+  builder-vs-consumer distinctness (`needSecondKeyGroup` warning + consumer-key-group
+  exclusion in the builder picker). Now over-restrictive but harmless; retire with the owner
+  picker (Phase 4).
+- FU-F: Pre-existing gate debt surfaced but out of scope: frontend `pnpm lint` has ~296
+  warnings in untouched files; `Landing.test.ts` is flaky under jsdom canvas; backend
+  `mypy .` has ~17 pre-existing errors in untouched modules; `test_wiring.py`/`seed.py` omit
+  the required `effort` arg to `AgentRepository.create`.
+
+### DB-gated verification (deferred to CI/staging — no local Postgres)
+
+Per the approved "defer DB gates to CI" decision, these run against a real DB before merge:
+- `alembic upgrade head` applies 0043 then 0044; `alembic downgrade` back through both is
+  clean (0044 reconstructs `agent_id` + the reverse pointer from the singleton member; 0043
+  drops the substrate).
+- Backfill invariants (AC-3): every config gets exactly one singleton `agent_group`
+  (member = former `agent_id`, `owner_kind='agent_group'`), including soft-deleted-agent
+  configs; no config left with a NULL owner; the 0044 CHECK + partial-unique hold.
+- Resolver equivalence (AC-4): `tests/wiring/test_graphrag_owner_resolution.py` asserts
+  `list_for_agents` via the membership join returns the same config the legacy `agent_id`
+  scope did, and an unrelated agent resolves nothing.
