@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: draft
+status: approved
 created: 2026-07-07
 requirements: [R11.02, R11.03, R11.04, R11.16, R11.18, R11.19]
 ---
