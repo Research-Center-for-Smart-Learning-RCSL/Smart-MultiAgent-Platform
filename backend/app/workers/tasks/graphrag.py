@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import uuid
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -14,6 +14,7 @@ from qdrant_client import AsyncQdrantClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config.settings import get_settings
+from contexts.agent_groups.infrastructure.group_repository import AgentGroupRepository
 from contexts.keys.infrastructure.adapters import build_router
 from contexts.knowledge.application.embed_resolution import resolve_pinned_embed_key
 from contexts.knowledge.application.graphrag_builder import (
@@ -68,11 +69,19 @@ class _DbMsg:
 
 
 class _DbDeltaLoader:
-    """Load delta messages from chatrooms the agent participates in (D1: as
-    bounded windows so memory and per-call LLM payload stay flat)."""
+    """Load delta messages from chatrooms the owner group's members participate
+    in (D1: bounded windows so memory and per-call LLM payload stay flat).
 
-    def __init__(self, *, agent_id: uuid.UUID) -> None:
-        self._agent_id = agent_id
+    Phase 2b WS1: an agent_group owner may have several members, so the feed is
+    the DISTINCT union of every member agent's room messages (R11.08). A message
+    co-present to two members' rooms is ingested exactly once (AC-1), tagged with
+    a deterministic ``source_member_id`` — the smallest member agent id sharing
+    that message — so extracted relations carry stable member provenance (R11.22).
+    """
+
+    def __init__(self, *, member_agent_ids: Sequence[uuid.UUID]) -> None:
+        # Deduped so a repeated member never double-expands the IN list.
+        self._member_agent_ids = list(dict.fromkeys(member_agent_ids))
 
     _BATCH_SIZE = 2000
 
@@ -83,6 +92,8 @@ class _DbDeltaLoader:
         since: Any,
         mode: Any,
     ) -> AsyncIterator[list[DeltaMessage]]:
+        if not self._member_agent_ids:
+            return
         sm = get_sessionmaker()
         window: list[DeltaMessage] = []
         window_tokens = 0
@@ -102,32 +113,35 @@ class _DbDeltaLoader:
                 else ""
             )
             params: dict[str, Any] = {
-                "agent_id": str(self._agent_id),
+                "member_ids": [str(a) for a in self._member_agent_ids],
                 "since": since,
                 "batch_size": self._BATCH_SIZE,
             }
             if last_id is not None:
                 params["last_created_at"] = last_created_at
                 params["last_id"] = last_id
+            # DISTINCT ON (m.created_at, m.id) collapses a message reachable via
+            # several members (shared room) to one row; the ORDER BY tiebreak on
+            # ca.agent_id makes the surviving row — and thus source_member_id —
+            # deterministically the smallest member id. The IN list uses an
+            # expanding bindparam so the member set binds as individual params
+            # (same str->uuid coercion the single-agent form relied on).
+            stmt = sa.text(
+                "SELECT DISTINCT ON (m.created_at, m.id) "  # noqa: S608
+                "m.id, m.sender_type AS role, m.content_md AS content, "
+                "m.created_at, ca.agent_id AS source_member_id "
+                "FROM messages m "
+                "JOIN chatrooms cr ON cr.id = m.chatroom_id "
+                "JOIN chatroom_agents ca ON ca.chatroom_id = cr.id "
+                "WHERE ca.agent_id IN :member_ids "
+                "  AND m.deleted_at IS NULL "
+                "  AND (CAST(:since AS timestamptz) IS NULL OR m.created_at > :since) "
+                f"{cursor_clause}"
+                "ORDER BY m.created_at, m.id, ca.agent_id "
+                "LIMIT :batch_size"
+            ).bindparams(sa.bindparam("member_ids", expanding=True))
             async with sm() as db:
-                rows = (
-                    await db.execute(
-                        sa.text(
-                            "SELECT m.id, m.sender_type AS role, m.content_md AS content, "  # noqa: S608
-                            "m.created_at "
-                            "FROM messages m "
-                            "JOIN chatrooms cr ON cr.id = m.chatroom_id "
-                            "JOIN chatroom_agents ca ON ca.chatroom_id = cr.id "
-                            "WHERE ca.agent_id = :agent_id "
-                            "  AND m.deleted_at IS NULL "
-                            "  AND (CAST(:since AS timestamptz) IS NULL OR m.created_at > :since) "
-                            f"{cursor_clause}"
-                            "ORDER BY m.created_at, m.id "
-                            "LIMIT :batch_size"
-                        ),
-                        params,
-                    )
-                ).all()
+                rows = (await db.execute(stmt, params)).all()
             for r in rows:
                 content = r.content or ""
                 tokens = _estimate_tokens(content)
@@ -140,7 +154,9 @@ class _DbDeltaLoader:
                     yield window
                     window = []
                     window_tokens = 0
-                window.append(_DbMsg(id=r.id, role=r.role, content=content))
+                window.append(
+                    _DbMsg(id=r.id, role=r.role, content=content, source_member_id=r.source_member_id)
+                )
                 window_tokens += tokens
             if len(rows) < self._BATCH_SIZE:
                 break
@@ -149,6 +165,20 @@ class _DbDeltaLoader:
             last_id = str(last_row.id)
         if window:
             yield window
+
+
+async def _resolve_member_agent_ids(db: AsyncSession, cfg: Any) -> list[uuid.UUID]:
+    """Member agent ids whose room feeds this build ingests (R11.08).
+
+    For an ``agent_group`` owner (the only kind Phase 2a/2b-WS1 create produces)
+    this is the group's live membership — the multi-member DISTINCT union the
+    loader fans across. Read live so a removed member drops out of the next
+    build. Falls back to the config's derived owning agent for any other owner
+    kind until WS2 adds the chatroom/workspace delta scopes.
+    """
+    if cfg.owner_kind == "agent_group" and cfg.owner_agent_group_id is not None:
+        return list(await AgentGroupRepository(db).list_member_agent_ids(cfg.owner_agent_group_id))
+    return [cfg.agent_id] if cfg.agent_id is not None else []
 
 
 def _make_embedder_factory(db: AsyncSession) -> EmbedderFactory:
@@ -231,7 +261,8 @@ async def _run_build(*, config_id: str, triggered_by: str = "manual") -> str:
                 return f"config {config_id} not found"
 
             extractor = LlmTripleExtractor(router=build_router(db))
-            delta_loader = _DbDeltaLoader(agent_id=cfg.agent_id)
+            member_ids = await _resolve_member_agent_ids(db, cfg)
+            delta_loader = _DbDeltaLoader(member_agent_ids=member_ids)
 
             builder = GraphRagBuilder(
                 db=db,

@@ -43,6 +43,10 @@ def _config_row(config_id: uuid.UUID) -> SimpleNamespace:
         embed_provider=None,
         embed_model=None,
         embed_dim=None,
+        owner_kind="agent_group",
+        owner_chatroom_id=None,
+        owner_agent_group_id=uuid.uuid4(),
+        owner_workspace_id=None,
     )
 
 
