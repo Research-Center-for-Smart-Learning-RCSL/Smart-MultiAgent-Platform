@@ -73,6 +73,15 @@ class Neo4jSection(BaseSettings):
     database: str = "smap"
 
 
+class GraphRagSection(BaseSettings):
+    model_config = SettingsConfigDict(env_prefix="SMAP_GRAPHRAG_", extra="ignore")
+
+    # D8 (R11.16): max concurrent graphrag builds per worker. Builds are heavy
+    # (LLM extraction + Neo4j + Qdrant), so a burst could otherwise monopolise
+    # the shared worker resources; the semaphore bounds concurrent heavy work.
+    build_concurrency: int = 4
+
+
 class MinioSection(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="SMAP_MINIO_", extra="ignore")
 
@@ -326,6 +335,7 @@ class Settings(BaseSettings):
     redis: RedisSection = Field(default_factory=RedisSection)
     qdrant: QdrantSection = Field(default_factory=QdrantSection)
     neo4j: Neo4jSection = Field(default_factory=Neo4jSection)
+    graphrag: GraphRagSection = Field(default_factory=GraphRagSection)
     minio: MinioSection = Field(default_factory=MinioSection)
     vault: VaultSection = Field(default_factory=VaultSection)
     jwt: JwtSection = Field(default_factory=JwtSection)
