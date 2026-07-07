@@ -13,18 +13,14 @@ from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any, cast
 
 import sqlalchemy as sa
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.agent_groups.infrastructure import tables as ag
-from contexts.agents.infrastructure import tables as agents_t
 from contexts.conversation.infrastructure import tables as conv_t
 from contexts.keys.infrastructure import tables as keys_t
 from contexts.knowledge.application.embed_resolution import resolve_embed_key
 from contexts.knowledge.domain.errors import (
-    GraphRagAgentProjectMismatch,
     GraphRagBuilderKeyGroupProjectMismatch,
-    GraphRagConfigAlreadyExists,
     GraphRagConfigNotFound,
     GraphRagEmbedDimensionConflict,
     GraphRagOwnerProjectMismatch,
@@ -62,26 +58,14 @@ class GraphRagConfigService:
         actor_ip: str | None,
         request_id: uuid.UUID | None = None,
     ) -> GraphRagConfig:
-        # Project-scope — confirm the agent lives in this project before we
-        # wrap it in a singleton owner group. (The former builder-vs-consumer
-        # key-group distinctness check is dropped in Phase 1: ownership is an
-        # agent_group, which has no consumer key group to collide with.)
-        agent_row = (
-            await self._db.execute(
-                sa.select(
-                    agents_t.agents.c.project_id,
-                ).where(
-                    sa.and_(
-                        agents_t.agents.c.id == draft.agent_id,
-                        agents_t.agents.c.deleted_at.is_(None),
-                    )
-                )
-            )
-        ).first()
-        if agent_row is None:
-            raise GraphRagAgentProjectMismatch(str(draft.agent_id))
-        if agent_row.project_id != project_id:
-            raise GraphRagAgentProjectMismatch(f"agent {draft.agent_id} is not in project {project_id}")
+        # Phase 2b WS2: owner-centric. The discriminated owner must already exist
+        # and live in this project (the former agent-centric auto-singleton wrap
+        # is retired; an agent_group owner is created + populated via the
+        # member-CRUD surface first). _assert_owner_in_project handles all three
+        # owner kinds.
+        await self._assert_owner_in_project(
+            owner_kind=draft.owner_kind, owner_id=draft.owner_id, project_id=project_id
+        )
 
         builder_group = (
             await self._db.execute(
@@ -105,18 +89,10 @@ class GraphRagConfigService:
         pin = await self._enforce_and_resolve_pin(project_id, draft.builder_key_group_id)
         embed_provider, embed_model, embed_dim = pin if pin is not None else (None, None, None)
 
-        owner_group_id = await self._ensure_singleton_agent_group(
-            project_id=project_id, agent_id=draft.agent_id
-        )
-        # D6: the owner entity must live in the config's project. The singleton
-        # group is created in-project just above, so this passes today; the guard
-        # is the invariant for when Phase 2b lets a caller pass an arbitrary owner.
-        await self._assert_owner_in_project(
-            owner_kind="agent_group", owner_id=owner_group_id, project_id=project_id
-        )
         cfg = await self._configs.create(
             project_id=project_id,
-            owner_agent_group_id=owner_group_id,
+            owner_kind=draft.owner_kind,
+            owner_id=draft.owner_id,
             builder_key_group_id=draft.builder_key_group_id,
             trigger_config=draft.trigger_config,
             embed_provider=embed_provider,
@@ -133,63 +109,14 @@ class GraphRagConfigService:
                 resource_id=cfg.id,
                 metadata={
                     "project_id": str(project_id),
-                    "agent_id": str(draft.agent_id),
+                    "owner_kind": draft.owner_kind,
+                    "owner_id": str(draft.owner_id),
                     "builder_key_group_id": str(draft.builder_key_group_id),
                 },
                 request_id=request_id,
             ),
         )
         return cfg
-
-    async def _ensure_singleton_agent_group(
-        self,
-        *,
-        project_id: uuid.UUID,
-        agent_id: uuid.UUID,
-    ) -> uuid.UUID:
-        """Return the agent's singleton owner group id, creating it if absent.
-
-        Phase 1 keeps the agent-centric create UX (Q-4): a Concept Map is
-        created for an agent, and the service auto-wraps that agent in a
-        singleton ``agent_group`` used as the config's owner. The synthetic
-        name ``graphrag-owner-{agent_id}`` matches the 0043 backfill, so the
-        create path and the migration converge on the same group shape.
-        """
-        name = f"graphrag-owner-{agent_id}"
-        existing = (
-            await self._db.execute(
-                sa.select(ag.agent_groups.c.id).where(
-                    sa.and_(
-                        ag.agent_groups.c.project_id == project_id,
-                        ag.agent_groups.c.name == name,
-                        ag.agent_groups.c.deleted_at.is_(None),
-                    )
-                )
-            )
-        ).first()
-        if existing is not None:
-            return cast(uuid.UUID, existing.id)
-        try:
-            group_id = cast(
-                uuid.UUID,
-                (
-                    await self._db.execute(
-                        ag.agent_groups.insert()
-                        .values(project_id=project_id, name=name)
-                        .returning(ag.agent_groups.c.id)
-                    )
-                ).scalar_one(),
-            )
-        except IntegrityError as exc:
-            # A concurrent first-time create for the same agent lost the race on
-            # uq_agent_groups_project_name_active. The owner group (hence the
-            # config) already exists, so this is the domain 409 the pre-decouple
-            # graphrag_configs.agent_id UNIQUE used to surface -- not a 500.
-            raise GraphRagConfigAlreadyExists(str(agent_id)) from exc
-        await self._db.execute(
-            ag.agent_group_members.insert().values(agent_group_id=group_id, agent_id=agent_id)
-        )
-        return group_id
 
     async def _resolve_group_pin(
         self,
