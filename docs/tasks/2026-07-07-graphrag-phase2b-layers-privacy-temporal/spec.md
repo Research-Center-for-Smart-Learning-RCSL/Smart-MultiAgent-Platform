@@ -440,6 +440,31 @@ upgrade head` to the deploy pipeline.
   and a service without its WS2 caller would be unexercised. The repository is the
   shared primitive both work-streams use.
 
+### WS2 — Layered owner configs (implemented)
+
+Delivered as commits `bfd6813..44bf643` (M1 per-owner-kind delta scoping; M2
+`AgentGroupService` + facade + errors; M3 owner-centric config create/update, singleton
+retired; M4 agent-group management API; plus post-audit hardening). AC-3 (chatroom- and
+workspace-owned configs create + owner-not-in-project rejection) is covered by wiring tests;
+the owner-centric create redesign the user approved at the gate is complete. Local gate: unit
+tests green, `ruff check .` clean, `mypy` on touched files introduces no errors (pre-existing
+baseline only), import-linter contracts KEPT. Quality + security audits on the WS2 diff
+returned no Introduced-Critical/Warning findings; the two Info nits (`agent_id` nullability,
+chatroom soft-delete filter) were fixed.
+
+- **D-4** — The group service's **Project-Owner authorization is enforced at the route
+  boundary** (`app/api/v1/agent_groups.py` via `TenancyFacade.is_project_owner`), not inside
+  `AgentGroupService`, matching the codebase's SoC convention (routes gate; services mutate +
+  audit). Reads require project membership; mutations require a strict Project Owner.
+- **D-5** — `openapi.json` + `pnpm run gen:api` regeneration is **deferred to the canonical CI
+  environment**. The API contract genuinely changed (owner-centric graphrag create/response +
+  new `/agent-groups` endpoints), but the committed `openapi.json` was generated with different
+  FastAPI/Pydantic versions than the dev host — a local regen produced a ~3.9k-line diff of
+  unrelated schema churn that would corrupt the artifact. CI's `check:openapi-drift` owns the
+  authoritative regen. No frontend consumes the changed contract (the attach UI was removed).
+- **FU-4 resolved** — the agent-centric `_ensure_singleton_agent_group` inline inserts are
+  retired; agent_group ownership now flows through `AgentGroupRepository`/`AgentGroupService`.
+
 ## 16. Follow-ups
 
 - FU-1 — expose recency half-life and layer enablement in the Phase 4 UI.
@@ -450,7 +475,12 @@ upgrade head` to the deploy pipeline.
   `AgentGroupRepository.create_group`/`add_member` now encapsulate (quality-audit DRY).
   WS2's owner-centric create rewrite should route group creation through the repository
   and retire the inline inserts.
-- FU-5 (WS2-scoped) — the multi-member delta feed (`app/workers/tasks/graphrag.py`) relies
-  on the Phase-1/2a owner→project membership invariant for tenant containment rather than an
-  explicit `project_id` predicate (security-audit defense-in-depth, pre-existing). WS2 threads
-  owner-kind scoping through this loader; add an explicit `cfg.project_id` scope at that point.
+- FU-5 (open, defense-in-depth) — the delta feed (`app/workers/tasks/graphrag.py`) relies on
+  the owner→project invariant (owner validated in-project at create) for tenant containment
+  rather than an explicit `project_id` predicate in the SQL. WS2 re-confirmed no cross-tenant
+  vector; adding an explicit `cfg.project_id` scope remains a hardening option (the loader would
+  need to receive `project_id`).
+- FU-6 (minor, WS2) — the `owner_kind`→column dispatch is duplicated across five sites
+  (`graphrag_repositories._OWNER_COLUMN`, API `_owner_id`, service `_config_owner` /
+  `_assert_owner_in_project`, worker `_resolve_delta_scope`); a future 4th owner kind touches
+  all five. Literal-constrained so not a defect — consider centralizing the kind→column map.
