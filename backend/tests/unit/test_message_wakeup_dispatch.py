@@ -92,6 +92,7 @@ async def test_dispatch_graphrag_builds_enqueues_fired_configs(monkeypatch) -> N
         def __init__(self) -> None:
             self.config_id = config_id
             self.triggered_by = "every_n_messages"
+            self.job_id = f"graphrag:build:{config_id}:idle:0"
 
     class _Facade:
         def __init__(self, db) -> None:
@@ -109,10 +110,16 @@ async def test_dispatch_graphrag_builds_enqueues_fired_configs(monkeypatch) -> N
 
     await messages_mod._dispatch_graphrag_builds(object(), uuid.uuid4(), [agent_id])
 
+    # D5: the enqueue carries the dedup job id so concurrent triggers for the
+    # same config+watermark collapse to a single queued build.
     assert enqueued == [
         (
             ("graphrag_build",),
-            {"config_id": str(config_id), "triggered_by": "every_n_messages"},
+            {
+                "config_id": str(config_id),
+                "triggered_by": "every_n_messages",
+                "_job_id": f"graphrag:build:{config_id}:idle:0",
+            },
         )
     ]
 

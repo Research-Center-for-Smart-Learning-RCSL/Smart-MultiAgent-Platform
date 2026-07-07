@@ -72,6 +72,7 @@ async def test_every_n_messages_fires_on_counter_boundary(monkeypatch) -> None:
         trigger_mod.GraphRagBuildTrigger(
             config_id=cfg.id,
             triggered_by="every_n_messages",
+            job_id=f"graphrag:build:{cfg.id}:idle:0",
         )
     ]
     assert counter.seen == [cfg.id, cfg.id]
@@ -91,6 +92,40 @@ async def test_manual_only_trigger_does_not_increment_counter(monkeypatch) -> No
 
     assert fired == []
     assert counter.seen == []
+
+
+# ---------------------------------------------------------------------------
+# D5 (AC-8) — enqueue de-duplication job id
+# ---------------------------------------------------------------------------
+
+
+def test_build_job_id_stable_within_watermark_and_changes_after() -> None:
+    from datetime import timedelta
+
+    config_id = uuid.uuid4()
+    t0 = datetime(2026, 7, 8, 9, 0, 0, tzinfo=UTC)
+
+    id_a = trigger_mod.graphrag_build_job_id(config_id, last_build_state=BuildState.IDLE, last_build_at=t0)
+    id_b = trigger_mod.graphrag_build_job_id(config_id, last_build_state=BuildState.IDLE, last_build_at=t0)
+    # Two triggers within the same watermark collapse to one job id.
+    assert id_a == id_b
+
+    # After completion the started-at watermark advances → a fresh id, so the
+    # rebuild is never suppressed by the prior job's retained result.
+    id_next = trigger_mod.graphrag_build_job_id(
+        config_id, last_build_state=BuildState.IDLE, last_build_at=t0 + timedelta(seconds=5)
+    )
+    assert id_next != id_a
+
+    # A single failure flips the state, so the first retry gets a fresh id too.
+    id_failed = trigger_mod.graphrag_build_job_id(
+        config_id, last_build_state=BuildState.FAILED, last_build_at=t0
+    )
+    assert id_failed != id_a
+
+    # A never-built config has a stable id (epoch 0).
+    first = trigger_mod.graphrag_build_job_id(config_id, last_build_state=BuildState.IDLE, last_build_at=None)
+    assert first == f"graphrag:build:{config_id}:idle:0"
 
 
 @pytest.mark.asyncio

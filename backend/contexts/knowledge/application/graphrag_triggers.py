@@ -5,6 +5,7 @@ from __future__ import annotations
 import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any, Final, Protocol
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -20,10 +21,32 @@ _TRIGGERED_BY_EVERY_N: Final = "every_n_messages"
 _BUILDABLE_STATES: Final = frozenset({BuildState.IDLE, BuildState.FAILED})
 
 
+def graphrag_build_job_id(
+    config_id: uuid.UUID,
+    *,
+    last_build_state: BuildState,
+    last_build_at: datetime | None,
+) -> str:
+    """Stable per-rebuild-cycle arq job id for build de-duplication (D5).
+
+    Every trigger fired between two builds resolves to the same id, so
+    concurrent turns collapse to a single queued ``graphrag_build`` (arq returns
+    ``None`` for a duplicate id, and the loser never burns a worker slot). The
+    nonce — the config's terminal state plus its ``last_build_at`` epoch —
+    changes once a build completes (``last_build_at`` advances to the started-at
+    watermark) or the state flips idle<->failed, so a legitimate rebuild is never
+    suppressed by the prior job's retained result (``keep_result``). ``0`` stands
+    in for a config that has never built.
+    """
+    epoch = int(last_build_at.timestamp()) if last_build_at is not None else 0
+    return f"graphrag:build:{config_id}:{last_build_state.value}:{epoch}"
+
+
 @dataclass(frozen=True, slots=True)
 class GraphRagBuildTrigger:
     config_id: uuid.UUID
     triggered_by: str
+    job_id: str
 
 
 class GraphRagMessageCounter(Protocol):
@@ -63,6 +86,11 @@ async def evaluate_graphrag_message_triggers(
                 GraphRagBuildTrigger(
                     config_id=cfg.id,
                     triggered_by=_TRIGGERED_BY_EVERY_N,
+                    job_id=graphrag_build_job_id(
+                        cfg.id,
+                        last_build_state=cfg.last_build_state,
+                        last_build_at=cfg.last_build_at,
+                    ),
                 )
             )
 
@@ -89,4 +117,5 @@ __all__ = [
     "GraphRagMessageCounter",
     "RedisGraphRagMessageCounter",
     "evaluate_graphrag_message_triggers",
+    "graphrag_build_job_id",
 ]

@@ -312,10 +312,13 @@ async def _dispatch_graphrag_builds(
     try:
         fired = await KnowledgeFacade(db).evaluate_graphrag_message_triggers(agent_ids=bound_agent_ids)
         for trigger in fired:
+            # D5: dedup concurrent triggers for the same config+watermark onto
+            # one queued build via a stable job id.
             await enqueue(
                 "graphrag_build",
                 config_id=str(trigger.config_id),
                 triggered_by=trigger.triggered_by,
+                _job_id=trigger.job_id,
             )
     except Exception:  # pragma: no cover - defensive; exercised via wiring tier
         _log.warning(

@@ -1274,10 +1274,13 @@ class TurnEngine:
                     agent_ids=[a.agent_id for a in bound]
                 )
                 for trig in triggers:
+                    # D5: dedup concurrent triggers for the same config+watermark
+                    # onto one queued build via a stable job id.
                     await enqueue(
                         "graphrag_build",
                         config_id=str(trig.config_id),
                         triggered_by=trig.triggered_by,
+                        _job_id=trig.job_id,
                     )
         except Exception:
             _log.warning(
