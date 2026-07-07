@@ -17,7 +17,6 @@ function makeAgent(id: string, name: string): Record<string, unknown> {
     system_prompt: '',
     prompt_strategy: 'full',
     rag_config_id: null,
-    graphrag_config_id: null,
     context_mode: 'general',
     context_token_cap: null,
     a2a_enabled: false,

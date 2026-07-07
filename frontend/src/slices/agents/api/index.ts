@@ -21,7 +21,6 @@ export interface Agent {
   system_prompt: string
   prompt_strategy: string
   rag_config_id: string | null
-  graphrag_config_id: string | null
   context_mode: string
   context_token_cap: number | null
   a2a_enabled: boolean

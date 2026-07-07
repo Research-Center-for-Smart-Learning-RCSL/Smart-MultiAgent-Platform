@@ -22,7 +22,6 @@ const AGENT = {
   system_prompt: '',
   prompt_strategy: 'full',
   rag_config_id: null,
-  graphrag_config_id: null,
   context_mode: 'general',
   context_token_cap: null,
   a2a_enabled: false,
@@ -99,25 +98,4 @@ describe('GraphragConfigListView', () => {
     expect(wrapper.find('button.s-btn--primary').attributes('disabled')).toBeDefined()
   })
 
-  it('flags a built config as unbound when its agent does not point back at it', async () => {
-    // AGENT.graphrag_config_id is null, so gr_1 is built-but-inert.
-    seed({ configs: [CONFIG] })
-    const wrapper = await renderView(GraphragConfigListView, {
-      routes,
-      initialRoute: '/projects/proj_1/graphrag-configs',
-    })
-    await settle(wrapper)
-    expect(wrapper.find('.s-badge--warning').exists()).toBe(true)
-  })
-
-  it('flags a config as active when its agent points back at it', async () => {
-    seed({ configs: [CONFIG], agents: [{ ...AGENT, graphrag_config_id: 'gr_1' }] })
-    const wrapper = await renderView(GraphragConfigListView, {
-      routes,
-      initialRoute: '/projects/proj_1/graphrag-configs',
-    })
-    await settle(wrapper)
-    expect(wrapper.find('.s-badge--warning').exists()).toBe(false)
-    expect(wrapper.find('.s-badge--success').exists()).toBe(true)
-  })
 })

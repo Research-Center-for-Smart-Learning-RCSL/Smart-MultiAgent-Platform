@@ -9,7 +9,6 @@ export type AgentOut = {
     created_at: string;
     deleted_at: (string | null);
     effort: (string | null);
-    graphrag_config_id: (string | null);
     id: string;
     key_group_id: string;
     model_hint: string;

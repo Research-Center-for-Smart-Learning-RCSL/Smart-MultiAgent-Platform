@@ -65,7 +65,6 @@ function seedHandlers(): void {
           system_prompt: '',
           prompt_strategy: 'full',
           rag_config_id: 'cfg_1',
-          graphrag_config_id: null,
           context_mode: 'window',
           context_token_cap: null,
           a2a_enabled: false,
