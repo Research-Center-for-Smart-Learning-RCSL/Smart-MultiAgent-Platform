@@ -1020,7 +1020,9 @@ Amend:
    scope, AC-4); agent_group delta strategy with DISTINCT; owner-conditional key-group
    validation; trigger + repo reshape; **drop the reverse pointer** (AC-19); ~15 source + ~6
    test files. AC-1..AC-6, AC-17, AC-19. *(agent_group moved into Phase 1 because only a
-   singleton group is behavior-equivalent to today; a chatroom owner is not.)*
+   singleton group is behavior-equivalent to today; a chatroom owner is not.)* **Build plan:**
+   `docs/tasks/2026-07-07-graphrag-phase1-decouple-owner/spec.md` (expand->migrate->contract;
+   public agent_group CRUD/UI deferred to Phase 2b/4).
 2. **Phase 2a — Builder hardening (prerequisite for wide ownership).** Windowed/batched
    extraction (AC-14); one embedding dimension per project collection or per-config sharding
    (AC-15); enqueue dedup + `job_timeout` fix (AC-16); DISTINCT covering-config trigger set
