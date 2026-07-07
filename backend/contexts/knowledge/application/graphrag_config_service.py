@@ -13,6 +13,7 @@ from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any, cast
 
 import sqlalchemy as sa
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.agent_groups.infrastructure import tables as ag
@@ -21,6 +22,7 @@ from contexts.keys.infrastructure import tables as keys_t
 from contexts.knowledge.domain.errors import (
     GraphRagAgentProjectMismatch,
     GraphRagBuilderKeyGroupProjectMismatch,
+    GraphRagConfigAlreadyExists,
     GraphRagConfigNotFound,
 )
 from contexts.knowledge.domain.graphrag import (
@@ -146,16 +148,23 @@ class GraphRagConfigService:
         ).first()
         if existing is not None:
             return cast(uuid.UUID, existing.id)
-        group_id = cast(
-            uuid.UUID,
-            (
-                await self._db.execute(
-                    ag.agent_groups.insert()
-                    .values(project_id=project_id, name=name)
-                    .returning(ag.agent_groups.c.id)
-                )
-            ).scalar_one(),
-        )
+        try:
+            group_id = cast(
+                uuid.UUID,
+                (
+                    await self._db.execute(
+                        ag.agent_groups.insert()
+                        .values(project_id=project_id, name=name)
+                        .returning(ag.agent_groups.c.id)
+                    )
+                ).scalar_one(),
+            )
+        except IntegrityError as exc:
+            # A concurrent first-time create for the same agent lost the race on
+            # uq_agent_groups_project_name_active. The owner group (hence the
+            # config) already exists, so this is the domain 409 the pre-decouple
+            # graphrag_configs.agent_id UNIQUE used to surface -- not a 500.
+            raise GraphRagConfigAlreadyExists(str(agent_id)) from exc
         await self._db.execute(
             ag.agent_group_members.insert().values(agent_group_id=group_id, agent_id=agent_id)
         )
