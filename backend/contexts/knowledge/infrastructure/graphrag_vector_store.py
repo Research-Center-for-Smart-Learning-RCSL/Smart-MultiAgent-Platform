@@ -25,6 +25,8 @@ from qdrant_client.http.models import (
     VectorParams,
 )
 
+from contexts.knowledge.domain.errors import GraphRagCollectionDimensionMismatch
+
 __all__ = ["GraphRagEntityHit", "GraphRagVectorStore", "graphrag_collection_name"]
 
 
@@ -62,13 +64,50 @@ class GraphRagVectorStore:
         vector_size: int,
         distance: Distance = Distance.COSINE,
     ) -> None:
+        """Idempotently ensure the project collection exists at ``vector_size`` (D7).
+
+        If the collection already exists its dimension MUST match — otherwise the
+        build would upsert wrong-dimension vectors into a fixed-size collection
+        (the build-time backstop to D2). Create tolerates a concurrent create
+        (another build won the race) by re-checking the dimension instead of
+        failing.
+        """
         name = self._name(project_id)
         if await self._client.collection_exists(name):
+            await self._assert_dimension(name, vector_size)
             return
-        await self._client.create_collection(
-            collection_name=name,
-            vectors_config=VectorParams(size=vector_size, distance=distance),
-        )
+        try:
+            await self._client.create_collection(
+                collection_name=name,
+                vectors_config=VectorParams(size=vector_size, distance=distance),
+            )
+        except Exception:
+            # A concurrent create between our existence check and this create is
+            # not an error: re-check the dimension idempotently. A genuine create
+            # failure (collection still absent) re-raises.
+            if not await self._client.collection_exists(name):
+                raise
+            await self._assert_dimension(name, vector_size)
+
+    async def _assert_dimension(self, name: str, vector_size: int) -> None:
+        existing = await self._collection_dimension(name)
+        if existing is not None and existing != vector_size:
+            raise GraphRagCollectionDimensionMismatch(
+                f"collection {name} is {existing}-dim but this build produced "
+                f"{vector_size}-dim vectors (D2 project embed-dimension drift)"
+            )
+
+    async def _collection_dimension(self, name: str) -> int | None:
+        """The collection's single-vector size, or ``None`` if undeterminable.
+
+        Returns ``None`` for a named-vectors collection (a shape GraphRAG never
+        creates) so the guard fails open rather than on an unexpected schema.
+        """
+        info = await self._client.get_collection(name)
+        params = getattr(getattr(info, "config", None), "params", None)
+        vectors = getattr(params, "vectors", None)
+        size = getattr(vectors, "size", None)
+        return int(size) if isinstance(size, int) else None
 
     async def upsert_entities(
         self,

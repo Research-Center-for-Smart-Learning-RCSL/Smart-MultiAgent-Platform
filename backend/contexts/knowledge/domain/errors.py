@@ -113,6 +113,18 @@ class GraphRagOwnerProjectMismatch(KnowledgeError):
     code = "knowledge/graphrag-owner-project-mismatch"
 
 
+class GraphRagCollectionDimensionMismatch(KnowledgeError):
+    """Phase 2a D7 — a build produced vectors whose dimension differs from the
+    project's existing Qdrant collection.
+
+    The build-time backstop to D2's create/update pin guard: even if a config
+    slips through with a drifted dimension, the collection is never mis-indexed —
+    the build fails loudly here instead. Raised in the worker build path, so it
+    has no HTTP surface, but is mapped defensively as a 500."""
+
+    code = "knowledge/graphrag-collection-dimension-mismatch"
+
+
 __all__ = [
     "CapabilityMismatch",
     "ChunkParamsInvalid",
@@ -124,6 +136,7 @@ __all__ = [
     "GraphRagBuildFailed",
     "GraphRagBuilderKeyGroupProjectMismatch",
     "GraphRagConfigAlreadyExists",
+    "GraphRagCollectionDimensionMismatch",
     "GraphRagConfigNotFound",
     "GraphRagEmbedDimensionConflict",
     "GraphRagOwnerProjectMismatch",

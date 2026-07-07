@@ -101,6 +101,11 @@ _MAP: ErrorMap = {
         422,
         "Owner does not belong to the target project",
     ),
+    errors.GraphRagCollectionDimensionMismatch: (
+        "knowledge/graphrag-collection-dimension-mismatch",
+        500,
+        "GraphRAG build produced vectors of the wrong dimension for the project collection",
+    ),
 }
 
 
