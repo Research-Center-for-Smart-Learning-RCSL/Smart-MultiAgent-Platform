@@ -19,18 +19,11 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from contexts.knowledge.application.embed_resolution import resolve_embed_key
 from contexts.knowledge.application.graphrag_retrieve import EvidenceFetcher
 
 _log = logging.getLogger(__name__)
 
-# Default embedding model per provider for GraphRAG retrieval — mirrors the
-# builder's map in ``app.workers.tasks.graphrag`` (kept local: contexts must
-# not import from ``app``).
-_GRAPHRAG_EMBED_MODELS: dict[str, str] = {
-    "openai": "text-embedding-3-small",
-    "gemini": "text-embedding-004",
-    "voyage": "voyage-3",
-}
 _MAX_EVIDENCE_EXCERPTS = 10
 _MAX_EVIDENCE_CHARS = 280
 
@@ -124,7 +117,7 @@ class GraphRagContextProvider:
         from contexts.knowledge.infrastructure.neo4j_driver import Neo4jAsyncDriver
 
         async def _embedder_factory(cfg: Any) -> Any:
-            resolved = await self._resolve_embed_key(cfg.builder_key_group_id)
+            resolved = await resolve_embed_key(self._db, cfg.builder_key_group_id)
             if resolved is None:
                 raise RuntimeError(
                     f"builder key group {cfg.builder_key_group_id} has no embedding key",
@@ -158,34 +151,6 @@ class GraphRagContextProvider:
         finally:
             await qclient.close()
             await driver.close()
-
-    async def _resolve_embed_key(
-        self,
-        builder_key_group_id: uuid.UUID,
-    ) -> tuple[str, str, uuid.UUID] | None:
-        """First embedding-capable key in the builder group -> (provider, model, key_id).
-
-        Mirrors the builder's resolution so retrieval embeds with the same
-        model family the build used.
-        """
-        from contexts.keys.infrastructure.group_repository import (
-            KeyGroupMemberRepository,
-        )
-        from contexts.keys.infrastructure.repositories import ApiKeyRepository
-
-        members = await KeyGroupMemberRepository(self._db).list_ordered_carried(
-            builder_key_group_id,
-        )
-        for m in members:
-            key = await ApiKeyRepository(self._db).get_active(m.key_id)
-            if key is None:
-                continue
-            provider = key.provider.value
-            model = _GRAPHRAG_EMBED_MODELS.get(provider)
-            if model is None:
-                continue
-            return provider, model, key.id
-        return None
 
 
 def _normalise_queries(*, query_text: str | None, query_texts: Sequence[str] | None) -> list[str]:
