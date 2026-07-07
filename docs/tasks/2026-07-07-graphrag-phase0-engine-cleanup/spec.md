@@ -1,6 +1,6 @@
 ---
 type: refactor
-status: approved
+status: in-progress
 created: 2026-07-07
 requirements: [R11.15, R11.20]
 ---

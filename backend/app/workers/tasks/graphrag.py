@@ -14,8 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config.settings import get_settings
 from contexts.keys.infrastructure.adapters import build_router
 from contexts.knowledge.application.graphrag_builder import GraphRagBuilder
-from contexts.knowledge.application.graphrag_ports import DeltaMessage
-from contexts.knowledge.domain.graphrag import GraphRagConfig
+from contexts.knowledge.application.graphrag_ports import ConfigLike, DeltaMessage
 from contexts.knowledge.infrastructure.embedders import router_embedder_for
 from contexts.knowledge.infrastructure.graphrag_repositories import GraphRagConfigRepository
 from contexts.knowledge.infrastructure.graphrag_vector_store import GraphRagVectorStore
@@ -137,7 +136,7 @@ def _make_embedder_factory(db: AsyncSession) -> Any:
     """Return an EmbedderFactory resolving a pinned key from the builder group."""
     router = build_router(db)
 
-    async def _factory(cfg: GraphRagConfig) -> Any:
+    async def _factory(cfg: ConfigLike) -> Any:
         resolved = await _resolve_embed_key(db, cfg.builder_key_group_id)
         if resolved is None:
             raise RuntimeError(
@@ -191,6 +190,7 @@ async def graphrag_build(
                 snapshot_store=snapshot_store,
                 delta_loader=delta_loader,
                 embedder_factory=_make_embedder_factory(db),
+                configs=GraphRagConfigRepository(db),
             )
             cfg_id_str = str(cfg_id)
 

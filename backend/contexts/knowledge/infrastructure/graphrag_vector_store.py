@@ -28,9 +28,14 @@ from qdrant_client.http.models import (
 __all__ = ["GraphRagEntityHit", "GraphRagVectorStore", "graphrag_collection_name"]
 
 
-def graphrag_collection_name(project_id: uuid.UUID) -> str:
-    """Per-project GraphRAG collection name (§21.4)."""
-    return f"graphrag_{str(project_id).replace('-', '_')}"
+def graphrag_collection_name(project_id: uuid.UUID, *, prefix: str = "graphrag") -> str:
+    """Per-project graph collection name (§21.4).
+
+    ``prefix`` lets a second graph subsystem (e.g. a Knowledge Map using
+    ``knowmap_{project_id}``) reuse the same store without colliding with the
+    Concept Map's ``graphrag_{project_id}`` collection.
+    """
+    return f"{prefix}_{str(project_id).replace('-', '_')}"
 
 
 @dataclass(frozen=True, slots=True)
@@ -43,8 +48,12 @@ class GraphRagEntityHit:
 
 
 class GraphRagVectorStore:
-    def __init__(self, client: AsyncQdrantClient) -> None:
+    def __init__(self, client: AsyncQdrantClient, *, prefix: str = "graphrag") -> None:
         self._client = client
+        self._prefix = prefix
+
+    def _name(self, project_id: uuid.UUID) -> str:
+        return graphrag_collection_name(project_id, prefix=self._prefix)
 
     async def ensure_graphrag_collection(
         self,
@@ -53,7 +62,7 @@ class GraphRagVectorStore:
         vector_size: int,
         distance: Distance = Distance.COSINE,
     ) -> None:
-        name = graphrag_collection_name(project_id)
+        name = self._name(project_id)
         if await self._client.collection_exists(name):
             return
         await self._client.create_collection(
@@ -94,7 +103,7 @@ class GraphRagVectorStore:
         if not structs:
             return
         await self._client.upsert(
-            collection_name=graphrag_collection_name(project_id),
+            collection_name=self._name(project_id),
             points=structs,
             wait=True,
         )
@@ -125,7 +134,7 @@ class GraphRagVectorStore:
             )
         qfilter = Filter(must=must) if must else None
         results = await self._client.search(
-            collection_name=graphrag_collection_name(project_id),
+            collection_name=self._name(project_id),
             query_vector=query_vector,
             limit=top_k,
             query_filter=qfilter,
@@ -163,7 +172,7 @@ class GraphRagVectorStore:
         build_id: uuid.UUID,
     ) -> None:
         await self._client.delete(
-            collection_name=graphrag_collection_name(project_id),
+            collection_name=self._name(project_id),
             points_selector=Filter(
                 must=[
                     FieldCondition(
@@ -204,7 +213,7 @@ class GraphRagVectorStore:
         unique = list(dict.fromkeys(entities))
         if not unique:
             return
-        name = graphrag_collection_name(project_id)
+        name = self._name(project_id)
         if not await self._client.collection_exists(name):
             return
         await self._client.delete(
@@ -248,7 +257,7 @@ class GraphRagVectorStore:
         not exist. Points written before ``config_id`` tagging existed carry
         no tag and are not matched here — a rebuild re-tags them.
         """
-        name = graphrag_collection_name(project_id)
+        name = self._name(project_id)
         if not await self._client.collection_exists(name):
             return
         await self._client.delete(
@@ -265,6 +274,6 @@ class GraphRagVectorStore:
         )
 
     async def delete_collection(self, project_id: uuid.UUID) -> None:
-        name = graphrag_collection_name(project_id)
+        name = self._name(project_id)
         if await self._client.collection_exists(name):
             await self._client.delete_collection(collection_name=name)

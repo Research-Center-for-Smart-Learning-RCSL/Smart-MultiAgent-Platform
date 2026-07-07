@@ -15,6 +15,7 @@ import sqlalchemy as sa
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from contexts.knowledge.application.graphrag_ports import GraphRagConfigRepositoryPort
 from contexts.knowledge.domain.errors import GraphRagConfigAlreadyExists
 from contexts.knowledge.domain.graphrag import BuildState, GraphRagConfig
 from contexts.knowledge.infrastructure import graphrag_tables as t
@@ -36,7 +37,7 @@ def _row_to_config(row: Any) -> GraphRagConfig:
     )
 
 
-class GraphRagConfigRepository:
+class GraphRagConfigRepository(GraphRagConfigRepositoryPort):
     def __init__(self, db: AsyncSession) -> None:
         self._db = db
 
@@ -133,6 +134,13 @@ class GraphRagConfigRepository:
             )
         ).all()
         return [_row_to_config(r) for r in rows]
+
+    async def list_all_ids(self, *, include_deleted: bool = False) -> set[uuid.UUID]:
+        stmt = sa.select(t.graphrag_configs.c.id)
+        if not include_deleted:
+            stmt = stmt.where(t.graphrag_configs.c.deleted_at.is_(None))
+        rows = (await self._db.execute(stmt)).all()
+        return {r.id for r in rows}
 
     async def set_state(
         self,

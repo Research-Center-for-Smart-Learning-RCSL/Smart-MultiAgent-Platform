@@ -158,3 +158,31 @@ async def test_supersede_missing_collection_is_noop() -> None:
         entities=["alice"],
     )
     assert fake.points == {}
+
+
+@pytest.mark.asyncio
+async def test_collection_prefix_routes_to_distinct_collection() -> None:
+    """A non-default prefix routes collection ops to a differently-named
+    collection so a Knowledge Map (``knowmap_{project_id}``) never collides with
+    the Concept Map's default ``graphrag_{project_id}`` collection."""
+    project_id = uuid.uuid4()
+    pid_slug = str(project_id).replace("-", "_")
+    point = (uuid.uuid4(), [0.1, 0.2], "alice", "desc")
+
+    default = _FakeQdrant()
+    await GraphRagVectorStore(default).upsert_entities(  # type: ignore[arg-type]
+        project_id=project_id,
+        config_id=uuid.uuid4(),
+        build_id=uuid.uuid4(),
+        points=[point],
+    )
+    assert default._collections == {f"graphrag_{pid_slug}"}
+
+    knowmap = _FakeQdrant()
+    await GraphRagVectorStore(knowmap, prefix="knowmap").upsert_entities(  # type: ignore[arg-type]
+        project_id=project_id,
+        config_id=uuid.uuid4(),
+        build_id=uuid.uuid4(),
+        points=[point],
+    )
+    assert knowmap._collections == {f"knowmap_{pid_slug}"}
