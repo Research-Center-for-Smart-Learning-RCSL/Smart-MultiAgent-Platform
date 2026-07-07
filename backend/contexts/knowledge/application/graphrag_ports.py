@@ -167,6 +167,11 @@ class DeltaMessage(Protocol):
     id: uuid.UUID
     role: str
     content: str
+    # Phase 2b (R11.22) — the agent_group member agent whose room feed surfaced
+    # this message, used to tag extracted relations with member provenance.
+    # ``None`` for a non-agent_group owner (chatroom/workspace feed) or a
+    # single-owner build where provenance is not partitioned.
+    source_member_id: uuid.UUID | None
 
 
 class TripleExtractor(Protocol):

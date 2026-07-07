@@ -44,6 +44,15 @@ class GraphRagConfig:
     embed_provider: str | None = None
     embed_model: str | None = None
     embed_dim: int | None = None
+    # Phase 2b — the discriminated owner (Phase 1 typed-FK). Exactly one owner_*
+    # id is set for the ``owner_kind``. Phase 2a create only produces
+    # ``agent_group`` owners; WS2 adds chatroom/workspace. Surfaced on the domain
+    # config so the build delta-feed can scope per owner kind without a second
+    # query.
+    owner_kind: str = "agent_group"
+    owner_chatroom_id: uuid.UUID | None = None
+    owner_agent_group_id: uuid.UUID | None = None
+    owner_workspace_id: uuid.UUID | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -104,6 +113,13 @@ class Triple:
     evidence_refs: tuple[str, ...]
     subject_type: str = ""
     object_type: str = ""
+    # Phase 2b (R11.22) — the agent_group member(s) whose messages contributed
+    # this relation, derived from the evidence messages' source member (never
+    # from LLM output). Accumulated as a set: two members independently stating
+    # the same relation both appear, so a member-scoped retrieval filter returns
+    # each member's true contributions. Empty for a non-agent_group owner or a
+    # relation with no resolvable member provenance.
+    source_member_ids: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -124,6 +140,10 @@ class RelationEdge:
     object: str
     confidence: float
     evidence_refs: tuple[str, ...]
+    # Phase 2b (R11.22) — the contributing agent_group member(s), mirrored from
+    # the Neo4j edge so a member-scoped retrieval can filter. Empty for a
+    # non-agent_group / legacy edge.
+    source_member_ids: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

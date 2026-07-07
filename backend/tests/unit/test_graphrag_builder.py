@@ -38,6 +38,7 @@ class _Msg:
     id: uuid.UUID
     role: str
     content: str
+    source_member_id: uuid.UUID | None = None
 
 
 class FakeConfigStore:

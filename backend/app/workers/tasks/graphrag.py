@@ -62,6 +62,9 @@ class _DbMsg:
     id: uuid.UUID
     role: str
     content: str
+    # Phase 2b (R11.22) — the agent_group member whose room feed surfaced this
+    # message; ``None`` for a single-owner / non-agent_group build.
+    source_member_id: uuid.UUID | None = None
 
 
 class _DbDeltaLoader:
