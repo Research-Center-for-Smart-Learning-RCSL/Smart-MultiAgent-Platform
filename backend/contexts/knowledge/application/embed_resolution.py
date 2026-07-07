@@ -12,6 +12,7 @@ with a revoked-carry key.
 from __future__ import annotations
 
 import uuid
+from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -63,6 +64,36 @@ async def resolve_embed_key(
     """
     candidates = await _list_embed_candidates(db, builder_key_group_id)
     return select_embed_candidate(candidates, provider=provider)
+
+
+async def resolve_pinned_embed_key(
+    db: AsyncSession,
+    cfg: Any,
+) -> _ResolvedKey:
+    """Resolve the embedding key honouring a config's project pin (Phase 2a D2).
+
+    The single source of the pin-selection invariant shared by the build,
+    retrieval, and reconciler-recovery embedders: select the first carried key
+    for the config's pinned ``embed_provider`` (or the first carried key when
+    unpinned), apply the pinned ``embed_model`` when set, and fail loudly rather
+    than silently switching providers when the pinned provider has no carried
+    key. Callers build the embedder from the returned ``(provider, model,
+    key_id)`` with their own router — keeping this invariant in one place so a
+    future edit cannot re-introduce the dimension drift on just one path.
+    """
+    pinned_provider = getattr(cfg, "embed_provider", None)
+    resolved = await resolve_embed_key(db, cfg.builder_key_group_id, provider=pinned_provider)
+    if resolved is None:
+        detail = (
+            f"pinned provider {pinned_provider!r}"
+            if pinned_provider is not None
+            else "any provider (openai/gemini/voyage)"
+        )
+        raise RuntimeError(f"builder key group {cfg.builder_key_group_id} has no embedding key for {detail}")
+    provider, model, key_id = resolved
+    # The pin freezes both provider and model; honour the pinned model.
+    model = getattr(cfg, "embed_model", None) or model
+    return provider, model, key_id
 
 
 async def _list_embed_candidates(

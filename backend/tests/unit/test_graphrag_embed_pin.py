@@ -11,10 +11,12 @@ and selects the build/retrieval key by that pinned provider.
 from __future__ import annotations
 
 import uuid
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
 
+import contexts.knowledge.application.embed_resolution as er
 from contexts.knowledge.application.embed_resolution import select_embed_candidate
 from contexts.knowledge.application.graphrag_config_service import GraphRagConfigService
 from contexts.knowledge.domain.errors import GraphRagEmbedDimensionConflict
@@ -52,6 +54,62 @@ def test_select_embed_candidate_no_match_returns_none() -> None:
     # switching providers/dimensions.
     candidates = [("gemini", "text-embedding-004", uuid.uuid4())]
     assert select_embed_candidate(candidates, provider="openai") is None
+
+
+# The single shared resolver the build / retrieval / reconciler embedders all
+# use — the D2 invariant lives here so no path can drift.
+
+
+@pytest.mark.asyncio
+async def test_resolve_pinned_embed_key_uses_pin_and_overrides_model(monkeypatch: Any) -> None:
+    key = uuid.uuid4()
+    seen: dict[str, Any] = {}
+
+    async def fake_resolve(_db: Any, _group: Any, *, provider: Any = None) -> tuple[str, str, uuid.UUID]:
+        seen["provider"] = provider
+        return ("openai", "text-embedding-3-small", key)
+
+    monkeypatch.setattr(er, "resolve_embed_key", fake_resolve)
+    cfg = SimpleNamespace(
+        builder_key_group_id=uuid.uuid4(),
+        embed_provider="openai",
+        embed_model="text-embedding-3-large",
+    )
+
+    provider, model, key_id = await er.resolve_pinned_embed_key(object(), cfg)
+
+    assert seen["provider"] == "openai"  # the pinned provider narrows selection
+    assert (provider, model, key_id) == ("openai", "text-embedding-3-large", key)  # pinned model wins
+
+
+@pytest.mark.asyncio
+async def test_resolve_pinned_embed_key_unpinned_passes_none(monkeypatch: Any) -> None:
+    async def fake_resolve(_db: Any, _group: Any, *, provider: Any = None) -> tuple[str, str, uuid.UUID]:
+        assert provider is None
+        return ("gemini", "text-embedding-004", uuid.uuid4())
+
+    monkeypatch.setattr(er, "resolve_embed_key", fake_resolve)
+    cfg = SimpleNamespace(builder_key_group_id=uuid.uuid4(), embed_provider=None, embed_model=None)
+
+    provider, model, _ = await er.resolve_pinned_embed_key(object(), cfg)
+
+    assert (provider, model) == ("gemini", "text-embedding-004")
+
+
+@pytest.mark.asyncio
+async def test_resolve_pinned_embed_key_raises_when_no_key_for_pinned_provider(monkeypatch: Any) -> None:
+    async def fake_resolve(_db: Any, _group: Any, *, provider: Any = None) -> None:
+        return None
+
+    monkeypatch.setattr(er, "resolve_embed_key", fake_resolve)
+    cfg = SimpleNamespace(
+        builder_key_group_id=uuid.uuid4(),
+        embed_provider="openai",
+        embed_model="text-embedding-3-small",
+    )
+
+    with pytest.raises(RuntimeError, match="openai"):
+        await er.resolve_pinned_embed_key(object(), cfg)
 
 
 # ---------------------------------------------------------------------------

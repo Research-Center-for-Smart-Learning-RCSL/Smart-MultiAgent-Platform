@@ -15,9 +15,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config.settings import get_settings
 from contexts.keys.infrastructure.adapters import build_router
-from contexts.knowledge.application.embed_resolution import resolve_embed_key
+from contexts.knowledge.application.embed_resolution import resolve_pinned_embed_key
 from contexts.knowledge.application.graphrag_builder import (
     LOCK_TTL_S,
+    EmbedderFactory,
     GraphRagBuilder,
     ResolvedEmbedder,
 )
@@ -147,34 +148,14 @@ class _DbDeltaLoader:
             yield window
 
 
-def _make_embedder_factory(db: AsyncSession) -> Any:
+def _make_embedder_factory(db: AsyncSession) -> EmbedderFactory:
     """Return an EmbedderFactory that selects the key by the config's pinned
-    embedding provider (Phase 2a D2).
-
-    A pinned config resolves the first carried key for its ``embed_provider`` and
-    uses its ``embed_model``, so swapping which key sorts first in the group can
-    no longer change the vector dimension. A null-pin (legacy) config resolves the
-    first carried embedding key as before; the builder self-pins the result. If
-    the pinned provider has no carried key the factory fails loudly rather than
-    silently switching providers.
-    """
+    embedding provider (Phase 2a D2), via the shared ``resolve_pinned_embed_key``
+    so the build/retrieval/reconciler paths cannot drift."""
     router = build_router(db)
 
     async def _factory(cfg: ConfigLike) -> ResolvedEmbedder:
-        pinned_provider = cfg.embed_provider
-        resolved = await resolve_embed_key(db, cfg.builder_key_group_id, provider=pinned_provider)
-        if resolved is None:
-            if pinned_provider is not None:
-                raise RuntimeError(
-                    f"builder key group {cfg.builder_key_group_id} has no carried "
-                    f"embedding key for pinned provider {pinned_provider!r}"
-                )
-            raise RuntimeError(
-                f"builder key group {cfg.builder_key_group_id} has no embedding key " "(openai/gemini/voyage)"
-            )
-        provider, model, key_id = resolved
-        # The pin freezes both provider and model; honour the pinned model.
-        model = cfg.embed_model or model
+        provider, model, key_id = await resolve_pinned_embed_key(db, cfg)
         embedder = router_embedder_for(router=router, key_id=key_id, provider=provider, model=model)
         return ResolvedEmbedder(embedder=embedder, provider=provider, model=model)
 

@@ -20,7 +20,7 @@ from contextlib import asynccontextmanager
 from typing import Any
 
 from app.config.settings import get_settings
-from contexts.knowledge.application.embed_resolution import resolve_embed_key
+from contexts.knowledge.application.embed_resolution import resolve_pinned_embed_key
 from contexts.knowledge.application.graphrag_reconciler import (
     ReconciliationLoop,
 )
@@ -77,19 +77,9 @@ def _make_phase2_retry(
             # D2: recover with the project's pinned embedding provider/model, not
             # the first carried key — otherwise a builder-group key swap between
             # the original build and the recovery would re-embed at a different
-            # dimension and mis-index (or fail the D7 collection guard forever).
-            pinned_provider = getattr(cfg, "embed_provider", None)
-            resolved = await resolve_embed_key(db, cfg.builder_key_group_id, provider=pinned_provider)
-            if resolved is None:
-                detail = (
-                    f"pinned provider {pinned_provider!r}" if pinned_provider is not None else "any provider"
-                )
-                raise RuntimeError(
-                    f"no embedding key for {detail} in builder group {cfg.builder_key_group_id}"
-                )
-
-            provider, model, key_id = resolved
-            model = getattr(cfg, "embed_model", None) or model
+            # dimension and mis-index. Shared resolver keeps this in lockstep with
+            # the build/retrieval paths.
+            provider, model, key_id = await resolve_pinned_embed_key(db, cfg)
             # Pinned-key embedder via the router — no plaintext here; usage is
             # accounted and committed with this session (R7.12).
             embedder = router_embedder_for(

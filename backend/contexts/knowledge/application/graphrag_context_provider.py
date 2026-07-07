@@ -19,7 +19,7 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from contexts.knowledge.application.embed_resolution import resolve_embed_key
+from contexts.knowledge.application.embed_resolution import resolve_pinned_embed_key
 from contexts.knowledge.application.graphrag_retrieve import EvidenceFetcher
 
 _log = logging.getLogger(__name__)
@@ -126,24 +126,9 @@ class GraphRagContextProvider:
             if cached is not None:
                 return cached
             # Phase 2a D2: the query MUST embed with the project's pinned provider
-            # so its vector matches the collection's fixed dimension. Selecting the
-            # first carried key regardless of provider (the pre-fix behaviour)
-            # embedded queries at the wrong dimension after a builder-group key
-            # swap and every search failed. A null-pin (legacy) config falls back
-            # to the first carried key, matching what its build used.
-            pinned_provider = getattr(cfg, "embed_provider", None)
-            resolved = await resolve_embed_key(self._db, cfg.builder_key_group_id, provider=pinned_provider)
-            if resolved is None:
-                detail = (
-                    f"pinned provider {pinned_provider!r}"
-                    if pinned_provider is not None
-                    else "any provider (openai/gemini/voyage)"
-                )
-                raise RuntimeError(
-                    f"builder key group {cfg.builder_key_group_id} has no embedding key for {detail}",
-                )
-            provider, model, key_id = resolved
-            model = getattr(cfg, "embed_model", None) or model
+            # so its vector matches the collection's fixed dimension; the shared
+            # resolver single-sources that invariant with the build path.
+            provider, model, key_id = await resolve_pinned_embed_key(self._db, cfg)
             embedder = router_embedder_for(
                 router=self._router,  # type: ignore[arg-type]
                 key_id=key_id,
