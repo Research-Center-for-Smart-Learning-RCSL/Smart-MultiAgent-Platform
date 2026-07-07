@@ -96,6 +96,11 @@ _MAP: ErrorMap = {
         422,
         "All GraphRAG configs in a project must share one embedding dimension",
     ),
+    errors.GraphRagOwnerProjectMismatch: (
+        "knowledge/graphrag-owner-project-mismatch",
+        422,
+        "Owner does not belong to the target project",
+    ),
 }
 
 
