@@ -205,6 +205,15 @@ class ConfigLike(Protocol):
     @property
     def last_build_at(self) -> datetime | None: ...
 
+    @property
+    def embed_provider(self) -> str | None: ...
+
+    @property
+    def embed_model(self) -> str | None: ...
+
+    @property
+    def embed_dim(self) -> int | None: ...
+
 
 class GraphRagConfigRepositoryPort(Protocol):
     """Repository surface the engine depends on (implemented in infrastructure).
@@ -229,6 +238,16 @@ class GraphRagConfigRepositoryPort(Protocol):
         error: str | None = None,
         stamp_built_at: bool = False,
     ) -> None: ...
+
+    async def set_embed_pin(
+        self,
+        *,
+        config_id: uuid.UUID,
+        provider: str,
+        model: str,
+        dim: int,
+    ) -> None:
+        """Persist the resolved (provider, model, dim) pin (Phase 2a D2 self-pin)."""
 
     async def list_in_state(self, state: BuildState) -> Sequence[ConfigLike]: ...
 

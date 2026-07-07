@@ -65,6 +65,9 @@ def _row_to_config(row: Any) -> GraphRagConfig:
         last_build_error=row.last_build_error,
         created_at=row.created_at,
         deleted_at=row.deleted_at,
+        embed_provider=row.embed_provider,
+        embed_model=row.embed_model,
+        embed_dim=row.embed_dim,
     )
 
 
@@ -79,6 +82,9 @@ class GraphRagConfigRepository(GraphRagConfigRepositoryPort):
         owner_agent_group_id: uuid.UUID,
         builder_key_group_id: uuid.UUID,
         trigger_config: dict[str, Any],
+        embed_provider: str | None = None,
+        embed_model: str | None = None,
+        embed_dim: int | None = None,
     ) -> GraphRagConfig:
         try:
             await self._db.execute(
@@ -88,6 +94,9 @@ class GraphRagConfigRepository(GraphRagConfigRepositoryPort):
                     owner_kind="agent_group",
                     builder_key_group_id=builder_key_group_id,
                     trigger_config=trigger_config,
+                    embed_provider=embed_provider,
+                    embed_model=embed_model,
+                    embed_dim=embed_dim,
                 )
             )
         except IntegrityError as exc:
@@ -214,6 +223,26 @@ class GraphRagConfigRepository(GraphRagConfigRepositoryPort):
             values["last_build_at"] = now()
         await self._db.execute(
             t.graphrag_configs.update().where(t.graphrag_configs.c.id == config_id).values(**values)
+        )
+
+    async def set_embed_pin(
+        self,
+        *,
+        config_id: uuid.UUID,
+        provider: str,
+        model: str,
+        dim: int,
+    ) -> None:
+        """Persist the project embedding pin (Phase 2a D2).
+
+        Written by the config service after resolving the builder key group at
+        create/update, and by the builder's self-pin on the first successful
+        build of a legacy null-pin config. Keeps the caller's transaction.
+        """
+        await self._db.execute(
+            t.graphrag_configs.update()
+            .where(t.graphrag_configs.c.id == config_id)
+            .values(embed_provider=provider, embed_model=model, embed_dim=dim)
         )
 
     async def soft_delete(self, config_id: uuid.UUID) -> None:

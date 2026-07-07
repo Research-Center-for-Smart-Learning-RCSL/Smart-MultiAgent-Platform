@@ -42,6 +42,13 @@ graphrag_configs = sa.Table(
         server_default=sa.text("'idle'::graphrag_build_state"),
     ),
     sa.Column("last_build_error", sa.Text, nullable=True),
+    # Embedding pin (Phase 2a D2, migration 0045). One (provider, model, dim)
+    # per project so every config shares the per-project Qdrant collection at a
+    # single stable vector dimension. Nullable: pre-2a rows self-pin on their
+    # next successful build. Plain Text/Integer — no PG ENUM (ORM enum-match rule).
+    sa.Column("embed_provider", sa.Text, nullable=True),
+    sa.Column("embed_model", sa.Text, nullable=True),
+    sa.Column("embed_dim", sa.Integer, nullable=True),
     sa.Column("created_at", sa.TIMESTAMP(timezone=True), nullable=False, server_default=sa.text("now()")),
     sa.Column("deleted_at", sa.TIMESTAMP(timezone=True), nullable=True),
     # Discriminated owner (Phase 1, R11.05/R11.07/R11.08). The contract migration
