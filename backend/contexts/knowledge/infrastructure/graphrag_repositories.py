@@ -214,12 +214,18 @@ class GraphRagConfigRepository(GraphRagConfigRepositoryPort):
         state: BuildState,
         error: str | None = None,
         stamp_built_at: bool = False,
+        built_at: Any = None,
     ) -> None:
         values: dict[str, Any] = {
             "last_build_state": state.value,
             "last_build_error": error,
         }
-        if stamp_built_at:
+        # D10: an explicit ``built_at`` (the build's started-at watermark) takes
+        # precedence; ``stamp_built_at`` remains for callers (the reconciler) that
+        # only need "now" on a terminal recovery.
+        if built_at is not None:
+            values["last_build_at"] = built_at
+        elif stamp_built_at:
             values["last_build_at"] = now()
         await self._db.execute(
             t.graphrag_configs.update().where(t.graphrag_configs.c.id == config_id).values(**values)

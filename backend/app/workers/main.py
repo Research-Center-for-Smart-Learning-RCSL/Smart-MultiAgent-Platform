@@ -24,7 +24,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from threading import Thread
 from typing import Any, ClassVar
 
-from arq import cron
+from arq import cron, func
 from arq.connections import RedisSettings
 
 import app.db_registry as _db_registry  # noqa: F401 — table imports
@@ -38,7 +38,11 @@ from app.workers.tasks.conversation import (
     extract_attachment_text,
     file_scan_requested,
 )
-from app.workers.tasks.graphrag import graphrag_build, graphrag_reconcile
+from app.workers.tasks.graphrag import (
+    GRAPHRAG_BUILD_TIMEOUT_S,
+    graphrag_build,
+    graphrag_reconcile,
+)
 from app.workers.tasks.orchestration import (
     approval_timeout,
     evaluate_silence,
@@ -257,7 +261,10 @@ class WorkerSettings:
         retention_sweep,
         daily_org_advisory_snapshot,
         key_usage_threshold_sample,
-        graphrag_build,
+        # D3: graphrag_build gets a longer, scoped job timeout so the lock (not
+        # the timeout) is the single-writer authority; other lanes keep the
+        # default worker job_timeout.
+        func(graphrag_build, name="graphrag_build", timeout=GRAPHRAG_BUILD_TIMEOUT_S),
         graphrag_reconcile,
         rag_ingest_document,
         rag_scan_document,

@@ -82,15 +82,22 @@ class FakeConfigStore:
         state: BuildState,
         error: str | None = None,
         stamp_built_at: bool = False,
+        built_at: datetime | None = None,
     ) -> None:
         self.transitions.append((state, error, stamp_built_at))
+        if built_at is not None:
+            new_built_at = built_at
+        elif stamp_built_at:
+            new_built_at = datetime.now(UTC)
+        else:
+            new_built_at = self.cfg.last_build_at
         self.cfg = GraphRagConfig(
             id=self.cfg.id,
             project_id=self.cfg.project_id,
             agent_id=self.cfg.agent_id,
             builder_key_group_id=self.cfg.builder_key_group_id,
             trigger_config=self.cfg.trigger_config,
-            last_build_at=(datetime.now(UTC) if stamp_built_at else self.cfg.last_build_at),
+            last_build_at=new_built_at,
             last_build_state=state,
             last_build_error=error,
             created_at=self.cfg.created_at,
@@ -167,11 +174,13 @@ class FakeSnapshots:
     def __init__(self) -> None:
         self.store: dict[tuple[uuid.UUID, uuid.UUID], dict[str, Any]] = {}
         self.current: dict[uuid.UUID, uuid.UUID] = {}
+        self.puts: list[uuid.UUID] = []
 
     async def put(
         self, *, config_id: uuid.UUID, build_id: uuid.UUID, snapshot: dict[str, Any], ttl_s: int
     ) -> None:
         self.store[(config_id, build_id)] = snapshot
+        self.puts.append(build_id)
 
     async def get(self, *, config_id: uuid.UUID, build_id: uuid.UUID):
         return self.store.get((config_id, build_id))
@@ -276,8 +285,23 @@ class FakeExtractor:
 
 
 class FakeDeltaLoader:
-    async def load(self, *, config_id, since, mode):
-        return [_Msg(id=uuid.uuid4(), role="user", content="hi")]
+    async def iter_windows(self, *, config_id, since, mode):
+        yield [_Msg(id=uuid.uuid4(), role="user", content="hi")]
+
+
+class FakeWindowLoader:
+    """Yields a fixed sequence of bounded windows (D1)."""
+
+    def __init__(self, windows: list[list[_Msg]]) -> None:
+        self.windows = windows
+
+    async def iter_windows(self, *, config_id, since, mode):
+        for window in self.windows:
+            yield list(window)
+
+
+def _msgs(n: int) -> list[_Msg]:
+    return [_Msg(id=uuid.uuid4(), role="user", content=f"m{i}") for i in range(n)]
 
 
 class FakeEmbedder:
@@ -442,6 +466,87 @@ async def test_already_pinned_config_does_not_self_pin() -> None:
 
     # An already-pinned config is never re-pinned by a build.
     assert store.embed_pins == []
+
+
+# ---------------------------------------------------------------------------
+# D1/D3 — bounded windowing + per-window lock refresh
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_windowed_build_extracts_per_window_but_commits_once() -> None:
+    cfg = _make_cfg()
+    windows = [_msgs(2), _msgs(2), _msgs(1)]  # 3 bounded windows
+    neo4j, vectors = FakeNeo4j(), FakeVectorStore()
+    lock, snaps = FakeLock(), FakeSnapshots()
+    extractor = FakeExtractor(_make_triples())
+    db = FakeDb()
+    store = FakeConfigStore(cfg)
+    builder = GraphRagBuilder(
+        db,  # type: ignore[arg-type]
+        neo4j=neo4j,
+        vector_store=vectors,  # type: ignore[arg-type]
+        extractor=extractor,
+        lock_store=lock,
+        snapshot_store=snaps,
+        delta_loader=FakeWindowLoader(windows),
+        embedder_factory=_embedder_factory,
+        configs=store,  # type: ignore[arg-type]
+    )
+
+    result = await builder.run(config_id=cfg.id)
+
+    assert result.state is BuildState.IDLE
+    # Extraction runs once per window (bounded LLM payload)...
+    assert extractor.calls == len(windows)
+    # ...but Neo4j apply, the snapshot, and the supersede sweep each happen once
+    # for the whole build (single 2PC commit).
+    assert len(neo4j.applied) == 1
+    assert len(neo4j.applied[0]) == len(windows)  # one triple accumulated per window
+    assert len(snaps.puts) == 1
+    assert len(vectors.superseded_calls) == 1
+    # D3: the lock is refreshed at every window boundary, plus once before the
+    # Qdrant write, so a long extract phase cannot let the TTL lapse mid-build.
+    assert len(lock.refreshed) == len(windows) + 1
+    # last_build_at is advanced exactly once (the terminal IDLE transition).
+    idle_stamps = [t for t in store.transitions if t[0] is BuildState.IDLE]
+    assert len(idle_stamps) == 1
+
+
+def test_graphrag_build_timeout_exceeds_lock_ttl() -> None:
+    # D3 / AC-6: the job timeout is only a runaway backstop — it must exceed the
+    # lock TTL so the continuously-refreshed lock is the single-writer authority.
+    from app.workers.tasks.graphrag import GRAPHRAG_BUILD_TIMEOUT_S
+    from contexts.knowledge.application.graphrag_builder import LOCK_TTL_S
+
+    assert GRAPHRAG_BUILD_TIMEOUT_S > LOCK_TTL_S
+
+
+@pytest.mark.asyncio
+async def test_last_build_at_uses_started_at_watermark(monkeypatch: Any) -> None:
+    # D10 / AC-13: last_build_at is stamped with the build's START time so a delta
+    # arriving while the build runs is picked up by the next build (since =
+    # started-at), never skipped (since = finished-at).
+    from contexts.knowledge.application import graphrag_builder as bmod
+
+    ticks = [datetime(2026, 7, 7, 12, 0, s, tzinfo=UTC) for s in range(30)]
+    clock = iter(ticks)
+    monkeypatch.setattr(bmod, "now", lambda: next(clock))
+
+    cfg = _make_cfg()
+    builder, store, _db = _make_builder(
+        cfg=cfg,
+        neo4j=FakeNeo4j(),
+        vectors=FakeVectorStore(),
+        lock=FakeLock(),
+        snapshots=FakeSnapshots(),
+        extractor=FakeExtractor(_make_triples()),
+    )
+
+    await builder.run(config_id=cfg.id)
+
+    # The first clock read (build start) is stamped — not any later read.
+    assert store.cfg.last_build_at == ticks[0]
 
 
 # ---------------------------------------------------------------------------
