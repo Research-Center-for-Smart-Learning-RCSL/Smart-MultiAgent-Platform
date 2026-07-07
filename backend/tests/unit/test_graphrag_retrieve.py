@@ -120,12 +120,12 @@ async def test_hybrid_query_returns_bundle() -> None:
     rel = bundle.relations[0]
     assert rel.subject == "alice"
     assert rel.object == "bob"
-    assert rel.evidence_msg_ids == (msg_id,)
+    assert rel.evidence_refs == (str(msg_id),)
     assert bundle.evidence_excerpts == ("excerpt-0",)
     assert neo4j.traverse_calls == [(["alice", "bob"], 2)]
 
 
-async def _ev_fetcher(ids: list[uuid.UUID]) -> list[str]:
+async def _ev_fetcher(ids: list[str]) -> list[str]:
     return [f"excerpt-{i}" for i in range(len(ids))]
 
 
@@ -150,7 +150,7 @@ async def test_context_provider_fetches_message_evidence_excerpts() -> None:
         return messages.get(mid)
 
     fetcher = build_evidence_fetcher(get_message)
-    excerpts = await fetcher([message_id, missing_id, message_id])
+    excerpts = await fetcher([str(message_id), str(missing_id), str(message_id)])
 
     assert excerpts == ["user: Alice confirmed the roadmap milestone."]
 
@@ -175,7 +175,7 @@ async def test_context_provider_merges_multi_query_bundles() -> None:
                             relation="owns",
                             object="roadmap",
                             confidence=0.7,
-                            evidence_msg_ids=(),
+                            evidence_refs=(),
                         ),
                     ),
                     evidence_excerpts=("excerpt A",),
@@ -188,7 +188,7 @@ async def test_context_provider_merges_multi_query_bundles() -> None:
                         relation="targets",
                         object="q3",
                         confidence=0.9,
-                        evidence_msg_ids=(),
+                        evidence_refs=(),
                     ),
                 ),
                 evidence_excerpts=("excerpt B",),
@@ -235,7 +235,7 @@ def test_bundle_serialises_under_2kb_cap() -> None:
                 relation="r",
                 object="b",
                 confidence=1.0,
-                evidence_msg_ids=(),
+                evidence_refs=(),
             ),
         ),
         evidence_excerpts=(huge,),
