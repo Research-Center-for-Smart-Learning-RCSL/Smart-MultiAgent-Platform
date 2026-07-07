@@ -123,6 +123,10 @@ class GraphRagRetrieveService:
                     object=str(row.get("object") or ""),
                     confidence=float(row.get("confidence") or 0.0),
                     evidence_refs=refs,
+                    # Phase 2b (R11.22): carry edge provenance through so the WS4
+                    # layered/member-scoped retrieval can filter on it. Reuse the
+                    # opaque-ref normaliser (uuid strings, length-bounded).
+                    source_member_ids=normalize_evidence_refs(row.get("source_member_ids")),
                 )
             )
 
