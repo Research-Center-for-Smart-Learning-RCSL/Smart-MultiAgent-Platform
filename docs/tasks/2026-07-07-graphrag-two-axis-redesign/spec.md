@@ -510,8 +510,9 @@ not "which subsystem":
 - `Neo4jAsyncDriver`, `GraphVectorStore` (collection prefix **parameterized** in the
   constructor, not a module free function), 2PC runner, lock/snapshot ports.
 - One `embed_resolution` helper owning the provider->model map + `_resolve_embed_key` —
-  **retires the existing 2-way FU-1 drift** (`list_ordered` vs `list_ordered_carried`) and
-  blocks the 3rd/4th copy.
+  **retires the existing 2-way FU-1 drift** and, per Phase-0 verification, **fixes a SEC-H3
+  bug**: the worker copy uses `list_ordered` (no active-carry check) so the builder can embed
+  with a revoked-carry key; the helper standardizes on the secure `list_ordered_carried`.
 - `BuildState`, `_cap_to_2kb`, `_merge_bundles`, `_render_bundle_text`,
   `build_entity_descriptions`.
 - De-concreted `GraphRagBuilder` / `RetrieveService` / `ReconciliationLoop` take a **repo
@@ -522,11 +523,13 @@ not "which subsystem":
   `GraphConfigList` shell (also serves §4b-V-17).
 - Shared error-registration helper + base error set parameterized by slug prefix.
 
-**Neutral shared graph-domain** (`GraphTriple`/`GraphEdge`/`GraphBundle`) with evidence as
-opaque `evidence_refs: tuple[str,...]` and the Neo4j property renamed `evidence_msg_ids ->
-evidence_refs` (§4b-C-C; needs a graph-data migration note). This severs the
-doc<->conversation two-masters coupling that generalizing the shared `Triple` in place would
-create (§4a-G3 refined).
+**Neutral shared graph-domain** with evidence as opaque `evidence_refs: tuple[str,...]`.
+Phase 0 does the **Python-layer** neutralization only; the **physical** Neo4j property-key
+rename `evidence_msg_ids -> evidence_refs` is **deferred to the document-evidence phase**
+(Phase-0 dossier Q-2: the driver maps the field to the existing key, so there is zero
+data migration and byte-identical behavior until non-UUID evidence actually exists). This
+severs the doc<->conversation two-masters coupling that generalizing the shared `Triple` in
+place would create (§4a-G3 refined).
 
 **Per-axis (independent — where Concept Map evolves freely, incl. temporal §5.8):** config
 table + repo + service, source loader, extractor prompt + renderer, scope/authz validation,
@@ -880,9 +883,11 @@ Touches tenant boundaries, provider keys, user-input processing — required.
   `ReconciliationLoop` depend on repo + `ConfigLike` Protocols, the Qdrant collection prefix
   is a constructor param, and one `embed_resolution` helper is the single source (FU-1 drift
   retired). Knowledge Map adds no duplicated engine code. (structure review, Q-11) [P0/P3]
-- [ ] AC-21: Graph evidence is a neutral opaque `evidence_refs` on a shared graph-domain type;
-  the Neo4j property is `evidence_refs`; Concept Map and Knowledge Map each decode it via their
-  own fetcher without a shared two-master type. (§5.7) [P0/P3]
+- [ ] AC-21: Graph evidence is a neutral opaque `evidence_refs` (Python) on the shared graph
+  domain; the **physical Neo4j property key stays `evidence_msg_ids` until the document-evidence
+  phase** (driver maps `evidence_refs <-> evidence_msg_ids`, zero data migration — verified,
+  see Phase-0 dossier Q-2); Concept Map and Knowledge Map each decode refs via their own
+  fetcher without a shared two-master type. (§5.7) [P0 Python / P3 physical rename]
 - [ ] AC-22: Deleting a config OR any owner (agent, chatroom, workspace, agent_group) purges
   its Neo4j subgraph + Qdrant points inline (best-effort + audit), never relying on a DB
   cascade alone; the reconciler sweeps configs absent from Postgres. The pre-existing
@@ -1007,7 +1012,8 @@ Amend:
    graph domain with opaque `evidence_refs` (rename Neo4j property). Fix the pre-existing
    agent-delete graph leak and establish the `cascade_external_stores`-on-every-delete
    contract + reconciler orphan-sweep. AC-20, AC-21, AC-22. *(Pure refactor + live-bug fix;
-   ships value on its own and de-risks every later phase.)*
+   ships value on its own and de-risks every later phase.)* **Build plan:**
+   `docs/tasks/2026-07-07-graphrag-phase0-engine-cleanup/spec.md`.
 1. **Phase 1 — Decouple to typed-FK owner + agent_group, behavior-preserving (refactor +
    the agent_group entity).** In-place owner migration (typed FK + CHECK + partial unique,
    §5.2); `agent_groups`/`agent_group_members`; backfill singleton groups (reproduces today's
