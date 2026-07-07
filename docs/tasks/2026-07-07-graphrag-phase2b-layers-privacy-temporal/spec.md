@@ -1,6 +1,6 @@
 ---
 type: feature
-status: approved
+status: in-progress
 created: 2026-07-07
 requirements: [R11.07, R11.08, R11.09, R11.10, R11.11, R11.17, R11.20, R11.21]
 ---
@@ -401,8 +401,56 @@ Apply verbatim on approval.
 
 Appended by `/build`.
 
+### WS1 — Multi-member groups + provenance partition (implemented)
+
+Delivered as commits `543fdc1..bd1d5d2`. Milestones: M1 domain scaffolding (owner
+discriminator on `GraphRagConfig`, `source_member_ids` on `Triple`/`RelationEdge`,
+`source_member_id` on `DeltaMessage`); M2 `AgentGroupRepository`; M3 multi-member
+DISTINCT-union delta feed + `_run_build` live member resolution; M4 edge provenance
+persistence + retrieval surfacing. Local gate: unit tests green, `ruff check .` clean,
+`ruff format --check` clean on touched files, `mypy` on the 8 touched files introduces
+no errors (only the pre-existing `tenancy/repositories.py:487` baseline). AC-1 and the
+provenance round-trip are covered by **wiring/integration tests authored for the
+`backend-wiring` CI job** — the `compose.test.yml` Postgres/Neo4j stack is unreachable
+from the dev host (`getaddrinfo failed`), the same constraint that defers `alembic
+upgrade head` to the deploy pipeline.
+
+- **D-1** — Member provenance is stored as an accumulating **list**
+  (`source_member_ids`) on the Neo4j `REL` edge, not the singular scalar
+  `source_member_id` the WS1 text names. The edge is MERGE-collapsed on
+  `(graphrag_config_id, relation, subject, object)`, so two members independently
+  stating the same relation collapse onto one edge; a scalar would drop one
+  contributor and break AC-2's "member filter returns only that member's
+  contributions." The list mirrors the existing `evidence_msg_ids` accumulation
+  exactly (same dedup-on-union Cypher) and round-trips through snapshot/restore/
+  traverse. This is the correct realization of the spec's intent, surfaced here per
+  the "record, don't silently redesign" rule.
+- **D-2** — WS1 persists provenance on the Neo4j `REL` **edge only**. The Qdrant
+  entity-payload tag and the entity-**node** property that WS1's text also names are
+  deferred to **WS4**. The AC-2 member filter operates on traversal edges, which the
+  edge tag fully satisfies; the Qdrant/node tags only enable optional seed-scoping,
+  whose consumer (the member filter itself) lands in WS4. Deferring avoids churning
+  the `EntityEmbedding` / `upsert_entities` / reconciler signatures in WS1 for a
+  consumer that does not yet exist; WS4 adds the payload alongside the filter.
+- **D-3** — The WS1 "group service (add/remove members) + Project-Owner
+  authorization" is delivered as the infrastructure `AgentGroupRepository`; the
+  application service, Project-Owner authz, audit emission, and HTTP surface are
+  folded into **WS2**, where the owner-centric create consumes them. No WS1 AC needs
+  an authorized HTTP member-management surface (AC-1/AC-2 are build-path behavior),
+  and a service without its WS2 caller would be unexercised. The repository is the
+  shared primitive both work-streams use.
+
 ## 16. Follow-ups
 
 - FU-1 — expose recency half-life and layer enablement in the Phase 4 UI.
 - FU-2 — bitemporal "as of date X" time-travel queries (R11.21 reserved).
 - FU-3 — if telemetry shows wide-layer over-sharing, revisit Q-A (tier matrix on wide layers).
+- FU-4 (WS2-scoped) — `_ensure_singleton_agent_group` (`graphrag_config_service.py:144-192`)
+  inlines the `agent_groups` + `agent_group_members` inserts that
+  `AgentGroupRepository.create_group`/`add_member` now encapsulate (quality-audit DRY).
+  WS2's owner-centric create rewrite should route group creation through the repository
+  and retire the inline inserts.
+- FU-5 (WS2-scoped) — the multi-member delta feed (`app/workers/tasks/graphrag.py`) relies
+  on the Phase-1/2a owner→project membership invariant for tenant containment rather than an
+  explicit `project_id` predicate (security-audit defense-in-depth, pre-existing). WS2 threads
+  owner-kind scoping through this loader; add an explicit `cfg.project_id` scope at that point.
