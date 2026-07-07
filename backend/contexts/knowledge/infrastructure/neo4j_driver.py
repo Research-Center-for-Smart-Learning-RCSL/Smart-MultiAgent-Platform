@@ -70,6 +70,7 @@ class Neo4jAsyncDriver:
         self,
         *,
         config_id: uuid.UUID,
+        project_id: uuid.UUID,
         build_id: uuid.UUID,
         triples: list[Triple],
     ) -> int:
@@ -90,13 +91,15 @@ class Neo4jAsyncDriver:
             "UNWIND $rows AS row "
             "MERGE (s:Entity {graphrag_config_id: $cid, name: row.subject}) "
             "  ON CREATE SET s.build_id = $bid "
-            "SET s.type = CASE "
+            "SET s.project_id = $pid, "
+            "    s.type = CASE "
             "  WHEN row.subject_type = '' THEN coalesce(s.type, '') "
             "  WHEN row.subject_type = 'other' AND coalesce(s.type, '') <> '' THEN s.type "
             "  ELSE row.subject_type END "
             "MERGE (o:Entity {graphrag_config_id: $cid, name: row.object}) "
             "  ON CREATE SET o.build_id = $bid "
-            "SET o.type = CASE "
+            "SET o.project_id = $pid, "
+            "    o.type = CASE "
             "  WHEN row.object_type = '' THEN coalesce(o.type, '') "
             "  WHEN row.object_type = 'other' AND coalesce(o.type, '') <> '' THEN o.type "
             "  ELSE row.object_type END "
@@ -127,6 +130,7 @@ class Neo4jAsyncDriver:
                 cypher,
                 rows=rows,
                 cid=str(config_id),
+                pid=str(project_id),
                 bid=str(build_id),
             )
         return len(triples)
@@ -183,6 +187,27 @@ class Neo4jAsyncDriver:
         cypher = "MATCH (n:Entity {graphrag_config_id: $cid}) DETACH DELETE n"
         async with driver.session() as session:
             await session.run(cypher, cid=str(config_id))
+
+    async def list_config_ids(
+        self,
+    ) -> list[tuple[uuid.UUID, uuid.UUID | None]]:
+        driver = await self._ensure()
+        cypher = "MATCH (n:Entity) " "RETURN DISTINCT n.graphrag_config_id AS cid, n.project_id AS pid"
+        pairs: list[tuple[uuid.UUID, uuid.UUID | None]] = []
+        async with driver.session() as session:
+            result = await session.run(cypher)
+            async for rec in result:
+                cid_raw = rec["cid"]
+                if cid_raw is None:
+                    continue
+                pid_raw = rec["pid"]
+                pairs.append(
+                    (
+                        uuid.UUID(str(cid_raw)),
+                        uuid.UUID(str(pid_raw)) if pid_raw is not None else None,
+                    )
+                )
+        return pairs
 
     async def restore_from_snapshot(
         self,

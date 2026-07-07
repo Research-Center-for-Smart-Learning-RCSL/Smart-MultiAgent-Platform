@@ -240,6 +240,7 @@ class GraphRagBuilder:
                 raise GraphRagBuildBusy(f"lock lost during phase-1 for {cfg.id}")
             n_triples = await self._neo4j.apply_triples(
                 config_id=cfg.id,
+                project_id=cfg.project_id,
                 build_id=build_id,
                 triples=triples,
             )

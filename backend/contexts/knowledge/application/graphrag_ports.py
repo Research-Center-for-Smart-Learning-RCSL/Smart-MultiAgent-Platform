@@ -111,10 +111,16 @@ class Neo4jDriver(Protocol):
         self,
         *,
         config_id: uuid.UUID,
+        project_id: uuid.UUID,
         build_id: uuid.UUID,
         triples: list[Triple],
     ) -> int:
-        """Upsert ``triples`` tagged with ``build_id``; returns count."""
+        """Upsert ``triples`` tagged with ``build_id``; returns count.
+
+        ``project_id`` is stamped on every ``:Entity`` node so an orphaned
+        subgraph (no surviving Postgres row) stays self-describing for the
+        reconciler's Qdrant sweep (R11.04 backstop).
+        """
 
     async def delete_by_build(
         self,
@@ -126,6 +132,16 @@ class Neo4jDriver(Protocol):
 
     async def delete_all(self, *, config_id: uuid.UUID) -> None:
         """Drop the entire subgraph for a config (delete cascade, §22.8)."""
+
+    async def list_config_ids(
+        self,
+    ) -> list[tuple[uuid.UUID, uuid.UUID | None]]:
+        """Return ``(graphrag_config_id, project_id)`` for every live subgraph.
+
+        ``project_id`` is ``None`` for legacy nodes written before the
+        self-describing property existed. Used by the reconciler orphan sweep
+        to find subgraphs whose Postgres config row is gone (R11.04 backstop).
+        """
 
     async def restore_from_snapshot(
         self,
