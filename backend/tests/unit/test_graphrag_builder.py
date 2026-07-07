@@ -17,7 +17,7 @@ from typing import Any
 
 import pytest
 
-from contexts.knowledge.application.graphrag_builder import GraphRagBuilder
+from contexts.knowledge.application.graphrag_builder import GraphRagBuilder, ResolvedEmbedder
 from contexts.knowledge.application.graphrag_reconciler import (
     RETRY_BACKOFF_S,
     ReconciliationLoop,
@@ -48,6 +48,7 @@ class FakeConfigStore:
         self.transitions: list[tuple[BuildState, str | None, bool]] = []
         self.executed: list[Any] = []
         self.list_all_ids_calls: list[bool] = []
+        self.embed_pins: list[tuple[str, str, int]] = []
 
     async def execute(self, stmt: Any, *a: Any, **kw: Any) -> Any:
         self.executed.append(stmt)
@@ -94,7 +95,20 @@ class FakeConfigStore:
             last_build_error=error,
             created_at=self.cfg.created_at,
             deleted_at=self.cfg.deleted_at,
+            embed_provider=self.cfg.embed_provider,
+            embed_model=self.cfg.embed_model,
+            embed_dim=self.cfg.embed_dim,
         )
+
+    async def set_embed_pin(
+        self,
+        *,
+        config_id: uuid.UUID,
+        provider: str,
+        model: str,
+        dim: int,
+    ) -> None:
+        self.embed_pins.append((provider, model, dim))
 
 
 class FakeDb:
@@ -274,7 +288,13 @@ class FakeEmbedder:
 
 
 async def _embedder_factory(cfg):
-    return FakeEmbedder()
+    # Mirrors the worker factory contract: return the embedder plus the
+    # resolved (provider, model) so the builder can self-pin a null-pin config.
+    return ResolvedEmbedder(
+        embedder=FakeEmbedder(),
+        provider="openai",
+        model="text-embedding-3-small",
+    )
 
 
 def _make_cfg() -> GraphRagConfig:
@@ -373,6 +393,55 @@ async def test_happy_path_transitions_to_idle() -> None:
     assert sorted(sweep["entities"]) == ["alice", "bob"]
     assert sweep["keep_build_id"] == result.build_id
     assert sweep["config_id"] == cfg.id
+
+
+# ---------------------------------------------------------------------------
+# D2 self-pin (AC-4) — a legacy null-pin config records its embedding identity
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_null_pin_config_self_pins_after_first_build() -> None:
+    cfg = _make_cfg()  # embed_dim is None → legacy/unpinned
+    builder, store, _db = _make_builder(
+        cfg=cfg,
+        neo4j=FakeNeo4j(),
+        vectors=FakeVectorStore(),
+        lock=FakeLock(),
+        snapshots=FakeSnapshots(),
+        extractor=FakeExtractor(_make_triples()),
+    )
+
+    result = await builder.run(config_id=cfg.id)
+
+    assert result.state is BuildState.IDLE
+    # The resolved (provider, model) + the actual vector length are persisted.
+    assert store.embed_pins == [("openai", "text-embedding-3-small", FakeEmbedder.vector_size)]
+
+
+@pytest.mark.asyncio
+async def test_already_pinned_config_does_not_self_pin() -> None:
+    import dataclasses
+
+    cfg = dataclasses.replace(
+        _make_cfg(),
+        embed_provider="openai",
+        embed_model="text-embedding-3-small",
+        embed_dim=1536,
+    )
+    builder, store, _db = _make_builder(
+        cfg=cfg,
+        neo4j=FakeNeo4j(),
+        vectors=FakeVectorStore(),
+        lock=FakeLock(),
+        snapshots=FakeSnapshots(),
+        extractor=FakeExtractor(_make_triples()),
+    )
+
+    await builder.run(config_id=cfg.id)
+
+    # An already-pinned config is never re-pinned by a build.
+    assert store.embed_pins == []
 
 
 # ---------------------------------------------------------------------------

@@ -19,17 +19,21 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from contexts.agent_groups.infrastructure import tables as ag
 from contexts.agents.infrastructure import tables as agents_t
 from contexts.keys.infrastructure import tables as keys_t
+from contexts.knowledge.application.embed_resolution import resolve_embed_key
 from contexts.knowledge.domain.errors import (
     GraphRagAgentProjectMismatch,
     GraphRagBuilderKeyGroupProjectMismatch,
     GraphRagConfigAlreadyExists,
     GraphRagConfigNotFound,
+    GraphRagEmbedDimensionConflict,
 )
 from contexts.knowledge.domain.graphrag import (
     BuildState,
     GraphRagConfig,
     GraphRagConfigDraft,
 )
+from contexts.knowledge.domain.models import embed_dimension
+from contexts.knowledge.infrastructure import graphrag_tables as gt
 from contexts.knowledge.infrastructure.graphrag_repositories import (
     GraphRagConfigRepository,
 )
@@ -93,6 +97,12 @@ class GraphRagConfigService:
                 f"does not belong to project {project_id}"
             )
 
+        # Phase 2a D2: derive + enforce the project embedding pin from the builder
+        # key group. If the group has no embedding key yet the pin is left null and
+        # the config self-pins on its first successful build.
+        pin = await self._enforce_and_resolve_pin(project_id, draft.builder_key_group_id)
+        embed_provider, embed_model, embed_dim = pin if pin is not None else (None, None, None)
+
         owner_group_id = await self._ensure_singleton_agent_group(
             project_id=project_id, agent_id=draft.agent_id
         )
@@ -101,6 +111,9 @@ class GraphRagConfigService:
             owner_agent_group_id=owner_group_id,
             builder_key_group_id=draft.builder_key_group_id,
             trigger_config=draft.trigger_config,
+            embed_provider=embed_provider,
+            embed_model=embed_model,
+            embed_dim=embed_dim,
         )
         await audit.emit(
             self._db,
@@ -170,6 +183,72 @@ class GraphRagConfigService:
         )
         return group_id
 
+    async def _resolve_group_pin(
+        self,
+        builder_key_group_id: uuid.UUID,
+    ) -> tuple[str, str, int] | None:
+        """Resolve the builder key group to ``(provider, model, dim)`` (D2).
+
+        Returns ``None`` when the group has no actively-carried embedding key, so
+        the caller leaves the pin null and the config self-pins on first build.
+        """
+        resolved = await resolve_embed_key(self._db, builder_key_group_id)
+        if resolved is None:
+            return None
+        provider, model, _key_id = resolved
+        return provider, model, embed_dimension(provider, model)
+
+    async def _project_pinned_dim(
+        self,
+        project_id: uuid.UUID,
+        *,
+        exclude_config_id: uuid.UUID | None = None,
+    ) -> int | None:
+        """The project's already-pinned embedding dimension, if any (D2).
+
+        Read from a sibling config's persisted ``embed_dim`` (Postgres-only, so
+        config CRUD never depends on Qdrant availability). The build-time
+        collection-dimension guard (D7) is the backstop for the transitional case
+        where a project has a built collection but no yet-pinned sibling.
+        """
+        stmt = sa.select(gt.graphrag_configs.c.embed_dim).where(
+            sa.and_(
+                gt.graphrag_configs.c.project_id == project_id,
+                gt.graphrag_configs.c.embed_dim.isnot(None),
+                gt.graphrag_configs.c.deleted_at.is_(None),
+            )
+        )
+        if exclude_config_id is not None:
+            stmt = stmt.where(gt.graphrag_configs.c.id != exclude_config_id)
+        row = (await self._db.execute(stmt.limit(1))).first()
+        return int(row.embed_dim) if row is not None else None
+
+    async def _enforce_and_resolve_pin(
+        self,
+        project_id: uuid.UUID,
+        builder_key_group_id: uuid.UUID,
+        *,
+        exclude_config_id: uuid.UUID | None = None,
+    ) -> tuple[str, str, int] | None:
+        """Resolve the group pin and reject it if it conflicts with the project.
+
+        Returns the resolved ``(provider, model, dim)`` to persist, or ``None``
+        when the group yields no embedding key. Raises
+        :class:`GraphRagEmbedDimensionConflict` (422) when the resolved dimension
+        differs from the project's existing pin (R11.18).
+        """
+        pin = await self._resolve_group_pin(builder_key_group_id)
+        if pin is None:
+            return None
+        _, _, dim = pin
+        existing = await self._project_pinned_dim(project_id, exclude_config_id=exclude_config_id)
+        if existing is not None and existing != dim:
+            raise GraphRagEmbedDimensionConflict(
+                f"project {project_id} is pinned to {existing}-dim embeddings; "
+                f"builder key group {builder_key_group_id} resolves to {dim}-dim"
+            )
+        return pin
+
     async def get(self, config_id: uuid.UUID) -> GraphRagConfig:
         cfg = await self._configs.get(config_id)
         if cfg is None:
@@ -224,7 +303,9 @@ class GraphRagConfigService:
         there is no per-agent consumer key group for the builder to collide with.
         """
         cfg = await self.get(config_id)
-        if builder_key_group_id is not None and builder_key_group_id != cfg.builder_key_group_id:
+        group_changed = builder_key_group_id is not None and builder_key_group_id != cfg.builder_key_group_id
+        new_pin: tuple[str, str, int] | None = None
+        if group_changed:
             builder_group = (
                 await self._db.execute(
                     sa.select(keys_t.key_groups.c.project_id).where(
@@ -240,12 +321,25 @@ class GraphRagConfigService:
                     f"builder_key_group_id {builder_key_group_id} "
                     f"does not belong to project {cfg.project_id}"
                 )
+            # Phase 2a D2: a swapped builder group must still resolve to the
+            # project's pinned dimension; re-derive and persist the new pin.
+            assert builder_key_group_id is not None
+            new_pin = await self._enforce_and_resolve_pin(
+                cfg.project_id, builder_key_group_id, exclude_config_id=config_id
+            )
 
         await self._configs.update(
             config_id=config_id,
             builder_key_group_id=builder_key_group_id,
             trigger_config=trigger_config,
         )
+        if group_changed and new_pin is not None:
+            await self._configs.set_embed_pin(
+                config_id=config_id,
+                provider=new_pin[0],
+                model=new_pin[1],
+                dim=new_pin[2],
+            )
         await audit.emit(
             self._db,
             audit.AuditEvent(

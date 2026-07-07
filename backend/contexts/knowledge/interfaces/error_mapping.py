@@ -91,6 +91,11 @@ _MAP: ErrorMap = {
         422,
         "Builder key group does not belong to the target project",
     ),
+    errors.GraphRagEmbedDimensionConflict: (
+        "knowledge/graphrag-embed-dimension-conflict",
+        422,
+        "All GraphRAG configs in a project must share one embedding dimension",
+    ),
 }
 
 
