@@ -547,6 +547,13 @@ Because Neo4j and Qdrant are independent systems, a naïve "write both" sequence
 - **[R11.14]** At agent invocation, an attached Knowledge Map is queried as an Axis-1 system block (`type:"graphrag"` retained) beside file-RAG, independent of any Concept Map.
 - **[R11.15]** Knowledge Map and Concept Map are distinct subsystems (separate config, services, and UI) that share the low-level graph adapters (Neo4j driver, Qdrant store, 2PC runner) and the `TripleExtractor` Protocol. Graph evidence is identified by an opaque reference token — a message id for conversation-sourced triples, a document chunk reference for file-sourced triples.
 
+### 11.6 Ownership authorization and build robustness
+
+- **[R11.16]** Every graph config satisfies an owner→project invariant: the entity named by `owner_id` (chatroom, agent_group, or workspace) lives in the config's project. Enforced at create and update; a violating request is rejected. No graph config spans projects.
+- **[R11.17]** A chatroom-owned Concept Map inherits the room's access ACL (§21.1): only principals permitted to read the room may read its graph or subscribe to its build status. agent_group and workspace maps are gated by project membership plus their `concept_map_enabled` opt-in, which is set only by a strict Project Owner (the same authority as [R10.10]).
+- **[R11.18]** Concept Map builds extract triples over a bounded message window; an owner delta larger than the window is processed in bounded batches, so an initial build over a large scope (e.g. a workspace) cannot exceed model/embedding limits or silently produce zero triples.
+- **[R11.19]** All Concept Maps sharing a project's graph vector collection use a single embedding model/dimension; a config whose builder Key Group would select a different embedding dimension is rejected (or the collection is sharded per config). When several knowledge blocks (File RAG, Knowledge Map, and Concept Map layers) are injected in one turn, their combined size is bounded with narrow-scope precedence.
+
 ---
 
 ## 12. MCP Integration
