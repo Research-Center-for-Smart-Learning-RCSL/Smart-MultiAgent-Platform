@@ -42,7 +42,7 @@ async def test_delete_agent_cascades_graphrag_external_stores() -> None:
     facade = MagicMock()
     facade.list_graph_configs_for_agent = AsyncMock(return_value=configs)
 
-    async def _soft_delete_cfg(config_id: uuid.UUID) -> None:
+    async def _soft_delete_cfg(config_id: uuid.UUID, **_: Any) -> None:
         call_log.append(f"soft:{config_id}")
 
     facade.soft_delete_graph_config = AsyncMock(side_effect=_soft_delete_cfg)
@@ -91,9 +91,14 @@ async def test_delete_agent_cascades_graphrag_external_stores() -> None:
     assert svc.soft_delete.await_count == 1
     assert svc.soft_delete.await_args.kwargs["expected_version"] == 7
 
-    # Every owned config is enumerated and soft-deleted.
+    # Every owned config is enumerated and soft-deleted through the service
+    # surface (which emits the canonical graphrag.deleted audit), with actor
+    # context threaded so the audit trail is attributable.
     facade.list_graph_configs_for_agent.assert_awaited_once_with(agent_id)
     assert facade.soft_delete_graph_config.await_count == len(cfg_ids)
+    for call in facade.soft_delete_graph_config.await_args_list:
+        assert call.kwargs["actor_user_id"] == principal.user_id
+        assert call.kwargs["request_id"] == ctx.request_id
 
     # DOM-4 ordering: commit sits after both soft-deletes and before any purge.
     commit_at = call_log.index("commit")
