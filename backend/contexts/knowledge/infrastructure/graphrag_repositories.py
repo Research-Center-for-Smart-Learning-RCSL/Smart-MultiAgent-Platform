@@ -68,6 +68,10 @@ def _row_to_config(row: Any) -> GraphRagConfig:
         embed_provider=row.embed_provider,
         embed_model=row.embed_model,
         embed_dim=row.embed_dim,
+        owner_kind=row.owner_kind,
+        owner_chatroom_id=row.owner_chatroom_id,
+        owner_agent_group_id=row.owner_agent_group_id,
+        owner_workspace_id=row.owner_workspace_id,
     )
 
 
