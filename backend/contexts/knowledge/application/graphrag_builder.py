@@ -267,7 +267,7 @@ class GraphRagBuilder:
 
         # ------------ Phase 2: embed + upsert Qdrant ---------------------
         try:
-            embeddings = await self._embed_entities(
+            embeddings, resolved_embedder = await self._embed_entities(
                 cfg=cfg,
                 triples=triples,
             )
@@ -348,6 +348,17 @@ class GraphRagBuilder:
                     build_id,
                     exc,
                 )
+        # D2 self-pin: a legacy null-pin config records the embedding identity it
+        # just built with, so every later build selects the same provider/model
+        # and the project's vector dimension stays fixed. Written in the same
+        # transaction as the terminal commit below.
+        if embeddings and resolved_embedder is not None and cfg.embed_dim is None:
+            await self._configs.set_embed_pin(
+                config_id=cfg.id,
+                provider=resolved_embedder.provider,
+                model=resolved_embedder.model,
+                dim=len(embeddings[0].vector),
+            )
         # Final idle state + stamp last_build_at.
         await self._configs.set_state(
             config_id=cfg.id,
@@ -430,14 +441,19 @@ class GraphRagBuilder:
         *,
         cfg: ConfigLike,
         triples: Sequence[Triple],
-    ) -> list[EntityEmbedding]:
-        """Build a description per unique entity and embed them in a batch."""
+    ) -> tuple[list[EntityEmbedding], ResolvedEmbedder | None]:
+        """Build a description per unique entity and embed them in a batch.
+
+        Returns the embeddings and the resolved embedder identity so the caller
+        can self-pin a null-pin config (D2). ``resolved`` is ``None`` only when
+        there are no entities to embed.
+        """
         pairs = build_entity_descriptions((t.subject, t.relation, t.object) for t in triples)
         if not pairs:
-            return []
+            return [], None
         descriptions = [desc for _, desc in pairs]
-        embedder = await self._embedder_factory(cfg)
-        vectors = await embedder.embed_batch(descriptions)
+        resolved = await self._embedder_factory(cfg)
+        vectors = await resolved.embedder.embed_batch(descriptions)
         if len(vectors) != len(descriptions):
             # DOM-5: a short embedding list would silently drop entities —
             # description rows with no Qdrant vector. A `strict=False` zip
@@ -454,7 +470,7 @@ class GraphRagBuilder:
                 vector=vec,
             )
             for (entity, desc), vec in zip(pairs, vectors, strict=True)
-        ]
+        ], resolved
 
 
 # ---------------------------------------------------------------------------
@@ -480,7 +496,22 @@ class _Embedder(Protocol):
     async def embed_batch(self, texts: list[str]) -> list[list[float]]: ...
 
 
-EmbedderFactory = Callable[[ConfigLike], Awaitable[_Embedder]]
+@dataclass(frozen=True, slots=True)
+class ResolvedEmbedder:
+    """An embedder plus the embedding identity it resolved to.
+
+    Surfacing the resolved ``(provider, model)`` lets the builder self-pin a
+    legacy null-pin config after its first successful embed (Phase 2a D2): the
+    dimension is ``len(vector)`` and the provider/model are recorded so later
+    builds select the same key deterministically.
+    """
+
+    embedder: _Embedder
+    provider: str
+    model: str
+
+
+EmbedderFactory = Callable[[ConfigLike], Awaitable[ResolvedEmbedder]]
 
 
 __all__ = [
@@ -490,6 +521,7 @@ __all__ = [
     "GraphRagBuilder",
     "LOCK_TTL_S",
     "MAX_DESC_FRAGMENTS",
+    "ResolvedEmbedder",
     "SNAPSHOT_TTL_S",
     "build_entity_descriptions",
 ]

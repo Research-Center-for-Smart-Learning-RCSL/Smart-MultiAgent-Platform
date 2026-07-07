@@ -92,6 +92,17 @@ class GraphRagBuilderKeyGroupProjectMismatch(KnowledgeError):
     code = "knowledge/graphrag-builder-key-group-project-mismatch"
 
 
+class GraphRagEmbedDimensionConflict(KnowledgeError):
+    """Phase 2a D2 — every GraphRAG config in a project must embed at one dimension.
+
+    All of a project's configs share one ``graphrag_{project_id}`` Qdrant
+    collection whose vector size is fixed at first build. A config whose builder
+    key group resolves to a different-dimension embedding model is rejected at
+    create/update rather than silently mis-indexing (R11.18)."""
+
+    code = "knowledge/graphrag-embed-dimension-conflict"
+
+
 __all__ = [
     "CapabilityMismatch",
     "ChunkParamsInvalid",
@@ -104,6 +115,7 @@ __all__ = [
     "GraphRagBuilderKeyGroupProjectMismatch",
     "GraphRagConfigAlreadyExists",
     "GraphRagConfigNotFound",
+    "GraphRagEmbedDimensionConflict",
     "IngestFailed",
     "KnowledgeError",
     "RagConfigNameTaken",
