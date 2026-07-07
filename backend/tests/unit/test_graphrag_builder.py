@@ -69,6 +69,9 @@ class FakeConfigStore:
     async def list_in_state(self, state: BuildState) -> list[GraphRagConfig]:
         return [self.cfg] if self.cfg.last_build_state is state else []
 
+    async def list_all_ids(self, *, include_deleted: bool = False) -> set[uuid.UUID]:
+        return {self.cfg.id}
+
     async def set_state(
         self,
         *,
@@ -181,19 +184,24 @@ class FakeNeo4j:
         self,
         *,
         raise_on_apply: Exception | None = None,
+        config_ids: list[tuple[uuid.UUID, uuid.UUID | None]] | None = None,
     ) -> None:
         self.applied: list[list[Triple]] = []
+        self.applied_project_ids: list[uuid.UUID] = []
         self.deleted: list[uuid.UUID] = []
+        self.deleted_all: list[uuid.UUID] = []
         self.restored: list[dict[str, Any]] = []
         self.raise_on_apply = raise_on_apply
+        self.config_ids = config_ids or []
 
     async def snapshot_subgraph(self, *, config_id, build_id):
         return {"edges": []}
 
-    async def apply_triples(self, *, config_id, build_id, triples):
+    async def apply_triples(self, *, config_id, project_id, build_id, triples):
         if self.raise_on_apply is not None:
             raise self.raise_on_apply
         self.applied.append(list(triples))
+        self.applied_project_ids.append(project_id)
         return len(triples)
 
     async def delete_by_build(self, *, config_id, build_id) -> None:
@@ -201,6 +209,7 @@ class FakeNeo4j:
 
     async def delete_all(self, *, config_id) -> None:
         self.deleted.append(config_id)
+        self.deleted_all.append(config_id)
 
     async def restore_from_snapshot(self, *, config_id, snapshot) -> None:
         self.restored.append(snapshot)
@@ -208,12 +217,16 @@ class FakeNeo4j:
     async def traverse(self, *, config_id, seed_entities, hops):
         return []
 
+    async def list_config_ids(self) -> list[tuple[uuid.UUID, uuid.UUID | None]]:
+        return list(self.config_ids)
+
 
 class FakeVectorStore:
     def __init__(self, *, raise_on_upsert: Exception | None = None) -> None:
         self.raise_on_upsert = raise_on_upsert
         self.upserts: list[list[Any]] = []
         self.superseded_calls: list[dict[str, Any]] = []
+        self.deleted_by_config: list[dict[str, Any]] = []
 
     async def ensure_graphrag_collection(self, project_id, *, vector_size, **_):
         return None
@@ -229,8 +242,8 @@ class FakeVectorStore:
     async def delete_by_build(self, **_: Any) -> None:
         return None
 
-    async def delete_by_config(self, **_: Any) -> None:
-        return None
+    async def delete_by_config(self, **kwargs: Any) -> None:
+        self.deleted_by_config.append(kwargs)
 
     async def delete_superseded_entities(self, **kwargs: Any) -> None:
         self.superseded_calls.append(kwargs)
@@ -345,6 +358,9 @@ async def test_happy_path_transitions_to_idle() -> None:
     assert result.triples_written == 1
     assert result.entities_written == 2  # alice + bob
     assert neo4j.applied == [extractor.triples]
+    # AC-7: :Entity nodes are stamped with the config's project_id so an
+    # orphaned subgraph stays self-describing for the reconciler sweep.
+    assert neo4j.applied_project_ids == [cfg.project_id]
     assert lock.released == [cfg.id]
     assert not snaps.store  # cleaned on success
 
@@ -515,6 +531,58 @@ async def test_reconciler_exhausted_rolls_back() -> None:
     assert store.cfg.last_build_state is BuildState.FAILED
     # Rollback was attempted.
     assert neo4j.deleted  # delete_by_build called
+
+
+# ---------------------------------------------------------------------------
+# Reconciler — orphan sweep (AC-7): graph data whose PG row is gone is purged
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_reconciler_sweeps_orphaned_graph_configs() -> None:
+    cfg = _make_cfg()  # live config — its id is in list_all_ids
+    orphan_id = uuid.uuid4()
+    orphan_project = uuid.uuid4()
+    legacy_orphan = uuid.uuid4()  # written before :Entity carried project_id
+
+    neo4j = FakeNeo4j(
+        config_ids=[
+            (cfg.id, cfg.project_id),
+            (orphan_id, orphan_project),
+            (legacy_orphan, None),
+        ],
+    )
+    vectors = FakeVectorStore()
+    store = FakeConfigStore(cfg)
+    store.commit = _noop  # type: ignore[attr-defined]
+    store.close = _noop  # type: ignore[attr-defined]
+
+    async def never_phase2(*, cfg, build_id) -> None:  # pragma: no cover
+        raise AssertionError("phase2 must not run without stuck configs")
+
+    async def fake_sleep(_s: float) -> None:
+        return None
+
+    recon = ReconciliationLoop(
+        session_factory=lambda: store,  # type: ignore[arg-type, return-value]
+        repo_factory=lambda _db: store,  # type: ignore[arg-type, return-value]
+        neo4j=neo4j,
+        vector_store=vectors,  # type: ignore[arg-type]
+        snapshot_store=FakeSnapshots(),
+        phase2_retry=never_phase2,
+        sleeper=fake_sleep,
+    )
+
+    touched = await recon.run_once()
+
+    # No stuck configs → nothing healed; the sweep is the only work this cycle.
+    assert touched == []
+    # Both orphans are purged from Neo4j; the live config's subgraph is untouched.
+    assert set(neo4j.deleted_all) == {orphan_id, legacy_orphan}
+    assert cfg.id not in neo4j.deleted_all
+    # Only the project-tagged orphan is Qdrant-sweepable; the legacy one is skipped.
+    assert [d["config_id"] for d in vectors.deleted_by_config] == [orphan_id]
+    assert vectors.deleted_by_config[0]["project_id"] == orphan_project
 
 
 @pytest.mark.asyncio
