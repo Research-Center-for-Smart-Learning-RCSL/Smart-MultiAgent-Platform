@@ -55,6 +55,45 @@ class KnowledgeFacade:
         """
         return await self._graphrag.get(config_id, include_deleted=include_deleted)
 
+    async def list_graph_configs_for_agent(
+        self,
+        agent_id: uuid.UUID,
+    ) -> Sequence[GraphRagConfig]:
+        """Live GraphRAG configs owned by an agent (agent-delete cascade).
+
+        Used by ``delete_agent`` to enumerate the configs whose external
+        stores must be purged when the owning agent is removed.
+        """
+        return await self._graphrag.list_for_agents([agent_id])
+
+    async def soft_delete_graph_config(self, config_id: uuid.UUID) -> None:
+        """Soft-delete a GraphRAG config row (does not commit).
+
+        The caller owns the transaction and must commit before purging
+        external stores (DOM-4).
+        """
+        await self._graphrag.soft_delete(config_id)
+
+    @staticmethod
+    async def purge_graph_config_external_stores(
+        *,
+        config_id: uuid.UUID,
+        project_id: uuid.UUID,
+    ) -> dict[str, bool]:
+        """Best-effort Neo4j + Qdrant purge for a deleted config (DOM-4).
+
+        Must run only after the soft-delete + audit row are committed.
+        Returns a summary dict for the follow-up audit row.
+        """
+        from contexts.knowledge.application.graphrag_config_service import (
+            GraphRagConfigService,
+        )
+
+        return await GraphRagConfigService.cascade_external_stores(
+            config_id=config_id,
+            project_id=project_id,
+        )
+
     async def get_graphrag_graph(
         self,
         config_id: uuid.UUID,

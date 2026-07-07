@@ -360,6 +360,14 @@ async def delete_agent(
     if not decision.allowed:
         _raise_forbidden(decision.reason)
 
+    from contexts.knowledge.interfaces.facade import KnowledgeFacade
+
+    # Enumerate the agent's GraphRAG configs before the soft-deletes so their
+    # external stores can be purged after commit (DOM-4). Without this an
+    # agent delete would orphan its Neo4j subgraph + Qdrant vectors.
+    facade = KnowledgeFacade(db)
+    graph_configs = await facade.list_graph_configs_for_agent(agent_id)
+
     await service.soft_delete(
         agent_id=agent_id,
         expected_version=expected,
@@ -367,6 +375,37 @@ async def delete_agent(
         actor_ip=ctx.actor_ip,
         request_id=ctx.request_id,
     )
+    for cfg in graph_configs:
+        await facade.soft_delete_graph_config(cfg.id)
+
+    # DOM-4: commit the agent + config soft-deletes (and the agent.deleted
+    # audit row) before touching any external store.
+    await db.commit()
+
+    from shared_kernel import audit as _audit
+
+    for cfg in graph_configs:
+        outcome = await KnowledgeFacade.purge_graph_config_external_stores(
+            config_id=cfg.id,
+            project_id=cfg.project_id,
+        )
+        await _audit.emit(
+            db,
+            _audit.AuditEvent(
+                action="graphrag.config_infra_purged",
+                actor_user_id=principal.user_id,
+                actor_ip=ctx.actor_ip,
+                resource_type="graphrag_config",
+                resource_id=cfg.id,
+                metadata={
+                    "project_id": str(cfg.project_id),
+                    "agent_id": str(agent_id),
+                    **outcome,
+                },
+                request_id=ctx.request_id,
+            ),
+        )
+    # The follow-up audit rows are committed by the db_session dependency.
 
 
 # ---------------------------------------------------------------------------
