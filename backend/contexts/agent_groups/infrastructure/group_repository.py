@@ -1,0 +1,102 @@
+"""Async repository for ``agent_groups`` + ``agent_group_members`` (R24.06).
+
+Phase 1 created agent_groups as internal singletons (one member = the former
+owning agent), managed inline by the GraphRAG config service. Phase 2b WS1
+makes a group multi-member, so member management moves here — a dedicated
+repository mirroring ``keys/infrastructure/group_repository.py`` for the member
+add/remove/list surface the GraphRAG owner-centric create (WS2), the build
+delta-feed (WS1), and the layered resolver (WS4) share.
+
+All writes keep the caller's :class:`AsyncSession` transaction; the service /
+worker layer owns commit so audit rows and membership stay atomic.
+"""
+
+from __future__ import annotations
+
+import uuid
+from collections.abc import Sequence
+
+import sqlalchemy as sa
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from contexts.agent_groups.infrastructure import tables as t
+
+
+class AgentGroupRepository:
+    def __init__(self, db: AsyncSession) -> None:
+        self._db = db
+
+    async def create_group(self, *, project_id: uuid.UUID, name: str) -> uuid.UUID:
+        """Insert a group and return its id (caller owns commit)."""
+        return uuid.UUID(
+            str(
+                (
+                    await self._db.execute(
+                        t.agent_groups.insert()
+                        .values(project_id=project_id, name=name)
+                        .returning(t.agent_groups.c.id)
+                    )
+                ).scalar_one()
+            )
+        )
+
+    async def project_id_of(self, group_id: uuid.UUID) -> uuid.UUID | None:
+        """Return the group's project id, or ``None`` if missing/soft-deleted.
+
+        The authorization seam: a caller resolves the owning project here, then
+        checks Project-Owner authority against it via the tenancy facade.
+        """
+        row = (
+            await self._db.execute(
+                sa.select(t.agent_groups.c.project_id).where(
+                    sa.and_(
+                        t.agent_groups.c.id == group_id,
+                        t.agent_groups.c.deleted_at.is_(None),
+                    )
+                )
+            )
+        ).first()
+        return row.project_id if row is not None else None
+
+    async def add_member(self, *, group_id: uuid.UUID, agent_id: uuid.UUID) -> None:
+        """Add an agent to a group; idempotent on the (group, agent) PK.
+
+        ``ON CONFLICT DO NOTHING`` so re-adding an existing member is a no-op
+        rather than an IntegrityError — the caller need not pre-check membership.
+        """
+        await self._db.execute(
+            pg_insert(t.agent_group_members)
+            .values(agent_group_id=group_id, agent_id=agent_id)
+            .on_conflict_do_nothing(index_elements=["agent_group_id", "agent_id"])
+        )
+
+    async def remove_member(self, *, group_id: uuid.UUID, agent_id: uuid.UUID) -> bool:
+        """Remove an agent from a group; returns whether a row was deleted."""
+        result = await self._db.execute(
+            t.agent_group_members.delete().where(
+                sa.and_(
+                    t.agent_group_members.c.agent_group_id == group_id,
+                    t.agent_group_members.c.agent_id == agent_id,
+                )
+            )
+        )
+        return bool(result.rowcount)
+
+    async def list_member_agent_ids(self, group_id: uuid.UUID) -> Sequence[uuid.UUID]:
+        """Live member agent ids for a group, ordered for deterministic feeds.
+
+        Read fresh on every call (never cached) so a removed member loses build
+        ingestion and, via the WS4 resolver, retrieval access on the next turn.
+        """
+        rows = (
+            await self._db.execute(
+                sa.select(t.agent_group_members.c.agent_id)
+                .where(t.agent_group_members.c.agent_group_id == group_id)
+                .order_by(t.agent_group_members.c.agent_id)
+            )
+        ).all()
+        return [r.agent_id for r in rows]
+
+
+__all__ = ["AgentGroupRepository"]
