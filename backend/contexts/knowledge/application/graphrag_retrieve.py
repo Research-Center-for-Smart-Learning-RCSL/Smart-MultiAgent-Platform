@@ -27,6 +27,7 @@ from contexts.knowledge.domain.errors import GraphRagConfigNotFound
 from contexts.knowledge.domain.graphrag import (
     GraphRagBundle,
     RelationEdge,
+    edge_rank,
     normalize_evidence_refs,
     recency_weighted_score,
 )
@@ -181,7 +182,7 @@ class GraphRagRetrieveService:
         # Audit M5 / WS5: order by the recency-weighted score (falling back to raw
         # confidence for a timeless edge) so the 2 KB bundle cap trims the weakest
         # edges, and recent edges float up under temporal decay.
-        relations.sort(key=lambda r: (r.score if r.score is not None else r.confidence), reverse=True)
+        relations.sort(key=edge_rank, reverse=True)
 
         return GraphRagBundle(
             entities=tuple(seed_entities),

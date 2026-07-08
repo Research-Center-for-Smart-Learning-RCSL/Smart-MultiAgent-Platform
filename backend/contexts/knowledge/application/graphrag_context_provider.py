@@ -316,16 +316,10 @@ def build_evidence_fetcher(
     return _fetch
 
 
-def _rank(rel: Any) -> float:
-    """A relation's ranking weight: its recency-weighted score, or raw confidence
-    for a timeless edge that never got one (WS5)."""
-    return float(rel.score if rel.score is not None else rel.confidence)
-
-
 def _merge_bundles(bundles: Sequence[Any]) -> Any:
     if not bundles:
         return None
-    from contexts.knowledge.domain.graphrag import GraphRagBundle
+    from contexts.knowledge.domain.graphrag import GraphRagBundle, edge_rank
 
     entities: list[str] = []
     relation_by_key: dict[tuple[str, str, str], Any] = {}
@@ -340,13 +334,13 @@ def _merge_bundles(bundles: Sequence[Any]) -> Any:
             # WS5: rank by the recency-weighted score when present, else raw
             # confidence — so the same edge keeps its temporally-decayed rank
             # across a config's per-query bundles.
-            if previous is None or _rank(rel) > _rank(previous):
+            if previous is None or edge_rank(rel) > edge_rank(previous):
                 relation_by_key[key] = rel
         for excerpt in bundle.evidence_excerpts:
             if excerpt not in evidence:
                 evidence.append(excerpt)
 
-    relations = sorted(relation_by_key.values(), key=_rank, reverse=True)
+    relations = sorted(relation_by_key.values(), key=edge_rank, reverse=True)
     return GraphRagBundle(
         entities=tuple(entities),
         relations=tuple(relations),
