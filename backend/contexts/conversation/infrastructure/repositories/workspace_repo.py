@@ -77,11 +77,24 @@ class WorkspaceRepository:
             t.workspaces.update().where(t.workspaces.c.id == workspace_id).values(deleted_at=now())
         )
 
-    async def set_concept_map_enabled(self, *, workspace_id: uuid.UUID, enabled: bool) -> None:
-        """Toggle the workspace's Concept Map privacy opt-in (Phase 2b WS3, R11.10)."""
-        await self._db.execute(
-            t.workspaces.update().where(t.workspaces.c.id == workspace_id).values(concept_map_enabled=enabled)
+    async def set_concept_map_enabled(self, *, workspace_id: uuid.UUID, enabled: bool) -> bool:
+        """Toggle the workspace's Concept Map privacy opt-in (Phase 2b WS3, R11.10).
+
+        Returns whether a live row was updated. The ``deleted_at IS NULL`` guard
+        makes a concurrent soft-delete between the caller's existence check and
+        this write a no-op (0 rows) rather than a write to a tombstoned owner.
+        """
+        result = await self._db.execute(
+            t.workspaces.update()
+            .where(
+                sa.and_(
+                    t.workspaces.c.id == workspace_id,
+                    t.workspaces.c.deleted_at.is_(None),
+                )
+            )
+            .values(concept_map_enabled=enabled)
         )
+        return bool(result.rowcount)
 
 
 __all__ = ["WorkspaceRepository"]

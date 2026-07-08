@@ -134,7 +134,10 @@ class AgentGroupService:
         audit-logged unconditionally.
         """
         project_id = await self._require_group_project(group_id)
-        await self._repo.set_concept_map_enabled(group_id=group_id, enabled=enabled)
+        updated = await self._repo.set_concept_map_enabled(group_id=group_id, enabled=enabled)
+        if not updated:
+            # Concurrently soft-deleted between the project resolve and the write.
+            raise AgentGroupNotFound(str(group_id))
         await audit.emit(
             self._db,
             audit.AuditEvent(
