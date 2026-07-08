@@ -141,6 +141,80 @@ async def test_hybrid_query_returns_bundle() -> None:
     assert neo4j.traverse_calls == [(["alice", "bob"], 2)]
 
 
+def test_recency_weighted_score_recent_beats_stale() -> None:
+    """WS5 AC-9 core: under a short half-life a recent low-confidence edge
+    outranks a stale high-confidence one; NULL inputs coalesce safely."""
+    from contexts.knowledge.domain.graphrag import recency_weighted_score
+
+    now = 1_000_000.0
+    day = 86_400.0
+    stale_strong = recency_weighted_score(
+        confidence=0.9, last_seen_at=now - 100 * day, half_life_days=7, now=now
+    )
+    recent_weak = recency_weighted_score(
+        confidence=0.5, last_seen_at=now - 1 * day, half_life_days=7, now=now
+    )
+    assert recent_weak > stale_strong
+    # No timestamp or no half-life -> pure confidence (decay factor 1.0).
+    assert recency_weighted_score(confidence=0.8, last_seen_at=None, half_life_days=7, now=now) == 0.8
+    assert recency_weighted_score(confidence=0.8, last_seen_at=now - day, half_life_days=None, now=now) == 0.8
+    # NULL confidence coalesces to 0.0, like the traversal ordering already does.
+    assert recency_weighted_score(confidence=None, last_seen_at=now, half_life_days=7, now=now) == 0.0
+
+
+@pytest.mark.asyncio
+async def test_retrieve_reranks_recent_over_stale() -> None:
+    """WS5 AC-9 end-to-end: the retrieve service applies recency decay so a
+    recent weak edge sorts above a stale strong edge under a short half-life."""
+    import time
+
+    cfg = _cfg()
+    day = 86_400.0
+    now_epoch = time.time()
+
+    class _Hit:
+        def __init__(self, entity: str) -> None:
+            self.point_id = uuid.uuid4()
+            self.score = 0.9
+            self.entity = entity
+            self.description = f"desc {entity}"
+            self.build_id = None
+
+    vectors = FakeVectors([_Hit("alice"), _Hit("bob")])
+    neo4j = FakeNeo4j(
+        edges=[
+            {
+                "subject": "alice",
+                "relation": "knew",
+                "object": "x",
+                "confidence": 0.9,  # strong but 100 days stale
+                "evidence_msg_ids": [],
+                "last_seen_at": now_epoch - 100 * day,
+            },
+            {
+                "subject": "bob",
+                "relation": "knows",
+                "object": "y",
+                "confidence": 0.4,  # weak but 1 day fresh
+                "evidence_msg_ids": [],
+                "last_seen_at": now_epoch - 1 * day,
+            },
+        ],
+    )
+    service = GraphRagRetrieveService(
+        None,  # type: ignore[arg-type]
+        neo4j=neo4j,
+        vector_store=vectors,  # type: ignore[arg-type]
+        embedder_factory=_factory,
+        configs=FakeRepo(cfg),  # type: ignore[arg-type]
+        default_half_life_days=7.0,
+    )
+
+    bundle = await service.query(config_id=cfg.id, text="who?")
+
+    assert [r.relation for r in bundle.relations] == ["knows", "knew"]
+
+
 def _room_message(chatroom_id: uuid.UUID):
     from contexts.conversation.domain.models import Message, SenderType
 
