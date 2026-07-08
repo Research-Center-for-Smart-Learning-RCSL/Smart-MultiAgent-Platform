@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, Path, status
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.v1.deps import PaginationParams
+from app.api.v1.deps import PaginationParams, assert_project_owner
 from contexts.conversation.application.workspace_service import WorkspaceService
 from contexts.conversation.domain.errors import WorkspaceNotFound
 from contexts.conversation.interfaces.facade import ConversationFacade
@@ -151,17 +151,16 @@ async def set_concept_map_enabled(
     strict Project-Owner authority (not the RESOURCE_CREATE_EDIT capability that
     guards ordinary workspace edits), matching the group-owner toggle.
     """
-    from contexts.tenancy.interfaces.facade import TenancyFacade
-
     facade = ConversationFacade(db)
     ws = await facade.get_workspace(workspace_id)
     if ws is None:
         raise WorkspaceNotFound(str(workspace_id))
-    if not principal.is_admin:
-        from shared_kernel.auth.dependencies import _raise_forbidden
-
-        if not await TenancyFacade(db).is_project_owner(principal.user_id, ws.project_id):
-            _raise_forbidden("only a project owner may toggle the concept map")
+    await assert_project_owner(
+        db=db,
+        principal=principal,
+        project_id=ws.project_id,
+        reason="only a project owner may toggle the concept map",
+    )
 
     service = WorkspaceService(db)
     await service.set_concept_map_enabled(
