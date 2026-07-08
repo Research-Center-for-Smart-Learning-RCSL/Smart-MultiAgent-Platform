@@ -94,6 +94,51 @@ class GraphRagContextProvider:
             )
             return None
 
+    async def query_layers(
+        self,
+        *,
+        graphrag_config_ids: Sequence[uuid.UUID],
+        query_text: str | None = None,
+        query_texts: Sequence[str] | None = None,
+        querying_agent_id: uuid.UUID | None = None,
+    ) -> str | None:
+        """Assemble a layered GraphRAG context, narrowest-first (WS4 R11.09).
+
+        ``graphrag_config_ids`` are the covering configs ordered narrow -> wide
+        (chatroom, then each enabled agent_group layer, then the enabled
+        workspace). Each layer retrieves independently; a tiered merge fills the
+        2 KB budget narrowest-first with entity/relation dedup keeping the
+        narrowest occurrence, so a shared wide layer never dilutes the agent's
+        own room memory. A single-layer call is byte-identical to :meth:`query`.
+
+        Like :meth:`query`, any failure degrades to ``None`` — never a raised
+        turn error.
+        """
+        queries = _normalise_queries(query_text=query_text, query_texts=query_texts)
+        if not graphrag_config_ids or not queries:
+            return None
+        try:
+            layer_bundles: list[Any] = []
+            for config_id in graphrag_config_ids:
+                # Per-layer retrieval: clients rebuild per layer, but the layer
+                # count is bounded (chatroom + <=N groups + workspace) and each
+                # layer needs its own config load + embedder anyway.
+                per_query = await self._graphrag_query(config_id, queries, querying_agent_id)
+                merged = _merge_bundles(per_query)
+                if merged is not None and (merged.entities or merged.relations):
+                    layer_bundles.append(merged)
+            bundle = _merge_layers_tiered(layer_bundles)
+            if bundle is None or not (bundle.entities or bundle.relations):
+                return None
+            return str(bundle.as_system_message()["content"])
+        except Exception:
+            _log.warning(
+                "GraphRAG layered retrieval failed layers=%s",
+                list(graphrag_config_ids),
+                exc_info=True,
+            )
+            return None
+
     # -- internal wiring ------------------------------------------------
 
     async def _graphrag_query(
@@ -284,6 +329,48 @@ def _merge_bundles(bundles: Sequence[Any]) -> Any:
         entities=tuple(entities),
         relations=tuple(relations),
         evidence_excerpts=tuple(evidence[:10]),
+    )
+
+
+def _merge_layers_tiered(layer_bundles: Sequence[Any]) -> Any:
+    """Tiered narrow->wide merge of per-layer bundles (WS4 R11.09).
+
+    ``layer_bundles`` are ordered narrowest-first; each is already merged within
+    its own layer (confidence-ranked by :func:`_merge_bundles`). Entities,
+    relations, and evidence are concatenated in layer order with dedup keeping
+    the NARROWEST occurrence (first wins) and are deliberately NOT re-sorted:
+    the 2 KB render cap trims from the tail, so the widest layer's content is
+    dropped first and the budget fills narrowest-first, each wider layer taking
+    only the remainder. A single-layer input round-trips to an identical bundle.
+    """
+    if not layer_bundles:
+        return None
+    from contexts.knowledge.domain.graphrag import GraphRagBundle
+
+    entities: list[str] = []
+    seen_entities: set[str] = set()
+    relations: list[Any] = []
+    seen_relations: set[tuple[str, str, str]] = set()
+    evidence: list[str] = []
+    seen_evidence: set[str] = set()
+    for bundle in layer_bundles:
+        for entity in bundle.entities:
+            if entity not in seen_entities:
+                seen_entities.add(entity)
+                entities.append(entity)
+        for rel in bundle.relations:
+            key = (rel.subject, rel.relation, rel.object)
+            if key not in seen_relations:
+                seen_relations.add(key)
+                relations.append(rel)
+        for excerpt in bundle.evidence_excerpts:
+            if excerpt not in seen_evidence:
+                seen_evidence.add(excerpt)
+                evidence.append(excerpt)
+    return GraphRagBundle(
+        entities=tuple(entities),
+        relations=tuple(relations),
+        evidence_excerpts=tuple(evidence[:_MAX_EVIDENCE_EXCERPTS]),
     )
 
 
