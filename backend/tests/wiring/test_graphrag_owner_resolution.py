@@ -22,6 +22,7 @@ import sqlalchemy as sa
 from contexts.agent_groups.application.group_service import AgentGroupService
 from contexts.agents.domain.models import AgentModelHint, ContextMode, PromptStrategy
 from contexts.agents.infrastructure.repositories import AgentRepository
+from contexts.conversation.application.workspace_service import WorkspaceService
 from contexts.conversation.infrastructure.repositories import (
     ChatroomRepository,
     WorkspaceRepository,
@@ -195,6 +196,77 @@ async def test_create_for_chatroom_and_workspace_owners() -> None:
         assert room_cfg.agent_id is None  # a wide owner has no derived agent
         assert ws_cfg.owner_kind == "workspace"
         assert ws_cfg.owner_workspace_id == env.workspace.id
+
+
+async def test_list_layers_for_turn_orders_and_gates_layers() -> None:
+    # AC-4/AC-6/AC-11: the resolver returns the chatroom + enabled agent_group +
+    # enabled workspace layers ordered narrow->wide; wide layers are excluded
+    # while disabled; a removed member loses the group layer on the next resolve.
+    async with async_session() as db:
+        env = await _seed_project(db)
+        consumer_kg = await KeyGroupRepository(db).create(project_id=env.project.id, name="consumer")
+        builder_kg = await KeyGroupRepository(db).create(project_id=env.project.id, name="builder")
+        agent_id = await _seed_agent(db, env.project.id, consumer_kg.id)
+        room = await ChatroomRepository(db).create(workspace_id=env.workspace.id, name="r")
+        gid = await _group_with_member(db, project_id=env.project.id, user_id=env.user.id, agent_id=agent_id)
+        await db.commit()
+
+        svc = GraphRagConfigService(db)
+        room_cfg = await svc.create(
+            project_id=env.project.id,
+            draft=GraphRagConfigDraft(
+                owner_kind="chatroom", owner_id=room.id, builder_key_group_id=builder_kg.id
+            ),
+            actor_user_id=env.user.id,
+            actor_ip=None,
+        )
+        group_cfg = await svc.create(
+            project_id=env.project.id,
+            draft=GraphRagConfigDraft(
+                owner_kind="agent_group", owner_id=gid, builder_key_group_id=builder_kg.id
+            ),
+            actor_user_id=env.user.id,
+            actor_ip=None,
+        )
+        ws_cfg = await svc.create(
+            project_id=env.project.id,
+            draft=GraphRagConfigDraft(
+                owner_kind="workspace", owner_id=env.workspace.id, builder_key_group_id=builder_kg.id
+            ),
+            actor_user_id=env.user.id,
+            actor_ip=None,
+        )
+        await db.commit()
+
+        repo = GraphRagConfigRepository(db)
+
+        # Wide layers are disabled by default (concept_map_enabled=false) — only
+        # the chatroom map covers the turn.
+        layers = await repo.list_layers_for_turn(agent_id=agent_id, chatroom_id=room.id)
+        assert [c.id for c in layers] == [room_cfg.id]
+
+        # Enable both wide layers — they now appear, ordered narrow->wide.
+        await AgentGroupService(db).set_concept_map_enabled(
+            group_id=gid, enabled=True, actor_user_id=env.user.id, actor_ip=None
+        )
+        await WorkspaceService(db).set_concept_map_enabled(
+            workspace_id=env.workspace.id, enabled=True, actor_user_id=env.user.id, actor_ip=None
+        )
+        await db.commit()
+
+        layers = await repo.list_layers_for_turn(agent_id=agent_id, chatroom_id=room.id)
+        assert [c.id for c in layers] == [room_cfg.id, group_cfg.id, ws_cfg.id]
+        assert [c.owner_kind for c in layers] == ["chatroom", "agent_group", "workspace"]
+
+        # AC-11: removing the agent from the group revokes the group layer on the
+        # very next resolve (live membership, not a cached set).
+        await AgentGroupService(db).remove_member(
+            group_id=gid, agent_id=agent_id, actor_user_id=env.user.id, actor_ip=None
+        )
+        await db.commit()
+
+        layers = await repo.list_layers_for_turn(agent_id=agent_id, chatroom_id=room.id)
+        assert [c.id for c in layers] == [room_cfg.id, ws_cfg.id]
 
 
 async def test_create_rejects_owner_from_another_project() -> None:

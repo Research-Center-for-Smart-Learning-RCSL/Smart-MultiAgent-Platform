@@ -66,6 +66,20 @@ class KnowledgeFacade:
         """
         return await self._graphrag.list_for_agents([agent_id])
 
+    async def resolve_graphrag_layers(
+        self,
+        *,
+        agent_id: uuid.UUID,
+        chatroom_id: uuid.UUID,
+    ) -> Sequence[GraphRagConfig]:
+        """Covering Concept Map layers for an agent's turn, narrow -> wide (WS4).
+
+        The chatroom map, each enabled agent_group map the agent is a live member
+        of, and the enabled workspace map — ordered for the tiered retrieval
+        assembler. Disabled wide layers and non-member groups are excluded.
+        """
+        return await self._graphrag.list_layers_for_turn(agent_id=agent_id, chatroom_id=chatroom_id)
+
     async def soft_delete_graph_config(
         self,
         config_id: uuid.UUID,
