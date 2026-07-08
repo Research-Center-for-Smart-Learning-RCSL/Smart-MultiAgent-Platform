@@ -65,6 +65,23 @@ class AgentGroupFacade:
             request_id=request_id,
         )
 
+    async def set_concept_map_enabled(
+        self,
+        *,
+        group_id: uuid.UUID,
+        enabled: bool,
+        actor_user_id: uuid.UUID,
+        actor_ip: str | None,
+        request_id: uuid.UUID | None = None,
+    ) -> None:
+        await self._service.set_concept_map_enabled(
+            group_id=group_id,
+            enabled=enabled,
+            actor_user_id=actor_user_id,
+            actor_ip=actor_ip,
+            request_id=request_id,
+        )
+
     async def list_members(self, group_id: uuid.UUID) -> Sequence[uuid.UUID]:
         return await self._service.list_members(group_id)
 

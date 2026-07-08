@@ -44,6 +44,15 @@ class WorkspaceCreatedOut(WorkspaceOut):
     default_chatroom_id: uuid.UUID
 
 
+class ConceptMapEnabledIn(BaseModel):
+    enabled: bool
+
+
+class ConceptMapStatusOut(BaseModel):
+    workspace_id: uuid.UUID
+    concept_map_enabled: bool
+
+
 def _to_out(ws) -> WorkspaceOut:
     return WorkspaceOut(
         id=ws.id,
@@ -126,6 +135,43 @@ async def read_workspace(
         if not roles:
             _raise_forbidden("caller is not a member of the project")
     return _to_out(ws)
+
+
+@workspace_router.put("/{workspace_id}/concept-map-enabled")
+async def set_concept_map_enabled(
+    body: ConceptMapEnabledIn,
+    workspace_id: uuid.UUID = Path(...),
+    ctx: RequestContext = Depends(current_context),
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(db_session),
+) -> ConceptMapStatusOut:
+    """Toggle the workspace's Concept Map privacy opt-in (R11.10) — Project-Owner only.
+
+    Enabling exposes the shared workspace map to retrieval, so this is gated on
+    strict Project-Owner authority (not the RESOURCE_CREATE_EDIT capability that
+    guards ordinary workspace edits), matching the group-owner toggle.
+    """
+    from contexts.tenancy.interfaces.facade import TenancyFacade
+
+    facade = ConversationFacade(db)
+    ws = await facade.get_workspace(workspace_id)
+    if ws is None:
+        raise WorkspaceNotFound(str(workspace_id))
+    if not principal.is_admin:
+        from shared_kernel.auth.dependencies import _raise_forbidden
+
+        if not await TenancyFacade(db).is_project_owner(principal.user_id, ws.project_id):
+            _raise_forbidden("only a project owner may toggle the concept map")
+
+    service = WorkspaceService(db)
+    await service.set_concept_map_enabled(
+        workspace_id=workspace_id,
+        enabled=body.enabled,
+        actor_user_id=principal.user_id,
+        actor_ip=ctx.actor_ip,
+        request_id=ctx.request_id,
+    )
+    return ConceptMapStatusOut(workspace_id=workspace_id, concept_map_enabled=body.enabled)
 
 
 @workspace_router.delete(
