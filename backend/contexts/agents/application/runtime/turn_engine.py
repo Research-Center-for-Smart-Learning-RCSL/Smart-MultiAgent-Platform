@@ -280,7 +280,10 @@ class TurnEngine:
             router=self._router,
             qdrant_url=qdrant_url,
             qdrant_api_key=qdrant_api_key,
-            evidence_fetcher=build_evidence_fetcher(ConversationFacade(db).get_message),
+            evidence_fetcher=build_evidence_fetcher(
+                ConversationFacade(db).get_message,
+                ConversationFacade(db).is_agent_in_chatroom,
+            ),
         )
         # Rooms whose one-shot POST /compact flag this engine consumed — used
         # to re-arm the flag if the turn that consumed it fails.
@@ -1683,6 +1686,7 @@ class TurnEngine:
         return await self._graphrag_provider.query(
             graphrag_config_id=configs[0].id,
             query_texts=queries,
+            querying_agent_id=agent.id,
         )
 
     async def _audit(

@@ -110,10 +110,16 @@ async def test_hybrid_query_returns_bundle() -> None:
         vector_store=vectors,  # type: ignore[arg-type]
         embedder_factory=_factory,
         configs=FakeRepo(cfg),  # type: ignore[arg-type]
-        evidence_fetcher=lambda ids: _ev_fetcher(ids),
+        evidence_fetcher=_ev_fetcher,
     )
 
-    bundle = await service.query(config_id=cfg.id, text="who knows bob?", top_k=5, hops=2)
+    bundle = await service.query(
+        config_id=cfg.id,
+        text="who knows bob?",
+        top_k=5,
+        hops=2,
+        querying_agent_id=uuid.uuid4(),
+    )
 
     assert bundle.entities == ("alice", "bob")
     assert len(bundle.relations) == 1
@@ -125,34 +131,84 @@ async def test_hybrid_query_returns_bundle() -> None:
     assert neo4j.traverse_calls == [(["alice", "bob"], 2)]
 
 
-async def _ev_fetcher(ids: list[str]) -> list[str]:
+async def _ev_fetcher(ids: list[str], querying_agent_id: uuid.UUID | None) -> list[str]:
     return [f"excerpt-{i}" for i in range(len(ids))]
+
+
+def _room_message(chatroom_id: uuid.UUID):
+    from contexts.conversation.domain.models import Message, SenderType
+
+    return Message(
+        id=uuid.uuid4(),
+        chatroom_id=chatroom_id,
+        sender_type=SenderType.USER,
+        sender_id=uuid.uuid4(),
+        content_md="  Alice\n\nconfirmed   the roadmap milestone.  ",
+    )
 
 
 @pytest.mark.asyncio
 async def test_context_provider_fetches_message_evidence_excerpts() -> None:
-    from contexts.conversation.domain.models import Message, SenderType
     from contexts.knowledge.application.graphrag_context_provider import build_evidence_fetcher
 
-    message_id = uuid.uuid4()
+    room_id = uuid.uuid4()
+    agent_id = uuid.uuid4()
+    msg = _room_message(room_id)
+    message_id = msg.id
     missing_id = uuid.uuid4()
-    messages = {
-        message_id: Message(
-            id=message_id,
-            chatroom_id=uuid.uuid4(),
-            sender_type=SenderType.USER,
-            sender_id=uuid.uuid4(),
-            content_md="  Alice\n\nconfirmed   the roadmap milestone.  ",
-        )
-    }
+    messages = {message_id: msg}
 
     async def get_message(mid: uuid.UUID):
         return messages.get(mid)
 
-    fetcher = build_evidence_fetcher(get_message)
-    excerpts = await fetcher([str(message_id), str(missing_id), str(message_id)])
+    async def is_agent_in_chatroom(*, chatroom_id: uuid.UUID, agent_id: uuid.UUID) -> bool:
+        return chatroom_id == room_id
+
+    fetcher = build_evidence_fetcher(get_message, is_agent_in_chatroom)
+    excerpts = await fetcher([str(message_id), str(missing_id), str(message_id)], agent_id)
 
     assert excerpts == ["user: Alice confirmed the roadmap milestone."]
+
+
+@pytest.mark.asyncio
+async def test_evidence_fetcher_drops_excerpts_from_unreadable_rooms() -> None:
+    """WS3 AC-7: an agent gets no excerpt from a room it does not participate in."""
+    from contexts.knowledge.application.graphrag_context_provider import build_evidence_fetcher
+
+    readable = _room_message(uuid.uuid4())
+    hidden = _room_message(uuid.uuid4())
+    messages = {readable.id: readable, hidden.id: hidden}
+    agent_id = uuid.uuid4()
+
+    async def get_message(mid: uuid.UUID):
+        return messages.get(mid)
+
+    async def is_agent_in_chatroom(*, chatroom_id: uuid.UUID, agent_id: uuid.UUID) -> bool:
+        return chatroom_id == readable.chatroom_id
+
+    fetcher = build_evidence_fetcher(get_message, is_agent_in_chatroom)
+    excerpts = await fetcher([str(readable.id), str(hidden.id)], agent_id)
+
+    assert excerpts == ["user: Alice confirmed the roadmap milestone."]
+
+
+@pytest.mark.asyncio
+async def test_evidence_fetcher_fails_closed_without_querying_agent() -> None:
+    """WS3 AC-7: with no querying principal the fetcher returns nothing."""
+    from contexts.knowledge.application.graphrag_context_provider import build_evidence_fetcher
+
+    msg = _room_message(uuid.uuid4())
+
+    async def get_message(mid: uuid.UUID):
+        return msg
+
+    async def is_agent_in_chatroom(*, chatroom_id: uuid.UUID, agent_id: uuid.UUID) -> bool:
+        return True
+
+    fetcher = build_evidence_fetcher(get_message, is_agent_in_chatroom)
+    excerpts = await fetcher([str(msg.id)], None)
+
+    assert excerpts == []
 
 
 @pytest.mark.asyncio
@@ -193,7 +249,7 @@ async def test_context_provider_merges_multi_query_bundles() -> None:
         def __init__(self) -> None:
             self.queries: list[str] = []
 
-        async def _graphrag_query(self, config_id: uuid.UUID, queries):
+        async def _graphrag_query(self, config_id: uuid.UUID, queries, querying_agent_id=None):
             self.queries.extend(queries)
             return [_bundle_for(q) for q in queries]
 
