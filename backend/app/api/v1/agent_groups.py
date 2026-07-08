@@ -42,6 +42,15 @@ class AgentGroupMembersOut(BaseModel):
     members: list[uuid.UUID]
 
 
+class ConceptMapEnabledIn(BaseModel):
+    enabled: bool
+
+
+class ConceptMapStatusOut(BaseModel):
+    group_id: uuid.UUID
+    concept_map_enabled: bool
+
+
 async def _assert_project_membership(
     *, db: AsyncSession, principal: Principal, project_id: uuid.UUID
 ) -> None:
@@ -106,6 +115,27 @@ async def create_group(
 # ---------------------------------------------------------------------------
 
 group_router = APIRouter(prefix="/api/agent-groups", tags=["agent-groups"])
+
+
+@group_router.put("/{group_id}/concept-map-enabled")
+async def set_concept_map_enabled(
+    body: ConceptMapEnabledIn,
+    group_id: uuid.UUID = Path(...),
+    ctx: RequestContext = Depends(current_context),
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(db_session),
+) -> ConceptMapStatusOut:
+    """Toggle the group's Concept Map privacy opt-in (R11.10) — Project-Owner only."""
+    project_id = await _group_project_id(db, group_id)
+    await _assert_project_owner(db=db, principal=principal, project_id=project_id)
+    await AgentGroupFacade(db).set_concept_map_enabled(
+        group_id=group_id,
+        enabled=body.enabled,
+        actor_user_id=principal.user_id,
+        actor_ip=ctx.actor_ip,
+        request_id=ctx.request_id,
+    )
+    return ConceptMapStatusOut(group_id=group_id, concept_map_enabled=body.enabled)
 
 
 @group_router.get("/{group_id}/members")

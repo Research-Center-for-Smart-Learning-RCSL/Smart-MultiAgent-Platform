@@ -65,6 +65,14 @@ class AgentGroupRepository:
         ).first()
         return row.project_id if row is not None else None
 
+    async def set_concept_map_enabled(self, *, group_id: uuid.UUID, enabled: bool) -> None:
+        """Toggle the group's Concept Map privacy opt-in (Phase 2b WS3, R11.10)."""
+        await self._db.execute(
+            t.agent_groups.update()
+            .where(t.agent_groups.c.id == group_id)
+            .values(concept_map_enabled=enabled)
+        )
+
     async def add_member(self, *, group_id: uuid.UUID, agent_id: uuid.UUID) -> None:
         """Add an agent to a group; idempotent on the (group, agent) PK.
 

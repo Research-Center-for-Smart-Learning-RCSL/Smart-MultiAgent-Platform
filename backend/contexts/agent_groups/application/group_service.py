@@ -118,6 +118,36 @@ class AgentGroupService:
         )
         return removed
 
+    async def set_concept_map_enabled(
+        self,
+        *,
+        group_id: uuid.UUID,
+        enabled: bool,
+        actor_user_id: uuid.UUID,
+        actor_ip: str | None,
+        request_id: uuid.UUID | None = None,
+    ) -> None:
+        """Toggle the group's Concept Map privacy opt-in and audit it (R11.10).
+
+        Enabling exposes the shared group map to retrieval for every member, so
+        the route restricts this to a strict Project Owner; the change is
+        audit-logged unconditionally.
+        """
+        project_id = await self._require_group_project(group_id)
+        await self._repo.set_concept_map_enabled(group_id=group_id, enabled=enabled)
+        await audit.emit(
+            self._db,
+            audit.AuditEvent(
+                action="agent_group.concept_map_toggled",
+                actor_user_id=actor_user_id,
+                actor_ip=actor_ip,
+                resource_type="agent_group",
+                resource_id=group_id,
+                metadata={"project_id": str(project_id), "concept_map_enabled": enabled},
+                request_id=request_id,
+            ),
+        )
+
     async def list_members(self, group_id: uuid.UUID) -> Sequence[uuid.UUID]:
         return await self._repo.list_member_agent_ids(group_id)
 

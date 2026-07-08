@@ -94,6 +94,41 @@ class WorkspaceService:
             default_chatroom=default_room,
         )
 
+    async def set_concept_map_enabled(
+        self,
+        *,
+        workspace_id: uuid.UUID,
+        enabled: bool,
+        actor_user_id: uuid.UUID,
+        actor_ip: str | None,
+        request_id: uuid.UUID | None = None,
+    ) -> None:
+        """Toggle the workspace's Concept Map privacy opt-in and audit it (R11.10).
+
+        Enabling exposes the shared workspace map to retrieval, so the route
+        restricts this to a strict Project Owner; the change is audit-logged
+        unconditionally.
+        """
+        existing = await self._workspaces.get(workspace_id)
+        if existing is None:
+            raise WorkspaceNotFound(str(workspace_id))
+        await self._workspaces.set_concept_map_enabled(workspace_id=workspace_id, enabled=enabled)
+        await audit.emit(
+            self._db,
+            audit.AuditEvent(
+                action="workspace.concept_map_toggled",
+                actor_user_id=actor_user_id,
+                actor_ip=actor_ip,
+                resource_type="workspace",
+                resource_id=workspace_id,
+                metadata={
+                    "project_id": str(existing.project_id),
+                    "concept_map_enabled": enabled,
+                },
+                request_id=request_id,
+            ),
+        )
+
     async def soft_delete(
         self,
         *,

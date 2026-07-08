@@ -77,5 +77,11 @@ class WorkspaceRepository:
             t.workspaces.update().where(t.workspaces.c.id == workspace_id).values(deleted_at=now())
         )
 
+    async def set_concept_map_enabled(self, *, workspace_id: uuid.UUID, enabled: bool) -> None:
+        """Toggle the workspace's Concept Map privacy opt-in (Phase 2b WS3, R11.10)."""
+        await self._db.execute(
+            t.workspaces.update().where(t.workspaces.c.id == workspace_id).values(concept_map_enabled=enabled)
+        )
+
 
 __all__ = ["WorkspaceRepository"]
