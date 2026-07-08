@@ -15,9 +15,9 @@ from fastapi import APIRouter, Depends, Path, status
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.v1.deps import assert_project_owner
 from contexts.agent_groups.domain.errors import AgentGroupNotFound
 from contexts.agent_groups.interfaces.facade import AgentGroupFacade
-from contexts.tenancy.interfaces.facade import TenancyFacade
 from shared_kernel.auth.context import RequestContext
 from shared_kernel.auth.dependencies import current_context, current_principal
 from shared_kernel.auth.permissions import Principal
@@ -66,12 +66,12 @@ async def _assert_project_membership(
 
 
 async def _assert_project_owner(*, db: AsyncSession, principal: Principal, project_id: uuid.UUID) -> None:
-    from shared_kernel.auth.dependencies import _raise_forbidden
-
-    if principal.is_admin:
-        return
-    if not await TenancyFacade(db).is_project_owner(principal.user_id, project_id):
-        _raise_forbidden("only a project owner may manage agent groups")
+    await assert_project_owner(
+        db=db,
+        principal=principal,
+        project_id=project_id,
+        reason="only a project owner may manage agent groups",
+    )
 
 
 async def _group_project_id(db: AsyncSession, group_id: uuid.UUID) -> uuid.UUID:
