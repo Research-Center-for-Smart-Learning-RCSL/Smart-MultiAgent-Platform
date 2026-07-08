@@ -112,7 +112,10 @@ class WorkspaceService:
         existing = await self._workspaces.get(workspace_id)
         if existing is None:
             raise WorkspaceNotFound(str(workspace_id))
-        await self._workspaces.set_concept_map_enabled(workspace_id=workspace_id, enabled=enabled)
+        updated = await self._workspaces.set_concept_map_enabled(workspace_id=workspace_id, enabled=enabled)
+        if not updated:
+            # Concurrently soft-deleted between the existence check and the write.
+            raise WorkspaceNotFound(str(workspace_id))
         await audit.emit(
             self._db,
             audit.AuditEvent(
