@@ -307,6 +307,90 @@ async def test_context_provider_merges_multi_query_bundles() -> None:
     assert "targets" in text
 
 
+def _layer_provider(bundles_by_config):
+    from contexts.knowledge.application.graphrag_context_provider import GraphRagContextProvider
+
+    class _Provider(GraphRagContextProvider):
+        def __init__(self) -> None:
+            self.order: list[uuid.UUID] = []
+
+        async def _graphrag_query(self, config_id: uuid.UUID, queries, querying_agent_id=None):
+            self.order.append(config_id)
+            bundle = bundles_by_config.get(config_id)
+            return [bundle] if bundle is not None else []
+
+    return _Provider()
+
+
+@pytest.mark.asyncio
+async def test_query_layers_tiered_fill_and_narrowest_dedup() -> None:
+    """WS4 AC-4: narrow->wide fill order, entity/relation dedup keeps narrowest."""
+    from contexts.knowledge.domain.graphrag import GraphRagBundle, RelationEdge
+
+    chatroom_id, group_id, workspace_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+    bundles = {
+        chatroom_id: GraphRagBundle(
+            entities=("alice",),
+            relations=(RelationEdge("alice", "owns", "roadmap", 0.90, ()),),
+            evidence_excerpts=("chatroom-ev",),
+        ),
+        group_id: GraphRagBundle(
+            entities=("alice", "bob"),  # alice repeats -> narrowest (chatroom) kept
+            relations=(
+                RelationEdge("alice", "owns", "roadmap", 0.99, ()),  # dup key -> narrowest kept
+                RelationEdge("bob", "knows", "carol", 0.80, ()),
+            ),
+            evidence_excerpts=("group-ev",),
+        ),
+        workspace_id: GraphRagBundle(
+            entities=("dave",),
+            relations=(RelationEdge("dave", "leads", "team", 0.70, ()),),
+            evidence_excerpts=("workspace-ev",),
+        ),
+    }
+    provider = _layer_provider(bundles)
+    text = await provider.query_layers(
+        graphrag_config_ids=[chatroom_id, group_id, workspace_id],
+        query_texts=["q"],
+        querying_agent_id=uuid.uuid4(),
+    )
+
+    assert text is not None
+    assert provider.order == [chatroom_id, group_id, workspace_id]
+    ent_line = next(line for line in text.splitlines() if line.startswith("entities:"))
+    assert ent_line == "entities: alice, bob, dave"
+    # Narrow-first ordering preserved (no cross-layer re-sort).
+    assert text.index("(alice) -[owns") < text.index("(bob) -[knows") < text.index("(dave) -[leads")
+    # The duplicate relation appears once, at the narrowest layer's confidence.
+    assert text.count("(alice) -[owns") == 1
+    assert "(alice) -[owns c=0.90]" in text
+
+
+@pytest.mark.asyncio
+async def test_query_layers_single_layer_matches_query() -> None:
+    """WS4 AC-5: a single-layer assembly is byte-identical to the flat query."""
+    from contexts.knowledge.domain.graphrag import GraphRagBundle, RelationEdge
+
+    cid = uuid.uuid4()
+    bundles = {
+        cid: GraphRagBundle(
+            entities=("alice", "bob"),
+            relations=(
+                RelationEdge("alice", "owns", "roadmap", 0.70, ()),
+                RelationEdge("bob", "knows", "carol", 0.90, ()),
+            ),
+            evidence_excerpts=("ev-1", "ev-2"),
+        )
+    }
+    layered = await _layer_provider(bundles).query_layers(
+        graphrag_config_ids=[cid], query_texts=["q"]
+    )
+    flat = await _layer_provider(bundles).query(graphrag_config_id=cid, query_texts=["q"])
+
+    assert layered == flat
+    assert layered is not None
+
+
 @pytest.mark.asyncio
 async def test_empty_vector_hits_returns_empty_bundle() -> None:
     cfg = _cfg()
