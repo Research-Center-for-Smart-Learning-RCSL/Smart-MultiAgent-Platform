@@ -207,6 +207,14 @@ class RelationEdge:
     score: float | None = None
 
 
+def edge_rank(edge: RelationEdge) -> float:
+    """Sort key for a traversal edge: the recency-weighted ``score`` when the
+    retrieve service computed one (WS5 AC-9), else raw ``confidence`` for a
+    legacy/timeless edge. Single source of truth for both the retrieve-service
+    sort and the WS4 layer-merge tiering."""
+    return float(edge.score if edge.score is not None else edge.confidence)
+
+
 @dataclass(frozen=True, slots=True)
 class GraphRagBundle:
     """Result of hybrid retrieval (R11.06) — serialisable under the 2 KB cap."""
@@ -279,5 +287,7 @@ __all__ = [
     "GraphRagConfigDraft",
     "RelationEdge",
     "Triple",
+    "edge_rank",
     "normalize_evidence_refs",
+    "recency_weighted_score",
 ]
