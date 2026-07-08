@@ -16,6 +16,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.agent_groups.infrastructure import tables as ag
+from contexts.conversation.infrastructure import tables as conv
 from contexts.knowledge.application.graphrag_ports import GraphRagConfigRepositoryPort
 from contexts.knowledge.domain.errors import GraphRagConfigAlreadyExists
 from contexts.knowledge.domain.graphrag import BuildState, GraphRagConfig
@@ -80,6 +81,9 @@ _OWNER_COLUMN = {
     "agent_group": "owner_agent_group_id",
     "workspace": "owner_workspace_id",
 }
+
+# Narrow -> wide precedence for the layered resolver (WS4 R11.09).
+_LAYER_RANK = {"chatroom": 0, "agent_group": 1, "workspace": 2}
 
 
 class GraphRagConfigRepository(GraphRagConfigRepositoryPort):
@@ -198,6 +202,81 @@ class GraphRagConfigRepository(GraphRagConfigRepositoryPort):
             seen.add(r.id)
             out.append(_row_to_config(r))
         return out
+
+    async def list_layers_for_turn(
+        self,
+        *,
+        agent_id: uuid.UUID,
+        chatroom_id: uuid.UUID,
+    ) -> Sequence[GraphRagConfig]:
+        """Every Concept Map covering ``agent_id`` in ``chatroom_id`` (WS4 R11.09).
+
+        Returns, ordered narrow -> wide (chatroom, agent_group(s), workspace):
+
+        - the chatroom-owned config (inherits the room ACL, always active);
+        - each agent_group-owned config whose group the agent is a **live**
+          member of *and* whose group has ``concept_map_enabled`` (AC-6/AC-11 —
+          membership is read fresh, so a removed member loses access next turn);
+        - the workspace-owned config for the room's workspace, when that
+          workspace has ``concept_map_enabled``.
+
+        Resolved in a single round-trip (UNION ALL) so the per-turn layer fan-out
+        never becomes a per-group N+1; ranking is applied in Python.
+        """
+        gc = t.graphrag_configs
+        room_workspace = (
+            sa.select(conv.chatrooms.c.workspace_id)
+            .where(conv.chatrooms.c.id == chatroom_id)
+            .scalar_subquery()
+        )
+        chatroom_layer = sa.select(gc, _member_agent_id()).where(
+            sa.and_(
+                gc.c.owner_kind == "chatroom",
+                gc.c.owner_chatroom_id == chatroom_id,
+                gc.c.deleted_at.is_(None),
+            )
+        )
+        group_join = gc.join(ag.agent_groups, ag.agent_groups.c.id == gc.c.owner_agent_group_id).join(
+            ag.agent_group_members,
+            ag.agent_group_members.c.agent_group_id == ag.agent_groups.c.id,
+        )
+        group_layer = (
+            sa.select(gc, _member_agent_id())
+            .select_from(group_join)
+            .where(
+                sa.and_(
+                    gc.c.owner_kind == "agent_group",
+                    ag.agent_group_members.c.agent_id == agent_id,
+                    ag.agent_groups.c.concept_map_enabled.is_(True),
+                    ag.agent_groups.c.deleted_at.is_(None),
+                    gc.c.deleted_at.is_(None),
+                )
+            )
+        )
+        workspace_join = gc.join(conv.workspaces, conv.workspaces.c.id == gc.c.owner_workspace_id)
+        workspace_layer = (
+            sa.select(gc, _member_agent_id())
+            .select_from(workspace_join)
+            .where(
+                sa.and_(
+                    gc.c.owner_kind == "workspace",
+                    gc.c.owner_workspace_id == room_workspace,
+                    conv.workspaces.c.concept_map_enabled.is_(True),
+                    conv.workspaces.c.deleted_at.is_(None),
+                    gc.c.deleted_at.is_(None),
+                )
+            )
+        )
+        rows = (await self._db.execute(sa.union_all(chatroom_layer, group_layer, workspace_layer))).all()
+        seen: set[uuid.UUID] = set()
+        configs: list[GraphRagConfig] = []
+        for r in rows:
+            if r.id in seen:
+                continue
+            seen.add(r.id)
+            configs.append(_row_to_config(r))
+        configs.sort(key=lambda c: (_LAYER_RANK.get(c.owner_kind, 99), c.created_at))
+        return configs
 
     async def list_in_state(
         self,
