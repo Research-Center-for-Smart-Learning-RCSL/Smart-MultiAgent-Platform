@@ -47,6 +47,7 @@ def _config_row(config_id: uuid.UUID) -> SimpleNamespace:
         owner_chatroom_id=None,
         owner_agent_group_id=uuid.uuid4(),
         owner_workspace_id=None,
+        recency_half_life_days=None,
     )
 
 

@@ -101,6 +101,11 @@ _MAP: ErrorMap = {
         422,
         "Owner does not belong to the target project",
     ),
+    errors.GraphRagInvalidHalfLife: (
+        "knowledge/graphrag-invalid-half-life",
+        422,
+        "recency_half_life_days must be a positive number",
+    ),
     errors.GraphRagCollectionDimensionMismatch: (
         "knowledge/graphrag-collection-dimension-mismatch",
         500,

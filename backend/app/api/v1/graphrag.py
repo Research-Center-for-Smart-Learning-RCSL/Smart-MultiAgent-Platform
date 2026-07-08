@@ -83,13 +83,17 @@ class GraphRagConfigCreateIn(BaseModel):
     owner_id: uuid.UUID
     builder_key_group_id: uuid.UUID
     trigger_config: GraphRagTriggerConfig = Field(default_factory=GraphRagTriggerConfig)
+    # Phase 2b WS5 (R11.21) — optional recency half-life in days; None inherits
+    # the platform default. Must be positive when supplied.
+    recency_half_life_days: float | None = Field(default=None, gt=0)
 
 
 class GraphRagConfigPatchIn(BaseModel):
-    """Partial update — both fields optional. Omitted = unchanged."""
+    """Partial update — all fields optional. Omitted = unchanged."""
 
     builder_key_group_id: uuid.UUID | None = None
     trigger_config: GraphRagTriggerConfig | None = None
+    recency_half_life_days: float | None = Field(default=None, gt=0)
 
 
 class GraphRagConfigOut(BaseModel):
@@ -102,6 +106,7 @@ class GraphRagConfigOut(BaseModel):
     agent_id: uuid.UUID | None
     builder_key_group_id: uuid.UUID
     trigger_config: dict[str, object]
+    recency_half_life_days: float | None
     last_build_state: str
     last_build_at: str | None
     last_build_error: str | None
@@ -162,6 +167,7 @@ def _to_out(cfg: GraphRagConfig) -> GraphRagConfigOut:
         agent_id=cfg.agent_id,
         builder_key_group_id=cfg.builder_key_group_id,
         trigger_config=cfg.trigger_config,
+        recency_half_life_days=cfg.recency_half_life_days,
         last_build_state=cfg.last_build_state.value,
         last_build_at=(cfg.last_build_at.isoformat() if cfg.last_build_at else None),
         last_build_error=cfg.last_build_error,
@@ -213,6 +219,7 @@ async def create_config(
         owner_id=body.owner_id,
         builder_key_group_id=body.builder_key_group_id,
         trigger_config=body.trigger_config.model_dump(exclude_none=True),
+        recency_half_life_days=body.recency_half_life_days,
     )
     cfg = await service.create(
         project_id=project_id,
@@ -376,6 +383,7 @@ async def update_config(
         trigger_config=(
             body.trigger_config.model_dump(exclude_none=True) if body.trigger_config is not None else None
         ),
+        recency_half_life_days=body.recency_half_life_days,
         actor_user_id=principal.user_id,
         actor_ip=ctx.actor_ip,
         request_id=ctx.request_id,

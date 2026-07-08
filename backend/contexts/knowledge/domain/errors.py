@@ -125,6 +125,15 @@ class GraphRagCollectionDimensionMismatch(KnowledgeError):
     code = "knowledge/graphrag-collection-dimension-mismatch"
 
 
+class GraphRagInvalidHalfLife(KnowledgeError):
+    """Phase 2b WS5 (R11.21) — recency_half_life_days must be a positive number.
+
+    A zero/negative half-life has no meaningful decay curve; NULL is allowed and
+    means "inherit the platform default". Validated on create/update (422)."""
+
+    code = "knowledge/graphrag-invalid-half-life"
+
+
 __all__ = [
     "CapabilityMismatch",
     "ChunkParamsInvalid",
@@ -139,6 +148,7 @@ __all__ = [
     "GraphRagCollectionDimensionMismatch",
     "GraphRagConfigNotFound",
     "GraphRagEmbedDimensionConflict",
+    "GraphRagInvalidHalfLife",
     "GraphRagOwnerProjectMismatch",
     "IngestFailed",
     "KnowledgeError",
