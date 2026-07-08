@@ -104,21 +104,28 @@ async def test_hybrid_query_returns_bundle() -> None:
             },
         ],
     )
+    seen_agent_ids: list[uuid.UUID | None] = []
+
+    async def _recording_fetcher(ids: list[str], querying_agent_id: uuid.UUID | None) -> list[str]:
+        seen_agent_ids.append(querying_agent_id)
+        return [f"excerpt-{i}" for i in range(len(ids))]
+
     service = GraphRagRetrieveService(
         None,  # type: ignore[arg-type]
         neo4j=neo4j,
         vector_store=vectors,  # type: ignore[arg-type]
         embedder_factory=_factory,
         configs=FakeRepo(cfg),  # type: ignore[arg-type]
-        evidence_fetcher=_ev_fetcher,
+        evidence_fetcher=_recording_fetcher,
     )
 
+    agent_id = uuid.uuid4()
     bundle = await service.query(
         config_id=cfg.id,
         text="who knows bob?",
         top_k=5,
         hops=2,
-        querying_agent_id=uuid.uuid4(),
+        querying_agent_id=agent_id,
     )
 
     assert bundle.entities == ("alice", "bob")
@@ -127,12 +134,11 @@ async def test_hybrid_query_returns_bundle() -> None:
     assert rel.subject == "alice"
     assert rel.object == "bob"
     assert rel.evidence_refs == (str(msg_id),)
+    # The service must forward the querying agent to the fetcher unchanged, so
+    # the room-ACL gate (AC-7) authorizes against the right principal.
+    assert seen_agent_ids == [agent_id]
     assert bundle.evidence_excerpts == ("excerpt-0",)
     assert neo4j.traverse_calls == [(["alice", "bob"], 2)]
-
-
-async def _ev_fetcher(ids: list[str], querying_agent_id: uuid.UUID | None) -> list[str]:
-    return [f"excerpt-{i}" for i in range(len(ids))]
 
 
 def _room_message(chatroom_id: uuid.UUID):
@@ -209,6 +215,44 @@ async def test_evidence_fetcher_fails_closed_without_querying_agent() -> None:
     excerpts = await fetcher([str(msg.id)], None)
 
     assert excerpts == []
+
+
+@pytest.mark.asyncio
+async def test_evidence_fetcher_fills_past_unreadable_refs_and_memoizes() -> None:
+    """WS3 AC-7 fix: the ACL filter runs before the cap, so leading unreadable
+    refs do not starve readable ones, and membership is memoized per room."""
+    from contexts.knowledge.application.graphrag_context_provider import (
+        _MAX_EVIDENCE_EXCERPTS,
+        build_evidence_fetcher,
+    )
+
+    hidden_room = uuid.uuid4()
+    readable_room = uuid.uuid4()
+    # 12 unreadable refs (same hidden room) followed by 12 readable refs.
+    hidden = [_room_message(hidden_room) for _ in range(12)]
+    readable = [_room_message(readable_room) for _ in range(12)]
+    messages = {m.id: m for m in hidden + readable}
+    agent_id = uuid.uuid4()
+
+    membership_calls: list[uuid.UUID] = []
+
+    async def get_message(mid: uuid.UUID):
+        return messages.get(mid)
+
+    async def is_agent_in_chatroom(*, chatroom_id: uuid.UUID, agent_id: uuid.UUID) -> bool:
+        membership_calls.append(chatroom_id)
+        return chatroom_id == readable_room
+
+    fetcher = build_evidence_fetcher(get_message, is_agent_in_chatroom)
+    refs = [str(m.id) for m in hidden + readable]
+    excerpts = await fetcher(refs, agent_id)
+
+    # Cap is filled with readable excerpts despite 12 leading unreadable refs.
+    assert len(excerpts) == _MAX_EVIDENCE_EXCERPTS
+    assert all(e == "user: Alice confirmed the roadmap milestone." for e in excerpts)
+    # Memoization: one ACL query per distinct room, not per ref.
+    assert membership_calls.count(hidden_room) == 1
+    assert membership_calls.count(readable_room) == 1
 
 
 @pytest.mark.asyncio

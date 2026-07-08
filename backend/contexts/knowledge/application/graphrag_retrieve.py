@@ -136,9 +136,11 @@ class GraphRagRetrieveService:
 
         excerpts: tuple[str, ...] = ()
         if self._evidence_fetcher is not None and evidence_refs:
-            unique = list(dict.fromkeys(evidence_refs))[:10]
-            # Pass the querying agent so the fetcher applies the room read-ACL
-            # (WS3 AC-7) — excerpts from rooms the agent cannot read are dropped.
+            # Pass the full deduped ref list (not a pre-capped slice) with the
+            # querying agent so the fetcher applies the room read-ACL (WS3 AC-7)
+            # and then caps — otherwise unreadable refs at the top would consume
+            # the excerpt budget and starve readable refs below them.
+            unique = list(dict.fromkeys(evidence_refs))
             excerpts = tuple(await self._evidence_fetcher(unique, querying_agent_id))
 
         # Audit M5: order relations by confidence so the 2 KB bundle cap trims
