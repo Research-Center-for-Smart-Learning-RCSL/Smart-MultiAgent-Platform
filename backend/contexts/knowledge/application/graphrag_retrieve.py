@@ -28,10 +28,22 @@ from contexts.knowledge.domain.graphrag import (
     GraphRagBundle,
     RelationEdge,
     normalize_evidence_refs,
+    recency_weighted_score,
 )
 from contexts.knowledge.infrastructure.graphrag_vector_store import (
     GraphRagVectorStore,
 )
+from shared_kernel.auth.clients import now
+
+
+def _as_epoch(value: object) -> float | None:
+    """Coerce a Neo4j-returned timestamp (numeric or None) to epoch seconds."""
+    if value is None:
+        return None
+    try:
+        return float(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
 
 
 class _Embedder:  # pragma: no cover — Protocol-ish duck typing
@@ -55,12 +67,16 @@ class GraphRagRetrieveService:
         embedder_factory: EmbedderFactory,
         configs: GraphRagConfigRepositoryPort,
         evidence_fetcher: EvidenceFetcher | None = None,
+        default_half_life_days: float | None = None,
     ) -> None:
         self._db = db
         self._neo4j = neo4j
         self._vectors = vector_store
         self._embedder_factory = embedder_factory
         self._evidence_fetcher = evidence_fetcher
+        # WS5 (R11.21): platform fallback when a config leaves recency_half_life_days
+        # NULL. ``None`` (the unit-test default) disables decay -> pure confidence.
+        self._default_half_life_days = default_half_life_days
         self._configs = configs
 
     async def _load(self, config_id: uuid.UUID) -> ConfigLike:
@@ -115,22 +131,41 @@ class GraphRagRetrieveService:
             hops=max(1, min(hops, 2)),
         )
 
+        # WS5 (R11.21): the config's half-life, or the platform default when NULL.
+        half_life = cfg.recency_half_life_days
+        if half_life is None:
+            half_life = self._default_half_life_days
+        now_epoch = now().timestamp()
+
         relations: list[RelationEdge] = []
         evidence_refs: list[str] = []
         for row in raw_edges:
             refs = normalize_evidence_refs(row.get("evidence_msg_ids"))
             evidence_refs.extend(refs)
+            confidence = float(row.get("confidence") or 0.0)
+            last_seen_at = _as_epoch(row.get("last_seen_at"))
             relations.append(
                 RelationEdge(
                     subject=str(row.get("subject") or ""),
                     relation=str(row.get("relation") or ""),
                     object=str(row.get("object") or ""),
-                    confidence=float(row.get("confidence") or 0.0),
+                    confidence=confidence,
                     evidence_refs=refs,
                     # Phase 2b (R11.22): carry edge provenance through so the WS4
                     # layered/member-scoped retrieval can filter on it. Reuse the
                     # opaque-ref normaliser (uuid strings, length-bounded).
                     source_member_ids=normalize_evidence_refs(row.get("source_member_ids")),
+                    # WS5 (R11.21): carry the temporal stamps and the recency-
+                    # weighted rank so a recent low-confidence edge can outrank a
+                    # stale high-confidence one under a short half-life (AC-9).
+                    first_seen_at=_as_epoch(row.get("first_seen_at")),
+                    last_seen_at=last_seen_at,
+                    score=recency_weighted_score(
+                        confidence=confidence,
+                        last_seen_at=last_seen_at,
+                        half_life_days=half_life,
+                        now=now_epoch,
+                    ),
                 )
             )
 
@@ -143,9 +178,10 @@ class GraphRagRetrieveService:
             unique = list(dict.fromkeys(evidence_refs))
             excerpts = tuple(await self._evidence_fetcher(unique, querying_agent_id))
 
-        # Audit M5: order relations by confidence so the 2 KB bundle cap trims
-        # the weakest edges, not an arbitrary slice of traversal-order output.
-        relations.sort(key=lambda r: r.confidence, reverse=True)
+        # Audit M5 / WS5: order by the recency-weighted score (falling back to raw
+        # confidence for a timeless edge) so the 2 KB bundle cap trims the weakest
+        # edges, and recent edges float up under temporal decay.
+        relations.sort(key=lambda r: (r.score if r.score is not None else r.confidence), reverse=True)
 
         return GraphRagBundle(
             entities=tuple(seed_entities),

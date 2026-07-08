@@ -225,6 +225,9 @@ class GraphRagContextProvider:
                 embedder_factory=_embedder_factory,
                 configs=GraphRagConfigRepository(self._db),
                 evidence_fetcher=self._evidence_fetcher,
+                # WS5 (R11.21): the platform recency half-life default a config
+                # inherits when it leaves recency_half_life_days NULL.
+                default_half_life_days=settings.graphrag.recency_half_life_days_default,
             )
             bundles: list[Any] = []
             for query in queries:
@@ -313,6 +316,12 @@ def build_evidence_fetcher(
     return _fetch
 
 
+def _rank(rel: Any) -> float:
+    """A relation's ranking weight: its recency-weighted score, or raw confidence
+    for a timeless edge that never got one (WS5)."""
+    return float(rel.score if rel.score is not None else rel.confidence)
+
+
 def _merge_bundles(bundles: Sequence[Any]) -> Any:
     if not bundles:
         return None
@@ -328,13 +337,16 @@ def _merge_bundles(bundles: Sequence[Any]) -> Any:
         for rel in bundle.relations:
             key = (rel.subject, rel.relation, rel.object)
             previous = relation_by_key.get(key)
-            if previous is None or rel.confidence > previous.confidence:
+            # WS5: rank by the recency-weighted score when present, else raw
+            # confidence — so the same edge keeps its temporally-decayed rank
+            # across a config's per-query bundles.
+            if previous is None or _rank(rel) > _rank(previous):
                 relation_by_key[key] = rel
         for excerpt in bundle.evidence_excerpts:
             if excerpt not in evidence:
                 evidence.append(excerpt)
 
-    relations = sorted(relation_by_key.values(), key=lambda r: r.confidence, reverse=True)
+    relations = sorted(relation_by_key.values(), key=_rank, reverse=True)
     return GraphRagBundle(
         entities=tuple(entities),
         relations=tuple(relations),
