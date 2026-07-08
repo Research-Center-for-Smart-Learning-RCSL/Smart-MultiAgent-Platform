@@ -907,7 +907,7 @@ class TurnEngine:
             rag_ctx = await self._rag_context(agent, knowledge_queries)
             if rag_ctx:
                 system_parts.append(rag_ctx.block)
-            graphrag_block = await self._graphrag_context(agent, knowledge_queries)
+            graphrag_block = await self._graphrag_context(agent, chatroom_id, knowledge_queries)
             if graphrag_block:
                 system_parts.append(graphrag_block)
             # Drain queued A2A notifications (R9.16); approval requests also add
@@ -1670,22 +1670,26 @@ class TurnEngine:
             agent_id=agent.id,
         )
 
-    async def _graphrag_context(self, agent: Agent, queries: Sequence[str]) -> str | None:
+    async def _graphrag_context(
+        self, agent: Agent, chatroom_id: uuid.UUID, queries: Sequence[str]
+    ) -> str | None:
         """Delegate to the knowledge-context :class:`GraphRagContextProvider`.
 
-        Resolves the config through ownership (the agent's singleton owner
-        group) rather than the legacy ``agent.graphrag_config_id`` pointer,
-        so retrieval keeps working once the contract step drops that column.
-        For a Phase-1 singleton group this yields the same config the pointer
-        did; a NULL result means the agent owns no Concept Map.
+        Resolves every Concept Map covering the agent in the current room (WS4):
+        the chatroom map, each enabled agent_group map the agent is a live member
+        of, and the enabled workspace map — ordered narrow -> wide — then runs the
+        tiered assembler. An empty result means no covering map; a single
+        chatroom layer reproduces the pre-2b flat output (AC-5).
         """
         from contexts.knowledge.interfaces.facade import KnowledgeFacade
 
-        configs = await KnowledgeFacade(self._db).list_graph_configs_for_agent(agent.id)
-        if not configs:
+        layers = await KnowledgeFacade(self._db).resolve_graphrag_layers(
+            agent_id=agent.id, chatroom_id=chatroom_id
+        )
+        if not layers:
             return None
-        return await self._graphrag_provider.query(
-            graphrag_config_id=configs[0].id,
+        return await self._graphrag_provider.query_layers(
+            graphrag_config_ids=[cfg.id for cfg in layers],
             query_texts=queries,
             querying_agent_id=agent.id,
         )

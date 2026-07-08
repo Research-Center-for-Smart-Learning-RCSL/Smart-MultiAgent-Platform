@@ -120,10 +120,20 @@ class GraphRagContextProvider:
         try:
             layer_bundles: list[Any] = []
             for config_id in graphrag_config_ids:
-                # Per-layer retrieval: clients rebuild per layer, but the layer
-                # count is bounded (chatroom + <=N groups + workspace) and each
-                # layer needs its own config load + embedder anyway.
-                per_query = await self._graphrag_query(config_id, queries, querying_agent_id)
+                # Per-layer retrieval, isolated: one failing layer degrades to
+                # fewer layers rather than dropping the whole context. Clients
+                # rebuild per layer, but the layer count is bounded (chatroom +
+                # <=N groups + workspace) and each layer needs its own config
+                # load + embedder anyway.
+                try:
+                    per_query = await self._graphrag_query(config_id, queries, querying_agent_id)
+                except Exception:
+                    _log.warning(
+                        "GraphRAG layer retrieval failed config=%s",
+                        config_id,
+                        exc_info=True,
+                    )
+                    continue
                 merged = _merge_bundles(per_query)
                 if merged is not None and (merged.entities or merged.relations):
                     layer_bundles.append(merged)
@@ -133,7 +143,7 @@ class GraphRagContextProvider:
             return str(bundle.as_system_message()["content"])
         except Exception:
             _log.warning(
-                "GraphRAG layered retrieval failed layers=%s",
+                "GraphRAG layered assembly failed layers=%s",
                 list(graphrag_config_ids),
                 exc_info=True,
             )

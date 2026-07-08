@@ -382,13 +382,42 @@ async def test_query_layers_single_layer_matches_query() -> None:
             evidence_excerpts=("ev-1", "ev-2"),
         )
     }
-    layered = await _layer_provider(bundles).query_layers(
-        graphrag_config_ids=[cid], query_texts=["q"]
-    )
+    layered = await _layer_provider(bundles).query_layers(graphrag_config_ids=[cid], query_texts=["q"])
     flat = await _layer_provider(bundles).query(graphrag_config_id=cid, query_texts=["q"])
 
     assert layered == flat
     assert layered is not None
+
+
+@pytest.mark.asyncio
+async def test_query_layers_isolates_a_failing_layer() -> None:
+    """WS4: a layer whose retrieval raises degrades to fewer layers, not zero."""
+    from contexts.knowledge.application.graphrag_context_provider import GraphRagContextProvider
+    from contexts.knowledge.domain.graphrag import GraphRagBundle, RelationEdge
+
+    ok_id, bad_id = uuid.uuid4(), uuid.uuid4()
+
+    class _Provider(GraphRagContextProvider):
+        def __init__(self) -> None:
+            pass
+
+        async def _graphrag_query(self, config_id: uuid.UUID, queries, querying_agent_id=None):
+            if config_id == bad_id:
+                raise RuntimeError("neo4j down")
+            return [
+                GraphRagBundle(
+                    entities=("alice",),
+                    relations=(RelationEdge("alice", "owns", "roadmap", 0.9, ()),),
+                    evidence_excerpts=(),
+                )
+            ]
+
+    text = await _Provider().query_layers(
+        graphrag_config_ids=[ok_id, bad_id], query_texts=["q"], querying_agent_id=uuid.uuid4()
+    )
+
+    assert text is not None
+    assert "alice" in text
 
 
 @pytest.mark.asyncio
