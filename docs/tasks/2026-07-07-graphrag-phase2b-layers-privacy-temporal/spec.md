@@ -332,9 +332,14 @@ Security Considerations section is required.
   pre-2b behavior (characterization test).
 - [ ] AC-6: agent_group and workspace maps contribute nothing to retrieval unless
   `concept_map_enabled` is true; only a strict Project Owner can toggle it; each toggle is
-  audit-logged.
-- [ ] AC-7: a principal who cannot read a chatroom receives no evidence excerpt sourced from
-  that room, even when a shared-layer edge references it.
+  audit-logged. *(Partial: the strict-Project-Owner toggle + audit half is delivered in WS3
+  (D-6); the "contribute nothing unless enabled" retrieval-gating half is wired by the WS4
+  resolver, so this AC completes in WS4.)*
+- [x] AC-7: a principal who cannot read a chatroom receives no evidence excerpt sourced from
+  that room, even when a shared-layer edge references it. *(Evidence fetcher enforces the
+  querying-agent room ACL, fail-closed; unit-verified by `test_graphrag_retrieve.py`
+  (`..._drops_excerpts_from_unreadable_rooms`, `..._fails_closed_without_querying_agent`).
+  The end-to-end integration test runs in the CI Neo4j+Qdrant tier.)*
 - [ ] AC-8: entities/relations carry `first_seen_at` (earliest-wins) and `last_seen_at`
   (latest-wins) derived from message timestamps, not LLM output.
 - [ ] AC-9: retrieval ranking applies `weight × exp(-Δt / recency_half_life_days)`; a recent
@@ -465,6 +470,34 @@ chatroom soft-delete filter) were fixed.
 - **FU-4 resolved** — the agent-centric `_ensure_singleton_agent_group` inline inserts are
   retired; agent_group ownership now flows through `AgentGroupRepository`/`AgentGroupService`.
 
+### WS3 — Privacy gating (implemented)
+
+Delivered as commits `8492966..88b8775` (M1 `concept_map_enabled` column + migration 0046 on
+`agent_groups`/`workspaces`, ORM tables mirrored; M2 strict-Project-Owner toggle + audit for both
+owner kinds; M3 evidence-fetch room ACL, AC-7). Local gate: unit tests green (`test_graphrag_retrieve.py`
+7 passed incl. 2 new ACL tests; 203 passed across turn_engine/graphrag/conversation; 69 passed on the
+M2 slice), `ruff check`/`ruff format --check` clean on touched files, `mypy` on the touched files
+introduces no errors (pre-existing baseline only). Quality + security audits on the WS3 diff returned
+**no Introduced-Critical/Warning findings**; the security audit confirmed both toggles are strictly
+Project-Owner-gated with the project resolved from the resource (no IDOR) and the AC-7 ACL has no
+bypassing/agent-less production caller (fail-closed). `alembic upgrade head` for 0046 and `gen:api`
+remain deferred to CI (D-5, same host constraint).
+
+- **D-6** — AC-6 is delivered in **two halves across WS3 and WS4**. WS3 lands the privacy control
+  surface: the `concept_map_enabled` column (strict default `false`, so every wide owner is private on
+  upgrade), the strict-Project-Owner toggle endpoints for both owner kinds, and the audit event on
+  change. The AC's other clause — "wide maps contribute nothing to retrieval unless enabled" — is a
+  *read-path* rule enforced by the WS4 layered resolver (which selects only enabled agent_group/workspace
+  layers). Wiring a flag read in WS3 with no resolver to consume it would be dead code; the quality audit
+  flagged the column as write-only, which is expected for this split. AC-6 is therefore left unchecked
+  until WS4 wires the read side. The evidence-fetch ACL (AC-7) is independent and fully delivered here.
+- **D-7** — The **workspace** toggle route inlines its Project-Owner check (fetch workspace →
+  `TenancyFacade.is_project_owner` → `_raise_forbidden`) rather than reusing an `_assert_project_owner`
+  helper as the agent_group route does, because it mirrors the file-local convention of the sibling
+  `read_workspace`/`delete_workspace` routes in `workspaces.py` (resolve project from the facade in-band,
+  then gate). Both routes reach the identical strict-owner decision; unifying the two owner surfaces is
+  tracked as FU-7.
+
 ## 16. Follow-ups
 
 - FU-1 — expose recency half-life and layer enablement in the Phase 4 UI.
@@ -484,3 +517,21 @@ chatroom soft-delete filter) were fixed.
   (`graphrag_repositories._OWNER_COLUMN`, API `_owner_id`, service `_config_owner` /
   `_assert_owner_in_project`, worker `_resolve_delta_scope`); a future 4th owner kind touches
   all five. Literal-constrained so not a defect — consider centralizing the kind→column map.
+- FU-7 (minor, WS3) — the two owner-toggle routes diverge: `agent_groups.py` delegates to an
+  `_assert_project_owner` helper + facade, while `workspaces.py` inlines the equivalent check
+  (D-7). Both also double-fetch the owner (route resolves project for authz, then the service
+  re-fetches for the audit `project_id`). Unify behind a shared owner-authz helper and let the
+  services surface the resolved owner so the route need not pre-fetch.
+- FU-8 (minor, WS3, perf) — the evidence fetcher issues one `is_agent_in_chatroom` query per
+  surviving excerpt on top of the per-ref `get_message` (2N round-trips, bounded by
+  `_MAX_EVIDENCE_EXCERPTS`=10). A batched membership check (one `WHERE chatroom_id IN (...)`)
+  would collapse the ACL round-trips if evidence volume grows.
+- FU-9 (pre-existing, conversation) — `app/api/v1/workspaces.py` route handlers instantiate
+  `WorkspaceService(db)` directly (`list_workspaces`, `create_workspace`, and the new toggle)
+  instead of going through `ConversationFacade`, against the CLAUDE.md "call the facade, never
+  instantiate services" rule. Predates WS3; the new route followed the file's pattern. Route the
+  workspace write use-cases through the facade in a dedicated cleanup.
+- FU-10 (minor, hardening) — the toggle routes raise `AgentGroupNotFound`/`WorkspaceNotFound`
+  (404) before the owner check, so a non-owner can distinguish "exists but forbidden" (403) from
+  "absent" (404). Negligible behind unguessable v4 UUIDs and it matches the pre-existing
+  404-before-authz convention; return 403/404 uniformly only if strict non-enumeration is wanted.
