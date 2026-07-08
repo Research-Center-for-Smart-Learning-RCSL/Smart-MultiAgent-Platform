@@ -56,17 +56,22 @@ class GraphRagContextProvider:
         graphrag_config_id: uuid.UUID | None,
         query_text: str | None = None,
         query_texts: Sequence[str] | None = None,
+        querying_agent_id: uuid.UUID | None = None,
     ) -> str | None:
         """Return a formatted GraphRAG context string, or ``None`` if unavailable.
 
         Safe to call unconditionally — returns ``None`` when the config is
         missing, infrastructure is not configured, or retrieval fails.
+
+        ``querying_agent_id`` is the agent whose turn is retrieving; it is
+        threaded to the evidence fetcher so excerpts from rooms the agent may
+        not read are dropped (WS3 AC-7).
         """
         queries = _normalise_queries(query_text=query_text, query_texts=query_texts)
         if graphrag_config_id is None or not queries:
             return None
         try:
-            bundles = await self._graphrag_query(graphrag_config_id, queries)
+            bundles = await self._graphrag_query(graphrag_config_id, queries, querying_agent_id)
             bundle = _merge_bundles(bundles)
             if bundle is None or not (bundle.entities or bundle.relations):
                 return None
@@ -85,6 +90,7 @@ class GraphRagContextProvider:
         self,
         config_id: uuid.UUID,
         queries: Sequence[str],
+        querying_agent_id: uuid.UUID | None = None,
     ) -> list[Any]:
         """Production GraphRAG retrieval wiring (E.8).
 
@@ -157,7 +163,11 @@ class GraphRagContextProvider:
             )
             bundles: list[Any] = []
             for query in queries:
-                bundle = await svc.query(config_id=config_id, text=query)
+                bundle = await svc.query(
+                    config_id=config_id,
+                    text=query,
+                    querying_agent_id=querying_agent_id,
+                )
                 if bundle is not None:
                     bundles.append(bundle)
             return bundles
@@ -184,14 +194,24 @@ def _compact_excerpt(text: str) -> str:
 
 def build_evidence_fetcher(
     get_message: Callable[[uuid.UUID], Awaitable[Any]],
+    is_agent_in_chatroom: Callable[..., Awaitable[bool]],
 ) -> EvidenceFetcher:
     """Return an EvidenceFetcher that formats conversation messages as excerpts.
 
-    Callers supply ``get_message`` so this module stays free of conversation
-    context imports.  Inject via ``GraphRagContextProvider(evidence_fetcher=...)``.
+    Callers supply ``get_message`` and ``is_agent_in_chatroom`` so this module
+    stays free of conversation context imports.  Inject via
+    ``GraphRagContextProvider(evidence_fetcher=...)``.
+
+    Privacy gate (WS3 AC-7): each excerpt's source message is dropped unless the
+    querying agent participates in the message's chatroom. Evidence is always
+    chatroom-sourced, so a missing querying agent fails closed — no excerpts.
     """
 
-    async def _fetch(refs: list[str]) -> list[str]:
+    async def _fetch(refs: list[str], querying_agent_id: uuid.UUID | None) -> list[str]:
+        # No principal to authorize against — fail closed rather than leak raw
+        # message content that the caller has not proven it may read.
+        if querying_agent_id is None:
+            return []
         excerpts: list[str] = []
         for ref in list(dict.fromkeys(refs))[:_MAX_EVIDENCE_EXCERPTS]:
             try:
@@ -200,6 +220,11 @@ def build_evidence_fetcher(
                 continue
             msg = await get_message(message_id)
             if msg is None:
+                continue
+            if not await is_agent_in_chatroom(
+                chatroom_id=msg.chatroom_id,
+                agent_id=querying_agent_id,
+            ):
                 continue
             text = _compact_excerpt(msg.content_md)
             if not text:

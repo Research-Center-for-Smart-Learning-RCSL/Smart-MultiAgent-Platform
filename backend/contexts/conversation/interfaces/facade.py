@@ -25,6 +25,7 @@ from contexts.conversation.domain.models import (
     Workspace,
 )
 from contexts.conversation.infrastructure.repositories import (
+    ChatroomAgentRepository,
     ChatroomGuestRepository,
     ChatroomRepository,
     MessageAttachmentRepository,
@@ -41,6 +42,7 @@ class ConversationFacade:
         self._rooms = ChatroomRepository(db)
         self._messages = MessageRepository(db)
         self._guests = ChatroomGuestRepository(db)
+        self._room_agents = ChatroomAgentRepository(db)
         self._attachments = MessageAttachmentRepository(db)
 
     async def get_workspace(
@@ -91,6 +93,22 @@ class ConversationFacade:
 
     async def get_message(self, message_id: uuid.UUID) -> Message | None:
         return await self._messages.get(message_id)
+
+    async def is_agent_in_chatroom(
+        self,
+        *,
+        chatroom_id: uuid.UUID,
+        agent_id: uuid.UUID,
+    ) -> bool:
+        """Whether an agent is a member of a room (its read-ACL, Phase 2b WS3).
+
+        The GraphRAG evidence fetcher uses this to drop excerpts sourced from
+        rooms the querying agent does not participate in (AC-7).
+        """
+        return await self._room_agents.is_registered(
+            chatroom_id=chatroom_id,
+            agent_id=agent_id,
+        )
 
     async def list_messages(
         self,

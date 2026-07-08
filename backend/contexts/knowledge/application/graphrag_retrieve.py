@@ -39,7 +39,10 @@ class _Embedder:  # pragma: no cover — Protocol-ish duck typing
 
 
 EmbedderFactory = Callable[[ConfigLike], Awaitable[_Embedder]]
-EvidenceFetcher = Callable[[list[str]], Awaitable[list[str]]]
+# Phase 2b WS3 (AC-7): the fetcher takes the querying agent id so it can drop
+# excerpts sourced from rooms that agent may not read. ``None`` means no agent
+# principal is in scope — the fetcher fails closed (returns nothing).
+EvidenceFetcher = Callable[[list[str], uuid.UUID | None], Awaitable[list[str]]]
 
 
 class GraphRagRetrieveService:
@@ -73,6 +76,7 @@ class GraphRagRetrieveService:
         text: str,
         top_k: int = 5,
         hops: int = 2,
+        querying_agent_id: uuid.UUID | None = None,
     ) -> GraphRagBundle:
         cfg = await self._load(config_id)
 
@@ -133,7 +137,9 @@ class GraphRagRetrieveService:
         excerpts: tuple[str, ...] = ()
         if self._evidence_fetcher is not None and evidence_refs:
             unique = list(dict.fromkeys(evidence_refs))[:10]
-            excerpts = tuple(await self._evidence_fetcher(unique))
+            # Pass the querying agent so the fetcher applies the room read-ACL
+            # (WS3 AC-7) — excerpts from rooms the agent cannot read are dropped.
+            excerpts = tuple(await self._evidence_fetcher(unique, querying_agent_id))
 
         # Audit M5: order relations by confidence so the 2 KB bundle cap trims
         # the weakest edges, not an arbitrary slice of traversal-order output.
