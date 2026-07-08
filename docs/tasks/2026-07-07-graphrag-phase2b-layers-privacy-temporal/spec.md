@@ -325,16 +325,21 @@ Security Considerations section is required.
   the shared union.
 - [ ] AC-3: a `chatroom`- and a `workspace`-owned config can be created, built, and retrieved;
   each rejects an owner not in the config's project (RFC 7807).
-- [ ] AC-4: at a turn, retrieval assembles chatroom + enabled agent_group + enabled workspace
+- [x] AC-4: at a turn, retrieval assembles chatroom + enabled agent_group + enabled workspace
   layers under a single 2 KB cap with tiered narrow-first fill (chatroom fills first) and
-  entity dedup keeping the narrowest occurrence.
-- [ ] AC-5: a single-owner (chatroom-only) agent's retrieval output is unchanged from
-  pre-2b behavior (characterization test).
-- [ ] AC-6: agent_group and workspace maps contribute nothing to retrieval unless
+  entity dedup keeping the narrowest occurrence. *(`query_layers` + `_merge_layers_tiered`;
+  unit-verified by `test_query_layers_tiered_fill_and_narrowest_dedup` — order, dedup keeping
+  the narrowest occurrence, no cross-layer re-sort so the 2 KB tail-cap trims the widest first.)*
+- [x] AC-5: a single-owner (chatroom-only) agent's retrieval output is unchanged from
+  pre-2b behavior (characterization test). *(A single-layer assembly is byte-identical to the
+  flat `query`; unit-verified by `test_query_layers_single_layer_matches_query`.)*
+- [x] AC-6: agent_group and workspace maps contribute nothing to retrieval unless
   `concept_map_enabled` is true; only a strict Project Owner can toggle it; each toggle is
-  audit-logged. *(Partial: the strict-Project-Owner toggle + audit half is delivered in WS3
-  (D-6); the "contribute nothing unless enabled" retrieval-gating half is wired by the WS4
-  resolver, so this AC completes in WS4.)*
+  audit-logged. *(Completed across WS3 + WS4: WS3 delivered the strict-Project-Owner toggle +
+  audit (D-6); WS4's `list_layers_for_turn` gates both wide layers on `concept_map_enabled IS
+  TRUE`, so a disabled layer contributes nothing. Wiring-verified by
+  `test_list_layers_for_turn_orders_and_gates_layers` — only the chatroom layer resolves until
+  the wide layers are enabled.)*
 - [x] AC-7: a principal who cannot read a chatroom receives no evidence excerpt sourced from
   that room, even when a shared-layer edge references it. *(Evidence fetcher enforces the
   querying-agent room ACL, fail-closed; unit-verified by `test_graphrag_retrieve.py`
@@ -347,7 +352,10 @@ Security Considerations section is required.
   validated on create/update.
 - [ ] AC-10: deleting a chatroom, workspace, or agent_group purges its owned config's Neo4j
   subgraph and Qdrant points (audit-logged); the reconciler finds no orphan.
-- [ ] AC-11: a member removed from a group loses read access to the group map on the next turn.
+- [x] AC-11: a member removed from a group loses read access to the group map on the next turn.
+  *(The resolver reads live `agent_group_members` on every turn, no cache; wiring-verified by
+  `test_list_layers_for_turn_orders_and_gates_layers` — after `remove_member` the next resolve
+  drops the group layer.)*
 - [ ] AC-12: `pytest -q`, `ruff check .`, `ruff format --check .`, `mypy .` pass; `gen:api`
   regenerated.
 
@@ -512,6 +520,38 @@ user-principal room-flag matrix instead of `chatroom_agents`; "wide-layer cross-
 were confirmed intended: agent read-access *is* `chatroom_agents` membership, and cross-room drop is
 exactly AC-7.
 
+### WS4 — Layered retrieval with tiered fill (implemented)
+
+Delivered as commits `ccf249d..f9112b8` (M2 tiered assembler; M1 `list_layers_for_turn` resolver +
+facade + wiring test; M3 turn-engine wiring + per-layer failure isolation). Completes AC-4 (tiered
+narrow-first fill + narrowest dedup), AC-5 (single-layer byte-identical to the flat path), AC-6 (the
+read-gating half — wide layers gated on `concept_map_enabled IS TRUE`), and AC-11 (live-membership
+resolver drops a removed member's group layer next turn). Local gate: unit tests green
+(`test_graphrag_retrieve.py` 11 passed incl. tiered-fill/dedup, single-layer identity, per-layer
+isolation), 239 passed across the graphrag/turn/observer/conversation suites, `ruff`/`ruff format`
+clean, `mypy` on the 4 touched source files introduces no errors (pre-existing baseline only). AC-4's
+end-to-end and AC-6/AC-11's DB-level checks are covered by the wiring test
+(`test_list_layers_for_turn_orders_and_gates_layers`), which runs in the CI backend-wiring job (the
+local host has no Postgres). Quality + security audits on the WS4 diff returned **no
+Introduced-Critical/Warning findings**; the security pass confirmed the resolver preserves every
+tenant/room/membership boundary (FU-5 not worsened — group membership is trust-bounded to the agent's
+project) and the layered path threads the WS3 evidence room-ACL to every layer.
+
+- **D-8** — The tiered budget fill is realized as **append-narrow-first + the existing 2 KB tail-cap**,
+  not a per-layer byte accounting loop. `_merge_layers_tiered` concatenates layers narrow -> wide with
+  dedup keeping the narrowest occurrence and deliberately does **not** re-sort, so `_cap_to_2kb` trims
+  from the tail — dropping the widest layer's content first and giving each wider layer only the
+  remainder. This reuses the Phase-2a cap verbatim and keeps a single-layer assembly byte-identical to
+  the flat path (AC-5); the spec's "each wider layer uses only the remainder" holds without a second
+  budget mechanism. Recorded per "record, don't silently redesign."
+- **D-9** — `query_layers` runs retrieval **per layer via the existing single-config `_graphrag_query`**,
+  which builds and closes its own Neo4j + Qdrant clients each call. Layer count is bounded
+  (chatroom + <=N groups + workspace) and each layer needs its own config load + embedder anyway, so
+  the extra handshakes are acceptable; hoisting client construction above the loop is deferred to FU-11.
+  A per-layer `try/except` isolates a failing layer (log + continue) so retrieval degrades to fewer
+  layers rather than nuking the whole context — matching the spec's "degrades to fewer/zero layers
+  silently, never fails a turn."
+
 ## 16. Follow-ups
 
 - FU-1 — expose recency half-life and layer enablement in the Phase 4 UI.
@@ -548,6 +588,10 @@ exactly AC-7.
   the use-case services"), so all writes in the context go service-direct. Rerouting a write through
   the read-only facade would break its contract and be inconsistent with create/delete; kept as-is.
   A broader change would introduce a write-capable conversation facade for the whole context.
+- FU-11 (minor, WS4, perf) — `query_layers` retrieves per layer through the single-config
+  `_graphrag_query`, so each layer opens/closes its own Neo4j + Qdrant clients (D-9). Bounded by the
+  layer count, but an L-layer turn does L connect/auth/close handshakes. Hoist client construction
+  above the layer loop and pass shared clients into per-layer retrieval to collapse them to one set.
 - FU-10 (minor, hardening) — the toggle routes raise `AgentGroupNotFound`/`WorkspaceNotFound`
   (404) before the owner check, so a non-owner can distinguish "exists but forbidden" (403) from
   "absent" (404). Negligible behind unguessable v4 UUIDs and it matches the pre-existing
