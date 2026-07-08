@@ -84,8 +84,9 @@ class GraphRagConfigCreateIn(BaseModel):
     builder_key_group_id: uuid.UUID
     trigger_config: GraphRagTriggerConfig = Field(default_factory=GraphRagTriggerConfig)
     # Phase 2b WS5 (R11.21) — optional recency half-life in days; None inherits
-    # the platform default. Must be positive when supplied.
-    recency_half_life_days: float | None = Field(default=None, gt=0)
+    # the platform default. Must be positive and finite when supplied
+    # (allow_inf_nan=False rejects Infinity, which gt=0 alone would admit).
+    recency_half_life_days: float | None = Field(default=None, gt=0, allow_inf_nan=False)
 
 
 class GraphRagConfigPatchIn(BaseModel):
@@ -93,7 +94,7 @@ class GraphRagConfigPatchIn(BaseModel):
 
     builder_key_group_id: uuid.UUID | None = None
     trigger_config: GraphRagTriggerConfig | None = None
-    recency_half_life_days: float | None = Field(default=None, gt=0)
+    recency_half_life_days: float | None = Field(default=None, gt=0, allow_inf_nan=False)
 
 
 class GraphRagConfigOut(BaseModel):
