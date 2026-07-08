@@ -11,7 +11,7 @@ Covers the four branches of the state matrix using trivial fakes:
 from __future__ import annotations
 
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 
@@ -38,6 +38,7 @@ class _Msg:
     id: uuid.UUID
     role: str
     content: str
+    created_at: datetime = field(default_factory=lambda: datetime(2026, 1, 1, tzinfo=UTC))
     source_member_id: uuid.UUID | None = None
 
 

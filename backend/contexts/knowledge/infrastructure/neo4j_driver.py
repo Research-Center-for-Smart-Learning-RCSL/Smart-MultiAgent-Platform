@@ -74,6 +74,7 @@ class Neo4jAsyncDriver:
             "o.name AS object, r.confidence AS confidence, "
             "r.evidence_msg_ids AS evidence_msg_ids, "
             "r.source_member_ids AS source_member_ids, "
+            "r.first_seen_at AS first_seen_at, r.last_seen_at AS last_seen_at, "
             "r.build_id AS build_id"
         )
         # Capture nodes (name, type, build_id) too so a compensation restore
@@ -142,7 +143,17 @@ class Neo4jAsyncDriver:
             # member-scoped retrieval filter stays correct across delta builds.
             "    r.source_member_ids = coalesce(r.source_member_ids, []) + "
             "      [x IN row.source_member_ids "
-            "         WHERE NOT x IN coalesce(r.source_member_ids, [])]"
+            "         WHERE NOT x IN coalesce(r.source_member_ids, [])], "
+            # Phase 2b WS5 (R11.21): keep first_seen earliest / last_seen latest
+            # across delta builds and restatements. A NULL incoming stamp never
+            # clobbers a set one; the values are UTC epoch seconds (numeric), so
+            # < / > compare directly. Mirrors the confidence-max merge above.
+            "    r.first_seen_at = CASE WHEN r.first_seen_at IS NULL "
+            "        OR (row.first_seen_at IS NOT NULL AND row.first_seen_at < r.first_seen_at) "
+            "      THEN row.first_seen_at ELSE r.first_seen_at END, "
+            "    r.last_seen_at = CASE WHEN r.last_seen_at IS NULL "
+            "        OR (row.last_seen_at IS NOT NULL AND row.last_seen_at > r.last_seen_at) "
+            "      THEN row.last_seen_at ELSE r.last_seen_at END"
         )
         rows = [
             {
@@ -154,6 +165,8 @@ class Neo4jAsyncDriver:
                 "subject_type": tr.subject_type,
                 "object_type": tr.object_type,
                 "source_member_ids": list(tr.source_member_ids),
+                "first_seen_at": tr.first_seen_at,
+                "last_seen_at": tr.last_seen_at,
             }
             for tr in triples
         ]
@@ -205,7 +218,8 @@ class Neo4jAsyncDriver:
             "(o:Entity {graphrag_config_id: $cid}) "
             "RETURN s.name AS subject, r.relation AS relation, o.name AS object, "
             "r.confidence AS confidence, r.evidence_msg_ids AS evidence_msg_ids, "
-            "r.source_member_ids AS source_member_ids"
+            "r.source_member_ids AS source_member_ids, "
+            "r.first_seen_at AS first_seen_at, r.last_seen_at AS last_seen_at"
         )
         async with driver.session() as session:
             result = await session.run(
@@ -267,7 +281,12 @@ class Neo4jAsyncDriver:
             "    r.evidence_msg_ids = row.evidence_msg_ids, "
             # coalesce so an older snapshot (taken before member provenance
             # existed) restores to [] rather than nulling the property.
-            "    r.source_member_ids = coalesce(row.source_member_ids, [])"
+            "    r.source_member_ids = coalesce(row.source_member_ids, []), "
+            # WS5: restore the timestamps verbatim. An older snapshot has no such
+            # keys, so row.first_seen_at/last_seen_at are NULL — a timeless edge,
+            # which retrieval treats as pure-confidence (no decay).
+            "    r.first_seen_at = row.first_seen_at, "
+            "    r.last_seen_at = row.last_seen_at"
         )
         async with driver.session() as session:
             if nodes:
@@ -301,7 +320,9 @@ class Neo4jAsyncDriver:
             "                endNode(edge).name AS object, "
             "                edge.confidence AS confidence, "
             "                edge.evidence_msg_ids AS evidence_msg_ids, "
-            "                edge.source_member_ids AS source_member_ids "
+            "                edge.source_member_ids AS source_member_ids, "
+            "                edge.first_seen_at AS first_seen_at, "
+            "                edge.last_seen_at AS last_seen_at "
             # coalesce: a NULL confidence sorts as the largest value in Neo4j, so
             # legacy/restored edges with no confidence would otherwise consume the
             # LIMIT ahead of genuinely strong edges. Treat missing as 0.0.
