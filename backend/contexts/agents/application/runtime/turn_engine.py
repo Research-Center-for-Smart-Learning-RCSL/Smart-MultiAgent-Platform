@@ -275,14 +275,15 @@ class TurnEngine:
             qdrant_url=qdrant_url,
             qdrant_api_key=qdrant_api_key,
         )
+        _conv_facade = ConversationFacade(db)
         self._graphrag_provider = GraphRagContextProvider(
             db,
             router=self._router,
             qdrant_url=qdrant_url,
             qdrant_api_key=qdrant_api_key,
             evidence_fetcher=build_evidence_fetcher(
-                ConversationFacade(db).get_message,
-                ConversationFacade(db).is_agent_in_chatroom,
+                _conv_facade.get_message,
+                _conv_facade.is_agent_in_chatroom,
             ),
         )
         # Rooms whose one-shot POST /compact flag this engine consumed — used

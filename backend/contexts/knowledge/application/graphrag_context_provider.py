@@ -15,7 +15,7 @@ from __future__ import annotations
 import logging
 import uuid
 from collections.abc import Awaitable, Callable, Sequence
-from typing import Any
+from typing import Any, Protocol
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -26,6 +26,16 @@ _log = logging.getLogger(__name__)
 
 _MAX_EVIDENCE_EXCERPTS = 10
 _MAX_EVIDENCE_CHARS = 280
+# Scan bound: examine at most this many refs to find _MAX_EVIDENCE_EXCERPTS
+# readable ones. Caps the fetcher's per-turn DB round-trips while leaving enough
+# headroom to look past unreadable refs the room-ACL filter drops.
+_MAX_EVIDENCE_CANDIDATES = 40
+
+
+class _RoomMembershipCheck(Protocol):
+    """The room read-ACL for an agent — matches ``ConversationFacade.is_agent_in_chatroom``."""
+
+    async def __call__(self, *, chatroom_id: uuid.UUID, agent_id: uuid.UUID) -> bool: ...
 
 
 class GraphRagContextProvider:
@@ -194,7 +204,7 @@ def _compact_excerpt(text: str) -> str:
 
 def build_evidence_fetcher(
     get_message: Callable[[uuid.UUID], Awaitable[Any]],
-    is_agent_in_chatroom: Callable[..., Awaitable[bool]],
+    is_agent_in_chatroom: _RoomMembershipCheck,
 ) -> EvidenceFetcher:
     """Return an EvidenceFetcher that formats conversation messages as excerpts.
 
@@ -205,6 +215,12 @@ def build_evidence_fetcher(
     Privacy gate (WS3 AC-7): each excerpt's source message is dropped unless the
     querying agent participates in the message's chatroom. Evidence is always
     chatroom-sourced, so a missing querying agent fails closed — no excerpts.
+
+    The room-ACL filter runs *before* the excerpt cap: it collects up to
+    ``_MAX_EVIDENCE_EXCERPTS`` readable excerpts by scanning down the ref list
+    (bounded by ``_MAX_EVIDENCE_CANDIDATES``), so unreadable refs at the top of
+    the ranking no longer starve readable ones below them. Membership is
+    memoized per chatroom so refs sharing a room cost a single ACL query.
     """
 
     async def _fetch(refs: list[str], querying_agent_id: uuid.UUID | None) -> list[str]:
@@ -212,8 +228,11 @@ def build_evidence_fetcher(
         # message content that the caller has not proven it may read.
         if querying_agent_id is None:
             return []
+        room_readable: dict[uuid.UUID, bool] = {}
         excerpts: list[str] = []
-        for ref in list(dict.fromkeys(refs))[:_MAX_EVIDENCE_EXCERPTS]:
+        for ref in list(dict.fromkeys(refs))[:_MAX_EVIDENCE_CANDIDATES]:
+            if len(excerpts) >= _MAX_EVIDENCE_EXCERPTS:
+                break
             try:
                 message_id = uuid.UUID(ref)
             except ValueError:
@@ -221,10 +240,14 @@ def build_evidence_fetcher(
             msg = await get_message(message_id)
             if msg is None:
                 continue
-            if not await is_agent_in_chatroom(
-                chatroom_id=msg.chatroom_id,
-                agent_id=querying_agent_id,
-            ):
+            readable = room_readable.get(msg.chatroom_id)
+            if readable is None:
+                readable = await is_agent_in_chatroom(
+                    chatroom_id=msg.chatroom_id,
+                    agent_id=querying_agent_id,
+                )
+                room_readable[msg.chatroom_id] = readable
+            if not readable:
                 continue
             text = _compact_excerpt(msg.content_md)
             if not text:
