@@ -67,6 +67,23 @@ SNAPSHOT_TTL_S = 24 * 60 * 60  # 24h — reconciler runs at 60s period
 MAX_DESC_FRAGMENTS = 40
 
 
+def attach_temporal_provenance(triple: Triple, msg_created_at: dict[str, float]) -> Triple:
+    """Stamp a triple's first/last-seen from its evidence messages (WS5 R11.21).
+
+    ``msg_created_at`` maps message id -> the message's ``created_at`` as UTC epoch
+    seconds, built from the delta feed. A relation's ``first_seen_at`` is the
+    earliest and ``last_seen_at`` the latest ``created_at`` among its evidence
+    messages — derived only from message timestamps, never from LLM output.
+    Returns the triple unchanged when no evidence resolves to a timestamp (a
+    relation the extractor left evidence-less). Neo4j MERGE then keeps first-seen
+    earliest / last-seen latest across delta builds and restatements.
+    """
+    stamps = [msg_created_at[ref] for ref in triple.evidence_refs if ref in msg_created_at]
+    if not stamps:
+        return triple
+    return replace(triple, first_seen_at=min(stamps), last_seen_at=max(stamps))
+
+
 def attach_member_provenance(triple: Triple, msg_member: dict[str, str]) -> Triple:
     """Tag a triple with the member(s) whose messages produced it (R11.22).
 
@@ -260,12 +277,18 @@ class GraphRagBuilder:
             # evidence spans windows. Empty for a single-owner build, leaving
             # triples untagged (source_member_ids == ()).
             msg_member: dict[str, str] = {}
+            # Phase 2b WS5 (R11.21): message id -> created_at (UTC epoch seconds),
+            # accumulated across windows so a relation's first/last-seen resolves
+            # even when its evidence spans windows. Always populated (every
+            # message has a created_at), unlike the member map.
+            msg_created_at: dict[str, float] = {}
             async for window in self._delta_loader.iter_windows(
                 config_id=cfg.id,
                 since=since,
                 mode=mode,
             ):
                 for m in window:
+                    msg_created_at[str(m.id)] = m.created_at.timestamp()
                     if m.source_member_id is not None:
                         msg_member[str(m.id)] = str(m.source_member_id)
                 window_triples = await self._extractor.extract(
@@ -280,6 +303,8 @@ class GraphRagBuilder:
                 # have taken over) so we never write Neo4j concurrently.
                 if not await self._locks.refresh(cfg.id, ttl_s=LOCK_TTL_S):
                     raise GraphRagBuildBusy(f"lock lost during phase-1 for {cfg.id}")
+            if msg_created_at:
+                triples = [attach_temporal_provenance(tr, msg_created_at) for tr in triples]
             if msg_member:
                 triples = [attach_member_provenance(tr, msg_member) for tr in triples]
             n_triples = await self._neo4j.apply_triples(
@@ -570,5 +595,6 @@ __all__ = [
     "ResolvedEmbedder",
     "SNAPSHOT_TTL_S",
     "attach_member_provenance",
+    "attach_temporal_provenance",
     "build_entity_descriptions",
 ]

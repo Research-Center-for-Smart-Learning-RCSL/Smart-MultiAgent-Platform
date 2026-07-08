@@ -7,6 +7,7 @@ import logging
 import uuid
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any
 
 import sqlalchemy as sa
@@ -63,6 +64,9 @@ class _DbMsg:
     id: uuid.UUID
     role: str
     content: str
+    # Phase 2b WS5 (R11.21) — the message's creation time, the source of the
+    # relation's first_seen_at/last_seen_at (from messages, not LLM output).
+    created_at: datetime
     # Phase 2b (R11.22) — the agent_group member whose room feed surfaced this
     # message; ``None`` for a single-owner / non-agent_group build.
     source_member_id: uuid.UUID | None = None
@@ -180,7 +184,13 @@ class _DbDeltaLoader:
                     window = []
                     window_tokens = 0
                 window.append(
-                    _DbMsg(id=r.id, role=r.role, content=content, source_member_id=r.source_member_id)
+                    _DbMsg(
+                        id=r.id,
+                        role=r.role,
+                        content=content,
+                        created_at=r.created_at,
+                        source_member_id=r.source_member_id,
+                    )
                 )
                 window_tokens += tokens
             if len(rows) < self._BATCH_SIZE:
