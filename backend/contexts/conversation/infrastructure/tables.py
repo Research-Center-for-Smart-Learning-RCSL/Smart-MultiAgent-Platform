@@ -15,6 +15,15 @@ workspaces = sa.Table(
         "project_id", pg.UUID(as_uuid=True), sa.ForeignKey("projects.id", ondelete="CASCADE"), nullable=False
     ),
     sa.Column("name", sa.Text, nullable=False),
+    # Phase 2b WS3 (R11.10/R11.17, migration 0046): strict-by-default privacy
+    # opt-in for a workspace-owned Concept Map — disabled until a Project Owner
+    # enables it. Bool NOT NULL, matching the migration server_default false.
+    sa.Column(
+        "concept_map_enabled",
+        sa.Boolean,
+        nullable=False,
+        server_default=sa.text("false"),
+    ),
     sa.Column("created_at", sa.TIMESTAMP(timezone=True), nullable=False, server_default=sa.text("now()")),
     sa.Column("deleted_at", sa.TIMESTAMP(timezone=True), nullable=True),
 )
