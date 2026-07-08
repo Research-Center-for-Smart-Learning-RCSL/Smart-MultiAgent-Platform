@@ -345,11 +345,20 @@ Security Considerations section is required.
   querying-agent room ACL, fail-closed; unit-verified by `test_graphrag_retrieve.py`
   (`..._drops_excerpts_from_unreadable_rooms`, `..._fails_closed_without_querying_agent`).
   The end-to-end integration test runs in the CI Neo4j+Qdrant tier.)*
-- [ ] AC-8: entities/relations carry `first_seen_at` (earliest-wins) and `last_seen_at`
-  (latest-wins) derived from message timestamps, not LLM output.
-- [ ] AC-9: retrieval ranking applies `weight × exp(-Δt / recency_half_life_days)`; a recent
+- [x] AC-8: entities/relations carry `first_seen_at` (earliest-wins) and `last_seen_at`
+  (latest-wins) derived from message timestamps, not LLM output. *(Builder
+  `attach_temporal_provenance` stamps each triple from the source message's `created_at`
+  epoch; Neo4j `apply_triples` MERGE keeps earliest `first_seen_at` / latest `last_seen_at`.
+  Unit-verified by `test_graphrag_builder.py` (temporal provenance) and
+  `test_graphrag_retrieve.py::test_recency_weighted_score_recent_beats_stale`. Timestamps
+  never originate from LLM output — the builder reads `m.created_at`, not extractor fields.)*
+- [x] AC-9: retrieval ranking applies `weight × exp(-Δt / recency_half_life_days)`; a recent
   low-confidence edge can outrank a stale high-confidence one; the half-life is per-config and
-  validated on create/update.
+  validated on create/update. *(`domain.recency_weighted_score` + `edge_rank`; retrieve
+  service ranks on the decayed score. Unit-verified by
+  `test_graphrag_retrieve.py::test_retrieve_reranks_recent_over_stale`;
+  `_validate_half_life` rejects non-positive values (`GraphRagInvalidHalfLife` -> 422) and the
+  API field rejects non-finite input (`allow_inf_nan=False`).)*
 - [ ] AC-10: deleting a chatroom, workspace, or agent_group purges its owned config's Neo4j
   subgraph and Qdrant points (audit-logged); the reconciler finds no orphan.
 - [x] AC-11: a member removed from a group loses read access to the group map on the next turn.
@@ -551,6 +560,44 @@ project) and the layered path threads the WS3 evidence room-ACL to every layer.
   A per-layer `try/except` isolates a failing layer (log + continue) so retrieval degrades to fewer
   layers rather than nuking the whole context — matching the spec's "degrades to fewer/zero layers
   silently, never fails a turn."
+
+### WS5 — Temporal Concept Map (implemented)
+
+Delivered as commits `97ae49b..e02e27d` (M1 `recency_half_life_days` config field + migration 0047 +
+domain `recency_weighted_score` + create/update validation + API plumbing; M2 message-timestamp
+threading builder -> Neo4j earliest/latest MERGE; M3 recency-weighted retrieval ranking; plus close-out
+hardening + a DRY consolidation). Completes AC-8 (edges carry `first_seen_at` earliest-wins /
+`last_seen_at` latest-wins, derived from `message.created_at`, never from LLM output) and AC-9
+(retrieval ranks on `confidence x exp(-Δt / half_life)`, per-config half-life validated on
+create/update). Local gate: unit tests green (`test_graphrag_retrieve.py` recency reranking +
+`test_graphrag_builder.py` temporal provenance, 31 passed across the three touched suites), broad
+regression 203 passed, `ruff`/`ruff format` clean on touched files, `mypy` on the 4 touched source
+files introduces no errors (pre-existing baseline only). AC-8's Neo4j MERGE round-trip is exercised by
+the CI backend-wiring job (no local Neo4j). Quality + security audits on the WS5 diff returned **no
+Introduced-Critical/Warning findings**; the security pass confirmed timestamps are read from
+`message.created_at` (never from extractor/LLM output), a foreign evidence ref is silently dropped
+(`if ref in msg_created_at`), migration 0047 is expand-only, the ORM column type matches the PG type,
+and Cypher stays parameterized with no cross-config leak.
+
+- **D-10** — Timestamps are represented as **float UTC epoch seconds**, not native Neo4j
+  temporal/`datetime` values. Epoch seconds make the earliest/latest MERGE a plain numeric
+  `CASE WHEN row.first_seen_at < r.first_seen_at` comparison and let `recency_weighted_score` do the
+  `exp(-Δt / half_life)` math directly, with NULL coalescing that mirrors the existing confidence
+  handling (NULL last_seen / half_life -> decay factor 1.0; NULL confidence -> 0.0). No consumer needs
+  wall-clock calendar semantics — only age deltas — so the numeric form is both simpler and cheaper.
+- **D-11** — Temporal provenance is stamped in the **builder** (`attach_temporal_provenance`, mirroring
+  `attach_member_provenance`) rather than in the extractor as the WS5 prose literally reads. The
+  extractor sees only text spans; the builder is where each triple is already being joined back to its
+  source `DeltaMessage`, so it is the single place that owns `message.created_at`. Placing the stamp in
+  the extractor would require threading message metadata into a component whose contract is text->triples.
+  This is the correct realization of "derived from message timestamps, not LLM output" and keeps the LLM
+  trust boundary intact.
+
+**Close-out hardening** (commits `972de9a`, `e02e27d`). The security audit noted `recency_half_life_days`
+(`gt=0`) still admitted `Infinity` via Pydantic's default `allow_inf_nan=True`, which would silently
+disable decay — fixed with `allow_inf_nan=False` on the create + patch fields. The quality audit's one
+Info nit (the `score`-else-`confidence` rank fallback duplicated between the retrieve-service sort and
+the context-provider merge) is resolved by promoting a single `domain.edge_rank` helper both now call.
 
 ## 16. Follow-ups
 
