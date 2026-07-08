@@ -27,6 +27,16 @@ agent_groups = sa.Table(
         nullable=False,
     ),
     sa.Column("name", sa.Text, nullable=False),
+    # Phase 2b WS3 (R11.10/R11.17, migration 0046): strict-by-default privacy
+    # opt-in. A wide (agent_group) Concept Map contributes nothing to retrieval
+    # until a Project Owner enables it. Bool NOT NULL — matches the migration
+    # server_default false (ORM enum/type-match rule).
+    sa.Column(
+        "concept_map_enabled",
+        sa.Boolean,
+        nullable=False,
+        server_default=sa.text("false"),
+    ),
     sa.Column("created_at", sa.TIMESTAMP(timezone=True), nullable=False, server_default=sa.text("now()")),
     sa.Column("deleted_at", sa.TIMESTAMP(timezone=True), nullable=True),
 )
