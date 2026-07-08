@@ -498,6 +498,20 @@ remain deferred to CI (D-5, same host constraint).
   then gate). Both routes reach the identical strict-owner decision; unifying the two owner surfaces is
   tracked as FU-7.
 
+**Code-review remediation** (commits `7e9c9e4..8d3dd1b`). A precision code-review pass (8 finder
+angles + verify) over the WS3 diff surfaced one substantive correctness item and several nits, all
+fixed in-scope: (1) the evidence fetcher applied the `_MAX_EVIDENCE_EXCERPTS` cap *before* the room-ACL
+filter, so unreadable refs at the top of the ranking could starve readable ones below them — now
+filters first and caps after, scanning a bounded candidate window; (2) `is_agent_in_chatroom` is
+memoized per chatroom (FU-8); (3) the injected ACL check is typed via a `Protocol`; (4) the concept-map
+toggle UPDATE gained a `deleted_at IS NULL` guard and NotFound-on-lost-race so a concurrent soft-delete
+can no longer write/audit a tombstoned owner; (5) the strict-Project-Owner gate is centralized in
+`deps.assert_project_owner` (FU-7 authz half); (6) a regression test pins filter-before-cap +
+memoization and asserts the service forwards `querying_agent_id`. The two refuted findings (use the
+user-principal room-flag matrix instead of `chatroom_agents`; "wide-layer cross-room evidence dropped")
+were confirmed intended: agent read-access *is* `chatroom_agents` membership, and cross-room drop is
+exactly AC-7.
+
 ## 16. Follow-ups
 
 - FU-1 — expose recency half-life and layer enablement in the Phase 4 UI.
@@ -517,20 +531,23 @@ remain deferred to CI (D-5, same host constraint).
   (`graphrag_repositories._OWNER_COLUMN`, API `_owner_id`, service `_config_owner` /
   `_assert_owner_in_project`, worker `_resolve_delta_scope`); a future 4th owner kind touches
   all five. Literal-constrained so not a defect — consider centralizing the kind→column map.
-- FU-7 (minor, WS3) — the two owner-toggle routes diverge: `agent_groups.py` delegates to an
-  `_assert_project_owner` helper + facade, while `workspaces.py` inlines the equivalent check
-  (D-7). Both also double-fetch the owner (route resolves project for authz, then the service
-  re-fetches for the audit `project_id`). Unify behind a shared owner-authz helper and let the
-  services surface the resolved owner so the route need not pre-fetch.
-- FU-8 (minor, WS3, perf) — the evidence fetcher issues one `is_agent_in_chatroom` query per
-  surviving excerpt on top of the per-ref `get_message` (2N round-trips, bounded by
-  `_MAX_EVIDENCE_EXCERPTS`=10). A batched membership check (one `WHERE chatroom_id IN (...)`)
-  would collapse the ACL round-trips if evidence volume grows.
-- FU-9 (pre-existing, conversation) — `app/api/v1/workspaces.py` route handlers instantiate
-  `WorkspaceService(db)` directly (`list_workspaces`, `create_workspace`, and the new toggle)
-  instead of going through `ConversationFacade`, against the CLAUDE.md "call the facade, never
-  instantiate services" rule. Predates WS3; the new route followed the file's pattern. Route the
-  workspace write use-cases through the facade in a dedicated cleanup.
+- FU-7 (WS3, authz half resolved) — the owner-gate is now centralized in
+  `app/api/v1/deps.py:assert_project_owner` (admin bypass + `is_project_owner` + forbidden), called
+  by both toggle routes; the agent-groups helper delegates to it and the private `_raise_forbidden`
+  import is gone from the route files. **Still open:** the double-fetch (route resolves the owner for
+  authz, then the service re-fetches for the audit `project_id`) — a service that surfaces the
+  resolved owner would remove the second read.
+- FU-8 (WS3, largely resolved) — the evidence fetcher now memoizes `is_agent_in_chatroom` per
+  chatroom, so refs sharing a room cost one ACL query instead of one per excerpt (worst case = number
+  of distinct rooms among the candidates, not the excerpt count). A single batched
+  `WHERE chatroom_id IN (...)` remains a further optional optimization if evidence volume grows.
+- FU-9 (pre-existing, conversation; won't-fix by convention) — `app/api/v1/workspaces.py` route
+  handlers instantiate `WorkspaceService(db)` directly (`list_workspaces`, `create_workspace`, the
+  toggle), against the generic CLAUDE.md "call the facade" rule. In the conversation context this is
+  the *documented* convention: `ConversationFacade` is explicitly read-only ("Writers must go through
+  the use-case services"), so all writes in the context go service-direct. Rerouting a write through
+  the read-only facade would break its contract and be inconsistent with create/delete; kept as-is.
+  A broader change would introduce a write-capable conversation facade for the whole context.
 - FU-10 (minor, hardening) — the toggle routes raise `AgentGroupNotFound`/`WorkspaceNotFound`
   (404) before the owner check, so a non-owner can distinguish "exists but forbidden" (403) from
   "absent" (404). Negligible behind unguessable v4 UUIDs and it matches the pre-existing
