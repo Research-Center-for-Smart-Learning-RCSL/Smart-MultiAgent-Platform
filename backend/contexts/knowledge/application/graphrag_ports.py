@@ -172,6 +172,9 @@ class DeltaMessage(Protocol):
     # ``None`` for a non-agent_group owner (chatroom/workspace feed) or a
     # single-owner build where provenance is not partitioned.
     source_member_id: uuid.UUID | None
+    # Phase 2b WS5 (R11.21) — the message's creation time, the source of the
+    # relation's first_seen_at/last_seen_at (derived from messages, not the LLM).
+    created_at: datetime
 
 
 class TripleExtractor(Protocol):
@@ -218,6 +221,9 @@ class ConfigLike(Protocol):
 
     @property
     def embed_dim(self) -> int | None: ...
+
+    @property
+    def recency_half_life_days(self) -> float | None: ...
 
 
 class GraphRagConfigRepositoryPort(Protocol):

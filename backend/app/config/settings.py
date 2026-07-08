@@ -81,6 +81,11 @@ class GraphRagSection(BaseSettings):
     # the shared worker resources; the semaphore bounds concurrent heavy work.
     build_concurrency: int = 4
 
+    # Phase 2b WS5 (R11.21): platform default Concept Map recency half-life, in
+    # days, used when a config leaves ``recency_half_life_days`` NULL. Retrieval
+    # weights an edge by ``exp(-Δt / halflife)`` over its ``last_seen_at``.
+    recency_half_life_days_default: float = 30.0
+
 
 class MinioSection(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="SMAP_MINIO_", extra="ignore")

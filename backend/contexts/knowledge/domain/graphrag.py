@@ -12,10 +12,37 @@ from __future__ import annotations
 
 import enum
 import json
+import math
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
+
+_SECONDS_PER_DAY = 86_400.0
+
+
+def recency_weighted_score(
+    *,
+    confidence: float | None,
+    last_seen_at: float | None,
+    half_life_days: float | None,
+    now: float,
+) -> float:
+    """Recency-decayed ranking weight (R11.21, WS5 AC-9).
+
+    ``confidence × exp(-Δt / halflife)`` where ``Δt`` is the age of the edge's
+    ``last_seen_at`` (UTC epoch seconds) at ``now``. Coalesces the same way NULL
+    confidence already does in traversal: a missing ``confidence`` is 0.0, and a
+    missing ``last_seen_at`` or half-life leaves the weight at pure confidence
+    (decay factor 1.0) so legacy/timeless edges are never buried below zero.
+    A recent low-confidence edge can outrank a stale high-confidence one when the
+    half-life is short — the point of the temporal ranking.
+    """
+    conf = confidence if confidence is not None else 0.0
+    if last_seen_at is None or not half_life_days or half_life_days <= 0:
+        return conf
+    age_seconds = max(0.0, now - last_seen_at)
+    return conf * math.exp(-age_seconds / (half_life_days * _SECONDS_PER_DAY))
 
 
 class BuildState(str, enum.Enum):
@@ -56,6 +83,9 @@ class GraphRagConfig:
     owner_chatroom_id: uuid.UUID | None = None
     owner_agent_group_id: uuid.UUID | None = None
     owner_workspace_id: uuid.UUID | None = None
+    # Phase 2b WS5 (R11.21) — per-config recency half-life in days for temporal
+    # retrieval decay. ``None`` inherits the platform default setting.
+    recency_half_life_days: float | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -73,6 +103,9 @@ class GraphRagConfigDraft:
     owner_id: uuid.UUID
     builder_key_group_id: uuid.UUID
     trigger_config: dict[str, Any] = field(default_factory=dict)
+    # Phase 2b WS5 (R11.21) — optional per-config recency half-life in days;
+    # ``None`` leaves the config on the platform default. Validated > 0.
+    recency_half_life_days: float | None = None
 
 
 # Opaque evidence references (chat message ids today, document chunk refs for a
@@ -133,6 +166,13 @@ class Triple:
     # each member's true contributions. Empty for a non-agent_group owner or a
     # relation with no resolvable member provenance.
     source_member_ids: tuple[str, ...] = ()
+    # Phase 2b WS5 (R11.21) — the earliest/latest source-message timestamps
+    # (UTC epoch seconds) this relation was seen at, derived from the evidence
+    # messages' ``created_at`` (never from LLM output). ``None`` when no evidence
+    # resolves to a timestamp. Neo4j MERGE keeps first_seen earliest, last_seen
+    # latest across delta builds; retrieval decays ranking by ``last_seen_at``.
+    first_seen_at: float | None = None
+    last_seen_at: float | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -157,6 +197,14 @@ class RelationEdge:
     # the Neo4j edge so a member-scoped retrieval can filter. Empty for a
     # non-agent_group / legacy edge.
     source_member_ids: tuple[str, ...] = ()
+    # Phase 2b WS5 (R11.21) — earliest/latest source-message timestamps (UTC
+    # epoch seconds) carried from the Neo4j edge, and ``score`` the recency-
+    # weighted rank the retrieve service computes (``confidence × exp(-Δt /
+    # halflife)`` on ``last_seen_at``). ``None`` on a legacy/timeless edge, which
+    # then ranks on pure confidence.
+    first_seen_at: float | None = None
+    last_seen_at: float | None = None
+    score: float | None = None
 
 
 @dataclass(frozen=True, slots=True)

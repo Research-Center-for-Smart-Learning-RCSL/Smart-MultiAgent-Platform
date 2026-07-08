@@ -51,6 +51,10 @@ graphrag_configs = sa.Table(
     sa.Column("embed_dim", sa.Integer, nullable=True),
     sa.Column("created_at", sa.TIMESTAMP(timezone=True), nullable=False, server_default=sa.text("now()")),
     sa.Column("deleted_at", sa.TIMESTAMP(timezone=True), nullable=True),
+    # Phase 2b WS5 (R11.21, migration 0047): per-config recency half-life in days
+    # for temporal retrieval decay. Nullable — NULL inherits the platform default
+    # setting. Plain Float, matching the migration's DOUBLE PRECISION.
+    sa.Column("recency_half_life_days", sa.Float, nullable=True),
     # Discriminated owner (Phase 1, R11.05/R11.07/R11.08). The contract migration
     # (0044) made owner_kind NOT NULL, added the exactly-one-owner CHECK, and
     # dropped the legacy ``agent_id`` anchor. The owning agent (when the owner is

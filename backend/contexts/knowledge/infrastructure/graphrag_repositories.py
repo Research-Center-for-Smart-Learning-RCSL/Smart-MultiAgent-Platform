@@ -73,6 +73,7 @@ def _row_to_config(row: Any) -> GraphRagConfig:
         owner_chatroom_id=row.owner_chatroom_id,
         owner_agent_group_id=row.owner_agent_group_id,
         owner_workspace_id=row.owner_workspace_id,
+        recency_half_life_days=row.recency_half_life_days,
     )
 
 
@@ -101,6 +102,7 @@ class GraphRagConfigRepository(GraphRagConfigRepositoryPort):
         embed_provider: str | None = None,
         embed_model: str | None = None,
         embed_dim: int | None = None,
+        recency_half_life_days: float | None = None,
     ) -> GraphRagConfig:
         """Insert a config for a discriminated owner (Phase 2b WS2).
 
@@ -118,6 +120,7 @@ class GraphRagConfigRepository(GraphRagConfigRepositoryPort):
                     embed_provider=embed_provider,
                     embed_model=embed_model,
                     embed_dim=embed_dim,
+                    recency_half_life_days=recency_half_life_days,
                     **{owner_col: owner_id},
                 )
             )
@@ -356,17 +359,23 @@ class GraphRagConfigRepository(GraphRagConfigRepositoryPort):
         config_id: uuid.UUID,
         builder_key_group_id: uuid.UUID | None = None,
         trigger_config: dict[str, Any] | None = None,
+        recency_half_life_days: float | None = None,
     ) -> None:
         """Partial update of a GraphRAG config (R11.05 — edit trigger / key-group).
 
-        Only the two fields the spec allows the user to mutate are accepted;
-        ``agent_id`` is immutable post-create (1:1 with config in DB).
+        Only the fields the spec allows the user to mutate are accepted;
+        ``agent_id`` is immutable post-create (1:1 with config in DB). A ``None``
+        argument means "leave unchanged" (patch semantics), so the recency
+        half-life cannot be cleared back to the platform default via update — a
+        deliberate limitation (WS5); set a positive value to override it.
         """
         values: dict[str, Any] = {}
         if builder_key_group_id is not None:
             values["builder_key_group_id"] = builder_key_group_id
         if trigger_config is not None:
             values["trigger_config"] = trigger_config
+        if recency_half_life_days is not None:
+            values["recency_half_life_days"] = recency_half_life_days
         if not values:
             return
         await self._db.execute(

@@ -23,6 +23,7 @@ from contexts.knowledge.domain.errors import (
     GraphRagBuilderKeyGroupProjectMismatch,
     GraphRagConfigNotFound,
     GraphRagEmbedDimensionConflict,
+    GraphRagInvalidHalfLife,
     GraphRagOwnerProjectMismatch,
 )
 from contexts.knowledge.domain.graphrag import (
@@ -42,6 +43,12 @@ if TYPE_CHECKING:
     from contexts.knowledge.infrastructure.graphrag_vector_store import GraphRagVectorStore
 
 _log = logging.getLogger(__name__)
+
+
+def _validate_half_life(value: float | None) -> None:
+    """Reject a non-positive recency half-life (WS5, R11.21). ``None`` is allowed."""
+    if value is not None and value <= 0:
+        raise GraphRagInvalidHalfLife(f"recency_half_life_days must be > 0, got {value}")
 
 
 class GraphRagConfigService:
@@ -66,6 +73,7 @@ class GraphRagConfigService:
         await self._assert_owner_in_project(
             owner_kind=draft.owner_kind, owner_id=draft.owner_id, project_id=project_id
         )
+        _validate_half_life(draft.recency_half_life_days)
 
         builder_group = (
             await self._db.execute(
@@ -98,6 +106,7 @@ class GraphRagConfigService:
             embed_provider=embed_provider,
             embed_model=embed_model,
             embed_dim=embed_dim,
+            recency_half_life_days=draft.recency_half_life_days,
         )
         await audit.emit(
             self._db,
@@ -299,18 +308,23 @@ class GraphRagConfigService:
         config_id: uuid.UUID,
         builder_key_group_id: uuid.UUID | None,
         trigger_config: dict[str, Any] | None,
+        recency_half_life_days: float | None = None,
         actor_user_id: uuid.UUID,
         actor_ip: str | None,
         request_id: uuid.UUID | None = None,
     ) -> GraphRagConfig:
-        """R11.05 partial update — edit trigger config or builder key group.
+        """R11.05 partial update — edit trigger config, builder key group, or the
+        recency half-life (WS5).
 
         Re-checks that a swapped builder key group still lives in the config's
         project. The former builder-vs-agent-consumer distinctness check is
         dropped in Phase 1: ownership is an agent_group, not a single agent, so
         there is no per-agent consumer key group for the builder to collide with.
+        A provided ``recency_half_life_days`` is validated positive; ``None``
+        leaves it unchanged (patch semantics).
         """
         cfg = await self.get(config_id)
+        _validate_half_life(recency_half_life_days)
         # D6: owner is immutable post-create, but re-assert defensively that it
         # still lives in the config's project before any mutation.
         owner_kind, owner_id = await self._config_owner(config_id)
@@ -346,6 +360,7 @@ class GraphRagConfigService:
             config_id=config_id,
             builder_key_group_id=builder_key_group_id,
             trigger_config=trigger_config,
+            recency_half_life_days=recency_half_life_days,
         )
         if group_changed and new_pin is not None:
             await self._configs.set_embed_pin(
@@ -368,6 +383,7 @@ class GraphRagConfigService:
                         builder_key_group_id is not None and builder_key_group_id != cfg.builder_key_group_id
                     ),
                     "trigger_config_changed": trigger_config is not None,
+                    "recency_half_life_days_changed": recency_half_life_days is not None,
                 },
                 request_id=request_id,
             ),
