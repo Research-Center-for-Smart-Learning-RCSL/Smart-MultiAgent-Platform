@@ -86,6 +86,10 @@ class GraphRagConfig:
     # Phase 2b WS5 (R11.21) — per-config recency half-life in days for temporal
     # retrieval decay. ``None`` inherits the platform default setting.
     recency_half_life_days: float | None = None
+    # Phase 4α — the owner's display name, populated on the project-scoped read
+    # paths (``_config_select``) so the Concept Maps overview can render it. Other
+    # reads (turn resolver, membership feed) leave it ``None``.
+    owner_name: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -124,6 +128,20 @@ class AgentConceptMapCoverage:
     config: GraphRagConfig
     owner_name: str
     active: bool
+
+
+@dataclass(frozen=True, slots=True)
+class ConceptMapOwnerOption:
+    """A selectable owner for creating a Concept Map (Phase 4α overview picker).
+
+    An owner (agent_group / chatroom / workspace) in the project that does not yet
+    own a live Concept Map — the per-owner 1:1 means an owner with a map is not a
+    valid create target and is excluded.
+    """
+
+    owner_kind: str
+    owner_id: uuid.UUID
+    owner_name: str
 
 
 # Opaque evidence references (chat message ids today, document chunk refs for a
