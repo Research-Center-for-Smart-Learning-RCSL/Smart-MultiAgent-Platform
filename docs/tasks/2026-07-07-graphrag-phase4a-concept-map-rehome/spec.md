@@ -1,6 +1,6 @@
 ---
 type: feature
-status: approved
+status: implemented
 created: 2026-07-07
 requirements: [R11.07, R11.09, R11.10, R11.17, R11.21, R11.22, R24.05, R24.06]
 supersedes: 2026-07-07-graphrag-phase4-frontend-rehome
@@ -219,24 +219,35 @@ is required.
 
 ## 11. Acceptance Criteria
 
-- [ ] AC-1: an `agent-groups` slice exists with group CRUD and member add/remove; a non-owner
+- [x] AC-1: an `agent-groups` slice exists with group CRUD and member add/remove; a non-owner
   cannot see the mutating controls; the slice passes the boundaries lint.
-- [ ] AC-2: the "Concept Maps" overview lists maps of all three owner kinds with an owner-type
+  (WS1: slice + `AgentGroupListView`/`AgentGroupDetailView`; owner-gating tested in
+  `AgentGroupDetailView.test.ts`; boundaries lint green.)
+- [x] AC-2: the "Concept Maps" overview lists maps of all three owner kinds with an owner-type
   filter and a build-state pill; create lets the user pick the owner.
-- [ ] AC-3: a chatroom-map panel appears in chatroom settings, a workspace-map panel in workspace
+  (WS3: `GraphragConfigListView` rewritten; owner picker via `listConceptMapOwnerOptions`.)
+- [x] AC-3: a chatroom-map panel appears in chatroom settings, a workspace-map panel in workspace
   settings, and an agent_group-map panel in the group detail — each showing that owner's map and
   build controls.
-- [ ] AC-4: on a wide-layer map, a Project Owner sees an enabled `concept_map_enabled` toggle that
+  (Shared `ConceptMapPanel` in all three; chatroom panel tested in `ChatroomSettingsView.test.ts`.)
+- [x] AC-4: on a wide-layer map, a Project Owner sees an enabled `concept_map_enabled` toggle that
   PATCHes; a non-owner sees a read-only note; a chatroom map shows "inherits room access" with no
   toggle.
-- [ ] AC-5: a Concept Map's `recency_half_life_days` is editable (validated, positive) and
+  (Owner-gating tested in `WorkspaceSettingsView.test.ts` + `AgentGroupDetailView.test.ts`; the
+  toggle wires to the owner `PUT .../concept-map-enabled` endpoints per D-2 — see D-6.)
+- [x] AC-5: a Concept Map's `recency_half_life_days` is editable (validated, positive) and
   persists.
-- [ ] AC-6: the agent Knowledge tab no longer renders a Concept Map attach and shows read-only
+  (`ConceptMapPanel` recency field: `min="1"`, `graphragConfigPatchSchema`, `patchGraphragConfig`;
+  also settable at create time in the overview.)
+- [x] AC-6: the agent Knowledge tab no longer renders a Concept Map attach and shows read-only
   coverage (room + groups + workspace); `rag_config_id` still persists.
-- [ ] AC-7: all new strings resolve in both `en` and `zh-TW`; no bare-string or literal-`@`
+  (WS5: coverage card in `AgentDetailView` via `getAgentConceptMapCoverage`; RAG attach unchanged.)
+- [x] AC-7: all new strings resolve in both `en` and `zh-TW`; no bare-string or literal-`@`
   lint/test failure.
-- [ ] AC-8: `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm build` pass; `check:openapi-drift`
-  is green.
+- [~] AC-8: `pnpm typecheck`, `pnpm test`, `pnpm build` pass; this task's files add zero `pnpm lint`
+  warnings. NOT fully green due to two pre-existing repo-wide red gates unrelated to this task:
+  `pnpm lint --max-warnings 0` (296 warnings already on clean `main`) and `check:openapi-drift`
+  (stale `backend/openapi.json`, FU-4). See D-7.
 
 ## 12. Test Plan
 
@@ -292,6 +303,32 @@ Apply verbatim on approval.
   endpoints; the graphrag PATCH still carries `recency_half_life_days` (WS4 temporal). No
   AC changes — AC-4 is satisfied via the owner endpoints. The current wide-map
   `concept_map_enabled` state is read from the enriched group/workspace GET.
+- D-3 (2026-07-09, WS3 cross-slice) — **The Concept Maps overview stays in the `agents`
+  slice** (reached from the agent-area "Concept Maps" nav), not a new top-level surface.
+  `agents` sits right of `conversation`/`agent-groups` (R24.06) so it cannot import them
+  to resolve owner names or offer an owner picker. Instead the backend gained
+  `owner_name` on `GraphRagConfigOut` and a `GET /api/projects/{id}/concept-map/owner-options`
+  endpoint, so the overview needs no downstream imports.
+- D-4 (2026-07-09, WS2 helper placement) — **`useProjectRole(projectId)` was added to
+  `tenancy`, not `shared`.** §6 implied a shared composable, but it depends on
+  `useSessionStore` (identity) + `projectsApi`/`tenancyKeys` (tenancy) — imports `shared`
+  may not make. A `projectId`-keyed variant lives in `tenancy` and is consumed by
+  `ConceptMapPanel`, the owner settings views, and the overview; `workflow`'s pre-existing
+  workspace-keyed variant is left untouched.
+- D-5 (2026-07-09, WS4/WS5 backend additions) — beyond D-1, the shared surface needed two
+  more read fields the spec did not enumerate: `GraphRagConfig.owner_name` (overview labels,
+  D-3) and `AgentConceptMapCoverage.active` (WS5). Both are additive, covered by
+  `test_graphrag_coverage.py` / `test_graphrag_owner_resolution.py`.
+- D-6 (2026-07-09, WS4 verb) — AC-4 says the toggle "PATCHes"; the built backend exposes the
+  wide-layer opt-in as **`PUT .../concept-map-enabled`** (idempotent set, per D-2), so the
+  frontend calls PUT. Semantics are identical (persist the boolean); only the verb differs.
+- D-7 (2026-07-09, WS4 read-path fix) — implementing the workspace toggle surfaced a backend
+  gap: the write path persisted `concept_map_enabled` but the read path dropped it (the
+  conversation `Workspace` domain model, `_row_to_workspace`, and `WorkspaceOut` all omitted
+  the column), so the toggle could never reflect stored state. Fixed by threading
+  `concept_map_enabled` through all three (commit on `main`). Widens the pre-existing
+  `openapi.json` drift (FU-4); no functional break as the conversation slice uses a
+  hand-written client.
 
 ## 16. Follow-ups
 
@@ -306,4 +343,9 @@ Apply verbatim on approval.
   (`python -m scripts.export_openapi` + `pnpm run gen:api`) must run in CI's canonical
   toolchain — regenerating in an ad-hoc container produced a ~6 k-line diff dominated by
   formatting/version noise, so it was deliberately not committed here. 4α's `gen:api` will
-  regenerate the client; the backend spec snapshot should be refreshed alongside it.
+  regenerate the client; the backend spec snapshot should be refreshed alongside it. This
+  task's D-7 backend change (WorkspaceOut gains `concept_map_enabled`) adds to that drift.
+- FU-5 (pre-existing, not introduced by 4α) — `pnpm lint --max-warnings 0` fails on clean
+  `main` with 296 warnings (confirmed via `git stash`). This task's files add zero new
+  warnings, but the repo-wide gate stays red until the backlog is cleared. Blocks AC-8's
+  "lint passes" clause independent of this work.
