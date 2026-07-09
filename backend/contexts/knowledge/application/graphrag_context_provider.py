@@ -59,6 +59,12 @@ class GraphRagContextProvider:
         self._qdrant_url = qdrant_url
         self._qdrant_api_key = qdrant_api_key
         self._evidence_fetcher = evidence_fetcher
+        # Turn-scoped Neo4j driver + Qdrant client, set for the duration of one
+        # query()/query_layers() call by _get_turn_clients and torn down by
+        # _close_turn_clients in that call's `finally`. A fresh TurnEngine (and
+        # so a fresh provider) is built per turn/task — see the class docstring
+        # — so this instance is never shared across concurrent turns.
+        self._turn_clients: tuple[Any, Any] | None = None
 
     async def query(
         self,
@@ -93,6 +99,8 @@ class GraphRagContextProvider:
                 exc_info=True,
             )
             return None
+        finally:
+            await self._close_turn_clients()
 
     async def query_layers(
         self,
@@ -111,6 +119,12 @@ class GraphRagContextProvider:
         narrowest occurrence, so a shared wide layer never dilutes the agent's
         own room memory. A single-layer call is byte-identical to :meth:`query`.
 
+        The Neo4j driver + Qdrant client are built ONCE for the whole turn (on
+        the first layer's retrieval) and reused across every subsequent layer
+        instead of rebuilt per layer — they are invariant across configs the
+        same way they are across a single config's queries, so a multi-layer
+        turn no longer pays N connect/auth handshakes.
+
         Like :meth:`query`, any failure degrades to ``None`` — never a raised
         turn error.
         """
@@ -121,10 +135,9 @@ class GraphRagContextProvider:
             layer_bundles: list[Any] = []
             for config_id in graphrag_config_ids:
                 # Per-layer retrieval, isolated: one failing layer degrades to
-                # fewer layers rather than dropping the whole context. Clients
-                # rebuild per layer, but the layer count is bounded (chatroom +
-                # <=N groups + workspace) and each layer needs its own config
-                # load + embedder anyway.
+                # fewer layers rather than dropping the whole context. The layer
+                # count is bounded (chatroom + <=N groups + workspace) and each
+                # layer still needs its own config load + embedder.
                 try:
                     per_query = await self._graphrag_query(config_id, queries, querying_agent_id)
                 except Exception:
@@ -148,8 +161,58 @@ class GraphRagContextProvider:
                 exc_info=True,
             )
             return None
+        finally:
+            await self._close_turn_clients()
 
     # -- internal wiring ------------------------------------------------
+
+    async def _get_turn_clients(self) -> tuple[Any, Any] | None:
+        """Return this turn's (Neo4j driver, Qdrant client), building them on
+        first use and caching on ``self`` for the rest of the turn.
+
+        ``None`` if the infrastructure isn't configured. Torn down by
+        :meth:`_close_turn_clients` in the ``query``/``query_layers`` caller's
+        ``finally`` — never rebuilt mid-turn, so a multi-layer
+        :meth:`query_layers` call pays one connect/auth handshake, not one per
+        layer.
+        """
+        if self._turn_clients is not None:
+            return self._turn_clients
+
+        from app.config.settings import get_settings
+
+        settings = get_settings()
+        neo4j_conf = getattr(settings, "neo4j", None)
+        if neo4j_conf is None or self._qdrant_url is None:
+            return None
+
+        from qdrant_client import AsyncQdrantClient
+
+        from contexts.knowledge.infrastructure.neo4j_driver import Neo4jAsyncDriver
+
+        driver = Neo4jAsyncDriver(
+            uri=neo4j_conf.url,
+            auth=(neo4j_conf.user, neo4j_conf.password),
+        )
+        qclient = AsyncQdrantClient(
+            url=self._qdrant_url,
+            api_key=self._qdrant_api_key or None,
+        )
+        self._turn_clients = (driver, qclient)
+        return self._turn_clients
+
+    async def _close_turn_clients(self) -> None:
+        # `getattr` guards a subclass whose `__init__` never calls `super()` —
+        # this codebase's own unit-test fakes override `_graphrag_query` and
+        # skip `_get_turn_clients` entirely, so `_turn_clients` is never set on
+        # them; `query`/`query_layers` still call this in their `finally`.
+        turn_clients = getattr(self, "_turn_clients", None)
+        if turn_clients is None:
+            return
+        driver, qclient = turn_clients
+        self._turn_clients = None
+        await qclient.close()
+        await driver.close()
 
     async def _graphrag_query(
         self,
@@ -159,22 +222,24 @@ class GraphRagContextProvider:
     ) -> list[Any]:
         """Production GraphRAG retrieval wiring (E.8).
 
-        Builds the Neo4j + Qdrant clients and resolves the embedding key once,
-        then runs every query through a single retriever — the clients and key
-        are invariant across the queries for one config, so per-query rebuilds
-        would just repeat the connect/auth handshakes and the embed-key lookup.
+        Uses this turn's shared Neo4j driver + Qdrant client (built once via
+        :meth:`_get_turn_clients`, not per call) and resolves the embedding key
+        once, then runs every query through a single retriever — the clients
+        and key are invariant across the queries for one config, so per-query
+        rebuilds would just repeat the connect/auth handshakes and the
+        embed-key lookup.
 
         Seam for unit tests — fakes replace this method to exercise
-        :meth:`query` without a live Neo4j/Qdrant stack.
+        :meth:`query`/:meth:`query_layers` without a live Neo4j/Qdrant stack.
         """
+        clients = await self._get_turn_clients()
+        if clients is None:
+            return []
+        driver, qclient = clients
+
         from app.config.settings import get_settings
 
         settings = get_settings()
-        neo4j_conf = getattr(settings, "neo4j", None)
-        if neo4j_conf is None or self._qdrant_url is None:
-            return []
-
-        from qdrant_client import AsyncQdrantClient
 
         from contexts.knowledge.application.graphrag_retrieve import (
             GraphRagRetrieveService,
@@ -186,7 +251,6 @@ class GraphRagContextProvider:
         from contexts.knowledge.infrastructure.graphrag_vector_store import (
             GraphRagVectorStore,
         )
-        from contexts.knowledge.infrastructure.neo4j_driver import Neo4jAsyncDriver
 
         # Resolve+build the embedder once and reuse it for every query — the
         # key group and model are the same across a config's queries.
@@ -209,39 +273,27 @@ class GraphRagContextProvider:
             embedder_cache[cfg.id] = embedder
             return embedder
 
-        driver = Neo4jAsyncDriver(
-            uri=neo4j_conf.url,
-            auth=(neo4j_conf.user, neo4j_conf.password),
+        svc = GraphRagRetrieveService(
+            self._db,
+            neo4j=driver,
+            vector_store=GraphRagVectorStore(qclient),
+            embedder_factory=_embedder_factory,
+            configs=GraphRagConfigRepository(self._db),
+            evidence_fetcher=self._evidence_fetcher,
+            # WS5 (R11.21): the platform recency half-life default a config
+            # inherits when it leaves recency_half_life_days NULL.
+            default_half_life_days=settings.graphrag.recency_half_life_days_default,
         )
-        qclient = AsyncQdrantClient(
-            url=self._qdrant_url,
-            api_key=self._qdrant_api_key or None,
-        )
-        try:
-            svc = GraphRagRetrieveService(
-                self._db,
-                neo4j=driver,
-                vector_store=GraphRagVectorStore(qclient),
-                embedder_factory=_embedder_factory,
-                configs=GraphRagConfigRepository(self._db),
-                evidence_fetcher=self._evidence_fetcher,
-                # WS5 (R11.21): the platform recency half-life default a config
-                # inherits when it leaves recency_half_life_days NULL.
-                default_half_life_days=settings.graphrag.recency_half_life_days_default,
+        bundles: list[Any] = []
+        for query in queries:
+            bundle = await svc.query(
+                config_id=config_id,
+                text=query,
+                querying_agent_id=querying_agent_id,
             )
-            bundles: list[Any] = []
-            for query in queries:
-                bundle = await svc.query(
-                    config_id=config_id,
-                    text=query,
-                    querying_agent_id=querying_agent_id,
-                )
-                if bundle is not None:
-                    bundles.append(bundle)
-            return bundles
-        finally:
-            await qclient.close()
-            await driver.close()
+            if bundle is not None:
+                bundles.append(bundle)
+        return bundles
 
 
 def _normalise_queries(*, query_text: str | None, query_texts: Sequence[str] | None) -> list[str]:

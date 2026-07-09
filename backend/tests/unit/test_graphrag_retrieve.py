@@ -495,6 +495,66 @@ async def test_query_layers_isolates_a_failing_layer() -> None:
 
 
 @pytest.mark.asyncio
+async def test_turn_clients_are_built_once_and_reused_across_layers() -> None:
+    """WS4/perf regression: query_layers must build the Neo4j driver + Qdrant
+    client ONCE per turn and reuse them across every layer, not rebuild a
+    connection per layer (each rebuild pays a connect/auth handshake on the
+    hot per-message path)."""
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    from contexts.knowledge.application.graphrag_context_provider import GraphRagContextProvider
+
+    driver_build_count = 0
+    qclient_build_count = 0
+
+    class _FakeDriver:
+        def __init__(self, **_: Any) -> None:
+            nonlocal driver_build_count
+            driver_build_count += 1
+            self.close = AsyncMock()
+
+    class _FakeQClient:
+        def __init__(self, **_: Any) -> None:
+            nonlocal qclient_build_count
+            qclient_build_count += 1
+            self.close = AsyncMock()
+
+    fake_settings = MagicMock()
+    fake_settings.neo4j = MagicMock(url="bolt://fake", user="u", password="p")
+
+    provider = GraphRagContextProvider(None, router=None, qdrant_url="http://fake:6333")  # type: ignore[arg-type]
+
+    with (
+        patch("app.config.settings.get_settings", return_value=fake_settings),
+        patch("contexts.knowledge.infrastructure.neo4j_driver.Neo4jAsyncDriver", _FakeDriver),
+        patch("qdrant_client.AsyncQdrantClient", _FakeQClient),
+    ):
+        first = await provider._get_turn_clients()
+        second = await provider._get_turn_clients()
+        third = await provider._get_turn_clients()
+
+        # Same pair returned every time within the turn — only built once.
+        assert first is second is third
+        assert driver_build_count == 1
+        assert qclient_build_count == 1
+
+        await provider._close_turn_clients()
+        driver, qclient = first
+        driver.close.assert_awaited_once()
+        qclient.close.assert_awaited_once()
+        assert provider._turn_clients is None
+
+        # After a close, the cache is genuinely cleared — a later call (as a
+        # fresh turn would make, since TurnEngine and this provider are rebuilt
+        # per turn in production) builds a new pair rather than reusing a
+        # closed one.
+        fresh = await provider._get_turn_clients()
+        assert driver_build_count == 2
+        assert qclient_build_count == 2
+        assert fresh is not first
+
+
+@pytest.mark.asyncio
 async def test_empty_vector_hits_returns_empty_bundle() -> None:
     cfg = _cfg()
     service = GraphRagRetrieveService(
