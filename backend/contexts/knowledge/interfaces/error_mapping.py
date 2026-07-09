@@ -111,6 +111,37 @@ _MAP: ErrorMap = {
         500,
         "GraphRAG build produced vectors of the wrong dimension for the project collection",
     ),
+    # Knowledge Map (Phase 3)
+    errors.KnowmapConfigNotFound: (
+        "knowledge/knowmap-config-not-found",
+        404,
+        "Knowledge Map config not found",
+    ),
+    errors.KnowmapConfigNameTaken: (
+        "knowledge/knowmap-config-name-taken",
+        409,
+        "Knowledge Map config name in use",
+    ),
+    errors.KnowmapDocumentNotFound: (
+        "knowledge/knowmap-document-not-found",
+        404,
+        "Knowledge Map document not found",
+    ),
+    errors.KnowmapBuilderKeyGroupProjectMismatch: (
+        "knowledge/knowmap-builder-key-group-project-mismatch",
+        422,
+        "Builder key group does not belong to the target project",
+    ),
+    errors.KnowmapNoEmbeddingKey: (
+        "knowledge/knowmap-no-embedding-key",
+        422,
+        "The builder key group resolves no embedding model for this Knowledge Map",
+    ),
+    errors.KnowmapEmbedDimensionConflict: (
+        "knowledge/knowmap-embed-dimension-conflict",
+        422,
+        "All Knowledge Maps in a project must share one embedding dimension",
+    ),
 }
 
 
