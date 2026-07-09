@@ -128,6 +128,14 @@ async def _loop() -> AsyncIterator[ReconciliationLoop]:
 
     qclient = AsyncQdrantClient(url=settings.qdrant.url)
     vectors = GraphRagVectorStore(qclient)
+    # Phase 3: the Knowledge Map shares this Neo4j node space (subgraphs keyed
+    # only by config id). Protect live knowmap subgraphs from the orphan sweep and
+    # purge a genuine knowmap orphan's points from its own Qdrant collection.
+    from contexts.knowledge.infrastructure.knowmap_repositories import (
+        KnowmapConfigRepository,
+    )
+
+    knowmap_vectors = GraphRagVectorStore(qclient, prefix="knowmap")
     maker = get_sessionmaker()
     loop = ReconciliationLoop(
         session_factory=lambda: maker(),
@@ -137,6 +145,44 @@ async def _loop() -> AsyncIterator[ReconciliationLoop]:
         snapshot_store=RedisSnapshotStore(),
         phase2_retry=_make_phase2_retry(neo4j, vectors),
         lock_store=RedisBuildLockStore(),
+        also_live_id_repos=[KnowmapConfigRepository],
+        extra_vector_stores=[knowmap_vectors],
+    )
+    try:
+        yield loop
+    finally:
+        await neo4j.close()
+        await qclient.close()
+
+
+@asynccontextmanager
+async def _knowmap_loop() -> AsyncIterator[ReconciliationLoop]:
+    """Reconciliation loop for Knowledge Map builds (Phase 3, R11.04 reuse).
+
+    Heals knowmap configs stuck in 2PC compensation, re-embedding into the
+    ``knowmap`` collection. Does NOT sweep orphans — the primary graphrag loop's
+    sweep is consumer-aware and reclaims orphans across both collections, so a
+    second sweep would only race it."""
+    settings = get_settings()
+    neo4j = Neo4jAsyncDriver(uri=settings.neo4j.url, auth=(settings.neo4j.user, settings.neo4j.password))
+    from qdrant_client import AsyncQdrantClient
+
+    from contexts.knowledge.infrastructure.knowmap_repositories import (
+        KnowmapConfigRepository,
+    )
+
+    qclient = AsyncQdrantClient(url=settings.qdrant.url)
+    vectors = GraphRagVectorStore(qclient, prefix="knowmap")
+    maker = get_sessionmaker()
+    loop = ReconciliationLoop(
+        session_factory=lambda: maker(),
+        repo_factory=KnowmapConfigRepository,
+        neo4j=neo4j,
+        vector_store=vectors,
+        snapshot_store=RedisSnapshotStore(),
+        phase2_retry=_make_phase2_retry(neo4j, vectors),
+        lock_store=RedisBuildLockStore(),
+        sweep_orphans=False,
     )
     try:
         yield loop
@@ -147,9 +193,16 @@ async def _loop() -> AsyncIterator[ReconciliationLoop]:
 
 async def reconcile_once() -> list[uuid.UUID]:
     """One scan-and-heal pass; builds deps, runs, tears down. The arq cron tick
-    (M.5.4) calls this; the standalone process below uses ``run_forever``."""
+    (M.5.4) calls this; the standalone process below uses ``run_forever``.
+
+    Runs the graphrag heal + (consumer-aware) orphan sweep, then a knowmap heal
+    pass over the shared 2PC engine."""
+    healed: list[uuid.UUID] = []
     async with _loop() as loop:
-        return await loop.run_once()
+        healed.extend(await loop.run_once())
+    async with _knowmap_loop() as kloop:
+        healed.extend(await kloop.run_once())
+    return healed
 
 
 async def _main() -> None:
