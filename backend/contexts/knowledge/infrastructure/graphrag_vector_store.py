@@ -54,6 +54,11 @@ class GraphRagVectorStore:
         self._client = client
         self._prefix = prefix
 
+    @property
+    def prefix(self) -> str:
+        """The collection-name prefix identifying this store's graph consumer."""
+        return self._prefix
+
     def _name(self, project_id: uuid.UUID) -> str:
         return graphrag_collection_name(project_id, prefix=self._prefix)
 
