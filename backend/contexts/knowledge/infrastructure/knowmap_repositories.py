@@ -372,7 +372,14 @@ class KnowmapDocumentRepository:
         return [_row_to_document(r) for r in rows]
 
     async def ready_document_ids(self, *, config_id: uuid.UUID) -> list[uuid.UUID]:
-        """All build-eligible document ids in ``config_id`` (ready + not quarantined).
+        """All build-eligible document ids in ``config_id``.
+
+        A document is build-eligible when it is ``ready`` and has a scan verdict that
+        is not ``quarantined`` and not ``skipped``. Excluding ``skipped`` fails closed
+        on an un-scannable document (ClamAV error or over-size): a document that was
+        never cleanly scanned is never built into a Knowledge Map's graph. (This is
+        stricter than file-RAG, which admits ``skipped`` — a deliberate choice for the
+        per-agent-allowlisted Knowledge Map corpus.)
 
         Used by the DocDeltaLoader to scope the corpus to indexable documents."""
         rows = (
@@ -380,7 +387,9 @@ class KnowmapDocumentRepository:
                 sa.select(t.knowmap_documents.c.id).where(
                     t.knowmap_documents.c.knowmap_config_id == config_id,
                     t.knowmap_documents.c.status == DocumentStatus.READY.value,
-                    t.knowmap_documents.c.scan_status != ScanStatus.QUARANTINED.value,
+                    t.knowmap_documents.c.scan_status.notin_(
+                        [ScanStatus.QUARANTINED.value, ScanStatus.SKIPPED.value]
+                    ),
                 )
             )
         ).all()
@@ -396,15 +405,19 @@ class KnowmapDocumentRepository:
 
         The querying agent must be on the document's allowlist
         (``agent_ids @> [agent_id]``, GIN-indexed) and the document must be
-        retrievable (``ready`` and not ``quarantined``). The retrieval edge filter
-        keeps a relation only if *every* one of its source documents is in this set.
+        retrievable (``ready`` and neither ``quarantined`` nor ``skipped`` — an
+        un-scannable document is never surfaced, matching :meth:`ready_document_ids`).
+        The retrieval edge filter keeps a relation only if *every* one of its source
+        documents is in this set.
         """
         rows = (
             await self._db.execute(
                 sa.select(t.knowmap_documents.c.id).where(
                     t.knowmap_documents.c.knowmap_config_id == config_id,
                     t.knowmap_documents.c.status == DocumentStatus.READY.value,
-                    t.knowmap_documents.c.scan_status != ScanStatus.QUARANTINED.value,
+                    t.knowmap_documents.c.scan_status.notin_(
+                        [ScanStatus.QUARANTINED.value, ScanStatus.SKIPPED.value]
+                    ),
                     t.knowmap_documents.c.agent_ids.contains([agent_id]),
                 )
             )
@@ -452,11 +465,12 @@ class KnowmapChunkRepository:
         """Hydrate evidence excerpts by ``(document_id, chunk_idx)`` under the
         allowed-document set (WS3 security core). A ref whose document is not
         allowed is never returned, so a denied document's text can never leak."""
-        wanted = {r for r in refs if r[0] in set(allowed_document_ids)}
+        allowed = set(allowed_document_ids)
+        wanted = {r for r in refs if r[0] in allowed}
         if not wanted:
             return {}
-        doc_ids = list({d for d, _ in wanted})
-        idxs = list({i for _, i in wanted})
+        # Match exactly the requested (document_id, chunk_idx) pairs — a composite
+        # tuple IN avoids the doc-IN x idx-IN cartesian over-fetch.
         rows = (
             await self._db.execute(
                 sa.select(
@@ -464,12 +478,11 @@ class KnowmapChunkRepository:
                     t.knowmap_chunks.c.chunk_idx,
                     t.knowmap_chunks.c.text,
                 ).where(
-                    t.knowmap_chunks.c.document_id.in_(doc_ids),
-                    t.knowmap_chunks.c.chunk_idx.in_(idxs),
+                    sa.tuple_(t.knowmap_chunks.c.document_id, t.knowmap_chunks.c.chunk_idx).in_(list(wanted))
                 )
             )
         ).all()
-        return {(r.document_id, r.chunk_idx): r.text for r in rows if (r.document_id, r.chunk_idx) in wanted}
+        return {(r.document_id, r.chunk_idx): r.text for r in rows}
 
 
 __all__ = [
