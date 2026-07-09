@@ -22,6 +22,7 @@ def _row_to_workspace(row: Any) -> Workspace:
         name=row.name,
         created_at=row.created_at,
         deleted_at=row.deleted_at,
+        concept_map_enabled=bool(row.concept_map_enabled),
     )
 
 

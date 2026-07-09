@@ -48,6 +48,8 @@ class Workspace:
     name: str
     created_at: datetime
     deleted_at: datetime | None
+    # Wide-layer Concept Map privacy opt-in (R11.10). Off by default.
+    concept_map_enabled: bool = False
 
 
 @dataclass(frozen=True, slots=True)
