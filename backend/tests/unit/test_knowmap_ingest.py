@@ -20,7 +20,7 @@ from contexts.knowledge.application.knowmap_ingest_service import (
     KnowmapIngestInput,
     KnowmapIngestService,
 )
-from contexts.knowledge.domain.errors import KnowmapConfigNotFound
+from contexts.knowledge.domain.errors import IngestFailed, KnowmapConfigNotFound
 from contexts.knowledge.domain.graphrag import BuildState
 from contexts.knowledge.domain.knowmap import KnowmapConfig, KnowmapDocument
 from contexts.knowledge.domain.models import ChunkStrategy, DocumentStatus, ScanStatus
@@ -164,3 +164,33 @@ class TestIngest:
         build.assert_awaited_once_with(
             config_id=cfg.id, last_build_state=cfg.last_build_state, last_build_at=cfg.last_build_at
         )
+
+    async def test_index_failure_persists_failed_status_durably(self) -> None:
+        # Regression: a sync ingest failure must commit the FAILED status (roll back
+        # the partial parse/chunk writes first) — the caller commits only on success,
+        # so without an explicit commit here the request session would discard it.
+        cfg = _make_config()
+        cfg_repo = AsyncMock()
+        cfg_repo.get.return_value = cfg
+        doc = _make_document(status=DocumentStatus.INGESTING)
+        doc_repo = AsyncMock()
+        doc_repo.find_by_sha.return_value = None
+        doc_repo.create.return_value = doc
+        chunk_repo = AsyncMock()
+        blob = AsyncMock()
+        blob.put.return_value = doc.minio_path
+        svc = _make_service(config_repo=cfg_repo, doc_repo=doc_repo, chunk_repo=chunk_repo, blob=blob)
+
+        with (
+            patch.dict(f"{_MOD}.MIME_TO_PARSER", {"text/plain": lambda b: "parsed"}, clear=False),
+            patch(f"{_MOD}.chunk_document", AsyncMock(side_effect=RuntimeError("boom"))),
+            patch(f"{_MOD}.audit.emit", AsyncMock()),
+            patch(f"{_MOD}.enqueue_knowmap_scan", AsyncMock()),
+            patch(f"{_MOD}.enqueue_knowmap_build", AsyncMock()),
+            pytest.raises(IngestFailed),
+        ):
+            await svc.ingest(ipt=_ipt(), actor_user_id=_USER_ID, actor_ip=None)
+
+        svc._db.rollback.assert_awaited()
+        doc_repo.set_status.assert_awaited_with(document_id=doc.id, status=DocumentStatus.FAILED)
+        svc._db.commit.assert_awaited()

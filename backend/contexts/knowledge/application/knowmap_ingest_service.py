@@ -238,8 +238,18 @@ class KnowmapIngestService:
                 ),
             )
         except Exception as exc:
+            # Persist FAILED durably. The synchronous ingest() caller commits only on
+            # the success path, so without an explicit commit here the request-scoped
+            # session would roll the status write back and a reprocessed document would
+            # keep its prior status. Roll back the partial parse/chunk writes first so
+            # only the terminal status is committed. (A brand-new document's create is
+            # in this same uncommitted transaction, so it rolls back to nothing — no
+            # orphan row and nothing to mark; the worker path re-marks FAILED in its own
+            # session either way.)
             with contextlib.suppress(Exception):
+                await self._db.rollback()
                 await self._docs.set_status(document_id=doc.id, status=DocumentStatus.FAILED)
+                await self._db.commit()
             raise IngestFailed(f"{type(exc).__name__}: {exc}") from exc
 
         refreshed = await self._docs.get(doc.id)
