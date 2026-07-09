@@ -22,8 +22,28 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.agent_groups.domain.errors import AgentGroupNameConflict
+from contexts.agent_groups.domain.models import AgentGroup
 from contexts.agent_groups.infrastructure import tables as t
 from shared_kernel.auth.clients import now
+
+
+def _row_to_group(row: object) -> AgentGroup:
+    return AgentGroup(
+        id=row.id,  # type: ignore[attr-defined]
+        project_id=row.project_id,  # type: ignore[attr-defined]
+        name=row.name,  # type: ignore[attr-defined]
+        concept_map_enabled=row.concept_map_enabled,  # type: ignore[attr-defined]
+        created_at=row.created_at,  # type: ignore[attr-defined]
+    )
+
+
+_GROUP_COLS = (
+    t.agent_groups.c.id,
+    t.agent_groups.c.project_id,
+    t.agent_groups.c.name,
+    t.agent_groups.c.concept_map_enabled,
+    t.agent_groups.c.created_at,
+)
 
 
 class AgentGroupRepository:
@@ -65,6 +85,62 @@ class AgentGroupRepository:
             )
         ).first()
         return row.project_id if row is not None else None
+
+    async def list_for_project(self, project_id: uuid.UUID) -> Sequence[AgentGroup]:
+        """Live groups in a project, newest first, for the list view (Phase 4α)."""
+        rows = (
+            await self._db.execute(
+                sa.select(*_GROUP_COLS)
+                .where(
+                    sa.and_(
+                        t.agent_groups.c.project_id == project_id,
+                        t.agent_groups.c.deleted_at.is_(None),
+                    )
+                )
+                # id as a stable tiebreak: groups created in one transaction share
+                # now() (the transaction timestamp), so created_at alone would let
+                # them shuffle between paginated pages.
+                .order_by(t.agent_groups.c.created_at.desc(), t.agent_groups.c.id.desc())
+            )
+        ).all()
+        return [_row_to_group(r) for r in rows]
+
+    async def get(self, group_id: uuid.UUID) -> AgentGroup | None:
+        """A single live group, or ``None`` if missing/soft-deleted (Phase 4α)."""
+        row = (
+            await self._db.execute(
+                sa.select(*_GROUP_COLS).where(
+                    sa.and_(
+                        t.agent_groups.c.id == group_id,
+                        t.agent_groups.c.deleted_at.is_(None),
+                    )
+                )
+            )
+        ).first()
+        return _row_to_group(row) if row is not None else None
+
+    async def rename(self, *, group_id: uuid.UUID, name: str) -> bool:
+        """Rename a live group; returns whether a live row was updated (Phase 4α).
+
+        The ``uq_agent_groups_project_name_active`` partial-unique makes a collision
+        with another active group's name a domain 409, not a 500. The
+        ``deleted_at IS NULL`` guard makes a rename racing a concurrent soft-delete a
+        no-op (0 rows) rather than a write to a tombstoned group.
+        """
+        try:
+            result = await self._db.execute(
+                t.agent_groups.update()
+                .where(
+                    sa.and_(
+                        t.agent_groups.c.id == group_id,
+                        t.agent_groups.c.deleted_at.is_(None),
+                    )
+                )
+                .values(name=name)
+            )
+        except IntegrityError as exc:
+            raise AgentGroupNameConflict(f"group name {name!r} already exists in this project") from exc
+        return bool(result.rowcount)
 
     async def set_concept_map_enabled(self, *, group_id: uuid.UUID, enabled: bool) -> bool:
         """Toggle the group's Concept Map privacy opt-in (Phase 2b WS3, R11.10).

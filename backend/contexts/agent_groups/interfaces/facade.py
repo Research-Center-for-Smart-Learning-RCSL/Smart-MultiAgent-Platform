@@ -8,11 +8,35 @@ from collections.abc import Sequence
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.agent_groups.application.group_service import AgentGroupService
+from contexts.agent_groups.domain.models import AgentGroup
 
 
 class AgentGroupFacade:
     def __init__(self, db: AsyncSession) -> None:
         self._service = AgentGroupService(db)
+
+    async def list_groups(self, project_id: uuid.UUID) -> Sequence[AgentGroup]:
+        return await self._service.list_groups(project_id)
+
+    async def get_group(self, group_id: uuid.UUID) -> AgentGroup | None:
+        return await self._service.get_group(group_id)
+
+    async def rename_group(
+        self,
+        *,
+        group_id: uuid.UUID,
+        name: str,
+        actor_user_id: uuid.UUID,
+        actor_ip: str | None,
+        request_id: uuid.UUID | None = None,
+    ) -> AgentGroup:
+        return await self._service.rename_group(
+            group_id=group_id,
+            name=name,
+            actor_user_id=actor_user_id,
+            actor_ip=actor_ip,
+            request_id=request_id,
+        )
 
     async def create_group(
         self,

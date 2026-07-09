@@ -15,8 +15,9 @@ from fastapi import APIRouter, Depends, Path, status
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.v1.deps import assert_project_owner
+from app.api.v1.deps import PaginationParams, assert_project_owner
 from contexts.agent_groups.domain.errors import AgentGroupNotFound
+from contexts.agent_groups.domain.models import AgentGroup
 from contexts.agent_groups.interfaces.facade import AgentGroupFacade
 from shared_kernel.auth.context import RequestContext
 from shared_kernel.auth.dependencies import current_context, current_principal
@@ -28,10 +29,29 @@ class AgentGroupCreateIn(BaseModel):
     name: str = Field(min_length=1, max_length=200)
 
 
+class AgentGroupUpdateIn(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+
+
 class AgentGroupOut(BaseModel):
     id: uuid.UUID
     project_id: uuid.UUID
     name: str
+    # Phase 4α: surfaced so the group panel renders the privacy toggle's current
+    # state without a second call. ``concept_map_enabled`` is the wide-layer
+    # Concept Map opt-in (R11.10); mutated via the dedicated toggle endpoint.
+    concept_map_enabled: bool
+    created_at: str
+
+
+def _to_out(group: AgentGroup) -> AgentGroupOut:
+    return AgentGroupOut(
+        id=group.id,
+        project_id=group.project_id,
+        name=group.name,
+        concept_map_enabled=group.concept_map_enabled,
+        created_at=group.created_at.isoformat(),
+    )
 
 
 class AgentGroupMemberIn(BaseModel):
@@ -91,6 +111,20 @@ project_router = APIRouter(
 )
 
 
+@project_router.get("")
+async def list_groups(
+    project_id: uuid.UUID = Path(...),
+    pagination: PaginationParams = Depends(),
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(db_session),
+) -> list[AgentGroupOut]:
+    """List a project's agent groups (Phase 4α). Read ⇒ project membership."""
+    await _assert_project_membership(db=db, principal=principal, project_id=project_id)
+    groups = await AgentGroupFacade(db).list_groups(project_id)
+    groups = groups[pagination.offset : pagination.offset + pagination.limit]
+    return [_to_out(g) for g in groups]
+
+
 @project_router.post("", status_code=status.HTTP_201_CREATED)
 async def create_group(
     body: AgentGroupCreateIn,
@@ -100,14 +134,18 @@ async def create_group(
     db: AsyncSession = Depends(db_session),
 ) -> AgentGroupOut:
     await _assert_project_owner(db=db, principal=principal, project_id=project_id)
-    group_id = await AgentGroupFacade(db).create_group(
+    facade = AgentGroupFacade(db)
+    group_id = await facade.create_group(
         project_id=project_id,
         name=body.name,
         actor_user_id=principal.user_id,
         actor_ip=ctx.actor_ip,
         request_id=ctx.request_id,
     )
-    return AgentGroupOut(id=group_id, project_id=project_id, name=body.name)
+    group = await facade.get_group(group_id)
+    if group is None:  # pragma: no cover - just-created row is always live
+        raise AgentGroupNotFound(str(group_id))
+    return _to_out(group)
 
 
 # ---------------------------------------------------------------------------
@@ -115,6 +153,42 @@ async def create_group(
 # ---------------------------------------------------------------------------
 
 group_router = APIRouter(prefix="/api/agent-groups", tags=["agent-groups"])
+
+
+@group_router.get("/{group_id}")
+async def get_group(
+    group_id: uuid.UUID = Path(...),
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(db_session),
+) -> AgentGroupOut:
+    """Read a single agent group (Phase 4α). Read ⇒ project membership."""
+    project_id = await _group_project_id(db, group_id)
+    await _assert_project_membership(db=db, principal=principal, project_id=project_id)
+    group = await AgentGroupFacade(db).get_group(group_id)
+    if group is None:
+        raise AgentGroupNotFound(str(group_id))
+    return _to_out(group)
+
+
+@group_router.patch("/{group_id}")
+async def rename_group(
+    body: AgentGroupUpdateIn,
+    group_id: uuid.UUID = Path(...),
+    ctx: RequestContext = Depends(current_context),
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(db_session),
+) -> AgentGroupOut:
+    """Rename an agent group (Phase 4α) — strict Project-Owner only."""
+    project_id = await _group_project_id(db, group_id)
+    await _assert_project_owner(db=db, principal=principal, project_id=project_id)
+    group = await AgentGroupFacade(db).rename_group(
+        group_id=group_id,
+        name=body.name,
+        actor_user_id=principal.user_id,
+        actor_ip=ctx.actor_ip,
+        request_id=ctx.request_id,
+    )
+    return _to_out(group)
 
 
 @group_router.put("/{group_id}/concept-map-enabled")
