@@ -1,6 +1,6 @@
 ---
 type: feature
-status: approved
+status: implemented
 created: 2026-07-07
 requirements: [R10.11, R11.12, R11.13, R11.14, R11.15, R11.20]
 ---
@@ -283,27 +283,40 @@ context assembly — a Security Considerations section is required.
 
 ## 11. Acceptance Criteria
 
-- [ ] AC-1: a Knowledge Map config accepts document uploads (multipart + tus), parses via the
+- [~] AC-1: a Knowledge Map config accepts document uploads (multipart + tus), parses via the
   shared `MIME_TO_PARSER`, chunks via `chunk_document`, and stores `knowmap_documents`/
   `knowmap_chunks` + MinIO blobs; a quarantined document is never indexed.
+  *Ingest-reuse core unit-verified (`test_knowmap_ingest.py`: shared parser/chunker, no-Qdrant,
+  SHA dedup, build trigger). tus finalize + ClamAV quarantine-gate + MinIO blob execution await
+  the live stack — see D-6.*
 - [ ] AC-2: a build over a documents-only corpus (no conversation) produces a Neo4j subgraph +
   `knowmap_{project_id}` Qdrant points scoped by config id, through the shared 2PC builder with
   the forked `DocTripleExtractor`/`DocDeltaLoader`, windowed for a large corpus.
+  *Code-complete; extractor render/parse unit-verified (`test_knowmap_extractor.py`). Documents-only
+  build execution needs Neo4j+Qdrant+MinIO — see D-6.*
 - [ ] AC-3: an agent with `knowmap_config_id` set receives the Knowledge Map as a third Axis-1
   system block beside file-RAG, independent of any Concept Map, with `type:"graphrag"` retained.
-- [ ] AC-4: retrieval returns a relation only when **every** source `knowmap_document` is in the
+  *Code-complete (`turn_engine._knowmap_context` wired after the graphrag block; exercised via the
+  observer-engine unit harness). Three-block live turn assembly needs the stack — see D-6.*
+- [x] AC-4: retrieval returns a relation only when **every** source `knowmap_document` is in the
   agent's allowlist; an entity appears only via a visible relation; empty allowlist returns
-  nothing.
-- [ ] AC-5: a relation with one denied source document is absent from retrieval even though its
-  other sources are allowed (provenance-leak test).
-- [ ] AC-6: a build is enqueued on document upload/delete/reprocess and on explicit rebuild;
+  nothing. *Unit-verified: `test_knowmap_edge_filter.py` + `test_knowmap_context_provider.py`.*
+- [x] AC-5: a relation with one denied source document is absent from retrieval even though its
+  other sources are allowed (provenance-leak test). *Unit-verified: pure `filter_relations_by_allowlist`
+  and provider orchestration (`test_knowmap_context_provider.py::test_relation_with_denied_source_is_absent`).*
+- [x] AC-6: a build is enqueued on document upload/delete/reprocess and on explicit rebuild;
   never on a conversation message; duplicate triggers dedup via the Phase 2a `_job_id`.
+  *Unit-verified: `test_knowmap_triggers.py` (dedup nonce = state + `last_build_at`; best-effort enqueue).*
 - [ ] AC-7: deleting a Knowledge Map config or document purges its Neo4j subgraph, `knowmap`
   Qdrant points, and MinIO blobs (audit-logged); the reconciler finds no orphan.
-- [ ] AC-8: setting the document allowlist is Project-Owner-gated and rejects ids not bound to
-  the config.
-- [ ] AC-9: `pytest -q`, `ruff check .`, `ruff format --check .`, `mypy .` pass; `gen:api`
-  regenerated.
+  *Purge cascade self-audited; the consumer-aware reconciler fix retains the existing 4 reconciler
+  unit tests. Cross-store purge execution needs the stack — see D-6.*
+- [x] AC-8: setting the document allowlist is Project-Owner-gated and rejects ids not bound to
+  the config. *Unit-verified: `test_knowmap_authz.py` (`_require_owner` + `validate_knowmap_agent_allowlist`).*
+- [~] AC-9: `pytest -q`, `ruff check .`, `ruff format --check .`, `mypy .` pass; `gen:api`
+  regenerated. *`pytest -q` 1334 passed; `ruff check .` clean; `ruff format --check .` clean on all
+  touched files; `mypy .` introduces zero new errors (39 pre-existing, unrelated — see FU-5/FU-6).
+  `gen:api` NOT regenerated: the committed `backend/openapi.json` is stale repo-wide — see D-5/FU-4.*
 
 ## 12. Test Plan
 
@@ -345,7 +358,39 @@ Apply verbatim on approval.
 
 ## 15. Deviation Log
 
-Appended by `/build`.
+- **D-1** — A Knowledge Map requires a *resolvable* embedding key at create time
+  (`KnowmapConfigService.create` raises `KnowmapNoEmbeddingKey` if the project pin cannot be
+  resolved), and `embed_provider`/`embed_model`/`embed_dim` are populated from that resolved
+  project pin. The schema columns stay nullable (a config may outlive a key rotation), but a
+  config is never created without a usable embed key — mirroring the Phase 2a pin discipline.
+- **D-2** — `KnowmapConfig` carries `recency_half_life_days: float | None = None` (always `None`)
+  purely to satisfy the shared engine's `ConfigLike` Protocol. A Knowledge Map is non-temporal
+  (R11.21); the field is unused by every knowmap code path and exists only so the shared builder /
+  retrieve services accept the config without a parallel Protocol.
+- **D-3** — The GraphRAG reconciler was made **consumer-aware** (`ReconciliationLoop` gained
+  `also_live_id_repos`, `extra_vector_stores`, and `sweep_orphans`). The Knowledge Map shares the
+  Neo4j node space (subgraphs keyed only by `config_id`, ids living in a different table), so the
+  original orphan sweep would have deleted **live** knowmap subgraphs. This was a bug found during
+  WS4; the fix unions knowmap live ids into the sweep's keep-set and purges genuine knowmap orphans
+  from the `knowmap` Qdrant collection. The existing 4 reconciler unit tests still pass.
+- **D-4** — `knowmap_config_id` was added as a **required** arg on the `Agent` domain dataclass and
+  `AgentRepository.create` (mirroring `rag_config_id`, no default). All construction sites were
+  updated: the repository row-mapper, `app/bootstrap/seed.py`, and the unit/wiring test builders.
+- **D-5** — **`gen:api` was not run** (AC-9). The committed `backend/openapi.json` is stale
+  repo-wide: it is missing *all* Phase 2/2b endpoints (agent-groups, observations, presence,
+  prompt-assistant, prompt-templates, concept-map) in addition to the new knowmap routes.
+  Regenerating it to add knowmap would fold ~30 unrelated endpoints into this commit, violating the
+  stage-only-touched-files discipline, and no frontend code in this backend-only task consumes the
+  knowmap client. Deferred to FU-4 (repo-wide contract + client regeneration).
+- **D-6** — **Verification boundary (environmental).** The build environment has no
+  Postgres/Neo4j/Qdrant/MinIO, and `alembic upgrade head` fails on a pre-existing cp950/UTF-8
+  `configparser` issue in `alembic.ini` unrelated to this migration (migration validated via
+  `py_compile` + schema review). Consequently: migration 0048 was not applied live, no integration
+  test suite was written (there is no existing Neo4j+Qdrant+MinIO harness in `tests/integration/` to
+  mirror — see FU-6), and AC-1(tus/quarantine e2e)/AC-2/AC-3/AC-7 were not executed. All are
+  code-complete and self-audited/unit-verified where possible; live verification should run on a
+  stack-equipped environment (e.g. staging `smap.rcsl.online`). The `check-security` gate ran clean
+  (0 Critical/High/Medium across 13 dimensions, all 11 knowmap endpoints AuthZ-traced).
 
 ## 16. Follow-ups
 
@@ -354,3 +399,11 @@ Appended by `/build`.
 - FU-2 — extract a shared document-corpus/ingestion capability if a third consumer appears
   (Q-1 debt containment).
 - FU-3 — richer document provenance (page/offset) if the shared parser gains structured output.
+- FU-4 — regenerate `backend/openapi.json` and the frontend api-client repo-wide (currently missing
+  all Phase 2/2b + Phase 3 endpoints) and wire the `check:openapi-drift` CI gate so the contract
+  cannot silently rot (D-5).
+- FU-5 — `app/bootstrap/seed.py` calls `AgentRepository.create` without the required `effort` arg
+  (pre-existing latent `TypeError`, flagged by `mypy` independent of knowmap). Add `effort=None`.
+- FU-6 — build an integration harness for the graph consumers (Neo4j+Qdrant+MinIO fixtures) and add
+  the AC-2 / AC-3 / AC-5-e2e / AC-7 integration tests; none exist today, so those ACs currently rely
+  on unit coverage + self-audit + live verification (D-6).
