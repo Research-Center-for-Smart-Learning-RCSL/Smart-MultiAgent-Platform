@@ -263,7 +263,6 @@ class KnowmapConfigService:
             bucket=settings.minio.bucket_knowmap_sources,
         )
 
-
     # ---- infrastructure cascade (WS4, R11.20) -----------------------------
 
     @staticmethod
