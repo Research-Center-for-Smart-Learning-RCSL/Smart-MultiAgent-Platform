@@ -1,6 +1,6 @@
 ---
 type: feature
-status: in-progress
+status: implemented
 created: 2026-07-07
 requirements: [R11.07, R11.08, R11.09, R11.10, R11.11, R11.17, R11.20, R11.21]
 ---
@@ -359,14 +359,26 @@ Security Considerations section is required.
   `test_graphrag_retrieve.py::test_retrieve_reranks_recent_over_stale`;
   `_validate_half_life` rejects non-positive values (`GraphRagInvalidHalfLife` -> 422) and the
   API field rejects non-finite input (`allow_inf_nan=False`).)*
-- [ ] AC-10: deleting a chatroom, workspace, or agent_group purges its owned config's Neo4j
-  subgraph and Qdrant points (audit-logged); the reconciler finds no orphan.
+- [x] AC-10: deleting a chatroom, workspace, or agent_group purges its owned config's Neo4j
+  subgraph and Qdrant points (audit-logged); the reconciler finds no orphan. *(All three delete
+  routes soft-delete the owned config(s), commit (DOM-4), then purge external stores + audit
+  `graphrag.config_infra_purged` via the shared `_graphrag_owner_cascade` helper. agent_group
+  gained a new `DELETE /api/agent-groups/{id}` (D-12). Unit-verified by
+  `test_graphrag_owner_delete_cascade.py` (enumerate/soft-delete, per-config audit isolation,
+  chatroom DOM-4 ordering) and `test_agent_group_delete.py` (service audit + delete race + route
+  ordering). The reconciler backstop is Phase-2a; the end-to-end purge across owner kinds is the
+  CI Neo4j+Qdrant integration tier.)*
 - [x] AC-11: a member removed from a group loses read access to the group map on the next turn.
   *(The resolver reads live `agent_group_members` on every turn, no cache; wiring-verified by
   `test_list_layers_for_turn_orders_and_gates_layers` — after `remove_member` the next resolve
   drops the group layer.)*
 - [ ] AC-12: `pytest -q`, `ruff check .`, `ruff format --check .`, `mypy .` pass; `gen:api`
-  regenerated.
+  regenerated. *(Local: unit tier 1290 passed; `ruff check`/`ruff format --check` clean on all
+  touched files; `mypy` on the touched files introduces no errors over the pre-existing baseline.
+  Remaining and CI-owned: `gen:api` regen for the changed API contract (new `DELETE
+  /api/agent-groups/{id}` + WS2/WS5 create fields) and `alembic upgrade head` for 0046/0047 — both
+  deferred to the canonical CI environment per D-5, same dev-host constraint. This box closes when
+  the CI backend-wiring + drift jobs go green.)*
 
 ## 12. Test Plan
 
@@ -599,6 +611,49 @@ disable decay — fixed with `allow_inf_nan=False` on the create + patch fields.
 Info nit (the `score`-else-`confidence` rank fallback duplicated between the retrieve-service sort and
 the context-provider merge) is resolved by promoting a single `domain.edge_rank` helper both now call.
 
+### WS6 — Lifecycle purge for new owners (implemented)
+
+Delivered as commits `bd3353f..f108d0f` (M1+M2 shared cascade helper + chatroom/workspace wiring;
+M3 agent_group delete endpoint + soft-delete; plus a post-audit fix). Completes AC-10: deleting a
+chatroom, workspace, or agent_group purges its owned Concept Map's Neo4j subgraph + Qdrant points
+after commit, audit-logged (`graphrag.config_infra_purged` with owner context), the reconciler
+(Phase 2a) backstopping any orphan. A new `GraphRagConfigRepository.list_for_owner` (owner-column
+enumeration) + `KnowledgeFacade` surface feed a shared `app/api/v1/_graphrag_owner_cascade` helper
+whose two owner-agnostic halves (soft-delete-in-transaction, then post-commit purge+audit) the three
+delete routes reuse. Local gate: unit tests green (16 new across the two WS6 files; unit tier 1290
+passed), `ruff`/`ruff format` clean, `mypy` on the 9 touched source files introduces no errors
+(pre-existing baseline only). AC-10's end-to-end purge across owner kinds is the CI Neo4j+Qdrant
+integration tier. Quality + security audits on the WS6 diff returned **no Introduced-Critical**; the
+single Introduced-Warning (audit-row loss on a multi-config partial purge failure) was fixed before
+close-out. The security pass confirmed the new agent_group delete is strict-Project-Owner-gated with
+the project resolved from the resource (no IDOR), `list_for_owner` is tenant-tight and parameterized,
+every destructive action is audited, and the soft-delete leaves no stale-read window (the WS4 resolver
+filters `agent_groups.deleted_at`).
+
+- **D-12** — WS6's spec text ("*extend* the cleanup contract") assumed a chatroom, workspace, **and**
+  agent_group delete op already existed. Chatroom and workspace deletes existed (cascade wired in);
+  **agent_group deletion did not exist at all** (no endpoint, no `soft_delete` — only an unused
+  `deleted_at` column). Rather than silently skip the third named owner kind or leave AC-10 partially
+  met, the missing surface was built (**user-approved at the WS6 gate**): a new strict-Project-Owner
+  `DELETE /api/agent-groups/{group_id}` with a `soft_delete` repository/service/facade method
+  (audits `agent_group.deleted`, maps a delete race to 404). Member rows are intentionally left in
+  place — every read path filters `agent_groups.deleted_at IS NULL`, so the tombstone makes the group
+  inert without a second cascade of `agent_group_members`.
+- **D-13** — The owner-delete cascade is factored into a **shared `_graphrag_owner_cascade` helper**
+  (`soft_delete_owner_graph_configs` + `purge_owner_graph_configs_external`) rather than inlined into
+  each of the three delete routes, so the enumerate/soft-delete and post-commit purge+audit logic lives
+  in one tested place. This mirrors — but does not yet consume — the pre-existing inline agent-delete
+  cascade in `agents.py` (see FU-12). The helper sits at the `app/api/v1` layer because the two-phase
+  commit boundary is route-owned (the `db_session` dependency convention); it imports only
+  facade/domain/shared_kernel, so no layer boundary is crossed.
+
+**Post-audit fix** (commit `f108d0f`). The quality + security audits both flagged that the shared
+purge loop committed all configs' audit rows in one trailing transaction, so a mid-loop `db.rollback()`
+on a later config's failure discarded the already-emitted `config_infra_purged` rows of earlier
+siblings whose external stores were already destroyed. Latent under the per-owner 1:1 partial-unique
+(≤1 config per owner today) but wrong for the general case the helper is written for — fixed by
+committing each config's purge-audit row on its own success.
+
 ## 16. Follow-ups
 
 - FU-1 — expose recency half-life and layer enablement in the Phase 4 UI.
@@ -643,3 +698,11 @@ the context-provider merge) is resolved by promoting a single `domain.edge_rank`
   (404) before the owner check, so a non-owner can distinguish "exists but forbidden" (403) from
   "absent" (404). Negligible behind unguessable v4 UUIDs and it matches the pre-existing
   404-before-authz convention; return 403/404 uniformly only if strict non-enumeration is wanted.
+- FU-12 (pre-existing, agents; WS6 audit) — the agent-delete route's inline post-commit purge/audit
+  loop (`agents.py:388-419`) is a near-verbatim copy of the new `purge_owner_graph_configs_external`
+  and carries the same shared-transaction audit-loss defect the WS6 helper just fixed — and it is
+  *reachable* there (an agent's `list_graph_configs_for_agent` is not 1:1-bounded, so a multi-config
+  agent can hit the mid-loop rollback). Route `agents.py` through the shared helper (add an
+  `owner_kind="agent"` path or an agent-specific metadata hook) to both fix the reachable defect and
+  retire the duplication. Out of WS6 scope: it touches the agents context and changes the agent-delete
+  audit metadata shape (`agent_id` → owner context), which its regression test asserts.
