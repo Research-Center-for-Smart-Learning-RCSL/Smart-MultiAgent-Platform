@@ -4,6 +4,7 @@ import { QueryClient } from '@tanstack/vue-query'
 import { http, HttpResponse } from 'msw'
 import { server } from '../../../../tests/mocks/server'
 import { renderView } from '../../../../tests/utils'
+import { useSessionStore } from '@shared/stores/session'
 import ChatroomSettingsView from '../views/ChatroomSettingsView.vue'
 import type { Chatroom } from '../types'
 
@@ -180,6 +181,47 @@ describe('ChatroomSettingsView', () => {
     // swallowed by the "no agents" message.
     expect(wrapper.text()).toContain('agent_go')
     expect(wrapper.findAll('.agent-head button')).toHaveLength(1)
+  })
+
+  it('renders the chatroom Concept Map panel with the inherited-access note (AC-3)', async () => {
+    // Concept Map is chatroom-owned; access is inherited from the room, so the
+    // panel carries an info note and no privacy toggle.
+    server.use(
+      http.get('/api/workspaces/:workspaceId', () =>
+        HttpResponse.json({
+          id: 'ws_1',
+          project_id: 'proj_1',
+          name: 'WS One',
+          concept_map_enabled: true,
+          created_at: '2026-01-01T00:00:00Z',
+        }),
+      ),
+      http.get('/api/projects/:projectId/agents', () => HttpResponse.json([])),
+      http.get('/api/chatrooms/:chatroomId/agents', () => HttpResponse.json([])),
+      http.get('/api/projects/:projectId/graphrag-configs', () => HttpResponse.json([])),
+      http.get('/api/projects/:projectId/key-groups', () => HttpResponse.json([])),
+      http.get('/api/projects/:projectId/members', () =>
+        HttpResponse.json([
+          { user_id: 'u_1', email: 'u@smap.test', role: 'owner', joined_at: '2026-01-01T00:00:00Z' },
+        ]),
+      ),
+    )
+    const wrapper = await renderView(ChatroomSettingsView, {
+      routes,
+      initialRoute: '/chatrooms/cr_1/settings',
+      queryClient: seededClient([makeChatroom()]),
+    })
+    const session = useSessionStore()
+    session.me = { id: 'u_1', email: 'u@smap.test', email_verified: true, is_admin: false, status: 'active' }
+    await flushPromises()
+    await flushPromises()
+    await flushPromises()
+
+    // The inherited-access note and the shared panel are both present.
+    expect(wrapper.text()).toContain('conversation.conceptMap.chatroomInheritsAccess')
+    expect(wrapper.text()).toContain('agents.conceptMapPanel.title')
+    // No wide-layer privacy toggle on the chatroom (access is inherited).
+    expect(wrapper.text()).not.toContain('conversation.conceptMap.workspacePrivacyLabel')
   })
 
   it('normalizes a malformed config instead of hiding the wakeup editor', async () => {

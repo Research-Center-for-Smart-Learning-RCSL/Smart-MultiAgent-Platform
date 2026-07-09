@@ -14,6 +14,12 @@ export const conversationRoutes: RouteRecordRaw[] = [
     meta: { requiresAuth: true },
   },
   {
+    path: '/workspaces/:workspaceId/settings',
+    name: 'conversation.workspace.settings',
+    component: () => import('./views/WorkspaceSettingsView.vue'),
+    meta: { requiresAuth: true, requiresVerifiedEmail: true },
+  },
+  {
     path: '/chatrooms/:chatroomId',
     name: 'conversation.chatroom',
     component: () => import('./views/ChatroomView.vue'),

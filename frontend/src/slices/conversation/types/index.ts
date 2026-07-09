@@ -5,6 +5,8 @@ export interface Workspace {
   id: string
   project_id: string
   name: string
+  // Phase 4α (R11.10) — wide-layer Concept Map privacy opt-in for the workspace.
+  concept_map_enabled: boolean
   created_at: string
 }
 

@@ -33,6 +33,7 @@ import {
   listChatrooms,
 } from '../api'
 import { DlqViewer } from '@slices/workflow'
+import { ConceptMapPanel } from '@slices/agents'
 import { useChatroomSettings } from '../composables/useChatroomSettings'
 import { useChatroomBindings } from '../composables/useChatroomBindings'
 
@@ -558,6 +559,18 @@ watchEffect(() => {
             </div>
           </div>
         </SCard>
+
+        <!-- Concept Map (chatroom-owned; access inherited from the room) -->
+        <template v-if="projectId">
+          <SAlert variant="info">
+            {{ t('conversation.conceptMap.chatroomInheritsAccess') }}
+          </SAlert>
+          <ConceptMapPanel
+            :project-id="projectId"
+            owner-kind="chatroom"
+            :owner-id="chatroomId"
+          />
+        </template>
 
         <!-- Danger Zone -->
         <SCard class="danger-zone">
