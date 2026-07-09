@@ -204,7 +204,7 @@
       "noKeyGroups": "此專案尚未建立任何金鑰群組。請先到金鑰頁面建立。",
       "needSecondKeyGroup": "GraphRAG 的建置金鑰群組必須與 AI Agent 本身的金鑰群組不同。此專案目前只有一個金鑰群組，請先到金鑰頁面建立第二個金鑰群組，才能設定 GraphRAG。",
       "allConfigured": "每個 AI Agent 都已有 GraphRAG 設定。",
-      "builderHint": "建置金鑰群組用於抽取實體與關係；它必須與 AI Agent 本身的金鑰群組不同（帳務分離）。",
+      "builderHint": "建置金鑰群組用於為此概念圖的建置抽取實體與關係。",
       "colAgent": "AI Agent",
       "colBuilder": "建置金鑰群組",
       "colState": "建置狀態",

@@ -204,7 +204,7 @@
       "noKeyGroups": "This project has no key groups yet. Create one in the Keys section first.",
       "needSecondKeyGroup": "GraphRAG needs a builder key group that is different from the ai agent's own key group. This project only has one key group so far -- create a second one in the Keys section before configuring GraphRAG.",
       "allConfigured": "Every ai agent already has a GraphRAG configuration.",
-      "builderHint": "The builder key group extracts entities and relations; it must differ from the agent's own key group (billing separation).",
+      "builderHint": "The builder key group extracts entities and relations for this Concept Map's build.",
       "colAgent": "AI Agent",
       "colBuilder": "Builder Key Group",
       "colState": "Build State",
