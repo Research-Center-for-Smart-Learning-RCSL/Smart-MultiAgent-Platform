@@ -102,6 +102,9 @@ class GraphRagConfigOut(BaseModel):
     project_id: uuid.UUID
     owner_kind: str
     owner_id: uuid.UUID
+    # Owner display name (Phase 4α) — for the project-scoped overview; ``None`` if
+    # the owner was concurrently deleted between the config read and the name join.
+    owner_name: str | None
     # Derived owning agent — the sole member for a singleton agent_group; ``None``
     # for a multi-member group or a chatroom/workspace owner.
     agent_id: uuid.UUID | None
@@ -113,6 +116,14 @@ class GraphRagConfigOut(BaseModel):
     last_build_error: str | None
     created_at: str
     deleted_at: str | None
+
+
+class ConceptMapOwnerOptionOut(BaseModel):
+    """A selectable owner for the Concept Maps overview create picker (Phase 4α)."""
+
+    owner_kind: str
+    owner_id: uuid.UUID
+    owner_name: str
 
 
 class GraphRagStatusOut(BaseModel):
@@ -185,6 +196,7 @@ def _to_out(cfg: GraphRagConfig) -> GraphRagConfigOut:
         project_id=cfg.project_id,
         owner_kind=cfg.owner_kind,
         owner_id=_owner_id(cfg),
+        owner_name=cfg.owner_name,
         agent_id=cfg.agent_id,
         builder_key_group_id=cfg.builder_key_group_id,
         trigger_config=cfg.trigger_config,
@@ -218,6 +230,24 @@ async def list_configs(
     rows = await service.list_for_project(project_id)
     rows = rows[pagination.offset : pagination.offset + pagination.limit]
     return [_to_out(r) for r in rows]
+
+
+@project_router.get("/owner-options")
+async def list_owner_options(
+    project_id: uuid.UUID = Path(...),
+    _=Depends(require_membership(project_param="project_id")),
+    db: AsyncSession = Depends(db_session),
+) -> list[ConceptMapOwnerOptionOut]:
+    """Owners in the project without a Concept Map, for the overview create picker."""
+    options = await KnowledgeFacade(db).list_concept_map_owner_options(project_id)
+    return [
+        ConceptMapOwnerOptionOut(
+            owner_kind=o.owner_kind,
+            owner_id=o.owner_id,
+            owner_name=o.owner_name,
+        )
+        for o in options
+    ]
 
 
 @project_router.post("", status_code=status.HTTP_201_CREATED)

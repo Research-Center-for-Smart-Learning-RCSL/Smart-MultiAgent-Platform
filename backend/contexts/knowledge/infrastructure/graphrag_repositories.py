@@ -22,6 +22,7 @@ from contexts.knowledge.domain.errors import GraphRagConfigAlreadyExists
 from contexts.knowledge.domain.graphrag import (
     AgentConceptMapCoverage,
     BuildState,
+    ConceptMapOwnerOption,
     GraphRagConfig,
 )
 from contexts.knowledge.infrastructure import graphrag_tables as t
@@ -53,9 +54,39 @@ def _member_agent_id() -> Any:
     )
 
 
+def _owner_name() -> Any:
+    """Coalesced display name of a config's discriminated owner (Phase 4α).
+
+    Exactly one ``owner_*_id`` is set per config, so the COALESCE of three
+    correlated scalar subqueries yields that owner's name without a join fan-out.
+    Lets the project-scoped overview render owner names without the agents slice
+    importing the downstream conversation / agent_groups slices.
+    """
+    gc = t.graphrag_configs
+    chatroom = (
+        sa.select(conv.chatrooms.c.name)
+        .where(conv.chatrooms.c.id == gc.c.owner_chatroom_id)
+        .correlate(gc)
+        .scalar_subquery()
+    )
+    group = (
+        sa.select(ag.agent_groups.c.name)
+        .where(ag.agent_groups.c.id == gc.c.owner_agent_group_id)
+        .correlate(gc)
+        .scalar_subquery()
+    )
+    workspace = (
+        sa.select(conv.workspaces.c.name)
+        .where(conv.workspaces.c.id == gc.c.owner_workspace_id)
+        .correlate(gc)
+        .scalar_subquery()
+    )
+    return sa.func.coalesce(chatroom, group, workspace).label("owner_name")
+
+
 def _config_select() -> Any:
-    """SELECT over ``graphrag_configs`` with the derived ``agent_id`` column."""
-    return sa.select(t.graphrag_configs, _member_agent_id())
+    """SELECT over ``graphrag_configs`` with the derived agent + owner-name columns."""
+    return sa.select(t.graphrag_configs, _member_agent_id(), _owner_name())
 
 
 def _row_to_config(row: Any) -> GraphRagConfig:
@@ -78,6 +109,9 @@ def _row_to_config(row: Any) -> GraphRagConfig:
         owner_agent_group_id=row.owner_agent_group_id,
         owner_workspace_id=row.owner_workspace_id,
         recency_half_life_days=row.recency_half_life_days,
+        # Present only on selects built via _config_select(); other reads (turn
+        # resolver, membership feed) omit it and leave the display name None.
+        owner_name=getattr(row, "owner_name", None),
     )
 
 
@@ -433,6 +467,101 @@ class GraphRagConfigRepository(GraphRagConfigRepositoryPort):
                 )
             )
         out.sort(key=lambda e: (_LAYER_RANK.get(e.config.owner_kind, 99), e.config.created_at))
+        return out
+
+    async def list_owner_options(
+        self,
+        project_id: uuid.UUID,
+    ) -> Sequence[ConceptMapOwnerOption]:
+        """Owners in the project without a live Concept Map (Phase 4α picker).
+
+        One query per owner kind: agent_groups and workspaces are project-scoped
+        directly; chatrooms resolve their project via their workspace. Each excludes
+        owners already owning a live config (the per-owner 1:1). Returns a flat list
+        ordered by kind then name for a deterministic picker.
+        """
+        gc = t.graphrag_configs
+
+        groups_used = sa.select(gc.c.owner_agent_group_id).where(
+            sa.and_(
+                gc.c.owner_kind == "agent_group",
+                gc.c.deleted_at.is_(None),
+                gc.c.owner_agent_group_id.isnot(None),
+            )
+        )
+        group_rows = (
+            await self._db.execute(
+                sa.select(ag.agent_groups.c.id, ag.agent_groups.c.name)
+                .where(
+                    sa.and_(
+                        ag.agent_groups.c.project_id == project_id,
+                        ag.agent_groups.c.deleted_at.is_(None),
+                        ag.agent_groups.c.id.notin_(groups_used),
+                    )
+                )
+                .order_by(ag.agent_groups.c.name)
+            )
+        ).all()
+
+        rooms_used = sa.select(gc.c.owner_chatroom_id).where(
+            sa.and_(
+                gc.c.owner_kind == "chatroom",
+                gc.c.deleted_at.is_(None),
+                gc.c.owner_chatroom_id.isnot(None),
+            )
+        )
+        room_rows = (
+            await self._db.execute(
+                sa.select(conv.chatrooms.c.id, conv.chatrooms.c.name)
+                .select_from(
+                    conv.chatrooms.join(
+                        conv.workspaces, conv.workspaces.c.id == conv.chatrooms.c.workspace_id
+                    )
+                )
+                .where(
+                    sa.and_(
+                        conv.workspaces.c.project_id == project_id,
+                        conv.chatrooms.c.deleted_at.is_(None),
+                        conv.chatrooms.c.id.notin_(rooms_used),
+                    )
+                )
+                .order_by(conv.chatrooms.c.name)
+            )
+        ).all()
+
+        workspaces_used = sa.select(gc.c.owner_workspace_id).where(
+            sa.and_(
+                gc.c.owner_kind == "workspace",
+                gc.c.deleted_at.is_(None),
+                gc.c.owner_workspace_id.isnot(None),
+            )
+        )
+        workspace_rows = (
+            await self._db.execute(
+                sa.select(conv.workspaces.c.id, conv.workspaces.c.name)
+                .where(
+                    sa.and_(
+                        conv.workspaces.c.project_id == project_id,
+                        conv.workspaces.c.deleted_at.is_(None),
+                        conv.workspaces.c.id.notin_(workspaces_used),
+                    )
+                )
+                .order_by(conv.workspaces.c.name)
+            )
+        ).all()
+
+        out: list[ConceptMapOwnerOption] = []
+        out.extend(
+            ConceptMapOwnerOption(owner_kind="agent_group", owner_id=r.id, owner_name=r.name)
+            for r in group_rows
+        )
+        out.extend(
+            ConceptMapOwnerOption(owner_kind="chatroom", owner_id=r.id, owner_name=r.name) for r in room_rows
+        )
+        out.extend(
+            ConceptMapOwnerOption(owner_kind="workspace", owner_id=r.id, owner_name=r.name)
+            for r in workspace_rows
+        )
         return out
 
     async def list_in_state(

@@ -152,3 +152,45 @@ async def test_coverage_spans_owner_kinds_and_flags_active() -> None:
 
         # An unrelated agent (no room, no group) has no coverage.
         assert await repo.list_coverage_for_agent(other_id) == []
+
+
+async def test_owner_name_populated_and_owner_options_exclude_configured() -> None:
+    async with async_session() as db:
+        env = await _seed_project(db)
+        builder_kg = await KeyGroupRepository(db).create(project_id=env.project.id, name="builder")
+        room = await ChatroomRepository(db).create(workspace_id=env.workspace.id, name="room-x")
+        # Two groups: one will get a map, one stays a free create-option.
+        gid_mapped = await AgentGroupService(db).create_group(
+            project_id=env.project.id, name="grp-mapped", actor_user_id=env.user.id, actor_ip=None
+        )
+        gid_free = await AgentGroupService(db).create_group(
+            project_id=env.project.id, name="grp-free", actor_user_id=env.user.id, actor_ip=None
+        )
+        await db.commit()
+
+        await GraphRagConfigService(db).create(
+            project_id=env.project.id,
+            draft=GraphRagConfigDraft(
+                owner_kind="agent_group", owner_id=gid_mapped, builder_key_group_id=builder_kg.id
+            ),
+            actor_user_id=env.user.id,
+            actor_ip=None,
+        )
+        await db.commit()
+
+        repo = GraphRagConfigRepository(db)
+
+        # owner_name is coalesced from the owning group on the project-scoped read.
+        configs = await repo.list_for_project(env.project.id)
+        assert [c.owner_name for c in configs] == ["grp-mapped"]
+
+        # Owner options exclude the already-mapped group; the free group + the
+        # un-mapped room + workspace remain selectable.
+        options = await repo.list_owner_options(env.project.id)
+        kinds_ids = {(o.owner_kind, o.owner_id) for o in options}
+        assert ("agent_group", gid_free) in kinds_ids
+        assert ("agent_group", gid_mapped) not in kinds_ids
+        assert ("chatroom", room.id) in kinds_ids
+        assert ("workspace", env.workspace.id) in kinds_ids
+        # Names are carried for the picker.
+        assert all(o.owner_name for o in options)

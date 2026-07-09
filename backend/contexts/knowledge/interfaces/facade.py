@@ -13,7 +13,11 @@ from typing import TYPE_CHECKING
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from contexts.knowledge.domain.graphrag import AgentConceptMapCoverage, GraphRagConfig
+from contexts.knowledge.domain.graphrag import (
+    AgentConceptMapCoverage,
+    ConceptMapOwnerOption,
+    GraphRagConfig,
+)
 from contexts.knowledge.domain.knowmap import KnowmapConfig, KnowmapDocument
 from contexts.knowledge.domain.models import (
     EmbedCatalogEntry,
@@ -107,6 +111,17 @@ class KnowledgeFacade:
         :meth:`GraphRagConfigRepository.list_coverage_for_agent`.
         """
         return await self._graphrag.list_coverage_for_agent(agent_id)
+
+    async def list_concept_map_owner_options(
+        self,
+        project_id: uuid.UUID,
+    ) -> Sequence[ConceptMapOwnerOption]:
+        """Owners in a project without a Concept Map, for the overview create picker.
+
+        The api layer authorizes on the project first; this only assembles the read
+        model. See :meth:`GraphRagConfigRepository.list_owner_options`.
+        """
+        return await self._graphrag.list_owner_options(project_id)
 
     async def soft_delete_graph_config(
         self,
