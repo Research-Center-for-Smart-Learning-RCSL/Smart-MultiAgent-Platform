@@ -15,18 +15,36 @@ import logging
 import uuid
 from typing import Any
 
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from contexts.keys.infrastructure.adapters import build_router
+from contexts.knowledge.application.embed_resolution import resolve_pinned_embed_key
+from contexts.knowledge.application.graphrag_builder import (
+    LOCK_TTL_S,
+    EmbedderFactory,
+    GraphRagBuilder,
+    ResolvedEmbedder,
+)
+from contexts.knowledge.application.graphrag_ports import ConfigLike
 from contexts.knowledge.application.knowmap_config_service import build_knowmap_embedder
 from contexts.knowledge.application.knowmap_ingest_service import KnowmapIngestService
 from contexts.knowledge.application.knowmap_triggers import enqueue_knowmap_build
 from contexts.knowledge.domain.models import DocumentStatus, ScanStatus
 from contexts.knowledge.infrastructure.blob_store import MinioBlobStore
+from contexts.knowledge.infrastructure.embedders import router_embedder_for
+from contexts.knowledge.infrastructure.knowmap_delta_loader import DocDeltaLoader
 from contexts.knowledge.infrastructure.knowmap_repositories import (
     KnowmapConfigRepository,
     KnowmapDocumentRepository,
 )
+from contexts.knowledge.infrastructure.knowmap_triple_extractor import DocTripleExtractor
 from shared_kernel.db.session import get_sessionmaker
 
 _log = logging.getLogger(__name__)
+
+# The build lock (LOCK_TTL_S), refreshed per window, is the single-writer guard;
+# the job timeout is only a runaway backstop and must have headroom over the TTL.
+KNOWMAP_BUILD_TIMEOUT_S = LOCK_TTL_S * 3
 
 
 async def knowmap_ingest_document(ctx: dict[str, Any], *, document_id: str) -> str:
@@ -192,4 +210,87 @@ async def knowmap_scan_document(ctx: dict[str, Any], *, document_id: str) -> str
 
 knowmap_scan_document.max_tries = 3  # type: ignore[attr-defined]
 
-__all__ = ["knowmap_ingest_document", "knowmap_scan_document"]
+
+def _make_knowmap_embedder_factory(db: AsyncSession) -> EmbedderFactory:
+    """EmbedderFactory selecting the key by the config's pinned embedding provider
+    (Phase 2a D2) via the shared ``resolve_pinned_embed_key`` — the build,
+    ingest, and retrieval paths resolve identically and cannot drift."""
+    router = build_router(db)
+
+    async def _factory(cfg: ConfigLike) -> ResolvedEmbedder:
+        provider, model, key_id = await resolve_pinned_embed_key(db, cfg)
+        embedder = router_embedder_for(router=router, key_id=key_id, provider=provider, model=model)
+        return ResolvedEmbedder(embedder=embedder, provider=provider, model=model)
+
+    return _factory
+
+
+async def knowmap_build(ctx: dict[str, Any], *, config_id: str, triggered_by: str = "manual") -> str:
+    """Run a full Knowledge Map build for one config over the shared 2PC engine.
+
+    Reuses the GraphRAG builder / Neo4j driver / snapshot + lock stores unchanged
+    (R11.15); only the extractor (:class:`DocTripleExtractor`), the delta loader
+    (:class:`DocDeltaLoader`), and the Qdrant collection prefix (``knowmap``) are
+    forked. The Neo4j subgraph is scoped by the opaque config id; entity vectors
+    land in ``knowmap_{project_id}``.
+    """
+    _ = ctx
+    from qdrant_client import AsyncQdrantClient
+
+    from app.config.settings import get_settings
+    from contexts.knowledge.infrastructure.graphrag_vector_store import GraphRagVectorStore
+    from contexts.knowledge.infrastructure.neo4j_driver import Neo4jAsyncDriver
+    from contexts.knowledge.infrastructure.redis_lock import (
+        RedisBuildLockStore,
+        RedisSnapshotStore,
+    )
+
+    cfg_id = uuid.UUID(config_id)
+    settings = get_settings()
+
+    neo4j = Neo4jAsyncDriver(uri=settings.neo4j.url, auth=(settings.neo4j.user, settings.neo4j.password))
+    qclient = AsyncQdrantClient(url=settings.qdrant.url, api_key=settings.qdrant.api_key or None)
+    try:
+        vector_store = GraphRagVectorStore(qclient, prefix="knowmap")
+        sm = get_sessionmaker()
+        async with sm() as db:
+            configs = KnowmapConfigRepository(db)
+            cfg = await configs.get(cfg_id)
+            if cfg is None:
+                _log.warning("knowmap_build: config %s not found", config_id)
+                return f"config {config_id} not found"
+
+            builder = GraphRagBuilder(
+                db=db,
+                neo4j=neo4j,
+                vector_store=vector_store,
+                extractor=DocTripleExtractor(router=build_router(db)),
+                lock_store=RedisBuildLockStore(),
+                snapshot_store=RedisSnapshotStore(),
+                delta_loader=DocDeltaLoader(),
+                embedder_factory=_make_knowmap_embedder_factory(db),
+                configs=configs,
+            )
+            try:
+                result = await builder.run(config_id=cfg_id, triggered_by=triggered_by)
+                await db.commit()
+            except Exception:
+                _log.exception("knowmap_build failed config=%s", config_id)
+                raise
+            _log.info(
+                "knowmap_build done config=%s state=%s triples=%d entities=%d",
+                config_id,
+                result.state.value,
+                result.triples_written,
+                result.entities_written,
+            )
+            return (
+                f"state={result.state.value} "
+                f"triples={result.triples_written} entities={result.entities_written}"
+            )
+    finally:
+        await neo4j.close()
+        await qclient.close()
+
+
+__all__ = ["knowmap_build", "knowmap_ingest_document", "knowmap_scan_document"]

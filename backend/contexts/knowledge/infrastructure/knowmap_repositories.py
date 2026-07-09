@@ -18,6 +18,7 @@ import sqlalchemy as sa
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from contexts.knowledge.application.graphrag_ports import GraphRagConfigRepositoryPort
 from contexts.knowledge.domain.errors import (
     KnowmapConfigNameTaken,
     KnowmapConfigNotFound,
@@ -80,7 +81,10 @@ def _row_to_chunk(row: Any) -> KnowmapChunk:
     )
 
 
-class KnowmapConfigRepository:
+class KnowmapConfigRepository(GraphRagConfigRepositoryPort):
+    """Also satisfies the shared engine's ``GraphRagConfigRepositoryPort`` so the
+    2PC builder + reconciler drive a Knowledge Map build unchanged (R11.15)."""
+
     def __init__(self, db: AsyncSession) -> None:
         self._db = db
 
@@ -185,15 +189,40 @@ class KnowmapConfigRepository:
         *,
         config_id: uuid.UUID,
         state: BuildState,
-        error: str | None,
+        error: str | None = None,
+        stamp_built_at: bool = False,
         built_at: datetime | None = None,
     ) -> None:
         values: dict[str, Any] = {"last_build_state": state.value, "last_build_error": error}
+        # An explicit built_at (the build's started-at watermark) takes precedence;
+        # stamp_built_at stamps "now" for a terminal recovery (reconciler).
         if built_at is not None:
             values["last_build_at"] = built_at
+        elif stamp_built_at:
+            values["last_build_at"] = now()
         await self._db.execute(
             t.knowmap_configs.update().where(t.knowmap_configs.c.id == config_id).values(**values)
         )
+
+    async def list_in_state(self, state: BuildState) -> Sequence[KnowmapConfig]:
+        rows = (
+            await self._db.execute(
+                t.knowmap_configs.select().where(
+                    sa.and_(
+                        t.knowmap_configs.c.last_build_state == state.value,
+                        t.knowmap_configs.c.deleted_at.is_(None),
+                    )
+                )
+            )
+        ).all()
+        return [_row_to_config(r) for r in rows]
+
+    async def list_all_ids(self, *, include_deleted: bool = False) -> set[uuid.UUID]:
+        stmt = sa.select(t.knowmap_configs.c.id)
+        if not include_deleted:
+            stmt = stmt.where(t.knowmap_configs.c.deleted_at.is_(None))
+        rows = (await self._db.execute(stmt)).all()
+        return {r.id for r in rows}
 
     async def soft_delete(self, config_id: uuid.UUID) -> None:
         await self._db.execute(
