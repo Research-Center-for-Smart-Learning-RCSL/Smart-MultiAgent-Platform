@@ -39,6 +39,7 @@ from contexts.agents.domain.errors import (
     FileSearchNeedsKnowledge,
     KeyGroupNoMatchingProvider,
     KeyGroupOutOfProject,
+    KnowmapConfigOutOfProject,
     RagConfigOutOfProject,
     ToolNotAvailable,
 )
@@ -222,6 +223,19 @@ class AgentService:
         if cfg is None or cfg.project_id != project_id:
             raise RagConfigOutOfProject(f"rag_config {rag_config_id} is not in project {project_id}")
 
+    async def _assert_knowmap_config_in_project(
+        self, *, knowmap_config_id: uuid.UUID, project_id: uuid.UUID
+    ) -> None:
+        """Knowledge Map counterpart of `_assert_rag_config_in_project` — a
+        knowmap config attached to an agent must live in the same project, else
+        the agent would pull another tenant's knowledge into context.
+        """
+        cfg = await self._knowledge.get_knowmap_config(knowmap_config_id)
+        if cfg is None or cfg.project_id != project_id:
+            raise KnowmapConfigOutOfProject(
+                f"knowmap_config {knowmap_config_id} is not in project {project_id}"
+            )
+
     async def create(
         self,
         *,
@@ -260,6 +274,11 @@ class AgentService:
                 rag_config_id=draft.rag_config_id,
                 project_id=project_id,
             )
+        if draft.knowmap_config_id is not None:
+            await self._assert_knowmap_config_in_project(
+                knowmap_config_id=draft.knowmap_config_id,
+                project_id=project_id,
+            )
 
         # `is not None` (not truthiness): an explicit empty {} means "inert by
         # choice" and must not be overridden by the default.
@@ -274,6 +293,7 @@ class AgentService:
             system_prompt=draft.system_prompt or "",
             prompt_strategy=draft.prompt_strategy or PromptStrategy.FULL,
             rag_config_id=draft.rag_config_id,
+            knowmap_config_id=draft.knowmap_config_id,
             context_mode=draft.context_mode or ContextMode.GENERAL,
             context_token_cap=draft.context_token_cap,
             a2a_enabled=bool(draft.a2a_enabled) if draft.a2a_enabled is not None else False,
@@ -362,6 +382,11 @@ class AgentService:
                 rag_config_id=draft.rag_config_id,
                 project_id=current.project_id,
             )
+        if not draft.clear_knowmap_config and draft.knowmap_config_id is not None:
+            await self._assert_knowmap_config_in_project(
+                knowmap_config_id=draft.knowmap_config_id,
+                project_id=current.project_id,
+            )
 
         values: dict[str, Any] = {}
         if draft.name is not None:
@@ -386,6 +411,10 @@ class AgentService:
             values["rag_config_id"] = None
         elif draft.rag_config_id is not None:
             values["rag_config_id"] = draft.rag_config_id
+        if draft.clear_knowmap_config:
+            values["knowmap_config_id"] = None
+        elif draft.knowmap_config_id is not None:
+            values["knowmap_config_id"] = draft.knowmap_config_id
         if draft.context_mode is not None:
             values["context_mode"] = draft.context_mode.value
         if draft.clear_context_token_cap:

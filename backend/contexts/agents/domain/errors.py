@@ -47,6 +47,17 @@ class RagConfigOutOfProject(AgentsError):
     code = "agents/rag-config-not-found"
 
 
+class KnowmapConfigOutOfProject(AgentsError):
+    """Attached Knowledge Map config does not belong to the agent's project.
+
+    Mirrors `RagConfigOutOfProject` — surfaced as 404 so an attacker probing
+    another tenant's config UUID cannot tell "exists elsewhere" from "does not
+    exist".
+    """
+
+    code = "agents/knowmap-config-out-of-project"
+
+
 class A2AForbidden(AgentsError):
     """R9.17 — scope check failed."""
 
@@ -150,6 +161,7 @@ __all__ = [
     "CapabilityMismatch",
     "KeyGroupNoMatchingProvider",
     "KeyGroupOutOfProject",
+    "KnowmapConfigOutOfProject",
     "McpBindingNotFound",
     "McpEgressDenied",
     "McpTestFailed",
