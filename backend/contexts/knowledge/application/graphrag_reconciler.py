@@ -19,7 +19,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import uuid
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Sequence
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -80,6 +80,9 @@ class ReconciliationLoop:
         phase2_retry: Phase2Retry,
         sleeper: Sleeper | None = None,
         lock_store: BuildLockStore | None = None,
+        also_live_id_repos: Sequence[Callable[[AsyncSession], GraphRagConfigRepositoryPort]] = (),
+        extra_vector_stores: Sequence[GraphRagVectorStore] = (),
+        sweep_orphans: bool = True,
     ) -> None:
         self._session_factory = session_factory
         self._repo_factory = repo_factory
@@ -89,6 +92,21 @@ class ReconciliationLoop:
         self._phase2 = phase2_retry
         self._sleep: Sleeper = sleeper or asyncio.sleep
         self._locks = lock_store
+        # A second graph consumer (the Knowledge Map, Phase 3) shares this Neo4j
+        # node space — subgraphs are keyed solely by config id across BOTH the
+        # graphrag_configs and knowmap_configs tables. Without these, the orphan
+        # sweep would treat every live *other-consumer* subgraph as an orphan and
+        # delete it: ``also_live_id_repos`` protect them, and ``extra_vector_stores``
+        # let a genuine orphan's points be purged from the other consumer's Qdrant
+        # collection (its config id belongs to exactly one table, so the extra
+        # delete is a no-op for a same-consumer orphan).
+        self._also_live_id_repos = list(also_live_id_repos)
+        self._extra_vector_stores = list(extra_vector_stores)
+        # A second consumer sharing this Neo4j node space runs its own heal pass
+        # but must NOT also sweep orphans — one consumer-aware sweep (the primary
+        # graphrag reconciler) purges orphans across both collections, so a second
+        # sweep would only race and double the audit rows.
+        self._sweep_orphans = sweep_orphans
 
     async def run_once(self) -> list[uuid.UUID]:
         """Drive one scan-and-heal cycle. Returns ids successfully committed.
@@ -134,12 +152,13 @@ class ReconciliationLoop:
                 finally:
                     if self._locks is not None:
                         await self._locks.release(cfg.id)
-            await self._sweep_orphans(db, repo)
+            if self._sweep_orphans:
+                await self._run_orphan_sweep(db, repo)
             return touched
         finally:
             await db.close()
 
-    async def _sweep_orphans(
+    async def _run_orphan_sweep(
         self,
         db: AsyncSession,
         repo: GraphRagConfigRepositoryPort,
@@ -159,6 +178,11 @@ class ReconciliationLoop:
         Failures are isolated per orphan and never abort the reconcile cycle.
         """
         live_ids = await repo.list_all_ids()
+        # Protect subgraphs owned by another graph consumer that shares this Neo4j
+        # node space (Knowledge Map, Phase 3) — their config ids live in a
+        # different table and must never be swept as orphans here.
+        for extra_repo_factory in self._also_live_id_repos:
+            live_ids |= await extra_repo_factory(db).list_all_ids()
         try:
             graph_configs = await self._neo4j.list_config_ids()
         except Exception:
@@ -174,6 +198,18 @@ class ReconciliationLoop:
                     neo4j=self._neo4j,
                     vectors=self._vectors,
                 )
+                # A genuine orphan's config id belongs to exactly one consumer, so
+                # also purge its points from the other consumer's Qdrant collection
+                # (a no-op for a same-consumer orphan) to avoid leaking vectors.
+                for extra_vs in self._extra_vector_stores:
+                    if project_id is not None:
+                        try:
+                            await extra_vs.delete_by_config(project_id=project_id, config_id=config_id)
+                        except Exception:
+                            _log.exception(
+                                "graphrag orphan sweep: extra-collection purge failed for %s",
+                                config_id,
+                            )
                 await audit.emit(
                     db,
                     audit.AuditEvent(
