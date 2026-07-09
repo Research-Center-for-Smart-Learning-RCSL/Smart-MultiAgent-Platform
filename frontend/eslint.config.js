@@ -11,15 +11,20 @@ import tsParser from '@typescript-eslint/parser'
 import vueParser from 'vue-eslint-parser'
 import vuejsAccessibility from 'eslint-plugin-vuejs-accessibility'
 
-const SLICES = ['identity', 'tenancy', 'keys', 'agents', 'conversation', 'workflow', 'admin', 'notifications', 'prompt-studio']
+const SLICES = ['identity', 'tenancy', 'keys', 'agents', 'agent-groups', 'conversation', 'workflow', 'admin', 'notifications', 'prompt-studio']
 
+// [R24.06] Cross-slice dependency direction. `agent-groups` is a first-class,
+// project-scoped slice (agent-group CRUD, membership, and the group-owned Concept
+// Map panel) sitting between conversation and agents in the chain; it imports
+// agents/keys/tenancy/identity/shared and is imported by conversation.
 const SLICE_DEPS = {
   identity:      [],
   tenancy:       ['identity'],
   keys:          ['tenancy', 'identity'],
   agents:        ['prompt-studio', 'keys', 'tenancy', 'identity'],
-  conversation:  ['agents', 'keys', 'tenancy', 'identity'],
-  workflow:      ['conversation', 'agents', 'keys', 'tenancy', 'identity'],
+  'agent-groups': ['agents', 'keys', 'tenancy', 'identity'],
+  conversation:  ['agent-groups', 'agents', 'keys', 'tenancy', 'identity'],
+  workflow:      ['conversation', 'agent-groups', 'agents', 'keys', 'tenancy', 'identity'],
   admin:         ['prompt-studio'],
   notifications: ['identity'],
   'prompt-studio': ['keys'],

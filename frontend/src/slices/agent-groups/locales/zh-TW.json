@@ -1,0 +1,60 @@
+{
+  "agentGroups": {
+    "breadcrumb": {
+      "groups": "Agent 群組"
+    },
+    "list": {
+      "title": "Agent 群組",
+      "create": "新增群組",
+      "createTitle": "建立 Agent 群組",
+      "nameLabel": "名稱",
+      "namePlaceholder": "例如：研究團隊",
+      "colName": "名稱",
+      "colCreated": "建立時間",
+      "emptyTitle": "尚無 Agent 群組",
+      "emptyDescription": "建立群組以管理一組 AI Agent 及其共用的概念圖。",
+      "created": "已建立 Agent 群組。",
+      "createFailed": "建立 Agent 群組失敗。",
+      "deleteTitle": "刪除 Agent 群組",
+      "deleteConfirm": "刪除群組「{name}」？其概念圖與成員將被移除。此動作無法復原。",
+      "deleted": "已刪除 Agent 群組。",
+      "deleteFailed": "刪除 Agent 群組失敗。",
+      "ownerOnly": "只有專案擁有者可以建立或管理 Agent 群組。",
+      "cancel": "取消",
+      "submit": "建立",
+      "open": "開啟",
+      "rename": "重新命名",
+      "delete": "刪除"
+    },
+    "detail": {
+      "back": "Agent 群組",
+      "membersTitle": "成員",
+      "membersHelp": "此群組中的 AI Agent 會貢獻並可讀取其共用的概念圖。",
+      "addMember": "新增",
+      "memberPlaceholder": "選擇 AI Agent…",
+      "colAgent": "AI Agent",
+      "removeMember": "移除",
+      "noMembers": "尚無成員。",
+      "memberAdded": "已新增成員。",
+      "memberRemoved": "已移除成員。",
+      "addFailed": "新增成員失敗。",
+      "removeFailed": "移除成員失敗。",
+      "ownerOnly": "只有專案擁有者可以管理此群組的成員。",
+      "rename": "重新命名",
+      "renameTitle": "重新命名群組",
+      "nameLabel": "名稱",
+      "renameSaved": "已重新命名群組。",
+      "renameFailed": "重新命名群組失敗。",
+      "removeConfirmTitle": "移除成員",
+      "removeConfirm": "將此 AI Agent 從群組移除？",
+      "privacyTitle": "概念圖隱私",
+      "privacyLabel": "啟用此群組的概念圖",
+      "privacyHelp": "啟用後，群組的概念圖會為每位成員的檢索提供內容。預設為關閉。",
+      "privacyOwnerOnly": "只有專案擁有者可以變更概念圖隱私設定。",
+      "privacyToggleFailed": "更新隱私設定失敗。",
+      "cancel": "取消",
+      "save": "儲存",
+      "notFound": "找不到此 Agent 群組。"
+    }
+  }
+}

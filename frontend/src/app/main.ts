@@ -9,6 +9,7 @@ import { installErrorHandler } from '@app/errorHandler'
 import { router } from '@app/router'
 import { i18n, registerLocaleLoaders, ensureLocaleLoaded, syncHtmlLang, type Locale } from '@shared/i18n'
 import { installAdminSlice } from '@slices/admin'
+import { installAgentGroupsSlice } from '@slices/agent-groups'
 import { installAgentsSlice } from '@slices/agents'
 import { installConversationSlice } from '@slices/conversation'
 import { installIdentitySlice, useSessionStore } from '@slices/identity'
@@ -28,6 +29,7 @@ installIdentitySlice()
 installTenancySlice()
 installKeysSlice()
 installAgentsSlice()
+installAgentGroupsSlice()
 installConversationSlice()
 installWorkflowSlice()
 installAdminSlice()
