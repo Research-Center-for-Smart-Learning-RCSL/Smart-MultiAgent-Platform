@@ -66,6 +66,9 @@ from contexts.knowledge.application.graphrag_context_provider import (
     GraphRagContextProvider,
     build_evidence_fetcher,
 )
+from contexts.knowledge.application.knowmap_context_provider import (
+    KnowledgeMapContextProvider,
+)
 from contexts.knowledge.application.rag_context_provider import RagContext, RagContextProvider
 from shared_kernel import audit
 from shared_kernel.observability.metrics import REGISTRY
@@ -285,6 +288,14 @@ class TurnEngine:
                 _conv_facade.get_message,
                 _conv_facade.is_agent_in_chatroom,
             ),
+        )
+        # Axis-1 Knowledge Map (Phase 3, R11.14) — a third system block beside
+        # file-RAG, independent of any Concept Map; built once per engine.
+        self._knowmap_provider = KnowledgeMapContextProvider(
+            db,
+            router=self._router,
+            qdrant_url=qdrant_url,
+            qdrant_api_key=qdrant_api_key,
         )
         # Rooms whose one-shot POST /compact flag this engine consumed — used
         # to re-arm the flag if the turn that consumed it fails.
@@ -910,6 +921,9 @@ class TurnEngine:
             graphrag_block = await self._graphrag_context(agent, chatroom_id, knowledge_queries)
             if graphrag_block:
                 system_parts.append(graphrag_block)
+            knowmap_block = await self._knowmap_context(agent, knowledge_queries)
+            if knowmap_block:
+                system_parts.append(knowmap_block)
             # Drain queued A2A notifications (R9.16); approval requests also add
             # the cast_approval_vote tool for this turn.
             notify_block, extra_tools, pending_notes = await self._pending_context_and_tools(
@@ -1690,6 +1704,19 @@ class TurnEngine:
             return None
         return await self._graphrag_provider.query_layers(
             graphrag_config_ids=[cfg.id for cfg in layers],
+            query_texts=queries,
+            querying_agent_id=agent.id,
+        )
+
+    async def _knowmap_context(self, agent: Agent, queries: Sequence[str]) -> str | None:
+        """Delegate to the knowledge-context :class:`KnowledgeMapContextProvider`.
+
+        Keyed on the agent's own ``knowmap_config_id`` (per-Agent binding, R11.14) —
+        independent of any Concept Map layer resolution. The provider enforces the
+        per-Agent document allowlist edge filter and degrades to ``None`` on failure.
+        """
+        return await self._knowmap_provider.query(
+            knowmap_config_id=agent.knowmap_config_id,
             query_texts=queries,
             querying_agent_id=agent.id,
         )
