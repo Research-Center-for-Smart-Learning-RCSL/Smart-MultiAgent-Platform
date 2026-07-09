@@ -270,7 +270,28 @@ Apply verbatim on approval.
 
 ## 15. Deviation Log
 
-Appended by `/build`.
+- D-1 (2026-07-09, `/build` pre-flight) — **Backend precursor built first.** 4α's
+  hard-dependency pre-flight found the Phase 1/2b backend only partially present, so
+  (with the user) the missing endpoints were built first as a backend-only precursor
+  before any 4α frontend work. Landed on `main`:
+  - `GET /api/projects/{id}/agent-groups`, `GET /api/agent-groups/{id}`,
+    `PATCH /api/agent-groups/{id}` (rename) — the group list/get/rename CRUD WS1 needs
+    (previously only create + delete existed). `AgentGroupOut` gains `concept_map_enabled`
+    + `created_at`. (commit `5f5951b`)
+  - `GET /api/agents/{id}/concept-map-coverage` — the agent-scoped read-only coverage the
+    WS5 Knowledge tab (AC-6) consumes; previously coverage existed only as an internal
+    turn-resolver with no REST surface. Per Q (2026-07-09) it returns all covering maps
+    with a per-entry `active` flag (chatroom always active; wide maps active iff
+    `concept_map_enabled`). (commit `b948ce9`)
+  4α remains `approved` (not yet implemented); these endpoints unblock AC-1/AC-3/AC-6.
+- D-2 (2026-07-09, correction for WS4) — **`concept_map_enabled` is toggled via the owner
+  endpoints, not `patchGraphragConfig`.** §6 WS4 assumed the toggle PATCHes the graphrag
+  config (WS2); in the built backend the flag lives on the owner rows and is toggled via
+  `PUT /api/agent-groups/{id}/concept-map-enabled` and
+  `PUT /api/workspaces/{id}/concept-map-enabled`. WS4's toggle must wire to these owner
+  endpoints; the graphrag PATCH still carries `recency_half_life_days` (WS4 temporal). No
+  AC changes — AC-4 is satisfied via the owner endpoints. The current wide-map
+  `concept_map_enabled` state is read from the enriched group/workspace GET.
 
 ## 16. Follow-ups
 
@@ -278,3 +299,11 @@ Appended by `/build`.
   proves too heavy.
 - FU-2 — a dedicated numeric slider atom for half-life (currently `SInput type="number"`).
 - FU-3 — extract the shared Concept Map surface from `agents` into `shared` (Q-A/Q-3).
+- FU-4 (pre-existing, not introduced by 4α) — `backend/openapi.json` is stale: it was last
+  regenerated 2026-06-29 and predates all of Phase 2b (it contains none of the
+  `concept-map-enabled`, `recency_half_life`, knowmap, or unified-tools endpoints), so
+  `check:openapi-drift` is already red on `main` independent of this work. Regeneration
+  (`python -m scripts.export_openapi` + `pnpm run gen:api`) must run in CI's canonical
+  toolchain — regenerating in an ad-hoc container produced a ~6 k-line diff dominated by
+  formatting/version noise, so it was deliberately not committed here. 4α's `gen:api` will
+  regenerate the client; the backend spec snapshot should be refreshed alongside it.
