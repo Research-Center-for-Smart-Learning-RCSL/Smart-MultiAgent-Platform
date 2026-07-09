@@ -47,6 +47,10 @@ afterEach(() => {
 })
 
 function mountSocket(): ReturnType<typeof useGraphragSocket> {
+  return mountSocketWithClient().api
+}
+
+function mountSocketWithClient(): { api: ReturnType<typeof useGraphragSocket>; qc: QueryClient } {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   let api!: ReturnType<typeof useGraphragSocket>
   const Host = defineComponent({
@@ -56,7 +60,7 @@ function mountSocket(): ReturnType<typeof useGraphragSocket> {
     },
   })
   mount(Host, { global: { plugins: [[VueQueryPlugin, { queryClient: qc }]] } })
-  return api
+  return { api, qc }
 }
 
 describe('useGraphragSocket', () => {
@@ -86,5 +90,23 @@ describe('useGraphragSocket', () => {
     // No WS event and no successful connect — only the seed.
     api.watch('cfg_1', 'running')
     expect(api.liveState.value['cfg_1']).toBe('running')
+  })
+
+  it('invalidates conceptMapCoverage (not just the config queries) on a terminal build state', () => {
+    // Regression: the agent Knowledge tab's read-only coverage badge
+    // (agentKeys.conceptMapCoverage) went stale after a covering map's build
+    // finished, because only graphragConfigs/graphragConfig were invalidated —
+    // the composable has no way to know which agent(s) a config covers, so it
+    // must invalidate the whole conceptMapCoverage prefix.
+    const { api, qc } = mountSocketWithClient()
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries')
+    api.watch('cfg_1', 'running')
+
+    emit({ type: 'build.state', state: 'qdrant_committed' })
+
+    const invalidatedKeys = invalidateSpy.mock.calls.map((c) => (c[0] as { queryKey: unknown[] }).queryKey)
+    expect(invalidatedKeys).toContainEqual(['agents', 'graphragConfigs', 'proj_1'])
+    expect(invalidatedKeys).toContainEqual(['agents', 'graphragConfig', 'cfg_1'])
+    expect(invalidatedKeys).toContainEqual(['agents', 'conceptMapCoverage'])
   })
 })
