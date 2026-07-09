@@ -200,12 +200,19 @@ class ReconciliationLoop:
                 )
                 # A genuine orphan's config id belongs to exactly one consumer, so
                 # also purge its points from the other consumer's Qdrant collection
-                # (a no-op for a same-consumer orphan) to avoid leaking vectors.
+                # (a no-op for a same-consumer orphan) to avoid leaking vectors. Record
+                # each extra-collection purge in the audit so a Knowledge Map orphan's
+                # vector removal is verifiable — ``outcome.qdrant_purged`` only reflects
+                # the primary (graphrag) collection, which is a no-op for a knowmap
+                # orphan whose points live in the ``knowmap`` collection.
+                extra_purged: dict[str, bool] = {}
                 for extra_vs in self._extra_vector_stores:
                     if project_id is not None:
                         try:
                             await extra_vs.delete_by_config(project_id=project_id, config_id=config_id)
+                            extra_purged[extra_vs.prefix] = True
                         except Exception:
+                            extra_purged[extra_vs.prefix] = False
                             _log.exception(
                                 "graphrag orphan sweep: extra-collection purge failed for %s",
                                 config_id,
@@ -219,6 +226,7 @@ class ReconciliationLoop:
                         metadata={
                             "project_id": str(project_id) if project_id else None,
                             **outcome,
+                            "extra_collections_purged": extra_purged,
                         },
                     ),
                 )

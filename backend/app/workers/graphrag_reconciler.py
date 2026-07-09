@@ -207,8 +207,15 @@ async def reconcile_once() -> list[uuid.UUID]:
 
 async def _main() -> None:
     logging.basicConfig(level=logging.INFO)
-    async with _loop() as loop:
-        await loop.run_forever(period_s=60.0)
+    # Run the same composed pass as the arq cron (graphrag heal + consumer-aware
+    # sweep, then the knowmap heal) so the standalone process heals every consumer —
+    # not just graphrag, which would leave knowmap configs stuck mid-2PC forever.
+    while True:
+        try:
+            await reconcile_once()
+        except Exception:
+            _log.exception("graphrag reconciler iteration failed")
+        await asyncio.sleep(60.0)
 
 
 def run() -> None:
