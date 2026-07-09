@@ -52,6 +52,23 @@ function seed(): void {
     http.get('/api/projects/proj_1/rag-configs', () => HttpResponse.json([])),
     http.get('/api/projects/proj_1/graphrag-configs', () => HttpResponse.json([])),
     http.get('/api/agents/agent_1/mcp', () => HttpResponse.json([])),
+    http.get('/api/agents/agent_1/concept-map-coverage', () =>
+      HttpResponse.json({
+        agent_id: 'agent_1',
+        entries: [
+          {
+            config_id: 'gr_1',
+            owner_kind: 'chatroom',
+            owner_id: 'room_1',
+            owner_name: 'General Room',
+            active: true,
+            last_build_state: 'idle',
+            last_build_at: null,
+            last_build_error: null,
+          },
+        ],
+      }),
+    ),
   )
 }
 
@@ -86,5 +103,19 @@ describe('AgentDetailView', () => {
     expect(wrapper.text()).toContain('My Bot')
     // A delete button is present in edit mode (danger variant).
     expect(wrapper.find('button.s-btn--danger').exists()).toBe(true)
+  })
+
+  it('shows read-only Concept Map coverage on the Knowledge tab (AC-6)', async () => {
+    seed()
+    const wrapper = await renderView(AgentDetailView, {
+      routes,
+      initialRoute: '/agents/agent_1?tab=knowledge',
+    })
+    await settle(wrapper)
+    // The covering map's owner name renders (transparency), not an attach control.
+    expect(wrapper.text()).toContain('General Room')
+    expect(wrapper.text()).toContain('agents.graphragCoverage.active')
+    // No Concept Map attach select was ever added — only the rag_config_id one.
+    expect(wrapper.text()).not.toContain('agents.graphragForm.agent')
   })
 })
