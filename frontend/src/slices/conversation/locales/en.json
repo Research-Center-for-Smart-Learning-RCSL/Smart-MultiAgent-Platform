@@ -276,6 +276,16 @@
       "versionConflict": "This chatroom changed elsewhere. Review your edits and save again.",
       "deleteFailed": "Failed to delete chatroom."
     },
+    "conceptMap": {
+      "settings": "Concept Map",
+      "privacyTitle": "Concept Map Privacy",
+      "workspacePrivacyLabel": "Enable workspace Concept Map",
+      "workspacePrivacyHelp": "When on, a Concept Map can be built across this workspace's shared knowledge. Off by default to keep wide-layer knowledge private.",
+      "privacyOwnerOnly": "Only a project owner can change this setting.",
+      "privacyToggleFailed": "Failed to update the privacy setting.",
+      "workspaceNotFound": "Workspace not found.",
+      "chatroomInheritsAccess": "This chatroom's Concept Map inherits the room's access control — anyone who can view the room can view its Concept Map."
+    },
     "guest": {
       "title": "Join Chatroom",
       "description": "Enter a display name to join the chatroom.",

@@ -44,6 +44,18 @@ export async function deleteWorkspace(workspaceId: string): Promise<void> {
   await http.delete(`/workspaces/${workspaceId}`)
 }
 
+// Phase 4α (R11.10) — Project-Owner-gated wide-layer Concept Map privacy opt-in.
+export async function setWorkspaceConceptMapEnabled(
+  workspaceId: string,
+  enabled: boolean,
+): Promise<{ workspace_id: string; concept_map_enabled: boolean }> {
+  const { data } = await http.put<{ workspace_id: string; concept_map_enabled: boolean }>(
+    `/workspaces/${workspaceId}/concept-map-enabled`,
+    { enabled },
+  )
+  return data
+}
+
 // ---- chatrooms -----------------------------------------------------------
 
 export async function listChatrooms(workspaceId: string): Promise<Chatroom[]> {

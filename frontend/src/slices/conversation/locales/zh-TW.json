@@ -276,6 +276,16 @@
       "versionConflict": "此聊天室已在他處變更。請檢查您的編輯後重新儲存。",
       "deleteFailed": "刪除聊天室失敗。"
     },
+    "conceptMap": {
+      "settings": "概念圖",
+      "privacyTitle": "概念圖隱私",
+      "workspacePrivacyLabel": "啟用工作區概念圖",
+      "workspacePrivacyHelp": "啟用後，可跨此工作區的共用知識建立概念圖。預設為關閉，以確保廣層知識的隱私。",
+      "privacyOwnerOnly": "只有專案擁有者可變更此設定。",
+      "privacyToggleFailed": "更新隱私設定失敗。",
+      "workspaceNotFound": "找不到工作區。",
+      "chatroomInheritsAccess": "此聊天室的概念圖沿用聊天室的存取控制——任何能檢視聊天室的人皆可檢視其概念圖。"
+    },
     "guest": {
       "title": "加入聊天室",
       "description": "請輸入顯示名稱以加入聊天室。",
