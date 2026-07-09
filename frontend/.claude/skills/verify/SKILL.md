@@ -27,8 +27,15 @@ Gotchas:
 - **Never `waitForLoadState('networkidle')`** — the app holds live websockets, so
   it never idles and your test eats its whole timeout. Wait on a specific element
   (`getByText(...).waitFor()`) instead.
-- The login fixture (`waitForURL` after submit) is **flaky on a cold Vite compile**.
-  Run one spec at a time and re-run on failure; a warm dev server is far more reliable.
+- **AUTH rate limit (10 req/min/IP).** The SPA re-authenticates via
+  `/api/auth/refresh` on every full page load, so a multi-test suite trips the AUTH
+  bucket and bounces tests to `/login` (the historic "login flakiness"). `global-setup`
+  raises the `auth`/`auth-recovery` policies to 1000/min via
+  `PATCH /api/admin/rate-limits/{key}` (admin) so this doesn't happen. If you drive the
+  app outside the harness and hit 429s on login/refresh, either wait out the 60s
+  sliding window or bump those policies the same way. The auth fixture also backs off
+  on 429. Storage-state reuse does NOT work: refresh rotates the token and revokes the
+  family on reuse — log in per test (fresh session each), not once-and-share.
 - Read PNG screenshots back with the Read tool to observe the render.
 
 ## Unblocking the local dev stack (one-time)
