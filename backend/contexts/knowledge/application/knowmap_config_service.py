@@ -19,10 +19,9 @@ import uuid
 from collections.abc import Sequence
 from typing import Any
 
-import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from contexts.keys.infrastructure import tables as keys_t
+from contexts.keys.interfaces.facade import KeysFacade
 from contexts.knowledge.application.embed_resolution import (
     resolve_embed_key,
     resolve_pinned_embed_key,
@@ -213,17 +212,10 @@ class KnowmapConfigService:
     async def _assert_builder_group_in_project(
         self, builder_key_group_id: uuid.UUID, project_id: uuid.UUID
     ) -> None:
-        row = (
-            await self._db.execute(
-                sa.select(keys_t.key_groups.c.project_id).where(
-                    sa.and_(
-                        keys_t.key_groups.c.id == builder_key_group_id,
-                        keys_t.key_groups.c.deleted_at.is_(None),
-                    )
-                )
-            )
-        ).first()
-        if row is None or row.project_id != project_id:
+        # Cross-context check via the keys facade (a project-scoped active group),
+        # not a direct query into another context's tables.
+        group = await KeysFacade(self._db).get_key_group(builder_key_group_id)
+        if group is None or group.project_id != project_id:
             raise KnowmapBuilderKeyGroupProjectMismatch(
                 f"builder_key_group_id {builder_key_group_id} does not belong to project {project_id}"
             )

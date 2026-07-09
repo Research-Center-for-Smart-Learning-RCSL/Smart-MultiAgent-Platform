@@ -70,6 +70,11 @@ class KnowmapConfigCreateIn(BaseModel):
     chunk_params: BoundedConfig = Field(default_factory=dict)
 
 
+class KnowmapRebuildAck(BaseModel):
+    status: Literal["enqueued"]
+    config_id: uuid.UUID
+
+
 class KnowmapConfigPatchIn(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=200)
     builder_key_group_id: uuid.UUID | None = None
@@ -348,7 +353,7 @@ async def rebuild_knowmap_config(
     ctx: RequestContext = Depends(current_context),
     principal: Principal = Depends(current_principal),
     db: AsyncSession = Depends(db_session),
-) -> dict[str, str]:
+) -> KnowmapRebuildAck:
     """Explicit designer rebuild (Q-3/AC-6). Enqueues a ``knowmap_build`` with the
     dedup job id so a redundant click collapses onto an in-flight build."""
     service = KnowmapConfigService(db)
@@ -374,7 +379,7 @@ async def rebuild_knowmap_config(
         last_build_state=cfg.last_build_state,
         last_build_at=cfg.last_build_at,
     )
-    return {"status": "enqueued", "config_id": str(config_id)}
+    return KnowmapRebuildAck(status="enqueued", config_id=config_id)
 
 
 @config_router.get("/{config_id}/documents")
