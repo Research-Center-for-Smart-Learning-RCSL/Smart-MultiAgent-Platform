@@ -104,8 +104,14 @@ const totalPages = computed(() => Math.max(1, Math.ceil(filteredConfigs.value.le
 const pagedConfigs = computed(() =>
   filteredConfigs.value.slice((page.value - 1) * PAGE_SIZE, page.value * PAGE_SIZE),
 )
-// Reset to page 1 whenever the filter or the underlying list shrinks past the page.
-watch([ownerKindFilter, totalPages], () => {
+// Reset to page 1 whenever the owner-type filter changes — otherwise the user
+// stays on, say, page 3 showing an unrelated slice of the newly filtered set.
+watch(ownerKindFilter, () => {
+  page.value = 1
+})
+// Separately, clamp back down if the (possibly still-unfiltered) list shrinks
+// past the current page — e.g. a delete drops the total page count.
+watch(totalPages, () => {
   if (page.value > totalPages.value) page.value = totalPages.value
 })
 
