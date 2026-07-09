@@ -6,6 +6,7 @@ import {
 } from 'vue-router'
 
 import { adminRoutes } from '@slices/admin'
+import { agentGroupsRoutes } from '@slices/agent-groups'
 import { agentsRoutes } from '@slices/agents'
 import { conversationRoutes } from '@slices/conversation'
 import { identityRoutes, useSessionStore } from '@slices/identity'
@@ -29,6 +30,7 @@ const routes: RouteRecordRaw[] = [
   ...tenancyRoutes,
   ...keysRoutes,
   ...agentsRoutes,
+  ...agentGroupsRoutes,
   ...conversationRoutes,
   ...workflowRoutes,
   ...adminRoutes,

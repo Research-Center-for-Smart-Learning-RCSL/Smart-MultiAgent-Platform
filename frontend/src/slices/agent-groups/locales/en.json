@@ -1,0 +1,60 @@
+{
+  "agentGroups": {
+    "breadcrumb": {
+      "groups": "Agent Groups"
+    },
+    "list": {
+      "title": "Agent Groups",
+      "create": "New Group",
+      "createTitle": "Create Agent Group",
+      "nameLabel": "Name",
+      "namePlaceholder": "e.g. Research Team",
+      "colName": "Name",
+      "colCreated": "Created",
+      "emptyTitle": "No agent groups yet",
+      "emptyDescription": "Create a group to manage a set of agents and their shared Concept Map.",
+      "created": "Agent group created.",
+      "createFailed": "Failed to create the agent group.",
+      "deleteTitle": "Delete Agent Group",
+      "deleteConfirm": "Delete the group \"{name}\"? Its Concept Map and members are removed. This cannot be undone.",
+      "deleted": "Agent group deleted.",
+      "deleteFailed": "Failed to delete the agent group.",
+      "ownerOnly": "Only a project owner can create or manage agent groups.",
+      "cancel": "Cancel",
+      "submit": "Create",
+      "open": "Open",
+      "rename": "Rename",
+      "delete": "Delete"
+    },
+    "detail": {
+      "back": "Agent Groups",
+      "membersTitle": "Members",
+      "membersHelp": "Agents in this group contribute to and can read its shared Concept Map.",
+      "addMember": "Add",
+      "memberPlaceholder": "Select an agent...",
+      "colAgent": "Agent",
+      "removeMember": "Remove",
+      "noMembers": "No members yet.",
+      "memberAdded": "Member added.",
+      "memberRemoved": "Member removed.",
+      "addFailed": "Failed to add the member.",
+      "removeFailed": "Failed to remove the member.",
+      "ownerOnly": "Only a project owner can manage this group's members.",
+      "rename": "Rename",
+      "renameTitle": "Rename Group",
+      "nameLabel": "Name",
+      "renameSaved": "Group renamed.",
+      "renameFailed": "Failed to rename the group.",
+      "removeConfirmTitle": "Remove Member",
+      "removeConfirm": "Remove this agent from the group?",
+      "privacyTitle": "Concept Map privacy",
+      "privacyLabel": "Enable this group's Concept Map",
+      "privacyHelp": "When enabled, the group's Concept Map contributes to retrieval for every member. Off by default.",
+      "privacyOwnerOnly": "Only a project owner can change the Concept Map privacy setting.",
+      "privacyToggleFailed": "Failed to update the privacy setting.",
+      "cancel": "Cancel",
+      "save": "Save",
+      "notFound": "This agent group was not found."
+    }
+  }
+}

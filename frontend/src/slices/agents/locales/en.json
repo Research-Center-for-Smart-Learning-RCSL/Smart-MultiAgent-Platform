@@ -281,6 +281,17 @@
       "noKeyGroups": "This project has no key groups yet. Create one in the Keys section first.",
       "noOwners": "Every eligible owner already has a Concept Map, or there are no chatrooms, agent groups, or workspaces to create one for yet."
     },
+    "conceptMapPanel": {
+      "title": "Concept Map",
+      "subtitle": "A knowledge graph built from this owner's conversations, retrieved during chat.",
+      "noMapOwner": "No Concept Map for this owner yet. Pick a builder key group to create one.",
+      "noMapReadonly": "No Concept Map has been created for this owner yet.",
+      "create": "Create Concept Map",
+      "save": "Save",
+      "recencySaved": "Recency half-life updated.",
+      "recencySaveFailed": "Failed to update the recency half-life.",
+      "deleteConfirm": "Delete this Concept Map? Its knowledge graph and entity vectors are removed. This cannot be undone."
+    },
     "graphragCoverage": {
       "title": "Concept Map coverage",
       "help": "The Concept Maps that can contribute to this agent's retrieval: its chatrooms, the agent groups it belongs to, and those chatrooms' workspaces.",

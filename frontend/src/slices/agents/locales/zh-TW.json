@@ -281,6 +281,17 @@
       "noKeyGroups": "此專案尚無金鑰群組。請先在「金鑰」區段建立一個。",
       "noOwners": "所有符合條件的擁有者都已有概念圖，或尚無可建立的聊天室、Agent 群組或工作區。"
     },
+    "conceptMapPanel": {
+      "title": "概念圖",
+      "subtitle": "從此擁有者的對話建置的知識圖，於聊天時檢索使用。",
+      "noMapOwner": "此擁有者尚無概念圖。請選擇建置金鑰群組以建立。",
+      "noMapReadonly": "尚未為此擁有者建立概念圖。",
+      "create": "建立概念圖",
+      "save": "儲存",
+      "recencySaved": "已更新時效半衰期。",
+      "recencySaveFailed": "更新時效半衰期失敗。",
+      "deleteConfirm": "刪除此概念圖？其知識圖與實體向量將被移除。此動作無法復原。"
+    },
     "graphragCoverage": {
       "title": "概念圖涵蓋範圍",
       "help": "可為此 AI Agent 檢索提供內容的概念圖：其聊天室、所屬的 Agent 群組，以及這些聊天室的工作區。",
