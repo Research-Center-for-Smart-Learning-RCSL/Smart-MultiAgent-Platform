@@ -34,6 +34,7 @@ def _policy_document(settings: Settings) -> dict[str, Any]:
     buckets = (
         settings.minio.bucket_chat_uploads,
         settings.minio.bucket_rag_sources,
+        settings.minio.bucket_knowmap_sources,
         settings.minio.bucket_exports,
         settings.minio.bucket_agent_workspace,
         settings.minio.bucket_prompt_assistant_files,
@@ -141,6 +142,7 @@ def run(
         report=report,
     )
     _ensure_bucket(data, settings.minio.bucket_rag_sources, lifecycle=None, report=report)
+    _ensure_bucket(data, settings.minio.bucket_knowmap_sources, lifecycle=None, report=report)
     _ensure_bucket(
         data,
         settings.minio.bucket_exports,

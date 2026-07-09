@@ -83,6 +83,9 @@ def _build_registry() -> list[RouterEntry]:
         keys as key_routes,
     )
     from app.api.v1 import (
+        knowmap as knowmap_routes,
+    )
+    from app.api.v1 import (
         mcp as mcp_routes,
     )
     from app.api.v1 import (
@@ -193,6 +196,10 @@ def _build_registry() -> list[RouterEntry]:
         RouterEntry(graphrag_routes.project_router),
         RouterEntry(graphrag_routes.config_router),
         RouterEntry(graphrag_routes.admin_router),
+        # Knowledge Map (Axis-1 GraphRAG over documents, Phase 3)
+        RouterEntry(knowmap_routes.project_router),
+        RouterEntry(knowmap_routes.config_router),
+        RouterEntry(knowmap_routes.document_router),
         # MCP egress allowlist
         RouterEntry(mcp_routes.project_router),
         # Conversation

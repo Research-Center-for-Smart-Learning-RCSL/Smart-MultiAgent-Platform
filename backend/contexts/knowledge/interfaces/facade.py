@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.knowledge.domain.graphrag import GraphRagConfig
+from contexts.knowledge.domain.knowmap import KnowmapConfig, KnowmapDocument
 from contexts.knowledge.domain.models import (
     EmbedCatalogEntry,
     RagConfig,
@@ -23,6 +24,7 @@ from contexts.knowledge.domain.models import (
 from contexts.knowledge.infrastructure.graphrag_repositories import (
     GraphRagConfigRepository,
 )
+from contexts.knowledge.infrastructure.knowmap_repositories import KnowmapConfigRepository
 from contexts.knowledge.infrastructure.repositories import RagConfigRepository
 
 if TYPE_CHECKING:
@@ -35,6 +37,7 @@ class KnowledgeFacade:
         self._db = db
         self._configs = RagConfigRepository(db)
         self._graphrag = GraphRagConfigRepository(db)
+        self._knowmap = KnowmapConfigRepository(db)
 
     def embedding_catalog(self) -> tuple[EmbedCatalogEntry, ...]:
         """Per-provider whitelisted embedding models + dimensions for the RAG UI."""
@@ -169,6 +172,50 @@ class KnowledgeFacade:
         )
 
         return await evaluate_graphrag_message_triggers(self._db, agent_ids=agent_ids)
+
+    async def get_knowmap_config(
+        self, config_id: uuid.UUID, *, include_deleted: bool = False
+    ) -> KnowmapConfig | None:
+        """Resolve a Knowledge Map config (used by agents to validate attachment).
+
+        Mirrors :meth:`get_rag_config`; the agents context calls it to confirm an
+        attached ``knowmap_config_id`` belongs to the agent's project (SEC-H1).
+        """
+        return await self._knowmap.get(config_id, include_deleted=include_deleted)
+
+    async def finalize_knowmap_upload(
+        self,
+        *,
+        knowmap_config_id: uuid.UUID,
+        filename: str,
+        mime: str,
+        staging_path: str,
+        size_bytes: int,
+        uploaded_by: uuid.UUID | None,
+        actor_ip: str | None,
+        agent_ids: list[uuid.UUID] | None = None,
+        request_id: uuid.UUID | None = None,
+    ) -> KnowmapDocument:
+        """Finalize a completed tus ``purpose=knowmap_source`` upload.
+
+        Delegates to :class:`KnowmapTusFinalizer` — streams the staged blob into
+        MinIO, creates the ``knowmap_documents`` row, and enqueues the index +
+        scan workers. ``agent_ids`` is the per-agent allowlist for a newly created
+        document (validated at tus-create); ignored on dedup of an existing doc.
+        """
+        from contexts.knowledge.application.knowmap_tus_finalizer import KnowmapTusFinalizer
+
+        return await KnowmapTusFinalizer(self._db).finalize(
+            knowmap_config_id=knowmap_config_id,
+            filename=filename,
+            mime=mime,
+            staging_path=staging_path,
+            size_bytes=size_bytes,
+            uploaded_by=uploaded_by,
+            actor_ip=actor_ip,
+            agent_ids=agent_ids or [],
+            request_id=request_id,
+        )
 
     async def finalize_rag_upload(
         self,

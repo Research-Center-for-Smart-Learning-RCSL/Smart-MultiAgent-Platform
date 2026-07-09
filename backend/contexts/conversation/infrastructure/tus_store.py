@@ -48,10 +48,11 @@ class TusUpload:
     user_id: uuid.UUID
     upload_length: int
     upload_offset: int
-    purpose: str  # "chat_attachment" | "rag_source"
+    purpose: str  # "chat_attachment" | "rag_source" | "knowmap_source"
     project_id: uuid.UUID
     chatroom_id: uuid.UUID | None
     rag_config_id: uuid.UUID | None
+    knowmap_config_id: uuid.UUID | None
     filename: str
     mime: str
     staging_path: str
@@ -102,6 +103,7 @@ class TusUploadStore:
             "project_id": str(upload.project_id),
             "chatroom_id": str(upload.chatroom_id) if upload.chatroom_id else None,
             "rag_config_id": str(upload.rag_config_id) if upload.rag_config_id else None,
+            "knowmap_config_id": (str(upload.knowmap_config_id) if upload.knowmap_config_id else None),
             "filename": upload.filename,
             "mime": upload.mime,
             "staging_path": upload.staging_path,
@@ -127,6 +129,9 @@ class TusUploadStore:
             project_id=uuid.UUID(data["project_id"]),
             chatroom_id=(uuid.UUID(data["chatroom_id"]) if data.get("chatroom_id") else None),
             rag_config_id=(uuid.UUID(data["rag_config_id"]) if data.get("rag_config_id") else None),
+            knowmap_config_id=(
+                uuid.UUID(data["knowmap_config_id"]) if data.get("knowmap_config_id") else None
+            ),
             filename=data["filename"],
             mime=data["mime"],
             staging_path=data["staging_path"],
