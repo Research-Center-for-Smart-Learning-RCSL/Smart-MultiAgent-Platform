@@ -97,6 +97,7 @@ async def test_purge_owner_configs_audits_with_owner_context() -> None:
         emitted.append(event)
 
     db = MagicMock()
+    db.commit = AsyncMock()
     db.rollback = AsyncMock()
 
     with (
@@ -121,6 +122,9 @@ async def test_purge_owner_configs_audits_with_owner_context() -> None:
         assert event.metadata["project_id"] == str(project_id)
         assert event.metadata["neo4j_purged"] is True
         assert event.metadata["qdrant_purged"] is True
+    # Each config's audit row is committed on its own so a later failure can't
+    # discard an already-recorded sibling.
+    assert db.commit.await_count == len(cfg_ids)
     db.rollback.assert_not_awaited()
 
 
@@ -151,6 +155,7 @@ async def test_purge_owner_configs_isolates_a_failing_config() -> None:
         emitted.append(event)
 
     db = MagicMock()
+    db.commit = AsyncMock()
     db.rollback = AsyncMock()
 
     with (
@@ -167,8 +172,10 @@ async def test_purge_owner_configs_isolates_a_failing_config() -> None:
             request_id=None,
         )
 
-    # The good config still gets its audit row; the failing one rolled back.
+    # The good config still gets its own committed audit row; the failing one is
+    # isolated to its own rollback and never discards the sibling.
     assert [e.metadata["project_id"] for e in emitted] == [str(project_id)]
+    db.commit.assert_awaited_once()
     db.rollback.assert_awaited_once()
 
 

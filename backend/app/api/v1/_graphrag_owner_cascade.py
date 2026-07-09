@@ -93,10 +93,14 @@ async def purge_owner_graph_configs_external(
                     request_id=request_id,
                 ),
             )
+            # Commit each config's purge-audit row independently. The external
+            # purge is destructive and already done, so its audit must survive a
+            # later sibling's failure — a single shared transaction with a
+            # mid-loop rollback would discard the already-recorded siblings.
+            await db.commit()
         except Exception:
             _log.exception("graphrag delete: post-commit purge/audit failed for config %s", cfg.id)
             await db.rollback()
-    # The follow-up audit rows are committed by the db_session dependency.
 
 
 __all__ = [
