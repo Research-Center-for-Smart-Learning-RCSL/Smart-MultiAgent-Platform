@@ -195,6 +195,7 @@ def _build_registry() -> list[RouterEntry]:
         # GraphRAG
         RouterEntry(graphrag_routes.project_router),
         RouterEntry(graphrag_routes.config_router),
+        RouterEntry(graphrag_routes.agent_router),
         RouterEntry(graphrag_routes.admin_router),
         # Knowledge Map (Axis-1 GraphRAG over documents, Phase 3)
         RouterEntry(knowmap_routes.project_router),

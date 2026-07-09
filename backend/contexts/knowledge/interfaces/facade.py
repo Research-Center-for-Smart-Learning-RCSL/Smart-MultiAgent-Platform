@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from contexts.knowledge.domain.graphrag import GraphRagConfig
+from contexts.knowledge.domain.graphrag import AgentConceptMapCoverage, GraphRagConfig
 from contexts.knowledge.domain.knowmap import KnowmapConfig, KnowmapDocument
 from contexts.knowledge.domain.models import (
     EmbedCatalogEntry,
@@ -95,6 +95,18 @@ class KnowledgeFacade:
         assembler. Disabled wide layers and non-member groups are excluded.
         """
         return await self._graphrag.list_layers_for_turn(agent_id=agent_id, chatroom_id=chatroom_id)
+
+    async def list_agent_concept_map_coverage(
+        self,
+        agent_id: uuid.UUID,
+    ) -> Sequence[AgentConceptMapCoverage]:
+        """Concept Maps covering an agent for the read-only coverage view (R11.09).
+
+        The api layer authorizes on the agent's project first; this only assembles
+        the read model. See
+        :meth:`GraphRagConfigRepository.list_coverage_for_agent`.
+        """
+        return await self._graphrag.list_coverage_for_agent(agent_id)
 
     async def soft_delete_graph_config(
         self,

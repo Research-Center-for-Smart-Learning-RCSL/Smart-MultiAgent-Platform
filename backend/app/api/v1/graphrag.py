@@ -122,6 +122,26 @@ class GraphRagStatusOut(BaseModel):
     last_build_error: str | None
 
 
+class AgentConceptMapCoverageEntryOut(BaseModel):
+    """One Concept Map covering an agent (Phase 4α R11.09, read-only)."""
+
+    config_id: uuid.UUID
+    owner_kind: str
+    owner_id: uuid.UUID
+    owner_name: str
+    # Whether the map currently feeds the agent's retrieval: chatroom maps always
+    # do; a wide (agent_group / workspace) map only when its owner has enabled it.
+    active: bool
+    last_build_state: str
+    last_build_at: str | None
+    last_build_error: str | None
+
+
+class AgentConceptMapCoverageOut(BaseModel):
+    agent_id: uuid.UUID
+    entries: list[AgentConceptMapCoverageEntryOut]
+
+
 class GraphRagBuildOut(BaseModel):
     accepted: bool
     build_id: uuid.UUID | None
@@ -516,6 +536,56 @@ async def trigger_build(
 
 
 # ---------------------------------------------------------------------------
+# Agent-scoped read: Concept Map coverage (Phase 4α R11.09)
+# ---------------------------------------------------------------------------
+
+agent_router = APIRouter(prefix="/api/agents", tags=["graphrag"])
+
+
+@agent_router.get("/{agent_id}/concept-map-coverage")
+async def read_agent_concept_map_coverage(
+    agent_id: uuid.UUID = Path(...),
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(db_session),
+) -> AgentConceptMapCoverageOut:
+    """Read-only coverage: every Concept Map that could feed an agent's retrieval.
+
+    Transparency, not an attach (R11.09) — the maps of the agent's chatrooms, the
+    agent_groups it belongs to, and those chatrooms' workspaces, each flagged with
+    whether it is currently active. AuthZ matches ``read_config``: membership at
+    the agent's project.
+    """
+    from contexts.agents.domain.errors import AgentNotFound
+    from contexts.agents.interfaces.facade import AgentsFacade
+
+    agent = await AgentsFacade(db).get_agent(agent_id)
+    if agent is None:
+        raise AgentNotFound(str(agent_id))
+    await _assert_project_membership(
+        db=db,
+        principal=principal,
+        project_id=agent.project_id,
+    )
+    coverage = await KnowledgeFacade(db).list_agent_concept_map_coverage(agent_id)
+    return AgentConceptMapCoverageOut(
+        agent_id=agent_id,
+        entries=[
+            AgentConceptMapCoverageEntryOut(
+                config_id=e.config.id,
+                owner_kind=e.config.owner_kind,
+                owner_id=_owner_id(e.config),
+                owner_name=e.owner_name,
+                active=e.active,
+                last_build_state=e.config.last_build_state.value,
+                last_build_at=(e.config.last_build_at.isoformat() if e.config.last_build_at else None),
+                last_build_error=e.config.last_build_error,
+            )
+            for e in coverage
+        ],
+    )
+
+
+# ---------------------------------------------------------------------------
 # Admin override (R11a.02)
 # ---------------------------------------------------------------------------
 
@@ -546,4 +616,4 @@ async def admin_reset(
     return _to_out(cfg)
 
 
-__all__ = ["admin_router", "config_router", "project_router"]
+__all__ = ["admin_router", "agent_router", "config_router", "project_router"]

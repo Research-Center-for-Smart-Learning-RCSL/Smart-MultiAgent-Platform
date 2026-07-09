@@ -108,6 +108,24 @@ class GraphRagConfigDraft:
     recency_half_life_days: float | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class AgentConceptMapCoverage:
+    """One Concept Map covering an agent, for the read-only coverage view (R11.09).
+
+    Phase 4α transparency (not an attach): every map that could feed an agent's
+    retrieval — the maps of its chatrooms, the agent_groups it is a member of, and
+    those chatrooms' workspaces. ``active`` mirrors the turn resolver's inclusion
+    rule: a chatroom map is always active (inherits the room ACL), while a wide
+    (agent_group / workspace) map is active only when its owner has
+    ``concept_map_enabled``. An inactive entry exists but contributes nothing to
+    retrieval until a Project Owner enables it.
+    """
+
+    config: GraphRagConfig
+    owner_name: str
+    active: bool
+
+
 # Opaque evidence references (chat message ids today, document chunk refs for a
 # Knowledge Map later) are length-bounded so a hallucinated or malformed extractor
 # value never persists into Neo4j or crowds out real relations in the 2 KB bundle.
