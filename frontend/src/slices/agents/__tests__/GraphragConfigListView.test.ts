@@ -110,4 +110,36 @@ describe('GraphragConfigListView (Concept Maps overview)', () => {
     await settle(wrapper)
     expect(wrapper.find('button.s-btn--primary').attributes('disabled')).toBeDefined()
   })
+
+  it('resets to page 1 when the owner-type filter changes, even if the filtered set still spans multiple pages', async () => {
+    // Regression: the pagination watch used to only clamp `page` down when it
+    // exceeded the new totalPages — a filter change that still leaves >= the
+    // current page count left `page` untouched, showing an unrelated slice of
+    // the newly filtered set instead of resetting to page 1.
+    const agentGroupConfigs = Array.from({ length: 25 }, (_, i) =>
+      cfg({ id: `ag_${i + 1}`, owner_kind: 'agent_group', owner_id: `grp_${i + 1}`, owner_name: `AG ${i + 1}` }),
+    )
+    const workspaceConfigs = Array.from({ length: 4 }, (_, i) =>
+      cfg({ id: `ws_${i + 1}`, owner_kind: 'workspace', owner_id: `ws_${i + 1}`, owner_name: `WS ${i + 1}` }),
+    )
+    seed({ configs: [...agentGroupConfigs, ...workspaceConfigs] })
+    const wrapper = await renderView(GraphragConfigListView, {
+      routes,
+      initialRoute: '/projects/proj_1/graphrag-configs',
+    })
+    await settle(wrapper)
+
+    // 29 unfiltered items / PAGE_SIZE=10 -> 3 pages. Navigate to page 3.
+    await wrapper.find('button[aria-label="app.pagination.next"]').trigger('click')
+    await wrapper.find('button[aria-label="app.pagination.next"]').trigger('click')
+    await settle(wrapper)
+    expect(wrapper.text()).toContain('AG 21')
+
+    // Filter to "agent_group" — still 25 items = still 3 pages, so the old
+    // clamp-only logic left `page` at 3. The fix must reset to page 1.
+    await wrapper.find('#owner-kind-filter').setValue('agent_group')
+    await settle(wrapper)
+    expect(wrapper.text()).toContain('AG 1')
+    expect(wrapper.text()).not.toContain('AG 21')
+  })
 })
