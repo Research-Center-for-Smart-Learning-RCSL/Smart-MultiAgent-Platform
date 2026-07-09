@@ -35,12 +35,14 @@ const qc = useQueryClient()
 const toast = useToast()
 const { confirm } = useConfirmDialog()
 const projectId = route.params.projectId as string
-const { isOwner, decided } = useProjectRole(() => projectId)
+const { isAuthorized, decided } = useProjectRole(() => projectId)
 
-// Show owner controls while membership is still resolving so an owner never sees
-// them flash in (spec §8); the non-owner note waits until decided.
-const showOwnerControls = computed(() => isOwner.value || !decided.value)
-const showReadonlyNote = computed(() => !isOwner.value && decided.value)
+// Mutating controls always render (never v-if-hidden) but stay disabled until
+// authorization resolves true — this avoids both a real owner's controls
+// flashing hidden-then-shown (spec §8) AND exposing a live, clickable control to
+// a non-owner during the loading window. The read-only note still waits for
+// `decided` so it never flashes to a confirmed owner/admin.
+const showReadonlyNote = computed(() => !isAuthorized.value && decided.value)
 
 const groupsQuery = useQuery({
   queryKey: agentGroupKeys.groups(projectId),
@@ -161,8 +163,8 @@ const GroupTable = typedSTable<AgentGroup>()
     <SPageHeader :title="t('agentGroups.list.title')">
       <template #actions>
         <SButton
-          v-if="showOwnerControls"
           variant="primary"
+          :disabled="!isAuthorized"
           @click="openCreate"
         >
           <template #icon-left>
@@ -211,20 +213,20 @@ const GroupTable = typedSTable<AgentGroup>()
             {{ t('agentGroups.list.open') }}
           </SButton>
           <SButton
-            v-if="showOwnerControls"
             variant="ghost"
             size="sm"
             icon-only
+            :disabled="!isAuthorized"
             :aria-label="t('agentGroups.list.rename')"
             @click="openRename(row)"
           >
             <PencilSquareIcon class="w-4 h-4" />
           </SButton>
           <SButton
-            v-if="showOwnerControls"
             variant="ghost"
             size="sm"
             icon-only
+            :disabled="!isAuthorized"
             :aria-label="t('agentGroups.list.delete')"
             @click="confirmDelete(row)"
           >
@@ -241,8 +243,8 @@ const GroupTable = typedSTable<AgentGroup>()
         >
           <template #action>
             <SButton
-              v-if="showOwnerControls"
               variant="primary"
+              :disabled="!isAuthorized"
               @click="openCreate"
             >
               {{ t('agentGroups.list.create') }}

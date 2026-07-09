@@ -46,20 +46,27 @@ describe('AgentGroupListView', () => {
     expect(wrapper.text()).toContain('Research Team')
   })
 
-  it('shows the create control to a project owner', async () => {
+  it('enables the create control for a project owner', async () => {
     seed('owner')
     const wrapper = await renderView(AgentGroupListView, { routes, initialRoute: '/projects/proj_1/agent-groups' })
     signInAs('u_1')
     await settle(wrapper)
-    expect(wrapper.find('button.s-btn--primary').exists()).toBe(true)
+    const createBtn = wrapper.find('button.s-btn--primary')
+    expect(createBtn.exists()).toBe(true)
+    expect((createBtn.element as HTMLButtonElement).disabled).toBe(false)
   })
 
-  it('hides the create control from a non-owner and shows the note', async () => {
+  it('renders but disables the create control for a non-owner, and shows the note', async () => {
+    // Hardened pattern: the control is never v-if-hidden (so a real owner never
+    // sees it flash in) but stays disabled until authorization resolves — a
+    // non-owner gets an inert button, not a hidden one.
     seed('member')
     const wrapper = await renderView(AgentGroupListView, { routes, initialRoute: '/projects/proj_1/agent-groups' })
     signInAs('u_1')
     await settle(wrapper)
-    expect(wrapper.find('button.s-btn--primary').exists()).toBe(false)
+    const createBtn = wrapper.find('button.s-btn--primary')
+    expect(createBtn.exists()).toBe(true)
+    expect((createBtn.element as HTMLButtonElement).disabled).toBe(true)
     expect(wrapper.text()).toContain('agentGroups.list.ownerOnly')
   })
 })

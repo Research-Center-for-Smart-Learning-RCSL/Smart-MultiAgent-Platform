@@ -39,9 +39,14 @@ const groupQuery = useQuery({
 const group = computed(() => groupQuery.data.value ?? null)
 const projectId = computed(() => group.value?.project_id ?? '')
 
-const { isOwner, decided } = useProjectRole(() => projectId.value)
-const showOwnerControls = computed(() => isOwner.value || !decided.value)
-const showReadonlyNote = computed(() => !isOwner.value && decided.value)
+const { isAuthorized, decided } = useProjectRole(() => projectId.value)
+
+// Mutating controls always render (never v-if-hidden) but stay disabled until
+// authorization resolves true — avoids both a real owner's controls flashing
+// hidden-then-shown (spec §8) and exposing a live, clickable control to a
+// non-owner during the loading window. The read-only note still waits for
+// `decided` so it never flashes to a confirmed owner/admin.
+const showReadonlyNote = computed(() => !isAuthorized.value && decided.value)
 
 const membersQuery = useQuery({
   queryKey: computed(() => agentGroupKeys.members(groupId)),
@@ -145,20 +150,18 @@ const MemberTable = typedSTable<{ id: string; name: string }>()
             {{ t('agentGroups.detail.membersHelp') }}
           </p>
 
-          <div
-            v-if="showOwnerControls"
-            class="flex items-end gap-2 mb-4"
-          >
+          <div class="flex items-end gap-2 mb-4">
             <div class="flex-1">
               <SSelect
                 v-model="selectedAgent"
                 :options="addableOptions"
+                :disabled="!isAuthorized"
                 :placeholder="t('agentGroups.detail.memberPlaceholder')"
               />
             </div>
             <SButton
               variant="primary"
-              :disabled="!selectedAgent"
+              :disabled="!selectedAgent || !isAuthorized"
               :loading="addMutation.isPending.value"
               @click="selectedAgent && addMutation.mutate(selectedAgent)"
             >
@@ -166,7 +169,7 @@ const MemberTable = typedSTable<{ id: string; name: string }>()
             </SButton>
           </div>
           <p
-            v-else-if="showReadonlyNote"
+            v-if="showReadonlyNote"
             class="text-sm text-[var(--color-muted)] mb-4"
           >
             {{ t('agentGroups.detail.ownerOnly') }}
@@ -183,10 +186,10 @@ const MemberTable = typedSTable<{ id: string; name: string }>()
             </template>
             <template #actions="{ row }">
               <SButton
-                v-if="showOwnerControls"
                 variant="ghost"
                 size="sm"
                 icon-only
+                :disabled="!isAuthorized"
                 :aria-label="t('agentGroups.detail.removeMember')"
                 @click="confirmRemove(row.id)"
               >
@@ -214,17 +217,10 @@ const MemberTable = typedSTable<{ id: string; name: string }>()
               </p>
             </div>
             <SToggle
-              v-if="showOwnerControls"
               :model-value="group.concept_map_enabled"
-              :disabled="privacyMutation.isPending.value"
+              :disabled="!isAuthorized || privacyMutation.isPending.value"
               @update:model-value="(v: boolean) => privacyMutation.mutate(v)"
             />
-            <span
-              v-else-if="showReadonlyNote"
-              class="text-sm text-[var(--color-muted)] shrink-0"
-            >
-              {{ group.concept_map_enabled ? t('agentGroups.detail.privacyLabel') : '--' }}
-            </span>
           </div>
           <p
             v-if="showReadonlyNote"
