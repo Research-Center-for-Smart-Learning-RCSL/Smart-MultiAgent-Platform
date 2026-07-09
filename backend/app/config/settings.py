@@ -100,6 +100,7 @@ class MinioSection(BaseSettings):
     region: str = "us-east-1"
     bucket_chat_uploads: str = "chat-uploads"
     bucket_rag_sources: str = "rag-sources"
+    bucket_knowmap_sources: str = "knowmap-sources"
     bucket_exports: str = "exports"
     bucket_agent_workspace: str = "agent-workspace"
     bucket_prompt_assistant_files: str = "prompt-assistant-files"

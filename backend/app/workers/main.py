@@ -43,6 +43,7 @@ from app.workers.tasks.graphrag import (
     graphrag_build,
     graphrag_reconcile,
 )
+from app.workers.tasks.knowmap import knowmap_ingest_document, knowmap_scan_document
 from app.workers.tasks.orchestration import (
     approval_timeout,
     evaluate_silence,
@@ -268,6 +269,8 @@ class WorkerSettings:
         graphrag_reconcile,
         rag_ingest_document,
         rag_scan_document,
+        knowmap_ingest_document,
+        knowmap_scan_document,
         agent_fs_gc,
         sandbox_orphan_cleanup,
         prompt_assistant_turn,

@@ -145,6 +145,35 @@ async def tus_create(
             agent_ids=rag_agent_ids,
         )
         project_id = cfg.project_id
+    elif purpose == "knowmap_source":
+        # Same shape as rag_source: authorise against the Knowledge Map config's
+        # REAL project (not client-declared metadata), require Project Owner, and
+        # validate the per-agent allowlist before the client streams up to 1 GiB.
+        try:
+            knowmap_config_id = uuid.UUID(meta.get("knowmap_config_id", ""))
+        except ValueError as exc:
+            raise TusMetadataInvalid("knowmap_config_id must be UUID") from exc
+        km_cfg = await KnowledgeFacade(db).get_knowmap_config(knowmap_config_id)
+        if km_cfg is None:
+            raise HTTPException(status_code=404, detail="knowmap config not found")
+        await _require_rag_owner(db, project_id=km_cfg.project_id, principal=principal)
+        from app.api.v1.knowmap import validate_knowmap_agent_allowlist
+
+        km_agent_ids: list[uuid.UUID] = []
+        for raw_id in meta.get("knowmap_agent_ids", "").split(","):
+            token = raw_id.strip()
+            if token:
+                try:
+                    km_agent_ids.append(uuid.UUID(token))
+                except ValueError as exc:
+                    raise TusMetadataInvalid("knowmap_agent_ids must be UUIDs") from exc
+        await validate_knowmap_agent_allowlist(
+            db=db,
+            config_id=knowmap_config_id,
+            project_id=km_cfg.project_id,
+            agent_ids=km_agent_ids,
+        )
+        project_id = km_cfg.project_id
     elif purpose == "agent_workspace":
         try:
             agent_id = uuid.UUID(meta.get("agent_id", ""))
@@ -266,6 +295,8 @@ async def tus_patch(
         headers["X-SMAP-Resource"] = f"/api/attachments/{result.attachment.id}"
     elif result.completed and result.rag_document_id is not None:
         headers["X-SMAP-Resource"] = f"/api/rag-documents/{result.rag_document_id}"
+    elif result.completed and result.knowmap_document_id is not None:
+        headers["X-SMAP-Resource"] = f"/api/knowmap-documents/{result.knowmap_document_id}"
     return Response(status_code=204, headers=headers)
 
 

@@ -13,6 +13,7 @@ path) rather than a single ``embed_key_id`` column.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import uuid
 from collections.abc import Sequence
@@ -233,6 +234,132 @@ class KnowmapConfigService:
             return None
         provider, model, _key_id = resolved
         return provider, model, embed_dimension(provider, model)
+
+    @staticmethod
+    def build_ingest_service(db: AsyncSession, *, embedder: Any) -> Any:
+        """Construct a :class:`KnowmapIngestService` wired to real MinIO.
+
+        No Qdrant client: knowmap ingest never upserts chunk vectors (chunks are
+        the build corpus). The caller owns no external client to close.
+        """
+        from minio import Minio
+
+        from app.config.settings import get_settings
+        from contexts.knowledge.application.knowmap_ingest_service import KnowmapIngestService
+        from contexts.knowledge.infrastructure.blob_store import MinioBlobStore
+
+        settings = get_settings()
+        minio = Minio(
+            settings.minio.endpoint,
+            access_key=settings.minio.root_access_key,
+            secret_key=settings.minio.root_secret_key,
+            secure=settings.minio.use_tls,
+            region=settings.minio.region,
+        )
+        return KnowmapIngestService(
+            db,
+            blob=MinioBlobStore(minio),
+            embedder=embedder,
+            bucket=settings.minio.bucket_knowmap_sources,
+        )
+
+
+    # ---- infrastructure cascade (WS4, R11.20) -----------------------------
+
+    @staticmethod
+    async def purge_document_blobs(
+        *,
+        docs: Sequence[KnowmapDocument],
+    ) -> dict[str, Any]:
+        """Best-effort MinIO blob removal for deleted documents (DOM-4).
+
+        Knowmap chunks carry no Qdrant points, so there is no per-document vector
+        purge here — the config-level :meth:`cascade_external_stores` tears down
+        the graph vectors, and a document delete triggers a rebuild that drops the
+        removed document's triples. Must run only after the DB commit.
+        """
+        summary: dict[str, Any] = {"documents": len(docs), "blobs_removed": 0, "blobs_failed": 0}
+        if not docs:
+            return summary
+        from minio import Minio
+
+        from app.config.settings import get_settings
+
+        settings = get_settings()
+        minio_client = None
+        try:
+            minio_client = Minio(
+                settings.minio.endpoint,
+                access_key=settings.minio.root_access_key,
+                secret_key=settings.minio.root_secret_key,
+                secure=settings.minio.use_tls,
+                region=settings.minio.region,
+            )
+        except Exception:
+            _log.exception("knowmap infra purge: minio client init failed")
+        for d in docs:
+            if minio_client is None:
+                summary["blobs_failed"] += 1
+                continue
+            try:
+                bucket, _, key = d.minio_path.partition("/")
+                if bucket and key:
+                    await asyncio.to_thread(minio_client.remove_object, bucket, key)
+                    summary["blobs_removed"] += 1
+                else:
+                    summary["blobs_failed"] += 1
+            except Exception:
+                summary["blobs_failed"] += 1
+                _log.exception("knowmap infra purge: minio remove failed for doc %s", d.id)
+        return summary
+
+    @staticmethod
+    async def cascade_external_stores(
+        *,
+        config_id: uuid.UUID,
+        project_id: uuid.UUID,
+    ) -> dict[str, bool]:
+        """Best-effort teardown of a config's Neo4j subgraph + knowmap Qdrant points.
+
+        Mirrors :func:`graphrag_config_service.purge_config_external_stores` with
+        the ``knowmap`` collection prefix. Builds short-lived clients (the request
+        path owns none) and must run only after the soft-delete + audit commit.
+        """
+        from qdrant_client import AsyncQdrantClient
+
+        from app.config.settings import get_settings
+        from contexts.knowledge.infrastructure.graphrag_vector_store import GraphRagVectorStore
+        from contexts.knowledge.infrastructure.neo4j_driver import Neo4jAsyncDriver
+
+        settings = get_settings()
+        neo4j_conf = getattr(settings, "neo4j", None)
+        driver = (
+            Neo4jAsyncDriver(uri=neo4j_conf.url, auth=(neo4j_conf.user, neo4j_conf.password))
+            if neo4j_conf is not None
+            else None
+        )
+        qclient = AsyncQdrantClient(url=settings.qdrant.url, api_key=settings.qdrant.api_key or None)
+        neo4j_purged = True
+        qdrant_purged = True
+        try:
+            if driver is not None:
+                try:
+                    await driver.delete_all(config_id=config_id)
+                except Exception:
+                    neo4j_purged = False
+                    _log.exception("knowmap delete: neo4j cascade failed for config %s", config_id)
+            try:
+                await GraphRagVectorStore(qclient, prefix="knowmap").delete_by_config(
+                    project_id=project_id, config_id=config_id
+                )
+            except Exception:
+                qdrant_purged = False
+                _log.exception("knowmap delete: qdrant cascade failed for config %s", config_id)
+        finally:
+            if driver is not None:
+                await driver.close()
+            await qclient.close()
+        return {"neo4j_purged": neo4j_purged, "qdrant_purged": qdrant_purged}
 
 
 async def build_knowmap_embedder(db: AsyncSession, cfg: KnowmapConfig) -> Any:

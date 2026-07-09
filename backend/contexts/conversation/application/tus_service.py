@@ -84,6 +84,7 @@ class TusPatchResult:
     completed: bool
     attachment: MessageAttachment | None
     rag_document_id: uuid.UUID | None = None
+    knowmap_document_id: uuid.UUID | None = None
 
 
 class TusService:
@@ -114,9 +115,9 @@ class TusService:
             raise TusMetadataInvalid(str(exc)) from exc
 
         purpose = meta.get("purpose", "")
-        if purpose not in ("chat_attachment", "rag_source"):
+        if purpose not in ("chat_attachment", "rag_source", "knowmap_source"):
             raise TusMetadataInvalid(
-                "Upload-Metadata.purpose must be chat_attachment or rag_source",
+                "Upload-Metadata.purpose must be chat_attachment, rag_source or knowmap_source",
             )
         filename = meta.get("filename", "")
         mime = meta.get("mime", "")
@@ -125,10 +126,11 @@ class TusService:
                 "Upload-Metadata must include filename and mime",
             )
         # project_id is authoritative (derived by the caller from the chatroom /
-        # rag config), NOT taken from client metadata — a forged or empty value
-        # in Upload-Metadata is ignored.
+        # rag config / knowmap config), NOT taken from client metadata — a forged
+        # or empty value in Upload-Metadata is ignored.
         chatroom_id = _optional_uuid(meta, "chatroom_id")
         rag_config_id = _optional_uuid(meta, "rag_config_id")
+        knowmap_config_id = _optional_uuid(meta, "knowmap_config_id")
         if purpose == "chat_attachment" and chatroom_id is None:
             raise TusMetadataInvalid(
                 "chat_attachment uploads require chatroom_id",
@@ -136,6 +138,10 @@ class TusService:
         if purpose == "rag_source" and rag_config_id is None:
             raise TusMetadataInvalid(
                 "rag_source uploads require rag_config_id",
+            )
+        if purpose == "knowmap_source" and knowmap_config_id is None:
+            raise TusMetadataInvalid(
+                "knowmap_source uploads require knowmap_config_id",
             )
 
         upload_id = uuid.uuid4()
@@ -153,6 +159,7 @@ class TusService:
             project_id=project_id,
             chatroom_id=chatroom_id,
             rag_config_id=rag_config_id,
+            knowmap_config_id=knowmap_config_id,
             filename=filename,
             mime=mime,
             staging_path=path,
@@ -252,6 +259,7 @@ class TusService:
         # failing finalize never orphans the staging file or Redis state.
         attachment = None
         rag_document_id: uuid.UUID | None = None
+        knowmap_document_id: uuid.UUID | None = None
         try:
             if upload.purpose == "chat_attachment":
                 assert upload.chatroom_id is not None  # guaranteed by create()
@@ -267,6 +275,32 @@ class TusService:
                     actor_ip=actor_ip,
                     request_id=request_id,
                 )
+            elif upload.purpose == "knowmap_source":
+                assert upload.knowmap_config_id is not None
+                from contexts.knowledge.interfaces.facade import KnowledgeFacade
+
+                # The per-agent allowlist was validated at tus-create; re-parse it
+                # from the stored metadata so the finaliser writes it atomically.
+                meta = parse_metadata(upload.metadata_raw)
+                km_agent_ids: list[uuid.UUID] = []
+                for raw_id in meta.get("knowmap_agent_ids", "").split(","):
+                    token = raw_id.strip()
+                    if token:
+                        with contextlib.suppress(ValueError):
+                            km_agent_ids.append(uuid.UUID(token))
+
+                km_doc = await KnowledgeFacade(self._db).finalize_knowmap_upload(
+                    knowmap_config_id=upload.knowmap_config_id,
+                    filename=upload.filename,
+                    mime=upload.mime,
+                    staging_path=upload.staging_path,
+                    size_bytes=upload.upload_length,
+                    uploaded_by=user_id,
+                    actor_ip=actor_ip,
+                    agent_ids=km_agent_ids,
+                    request_id=request_id,
+                )
+                knowmap_document_id = km_doc.id
             else:
                 assert upload.rag_config_id is not None
                 from contexts.knowledge.interfaces.facade import KnowledgeFacade
@@ -304,6 +338,7 @@ class TusService:
             completed=True,
             attachment=attachment,
             rag_document_id=rag_document_id,
+            knowmap_document_id=knowmap_document_id,
         )
 
     # ---- terminate --------------------------------------------------------

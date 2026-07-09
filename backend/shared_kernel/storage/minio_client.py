@@ -59,6 +59,10 @@ class MinioClient:
         return self._cfg.bucket_rag_sources
 
     @property
+    def knowmap_sources_bucket(self) -> str:
+        return self._cfg.bucket_knowmap_sources
+
+    @property
     def exports_bucket(self) -> str:
         return self._cfg.bucket_exports
 
