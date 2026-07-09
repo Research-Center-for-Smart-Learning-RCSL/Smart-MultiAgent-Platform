@@ -88,6 +88,7 @@ async def _seed_agent(db, project_id: uuid.UUID, key_group_id: uuid.UUID) -> uui
         system_prompt="deterministic test agent",
         prompt_strategy=PromptStrategy.FULL,
         rag_config_id=None,
+        knowmap_config_id=None,
         context_mode=ContextMode.GENERAL,
         context_token_cap=None,
         a2a_enabled=False,

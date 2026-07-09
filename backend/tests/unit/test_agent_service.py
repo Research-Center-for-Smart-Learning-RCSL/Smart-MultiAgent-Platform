@@ -67,6 +67,7 @@ def _make_agent(
     project_id: uuid.UUID | None = None,
     version: int = 1,
     rag_config_id: uuid.UUID | None = None,
+    knowmap_config_id: uuid.UUID | None = None,
 ) -> Agent:
     return Agent(
         id=agent_id or uuid.uuid4(),
@@ -79,6 +80,7 @@ def _make_agent(
         system_prompt="You are helpful.",
         prompt_strategy=PromptStrategy.FULL,
         rag_config_id=rag_config_id,
+        knowmap_config_id=knowmap_config_id,
         context_mode=ContextMode.GENERAL,
         context_token_cap=None,
         a2a_enabled=False,
