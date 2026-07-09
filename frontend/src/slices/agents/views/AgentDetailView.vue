@@ -29,6 +29,7 @@ import {
   SSkeleton,
   SCharCount,
   SWakeupEditor,
+  SLoadingSpinner,
 } from '@shared/ui'
 import {
   defaultWakeupConfig,
@@ -46,9 +47,10 @@ import {
 import { ApiError } from '@shared/errors'
 import { keyGroupsApi, keysKeys, type KeyGroup } from '@slices/keys'
 import { PromptAssistantPanel, PromptTemplatePicker } from '@slices/prompt-studio'
-import { agentsApi, type AgentTool, type AgentToolType } from '../api'
+import { agentsApi, type AgentTool, type AgentToolType, type ConceptMapOwnerKind } from '../api'
 import { agentKeys } from '../queries'
 import { useModelCatalog } from '../composables/useModelCatalog'
+import { graphragBuildStateVariant, graphragBuildStateLabelKey } from '../lib/graphragBuildState'
 import { agentCreateSchema, type AgentCreateInput } from '../types/schemas'
 
 const { t } = useI18n()
@@ -96,6 +98,18 @@ const toolsQuery = useQuery({
   enabled: computed(() => !isCreateMode && !!agentId),
   queryFn: async () => (await agentsApi.listTools(agentId)).data,
 })
+
+// WS5 (R11.09) — read-only Concept Map coverage for the Knowledge tab: the maps
+// of this agent's rooms, its member groups, and those rooms' workspaces. Purely
+// informational (transparency, not an attach).
+const coverageQuery = useQuery({
+  queryKey: computed(() => agentKeys.conceptMapCoverage(agentId)),
+  enabled: computed(() => !isCreateMode && !!agentId),
+  queryFn: async () => (await agentsApi.getAgentConceptMapCoverage(agentId)).data,
+})
+const coverageEntries = computed(() => coverageQuery.data.value?.entries ?? [])
+const ownerKindVariant = (kind: ConceptMapOwnerKind): 'info' | 'success' | 'neutral' =>
+  ({ chatroom: 'info', agent_group: 'success', workspace: 'neutral' } as const)[kind]
 
 const modelCatalogQuery = useModelCatalog()
 
@@ -911,6 +925,62 @@ const breadcrumbs = computed(() => [
             >
               {{ t('agents.rag.manageLink') }}
             </SButton>
+          </SCard>
+
+          <!-- Read-only Concept Map coverage (WS5, R11.09) -->
+          <SCard v-if="!isCreateMode">
+            <h3 class="text-lg font-semibold mb-1">
+              {{ t('agents.graphragCoverage.title') }}
+            </h3>
+            <p class="text-sm text-[var(--color-muted)] mb-4">
+              {{ t('agents.graphragCoverage.help') }}
+            </p>
+            <div
+              v-if="coverageQuery.isLoading.value"
+              class="flex justify-center py-4"
+            >
+              <SLoadingSpinner />
+            </div>
+            <p
+              v-else-if="coverageEntries.length === 0"
+              class="text-sm text-[var(--color-muted)]"
+            >
+              {{ t('agents.graphragCoverage.empty') }}
+            </p>
+            <ul
+              v-else
+              class="space-y-2"
+            >
+              <li
+                v-for="e in coverageEntries"
+                :key="e.config_id"
+                class="flex items-center justify-between gap-3 border-b border-[var(--color-border)] pb-2 last:border-0"
+              >
+                <div class="min-w-0 flex items-center gap-2">
+                  <span class="font-medium truncate">{{ e.owner_name }}</span>
+                  <SBadge
+                    :variant="ownerKindVariant(e.owner_kind)"
+                    size="sm"
+                  >
+                    {{ t(`agents.conceptMaps.ownerKinds.${e.owner_kind}`) }}
+                  </SBadge>
+                </div>
+                <div class="flex items-center gap-2 shrink-0">
+                  <SBadge
+                    :variant="graphragBuildStateVariant(e.last_build_state)"
+                    size="sm"
+                  >
+                    {{ t(graphragBuildStateLabelKey(e.last_build_state)) }}
+                  </SBadge>
+                  <SBadge
+                    :variant="e.active ? 'success' : 'neutral'"
+                    size="sm"
+                  >
+                    {{ e.active ? t('agents.graphragCoverage.active') : t('agents.graphragCoverage.inactive') }}
+                  </SBadge>
+                </div>
+              </li>
+            </ul>
           </SCard>
         </div>
 
