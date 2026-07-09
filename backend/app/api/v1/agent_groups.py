@@ -138,6 +138,59 @@ async def set_concept_map_enabled(
     return ConceptMapStatusOut(group_id=group_id, concept_map_enabled=body.enabled)
 
 
+@group_router.delete(
+    "/{group_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_model=None,
+)
+async def delete_group(
+    group_id: uuid.UUID = Path(...),
+    ctx: RequestContext = Depends(current_context),
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(db_session),
+) -> None:
+    """Delete an agent group (WS6 R11.20) — strict Project-Owner only.
+
+    Purges the group-owned Concept Map's Neo4j subgraph + Qdrant points as part
+    of the delete so no external-store data is orphaned (AC-10). Member rows are
+    left in place; the group tombstone makes them inert on every read path.
+    """
+    project_id = await _group_project_id(db, group_id)
+    await _assert_project_owner(db=db, principal=principal, project_id=project_id)
+
+    from app.api.v1._graphrag_owner_cascade import (
+        purge_owner_graph_configs_external,
+        soft_delete_owner_graph_configs,
+    )
+    from contexts.knowledge.interfaces.facade import KnowledgeFacade
+
+    configs = await soft_delete_owner_graph_configs(
+        KnowledgeFacade(db),
+        owner_kind="agent_group",
+        owner_id=group_id,
+        actor_user_id=principal.user_id,
+        actor_ip=ctx.actor_ip,
+        request_id=ctx.request_id,
+    )
+    await AgentGroupFacade(db).soft_delete(
+        group_id=group_id,
+        actor_user_id=principal.user_id,
+        actor_ip=ctx.actor_ip,
+        request_id=ctx.request_id,
+    )
+    # DOM-4: commit the group + config soft-deletes before purging external stores.
+    await db.commit()
+    await purge_owner_graph_configs_external(
+        db,
+        configs=configs,
+        owner_kind="agent_group",
+        owner_id=group_id,
+        actor_user_id=principal.user_id,
+        actor_ip=ctx.actor_ip,
+        request_id=ctx.request_id,
+    )
+
+
 @group_router.get("/{group_id}/members")
 async def list_members(
     group_id: uuid.UUID = Path(...),

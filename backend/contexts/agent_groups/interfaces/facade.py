@@ -82,6 +82,21 @@ class AgentGroupFacade:
             request_id=request_id,
         )
 
+    async def soft_delete(
+        self,
+        *,
+        group_id: uuid.UUID,
+        actor_user_id: uuid.UUID,
+        actor_ip: str | None,
+        request_id: uuid.UUID | None = None,
+    ) -> uuid.UUID:
+        return await self._service.soft_delete(
+            group_id=group_id,
+            actor_user_id=actor_user_id,
+            actor_ip=actor_ip,
+            request_id=request_id,
+        )
+
     async def list_members(self, group_id: uuid.UUID) -> Sequence[uuid.UUID]:
         return await self._service.list_members(group_id)
 
