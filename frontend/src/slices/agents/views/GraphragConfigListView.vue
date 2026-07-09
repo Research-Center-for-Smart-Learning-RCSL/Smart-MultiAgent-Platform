@@ -1,4 +1,9 @@
 <script setup lang="ts">
+// Concept Maps overview (Phase 4α, R11.09 / Q-2). The project-scoped central list
+// of Concept Maps across all three owner layers (agent_group / chatroom /
+// workspace), with an owner-type filter, live build-state pills, create (owner
+// picker), build/rebuild, status, graph, and delete. The per-owner contextual
+// panels live in each owner's settings; this is the manage/status hub.
 import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
@@ -29,24 +34,24 @@ import {
   SEmptyState,
   SAlert,
   SLoadingSpinner,
+  SPagination,
 } from '@shared/ui'
-import {
-  useConfirmDialog,
-  useServerErrors,
-  useToast,
-} from '@shared/composables'
+import { useConfirmDialog, useServerErrors, useToast } from '@shared/composables'
 import { keyGroupsApi, keysKeys } from '@slices/keys'
 import {
   agentsApi,
   GRAPHRAG_IN_PROGRESS,
   type GraphragConfig,
   type GraphragStatus,
+  type ConceptMapOwnerKind,
 } from '../api'
 import { agentKeys } from '../queries'
 import { useProjectBreadcrumbs } from '../composables/useProjectBreadcrumbs'
 import { useGraphragSocket } from '../composables/useGraphragSocket'
+import { graphragBuildStateVariant, graphragBuildStateLabelKey } from '../lib/graphragBuildState'
 import {
   graphragConfigCreateSchema,
+  CONCEPT_MAP_OWNER_KINDS,
   type GraphragConfigCreateInput,
 } from '../types/schemas'
 import type { Column } from '@shared/ui/STable.vue'
@@ -60,7 +65,7 @@ const toast = useToast()
 const { confirm } = useConfirmDialog()
 
 const { breadcrumbs } = useProjectBreadcrumbs(projectId, [
-  { label: t('agents.breadcrumb.graphrag') },
+  { label: t('agents.conceptMaps.title') },
 ])
 
 const showCreateModal = ref(false)
@@ -75,51 +80,43 @@ const configsQuery = useQuery({
   queryFn: async () => (await agentsApi.listGraphragConfigs(projectId)).data,
 })
 
-const agentsQuery = useQuery({
-  queryKey: agentKeys.agents(projectId),
-  queryFn: async () => (await agentsApi.list(projectId)).data,
-})
-
 const keyGroupsQuery = useQuery({
   queryKey: keysKeys.keyGroups(projectId),
   queryFn: async () => (await keyGroupsApi.listForProject(projectId)).data,
 })
 
+const ownerOptionsQuery = useQuery({
+  queryKey: agentKeys.graphragOwnerOptions(projectId),
+  queryFn: async () => (await agentsApi.listConceptMapOwnerOptions(projectId)).data,
+})
+
 const configs = computed<GraphragConfig[]>(() => configsQuery.data.value ?? [])
 
-const agentById = computed(() =>
-  new Map((agentsQuery.data.value ?? []).map((a) => [a.id, a])),
-)
-const keyGroupById = computed(() =>
-  new Map((keyGroupsQuery.data.value ?? []).map((g) => [g.id, g.name])),
-)
+// --- Owner-type filter + pagination ---
+const ownerKindFilter = ref<'' | ConceptMapOwnerKind>('')
+const page = ref(1)
+const PAGE_SIZE = 10
 
-const configuredAgentIds = computed(
-  () => new Set(configs.value.map((c) => c.agent_id)),
+const filteredConfigs = computed(() =>
+  ownerKindFilter.value ? configs.value.filter((c) => c.owner_kind === ownerKindFilter.value) : configs.value,
 )
-const availableAgents = computed(() =>
-  (agentsQuery.data.value ?? []).filter((a) => !configuredAgentIds.value.has(a.id)),
+const totalPages = computed(() => Math.max(1, Math.ceil(filteredConfigs.value.length / PAGE_SIZE)))
+const pagedConfigs = computed(() =>
+  filteredConfigs.value.slice((page.value - 1) * PAGE_SIZE, page.value * PAGE_SIZE),
 )
-const hasKeyGroups = computed(() => (keyGroupsQuery.data.value?.length ?? 0) > 0)
-// The builder key group must differ from the chosen agent's own key group, so
-// with only one key group in the project no agent can ever satisfy the picker.
-const hasEnoughKeyGroups = computed(() => (keyGroupsQuery.data.value?.length ?? 0) >= 2)
-const canCreate = computed(() => availableAgents.value.length > 0 && hasEnoughKeyGroups.value)
-
-// The three project-state warnings are mutually exclusive; resolve to at
-// most one i18n key so the template only has a single SAlert to maintain.
-const eligibilityWarningKey = computed<string | null>(() => {
-  if (!agentsQuery.isLoading.value && (agentsQuery.data.value?.length ?? 0) === 0) {
-    return 'agents.graphragList.noAgents'
-  }
-  if (!keyGroupsQuery.isLoading.value && !hasKeyGroups.value) {
-    return 'agents.graphragList.noKeyGroups'
-  }
-  if (!keyGroupsQuery.isLoading.value && !hasEnoughKeyGroups.value) {
-    return 'agents.graphragList.needSecondKeyGroup'
-  }
-  return null
+// Reset to page 1 whenever the filter or the underlying list shrinks past the page.
+watch([ownerKindFilter, totalPages], () => {
+  if (page.value > totalPages.value) page.value = totalPages.value
 })
+
+const ownerKindLabel = (kind: ConceptMapOwnerKind): string => t(`agents.conceptMaps.ownerKinds.${kind}`)
+const ownerKindVariant = (kind: ConceptMapOwnerKind): 'info' | 'success' | 'neutral' =>
+  ({ chatroom: 'info', agent_group: 'success', workspace: 'neutral' } as const)[kind]
+
+const ownerFilterOptions = computed(() => [
+  { value: '', label: t('agents.conceptMaps.filterAll') },
+  ...CONCEPT_MAP_OWNER_KINDS.map((k) => ({ value: k, label: ownerKindLabel(k) })),
+])
 
 // --- Build state management (live via WebSocket) ---
 const { liveState, watch: watchBuild, unwatch: unwatchBuild } = useGraphragSocket(projectId)
@@ -128,96 +125,62 @@ const effectiveState = (cfg: GraphragConfig): GraphragConfig['last_build_state']
   liveState.value[cfg.id] ?? cfg.last_build_state
 const isBuilding = (cfg: GraphragConfig): boolean => GRAPHRAG_IN_PROGRESS.has(effectiveState(cfg))
 
-// Pick up any config that is already mid-build when the list loads (a build
-// triggered elsewhere, or a page reload during one) so its progress stays live.
-// Seed the known state so the backstop poll works even if the socket can't
-// connect (audit C6).
 watch(
   configs,
   (list) => {
     for (const cfg of list) {
-      if (GRAPHRAG_IN_PROGRESS.has(cfg.last_build_state)) {
-        watchBuild(cfg.id, cfg.last_build_state)
-      }
+      if (GRAPHRAG_IN_PROGRESS.has(cfg.last_build_state)) watchBuild(cfg.id, cfg.last_build_state)
     }
   },
   { immediate: true },
 )
 
-const buildStateVariant = (state: string): 'neutral' | 'info' | 'danger' | 'warning' => {
-  const map: Record<string, 'neutral' | 'info' | 'danger' | 'warning'> = {
-    idle: 'neutral',
-    running: 'info',
-    neo4j_committed: 'info',
-    qdrant_committed: 'info',
-    failed: 'danger',
-    failed_compensating: 'warning',
-  }
-  return map[state] ?? 'neutral'
-}
-
-const buildStateLabel = (state: string): string => {
-  const map: Record<string, string> = {
-    idle: t('agents.graphragList.states.idle'),
-    running: t('agents.graphragList.states.running'),
-    neo4j_committed: t('agents.graphragList.states.neo4jCommitted'),
-    qdrant_committed: t('agents.graphragList.states.qdrantCommitted'),
-    failed: t('agents.graphragList.states.failed'),
-    failed_compensating: t('agents.graphragList.states.compensating'),
-  }
-  return map[state] ?? state
-}
-
 const buildMutation = useMutation({
   mutationFn: (id: string) => agentsApi.buildGraphrag(id),
   onSuccess: () => toast.success(t('agents.graphragList.buildStarted')),
   onError: (_err, id) => {
-    // The build never started, so roll back the optimistic 'running' state —
-    // otherwise no WS event will ever arrive to clear it and the card sticks.
     const next = { ...liveState.value }
     delete next[id]
     liveState.value = next
-    // Tear down the subscription opened optimistically in startBuild, or the WS
-    // channel and the backstop poll timer would leak (audit review #5).
     unwatchBuild(id)
     toast.error(t('agents.graphragList.buildFailed'))
   },
 })
 
 function startBuild(id: string): void {
-  // Optimistic running state + subscribe before the request returns so we
-  // never miss the early build.state events.
   liveState.value = { ...liveState.value, [id]: 'running' }
   watchBuild(id, 'running')
   buildMutation.mutate(id)
 }
 
 function openGraph(cfg: GraphragConfig): void {
-  void router.push({
-    name: 'agents.graphragGraph',
-    params: { projectId, configId: cfg.id },
-  })
+  void router.push({ name: 'agents.graphragGraph', params: { projectId, configId: cfg.id } })
 }
 
 // --- Create form ---
 const schema = toTypedSchema(graphragConfigCreateSchema)
-const { handleSubmit, errors, defineField, resetForm, setErrors } =
-  useForm<GraphragConfigCreateInput>({
-    validationSchema: schema,
-    initialValues: { agent_id: '', builder_key_group_id: '', trigger_config: {} },
-  })
+const { handleSubmit, errors, defineField, resetForm, setErrors } = useForm<GraphragConfigCreateInput>({
+  validationSchema: schema,
+  initialValues: {
+    owner_kind: 'agent_group',
+    owner_id: '',
+    builder_key_group_id: '',
+    trigger_config: {},
+    recency_half_life_days: null,
+  },
+})
 
-const [agentId] = defineField('agent_id')
+const [ownerKind] = defineField('owner_kind')
+const [ownerId] = defineField('owner_id')
 const [builderKeyGroupId] = defineField('builder_key_group_id')
 
 const triggerEveryN = ref<number | null>(null)
 const triggerSilence = ref<number | null>(null)
 const triggerManual = ref(false)
+const recencyHalfLife = ref<number | null>(null)
 
-// SInput's model-value accepts `string | number` (no `null`); these fields are
-// nullable numbers (unset = trigger disabled). Bridge to '' for display only —
-// SInput type="number" always emits a number, so the field keeps storing
-// `number | null` exactly as before.
+// SInput's model-value is `string | number` (no null); bridge nullable numbers to
+// '' for display. SInput type=number emits a number, so the field keeps null|number.
 function nullableNumberModel(field: { value: number | null }) {
   return computed<string | number>({
     get: () => field.value ?? '',
@@ -228,18 +191,42 @@ function nullableNumberModel(field: { value: number | null }) {
 }
 const triggerEveryNModel = nullableNumberModel(triggerEveryN)
 const triggerSilenceModel = nullableNumberModel(triggerSilence)
+const recencyModel = nullableNumberModel(recencyHalfLife)
 
-const builderKeyGroups = computed(() => {
-  const consumer = agentId.value ? agentById.value.get(agentId.value)?.key_group_id : undefined
-  return (keyGroupsQuery.data.value ?? []).filter((g) => g.id !== consumer)
+const ownerOptions = computed(() => ownerOptionsQuery.data.value ?? [])
+// Only owner kinds that currently have a selectable (map-less) owner.
+const availableOwnerKinds = computed(
+  () => new Set(ownerOptions.value.map((o) => o.owner_kind)),
+)
+const ownerKindOptions = computed(() =>
+  CONCEPT_MAP_OWNER_KINDS.filter((k) => availableOwnerKinds.value.has(k)).map((k) => ({
+    value: k,
+    label: ownerKindLabel(k),
+  })),
+)
+const ownerOptionsForKind = computed(() =>
+  ownerOptions.value
+    .filter((o) => o.owner_kind === ownerKind.value)
+    .map((o) => ({ value: o.owner_id, label: o.owner_name })),
+)
+const keyGroupOptions = computed(() =>
+  (keyGroupsQuery.data.value ?? []).map((g) => ({ value: g.id, label: g.name })),
+)
+
+const hasKeyGroups = computed(() => (keyGroupsQuery.data.value?.length ?? 0) > 0)
+const hasOwners = computed(() => ownerOptions.value.length > 0)
+const canCreate = computed(() => hasOwners.value && hasKeyGroups.value)
+
+const eligibilityWarningKey = computed<string | null>(() => {
+  if (!keyGroupsQuery.isLoading.value && !hasKeyGroups.value) return 'agents.conceptMaps.noKeyGroups'
+  if (!ownerOptionsQuery.isLoading.value && !hasOwners.value) return 'agents.conceptMaps.noOwners'
+  return null
 })
 
-watch(agentId, () => {
-  if (
-    builderKeyGroupId.value &&
-    !builderKeyGroups.value.some((g) => g.id === builderKeyGroupId.value)
-  ) {
-    builderKeyGroupId.value = ''
+// When the owner kind changes, drop an owner_id that no longer belongs to it.
+watch(ownerKind, () => {
+  if (ownerId.value && !ownerOptionsForKind.value.some((o) => o.value === ownerId.value)) {
+    ownerId.value = ''
   }
 })
 
@@ -250,6 +237,7 @@ const createMutation = useMutation({
     (await agentsApi.createGraphragConfig(projectId, values)).data,
   onSuccess: () => {
     qc.invalidateQueries({ queryKey: agentKeys.graphragConfigs(projectId) })
+    qc.invalidateQueries({ queryKey: agentKeys.graphragOwnerOptions(projectId) })
     showCreateModal.value = false
     toast.success(t('agents.graphragList.created'))
   },
@@ -260,9 +248,12 @@ const createMutation = useMutation({
 
 function openCreateModal(): void {
   resetForm()
+  // Default to the first owner kind that actually has a selectable owner.
+  ownerKind.value = ownerKindOptions.value[0]?.value ?? 'agent_group'
   triggerEveryN.value = null
   triggerSilence.value = null
   triggerManual.value = false
+  recencyHalfLife.value = null
   showCreateModal.value = true
 }
 
@@ -271,7 +262,7 @@ const onSubmit = handleSubmit((values) => {
   if (triggerEveryN.value) trigger_config.every_n_messages = triggerEveryN.value
   if (triggerSilence.value) trigger_config.silence_minutes = triggerSilence.value
   if (triggerManual.value) trigger_config.manual = true
-  createMutation.mutate({ ...values, trigger_config })
+  createMutation.mutate({ ...values, trigger_config, recency_half_life_days: recencyHalfLife.value })
 })
 
 // --- Delete ---
@@ -279,13 +270,14 @@ const deleteMutation = useMutation({
   mutationFn: (id: string) => agentsApi.deleteGraphragConfig(id),
   onSuccess: () => {
     qc.invalidateQueries({ queryKey: agentKeys.graphragConfigs(projectId) })
+    qc.invalidateQueries({ queryKey: agentKeys.graphragOwnerOptions(projectId) })
     toast.success(t('agents.graphragList.deleted'))
   },
   onError: () => toast.error(t('agents.graphragList.deleteFailed')),
 })
 
 async function confirmDelete(cfg: GraphragConfig): Promise<void> {
-  const label = agentById.value.get(cfg.agent_id)?.name ?? cfg.agent_id
+  const label = cfg.owner_name ?? cfg.owner_id
   const ok = await confirm({
     title: t('agents.graphragList.deleteTitle'),
     message: t('agents.graphragList.deleteConfirm', { name: label }),
@@ -300,7 +292,6 @@ async function openStatusDrawer(cfg: GraphragConfig): Promise<void> {
   statusDrawerConfig.value = cfg
   showStatusDrawer.value = true
   drawerStatus.value = null
-  // Audit M12: show explicit loading + error states instead of a blank drawer.
   drawerLoading.value = true
   drawerError.value = false
   try {
@@ -330,50 +321,34 @@ const actionItems = computed(() => [
   { key: 'status', label: t('agents.graphragList.viewStatus'), icon: EyeIcon },
   { key: 'graph', label: t('agents.graphragList.viewGraph'), icon: ShareIcon },
   { key: 'divider', label: '', divider: true },
-  { key: 'delete', label: t('common.delete', 'Delete'), icon: TrashIcon, danger: true },
-])
-
-const agentOptions = computed(() =>
-  availableAgents.value.map((a) => ({ value: a.id, label: a.name })),
-)
-const builderKeyGroupOptions = computed(() =>
-  builderKeyGroups.value.map((g) => ({ value: g.id, label: g.name })),
-)
-
-const accordionItems = computed(() => [
-  { key: 'trigger', title: t('agents.graphragForm.trigger') },
+  { key: 'delete', label: t('agents.graphragList.delete'), icon: TrashIcon, danger: true },
 ])
 
 const columns = computed<Column[]>(() => [
-  { key: 'agent_id', label: t('agents.graphragList.colAgent') },
-  { key: 'builder_key_group_id', label: t('agents.graphragList.colBuilder'), width: '160px' },
+  { key: 'owner_name', label: t('agents.conceptMaps.colOwner') },
+  { key: 'owner_kind', label: t('agents.conceptMaps.colOwnerType'), width: '140px' },
   { key: 'last_build_state', label: t('agents.graphragList.colState'), width: '120px' },
   { key: 'last_build_at', label: t('agents.graphragList.colLastBuilt'), width: '120px' },
   { key: 'actions', label: '', width: '120px', align: 'right' },
 ])
 
-// STable's row generic (`T extends Record<string, unknown> = Record<string, unknown>`)
-// falls back to its default type instead of inferring from `:data`/slot usage here (a
-// Volar limitation with generic script-setup props that declare a default type
-// argument). Pin it explicitly so `row` in slots resolves to `GraphragConfig` instead
-// of `Record<string, unknown>`.
+// Pin STable's row generic to GraphragConfig (Volar can't infer it from a default
+// type arg), so slot `row` resolves correctly.
 const _fixedSTable = STable<Record<string, unknown>>
 type STablePropsBase = Parameters<typeof _fixedSTable>[0]
 function typedSTable<T extends object>() {
   return STable as unknown as new () => {
     $props: Omit<STablePropsBase, 'data'> & { data?: T[] }
-    $slots: {
-      [key: string]: (arg: { row: T; value: unknown; index: number }) => unknown
-    }
+    $slots: { [key: string]: (arg: { row: T; value: unknown; index: number }) => unknown }
   }
 }
-const GraphragTable = typedSTable<GraphragConfig>()
+const ConceptMapTable = typedSTable<GraphragConfig>()
 </script>
 
 <template>
   <main class="p-6">
     <SPageHeader
-      :title="t('agents.graphragList.title')"
+      :title="t('agents.conceptMaps.title')"
       :breadcrumbs="breadcrumbs"
     >
       <template #actions>
@@ -385,7 +360,7 @@ const GraphragTable = typedSTable<GraphragConfig>()
           <template #icon-left>
             <PlusIcon class="w-4 h-4" />
           </template>
-          {{ t('agents.graphragList.create') }}
+          {{ t('agents.conceptMaps.create') }}
         </SButton>
       </template>
     </SPageHeader>
@@ -398,29 +373,43 @@ const GraphragTable = typedSTable<GraphragConfig>()
       {{ t(eligibilityWarningKey) }}
     </SAlert>
 
-    <GraphragTable
+    <div class="mt-6 flex items-center gap-3">
+      <label
+        for="owner-kind-filter"
+        class="text-sm text-[var(--color-muted)]"
+      >{{ t('agents.conceptMaps.filterOwnerType') }}</label>
+      <SSelect
+        id="owner-kind-filter"
+        v-model="ownerKindFilter"
+        :options="ownerFilterOptions"
+        size="sm"
+        class="w-48"
+      />
+    </div>
+
+    <ConceptMapTable
       :columns="columns"
-      :data="configs"
+      :data="pagedConfigs"
       :loading="configsQuery.isLoading.value"
       row-key="id"
-      class="mt-6"
+      class="mt-4"
     >
-      <template #cell-agent_id="{ row }">
-        <span class="font-medium">
-          {{ agentById.get(row.agent_id)?.name ?? row.agent_id }}
-        </span>
+      <template #cell-owner_name="{ row }">
+        <span class="font-medium">{{ row.owner_name ?? row.owner_id }}</span>
       </template>
 
-      <template #cell-builder_key_group_id="{ row }">
-        {{ keyGroupById.get(row.builder_key_group_id) ?? row.builder_key_group_id }}
+      <template #cell-owner_kind="{ row }">
+        <SBadge :variant="ownerKindVariant(row.owner_kind)">
+          {{ ownerKindLabel(row.owner_kind) }}
+        </SBadge>
       </template>
 
       <template #cell-last_build_state="{ row }">
         <SBadge
-          :variant="buildStateVariant(effectiveState(row))"
+          :variant="graphragBuildStateVariant(effectiveState(row))"
           :dot="isBuilding(row)"
         >
-          {{ buildStateLabel(effectiveState(row)) }}
+          {{ t(graphragBuildStateLabelKey(effectiveState(row))) }}
         </SBadge>
       </template>
 
@@ -459,8 +448,8 @@ const GraphragTable = typedSTable<GraphragConfig>()
       <template #empty>
         <SEmptyState
           :icon="CircleStackIcon"
-          :title="t('agents.graphragList.emptyTitle')"
-          :text="t('agents.graphragList.emptyDescription')"
+          :title="t('agents.conceptMaps.emptyTitle')"
+          :text="t('agents.conceptMaps.emptyDescription')"
         >
           <template #action>
             <SButton
@@ -468,31 +457,55 @@ const GraphragTable = typedSTable<GraphragConfig>()
               variant="primary"
               @click="openCreateModal"
             >
-              {{ t('agents.graphragList.create') }}
+              {{ t('agents.conceptMaps.create') }}
             </SButton>
           </template>
         </SEmptyState>
       </template>
-    </GraphragTable>
+    </ConceptMapTable>
+
+    <SPagination
+      v-if="filteredConfigs.length > PAGE_SIZE"
+      :page="page"
+      :total-pages="totalPages"
+      :total-items="filteredConfigs.length"
+      :page-size="PAGE_SIZE"
+      class="mt-4"
+      @update:page="page = $event"
+    />
 
     <!-- Create modal -->
     <SModal
       :open="showCreateModal"
-      :title="t('agents.graphragList.create')"
+      :title="t('agents.conceptMaps.create')"
       size="md"
       @close="showCreateModal = false"
     >
       <form @submit.prevent="onSubmit">
         <SFormField
-          :label="t('agents.graphragForm.agent')"
-          name="agent_id"
-          :error="errors.agent_id ?? ''"
+          :label="t('agents.conceptMaps.ownerType')"
+          name="owner_kind"
+          :error="errors.owner_kind ?? ''"
           required
         >
           <SSelect
-            v-model="agentId"
-            :options="agentOptions"
-            :placeholder="t('agents.graphragForm.agentPlaceholder')"
+            v-model="ownerKind"
+            :options="ownerKindOptions"
+            :placeholder="t('agents.conceptMaps.ownerTypePlaceholder')"
+          />
+        </SFormField>
+
+        <SFormField
+          :label="t('agents.conceptMaps.owner')"
+          name="owner_id"
+          :error="errors.owner_id ?? ''"
+          required
+        >
+          <SSelect
+            v-model="ownerId"
+            :options="ownerOptionsForKind"
+            :placeholder="t('agents.conceptMaps.ownerPlaceholder')"
+            :disabled="!ownerKind"
           />
         </SFormField>
 
@@ -505,14 +518,26 @@ const GraphragTable = typedSTable<GraphragConfig>()
         >
           <SSelect
             v-model="builderKeyGroupId"
-            :options="builderKeyGroupOptions"
+            :options="keyGroupOptions"
             :placeholder="t('agents.graphragForm.builderKeyGroupPlaceholder')"
-            :disabled="!agentId"
+          />
+        </SFormField>
+
+        <SFormField
+          :label="t('agents.conceptMaps.recencyHalfLife')"
+          name="recency_half_life_days"
+          :error="errors.recency_half_life_days ?? ''"
+          :help="t('agents.conceptMaps.recencyHelp')"
+        >
+          <SInput
+            v-model="recencyModel"
+            type="number"
+            min="1"
           />
         </SFormField>
 
         <SAccordion
-          :items="accordionItems"
+          :items="[{ key: 'trigger', title: t('agents.graphragForm.trigger') }]"
           class="mt-4"
         >
           <template #item-trigger>
@@ -592,8 +617,8 @@ const GraphragTable = typedSTable<GraphragConfig>()
             <p class="text-sm font-medium text-[var(--color-muted)] mb-1">
               {{ t('agents.graphragList.colState') }}
             </p>
-            <SBadge :variant="buildStateVariant(drawerStatus.state)">
-              {{ buildStateLabel(drawerStatus.state) }}
+            <SBadge :variant="graphragBuildStateVariant(drawerStatus.state)">
+              {{ t(graphragBuildStateLabelKey(drawerStatus.state)) }}
             </SBadge>
           </div>
           <div>

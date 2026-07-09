@@ -258,6 +258,40 @@
       "triggerManual": "Manual only",
       "triggerHelp": "When to automatically rebuild the knowledge graph."
     },
+    "conceptMaps": {
+      "title": "Concept Maps",
+      "create": "New Concept Map",
+      "filterOwnerType": "Owner type",
+      "filterAll": "All types",
+      "ownerType": "Owner type",
+      "ownerTypePlaceholder": "Select an owner type...",
+      "owner": "Owner",
+      "ownerPlaceholder": "Select an owner...",
+      "colOwner": "Owner",
+      "colOwnerType": "Type",
+      "ownerKinds": {
+        "agent_group": "Agent group",
+        "chatroom": "Chatroom",
+        "workspace": "Workspace"
+      },
+      "recencyHalfLife": "Recency half-life (days)",
+      "recencyHelp": "How fast older relations decay in retrieval. Leave blank to use the platform default.",
+      "emptyTitle": "No Concept Maps yet",
+      "emptyDescription": "Create a Concept Map for a chatroom, agent group, or workspace to build a knowledge graph from its conversations.",
+      "noKeyGroups": "This project has no key groups yet. Create one in the Keys section first.",
+      "noOwners": "Every eligible owner already has a Concept Map, or there are no chatrooms, agent groups, or workspaces to create one for yet."
+    },
+    "graphragCoverage": {
+      "title": "Concept Map coverage",
+      "help": "The Concept Maps that can contribute to this agent's retrieval: its chatrooms, the agent groups it belongs to, and those chatrooms' workspaces.",
+      "empty": "This agent is not covered by any Concept Map yet.",
+      "colOwner": "Owner",
+      "colType": "Type",
+      "colState": "Build state",
+      "active": "Active",
+      "inactive": "Off",
+      "activeHelp": "Active maps feed retrieval now; a wide map stays off until a Project Owner enables it."
+    },
     "builtinTools": {
       "title": "Built-in Tools",
       "subtitle": "Capabilities this ai agent can use. Code Interpreter runs arbitrary code, so it is off by default -- enable it when you want the agent to compute, analyse data, or make charts.",

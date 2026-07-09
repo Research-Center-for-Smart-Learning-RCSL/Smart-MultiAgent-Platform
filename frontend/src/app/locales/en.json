@@ -118,6 +118,8 @@
       "agents": "AI Agents",
       "ragConfigs": "RAG Configs",
       "graphrag": "GraphRAG",
+      "conceptMaps": "Concept Maps",
+      "agentGroups": "Agent Groups",
       "projectKeys": "Project Keys",
       "keyGroups": "Key Groups",
       "searchKeys": "Search Keys",

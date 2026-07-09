@@ -10,6 +10,7 @@ import {
   BellIcon,
   InboxArrowDownIcon,
   CpuChipIcon,
+  UserGroupIcon,
   DocumentTextIcon,
   CircleStackIcon,
   RectangleGroupIcon,
@@ -45,10 +46,13 @@ const personalNav = computed<NavItem[]>(() => [
   { icon: InboxArrowDownIcon, label: t('app.sidebar.invites'), route: '/invites' },
 ])
 
-const agentItem = computed<NavItem | null>(() => {
+const agentNav = computed<NavItem[]>(() => {
   const pid = workspace.projectId
-  if (!pid) return null
-  return { icon: CpuChipIcon, label: t('app.sidebar.agents'), route: `/projects/${pid}/agents` }
+  if (!pid) return []
+  return [
+    { icon: CpuChipIcon, label: t('app.sidebar.agents'), route: `/projects/${pid}/agents` },
+    { icon: UserGroupIcon, label: t('app.sidebar.agentGroups'), route: `/projects/${pid}/agent-groups` },
+  ]
 })
 
 const knowledgeNav = computed<NavItem[]>(() => {
@@ -56,7 +60,7 @@ const knowledgeNav = computed<NavItem[]>(() => {
   if (!pid) return []
   return [
     { icon: DocumentTextIcon, label: t('app.sidebar.ragConfigs'), route: `/projects/${pid}/rag-configs` },
-    { icon: CircleStackIcon, label: t('app.sidebar.graphrag'), route: `/projects/${pid}/graphrag-configs` },
+    { icon: CircleStackIcon, label: t('app.sidebar.conceptMaps'), route: `/projects/${pid}/graphrag-configs` },
   ]
 })
 
@@ -136,21 +140,20 @@ function isActive(path: string): boolean {
           {{ t('app.sidebar.projectContext') }}
         </div>
 
-        <!-- Agents — standalone -->
-        <div
-          v-if="agentItem"
-          class="sidebar__section"
-        >
+        <!-- Agents + Agent Groups -->
+        <div class="sidebar__section">
           <RouterLink
-            :to="agentItem.route"
+            v-for="item in agentNav"
+            :key="item.route"
+            :to="item.route"
             class="nav-item"
-            :class="{ 'nav-item--active': isActive(agentItem.route) }"
+            :class="{ 'nav-item--active': isActive(item.route) }"
           >
             <component
-              :is="agentItem.icon"
+              :is="item.icon"
               class="nav-icon"
             />
-            <span class="nav-label">{{ agentItem.label }}</span>
+            <span class="nav-label">{{ item.label }}</span>
           </RouterLink>
         </div>
 

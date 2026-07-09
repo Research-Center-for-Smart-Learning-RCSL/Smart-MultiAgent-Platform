@@ -258,6 +258,40 @@
       "triggerManual": "僅手動",
       "triggerHelp": "何時自動重建知識圖。"
     },
+    "conceptMaps": {
+      "title": "概念圖",
+      "create": "新增概念圖",
+      "filterOwnerType": "擁有者類型",
+      "filterAll": "所有類型",
+      "ownerType": "擁有者類型",
+      "ownerTypePlaceholder": "選擇擁有者類型…",
+      "owner": "擁有者",
+      "ownerPlaceholder": "選擇擁有者…",
+      "colOwner": "擁有者",
+      "colOwnerType": "類型",
+      "ownerKinds": {
+        "agent_group": "Agent 群組",
+        "chatroom": "聊天室",
+        "workspace": "工作區"
+      },
+      "recencyHalfLife": "時效半衰期（天）",
+      "recencyHelp": "較舊的關聯在檢索中衰減的速度。留空以使用平台預設值。",
+      "emptyTitle": "尚無概念圖",
+      "emptyDescription": "為聊天室、Agent 群組或工作區建立概念圖，以從其對話中建置知識圖。",
+      "noKeyGroups": "此專案尚無金鑰群組。請先在「金鑰」區段建立一個。",
+      "noOwners": "所有符合條件的擁有者都已有概念圖，或尚無可建立的聊天室、Agent 群組或工作區。"
+    },
+    "graphragCoverage": {
+      "title": "概念圖涵蓋範圍",
+      "help": "可為此 AI Agent 檢索提供內容的概念圖：其聊天室、所屬的 Agent 群組，以及這些聊天室的工作區。",
+      "empty": "此 AI Agent 尚未被任何概念圖涵蓋。",
+      "colOwner": "擁有者",
+      "colType": "類型",
+      "colState": "建置狀態",
+      "active": "啟用中",
+      "inactive": "關閉",
+      "activeHelp": "啟用中的概念圖會即時提供檢索；較廣層級的概念圖在專案擁有者啟用前為關閉。"
+    },
     "builtinTools": {
       "title": "內建工具",
       "subtitle": "此 AI Agent 可使用的能力。Code Interpreter 會執行任意程式碼，因此預設為關閉——當你希望 AI Agent 進行運算、分析資料或產生圖表時再啟用。",

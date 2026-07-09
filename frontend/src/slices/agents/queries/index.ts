@@ -15,6 +15,10 @@ export const agentKeys = {
     ['agents', 'graphragConfig', configId] as const,
   graphragGraph: (configId: string) =>
     ['agents', 'graphragGraph', configId] as const,
+  graphragOwnerOptions: (projectId: string) =>
+    ['agents', 'graphragOwnerOptions', projectId] as const,
+  conceptMapCoverage: (agentId: string) =>
+    ['agents', 'conceptMapCoverage', agentId] as const,
   mcpBindings: (agentId: string) =>
     ['agents', 'mcpBindings', agentId] as const,
   builtinTools: (agentId: string) =>
