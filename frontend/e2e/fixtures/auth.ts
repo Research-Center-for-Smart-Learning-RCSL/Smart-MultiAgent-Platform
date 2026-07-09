@@ -1,4 +1,4 @@
-import { test as base, type Page } from '@playwright/test'
+import { test as base, expect, type Page } from '@playwright/test'
 
 export interface TestUser {
   email: string
@@ -19,26 +19,67 @@ export const seedAdmin: TestUser = {
   password: 'E2eAdm1n!Str0ng',
 }
 
+// Log in per test, each in its own fresh context. Two alternatives were ruled out
+// by observation:
+//   * Storage-state reuse — /api/auth/refresh rotates the refresh token and treats
+//     a reused one as an attack (revoking the family), so a saved cookie only
+//     authenticates the first context and 401s the rest.
+//   * A shared worker context — after several navigations its refresh chain hits a
+//     rotation race, the session is revoked, and every later test in the worker
+//     bounces to /login. A fresh per-test session keeps each test's single boot
+//     refresh clean.
+//
+// The fixture handles the two real login-flakiness sources:
+//   1. Fill-before-hydrate race. The Vue app mounts only AFTER main.ts's boot
+//      hydrate() resolves (`session.hydrate().finally(() => app.mount())`); on Vite
+//      dev's cold start that is slow, so a fill()+click() landing before mount hits
+//      an un-bound `@submit` handler — `submit()` never runs, no /api/auth/login
+//      fires, and we silently stay on /login. We gate on hydration (the submit
+//      button is enabled only once the form is interactive) and treat the login
+//      *response* as ground truth: absent it, the click raced the mount, so re-drive.
+//   2. Rate limiting. The backend AUTH bucket allows only 10 req/min/IP and every
+//      boot re-authenticates via /api/auth/refresh, so a busy suite brushes the
+//      limit; on a 429 we back off on Retry-After and retry rather than time out on
+//      /login. (Valid logins never trip the failed-login lockout, so re-driving is
+//      safe.)
 async function login(page: Page, user: TestUser): Promise<void> {
-  // The Vue app mounts only AFTER main.ts's boot hydrate() resolves (it does
-  // `session.hydrate().finally(() => app.mount())`). On Vite dev's cold start
-  // the on-demand compile makes that slow, and `networkidle` is unreliable
-  // (it can settle in a compile gap before mount). Gate on the boot refresh
-  // response — mount happens immediately after it — so the submit handler is
-  // bound before we click. Otherwise the click hits an un-mounted button, no
-  // /api/auth/login fires, and we silently stay on /login. (Prod is unaffected.)
-  const bootRefresh = page
-    .waitForResponse((r) => r.url().includes('/api/auth/refresh'), { timeout: 30_000 })
-    .catch(() => undefined)
-  await page.goto('/login')
-  await bootRefresh
-  await page.getByLabel(/email/i).fill(user.email)
-  await page.getByLabel(/password/i).fill(user.password)
-  await page.getByRole('button', { name: /log\s*in|sign\s*in|submit/i }).click()
-  // NB: a negative-lookahead regex like /(?!.*login).*/ matches ANY url (it
-  // succeeds at the end of the string), so it never actually waited. Use a
-  // predicate that is true only once we've navigated away from /login.
-  await page.waitForURL((url) => !url.pathname.includes('/login'))
+  const emailInput = page.getByLabel(/email/i)
+  const passwordInput = page.getByLabel(/password/i)
+  const submitBtn = page.getByRole('button', { name: /log\s*in|sign\s*in|submit/i })
+
+  for (let attempt = 1; attempt <= 6; attempt++) {
+    await page.goto('/login')
+    await emailInput.waitFor({ state: 'visible', timeout: 30_000 })
+    await expect(submitBtn).toBeEnabled({ timeout: 30_000 })
+
+    await emailInput.fill(user.email)
+    await passwordInput.fill(user.password)
+
+    const loginResp = page
+      .waitForResponse((r) => r.url().includes('/api/auth/login'), { timeout: 15_000 })
+      .catch(() => null)
+    await submitBtn.click()
+    const resp = await loginResp
+
+    if (!resp) {
+      await page.waitForTimeout(500) // click raced the mount — re-drive
+      continue
+    }
+    if (resp.status() === 429) {
+      // AUTH bucket exhausted (10/min/IP); respect Retry-After (capped) and retry.
+      const retryAfter = Number(resp.headers()['retry-after'] ?? '10')
+      await page.waitForTimeout(Math.min(Math.max(retryAfter, 1), 60) * 1000 + 500)
+      continue
+    }
+    if (!resp.ok()) {
+      throw new Error(`login POST failed with status ${resp.status()} for ${user.email}`)
+    }
+    // Predicate, not a negative-lookahead regex — that matches any URL at
+    // end-of-string and so never actually waits.
+    await page.waitForURL((url) => !url.pathname.includes('/login'), { timeout: 20_000 })
+    return
+  }
+  throw new Error(`login for ${user.email} did not succeed after 6 attempts (mount race or lockout)`)
 }
 
 export const test = base.extend<{ authedPage: Page; adminPage: Page }>({

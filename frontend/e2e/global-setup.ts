@@ -32,6 +32,23 @@ async function globalSetup(): Promise<void> {
   const adminTokens = await adminLogin.json()
   const adminAuth = { Authorization: `Bearer ${adminTokens.access_token}` }
 
+  // Raise the AUTH rate limit for the test run. The bucket defaults to 10 req/min
+  // per IP, but the SPA re-authenticates via /api/auth/refresh on every full page
+  // load, so a multi-test suite (a login plus a boot refresh per navigation) trips
+  // it mid-run and bounces tests to /login — the historic e2e login flakiness.
+  // Lifting it here (admin-only, against the test backend) removes that at the
+  // source; production keeps the strict default. Non-fatal: the auth fixture also
+  // backs off on 429, so a failure here only makes the suite slower, not red.
+  for (const key of ['auth', 'auth-recovery']) {
+    const r = await api.patch(`/api/admin/rate-limits/${key}`, {
+      headers: adminAuth,
+      data: { max_count: 1000, window_sec: 60, scope: 'ip' },
+    })
+    if (!r.ok()) {
+      console.warn(`[e2e-seed] could not raise "${key}" rate limit (status ${r.status()})`)
+    }
+  }
+
   // Login as regular user
   const userLogin = await api.post('/api/auth/login', { data: USER })
   if (!userLogin.ok()) {
