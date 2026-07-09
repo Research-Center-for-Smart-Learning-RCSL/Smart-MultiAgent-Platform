@@ -20,6 +20,7 @@ import pytest
 from contexts.knowledge.application.graphrag_builder import GraphRagBuilder, ResolvedEmbedder
 from contexts.knowledge.application.graphrag_reconciler import (
     RETRY_BACKOFF_S,
+    GraphConsumer,
     ReconciliationLoop,
 )
 from contexts.knowledge.domain.graphrag import (
@@ -819,21 +820,108 @@ async def test_reconciler_sweeps_orphaned_graph_configs() -> None:
         snapshot_store=FakeSnapshots(),
         phase2_retry=never_phase2,
         sleeper=fake_sleep,
+        sweep_consumers=[
+            GraphConsumer(
+                repo_factory=lambda _db: store,  # type: ignore[arg-type, return-value]
+                vector_store=vectors,  # type: ignore[arg-type]
+                resource_type="graphrag_config",
+            )
+        ],
     )
 
     touched = await recon.run_once()
 
     # No stuck configs → nothing healed; the sweep is the only work this cycle.
     assert touched == []
-    # The sweep diffs against LIVE (non-deleted) config ids, not include_deleted:
-    # a soft-deleted config whose inline purge failed is therefore reclaimed here.
-    assert store.list_all_ids_calls == [False]
+    # The sweep diffs orphans against LIVE (include_deleted=False) ids, then loads
+    # include_deleted=True ids to attribute each orphan to its owning consumer.
+    assert store.list_all_ids_calls == [False, True]
     # Both orphans are purged from Neo4j; the live config's subgraph is untouched.
     assert set(neo4j.deleted_all) == {orphan_id, legacy_orphan}
     assert cfg.id not in neo4j.deleted_all
     # Only the project-tagged orphan is Qdrant-sweepable; the legacy one is skipped.
     assert [d["config_id"] for d in vectors.deleted_by_config] == [orphan_id]
     assert vectors.deleted_by_config[0]["project_id"] == orphan_project
+
+
+@pytest.mark.asyncio
+async def test_orphan_sweep_attributes_to_owning_consumer(monkeypatch: Any) -> None:
+    # A single consumer-aware sweep across two consumers sharing the Neo4j node
+    # space: a live graphrag config is protected; a soft-deleted knowmap config`s
+    # orphaned subgraph is swept, audited as resource_type=knowmap_config, and its
+    # points purged from the knowmap collection (with the graphrag collection swept
+    # as a harmless no-op so nothing leaks).
+    live_a, proj_a = uuid.uuid4(), uuid.uuid4()  # live graphrag config
+    orphan_b, proj_b = uuid.uuid4(), uuid.uuid4()  # soft-deleted knowmap orphan
+
+    neo4j = FakeNeo4j(config_ids=[(live_a, proj_a), (orphan_b, proj_b)])
+    gr_vectors, km_vectors = FakeVectorStore(), FakeVectorStore()
+
+    class _IdStore:
+        def __init__(self, *, live: set[uuid.UUID], all_ids: set[uuid.UUID]) -> None:
+            self._live, self._all = live, all_ids
+
+        async def list_in_state(self, _state: BuildState) -> list[Any]:
+            return []
+
+        async def list_all_ids(self, *, include_deleted: bool = False) -> set[uuid.UUID]:
+            return set(self._all if include_deleted else self._live)
+
+    gr_store = _IdStore(live={live_a}, all_ids={live_a})
+    km_store = _IdStore(live=set(), all_ids={orphan_b})  # deleted_at set → not live
+
+    class _Db:
+        async def commit(self) -> None: ...
+        async def rollback(self) -> None: ...
+        async def close(self) -> None: ...
+
+    events: list[Any] = []
+
+    async def _capture(_db: Any, event: Any) -> None:
+        events.append(event)
+
+    from contexts.knowledge.application import graphrag_reconciler as recon_mod
+
+    monkeypatch.setattr(recon_mod.audit, "emit", _capture)
+
+    async def never_phase2(*, cfg: Any, build_id: Any) -> None:  # pragma: no cover
+        raise AssertionError("no stuck configs")
+
+    recon = ReconciliationLoop(
+        session_factory=lambda: _Db(),  # type: ignore[arg-type, return-value]
+        repo_factory=lambda _db: gr_store,  # type: ignore[arg-type, return-value]
+        neo4j=neo4j,
+        vector_store=gr_vectors,  # type: ignore[arg-type]
+        snapshot_store=FakeSnapshots(),
+        phase2_retry=never_phase2,
+        sleeper=_noop,
+        sweep_consumers=[
+            GraphConsumer(
+                repo_factory=lambda _db: gr_store,  # type: ignore[arg-type, return-value]
+                vector_store=gr_vectors,  # type: ignore[arg-type]
+                resource_type="graphrag_config",
+            ),
+            GraphConsumer(
+                repo_factory=lambda _db: km_store,  # type: ignore[arg-type, return-value]
+                vector_store=km_vectors,  # type: ignore[arg-type]
+                resource_type="knowmap_config",
+            ),
+        ],
+    )
+
+    touched = await recon.run_once()
+
+    assert touched == []
+    # Only the knowmap orphan is swept; the live graphrag config is untouched.
+    assert neo4j.deleted_all == [orphan_b]
+    assert len(events) == 1
+    event = events[0]
+    assert event.resource_type == "knowmap_config"  # attributed to the owning table
+    assert event.resource_id == orphan_b
+    assert event.metadata["vectors_purged"] == {"knowmap_config": True, "graphrag_config": True}
+    # Purged from both collections (owner + no-op) so nothing leaks.
+    assert [d["config_id"] for d in km_vectors.deleted_by_config] == [orphan_b]
+    assert [d["config_id"] for d in gr_vectors.deleted_by_config] == [orphan_b]
 
 
 @pytest.mark.asyncio
