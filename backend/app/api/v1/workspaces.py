@@ -38,6 +38,7 @@ class WorkspaceOut(BaseModel):
     name: str
     created_at: str
     deleted_at: str | None
+    concept_map_enabled: bool
 
 
 class WorkspaceCreatedOut(WorkspaceOut):
@@ -60,6 +61,7 @@ def _to_out(ws) -> WorkspaceOut:
         name=ws.name,
         created_at=ws.created_at.isoformat(),
         deleted_at=ws.deleted_at.isoformat() if ws.deleted_at else None,
+        concept_map_enabled=ws.concept_map_enabled,
     )
 
 
