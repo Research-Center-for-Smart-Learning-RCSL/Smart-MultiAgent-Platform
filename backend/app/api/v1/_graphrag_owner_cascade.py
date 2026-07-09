@@ -3,9 +3,10 @@
 Deleting a chatroom, workspace, or agent_group must purge the Neo4j subgraph and
 Qdrant points of any Concept Map it owns, audit-logged — never relying on the DB
 cascade alone (the external stores have no FK to the owner row). The agent-delete
-route (``agents.py``) already does this inline against its membership-resolved
-configs; this module extracts the two owner-agnostic halves so the three
-owner-kind delete routes share one tested path instead of copy-pasting it.
+route (``agents.py``) shares the purge half too: a config resolved via
+``list_for_agents`` may belong to a DIFFERENT agent_group per row (each config's
+own ``owner_*`` id is used for its audit metadata), unlike the other three routes
+where every config in the list shares one caller-known owner.
 
 The two-phase shape mirrors the agent route and honours DOM-4: soft-deletes run
 in the caller's open transaction (committed by the route alongside the owner's own
@@ -16,6 +17,7 @@ from __future__ import annotations
 
 import logging
 import uuid
+from collections.abc import Sequence
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -23,6 +25,14 @@ from contexts.knowledge.domain.graphrag import GraphRagConfig
 from contexts.knowledge.interfaces.facade import KnowledgeFacade
 
 _log = logging.getLogger(__name__)
+
+
+def _owner_id_of(cfg: GraphRagConfig) -> uuid.UUID | None:
+    return {
+        "chatroom": cfg.owner_chatroom_id,
+        "agent_group": cfg.owner_agent_group_id,
+        "workspace": cfg.owner_workspace_id,
+    }.get(cfg.owner_kind)
 
 
 async def soft_delete_owner_graph_configs(
@@ -54,14 +64,20 @@ async def soft_delete_owner_graph_configs(
 async def purge_owner_graph_configs_external(
     db: AsyncSession,
     *,
-    configs: list[GraphRagConfig],
-    owner_kind: str,
-    owner_id: uuid.UUID,
+    configs: Sequence[GraphRagConfig],
     actor_user_id: uuid.UUID,
     actor_ip: str | None,
     request_id: uuid.UUID | None,
+    extra_metadata: dict[str, str] | None = None,
 ) -> None:
     """Purge each config's Neo4j subgraph + Qdrant points and audit it (post-commit).
+
+    Each config's own ``owner_kind``/owner id is used for its audit metadata —
+    NOT a single blanket owner passed by the caller — so this works whether every
+    config in the list shares one owner (a chatroom/workspace/agent_group delete)
+    or spans several different owners (an agent-delete cascade, where each
+    returned config may belong to a different agent_group). ``extra_metadata`` is
+    merged into every config's audit event (e.g. the deleted agent's id).
 
     Best-effort per config: the purge already swallows its own store errors, and
     the audit write is guarded too so an emit failure can never turn a durably
@@ -76,6 +92,7 @@ async def purge_owner_graph_configs_external(
                 config_id=cfg.id,
                 project_id=cfg.project_id,
             )
+            owner_id = _owner_id_of(cfg)
             await _audit.emit(
                 db,
                 _audit.AuditEvent(
@@ -86,8 +103,9 @@ async def purge_owner_graph_configs_external(
                     resource_id=cfg.id,
                     metadata={
                         "project_id": str(cfg.project_id),
-                        "owner_kind": owner_kind,
-                        "owner_id": str(owner_id),
+                        "owner_kind": cfg.owner_kind,
+                        "owner_id": str(owner_id) if owner_id else None,
+                        **(extra_metadata or {}),
                         **outcome,
                     },
                     request_id=request_id,

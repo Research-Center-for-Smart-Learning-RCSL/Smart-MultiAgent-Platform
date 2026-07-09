@@ -12,7 +12,6 @@ AuthZ (§5.2, cap #15 `RESOURCE_CREATE_EDIT`):
 
 from __future__ import annotations
 
-import logging
 import uuid
 from typing import Any, Literal
 
@@ -40,8 +39,6 @@ from shared_kernel.auth.dependencies import (
 from shared_kernel.auth.permissions import Capability, Principal
 from shared_kernel.db.session import db_session
 from shared_kernel.validation import BoundedConfig
-
-_log = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Pydantic schemas
@@ -363,11 +360,15 @@ async def delete_agent(
     if not decision.allowed:
         _raise_forbidden(decision.reason)
 
+    from app.api.v1._graphrag_owner_cascade import purge_owner_graph_configs_external
     from contexts.knowledge.interfaces.facade import KnowledgeFacade
 
-    # Enumerate the agent's GraphRAG configs before the soft-deletes so their
-    # external stores can be purged after commit (DOM-4). Without this an
-    # agent delete would orphan its Neo4j subgraph + Qdrant vectors.
+    # Enumerate the GraphRAG configs this agent's deletion actually retires
+    # before the soft-deletes so their external stores can be purged after
+    # commit (DOM-4). `list_graph_configs_for_agent` only returns a shared
+    # (agent_group-owned) config when removing this agent leaves the group with
+    # zero other live members — deleting one member of a multi-member group must
+    # not destroy the Concept Map the other members still depend on.
     facade = KnowledgeFacade(db)
     graph_configs = await facade.list_graph_configs_for_agent(agent_id)
 
@@ -390,40 +391,14 @@ async def delete_agent(
     # graphrag.deleted audit rows) before touching any external store.
     await db.commit()
 
-    from shared_kernel import audit as _audit
-
-    for cfg in graph_configs:
-        # Best-effort, per-config: the purge already swallows its own store
-        # errors; guard the audit write too so an emit failure can never turn a
-        # durably-committed delete into a 500 (nor skip a sibling config).
-        try:
-            outcome = await KnowledgeFacade.purge_graph_config_external_stores(
-                config_id=cfg.id,
-                project_id=cfg.project_id,
-            )
-            await _audit.emit(
-                db,
-                _audit.AuditEvent(
-                    action="graphrag.config_infra_purged",
-                    actor_user_id=principal.user_id,
-                    actor_ip=ctx.actor_ip,
-                    resource_type="graphrag_config",
-                    resource_id=cfg.id,
-                    metadata={
-                        "project_id": str(cfg.project_id),
-                        "agent_id": str(agent_id),
-                        **outcome,
-                    },
-                    request_id=ctx.request_id,
-                ),
-            )
-        except Exception:
-            _log.exception(
-                "graphrag delete: post-commit purge/audit failed for config %s",
-                cfg.id,
-            )
-            await db.rollback()
-    # The follow-up audit rows are committed by the db_session dependency.
+    await purge_owner_graph_configs_external(
+        db,
+        configs=graph_configs,
+        actor_user_id=principal.user_id,
+        actor_ip=ctx.actor_ip,
+        request_id=ctx.request_id,
+        extra_metadata={"agent_id": str(agent_id)},
+    )
 
 
 # ---------------------------------------------------------------------------

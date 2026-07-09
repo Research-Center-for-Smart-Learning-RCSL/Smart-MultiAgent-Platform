@@ -237,8 +237,6 @@ async def delete_workspace(
     await purge_owner_graph_configs_external(
         db,
         configs=configs,
-        owner_kind="workspace",
-        owner_id=workspace_id,
         actor_user_id=principal.user_id,
         actor_ip=ctx.actor_ip,
         request_id=ctx.request_id,
