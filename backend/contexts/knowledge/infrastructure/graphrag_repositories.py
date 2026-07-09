@@ -163,6 +163,38 @@ class GraphRagConfigRepository(GraphRagConfigRepositoryPort):
         ).all()
         return [_row_to_config(r) for r in rows]
 
+    async def list_for_owner(
+        self,
+        *,
+        owner_kind: str,
+        owner_id: uuid.UUID,
+    ) -> Sequence[GraphRagConfig]:
+        """Live configs owned directly by a chatroom / workspace / agent_group.
+
+        The owner-delete cascade (WS6 R11.20/AC-10) enumerates a deleted owner's
+        configs so their Neo4j subgraph + Qdrant points can be purged. Selects on
+        the single ``owner_*`` column matching ``owner_kind``; the per-owner
+        partial-unique makes this at most one row, but a list keeps the call site
+        symmetric with :meth:`list_for_agents` and robust to any future relaxation.
+        Unlike ``list_for_agents`` this resolves ownership by the owner column, not
+        the membership join — an agent_group owner is deleted as a whole here.
+        """
+        owner_col = getattr(t.graphrag_configs.c, _OWNER_COLUMN[owner_kind])
+        rows = (
+            await self._db.execute(
+                _config_select()
+                .where(
+                    sa.and_(
+                        t.graphrag_configs.c.owner_kind == owner_kind,
+                        owner_col == owner_id,
+                        t.graphrag_configs.c.deleted_at.is_(None),
+                    )
+                )
+                .order_by(t.graphrag_configs.c.created_at.desc())
+            )
+        ).all()
+        return [_row_to_config(r) for r in rows]
+
     async def list_for_agents(
         self,
         agent_ids: Sequence[uuid.UUID],

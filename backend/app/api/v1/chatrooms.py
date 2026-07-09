@@ -344,9 +344,39 @@ async def delete_chatroom(
         project_id,
         Capability.RESOURCE_CREATE_EDIT,
     )
+
+    from app.api.v1._graphrag_owner_cascade import (
+        purge_owner_graph_configs_external,
+        soft_delete_owner_graph_configs,
+    )
+    from contexts.knowledge.interfaces.facade import KnowledgeFacade
+
+    # WS6 (R11.20/AC-10): soft-delete the room's owned Concept Map config(s) in the
+    # same transaction so their external stores can be purged after commit — the
+    # Neo4j/Qdrant data has no FK to the room and would otherwise orphan.
+    configs = await soft_delete_owner_graph_configs(
+        KnowledgeFacade(db),
+        owner_kind="chatroom",
+        owner_id=chatroom_id,
+        actor_user_id=principal.user_id,
+        actor_ip=ctx.actor_ip,
+        request_id=ctx.request_id,
+    )
     service = ChatroomService(db)
     await service.soft_delete(
         chatroom_id=chatroom_id,
+        actor_user_id=principal.user_id,
+        actor_ip=ctx.actor_ip,
+        request_id=ctx.request_id,
+    )
+    # DOM-4: commit the room + config soft-deletes (and their audit rows) before
+    # touching any external store.
+    await db.commit()
+    await purge_owner_graph_configs_external(
+        db,
+        configs=configs,
+        owner_kind="chatroom",
+        owner_id=chatroom_id,
         actor_user_id=principal.user_id,
         actor_ip=ctx.actor_ip,
         request_id=ctx.request_id,

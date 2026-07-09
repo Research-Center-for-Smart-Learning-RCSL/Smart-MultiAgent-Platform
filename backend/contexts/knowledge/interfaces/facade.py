@@ -66,6 +66,19 @@ class KnowledgeFacade:
         """
         return await self._graphrag.list_for_agents([agent_id])
 
+    async def list_graph_configs_for_owner(
+        self,
+        *,
+        owner_kind: str,
+        owner_id: uuid.UUID,
+    ) -> Sequence[GraphRagConfig]:
+        """Live GraphRAG configs owned by a chatroom / workspace / agent_group.
+
+        Used by the owner-delete cascade (WS6) to enumerate the configs whose
+        external stores must be purged when the owning resource is deleted.
+        """
+        return await self._graphrag.list_for_owner(owner_kind=owner_kind, owner_id=owner_id)
+
     async def resolve_graphrag_layers(
         self,
         *,
