@@ -66,13 +66,21 @@ export function useGraphragSocket(projectId: string) {
     liveState.value = { ...liveState.value, [configId]: state }
     if (!GRAPHRAG_IN_PROGRESS.has(state)) {
       // Terminal: refetch the authoritative config row (last_build_at, binding)
-      // for both the list and the single-config query (audit M13 — the agent
-      // detail Knowledge tab reads graphragConfig(id)), and close this config's
+      // for both the list and the single-config query, and close this config's
       // channel so subscriptions don't accumulate over many builds. Deferred so
       // we don't tear down a channel from inside its own event handler. A later
       // re-build re-subscribes via watch().
+      //
+      // Also invalidate every cached `conceptMapCoverage` entry (the agent
+      // Knowledge tab's read-only coverage badge, WS5): this composable only
+      // knows the config id, not which agent(s) it covers (a chatroom/
+      // agent_group/workspace map can cover several), so it can't target a
+      // single agentId — invalidating the whole prefix is the only correct
+      // option and is cheap (TanStack refetches only the currently-mounted
+      // queries under it).
       qc.invalidateQueries({ queryKey: agentKeys.graphragConfigs(projectId) })
       qc.invalidateQueries({ queryKey: agentKeys.graphragConfig(configId) })
+      qc.invalidateQueries({ queryKey: ['agents', 'conceptMapCoverage'] })
       void Promise.resolve().then(() => unwatch(configId))
     }
   }
