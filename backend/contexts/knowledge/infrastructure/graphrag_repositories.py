@@ -19,7 +19,11 @@ from contexts.agent_groups.infrastructure import tables as ag
 from contexts.conversation.infrastructure import tables as conv
 from contexts.knowledge.application.graphrag_ports import GraphRagConfigRepositoryPort
 from contexts.knowledge.domain.errors import GraphRagConfigAlreadyExists
-from contexts.knowledge.domain.graphrag import BuildState, GraphRagConfig
+from contexts.knowledge.domain.graphrag import (
+    AgentConceptMapCoverage,
+    BuildState,
+    GraphRagConfig,
+)
 from contexts.knowledge.infrastructure import graphrag_tables as t
 from shared_kernel.auth.clients import now
 
@@ -312,6 +316,124 @@ class GraphRagConfigRepository(GraphRagConfigRepositoryPort):
             configs.append(_row_to_config(r))
         configs.sort(key=lambda c: (_LAYER_RANK.get(c.owner_kind, 99), c.created_at))
         return configs
+
+    async def list_coverage_for_agent(
+        self,
+        agent_id: uuid.UUID,
+    ) -> Sequence[AgentConceptMapCoverage]:
+        """Every Concept Map covering an agent, narrow -> wide (Phase 4α R11.09).
+
+        The read-only transparency view for the agent Knowledge tab. Unlike
+        :meth:`list_layers_for_turn` (turn-scoped to one chatroom, and excluding
+        disabled wide layers), this is agent-scoped across *all* the agent's rooms
+        and returns disabled wide maps too, flagged ``active=False`` — the map
+        exists but is not currently fed to retrieval. Covers:
+
+        - each chatroom the agent is in (``active`` always True — inherits the ACL);
+        - each agent_group the agent is a live member of (``active`` = the group's
+          ``concept_map_enabled``);
+        - each workspace owning one of those chatrooms (``active`` = the workspace's
+          ``concept_map_enabled``).
+
+        One round-trip (UNION ALL); ranking + dedup applied in Python.
+        """
+        gc = t.graphrag_configs
+        member = _member_agent_id()
+
+        chatroom_join = gc.join(conv.chatrooms, conv.chatrooms.c.id == gc.c.owner_chatroom_id).join(
+            conv.chatroom_agents,
+            conv.chatroom_agents.c.chatroom_id == conv.chatrooms.c.id,
+        )
+        chatroom_layer = (
+            sa.select(
+                gc,
+                member,
+                conv.chatrooms.c.name.label("owner_name"),
+                sa.true().label("active"),
+            )
+            .select_from(chatroom_join)
+            .where(
+                sa.and_(
+                    gc.c.owner_kind == "chatroom",
+                    conv.chatroom_agents.c.agent_id == agent_id,
+                    conv.chatrooms.c.deleted_at.is_(None),
+                    gc.c.deleted_at.is_(None),
+                )
+            )
+        )
+
+        group_join = gc.join(ag.agent_groups, ag.agent_groups.c.id == gc.c.owner_agent_group_id).join(
+            ag.agent_group_members,
+            ag.agent_group_members.c.agent_group_id == ag.agent_groups.c.id,
+        )
+        group_layer = (
+            sa.select(
+                gc,
+                member,
+                ag.agent_groups.c.name.label("owner_name"),
+                ag.agent_groups.c.concept_map_enabled.label("active"),
+            )
+            .select_from(group_join)
+            .where(
+                sa.and_(
+                    gc.c.owner_kind == "agent_group",
+                    ag.agent_group_members.c.agent_id == agent_id,
+                    ag.agent_groups.c.deleted_at.is_(None),
+                    gc.c.deleted_at.is_(None),
+                )
+            )
+        )
+
+        agent_room_workspaces = (
+            sa.select(conv.chatrooms.c.workspace_id)
+            .select_from(
+                conv.chatrooms.join(
+                    conv.chatroom_agents,
+                    conv.chatroom_agents.c.chatroom_id == conv.chatrooms.c.id,
+                )
+            )
+            .where(
+                sa.and_(
+                    conv.chatroom_agents.c.agent_id == agent_id,
+                    conv.chatrooms.c.deleted_at.is_(None),
+                )
+            )
+        )
+        workspace_join = gc.join(conv.workspaces, conv.workspaces.c.id == gc.c.owner_workspace_id)
+        workspace_layer = (
+            sa.select(
+                gc,
+                member,
+                conv.workspaces.c.name.label("owner_name"),
+                conv.workspaces.c.concept_map_enabled.label("active"),
+            )
+            .select_from(workspace_join)
+            .where(
+                sa.and_(
+                    gc.c.owner_kind == "workspace",
+                    gc.c.owner_workspace_id.in_(agent_room_workspaces),
+                    conv.workspaces.c.deleted_at.is_(None),
+                    gc.c.deleted_at.is_(None),
+                )
+            )
+        )
+
+        rows = (await self._db.execute(sa.union_all(chatroom_layer, group_layer, workspace_layer))).all()
+        seen: set[uuid.UUID] = set()
+        out: list[AgentConceptMapCoverage] = []
+        for r in rows:
+            if r.id in seen:
+                continue
+            seen.add(r.id)
+            out.append(
+                AgentConceptMapCoverage(
+                    config=_row_to_config(r),
+                    owner_name=r.owner_name,
+                    active=bool(r.active),
+                )
+            )
+        out.sort(key=lambda e: (_LAYER_RANK.get(e.config.owner_kind, 99), e.config.created_at))
+        return out
 
     async def list_in_state(
         self,
