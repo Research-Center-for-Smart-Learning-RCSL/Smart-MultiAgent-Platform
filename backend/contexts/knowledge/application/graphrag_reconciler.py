@@ -20,6 +20,7 @@ import asyncio
 import logging
 import uuid
 from collections.abc import Awaitable, Callable, Sequence
+from dataclasses import dataclass
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -66,6 +67,21 @@ _STUCK_STATES: tuple[BuildState, ...] = (
 Sleeper = Callable[[float], Awaitable[None]]
 
 
+@dataclass(frozen=True, slots=True)
+class GraphConsumer:
+    """One graph subsystem that shares the Neo4j node space (subgraphs keyed solely
+    by ``config_id`` across tables — e.g. ``graphrag_configs`` and ``knowmap_configs``).
+
+    Bundles what the orphan sweep needs to reason about a consumer as data rather than
+    a special case: the config repository factory (for its live + soft-deleted ids),
+    its Qdrant vector store, and the audit ``resource_type`` for its configs. A new
+    consumer becomes one more list entry — no new sweep parameters."""
+
+    repo_factory: Callable[[AsyncSession], GraphRagConfigRepositoryPort]
+    vector_store: GraphRagVectorStore
+    resource_type: str
+
+
 class ReconciliationLoop:
     """Periodic scanner that heals stuck Phase-2 builds."""
 
@@ -80,9 +96,7 @@ class ReconciliationLoop:
         phase2_retry: Phase2Retry,
         sleeper: Sleeper | None = None,
         lock_store: BuildLockStore | None = None,
-        also_live_id_repos: Sequence[Callable[[AsyncSession], GraphRagConfigRepositoryPort]] = (),
-        extra_vector_stores: Sequence[GraphRagVectorStore] = (),
-        sweep_orphans: bool = True,
+        sweep_consumers: Sequence[GraphConsumer] = (),
     ) -> None:
         self._session_factory = session_factory
         self._repo_factory = repo_factory
@@ -92,21 +106,14 @@ class ReconciliationLoop:
         self._phase2 = phase2_retry
         self._sleep: Sleeper = sleeper or asyncio.sleep
         self._locks = lock_store
-        # A second graph consumer (the Knowledge Map, Phase 3) shares this Neo4j
-        # node space — subgraphs are keyed solely by config id across BOTH the
-        # graphrag_configs and knowmap_configs tables. Without these, the orphan
-        # sweep would treat every live *other-consumer* subgraph as an orphan and
-        # delete it: ``also_live_id_repos`` protect them, and ``extra_vector_stores``
-        # let a genuine orphan's points be purged from the other consumer's Qdrant
-        # collection (its config id belongs to exactly one table, so the extra
-        # delete is a no-op for a same-consumer orphan).
-        self._also_live_id_repos = list(also_live_id_repos)
-        self._extra_vector_stores = list(extra_vector_stores)
-        # A second consumer sharing this Neo4j node space runs its own heal pass
-        # but must NOT also sweep orphans — one consumer-aware sweep (the primary
-        # graphrag reconciler) purges orphans across both collections, so a second
-        # sweep would only race and double the audit rows.
-        self._sweep_orphans = sweep_orphans
+        # Every graph consumer that shares this Neo4j node space (config ids live in
+        # different tables — graphrag_configs, knowmap_configs). The orphan sweep
+        # unions their live ids to protect each consumer's subgraphs, and attributes
+        # + purges each orphan to the consumer that owns it. Empty means this loop
+        # only heals its own stuck builds and runs no sweep — the second consumer's
+        # loop leaves the single consumer-aware sweep to the primary loop, so two
+        # sweeps never race or double the audit rows.
+        self._sweep_consumers = list(sweep_consumers)
 
     async def run_once(self) -> list[uuid.UUID]:
         """Drive one scan-and-heal cycle. Returns ids successfully committed.
@@ -152,37 +159,40 @@ class ReconciliationLoop:
                 finally:
                     if self._locks is not None:
                         await self._locks.release(cfg.id)
-            if self._sweep_orphans:
-                await self._run_orphan_sweep(db, repo)
+            if self._sweep_consumers:
+                await self._run_orphan_sweep(db)
             return touched
         finally:
             await db.close()
 
-    async def _run_orphan_sweep(
-        self,
-        db: AsyncSession,
-        repo: GraphRagConfigRepositoryPort,
-    ) -> None:
+    async def _run_orphan_sweep(self, db: AsyncSession) -> None:
         """Purge graph data whose config is no longer live in Postgres (backstop).
 
         The inline delete cascade (DOM-4) is the primary teardown; this is the
         safety net for graph data left behind when that cascade could not run or
         did not finish: a config hard-deleted out from under its graph (e.g. a
         retention CASCADE) *or* one soft-deleted whose best-effort inline purge
-        failed. An orphan is any subgraph whose ``graphrag_config_id`` is not in
-        ``list_all_ids()`` (live, non-deleted). A soft-deleted config is not
-        live, so its still-present graph data is reclaimed here; the purge is
-        idempotent, so a config whose inline purge already succeeded has no graph
-        data left, is absent from ``list_config_ids``, and is never revisited.
+        failed. An orphan is any subgraph whose config id is not in the union of
+        every consumer's live (non-deleted) ids — so one consumer's live subgraphs
+        are never swept as another's orphans. The purge is idempotent, so a config
+        whose inline purge already succeeded has no graph data left, is absent from
+        ``list_config_ids``, and is never revisited.
 
-        Failures are isolated per orphan and never abort the reconcile cycle.
+        Each orphan is attributed to the consumer whose table still holds its
+        (soft-deleted) row so the audit records the correct ``resource_type``; a
+        fully-gone config is unattributable and recorded as ``graph_config``. Its
+        Neo4j subgraph is purged once and every consumer's Qdrant collection is
+        swept (a no-op for non-owners) so a mis-/un-attributed orphan never leaks
+        vectors. Failures are isolated per orphan and never abort the cycle.
         """
-        live_ids = await repo.list_all_ids()
-        # Protect subgraphs owned by another graph consumer that shares this Neo4j
-        # node space (Knowledge Map, Phase 3) — their config ids live in a
-        # different table and must never be swept as orphans here.
-        for extra_repo_factory in self._also_live_id_repos:
-            live_ids |= await extra_repo_factory(db).list_all_ids()
+        live_ids: set[uuid.UUID] = set()
+        # (consumer, its live+soft-deleted ids) — the soft-deleted set attributes an
+        # orphan whose row still exists to the consumer that owns it.
+        owned: list[tuple[GraphConsumer, set[uuid.UUID]]] = []
+        for consumer in self._sweep_consumers:
+            repo = consumer.repo_factory(db)
+            live_ids |= await repo.list_all_ids()
+            owned.append((consumer, await repo.list_all_ids(include_deleted=True)))
         try:
             graph_configs = await self._neo4j.list_config_ids()
         except Exception:
@@ -191,42 +201,47 @@ class ReconciliationLoop:
         for config_id, project_id in graph_configs:
             if config_id in live_ids:
                 continue
+            owner = next((c for c, ids in owned if config_id in ids), None)
+            # Purge Neo4j + one store via the shared teardown, then the remaining
+            # consumers' collections. Prefer the owning consumer's store for the
+            # shared step; an unattributable orphan falls back to the first consumer
+            # (every collection is swept regardless, so nothing leaks).
+            primary = owner or self._sweep_consumers[0]
             try:
                 outcome = await purge_config_external_stores(
                     config_id=config_id,
                     project_id=project_id,
                     neo4j=self._neo4j,
-                    vectors=self._vectors,
+                    vectors=primary.vector_store,
                 )
-                # A genuine orphan's config id belongs to exactly one consumer, so
-                # also purge its points from the other consumer's Qdrant collection
-                # (a no-op for a same-consumer orphan) to avoid leaking vectors. Record
-                # each extra-collection purge in the audit so a Knowledge Map orphan's
-                # vector removal is verifiable — ``outcome.qdrant_purged`` only reflects
-                # the primary (graphrag) collection, which is a no-op for a knowmap
-                # orphan whose points live in the ``knowmap`` collection.
-                extra_purged: dict[str, bool] = {}
-                for extra_vs in self._extra_vector_stores:
-                    if project_id is not None:
+                vectors_purged: dict[str, bool] = {}
+                if project_id is not None:
+                    vectors_purged[primary.resource_type] = outcome["qdrant_purged"]
+                    for consumer in self._sweep_consumers:
+                        if consumer is primary:
+                            continue
                         try:
-                            await extra_vs.delete_by_config(project_id=project_id, config_id=config_id)
-                            extra_purged[extra_vs.prefix] = True
+                            await consumer.vector_store.delete_by_config(
+                                project_id=project_id, config_id=config_id
+                            )
+                            vectors_purged[consumer.resource_type] = True
                         except Exception:
-                            extra_purged[extra_vs.prefix] = False
+                            vectors_purged[consumer.resource_type] = False
                             _log.exception(
-                                "graphrag orphan sweep: extra-collection purge failed for %s",
+                                "graphrag orphan sweep: vector purge failed for %s (%s)",
                                 config_id,
+                                consumer.resource_type,
                             )
                 await audit.emit(
                     db,
                     audit.AuditEvent(
                         action="graphrag.orphan_swept",
-                        resource_type="graphrag_config",
+                        resource_type=owner.resource_type if owner is not None else "graph_config",
                         resource_id=config_id,
                         metadata={
                             "project_id": str(project_id) if project_id else None,
-                            **outcome,
-                            "extra_collections_purged": extra_purged,
+                            "neo4j_purged": outcome["neo4j_purged"],
+                            "vectors_purged": vectors_purged,
                         },
                     ),
                 )
@@ -234,14 +249,6 @@ class ReconciliationLoop:
             except Exception:
                 _log.exception("graphrag orphan sweep: purge failed for config %s", config_id)
                 await db.rollback()
-
-    async def run_forever(self, *, period_s: float = 60.0) -> None:
-        while True:
-            try:
-                await self.run_once()
-            except Exception:
-                _log.exception("graphrag reconciler iteration failed")
-            await self._sleep(period_s)
 
     async def _reconcile_one(
         self,
@@ -407,6 +414,7 @@ Signature: ``async def(*, cfg: ConfigLike, build_id: uuid.UUID) -> None``.
 
 
 __all__ = [
+    "GraphConsumer",
     "Phase2Retry",
     "RETRY_BACKOFF_S",
     "ReconciliationLoop",

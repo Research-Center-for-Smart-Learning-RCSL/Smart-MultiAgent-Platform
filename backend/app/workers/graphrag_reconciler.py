@@ -5,9 +5,9 @@ Production runs reconciliation as a once-per-minute arq cron — the
 :func:`reconcile_once`, and arq's cron lock keeps it singleton across worker
 replicas (registered in ``app.workers.main.WorkerSettings``).
 
-This module also exposes a standalone ``run_forever`` loop, invocable as
-``python -m app.workers.graphrag_reconciler``, for local dev or a dedicated
-process; the arq cron is the deployed path.
+It is also invocable as a standalone process (``python -m
+app.workers.graphrag_reconciler``) for local dev or a dedicated worker; that loop
+calls the same :func:`reconcile_once`, and the arq cron is the deployed path.
 """
 
 from __future__ import annotations
@@ -22,6 +22,7 @@ from typing import Any
 from app.config.settings import get_settings
 from contexts.knowledge.application.embed_resolution import resolve_pinned_embed_key
 from contexts.knowledge.application.graphrag_reconciler import (
+    GraphConsumer,
     ReconciliationLoop,
 )
 from contexts.knowledge.infrastructure.graphrag_repositories import (
@@ -128,9 +129,10 @@ async def _loop() -> AsyncIterator[ReconciliationLoop]:
 
     qclient = AsyncQdrantClient(url=settings.qdrant.url)
     vectors = GraphRagVectorStore(qclient)
-    # Phase 3: the Knowledge Map shares this Neo4j node space (subgraphs keyed
-    # only by config id). Protect live knowmap subgraphs from the orphan sweep and
-    # purge a genuine knowmap orphan's points from its own Qdrant collection.
+    # Phase 3: the Knowledge Map shares this Neo4j node space (subgraphs keyed only
+    # by config id). Both graph consumers are registered so the single sweep unions
+    # their live ids, attributes each orphan to its owning table, and purges the
+    # right Qdrant collection.
     from contexts.knowledge.infrastructure.knowmap_repositories import (
         KnowmapConfigRepository,
     )
@@ -145,8 +147,18 @@ async def _loop() -> AsyncIterator[ReconciliationLoop]:
         snapshot_store=RedisSnapshotStore(),
         phase2_retry=_make_phase2_retry(neo4j, vectors),
         lock_store=RedisBuildLockStore(),
-        also_live_id_repos=[KnowmapConfigRepository],
-        extra_vector_stores=[knowmap_vectors],
+        sweep_consumers=[
+            GraphConsumer(
+                repo_factory=GraphRagConfigRepository,
+                vector_store=vectors,
+                resource_type="graphrag_config",
+            ),
+            GraphConsumer(
+                repo_factory=KnowmapConfigRepository,
+                vector_store=knowmap_vectors,
+                resource_type="knowmap_config",
+            ),
+        ],
     )
     try:
         yield loop
@@ -160,9 +172,9 @@ async def _knowmap_loop() -> AsyncIterator[ReconciliationLoop]:
     """Reconciliation loop for Knowledge Map builds (Phase 3, R11.04 reuse).
 
     Heals knowmap configs stuck in 2PC compensation, re-embedding into the
-    ``knowmap`` collection. Does NOT sweep orphans — the primary graphrag loop's
-    sweep is consumer-aware and reclaims orphans across both collections, so a
-    second sweep would only race it."""
+    ``knowmap`` collection. Registers no ``sweep_consumers`` — the primary graphrag
+    loop's sweep is consumer-aware and reclaims orphans across both collections, so
+    a second sweep would only race it."""
     settings = get_settings()
     neo4j = Neo4jAsyncDriver(uri=settings.neo4j.url, auth=(settings.neo4j.user, settings.neo4j.password))
     from qdrant_client import AsyncQdrantClient
@@ -182,7 +194,6 @@ async def _knowmap_loop() -> AsyncIterator[ReconciliationLoop]:
         snapshot_store=RedisSnapshotStore(),
         phase2_retry=_make_phase2_retry(neo4j, vectors),
         lock_store=RedisBuildLockStore(),
-        sweep_orphans=False,
     )
     try:
         yield loop
@@ -192,8 +203,8 @@ async def _knowmap_loop() -> AsyncIterator[ReconciliationLoop]:
 
 
 async def reconcile_once() -> list[uuid.UUID]:
-    """One scan-and-heal pass; builds deps, runs, tears down. The arq cron tick
-    (M.5.4) calls this; the standalone process below uses ``run_forever``.
+    """One scan-and-heal pass; builds deps, runs, tears down. Both the arq cron
+    tick (M.5.4) and the standalone ``_main`` loop below call this.
 
     Runs the graphrag heal + (consumer-aware) orphan sweep, then a knowmap heal
     pass over the shared 2PC engine."""
