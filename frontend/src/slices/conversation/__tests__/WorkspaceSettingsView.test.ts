@@ -46,7 +46,7 @@ function seed(role: 'owner' | 'member'): void {
 }
 
 describe('WorkspaceSettingsView', () => {
-  it('shows the wide-layer privacy toggle to a project owner (AC-4)', async () => {
+  it('enables the wide-layer privacy toggle for a project owner (AC-4)', async () => {
     seed('owner')
     const wrapper = await renderView(WorkspaceSettingsView, {
       routes,
@@ -58,11 +58,14 @@ describe('WorkspaceSettingsView', () => {
 
     expect(wrapper.text()).toContain('Research WS')
     expect(wrapper.text()).toContain('conversation.conceptMap.workspacePrivacyLabel')
-    // The toggle control is present for an owner.
-    expect(wrapper.find('.s-toggle, input[type="checkbox"]').exists()).toBe(true)
+    const toggle = wrapper.find('.s-toggle__track')
+    expect(toggle.exists()).toBe(true)
+    expect((toggle.element as HTMLButtonElement).disabled).toBe(false)
   })
 
-  it('hides the privacy toggle and shows a read-only note to a non-owner (AC-4)', async () => {
+  it('renders but disables the privacy toggle for a non-owner, and shows a read-only note (AC-4)', async () => {
+    // Hardened pattern: the toggle always renders (a real owner never sees it
+    // flash in) but stays disabled until authorization resolves true.
     seed('member')
     const wrapper = await renderView(WorkspaceSettingsView, {
       routes,
@@ -73,6 +76,8 @@ describe('WorkspaceSettingsView', () => {
     await flushPromises()
 
     expect(wrapper.text()).toContain('conversation.conceptMap.privacyOwnerOnly')
-    expect(wrapper.find('.s-toggle, input[type="checkbox"]').exists()).toBe(false)
+    const toggle = wrapper.find('.s-toggle__track')
+    expect(toggle.exists()).toBe(true)
+    expect((toggle.element as HTMLButtonElement).disabled).toBe(true)
   })
 })

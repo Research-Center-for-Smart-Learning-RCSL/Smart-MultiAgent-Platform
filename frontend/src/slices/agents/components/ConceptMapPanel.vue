@@ -29,7 +29,7 @@ const router = useRouter()
 const qc = useQueryClient()
 const toast = useToast()
 const { confirm } = useConfirmDialog()
-const { isOwner, decided } = useProjectRole(() => props.projectId)
+const { isAuthorized, decided } = useProjectRole(() => props.projectId)
 
 const configsQuery = useQuery({
   queryKey: computed(() => agentKeys.graphragConfigs(props.projectId)),
@@ -141,7 +141,7 @@ async function confirmDelete(): Promise<void> {
 // --- Create (owner, when no map yet) ---
 const keyGroupsQuery = useQuery({
   queryKey: computed(() => keysKeys.keyGroups(props.projectId)),
-  enabled: computed(() => !!props.projectId && isOwner.value && !map.value),
+  enabled: computed(() => !!props.projectId && isAuthorized.value && !map.value),
   queryFn: async () => (await keyGroupsApi.listForProject(props.projectId)).data,
 })
 const keyGroupOptions = computed(() =>
@@ -176,7 +176,7 @@ const createMutation = useMutation({
     if (!applyServerErrors(err)) toast.error(t('agents.graphragList.createFailed'))
   },
 })
-const canCreate = computed(() => isOwner.value && !!createBuilder.value)
+const canCreate = computed(() => isAuthorized.value && !!createBuilder.value)
 </script>
 
 <template>
@@ -217,10 +217,9 @@ const canCreate = computed(() => isOwner.value && !!createBuilder.value)
 
       <div class="flex items-center gap-2 mt-4 flex-wrap">
         <SButton
-          v-if="isOwner"
           variant="primary"
           size="sm"
-          :disabled="isBuilding"
+          :disabled="isBuilding || !isAuthorized"
           @click="startBuild"
         >
           {{ t('agents.graphragList.build') }}
@@ -233,9 +232,9 @@ const canCreate = computed(() => isOwner.value && !!createBuilder.value)
           {{ t('agents.graphragList.viewGraph') }}
         </SButton>
         <SButton
-          v-if="isOwner"
           variant="ghost"
           size="sm"
+          :disabled="!isAuthorized"
           @click="confirmDelete"
         >
           {{ t('agents.graphragList.delete') }}
@@ -254,14 +253,13 @@ const canCreate = computed(() => isOwner.value && !!createBuilder.value)
               v-model="recencyDraft"
               type="number"
               min="1"
-              :disabled="!isOwner"
+              :disabled="!isAuthorized"
               class="max-w-[160px]"
             />
             <SButton
-              v-if="isOwner"
               variant="secondary"
               size="sm"
-              :disabled="!recencyDirty"
+              :disabled="!recencyDirty || !isAuthorized"
               :loading="patchMutation.isPending.value"
               @click="saveRecency"
             >
@@ -272,9 +270,9 @@ const canCreate = computed(() => isOwner.value && !!createBuilder.value)
       </div>
     </template>
 
-    <!-- No map: owner can create; non-owner sees a note -->
+    <!-- No map: an authorized user (owner or admin) can create; a non-owner sees a note -->
     <template v-else>
-      <template v-if="isOwner">
+      <template v-if="isAuthorized">
         <p class="text-sm text-[var(--color-muted)] mb-3">
           {{ t('agents.conceptMapPanel.noMapOwner') }}
         </p>

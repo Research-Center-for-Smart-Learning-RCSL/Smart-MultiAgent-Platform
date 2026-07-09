@@ -25,9 +25,14 @@ const workspaceQuery = useQuery({
 const workspace = computed(() => workspaceQuery.data.value ?? null)
 const projectId = computed(() => workspace.value?.project_id ?? '')
 
-const { isOwner, decided } = useProjectRole(() => projectId.value)
-const showOwnerControls = computed(() => isOwner.value || !decided.value)
-const showReadonlyNote = computed(() => !isOwner.value && decided.value)
+const { isAuthorized, decided } = useProjectRole(() => projectId.value)
+
+// The toggle always renders (never v-if-hidden) but stays disabled until
+// authorization resolves true — avoids both a real owner's control flashing
+// hidden-then-shown (spec §8) and exposing a live, clickable control to a
+// non-owner during the loading window. The read-only note still waits for
+// `decided` so it never flashes to a confirmed owner/admin.
+const showReadonlyNote = computed(() => !isAuthorized.value && decided.value)
 
 const privacyMutation = useMutation({
   mutationFn: (enabled: boolean) => setWorkspaceConceptMapEnabled(workspaceId, enabled),
@@ -71,9 +76,8 @@ const privacyMutation = useMutation({
               </p>
             </div>
             <SToggle
-              v-if="showOwnerControls"
               :model-value="workspace.concept_map_enabled"
-              :disabled="privacyMutation.isPending.value"
+              :disabled="!isAuthorized || privacyMutation.isPending.value"
               @update:model-value="(v: boolean) => privacyMutation.mutate(v)"
             />
           </div>

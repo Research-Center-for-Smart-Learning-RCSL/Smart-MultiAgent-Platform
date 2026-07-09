@@ -59,22 +59,35 @@ describe('AgentGroupDetailView', () => {
     expect(wrapper.text()).toContain('Alice')
   })
 
-  it('shows member add form + privacy toggle to an owner', async () => {
+  it('enables the member add form + privacy toggle for an owner', async () => {
     seed('owner')
     const wrapper = await renderView(AgentGroupDetailView, { routes, initialRoute: '/agent-groups/g_1' })
     signInAs('u_1')
     await settle(wrapper)
-    // The add-member SSelect (a native select) is present for owners.
-    expect(wrapper.find('.s-select__native').exists()).toBe(true)
-    // The privacy toggle (a switch/checkbox input) is present.
-    expect(wrapper.find('.s-toggle, input[type="checkbox"]').exists()).toBe(true)
+    // The add-member SSelect (a native select) is present and enabled for owners.
+    const select = wrapper.find('.s-select__native')
+    expect(select.exists()).toBe(true)
+    expect((select.element as HTMLSelectElement).disabled).toBe(false)
+    // The privacy toggle (a switch button, role="switch") is present and enabled.
+    const toggle = wrapper.find('.s-toggle__track')
+    expect(toggle.exists()).toBe(true)
+    expect((toggle.element as HTMLButtonElement).disabled).toBe(false)
   })
 
-  it('hides mutating controls from a non-owner', async () => {
+  it('renders but disables mutating controls for a non-owner', async () => {
+    // Hardened pattern: controls always render (a real owner never sees them
+    // flash in) but stay disabled until authorization resolves true — a
+    // non-owner gets inert controls, not hidden ones.
     seed('member')
     const wrapper = await renderView(AgentGroupDetailView, { routes, initialRoute: '/agent-groups/g_1' })
     signInAs('u_1')
     await settle(wrapper)
+    const select = wrapper.find('.s-select__native')
+    expect(select.exists()).toBe(true)
+    expect((select.element as HTMLSelectElement).disabled).toBe(true)
+    const toggle = wrapper.find('.s-toggle__track')
+    expect(toggle.exists()).toBe(true)
+    expect((toggle.element as HTMLButtonElement).disabled).toBe(true)
     expect(wrapper.text()).toContain('agentGroups.detail.ownerOnly')
     expect(wrapper.text()).toContain('agentGroups.detail.privacyOwnerOnly')
   })
