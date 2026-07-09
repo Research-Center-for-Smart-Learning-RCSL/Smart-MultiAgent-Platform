@@ -89,10 +89,17 @@ export const test = base.extend<{ authedPage: Page; adminPage: Page }>({
   },
   adminPage: async ({ browser }, use) => {
     const ctx = await browser.newContext()
-    const page = await ctx.newPage()
-    await login(page, seedAdmin)
-    await use(page)
-    await ctx.close()
+    try {
+      const page = await ctx.newPage()
+      await login(page, seedAdmin)
+      await use(page)
+    } finally {
+      // Ensures the context is closed even if login() throws (e.g. exhausts
+      // its retry loop) — otherwise it leaks for the rest of the worker
+      // process's lifetime, since Playwright only owns/tears down the
+      // built-in `page` fixture, not a context this fixture created itself.
+      await ctx.close()
+    }
   },
 })
 
