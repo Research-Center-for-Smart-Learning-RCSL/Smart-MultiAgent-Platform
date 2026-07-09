@@ -33,6 +33,10 @@ class KnowmapConfig:
     last_build_error: str | None
     created_at: datetime
     deleted_at: datetime | None
+    # Always None — a Knowledge Map is non-temporal (R11.21). Present only to
+    # satisfy the shared engine's ``ConfigLike`` port (the temporal fields stay
+    # null/unused here, as the spec's non-goals state).
+    recency_half_life_days: float | None = None
 
 
 @dataclass(frozen=True, slots=True)

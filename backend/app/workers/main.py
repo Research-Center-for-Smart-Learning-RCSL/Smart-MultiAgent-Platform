@@ -43,7 +43,12 @@ from app.workers.tasks.graphrag import (
     graphrag_build,
     graphrag_reconcile,
 )
-from app.workers.tasks.knowmap import knowmap_ingest_document, knowmap_scan_document
+from app.workers.tasks.knowmap import (
+    KNOWMAP_BUILD_TIMEOUT_S,
+    knowmap_build,
+    knowmap_ingest_document,
+    knowmap_scan_document,
+)
 from app.workers.tasks.orchestration import (
     approval_timeout,
     evaluate_silence,
@@ -271,6 +276,9 @@ class WorkerSettings:
         rag_scan_document,
         knowmap_ingest_document,
         knowmap_scan_document,
+        # knowmap_build mirrors graphrag_build's scoped timeout: the build lock is
+        # the single-writer authority, so the job timeout has TTL headroom.
+        func(knowmap_build, name="knowmap_build", timeout=KNOWMAP_BUILD_TIMEOUT_S),
         agent_fs_gc,
         sandbox_orphan_cleanup,
         prompt_assistant_turn,
