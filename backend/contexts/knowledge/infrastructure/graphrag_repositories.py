@@ -16,6 +16,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.agent_groups.infrastructure import tables as ag
+from contexts.agents.infrastructure import tables as agents_t
 from contexts.conversation.infrastructure import tables as conv
 from contexts.knowledge.application.graphrag_ports import GraphRagConfigRepositoryPort
 from contexts.knowledge.domain.errors import GraphRagConfigAlreadyExists
@@ -237,21 +238,39 @@ class GraphRagConfigRepository(GraphRagConfigRepositoryPort):
         self,
         agent_ids: Sequence[uuid.UUID],
     ) -> Sequence[GraphRagConfig]:
-        """Configs owned by an agent_group any of ``agent_ids`` belongs to.
+        """Configs an agent-delete of ``agent_ids`` should soft-delete + purge.
 
         Resolves ownership through the membership join, not the legacy
-        ``agent_id`` column. For a Phase-1 singleton group (one member = the
-        former owning agent) this returns exactly the config the pre-decouple
-        ``WHERE agent_id IN (:ids)`` returned; the dedup keeps the result a set
-        of distinct configs once multi-member groups arrive (Phase 2b).
+        ``agent_id`` column — but ONLY returns a config when removing
+        ``agent_ids`` would leave its owning group with zero remaining LIVE
+        members. A shared (multi-member) agent_group's Concept Map belongs to
+        the group, not to any one member; deleting one member must not destroy
+        it out from under the others (it is deleted only via the group's own
+        delete route). For a Phase-1 singleton group (one member = the former
+        owning agent) this is unaffected: removing its sole member always
+        leaves zero live members, so the config is still returned exactly as
+        the pre-decouple ``WHERE agent_id IN (:ids)`` did.
         """
         ids = list(dict.fromkeys(agent_ids))
         if not ids:
             return []
         gc = t.graphrag_configs
+        m = ag.agent_group_members
         joined = gc.join(ag.agent_groups, ag.agent_groups.c.id == gc.c.owner_agent_group_id).join(
-            ag.agent_group_members,
-            ag.agent_group_members.c.agent_group_id == ag.agent_groups.c.id,
+            m, m.c.agent_group_id == ag.agent_groups.c.id
+        )
+        other_live_member = (
+            sa.select(sa.literal(1))
+            .select_from(m.join(agents_t.agents, agents_t.agents.c.id == m.c.agent_id))
+            .where(
+                sa.and_(
+                    m.c.agent_group_id == ag.agent_groups.c.id,
+                    m.c.agent_id.notin_(ids),
+                    agents_t.agents.c.deleted_at.is_(None),
+                )
+            )
+            .correlate(ag.agent_groups)
+            .exists()
         )
         rows = (
             await self._db.execute(
@@ -259,9 +278,10 @@ class GraphRagConfigRepository(GraphRagConfigRepositoryPort):
                 .select_from(joined)
                 .where(
                     sa.and_(
-                        ag.agent_group_members.c.agent_id.in_(ids),
+                        m.c.agent_id.in_(ids),
                         gc.c.deleted_at.is_(None),
                         ag.agent_groups.c.deleted_at.is_(None),
+                        sa.not_(other_live_member),
                     )
                 )
                 .order_by(gc.c.created_at.desc())

@@ -164,6 +164,53 @@ async def test_list_for_agents_resolves_through_membership() -> None:
         assert await repo.list_for_agents([other_agent_id]) == []
 
 
+async def test_list_for_agents_excludes_shared_config_with_other_live_members() -> None:
+    # Regression: deleting one member of a multi-member agent_group must not
+    # resolve (and so must not soft-delete/purge) the group's shared Concept
+    # Map while another live member still depends on it. The config is only
+    # returned once removing the given agent(s) would leave zero live members.
+    async with async_session() as db:
+        env = await _seed_project(db)
+        consumer_kg = await KeyGroupRepository(db).create(project_id=env.project.id, name="consumer")
+        builder_kg = await KeyGroupRepository(db).create(project_id=env.project.id, name="builder")
+        agent_a = await _seed_agent(db, env.project.id, consumer_kg.id)
+        agent_b = await _seed_agent(db, env.project.id, consumer_kg.id)
+        gid = await _group_with_member(db, project_id=env.project.id, user_id=env.user.id, agent_id=agent_a)
+        await AgentGroupService(db).add_member(
+            group_id=gid, agent_id=agent_b, actor_user_id=env.user.id, actor_ip=None
+        )
+        await db.commit()
+
+        cfg = await GraphRagConfigService(db).create(
+            project_id=env.project.id,
+            draft=GraphRagConfigDraft(
+                owner_kind="agent_group", owner_id=gid, builder_key_group_id=builder_kg.id
+            ),
+            actor_user_id=env.user.id,
+            actor_ip=None,
+        )
+        await db.commit()
+
+        repo = GraphRagConfigRepository(db)
+
+        # Agent B is still a live member -> deleting agent A alone must not
+        # resolve the shared config (it would otherwise be destroyed out from
+        # under B).
+        assert await repo.list_for_agents([agent_a]) == []
+        assert await repo.list_for_agents([agent_b]) == []
+
+        # Soft-delete agent B (as the real delete route would) -> now agent A
+        # is the group's only live member, so deleting A empties the group and
+        # the shared config is correctly resolved for cleanup.
+        await AgentRepository(db).soft_delete(agent_id=agent_b, expected_version=1)
+        await db.commit()
+
+        assert [c.id for c in await repo.list_for_agents([agent_a])] == [cfg.id]
+
+        # Deleting both members in one call also empties the group.
+        assert [c.id for c in await repo.list_for_agents([agent_a, agent_b])] == [cfg.id]
+
+
 async def test_create_for_chatroom_and_workspace_owners() -> None:
     # AC-3: chatroom- and workspace-owned configs can be created; the owner
     # columns are set for the discriminated kind.

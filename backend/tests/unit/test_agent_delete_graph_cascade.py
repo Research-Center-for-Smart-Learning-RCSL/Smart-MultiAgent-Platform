@@ -26,7 +26,17 @@ async def test_delete_agent_cascades_graphrag_external_stores() -> None:
     project_id = uuid.uuid4()
     agent_id = uuid.uuid4()
     cfg_ids = [uuid.uuid4(), uuid.uuid4()]
-    configs = [SimpleNamespace(id=c, project_id=project_id) for c in cfg_ids]
+    configs = [
+        SimpleNamespace(
+            id=c,
+            project_id=project_id,
+            owner_kind="agent_group",
+            owner_agent_group_id=uuid.uuid4(),
+            owner_chatroom_id=None,
+            owner_workspace_id=None,
+        )
+        for c in cfg_ids
+    ]
 
     # A single ordered log proves DOM-4: commit trails the soft-deletes and
     # precedes every destructive external-store purge.

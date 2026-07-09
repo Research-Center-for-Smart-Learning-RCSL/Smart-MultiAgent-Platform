@@ -83,7 +83,17 @@ async def test_purge_owner_configs_audits_with_owner_context() -> None:
     owner_id = uuid.uuid4()
     project_id = uuid.uuid4()
     cfg_ids = [uuid.uuid4(), uuid.uuid4()]
-    configs = [SimpleNamespace(id=c, project_id=project_id) for c in cfg_ids]
+    configs = [
+        SimpleNamespace(
+            id=c,
+            project_id=project_id,
+            owner_kind="workspace",
+            owner_workspace_id=owner_id,
+            owner_chatroom_id=None,
+            owner_agent_group_id=None,
+        )
+        for c in cfg_ids
+    ]
 
     async def _purge(*, config_id: uuid.UUID, project_id: uuid.UUID) -> dict[str, bool]:
         return {"neo4j_purged": True, "qdrant_purged": True}
@@ -107,8 +117,6 @@ async def test_purge_owner_configs_audits_with_owner_context() -> None:
         await mod.purge_owner_graph_configs_external(
             db,
             configs=configs,
-            owner_kind="workspace",
-            owner_id=owner_id,
             actor_user_id=uuid.uuid4(),
             actor_ip="1.2.3.4",
             request_id=uuid.uuid4(),
@@ -137,8 +145,22 @@ async def test_purge_owner_configs_isolates_a_failing_config() -> None:
     project_id = uuid.uuid4()
     ok_id, bad_id = uuid.uuid4(), uuid.uuid4()
     configs = [
-        SimpleNamespace(id=bad_id, project_id=project_id),
-        SimpleNamespace(id=ok_id, project_id=project_id),
+        SimpleNamespace(
+            id=bad_id,
+            project_id=project_id,
+            owner_kind="chatroom",
+            owner_chatroom_id=uuid.uuid4(),
+            owner_agent_group_id=None,
+            owner_workspace_id=None,
+        ),
+        SimpleNamespace(
+            id=ok_id,
+            project_id=project_id,
+            owner_kind="chatroom",
+            owner_chatroom_id=uuid.uuid4(),
+            owner_agent_group_id=None,
+            owner_workspace_id=None,
+        ),
     ]
 
     async def _purge(*, config_id: uuid.UUID, project_id: uuid.UUID) -> dict[str, bool]:
@@ -165,8 +187,6 @@ async def test_purge_owner_configs_isolates_a_failing_config() -> None:
         await mod.purge_owner_graph_configs_external(
             db,
             configs=configs,
-            owner_kind="chatroom",
-            owner_id=uuid.uuid4(),
             actor_user_id=uuid.uuid4(),
             actor_ip=None,
             request_id=None,
