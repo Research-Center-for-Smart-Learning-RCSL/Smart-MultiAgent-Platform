@@ -118,6 +118,8 @@
       "agents": "AI Agents",
       "ragConfigs": "RAG 設定",
       "graphrag": "GraphRAG",
+      "conceptMaps": "概念圖",
+      "agentGroups": "Agent 群組",
       "projectKeys": "專案金鑰",
       "keyGroups": "金鑰群組",
       "searchKeys": "搜尋金鑰",

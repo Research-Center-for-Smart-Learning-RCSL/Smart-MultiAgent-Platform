@@ -61,16 +61,45 @@ export const ragConfigCreateSchema = z.object({
 
 export type RagConfigCreateInput = z.infer<typeof ragConfigCreateSchema>
 
-// Mirrors backend `GraphRagConfigCreateIn`. 1:1 with an agent (R15.16);
-// `builder_key_group_id` must differ from the agent's own key group (the
-// backend rejects a match with GraphRagBuilderKeyGroupConflict).
+// The three Concept Map owner layers (Phase 4α). Mirrors backend `OwnerKind`.
+export const CONCEPT_MAP_OWNER_KINDS = ['agent_group', 'chatroom', 'workspace'] as const
+export type ConceptMapOwnerKind = (typeof CONCEPT_MAP_OWNER_KINDS)[number]
+
+// Recency half-life bounds for the temporal control (R11.21). Backend requires
+// > 0 and finite; the UI adds a sane 10-year ceiling so a typo can't persist an
+// absurd decay window.
+export const RECENCY_HALF_LIFE_MAX_DAYS = 3650
+
+// Mirrors backend `GraphRagConfigCreateIn` (Phase 4α owner-centric). A Concept
+// Map is created for a discriminated owner (agent_group | chatroom | workspace),
+// not a single agent — coverage is by membership. `builder_key_group_id` is the
+// key group used to extract triples and must differ from the owner's consumer
+// key group (billing separation). `recency_half_life_days` (R11.21) is optional
+// and positive; null inherits the platform default.
 export const graphragConfigCreateSchema = z.object({
-  agent_id: z.string().uuid(),
+  owner_kind: z.enum(CONCEPT_MAP_OWNER_KINDS),
+  owner_id: z.string().uuid(),
   builder_key_group_id: z.string().uuid(),
   trigger_config: z.record(z.unknown()).default({}),
+  recency_half_life_days: z.preprocess(
+    zeroOrEmptyToNull,
+    z.number().positive().max(RECENCY_HALF_LIFE_MAX_DAYS).nullable().default(null),
+  ),
 })
 
 export type GraphragConfigCreateInput = z.infer<typeof graphragConfigCreateSchema>
+
+// Mirrors backend `GraphRagConfigPatchIn` — all fields optional (omitted =
+// unchanged). Drives the WS4 temporal control and any builder/trigger edit.
+export const graphragConfigPatchSchema = z.object({
+  builder_key_group_id: z.string().uuid().optional(),
+  trigger_config: z.record(z.unknown()).optional(),
+  recency_half_life_days: z
+    .preprocess(zeroOrEmptyToNull, z.number().positive().max(RECENCY_HALF_LIFE_MAX_DAYS).nullable())
+    .optional(),
+})
+
+export type GraphragConfigPatchInput = z.infer<typeof graphragConfigPatchSchema>
 
 // Mirrors backend `McpBindingCreateIn`. `source` decides how `reference` is
 // read (built-in tool name / MCP server URL / package spec); `allowed_tools`

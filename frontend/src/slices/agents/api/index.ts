@@ -3,6 +3,7 @@ import type {
   AgentCreateInput,
   AgentToolCreateInput,
   GraphragConfigCreateInput,
+  GraphragConfigPatchInput,
   McpBindingCreateInput,
   RagConfigCreateInput,
 } from '../types/schemas'
@@ -113,20 +114,60 @@ export const GRAPHRAG_IN_PROGRESS: ReadonlySet<GraphragBuildState> = new Set([
   'failed_compensating',
 ])
 
-// Mirrors backend `GraphRagConfigOut`. A GraphRAG config is 1:1 with an agent
-// (R15.16); `builder_key_group_id` is the key group used to extract triples and
-// MUST differ from the agent's own consumer key group (billing separation).
+// The three Concept Map owner layers (Phase 4α). Mirrors backend `OwnerKind`.
+export type ConceptMapOwnerKind = 'agent_group' | 'chatroom' | 'workspace'
+
+// Mirrors backend `GraphRagConfigOut` (Phase 4α owner-centric). A Concept Map is
+// owned by one discriminated owner (`owner_kind` + `owner_id`); `agent_id` is a
+// derived convenience (the sole member of a singleton agent_group, else null).
+// `builder_key_group_id` extracts triples and MUST differ from the owner's
+// consumer key group. `recency_half_life_days` (R11.21) is the temporal decay
+// window; null inherits the platform default.
 export interface GraphragConfig {
   id: string
   project_id: string
-  agent_id: string
+  owner_kind: ConceptMapOwnerKind
+  owner_id: string
+  // Owner display name (Phase 4α) for the overview; null if the owner was
+  // concurrently deleted between the config read and the name resolution.
+  owner_name: string | null
+  agent_id: string | null
   builder_key_group_id: string
   trigger_config: Record<string, unknown>
+  recency_half_life_days: number | null
   last_build_state: GraphragBuildState
   last_build_at: string | null
   last_build_error: string | null
   created_at: string
   deleted_at: string | null
+}
+
+// Mirrors backend `ConceptMapOwnerOptionOut` — a selectable owner (without a map
+// yet) for the overview create picker (Phase 4α).
+export interface ConceptMapOwnerOption {
+  owner_kind: ConceptMapOwnerKind
+  owner_id: string
+  owner_name: string
+}
+
+// One Concept Map covering an agent (Phase 4α R11.09) — mirrors backend
+// `AgentConceptMapCoverageEntryOut`. Read-only transparency: `active` is whether
+// the map currently feeds the agent's retrieval (a chatroom map always does; a
+// wide agent_group/workspace map only when its owner enabled it).
+export interface AgentConceptMapCoverageEntry {
+  config_id: string
+  owner_kind: ConceptMapOwnerKind
+  owner_id: string
+  owner_name: string
+  active: boolean
+  last_build_state: GraphragBuildState
+  last_build_at: string | null
+  last_build_error: string | null
+}
+
+export interface AgentConceptMapCoverage {
+  agent_id: string
+  entries: AgentConceptMapCoverageEntry[]
 }
 
 // Mirrors backend `GraphRagStatusOut`.
@@ -342,6 +383,22 @@ export const agentsApi = {
 
   createGraphragConfig: (projectId: string, payload: GraphragConfigCreateInput) =>
     http.post<GraphragConfig>(`/projects/${projectId}/graphrag-configs`, payload),
+
+  // Owners in the project without a Concept Map yet — for the overview create
+  // picker (Phase 4α); the agents slice can't fetch these entities cross-slice.
+  listConceptMapOwnerOptions: (projectId: string) =>
+    http.get<ConceptMapOwnerOption[]>(`/projects/${projectId}/graphrag-configs/owner-options`),
+
+  getGraphragConfig: (configId: string) =>
+    http.get<GraphragConfig>(`/graphrag/${configId}`),
+
+  patchGraphragConfig: (configId: string, payload: GraphragConfigPatchInput) =>
+    http.patch<GraphragConfig>(`/graphrag/${configId}`, payload),
+
+  // Read-only Concept Map coverage for an agent (Phase 4α R11.09) — the maps of
+  // its rooms, member groups, and those rooms' workspaces, each flagged active.
+  getAgentConceptMapCoverage: (agentId: string) =>
+    http.get<AgentConceptMapCoverage>(`/agents/${agentId}/concept-map-coverage`),
 
   getGraphragStatus: (configId: string) =>
     http.get<GraphragStatus>(`/graphrag/${configId}/status`),

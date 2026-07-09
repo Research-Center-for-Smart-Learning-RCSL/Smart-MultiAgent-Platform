@@ -6,6 +6,7 @@ export { orgsApi } from './api/orgs'
 export type { Org } from './api/orgs'
 export { projectsApi } from './api/projects'
 export type { Project } from './api/projects'
+export { useProjectRole } from './composables/useProjectRole'
 
 export function installTenancySlice(): void {
   registerLocaleLoaders({

@@ -10,54 +10,50 @@ const routes = [
     name: 'agents.graphragConfigs',
     component: GraphragConfigListView,
   },
+  {
+    path: '/projects/:projectId/graphrag-configs/:configId/graph',
+    name: 'agents.graphragGraph',
+    component: { template: '<div />' },
+  },
 ]
-
-const AGENT = {
-  id: 'agent_1',
-  project_id: 'proj_1',
-  name: 'Researcher',
-  model_hint: 'claude',
-  model_id: null,
-  key_group_id: 'kg_1',
-  system_prompt: '',
-  prompt_strategy: 'full',
-  rag_config_id: null,
-  context_mode: 'general',
-  context_token_cap: null,
-  a2a_enabled: false,
-  wakeup_config: {},
-  workflow_capabilities: {},
-  version: 1,
-  created_at: '2026-01-01T00:00:00Z',
-  deleted_at: null,
-}
 
 const KEY_GROUPS = [
   { id: 'kg_1', project_id: 'proj_1', name: 'Primary', created_at: '2026-01-01T00:00:00Z' },
   { id: 'kg_2', project_id: 'proj_1', name: 'Builder', created_at: '2026-01-01T00:00:00Z' },
 ]
 
-function seed(opts: { configs?: unknown[]; agents?: unknown[] } = {}): void {
-  server.use(
-    http.get('/api/projects/proj_1/graphrag-configs', () =>
-      HttpResponse.json(opts.configs ?? []),
-    ),
-    http.get('/api/projects/proj_1/agents', () => HttpResponse.json(opts.agents ?? [AGENT])),
-    http.get('/api/projects/proj_1/key-groups', () => HttpResponse.json(KEY_GROUPS)),
-  )
+const OWNER_OPTIONS = [
+  { owner_kind: 'chatroom', owner_id: 'room_1', owner_name: 'General' },
+]
+
+function cfg(over: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    id: 'gr_1',
+    project_id: 'proj_1',
+    owner_kind: 'agent_group',
+    owner_id: 'grp_1',
+    owner_name: 'Research Group',
+    agent_id: 'agent_1',
+    builder_key_group_id: 'kg_2',
+    trigger_config: {},
+    recency_half_life_days: null,
+    last_build_state: 'idle',
+    last_build_at: '2026-01-02T00:00:00Z',
+    last_build_error: null,
+    created_at: '2026-01-01T00:00:00Z',
+    deleted_at: null,
+    ...over,
+  }
 }
 
-const CONFIG = {
-  id: 'gr_1',
-  project_id: 'proj_1',
-  agent_id: 'agent_1',
-  builder_key_group_id: 'kg_2',
-  trigger_config: {},
-  last_build_state: 'succeeded',
-  last_build_at: '2026-01-02T00:00:00Z',
-  last_build_error: null,
-  created_at: '2026-01-01T00:00:00Z',
-  deleted_at: null,
+function seed(opts: { configs?: unknown[]; owners?: unknown[] } = {}): void {
+  server.use(
+    http.get('/api/projects/proj_1/graphrag-configs', () => HttpResponse.json(opts.configs ?? [])),
+    http.get('/api/projects/proj_1/graphrag-configs/owner-options', () =>
+      HttpResponse.json(opts.owners ?? OWNER_OPTIONS),
+    ),
+    http.get('/api/projects/proj_1/key-groups', () => HttpResponse.json(KEY_GROUPS)),
+  )
 }
 
 async function settle(wrapper: { vm: { $nextTick: () => Promise<void> } }): Promise<void> {
@@ -65,31 +61,48 @@ async function settle(wrapper: { vm: { $nextTick: () => Promise<void> } }): Prom
   await wrapper.vm.$nextTick()
 }
 
-describe('GraphragConfigListView', () => {
-  it('lists configs resolving the agent name and builder key-group name', async () => {
-    seed({ configs: [CONFIG] })
+describe('GraphragConfigListView (Concept Maps overview)', () => {
+  it('lists maps of all owner kinds with owner name + type', async () => {
+    seed({ configs: [cfg(), cfg({ id: 'gr_2', owner_kind: 'workspace', owner_id: 'ws_1', owner_name: 'Main WS' })] })
     const wrapper = await renderView(GraphragConfigListView, {
       routes,
       initialRoute: '/projects/proj_1/graphrag-configs',
     })
     await settle(wrapper)
-    expect(wrapper.text()).toContain('Researcher')
-    expect(wrapper.text()).toContain('Builder')
+    // owner_name is data (renders verbatim); the kind label resolves to its i18n
+    // key in the test harness (locale bundles aren't loaded).
+    expect(wrapper.text()).toContain('Research Group')
+    expect(wrapper.text()).toContain('Main WS')
+    expect(wrapper.text()).toContain('agents.conceptMaps.ownerKinds.agent_group')
+    expect(wrapper.text()).toContain('agents.conceptMaps.ownerKinds.workspace')
   })
 
-  it('enables create when an unconfigured agent and a key group exist', async () => {
+  it('filters the list by owner type', async () => {
+    seed({ configs: [cfg(), cfg({ id: 'gr_2', owner_kind: 'workspace', owner_id: 'ws_1', owner_name: 'Main WS' })] })
+    const wrapper = await renderView(GraphragConfigListView, {
+      routes,
+      initialRoute: '/projects/proj_1/graphrag-configs',
+    })
+    await settle(wrapper)
+    const filter = wrapper.find('#owner-kind-filter')
+    await filter.setValue('workspace')
+    await settle(wrapper)
+    expect(wrapper.text()).toContain('Main WS')
+    expect(wrapper.text()).not.toContain('Research Group')
+  })
+
+  it('enables create when a selectable owner and a key group exist', async () => {
     seed({ configs: [] })
     const wrapper = await renderView(GraphragConfigListView, {
       routes,
       initialRoute: '/projects/proj_1/graphrag-configs',
     })
     await settle(wrapper)
-    const createBtn = wrapper.find('button.s-btn--primary')
-    expect(createBtn.attributes('disabled')).toBeUndefined()
+    expect(wrapper.find('button.s-btn--primary').attributes('disabled')).toBeUndefined()
   })
 
-  it('disables create when every agent already has a config', async () => {
-    seed({ configs: [CONFIG] })
+  it('disables create when no owner is available', async () => {
+    seed({ configs: [cfg()], owners: [] })
     const wrapper = await renderView(GraphragConfigListView, {
       routes,
       initialRoute: '/projects/proj_1/graphrag-configs',
@@ -97,5 +110,4 @@ describe('GraphragConfigListView', () => {
     await settle(wrapper)
     expect(wrapper.find('button.s-btn--primary').attributes('disabled')).toBeDefined()
   })
-
 })
