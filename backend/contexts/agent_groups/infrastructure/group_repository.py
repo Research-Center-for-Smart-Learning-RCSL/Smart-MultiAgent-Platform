@@ -23,6 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.agent_groups.domain.errors import AgentGroupNameConflict
 from contexts.agent_groups.infrastructure import tables as t
+from shared_kernel.auth.clients import now
 
 
 class AgentGroupRepository:
@@ -81,6 +82,28 @@ class AgentGroupRepository:
                 )
             )
             .values(concept_map_enabled=enabled)
+        )
+        return bool(result.rowcount)
+
+    async def soft_delete(self, *, group_id: uuid.UUID) -> bool:
+        """Tombstone a group; returns whether a live row was updated (WS6).
+
+        The ``deleted_at IS NULL`` guard makes a double-delete (or a race with a
+        concurrent delete) a no-op (0 rows) rather than re-stamping a tombstoned
+        row. Member rows are left in place: every read path already filters on
+        ``agent_groups.deleted_at IS NULL`` (project resolve, membership feed, the
+        layered resolver), so the tombstone makes the whole group inert without a
+        second cascade delete of ``agent_group_members``.
+        """
+        result = await self._db.execute(
+            t.agent_groups.update()
+            .where(
+                sa.and_(
+                    t.agent_groups.c.id == group_id,
+                    t.agent_groups.c.deleted_at.is_(None),
+                )
+            )
+            .values(deleted_at=now())
         )
         return bool(result.rowcount)
 

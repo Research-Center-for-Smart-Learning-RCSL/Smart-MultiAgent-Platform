@@ -151,6 +151,39 @@ class AgentGroupService:
             ),
         )
 
+    async def soft_delete(
+        self,
+        *,
+        group_id: uuid.UUID,
+        actor_user_id: uuid.UUID,
+        actor_ip: str | None,
+        request_id: uuid.UUID | None = None,
+    ) -> uuid.UUID:
+        """Tombstone a group and audit it (WS6 R11.20); returns its project id.
+
+        The project id is resolved (and existence enforced) before the write so
+        the route can scope the follow-up GraphRAG purge audit. The repository's
+        ``deleted_at IS NULL`` guard maps a concurrent double-delete to
+        :class:`AgentGroupNotFound` rather than a spurious second audit row.
+        """
+        project_id = await self._require_group_project(group_id)
+        deleted = await self._repo.soft_delete(group_id=group_id)
+        if not deleted:
+            raise AgentGroupNotFound(str(group_id))
+        await audit.emit(
+            self._db,
+            audit.AuditEvent(
+                action="agent_group.deleted",
+                actor_user_id=actor_user_id,
+                actor_ip=actor_ip,
+                resource_type="agent_group",
+                resource_id=group_id,
+                metadata={"project_id": str(project_id)},
+                request_id=request_id,
+            ),
+        )
+        return project_id
+
     async def list_members(self, group_id: uuid.UUID) -> Sequence[uuid.UUID]:
         return await self._repo.list_member_agent_ids(group_id)
 
