@@ -138,6 +138,7 @@ class Agent:
     system_prompt: str
     prompt_strategy: PromptStrategy
     rag_config_id: uuid.UUID | None
+    knowmap_config_id: uuid.UUID | None
     context_mode: ContextMode
     context_token_cap: int | None
     a2a_enabled: bool
@@ -225,6 +226,7 @@ class AgentDraft:
     system_prompt: str | None = None
     prompt_strategy: PromptStrategy | None = None
     rag_config_id: uuid.UUID | None = None
+    knowmap_config_id: uuid.UUID | None = None
     context_mode: ContextMode | None = None
     context_token_cap: int | None = None
     a2a_enabled: bool | None = None
@@ -236,6 +238,7 @@ class AgentDraft:
     clear_model_id: bool = False
     clear_effort: bool = False
     clear_rag_config: bool = False
+    clear_knowmap_config: bool = False
     clear_context_token_cap: bool = False
 
 

@@ -38,6 +38,11 @@ _MAP: ErrorMap = {
         404,
         "RAG config not found",
     ),
+    errors.KnowmapConfigOutOfProject: (
+        "agents/knowmap-config-out-of-project",
+        404,
+        "Knowledge Map config not found",
+    ),
     errors.A2AForbidden: ("a2a-forbidden", 403, "A2A call forbidden"),
     errors.McpBindingNotFound: (
         "agents/mcp-binding-not-found",
