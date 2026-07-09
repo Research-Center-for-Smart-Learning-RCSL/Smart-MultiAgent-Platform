@@ -27,6 +27,9 @@ from contexts.keys.infrastructure import tables as _keys_tables  # noqa: F401
 from contexts.knowledge.infrastructure import (  # noqa: F401
     graphrag_tables as _graphrag_tables,
 )
+from contexts.knowledge.infrastructure import (  # noqa: F401
+    knowmap_tables as _knowmap_tables,
+)
 from contexts.knowledge.infrastructure import tables as _knowledge_tables  # noqa: F401
 from contexts.notification.infrastructure import tables as _notification_tables  # noqa: F401
 from contexts.orchestration.infrastructure import tables as _orchestration_tables  # noqa: F401

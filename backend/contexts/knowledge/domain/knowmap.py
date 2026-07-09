@@ -1,0 +1,77 @@
+"""Knowledge Map (knowmap) domain dataclasses — framework-free.
+
+The Axis-1 GraphRAG built from uploaded documents (R11.12). Reuses the file-RAG
+``ChunkStrategy`` / ``DocumentStatus`` / ``ScanStatus`` enums and the shared
+``BuildState`` from the graph domain rather than minting parallel copies; only the
+config/document/chunk shapes are new.
+"""
+
+from __future__ import annotations
+
+import uuid
+from dataclasses import dataclass, field
+from datetime import datetime
+from typing import Any
+
+from contexts.knowledge.domain.graphrag import BuildState
+from contexts.knowledge.domain.models import ChunkStrategy, DocumentStatus, ScanStatus
+
+
+@dataclass(frozen=True, slots=True)
+class KnowmapConfig:
+    id: uuid.UUID
+    project_id: uuid.UUID
+    name: str
+    builder_key_group_id: uuid.UUID
+    chunk_strategy: ChunkStrategy
+    chunk_params: dict[str, Any]
+    embed_provider: str | None
+    embed_model: str | None
+    embed_dim: int | None
+    last_build_at: datetime | None
+    last_build_state: BuildState
+    last_build_error: str | None
+    created_at: datetime
+    deleted_at: datetime | None
+
+
+@dataclass(frozen=True, slots=True)
+class KnowmapDocument:
+    id: uuid.UUID
+    knowmap_config_id: uuid.UUID
+    filename: str
+    mime: str
+    size_bytes: int
+    sha256: str
+    minio_path: str
+    status: DocumentStatus
+    scan_status: ScanStatus
+    scan_at: datetime | None
+    uploaded_by: uuid.UUID | None
+    uploaded_at: datetime
+    # Strict per-agent allowlist. Empty = no agent may see this document's evidence.
+    agent_ids: tuple[uuid.UUID, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class KnowmapChunk:
+    id: int
+    document_id: uuid.UUID
+    chunk_idx: int
+    text: str
+
+
+@dataclass(frozen=True, slots=True)
+class KnowmapConfigDraft:
+    name: str
+    builder_key_group_id: uuid.UUID
+    chunk_strategy: ChunkStrategy = ChunkStrategy.FIXED
+    chunk_params: dict[str, Any] = field(default_factory=dict)
+
+
+__all__ = [
+    "KnowmapChunk",
+    "KnowmapConfig",
+    "KnowmapConfigDraft",
+    "KnowmapDocument",
+]

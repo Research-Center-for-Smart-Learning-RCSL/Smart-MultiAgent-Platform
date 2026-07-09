@@ -47,6 +47,10 @@ agents = sa.Table(
         server_default=sa.text("'full'::agent_prompt_strategy"),
     ),
     sa.Column("rag_config_id", pg.UUID(as_uuid=True), nullable=True),
+    # Per-agent Knowledge Map binding (Phase 3, R11.14). Bare UUID + DB-level FK
+    # in migration 0048 (cross-context; validated in the facade, not the schema),
+    # parallel to rag_config_id above.
+    sa.Column("knowmap_config_id", pg.UUID(as_uuid=True), nullable=True),
     sa.Column(
         "context_mode",
         pg.ENUM("general", "compact", name="agent_context_mode", create_type=False),

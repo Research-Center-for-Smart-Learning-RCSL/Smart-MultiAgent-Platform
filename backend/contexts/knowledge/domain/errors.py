@@ -134,6 +134,43 @@ class GraphRagInvalidHalfLife(KnowledgeError):
     code = "knowledge/graphrag-invalid-half-life"
 
 
+# ---- Knowledge Map (Phase 3) ------------------------------------------------
+
+
+class KnowmapConfigNotFound(KnowledgeError):
+    code = "knowledge/knowmap-config-not-found"
+
+
+class KnowmapConfigNameTaken(KnowledgeError):
+    code = "knowledge/knowmap-config-name-taken"
+
+
+class KnowmapDocumentNotFound(KnowledgeError):
+    code = "knowledge/knowmap-document-not-found"
+
+
+class KnowmapBuilderKeyGroupProjectMismatch(KnowledgeError):
+    """Builder key group does not belong to the Knowledge Map's project."""
+
+    code = "knowledge/knowmap-builder-key-group-project-mismatch"
+
+
+class KnowmapNoEmbeddingKey(KnowledgeError):
+    """R11.13 — a Knowledge Map must resolve an embedding key from its builder
+    key group at create: the corpus is chunked + graph entities embedded into the
+    knowmap_{project_id} collection, so a config that can never embed is invalid."""
+
+    code = "knowledge/knowmap-no-embedding-key"
+
+
+class KnowmapEmbedDimensionConflict(KnowledgeError):
+    """Every Knowledge Map in a project shares one knowmap_{project_id} Qdrant
+    collection sized at first build; a config resolving to a different-dimension
+    embedding model is rejected (Phase 2a D2 analogue, R11.18)."""
+
+    code = "knowledge/knowmap-embed-dimension-conflict"
+
+
 __all__ = [
     "CapabilityMismatch",
     "ChunkParamsInvalid",
@@ -152,6 +189,12 @@ __all__ = [
     "GraphRagOwnerProjectMismatch",
     "IngestFailed",
     "KnowledgeError",
+    "KnowmapBuilderKeyGroupProjectMismatch",
+    "KnowmapConfigNameTaken",
+    "KnowmapConfigNotFound",
+    "KnowmapDocumentNotFound",
+    "KnowmapEmbedDimensionConflict",
+    "KnowmapNoEmbeddingKey",
     "RagConfigNameTaken",
     "RagConfigNotFound",
     "RagDocumentNotFound",
