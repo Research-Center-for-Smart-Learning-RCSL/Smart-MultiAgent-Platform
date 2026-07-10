@@ -17,6 +17,7 @@ other's infrastructure.
 from __future__ import annotations
 
 import io
+import mimetypes
 import shutil
 import subprocess  # — invocation is fully controlled below
 import tempfile
@@ -27,11 +28,27 @@ __all__ = [
     "MIME_TO_PARSER",
     "SUPPORTED_MIMES",
     "ParserError",
+    "normalise_mime",
     "parse_docx",
     "parse_markdown",
     "parse_pdf",
     "parse_plaintext",
 ]
+
+
+def normalise_mime(raw: str, filename: str) -> str:
+    """Prefer the client-supplied MIME; fall back to filename sniff.
+
+    Shared by RAG and Knowledge Map ingest (both used to carry their own
+    identical copy — collapsed here in code review, 2026-07-10).
+    """
+    # Strip MIME parameters (e.g. "; charset=utf-8") so downstream lookups
+    # match the bare media type (M6).
+    raw = raw.split(";")[0].strip()
+    if raw and raw not in {"application/octet-stream", ""}:
+        return raw
+    guessed, _ = mimetypes.guess_type(filename)
+    return guessed or "application/octet-stream"
 
 
 class ParserError(RuntimeError):

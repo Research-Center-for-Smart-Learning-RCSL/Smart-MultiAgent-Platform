@@ -16,7 +16,6 @@ from __future__ import annotations
 import contextlib
 import hashlib
 import logging
-import mimetypes
 import uuid
 from dataclasses import dataclass
 
@@ -40,7 +39,7 @@ from contexts.knowledge.infrastructure.knowmap_repositories import (
     KnowmapDocumentRepository,
 )
 from shared_kernel import audit
-from shared_kernel.text_extraction.parsers import MIME_TO_PARSER
+from shared_kernel.text_extraction.parsers import MIME_TO_PARSER, normalise_mime
 
 _log = logging.getLogger(__name__)
 
@@ -91,7 +90,7 @@ class KnowmapIngestService:
         if len(ipt.data) > MAX_MULTIPART_BYTES:
             raise DocumentTooLarge(f"multipart upload exceeds {MAX_MULTIPART_BYTES} bytes; use tus")
 
-        mime = _normalise_mime(ipt.mime, ipt.filename)
+        mime = normalise_mime(ipt.mime, ipt.filename)
         if mime not in MIME_TO_PARSER:
             raise UnsupportedMime(f"mime {mime!r} not in {{pdf,docx,md,txt}}")
 
@@ -262,14 +261,6 @@ class KnowmapIngestService:
             last_build_state=cfg.last_build_state,
             last_build_at=cfg.last_build_at,
         )
-
-
-def _normalise_mime(raw: str, filename: str) -> str:
-    raw = raw.split(";")[0].strip()
-    if raw and raw not in {"application/octet-stream", ""}:
-        return raw
-    guessed, _ = mimetypes.guess_type(filename)
-    return guessed or "application/octet-stream"
 
 
 async def enqueue_knowmap_scan(*, document_id: uuid.UUID) -> None:
