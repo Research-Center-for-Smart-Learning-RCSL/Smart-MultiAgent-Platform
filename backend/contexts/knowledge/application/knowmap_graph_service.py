@@ -1,11 +1,10 @@
 """Knowledge Map graph read-model for visualization (Phase 3β, R11.24).
 
-Standalone mirror of :mod:`graphrag_graph_service` — same bounded node/edge
-assembly over the shared, domain-agnostic ``Neo4jAsyncDriver.fetch_graph``,
-but resolving the config through ``KnowmapConfigRepository`` instead of
-``GraphRagConfigRepository``. Kept as its own module rather than a
-generalized service so this task never touches the already-shipped Concept
-Map read path (see the task's spec, Q-2).
+Mirror of :mod:`graphrag_graph_service` resolving the config through
+``KnowmapConfigRepository`` instead of ``GraphRagConfigRepository`` — the
+row-assembly logic both share lives in
+``contexts.knowledge.domain.graph_view_assembly``, so this module and its
+sibling only differ in config resolution and their own dataclass types.
 """
 
 from __future__ import annotations
@@ -16,6 +15,7 @@ from dataclasses import dataclass
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.knowledge.domain.errors import KnowmapConfigNotFound
+from contexts.knowledge.domain.graph_view_assembly import assemble_graph_view
 from contexts.knowledge.infrastructure.knowmap_repositories import (
     KnowmapConfigRepository,
 )
@@ -81,45 +81,16 @@ class KnowmapGraphService:
         finally:
             await driver.close()
 
-        nodes: dict[str, KnowmapGraphNode] = {}
-        for row in raw.get("nodes") or []:
-            name = str(row.get("name") or "")
-            if not name:
-                continue
-            b_raw = row.get("build_id")
-            nodes[name] = KnowmapGraphNode(
-                name=name,
-                degree=int(row.get("degree") or 0),
-                build_id=str(b_raw) if b_raw else None,
-                type=str(row.get("type") or ""),
-            )
-
-        edges: list[KnowmapGraphEdge] = []
-        for row in raw.get("edges") or []:
-            source = str(row.get("subject") or "")
-            target = str(row.get("object") or "")
-            if not source or not target:
-                continue
-            edges.append(
-                KnowmapGraphEdge(
-                    source=source,
-                    relation=str(row.get("relation") or ""),
-                    target=target,
-                    confidence=float(row.get("confidence") or 0.0),
-                )
-            )
-            # Keep the view self-consistent: an edge endpoint outside the
-            # degree-capped node window still needs a node to attach to.
-            for endpoint in (source, target):
-                if endpoint not in nodes:
-                    nodes[endpoint] = KnowmapGraphNode(name=endpoint, degree=0, build_id=None, type="")
+        nodes, edges, truncated = assemble_graph_view(
+            raw, node_cls=KnowmapGraphNode, edge_cls=KnowmapGraphEdge
+        )
 
         return KnowmapGraphView(
             config_id=config_id,
             project_id=cfg.project_id,
-            nodes=tuple(nodes.values()),
-            edges=tuple(edges),
-            truncated=bool(raw.get("truncated")),
+            nodes=nodes,
+            edges=edges,
+            truncated=truncated,
         )
 
 

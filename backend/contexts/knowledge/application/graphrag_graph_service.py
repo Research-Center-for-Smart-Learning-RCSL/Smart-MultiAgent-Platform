@@ -21,6 +21,7 @@ from dataclasses import dataclass
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.knowledge.domain.errors import GraphRagConfigNotFound
+from contexts.knowledge.domain.graph_view_assembly import assemble_graph_view
 from contexts.knowledge.infrastructure.graphrag_repositories import (
     GraphRagConfigRepository,
 )
@@ -86,45 +87,14 @@ class GraphRagGraphService:
         finally:
             await driver.close()
 
-        nodes: dict[str, GraphNode] = {}
-        for row in raw.get("nodes") or []:
-            name = str(row.get("name") or "")
-            if not name:
-                continue
-            b_raw = row.get("build_id")
-            nodes[name] = GraphNode(
-                name=name,
-                degree=int(row.get("degree") or 0),
-                build_id=str(b_raw) if b_raw else None,
-                type=str(row.get("type") or ""),
-            )
-
-        edges: list[GraphEdge] = []
-        for row in raw.get("edges") or []:
-            source = str(row.get("subject") or "")
-            target = str(row.get("object") or "")
-            if not source or not target:
-                continue
-            edges.append(
-                GraphEdge(
-                    source=source,
-                    relation=str(row.get("relation") or ""),
-                    target=target,
-                    confidence=float(row.get("confidence") or 0.0),
-                )
-            )
-            # Keep the view self-consistent: an edge endpoint outside the
-            # degree-capped node window still needs a node to attach to.
-            for endpoint in (source, target):
-                if endpoint not in nodes:
-                    nodes[endpoint] = GraphNode(name=endpoint, degree=0, build_id=None, type="")
+        nodes, edges, truncated = assemble_graph_view(raw, node_cls=GraphNode, edge_cls=GraphEdge)
 
         return GraphView(
             config_id=config_id,
             project_id=cfg.project_id,
-            nodes=tuple(nodes.values()),
-            edges=tuple(edges),
-            truncated=bool(raw.get("truncated")),
+            nodes=nodes,
+            edges=edges,
+            truncated=truncated,
         )
 
 
