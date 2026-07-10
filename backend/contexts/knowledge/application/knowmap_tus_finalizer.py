@@ -17,7 +17,6 @@ import uuid
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.knowledge.application.knowmap_ingest_service import (
-    _normalise_mime,
     enqueue_knowmap_scan,
     knowmap_source_object_key,
 )
@@ -31,7 +30,7 @@ from contexts.knowledge.infrastructure.knowmap_repositories import (
 from shared_kernel import audit
 from shared_kernel.queue import enqueue
 from shared_kernel.storage import get_minio_client
-from shared_kernel.text_extraction.parsers import MIME_TO_PARSER
+from shared_kernel.text_extraction.parsers import MIME_TO_PARSER, normalise_mime
 
 _SHA_BLOCK = 1024 * 1024  # 1 MiB streaming read — never loads the whole file
 
@@ -64,7 +63,7 @@ class KnowmapTusFinalizer:
         agent_ids: list[uuid.UUID] | None = None,
         request_id: uuid.UUID | None = None,
     ) -> KnowmapDocument:
-        norm_mime = _normalise_mime(mime, filename)
+        norm_mime = normalise_mime(mime, filename)
         if norm_mime not in MIME_TO_PARSER:
             raise UnsupportedMime(f"mime {norm_mime!r} not in {{pdf,docx,md,txt}}")
 

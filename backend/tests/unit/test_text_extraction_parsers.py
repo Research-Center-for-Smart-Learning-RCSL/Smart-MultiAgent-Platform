@@ -8,6 +8,7 @@ from __future__ import annotations
 from shared_kernel.text_extraction.parsers import (
     MIME_TO_PARSER,
     SUPPORTED_MIMES,
+    normalise_mime,
     parse_markdown,
     parse_plaintext,
 )
@@ -31,3 +32,20 @@ def test_mime_to_parser_dispatch_table() -> None:
     assert MIME_TO_PARSER["text/markdown"] is parse_markdown
     assert "application/pdf" in SUPPORTED_MIMES
     assert "application/vnd.openxmlformats-officedocument.wordprocessingml.document" in SUPPORTED_MIMES
+
+
+class TestNormaliseMime:
+    """Shared by RAG and Knowledge Map ingest (used to be two identical
+    copies — collapsed here in code review, 2026-07-10)."""
+
+    def test_strips_parameters(self) -> None:
+        assert normalise_mime("text/plain; charset=utf-8", "f.txt") == "text/plain"
+
+    def test_falls_back_to_filename(self) -> None:
+        assert normalise_mime("application/octet-stream", "doc.pdf") == "application/pdf"
+
+    def test_preserves_valid_mime(self) -> None:
+        assert normalise_mime("text/markdown", "f.md") == "text/markdown"
+
+    def test_empty_falls_back(self) -> None:
+        assert normalise_mime("", "f.txt") == "text/plain"

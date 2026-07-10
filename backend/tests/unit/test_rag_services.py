@@ -16,7 +16,6 @@ from contexts.knowledge.application.ingest_service import (
     MAX_MULTIPART_BYTES,
     IngestInput,
     IngestService,
-    _normalise_mime,
 )
 from contexts.knowledge.application.retrieve import RetrievedChunk, RetrieveService
 from contexts.knowledge.domain.errors import (
@@ -109,25 +108,6 @@ def _make_ingest_service(
     if chunk_repo is not None:
         svc._chunks = chunk_repo
     return svc
-
-
-# ---------------------------------------------------------------------------
-# _normalise_mime
-# ---------------------------------------------------------------------------
-
-
-class TestNormaliseMime:
-    def test_strips_parameters(self) -> None:
-        assert _normalise_mime("text/plain; charset=utf-8", "f.txt") == "text/plain"
-
-    def test_falls_back_to_filename(self) -> None:
-        assert _normalise_mime("application/octet-stream", "doc.pdf") == "application/pdf"
-
-    def test_preserves_valid_mime(self) -> None:
-        assert _normalise_mime("text/markdown", "f.md") == "text/markdown"
-
-    def test_empty_falls_back(self) -> None:
-        assert _normalise_mime("", "f.txt") == "text/plain"
 
 
 # ---------------------------------------------------------------------------
