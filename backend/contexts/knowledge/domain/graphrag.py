@@ -30,19 +30,22 @@ def recency_weighted_score(
 ) -> float:
     """Recency-decayed ranking weight (R11.21, WS5 AC-9).
 
-    ``confidence × exp(-Δt / halflife)`` where ``Δt`` is the age of the edge's
-    ``last_seen_at`` (UTC epoch seconds) at ``now``. Coalesces the same way NULL
-    confidence already does in traversal: a missing ``confidence`` is 0.0, and a
-    missing ``last_seen_at`` or half-life leaves the weight at pure confidence
-    (decay factor 1.0) so legacy/timeless edges are never buried below zero.
-    A recent low-confidence edge can outrank a stale high-confidence one when the
-    half-life is short — the point of the temporal ranking.
+    ``confidence × exp(-ln(2) × Δt / halflife)`` where ``Δt`` is the age of the
+    edge's ``last_seen_at`` (UTC epoch seconds) at ``now`` — the ``ln(2)``
+    factor is what makes ``half_life_days`` an actual half-life: at
+    ``Δt == halflife`` the decay factor is exactly 0.5, not ``exp(-1) ≈ 0.368``.
+    Coalesces the same way NULL confidence already does in traversal: a missing
+    ``confidence`` is 0.0, and a missing ``last_seen_at`` or half-life leaves the
+    weight at pure confidence (decay factor 1.0) so legacy/timeless edges are
+    never buried below zero. A recent low-confidence edge can outrank a stale
+    high-confidence one when the half-life is short — the point of the temporal
+    ranking.
     """
     conf = confidence if confidence is not None else 0.0
     if last_seen_at is None or not half_life_days or half_life_days <= 0:
         return conf
     age_seconds = max(0.0, now - last_seen_at)
-    return conf * math.exp(-age_seconds / (half_life_days * _SECONDS_PER_DAY))
+    return conf * math.exp(-math.log(2) * age_seconds / (half_life_days * _SECONDS_PER_DAY))
 
 
 class BuildState(str, enum.Enum):
