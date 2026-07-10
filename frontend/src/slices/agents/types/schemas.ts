@@ -29,6 +29,7 @@ export const agentCreateSchema = z.object({
   system_prompt: z.string().max(100_000).default(''),
   prompt_strategy: z.enum(['full', 'lazy']).default('full'),
   rag_config_id: z.preprocess(emptyToNull, z.string().uuid().nullable().default(null)),
+  knowmap_config_id: z.preprocess(emptyToNull, z.string().uuid().nullable().default(null)),
   context_mode: z.enum(['general', 'compact']).default('general'),
   context_token_cap: z.preprocess(
     zeroOrEmptyToNull,
@@ -60,6 +61,29 @@ export const ragConfigCreateSchema = z.object({
 })
 
 export type RagConfigCreateInput = z.infer<typeof ragConfigCreateSchema>
+
+// Mirrors backend `KnowmapConfigCreateIn` (Phase 3β). Unlike RAG, there is no
+// embed key selection here — the embedding provider/model/dim are resolved
+// server-side from `builder_key_group_id`, same as GraphRAG's builder group.
+export const knowmapConfigCreateSchema = z.object({
+  name: z.string().trim().min(1).max(200),
+  builder_key_group_id: z.string().uuid(),
+  chunk_strategy: z.enum(['fixed', 'semantic']).default('fixed'),
+  chunk_params: z.record(z.unknown()).default({}),
+})
+
+export type KnowmapConfigCreateInput = z.infer<typeof knowmapConfigCreateSchema>
+
+// Mirrors backend `KnowmapConfigPatchIn` — `builder_key_group_id` and
+// `chunk_params` are patchable; `chunk_strategy` is immutable post-creation
+// (an indexed corpus can't switch chunking strategy), same as RAG.
+export const knowmapConfigPatchSchema = z.object({
+  name: z.string().trim().min(1).max(200).optional(),
+  builder_key_group_id: z.string().uuid().optional(),
+  chunk_params: z.record(z.unknown()).optional(),
+})
+
+export type KnowmapConfigPatchInput = z.infer<typeof knowmapConfigPatchSchema>
 
 // The three Concept Map owner layers (Phase 4α). Mirrors backend `OwnerKind`.
 export const CONCEPT_MAP_OWNER_KINDS = ['agent_group', 'chatroom', 'workspace'] as const

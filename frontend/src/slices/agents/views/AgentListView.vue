@@ -210,6 +210,7 @@ const duplicateMutation = useMutation({
       system_prompt: agent.system_prompt,
       prompt_strategy: agent.prompt_strategy as AgentCreateInput['prompt_strategy'],
       rag_config_id: agent.rag_config_id,
+      knowmap_config_id: agent.knowmap_config_id,
       context_mode: agent.context_mode as AgentCreateInput['context_mode'],
       context_token_cap: agent.context_token_cap,
       a2a_enabled: agent.a2a_enabled,

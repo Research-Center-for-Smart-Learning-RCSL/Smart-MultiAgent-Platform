@@ -23,10 +23,21 @@ import '@vue-flow/core/dist/style.css'
 import '@vue-flow/core/dist/theme-default.css'
 import '@vue-flow/controls/dist/style.css'
 
+// Shared by the Concept Map graph route and the Knowledge Map graph route
+// (Phase 4β) — the two graph-backed product subsystems (R11.15) return the
+// identical GraphView shape, differing only in which config-scoped endpoint
+// serves it. `domain` selects that endpoint + query key + breadcrumb/title;
+// everything else (layout, rendering, legend, search) is domain-agnostic.
+const props = withDefaults(defineProps<{ domain?: 'graphrag' | 'knowmap' }>(), {
+  domain: 'graphrag',
+})
+
 const { t } = useI18n()
 const route = useRoute()
 const projectId = route.params.projectId as string
 const configId = route.params.configId as string
+
+const isKnowmap = computed(() => props.domain === 'knowmap')
 
 // Entity-category palette (audit L1). Matches the backend ENTITY_TYPES set;
 // unknown/'' falls back to neutral. Chosen to stay legible in light + dark.
@@ -43,13 +54,20 @@ const UNKNOWN_COLOR = '#94a3b8'
 const colorFor = (type: string): string => TYPE_COLORS[type] ?? UNKNOWN_COLOR
 
 const { breadcrumbs } = useProjectBreadcrumbs(projectId, [
-  { label: t('agents.breadcrumb.graphrag'), to: { name: 'agents.graphragConfigs', params: { projectId } } },
+  isKnowmap.value
+    ? { label: t('agents.breadcrumb.knowledgeMaps'), to: { name: 'agents.knowmapConfigs', params: { projectId } } }
+    : { label: t('agents.breadcrumb.graphrag'), to: { name: 'agents.graphragConfigs', params: { projectId } } },
   { label: t('agents.graphragGraph.title') },
 ])
 
 const graphQuery = useQuery({
-  queryKey: agentKeys.graphragGraph(configId),
-  queryFn: async () => (await agentsApi.getGraphragGraph(configId)).data,
+  queryKey: computed(() =>
+    isKnowmap.value ? agentKeys.knowmapGraph(configId) : agentKeys.graphragGraph(configId),
+  ),
+  queryFn: async () =>
+    isKnowmap.value
+      ? (await agentsApi.getKnowmapGraph(configId)).data
+      : (await agentsApi.getGraphragGraph(configId)).data,
 })
 
 const search = ref('')

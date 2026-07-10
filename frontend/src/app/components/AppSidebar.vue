@@ -13,6 +13,7 @@ import {
   UserGroupIcon,
   DocumentTextIcon,
   CircleStackIcon,
+  FolderOpenIcon,
   RectangleGroupIcon,
   MagnifyingGlassIcon,
   Square3Stack3DIcon,
@@ -61,6 +62,7 @@ const knowledgeNav = computed<NavItem[]>(() => {
   return [
     { icon: DocumentTextIcon, label: t('app.sidebar.ragConfigs'), route: `/projects/${pid}/rag-configs` },
     { icon: CircleStackIcon, label: t('app.sidebar.conceptMaps'), route: `/projects/${pid}/graphrag-configs` },
+    { icon: FolderOpenIcon, label: t('app.sidebar.knowledgeMaps'), route: `/projects/${pid}/knowmap-configs` },
   ]
 })
 

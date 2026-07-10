@@ -93,6 +93,12 @@ const ragConfigsQuery = useQuery({
   queryFn: async () => (await agentsApi.listRagConfigs(pickerProjectId.value)).data,
 })
 
+const knowmapConfigsQuery = useQuery({
+  queryKey: computed(() => agentKeys.knowmapConfigs(pickerProjectId.value)),
+  enabled: computed(() => !!pickerProjectId.value),
+  queryFn: async () => (await agentsApi.listKnowmapConfigs(pickerProjectId.value)).data,
+})
+
 const toolsQuery = useQuery({
   queryKey: computed(() => agentKeys.tools(agentId)),
   enabled: computed(() => !isCreateMode && !!agentId),
@@ -204,6 +210,7 @@ const { handleSubmit, errors, defineField, resetForm, setErrors, meta } =
       system_prompt: '',
       prompt_strategy: 'full',
       rag_config_id: null,
+      knowmap_config_id: null,
       context_mode: 'general',
       context_token_cap: null,
       a2a_enabled: false,
@@ -220,6 +227,7 @@ const [promptStrategy] = defineField('prompt_strategy')
 const [contextMode] = defineField('context_mode')
 const [contextTokenCap] = defineField('context_token_cap')
 const [ragConfigId] = defineField('rag_config_id')
+const [knowmapConfigId] = defineField('knowmap_config_id')
 const [a2aEnabled] = defineField('a2a_enabled')
 
 // Model-id combobox: per-provider preset list + "provider default" (stores null)
@@ -345,6 +353,7 @@ watch(
         context_mode: agent.context_mode as AgentCreateInput['context_mode'],
         context_token_cap: agent.context_token_cap,
         rag_config_id: agent.rag_config_id,
+        knowmap_config_id: agent.knowmap_config_id,
         a2a_enabled: agent.a2a_enabled,
       },
     })
@@ -584,6 +593,11 @@ const promptStrategyOptions = computed(() => [
 const ragConfigOptions = computed(() => [
   { value: '', label: t('agents.form.noRagConfig') },
   ...(ragConfigsQuery.data.value ?? []).map((c) => ({ value: c.id, label: c.name })),
+])
+
+const knowmapConfigOptions = computed(() => [
+  { value: '', label: t('agents.form.noKnowmapConfig') },
+  ...(knowmapConfigsQuery.data.value ?? []).map((c) => ({ value: c.id, label: c.name })),
 ])
 
 const pageTitle = computed(() => {
@@ -920,6 +934,35 @@ const breadcrumbs = computed(() => [
               :to="{
                 name: 'agents.ragConfig',
                 params: { projectId: pickerProjectId, configId: ragConfigId },
+              }"
+              as="router-link"
+            >
+              {{ t('agents.rag.manageLink') }}
+            </SButton>
+          </SCard>
+
+          <SCard>
+            <h3 class="text-lg font-semibold mb-4">
+              {{ t('agents.form.knowmapConfig') }}
+            </h3>
+            <SFormField
+              :label="t('agents.form.knowmapConfig')"
+              name="knowmap_config_id"
+              :error="errors.knowmap_config_id ?? ''"
+              :help="t('agents.form.manageKnowmapConfigs')"
+            >
+              <SSelect
+                v-model="knowmapConfigId"
+                :options="knowmapConfigOptions"
+              />
+            </SFormField>
+            <SButton
+              v-if="knowmapConfigId && pickerProjectId"
+              variant="link"
+              class="mt-2"
+              :to="{
+                name: 'agents.knowmapConfig',
+                params: { projectId: pickerProjectId, configId: knowmapConfigId },
               }"
               as="router-link"
             >

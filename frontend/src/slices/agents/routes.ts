@@ -35,6 +35,26 @@ export const agentsRoutes: RouteRecordRaw[] = [
     path: '/projects/:projectId/graphrag-configs/:configId/graph',
     name: 'agents.graphragGraph',
     component: () => import('./views/GraphragGraphView.vue'),
+    props: () => ({ domain: 'graphrag' }),
+    meta: { requiresAuth: true, requiresVerifiedEmail: true },
+  },
+  {
+    path: '/projects/:projectId/knowmap-configs',
+    name: 'agents.knowmapConfigs',
+    component: () => import('./views/KnowledgeMapConfigListView.vue'),
+    meta: { requiresAuth: true, requiresVerifiedEmail: true },
+  },
+  {
+    path: '/projects/:projectId/knowmap-configs/:configId',
+    name: 'agents.knowmapConfig',
+    component: () => import('./views/KnowledgeMapConfigDetailView.vue'),
+    meta: { requiresAuth: true, requiresVerifiedEmail: true },
+  },
+  {
+    path: '/projects/:projectId/knowmap-configs/:configId/graph',
+    name: 'agents.knowmapGraph',
+    component: () => import('./views/GraphragGraphView.vue'),
+    props: () => ({ domain: 'knowmap' }),
     meta: { requiresAuth: true, requiresVerifiedEmail: true },
   },
   {
