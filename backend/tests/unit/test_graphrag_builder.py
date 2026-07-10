@@ -744,6 +744,57 @@ async def test_reconciler_retry_succeeds() -> None:
 
 
 @pytest.mark.asyncio
+async def test_reconciler_audits_with_injected_resource_type() -> None:
+    # Regression (code review finding): a loop constructed with
+    # repo_factory=KnowmapConfigRepository (the _knowmap_loop() in
+    # app/workers/graphrag_reconciler.py) must stamp its audit events with
+    # resource_type="knowmap_config", not the hardcoded "graphrag_config" --
+    # otherwise a healed knowmap config's audit row mislabels its own id as
+    # a graphrag_config resource.
+    cfg = _make_cfg()
+    neo4j = FakeNeo4j()
+    vectors = FakeVectorStore(raise_on_upsert=RuntimeError("qdrant down"))
+    lock, snaps = FakeLock(), FakeSnapshots()
+    builder, store, _db = _make_builder(
+        cfg=cfg,
+        neo4j=neo4j,
+        vectors=vectors,
+        lock=lock,
+        snapshots=snaps,
+        extractor=FakeExtractor(_make_triples()),
+    )
+    await builder.run(config_id=cfg.id)
+    assert store.cfg.last_build_state is BuildState.FAILED_COMPENSATING
+
+    async def phase2(*, cfg, build_id) -> None:
+        return None  # succeeds first try
+
+    async def fake_sleep(_s: float) -> None:
+        return None
+
+    recon = ReconciliationLoop(
+        session_factory=lambda: store,  # type: ignore[arg-type, return-value]
+        repo_factory=lambda _db: store,  # type: ignore[arg-type, return-value]
+        neo4j=neo4j,
+        vector_store=vectors,  # type: ignore[arg-type]
+        snapshot_store=snaps,
+        phase2_retry=phase2,
+        sleeper=fake_sleep,
+        channel_fn=graphrag_channel,
+        resource_type="knowmap_config",
+    )
+    store.commit = _noop  # type: ignore[attr-defined]
+    store.close = _noop  # type: ignore[attr-defined]
+
+    await recon.run_once()
+
+    audit_insert = store.executed[-1]
+    params = audit_insert.compile().params
+    assert params["resource_type"] == "knowmap_config"
+    assert params["action"] == "knowmap.reconciled"
+
+
+@pytest.mark.asyncio
 async def test_reconciler_recovery_publishes_to_overridden_channel(monkeypatch: Any) -> None:
     # AC-4: a Knowledge Map's reconciler-recovered build (the IDLE-with-build_id
     # recovery-success path) must publish onto its own channel_fn, not the

@@ -198,6 +198,7 @@ async def _knowmap_loop() -> AsyncIterator[ReconciliationLoop]:
         phase2_retry=_make_phase2_retry(neo4j, vectors),
         lock_store=RedisBuildLockStore(),
         channel_fn=knowmap_channel,
+        resource_type="knowmap_config",
     )
     try:
         yield loop
