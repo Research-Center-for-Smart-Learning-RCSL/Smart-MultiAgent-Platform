@@ -2,6 +2,7 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
+import type { StepState } from './StepState';
 export type StepOut = {
     ended_at: (string | null);
     error: (string | null);
@@ -11,6 +12,6 @@ export type StepOut = {
     output: Record<string, any>;
     run_id: string;
     started_at: string;
-    state: string;
+    state: StepState;
 };
 

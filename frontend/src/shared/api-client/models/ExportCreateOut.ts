@@ -2,8 +2,9 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
+import type { ExportJobStatus } from './ExportJobStatus';
 export type ExportCreateOut = {
     job_id: string;
-    status: string;
+    status: ExportJobStatus;
 };
 

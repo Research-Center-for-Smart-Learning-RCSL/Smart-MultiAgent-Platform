@@ -2,6 +2,7 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
+import type { AgentToolType } from './AgentToolType';
 export type AgentToolOut = {
     agent_id: string;
     config: Record<string, any>;
@@ -10,6 +11,6 @@ export type AgentToolOut = {
     display_name: (string | null);
     enabled: boolean;
     id: string;
-    tool_type: string;
+    tool_type: AgentToolType;
 };
 

@@ -3,6 +3,7 @@
 /* tslint:disable */
 /* eslint-disable */
 import type { AttachmentOut } from './AttachmentOut';
+import type { SenderType } from './SenderType';
 export type MessageOut = {
     attachments?: Array<AttachmentOut>;
     chatroom_id: string;
@@ -13,7 +14,7 @@ export type MessageOut = {
     id: string;
     metadata: Record<string, any>;
     sender_id: (string | null);
-    sender_type: string;
+    sender_type: SenderType;
     version: number;
 };
 

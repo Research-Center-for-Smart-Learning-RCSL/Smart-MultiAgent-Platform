@@ -2,6 +2,8 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
+import type { ApiKeyProvider } from './ApiKeyProvider';
+import type { ProbeStatus } from './ProbeStatus';
 /**
  * `KeyOut` plus the active-carry count. Exposed only on the my-keys list so
  * the shared `KeyOut` (also returned by the project-carried surface) stays free
@@ -14,8 +16,8 @@ export type KeyListOut = {
     masked_preview: string;
     name: string;
     project_count: number;
-    provider: string;
+    provider: ApiKeyProvider;
     test_error: (string | null);
-    test_status: string;
+    test_status: ProbeStatus;
 };
 

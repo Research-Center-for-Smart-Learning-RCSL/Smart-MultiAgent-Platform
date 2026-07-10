@@ -2,6 +2,7 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
+import type { BuildState } from './BuildState';
 /**
  * One Concept Map covering an agent (Phase 4α R11.09, read-only).
  */
@@ -10,9 +11,9 @@ export type AgentConceptMapCoverageEntryOut = {
     config_id: string;
     last_build_at: (string | null);
     last_build_error: (string | null);
-    last_build_state: string;
+    last_build_state: BuildState;
     owner_id: string;
-    owner_kind: string;
+    owner_kind: 'agent_group' | 'chatroom' | 'workspace';
     owner_name: string;
 };
 
