@@ -46,7 +46,7 @@ const showReadonlyNote = computed(() => !isAuthorized.value && decided.value)
 
 const groupsQuery = useQuery({
   queryKey: agentGroupKeys.groups(projectId),
-  queryFn: async () => (await agentGroupsApi.list(projectId)).data,
+  queryFn: () => agentGroupsApi.list(projectId),
 })
 const groups = computed<AgentGroup[]>(() => groupsQuery.data.value ?? [])
 
@@ -64,7 +64,7 @@ const [createName] = defineCreateField('name')
 const { applyServerErrors: applyCreateErrors } = useServerErrors(setCreateErrors)
 
 const createMutation = useMutation({
-  mutationFn: async (values: AgentGroupCreateInput) => (await agentGroupsApi.create(projectId, values)).data,
+  mutationFn: (values: AgentGroupCreateInput) => agentGroupsApi.create(projectId, values),
   onSuccess: () => {
     qc.invalidateQueries({ queryKey: agentGroupKeys.groups(projectId) })
     showCreateModal.value = false
