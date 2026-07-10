@@ -84,18 +84,25 @@ export const http: AxiosInstance = axios.create({
 })
 
 // --- Request interceptors (run in order) ---
+// Named consts (not inline arrows) so the *same* function references can be
+// registered on a second axios instance without duplicating the logic — see
+// the bare-`axios`-singleton registration below.
 
 // #1: Inject Authorization header
-http.interceptors.request.use((config: InternalAxiosRequestConfig) => {
+function injectAuthHeader(
+  config: InternalAxiosRequestConfig,
+): InternalAxiosRequestConfig {
   const token = accessTokenRef.value
   if (token && config.headers) {
     config.headers.Authorization = `Bearer ${token}`
   }
   return config
-})
+}
 
 // #2: Inject Idempotency-Key on POST when caller opts in
-http.interceptors.request.use((config: InternalAxiosRequestConfig) => {
+function injectIdempotencyKey(
+  config: InternalAxiosRequestConfig,
+): InternalAxiosRequestConfig {
   if (
     config.method === 'post' &&
     config.headers?.['X-Idempotent'] !== undefined
@@ -104,86 +111,94 @@ http.interceptors.request.use((config: InternalAxiosRequestConfig) => {
     delete config.headers['X-Idempotent']
   }
   return config
-})
+}
 
 // #3: Inject Accept-Language from i18n locale
-http.interceptors.request.use((config: InternalAxiosRequestConfig) => {
+function injectAcceptLanguage(
+  config: InternalAxiosRequestConfig,
+): InternalAxiosRequestConfig {
   if (config.headers) {
     config.headers['Accept-Language'] = i18n.global.locale.value
   }
   return config
-})
+}
+
+http.interceptors.request.use(injectAuthHeader)
+http.interceptors.request.use(injectIdempotencyKey)
+http.interceptors.request.use(injectAcceptLanguage)
 
 // --- Response interceptor ---
-http.interceptors.response.use(
-  (r) => {
-    // Any answered request proves the connection is alive — clear an offline
-    // banner the instant real traffic flows again (§4.4).
-    markConnectionRestored()
-    return r
-  },
-  async (error: AxiosError<ProblemJson>) => {
-    // Network error (no response at all): the server was unreachable. Flip the
-    // global offline banner; its probe loop drives recovery.
-    if (!error.response) {
-      // A deliberately canceled/aborted request (e.g. an aborted query) is not
-      // a connectivity failure — don't misread it as the connection dropping.
-      if (axios.isCancel(error)) {
-        throw error
-      }
-      markConnectionLost()
-      throw new NetworkError(error.message || 'Network request failed')
+
+function handleResponseSuccess<T>(response: T): T {
+  // Any answered request proves the connection is alive — clear an offline
+  // banner the instant real traffic flows again (§4.4).
+  markConnectionRestored()
+  return response
+}
+
+async function handleResponseError(error: AxiosError<ProblemJson>): Promise<never> {
+  // Network error (no response at all): the server was unreachable. Flip the
+  // global offline banner; its probe loop drives recovery.
+  if (!error.response) {
+    // A deliberately canceled/aborted request (e.g. an aborted query) is not
+    // a connectivity failure — don't misread it as the connection dropping.
+    if (axios.isCancel(error)) {
+      throw error
     }
-    // A *response* arrived (even an error one) — connectivity is fine.
-    markConnectionRestored()
+    markConnectionLost()
+    throw new NetworkError(error.message || 'Network request failed')
+  }
+  // A *response* arrived (even an error one) — connectivity is fine.
+  markConnectionRestored()
 
-    const original = error.config as InternalAxiosRequestConfig & {
-      _retry?: boolean
-    }
-    const problem = error.response.data
-    const status = error.response.status
+  const original = error.config as InternalAxiosRequestConfig & {
+    _retry?: boolean
+  }
+  const problem = error.response.data
+  const status = error.response.status
 
-    // #4: Silent refresh. Any *authenticated* 401 is refresh-eligible — a
-    // garbled or missing problem body, or an expiry signalled with some type
-    // other than `token-expired`, must not bounce a user a refresh could have
-    // saved (FE-9). Two exclusions:
-    //   - `token-revoked`: the session is deliberately dead; a refresh of a
-    //     killed family cannot help, so skip straight to logout.
-    //   - requests that carried no `Authorization` header (login, the boot
-    //     refresh): a 401 there is a credential failure, not an expiry —
-    //     refreshing and replaying would mask the real error.
-    const problemType = typeof problem?.type === 'string' ? problem.type : ''
-    const isTokenRevoked = problemType.endsWith('/auth/token-revoked')
-    const wasAuthenticated = Boolean(original.headers?.Authorization)
-    const isRefreshEligible =
-      status === 401 && !isTokenRevoked && wasAuthenticated
+  // #4: Silent refresh. Any *authenticated* 401 is refresh-eligible — a
+  // garbled or missing problem body, or an expiry signalled with some type
+  // other than `token-expired`, must not bounce a user a refresh could have
+  // saved (FE-9). Two exclusions:
+  //   - `token-revoked`: the session is deliberately dead; a refresh of a
+  //     killed family cannot help, so skip straight to logout.
+  //   - requests that carried no `Authorization` header (login, the boot
+  //     refresh): a 401 there is a credential failure, not an expiry —
+  //     refreshing and replaying would mask the real error.
+  const problemType = typeof problem?.type === 'string' ? problem.type : ''
+  const isTokenRevoked = problemType.endsWith('/auth/token-revoked')
+  const wasAuthenticated = Boolean(original.headers?.Authorization)
+  const isRefreshEligible =
+    status === 401 && !isTokenRevoked && wasAuthenticated
 
-    if (isRefreshEligible && !original._retry) {
-      original._retry = true
-      const ok = await attemptRefresh()
-      if (ok) return http(original)
-      onUnauthorized?.()
-      throw new AuthError(
-        problem ?? {
-          type: 'https://smap.local/problems/auth/token-expired',
-          title: 'Session expired',
-          status: 401,
-        },
-      )
-    }
+  if (isRefreshEligible && !original._retry) {
+    original._retry = true
+    const ok = await attemptRefresh()
+    if (ok) return http(original)
+    onUnauthorized?.()
+    throw new AuthError(
+      problem ?? {
+        type: 'https://smap.local/problems/auth/token-expired',
+        title: 'Session expired',
+        status: 401,
+      },
+    )
+  }
 
-    // #5 + #6: Parse problem+json into typed error subclass
-    if (problem && typeof problem.type === 'string') {
-      const retryAfter = error.response.headers?.['retry-after'] as
-        | string
-        | null
-      throw parseProblem(problem, retryAfter)
-    }
+  // #5 + #6: Parse problem+json into typed error subclass
+  if (problem && typeof problem.type === 'string') {
+    const retryAfter = error.response.headers?.['retry-after'] as
+      | string
+      | null
+    throw parseProblem(problem, retryAfter)
+  }
 
-    // Fallback for non-problem responses
-    throw error
-  },
-)
+  // Fallback for non-problem responses
+  throw error
+}
+
+http.interceptors.response.use(handleResponseSuccess, handleResponseError)
 
 async function attemptRefresh(): Promise<boolean> {
   if (refreshInFlight) return refreshInFlight
