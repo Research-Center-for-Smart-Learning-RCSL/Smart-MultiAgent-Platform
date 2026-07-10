@@ -20,6 +20,8 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from contexts.knowledge.application.context_provider_text import normalise_queries
+
 _log = logging.getLogger(__name__)
 _MAX_SOURCE_LABEL_CHARS = 160
 
@@ -71,7 +73,7 @@ class RagContextProvider:
         Safe to call unconditionally — returns ``None`` when the config is
         missing, Qdrant is not configured, or retrieval fails for any reason.
         """
-        queries = _normalise_queries(query_text=query_text, query_texts=query_texts)
+        queries = normalise_queries(query_text=query_text, query_texts=query_texts)
         if rag_config_id is None or self._qdrant_url is None or not queries:
             return None
         try:
@@ -176,15 +178,6 @@ class RagContextProvider:
             }
             for c in chunks
         ]
-
-
-def _normalise_queries(*, query_text: str | None, query_texts: Sequence[str] | None) -> list[str]:
-    queries: list[str] = []
-    for raw in ([query_text] if query_text is not None else []) + list(query_texts or []):
-        text = " ".join(str(raw or "").split())
-        if text and text not in queries:
-            queries.append(text)
-    return queries
 
 
 def _format_rag_block(chunks: list[Any], sources: list[dict[str, Any]]) -> str:

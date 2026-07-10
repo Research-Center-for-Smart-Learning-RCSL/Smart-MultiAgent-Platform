@@ -25,6 +25,10 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from contexts.knowledge.application.context_provider_text import (
+    compact_excerpt,
+    normalise_queries,
+)
 from contexts.knowledge.application.embed_resolution import resolve_pinned_embed_key
 from contexts.knowledge.domain.graphrag import GraphRagBundle, RelationEdge, edge_rank
 from contexts.knowledge.infrastructure.knowmap_repositories import (
@@ -35,7 +39,6 @@ from contexts.knowledge.infrastructure.knowmap_repositories import (
 _log = logging.getLogger(__name__)
 
 _MAX_EVIDENCE_EXCERPTS = 10
-_MAX_EVIDENCE_CHARS = 280
 
 
 def decode_ref_document_id(ref: str) -> uuid.UUID | None:
@@ -116,13 +119,6 @@ def _dedup_relations(relations: Sequence[RelationEdge]) -> list[RelationEdge]:
     return sorted(by_key.values(), key=edge_rank, reverse=True)
 
 
-def _compact_excerpt(text: str) -> str:
-    compact = " ".join(text.split())
-    if len(compact) <= _MAX_EVIDENCE_CHARS:
-        return compact
-    return compact[: _MAX_EVIDENCE_CHARS - 3].rstrip() + "..."
-
-
 class KnowledgeMapContextProvider:
     """Produce a Knowledge Map context block for an agent turn (a third Axis-1
     system block beside file-RAG, independent of any Concept Map)."""
@@ -154,7 +150,7 @@ class KnowledgeMapContextProvider:
         infrastructure is not configured, the agent has no readable documents, or
         retrieval fails. ``querying_agent_id`` is required: with no agent principal
         the allowlist grants nothing (secure-by-default)."""
-        queries = _normalise_queries(query_text=query_text, query_texts=query_texts)
+        queries = normalise_queries(query_text=query_text, query_texts=query_texts)
         if knowmap_config_id is None or not queries or querying_agent_id is None:
             return None
         try:
@@ -206,7 +202,7 @@ class KnowledgeMapContextProvider:
                 break
             text = excerpt_map.get(ref)
             if text:
-                compact = _compact_excerpt(text)
+                compact = compact_excerpt(text)
                 if compact and compact not in out:
                     out.append(compact)
         return out
@@ -271,15 +267,6 @@ class KnowledgeMapContextProvider:
         finally:
             await qclient.close()
             await driver.close()
-
-
-def _normalise_queries(*, query_text: str | None, query_texts: Sequence[str] | None) -> list[str]:
-    queries: list[str] = []
-    for raw in ([query_text] if query_text is not None else []) + list(query_texts or []):
-        text = " ".join(str(raw or "").split())
-        if text and text not in queries:
-            queries.append(text)
-    return queries
 
 
 __all__ = [
