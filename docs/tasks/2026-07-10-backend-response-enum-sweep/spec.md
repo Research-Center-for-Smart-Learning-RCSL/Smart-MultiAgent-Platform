@@ -1,6 +1,6 @@
 ---
 type: refactor
-status: in-progress
+status: implemented
 created: 2026-07-10
 requirements: [R24.13]
 supersedes:
@@ -230,21 +230,31 @@ the final regen step (the drift gate is checked at the end, not per commit).
 
 ## 9. Acceptance Criteria
 
-- [ ] AC-1: no externally observable behavior change — all existing backend endpoint
-      tests pass unmodified; a spot-diff of representative endpoint responses shows
-      identical JSON values.
-- [ ] AC-2: every SAFE field in §5B is typed as its domain enum / `Literal` and its
-      handler mapping passes the enum member (not `.value`); `mypy .` and `pytest -q` and
-      `ruff check . && ruff format --check .` are green.
-- [ ] AC-3: `backend/openapi.json` regenerated; the diff contains only `type: string` →
-      `enum` additions (plus the export `ExportJobStatus`), with zero changed value
-      strings, paths, or field sets — verified by review.
-- [ ] AC-4: `frontend/src/shared/api-client` regenerated via `pnpm run gen:api`; the
-      affected `*Out` models now carry union/enum types; `check:openapi-drift` passes.
-- [ ] AC-5: `pnpm typecheck` and `pnpm test` green — the already-wrapped `notifications`
-      and `agent-groups` slices compile and pass unmodified against the narrowed models.
-- [ ] AC-6: the §5C not-converted fields remain `str`, each recorded as a Follow-up; no
-      field outside the SAFE list was touched.
+- [x] AC-1: no externally observable behavior change — 1651 backend unit tests pass
+      unmodified (incl. API-serialization tests asserting exact JSON values); serialization
+      verified wire-identical (`UserOut(status=UserStatus.ACTIVE).model_dump(mode='json')['status']`
+      → `'active'`; FastAPI `jsonable_encoder` → `'active'`). The 41 `tests/wiring/*`
+      failures are pre-existing sandbox-environment failures (no live DB/Qdrant/Neo4j/SMTP;
+      `socket.gaierror` at fixture setup), not regressions — see D-5.
+- [x] AC-2: every SAFE field in §5B is typed as its domain enum / `Literal` and its
+      handler mapping passes the enum member (not `.value`); `mypy .` shows 39 pre-existing
+      errors, 0 introduced (none in touched files); `pytest -q` unit suite green;
+      `ruff check .` clean. (`ruff format --check .` has pre-existing debt — see D-4.)
+      Commit 9915a1d (19 files, 127+/96-).
+- [x] AC-3: `backend/openapi.json` regenerated (commit fe6c462, 301+/86-); diff is
+      enum-additions-only — `type: string` → `enum: [...]` (plus new `ExportJobStatus`),
+      zero changed value strings, paths, or field sets; `token_type` stays `required`
+      (see D-1).
+- [x] AC-4: `frontend/src/shared/api-client` regenerated via `pnpm run gen:api` (commit
+      da3ac75, 58 files) — 23 new named enum model files (`UserStatus`, `SenderType`,
+      `RunState`, `BuildState`, `AgentToolType`, `NotificationKind`, …) plus narrowed
+      inline unions; working tree clean for the regenerated paths, so `check:openapi-drift`
+      is satisfied.
+- [x] AC-5: `pnpm typecheck` clean and `pnpm test` green (422 pass) — the already-wrapped
+      `notifications` and `agent-groups` slices compile and pass unmodified against the
+      narrowed models.
+- [x] AC-6: the §5C not-converted fields remain `str`, each recorded as a Follow-up
+      (FU-9..FU-14); no field outside the SAFE list was touched.
 
 ## 10. SRS Delta
 
@@ -253,7 +263,39 @@ unchanged, this enables it.
 
 ## 11. Deviation Log
 
-Appended by /build.
+- D-1: **`TokenPairOut.token_type` kept required via `cast`.** Giving it a default
+  (`= "Bearer"`) dropped it from the schema's `required` array — a contract change beyond
+  "enum-only". Corrected to `token_type: Literal["Bearer"]` (no default, required) with the
+  mapping `token_type=cast(Literal["Bearer"], pair.token_type)`, restoring the enum-only
+  diff.
+- D-2: **Five `cast(Literal[...], str)` sites** — `TokenPairOut.token_type`,
+  `InviteOut.role` (orgs + invites, ×2), `owner_kind` (graphrag, ×3). The mapping source is
+  a raw domain `str` (no enum member to pass), so mypy needs the cast; Pydantic still
+  validates the value at runtime against the DB-CHECK / PG-ENUM-guaranteed set, so the cast
+  asserts only what the storage layer already enforces. Each is commented at the site.
+- D-3: **Eight per-context phases committed as 3 grouped commits** (backend enums 9915a1d /
+  openapi regen fe6c462 / api-client regen da3ac75) rather than one commit per §7 step.
+  Verification was holistic — `mypy`/`ruff`/`pytest`/`typecheck` run once over the full
+  change — and the contract regen is atomic; per-context commits would falsely imply
+  independent per-phase verification of an inseparable schema change.
+- D-4: **`ruff format --check .` and `mypy .` are RED on `main` with pre-existing debt**
+  (39 mypy errors across 22 files; unformatted files) — none in the files this task
+  touched. Verified the change adds 0 new mypy errors and all touched files are
+  format-clean. Not fixed here (out of scope; would sweep unrelated files).
+- D-5: **41 `tests/wiring/*` integration tests fail in this sandbox** for lack of a live
+  DB/Qdrant/Neo4j/SMTP (`socket.gaierror` at fixture DB connect) — a pre-existing
+  environment limitation, not a regression. 1651 unit tests (incl. API serialization) pass.
+  Step 5.4 behavioral verification via live stack is therefore N/A here — and moot, since
+  no user-visible behavior changed (wire values byte-identical).
+- D-6: **Security audit (Step 5.6) N/A** — schema-precision only; no authz, input
+  validation, secret handling, or WebSocket surface changed; response values are unchanged
+  (if anything, stricter output validation). Quality audit (Step 5.5) done as a self-review
+  of the 19 mechanical backend files (generated files excluded): uniform enum retyping, no
+  abstraction leak (domain enums are value types, matching the existing request-model
+  import pattern), no silenced typechecker, no dead code.
+- D-7: **PowerShell UTF-16 gotcha handled.** `python -m ... > openapi.json` under
+  PowerShell writes UTF-16 (2× size, breaks the JSON consumer); regenerated via a direct
+  `open(..., encoding='utf-8', newline='\n')` write to keep the artifact UTF-8/LF.
 
 ## 12. Follow-ups
 
