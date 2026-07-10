@@ -506,19 +506,19 @@ async def purge_config_external_stores(
     predate the self-describing property; the Qdrant collection is
     project-scoped, so that case is reported ``qdrant_purged=False`` (FU-B).
     """
-    neo4j_purged = True
-    qdrant_purged = project_id is not None
+    neo4j_purged = False
+    qdrant_purged = False
     if neo4j is not None:
         try:
             await neo4j.delete_all(config_id=config_id)
+            neo4j_purged = True
         except Exception:
-            neo4j_purged = False
             _log.exception("graphrag delete: neo4j cascade failed for config %s", config_id)
     if project_id is not None and vectors is not None:
         try:
             await vectors.delete_by_config(project_id=project_id, config_id=config_id)
+            qdrant_purged = True
         except Exception:
-            qdrant_purged = False
             _log.exception("graphrag delete: qdrant cascade failed for config %s", config_id)
     return {"neo4j_purged": neo4j_purged, "qdrant_purged": qdrant_purged}
 

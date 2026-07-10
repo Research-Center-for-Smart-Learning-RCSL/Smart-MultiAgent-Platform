@@ -330,21 +330,21 @@ class KnowmapConfigService:
             else None
         )
         qclient = AsyncQdrantClient(url=settings.qdrant.url, api_key=settings.qdrant.api_key or None)
-        neo4j_purged = True
-        qdrant_purged = True
+        neo4j_purged = False
+        qdrant_purged = False
         try:
             if driver is not None:
                 try:
                     await driver.delete_all(config_id=config_id)
+                    neo4j_purged = True
                 except Exception:
-                    neo4j_purged = False
                     _log.exception("knowmap delete: neo4j cascade failed for config %s", config_id)
             try:
                 await GraphRagVectorStore(qclient, prefix="knowmap").delete_by_config(
                     project_id=project_id, config_id=config_id
                 )
+                qdrant_purged = True
             except Exception:
-                qdrant_purged = False
                 _log.exception("knowmap delete: qdrant cascade failed for config %s", config_id)
         finally:
             if driver is not None:
