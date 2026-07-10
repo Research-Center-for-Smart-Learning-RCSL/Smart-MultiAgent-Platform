@@ -2,12 +2,8 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
-export type WorkspaceOut = {
+export type app__api__v1__agent_groups__ConceptMapStatusOut = {
     concept_map_enabled: boolean;
-    created_at: string;
-    deleted_at: (string | null);
-    id: string;
-    name: string;
-    project_id: string;
+    group_id: string;
 };
 

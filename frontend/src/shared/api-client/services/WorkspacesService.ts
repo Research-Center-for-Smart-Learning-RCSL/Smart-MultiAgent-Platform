@@ -2,6 +2,8 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
+import type { app__api__v1__workspaces__ConceptMapStatusOut } from '../models/app__api__v1__workspaces__ConceptMapStatusOut';
+import type { ConceptMapEnabledIn } from '../models/ConceptMapEnabledIn';
 import type { WorkspaceCreatedOut } from '../models/WorkspaceCreatedOut';
 import type { WorkspaceCreateIn } from '../models/WorkspaceCreateIn';
 import type { WorkspaceOut } from '../models/WorkspaceOut';
@@ -106,6 +108,36 @@ export class WorkspacesService {
             path: {
                 'workspace_id': workspaceId,
             },
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * Set Concept Map Enabled
+     * Toggle the workspace's Concept Map privacy opt-in (R11.10) — Project-Owner only.
+     *
+     * Enabling exposes the shared workspace map to retrieval, so this is gated on
+     * strict Project-Owner authority (not the RESOURCE_CREATE_EDIT capability that
+     * guards ordinary workspace edits), matching the group-owner toggle.
+     * @returns app__api__v1__workspaces__ConceptMapStatusOut Successful Response
+     * @throws ApiError
+     */
+    public static setConceptMapEnabledApiWorkspacesWorkspaceIdConceptMapEnabledPut({
+        workspaceId,
+        requestBody,
+    }: {
+        workspaceId: string,
+        requestBody: ConceptMapEnabledIn,
+    }): CancelablePromise<app__api__v1__workspaces__ConceptMapStatusOut> {
+        return __request(OpenAPI, {
+            method: 'PUT',
+            url: '/api/workspaces/{workspace_id}/concept-map-enabled',
+            path: {
+                'workspace_id': workspaceId,
+            },
+            body: requestBody,
+            mediaType: 'application/json',
             errors: {
                 422: `Validation Error`,
             },

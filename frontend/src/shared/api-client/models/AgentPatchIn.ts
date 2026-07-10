@@ -8,6 +8,7 @@ export type AgentPatchIn = {
     context_token_cap?: (number | null);
     effort?: ('low' | 'medium' | 'high' | null);
     key_group_id?: (string | null);
+    knowmap_config_id?: (string | null);
     model_hint?: ('claude' | 'openai' | 'gemini' | null);
     model_id?: (string | null);
     name?: (string | null);

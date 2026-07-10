@@ -2,12 +2,10 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
-export type WorkspaceOut = {
-    concept_map_enabled: boolean;
-    created_at: string;
-    deleted_at: (string | null);
+export type KeyMetaOut = {
     id: string;
+    masked_preview: string;
     name: string;
-    project_id: string;
+    provider: string;
 };
 

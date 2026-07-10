@@ -2,6 +2,8 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
+import type { AgentConceptMapCoverageOut } from '../models/AgentConceptMapCoverageOut';
+import type { ConceptMapOwnerOptionOut } from '../models/ConceptMapOwnerOptionOut';
 import type { GraphOut } from '../models/GraphOut';
 import type { GraphRagBuildOut } from '../models/GraphRagBuildOut';
 import type { GraphRagConfigCreateIn } from '../models/GraphRagConfigCreateIn';
@@ -12,6 +14,33 @@ import type { CancelablePromise } from '../core/CancelablePromise';
 import { OpenAPI } from '../core/OpenAPI';
 import { request as __request } from '../core/request';
 export class GraphragService {
+    /**
+     * Read Agent Concept Map Coverage
+     * Read-only coverage: every Concept Map that could feed an agent's retrieval.
+     *
+     * Transparency, not an attach (R11.09) — the maps of the agent's chatrooms, the
+     * agent_groups it belongs to, and those chatrooms' workspaces, each flagged with
+     * whether it is currently active. AuthZ matches ``read_config``: membership at
+     * the agent's project.
+     * @returns AgentConceptMapCoverageOut Successful Response
+     * @throws ApiError
+     */
+    public static readAgentConceptMapCoverageApiAgentsAgentIdConceptMapCoverageGet({
+        agentId,
+    }: {
+        agentId: string,
+    }): CancelablePromise<AgentConceptMapCoverageOut> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/agents/{agent_id}/concept-map-coverage',
+            path: {
+                'agent_id': agentId,
+            },
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
     /**
      * Delete Config
      * §22.8 — soft-delete a GraphRAG config and cascade its external stores.
@@ -221,6 +250,28 @@ export class GraphragService {
             },
             body: requestBody,
             mediaType: 'application/json',
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * List Owner Options
+     * Owners in the project without a Concept Map, for the overview create picker.
+     * @returns ConceptMapOwnerOptionOut Successful Response
+     * @throws ApiError
+     */
+    public static listOwnerOptionsApiProjectsProjectIdGraphragConfigsOwnerOptionsGet({
+        projectId,
+    }: {
+        projectId: string,
+    }): CancelablePromise<Array<ConceptMapOwnerOptionOut>> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/projects/{project_id}/graphrag-configs/owner-options',
+            path: {
+                'project_id': projectId,
+            },
             errors: {
                 422: `Validation Error`,
             },

@@ -2,20 +2,20 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
-export type GraphRagConfigOut = {
-    agent_id: (string | null);
+export type KnowmapConfigOut = {
     builder_key_group_id: string;
+    chunk_params: Record<string, any>;
+    chunk_strategy: string;
     created_at: string;
     deleted_at: (string | null);
+    embed_dim: (number | null);
+    embed_model: (string | null);
+    embed_provider: (string | null);
     id: string;
     last_build_at: (string | null);
     last_build_error: (string | null);
     last_build_state: string;
-    owner_id: string;
-    owner_kind: string;
-    owner_name: (string | null);
+    name: string;
     project_id: string;
-    recency_half_life_days: (number | null);
-    trigger_config: Record<string, any>;
 };
 

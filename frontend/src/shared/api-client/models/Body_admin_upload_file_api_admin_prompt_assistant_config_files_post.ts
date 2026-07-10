@@ -2,8 +2,7 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
-export type AgentRef = {
-    agent_id: string;
-    role?: ('normal' | 'observer' | null);
+export type Body_admin_upload_file_api_admin_prompt_assistant_config_files_post = {
+    file: string;
 };
 
