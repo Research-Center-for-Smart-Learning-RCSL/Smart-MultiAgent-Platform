@@ -4,6 +4,8 @@ import type {
   AgentToolCreateInput,
   GraphragConfigCreateInput,
   GraphragConfigPatchInput,
+  KnowmapConfigCreateInput,
+  KnowmapConfigPatchInput,
   McpBindingCreateInput,
   RagConfigCreateInput,
 } from '../types/schemas'
@@ -22,6 +24,7 @@ export interface Agent {
   system_prompt: string
   prompt_strategy: string
   rag_config_id: string | null
+  knowmap_config_id: string | null
   context_mode: string
   context_token_cap: number | null
   a2a_enabled: boolean
@@ -206,6 +209,55 @@ export interface GraphragBuild {
   accepted: boolean
   build_id: string | null
   state: string
+}
+
+// --- Knowledge Map (Phase 3β/4β; R11.12/R11.14/R11.23/R11.24) ---
+
+// Mirrors backend `KnowmapConfigOut`. A Knowledge Map is a designer-authored
+// Graph RAG built from uploaded documents (not conversation) — project-scoped,
+// with a per-document per-agent allowlist. `chunk_strategy` is immutable
+// post-creation, same as file-RAG; the embedding provider/model/dim are
+// resolved server-side from `builder_key_group_id`, same as GraphRAG (no
+// separate embed key selection here).
+export interface KnowmapConfig {
+  id: string
+  project_id: string
+  name: string
+  builder_key_group_id: string
+  chunk_strategy: string
+  chunk_params: Record<string, unknown>
+  embed_provider: string | null
+  embed_model: string | null
+  embed_dim: number | null
+  last_build_state: GraphragBuildState
+  last_build_at: string | null
+  last_build_error: string | null
+  created_at: string
+  deleted_at: string | null
+}
+
+// Mirrors backend `KnowmapDocumentOut`. `agent_ids` is the strict per-agent
+// allowlist (R11.23): a relation is visible to an agent only if every one of
+// its source documents is in that agent's allowlist. Empty = no agent may
+// retrieve anything derived from this document (secure-by-default).
+export interface KnowmapDocument {
+  id: string
+  knowmap_config_id: string
+  filename: string
+  mime: string
+  size_bytes: number
+  status: 'ingesting' | 'ready' | 'failed' | 'quarantined'
+  scan_status: 'pending' | 'clean' | 'quarantined' | 'skipped'
+  uploaded_at: string
+  agent_ids: string[]
+}
+
+// Mirrors backend `KnowmapRebuildAck` (202 on rebuild accept). Shape differs
+// from `GraphragBuild` (no `accepted`/`state` fields) — matches the backend's
+// actual response, not GraphRAG's.
+export interface KnowmapRebuildAck {
+  status: 'enqueued'
+  config_id: string
 }
 
 // Mirrors backend `McpBindingOut`. `source` selects how `reference` is
@@ -411,6 +463,54 @@ export const agentsApi = {
 
   getGraphragGraph: (configId: string, limit = 500) =>
     http.get<GraphView>(`/graphrag/${configId}/graph?limit=${limit}`),
+
+  // --- Knowledge Map (Phase 3β/4β) ---
+
+  listKnowmapConfigs: (projectId: string) =>
+    http.get<KnowmapConfig[]>(`/projects/${projectId}/knowmap-configs`),
+
+  createKnowmapConfig: (projectId: string, payload: KnowmapConfigCreateInput) =>
+    http.post<KnowmapConfig>(`/projects/${projectId}/knowmap-configs`, payload),
+
+  getKnowmapConfig: (configId: string) =>
+    http.get<KnowmapConfig>(`/knowmap-configs/${configId}`),
+
+  patchKnowmapConfig: (configId: string, payload: KnowmapConfigPatchInput) =>
+    http.patch<KnowmapConfig>(`/knowmap-configs/${configId}`, payload),
+
+  deleteKnowmapConfig: (configId: string) =>
+    http.delete(`/knowmap-configs/${configId}`),
+
+  rebuildKnowmap: (configId: string) =>
+    http.post<KnowmapRebuildAck>(`/knowmap-configs/${configId}/rebuild`),
+
+  // Same GraphView shape as GraphRAG (backend KnowmapGraphOut is field-for-
+  // field identical to GraphOut) — reused directly, no separate type.
+  getKnowmapGraph: (configId: string, limit = 500) =>
+    http.get<GraphView>(`/knowmap-configs/${configId}/graph?limit=${limit}`),
+
+  listKnowmapDocuments: (configId: string) =>
+    http.get<KnowmapDocument[]>(`/knowmap-configs/${configId}/documents`),
+
+  // ≤ 32 MB synchronous path. Larger files use tusUpload(purpose:'knowmap_source')
+  // from @shared/transport. `agentIds` is the per-agent allowlist applied to
+  // the new document (R11.23).
+  uploadKnowmapDocumentMultipart: (configId: string, file: File, agentIds: string[] = []) => {
+    const form = new FormData()
+    form.append('file', file)
+    form.append('mime', file.type || 'application/octet-stream')
+    for (const id of agentIds) form.append('agent_ids', id)
+    return http.post<KnowmapDocument>(`/knowmap-configs/${configId}/documents`, form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    })
+  },
+
+  deleteKnowmapDocument: (documentId: string) =>
+    http.delete(`/knowmap-documents/${documentId}`),
+
+  // Replace a document's per-agent allowlist (empty = no agent may retrieve it).
+  setKnowmapDocumentAgents: (documentId: string, agentIds: string[]) =>
+    http.patch<KnowmapDocument>(`/knowmap-documents/${documentId}/agents`, { agent_ids: agentIds }),
 
   listMcpBindings: (agentId: string) =>
     http.get<McpBinding[]>(`/agents/${agentId}/mcp`),

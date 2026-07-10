@@ -119,6 +119,7 @@
       "ragConfigs": "RAG Configs",
       "graphrag": "GraphRAG",
       "conceptMaps": "Concept Maps",
+      "knowledgeMaps": "Knowledge Maps",
       "agentGroups": "Agent Groups",
       "projectKeys": "Project Keys",
       "keyGroups": "Key Groups",

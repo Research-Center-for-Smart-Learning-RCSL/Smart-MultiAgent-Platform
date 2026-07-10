@@ -18,13 +18,17 @@ const TUS_VERSION = '1.0.0'
 
 export interface TusUploadOptions {
   file: File
-  purpose: 'chat_attachment' | 'rag_source'
+  purpose: 'chat_attachment' | 'rag_source' | 'knowmap_source'
   projectId: string
   chatroomId?: string
   ragConfigId?: string
   // Per-agent allowlist for a rag_source upload — set atomically by the
   // finaliser on the new document (validated at tus-create).
   ragAgentIds?: string[]
+  knowmapConfigId?: string
+  // Per-agent allowlist for a knowmap_source upload (R11.23) — same atomic
+  // apply-on-finalise pattern as ragAgentIds.
+  knowmapAgentIds?: string[]
   onProgress?: (bytesUploaded: number, bytesTotal: number) => void
   signal?: AbortSignal
 }
@@ -54,6 +58,8 @@ async function createUpload(opts: TusUploadOptions): Promise<string> {
     chatroom_id: opts.chatroomId,
     rag_config_id: opts.ragConfigId,
     rag_agent_ids: opts.ragAgentIds?.length ? opts.ragAgentIds.join(',') : undefined,
+    knowmap_config_id: opts.knowmapConfigId,
+    knowmap_agent_ids: opts.knowmapAgentIds?.length ? opts.knowmapAgentIds.join(',') : undefined,
     filename: opts.file.name,
     mime: opts.file.type || 'application/octet-stream',
   })
@@ -116,5 +122,11 @@ export function resourceToAttachmentId(header: string | null): string | null {
 export function resourceToRagDocumentId(header: string | null): string | null {
   if (!header) return null
   const m = /\/api\/rag-documents\/([0-9a-f-]{36})/i.exec(header)
+  return m?.[1] ?? null
+}
+
+export function resourceToKnowmapDocumentId(header: string | null): string | null {
+  if (!header) return null
+  const m = /\/api\/knowmap-documents\/([0-9a-f-]{36})/i.exec(header)
   return m?.[1] ?? null
 }

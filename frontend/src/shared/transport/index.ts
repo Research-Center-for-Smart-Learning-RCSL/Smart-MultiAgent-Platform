@@ -28,5 +28,6 @@ export {
   tusUpload,
   resourceToAttachmentId,
   resourceToRagDocumentId,
+  resourceToKnowmapDocumentId,
 } from './tus'
 export type { TusUploadOptions, TusUploadResult } from './tus'
