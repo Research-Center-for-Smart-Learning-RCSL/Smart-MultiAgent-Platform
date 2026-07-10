@@ -43,7 +43,7 @@ const {
 // which would 404 a key past the first page for users with many keys.
 const keyQuery = useQuery({
   queryKey: computed(() => keysKeys.key(keyId.value)),
-  queryFn: async () => (await keysApi.get(keyId.value)).data,
+  queryFn: () => keysApi.get(keyId.value),
 })
 const currentLoading = computed(() => keyQuery.isLoading.value)
 

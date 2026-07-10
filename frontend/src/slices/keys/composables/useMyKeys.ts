@@ -9,7 +9,7 @@ export function useMyKeys() {
 
   const { data, isLoading: loading, error: queryError, refetch } = useQuery({
     queryKey: keysKeys.myKeys(),
-    queryFn: () => keysApi.list().then((r) => r.data),
+    queryFn: () => keysApi.list(),
   })
 
   const keys = computed<ApiKey[]>(() => data.value ?? [])
@@ -24,7 +24,7 @@ export function useMyKeys() {
     name: string,
     secret: string,
   ): Promise<ApiKey | null> {
-    const { data: created } = await keysApi.upload(provider, name, secret)
+    const created = await keysApi.upload(provider, name, secret)
     await qc.invalidateQueries({ queryKey: keysKeys.myKeys() })
     return created
   }

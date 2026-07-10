@@ -36,8 +36,7 @@ async function loadUsage() {
   loading.value = true
   fetchError.value = false
   try {
-    const { data } = await projectKeysApi.usage(props.projectId, props.keyId, selectedWindow.value)
-    usage.value = data
+    usage.value = await projectKeysApi.usage(props.projectId, props.keyId, selectedWindow.value)
   } catch {
     fetchError.value = true
     toast.error(t('keys.usage.fetchFailed'))

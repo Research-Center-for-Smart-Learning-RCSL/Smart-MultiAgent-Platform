@@ -34,7 +34,7 @@ export function useConfigEditor(scope: ConfigScopeRef) {
   const configQuery = useConfigQuery(scope)
   const keysQuery = useQuery({
     queryKey: ['prompt-studio', 'my-keys'],
-    queryFn: async () => (await keysApi.list()).data,
+    queryFn: () => keysApi.list(),
   })
   const catalogQuery = useQuery({
     queryKey: ['prompt-studio', 'model-catalog'],

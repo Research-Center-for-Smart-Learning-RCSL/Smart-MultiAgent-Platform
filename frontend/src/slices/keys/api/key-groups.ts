@@ -1,4 +1,5 @@
-import { http } from '@shared/transport'
+import { KeyGroupsService } from '@shared/api-client'
+import type { GroupOut } from '@shared/api-client'
 
 export interface KeyGroup {
   id: string
@@ -43,22 +44,60 @@ export interface KeyGroupDetail {
 
 export type MemberPatch = Partial<Rotation & Limits & { priority: number }>
 
-export const keyGroupsApi = {
-  listForProject: (projectId: string) =>
-    http.get<KeyGroup[]>(`/projects/${projectId}/key-groups`),
-  create: (projectId: string, name: string) =>
-    http.post<KeyGroup>(`/projects/${projectId}/key-groups`, { name }),
-  get: (groupId: string) => http.get<KeyGroupDetail>(`/key-groups/${groupId}`),
-  rename: (groupId: string, name: string) =>
-    http.patch(`/key-groups/${groupId}`, { name }),
-  remove: (groupId: string) => http.delete(`/key-groups/${groupId}`),
+// `GroupOut.member_count`/`providers` are optional in the contract (the pydantic
+// model defaults them) but the slice's KeyGroup requires both; the backend always
+// populates them, so these defaults satisfy the type without a real null case.
+function toKeyGroup(g: GroupOut): KeyGroup {
+  return {
+    id: g.id,
+    project_id: g.project_id,
+    name: g.name,
+    created_at: g.created_at,
+    member_count: g.member_count ?? 0,
+    providers: g.providers ?? [],
+  }
+}
 
-  addMember: (groupId: string, keyId: string) =>
-    http.post<KeyGroupMember>(`/key-groups/${groupId}/keys`, { key_id: keyId }),
-  patchMember: (groupId: string, keyId: string, patch: MemberPatch) =>
-    http.patch(`/key-groups/${groupId}/keys/${keyId}`, patch),
-  removeMember: (groupId: string, keyId: string) =>
-    http.delete(`/key-groups/${groupId}/keys/${keyId}`),
-  reorder: (groupId: string, priorities: Record<string, number>) =>
-    http.post(`/key-groups/${groupId}/reorder`, { priorities }),
+// Thin wrappers over the generated KeyGroupsService (R24.13); each resolves the
+// bare body. MemberOut is assignable to KeyGroupMember (RotationOut/LimitsOut
+// match Rotation/Limits field-for-field); GroupOut is bridged via toKeyGroup.
+export const keyGroupsApi = {
+  listForProject: async (projectId: string): Promise<KeyGroup[]> =>
+    (await KeyGroupsService.listGroupsApiProjectsProjectIdKeyGroupsGet({ projectId })).map(
+      toKeyGroup,
+    ),
+  create: async (projectId: string, name: string): Promise<KeyGroup> =>
+    toKeyGroup(
+      await KeyGroupsService.createGroupApiProjectsProjectIdKeyGroupsPost({
+        projectId,
+        requestBody: { name },
+      }),
+    ),
+  get: async (groupId: string): Promise<KeyGroupDetail> => {
+    const detail = await KeyGroupsService.readGroupApiKeyGroupsGroupIdGet({ groupId })
+    return { group: toKeyGroup(detail.group), members: detail.members }
+  },
+  rename: (groupId: string, name: string): Promise<void> =>
+    KeyGroupsService.renameGroupApiKeyGroupsGroupIdPatch({ groupId, requestBody: { name } }),
+  remove: (groupId: string): Promise<void> =>
+    KeyGroupsService.deleteGroupApiKeyGroupsGroupIdDelete({ groupId }),
+
+  addMember: (groupId: string, keyId: string): Promise<KeyGroupMember> =>
+    KeyGroupsService.addMemberApiKeyGroupsGroupIdKeysPost({
+      groupId,
+      requestBody: { key_id: keyId },
+    }),
+  patchMember: (groupId: string, keyId: string, patch: MemberPatch): Promise<void> =>
+    KeyGroupsService.patchMemberApiKeyGroupsGroupIdKeysKeyIdPatch({
+      groupId,
+      keyId,
+      requestBody: patch,
+    }),
+  removeMember: (groupId: string, keyId: string): Promise<void> =>
+    KeyGroupsService.removeMemberApiKeyGroupsGroupIdKeysKeyIdDelete({ groupId, keyId }),
+  reorder: (groupId: string, priorities: Record<string, number>): Promise<void> =>
+    KeyGroupsService.reorderMembersApiKeyGroupsGroupIdReorderPost({
+      groupId,
+      requestBody: { priorities },
+    }),
 }

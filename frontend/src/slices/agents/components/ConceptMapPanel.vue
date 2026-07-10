@@ -142,7 +142,7 @@ async function confirmDelete(): Promise<void> {
 const keyGroupsQuery = useQuery({
   queryKey: computed(() => keysKeys.keyGroups(props.projectId)),
   enabled: computed(() => !!props.projectId && isAuthorized.value && !map.value),
-  queryFn: async () => (await keyGroupsApi.listForProject(props.projectId)).data,
+  queryFn: () => keyGroupsApi.listForProject(props.projectId),
 })
 const keyGroupOptions = computed(() =>
   (keyGroupsQuery.data.value ?? []).map((g) => ({ value: g.id, label: g.name })),

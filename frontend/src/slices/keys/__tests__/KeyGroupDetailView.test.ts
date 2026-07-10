@@ -40,10 +40,10 @@ const mockListCarried = vi.fn()
 vi.mock('../api/key-groups', () => ({
   keyGroupsApi: {
     get: (...args: unknown[]) => mockGet(...args),
-    addMember: vi.fn(async () => ({ data: {} })),
-    removeMember: vi.fn(async () => ({ data: {} })),
-    patchMember: vi.fn(async () => ({ data: {} })),
-    reorder: vi.fn(async () => ({ data: {} })),
+    addMember: vi.fn(async () => ({})),
+    removeMember: vi.fn(async () => undefined),
+    patchMember: vi.fn(async () => undefined),
+    reorder: vi.fn(async () => undefined),
   },
 }))
 
@@ -85,12 +85,10 @@ describe('KeyGroupDetailView', () => {
 
     // Default: empty group, empty carried keys
     mockGet.mockResolvedValue({
-      data: {
-        group: { id: 'kg_1', project_id: 'proj_1', name: 'Group One', created_at: new Date().toISOString() },
-        members: [],
-      },
+      group: { id: 'kg_1', project_id: 'proj_1', name: 'Group One', created_at: new Date().toISOString() },
+      members: [],
     })
-    mockListCarried.mockResolvedValue({ data: [] })
+    mockListCarried.mockResolvedValue([])
   })
 
   it('renders without errors', async () => {
@@ -113,12 +111,10 @@ describe('KeyGroupDetailView', () => {
 
   it('shows empty state when group has no members', async () => {
     mockGet.mockResolvedValue({
-      data: {
-        group: { id: 'kg_1', project_id: 'proj_1', name: 'Group One', created_at: new Date().toISOString() },
-        members: [],
-      },
+      group: { id: 'kg_1', project_id: 'proj_1', name: 'Group One', created_at: new Date().toISOString() },
+      members: [],
     })
-    mockListCarried.mockResolvedValue({ data: carriedKeys })
+    mockListCarried.mockResolvedValue(carriedKeys)
 
     const wrapper = await renderView(KeyGroupDetailView, {
       routes,
@@ -132,12 +128,10 @@ describe('KeyGroupDetailView', () => {
 
   it('filters add-member dropdown to llm_chat-capable keys only', async () => {
     mockGet.mockResolvedValue({
-      data: {
-        group: { id: 'kg_1', project_id: 'proj_1', name: 'Group One', created_at: new Date().toISOString() },
-        members: [],
-      },
+      group: { id: 'kg_1', project_id: 'proj_1', name: 'Group One', created_at: new Date().toISOString() },
+      members: [],
     })
-    mockListCarried.mockResolvedValue({ data: carriedKeys })
+    mockListCarried.mockResolvedValue(carriedKeys)
 
     const wrapper = await renderView(KeyGroupDetailView, {
       routes,
@@ -161,12 +155,10 @@ describe('KeyGroupDetailView', () => {
 
   it('renders member rows with key info from carriedKeyMap', async () => {
     mockGet.mockResolvedValue({
-      data: {
-        group: { id: 'kg_1', project_id: 'proj_1', name: 'Group One', created_at: new Date().toISOString() },
-        members: membersWithKeys,
-      },
+      group: { id: 'kg_1', project_id: 'proj_1', name: 'Group One', created_at: new Date().toISOString() },
+      members: membersWithKeys,
     })
-    mockListCarried.mockResolvedValue({ data: carriedKeys })
+    mockListCarried.mockResolvedValue(carriedKeys)
 
     const wrapper = await renderView(KeyGroupDetailView, {
       routes,

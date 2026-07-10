@@ -84,7 +84,7 @@ const pickerProjectId = computed(() => {
 const keyGroupsQuery = useQuery({
   queryKey: computed(() => keysKeys.keyGroups(pickerProjectId.value)),
   enabled: computed(() => !!pickerProjectId.value),
-  queryFn: async () => (await keyGroupsApi.listForProject(pickerProjectId.value)).data,
+  queryFn: () => keyGroupsApi.listForProject(pickerProjectId.value),
 })
 
 const ragConfigsQuery = useQuery({

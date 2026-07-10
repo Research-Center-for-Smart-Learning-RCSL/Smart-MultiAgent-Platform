@@ -93,7 +93,7 @@ const docsQuery = useQuery({
 
 const keyGroupsQuery = useQuery({
   queryKey: keysKeys.keyGroups(projectId),
-  queryFn: async () => (await keyGroupsApi.listForProject(projectId)).data,
+  queryFn: () => keyGroupsApi.listForProject(projectId),
 })
 
 const config = computed<KnowmapConfig | undefined>(() => configQuery.data.value)

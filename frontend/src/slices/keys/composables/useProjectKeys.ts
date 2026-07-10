@@ -10,7 +10,7 @@ export function useProjectKeys(projectId: () => string) {
 
   const { data, isLoading: loading, error: queryError, refetch } = useQuery({
     queryKey: computed(() => keysKeys.projectKeys(projectId())),
-    queryFn: () => projectKeysApi.listCarried(projectId()).then((r) => r.data),
+    queryFn: () => projectKeysApi.listCarried(projectId()),
     enabled: computed(() => !!projectId()),
   })
 
