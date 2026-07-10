@@ -1,6 +1,6 @@
 ---
 type: refactor
-status: in-progress
+status: implemented
 created: 2026-07-10
 requirements: [R24.13, R7.01, R7.03, R7.05]
 supersedes:
@@ -185,21 +185,24 @@ This touches the provider-keys surface, so per the `check-security` lens:
 
 ## 9. Acceptance Criteria
 
-- [ ] AC-1: all four api objects call `@shared/api-client` services; no `@shared/transport`
-      import remains anywhere under `keys/api/`; each method resolves the bare body typed as
-      its slice type.
-- [ ] AC-2: the nine `.data` sites (§5D) are converted; `pnpm typecheck` and `pnpm lint`
-      (changed files) are green.
-- [ ] AC-3: `toKeyGroup` supplies `member_count`/`providers` defaults; `listForProject`,
-      `create`, and `get` return fully-populated `KeyGroup`/`KeyGroupDetail`; pinned by a test
-      feeding a `GroupOut` without those fields.
-- [ ] AC-4: request bodies are unchanged — the characterization spec asserts the exact
-      verb/path/body for `upload` (`{provider,name,secret}`), search `upload`, `carry`,
-      `addMember`, `patchMember`, `reorder`, and the `usage` window query.
-- [ ] AC-5: `pnpm test` green — the two updated module-mock tests pass, the MSW/smoke tests
-      pass unmodified, and the new characterization spec passes. `pnpm build` green.
-- [ ] AC-6: security holds — no response carries a secret; the upload body is byte-identical;
-      no masking/logging path changed (§6).
+- [x] AC-1: all four api objects call `@shared/api-client` services; no `@shared/transport`
+      import remains under `keys/api/`; each method resolves the bare body typed as its slice
+      type. Commit b1c8142.
+- [x] AC-2: every `.data` site is converted — the nine in-slice **plus nine cross-slice**
+      consumers the §5D scope missed (see D-1); `pnpm typecheck` green, changed TS files
+      lint-clean (repo-wide `--max-warnings 0` red only on pre-existing `.vue` `html-indent`
+      debt — D-2).
+- [x] AC-3: `toKeyGroup` supplies `member_count`/`providers` defaults; `listForProject`,
+      `create`, `get` return fully-populated `KeyGroup`/`KeyGroupDetail`; pinned by the
+      `groupOutBare` (no member_count/providers) test asserting `member_count: 0, providers: []`.
+- [x] AC-4: request bodies unchanged — the spec asserts exact verb/path/body for `upload`
+      (`{provider,name,secret}`), search `upload` (`{provider,secret,config}`), `carry`,
+      `addMember`, `patchMember`, `reorder`, and the `usage` `window` query.
+- [x] AC-5: `pnpm test` green — 479 pass (new 24-case spec included); the two updated
+      module-mock tests pass, MSW/smoke tests pass unmodified. `pnpm build` green.
+- [x] AC-6: security holds — `KeyOut`/`SearchKeyOut` expose `masked_preview` only (no secret
+      field); the upload body is byte-identical (asserted by AC-4 tests); no masking/logging
+      path changed; AuthZ is server-side (§6). `check-security` lens: no findings.
 
 ## 10. SRS Delta
 
@@ -207,7 +210,26 @@ None — behavior-preserving refactor of the api-client layer.
 
 ## 11. Deviation Log
 
-Appended by /build.
+- D-1: **Nine cross-slice `.data` consumers the scope missed.** §5D listed only the nine
+  in-slice sites; the keys api is also consumed via the `@slices/keys` barrel by the `agents`
+  slice (`ConceptMapPanel.vue`, `AgentDetailView.vue`, `AgentListView.vue`,
+  `GraphragConfigListView.vue`, `KnowledgeMapConfigDetailView.vue`,
+  `KnowledgeMapConfigListView.vue`, `RagConfigDetailView.vue`, `RagConfigListView.vue`) and
+  `prompt-studio` (`useConfigEditor.ts`), each unwrapping `.data` off
+  `keyGroupsApi.listForProject` / `projectKeysApi.listCarried` / `keysApi.list`. `pnpm
+  typecheck` surfaced all nine (`Property 'data' does not exist on …`); each got the same
+  mechanical `.data` drop. `agentsApi.*` `.data` unwraps were correctly left intact (that
+  slice is a separate future wrap). No design change — just a wider mechanical footprint (18
+  sites, not 9). The lesson: grep the whole repo for a slice's public api usage, not just the
+  owning slice, before scoping a wrap.
+- D-2: **`pnpm lint` red on pre-existing `.vue` debt.** The repo-wide `--max-warnings 0` gate
+  fails on 257 pre-existing `vue/html-indent` warnings in touched-but-unrelated template
+  regions (confirmed present on `HEAD`). `eslint` over the changed TS files (api, composables,
+  spec) emits zero warnings; the one-line `queryFn` edits in the `.vue` files did not touch
+  template indentation. Not fixed here (out of scope).
+- D-3: **Two module-mock tests updated (in scope, per §5E).** `KeyGroupDetailView.test.ts` and
+  `SearchKeyView.test.ts` returned the old `{ data }` `AxiosResponse` envelope from their api
+  mocks; switched to bare bodies so they match the wrapped api's return shape.
 
 ## 12. Follow-ups
 
