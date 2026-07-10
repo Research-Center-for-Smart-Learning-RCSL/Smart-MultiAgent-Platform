@@ -25,6 +25,7 @@ from contexts.agents.domain.models import (
     AgentDraft,
     AgentEffort,
     AgentModelHint,
+    AgentToolType,
     ContextMode,
     PromptStrategy,
 )
@@ -117,15 +118,15 @@ class AgentOut(BaseModel):
     id: uuid.UUID
     project_id: uuid.UUID
     name: str
-    model_hint: str
+    model_hint: AgentModelHint
     model_id: str | None
-    effort: str | None
+    effort: AgentEffort | None
     key_group_id: uuid.UUID
     system_prompt: str
-    prompt_strategy: str
+    prompt_strategy: PromptStrategy
     rag_config_id: uuid.UUID | None
     knowmap_config_id: uuid.UUID | None
-    context_mode: str
+    context_mode: ContextMode
     context_token_cap: int | None
     a2a_enabled: bool
     wakeup_config: dict[str, Any]
@@ -140,15 +141,15 @@ def _to_agent_out(a) -> AgentOut:
         id=a.id,
         project_id=a.project_id,
         name=a.name,
-        model_hint=a.model_hint.value,
+        model_hint=a.model_hint,
         model_id=a.model_id,
-        effort=a.effort.value if a.effort else None,
+        effort=a.effort,
         key_group_id=a.key_group_id,
         system_prompt=a.system_prompt,
-        prompt_strategy=a.prompt_strategy.value,
+        prompt_strategy=a.prompt_strategy,
         rag_config_id=a.rag_config_id,
         knowmap_config_id=a.knowmap_config_id,
-        context_mode=a.context_mode.value,
+        context_mode=a.context_mode,
         context_token_cap=a.context_token_cap,
         a2a_enabled=a.a2a_enabled,
         wakeup_config=a.wakeup_config,
@@ -411,7 +412,7 @@ _MAX_DISPLAY_NAME = 200
 class AgentToolOut(BaseModel):
     id: uuid.UUID
     agent_id: uuid.UUID
-    tool_type: str
+    tool_type: AgentToolType
     enabled: bool
     display_name: str | None
     config: dict[str, Any]
@@ -476,7 +477,7 @@ def _to_tool_out(t, *, config_warnings: list[str] | None = None) -> AgentToolOut
     return AgentToolOut(
         id=t.id,
         agent_id=t.agent_id,
-        tool_type=t.tool_type.value if hasattr(t.tool_type, "value") else str(t.tool_type),
+        tool_type=t.tool_type,
         enabled=t.enabled,
         display_name=t.display_name,
         config=cfg,

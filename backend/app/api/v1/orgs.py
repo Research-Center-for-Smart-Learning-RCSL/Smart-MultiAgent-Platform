@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from typing import Literal, cast
 
 import sqlalchemy as sa
 from fastapi import APIRouter, Depends, Header, HTTPException, Path, status
@@ -16,6 +17,7 @@ from contexts.tenancy.application.oc_transfer_service import OCTransferService
 # `OrgMemberRole` is re-exported by org_service so routers can import role
 # enums without reaching into `contexts.tenancy.domain` (import-linter rule 3).
 from contexts.tenancy.application.org_service import OrgMemberRole, OrgService
+from contexts.tenancy.domain.models import InviteScope, InviteState, OCTransferState
 from shared_kernel.auth.context import RequestContext
 from shared_kernel.auth.dependencies import (
     current_context,
@@ -64,18 +66,18 @@ class OrgOut(BaseModel):
 class OrgMemberOut(BaseModel):
     user_id: uuid.UUID
     email: str
-    role: str
+    role: OrgMemberRole
     is_original_creator: bool
     joined_at: str
 
 
 class InviteOut(BaseModel):
     id: uuid.UUID
-    scope_type: str
+    scope_type: InviteScope
     scope_id: uuid.UUID
     invitee_email: str
-    role: str
-    state: str
+    role: Literal["owner", "member"]
+    state: InviteState
     expires_at: str
 
 
@@ -97,7 +99,7 @@ class TransferOut(BaseModel):
     org_id: uuid.UUID
     initiator_user_id: uuid.UUID
     target_user_id: uuid.UUID
-    state: str
+    state: OCTransferState
     created_at: str
     expires_at: str
 
@@ -299,7 +301,7 @@ async def list_members(
         OrgMemberOut(
             user_id=m.user_id,
             email=emails.get(m.user_id, ""),
-            role=m.role.value,
+            role=m.role,
             is_original_creator=m.is_original_creator,
             joined_at=m.joined_at.isoformat(),
         )
@@ -372,11 +374,11 @@ async def create_invite(
     )
     return InviteOut(
         id=invited.invite.id,
-        scope_type=invited.invite.scope_type.value,
+        scope_type=invited.invite.scope_type,
         scope_id=invited.invite.scope_id,
         invitee_email=invited.invite.invitee_email,
-        role=invited.invite.role,
-        state=invited.invite.state.value,
+        role=cast(Literal["owner", "member"], invited.invite.role),
+        state=invited.invite.state,
         expires_at=invited.invite.expires_at.isoformat(),
     )
 
@@ -495,7 +497,7 @@ def _transfer_out(t) -> TransferOut:
         org_id=t.org_id,
         initiator_user_id=t.initiator_user_id,
         target_user_id=t.target_user_id,
-        state=t.state.value,
+        state=t.state,
         created_at=t.created_at.isoformat(),
         expires_at=t.expires_at.isoformat(),
     )

@@ -19,6 +19,7 @@ from app.api.v1.deps import PaginationParams
 from contexts.keys.application.group_service import KeyGroupService
 from contexts.keys.domain.errors import KeyNotFound
 from contexts.keys.domain.groups import KeyGroup, KeyGroupMember
+from contexts.keys.domain.providers import ApiKeyProvider
 from contexts.tenancy.interfaces.role_resolver import TenancyRoleResolver
 from shared_kernel.auth.context import RequestContext
 from shared_kernel.auth.dependencies import (
@@ -55,7 +56,7 @@ class GroupOut(BaseModel):
     # Distinct providers of the group's actively-carried keys. Lets callers
     # (e.g. the agents UI) flag when an agent's `model_hint` is no longer
     # serviceable by its bound group after a key withdrawal.
-    providers: list[str] = Field(default_factory=list)
+    providers: list[ApiKeyProvider] = Field(default_factory=list)
 
     @classmethod
     def from_domain(

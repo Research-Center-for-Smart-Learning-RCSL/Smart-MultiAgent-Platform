@@ -27,6 +27,7 @@ from contexts.conversation.domain.errors import (
     AttachmentQuarantined,
     AttachmentTooLarge,
 )
+from contexts.conversation.domain.models import AttachmentStatus, ScanStatus
 from contexts.conversation.interfaces.facade import ConversationFacade
 from shared_kernel.auth.context import RequestContext
 from shared_kernel.auth.dependencies import current_context, current_principal
@@ -44,8 +45,8 @@ class AttachmentOut(BaseModel):
     filename: str
     mime: str
     size_bytes: int
-    status: str
-    scan_status: str
+    status: AttachmentStatus
+    scan_status: ScanStatus
 
 
 class AttachmentDownloadOut(AttachmentOut):
@@ -139,8 +140,8 @@ def to_attachment_out(m: object) -> AttachmentOut:
         filename=m.filename,  # type: ignore[attr-defined]
         mime=m.mime,  # type: ignore[attr-defined]
         size_bytes=m.size_bytes,  # type: ignore[attr-defined]
-        status=m.status.value,  # type: ignore[attr-defined]
-        scan_status=m.scan_status.value,  # type: ignore[attr-defined]
+        status=m.status,  # type: ignore[attr-defined]
+        scan_status=m.scan_status,  # type: ignore[attr-defined]
     )
 
 

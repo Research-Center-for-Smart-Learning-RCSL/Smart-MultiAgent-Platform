@@ -20,6 +20,7 @@ from contexts.conversation.application.access import (
     ensure_can_read,
     resolve_room_access,
 )
+from contexts.conversation.application.export_service import ExportJobStatus
 from contexts.conversation.domain.errors import ExportJobNotFound
 from shared_kernel.auth.clients import now
 from shared_kernel.auth.context import RequestContext
@@ -74,13 +75,13 @@ def _resolve_window(body: ExportCreateIn) -> tuple[datetime | None, datetime | N
 
 class ExportCreateOut(BaseModel):
     job_id: uuid.UUID
-    status: str
+    status: ExportJobStatus
 
 
 class ExportStatusOut(BaseModel):
     job_id: uuid.UUID
     chatroom_id: uuid.UUID
-    status: str
+    status: ExportJobStatus
     url: str | None
     error: str | None
 

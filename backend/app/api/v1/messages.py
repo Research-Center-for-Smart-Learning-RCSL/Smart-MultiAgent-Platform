@@ -34,7 +34,7 @@ from contexts.conversation.application.triggers import (
     filter_mentioned_bound_agents,
     list_bound_agents,
 )
-from contexts.conversation.domain.models import ChatroomAgent, Message
+from contexts.conversation.domain.models import ChatroomAgent, Message, SenderType
 from contexts.conversation.interfaces import room_channel
 from contexts.knowledge.interfaces.facade import KnowledgeFacade
 from shared_kernel.auth.context import RequestContext
@@ -94,7 +94,7 @@ class MessagePatchIn(BaseModel):
 class MessageOut(BaseModel):
     id: uuid.UUID
     chatroom_id: uuid.UUID
-    sender_type: str
+    sender_type: SenderType
     sender_id: uuid.UUID | None
     content_md: str
     metadata: dict[str, Any]
@@ -112,7 +112,7 @@ def _to_out(m: Message, attachments: Sequence[object] = ()) -> MessageOut:
     return MessageOut(
         id=m.id,
         chatroom_id=m.chatroom_id,
-        sender_type=m.sender_type.value,
+        sender_type=m.sender_type,
         sender_id=m.sender_id,
         content_md=m.content_md,
         metadata=m.metadata,

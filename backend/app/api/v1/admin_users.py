@@ -14,6 +14,7 @@ from contexts.identity.application.admin_service import (
     LastAdminError,
     SelfTargetError,
 )
+from contexts.identity.domain.models import UserStatus
 from shared_kernel.auth.context import RequestContext
 from shared_kernel.auth.dependencies import current_context
 from shared_kernel.auth.permissions import Principal
@@ -32,7 +33,7 @@ class UserSummaryOut(BaseModel):
     id: uuid.UUID
     email: str
     display_name: str | None
-    status: str
+    status: UserStatus
     email_verified: bool
     created_at: str
 
@@ -41,7 +42,7 @@ class UserDetailOut(BaseModel):
     id: uuid.UUID
     email: str
     display_name: str | None
-    status: str
+    status: UserStatus
     email_verified: bool
     is_admin: bool
     banned_reason: str | None
@@ -88,7 +89,7 @@ async def list_users(
             id=u.id,
             email=u.email,
             display_name=u.display_name,
-            status=u.status.value,
+            status=u.status,
             email_verified=u.email_verified,
             created_at=u.created_at.isoformat(),
         )
@@ -111,7 +112,7 @@ async def get_user(
         id=u.id,
         email=u.email,
         display_name=u.display_name,
-        status=u.status.value,
+        status=u.status,
         email_verified=u.email_verified,
         is_admin=detail.is_admin,
         banned_reason=u.banned_reason,

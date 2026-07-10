@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Literal
+
 from fastapi import APIRouter, Body, Depends, HTTPException, Path
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -26,7 +28,8 @@ class RateLimitPolicyOut(BaseModel):
     key: str
     window_sec: int
     max_count: int
-    scope: str
+    # DB-CHECK-constrained to this set (rate_limit_policies.scope).
+    scope: Literal["user", "ip", "user_and_ip"]
     updated_at: str
 
 

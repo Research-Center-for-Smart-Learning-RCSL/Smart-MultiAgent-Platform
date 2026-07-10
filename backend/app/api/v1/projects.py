@@ -44,7 +44,7 @@ class ProjectPatchIn(BaseModel):
 class ProjectOut(BaseModel):
     id: uuid.UUID
     name: str
-    owner_type: str
+    owner_type: ProjectOwnerType
     owner_id: uuid.UUID
     created_by_user_id: uuid.UUID
     version: int
@@ -55,7 +55,7 @@ class ProjectOut(BaseModel):
 class ProjectMemberOut(BaseModel):
     user_id: uuid.UUID
     email: str
-    role: str
+    role: ProjectMemberRole
     joined_at: str
 
 
@@ -69,7 +69,7 @@ class InviteCreateIn(BaseModel):
 
 
 def _to_out(p) -> ProjectOut:
-    owner_type = "org" if p.owner_org_id else "user"
+    owner_type = ProjectOwnerType.ORG if p.owner_org_id else ProjectOwnerType.USER
     owner_id = p.owner_org_id or p.owner_user_id
     return ProjectOut(
         id=p.id,
@@ -281,7 +281,7 @@ async def list_members(
         ProjectMemberOut(
             user_id=m.user_id,
             email=emails.get(m.user_id, ""),
-            role=m.role.value,
+            role=m.role,
             joined_at=m.joined_at.isoformat(),
         )
         for m in members

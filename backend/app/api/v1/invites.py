@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from typing import Literal
+from typing import Literal, cast
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
 from pydantic import BaseModel
@@ -15,6 +15,7 @@ from contexts.identity.interfaces.facade import IdentityFacade
 # Re-export pattern: `invite_service` re-exports InviteState so routers may
 # reach it without touching `contexts.tenancy.domain.*`.
 from contexts.tenancy.application.invite_service import InviteService, InviteState
+from contexts.tenancy.domain.models import InviteScope
 from shared_kernel.auth.context import RequestContext
 from shared_kernel.auth.dependencies import current_context, current_principal
 from shared_kernel.auth.permissions import Principal
@@ -25,12 +26,12 @@ router = APIRouter(prefix="/api/invites", tags=["invites"])
 
 class InviteOut(BaseModel):
     id: uuid.UUID
-    scope_type: str
+    scope_type: InviteScope
     scope_id: uuid.UUID
     scope_name: str
-    role: str
+    role: Literal["owner", "member"]
     invitee_email: str
-    state: str
+    state: InviteState
     expires_at: str
     created_at: str
 
@@ -38,12 +39,12 @@ class InviteOut(BaseModel):
 def _to_out(inv, scope_name: str = "") -> InviteOut:
     return InviteOut(
         id=inv.id,
-        scope_type=inv.scope_type.value,
+        scope_type=inv.scope_type,
         scope_id=inv.scope_id,
         scope_name=scope_name,
-        role=inv.role,
+        role=cast(Literal["owner", "member"], inv.role),
         invitee_email=inv.invitee_email,
-        state=inv.state.value,
+        state=inv.state,
         expires_at=inv.expires_at.isoformat(),
         created_at=inv.created_at.isoformat(),
     )

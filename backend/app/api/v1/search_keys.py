@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.deps import PaginationParams
 from contexts.keys.application.search_service import SearchKeyService
+from contexts.keys.domain.probe_status import ProbeStatus
 from contexts.keys.domain.search import SearchKey, SearchProvider
 from shared_kernel.auth.context import RequestContext
 from shared_kernel.auth.dependencies import (
@@ -36,9 +37,9 @@ class SearchKeyIn(BaseModel):
 class SearchKeyOut(BaseModel):
     id: uuid.UUID
     project_id: uuid.UUID
-    provider: str
+    provider: SearchProvider
     masked_preview: str
-    test_status: str
+    test_status: ProbeStatus
     test_error: str | None
     last_test_at: str | None
     is_active: bool
@@ -50,9 +51,9 @@ class SearchKeyOut(BaseModel):
         return cls(
             id=sk.id,
             project_id=sk.project_id,
-            provider=sk.provider.value,
+            provider=sk.provider,
             masked_preview=sk.masked_preview,
-            test_status=sk.test_status.value,
+            test_status=sk.test_status,
             test_error=sk.test_error,
             last_test_at=sk.last_test_at.isoformat() if sk.last_test_at else None,
             is_active=sk.is_active,
