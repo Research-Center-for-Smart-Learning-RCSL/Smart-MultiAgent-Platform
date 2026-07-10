@@ -1,4 +1,4 @@
-import { http } from '@shared/transport'
+import { KeysService } from '@shared/api-client'
 import type { ApiKey } from './keys'
 
 // Mirrors backend `UsageOut` (R7.05 aggregate; no secret exposed).
@@ -11,15 +11,14 @@ export interface KeyUsage {
   errors: number
 }
 
+// Project-scoped carry surface, backed by the same generated KeysService (R24.13).
 export const projectKeysApi = {
-  listCarried: (projectId: string) =>
-    http.get<ApiKey[]>(`/projects/${projectId}/keys`),
-  carry: (projectId: string, keyId: string) =>
-    http.post(`/projects/${projectId}/keys`, { key_id: keyId }),
-  withdraw: (projectId: string, keyId: string) =>
-    http.delete(`/projects/${projectId}/keys/${keyId}`),
-  usage: (projectId: string, keyId: string, window: UsageWindow) =>
-    http.get<KeyUsage>(`/projects/${projectId}/keys/${keyId}/usage`, {
-      params: { window },
-    }),
+  listCarried: (projectId: string): Promise<ApiKey[]> =>
+    KeysService.listCarriedKeysApiProjectsProjectIdKeysGet({ projectId }),
+  carry: (projectId: string, keyId: string): Promise<void> =>
+    KeysService.carryKeyApiProjectsProjectIdKeysPost({ projectId, requestBody: { key_id: keyId } }),
+  withdraw: (projectId: string, keyId: string): Promise<void> =>
+    KeysService.withdrawKeyApiProjectsProjectIdKeysKeyIdDelete({ projectId, keyId }),
+  usage: (projectId: string, keyId: string, window: UsageWindow): Promise<KeyUsage> =>
+    KeysService.readUsageApiProjectsProjectIdKeysKeyIdUsageGet({ projectId, keyId, window }),
 }

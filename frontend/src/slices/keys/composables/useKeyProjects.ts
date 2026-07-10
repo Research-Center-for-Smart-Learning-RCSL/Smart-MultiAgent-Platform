@@ -17,7 +17,7 @@ export function useKeyProjects(keyId: MaybeRefOrGetter<string>) {
 
   const { data, isLoading: loading, error: queryError, refetch } = useQuery({
     queryKey: computed(() => keysKeys.keyProjects(id.value)),
-    queryFn: () => keysApi.projects(id.value).then((r) => r.data),
+    queryFn: () => keysApi.projects(id.value),
     enabled: computed(() => !!id.value),
   })
 

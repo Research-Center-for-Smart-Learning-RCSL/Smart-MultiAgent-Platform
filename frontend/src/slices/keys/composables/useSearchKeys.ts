@@ -13,7 +13,7 @@ export function useSearchKeys(projectId: () => string) {
 
   const { data, error: queryError, refetch } = useQuery({
     queryKey: computed(() => keysKeys.searchKeys(projectId())),
-    queryFn: () => searchKeysApi.list(projectId()).then((r) => r.data),
+    queryFn: () => searchKeysApi.list(projectId()),
     enabled: computed(() => !!projectId()),
   })
 

@@ -14,7 +14,7 @@ export function useKeyGroups(projectId: () => string) {
 
   const { data, error: queryError, refetch } = useQuery({
     queryKey: computed(() => keysKeys.keyGroups(projectId())),
-    queryFn: () => keyGroupsApi.listForProject(projectId()).then((r) => r.data),
+    queryFn: () => keyGroupsApi.listForProject(projectId()),
     enabled: computed(() => !!projectId()),
   })
 
@@ -45,7 +45,7 @@ export function useKeyGroupDetail(groupId: () => string) {
 
   const { data, error: queryError, refetch } = useQuery({
     queryKey: computed(() => keysKeys.keyGroup(groupId())),
-    queryFn: () => keyGroupsApi.get(groupId()).then((r) => r.data),
+    queryFn: () => keyGroupsApi.get(groupId()),
     enabled: computed(() => !!groupId()),
   })
 

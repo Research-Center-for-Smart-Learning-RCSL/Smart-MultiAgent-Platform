@@ -1,4 +1,4 @@
-import { http } from '@shared/transport'
+import { KeysService } from '@shared/api-client'
 
 // Mirrors backend contexts.keys.domain.providers.ApiKeyProvider (R7.01).
 export type ApiKeyProvider = 'claude' | 'openai' | 'gemini' | 'voyage' | 'cohere'
@@ -39,12 +39,18 @@ export const CAPABILITIES: Record<ApiKeyProvider, ProviderCapability[]> = {
   cohere: ['rerank'],
 }
 
+// Thin wrappers over the generated KeysService (R24.13). Auth and problem+json
+// error typing come from shared/transport/axios.ts's instrumentation of the bare
+// axios singleton the generated client calls into; each method resolves the
+// response body directly (KeyListOut/KeyOut are assignable to ApiKey).
 export const keysApi = {
-  list: () => http.get<ApiKey[]>('/keys'),
-  get: (id: string) => http.get<ApiKey>(`/keys/${id}`),
-  upload: (provider: ApiKeyProvider, name: string, secret: string) =>
-    http.post<ApiKey>('/keys', { provider, name, secret }),
-  retest: (id: string) => http.post<ApiKey>(`/keys/${id}/retest`),
-  remove: (id: string) => http.delete(`/keys/${id}`),
-  projects: (id: string) => http.get<KeyProject[]>(`/keys/${id}/projects`),
+  list: (): Promise<ApiKey[]> => KeysService.listMyKeysApiKeysGet({}),
+  get: (id: string): Promise<ApiKey> => KeysService.getMyKeyApiKeysKeyIdGet({ keyId: id }),
+  upload: (provider: ApiKeyProvider, name: string, secret: string): Promise<ApiKey> =>
+    KeysService.uploadKeyApiKeysPost({ requestBody: { provider, name, secret } }),
+  retest: (id: string): Promise<ApiKey> =>
+    KeysService.retestKeyApiKeysKeyIdRetestPost({ keyId: id }),
+  remove: (id: string): Promise<void> => KeysService.deleteKeyApiKeysKeyIdDelete({ keyId: id }),
+  projects: (id: string): Promise<KeyProject[]> =>
+    KeysService.listKeyProjectsApiKeysKeyIdProjectsGet({ keyId: id }),
 }

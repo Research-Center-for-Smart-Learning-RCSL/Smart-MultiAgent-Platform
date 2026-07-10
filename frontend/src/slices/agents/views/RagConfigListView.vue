@@ -66,7 +66,7 @@ const configsQuery = useQuery({
 
 const projectKeysQuery = useQuery({
   queryKey: keysKeys.projectKeys(projectId),
-  queryFn: async () => (await projectKeysApi.listCarried(projectId)).data,
+  queryFn: () => projectKeysApi.listCarried(projectId),
 })
 
 const modelCatalogQuery = useModelCatalog()

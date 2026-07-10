@@ -1,4 +1,4 @@
-import { http } from '@shared/transport'
+import { SearchKeysService } from '@shared/api-client'
 
 export type SearchProvider = 'brave' | 'serper' | 'tavily' | 'google_cse'
 
@@ -15,24 +15,35 @@ export interface SearchKey {
   created_at: string
 }
 
+// Thin wrappers over the generated SearchKeysService (R24.13); each resolves the
+// bare body (SearchKeyOut is assignable to SearchKey — provider/test_status enums
+// match, config Record<string,any> fits Record<string,unknown>).
 export const searchKeysApi = {
-  list: (projectId: string) =>
-    http.get<SearchKey[]>(`/projects/${projectId}/search-keys`),
+  list: (projectId: string): Promise<SearchKey[]> =>
+    SearchKeysService.listSearchKeysApiProjectsProjectIdSearchKeysGet({ projectId }),
   upload: (
     projectId: string,
     provider: SearchProvider,
     secret: string,
     config: Record<string, unknown>,
-  ) =>
-    http.post<SearchKey>(`/projects/${projectId}/search-keys`, {
-      provider,
-      secret,
-      config,
+  ): Promise<SearchKey> =>
+    SearchKeysService.uploadSearchKeyApiProjectsProjectIdSearchKeysPost({
+      projectId,
+      requestBody: { provider, secret, config },
     }),
-  retest: (projectId: string, id: string) =>
-    http.post<SearchKey>(`/projects/${projectId}/search-keys/${id}/retest`),
-  activate: (projectId: string, id: string) =>
-    http.post(`/projects/${projectId}/search-keys/${id}/activate`),
-  remove: (projectId: string, id: string) =>
-    http.delete(`/projects/${projectId}/search-keys/${id}`),
+  retest: (projectId: string, id: string): Promise<SearchKey> =>
+    SearchKeysService.retestSearchKeyApiProjectsProjectIdSearchKeysKeyIdRetestPost({
+      projectId,
+      keyId: id,
+    }),
+  activate: (projectId: string, id: string): Promise<void> =>
+    SearchKeysService.activateSearchKeyApiProjectsProjectIdSearchKeysKeyIdActivatePost({
+      projectId,
+      keyId: id,
+    }),
+  remove: (projectId: string, id: string): Promise<void> =>
+    SearchKeysService.deleteSearchKeyApiProjectsProjectIdSearchKeysKeyIdDelete({
+      projectId,
+      keyId: id,
+    }),
 }
