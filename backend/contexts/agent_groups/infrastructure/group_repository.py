@@ -24,6 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from contexts.agent_groups.domain.errors import AgentGroupNameConflict
 from contexts.agent_groups.domain.models import AgentGroup
 from contexts.agent_groups.infrastructure import tables as t
+from contexts.agents.infrastructure import tables as agents_t
 from shared_kernel.auth.clients import now
 
 
@@ -212,11 +213,27 @@ class AgentGroupRepository:
 
         Read fresh on every call (never cached) so a removed member loses build
         ingestion and, via the WS4 resolver, retrieval access on the next turn.
+        Joined against `agents` and filtered on `deleted_at IS NULL`: a
+        soft-deleted agent's membership row is never cleaned up (soft_delete
+        only stamps `agents.deleted_at`), so without this filter a deleted
+        agent's chatroom history would keep being pulled into the group's
+        Concept Map build scope indefinitely.
         """
         rows = (
             await self._db.execute(
                 sa.select(t.agent_group_members.c.agent_id)
-                .where(t.agent_group_members.c.agent_group_id == group_id)
+                .select_from(
+                    t.agent_group_members.join(
+                        agents_t.agents,
+                        agents_t.agents.c.id == t.agent_group_members.c.agent_id,
+                    )
+                )
+                .where(
+                    sa.and_(
+                        t.agent_group_members.c.agent_group_id == group_id,
+                        agents_t.agents.c.deleted_at.is_(None),
+                    )
+                )
                 .order_by(t.agent_group_members.c.agent_id)
             )
         ).all()
