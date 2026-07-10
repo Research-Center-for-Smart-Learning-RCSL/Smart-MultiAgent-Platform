@@ -6,9 +6,14 @@ Guardrails enforced here:
 - **Key Group must live in the same project** as the agent (R7.02 spirit:
   Key Groups are project-scoped; an agent pointing at another project's
   Group would silently break isolation).
-- **Key Group must differ from the attached GraphRAG builder key group**
-  (R11.01 billing/quota separation) — checked on create/attach and again
-  whenever the agent's own `key_group_id` changes.
+- **Attached RAG / Knowledge Map config must live in the same project** as
+  the agent (SEC-H1) — `_assert_rag_config_in_project` /
+  `_assert_knowmap_config_in_project` below. Neither checks the R11.01
+  builder-vs-consumer Key Group distinctness rule: [R11.11] explicitly
+  exempts Concept Maps from it (no single consumer agent), but whether it
+  should still apply to a Knowledge Map's `builder_key_group_id` (which
+  *does* have a well-defined consumer agent, unlike Concept Map) is an open
+  product question — not enforced here pending that decision.
 - **Optimistic locking** on patch / delete via `If-Match: <version>`.
 - **Audit tap** for every state-changing call.
 
