@@ -1,6 +1,6 @@
 ---
 type: feature
-status: approved
+status: implemented
 created: 2026-07-10
 requirements: [R11.14, R11.15, R11.24]
 ---
@@ -348,25 +348,34 @@ Touches WebSocket authentication and tenant boundaries — required.
 
 ## 11. Acceptance Criteria
 
-- [ ] AC-1: `GET /api/knowmap-configs/{config_id}/graph` returns a bounded node/edge view
+- [x] AC-1: `GET /api/knowmap-configs/{config_id}/graph` returns a bounded node/edge view
   of an existing config's Neo4j subgraph, 404s via `KnowmapConfigNotFound` for a missing
-  config, and 403s for a non-member principal.
-- [ ] AC-2: `GET /ws/knowmap/{config_id}` accepts a subscription from a project member,
+  config, and 403s for a non-member principal. (`test_knowmap_graph_service.py`,
+  `test_knowmap_graph_endpoint.py`.)
+- [x] AC-2: `GET /ws/knowmap/{config_id}` accepts a subscription from a project member,
   closes 4401/4404/4403 respectively for an unauthenticated/missing-config/non-member
-  connection attempt, mirroring `/ws/graphrag/{config_id}`'s codes exactly.
-- [ ] AC-3: a Knowledge Map build (`knowmap_build` task) publishes its state transitions
+  connection attempt, mirroring `/ws/graphrag/{config_id}`'s codes exactly. (Generic
+  AuthZ-branch coverage in `test_ws_config_route.py`; per-route wiring smoke tests in
+  `test_ws_knowmap.py`/`test_ws_graphrag.py`/`test_ws_rag_configs.py` — see D-4.)
+- [x] AC-3: a Knowledge Map build (`knowmap_build` task) publishes its state transitions
   (`RUNNING`, `NEO4J_COMMITTED`, `FAILED_COMPENSATING`, `IDLE`/`FAILED`) onto
   `ws:knowmap:{config_id}`, not `ws:graphrag:{config_id}` — verified by a spy test on
-  `publish_build_state`'s resolved channel argument.
-- [ ] AC-4: a reconciler-recovered Knowledge Map build (`_knowmap_loop()`) publishes onto
-  `ws:knowmap:{config_id}` as well — same spy-test pattern as AC-3, applied to at least
-  one `ReconciliationLoop` publish call site.
-- [ ] AC-5: existing Concept Map behavior is provably unchanged —
-  `test_graphrag_builder.py`'s existing build-state-publish tests pass unmodified, and a
-  new equivalent assertion confirms Concept Map's `GraphRagBuilder`/`ReconciliationLoop`
-  construction (unset `channel_fn`) still publishes onto `ws:graphrag:{config_id}`.
-- [ ] AC-6: `pytest -q`, `ruff check . && ruff format --check .`, `mypy .` pass in
-  `backend/`.
+  `publish_build_state`'s resolved channel argument
+  (`test_channel_override_used_when_channel_fn_set`).
+- [x] AC-4: a reconciler-recovered Knowledge Map build (`_knowmap_loop()`) publishes onto
+  `ws:knowmap:{config_id}` as well — same spy-test pattern as AC-3, applied to the
+  `IDLE`-with-`build_id` `ReconciliationLoop` publish call site
+  (`test_reconciler_recovery_publishes_to_overridden_channel`).
+- [x] AC-5: existing Concept Map behavior is provably unchanged —
+  `test_graphrag_builder.py`'s existing build-state-publish tests pass unmodified, and
+  `test_default_test_channel_fn_matches_production_concept_map_wiring` confirms Concept
+  Map's `GraphRagBuilder` still publishes onto `graphrag_channel(config_id)` (adjusted per
+  D-1: `channel_fn` became required rather than defaulting to `None`, so the regression
+  guard now asserts explicit `graphrag_channel` wiring instead of an implicit `None`
+  fallback — same behavioral guarantee, stronger contract).
+- [x] AC-6: `pytest -q` (1636 passed, `tests/wiring/` excluded — pre-existing environment
+  dependency, see D-5), `ruff check . && ruff format --check .`, `mypy .` (no new errors
+  vs. the pre-existing baseline) all pass in `backend/`.
 
 ## 12. Test Plan
 
@@ -406,7 +415,100 @@ None blocking.
 
 ## 15. Deviation Log
 
-Appended by `/build`.
+- **D-1 — `channel_fn` made required, not optional-with-default.** §5's Q-1 decision
+  (`channel: str | None = None` on `publish_build_state`, silent fallback to
+  `graphrag_channel`) shipped initially as designed, but a `/code-review` pass (run
+  immediately after the spec's ACs were first green) flagged it as a latent footgun: a
+  future third consumer of the shared `GraphRagBuilder`/`ReconciliationLoop` engine that
+  forgets to wire `channel_fn` would silently misdirect its build-state events onto the
+  Concept Map channel — the exact failure class this task exists to fix for Knowledge
+  Map, reintroduced generically. Changed `channel_fn` to a required keyword-only
+  constructor parameter (no default) and `publish_build_state`'s `channel` to a required
+  parameter (no default, `graphrag_channel` import removed from `graphrag_events.py`
+  entirely) — a missing wiring is now a `TypeError` at construction time instead of a
+  silent misroute. Both existing call sites (`app/workers/tasks/graphrag.py`,
+  `app/workers/graphrag_reconciler.py`'s `_loop()`) updated to pass
+  `channel_fn=graphrag_channel` explicitly.
+- **D-2 — the graph endpoint routes through `KnowledgeFacade`, not raw services.** §6
+  originally had `read_knowmap_graph` call `KnowmapConfigService`/`KnowmapGraphService`
+  directly (matching `knowmap.py`'s pre-existing file-wide convention, itself a
+  `backend/CLAUDE.md` "app/api/v1/ calls only the facade" violation extended, not
+  introduced, by the original draft). Code review flagged this as inconsistent with the
+  `graphrag.py` sibling it was written to mirror. Added `KnowledgeFacade.get_knowmap_graph`
+  (mirroring `get_graphrag_graph`) and rewired the route through it — matches `graphrag.py`
+  structurally now, while `knowmap.py`'s other ~12 routes keep their pre-existing
+  facade-bypass pattern (out of scope; not worsened, see FU-3).
+- **D-3 — reused `Neo4jAsyncDriver`/service-level double config-lookup accepted, not
+  eliminated.** The graph endpoint fetches the config once for AuthZ then
+  `KnowmapGraphService.get_graph` fetches it again internally — flagged in review as an
+  avoidable inefficiency. Investigated eliminating it (passing the pre-fetched config
+  into the service) but that would mean touching `graphrag_graph_service.py`'s shipped,
+  in-production Concept Map path too (against §5 Q-2's explicit risk-averse rationale) or
+  diverging `knowmap.py`'s route from the `graphrag.py` pattern D-2 just aligned it to.
+  Left as-is: after D-2, the double-fetch now precisely matches `graphrag.py`'s own
+  shipped behavior rather than being a Knowledge-Map-specific regression — same cost,
+  same place, already accepted for Concept Map.
+- **D-4 — `/ws/graphrag`, `/ws/rag-configs`, and `/ws/knowmap` collapsed into a shared
+  factory.** Not in the original §6 plan, which had `app/api/ws/knowmap.py` as a
+  standalone hand-copy of `app/api/ws/graphrag.py` (per Q-1/exemplar-mirroring). Review
+  flagged this as a third copy of the same untested ~40-line auth/close-code scaffold.
+  Added `contexts/knowledge/interfaces/ws_config_route.py`
+  (`make_config_scoped_ws_router`), migrated all three route files onto it, and added
+  `test_ws_config_route.py` (generic AuthZ-branch coverage, all 5 branches) plus thin
+  per-route wiring tests (`test_ws_knowmap.py`, `test_ws_graphrag.py`,
+  `test_ws_rag_configs.py`) — the two pre-existing routes had zero test coverage of their
+  route bodies before this change; they have it now.
+- **D-5 — the manual `verify` smoke test (§12) was not run.** Attempted per user request;
+  blocked by five unrelated pre-existing environment issues in sequence (no local docker
+  stack running; a missing `smap_test` database; `alembic_version.version_num` too narrow
+  for a truly-fresh migration chain — pre-existing, unrelated to this task; a real bug in
+  `app/bootstrap/seed.py` — see D-6; and finally an OS-level `Cannot allocate memory`
+  error from Docker Desktop unrelated to any code). User elected to stop after fixing D-6
+  and accept the automated test suite as sufficient evidence. See FU-4/FU-5 for the
+  undiagnosed issues left behind.
+- **D-6 — unrelated `app/bootstrap/seed.py` bug fixed, out of scope, per explicit user
+  request.** While attempting the D-5 smoke test, `seed_test_users()` crashed with
+  `AgentRepository.create() missing 1 required keyword-only argument: 'effort'` — a
+  pre-existing bug (also flagged independently by `mypy`, previously dismissed as routine
+  debt) blocking the E2E test-overlay stack from starting at all. Added `effort=None` to
+  the `agents_repo.create(...)` call. Unrelated to R11.24; fixed only because it blocked
+  D-5 and the user explicitly asked for the one-line fix.
+- **D-7 through D-10 — `/code-review` findings fixed post-hoc, out of the original §6
+  scope.** A full `/code-review` pass (committed range + working tree) surfaced 10
+  findings; the user asked to fix all. Four are pre-existing bugs/debt in already-shipped
+  code, unrelated to R11.24 but fixed in this session at the user's request:
+  - **D-7** — `purge_config_external_stores` (`graphrag_config_service.py`) and its sibling
+    `KnowmapConfigService.cascade_external_stores` reported `neo4j_purged`/`qdrant_purged`
+    as `True` by default *before* checking whether the Neo4j/Qdrant client was even
+    present, so a missing client (e.g. `settings.neo4j` unset) silently reported a purge
+    that never ran. Both flags now start `False` and flip `True` only on confirmed
+    success. New `test_graph_config_purge.py` (6 tests, both functions).
+  - **D-8** — `agent_service.py`'s module docstring claimed an R11.01 key-group
+    billing-separation guardrail is enforced for attached knowledge configs; the
+    enforcing code (`_assert_graphrag_config_compatible`) was removed in an earlier phase
+    and never replaced for the newer `knowmap_config_id` attach path. Corrected the
+    docstring to describe what's actually enforced (SEC-H1 project-membership only) and
+    flagged the open product question (should R11.01 apply to Knowledge Map, unlike the
+    R11.11-exempted Concept Map?) rather than silently inventing new validation logic —
+    see FU-6.
+  - **D-9** — four instances of hand-copied logic collapsed into shared helpers, each with
+    new or extended test coverage: `_assert_project_membership` (graphrag.py, knowmap.py,
+    agent_groups.py → `app/api/v1/deps.py:assert_project_membership`,
+    `test_deps_assert_project_membership.py`); `_normalise_mime` (`ingest_service.py`,
+    `knowmap_ingest_service.py` → `shared_kernel/text_extraction/parsers.py:normalise_mime`,
+    tests moved into `test_text_extraction_parsers.py`); `_normalise_queries`/
+    `_compact_excerpt` (rag/graphrag/knowmap context providers, up to 3-way duplicated →
+    new `contexts/knowledge/application/context_provider_text.py`,
+    `test_context_provider_text.py`); `validate_agent_allowlist`/
+    `validate_knowmap_agent_allowlist` (rag.py, knowmap.py →
+    `app/api/v1/deps.py:validate_agent_allowlist(config_id_attr=...)`, thin per-module
+    wrappers preserved for backward compatibility with existing importers in `tus.py` and
+    `test_knowmap_authz.py`; new `test_deps_validate_agent_allowlist.py`,
+    `test_rag_allowlist_validation.py`).
+  - **D-10** — two call sites (`knowmap_tus_finalizer.py`, `rag_tus_finalizer.py`) that
+    imported the old private `_normalise_mime` names directly were missed in the first
+    pass of D-9's consolidation (found by `mypy`, not by the original grep); fixed to
+    import `normalise_mime` from the new shared location.
 
 ## 16. Follow-ups
 
@@ -417,3 +519,32 @@ Appended by `/build`.
 - FU-2 — Phase 4β frontend (`docs/tasks/2026-07-07-graphrag-phase4b-knowledge-map-ui/spec.md`)
   resumes once this ships: it wires `agentsApi.getKnowmapGraph`/a `useKnowmapSocket`
   composable against the two endpoints this task adds, and reruns `check:openapi-drift`.
+- FU-3 — `app/api/v1/knowmap.py`'s other ~12 routes (config CRUD, document upload/list/
+  delete, allowlist set, rebuild) still instantiate `KnowmapConfigService`/
+  `KnowmapDocumentRepository` directly instead of routing through `KnowledgeFacade`, same
+  as `app/api/v1/rag.py`'s and `app/api/v1/graphrag.py`'s non-graph routes (a systemic,
+  file-wide pattern, not unique to this task — see D-2). A full facade-routing sweep
+  across the RAG/GraphRAG/Knowledge-Map API surface is out of scope here.
+- FU-4 — the manual live smoke test (§12, D-5) was never completed. Two concrete backend
+  gaps surfaced along the way and remain undiagnosed: (a) `alembic upgrade head` against a
+  genuinely fresh database fails partway (`StringDataRightTruncation` on
+  `alembic_version.version_num`, a `VARCHAR(32)` default vs. a revision id like
+  `0032_audit_retention_delete_grant` at 34 chars) — the already-running dev `smap`
+  database has this column pre-widened to `VARCHAR(255)` by some undocumented means, so
+  this has been silently masked in every environment that matters until a truly fresh
+  install is attempted; (b) the E2E test-overlay stack (`compose.test.yml` +
+  `docker-compose.override.yml`) hit an OS-level `Cannot allocate memory` error under
+  Docker Desktop on the machine this session ran on, immediately after the D-6 fix, cause
+  undiagnosed (plausibly a Windows/WSL2 resource-limit interaction with the bind-mounted
+  `--reload` dev image, not confirmed).
+- FU-5 — once FU-4(a) is fixed (e.g. a migration that explicitly widens
+  `alembic_version.version_num`, or documenting the expected manual step), the manual
+  smoke test from §12 should actually be run against a genuinely fresh stack before the
+  Phase 4β frontend starts driving these two endpoints for real.
+- FU-6 — D-8 surfaced an open product question: should the R11.01 builder-vs-consumer
+  Key Group distinctness rule apply to a Knowledge Map's `builder_key_group_id`? [R11.11]
+  explicitly exempts Concept Map (no single consumer agent), but a Knowledge Map *does*
+  have a well-defined consumer agent (via `agents.knowmap_config_id`), so R11.11's stated
+  rationale for the exemption doesn't obviously extend to it. Needs a product decision,
+  then either an SRS amendment confirming the exemption extends to Knowledge Map too, or
+  a new `_assert_knowmap_builder_key_group_distinct` check in `agent_service.py`.
