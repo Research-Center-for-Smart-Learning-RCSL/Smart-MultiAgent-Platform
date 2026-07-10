@@ -55,7 +55,11 @@ class AgentGroupRepository:
         """Insert a group and return its id (caller owns commit).
 
         The ``uq_agent_groups_project_name_active`` partial-unique makes a
-        duplicate active name in the project a domain 409, not a 500.
+        duplicate active name in the project a domain 409, not a 500. Any
+        *other* IntegrityError (e.g. a FK violation if ``project_id`` was
+        deleted between the caller's own check and this insert) must not be
+        mismapped to the same "name conflict" — re-raised as-is so it
+        surfaces as its real cause instead of a misleading 409.
         """
         try:
             row = await self._db.execute(
@@ -64,9 +68,12 @@ class AgentGroupRepository:
                 .returning(t.agent_groups.c.id)
             )
         except IntegrityError as exc:
-            raise AgentGroupNameConflict(
-                f"group name {name!r} already exists in project {project_id}"
-            ) from exc
+            msg = str(exc.orig or exc).lower()
+            if "uq_agent_groups_project_name_active" in msg:
+                raise AgentGroupNameConflict(
+                    f"group name {name!r} already exists in project {project_id}"
+                ) from exc
+            raise
         return uuid.UUID(str(row.scalar_one()))
 
     async def project_id_of(self, group_id: uuid.UUID) -> uuid.UUID | None:
