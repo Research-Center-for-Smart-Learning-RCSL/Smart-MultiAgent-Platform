@@ -19,13 +19,16 @@ from typing import Any, Protocol
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from contexts.knowledge.application.context_provider_text import (
+    compact_excerpt,
+    normalise_queries,
+)
 from contexts.knowledge.application.embed_resolution import resolve_pinned_embed_key
 from contexts.knowledge.application.graphrag_retrieve import EvidenceFetcher
 
 _log = logging.getLogger(__name__)
 
 _MAX_EVIDENCE_EXCERPTS = 10
-_MAX_EVIDENCE_CHARS = 280
 # Scan bound: examine at most this many refs to find _MAX_EVIDENCE_EXCERPTS
 # readable ones. Caps the fetcher's per-turn DB round-trips while leaving enough
 # headroom to look past unreadable refs the room-ACL filter drops.
@@ -83,7 +86,7 @@ class GraphRagContextProvider:
         threaded to the evidence fetcher so excerpts from rooms the agent may
         not read are dropped (WS3 AC-7).
         """
-        queries = _normalise_queries(query_text=query_text, query_texts=query_texts)
+        queries = normalise_queries(query_text=query_text, query_texts=query_texts)
         if graphrag_config_id is None or not queries:
             return None
         try:
@@ -128,7 +131,7 @@ class GraphRagContextProvider:
         Like :meth:`query`, any failure degrades to ``None`` — never a raised
         turn error.
         """
-        queries = _normalise_queries(query_text=query_text, query_texts=query_texts)
+        queries = normalise_queries(query_text=query_text, query_texts=query_texts)
         if not graphrag_config_ids or not queries:
             return None
         try:
@@ -296,22 +299,6 @@ class GraphRagContextProvider:
         return bundles
 
 
-def _normalise_queries(*, query_text: str | None, query_texts: Sequence[str] | None) -> list[str]:
-    queries: list[str] = []
-    for raw in ([query_text] if query_text is not None else []) + list(query_texts or []):
-        text = " ".join(str(raw or "").split())
-        if text and text not in queries:
-            queries.append(text)
-    return queries
-
-
-def _compact_excerpt(text: str) -> str:
-    compact = " ".join(text.split())
-    if len(compact) <= _MAX_EVIDENCE_CHARS:
-        return compact
-    return compact[: _MAX_EVIDENCE_CHARS - 3].rstrip() + "..."
-
-
 def build_evidence_fetcher(
     get_message: Callable[[uuid.UUID], Awaitable[Any]],
     is_agent_in_chatroom: _RoomMembershipCheck,
@@ -359,7 +346,7 @@ def build_evidence_fetcher(
                 room_readable[msg.chatroom_id] = readable
             if not readable:
                 continue
-            text = _compact_excerpt(msg.content_md)
+            text = compact_excerpt(msg.content_md)
             if not text:
                 continue
             excerpts.append(f"{msg.sender_type.value}: {text}")
