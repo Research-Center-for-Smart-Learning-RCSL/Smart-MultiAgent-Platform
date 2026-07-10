@@ -160,6 +160,11 @@ def test_recency_weighted_score_recent_beats_stale() -> None:
     assert recency_weighted_score(confidence=0.8, last_seen_at=now - day, half_life_days=None, now=now) == 0.8
     # NULL confidence coalesces to 0.0, like the traversal ordering already does.
     assert recency_weighted_score(confidence=None, last_seen_at=now, half_life_days=7, now=now) == 0.0
+    # The numeric half-life point: at age == half_life_days, the decay factor
+    # must be exactly 0.5, not exp(-1) ~ 0.368 (a missing ln(2) factor would
+    # make the true half-life ~0.693x the configured value).
+    at_half_life = recency_weighted_score(confidence=1.0, last_seen_at=now - 7 * day, half_life_days=7, now=now)
+    assert at_half_life == pytest.approx(0.5, rel=1e-9)
 
 
 @pytest.mark.asyncio
