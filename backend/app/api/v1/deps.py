@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass
 
-from fastapi import Query
+from fastapi import HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from shared_kernel.auth.permissions import Principal
@@ -39,3 +39,67 @@ async def assert_project_owner(
         return
     if not await TenancyFacade(db).is_project_owner(principal.user_id, project_id):
         _raise_forbidden(reason)
+
+
+async def assert_project_membership(
+    *,
+    db: AsyncSession,
+    principal: Principal,
+    project_id: uuid.UUID,
+    reason: str = "caller is not a member of the project",
+) -> None:
+    """Raise 403 unless the principal has any role on the project (admin bypasses).
+
+    The single membership-gate for read routes on a project-scoped resource —
+    was hand-copied identically across graphrag.py, knowmap.py, and
+    agent_groups.py (found in code review, 2026-07-10); collapsed here
+    alongside :func:`assert_project_owner` for the same reason.
+    """
+    from shared_kernel.auth.dependencies import _raise_forbidden, get_role_resolver
+    from shared_kernel.auth.permissions import Scope
+
+    if principal.is_admin:
+        return
+    resolver = await get_role_resolver(db)
+    roles = await resolver.roles_for(principal, Scope(project_id=project_id))
+    if not roles:
+        _raise_forbidden(reason)
+
+
+async def validate_agent_allowlist(
+    *,
+    db: AsyncSession,
+    config_id: uuid.UUID,
+    project_id: uuid.UUID,
+    agent_ids: list[uuid.UUID],
+    config_id_attr: str,
+) -> list[uuid.UUID]:
+    """Ensure every id is a live agent in ``project_id`` bound to ``config_id``.
+
+    A document's allowlist may only name agents that actually consume this
+    config — naming an agent bound to a different config (or another project)
+    would be a no-op at retrieval and an AuthZ smell, so we reject it at the
+    boundary. Returns the de-duplicated list on success; raises 422 otherwise.
+
+    ``config_id_attr`` names the Agent attribute to compare against
+    ``config_id`` (``"rag_config_id"`` or ``"knowmap_config_id"``) — was
+    hand-copied identically (differing only in that attribute name) across
+    rag.py and knowmap.py (found in code review, 2026-07-10).
+    """
+    from contexts.agents.interfaces.facade import AgentsFacade
+
+    if not agent_ids:
+        return []
+    requested = set(agent_ids)
+    bound = {
+        a.id
+        for a in await AgentsFacade(db).list_agents_for_project(project_id)
+        if getattr(a, config_id_attr) == config_id
+    }
+    unknown = requested - bound
+    if unknown:
+        raise HTTPException(
+            status_code=422,
+            detail=f"agent_ids not bound to this config: {sorted(str(u) for u in unknown)}",
+        )
+    return list(requested)

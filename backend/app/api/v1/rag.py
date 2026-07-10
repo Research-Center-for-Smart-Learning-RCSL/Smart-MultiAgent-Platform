@@ -31,6 +31,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.deps import PaginationParams
+from app.api.v1.deps import validate_agent_allowlist as _validate_agent_allowlist_generic
 from contexts.keys.infrastructure.adapters import build_router
 from contexts.knowledge.application.config_service import RagConfigService
 from contexts.knowledge.application.ingest_service import (
@@ -170,24 +171,17 @@ async def validate_agent_allowlist(
     config — naming an agent bound to a different config (or another project)
     would be a no-op at retrieval and an AuthZ smell, so we reject it at the
     boundary. Returns the de-duplicated list on success; raises 422 otherwise.
+    Thin wrapper over the shared implementation in ``deps.py`` (was a hand
+    copy of knowmap.py's equivalent, differing only in the config-id
+    attribute name — found in code review, 2026-07-10).
     """
-    from contexts.agents.interfaces.facade import AgentsFacade
-
-    if not agent_ids:
-        return []
-    requested = set(agent_ids)
-    bound = {
-        a.id
-        for a in await AgentsFacade(db).list_agents_for_project(project_id)
-        if a.rag_config_id == config_id
-    }
-    unknown = requested - bound
-    if unknown:
-        raise HTTPException(
-            status_code=422,
-            detail=f"agent_ids not bound to this config: {sorted(str(u) for u in unknown)}",
-        )
-    return list(requested)
+    return await _validate_agent_allowlist_generic(
+        db=db,
+        config_id=config_id,
+        project_id=project_id,
+        agent_ids=agent_ids,
+        config_id_attr="rag_config_id",
+    )
 
 
 _log = logging.getLogger(__name__)

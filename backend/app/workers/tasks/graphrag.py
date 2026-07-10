@@ -25,6 +25,7 @@ from contexts.knowledge.application.graphrag_builder import (
     ResolvedEmbedder,
 )
 from contexts.knowledge.application.graphrag_ports import ConfigLike, DeltaMessage
+from contexts.knowledge.infrastructure.channels import graphrag_channel
 from contexts.knowledge.infrastructure.embedders import router_embedder_for
 from contexts.knowledge.infrastructure.graphrag_repositories import GraphRagConfigRepository
 from contexts.knowledge.infrastructure.graphrag_vector_store import GraphRagVectorStore
@@ -339,6 +340,7 @@ async def _run_build(*, config_id: str, triggered_by: str = "manual") -> str:
                 delta_loader=delta_loader,
                 embedder_factory=_make_embedder_factory(db),
                 configs=GraphRagConfigRepository(db),
+                channel_fn=graphrag_channel,
             )
             cfg_id_str = str(cfg_id)
 

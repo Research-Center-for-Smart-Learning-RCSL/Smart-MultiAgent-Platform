@@ -21,7 +21,7 @@ from fastapi import APIRouter, Depends, Path, Query, status
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.v1.deps import PaginationParams
+from app.api.v1.deps import PaginationParams, assert_project_membership
 from contexts.knowledge.application.graphrag_config_service import (
     GraphRagConfigService,
 )
@@ -289,26 +289,6 @@ async def create_config(
 config_router = APIRouter(prefix="/api/graphrag", tags=["graphrag"])
 
 
-async def _assert_project_membership(
-    *,
-    db: AsyncSession,
-    principal: Principal,
-    project_id: uuid.UUID,
-) -> None:
-    from shared_kernel.auth.dependencies import (
-        _raise_forbidden,
-        get_role_resolver,
-    )
-    from shared_kernel.auth.permissions import Scope
-
-    if principal.is_admin:
-        return
-    resolver = await get_role_resolver(db)
-    roles = await resolver.roles_for(principal, Scope(project_id=project_id))
-    if not roles:
-        _raise_forbidden("caller is not a member of the config's project")
-
-
 async def _assert_edit(
     *,
     db: AsyncSession,
@@ -340,7 +320,7 @@ async def read_config(
 ) -> GraphRagConfigOut:
     service = GraphRagConfigService(db)
     cfg = await service.get(config_id)
-    await _assert_project_membership(
+    await assert_project_membership(
         db=db,
         principal=principal,
         project_id=cfg.project_id,
@@ -356,7 +336,7 @@ async def read_status(
 ) -> GraphRagStatusOut:
     service = GraphRagConfigService(db)
     cfg = await service.get(config_id)
-    await _assert_project_membership(
+    await assert_project_membership(
         db=db,
         principal=principal,
         project_id=cfg.project_id,
@@ -389,7 +369,7 @@ async def read_graph(
         from contexts.knowledge.domain.errors import GraphRagConfigNotFound
 
         raise GraphRagConfigNotFound(str(config_id))
-    await _assert_project_membership(
+    await assert_project_membership(
         db=db,
         principal=principal,
         project_id=cfg.project_id,
@@ -591,7 +571,7 @@ async def read_agent_concept_map_coverage(
     agent = await AgentsFacade(db).get_agent(agent_id)
     if agent is None:
         raise AgentNotFound(str(agent_id))
-    await _assert_project_membership(
+    await assert_project_membership(
         db=db,
         principal=principal,
         project_id=agent.project_id,

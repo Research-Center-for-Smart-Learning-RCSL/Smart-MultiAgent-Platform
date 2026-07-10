@@ -30,7 +30,7 @@ contexts/{name}/
 
 ## API Routes
 
-38 route files in `app/api/v1/`. WebSocket routes in `app/api/ws/` (6 files).
+38 route files in `app/api/v1/`. WebSocket routes in `app/api/ws/` (8 files).
 
 Route handlers must:
 1. Validate input via Pydantic request models

@@ -145,6 +145,7 @@ class GraphRagBuilder:
         delta_loader: DeltaLoader,
         embedder_factory: EmbedderFactory,
         configs: GraphRagConfigRepositoryPort,
+        channel_fn: Callable[[uuid.UUID], str],
     ) -> None:
         self._db = db
         self._neo4j = neo4j
@@ -155,6 +156,13 @@ class GraphRagBuilder:
         self._delta_loader = delta_loader
         self._embedder_factory = embedder_factory
         self._configs = configs
+        # R11.15: the engine is shared across GraphRAG and Knowledge Map, so it
+        # cannot assume which domain's channel to publish build-state to —
+        # every caller must name its own (graphrag_channel / knowmap_channel).
+        # No default: a silent fallback here previously let a caller that
+        # forgot to wire this misdirect its events onto another product's
+        # channel with no error (found in code review).
+        self._channel_fn = channel_fn
 
     async def run(
         self,
@@ -210,7 +218,9 @@ class GraphRagBuilder:
             state=BuildState.RUNNING,
             error=None,
         )
-        await publish_build_state(cfg.id, BuildState.RUNNING.value, build_id=build_id)
+        await publish_build_state(
+            cfg.id, BuildState.RUNNING.value, build_id=build_id, channel=self._channel_fn(cfg.id)
+        )
         await audit.emit(
             self._db,
             audit.AuditEvent(
@@ -329,7 +339,9 @@ class GraphRagBuilder:
             state=BuildState.NEO4J_COMMITTED,
             error=None,
         )
-        await publish_build_state(cfg.id, BuildState.NEO4J_COMMITTED.value, build_id=build_id)
+        await publish_build_state(
+            cfg.id, BuildState.NEO4J_COMMITTED.value, build_id=build_id, channel=self._channel_fn(cfg.id)
+        )
         # Audit C1/C2: make NEO4J_COMMITTED durable so a crash before Phase-2
         # finishes leaves a row the reconciler can pick up and heal.
         await self._db.commit()
@@ -375,7 +387,12 @@ class GraphRagBuilder:
                     },
                 ),
             )
-            await publish_build_state(cfg.id, BuildState.FAILED_COMPENSATING.value, build_id=build_id)
+            await publish_build_state(
+                cfg.id,
+                BuildState.FAILED_COMPENSATING.value,
+                build_id=build_id,
+                channel=self._channel_fn(cfg.id),
+            )
             # Audit C1/C2: persist FAILED_COMPENSATING durably; the current-build
             # pointer is intentionally left set so the reconciler resolves this
             # build's id and retries Phase-2 (or rolls back).
@@ -460,6 +477,7 @@ class GraphRagBuilder:
             cfg.id,
             BuildState.IDLE.value,
             build_id=build_id,
+            channel=self._channel_fn(cfg.id),
             triples=n_triples,
             entities=len(embeddings),
         )
@@ -501,7 +519,9 @@ class GraphRagBuilder:
                 },
             ),
         )
-        await publish_build_state(config_id, BuildState.FAILED.value, build_id=build_id)
+        await publish_build_state(
+            config_id, BuildState.FAILED.value, build_id=build_id, channel=self._channel_fn(config_id)
+        )
         # Audit C1: FAILED is a terminal state — make it durable immediately.
         await self._db.commit()
 
