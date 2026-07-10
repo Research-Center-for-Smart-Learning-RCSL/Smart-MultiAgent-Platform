@@ -246,6 +246,47 @@ async def test_create_for_chatroom_and_workspace_owners() -> None:
         assert ws_cfg.owner_workspace_id == env.workspace.id
 
 
+async def test_recreate_after_soft_delete_does_not_collide_on_owner_index() -> None:
+    # Regression (code review finding): soft_delete used to leave the owner
+    # column populated, and the partial unique index on it is not scoped to
+    # `deleted_at IS NULL` -- so a soft-deleted config permanently blocked
+    # any future create() for that same owner (409 GraphRagConfigAlreadyExists
+    # forever), even though the owner was shown as available again.
+    async with async_session() as db:
+        env = await _seed_project(db)
+        builder_kg = await KeyGroupRepository(db).create(project_id=env.project.id, name="builder")
+        room = await ChatroomRepository(db).create(workspace_id=env.workspace.id, name="r")
+        await db.commit()
+
+        svc = GraphRagConfigService(db)
+        first = await svc.create(
+            project_id=env.project.id,
+            draft=GraphRagConfigDraft(
+                owner_kind="chatroom", owner_id=room.id, builder_key_group_id=builder_kg.id
+            ),
+            actor_user_id=env.user.id,
+            actor_ip=None,
+        )
+        await db.commit()
+
+        await GraphRagConfigRepository(db).soft_delete(first.id)
+        await db.commit()
+
+        # Must not raise GraphRagConfigAlreadyExists.
+        second = await svc.create(
+            project_id=env.project.id,
+            draft=GraphRagConfigDraft(
+                owner_kind="chatroom", owner_id=room.id, builder_key_group_id=builder_kg.id
+            ),
+            actor_user_id=env.user.id,
+            actor_ip=None,
+        )
+        await db.commit()
+
+        assert second.id != first.id
+        assert second.owner_chatroom_id == room.id
+
+
 async def test_list_layers_for_turn_orders_and_gates_layers() -> None:
     # AC-4/AC-6/AC-11: the resolver returns the chatroom + enabled agent_group +
     # enabled workspace layers ordered narrow->wide; wide layers are excluded

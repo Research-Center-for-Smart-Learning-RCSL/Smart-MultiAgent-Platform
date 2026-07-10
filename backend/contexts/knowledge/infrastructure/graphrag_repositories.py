@@ -652,8 +652,23 @@ class GraphRagConfigRepository(GraphRagConfigRepositoryPort):
         )
 
     async def soft_delete(self, config_id: uuid.UUID) -> None:
+        # Clear all three owner columns, not just deleted_at: the partial
+        # unique indexes on owner_chatroom_id/owner_agent_group_id/
+        # owner_workspace_id (migration 0043_graphrag_owner.py) are only
+        # `WHERE {col} IS NOT NULL`, not additionally scoped to
+        # `deleted_at IS NULL` — a soft-deleted row with its owner column
+        # still populated permanently blocks any future create() for that
+        # same owner (409 GraphRagConfigAlreadyExists forever), even though
+        # list_owner_options() already shows the owner as available again.
         await self._db.execute(
-            t.graphrag_configs.update().where(t.graphrag_configs.c.id == config_id).values(deleted_at=now())
+            t.graphrag_configs.update()
+            .where(t.graphrag_configs.c.id == config_id)
+            .values(
+                deleted_at=now(),
+                owner_chatroom_id=None,
+                owner_agent_group_id=None,
+                owner_workspace_id=None,
+            )
         )
 
     async def update(
