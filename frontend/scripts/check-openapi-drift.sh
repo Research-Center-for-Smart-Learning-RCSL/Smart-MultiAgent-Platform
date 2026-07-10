@@ -11,7 +11,16 @@ BACKEND_DIR="$(cd "$(dirname "$0")/../../backend" && pwd)"
 SPEC_PATH="$BACKEND_DIR/openapi.json"
 
 echo "Exporting OpenAPI spec from backend…"
-( cd "$BACKEND_DIR" && python -m scripts.export_openapi > openapi.json )
+# Export to a temp file and move into place only on a clean run. Shell '>'
+# truncates its target before the command executes, so redirecting straight
+# into the committed openapi.json would zero it out the moment the export
+# fails (e.g. python missing from the invoking shell's PATH) — and on WSL the
+# /mnt/c passthrough means that destroys the real tracked file, not a throwaway
+# copy (dossier FU-3 / D-5).
+SPEC_TMP="$SPEC_PATH.tmp"
+trap 'rm -f "$SPEC_TMP"' EXIT
+( cd "$BACKEND_DIR" && python -m scripts.export_openapi ) > "$SPEC_TMP"
+mv "$SPEC_TMP" "$SPEC_PATH"
 
 echo "Regenerating OpenAPI types…"
 npm run gen:api --silent
