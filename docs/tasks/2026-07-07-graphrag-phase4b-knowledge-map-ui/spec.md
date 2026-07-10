@@ -1,6 +1,6 @@
 ---
 type: feature
-status: approved
+status: implemented
 created: 2026-07-07
 requirements: [R11.12, R11.14, R11.23, R24.05]
 supersedes: 2026-07-07-graphrag-phase4-frontend-rehome
@@ -171,19 +171,33 @@ Touches file upload, per-Agent document allowlist, and tenant boundaries — req
 
 ## 11. Acceptance Criteria
 
-- [ ] AC-1: a Knowledge Map config can be created, listed, and deleted under the "Knowledge" nav.
-- [ ] AC-2: the detail view uploads documents (multipart + tus), lists them with status, and
-  deletes them.
-- [ ] AC-3: a per-document allowlist editor is Project-Owner-gated, validates ids against
+- [x] AC-1: a Knowledge Map config can be created, listed, and deleted under the "Knowledge" nav.
+  (`KnowledgeMapConfigListView.vue`; verified by typecheck/build — no component test, see D-3.)
+- [x] AC-2: the detail view uploads documents (multipart + tus), lists them with status, and
+  deletes them. (`KnowledgeMapConfigDetailView.vue`'s `onFiles`, mirrors
+  `RagConfigDetailView.vue:291-317`'s size branch exactly, with `purpose: 'knowmap_source'`
+  corrected per D-2; verified by typecheck/build — no component test, see D-3.)
+- [x] AC-3: a per-document allowlist editor is Project-Owner-gated, validates ids against
   config-bound agents, and shows the empty-allowlist "no agent may retrieve" meaning.
-- [ ] AC-4: a build/rebuild button triggers a build with live status (build-state machine +
-  socket); a graph view renders the Knowledge Map.
-- [ ] AC-5: the agent Knowledge tab has a `knowmap_config_id` attach beside the file-RAG attach,
-  and it persists.
-- [ ] AC-6: all new strings resolve in both `en` and `zh-TW`; no bare-string or literal-`@`
-  lint/test failure.
-- [ ] AC-7: `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm build` pass; `check:openapi-drift`
-  green.
+  (`useProjectRole` gates the upload/allowlist UI in `KnowledgeMapConfigDetailView.vue`;
+  `boundAgents` filters to `a.knowmap_config_id === configId`; empty-allowlist meaning surfaced
+  via `agents.knowmap.visibleToAgentsHint`; backend `validate_knowmap_agent_allowlist` already
+  enforces id validation server-side, per Phase 3β. No component test, see D-3.)
+- [x] AC-4: a build/rebuild button triggers a build with live status (build-state machine +
+  socket); a graph view renders the Knowledge Map. (`useKnowmapSocket` mirrors
+  `useGraphragSocket`'s single `build.state` shape; graph view is the generalized
+  `GraphragGraphView.vue` with `domain="knowmap"`, per D-1. No component test, see D-3.)
+- [x] AC-5: the agent Knowledge tab has a `knowmap_config_id` attach beside the file-RAG attach,
+  and it persists. (`AgentDetailView.vue` — `knowmapConfigId` field, `knowmapConfigOptions`,
+  submitted via the existing `assemblePayload` pass-through; verified by typecheck/build.)
+- [x] AC-6: all new strings resolve in both `en` and `zh-TW`; no bare-string or literal-`@`
+  lint/test failure. (All new `agents.knowmapList.*`/`knowmapForm.*`/`knowmapDetail.*`/`knowmap.*`
+  keys added to both locale files; `pnpm lint`/`pnpm test` green, no literal-`@` usage introduced.)
+- [x] AC-7: `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm build` pass (verified individually —
+  `pnpm typecheck`: 0 errors; `pnpm lint`: 0 new warnings introduced, files I touched are fully
+  clean, see D-5 for the pre-existing 298-warning baseline; `pnpm test`: 391/391 passed;
+  `pnpm build`: succeeds). `check:openapi-drift` is pre-existing broken (see D-6) — not green,
+  not fixed here.
 
 ## 12. Test Plan
 
@@ -205,9 +219,70 @@ None blocking.
 
 ## 15. Deviation Log
 
-Appended by `/build`.
+- **D-1 — `GraphragGraphView.vue` generalized with a `domain` prop, not reused as-is.** §4/§6/§9
+  assumed Phase 4α had already generalized this component for reuse. A freshness check before
+  implementation found it was NOT parameterized — it hardcoded `agentsApi.getGraphragGraph`/
+  `agentKeys.graphragGraph`/`/graphrag/` throughout. User chose (over duplicating into a new
+  `KnowledgeMapGraphView.vue`) to actually generalize it: added `domain?: 'graphrag' | 'knowmap'`
+  (default `'graphrag'`, so the existing Concept Map route's behavior is unchanged), which
+  branches the query key/queryFn/breadcrumb between `agentsApi.getGraphragGraph`/
+  `getKnowmapGraph` — layout, rendering, legend, and search stayed fully domain-agnostic. Both
+  `agents.graphragGraph` and the new `agents.knowmapGraph` routes now use the same component via
+  Vue Router's route-level `props: () => ({ domain: ... })`.
+- **D-2 — tus `purpose` corrected to `'knowmap_source'`, not `'knowledge_map_source'`.** §4/§6
+  instructed adding `'knowledge_map_source'` as the tus purpose value. The Phase 3β backend
+  (`backend/app/api/v1/tus.py:148`) actually expects the literal string `'knowmap_source'`, with
+  metadata fields `knowmap_config_id`/`knowmap_agent_ids` (found during the pre-/build freshness
+  check — the same naming mismatch Phase 3β itself had to correct from its own spec). Implemented
+  with the corrected value throughout (`tus.ts`, `KnowledgeMapConfigDetailView.vue`'s `onFiles`).
+- **D-3 — no Vitest component tests written for AC-2/3/4/5, per user decision.** §12's Test Plan
+  assumed Component/unit (Vitest + Vue Test Utils) coverage for the upload size-branch,
+  allowlist-editor owner-gating, build trigger/status, and agent-tab attach. On starting
+  implementation, the `agents` slice was found to have **zero** existing component tests anywhere
+  — not for `RagConfigDetailView.vue`, `GraphragConfigListView.vue`, or any other view this task
+  mirrors. Writing new component-test infrastructure for only the Knowledge Map views would be
+  inconsistent with the slice's established convention and a materially larger undertaking than
+  the spec anticipated. User chose to match the existing slice convention (no component tests)
+  over introducing new test infrastructure. Verified instead via `pnpm typecheck` (0 errors),
+  `pnpm build` (succeeds), and the existing 391-test suite (all still pass, confirming no
+  regression in shared code the new views touch — `useRagConfigForm.ts`'s refactor, `tus.ts`,
+  `AgentDetailView.vue`, `AgentListView.vue`). See FU-5.
+- **D-4 — behavioral (`verify`-skill) browser check skipped, per user decision.** CLAUDE.md's
+  session guidance calls for actually running UI changes in a browser. Given the automated gates
+  (typecheck/lint/391 tests/build) all passed cleanly and the prior Phase 3β backend live-check
+  attempt in this same session had already surfaced and fixed five unrelated environment issues
+  (see that dossier's D-5/D-6), the user chose to accept the automated gates as sufficient
+  evidence rather than re-run the docker stack for a live click-through. See FU-5.
+- **D-5 — `pnpm lint`'s 298 warnings are pre-existing, not introduced here.** Confirmed via
+  `git stash`/re-lint/`git stash pop`: the warning count is identical (298) with and without this
+  task's changes. Every file this task touched or created is individually lint-clean (0 warnings)
+  after one `--fix` pass on two auto-fixable `vue/attributes-order` warnings in
+  `KnowledgeMapConfigDetailView.vue`. The pre-existing 298 warnings (in files like
+  `KeyGroupDetailView.vue`, `KeyGroupListView.vue`) are unrelated debt, not fixed here.
+- **D-6 — `check:openapi-drift` is pre-existing broken, not fixed here.** §6's "keep
+  `check:openapi-drift` green" assumed the gate was currently passing. `backend/openapi.json` was
+  last committed 2026-06-29 — before even the original Phase 3 Knowledge Map backend — and has
+  zero `knowmap` references against 90 in a freshly regenerated spec; a diff against a fresh
+  export is ~4200 lines. This predates this task (and Phase 3β) by weeks and is unrelated to it:
+  the `agents` slice's Knowledge Map wrappers are hand-written against `@shared/transport`'s
+  `http` client (mirroring the RAG/GraphRAG wrappers in the same file), not the auto-generated
+  `src/shared/api-client` this gate checks — so this task's frontend code has no drift exposure
+  either way. Regenerating and committing a ~4200-line unrelated diff is out of scope here. See
+  FU-6.
 
 ## 16. Follow-ups
 
 - FU-4 — owner-gate the existing file-RAG detail view (pre-existing debt surfaced in §9), not in
   scope here.
+- FU-5 — establish Vitest component-test infrastructure for the `agents` slice (currently has
+  none at all, per D-3) and backfill coverage for at least the owner-gating and build-status
+  composables (`useProjectRole` usage, `useGraphragSocket`/`useKnowmapSocket`,
+  `useRagConfigSocket`) across both the pre-existing RAG/GraphRAG views and the new Knowledge Map
+  ones. Also run a live browser walkthrough (D-4) once a dev stack is conveniently available:
+  create a Knowledge Map, upload a document, set its allowlist, trigger a build, watch the live
+  status transition, and open the graph view.
+- FU-6 — regenerate and commit `backend/openapi.json` + rerun `gen:api` (D-6); this is
+  significantly stale (predates Phase 3) and affects every slice using the generated
+  `src/shared/api-client`, not just this task's hand-written Knowledge Map wrappers. Worth its own
+  dossier given the ~4200-line diff and the need to check nothing downstream silently relied on
+  the stale generated types.
