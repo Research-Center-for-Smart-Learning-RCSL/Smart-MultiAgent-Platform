@@ -8,12 +8,14 @@ Guardrails enforced here:
   Group would silently break isolation).
 - **Attached RAG / Knowledge Map config must live in the same project** as
   the agent (SEC-H1) — `_assert_rag_config_in_project` /
-  `_assert_knowmap_config_in_project` below. Neither checks the R11.01
-  builder-vs-consumer Key Group distinctness rule: [R11.11] explicitly
-  exempts Concept Maps from it (no single consumer agent), but whether it
-  should still apply to a Knowledge Map's `builder_key_group_id` (which
-  *does* have a well-defined consumer agent, unlike Concept Map) is an open
-  product question — not enforced here pending that decision.
+  `_assert_knowmap_config_compatible` below.
+- **Key Group must differ from the attached Knowledge Map's builder Key
+  Group** (R11.01 billing/quota separation) — checked on create/attach and
+  again whenever the agent's own `key_group_id` changes. [R11.11] exempts
+  Concept Maps from this (no single consumer agent), but a Knowledge Map
+  *does* have a well-defined consumer agent, so the split applies the same
+  way it used to for GraphRAG attachment before GraphRAG became
+  owner-centric.
 - **Optimistic locking** on patch / delete via `If-Match: <version>`.
 - **Audit tap** for every state-changing call.
 
@@ -44,6 +46,7 @@ from contexts.agents.domain.errors import (
     FileSearchNeedsKnowledge,
     KeyGroupNoMatchingProvider,
     KeyGroupOutOfProject,
+    KnowmapBuilderKeyGroupConflict,
     KnowmapConfigOutOfProject,
     RagConfigOutOfProject,
     ToolNotAvailable,
@@ -228,17 +231,40 @@ class AgentService:
         if cfg is None or cfg.project_id != project_id:
             raise RagConfigOutOfProject(f"rag_config {rag_config_id} is not in project {project_id}")
 
-    async def _assert_knowmap_config_in_project(
-        self, *, knowmap_config_id: uuid.UUID, project_id: uuid.UUID
+    async def _assert_knowmap_config_compatible(
+        self,
+        *,
+        knowmap_config_id: uuid.UUID,
+        project_id: uuid.UUID,
+        key_group_id: uuid.UUID,
+        require_exists: bool = True,
     ) -> None:
-        """Knowledge Map counterpart of `_assert_rag_config_in_project` — a
-        knowmap config attached to an agent must live in the same project, else
-        the agent would pull another tenant's knowledge into context.
+        """SEC-H1 cross-tenant guard + R11.01 builder/consumer key-group split.
+
+        A knowmap config attached to an agent must live in the same project,
+        else the agent would pull another tenant's knowledge into context.
+        It must also use a different Key Group than the agent's own, so the
+        agent's real-time chat inference and the config's background build
+        jobs don't silently share one Key Group's rate limit/budget.
+
+        `require_exists=False` is for re-checking a config the caller is
+        *not* attaching in this call (an already-attached config the patch
+        payload doesn't mention). If that config was soft-deleted out from
+        under the agent, there is nothing left to protect against, so the
+        check is skipped instead of turning an unrelated field edit into a
+        404 — only an explicit attach must fail loudly on a bad id.
         """
         cfg = await self._knowledge.get_knowmap_config(knowmap_config_id)
         if cfg is None or cfg.project_id != project_id:
+            if not require_exists:
+                return
             raise KnowmapConfigOutOfProject(
                 f"knowmap_config {knowmap_config_id} is not in project {project_id}"
+            )
+        if cfg.builder_key_group_id == key_group_id:
+            raise KnowmapBuilderKeyGroupConflict(
+                f"agent key_group_id must differ from its Knowledge Map config's "
+                f"builder_key_group_id ({key_group_id})"
             )
 
     async def create(
@@ -280,9 +306,10 @@ class AgentService:
                 project_id=project_id,
             )
         if draft.knowmap_config_id is not None:
-            await self._assert_knowmap_config_in_project(
+            await self._assert_knowmap_config_compatible(
                 knowmap_config_id=draft.knowmap_config_id,
                 project_id=project_id,
+                key_group_id=draft.key_group_id,
             )
 
         # `is not None` (not truthiness): an explicit empty {} means "inert by
@@ -387,10 +414,27 @@ class AgentService:
                 rag_config_id=draft.rag_config_id,
                 project_id=current.project_id,
             )
-        if not draft.clear_knowmap_config and draft.knowmap_config_id is not None:
-            await self._assert_knowmap_config_in_project(
-                knowmap_config_id=draft.knowmap_config_id,
+        effective_knowmap_id = (
+            None
+            if draft.clear_knowmap_config
+            else draft.knowmap_config_id
+            if draft.knowmap_config_id is not None
+            else current.knowmap_config_id
+        )
+        is_explicit_knowmap_attach = draft.knowmap_config_id is not None
+        # Re-validate whenever an attach could newly introduce the R11.01
+        # conflict: an explicit (re)attach, or the agent's own key_group_id
+        # moving while a config is already attached. An explicit attach must
+        # fail loudly on a bad id; the implicit recheck must not (see
+        # `require_exists` on `_assert_knowmap_config_compatible`).
+        if effective_knowmap_id is not None and (
+            is_explicit_knowmap_attach or effective_kg != current.key_group_id
+        ):
+            await self._assert_knowmap_config_compatible(
+                knowmap_config_id=effective_knowmap_id,
                 project_id=current.project_id,
+                key_group_id=effective_kg,
+                require_exists=is_explicit_knowmap_attach,
             )
 
         values: dict[str, Any] = {}

@@ -43,6 +43,11 @@ _MAP: ErrorMap = {
         404,
         "Knowledge Map config not found",
     ),
+    errors.KnowmapBuilderKeyGroupConflict: (
+        "agents/knowmap-builder-key-group-conflict",
+        422,
+        "Agent's Key Group must differ from its Knowledge Map's builder Key Group",
+    ),
     errors.A2AForbidden: ("a2a-forbidden", 403, "A2A call forbidden"),
     errors.McpBindingNotFound: (
         "agents/mcp-binding-not-found",
