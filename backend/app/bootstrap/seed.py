@@ -266,6 +266,7 @@ async def _seed_fixtures(
         knowmap_config_id=None,
         context_mode=ContextMode.GENERAL,
         context_token_cap=None,
+        effort=None,
         a2a_enabled=False,
         wakeup_config={},
         workflow_capabilities={},
