@@ -18,7 +18,9 @@ export const notificationsApi = {
   // last item's id to page back. The backend caps `limit` at 200.
   list: (cursor?: string, limit = 50): Promise<Notification[]> =>
     NotificationsService.listNotificationsApiNotificationsGet({
-      cursor: cursor ?? null,
+      // `|| null`, not `?? null` — an empty-string cursor must be omitted too,
+      // matching the original http.get(...) call's `cursor ? {cursor} : {}`.
+      cursor: cursor || null,
       limit,
     }),
 
