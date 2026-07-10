@@ -163,7 +163,9 @@ def test_recency_weighted_score_recent_beats_stale() -> None:
     # The numeric half-life point: at age == half_life_days, the decay factor
     # must be exactly 0.5, not exp(-1) ~ 0.368 (a missing ln(2) factor would
     # make the true half-life ~0.693x the configured value).
-    at_half_life = recency_weighted_score(confidence=1.0, last_seen_at=now - 7 * day, half_life_days=7, now=now)
+    at_half_life = recency_weighted_score(
+        confidence=1.0, last_seen_at=now - 7 * day, half_life_days=7, now=now
+    )
     assert at_half_life == pytest.approx(0.5, rel=1e-9)
 
 

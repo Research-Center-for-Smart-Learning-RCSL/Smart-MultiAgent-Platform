@@ -130,9 +130,7 @@ class TestSetDocumentAgentsOwnerGate:
         return doc, principal, docs_repo, config_service, tenancy
 
     async def test_capability_holder_but_not_owner_gets_masked_404(self) -> None:
-        _doc, principal, docs_repo, config_service, tenancy = self._setup(
-            is_admin=False, is_owner=False
-        )
+        _doc, principal, docs_repo, config_service, tenancy = self._setup(is_admin=False, is_owner=False)
 
         with (
             patch("app.api.v1.knowmap.KnowmapDocumentRepository", docs_repo),
@@ -161,9 +159,7 @@ class TestSetDocumentAgentsOwnerGate:
         docs_repo.return_value.set_agents.assert_not_awaited()
 
     async def test_owner_passes_through(self) -> None:
-        doc, principal, docs_repo, config_service, tenancy = self._setup(
-            is_admin=False, is_owner=True
-        )
+        doc, principal, docs_repo, config_service, tenancy = self._setup(is_admin=False, is_owner=True)
 
         with (
             patch("app.api.v1.knowmap.KnowmapDocumentRepository", docs_repo),
