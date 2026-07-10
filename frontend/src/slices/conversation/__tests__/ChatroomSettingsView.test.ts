@@ -56,7 +56,6 @@ function makeChatroom(overrides: Partial<Chatroom> = {}): Chatroom {
     allow_project_members: true,
     allow_project_owners_only: false,
     allow_guest_links: false,
-    guest_token: 'tok_1',
     version: 1,
     created_at: new Date().toISOString(),
     ...overrides,
