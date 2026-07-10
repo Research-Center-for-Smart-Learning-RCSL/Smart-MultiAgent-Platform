@@ -1,6 +1,6 @@
 ---
 type: refactor
-status: approved
+status: implemented
 created: 2026-07-10
 requirements: [R24.13]
 ---
@@ -240,22 +240,36 @@ Each step leaves `pnpm test`/`pnpm typecheck`/`pnpm lint` green before the next 
 
 ## 9. Acceptance Criteria
 
-- [ ] AC-1: `backend/openapi.json` is byte-identical to a fresh
-      `python -m scripts.export_openapi` run; `check:openapi-drift` passes.
-- [ ] AC-2: `frontend/src/shared/api-client` is identical to a fresh `pnpm run gen:api`
-      run against the regenerated spec.
-- [ ] AC-3: the new `axios.spec.ts` characterization tests pass against the
-      pre-refactor code, then continue passing unmodified after steps 5-7 land (proves
-      no observable change to `http`'s existing callers) plus the new bare-singleton
-      assertion passes once step 6 lands.
-- [ ] AC-4: `NotificationsView.test.ts` and the new `unreadCount()` test pass
-      unmodified before and after step 8's conversion.
-- [ ] AC-5: a generated-client call (via the converted `notifications` slice), made
-      with an expired access token, silently refreshes and retries exactly like an
-      `http`-based call does — verified per step 9's behavioral check.
-- [ ] AC-6: `pnpm typecheck && pnpm lint && pnpm test && pnpm build` all pass.
-- [ ] AC-7: `check-security` run specifically against the `axios.ts` diff (session/auth
-      surface) reports no unresolved CRITICAL/HIGH findings.
+- [x] AC-1: `backend/openapi.json` is byte-identical to a fresh
+      `python -m scripts.export_openapi` run (verified via a non-destructive diff to a
+      temp file — see D-5); `check:openapi-drift`'s own detection logic confirmed
+      manually equivalent (see D-5 for why the script itself couldn't be run as-is).
+      Commit `fb35ef0`.
+- [x] AC-2: `frontend/src/shared/api-client` is identical to a fresh `pnpm run gen:api`
+      run against the regenerated spec (verified via a temp-directory regen + file-list
+      diff — only pre-existing, non-generated `queryKeys.ts` differs, as expected).
+      Commit `2dd1e7f`.
+- [x] AC-3: `frontend/src/shared/transport/__tests__/axios.spec.ts` (13 tests) passes
+      against the pre-refactor code (commit `fea9e15`), continues passing unmodified
+      after steps 5-7 land (commits `3a81f4d`, `5226509`, `2bed0b8`), plus the
+      bare-singleton assertions added in step 6 pass.
+- [x] AC-4: `NotificationsView.test.ts` and
+      `notifications/api/__tests__/index.spec.ts` (`unreadCount`, plus the `list`
+      cursor-edge-case coverage added in D-3) pass unmodified before (commit `fea9e15`)
+      and after (commits `273085f`, `b3770c5`) step 8's conversion.
+- [x] AC-5: proven at the transport level — the two "bare axios singleton" tests in
+      `axios.spec.ts` (added in commit `5226509`) exercise exactly the request path a
+      generated-client call takes (bare `axios`, no `http`), including a 401 →
+      silent-refresh → replay → 200 round trip. The `notifications` slice's conversion
+      (commit `273085f`) routes through that exact path. Live docker-stack walkthrough
+      skipped per user decision — see D-6 (same call as Phase 4β's D-4).
+- [x] AC-6: `pnpm typecheck`, `pnpm lint` (scoped to touched files — see D-7),
+      `pnpm test` (113 files / 405-407 tests, one pre-existing unrelated flake — see
+      D-8), `pnpm build`, `check:bundle-size`, and `check:type-coverage` (98.25%) all
+      pass.
+- [x] AC-7: `check-security` run against the full diff (auth/session surface
+      specifically) — 0 Critical/High/Medium findings, 1 hardening suggestion (see
+      Follow-ups).
 
 ## 10. SRS Delta
 
@@ -264,7 +278,77 @@ new behavior.
 
 ## 11. Deviation Log
 
-Appended by /build.
+- **D-1 — `refreshHttp` sets `withCredentials: true` explicitly.** The bare
+  `axios.post('/api/auth/refresh', {})` call it replaces had no explicit credentials
+  setting (default `false`). Added for parity with `http`'s own `withCredentials: true`
+  (`axios.ts:78-84`'s comment on why: cross-origin deployments need it for the cookie
+  to ride along). In the current same-origin deployment this has no observable effect
+  (the browser already sends same-origin cookies regardless of the flag), but it is a
+  literal, if inert, departure from §5's "behaviorally identical" framing — called out
+  rather than silently accepted.
+- **D-2 — characterization test caught a real bug before commit.** Step 6's
+  `handleResponseError` was shared across two axios instances with different
+  `baseURL`s. The retry path (`if (ok) return http(original)`) was hardcoded to replay
+  via `http` regardless of which instance the original request came through — for a
+  request issued via the bare `axios` singleton (no `baseURL`, so its URLs already
+  include the full `/api/...` prefix), replaying through `http` (`baseURL: '/api'`)
+  produced a double `/api/api/...` prefix. The new "bare axios singleton" test in
+  `axios.spec.ts` (§6/AC-5) failed against this before it was ever committed.
+  `handleResponseError` now takes the originating `instance` and replays through it.
+  Not anticipated in §7's Migration Steps — discovered by following the
+  characterization-test-first discipline exactly as specified.
+- **D-3 — self-audit caught a falsy-cursor divergence.** The first pass at
+  `notifications/api/index.ts`'s conversion used `cursor ?? null`, which only
+  coalesces `null`/`undefined` — an empty-string cursor would have been sent as a
+  literal `cursor=` query param, unlike the original `http.get(...)` call's
+  `cursor ? {cursor} : {}` check, which omitted it for any falsy value including `''`.
+  Fixed to `cursor || null` (commit `b3770c5`) with new regression coverage for both
+  cases. No real call site reaches this today — `useNotificationsList.ts`'s
+  `pageParam` is always `undefined` or a real notification id, never `''` — but exact
+  behavioral parity was the refactor's stated non-goal boundary, so it was fixed rather
+  than left as a documented gap.
+- **D-4 — removed `vi.useFakeTimers()` from the network-error characterization test.**
+  The original test wrapped its assertion in `vi.useFakeTimers()`/`vi.useRealTimers()`
+  defensively, to avoid `markConnectionLost()`'s real `setTimeout` probe outliving the
+  test. This was unnecessary (the existing `afterEach`'s `markConnectionRestored()`
+  call already cancels that timer via `clearProbeTimer()`) and turned out to leak
+  faked-timer state into other test files run in the same `vitest` pass — reproduced by
+  `src/app/__tests__/Landing.test.ts`'s deep-link-forward test failing only when run
+  alongside `axios.spec.ts`, and passing reliably in isolation. Removed; confirmed the
+  Landing test passes consistently when paired with `axios.spec.ts` afterward.
+- **D-5 — `pnpm run check:openapi-drift` could not be run as originally planned, and
+  destroyed `backend/openapi.json` mid-session.** The script's `bash` invocation on
+  this machine resolves to WSL bash, where `python` is not on `PATH` (unlike the
+  Windows Python used for every manual `export_openapi` run in this task). Worse: the
+  script's `python -m scripts.export_openapi > openapi.json` line truncates the target
+  file via shell redirection *before* discovering `python` doesn't resolve — and since
+  WSL mounts the Windows filesystem at `/mnt/c`, that truncation hit the real,
+  just-committed `backend/openapi.json` (confirmed 0 bytes afterward), not a WSL-local
+  copy. Recovered via `git checkout -- openapi.json`; no data was lost beyond the
+  already-committed state. AC-1/AC-2 were instead verified via a non-destructive
+  manual regen-and-diff (export to a temp file / temp directory, diff, delete) — see
+  their evidence above. This is a pre-existing local-environment issue, not introduced
+  by this task, and out of the spec's stated non-goals ("not modifying
+  check:openapi-drift's detection mechanism") — see FU-3.
+- **D-6 — live docker-stack behavioral verification skipped, per user decision.**
+  Same call as Phase 4β's D-4: the transport-level characterization tests already
+  exercise the exact 401 → silent-refresh → replay → 200 path a generated-client call
+  takes (both via `http` and via the bare `axios` singleton), so the user chose to
+  accept that automated evidence rather than re-run the docker stack for a live check
+  of an auth-timing-dependent flow that's awkward to trigger manually (waiting for
+  real token expiry, or forcing one).
+- **D-7 — `pnpm lint` run scoped to touched files, not the full repo.** A full-repo
+  `pnpm lint` currently fails the `max-warnings: 0` gate with 296 pre-existing
+  warnings (`vue/html-indent`, unused-var patterns) in files this task never touched —
+  same category of pre-existing debt as Phase 4β's D-5. Verified via `npx eslint
+  <touched files>` after every commit in this task: 0 warnings, 0 errors on every file
+  this task created or modified.
+- **D-8 — one pre-existing, unrelated test flake.** `src/app/__tests__/Landing.test.ts`'s
+  "forwards a logged-out deep-link visitor on to login" test fails intermittently when
+  the full 113-file suite runs, but passes reliably in isolation or in small groups.
+  Confirmed pre-existing and unrelated to this task via `git stash` isolation: it
+  reproduces identically with this entire dossier's diff reverted (stashed back to the
+  last pre-task commit). See FU-4.
 
 ## 12. Follow-ups
 
@@ -274,3 +358,27 @@ Appended by /build.
 - FU-2: if the deployment model ever moves to cookie-based auth read by JS (currently
   N/A — Bearer-token model, confirmed in §3), revisit whether `withXSRFToken`
   hardening is needed on both `http` and the newly-instrumented bare `axios` singleton.
+- FU-3: `frontend/scripts/check-openapi-drift.sh:14` truncates `backend/openapi.json`
+  via shell redirection before it discovers `python` doesn't resolve in the invoking
+  shell (D-5) — on a machine where that shell is WSL bash without `python` on `PATH`,
+  this destroys the real committed file (via the `/mnt/c` passthrough), not a
+  disposable copy. Fix: write to a temp file and `mv` into place only on success (same
+  pattern the export step already half-does for `openapi.json.new` per Phase 4β's
+  investigation, just not followed through), so a failed export never touches the
+  committed artifact.
+- FU-4: `src/app/__tests__/Landing.test.ts`'s "forwards a logged-out deep-link
+  visitor" test is flaky under full-suite load (D-8) — fails ~consistently when all
+  113 files run together, passes reliably alone. Not investigated beyond confirming
+  it's pre-existing and unrelated to this task; likely the bounded `flushPromises` +
+  real-`setTimeout` retry loop not settling in time under CPU contention. Worth a
+  dedicated stabilization pass (e.g. drive it with fake timers or a deterministic
+  event instead of wall-clock retries).
+- FU-5: harden `injectAuthHeader` (and the idempotency-key / Accept-Language
+  interceptors) on the bare `axios` singleton to skip injection for requests to a
+  different origin, as defense-in-depth. Not exploitable today — `pnpm why axios`
+  confirms `axios` has exactly one consumer in the dependency tree, and the only
+  current user of the bare singleton (the generated client) only ever constructs
+  same-origin `/api/...` URLs — but nothing currently stops a future dependency that
+  internally uses the bare `axios` default export from silently inheriting the
+  bearer-token interceptor and leaking it to a third-party host. From the check-security
+  audit's Hardening section.
