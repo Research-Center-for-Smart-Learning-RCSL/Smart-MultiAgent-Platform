@@ -603,7 +603,15 @@ async def set_knowmap_document_agents(
     )
     if not decision.allowed:
         raise not_found
-    await _require_owner(db=db, project_id=cfg.project_id, principal=principal)
+    # DOM-7 applies to the owner gate too, not just the capability check:
+    # `_require_owner` raises a distinguishing 403 (worded for the upload
+    # route it was written for), which would let a capability-holding
+    # non-owner tell "document exists, I lack access" from "not found". Mask
+    # both the same way.
+    if not principal.is_admin and not await TenancyFacade(db).is_project_owner(
+        principal.user_id, cfg.project_id
+    ):
+        raise not_found
 
     validated = await validate_knowmap_agent_allowlist(
         db=db, config_id=doc.knowmap_config_id, project_id=cfg.project_id, agent_ids=body.agent_ids
