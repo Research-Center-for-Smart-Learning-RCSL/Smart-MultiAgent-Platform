@@ -1,6 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
 import { nextTick } from 'vue'
-import { flushPromises } from '@vue/test-utils'
 import { renderView } from '../../../tests/utils'
 import { useSessionStore } from '@shared/stores/session'
 import Landing from '../views/Landing.vue'
@@ -82,11 +81,21 @@ describe('Landing', () => {
     })
     const router = wrapper.vm.$router
     // The login route is lazily imported, so the forward navigation settles
-    // across a few macrotasks — flush until it lands (bounded retries).
-    for (let i = 0; i < 10 && router.currentRoute.value.name !== 'identity.login'; i++) {
-      await flushPromises()
-      await new Promise((r) => setTimeout(r))
-    }
+    // across a few async turns. Resolve exactly when it lands (via afterEach)
+    // rather than polling on wall-clock timers, which flaked under full-suite
+    // CPU contention.
+    await new Promise<void>((resolve) => {
+      if (router.currentRoute.value.name === 'identity.login') {
+        resolve()
+        return
+      }
+      const stop = router.afterEach((to) => {
+        if (to.name === 'identity.login') {
+          stop()
+          resolve()
+        }
+      })
+    })
 
     const current = router.currentRoute.value
     expect(current.name).toBe('identity.login')
