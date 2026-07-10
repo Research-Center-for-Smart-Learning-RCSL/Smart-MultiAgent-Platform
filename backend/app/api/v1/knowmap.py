@@ -23,26 +23,33 @@ from fastapi import (
     Form,
     HTTPException,
     Path,
+    Query,
     UploadFile,
     status,
 )
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.v1.deps import PaginationParams
+from app.api.v1.deps import PaginationParams, assert_project_membership
+from app.api.v1.deps import validate_agent_allowlist as _validate_agent_allowlist_generic
 from contexts.knowledge.application.knowmap_config_service import (
     KnowmapConfigService,
     build_knowmap_embedder,
+)
+from contexts.knowledge.application.knowmap_graph_service import (
+    DEFAULT_GRAPH_LIMIT,
+    MAX_GRAPH_LIMIT,
 )
 from contexts.knowledge.application.knowmap_ingest_service import (
     MAX_MULTIPART_BYTES,
     KnowmapIngestInput,
 )
 from contexts.knowledge.application.knowmap_triggers import enqueue_knowmap_build
-from contexts.knowledge.domain.errors import DocumentTooLarge
+from contexts.knowledge.domain.errors import DocumentTooLarge, KnowmapConfigNotFound
 from contexts.knowledge.domain.knowmap import KnowmapConfigDraft
 from contexts.knowledge.domain.models import ChunkStrategy
 from contexts.knowledge.infrastructure.knowmap_repositories import KnowmapDocumentRepository
+from contexts.knowledge.interfaces.facade import KnowledgeFacade
 from contexts.tenancy.interfaces.facade import TenancyFacade
 from shared_kernel.auth.context import RequestContext
 from shared_kernel.auth.dependencies import (
@@ -115,6 +122,27 @@ class KnowmapDocumentAgentsPatchIn(BaseModel):
     agent_ids: list[uuid.UUID] = Field(max_length=1_000)
 
 
+class KnowmapGraphNodeOut(BaseModel):
+    id: str
+    degree: int
+    build_id: str | None
+    type: str
+
+
+class KnowmapGraphEdgeOut(BaseModel):
+    source: str
+    relation: str
+    target: str
+    confidence: float
+
+
+class KnowmapGraphOut(BaseModel):
+    config_id: uuid.UUID
+    nodes: list[KnowmapGraphNodeOut]
+    edges: list[KnowmapGraphEdgeOut]
+    truncated: bool
+
+
 def _to_config_out(c: Any) -> KnowmapConfigOut:
     return KnowmapConfigOut(
         id=c.id,
@@ -161,38 +189,17 @@ async def validate_knowmap_agent_allowlist(
     A document's allowlist may only name agents that consume this Knowledge Map
     (``agent.knowmap_config_id == config_id``) — naming an unbound agent is a
     no-op at retrieval and an AuthZ smell. Returns the de-duplicated list; 422s.
+    Thin wrapper over the shared implementation in ``deps.py`` (was a hand
+    copy of rag.py's equivalent, differing only in the config-id attribute
+    name — found in code review, 2026-07-10).
     """
-    from contexts.agents.interfaces.facade import AgentsFacade
-
-    if not agent_ids:
-        return []
-    requested = set(agent_ids)
-    bound = {
-        a.id
-        for a in await AgentsFacade(db).list_agents_for_project(project_id)
-        if a.knowmap_config_id == config_id
-    }
-    unknown = requested - bound
-    if unknown:
-        raise HTTPException(
-            status_code=422,
-            detail=f"agent_ids not bound to this config: {sorted(str(u) for u in unknown)}",
-        )
-    return list(requested)
-
-
-async def _assert_project_membership(
-    *, db: AsyncSession, principal: Principal, project_id: uuid.UUID
-) -> None:
-    if principal.is_admin:
-        return
-    from shared_kernel.auth.dependencies import _raise_forbidden, get_role_resolver
-    from shared_kernel.auth.permissions import Scope
-
-    resolver = await get_role_resolver(db)
-    roles = await resolver.roles_for(principal, Scope(project_id=project_id))
-    if not roles:
-        _raise_forbidden("caller is not a member of the config's project")
+    return await _validate_agent_allowlist_generic(
+        db=db,
+        config_id=config_id,
+        project_id=project_id,
+        agent_ids=agent_ids,
+        config_id_attr="knowmap_config_id",
+    )
 
 
 async def _assert_edit(*, db: AsyncSession, principal: Principal, project_id: uuid.UUID) -> None:
@@ -274,7 +281,7 @@ async def read_knowmap_config(
     db: AsyncSession = Depends(db_session),
 ) -> KnowmapConfigOut:
     cfg = await KnowmapConfigService(db).get(config_id)
-    await _assert_project_membership(db=db, principal=principal, project_id=cfg.project_id)
+    await assert_project_membership(db=db, principal=principal, project_id=cfg.project_id)
     return _to_config_out(cfg)
 
 
@@ -382,6 +389,48 @@ async def rebuild_knowmap_config(
     return KnowmapRebuildAck(status="enqueued", config_id=config_id)
 
 
+@config_router.get("/{config_id}/graph")
+async def read_knowmap_graph(
+    config_id: uuid.UUID = Path(...),
+    limit: int = Query(DEFAULT_GRAPH_LIMIT, ge=1, le=MAX_GRAPH_LIMIT),
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(db_session),
+) -> KnowmapGraphOut:
+    """Read a bounded view of the config's knowledge graph (Phase 3β, R11.24).
+
+    AuthZ matches ``read_knowmap_config``: membership at the config's project.
+    The limit is clamped so a large graph can never stream an unbounded
+    payload to the browser — mirrors ``graphrag.py``'s ``read_graph``, which
+    this route now matches structurally too: through ``KnowledgeFacade``
+    rather than instantiating application-layer services directly (found in
+    code review — this file's other routes still bypass the facade, a
+    pre-existing pattern this one deliberately does not extend further).
+    """
+    facade = KnowledgeFacade(db)
+    cfg = await facade.get_knowmap_config(config_id)
+    if cfg is None:
+        raise KnowmapConfigNotFound(str(config_id))
+    await assert_project_membership(db=db, principal=principal, project_id=cfg.project_id)
+    view = await facade.get_knowmap_graph(config_id, limit=limit)
+    return KnowmapGraphOut(
+        config_id=view.config_id,
+        nodes=[
+            KnowmapGraphNodeOut(id=n.name, degree=n.degree, build_id=n.build_id, type=n.type)
+            for n in view.nodes
+        ],
+        edges=[
+            KnowmapGraphEdgeOut(
+                source=e.source,
+                relation=e.relation,
+                target=e.target,
+                confidence=e.confidence,
+            )
+            for e in view.edges
+        ],
+        truncated=view.truncated,
+    )
+
+
 @config_router.get("/{config_id}/documents")
 async def list_knowmap_documents(
     config_id: uuid.UUID = Path(...),
@@ -390,7 +439,7 @@ async def list_knowmap_documents(
     db: AsyncSession = Depends(db_session),
 ) -> list[KnowmapDocumentOut]:
     cfg = await KnowmapConfigService(db).get(config_id)
-    await _assert_project_membership(db=db, principal=principal, project_id=cfg.project_id)
+    await assert_project_membership(db=db, principal=principal, project_id=cfg.project_id)
     docs = await KnowmapDocumentRepository(db).list_for_config(
         config_id, limit=pagination.limit, offset=pagination.offset
     )

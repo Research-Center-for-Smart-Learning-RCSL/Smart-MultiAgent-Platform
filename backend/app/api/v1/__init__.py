@@ -143,6 +143,9 @@ def _build_registry() -> list[RouterEntry]:
         graphrag as ws_graphrag,
     )
     from app.api.ws import (
+        knowmap as ws_knowmap,
+    )
+    from app.api.ws import (
         prompt_assistant as ws_prompt_assistant,
     )
     from app.api.ws import (
@@ -238,6 +241,7 @@ def _build_registry() -> list[RouterEntry]:
         RouterEntry(ws_workflow_runs.router),
         RouterEntry(ws_rag_configs.router),
         RouterEntry(ws_graphrag.router),
+        RouterEntry(ws_knowmap.router),
         RouterEntry(ws_admin_tail.router),
         RouterEntry(ws_prompt_assistant.router),
     ]

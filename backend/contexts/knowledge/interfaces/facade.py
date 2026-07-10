@@ -34,6 +34,7 @@ from contexts.knowledge.infrastructure.repositories import RagConfigRepository
 if TYPE_CHECKING:
     from contexts.knowledge.application.graphrag_graph_service import GraphView
     from contexts.knowledge.application.graphrag_triggers import GraphRagBuildTrigger
+    from contexts.knowledge.application.knowmap_graph_service import KnowmapGraphView
 
 
 class KnowledgeFacade:
@@ -209,6 +210,24 @@ class KnowledgeFacade:
         attached ``knowmap_config_id`` belongs to the agent's project (SEC-H1).
         """
         return await self._knowmap.get(config_id, include_deleted=include_deleted)
+
+    async def get_knowmap_graph(
+        self,
+        config_id: uuid.UUID,
+        *,
+        limit: int,
+    ) -> KnowmapGraphView:
+        """Bounded node/edge view of a Knowledge Map config's Neo4j subgraph.
+
+        Mirrors :meth:`get_graphrag_graph` (Phase 3β, R11.24). The api layer
+        authorizes on the config's ``project_id`` first (via
+        :meth:`get_knowmap_config`); this only assembles the read model.
+        """
+        from contexts.knowledge.application.knowmap_graph_service import (
+            KnowmapGraphService,
+        )
+
+        return await KnowmapGraphService(self._db).get_graph(config_id=config_id, limit=limit)
 
     async def finalize_knowmap_upload(
         self,

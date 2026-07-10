@@ -15,7 +15,7 @@ from fastapi import APIRouter, Depends, Path, status
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.v1.deps import PaginationParams, assert_project_owner
+from app.api.v1.deps import PaginationParams, assert_project_membership, assert_project_owner
 from contexts.agent_groups.domain.errors import AgentGroupNotFound
 from contexts.agent_groups.domain.models import AgentGroup
 from contexts.agent_groups.interfaces.facade import AgentGroupFacade
@@ -71,20 +71,6 @@ class ConceptMapStatusOut(BaseModel):
     concept_map_enabled: bool
 
 
-async def _assert_project_membership(
-    *, db: AsyncSession, principal: Principal, project_id: uuid.UUID
-) -> None:
-    from shared_kernel.auth.dependencies import _raise_forbidden, get_role_resolver
-    from shared_kernel.auth.permissions import Scope
-
-    if principal.is_admin:
-        return
-    resolver = await get_role_resolver(db)
-    roles = await resolver.roles_for(principal, Scope(project_id=project_id))
-    if not roles:
-        _raise_forbidden("caller is not a member of the group's project")
-
-
 async def _assert_project_owner(*, db: AsyncSession, principal: Principal, project_id: uuid.UUID) -> None:
     await assert_project_owner(
         db=db,
@@ -119,7 +105,7 @@ async def list_groups(
     db: AsyncSession = Depends(db_session),
 ) -> list[AgentGroupOut]:
     """List a project's agent groups (Phase 4α). Read ⇒ project membership."""
-    await _assert_project_membership(db=db, principal=principal, project_id=project_id)
+    await assert_project_membership(db=db, principal=principal, project_id=project_id)
     groups = await AgentGroupFacade(db).list_groups(project_id)
     groups = groups[pagination.offset : pagination.offset + pagination.limit]
     return [_to_out(g) for g in groups]
@@ -163,7 +149,7 @@ async def get_group(
 ) -> AgentGroupOut:
     """Read a single agent group (Phase 4α). Read ⇒ project membership."""
     project_id = await _group_project_id(db, group_id)
-    await _assert_project_membership(db=db, principal=principal, project_id=project_id)
+    await assert_project_membership(db=db, principal=principal, project_id=project_id)
     group = await AgentGroupFacade(db).get_group(group_id)
     if group is None:
         raise AgentGroupNotFound(str(group_id))
@@ -270,7 +256,7 @@ async def list_members(
     db: AsyncSession = Depends(db_session),
 ) -> AgentGroupMembersOut:
     project_id = await _group_project_id(db, group_id)
-    await _assert_project_membership(db=db, principal=principal, project_id=project_id)
+    await assert_project_membership(db=db, principal=principal, project_id=project_id)
     members = await AgentGroupFacade(db).list_members(group_id)
     return AgentGroupMembersOut(members=list(members))
 

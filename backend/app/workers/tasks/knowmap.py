@@ -238,6 +238,7 @@ async def knowmap_build(ctx: dict[str, Any], *, config_id: str, triggered_by: st
     from qdrant_client import AsyncQdrantClient
 
     from app.config.settings import get_settings
+    from contexts.knowledge.infrastructure.channels import knowmap_channel
     from contexts.knowledge.infrastructure.graphrag_vector_store import GraphRagVectorStore
     from contexts.knowledge.infrastructure.neo4j_driver import Neo4jAsyncDriver
     from contexts.knowledge.infrastructure.redis_lock import (
@@ -270,6 +271,7 @@ async def knowmap_build(ctx: dict[str, Any], *, config_id: str, triggered_by: st
                 delta_loader=DocDeltaLoader(),
                 embedder_factory=_make_knowmap_embedder_factory(db),
                 configs=configs,
+                channel_fn=knowmap_channel,
             )
             try:
                 result = await builder.run(config_id=cfg_id, triggered_by=triggered_by)

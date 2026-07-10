@@ -25,6 +25,7 @@ from contexts.knowledge.application.graphrag_reconciler import (
     GraphConsumer,
     ReconciliationLoop,
 )
+from contexts.knowledge.infrastructure.channels import graphrag_channel
 from contexts.knowledge.infrastructure.graphrag_repositories import (
     GraphRagConfigRepository,
 )
@@ -159,6 +160,7 @@ async def _loop() -> AsyncIterator[ReconciliationLoop]:
                 resource_type="knowmap_config",
             ),
         ],
+        channel_fn=graphrag_channel,
     )
     try:
         yield loop
@@ -179,6 +181,7 @@ async def _knowmap_loop() -> AsyncIterator[ReconciliationLoop]:
     neo4j = Neo4jAsyncDriver(uri=settings.neo4j.url, auth=(settings.neo4j.user, settings.neo4j.password))
     from qdrant_client import AsyncQdrantClient
 
+    from contexts.knowledge.infrastructure.channels import knowmap_channel
     from contexts.knowledge.infrastructure.knowmap_repositories import (
         KnowmapConfigRepository,
     )
@@ -194,6 +197,7 @@ async def _knowmap_loop() -> AsyncIterator[ReconciliationLoop]:
         snapshot_store=RedisSnapshotStore(),
         phase2_retry=_make_phase2_retry(neo4j, vectors),
         lock_store=RedisBuildLockStore(),
+        channel_fn=knowmap_channel,
     )
     try:
         yield loop

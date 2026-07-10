@@ -97,6 +97,7 @@ class ReconciliationLoop:
         sleeper: Sleeper | None = None,
         lock_store: BuildLockStore | None = None,
         sweep_consumers: Sequence[GraphConsumer] = (),
+        channel_fn: Callable[[uuid.UUID], str],
     ) -> None:
         self._session_factory = session_factory
         self._repo_factory = repo_factory
@@ -106,6 +107,11 @@ class ReconciliationLoop:
         self._phase2 = phase2_retry
         self._sleep: Sleeper = sleeper or asyncio.sleep
         self._locks = lock_store
+        # R11.15: mirrors GraphRagBuilder's channel_fn — every caller must name
+        # its own channel (graphrag_channel for the Concept Map loop,
+        # knowmap_channel for the Knowledge Map loop). No default: see
+        # graphrag_builder.py's channel_fn docstring for why.
+        self._channel_fn = channel_fn
         # Every graph consumer that shares this Neo4j node space (config ids live in
         # different tables — graphrag_configs, knowmap_configs). The orphan sweep
         # unions their live ids to protect each consumer's subgraphs, and attributes
@@ -264,7 +270,7 @@ class ReconciliationLoop:
                 error="no snapshot available for compensation",
             )
             await self._clear_current(cfg.id)
-            await publish_build_state(cfg.id, BuildState.FAILED.value)
+            await publish_build_state(cfg.id, BuildState.FAILED.value, channel=self._channel_fn(cfg.id))
             return
 
         if cfg.last_build_state is BuildState.RUNNING:
@@ -325,7 +331,9 @@ class ReconciliationLoop:
                     },
                 ),
             )
-            await publish_build_state(cfg.id, BuildState.IDLE.value, build_id=build_id)
+            await publish_build_state(
+                cfg.id, BuildState.IDLE.value, build_id=build_id, channel=self._channel_fn(cfg.id)
+            )
             return
 
         # Retries exhausted → rollback Neo4j from snapshot.
@@ -359,7 +367,9 @@ class ReconciliationLoop:
             state=BuildState.FAILED,
             error="phase2 retries exhausted; rolled back",
         )
-        await publish_build_state(cfg.id, BuildState.FAILED.value, build_id=build_id)
+        await publish_build_state(
+            cfg.id, BuildState.FAILED.value, build_id=build_id, channel=self._channel_fn(cfg.id)
+        )
         await self._snapshots.delete(
             config_id=cfg.id,
             build_id=build_id,

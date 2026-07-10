@@ -28,6 +28,7 @@ from contexts.knowledge.domain.graphrag import (
     GraphRagConfig,
     Triple,
 )
+from contexts.knowledge.infrastructure.channels import graphrag_channel
 
 # ---------------------------------------------------------------------------
 # Fakes
@@ -359,6 +360,7 @@ def _make_builder(
     lock: FakeLock,
     snapshots: FakeSnapshots,
     extractor: FakeExtractor,
+    channel_fn: Any = graphrag_channel,
 ) -> tuple[GraphRagBuilder, FakeConfigStore, FakeDb]:
     db = FakeDb()
     store = FakeConfigStore(cfg)
@@ -372,6 +374,7 @@ def _make_builder(
         delta_loader=FakeDeltaLoader(),
         embedder_factory=_embedder_factory,
         configs=store,  # type: ignore[arg-type]
+        channel_fn=channel_fn,
     )
     return builder, store, db
 
@@ -441,6 +444,7 @@ def _provenance_builder(
         delta_loader=FakeWindowLoader([window]),
         embedder_factory=_embedder_factory,
         configs=FakeConfigStore(cfg),  # type: ignore[arg-type]
+        channel_fn=graphrag_channel,
     )
 
 
@@ -565,6 +569,7 @@ async def test_windowed_build_extracts_per_window_but_commits_once() -> None:
         delta_loader=FakeWindowLoader(windows),
         embedder_factory=_embedder_factory,
         configs=store,  # type: ignore[arg-type]
+        channel_fn=graphrag_channel,
     )
 
     result = await builder.run(config_id=cfg.id)
@@ -725,6 +730,7 @@ async def test_reconciler_retry_succeeds() -> None:
         snapshot_store=snaps,
         phase2_retry=phase2,
         sleeper=fake_sleep,
+        channel_fn=graphrag_channel,
     )
     # The reconciler resolves its repo via the injected factory; point it at
     # the fake store (which implements list_in_state/set_state). Stub commit/close.
@@ -735,6 +741,62 @@ async def test_reconciler_retry_succeeds() -> None:
     assert touched == [cfg.id]
     assert store.cfg.last_build_state is BuildState.IDLE  # type: ignore[comparison-overlap]
     assert store.cfg.last_build_at is not None  # type: ignore[unreachable]
+
+
+@pytest.mark.asyncio
+async def test_reconciler_recovery_publishes_to_overridden_channel(monkeypatch: Any) -> None:
+    # AC-4: a Knowledge Map's reconciler-recovered build (the IDLE-with-build_id
+    # recovery-success path) must publish onto its own channel_fn, not the
+    # graphrag_channel default — mirrors the builder's channel_fn (AC-3).
+    channels: list[Any] = []
+
+    async def _capture(config_id: Any, state: str, *, channel: Any = "unset", **_kw: Any) -> None:
+        channels.append((state, channel))
+
+    from contexts.knowledge.application import graphrag_reconciler as rmod
+
+    monkeypatch.setattr(rmod, "publish_build_state", _capture)
+
+    cfg = _make_cfg()
+    neo4j = FakeNeo4j()
+    vectors = FakeVectorStore(raise_on_upsert=RuntimeError("qdrant down"))
+    lock, snaps = FakeLock(), FakeSnapshots()
+    builder, store, _db = _make_builder(
+        cfg=cfg,
+        neo4j=neo4j,
+        vectors=vectors,
+        lock=lock,
+        snapshots=snaps,
+        extractor=FakeExtractor(_make_triples()),
+    )
+    await builder.run(config_id=cfg.id)
+    assert store.cfg.last_build_state is BuildState.FAILED_COMPENSATING
+
+    async def phase2(*, cfg, build_id) -> None:
+        return None  # succeeds first try
+
+    async def fake_sleep(_s: float) -> None:
+        return None
+
+    recon = ReconciliationLoop(
+        session_factory=lambda: store,  # type: ignore[arg-type, return-value]
+        repo_factory=lambda _db: store,  # type: ignore[arg-type, return-value]
+        neo4j=neo4j,
+        vector_store=vectors,  # type: ignore[arg-type]
+        snapshot_store=snaps,
+        phase2_retry=phase2,
+        sleeper=fake_sleep,
+        channel_fn=lambda config_id: f"ws:knowmap:{config_id}",
+    )
+    store.commit = _noop  # type: ignore[attr-defined]
+    store.close = _noop  # type: ignore[attr-defined]
+
+    touched = await recon.run_once()
+
+    assert touched == [cfg.id]
+    idle_channels = [c for state, c in channels if state == BuildState.IDLE.value]
+    assert idle_channels, "expected an IDLE publish on recovery"
+    assert all(c == f"ws:knowmap:{cfg.id}" for c in idle_channels)
 
 
 # ---------------------------------------------------------------------------
@@ -772,6 +834,7 @@ async def test_reconciler_exhausted_rolls_back() -> None:
         snapshot_store=snaps,
         phase2_retry=always_fails,
         sleeper=fake_sleep,
+        channel_fn=graphrag_channel,
     )
     store.commit = _noop  # type: ignore[attr-defined]
     store.close = _noop  # type: ignore[attr-defined]
@@ -827,6 +890,7 @@ async def test_reconciler_sweeps_orphaned_graph_configs() -> None:
                 resource_type="graphrag_config",
             )
         ],
+        channel_fn=graphrag_channel,
     )
 
     touched = await recon.run_once()
@@ -907,6 +971,7 @@ async def test_orphan_sweep_attributes_to_owning_consumer(monkeypatch: Any) -> N
                 resource_type="knowmap_config",
             ),
         ],
+        channel_fn=graphrag_channel,
     )
 
     touched = await recon.run_once()
@@ -978,6 +1043,92 @@ async def test_publishes_failed_state_on_phase1_failure(monkeypatch: Any) -> Non
     await builder.run(config_id=cfg.id)
 
     assert published[-1] == BuildState.FAILED.value
+
+
+@pytest.mark.asyncio
+async def test_construction_requires_channel_fn() -> None:
+    # Regression guard (code review, 2026-07-10): channel_fn used to default to
+    # None, silently falling back to graphrag_channel inside publish_build_state
+    # — a future third consumer of this shared engine that forgot to wire its
+    # own channel_fn would misdirect its build-state events with no error.
+    # channel_fn is now a required keyword-only argument, so that mistake is a
+    # TypeError at construction time instead of a silent cross-wire.
+    cfg = _make_cfg()
+    db = FakeDb()
+    store = FakeConfigStore(cfg)
+    with pytest.raises(TypeError, match="channel_fn"):
+        GraphRagBuilder(
+            db,  # type: ignore[arg-type]
+            neo4j=FakeNeo4j(),
+            vector_store=FakeVectorStore(),  # type: ignore[arg-type]
+            extractor=FakeExtractor(_make_triples()),
+            lock_store=FakeLock(),
+            snapshot_store=FakeSnapshots(),
+            delta_loader=FakeDeltaLoader(),
+            embedder_factory=_embedder_factory,
+            configs=store,  # type: ignore[arg-type]
+        )  # type: ignore[call-arg]
+
+
+@pytest.mark.asyncio
+async def test_default_test_channel_fn_matches_production_concept_map_wiring(monkeypatch: Any) -> None:
+    # AC-5 regression guard: a Concept Map builder must publish onto
+    # graphrag_channel(config_id), matching app/workers/tasks/graphrag.py's
+    # explicit channel_fn=graphrag_channel wiring.
+    channels: list[Any] = []
+
+    async def _capture(config_id: Any, state: str, *, channel: Any, **_kw: Any) -> None:
+        channels.append(channel)
+
+    from contexts.knowledge.application import graphrag_builder as bmod
+
+    monkeypatch.setattr(bmod, "publish_build_state", _capture)
+
+    cfg = _make_cfg()
+    builder, _store, _db = _make_builder(
+        cfg=cfg,
+        neo4j=FakeNeo4j(),
+        vectors=FakeVectorStore(),
+        lock=FakeLock(),
+        snapshots=FakeSnapshots(),
+        extractor=FakeExtractor(_make_triples()),
+        channel_fn=graphrag_channel,
+    )
+
+    await builder.run(config_id=cfg.id)
+
+    assert channels, "expected at least one publish_build_state call"
+    assert all(c == graphrag_channel(cfg.id) for c in channels)
+
+
+@pytest.mark.asyncio
+async def test_channel_override_used_when_channel_fn_set(monkeypatch: Any) -> None:
+    # A Knowledge Map builder passes channel_fn=knowmap_channel so build-state
+    # publishes land on ws:knowmap:{id}, not ws:graphrag:{id} (Phase 3β).
+    channels: list[Any] = []
+
+    async def _capture(config_id: Any, state: str, *, channel: Any = "unset", **_kw: Any) -> None:
+        channels.append(channel)
+
+    from contexts.knowledge.application import graphrag_builder as bmod
+
+    monkeypatch.setattr(bmod, "publish_build_state", _capture)
+
+    cfg = _make_cfg()
+    builder, _store, _db = _make_builder(
+        cfg=cfg,
+        neo4j=FakeNeo4j(),
+        vectors=FakeVectorStore(),
+        lock=FakeLock(),
+        snapshots=FakeSnapshots(),
+        extractor=FakeExtractor(_make_triples()),
+        channel_fn=lambda config_id: f"ws:knowmap:{config_id}",
+    )
+
+    await builder.run(config_id=cfg.id)
+
+    assert channels, "expected at least one publish_build_state call"
+    assert all(c == f"ws:knowmap:{cfg.id}" for c in channels)
 
 
 async def _noop(*_a: Any, **_kw: Any) -> None:
