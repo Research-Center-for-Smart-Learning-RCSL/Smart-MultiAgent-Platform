@@ -16,6 +16,7 @@ import { computed, ref, type ComputedRef } from 'vue'
 import { AuthError, NetworkError } from '@shared/errors'
 import { markConnectionLost, markConnectionRestored } from '@shared/composables/useNetworkStatus'
 import { i18n } from '@shared/i18n'
+import { OpenAPI } from '@shared/api-client'
 
 import type { ProblemJson } from './problem-json'
 import { parseProblem } from './problem-json'
@@ -225,6 +226,14 @@ axios.interceptors.request.use(injectAcceptLanguage)
 axios.interceptors.response.use(handleResponseSuccess, (error: AxiosError<ProblemJson>) =>
   handleResponseError(error, axios),
 )
+
+// The generated client's per-request `withCredentials` comes from this
+// singleton config, not from the (uninstrumented-by-default) bare `axios`
+// instance — mirrors `http`'s own `withCredentials: true` above. `TOKEN` and
+// `HEADERS` stay unset deliberately: the interceptors just registered above
+// already inject Authorization/Accept-Language after request.ts's own
+// header-building step runs, so setting them again here would be redundant.
+OpenAPI.WITH_CREDENTIALS = true
 
 // Dedicated, deliberately uninstrumented instance for the refresh call
 // itself: it must never carry a (possibly stale) `Authorization` header, and
