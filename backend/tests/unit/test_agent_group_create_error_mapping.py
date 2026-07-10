@@ -29,9 +29,7 @@ class _RaisingDb:
 
 @pytest.mark.asyncio
 async def test_name_conflict_constraint_maps_to_domain_error() -> None:
-    db = _RaisingDb(
-        'duplicate key value violates unique constraint "uq_agent_groups_project_name_active"'
-    )
+    db = _RaisingDb('duplicate key value violates unique constraint "uq_agent_groups_project_name_active"')
     repo = AgentGroupRepository(db)  # type: ignore[arg-type]
 
     with pytest.raises(AgentGroupNameConflict):
