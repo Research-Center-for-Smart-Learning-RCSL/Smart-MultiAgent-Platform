@@ -109,8 +109,7 @@
             "title": "Last Build Error"
           },
           "last_build_state": {
-            "title": "Last Build State",
-            "type": "string"
+            "$ref": "#/components/schemas/BuildState"
           },
           "owner_id": {
             "format": "uuid",
@@ -118,6 +117,11 @@
             "type": "string"
           },
           "owner_kind": {
+            "enum": [
+              "agent_group",
+              "chatroom",
+              "workspace"
+            ],
             "title": "Owner Kind",
             "type": "string"
           },
@@ -293,6 +297,16 @@
         "title": "AgentCreateIn",
         "type": "object"
       },
+      "AgentEffort": {
+        "description": "Cross-provider reasoning-effort level. The common subset all three\nproviders accept; mapped per-provider at the adapter boundary\n(Claude ``output_config.effort`` / OpenAI ``reasoning_effort`` /\nGemini ``thinkingConfig.thinkingLevel``). ``None`` on an agent means the\nparameter is not sent and the provider's own default applies.",
+        "enum": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "title": "AgentEffort",
+        "type": "string"
+      },
       "AgentGroupCreateIn": {
         "properties": {
           "name": {
@@ -389,6 +403,15 @@
         "title": "AgentGroupUpdateIn",
         "type": "object"
       },
+      "AgentModelHint": {
+        "enum": [
+          "claude",
+          "openai",
+          "gemini"
+        ],
+        "title": "AgentModelHint",
+        "type": "string"
+      },
       "AgentOut": {
         "properties": {
           "a2a_enabled": {
@@ -396,8 +419,7 @@
             "type": "boolean"
           },
           "context_mode": {
-            "title": "Context Mode",
-            "type": "string"
+            "$ref": "#/components/schemas/ContextMode"
           },
           "context_token_cap": {
             "anyOf": [
@@ -428,13 +450,12 @@
           "effort": {
             "anyOf": [
               {
-                "type": "string"
+                "$ref": "#/components/schemas/AgentEffort"
               },
               {
                 "type": "null"
               }
-            ],
-            "title": "Effort"
+            ]
           },
           "id": {
             "format": "uuid",
@@ -459,8 +480,7 @@
             "title": "Knowmap Config Id"
           },
           "model_hint": {
-            "title": "Model Hint",
-            "type": "string"
+            "$ref": "#/components/schemas/AgentModelHint"
           },
           "model_id": {
             "anyOf": [
@@ -483,8 +503,7 @@
             "type": "string"
           },
           "prompt_strategy": {
-            "title": "Prompt Strategy",
-            "type": "string"
+            "$ref": "#/components/schemas/PromptStrategy"
           },
           "rag_config_id": {
             "anyOf": [
@@ -861,8 +880,7 @@
             "type": "string"
           },
           "tool_type": {
-            "title": "Tool Type",
-            "type": "string"
+            "$ref": "#/components/schemas/AgentToolType"
           }
         },
         "required": [
@@ -981,6 +999,19 @@
         ],
         "title": "AgentToolTestOut",
         "type": "object"
+      },
+      "AgentToolType": {
+        "enum": [
+          "hosted_mcp",
+          "hosted_web_search",
+          "hosted_code_interpreter",
+          "hosted_file_workspace",
+          "hosted_file_search",
+          "local_function",
+          "local_shell"
+        ],
+        "title": "AgentToolType",
+        "type": "string"
       },
       "AllowlistAddIn": {
         "properties": {
@@ -1130,8 +1161,7 @@
             "title": "Started By User Id"
           },
           "state": {
-            "title": "State",
-            "type": "string"
+            "$ref": "#/components/schemas/RunState"
           },
           "trigger_type": {
             "anyOf": [
@@ -1351,16 +1381,14 @@
             "type": "string"
           },
           "scan_status": {
-            "title": "Scan Status",
-            "type": "string"
+            "$ref": "#/components/schemas/ScanStatus"
           },
           "size_bytes": {
             "title": "Size Bytes",
             "type": "integer"
           },
           "status": {
-            "title": "Status",
-            "type": "string"
+            "$ref": "#/components/schemas/AttachmentStatus"
           },
           "url": {
             "title": "Url",
@@ -1421,16 +1449,14 @@
             "type": "string"
           },
           "scan_status": {
-            "title": "Scan Status",
-            "type": "string"
+            "$ref": "#/components/schemas/ScanStatus"
           },
           "size_bytes": {
             "title": "Size Bytes",
             "type": "integer"
           },
           "status": {
-            "title": "Status",
-            "type": "string"
+            "$ref": "#/components/schemas/AttachmentStatus"
           }
         },
         "required": [
@@ -1445,6 +1471,15 @@
         ],
         "title": "AttachmentOut",
         "type": "object"
+      },
+      "AttachmentStatus": {
+        "enum": [
+          "active",
+          "quarantined",
+          "expired"
+        ],
+        "title": "AttachmentStatus",
+        "type": "string"
       },
       "AuditEntryOut": {
         "properties": {
@@ -1752,6 +1787,18 @@
         ],
         "title": "Body_upload_workspace_file_api_agents__agent_id__workspace_files_post",
         "type": "object"
+      },
+      "BuildState": {
+        "enum": [
+          "idle",
+          "running",
+          "neo4j_committed",
+          "qdrant_committed",
+          "failed_compensating",
+          "failed"
+        ],
+        "title": "BuildState",
+        "type": "string"
       },
       "CaptchaConfigOut": {
         "properties": {
@@ -2087,6 +2134,14 @@
         "title": "ChatroomPatchIn",
         "type": "object"
       },
+      "ChunkStrategy": {
+        "enum": [
+          "fixed",
+          "semantic"
+        ],
+        "title": "ChunkStrategy",
+        "type": "string"
+      },
       "ConceptMapEnabledIn": {
         "properties": {
           "enabled": {
@@ -2109,6 +2164,11 @@
             "type": "string"
           },
           "owner_kind": {
+            "enum": [
+              "agent_group",
+              "chatroom",
+              "workspace"
+            ],
             "title": "Owner Kind",
             "type": "string"
           },
@@ -2149,6 +2209,14 @@
         "title": "ConfigEnvelopeOut",
         "type": "object"
       },
+      "ContextMode": {
+        "enum": [
+          "general",
+          "compact"
+        ],
+        "title": "ContextMode",
+        "type": "string"
+      },
       "DeleteAccountIn": {
         "properties": {
           "password": {
@@ -2162,6 +2230,16 @@
         ],
         "title": "DeleteAccountIn",
         "type": "object"
+      },
+      "DocumentStatus": {
+        "enum": [
+          "ingesting",
+          "ready",
+          "failed",
+          "quarantined"
+        ],
+        "title": "DocumentStatus",
+        "type": "string"
       },
       "EmbedModelOut": {
         "properties": {
@@ -2266,8 +2344,7 @@
             "type": "string"
           },
           "status": {
-            "title": "Status",
-            "type": "string"
+            "$ref": "#/components/schemas/ExportJobStatus"
           }
         },
         "required": [
@@ -2276,6 +2353,16 @@
         ],
         "title": "ExportCreateOut",
         "type": "object"
+      },
+      "ExportJobStatus": {
+        "enum": [
+          "queued",
+          "running",
+          "ready",
+          "failed"
+        ],
+        "title": "ExportJobStatus",
+        "type": "string"
       },
       "ExportStatusOut": {
         "properties": {
@@ -2301,8 +2388,7 @@
             "type": "string"
           },
           "status": {
-            "title": "Status",
-            "type": "string"
+            "$ref": "#/components/schemas/ExportJobStatus"
           },
           "url": {
             "anyOf": [
@@ -2502,8 +2588,7 @@
             "title": "Build Id"
           },
           "state": {
-            "title": "State",
-            "type": "string"
+            "$ref": "#/components/schemas/BuildState"
           }
         },
         "required": [
@@ -2622,8 +2707,7 @@
             "title": "Last Build Error"
           },
           "last_build_state": {
-            "title": "Last Build State",
-            "type": "string"
+            "$ref": "#/components/schemas/BuildState"
           },
           "owner_id": {
             "format": "uuid",
@@ -2631,6 +2715,11 @@
             "type": "string"
           },
           "owner_kind": {
+            "enum": [
+              "agent_group",
+              "chatroom",
+              "workspace"
+            ],
             "title": "Owner Kind",
             "type": "string"
           },
@@ -2756,8 +2845,7 @@
             "title": "Last Build Error"
           },
           "state": {
-            "title": "State",
-            "type": "string"
+            "$ref": "#/components/schemas/BuildState"
           }
         },
         "required": [
@@ -2870,7 +2958,7 @@
           },
           "providers": {
             "items": {
-              "type": "string"
+              "$ref": "#/components/schemas/ApiKeyProvider"
             },
             "title": "Providers",
             "type": "array"
@@ -2974,6 +3062,25 @@
         "title": "ImpersonateOut",
         "type": "object"
       },
+      "InviteScope": {
+        "enum": [
+          "org",
+          "project"
+        ],
+        "title": "InviteScope",
+        "type": "string"
+      },
+      "InviteState": {
+        "enum": [
+          "pending",
+          "accepted",
+          "rejected",
+          "revoked",
+          "expired"
+        ],
+        "title": "InviteState",
+        "type": "string"
+      },
       "IpBanIn": {
         "properties": {
           "cidr": {
@@ -3074,8 +3181,7 @@
             "type": "integer"
           },
           "provider": {
-            "title": "Provider",
-            "type": "string"
+            "$ref": "#/components/schemas/ApiKeyProvider"
           },
           "test_error": {
             "anyOf": [
@@ -3089,8 +3195,7 @@
             "title": "Test Error"
           },
           "test_status": {
-            "title": "Test Status",
-            "type": "string"
+            "$ref": "#/components/schemas/ProbeStatus"
           }
         },
         "required": [
@@ -3167,8 +3272,7 @@
             "type": "string"
           },
           "provider": {
-            "title": "Provider",
-            "type": "string"
+            "$ref": "#/components/schemas/ApiKeyProvider"
           },
           "test_error": {
             "anyOf": [
@@ -3182,8 +3286,7 @@
             "title": "Test Error"
           },
           "test_status": {
-            "title": "Test Status",
-            "type": "string"
+            "$ref": "#/components/schemas/ProbeStatus"
           }
         },
         "required": [
@@ -3306,8 +3409,7 @@
             "type": "object"
           },
           "chunk_strategy": {
-            "title": "Chunk Strategy",
-            "type": "string"
+            "$ref": "#/components/schemas/ChunkStrategy"
           },
           "created_at": {
             "title": "Created At",
@@ -3385,8 +3487,7 @@
             "title": "Last Build Error"
           },
           "last_build_state": {
-            "title": "Last Build State",
-            "type": "string"
+            "$ref": "#/components/schemas/BuildState"
           },
           "name": {
             "title": "Name",
@@ -3506,8 +3607,7 @@
             "type": "string"
           },
           "scan_status": {
-            "title": "Scan Status",
-            "type": "string"
+            "$ref": "#/components/schemas/ScanStatus"
           },
           "sha256": {
             "title": "Sha256",
@@ -3518,8 +3618,7 @@
             "type": "integer"
           },
           "status": {
-            "title": "Status",
-            "type": "string"
+            "$ref": "#/components/schemas/DocumentStatus"
           },
           "uploaded_at": {
             "title": "Uploaded At",
@@ -3903,8 +4002,7 @@
             "title": "Sender Id"
           },
           "sender_type": {
-            "title": "Sender Type",
-            "type": "string"
+            "$ref": "#/components/schemas/SenderType"
           },
           "version": {
             "title": "Version",
@@ -4023,6 +4121,18 @@
         "title": "ModelCatalogOut",
         "type": "object"
       },
+      "NotificationKind": {
+        "enum": [
+          "key.usage_threshold",
+          "key.test_failed",
+          "invite.received",
+          "approval.human_requested",
+          "admin.ban_reason",
+          "agent.wakeup_gated"
+        ],
+        "title": "NotificationKind",
+        "type": "string"
+      },
       "NotificationOut": {
         "properties": {
           "body": {
@@ -4046,8 +4156,7 @@
             "type": "string"
           },
           "kind": {
-            "title": "Kind",
-            "type": "string"
+            "$ref": "#/components/schemas/NotificationKind"
           },
           "metadata": {
             "title": "Metadata",
@@ -4080,6 +4189,18 @@
         ],
         "title": "NotificationOut",
         "type": "object"
+      },
+      "OCTransferState": {
+        "enum": [
+          "pending",
+          "accepted",
+          "rejected",
+          "cancelled",
+          "expired",
+          "admin_forced"
+        ],
+        "title": "OCTransferState",
+        "type": "string"
       },
       "ObservationOut": {
         "properties": {
@@ -4214,8 +4335,7 @@
             "type": "string"
           },
           "role": {
-            "title": "Role",
-            "type": "string"
+            "$ref": "#/components/schemas/OrgMemberRole"
           },
           "user_id": {
             "format": "uuid",
@@ -4232,6 +4352,14 @@
         ],
         "title": "OrgMemberOut",
         "type": "object"
+      },
+      "OrgMemberRole": {
+        "enum": [
+          "owner",
+          "member"
+        ],
+        "title": "OrgMemberRole",
+        "type": "string"
       },
       "OrgOut": {
         "properties": {
@@ -4456,6 +4584,15 @@
         "title": "PresenceOut",
         "type": "object"
       },
+      "ProbeStatus": {
+        "enum": [
+          "ok",
+          "failed",
+          "untested"
+        ],
+        "title": "ProbeStatus",
+        "type": "string"
+      },
       "ProjectCreateIn": {
         "properties": {
           "name": {
@@ -4497,8 +4634,7 @@
             "type": "string"
           },
           "role": {
-            "title": "Role",
-            "type": "string"
+            "$ref": "#/components/schemas/ProjectMemberRole"
           },
           "user_id": {
             "format": "uuid",
@@ -4531,6 +4667,14 @@
         ],
         "title": "ProjectMemberPatchIn",
         "type": "object"
+      },
+      "ProjectMemberRole": {
+        "enum": [
+          "owner",
+          "member"
+        ],
+        "title": "ProjectMemberRole",
+        "type": "string"
       },
       "ProjectOut": {
         "properties": {
@@ -4569,8 +4713,7 @@
             "type": "string"
           },
           "owner_type": {
-            "title": "Owner Type",
-            "type": "string"
+            "$ref": "#/components/schemas/ProjectOwnerType"
           },
           "version": {
             "title": "Version",
@@ -4589,6 +4732,14 @@
         ],
         "title": "ProjectOut",
         "type": "object"
+      },
+      "ProjectOwnerType": {
+        "enum": [
+          "user",
+          "org"
+        ],
+        "title": "ProjectOwnerType",
+        "type": "string"
       },
       "ProjectPatchIn": {
         "properties": {
@@ -4666,6 +4817,14 @@
         ],
         "title": "ProjectSummaryOut",
         "type": "object"
+      },
+      "PromptStrategy": {
+        "enum": [
+          "full",
+          "lazy"
+        ],
+        "title": "PromptStrategy",
+        "type": "string"
       },
       "RagConfigCreateIn": {
         "properties": {
@@ -5121,6 +5280,11 @@
             "type": "integer"
           },
           "scope": {
+            "enum": [
+              "user",
+              "ip",
+              "user_and_ip"
+            ],
             "title": "Scope",
             "type": "string"
           },
@@ -5389,8 +5553,7 @@
             "title": "Started By User Id"
           },
           "state": {
-            "title": "State",
-            "type": "string"
+            "$ref": "#/components/schemas/RunState"
           },
           "trigger_type": {
             "title": "Trigger Type",
@@ -5419,6 +5582,17 @@
         "title": "RunOut",
         "type": "object"
       },
+      "RunState": {
+        "enum": [
+          "running",
+          "waiting",
+          "succeeded",
+          "failed",
+          "cancelled"
+        ],
+        "title": "RunState",
+        "type": "string"
+      },
       "RunTriggerIn": {
         "properties": {
           "trigger_payload": {
@@ -5428,6 +5602,16 @@
         },
         "title": "RunTriggerIn",
         "type": "object"
+      },
+      "ScanStatus": {
+        "enum": [
+          "pending",
+          "clean",
+          "quarantined",
+          "skipped"
+        ],
+        "title": "ScanStatus",
+        "type": "string"
       },
       "SearchHit": {
         "properties": {
@@ -5457,8 +5641,7 @@
             "title": "Sender Id"
           },
           "sender_type": {
-            "title": "Sender Type",
-            "type": "string"
+            "$ref": "#/components/schemas/SenderType"
           },
           "snippet": {
             "title": "Snippet",
@@ -5539,8 +5722,7 @@
             "type": "string"
           },
           "provider": {
-            "title": "Provider",
-            "type": "string"
+            "$ref": "#/components/schemas/SearchProvider"
           },
           "test_error": {
             "anyOf": [
@@ -5554,8 +5736,7 @@
             "title": "Test Error"
           },
           "test_status": {
-            "title": "Test Status",
-            "type": "string"
+            "$ref": "#/components/schemas/ProbeStatus"
           }
         },
         "required": [
@@ -5603,6 +5784,15 @@
         ],
         "title": "SearchResponse",
         "type": "object"
+      },
+      "SenderType": {
+        "enum": [
+          "user",
+          "agent",
+          "system"
+        ],
+        "title": "SenderType",
+        "type": "string"
       },
       "SessionCreatedOut": {
         "properties": {
@@ -5740,8 +5930,7 @@
             "type": "string"
           },
           "state": {
-            "title": "State",
-            "type": "string"
+            "$ref": "#/components/schemas/StepState"
           }
         },
         "required": [
@@ -5757,6 +5946,18 @@
         ],
         "title": "StepOut",
         "type": "object"
+      },
+      "StepState": {
+        "enum": [
+          "pending",
+          "running",
+          "succeeded",
+          "failed",
+          "skipped",
+          "cancelled"
+        ],
+        "title": "StepState",
+        "type": "string"
       },
       "TemplateCreateIn": {
         "additionalProperties": false,
@@ -5911,6 +6112,10 @@
             "type": "string"
           },
           "token_type": {
+            "const": "Bearer",
+            "enum": [
+              "Bearer"
+            ],
             "title": "Token Type",
             "type": "string"
           }
@@ -5964,8 +6169,7 @@
             "type": "string"
           },
           "state": {
-            "title": "State",
-            "type": "string"
+            "$ref": "#/components/schemas/OCTransferState"
           },
           "target_user_id": {
             "format": "uuid",
@@ -6144,8 +6348,7 @@
             "type": "array"
           },
           "status": {
-            "title": "Status",
-            "type": "string"
+            "$ref": "#/components/schemas/UserStatus"
           }
         },
         "required": [
@@ -6197,8 +6400,7 @@
             "type": "boolean"
           },
           "status": {
-            "title": "Status",
-            "type": "string"
+            "$ref": "#/components/schemas/UserStatus"
           }
         },
         "required": [
@@ -6210,6 +6412,16 @@
         ],
         "title": "UserOut",
         "type": "object"
+      },
+      "UserStatus": {
+        "enum": [
+          "active",
+          "pending",
+          "banned",
+          "deleted"
+        ],
+        "title": "UserStatus",
+        "type": "string"
       },
       "UserSummaryOut": {
         "properties": {
@@ -6242,8 +6454,7 @@
             "type": "string"
           },
           "status": {
-            "title": "Status",
-            "type": "string"
+            "$ref": "#/components/schemas/UserStatus"
           }
         },
         "required": [
@@ -6674,6 +6885,10 @@
             "type": "string"
           },
           "role": {
+            "enum": [
+              "owner",
+              "member"
+            ],
             "title": "Role",
             "type": "string"
           },
@@ -6687,12 +6902,10 @@
             "type": "string"
           },
           "scope_type": {
-            "title": "Scope Type",
-            "type": "string"
+            "$ref": "#/components/schemas/InviteScope"
           },
           "state": {
-            "title": "State",
-            "type": "string"
+            "$ref": "#/components/schemas/InviteState"
           }
         },
         "required": [
@@ -6897,6 +7110,10 @@
             "type": "string"
           },
           "role": {
+            "enum": [
+              "owner",
+              "member"
+            ],
             "title": "Role",
             "type": "string"
           },
@@ -6906,12 +7123,10 @@
             "type": "string"
           },
           "scope_type": {
-            "title": "Scope Type",
-            "type": "string"
+            "$ref": "#/components/schemas/InviteScope"
           },
           "state": {
-            "title": "State",
-            "type": "string"
+            "$ref": "#/components/schemas/InviteState"
           }
         },
         "required": [
