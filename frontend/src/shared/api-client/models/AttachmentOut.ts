@@ -2,14 +2,16 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
+import type { AttachmentStatus } from './AttachmentStatus';
+import type { ScanStatus } from './ScanStatus';
 export type AttachmentOut = {
     chatroom_id: (string | null);
     filename: string;
     id: string;
     message_id: (string | null);
     mime: string;
-    scan_status: string;
+    scan_status: ScanStatus;
     size_bytes: number;
-    status: string;
+    status: AttachmentStatus;
 };
 

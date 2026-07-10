@@ -2,6 +2,7 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
+import type { RunState } from './RunState';
 /**
  * A run row from the live+archive union (`list_runs?include_archive=true`).
  *
@@ -16,7 +17,7 @@ export type ArchivedRunOut = {
     id: string;
     started_at: string;
     started_by_user_id: (string | null);
-    state: string;
+    state: RunState;
     trigger_type: (string | null);
     workflow_id: (string | null);
 };

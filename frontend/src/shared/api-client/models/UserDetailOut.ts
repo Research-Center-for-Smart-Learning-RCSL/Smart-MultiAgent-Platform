@@ -2,6 +2,7 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
+import type { UserStatus } from './UserStatus';
 export type UserDetailOut = {
     banned_at: (string | null);
     banned_reason: (string | null);
@@ -15,6 +16,6 @@ export type UserDetailOut = {
     last_login_at: (string | null);
     org_ids: Array<string>;
     project_ids: Array<string>;
-    status: string;
+    status: UserStatus;
 };
 

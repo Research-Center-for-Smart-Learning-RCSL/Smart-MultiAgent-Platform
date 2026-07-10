@@ -5,7 +5,7 @@
 export type RateLimitPolicyOut = {
     key: string;
     max_count: number;
-    scope: string;
+    scope: 'user' | 'ip' | 'user_and_ip';
     updated_at: string;
     window_sec: number;
 };

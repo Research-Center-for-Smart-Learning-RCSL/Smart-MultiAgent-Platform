@@ -7,7 +7,7 @@
  */
 export type ConceptMapOwnerOptionOut = {
     owner_id: string;
-    owner_kind: string;
+    owner_kind: 'agent_group' | 'chatroom' | 'workspace';
     owner_name: string;
 };
 

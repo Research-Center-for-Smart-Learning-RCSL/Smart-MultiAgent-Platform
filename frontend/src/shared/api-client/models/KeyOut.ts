@@ -2,14 +2,16 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
+import type { ApiKeyProvider } from './ApiKeyProvider';
+import type { ProbeStatus } from './ProbeStatus';
 export type KeyOut = {
     created_at: string;
     id: string;
     last_test_at: (string | null);
     masked_preview: string;
     name: string;
-    provider: string;
+    provider: ApiKeyProvider;
     test_error: (string | null);
-    test_status: string;
+    test_status: ProbeStatus;
 };
 

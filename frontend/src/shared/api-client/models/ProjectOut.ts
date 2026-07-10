@@ -2,6 +2,7 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
+import type { ProjectOwnerType } from './ProjectOwnerType';
 export type ProjectOut = {
     created_at: string;
     created_by_user_id: string;
@@ -9,7 +10,7 @@ export type ProjectOut = {
     id: string;
     name: string;
     owner_id: string;
-    owner_type: string;
+    owner_type: ProjectOwnerType;
     version: number;
 };
 

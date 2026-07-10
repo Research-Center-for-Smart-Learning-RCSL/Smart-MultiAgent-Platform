@@ -2,6 +2,8 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
+import type { ProbeStatus } from './ProbeStatus';
+import type { SearchProvider } from './SearchProvider';
 export type SearchKeyOut = {
     config: Record<string, any>;
     created_at: string;
@@ -10,8 +12,8 @@ export type SearchKeyOut = {
     last_test_at: (string | null);
     masked_preview: string;
     project_id: string;
-    provider: string;
+    provider: SearchProvider;
     test_error: (string | null);
-    test_status: string;
+    test_status: ProbeStatus;
 };
 
