@@ -102,7 +102,7 @@ const renameMutation = useMutation({
   onSuccess: () => {
     qc.invalidateQueries({ queryKey: agentGroupKeys.groups(projectId) })
     showRenameModal.value = false
-    toast.success(t('agentGroups.list.rename'))
+    toast.success(t('agentGroups.detail.renameSaved'))
   },
   onError: (err) => {
     if (!applyRenameErrors(err)) toast.error(t('agentGroups.detail.renameFailed'))

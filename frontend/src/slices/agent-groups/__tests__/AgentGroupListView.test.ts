@@ -1,9 +1,21 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { http, HttpResponse } from 'msw'
 import { server } from '../../../../tests/mocks/server'
 import { renderView } from '../../../../tests/utils'
 import { useSessionStore } from '@shared/stores/session'
 import AgentGroupListView from '../views/AgentGroupListView.vue'
+
+const mockToast = vi.hoisted(() => ({
+  success: vi.fn(),
+  error: vi.fn(),
+  warning: vi.fn(),
+  info: vi.fn(),
+}))
+
+vi.mock('@shared/composables', async (importOriginal) => {
+  const actual = (await importOriginal()) as Record<string, unknown>
+  return { ...actual, useToast: () => mockToast }
+})
 
 const routes = [
   { path: '/projects/:projectId/agent-groups', name: 'agentGroups.list', component: AgentGroupListView },
@@ -68,5 +80,26 @@ describe('AgentGroupListView', () => {
     expect(createBtn.exists()).toBe(true)
     expect((createBtn.element as HTMLButtonElement).disabled).toBe(true)
     expect(wrapper.text()).toContain('agentGroups.list.ownerOnly')
+  })
+
+  it('shows the dedicated renamed-confirmation message, not the button label', async () => {
+    // Regression: the success toast used to reuse agentGroups.list.rename
+    // (the rename button's own aria-label, "Rename") instead of the
+    // dedicated renameSaved confirmation key.
+    seed('owner')
+    server.use(
+      http.patch('/api/agent-groups/g_1', () => HttpResponse.json({ ...GROUP, name: 'New Name' })),
+    )
+    const wrapper = await renderView(AgentGroupListView, { routes, initialRoute: '/projects/proj_1/agent-groups' })
+    signInAs('u_1')
+    await settle(wrapper)
+
+    await wrapper.find('[aria-label="agentGroups.list.rename"]').trigger('click')
+    await wrapper.vm.$nextTick()
+    await wrapper.find('form').trigger('submit')
+    await settle(wrapper)
+
+    expect(mockToast.success).toHaveBeenCalledWith('agentGroups.detail.renameSaved')
+    expect(mockToast.success).not.toHaveBeenCalledWith('agentGroups.list.rename')
   })
 })
