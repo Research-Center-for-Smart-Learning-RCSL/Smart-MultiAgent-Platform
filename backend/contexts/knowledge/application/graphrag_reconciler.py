@@ -98,6 +98,7 @@ class ReconciliationLoop:
         lock_store: BuildLockStore | None = None,
         sweep_consumers: Sequence[GraphConsumer] = (),
         channel_fn: Callable[[uuid.UUID], str],
+        resource_type: str = "graphrag_config",
     ) -> None:
         self._session_factory = session_factory
         self._repo_factory = repo_factory
@@ -107,6 +108,13 @@ class ReconciliationLoop:
         self._phase2 = phase2_retry
         self._sleep: Sleeper = sleeper or asyncio.sleep
         self._locks = lock_store
+        # This loop's own consumer identity (distinct from `sweep_consumers`,
+        # which is the orphan sweep's cross-consumer list) — _reconcile_one and
+        # _rollback stamp every audit event with it, so a loop constructed with
+        # repo_factory=KnowmapConfigRepository doesn't mislabel a knowmap_config
+        # id as a graphrag_config resource.
+        self._resource_type = resource_type
+        self._action = f"{resource_type.removesuffix('_config')}.reconciled"
         # R11.15: mirrors GraphRagBuilder's channel_fn — every caller must name
         # its own channel (graphrag_channel for the Concept Map loop,
         # knowmap_channel for the Knowledge Map loop). No default: see
@@ -321,8 +329,8 @@ class ReconciliationLoop:
             await audit.emit(
                 db,
                 audit.AuditEvent(
-                    action="graphrag.reconciled",
-                    resource_type="graphrag_config",
+                    action=self._action,
+                    resource_type=self._resource_type,
                     resource_id=cfg.id,
                     metadata={
                         "build_id": str(build_id),
@@ -378,8 +386,8 @@ class ReconciliationLoop:
         await audit.emit(
             db,
             audit.AuditEvent(
-                action="graphrag.reconciled",
-                resource_type="graphrag_config",
+                action=self._action,
+                resource_type=self._resource_type,
                 resource_id=cfg.id,
                 metadata={
                     "build_id": str(build_id),
