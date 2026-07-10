@@ -1,6 +1,6 @@
 ---
 type: refactor
-status: approved
+status: implemented
 created: 2026-07-10
 requirements: [R24.13]
 supersedes:
@@ -261,24 +261,30 @@ Each step leaves `pnpm test` / `pnpm typecheck` / `pnpm lint` (scoped) green.
 
 ## 9. Acceptance Criteria
 
-- [ ] AC-1: no externally observable behavior change — `AgentGroupListView.test.ts` and
-      `AgentGroupDetailView.test.ts` pass **unmodified** after the conversion.
-- [ ] AC-2: the [R24.13] violation is gone for `agent-groups` — `api/index.ts` imports
-      `AgentGroupsService` + generated models and no longer imports `http` from
-      `@shared/transport` (verified at `agent-groups/api/index.ts:1`); the hand-rolled
-      `AgentGroup`/`AgentGroupMembers`/`ConceptMapStatus` interfaces are replaced by
-      re-exports of the generated models.
-- [ ] AC-3: `agent-groups/api/__tests__/index.spec.ts` (9 methods, request-level
-      assertions) passes against the pre-conversion code and continues passing unmodified
-      after.
-- [ ] AC-4: all four `.data` call sites are updated; a repo grep for
-      `agentGroupsApi.*\)\.data` returns zero matches; `pnpm typecheck` is green.
-- [ ] AC-5: the Conversion Playbook (§5A) is committed as the reference the follow-up
-      slice dossiers cite.
-- [ ] AC-6: mechanical gates pass — `pnpm test` (full suite), `pnpm typecheck`, `pnpm lint`
-      (scoped to touched files, per pilot D-7 precedent), `pnpm build`.
-- [ ] AC-7: no backend change required for `agent-groups` — stated N/A with evidence
-      (no generated `*Out` field is widened from a literal union; `AgentGroupOut.ts:5-11`).
+- [x] AC-1: no externally observable behavior change — `AgentGroupListView.test.ts` (4)
+      and `AgentGroupDetailView.test.ts` (3) pass **unmodified** after the conversion
+      (commit `ee7c646`; confirmed in the 16-test agent-groups run and the full 422-test
+      suite).
+- [x] AC-2: the [R24.13] violation is gone for `agent-groups` — `api/index.ts:1-6` now
+      imports `AgentGroupsService` + generated models and no longer imports `http` from
+      `@shared/transport`; the hand-rolled `AgentGroup`/`AgentGroupMembers`/
+      `ConceptMapStatus` interfaces are replaced by re-exports of the generated models
+      (`api/index.ts:12-14`). Commit `ee7c646`.
+- [x] AC-3: `agent-groups/api/__tests__/index.spec.ts` (9 methods, request-level
+      assertions) passed against the pre-conversion code (commit `0030dd1`) and continues
+      passing **unmodified** after the conversion (commit `ee7c646`).
+- [x] AC-4: all four `.data` call sites updated (`AgentGroupListView.vue:49,67`,
+      `AgentGroupDetailView.vue:37,53`); repo grep for `agentGroupsApi.*\)\.data` returns
+      zero matches; `pnpm typecheck` green. Commit `ee7c646`.
+- [x] AC-5: the Conversion Playbook (§5A) is committed as the reference the follow-up
+      slice dossiers cite (commits `33a4b42`/`7c7192e`).
+- [x] AC-6: mechanical gates pass — `pnpm test` (115 files / 422 tests), `pnpm typecheck`,
+      `pnpm lint` (scoped to the four touched files, 0 warnings — full-repo `max-warnings:0`
+      has pre-existing debt per pilot D-7), `pnpm build` (✓; only the pre-existing
+      mermaid/wardley chunk-size warning).
+- [x] AC-7: no backend change required for `agent-groups` — N/A with evidence: no
+      generated `*Out` field is widened from a literal union (`AgentGroupOut.ts:5-11` is
+      all `string`/`boolean` primitives, no enum). Confirmed.
 
 ## 10. SRS Delta
 
@@ -286,7 +292,28 @@ None — this restores [R24.13] for `agent-groups`; it defines no new behavior.
 
 ## 11. Deviation Log
 
-Appended by /build.
+- **D-1 — `list` now sends `limit=100` on the wire (spec-anticipated, inert).** The
+  pre-conversion `http.get('/projects/{id}/agent-groups')` sent no query string; the
+  generated `listGroupsApiProjectsProjectIdAgentGroupsGet({ projectId })` defaults
+  `limit = 100` and emits it (`AgentGroupsService.ts:194,213-216`). Confirmed inert: the
+  backend `PaginationParams` default is also `limit=100, offset=0` (`deps.py:18-19`), so
+  the resulting page is identical. This was called out and accepted in §5A P4 / §6 / §8;
+  it is recorded here as an honest write-back of a real (if behaviorally-null) wire
+  change. The characterization test deliberately does not pin `list`'s query, so it
+  passes unmodified across the conversion.
+- **D-2 — security audit run as N/A, not executed.** The diff swaps the HTTP client for
+  one slice's tenant-scoped reads/writes but changes no authorization, input-validation,
+  secret, or WebSocket logic; the auth/session pipeline (bearer, silent 401-refresh,
+  `problem+json` typing) is identical because both the old `http` and the generated
+  client resolve to the same instrumented `axios` singleton, already security-audited in
+  the pilot (its AC-7). No new security surface — check-security stated N/A with reason
+  rather than run.
+- **D-3 — live docker-stack behavioral verification skipped (implementer's call).** Same
+  precedent as the pilot's D-6: the MSW view tests drive the real components through the
+  converted api layer + generated client at the HTTP boundary, rendering identical
+  output, which is the behavioral evidence for a behavior-preserving transport swap. A
+  live stack run was judged low-value for a single field-identical slice with no auth
+  change and skipped; flagged to the user for override.
 
 ## 12. Follow-ups
 
