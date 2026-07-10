@@ -1,40 +1,30 @@
-import { http } from '@shared/transport'
+import { NotificationsService } from '@shared/api-client'
+import type { NotificationOut, MarkReadOut, UnreadCountOut } from '@shared/api-client'
 
-// Mirrors backend `NotificationOut` (backend/app/api/v1/notifications.py). R18:
-// in-app only, persisted + pushed over /ws/user/{id}; the bell badge reads
-// unread-count.
-export interface Notification {
-  id: string
-  kind: string
-  title: string
-  body: string | null
-  metadata: Record<string, unknown>
-  read_at: string | null
-  created_at: string
-}
+// R18: in-app only, persisted + pushed over /ws/user/{id}; the bell badge
+// reads unread-count. Re-exported under slice-local names so call sites
+// don't need to know these come from the generated client.
+export type Notification = NotificationOut
+export type UnreadCount = UnreadCountOut
+export type MarkReadResult = MarkReadOut
 
-export interface UnreadCount {
-  count: number
-}
-
-export interface MarkReadResult {
-  marked: number
-}
-
-// Methods unwrap the transport response (`.then(r => r.data)`) so callers receive
-// domain data directly — the raw response shape stays inside the api-client layer.
+// Thin use-case-shaped wrapper over the generated NotificationsService
+// (R24.13) — the request/response shapes and the auth/session behavior
+// (bearer token, silent 401 refresh, problem+json error typing) come from
+// shared/transport/axios.ts's instrumentation of the bare axios singleton
+// the generated client calls into.
 export const notificationsApi = {
   // Cursor pagination (R18 / §22.12): omit `cursor` for the first page; pass the
   // last item's id to page back. The backend caps `limit` at 200.
-  list: (cursor?: string, limit = 50) =>
-    http
-      .get<Notification[]>('/notifications', {
-        params: { ...(cursor ? { cursor } : {}), limit },
-      })
-      .then((r) => r.data),
+  list: (cursor?: string, limit = 50): Promise<Notification[]> =>
+    NotificationsService.listNotificationsApiNotificationsGet({
+      cursor: cursor ?? null,
+      limit,
+    }),
 
-  markRead: (ids: string[]) =>
-    http.post<MarkReadResult>('/notifications/read', { ids }).then((r) => r.data),
+  markRead: (ids: string[]): Promise<MarkReadResult> =>
+    NotificationsService.markReadApiNotificationsReadPost({ requestBody: { ids } }),
 
-  unreadCount: () => http.get<UnreadCount>('/notifications/unread-count').then((r) => r.data),
+  unreadCount: (): Promise<UnreadCount> =>
+    NotificationsService.unreadCountApiNotificationsUnreadCountGet(),
 }
