@@ -34,7 +34,7 @@ const groupId = route.params.groupId as string
 
 const groupQuery = useQuery({
   queryKey: agentGroupKeys.group(groupId),
-  queryFn: async () => (await agentGroupsApi.get(groupId)).data,
+  queryFn: () => agentGroupsApi.get(groupId),
 })
 const group = computed(() => groupQuery.data.value ?? null)
 const projectId = computed(() => group.value?.project_id ?? '')
@@ -50,7 +50,7 @@ const showReadonlyNote = computed(() => !isAuthorized.value && decided.value)
 
 const membersQuery = useQuery({
   queryKey: computed(() => agentGroupKeys.members(groupId)),
-  queryFn: async () => (await agentGroupsApi.listMembers(groupId)).data.members,
+  queryFn: async () => (await agentGroupsApi.listMembers(groupId)).members,
 })
 const memberIds = computed<string[]>(() => membersQuery.data.value ?? [])
 
