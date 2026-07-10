@@ -1,6 +1,6 @@
 ---
 type: refactor
-status: draft
+status: in-progress
 created: 2026-07-10
 requirements: [R24.13, R7.01, R7.03, R7.05]
 supersedes:
