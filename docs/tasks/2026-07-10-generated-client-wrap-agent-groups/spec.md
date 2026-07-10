@@ -1,6 +1,6 @@
 ---
 type: refactor
-status: draft
+status: approved
 created: 2026-07-10
 requirements: [R24.13]
 supersedes:
