@@ -116,3 +116,28 @@ async def test_remove_member_reports_deletion_and_revokes_live() -> None:
         # The list is read live, so the removed agent is gone on the next call —
         # the property the WS4 resolver relies on for revoking read access.
         assert list(await repo.list_member_agent_ids(gid)) == [a2]
+
+
+async def test_list_member_agent_ids_excludes_soft_deleted_agent() -> None:
+    # Regression (code review finding): soft-deleting an agent doesn't clean
+    # up its agent_group_members row, so list_member_agent_ids -- documented
+    # as "Live member agent ids" -- must filter it out itself, or a deleted
+    # agent's chatroom history keeps being pulled into the group's Concept
+    # Map build scope indefinitely.
+    async with async_session() as db:
+        env = await _seed_project(db)
+        kg = await KeyGroupRepository(db).create(project_id=env.project.id, name="consumer")
+        a1 = await _seed_agent(db, env.project.id, kg.id)
+        a2 = await _seed_agent(db, env.project.id, kg.id)
+        repo = AgentGroupRepository(db)
+        gid = await repo.create_group(project_id=env.project.id, name=f"grp-{uuid.uuid4().hex[:8]}")
+        await repo.add_member(group_id=gid, agent_id=a1)
+        await repo.add_member(group_id=gid, agent_id=a2)
+        await db.commit()
+
+        await AgentRepository(db).soft_delete(agent_id=a1, expected_version=1)
+        await db.commit()
+
+        # a1's membership row is still physically present (no cascade cleanup)
+        # but must not be reported as a live member.
+        assert list(await repo.list_member_agent_ids(gid)) == [a2]
