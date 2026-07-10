@@ -1,6 +1,7 @@
-import { computed, ref, watch, type ComputedRef, type Ref } from 'vue'
+import { computed, watch, type ComputedRef, type Ref } from 'vue'
 import type { ApiKey } from '@slices/keys'
 import type { RagConfigCreateInput } from '../types/schemas'
+import { useChunkParamsForm } from './useChunkParamsForm'
 
 interface RagConfigFormOptions {
   embedKeys: ComputedRef<ApiKey[]>
@@ -13,11 +14,6 @@ interface RagConfigFormOptions {
   rerankModel: Ref<string | null>
 }
 
-// similarity is the semantic-chunk topic-shift threshold (cosine to the chunk
-// centroid). Kept low to match the backend default — a high value over-fragments
-// coherent prose into tiny chunks. See DEFAULT_SEMANTIC_CHUNK_PARAMS.
-const CHUNK_DEFAULTS = { size: 512, overlap: 64, similarity: 0.3 }
-
 export function useRagConfigForm(opts: RagConfigFormOptions) {
   const {
     embedKeys, rerankKeys,
@@ -25,9 +21,14 @@ export function useRagConfigForm(opts: RagConfigFormOptions) {
     rerankEnabled, rerankKeyId, rerankProvider, rerankModel,
   } = opts
 
-  const chunkSizeTokens = ref(CHUNK_DEFAULTS.size)
-  const chunkOverlapTokens = ref(CHUNK_DEFAULTS.overlap)
-  const similarityThreshold = ref(CHUNK_DEFAULTS.similarity)
+  const {
+    chunkSizeTokens,
+    chunkOverlapTokens,
+    similarityThreshold,
+    resetChunkDefaults,
+    assembleChunkParams,
+    loadChunkParams,
+  } = useChunkParamsForm()
 
   const hasEmbedKeys = computed(() => embedKeys.value.length > 0)
 
@@ -57,26 +58,8 @@ export function useRagConfigForm(opts: RagConfigFormOptions) {
     }
   })
 
-  function resetChunkDefaults(): void {
-    chunkSizeTokens.value = CHUNK_DEFAULTS.size
-    chunkOverlapTokens.value = CHUNK_DEFAULTS.overlap
-    similarityThreshold.value = CHUNK_DEFAULTS.similarity
-  }
-
   function defaultEmbedKey(): void {
     if (embedKeys.value.length) embedKeyId.value = embedKeys.value[0]!.id
-  }
-
-  function assembleChunkParams(strategy: string): Record<string, unknown> {
-    return strategy === 'fixed'
-      ? { chunk_size_tokens: chunkSizeTokens.value, chunk_overlap_tokens: chunkOverlapTokens.value }
-      : { similarity_threshold: similarityThreshold.value }
-  }
-
-  function loadChunkParams(params: Record<string, unknown>): void {
-    chunkSizeTokens.value = (params.chunk_size_tokens as number) ?? CHUNK_DEFAULTS.size
-    chunkOverlapTokens.value = (params.chunk_overlap_tokens as number) ?? CHUNK_DEFAULTS.overlap
-    similarityThreshold.value = (params.similarity_threshold as number) ?? CHUNK_DEFAULTS.similarity
   }
 
   function keyLabel(k: ApiKey): string {
