@@ -11,6 +11,7 @@ export type AgentOut = {
     effort: (string | null);
     id: string;
     key_group_id: string;
+    knowmap_config_id: (string | null);
     model_hint: string;
     model_id: (string | null);
     name: string;

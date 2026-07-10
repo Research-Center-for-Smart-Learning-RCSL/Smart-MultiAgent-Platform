@@ -3,11 +3,13 @@
 /* tslint:disable */
 /* eslint-disable */
 import type { AgentRef } from '../models/AgentRef';
+import type { AgentRolePatchIn } from '../models/AgentRolePatchIn';
 import type { ChatroomCreateIn } from '../models/ChatroomCreateIn';
 import type { ChatroomMemberOut } from '../models/ChatroomMemberOut';
 import type { ChatroomOut } from '../models/ChatroomOut';
 import type { ChatroomPatchIn } from '../models/ChatroomPatchIn';
 import type { GuestLinkOut } from '../models/GuestLinkOut';
+import type { PresenceOut } from '../models/PresenceOut';
 import type { CancelablePromise } from '../core/CancelablePromise';
 import { OpenAPI } from '../core/OpenAPI';
 import { request as __request } from '../core/request';
@@ -169,6 +171,34 @@ export class ChatroomsService {
         });
     }
     /**
+     * Patch Chatroom Agent Role
+     * @returns void
+     * @throws ApiError
+     */
+    public static patchChatroomAgentRoleApiChatroomsChatroomIdAgentsAgentIdPatch({
+        chatroomId,
+        agentId,
+        requestBody,
+    }: {
+        chatroomId: string,
+        agentId: string,
+        requestBody: AgentRolePatchIn,
+    }): CancelablePromise<void> {
+        return __request(OpenAPI, {
+            method: 'PATCH',
+            url: '/api/chatrooms/{chatroom_id}/agents/{agent_id}',
+            path: {
+                'chatroom_id': chatroomId,
+                'agent_id': agentId,
+            },
+            body: requestBody,
+            mediaType: 'application/json',
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
      * Force context compaction for active agents in this room (G.10)
      * Trigger an immediate compaction pass for the room.
      *
@@ -238,6 +268,27 @@ export class ChatroomsService {
         return __request(OpenAPI, {
             method: 'GET',
             url: '/api/chatrooms/{chatroom_id}/members',
+            path: {
+                'chatroom_id': chatroomId,
+            },
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * Snapshot of users currently present via WebSocket
+     * @returns PresenceOut Successful Response
+     * @throws ApiError
+     */
+    public static getChatroomPresenceApiChatroomsChatroomIdPresenceGet({
+        chatroomId,
+    }: {
+        chatroomId: string,
+    }): CancelablePromise<PresenceOut> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/chatrooms/{chatroom_id}/presence',
             path: {
                 'chatroom_id': chatroomId,
             },

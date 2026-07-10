@@ -2,8 +2,7 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
-export type AgentRef = {
+export type AgentGroupMemberIn = {
     agent_id: string;
-    role?: ('normal' | 'observer' | null);
 };
 

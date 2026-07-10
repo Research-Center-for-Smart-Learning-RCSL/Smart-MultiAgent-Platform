@@ -2,8 +2,9 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
-export type AgentRef = {
-    agent_id: string;
-    role?: ('normal' | 'observer' | null);
+export type ResolvedAssistantOut = {
+    available: boolean;
+    model_id: (string | null);
+    source_scope: (string | null);
 };
 

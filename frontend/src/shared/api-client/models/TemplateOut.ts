@@ -2,13 +2,15 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
-export type WorkspaceCreatedOut = {
-    concept_map_enabled: boolean;
+export type TemplateOut = {
+    body: string;
     created_at: string;
-    default_chatroom_id: string;
-    deleted_at: (string | null);
+    description: string;
     id: string;
     name: string;
-    project_id: string;
+    position: number;
+    scope: string;
+    updated_at: string;
+    version: number;
 };
 

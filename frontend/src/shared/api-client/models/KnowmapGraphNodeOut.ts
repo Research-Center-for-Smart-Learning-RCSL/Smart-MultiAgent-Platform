@@ -2,8 +2,10 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
-export type AgentRef = {
-    agent_id: string;
-    role?: ('normal' | 'observer' | null);
+export type KnowmapGraphNodeOut = {
+    build_id: (string | null);
+    degree: number;
+    id: string;
+    type: string;
 };
 

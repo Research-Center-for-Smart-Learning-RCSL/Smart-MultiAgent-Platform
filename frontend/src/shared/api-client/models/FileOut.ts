@@ -2,12 +2,13 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
-export type WorkspaceOut = {
-    concept_map_enabled: boolean;
+export type FileOut = {
     created_at: string;
-    deleted_at: (string | null);
+    extracted_chars: number;
+    filename: string;
     id: string;
-    name: string;
-    project_id: string;
+    mime: string;
+    scan_status: string;
+    size_bytes: number;
 };
 
