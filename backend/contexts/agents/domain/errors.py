@@ -58,6 +58,21 @@ class KnowmapConfigOutOfProject(AgentsError):
     code = "agents/knowmap-config-out-of-project"
 
 
+class KnowmapBuilderKeyGroupConflict(AgentsError):
+    """R11.01 — agent's key_group_id must differ from its attached Knowledge
+    Map config's builder_key_group_id (billing/quota separation).
+
+    Mirrors the R11.01 check that used to guard GraphRAG attachment before
+    GraphRAG became owner-centric (Concept Maps are explicitly exempt per
+    R11.11 — no single consumer agent). A Knowledge Map config *does* have a
+    well-defined consumer agent, so the same split applies: without it, an
+    agent's real-time chat inference and its Knowledge Map's background
+    build jobs could silently share one key group's rate limit/budget.
+    """
+
+    code = "agents/knowmap-builder-key-group-conflict"
+
+
 class A2AForbidden(AgentsError):
     """R9.17 — scope check failed."""
 
@@ -161,6 +176,7 @@ __all__ = [
     "CapabilityMismatch",
     "KeyGroupNoMatchingProvider",
     "KeyGroupOutOfProject",
+    "KnowmapBuilderKeyGroupConflict",
     "KnowmapConfigOutOfProject",
     "McpBindingNotFound",
     "McpEgressDenied",

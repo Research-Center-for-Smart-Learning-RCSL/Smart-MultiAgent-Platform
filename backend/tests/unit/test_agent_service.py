@@ -23,6 +23,7 @@ from contexts.agents.domain.errors import (
     AgentCapExceeded,
     AgentNotFound,
     KeyGroupOutOfProject,
+    KnowmapBuilderKeyGroupConflict,
     RagConfigOutOfProject,
     ToolNotAvailable,
 )
@@ -300,6 +301,30 @@ class TestCreate:
                 actor_ip=None,
             )
 
+    @patch("contexts.agents.application.agent_service.audit.emit", new_callable=AsyncMock)
+    async def test_knowmap_builder_key_group_conflict_raises(self, _audit) -> None:
+        # R11.01 — the config's own builder Key Group is the agent's Key
+        # Group: build jobs and real-time chat inference would silently
+        # share one Key Group's rate limit/budget.
+        agents = AsyncMock()
+        agents.count_active.return_value = 0
+        keys = AsyncMock()
+        keys.get_key_group.return_value = MagicMock(project_id=_PROJECT_ID)
+        knowledge = AsyncMock()
+        knowledge.get_knowmap_config.return_value = MagicMock(
+            project_id=_PROJECT_ID, builder_key_group_id=_KEY_GROUP_ID
+        )
+        svc = _make_service(agent_repo=agents, keys_facade=keys, knowledge_facade=knowledge)
+        knowmap_id = uuid.uuid4()
+
+        with pytest.raises(KnowmapBuilderKeyGroupConflict):
+            await svc.create(
+                project_id=_PROJECT_ID,
+                draft=_make_draft(knowmap_config_id=knowmap_id),
+                actor_user_id=_USER_ID,
+                actor_ip=None,
+            )
+
 
 # ---------------------------------------------------------------------------
 # get + list
@@ -420,6 +445,82 @@ class TestPatch:
         call_values = agents.patch.call_args.kwargs["values"]
         assert "wakeup_config" in call_values
         assert "wakeup_authored_snapshot" not in call_values
+
+    @patch("contexts.agents.application.agent_service.audit.emit", new_callable=AsyncMock)
+    async def test_patch_knowmap_attach_key_group_conflict_raises(self, _audit) -> None:
+        current = _make_agent()
+        agents = AsyncMock()
+        agents.get.return_value = current
+        knowledge = AsyncMock()
+        knowledge.get_knowmap_config.return_value = MagicMock(
+            project_id=_PROJECT_ID, builder_key_group_id=_KEY_GROUP_ID
+        )
+        svc = _make_service(agent_repo=agents, knowledge_facade=knowledge)
+        knowmap_id = uuid.uuid4()
+
+        with pytest.raises(KnowmapBuilderKeyGroupConflict):
+            await svc.patch(
+                agent_id=current.id,
+                draft=AgentDraft(knowmap_config_id=knowmap_id),
+                expected_version=1,
+                actor_user_id=_USER_ID,
+                actor_ip=None,
+            )
+
+    @patch("contexts.agents.application.agent_service.audit.emit", new_callable=AsyncMock)
+    async def test_patch_key_group_change_rechecks_knowmap_conflict(self, _audit) -> None:
+        # The agent already has a Knowledge Map attached; the patch doesn't
+        # touch it, but moves key_group_id onto the config's own builder
+        # group — this must be caught by the implicit recheck, not just an
+        # explicit (re)attach.
+        knowmap_id = uuid.uuid4()
+        current = _make_agent(knowmap_config_id=knowmap_id)
+        agents = AsyncMock()
+        agents.get.return_value = current
+        new_kg = uuid.uuid4()
+        keys = AsyncMock()
+        keys.get_key_group.return_value = MagicMock(project_id=_PROJECT_ID)
+        knowledge = AsyncMock()
+        knowledge.get_knowmap_config.return_value = MagicMock(
+            project_id=_PROJECT_ID, builder_key_group_id=new_kg
+        )
+        svc = _make_service(agent_repo=agents, keys_facade=keys, knowledge_facade=knowledge)
+
+        with pytest.raises(KnowmapBuilderKeyGroupConflict):
+            await svc.patch(
+                agent_id=current.id,
+                draft=AgentDraft(key_group_id=new_kg),
+                expected_version=1,
+                actor_user_id=_USER_ID,
+                actor_ip=None,
+            )
+
+    @patch("contexts.agents.application.agent_service.audit.emit", new_callable=AsyncMock)
+    async def test_patch_key_group_change_skips_recheck_for_soft_deleted_knowmap(self, _audit) -> None:
+        # The attached Knowledge Map was soft-deleted out from under the
+        # agent; an unrelated key_group_id edit must not turn into a 404.
+        knowmap_id = uuid.uuid4()
+        current = _make_agent(knowmap_config_id=knowmap_id)
+        updated = _make_agent(knowmap_config_id=knowmap_id, version=2)
+        agents = AsyncMock()
+        agents.get.return_value = current
+        agents.patch.return_value = updated
+        new_kg = uuid.uuid4()
+        keys = AsyncMock()
+        keys.get_key_group.return_value = MagicMock(project_id=_PROJECT_ID)
+        knowledge = AsyncMock()
+        knowledge.get_knowmap_config.return_value = None
+        svc = _make_service(agent_repo=agents, keys_facade=keys, knowledge_facade=knowledge)
+
+        result = await svc.patch(
+            agent_id=current.id,
+            draft=AgentDraft(key_group_id=new_kg),
+            expected_version=1,
+            actor_user_id=_USER_ID,
+            actor_ip=None,
+        )
+
+        assert result.version == 2
 
     @patch("contexts.agents.application.agent_service.audit.emit", new_callable=AsyncMock)
     async def test_clear_rag_config(self, _audit) -> None:
