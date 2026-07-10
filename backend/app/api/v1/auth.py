@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import timedelta
+from typing import Literal, cast
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.responses import JSONResponse
@@ -19,6 +20,7 @@ from app.api.v1.deps import PaginationParams
 from app.config.settings import get_settings
 from contexts.identity.application.auth_service import AuthService, TokenPair
 from contexts.identity.application.factory import create_auth_service
+from contexts.identity.domain.models import UserStatus
 from contexts.identity.interfaces.error_mapping import DEAD_REFRESH_ERRORS, render_problem
 from contexts.identity.interfaces.facade import IdentityFacade, UserProfile
 from shared_kernel.auth import captcha, ratelimit, tokens
@@ -151,17 +153,20 @@ class DeleteAccountIn(BaseModel):
 class TokenPairOut(BaseModel):
     access_token: str
     refresh_token: str
-    token_type: str
+    # Always the RFC 6750 bearer scheme; a single-value enum in the contract.
+    token_type: Literal["Bearer"]
     expires_in: int
 
 
 def _token_pair_out(pair: TokenPair) -> TokenPairOut:
     # `TokenPair` is a `slots=True` dataclass and therefore has no `__dict__`;
     # splatting `**pair.__dict__` raises AttributeError. Map fields explicitly.
+    # `pair.token_type` is always the constant "Bearer"; cast narrows the domain
+    # `str` to the response Literal without changing the value.
     return TokenPairOut(
         access_token=pair.access_token,
         refresh_token=pair.refresh_token,
-        token_type=pair.token_type,
+        token_type=cast(Literal["Bearer"], pair.token_type),
         expires_in=pair.expires_in,
     )
 
@@ -170,7 +175,7 @@ class UserOut(BaseModel):
     id: uuid.UUID
     email: str
     email_verified: bool
-    status: str
+    status: UserStatus
     is_admin: bool
     display_name: str | None = None
 
@@ -187,7 +192,7 @@ def _user_out(profile: UserProfile) -> UserOut:
         id=profile.id,
         email=profile.email,
         email_verified=profile.email_verified,
-        status=profile.status.value,
+        status=profile.status,
         is_admin=profile.is_admin,
         display_name=profile.display_name,
     )

@@ -26,6 +26,7 @@ from contexts.workflow.domain.errors import (
     WorkflowNotFound,
     WorkflowRunNotFound,
 )
+from contexts.workflow.domain.models import RunState, StepState
 from shared_kernel.auth.dependencies import (
     current_principal,
     get_role_resolver,
@@ -185,7 +186,7 @@ class RunOut(BaseModel):
     workflow_id: uuid.UUID
     trigger_type: str
     started_by_user_id: uuid.UUID | None
-    state: str
+    state: RunState
     variables: dict[str, Any]
     started_at: str
     ended_at: str | None
@@ -204,7 +205,7 @@ class ArchivedRunOut(BaseModel):
     workflow_id: uuid.UUID | None
     trigger_type: str | None
     started_by_user_id: uuid.UUID | None
-    state: str
+    state: RunState
     started_at: str
     ended_at: str | None
     archived: bool
@@ -214,7 +215,7 @@ class StepOut(BaseModel):
     id: uuid.UUID
     run_id: uuid.UUID
     node_id: str
-    state: str
+    state: StepState
     started_at: str
     ended_at: str | None
     input: dict[str, Any]
@@ -255,7 +256,7 @@ def _to_run_out(run: Any) -> RunOut:
         workflow_id=run.workflow_id,
         trigger_type=run.trigger_type,
         started_by_user_id=run.started_by_user_id,
-        state=run.state.value if hasattr(run.state, "value") else str(run.state),
+        state=run.state,
         variables=run.variables,
         started_at=run.started_at.isoformat(),
         ended_at=run.ended_at.isoformat() if run.ended_at else None,
@@ -287,7 +288,7 @@ def _to_step_out(step: Any) -> StepOut:
         id=step.id,
         run_id=step.run_id,
         node_id=step.node_id,
-        state=step.state.value if hasattr(step.state, "value") else str(step.state),
+        state=step.state,
         started_at=step.started_at.isoformat(),
         ended_at=step.ended_at.isoformat() if step.ended_at else None,
         input=step.input,

@@ -13,6 +13,7 @@ from contexts.conversation.application.access import (
     resolve_room_access,
 )
 from contexts.conversation.application.message_service import MessageService
+from contexts.conversation.domain.models import SenderType
 from shared_kernel.auth.dependencies import current_principal
 from shared_kernel.auth.permissions import Principal
 from shared_kernel.db.session import db_session
@@ -22,7 +23,7 @@ router = APIRouter(prefix="/api/chatrooms", tags=["search"])
 
 class SearchHit(BaseModel):
     message_id: uuid.UUID
-    sender_type: str
+    sender_type: SenderType
     sender_id: uuid.UUID | None
     created_at: str
     snippet: str
@@ -59,7 +60,7 @@ async def search_messages(
     hits = [
         SearchHit(
             message_id=m.id,
-            sender_type=m.sender_type.value,
+            sender_type=m.sender_type,
             sender_id=m.sender_id,
             created_at=m.created_at.isoformat() if m.created_at else "",
             snippet=snippet,

@@ -20,11 +20,19 @@ import json
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from enum import StrEnum
 from typing import Final
 
 from shared_kernel.auth.clients import get_redis, now
 
 _JOB_TTL_SECONDS: Final = 24 * 3600
+
+
+class ExportJobStatus(StrEnum):
+    QUEUED = "queued"
+    RUNNING = "running"
+    READY = "ready"
+    FAILED = "failed"
 
 
 def _job_key(job_id: uuid.UUID) -> str:
@@ -36,7 +44,7 @@ class ExportJobState:
     job_id: uuid.UUID
     chatroom_id: uuid.UUID
     owner_user_id: uuid.UUID
-    status: str  # "queued" | "running" | "ready" | "failed"
+    status: ExportJobStatus
     created_at: datetime
     object_key: str | None  # exports/{job_id}/<filename> once ready
     bucket: str | None
@@ -62,7 +70,7 @@ async def create(
         job_id=job_id,
         chatroom_id=chatroom_id,
         owner_user_id=owner_user_id,
-        status="queued",
+        status=ExportJobStatus.QUEUED,
         created_at=now(),
         object_key=None,
         bucket=None,
@@ -78,7 +86,7 @@ async def mark_running(job_id: uuid.UUID) -> None:
     state = await get(job_id)
     if state is None:
         return
-    await _store(_replace(state, status="running"))
+    await _store(_replace(state, status=ExportJobStatus.RUNNING))
 
 
 async def mark_ready(
@@ -90,14 +98,14 @@ async def mark_ready(
     state = await get(job_id)
     if state is None:
         return
-    await _store(_replace(state, status="ready", bucket=bucket, object_key=object_key))
+    await _store(_replace(state, status=ExportJobStatus.READY, bucket=bucket, object_key=object_key))
 
 
 async def mark_failed(*, job_id: uuid.UUID, error: str) -> None:
     state = await get(job_id)
     if state is None:
         return
-    await _store(_replace(state, status="failed", error=error))
+    await _store(_replace(state, status=ExportJobStatus.FAILED, error=error))
 
 
 async def get(job_id: uuid.UUID) -> ExportJobState | None:
@@ -111,7 +119,7 @@ async def get(job_id: uuid.UUID) -> ExportJobState | None:
         job_id=uuid.UUID(data["job_id"]),
         chatroom_id=uuid.UUID(data["chatroom_id"]),
         owner_user_id=uuid.UUID(data["owner_user_id"]),
-        status=data["status"],
+        status=ExportJobStatus(data["status"]),
         created_at=datetime.fromisoformat(data["created_at"]),
         object_key=data.get("object_key"),
         bucket=data.get("bucket"),
@@ -164,6 +172,7 @@ _ = timedelta  # imported for future-TTL tuning; keep in surface
 
 __all__ = [
     "ExportJobState",
+    "ExportJobStatus",
     "create",
     "get",
     "mark_failed",

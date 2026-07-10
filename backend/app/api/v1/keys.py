@@ -18,6 +18,7 @@ from app.api.v1.deps import PaginationParams
 from contexts.agents.interfaces.facade import AgentsFacade
 from contexts.keys.application.key_service import KeyService
 from contexts.keys.domain.models import ApiKey
+from contexts.keys.domain.probe_status import ProbeStatus
 from contexts.keys.domain.providers import ApiKeyProvider
 from contexts.keys.interfaces.facade import KeysFacade
 from contexts.tenancy.interfaces.facade import TenancyFacade
@@ -44,10 +45,10 @@ class KeyUploadIn(BaseModel):
 
 class KeyOut(BaseModel):
     id: uuid.UUID
-    provider: str
+    provider: ApiKeyProvider
     name: str
     masked_preview: str
-    test_status: str
+    test_status: ProbeStatus
     test_error: str | None
     last_test_at: str | None
     created_at: str
@@ -56,10 +57,10 @@ class KeyOut(BaseModel):
     def from_domain(cls, key: ApiKey) -> KeyOut:
         return cls(
             id=key.id,
-            provider=key.provider.value,
+            provider=key.provider,
             name=key.name,
             masked_preview=key.masked_preview,
-            test_status=key.test_status.value,
+            test_status=key.test_status,
             test_error=key.test_error,
             last_test_at=(key.last_test_at.isoformat() if key.last_test_at else None),
             created_at=key.created_at.isoformat(),

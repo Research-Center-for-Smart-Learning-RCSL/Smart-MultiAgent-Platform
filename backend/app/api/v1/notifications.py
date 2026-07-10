@@ -8,6 +8,7 @@ from fastapi import APIRouter, Body, Depends, Query
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from contexts.notification.domain.models import NotificationKind
 from contexts.notification.interfaces.facade import NotificationFacade
 from shared_kernel.auth.dependencies import current_principal
 from shared_kernel.auth.permissions import Principal
@@ -18,7 +19,7 @@ router = APIRouter(prefix="/api/notifications", tags=["notifications"])
 
 class NotificationOut(BaseModel):
     id: uuid.UUID
-    kind: str
+    kind: NotificationKind
     title: str
     body: str | None
     metadata: dict
@@ -55,7 +56,7 @@ async def list_notifications(
     return [
         NotificationOut(
             id=n.id,
-            kind=n.kind.value,
+            kind=n.kind,
             title=n.title,
             body=n.body,
             metadata=n.metadata,

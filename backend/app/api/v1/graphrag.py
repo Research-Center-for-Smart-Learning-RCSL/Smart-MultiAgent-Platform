@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import logging
 import uuid
-from typing import Literal
+from typing import Literal, cast
 
 from fastapi import APIRouter, Depends, Path, Query, status
 from pydantic import BaseModel, ConfigDict, Field
@@ -100,7 +100,7 @@ class GraphRagConfigPatchIn(BaseModel):
 class GraphRagConfigOut(BaseModel):
     id: uuid.UUID
     project_id: uuid.UUID
-    owner_kind: str
+    owner_kind: OwnerKind
     owner_id: uuid.UUID
     # Owner display name (Phase 4α) — for the project-scoped overview; ``None`` if
     # the owner was concurrently deleted between the config read and the name join.
@@ -111,7 +111,7 @@ class GraphRagConfigOut(BaseModel):
     builder_key_group_id: uuid.UUID
     trigger_config: dict[str, object]
     recency_half_life_days: float | None
-    last_build_state: str
+    last_build_state: BuildState
     last_build_at: str | None
     last_build_error: str | None
     created_at: str
@@ -121,14 +121,14 @@ class GraphRagConfigOut(BaseModel):
 class ConceptMapOwnerOptionOut(BaseModel):
     """A selectable owner for the Concept Maps overview create picker (Phase 4α)."""
 
-    owner_kind: str
+    owner_kind: OwnerKind
     owner_id: uuid.UUID
     owner_name: str
 
 
 class GraphRagStatusOut(BaseModel):
     id: uuid.UUID
-    state: str
+    state: BuildState
     last_build_at: str | None
     last_build_error: str | None
 
@@ -137,13 +137,13 @@ class AgentConceptMapCoverageEntryOut(BaseModel):
     """One Concept Map covering an agent (Phase 4α R11.09, read-only)."""
 
     config_id: uuid.UUID
-    owner_kind: str
+    owner_kind: OwnerKind
     owner_id: uuid.UUID
     owner_name: str
     # Whether the map currently feeds the agent's retrieval: chatroom maps always
     # do; a wide (agent_group / workspace) map only when its owner has enabled it.
     active: bool
-    last_build_state: str
+    last_build_state: BuildState
     last_build_at: str | None
     last_build_error: str | None
 
@@ -156,7 +156,7 @@ class AgentConceptMapCoverageOut(BaseModel):
 class GraphRagBuildOut(BaseModel):
     accepted: bool
     build_id: uuid.UUID | None
-    state: str
+    state: BuildState
 
 
 class GraphNodeOut(BaseModel):
@@ -194,14 +194,14 @@ def _to_out(cfg: GraphRagConfig) -> GraphRagConfigOut:
     return GraphRagConfigOut(
         id=cfg.id,
         project_id=cfg.project_id,
-        owner_kind=cfg.owner_kind,
+        owner_kind=cast(OwnerKind, cfg.owner_kind),
         owner_id=_owner_id(cfg),
         owner_name=cfg.owner_name,
         agent_id=cfg.agent_id,
         builder_key_group_id=cfg.builder_key_group_id,
         trigger_config=cfg.trigger_config,
         recency_half_life_days=cfg.recency_half_life_days,
-        last_build_state=cfg.last_build_state.value,
+        last_build_state=cfg.last_build_state,
         last_build_at=(cfg.last_build_at.isoformat() if cfg.last_build_at else None),
         last_build_error=cfg.last_build_error,
         created_at=cfg.created_at.isoformat(),
@@ -242,7 +242,7 @@ async def list_owner_options(
     options = await KnowledgeFacade(db).list_concept_map_owner_options(project_id)
     return [
         ConceptMapOwnerOptionOut(
-            owner_kind=o.owner_kind,
+            owner_kind=cast(OwnerKind, o.owner_kind),
             owner_id=o.owner_id,
             owner_name=o.owner_name,
         )
@@ -507,7 +507,7 @@ async def trigger_build(
         return GraphRagBuildOut(
             accepted=False,
             build_id=None,
-            state=cfg.last_build_state.value,
+            state=cfg.last_build_state,
         )
 
     from contexts.knowledge.application.graphrag_triggers import graphrag_build_job_id
@@ -582,11 +582,11 @@ async def read_agent_concept_map_coverage(
         entries=[
             AgentConceptMapCoverageEntryOut(
                 config_id=e.config.id,
-                owner_kind=e.config.owner_kind,
+                owner_kind=cast(OwnerKind, e.config.owner_kind),
                 owner_id=_owner_id(e.config),
                 owner_name=e.owner_name,
                 active=e.active,
-                last_build_state=e.config.last_build_state.value,
+                last_build_state=e.config.last_build_state,
                 last_build_at=(e.config.last_build_at.isoformat() if e.config.last_build_at else None),
                 last_build_error=e.config.last_build_error,
             )
