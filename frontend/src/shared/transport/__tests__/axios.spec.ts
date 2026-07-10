@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { http as mswHttp, HttpResponse } from 'msw'
+import bareAxios from 'axios'
 import { server } from '../../../../tests/mocks/server'
 import {
   http,
@@ -237,16 +238,14 @@ describe('response interceptor — 401 handling', () => {
 
 describe('response interceptor — network errors and cancellation', () => {
   it('marks the connection lost and throws NetworkError on an unreachable request', async () => {
-    vi.useFakeTimers()
-    try {
-      server.use(mswHttp.get('/api/test/unreachable', () => HttpResponse.error()))
-      await expect(http.get('/test/unreachable')).rejects.toMatchObject({
-        name: 'NetworkError',
-      })
-    } finally {
-      vi.clearAllTimers()
-      vi.useRealTimers()
-    }
+    // markConnectionLost() schedules a real setTimeout probe; the shared
+    // afterEach's markConnectionRestored() call cancels it via
+    // clearProbeTimer() regardless, so no fake-timer juggling is needed here
+    // (and faking global timers risks leaking into other test files).
+    server.use(mswHttp.get('/api/test/unreachable', () => HttpResponse.error()))
+    await expect(http.get('/test/unreachable')).rejects.toMatchObject({
+      name: 'NetworkError',
+    })
   })
 
   it('rethrows a canceled request without marking the connection lost', async () => {
@@ -280,6 +279,59 @@ describe('response interceptor — problem+json typing', () => {
     )
 
     await expect(http.get('/test/forbidden')).rejects.toBeInstanceOf(PermissionError)
+  })
+})
+
+describe('bare axios singleton (generated api-client target)', () => {
+  it('carries the same auth-header interceptor as http, so generated-client calls authenticate', async () => {
+    server.use(
+      mswHttp.get('/api/test/echo-auth-bare', ({ request }) =>
+        HttpResponse.json({ authorization: request.headers.get('Authorization') }),
+      ),
+    )
+
+    setAccessToken('tok-bare-456')
+    // Deliberately NOT going through `http` — this simulates what a
+    // generated-client call does, since core/request.ts's default
+    // `axiosClient` is the bare `axios` module import, not `http`.
+    const res = await bareAxios.get<{ authorization: string | null }>(
+      '/api/test/echo-auth-bare',
+    )
+    expect(res.data.authorization).toBe('Bearer tok-bare-456')
+  })
+
+  it('silently refreshes and replays a 401 exactly like http does', async () => {
+    setAccessToken('expiring-bare-token')
+    let attempts = 0
+
+    server.use(
+      mswHttp.get('/api/test/bare-needs-refresh', () => {
+        attempts += 1
+        if (attempts === 1) {
+          return HttpResponse.json(
+            {
+              type: 'https://smap.local/problems/auth/token-expired',
+              title: 'Session expired',
+              status: 401,
+            },
+            { status: 401 },
+          )
+        }
+        return HttpResponse.json({ ok: true })
+      }),
+      mswHttp.post('/api/auth/refresh', () =>
+        HttpResponse.json({
+          access_token: 'bare-refreshed-access',
+          refresh_token: 'r',
+          expires_in: 3600,
+        }),
+      ),
+    )
+
+    const res = await bareAxios.get<{ ok: boolean }>('/api/test/bare-needs-refresh')
+    expect(attempts).toBe(2)
+    expect(res.data.ok).toBe(true)
+    expect(getAccessToken()).toBe('bare-refreshed-access')
   })
 })
 

@@ -136,7 +136,10 @@ function handleResponseSuccess<T>(response: T): T {
   return response
 }
 
-async function handleResponseError(error: AxiosError<ProblemJson>): Promise<never> {
+async function handleResponseError(
+  error: AxiosError<ProblemJson>,
+  instance: AxiosInstance,
+) {
   // Network error (no response at all): the server was unreachable. Flip the
   // global offline banner; its probe loop drives recovery.
   if (!error.response) {
@@ -175,7 +178,7 @@ async function handleResponseError(error: AxiosError<ProblemJson>): Promise<neve
   if (isRefreshEligible && !original._retry) {
     original._retry = true
     const ok = await attemptRefresh()
-    if (ok) return http(original)
+    if (ok) return instance(original)
     onUnauthorized?.()
     throw new AuthError(
       problem ?? {
@@ -198,7 +201,38 @@ async function handleResponseError(error: AxiosError<ProblemJson>): Promise<neve
   throw error
 }
 
-http.interceptors.response.use(handleResponseSuccess, handleResponseError)
+http.interceptors.response.use(handleResponseSuccess, (error: AxiosError<ProblemJson>) =>
+  handleResponseError(error, http),
+)
+
+// The generated OpenAPI client (`shared/api-client`) has no way to inject a
+// custom axios instance into its per-service static methods — they always
+// call the bare default `axios` singleton (see core/request.ts's
+// `axiosClient: AxiosInstance = axios` default). Registering the same three
+// request interceptors here — not duplicating them, the exact same function
+// references as `http`'s — gives every generated-client call the same
+// bearer-token injection, idempotency keys, and Accept-Language as `http`.
+// The response interceptor gives it the same silent 401-refresh-and-replay
+// and problem+json → typed-error behavior for free.
+//
+// This makes the bare `axios` singleton a second *instrumented* instance,
+// app-wide. Do not add a new bare `import axios from 'axios'` call anywhere
+// else in the app expecting it to be uninstrumented — use `refreshHttp`
+// below as the pattern for a deliberately bare call.
+axios.interceptors.request.use(injectAuthHeader)
+axios.interceptors.request.use(injectIdempotencyKey)
+axios.interceptors.request.use(injectAcceptLanguage)
+axios.interceptors.response.use(handleResponseSuccess, (error: AxiosError<ProblemJson>) =>
+  handleResponseError(error, axios),
+)
+
+// Dedicated, deliberately uninstrumented instance for the refresh call
+// itself: it must never carry a (possibly stale) `Authorization` header, and
+// must not be intercepted by the 401-refresh handler above — a refresh
+// failing with 401 must not try to refresh itself. Now that the bare `axios`
+// singleton carries the same interceptors as `http` (see above), this call
+// can no longer use it directly.
+const refreshHttp: AxiosInstance = axios.create({ withCredentials: true })
 
 async function attemptRefresh(): Promise<boolean> {
   if (refreshInFlight) return refreshInFlight
@@ -206,7 +240,7 @@ async function attemptRefresh(): Promise<boolean> {
   refreshInFlight = (async () => {
     try {
       // No token in body — the browser sends the httpOnly smap_refresh cookie automatically.
-      const res = await axios.post<{ access_token: string }>('/api/auth/refresh', {})
+      const res = await refreshHttp.post<{ access_token: string }>('/api/auth/refresh', {})
       setAccessToken(res.data.access_token)
       return true
     } catch {
