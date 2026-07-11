@@ -1,6 +1,6 @@
 ---
 type: refactor
-status: draft
+status: in-progress
 created: 2026-07-11
 requirements: [R24.13, R11.09, R11.23, R22.15]
 supersedes:
@@ -75,7 +75,7 @@ drives the consumer sweep rather than a hand-maintained list.
 | Q-1 | (settled) enum widening? | Backend enum sweep first, then wrap. | Done — the generated `BuildState`/`AgentModelHint`/`ScanStatus`/etc. already match this slice's unions. |
 | Q-2 | Keep hand-rolled types or alias the generated models? | Keep hand-rolled; bridge divergences. | The types are consumed cross-slice (agent-groups/workflow) and back the build-state union + socket logic; and optional-vs-required drift needs a mapping regardless (as with keys' `GroupOut`). Minimal ripple. |
 | Q-3 | ~54 methods, ~15 consumer files, several cross-slice — how to convert safely? | Rewrite the api over the generated services; let `pnpm typecheck` enumerate every `.data` site and assignability gap; sweep them mechanically; update module-mock tests to bare bodies. | The keys increment proved typecheck surfaces every site (incl. the ones the initial scope missed) — it is the reliable driver at this scale. |
-| Q-4 | 7 methods (`*McpBinding*`, `*BuiltinTools`) hit routes absent from the contract and have zero consumers. Wrap-on-`http`, or delete? | **Delete** them plus their exclusive types/schema. | Their backend routes were removed (superseded by the unified Tools API); wrapping is impossible and keeping them on `http` preserves dead code that 404s and defeats AC-1. Deletion is verified safe (grep: no consumers, not re-exported). |
+| Q-4 | 7 methods (`*McpBinding*`, `*BuiltinTools`) hit routes absent from the contract and have zero consumers. Wrap-on-`http`, or delete? | **Delete** them plus their exclusive types/schema. | Their backend routes were removed (superseded by the unified Tools API); wrapping is impossible and keeping them on `http` preserves dead code that 404s and defeats AC-1. Deletion verified safe on both sides: frontend grep shows no consumers and no re-export; and the **backend router source** (`app/api/v1/`) exposes only `/projects/{pid}/mcp/egress-allowlist` — no `/agents/{id}/mcp` or `/builtin-tools` route exists (the remaining `builtin_tools`/`mcp` code is server-side runtime, not HTTP). User asked to verify the backend before deleting; confirmed. |
 
 ## 5. Current vs Target Structure
 
