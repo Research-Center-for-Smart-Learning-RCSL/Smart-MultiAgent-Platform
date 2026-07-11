@@ -1,6 +1,20 @@
 // Workflow + Orchestration API — H.7 / G.10.
+//
+// Wraps the generated @shared/api-client services (WorkflowsService,
+// WorkflowRunsService, OrchestrationService, AgentsService) over the one
+// instrumented axios singleton. The functions already returned bare bodies, so
+// this conversion is signature-preserving — consumers are untouched. Where a
+// generated return is loosely typed (the orchestration routes resolve
+// `Record<string, any>`; validate/trigger/cancel resolve `Record<string, string>`),
+// the wrapper casts to the hand-rolled slice type — the same unchecked assertion
+// the previous `http.get<T>()` calls already made, relocated to this boundary.
 
-import { http } from '@shared/transport'
+import {
+  AgentsService,
+  OrchestrationService,
+  WorkflowRunsService,
+  WorkflowsService,
+} from '@shared/api-client'
 import type {
   Approval,
   ApprovalWithVotes,
@@ -18,21 +32,19 @@ import type {
 // ---- Workflow CRUD (H.1 / §22.11) -----------------------------------------
 
 export async function listWorkflows(workspaceId: string): Promise<Workflow[]> {
-  const { data } = await http.get<Workflow[]>(
-    `/workspaces/${workspaceId}/workflows`,
-  )
-  return data
+  return (await WorkflowsService.listWorkflowsApiWorkspacesWidWorkflowsGet({
+    wid: workspaceId,
+  })) as Workflow[]
 }
 
 export async function createWorkflow(
   workspaceId: string,
   payload: { name: string; definition: WorkflowDefinition },
 ): Promise<Workflow> {
-  const { data } = await http.post<Workflow>(
-    `/workspaces/${workspaceId}/workflows`,
-    payload,
-  )
-  return data
+  return (await WorkflowsService.createWorkflowApiWorkspacesWidWorkflowsPost({
+    wid: workspaceId,
+    requestBody: payload,
+  })) as Workflow
 }
 
 export async function patchWorkflow(
@@ -40,27 +52,25 @@ export async function patchWorkflow(
   version: number,
   payload: { name?: string; definition?: WorkflowDefinition },
 ): Promise<Workflow> {
-  const { data } = await http.patch<Workflow>(
-    `/workflows/${workflowId}`,
-    payload,
-    { headers: { 'If-Match': String(version) } },
-  )
-  return data
+  return (await WorkflowsService.patchWorkflowApiWorkflowsWorkflowIdPatch({
+    workflowId,
+    ifMatch: String(version),
+    requestBody: payload,
+  })) as Workflow
 }
 
 export async function deleteWorkflow(workflowId: string): Promise<void> {
-  await http.delete(`/workflows/${workflowId}`)
+  await WorkflowsService.deleteWorkflowApiWorkflowsWorkflowIdDelete({ workflowId })
 }
 
 export async function validateWorkflow(
   workspaceId: string,
   definition: WorkflowDefinition,
 ): Promise<ValidationResult> {
-  const { data } = await http.post<ValidationResult>(
-    `/workspaces/${workspaceId}/workflows/validate`,
-    { definition },
-  )
-  return data
+  return (await WorkflowsService.validateWorkflowApiWorkspacesWidWorkflowsValidatePost({
+    wid: workspaceId,
+    requestBody: { definition },
+  })) as ValidationResult
 }
 
 // ---- Runs (H.4) ------------------------------------------------------------
@@ -69,78 +79,62 @@ export async function triggerRun(
   workflowId: string,
   triggerPayload: Record<string, unknown> = {},
 ): Promise<{ run_id: string }> {
-  const { data } = await http.post<{ run_id: string }>(
-    `/workflows/${workflowId}/runs`,
-    { trigger_payload: triggerPayload },
-  )
-  return data
+  return (await WorkflowsService.triggerRunApiWorkflowsWorkflowIdRunsPost({
+    workflowId,
+    requestBody: { trigger_payload: triggerPayload },
+  })) as { run_id: string }
 }
 
 export async function dryRun(
   workflowId: string,
   triggerPayload: Record<string, unknown> = {},
 ): Promise<{ run_id: string }> {
-  const { data } = await http.post<{ run_id: string }>(
-    `/workflows/${workflowId}/dry-run`,
-    { trigger_payload: triggerPayload },
-  )
-  return data
+  return (await WorkflowsService.dryRunApiWorkflowsWorkflowIdDryRunPost({
+    workflowId,
+    requestBody: { trigger_payload: triggerPayload },
+  })) as { run_id: string }
 }
 
 export async function listRuns(
   workflowId: string,
   opts: { limit?: number; offset?: number; includeArchive?: boolean } = {},
 ): Promise<WorkflowRun[]> {
-  const { data } = await http.get<WorkflowRun[]>(
-    `/workflows/${workflowId}/runs`,
-    {
-      params: {
-        limit: opts.limit ?? 50,
-        offset: opts.offset ?? 0,
-        include_archive: opts.includeArchive ?? false,
-      },
-    },
-  )
-  return data
+  return (await WorkflowsService.listRunsApiWorkflowsWorkflowIdRunsGet({
+    workflowId,
+    limit: opts.limit ?? 50,
+    offset: opts.offset ?? 0,
+    includeArchive: opts.includeArchive ?? false,
+  })) as WorkflowRun[]
 }
 
 export async function getRun(runId: string): Promise<WorkflowRun> {
-  const { data } = await http.get<WorkflowRun>(`/workflow-runs/${runId}`)
-  return data
+  return WorkflowRunsService.getRunApiWorkflowRunsRunIdGet({ runId })
 }
 
-export async function cancelRun(
-  runId: string,
-): Promise<{ status: string }> {
-  const { data } = await http.post<{ status: string }>(
-    `/workflow-runs/${runId}/cancel`,
-  )
-  return data
+export async function cancelRun(runId: string): Promise<{ status: string }> {
+  return (await WorkflowRunsService.cancelRunApiWorkflowRunsRunIdCancelPost({
+    runId,
+  })) as { status: string }
 }
 
 export async function listSteps(runId: string): Promise<WorkflowStep[]> {
-  const { data } = await http.get<WorkflowStep[]>(
-    `/workflow-runs/${runId}/steps`,
-  )
-  return data
+  return WorkflowRunsService.listStepsApiWorkflowRunsRunIdStepsGet({ runId })
 }
 
 // ---- Approvals (G.6) -------------------------------------------------------
 
 export async function getApproval(approvalId: string): Promise<ApprovalWithVotes> {
-  const { data } = await http.get<ApprovalWithVotes>(
-    `/orchestration/approvals/${approvalId}`,
-  )
-  return data
+  return (await OrchestrationService.getApprovalApiOrchestrationApprovalsApprovalIdGet({
+    approvalId,
+  })) as ApprovalWithVotes
 }
 
 export async function listApprovalsForRun(
   workflowRunId: string,
 ): Promise<Approval[]> {
-  const { data } = await http.get<Approval[]>(
-    `/orchestration/workflow-runs/${workflowRunId}/approvals`,
-  )
-  return data
+  return (await OrchestrationService.listApprovalsForRunApiOrchestrationWorkflowRunsWorkflowRunIdApprovalsGet(
+    { workflowRunId },
+  )) as Approval[]
 }
 
 // ---- Instruct chains (G.7 — admin only) ------------------------------------
@@ -148,19 +142,17 @@ export async function listApprovalsForRun(
 export async function getInstruction(
   instructionId: string,
 ): Promise<Instruction> {
-  const { data } = await http.get<Instruction>(
-    `/orchestration/instructions/${instructionId}`,
-  )
-  return data
+  return (await OrchestrationService.getInstructionApiOrchestrationInstructionsInstructionIdGet(
+    { instructionId },
+  )) as Instruction
 }
 
 export async function listInstructionsForChain(
   chainId: string,
 ): Promise<Instruction[]> {
-  const { data } = await http.get<Instruction[]>(
-    `/orchestration/chains/${chainId}/instructions`,
-  )
-  return data
+  return (await OrchestrationService.listInstructionsForChainApiOrchestrationChainsChainIdInstructionsGet(
+    { chainId },
+  )) as Instruction[]
 }
 
 // ---- Sub-agents (G.8) -------------------------------------------------------
@@ -168,23 +160,22 @@ export async function listInstructionsForChain(
 // All sub-agents spawned during a workflow run (alive + destroyed), for the
 // admin backstage trace where the run has usually finished and its sub-agents
 // are already torn down. (The alive-only `/instances/{id}/children` endpoint
-// exists server-side but has no frontend consumer.)
+// exists server-side — OrchestrationService.listSubagentChildren… — but has no
+// frontend consumer.)
 export async function listRunSubagents(
   runId: string,
 ): Promise<AgentInstance[]> {
-  const { data } = await http.get<AgentInstance[]>(
-    `/orchestration/workflow-runs/${runId}/subagents`,
-  )
-  return data
+  return (await OrchestrationService.listRunSubagentsApiOrchestrationWorkflowRunsWorkflowRunIdSubagentsGet(
+    { workflowRunId: runId },
+  )) as AgentInstance[]
 }
 
 // ---- DLQ viewer (G.10) -----------------------------------------------------
 
 export async function listDlq(agentId: string): Promise<DlqEntry[]> {
-  const { data } = await http.get<DlqEntry[]>(
-    `/orchestration/agents/${agentId}/dlq`,
-  )
-  return data
+  return (await OrchestrationService.getAgentDlqApiOrchestrationAgentsAgentIdDlqGet({
+    agentId,
+  })) as DlqEntry[]
 }
 
 // ---- Agent wakeup config (Phase H) -----------------------------------------
@@ -195,10 +186,8 @@ export async function listDlq(agentId: string): Promise<DlqEntry[]> {
 export async function getAgentWakeupConfig(
   agentId: string,
 ): Promise<{ wakeupConfig: unknown; version: number }> {
-  const { data } = await http.get<{ wakeup_config?: unknown; version: number }>(
-    `/agents/${agentId}`,
-  )
-  return { wakeupConfig: data.wakeup_config ?? {}, version: data.version }
+  const agent = await AgentsService.readAgentApiAgentsAgentIdGet({ agentId })
+  return { wakeupConfig: agent.wakeup_config ?? {}, version: agent.version }
 }
 
 // Returns the bumped version so the caller can save again without a refetch.
@@ -207,10 +196,10 @@ export async function patchAgentWakeupConfig(
   wakeupConfig: WakeupConfig,
   version: number,
 ): Promise<number> {
-  const { data } = await http.patch<{ version: number }>(
-    `/agents/${agentId}`,
-    { wakeup_config: wakeupConfig },
-    { headers: { 'If-Match': String(version) } },
-  )
-  return data.version
+  const agent = await AgentsService.patchAgentApiAgentsAgentIdPatch({
+    agentId,
+    ifMatch: String(version),
+    requestBody: { wakeup_config: wakeupConfig },
+  })
+  return agent.version
 }
