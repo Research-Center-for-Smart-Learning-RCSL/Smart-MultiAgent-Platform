@@ -1,6 +1,6 @@
 ---
 type: refactor
-status: approved
+status: implemented
 created: 2026-07-11
 requirements: [R24.13]
 ---
@@ -174,23 +174,33 @@ DlqEntry) stay (Q-2).
 
 ## 9. Acceptance Criteria
 
-- [ ] AC-1: the seven orchestration read routes carry typed `response_model`s (six models);
+- [x] AC-1: the seven orchestration read routes carry typed `response_model`s (six models);
       no route returns bare `dict[str, Any]` / `list[dict[str, Any]]`. `OrchestrationService`
-      methods resolve the typed models, not `Record<string, any>`.
-- [ ] AC-2: no behavior change beyond Q-1 — every existing orchestration backend test passes
+      methods resolve the typed models, not `Record<string, any>`. *(All 7 routes annotated
+      with the models; return-annotation inference drives the OpenAPI, no `response_model=`
+      kwargs. Regen typed `OrchestrationService.ts`.)*
+- [x] AC-2: no behavior change beyond Q-1 — every existing orchestration backend test passes
       **unmodified** (no field dropped, no value changed, AuthZ intact), verified by
-      `pytest`.
-- [ ] AC-3: DLQ `attempt_count` serializes as a JSON number — a backend regression test
+      `pytest`. *(74 orchestration/a2a/approval unit tests pass untouched; security audit
+      confirmed the resolve-project → assert-member → serialize order is byte-identical. The
+      2 `test_wiring.py` failures are environmental — `Connection(host=redis)` unresolvable
+      locally — unrelated to this change.)*
+- [x] AC-3: DLQ `attempt_count` serializes as a JSON number — a backend regression test
       feeds a stored string `attempt_count` and asserts the response value is `3` (number).
-- [ ] AC-4: the six `as SliceType` casts in `workflow/api/index.ts` (:129,137,147,155,170,
-      178) are removed; `pnpm typecheck` is green with **zero** frontend consumer edits
-      (proves the generated `*Out` models are assignable to the hand-rolled types).
-- [ ] AC-5: the regenerated `openapi.json` + client diff is bounded to the six new model
+      *(`test_dlq_entry_out_coerces_attempt_count_to_number`.)*
+- [x] AC-4: the six `as SliceType` casts in `workflow/api/index.ts` are removed; `pnpm
+      typecheck` is green with **zero** frontend consumer edits (proves the generated `*Out`
+      models are assignable to the hand-rolled types). *(Casts dropped + functions de-async'd,
+      D-2; typecheck clean.)*
+- [x] AC-5: the regenerated `openapi.json` + client diff is bounded to the six new model
       files, the three new enum files, and `OrchestrationService.ts`; `pnpm run gen:api`
-      leaves nothing else changed.
-- [ ] AC-6: backend `ruff`/`mypy` green on `orchestration.py`; frontend `pnpm test`,
+      leaves nothing else changed. *(git status: +9 model/enum files, M OrchestrationService.ts,
+      M index.ts barrel, M openapi.json — nothing else.)*
+- [x] AC-6: backend `ruff`/`mypy` green on `orchestration.py`; frontend `pnpm test`,
       `pnpm lint` (changed files), `pnpm build` green; the workflow api spec passes
-      unmodified.
+      unmodified. *(mypy: 0 errors in orchestration.py — the 20 project-wide errors are
+      pre-existing branch debt in other files; frontend 526 tests, workflow spec 22 untouched,
+      build clean; quality + security audits both clean.)*
 
 ## 10. SRS Delta
 
@@ -199,7 +209,28 @@ and corrects one field's wire type. No new or amended requirement.
 
 ## 11. Deviation Log
 
-Appended by /build.
+- **D-1 — helpers return model instances (chose the `rag.py` idiom over `response_model=`).**
+  §5A offered either. Implemented the instance-returning variant: `_instruction_out`/
+  `_instance_out` now return `InstructionOut`/`AgentInstanceOut`; `_approval_out(approval)`
+  returns `ApprovalOut` (votes param dropped) and a new `_approval_with_votes_out(approval,
+  votes)` composes `ApprovalWithVotesOut` via `_approval_out(approval).model_dump()` + a new
+  `_vote_out` helper. Routes annotate the model type; FastAPI infers `response_model` from
+  the annotation (no `response_model=` kwargs). Quality audit confirmed the composition is
+  clean (enum members re-validate; no datetime/enum round-trip hazard).
+- **D-2 — the six frontend orchestration methods were de-`async`'d when dropping the casts.**
+  Beyond removing `as SliceType`, `getApproval`/`listApprovalsForRun`/`getInstruction`/
+  `listInstructionsForChain`/`listRunSubagents`/`listDlq` became plain `function`s returning
+  the typed service promise directly — consistent with the `getRun`/`listSteps` style
+  established in the workflow-wrap and the earlier code-review cleanup. Behavior-preserving
+  (still return `Promise<T>`).
+- **D-3 — unit-level shape/coercion tests instead of endpoint tests.** §6 sketched
+  fixture-seeded endpoint tests. There are **no** existing route-level tests for this surface,
+  and the routes' auth/logic are unchanged (only return typing) — so the marginal risk is
+  purely serialization. `test_orchestration_response_models.py` pins exactly that: each
+  `_*_out` helper's model serializes every field with the right type/enum value, and the DLQ
+  `attempt_count` coerces `str`→`int` (AC-3). The existing service/domain tests (74) guard the
+  data-fetch layer; the security audit verified the AuthZ order. Full endpoint tests would add
+  the auth/DB harness for little extra coverage of *this* change — recorded as FU-3.
 
 ## 12. Follow-ups
 
@@ -207,3 +238,10 @@ Appended by /build.
   `WorkflowRunsService` `triggerRun`/`dryRun`/`cancelRun` resolve `Record<string, string>`
   and the `run_id`/`status` inline shapes are cast in `workflow/api/index.ts:85,95,117`;
   give the backend routes typed response models so those casts drop too.
+- FU-2: `orchestration.py` imports below the facade level (`ApprovalService`/`InstructService`/
+  `SubagentService` from application, `read_dlq` from infrastructure) — a pre-existing SoC
+  coupling the quality audit flagged; if the team tightens it, route the whole file through
+  `OrchestrationFacade`. Not introduced here (the new domain-enum import is strictly less
+  coupling than what already exists, and mirrors `rag.py`).
+- FU-3: add fixture-seeded endpoint tests for the orchestration read routes (auth + DB), for
+  end-to-end coverage beyond the unit-level response-model shape tests this task added (D-3).
