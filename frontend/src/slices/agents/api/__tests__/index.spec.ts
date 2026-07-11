@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { http as mswHttp, HttpResponse } from 'msw'
 import { server } from '../../../../../tests/mocks/server'
+import { createRequestCapture, type CapturedRequest } from '../../../../../tests/helpers/requestCapture'
 import { agentsApi } from '..'
 
 // Request-level characterization of the agents api wire contract, pinned as
@@ -11,13 +11,6 @@ import { agentsApi } from '..'
 // request bodies (tool auth/clear_auth, egress hostname). Bodies matter here: this
 // surface carries tool credentials and the egress allowlist.
 
-interface Captured {
-  method: string
-  path: string
-  query: Record<string, string>
-  ifMatch: string | null
-  body: unknown
-}
 
 const agentOut = {
   id: 'ag_1',
@@ -115,35 +108,8 @@ const knowmapConfigOut = {
 }
 const graphOut = { config_id: 'gc_1', nodes: [], edges: [], truncated: false }
 
-function captureAll(): { value: Captured | null } {
-  const holder: { value: Captured | null } = { value: null }
-  const record = async (request: Request): Promise<void> => {
-    const url = new URL(request.url)
-    let body: unknown = undefined
-    if (request.method !== 'GET' && request.method !== 'DELETE') {
-      body = await request.clone().json().catch(() => undefined)
-    }
-    holder.value = {
-      method: request.method,
-      path: url.pathname,
-      query: Object.fromEntries(url.searchParams),
-      ifMatch: request.headers.get('if-match'),
-      body,
-    }
-  }
-  const ok = (json: unknown, status = 200): HttpResponse =>
-    json === null ? new HttpResponse(null, { status }) : HttpResponse.json(json, { status })
-  const on = (
-    method: 'get' | 'post' | 'patch' | 'delete',
-    path: string,
-    json: unknown,
-    status = 200,
-  ) =>
-    mswHttp[method](path, async ({ request }) => {
-      await record(request)
-      return ok(json, status)
-    })
-
+function captureAll(): { value: CapturedRequest | null } {
+  const { cap, on } = createRequestCapture()
   server.use(
     // agents
     on('get', '/api/projects/:pid/agents', [agentOut]),
@@ -192,7 +158,7 @@ function captureAll(): { value: Captured | null } {
     on('post', '/api/agents/:aid/workspace-files', { id: 'wf_1', agent_id: 'ag_1', path: 'a.py', size_bytes: 3, mime: 'text/x-python', created_at: 't' }, 201),
     on('delete', '/api/agents/:aid/workspace-files/:fid', null, 204),
   )
-  return holder
+  return cap
 }
 
 describe('agents api wire contract', () => {

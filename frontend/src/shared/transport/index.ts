@@ -24,6 +24,8 @@ export interface PaginationParams {
 
 export { idempotencyKey } from './idempotency'
 
+export { asBinaryFormField } from './multipart'
+
 export {
   tusUpload,
   resourceToAttachmentId,

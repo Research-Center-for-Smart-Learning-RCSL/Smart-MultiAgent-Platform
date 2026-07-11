@@ -107,7 +107,7 @@ export async function listRuns(
   })) as WorkflowRun[]
 }
 
-export async function getRun(runId: string): Promise<WorkflowRun> {
+export function getRun(runId: string): Promise<WorkflowRun> {
   return WorkflowRunsService.getRunApiWorkflowRunsRunIdGet({ runId })
 }
 
@@ -117,7 +117,7 @@ export async function cancelRun(runId: string): Promise<{ status: string }> {
   })) as { status: string }
 }
 
-export async function listSteps(runId: string): Promise<WorkflowStep[]> {
+export function listSteps(runId: string): Promise<WorkflowStep[]> {
   return WorkflowRunsService.listStepsApiWorkflowRunsRunIdStepsGet({ runId })
 }
 
@@ -181,8 +181,10 @@ export async function listDlq(agentId: string): Promise<DlqEntry[]> {
 // ---- Agent wakeup config (Phase H) -----------------------------------------
 
 // The agent's stored wakeup_config defaults to `{}` (server_default), so callers
-// must default-fill before handing it to the structured editor. The version is
-// returned too: the agent PATCH requires an `If-Match` precondition.
+// must default-fill before handing it to the structured editor. The `?? {}` is a
+// deliberate boundary guard against a null body (kept though the generated AgentOut
+// types the field required — see the covering test). The version is returned too:
+// the agent PATCH requires an `If-Match` precondition.
 export async function getAgentWakeupConfig(
   agentId: string,
 ): Promise<{ wakeupConfig: unknown; version: number }> {

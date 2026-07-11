@@ -7,6 +7,7 @@ import {
   ModelCatalogService,
   RagService,
 } from '@shared/api-client'
+import { asBinaryFormField } from '@shared/transport'
 import type {
   AgentToolCreateIn,
   AgentToolOut,
@@ -429,7 +430,7 @@ export const agentsApi = {
     RagService.uploadDocumentApiRagConfigsConfigIdDocumentsPost({
       configId,
       formData: {
-        file: file as unknown as string,
+        file: asBinaryFormField(file),
         mime: file.type || 'application/octet-stream',
         agent_ids: agentIds,
       },
@@ -522,7 +523,7 @@ export const agentsApi = {
     KnowmapService.uploadKnowmapDocumentApiKnowmapConfigsConfigIdDocumentsPost({
       configId,
       formData: {
-        file: file as unknown as string,
+        file: asBinaryFormField(file),
         mime: file.type || 'application/octet-stream',
         agent_ids: agentIds,
       },
@@ -595,7 +596,7 @@ export const agentsApi = {
   uploadWorkspaceFile: (agentId: string, file: File, path?: string): Promise<WorkspaceFile> =>
     AgentWorkspaceService.uploadWorkspaceFileApiAgentsAgentIdWorkspaceFilesPost({
       agentId,
-      formData: { file: file as unknown as string, ...(path ? { path } : {}) },
+      formData: { file: asBinaryFormField(file), ...(path ? { path } : {}) },
     }),
 
   deleteWorkspaceFile: (agentId: string, fileId: string): Promise<void> =>
