@@ -22,6 +22,7 @@ import uuid
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Path, status
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.deps import PaginationParams
@@ -29,6 +30,11 @@ from contexts.agents.interfaces.facade import AgentsFacade
 from contexts.orchestration.application.approval_service import ApprovalService
 from contexts.orchestration.application.instruct_service import InstructService
 from contexts.orchestration.application.subagent_service import SubagentService
+from contexts.orchestration.domain.models import (
+    ApprovalMode,
+    ApprovalState,
+    InstructionState,
+)
 from contexts.orchestration.infrastructure.a2a_streams import read_dlq
 from contexts.orchestration.interfaces.facade import OrchestrationFacade
 from shared_kernel.auth.dependencies import current_principal, get_role_resolver
@@ -64,63 +70,133 @@ def _not_found(what: str) -> HTTPException:
 
 
 # ---------------------------------------------------------------------------
-# Helpers — row → dict
+# Response models — typed contract for the read surface (G.6–G.10)
 # ---------------------------------------------------------------------------
 
 
-def _approval_out(approval: Any, votes: list[Any] | None = None) -> dict[str, Any]:
-    out = {
-        "id": str(approval.id),
-        "workflow_run_id": str(approval.workflow_run_id),
-        "mode": approval.mode.value,
-        "leader_agent_id": str(approval.leader_agent_id),
-        "approver_agent_ids": [str(a) for a in approval.approver_agent_ids],
-        "timeout_seconds": approval.timeout_seconds,
-        "state": approval.state.value,
-        "started_at": approval.started_at.isoformat(),
-        "ended_at": approval.ended_at.isoformat() if approval.ended_at else None,
-    }
-    if votes is not None:
-        out["votes"] = [
-            {
-                "approval_id": str(v.approval_id),
-                "voter_agent_id": str(v.voter_agent_id),
-                "vote": v.vote,
-                "rationale": v.rationale,
-                "cast_at": v.cast_at.isoformat(),
-            }
-            for v in votes
-        ]
-    return out
+class ApprovalVoteOut(BaseModel):
+    approval_id: str
+    voter_agent_id: str
+    vote: bool
+    rationale: str | None
+    cast_at: str
 
 
-def _instruction_out(instruction: Any) -> dict[str, Any]:
-    return {
-        "id": str(instruction.id),
-        "chain_id": str(instruction.chain_id),
-        "path": [str(p) for p in instruction.path],
-        "depth": instruction.depth,
-        "issuer_agent_id": str(instruction.issuer_agent_id),
-        "target_agent_id": str(instruction.target_agent_id),
-        "payload": instruction.payload,
-        "state": instruction.state.value,
-        "issued_at": instruction.issued_at.isoformat(),
-        "resolved_at": instruction.resolved_at.isoformat() if instruction.resolved_at else None,
-    }
+class ApprovalOut(BaseModel):
+    id: str
+    workflow_run_id: str
+    mode: ApprovalMode
+    leader_agent_id: str
+    approver_agent_ids: list[str]
+    timeout_seconds: int
+    state: ApprovalState
+    started_at: str
+    ended_at: str | None
 
 
-def _instance_out(instance: Any) -> dict[str, Any]:
-    return {
-        "id": str(instance.id),
-        "agent_id": str(instance.agent_id),
-        "parent_id": str(instance.parent_id) if instance.parent_id else None,
-        "chatroom_id": str(instance.chatroom_id) if instance.chatroom_id else None,
-        "run_context": instance.run_context,
-        "task_description": instance.task_description,
-        "state": instance.state,
-        "spawned_at": instance.spawned_at.isoformat(),
-        "destroyed_at": instance.destroyed_at.isoformat() if instance.destroyed_at else None,
-    }
+class ApprovalWithVotesOut(ApprovalOut):
+    votes: list[ApprovalVoteOut]
+
+
+class InstructionOut(BaseModel):
+    id: str
+    chain_id: str
+    path: list[str]
+    depth: int
+    issuer_agent_id: str
+    target_agent_id: str
+    payload: dict[str, Any]
+    state: InstructionState
+    issued_at: str
+    resolved_at: str | None
+
+
+class AgentInstanceOut(BaseModel):
+    id: str
+    agent_id: str
+    parent_id: str | None
+    chatroom_id: str | None
+    run_context: dict[str, Any]
+    task_description: str | None
+    state: str
+    spawned_at: str
+    destroyed_at: str | None
+
+
+class DlqEntryOut(BaseModel):
+    stream_entry_id: str
+    stream_id: str
+    envelope: str
+    # `read_dlq` stringifies every Redis field; `int` coerces "3" -> 3 so the wire
+    # value matches the frontend's numeric type (dossier Q-1).
+    attempt_count: int
+    last_error: str
+    moved_at: str
+
+
+# ---------------------------------------------------------------------------
+# Helpers — domain row → response model
+# ---------------------------------------------------------------------------
+
+
+def _vote_out(v: Any) -> ApprovalVoteOut:
+    return ApprovalVoteOut(
+        approval_id=str(v.approval_id),
+        voter_agent_id=str(v.voter_agent_id),
+        vote=v.vote,
+        rationale=v.rationale,
+        cast_at=v.cast_at.isoformat(),
+    )
+
+
+def _approval_out(approval: Any) -> ApprovalOut:
+    return ApprovalOut(
+        id=str(approval.id),
+        workflow_run_id=str(approval.workflow_run_id),
+        mode=approval.mode,
+        leader_agent_id=str(approval.leader_agent_id),
+        approver_agent_ids=[str(a) for a in approval.approver_agent_ids],
+        timeout_seconds=approval.timeout_seconds,
+        state=approval.state,
+        started_at=approval.started_at.isoformat(),
+        ended_at=approval.ended_at.isoformat() if approval.ended_at else None,
+    )
+
+
+def _approval_with_votes_out(approval: Any, votes: list[Any]) -> ApprovalWithVotesOut:
+    return ApprovalWithVotesOut(
+        **_approval_out(approval).model_dump(),
+        votes=[_vote_out(v) for v in votes],
+    )
+
+
+def _instruction_out(instruction: Any) -> InstructionOut:
+    return InstructionOut(
+        id=str(instruction.id),
+        chain_id=str(instruction.chain_id),
+        path=[str(p) for p in instruction.path],
+        depth=instruction.depth,
+        issuer_agent_id=str(instruction.issuer_agent_id),
+        target_agent_id=str(instruction.target_agent_id),
+        payload=instruction.payload,
+        state=instruction.state,
+        issued_at=instruction.issued_at.isoformat(),
+        resolved_at=instruction.resolved_at.isoformat() if instruction.resolved_at else None,
+    )
+
+
+def _instance_out(instance: Any) -> AgentInstanceOut:
+    return AgentInstanceOut(
+        id=str(instance.id),
+        agent_id=str(instance.agent_id),
+        parent_id=str(instance.parent_id) if instance.parent_id else None,
+        chatroom_id=str(instance.chatroom_id) if instance.chatroom_id else None,
+        run_context=instance.run_context,
+        task_description=instance.task_description,
+        state=instance.state,
+        spawned_at=instance.spawned_at.isoformat(),
+        destroyed_at=instance.destroyed_at.isoformat() if instance.destroyed_at else None,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -137,7 +213,7 @@ async def get_approval(
     db: AsyncSession = Depends(db_session),
     principal: Principal = Depends(current_principal),
     resolver: RoleResolver = Depends(get_role_resolver),
-) -> dict[str, Any]:
+) -> ApprovalWithVotesOut:
     svc = ApprovalService(db)
     project_id = await svc.resolve_project(approval_id)
     if project_id is None:
@@ -147,7 +223,7 @@ async def get_approval(
     if approval is None:  # pragma: no cover — resolved above
         raise _not_found("approval")
     votes = await svc.get_votes(approval_id)
-    return _approval_out(approval, votes)
+    return _approval_with_votes_out(approval, votes)
 
 
 @router.get(
@@ -160,7 +236,7 @@ async def list_approvals_for_run(
     db: AsyncSession = Depends(db_session),
     principal: Principal = Depends(current_principal),
     resolver: RoleResolver = Depends(get_role_resolver),
-) -> list[dict[str, Any]]:
+) -> list[ApprovalOut]:
     svc = ApprovalService(db)
     project_id = await svc.resolve_run_project(workflow_run_id)
     if project_id is None:
@@ -185,7 +261,7 @@ async def get_instruction(
     db: AsyncSession = Depends(db_session),
     principal: Principal = Depends(current_principal),
     resolver: RoleResolver = Depends(get_role_resolver),
-) -> dict[str, Any]:
+) -> InstructionOut:
     svc = InstructService(db)
     project_id = await svc.resolve_instruction_project(instruction_id)
     if project_id is None:
@@ -207,7 +283,7 @@ async def list_instructions_for_chain(
     db: AsyncSession = Depends(db_session),
     principal: Principal = Depends(current_principal),
     resolver: RoleResolver = Depends(get_role_resolver),
-) -> list[dict[str, Any]]:
+) -> list[InstructionOut]:
     svc = InstructService(db)
     project_id = await svc.resolve_chain_project(chain_id)
     if project_id is None:
@@ -233,7 +309,7 @@ async def list_run_subagents(
     db: AsyncSession = Depends(db_session),
     principal: Principal = Depends(current_principal),
     resolver: RoleResolver = Depends(get_role_resolver),
-) -> list[dict[str, Any]]:
+) -> list[AgentInstanceOut]:
     facade = OrchestrationFacade(db)
     project_id = await facade.resolve_workflow_run_project(workflow_run_id)
     if project_id is None:
@@ -254,7 +330,7 @@ async def list_subagent_children(
     db: AsyncSession = Depends(db_session),
     principal: Principal = Depends(current_principal),
     resolver: RoleResolver = Depends(get_role_resolver),
-) -> list[dict[str, Any]]:
+) -> list[AgentInstanceOut]:
     svc = SubagentService(db)
     project_id = await svc.resolve_project(parent_instance_id)
     if project_id is None:
@@ -279,12 +355,12 @@ async def get_agent_dlq(
     db: AsyncSession = Depends(db_session),
     principal: Principal = Depends(current_principal),
     resolver: RoleResolver = Depends(get_role_resolver),
-) -> list[dict[str, Any]]:
+) -> list[DlqEntryOut]:
     agent = await AgentsFacade(db).get_agent(agent_id, include_deleted=True)
     if agent is None:
         raise _not_found("agent")
     await _assert_project_member(principal, agent.project_id, resolver)
-    return await read_dlq(agent_id)
+    return [DlqEntryOut(**d) for d in await read_dlq(agent_id)]
 
 
 __all__ = ["router"]

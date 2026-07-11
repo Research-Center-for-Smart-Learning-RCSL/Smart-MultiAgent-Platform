@@ -123,36 +123,28 @@ export function listSteps(runId: string): Promise<WorkflowStep[]> {
 
 // ---- Approvals (G.6) -------------------------------------------------------
 
-export async function getApproval(approvalId: string): Promise<ApprovalWithVotes> {
-  return (await OrchestrationService.getApprovalApiOrchestrationApprovalsApprovalIdGet({
-    approvalId,
-  })) as ApprovalWithVotes
+export function getApproval(approvalId: string): Promise<ApprovalWithVotes> {
+  return OrchestrationService.getApprovalApiOrchestrationApprovalsApprovalIdGet({ approvalId })
 }
 
-export async function listApprovalsForRun(
-  workflowRunId: string,
-): Promise<Approval[]> {
-  return (await OrchestrationService.listApprovalsForRunApiOrchestrationWorkflowRunsWorkflowRunIdApprovalsGet(
+export function listApprovalsForRun(workflowRunId: string): Promise<Approval[]> {
+  return OrchestrationService.listApprovalsForRunApiOrchestrationWorkflowRunsWorkflowRunIdApprovalsGet(
     { workflowRunId },
-  )) as Approval[]
+  )
 }
 
 // ---- Instruct chains (G.7 — admin only) ------------------------------------
 
-export async function getInstruction(
-  instructionId: string,
-): Promise<Instruction> {
-  return (await OrchestrationService.getInstructionApiOrchestrationInstructionsInstructionIdGet(
-    { instructionId },
-  )) as Instruction
+export function getInstruction(instructionId: string): Promise<Instruction> {
+  return OrchestrationService.getInstructionApiOrchestrationInstructionsInstructionIdGet({
+    instructionId,
+  })
 }
 
-export async function listInstructionsForChain(
-  chainId: string,
-): Promise<Instruction[]> {
-  return (await OrchestrationService.listInstructionsForChainApiOrchestrationChainsChainIdInstructionsGet(
+export function listInstructionsForChain(chainId: string): Promise<Instruction[]> {
+  return OrchestrationService.listInstructionsForChainApiOrchestrationChainsChainIdInstructionsGet(
     { chainId },
-  )) as Instruction[]
+  )
 }
 
 // ---- Sub-agents (G.8) -------------------------------------------------------
@@ -162,20 +154,16 @@ export async function listInstructionsForChain(
 // are already torn down. (The alive-only `/instances/{id}/children` endpoint
 // exists server-side — OrchestrationService.listSubagentChildren… — but has no
 // frontend consumer.)
-export async function listRunSubagents(
-  runId: string,
-): Promise<AgentInstance[]> {
-  return (await OrchestrationService.listRunSubagentsApiOrchestrationWorkflowRunsWorkflowRunIdSubagentsGet(
+export function listRunSubagents(runId: string): Promise<AgentInstance[]> {
+  return OrchestrationService.listRunSubagentsApiOrchestrationWorkflowRunsWorkflowRunIdSubagentsGet(
     { workflowRunId: runId },
-  )) as AgentInstance[]
+  )
 }
 
 // ---- DLQ viewer (G.10) -----------------------------------------------------
 
-export async function listDlq(agentId: string): Promise<DlqEntry[]> {
-  return (await OrchestrationService.getAgentDlqApiOrchestrationAgentsAgentIdDlqGet({
-    agentId,
-  })) as DlqEntry[]
+export function listDlq(agentId: string): Promise<DlqEntry[]> {
+  return OrchestrationService.getAgentDlqApiOrchestrationAgentsAgentIdDlqGet({ agentId })
 }
 
 // ---- Agent wakeup config (Phase H) -----------------------------------------

@@ -403,6 +403,87 @@
         "title": "AgentGroupUpdateIn",
         "type": "object"
       },
+      "AgentInstanceOut": {
+        "properties": {
+          "agent_id": {
+            "title": "Agent Id",
+            "type": "string"
+          },
+          "chatroom_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Chatroom Id"
+          },
+          "destroyed_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Destroyed At"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "parent_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parent Id"
+          },
+          "run_context": {
+            "title": "Run Context",
+            "type": "object"
+          },
+          "spawned_at": {
+            "title": "Spawned At",
+            "type": "string"
+          },
+          "state": {
+            "title": "State",
+            "type": "string"
+          },
+          "task_description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Task Description"
+          }
+        },
+        "required": [
+          "id",
+          "agent_id",
+          "parent_id",
+          "chatroom_id",
+          "run_context",
+          "task_description",
+          "state",
+          "spawned_at",
+          "destroyed_at"
+        ],
+        "title": "AgentInstanceOut",
+        "type": "object"
+      },
       "AgentModelHint": {
         "enum": [
           "claude",
@@ -1120,6 +1201,195 @@
         ],
         "title": "ApiKeyProvider",
         "type": "string"
+      },
+      "ApprovalMode": {
+        "enum": [
+          "single",
+          "majority",
+          "consensus"
+        ],
+        "title": "ApprovalMode",
+        "type": "string"
+      },
+      "ApprovalOut": {
+        "properties": {
+          "approver_agent_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Approver Agent Ids",
+            "type": "array"
+          },
+          "ended_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ended At"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "leader_agent_id": {
+            "title": "Leader Agent Id",
+            "type": "string"
+          },
+          "mode": {
+            "$ref": "#/components/schemas/ApprovalMode"
+          },
+          "started_at": {
+            "title": "Started At",
+            "type": "string"
+          },
+          "state": {
+            "$ref": "#/components/schemas/ApprovalState"
+          },
+          "timeout_seconds": {
+            "title": "Timeout Seconds",
+            "type": "integer"
+          },
+          "workflow_run_id": {
+            "title": "Workflow Run Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "workflow_run_id",
+          "mode",
+          "leader_agent_id",
+          "approver_agent_ids",
+          "timeout_seconds",
+          "state",
+          "started_at",
+          "ended_at"
+        ],
+        "title": "ApprovalOut",
+        "type": "object"
+      },
+      "ApprovalState": {
+        "enum": [
+          "pending",
+          "approved",
+          "rejected",
+          "timeout_leader"
+        ],
+        "title": "ApprovalState",
+        "type": "string"
+      },
+      "ApprovalVoteOut": {
+        "properties": {
+          "approval_id": {
+            "title": "Approval Id",
+            "type": "string"
+          },
+          "cast_at": {
+            "title": "Cast At",
+            "type": "string"
+          },
+          "rationale": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rationale"
+          },
+          "vote": {
+            "title": "Vote",
+            "type": "boolean"
+          },
+          "voter_agent_id": {
+            "title": "Voter Agent Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "approval_id",
+          "voter_agent_id",
+          "vote",
+          "rationale",
+          "cast_at"
+        ],
+        "title": "ApprovalVoteOut",
+        "type": "object"
+      },
+      "ApprovalWithVotesOut": {
+        "properties": {
+          "approver_agent_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Approver Agent Ids",
+            "type": "array"
+          },
+          "ended_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ended At"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "leader_agent_id": {
+            "title": "Leader Agent Id",
+            "type": "string"
+          },
+          "mode": {
+            "$ref": "#/components/schemas/ApprovalMode"
+          },
+          "started_at": {
+            "title": "Started At",
+            "type": "string"
+          },
+          "state": {
+            "$ref": "#/components/schemas/ApprovalState"
+          },
+          "timeout_seconds": {
+            "title": "Timeout Seconds",
+            "type": "integer"
+          },
+          "votes": {
+            "items": {
+              "$ref": "#/components/schemas/ApprovalVoteOut"
+            },
+            "title": "Votes",
+            "type": "array"
+          },
+          "workflow_run_id": {
+            "title": "Workflow Run Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "workflow_run_id",
+          "mode",
+          "leader_agent_id",
+          "approver_agent_ids",
+          "timeout_seconds",
+          "state",
+          "started_at",
+          "ended_at",
+          "votes"
+        ],
+        "title": "ApprovalWithVotesOut",
+        "type": "object"
       },
       "ArchivedRunOut": {
         "description": "A run row from the live+archive union (`list_runs?include_archive=true`).\n\nDistinct from `RunOut` (API-6): the archive projection omits `variables`,\nand the `archived` flag tells the client which table the row came from.\nDefining it explicitly means archive rows are schema-validated instead of\nbeing returned as raw service dicts.",
@@ -2231,6 +2501,44 @@
         "title": "DeleteAccountIn",
         "type": "object"
       },
+      "DlqEntryOut": {
+        "properties": {
+          "attempt_count": {
+            "title": "Attempt Count",
+            "type": "integer"
+          },
+          "envelope": {
+            "title": "Envelope",
+            "type": "string"
+          },
+          "last_error": {
+            "title": "Last Error",
+            "type": "string"
+          },
+          "moved_at": {
+            "title": "Moved At",
+            "type": "string"
+          },
+          "stream_entry_id": {
+            "title": "Stream Entry Id",
+            "type": "string"
+          },
+          "stream_id": {
+            "title": "Stream Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "stream_entry_id",
+          "stream_id",
+          "envelope",
+          "attempt_count",
+          "last_error",
+          "moved_at"
+        ],
+        "title": "DlqEntryOut",
+        "type": "object"
+      },
       "DocumentStatus": {
         "enum": [
           "ingesting",
@@ -3061,6 +3369,84 @@
         ],
         "title": "ImpersonateOut",
         "type": "object"
+      },
+      "InstructionOut": {
+        "properties": {
+          "chain_id": {
+            "title": "Chain Id",
+            "type": "string"
+          },
+          "depth": {
+            "title": "Depth",
+            "type": "integer"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "issued_at": {
+            "title": "Issued At",
+            "type": "string"
+          },
+          "issuer_agent_id": {
+            "title": "Issuer Agent Id",
+            "type": "string"
+          },
+          "path": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Path",
+            "type": "array"
+          },
+          "payload": {
+            "title": "Payload",
+            "type": "object"
+          },
+          "resolved_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resolved At"
+          },
+          "state": {
+            "$ref": "#/components/schemas/InstructionState"
+          },
+          "target_agent_id": {
+            "title": "Target Agent Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "chain_id",
+          "path",
+          "depth",
+          "issuer_agent_id",
+          "target_agent_id",
+          "payload",
+          "state",
+          "issued_at",
+          "resolved_at"
+        ],
+        "title": "InstructionOut",
+        "type": "object"
+      },
+      "InstructionState": {
+        "enum": [
+          "issued",
+          "delivered",
+          "completed",
+          "rejected_loop",
+          "timeout"
+        ],
+        "title": "InstructionState",
+        "type": "string"
       },
       "InviteScope": {
         "enum": [
@@ -13875,7 +14261,7 @@
               "application/json": {
                 "schema": {
                   "items": {
-                    "type": "object"
+                    "$ref": "#/components/schemas/DlqEntryOut"
                   },
                   "title": "Response Get Agent Dlq Api Orchestration Agents  Agent Id  Dlq Get",
                   "type": "array"
@@ -13921,8 +14307,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "title": "Response Get Approval Api Orchestration Approvals  Approval Id  Get",
-                  "type": "object"
+                  "$ref": "#/components/schemas/ApprovalWithVotesOut"
                 }
               }
             },
@@ -13993,7 +14378,7 @@
               "application/json": {
                 "schema": {
                   "items": {
-                    "type": "object"
+                    "$ref": "#/components/schemas/InstructionOut"
                   },
                   "title": "Response List Instructions For Chain Api Orchestration Chains  Chain Id  Instructions Get",
                   "type": "array"
@@ -14067,7 +14452,7 @@
               "application/json": {
                 "schema": {
                   "items": {
-                    "type": "object"
+                    "$ref": "#/components/schemas/AgentInstanceOut"
                   },
                   "title": "Response List Subagent Children Api Orchestration Instances  Parent Instance Id  Children Get",
                   "type": "array"
@@ -14113,8 +14498,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "title": "Response Get Instruction Api Orchestration Instructions  Instruction Id  Get",
-                  "type": "object"
+                  "$ref": "#/components/schemas/InstructionOut"
                 }
               }
             },
@@ -14185,7 +14569,7 @@
               "application/json": {
                 "schema": {
                   "items": {
-                    "type": "object"
+                    "$ref": "#/components/schemas/ApprovalOut"
                   },
                   "title": "Response List Approvals For Run Api Orchestration Workflow Runs  Workflow Run Id  Approvals Get",
                   "type": "array"
@@ -14259,7 +14643,7 @@
               "application/json": {
                 "schema": {
                   "items": {
-                    "type": "object"
+                    "$ref": "#/components/schemas/AgentInstanceOut"
                   },
                   "title": "Response List Run Subagents Api Orchestration Workflow Runs  Workflow Run Id  Subagents Get",
                   "type": "array"
