@@ -26,17 +26,17 @@ const orgId = computed(() => route.params.id as string)
 
 const { data: org } = useQuery({
   queryKey: computed(() => tenancyKeys.org(orgId.value)),
-  queryFn: () => orgsApi.get(orgId.value).then(r => r.data),
+  queryFn: () => orgsApi.get(orgId.value),
 })
 
 const { data: members } = useQuery({
   queryKey: computed(() => tenancyKeys.orgMembers(orgId.value)),
-  queryFn: () => orgsApi.listMembers(orgId.value).then(r => r.data),
+  queryFn: () => orgsApi.listMembers(orgId.value),
 })
 
 const { data: transfers, isLoading, isError, refetch } = useQuery({
   queryKey: computed(() => tenancyKeys.orgTransfers(orgId.value)),
-  queryFn: () => orgsApi.listTransfers(orgId.value).then(r => r.data),
+  queryFn: () => orgsApi.listTransfers(orgId.value),
 })
 
 const myMembership = computed<OrgMember | null>(() => {

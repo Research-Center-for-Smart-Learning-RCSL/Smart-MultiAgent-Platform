@@ -52,7 +52,7 @@ export function useObservations(chatroomId: string, opts: UseObservationsOptions
 
   const membersQuery = useQuery({
     queryKey: computed(() => tenancyKeys.projectMembers(opts.projectId.value ?? '')),
-    queryFn: () => projectsApi.listMembers(opts.projectId.value!).then((r) => r.data),
+    queryFn: () => projectsApi.listMembers(opts.projectId.value!),
     // Only needed for the legacy NULL-creator fallback — skip otherwise.
     enabled: computed(
       () => !!opts.projectId.value && !!opts.room.value && opts.room.value.created_by_user_id === null,

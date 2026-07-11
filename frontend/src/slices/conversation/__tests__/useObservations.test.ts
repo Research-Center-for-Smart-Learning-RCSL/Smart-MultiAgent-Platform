@@ -41,7 +41,7 @@ vi.mock('@shared/stores/session', () => ({
 
 vi.mock('@slices/tenancy', () => ({
   tenancyKeys: { projectMembers: (p: string) => ['tenancy', 'members', p] },
-  projectsApi: { listMembers: vi.fn(async () => ({ data: [] })) },
+  projectsApi: { listMembers: vi.fn(async () => []) },
 }))
 
 const listObservationsMock = vi.hoisted(() => vi.fn())

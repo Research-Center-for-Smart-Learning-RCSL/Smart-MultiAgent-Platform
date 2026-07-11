@@ -25,7 +25,7 @@ export function useProjectBreadcrumbs(
 
   const projectQuery = useQuery({
     queryKey: tenancyKeys.project(pid),
-    queryFn: async () => (await projectsApi.get(pid)).data,
+    queryFn: () => projectsApi.get(pid),
   })
 
   const projectName = computed(

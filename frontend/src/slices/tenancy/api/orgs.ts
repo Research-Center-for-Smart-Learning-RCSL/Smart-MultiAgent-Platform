@@ -1,4 +1,13 @@
-import { http } from '@shared/transport'
+// Org + membership + original-creator-transfer API (tenancy).
+//
+// Wraps the generated OrgsService over the one instrumented axios singleton.
+// Every generated *Out is directly assignable to the hand-rolled slice types
+// below (enums match; the few optional fields the *Out omit stay assignable),
+// so the methods resolve the bare body typed as the slice type with no bridge.
+// `restore` resolves void — the backend returns an empty body (the old
+// `http.post<Org>` typing was optimistic; consumers only await it).
+
+import { OrgsService } from '@shared/api-client'
 import type { PaginationParams } from '@shared/transport'
 
 export interface Org {
@@ -40,36 +49,63 @@ export interface OriginalCreatorTransfer {
 }
 
 export const orgsApi = {
-  list: (params?: PaginationParams) =>
-    http.get<Org[]>('/orgs', { params }),
-  create: (name: string) => http.post<Org>('/orgs', { name }),
-  get: (id: string) => http.get<Org>(`/orgs/${id}`),
-  rename: (id: string, name: string, version: number) =>
-    http.patch<Org>(`/orgs/${id}`, { name }, { headers: { 'If-Match': String(version) } }),
-  remove: (id: string) => http.delete(`/orgs/${id}`),
-  restore: (id: string) => http.post<Org>(`/orgs/${id}/restore`),
-  quotas: (id: string) => http.get<OrgQuotas>(`/orgs/${id}/quotas`),
+  list: (params?: PaginationParams): Promise<Org[]> =>
+    OrgsService.listOrgsApiOrgsGet(params ?? {}),
+  create: (name: string): Promise<Org> =>
+    OrgsService.createOrgApiOrgsPost({ requestBody: { name } }),
+  get: (id: string): Promise<Org> => OrgsService.readOrgApiOrgsOrgIdGet({ orgId: id }),
+  rename: (id: string, name: string, version: number): Promise<Org> =>
+    OrgsService.renameOrgApiOrgsOrgIdPatch({
+      orgId: id,
+      ifMatch: String(version),
+      requestBody: { name },
+    }),
+  remove: (id: string): Promise<void> => OrgsService.deleteOrgApiOrgsOrgIdDelete({ orgId: id }),
+  restore: (id: string): Promise<void> =>
+    OrgsService.restoreOrgApiOrgsOrgIdRestorePost({ orgId: id }),
+  quotas: (id: string): Promise<OrgQuotas> =>
+    OrgsService.getOrgQuotasApiOrgsOrgIdQuotasGet({ orgId: id }),
 
-  listMembers: (id: string, params?: PaginationParams) =>
-    http.get<OrgMember[]>(`/orgs/${id}/members`, { params }),
-  removeMember: (id: string, uid: string) => http.delete(`/orgs/${id}/members/${uid}`),
+  listMembers: (id: string, params?: PaginationParams): Promise<OrgMember[]> =>
+    OrgsService.listMembersApiOrgsOrgIdMembersGet({ orgId: id, ...(params ?? {}) }),
+  removeMember: (id: string, uid: string) =>
+    OrgsService.removeMemberApiOrgsOrgIdMembersUserIdDelete({ orgId: id, userId: uid }),
   setRole: (id: string, uid: string, role: 'owner' | 'member') =>
-    http.patch(`/orgs/${id}/members/${uid}`, { role }),
+    OrgsService.patchMemberApiOrgsOrgIdMembersUserIdPatch({
+      orgId: id,
+      userId: uid,
+      requestBody: { role },
+    }),
 
   invite: (id: string, email: string, role: 'owner' | 'member') =>
-    http.post(`/orgs/${id}/invites`, { email, role }),
+    OrgsService.createInviteApiOrgsOrgIdInvitesPost({
+      orgId: id,
+      requestBody: { email, role },
+    }),
 
-  initiateTransfer: (id: string, target_user_id: string) =>
-    http.post<OriginalCreatorTransfer>(
-      `/orgs/${id}/original-creator-transfers`,
-      { target_user_id },
-    ),
-  listTransfers: (id: string, params?: PaginationParams) =>
-    http.get<OriginalCreatorTransfer[]>(`/orgs/${id}/original-creator-transfers`, { params }),
+  initiateTransfer: (id: string, target_user_id: string): Promise<OriginalCreatorTransfer> =>
+    OrgsService.transferInitiateApiOrgsOrgIdOriginalCreatorTransfersPost({
+      orgId: id,
+      requestBody: { target_user_id },
+    }),
+  listTransfers: (id: string, params?: PaginationParams): Promise<OriginalCreatorTransfer[]> =>
+    OrgsService.transferListApiOrgsOrgIdOriginalCreatorTransfersGet({
+      orgId: id,
+      ...(params ?? {}),
+    }),
   acceptTransfer: (id: string, tid: string) =>
-    http.post(`/orgs/${id}/original-creator-transfers/${tid}/accept`),
+    OrgsService.transferAcceptApiOrgsOrgIdOriginalCreatorTransfersTransferIdAcceptPost({
+      orgId: id,
+      transferId: tid,
+    }),
   cancelTransfer: (id: string, tid: string) =>
-    http.delete(`/orgs/${id}/original-creator-transfers/${tid}`),
+    OrgsService.transferCancelApiOrgsOrgIdOriginalCreatorTransfersTransferIdDelete({
+      orgId: id,
+      transferId: tid,
+    }),
   rejectTransfer: (id: string, tid: string) =>
-    http.post(`/orgs/${id}/original-creator-transfers/${tid}/reject`),
+    OrgsService.transferRejectApiOrgsOrgIdOriginalCreatorTransfersTransferIdRejectPost({
+      orgId: id,
+      transferId: tid,
+    }),
 }

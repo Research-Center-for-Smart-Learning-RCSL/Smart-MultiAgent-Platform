@@ -30,18 +30,18 @@ const orgId = computed(() => route.params.id as string)
 
 const { data: org, isLoading, isError, refetch } = useQuery({
   queryKey: computed(() => tenancyKeys.org(orgId.value)),
-  queryFn: () => orgsApi.get(orgId.value).then(r => r.data),
+  queryFn: () => orgsApi.get(orgId.value),
 })
 
 const { data: quotas } = useQuery({
   queryKey: computed(() => tenancyKeys.orgQuotas(orgId.value)),
-  queryFn: () => orgsApi.quotas(orgId.value).then(r => r.data),
+  queryFn: () => orgsApi.quotas(orgId.value),
   retry: false,
 })
 
 const { data: members, isError: membersError } = useQuery({
   queryKey: computed(() => tenancyKeys.orgMembers(orgId.value)),
-  queryFn: () => orgsApi.listMembers(orgId.value).then(r => r.data),
+  queryFn: () => orgsApi.listMembers(orgId.value),
 })
 
 const myMembership = computed<OrgMember | null>(() => {
@@ -58,8 +58,8 @@ const rename = useInlineRename({
   save: async (name) => {
     if (!org.value) return
     try {
-      const { data } = await orgsApi.rename(org.value.id, name, org.value.version)
-      qc.setQueryData(tenancyKeys.org(orgId.value), data)
+      const renamed = await orgsApi.rename(org.value.id, name, org.value.version)
+      qc.setQueryData(tenancyKeys.org(orgId.value), renamed)
     } catch (e: unknown) {
       if (isProblemWithType(e, '/tenancy/name-taken')) {
         toast.error(t('tenancy.org.nameTaken'))

@@ -96,7 +96,7 @@ watchEffect(async () => {
 
 const membersQuery = useQuery({
   queryKey: computed(() => tenancyKeys.projectMembers(projectId.value ?? '')),
-  queryFn: () => projectsApi.listMembers(projectId.value!).then((r) => r.data),
+  queryFn: () => projectsApi.listMembers(projectId.value!),
   enabled: computed(() => !!projectId.value && room.value?.created_by_user_id === null),
 })
 

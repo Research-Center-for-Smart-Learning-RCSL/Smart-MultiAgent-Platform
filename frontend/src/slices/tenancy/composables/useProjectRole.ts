@@ -21,7 +21,7 @@ export function useProjectRole(projectId: MaybeRefOrGetter<string | undefined>) 
 
   const membersQuery = useQuery({
     queryKey: computed(() => tenancyKeys.projectMembers(pid.value)),
-    queryFn: () => projectsApi.listMembers(pid.value).then((r) => r.data),
+    queryFn: () => projectsApi.listMembers(pid.value),
     enabled: computed(() => !isAdmin.value && !!pid.value),
   })
 
