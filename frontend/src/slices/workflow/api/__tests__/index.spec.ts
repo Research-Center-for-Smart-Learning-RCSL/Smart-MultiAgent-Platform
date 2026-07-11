@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { http as mswHttp, HttpResponse } from 'msw'
 import { server } from '../../../../../tests/mocks/server'
+import { createRequestCapture, type CapturedRequest } from '../../../../../tests/helpers/requestCapture'
 import * as api from '..'
 
 // Request-level characterization of the workflow api wire contract, pinned as
@@ -9,14 +10,6 @@ import * as api from '..'
 // bare bodies (conversation pattern), so this also guards the signature-preserving
 // promise: verb/path/params/body must not move, the two If-Match preconditions must
 // survive, and the two wakeup-config reshapes must behave identically.
-
-interface Captured {
-  method: string
-  path: string
-  query: Record<string, string>
-  ifMatch: string | null
-  body: unknown
-}
 
 const workflowOut = {
   id: 'wf_1',
@@ -88,35 +81,8 @@ const dlqEntry = {
   moved_at: 't',
 }
 
-function captureAll(): { value: Captured | null } {
-  const holder: { value: Captured | null } = { value: null }
-  const record = async (request: Request): Promise<void> => {
-    const url = new URL(request.url)
-    let body: unknown = undefined
-    if (request.method !== 'GET' && request.method !== 'DELETE') {
-      body = await request.clone().json().catch(() => undefined)
-    }
-    holder.value = {
-      method: request.method,
-      path: url.pathname,
-      query: Object.fromEntries(url.searchParams),
-      ifMatch: request.headers.get('if-match'),
-      body,
-    }
-  }
-  const ok = (json: unknown, status = 200): HttpResponse =>
-    json === null ? new HttpResponse(null, { status }) : HttpResponse.json(json, { status })
-  const on = (
-    method: 'get' | 'post' | 'patch' | 'delete',
-    path: string,
-    json: unknown,
-    status = 200,
-  ) =>
-    mswHttp[method](path, async ({ request }) => {
-      await record(request)
-      return ok(json, status)
-    })
-
+function captureAll(): { value: CapturedRequest | null } {
+  const { cap, on } = createRequestCapture()
   server.use(
     // workflow CRUD
     on('get', '/api/workspaces/:wid/workflows', [workflowOut]),
@@ -142,7 +108,7 @@ function captureAll(): { value: Captured | null } {
     on('get', '/api/agents/:agid', { id: 'ag_1', version: 2, wakeup_config: { enabled: true } }),
     on('patch', '/api/agents/:agid', { id: 'ag_1', version: 3 }),
   )
-  return holder
+  return cap
 }
 
 describe('workflow api wire contract', () => {

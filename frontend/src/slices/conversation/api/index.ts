@@ -19,6 +19,7 @@ import {
   SearchService,
   WorkspacesService,
 } from '@shared/api-client'
+import { asBinaryFormField } from '@shared/transport'
 import type { MessageOut, ObservationOut } from '@shared/api-client'
 import type { Agent } from '@slices/agents'
 import type {
@@ -306,13 +307,10 @@ export async function uploadSingleShot(
   chatroomId: string,
   file: File,
 ): Promise<Attachment> {
-  // Bridge B3: the generated body types the binary `file` as `string` (openapi
-  // binary). The request core appends the File to a FormData and sets the
-  // multipart Content-Type, so passing the File through is correct at runtime.
   return AttachmentsService.createSingleShotApiChatroomsChatroomIdAttachmentsPost({
     chatroomId,
     formData: {
-      file: file as unknown as string,
+      file: asBinaryFormField(file),
       mime: file.type || 'application/octet-stream',
     },
   })
