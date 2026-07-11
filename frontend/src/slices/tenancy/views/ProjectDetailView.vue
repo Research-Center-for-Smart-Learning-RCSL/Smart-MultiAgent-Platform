@@ -30,12 +30,12 @@ const projectId = computed(() => route.params.id as string)
 
 const { data: project, isLoading, isError, refetch } = useQuery({
   queryKey: computed(() => tenancyKeys.project(projectId.value)),
-  queryFn: () => projectsApi.get(projectId.value).then(r => r.data),
+  queryFn: () => projectsApi.get(projectId.value),
 })
 
 const { data: members } = useQuery({
   queryKey: computed(() => tenancyKeys.projectMembers(projectId.value)),
-  queryFn: () => projectsApi.listMembers(projectId.value).then(r => r.data),
+  queryFn: () => projectsApi.listMembers(projectId.value),
 })
 
 const myMembership = computed<ProjectMember | null>(() => {
@@ -51,8 +51,8 @@ const rename = useInlineRename({
   save: async (name) => {
     if (!project.value) return
     try {
-      const { data } = await projectsApi.rename(project.value.id, name, project.value.version)
-      qc.setQueryData(tenancyKeys.project(projectId.value), data)
+      const renamed = await projectsApi.rename(project.value.id, name, project.value.version)
+      qc.setQueryData(tenancyKeys.project(projectId.value), renamed)
     } catch (e: unknown) {
       if (isProblemWithType(e, '/tenancy/name-taken')) {
         toast.error(t('tenancy.project.nameTaken'))

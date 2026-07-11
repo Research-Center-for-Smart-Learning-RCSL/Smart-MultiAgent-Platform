@@ -41,7 +41,7 @@ const isAdmin = computed(() => session.me?.is_admin === true)
 
 const membersQuery = useQuery({
   queryKey: computed(() => tenancyKeys.projectMembers(projectId)),
-  queryFn: () => projectsApi.listMembers(projectId).then((r) => r.data),
+  queryFn: () => projectsApi.listMembers(projectId),
 })
 
 const isOwner = computed(() => {

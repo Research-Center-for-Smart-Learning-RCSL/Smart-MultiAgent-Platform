@@ -61,7 +61,7 @@ async function submit(): Promise<void> {
       serverError.value = t('identity.deleteAccount.blocked')
       submitting.value = false
       try {
-        const { data: orgs } = await orgsApi.list()
+        const orgs = await orgsApi.list()
         const nameMap = new Map(orgs.map(o => [o.id, o.name]))
         blockedOrgNames.value = ids.map(id => nameMap.get(id) ?? id)
       } catch {

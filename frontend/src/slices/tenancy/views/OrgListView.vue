@@ -21,7 +21,7 @@ const qc = useQueryClient()
 
 const { data: orgs, isLoading, isError, refetch } = useQuery({
   queryKey: tenancyKeys.orgs(),
-  queryFn: () => orgsApi.list().then(r => r.data),
+  queryFn: () => orgsApi.list(),
 })
 const staggerClass = useListStagger(isLoading)
 

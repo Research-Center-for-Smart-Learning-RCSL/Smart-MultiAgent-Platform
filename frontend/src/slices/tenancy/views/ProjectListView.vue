@@ -30,7 +30,7 @@ const activeTab = ref<string>((route.query.scope as string) || 'all')
 
 const { data: orgs } = useQuery({
   queryKey: tenancyKeys.orgs(),
-  queryFn: () => orgsApi.list().then(r => r.data),
+  queryFn: () => orgsApi.list(),
 })
 
 const tabs = computed(() => {
@@ -57,10 +57,7 @@ const { data: projects, isLoading, isError, refetch } = useQuery({
     queryScope.value.scope ?? null,
     queryScope.value.id ?? null,
   )),
-  queryFn: () => projectsApi.list(
-    queryScope.value.scope,
-    queryScope.value.id,
-  ).then(r => r.data),
+  queryFn: () => projectsApi.list(queryScope.value.scope, queryScope.value.id),
 })
 
 const scopeIsOrg = computed(() =>
@@ -140,11 +137,11 @@ async function submitCreate(): Promise<void> {
   creating.value = true
   createError.value = null
   try {
-    const { data } = await projectsApi.create(createOwnerType.value, ownerId, trimmed)
+    const created = await projectsApi.create(createOwnerType.value, ownerId, trimmed)
     showCreate.value = false
     qc.invalidateQueries({ queryKey: ['tenancy', 'projects'] })
     toast.success(t('tenancy.project.created'))
-    router.push({ name: 'tenancy.projectDetail', params: { id: data.id } })
+    router.push({ name: 'tenancy.projectDetail', params: { id: created.id } })
   } catch (e: unknown) {
     if (isProblemWithType(e, '/tenancy/name-taken')) {
       createError.value = t('tenancy.project.nameTaken')

@@ -27,7 +27,7 @@ const triggerRef = ref<HTMLElement | null>(null)
 
 const orgsQuery = useQuery({
   queryKey: tenancyKeys.orgs(),
-  queryFn: () => orgsApi.list().then((r) => r.data),
+  queryFn: () => orgsApi.list(),
 })
 
 const orgs = computed(() => orgsQuery.data.value ?? [])
@@ -44,10 +44,7 @@ const projectsQuery = useQuery({
   queryKey: computed(() =>
     tenancyKeys.projects(projectsScope.value.scope, projectsScope.value.id),
   ),
-  queryFn: () =>
-    projectsApi
-      .list(projectsScope.value.scope, projectsScope.value.id!)
-      .then((r) => r.data),
+  queryFn: () => projectsApi.list(projectsScope.value.scope, projectsScope.value.id!),
   enabled: projectsEnabled,
 })
 

@@ -28,12 +28,12 @@ const projectId = computed(() => route.params.id as string)
 
 const { data: project } = useQuery({
   queryKey: computed(() => tenancyKeys.project(projectId.value)),
-  queryFn: () => projectsApi.get(projectId.value).then(r => r.data),
+  queryFn: () => projectsApi.get(projectId.value),
 })
 
 const { data: members, isLoading, isError, refetch } = useQuery({
   queryKey: computed(() => tenancyKeys.projectMembers(projectId.value)),
-  queryFn: () => projectsApi.listMembers(projectId.value).then(r => r.data),
+  queryFn: () => projectsApi.listMembers(projectId.value),
 })
 
 const myMembership = computed<ProjectMember | null>(() => {

@@ -25,7 +25,7 @@ export function useProjectRole(workspaceId: string) {
 
   const membersQuery = useQuery({
     queryKey: computed(() => tenancyKeys.projectMembers(projectId.value)),
-    queryFn: () => projectsApi.listMembers(projectId.value).then((r) => r.data),
+    queryFn: () => projectsApi.listMembers(projectId.value),
     enabled: computed(() => !isAdmin.value && !!projectId.value),
   })
 

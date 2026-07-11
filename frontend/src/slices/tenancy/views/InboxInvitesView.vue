@@ -24,7 +24,7 @@ const qc = useQueryClient()
 
 const { data: invites, isLoading, isError, refetch } = useQuery({
   queryKey: tenancyKeys.invites('pending'),
-  queryFn: () => invitesApi.list('pending').then(r => r.data),
+  queryFn: () => invitesApi.list('pending'),
 })
 
 function scopeIcon(invite: Invite) {
