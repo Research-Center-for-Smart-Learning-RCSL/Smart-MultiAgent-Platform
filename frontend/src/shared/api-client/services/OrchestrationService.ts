@@ -2,20 +2,25 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
+import type { AgentInstanceOut } from '../models/AgentInstanceOut';
+import type { ApprovalOut } from '../models/ApprovalOut';
+import type { ApprovalWithVotesOut } from '../models/ApprovalWithVotesOut';
+import type { DlqEntryOut } from '../models/DlqEntryOut';
+import type { InstructionOut } from '../models/InstructionOut';
 import type { CancelablePromise } from '../core/CancelablePromise';
 import { OpenAPI } from '../core/OpenAPI';
 import { request as __request } from '../core/request';
 export class OrchestrationService {
     /**
      * Read A2A DLQ entries for an agent
-     * @returns any Successful Response
+     * @returns DlqEntryOut Successful Response
      * @throws ApiError
      */
     public static getAgentDlqApiOrchestrationAgentsAgentIdDlqGet({
         agentId,
     }: {
         agentId: string,
-    }): CancelablePromise<Array<Record<string, any>>> {
+    }): CancelablePromise<Array<DlqEntryOut>> {
         return __request(OpenAPI, {
             method: 'GET',
             url: '/api/orchestration/agents/{agent_id}/dlq',
@@ -29,14 +34,14 @@ export class OrchestrationService {
     }
     /**
      * Get approval gate with votes
-     * @returns any Successful Response
+     * @returns ApprovalWithVotesOut Successful Response
      * @throws ApiError
      */
     public static getApprovalApiOrchestrationApprovalsApprovalIdGet({
         approvalId,
     }: {
         approvalId: string,
-    }): CancelablePromise<Record<string, any>> {
+    }): CancelablePromise<ApprovalWithVotesOut> {
         return __request(OpenAPI, {
             method: 'GET',
             url: '/api/orchestration/approvals/{approval_id}',
@@ -50,7 +55,7 @@ export class OrchestrationService {
     }
     /**
      * List all instructions in a chain
-     * @returns any Successful Response
+     * @returns InstructionOut Successful Response
      * @throws ApiError
      */
     public static listInstructionsForChainApiOrchestrationChainsChainIdInstructionsGet({
@@ -67,7 +72,7 @@ export class OrchestrationService {
          * Number of items to skip
          */
         offset?: number,
-    }): CancelablePromise<Array<Record<string, any>>> {
+    }): CancelablePromise<Array<InstructionOut>> {
         return __request(OpenAPI, {
             method: 'GET',
             url: '/api/orchestration/chains/{chain_id}/instructions',
@@ -85,7 +90,7 @@ export class OrchestrationService {
     }
     /**
      * List live sub-agents for a parent instance
-     * @returns any Successful Response
+     * @returns AgentInstanceOut Successful Response
      * @throws ApiError
      */
     public static listSubagentChildrenApiOrchestrationInstancesParentInstanceIdChildrenGet({
@@ -102,7 +107,7 @@ export class OrchestrationService {
          * Number of items to skip
          */
         offset?: number,
-    }): CancelablePromise<Array<Record<string, any>>> {
+    }): CancelablePromise<Array<AgentInstanceOut>> {
         return __request(OpenAPI, {
             method: 'GET',
             url: '/api/orchestration/instances/{parent_instance_id}/children',
@@ -120,14 +125,14 @@ export class OrchestrationService {
     }
     /**
      * Get a single instruction record
-     * @returns any Successful Response
+     * @returns InstructionOut Successful Response
      * @throws ApiError
      */
     public static getInstructionApiOrchestrationInstructionsInstructionIdGet({
         instructionId,
     }: {
         instructionId: string,
-    }): CancelablePromise<Record<string, any>> {
+    }): CancelablePromise<InstructionOut> {
         return __request(OpenAPI, {
             method: 'GET',
             url: '/api/orchestration/instructions/{instruction_id}',
@@ -141,7 +146,7 @@ export class OrchestrationService {
     }
     /**
      * List approvals for a workflow run
-     * @returns any Successful Response
+     * @returns ApprovalOut Successful Response
      * @throws ApiError
      */
     public static listApprovalsForRunApiOrchestrationWorkflowRunsWorkflowRunIdApprovalsGet({
@@ -158,7 +163,7 @@ export class OrchestrationService {
          * Number of items to skip
          */
         offset?: number,
-    }): CancelablePromise<Array<Record<string, any>>> {
+    }): CancelablePromise<Array<ApprovalOut>> {
         return __request(OpenAPI, {
             method: 'GET',
             url: '/api/orchestration/workflow-runs/{workflow_run_id}/approvals',
@@ -176,7 +181,7 @@ export class OrchestrationService {
     }
     /**
      * List sub-agents spawned during a workflow run
-     * @returns any Successful Response
+     * @returns AgentInstanceOut Successful Response
      * @throws ApiError
      */
     public static listRunSubagentsApiOrchestrationWorkflowRunsWorkflowRunIdSubagentsGet({
@@ -193,7 +198,7 @@ export class OrchestrationService {
          * Number of items to skip
          */
         offset?: number,
-    }): CancelablePromise<Array<Record<string, any>>> {
+    }): CancelablePromise<Array<AgentInstanceOut>> {
         return __request(OpenAPI, {
             method: 'GET',
             url: '/api/orchestration/workflow-runs/{workflow_run_id}/subagents',
