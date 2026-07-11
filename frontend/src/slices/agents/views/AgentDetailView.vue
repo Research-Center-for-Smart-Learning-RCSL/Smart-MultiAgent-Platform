@@ -73,7 +73,7 @@ const conflictDetected = ref(false)
 const query = useQuery({
   queryKey: agentKeys.agent(agentId),
   enabled: !isCreateMode,
-  queryFn: async () => (await agentsApi.get(agentId)).data,
+  queryFn: () => agentsApi.get(agentId),
 })
 
 const pickerProjectId = computed(() => {
@@ -90,19 +90,19 @@ const keyGroupsQuery = useQuery({
 const ragConfigsQuery = useQuery({
   queryKey: computed(() => agentKeys.ragConfigs(pickerProjectId.value)),
   enabled: computed(() => !!pickerProjectId.value),
-  queryFn: async () => (await agentsApi.listRagConfigs(pickerProjectId.value)).data,
+  queryFn: () => agentsApi.listRagConfigs(pickerProjectId.value),
 })
 
 const knowmapConfigsQuery = useQuery({
   queryKey: computed(() => agentKeys.knowmapConfigs(pickerProjectId.value)),
   enabled: computed(() => !!pickerProjectId.value),
-  queryFn: async () => (await agentsApi.listKnowmapConfigs(pickerProjectId.value)).data,
+  queryFn: () => agentsApi.listKnowmapConfigs(pickerProjectId.value),
 })
 
 const toolsQuery = useQuery({
   queryKey: computed(() => agentKeys.tools(agentId)),
   enabled: computed(() => !isCreateMode && !!agentId),
-  queryFn: async () => (await agentsApi.listTools(agentId)).data,
+  queryFn: () => agentsApi.listTools(agentId),
 })
 
 // WS5 (R11.09) — read-only Concept Map coverage for the Knowledge tab: the maps
@@ -111,7 +111,7 @@ const toolsQuery = useQuery({
 const coverageQuery = useQuery({
   queryKey: computed(() => agentKeys.conceptMapCoverage(agentId)),
   enabled: computed(() => !isCreateMode && !!agentId),
-  queryFn: async () => (await agentsApi.getAgentConceptMapCoverage(agentId)).data,
+  queryFn: () => agentsApi.getAgentConceptMapCoverage(agentId),
 })
 const coverageEntries = computed(() => coverageQuery.data.value?.entries ?? [])
 const ownerKindVariant = (kind: ConceptMapOwnerKind): 'info' | 'success' | 'neutral' =>
@@ -459,7 +459,7 @@ function applyAgentSaveError(err: unknown, fallbackMessage: string): void {
 // --- Create mutation ---
 const createMutation = useMutation({
   mutationFn: async (values: AgentCreateInput) => {
-    const { data } = await agentsApi.create(createProjectId, assemblePayload(values))
+    const data = await agentsApi.create(createProjectId, assemblePayload(values))
     return data
   },
   onSuccess: (agent) => {
@@ -474,7 +474,7 @@ const patchMutation = useMutation({
   mutationFn: async (values: AgentCreateInput) => {
     const agent = query.data.value
     if (!agent) throw new Error('Agent not loaded')
-    const { data } = await agentsApi.patch(agentId, agent.version, assemblePayload(values))
+    const data = await agentsApi.patch(agentId, agent.version, assemblePayload(values))
     return data
   },
   onSuccess: () => {

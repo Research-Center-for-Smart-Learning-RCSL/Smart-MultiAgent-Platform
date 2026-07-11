@@ -57,7 +57,7 @@ const memberIds = computed<string[]>(() => membersQuery.data.value ?? [])
 const agentsQuery = useQuery({
   queryKey: computed(() => ['agents', 'list', projectId.value]),
   enabled: computed(() => !!projectId.value),
-  queryFn: async () => (await agentsApi.list(projectId.value)).data,
+  queryFn: () => agentsApi.list(projectId.value),
 })
 const agentById = computed(
   () => new Map((agentsQuery.data.value ?? []).map((a) => [a.id, a])),

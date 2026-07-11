@@ -30,7 +30,7 @@ vi.mock('@shared/transport', () => {
 })
 
 const getConfigMock = vi.hoisted(() =>
-  vi.fn(async () => ({ data: { last_build_state: 'idle' } })),
+  vi.fn(async () => ({ last_build_state: 'idle' })),
 )
 vi.mock('../api', () => ({
   agentsApi: { getKnowmapConfig: getConfigMock },

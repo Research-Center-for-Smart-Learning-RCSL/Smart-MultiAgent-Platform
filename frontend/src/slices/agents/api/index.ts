@@ -1,4 +1,20 @@
-import { http } from '@shared/transport'
+import {
+  AgentsService,
+  AgentWorkspaceService,
+  GraphragService,
+  KnowmapService,
+  McpService,
+  ModelCatalogService,
+  RagService,
+} from '@shared/api-client'
+import type {
+  AgentToolCreateIn,
+  AgentToolOut,
+  AgentToolTestOut,
+  GraphRagConfigPatchIn,
+  KnowmapConfigPatchIn,
+  RagDocumentOut,
+} from '@shared/api-client'
 import type {
   AgentCreateInput,
   AgentToolCreateInput,
@@ -6,7 +22,6 @@ import type {
   GraphragConfigPatchInput,
   KnowmapConfigCreateInput,
   KnowmapConfigPatchInput,
-  McpBindingCreateInput,
   RagConfigCreateInput,
 } from '../types/schemas'
 
@@ -260,19 +275,6 @@ export interface KnowmapRebuildAck {
   config_id: string
 }
 
-// Mirrors backend `McpBindingOut`. `source` selects how `reference` is
-// interpreted: a built-in tool name, an MCP server URL, or a package spec.
-// `allowed_tools` whitelists which of the server's tools the agent may call.
-export interface McpBinding {
-  id: string
-  agent_id: string
-  source: 'builtin' | 'url' | 'package'
-  reference: string
-  allowed_tools: string[]
-  config: Record<string, unknown>
-  created_at: string
-}
-
 // Mirrors backend `RagConfigPatchIn`. Embedding provider/model/key and the
 // chunk strategy are immutable post-creation (an indexed corpus can't switch
 // embedding space), so only these fields are patchable.
@@ -284,27 +286,6 @@ export interface RagConfigPatchInput {
   rerank_key_id?: string | null
   rerank_provider?: 'cohere' | null
   rerank_model?: string | null
-}
-
-// Mirrors backend `McpBindingPatchIn`. `source` and `reference` are immutable;
-// only the tool allowlist and advanced config may be edited.
-export interface McpBindingPatchInput {
-  allowed_tools?: string[]
-  config?: Record<string, unknown>
-}
-
-// Built-in tool gating is owned server-side; the editor reads/writes the
-// enabled set and never re-derives the gate rule. Mirrors `BuiltinToolsOut`.
-export interface BuiltinToolsState {
-  enabled: string[]
-}
-
-// Mirrors backend `McpTestOut` — the sandbox probe result.
-export interface McpTestResult {
-  ok: boolean
-  tool_names: string[]
-  duration_ms: number
-  error: string | null
 }
 
 // --- Unified Agent Tools (Phase A / Phase B) ---
@@ -367,214 +348,256 @@ export interface EgressAllowlistEntry {
   note: string | null
 }
 
+// Response bridges — the only generated `*Out` models not directly assignable to
+// the slice's hand-rolled types (surfaced by pnpm typecheck at the api boundary):
+//   - RagDocumentOut.status/scan_status are still plain `string` in the contract
+//     (the RAG document status was not enum-swept, unlike KnowmapDocumentOut); the
+//     backend only emits the closed set the slice unions declare (FU-1).
+//   - AgentToolOut.config_warnings and AgentToolTestOut.error are optional in the
+//     contract but always emitted; the slice types them required.
+function toRagDocument(o: RagDocumentOut): RagDocument {
+  return {
+    ...o,
+    status: o.status as RagDocument['status'],
+    scan_status: o.scan_status as RagDocument['scan_status'],
+  }
+}
+function toAgentTool(o: AgentToolOut): AgentTool {
+  return { ...o, config_warnings: o.config_warnings ?? [] }
+}
+function toToolTestResult(o: AgentToolTestOut): ToolTestResult {
+  return { ...o, error: o.error ?? null }
+}
+
+// Thin wrappers over the generated services (R24.13). Auth and problem+json
+// error typing come from shared/transport/axios.ts's instrumentation of the bare
+// axios singleton the generated client calls into; each method resolves the
+// response body directly (the generated `*Out` models are assignable to the
+// slice's hand-rolled types after the response-enum sweep, save the three bridges
+// above). The multipart uploads pass the File through the generated formData
+// object (the binary field is typed `string` by the codegen; the request core
+// builds the FormData and sets the multipart Content-Type).
 export const agentsApi = {
-  list: (projectId: string) =>
-    http.get<Agent[]>(`/projects/${projectId}/agents`),
+  list: (projectId: string): Promise<Agent[]> =>
+    AgentsService.listProjectAgentsApiProjectsProjectIdAgentsGet({ projectId }),
 
-  create: (projectId: string, payload: AgentCreateInput) =>
-    http.post<Agent>(`/projects/${projectId}/agents`, payload),
+  create: (projectId: string, payload: AgentCreateInput): Promise<Agent> =>
+    AgentsService.createAgentApiProjectsProjectIdAgentsPost({ projectId, requestBody: payload }),
 
-  get: (agentId: string) =>
-    http.get<Agent>(`/agents/${agentId}`),
+  get: (agentId: string): Promise<Agent> =>
+    AgentsService.readAgentApiAgentsAgentIdGet({ agentId }),
 
-  patch: (agentId: string, version: number, payload: Partial<AgentCreateInput>) =>
-    http.patch<Agent>(`/agents/${agentId}`, payload, {
-      headers: { 'If-Match': String(version) },
+  patch: (agentId: string, version: number, payload: Partial<AgentCreateInput>): Promise<Agent> =>
+    AgentsService.patchAgentApiAgentsAgentIdPatch({
+      agentId,
+      ifMatch: String(version),
+      requestBody: payload,
     }),
 
-  remove: (agentId: string, version: number) =>
-    http.delete(`/agents/${agentId}`, {
-      headers: { 'If-Match': String(version) },
-    }),
+  remove: (agentId: string, version: number): Promise<void> =>
+    AgentsService.deleteAgentApiAgentsAgentIdDelete({ agentId, ifMatch: String(version) }),
 
-  listRagConfigs: (projectId: string) =>
-    http.get<RagConfig[]>(`/projects/${projectId}/rag-configs`),
+  listRagConfigs: (projectId: string): Promise<RagConfig[]> =>
+    RagService.listRagConfigsApiProjectsProjectIdRagConfigsGet({ projectId }),
 
-  createRagConfig: (projectId: string, payload: RagConfigCreateInput) =>
-    http.post<RagConfig>(`/projects/${projectId}/rag-configs`, payload),
+  createRagConfig: (projectId: string, payload: RagConfigCreateInput): Promise<RagConfig> =>
+    RagService.createRagConfigApiProjectsProjectIdRagConfigsPost({ projectId, requestBody: payload }),
 
-  deleteRagConfig: (configId: string) =>
-    http.delete(`/rag-configs/${configId}`),
+  deleteRagConfig: (configId: string): Promise<void> =>
+    RagService.deleteRagConfigApiRagConfigsConfigIdDelete({ configId }),
 
-  getRagConfig: (configId: string) =>
-    http.get<RagConfig>(`/rag-configs/${configId}`),
+  getRagConfig: (configId: string): Promise<RagConfig> =>
+    RagService.readRagConfigApiRagConfigsConfigIdGet({ configId }),
 
-  patchRagConfig: (configId: string, payload: RagConfigPatchInput) =>
-    http.patch<RagConfig>(`/rag-configs/${configId}`, payload),
+  patchRagConfig: (configId: string, payload: RagConfigPatchInput): Promise<RagConfig> =>
+    RagService.patchRagConfigApiRagConfigsConfigIdPatch({ configId, requestBody: payload }),
 
   // Provider/model presets for the agent + RAG config forms. Global, static
   // catalog (not project-scoped) — cached by Vue Query under agentKeys.modelCatalog.
-  getModelCatalog: () =>
-    http.get<ModelCatalog>('/model-catalog'),
+  getModelCatalog: (): Promise<ModelCatalog> =>
+    ModelCatalogService.getModelCatalogApiModelCatalogGet(),
 
-  listDocuments: (configId: string) =>
-    http.get<RagDocument[]>(`/rag-configs/${configId}/documents`),
+  listDocuments: (configId: string): Promise<RagDocument[]> =>
+    RagService.listDocumentsApiRagConfigsConfigIdDocumentsGet({ configId }).then((r) =>
+      r.map(toRagDocument),
+    ),
 
   // ≤ 32 MB synchronous path. Larger files use tusUpload(purpose:'rag_source')
   // from @shared/transport, which the backend routes to the ingest worker.
   // `agentIds` is the per-agent allowlist applied to the new document.
-  uploadDocumentMultipart: (configId: string, file: File, agentIds: string[] = []) => {
-    const form = new FormData()
-    form.append('file', file)
-    form.append('mime', file.type || 'application/octet-stream')
-    for (const id of agentIds) form.append('agent_ids', id)
-    return http.post<RagDocument>(`/rag-configs/${configId}/documents`, form, {
-      headers: { 'Content-Type': 'multipart/form-data' },
-    })
-  },
+  uploadDocumentMultipart: (configId: string, file: File, agentIds: string[] = []): Promise<RagDocument> =>
+    RagService.uploadDocumentApiRagConfigsConfigIdDocumentsPost({
+      configId,
+      formData: {
+        file: file as unknown as string,
+        mime: file.type || 'application/octet-stream',
+        agent_ids: agentIds,
+      },
+    }).then(toRagDocument),
 
-  deleteDocument: (documentId: string) =>
-    http.delete(`/rag-documents/${documentId}`),
+  deleteDocument: (documentId: string): Promise<void> =>
+    RagService.deleteRagDocumentApiRagDocumentsDocumentIdDelete({ documentId }),
 
   // Replace a document's per-agent allowlist (empty = no agent may retrieve it).
-  setDocumentAgents: (documentId: string, agentIds: string[]) =>
-    http.patch<RagDocument>(`/rag-documents/${documentId}/agents`, { agent_ids: agentIds }),
+  setDocumentAgents: (documentId: string, agentIds: string[]): Promise<RagDocument> =>
+    RagService.setDocumentAgentsApiRagDocumentsDocumentIdAgentsPatch({
+      documentId,
+      requestBody: { agent_ids: agentIds },
+    }).then(toRagDocument),
 
-  listGraphragConfigs: (projectId: string) =>
-    http.get<GraphragConfig[]>(`/projects/${projectId}/graphrag-configs`),
+  listGraphragConfigs: (projectId: string): Promise<GraphragConfig[]> =>
+    GraphragService.listConfigsApiProjectsProjectIdGraphragConfigsGet({ projectId }),
 
-  createGraphragConfig: (projectId: string, payload: GraphragConfigCreateInput) =>
-    http.post<GraphragConfig>(`/projects/${projectId}/graphrag-configs`, payload),
+  createGraphragConfig: (projectId: string, payload: GraphragConfigCreateInput): Promise<GraphragConfig> =>
+    GraphragService.createConfigApiProjectsProjectIdGraphragConfigsPost({ projectId, requestBody: payload }),
 
   // Owners in the project without a Concept Map yet — for the overview create
   // picker (Phase 4α); the agents slice can't fetch these entities cross-slice.
-  listConceptMapOwnerOptions: (projectId: string) =>
-    http.get<ConceptMapOwnerOption[]>(`/projects/${projectId}/graphrag-configs/owner-options`),
+  listConceptMapOwnerOptions: (projectId: string): Promise<ConceptMapOwnerOption[]> =>
+    GraphragService.listOwnerOptionsApiProjectsProjectIdGraphragConfigsOwnerOptionsGet({ projectId }),
 
-  getGraphragConfig: (configId: string) =>
-    http.get<GraphragConfig>(`/graphrag/${configId}`),
+  getGraphragConfig: (configId: string): Promise<GraphragConfig> =>
+    GraphragService.readConfigApiGraphragConfigIdGet({ configId }),
 
-  patchGraphragConfig: (configId: string, payload: GraphragConfigPatchInput) =>
-    http.patch<GraphragConfig>(`/graphrag/${configId}`, payload),
+  patchGraphragConfig: (configId: string, payload: GraphragConfigPatchInput): Promise<GraphragConfig> =>
+    GraphragService.updateConfigApiGraphragConfigIdPatch({
+      configId,
+      // The zod-inferred optionals are `T | undefined`; the generated In types them
+      // `T | null` (both mean "omit" on the wire). Cast bridges exactOptionalPropertyTypes.
+      requestBody: payload as GraphRagConfigPatchIn,
+    }),
 
   // Read-only Concept Map coverage for an agent (Phase 4α R11.09) — the maps of
   // its rooms, member groups, and those rooms' workspaces, each flagged active.
-  getAgentConceptMapCoverage: (agentId: string) =>
-    http.get<AgentConceptMapCoverage>(`/agents/${agentId}/concept-map-coverage`),
+  getAgentConceptMapCoverage: (agentId: string): Promise<AgentConceptMapCoverage> =>
+    GraphragService.readAgentConceptMapCoverageApiAgentsAgentIdConceptMapCoverageGet({ agentId }),
 
-  getGraphragStatus: (configId: string) =>
-    http.get<GraphragStatus>(`/graphrag/${configId}/status`),
+  getGraphragStatus: (configId: string): Promise<GraphragStatus> =>
+    GraphragService.readStatusApiGraphragConfigIdStatusGet({ configId }),
 
-  deleteGraphragConfig: (configId: string) =>
-    http.delete(`/graphrag/${configId}`),
+  deleteGraphragConfig: (configId: string): Promise<void> =>
+    GraphragService.deleteConfigApiGraphragConfigIdDelete({ configId }),
 
-  buildGraphrag: (configId: string) =>
-    http.post<GraphragBuild>(`/graphrag/${configId}/build`),
+  buildGraphrag: (configId: string): Promise<GraphragBuild> =>
+    GraphragService.triggerBuildApiGraphragConfigIdBuildPost({ configId }),
 
-  getGraphragGraph: (configId: string, limit = 500) =>
-    http.get<GraphView>(`/graphrag/${configId}/graph?limit=${limit}`),
+  getGraphragGraph: (configId: string, limit = 500): Promise<GraphView> =>
+    GraphragService.readGraphApiGraphragConfigIdGraphGet({ configId, limit }),
 
   // --- Knowledge Map (Phase 3β/4β) ---
 
-  listKnowmapConfigs: (projectId: string) =>
-    http.get<KnowmapConfig[]>(`/projects/${projectId}/knowmap-configs`),
+  listKnowmapConfigs: (projectId: string): Promise<KnowmapConfig[]> =>
+    KnowmapService.listKnowmapConfigsApiProjectsProjectIdKnowmapConfigsGet({ projectId }),
 
-  createKnowmapConfig: (projectId: string, payload: KnowmapConfigCreateInput) =>
-    http.post<KnowmapConfig>(`/projects/${projectId}/knowmap-configs`, payload),
+  createKnowmapConfig: (projectId: string, payload: KnowmapConfigCreateInput): Promise<KnowmapConfig> =>
+    KnowmapService.createKnowmapConfigApiProjectsProjectIdKnowmapConfigsPost({ projectId, requestBody: payload }),
 
-  getKnowmapConfig: (configId: string) =>
-    http.get<KnowmapConfig>(`/knowmap-configs/${configId}`),
+  getKnowmapConfig: (configId: string): Promise<KnowmapConfig> =>
+    KnowmapService.readKnowmapConfigApiKnowmapConfigsConfigIdGet({ configId }),
 
-  patchKnowmapConfig: (configId: string, payload: KnowmapConfigPatchInput) =>
-    http.patch<KnowmapConfig>(`/knowmap-configs/${configId}`, payload),
+  patchKnowmapConfig: (configId: string, payload: KnowmapConfigPatchInput): Promise<KnowmapConfig> =>
+    KnowmapService.patchKnowmapConfigApiKnowmapConfigsConfigIdPatch({
+      configId,
+      requestBody: payload as KnowmapConfigPatchIn,
+    }),
 
-  deleteKnowmapConfig: (configId: string) =>
-    http.delete(`/knowmap-configs/${configId}`),
+  deleteKnowmapConfig: (configId: string): Promise<void> =>
+    KnowmapService.deleteKnowmapConfigApiKnowmapConfigsConfigIdDelete({ configId }),
 
-  rebuildKnowmap: (configId: string) =>
-    http.post<KnowmapRebuildAck>(`/knowmap-configs/${configId}/rebuild`),
+  rebuildKnowmap: (configId: string): Promise<KnowmapRebuildAck> =>
+    KnowmapService.rebuildKnowmapConfigApiKnowmapConfigsConfigIdRebuildPost({ configId }),
 
   // Same GraphView shape as GraphRAG (backend KnowmapGraphOut is field-for-
   // field identical to GraphOut) — reused directly, no separate type.
-  getKnowmapGraph: (configId: string, limit = 500) =>
-    http.get<GraphView>(`/knowmap-configs/${configId}/graph?limit=${limit}`),
+  getKnowmapGraph: (configId: string, limit = 500): Promise<GraphView> =>
+    KnowmapService.readKnowmapGraphApiKnowmapConfigsConfigIdGraphGet({ configId, limit }),
 
-  listKnowmapDocuments: (configId: string) =>
-    http.get<KnowmapDocument[]>(`/knowmap-configs/${configId}/documents`),
+  listKnowmapDocuments: (configId: string): Promise<KnowmapDocument[]> =>
+    KnowmapService.listKnowmapDocumentsApiKnowmapConfigsConfigIdDocumentsGet({ configId }),
 
   // ≤ 32 MB synchronous path. Larger files use tusUpload(purpose:'knowmap_source')
   // from @shared/transport. `agentIds` is the per-agent allowlist applied to
   // the new document (R11.23).
-  uploadKnowmapDocumentMultipart: (configId: string, file: File, agentIds: string[] = []) => {
-    const form = new FormData()
-    form.append('file', file)
-    form.append('mime', file.type || 'application/octet-stream')
-    for (const id of agentIds) form.append('agent_ids', id)
-    return http.post<KnowmapDocument>(`/knowmap-configs/${configId}/documents`, form, {
-      headers: { 'Content-Type': 'multipart/form-data' },
-    })
-  },
+  uploadKnowmapDocumentMultipart: (configId: string, file: File, agentIds: string[] = []): Promise<KnowmapDocument> =>
+    KnowmapService.uploadKnowmapDocumentApiKnowmapConfigsConfigIdDocumentsPost({
+      configId,
+      formData: {
+        file: file as unknown as string,
+        mime: file.type || 'application/octet-stream',
+        agent_ids: agentIds,
+      },
+    }),
 
-  deleteKnowmapDocument: (documentId: string) =>
-    http.delete(`/knowmap-documents/${documentId}`),
+  deleteKnowmapDocument: (documentId: string): Promise<void> =>
+    KnowmapService.deleteKnowmapDocumentApiKnowmapDocumentsDocumentIdDelete({ documentId }),
 
   // Replace a document's per-agent allowlist (empty = no agent may retrieve it).
-  setKnowmapDocumentAgents: (documentId: string, agentIds: string[]) =>
-    http.patch<KnowmapDocument>(`/knowmap-documents/${documentId}/agents`, { agent_ids: agentIds }),
+  setKnowmapDocumentAgents: (documentId: string, agentIds: string[]): Promise<KnowmapDocument> =>
+    KnowmapService.setKnowmapDocumentAgentsApiKnowmapDocumentsDocumentIdAgentsPatch({
+      documentId,
+      requestBody: { agent_ids: agentIds },
+    }),
 
-  listMcpBindings: (agentId: string) =>
-    http.get<McpBinding[]>(`/agents/${agentId}/mcp`),
-
-  addMcpBinding: (agentId: string, payload: McpBindingCreateInput) =>
-    http.post<McpBinding>(`/agents/${agentId}/mcp`, payload),
-
-  patchMcpBinding: (agentId: string, bindingId: string, payload: McpBindingPatchInput) =>
-    http.patch<McpBinding>(`/agents/${agentId}/mcp/${bindingId}`, payload),
-
-  deleteMcpBinding: (agentId: string, bindingId: string) =>
-    http.delete(`/agents/${agentId}/mcp/${bindingId}`),
-
-  testMcpBinding: (agentId: string, bindingId: string) =>
-    http.post<McpTestResult>(`/agents/${agentId}/mcp/${bindingId}/test`),
-
-  getBuiltinTools: (agentId: string) =>
-    http.get<BuiltinToolsState>(`/agents/${agentId}/builtin-tools`),
-
-  setBuiltinTools: (agentId: string, enabled: string[]) =>
-    http.put<BuiltinToolsState>(`/agents/${agentId}/builtin-tools`, { enabled }),
-
-  listEgressAllowlist: (projectId: string) =>
-    http.get<EgressAllowlistEntry[]>(`/projects/${projectId}/mcp/egress-allowlist`),
+  listEgressAllowlist: (projectId: string): Promise<EgressAllowlistEntry[]> =>
+    McpService.listAllowlistApiProjectsProjectIdMcpEgressAllowlistGet({ projectId }),
 
   addEgressAllowlistEntry: (
     projectId: string,
     payload: { hostname: string; note: string | null },
-  ) => http.post<EgressAllowlistEntry>(`/projects/${projectId}/mcp/egress-allowlist`, payload),
+  ): Promise<EgressAllowlistEntry> =>
+    McpService.addAllowlistEntryApiProjectsProjectIdMcpEgressAllowlistPost({
+      projectId,
+      requestBody: payload,
+    }),
 
-  removeEgressAllowlistEntry: (projectId: string, hostname: string) =>
-    http.delete(`/projects/${projectId}/mcp/egress-allowlist/${encodeURIComponent(hostname)}`),
+  // The generated client path-encodes the hostname (encodeURI, not the old
+  // encodeURIComponent) — equivalent for the DNS-valid hostnames the backend stores,
+  // since neither escapes [a-z0-9.-*]. Revisit if hostname validation ever loosens.
+  removeEgressAllowlistEntry: (projectId: string, hostname: string): Promise<void> =>
+    McpService.removeAllowlistEntryApiProjectsProjectIdMcpEgressAllowlistHostnameDelete({
+      projectId,
+      hostname,
+    }),
 
   // --- Unified Tools API (Phase A) ---
 
-  listTools: (agentId: string) =>
-    http.get<AgentTool[]>(`/agents/${agentId}/tools`),
+  listTools: (agentId: string): Promise<AgentTool[]> =>
+    AgentsService.listAgentToolsApiAgentsAgentIdToolsGet({ agentId }).then((r) =>
+      r.map(toAgentTool),
+    ),
 
-  addTool: (agentId: string, payload: AgentToolCreateInput) =>
-    http.post<AgentTool>(`/agents/${agentId}/tools`, payload),
+  addTool: (agentId: string, payload: AgentToolCreateInput): Promise<AgentTool> =>
+    AgentsService.addAgentToolApiAgentsAgentIdToolsPost({
+      agentId,
+      requestBody: payload as AgentToolCreateIn,
+    }).then(toAgentTool),
 
-  patchTool: (agentId: string, toolId: string, payload: AgentToolPatchInput) =>
-    http.patch<AgentTool>(`/agents/${agentId}/tools/${toolId}`, payload),
+  patchTool: (agentId: string, toolId: string, payload: AgentToolPatchInput): Promise<AgentTool> =>
+    AgentsService.patchAgentToolApiAgentsAgentIdToolsToolIdPatch({
+      agentId,
+      toolId,
+      requestBody: payload,
+    }).then(toAgentTool),
 
-  deleteTool: (agentId: string, toolId: string) =>
-    http.delete(`/agents/${agentId}/tools/${toolId}`),
+  deleteTool: (agentId: string, toolId: string): Promise<void> =>
+    AgentsService.deleteAgentToolApiAgentsAgentIdToolsToolIdDelete({ agentId, toolId }),
 
-  testTool: (agentId: string, toolId: string) =>
-    http.post<ToolTestResult>(`/agents/${agentId}/tools/${toolId}/test`),
+  testTool: (agentId: string, toolId: string): Promise<ToolTestResult> =>
+    AgentsService.testAgentToolApiAgentsAgentIdToolsToolIdTestPost({ agentId, toolId }).then(
+      toToolTestResult,
+    ),
 
   // --- Workspace Files (Phase D) ---
 
-  listWorkspaceFiles: (agentId: string) =>
-    http.get<WorkspaceFile[]>(`/agents/${agentId}/workspace-files`),
+  listWorkspaceFiles: (agentId: string): Promise<WorkspaceFile[]> =>
+    AgentWorkspaceService.listWorkspaceFilesApiAgentsAgentIdWorkspaceFilesGet({ agentId }),
 
-  uploadWorkspaceFile: (agentId: string, file: File, path?: string) => {
-    const form = new FormData()
-    form.append('file', file)
-    if (path) form.append('path', path)
-    return http.post<WorkspaceFile>(`/agents/${agentId}/workspace-files`, form, {
-      headers: { 'Content-Type': 'multipart/form-data' },
-    })
-  },
+  uploadWorkspaceFile: (agentId: string, file: File, path?: string): Promise<WorkspaceFile> =>
+    AgentWorkspaceService.uploadWorkspaceFileApiAgentsAgentIdWorkspaceFilesPost({
+      agentId,
+      formData: { file: file as unknown as string, ...(path ? { path } : {}) },
+    }),
 
-  deleteWorkspaceFile: (agentId: string, fileId: string) =>
-    http.delete(`/agents/${agentId}/workspace-files/${fileId}`),
+  deleteWorkspaceFile: (agentId: string, fileId: string): Promise<void> =>
+    AgentWorkspaceService.deleteWorkspaceFileApiAgentsAgentIdWorkspaceFilesFileIdDelete({ agentId, fileId }),
 }

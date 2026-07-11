@@ -18,5 +18,5 @@ export async function fetchProjectAgents(
   const ws = await getWorkspace(workspaceId)
   const { agentsApi } = await import('@slices/agents')
   const res = await agentsApi.list(ws.project_id)
-  return res.data.map((a: { id: string; name: string }) => ({ id: a.id, name: a.name }))
+  return res.map((a: { id: string; name: string }) => ({ id: a.id, name: a.name }))
 }

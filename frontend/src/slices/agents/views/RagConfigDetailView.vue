@@ -68,12 +68,12 @@ const { progress } = useRagConfigSocket(configId, projectId)
 
 const configQuery = useQuery({
   queryKey: agentKeys.ragConfig(configId),
-  queryFn: async () => (await agentsApi.getRagConfig(configId)).data,
+  queryFn: () => agentsApi.getRagConfig(configId),
 })
 
 const docsQuery = useQuery({
   queryKey: agentKeys.ragDocuments(configId),
-  queryFn: async () => (await agentsApi.listDocuments(configId)).data,
+  queryFn: () => agentsApi.listDocuments(configId),
 })
 
 const projectKeysQuery = useQuery({
@@ -88,7 +88,7 @@ const configError = computed(() => configQuery.error.value)
 // --- Per-agent document scoping ---
 const agentsQuery = useQuery({
   queryKey: agentKeys.agents(projectId),
-  queryFn: async () => (await agentsApi.list(projectId)).data,
+  queryFn: () => agentsApi.list(projectId),
 })
 
 // Only agents bound to THIS config may appear on a document's allowlist.
@@ -243,8 +243,8 @@ const { applyServerErrors } = useServerErrors(setErrors)
 // — an indexed corpus can't switch embedding space — so only the patchable
 // fields are sent.
 const saveMutation = useMutation({
-  mutationFn: async (payload: RagConfigPatchInput) =>
-    (await agentsApi.patchRagConfig(configId, payload)).data,
+  mutationFn: (payload: RagConfigPatchInput) =>
+    agentsApi.patchRagConfig(configId, payload),
   onSuccess: () => {
     qc.invalidateQueries({ queryKey: agentKeys.ragConfig(configId) })
     toast.success(t('agents.detail.saved'))

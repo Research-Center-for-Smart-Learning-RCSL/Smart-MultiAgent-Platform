@@ -28,7 +28,7 @@ vi.mock('@shared/transport', () => {
   return { wsManager: { channel: () => channel, close: () => {} } }
 })
 
-const getStatusMock = vi.hoisted(() => vi.fn(async () => ({ data: { state: 'idle' } })))
+const getStatusMock = vi.hoisted(() => vi.fn(async () => ({ state: 'idle' })))
 vi.mock('../api', () => ({
   agentsApi: { getGraphragStatus: getStatusMock },
   GRAPHRAG_IN_PROGRESS: new Set(['running', 'neo4j_committed', 'failed_compensating']),

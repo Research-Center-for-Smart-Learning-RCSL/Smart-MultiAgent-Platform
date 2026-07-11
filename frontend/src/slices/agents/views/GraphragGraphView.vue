@@ -66,8 +66,8 @@ const graphQuery = useQuery({
   ),
   queryFn: async () =>
     isKnowmap.value
-      ? (await agentsApi.getKnowmapGraph(configId)).data
-      : (await agentsApi.getGraphragGraph(configId)).data,
+      ? await agentsApi.getKnowmapGraph(configId)
+      : await agentsApi.getGraphragGraph(configId),
 })
 
 const search = ref('')
