@@ -14,7 +14,6 @@ import type {
   AgentToolTestOut,
   GraphRagConfigPatchIn,
   KnowmapConfigPatchIn,
-  RagDocumentOut,
 } from '@shared/api-client'
 import type {
   AgentCreateInput,
@@ -351,18 +350,10 @@ export interface EgressAllowlistEntry {
 
 // Response bridges — the only generated `*Out` models not directly assignable to
 // the slice's hand-rolled types (surfaced by pnpm typecheck at the api boundary):
-//   - RagDocumentOut.status/scan_status are still plain `string` in the contract
-//     (the RAG document status was not enum-swept, unlike KnowmapDocumentOut); the
-//     backend only emits the closed set the slice unions declare (FU-1).
-//   - AgentToolOut.config_warnings and AgentToolTestOut.error are optional in the
-//     contract but always emitted; the slice types them required.
-function toRagDocument(o: RagDocumentOut): RagDocument {
-  return {
-    ...o,
-    status: o.status as RagDocument['status'],
-    scan_status: o.scan_status as RagDocument['scan_status'],
-  }
-}
+// AgentToolOut.config_warnings and AgentToolTestOut.error are optional in the
+// contract but always emitted; the slice types them required. (RagDocumentOut needed
+// a bridge until its status/scan_status were enum-swept server-side to match
+// KnowmapDocumentOut — it is now directly assignable, so no bridge.)
 function toAgentTool(o: AgentToolOut): AgentTool {
   return { ...o, config_warnings: o.config_warnings ?? [] }
 }
@@ -419,9 +410,7 @@ export const agentsApi = {
     ModelCatalogService.getModelCatalogApiModelCatalogGet(),
 
   listDocuments: (configId: string): Promise<RagDocument[]> =>
-    RagService.listDocumentsApiRagConfigsConfigIdDocumentsGet({ configId }).then((r) =>
-      r.map(toRagDocument),
-    ),
+    RagService.listDocumentsApiRagConfigsConfigIdDocumentsGet({ configId }),
 
   // ≤ 32 MB synchronous path. Larger files use tusUpload(purpose:'rag_source')
   // from @shared/transport, which the backend routes to the ingest worker.
@@ -434,7 +423,7 @@ export const agentsApi = {
         mime: file.type || 'application/octet-stream',
         agent_ids: agentIds,
       },
-    }).then(toRagDocument),
+    }),
 
   deleteDocument: (documentId: string): Promise<void> =>
     RagService.deleteRagDocumentApiRagDocumentsDocumentIdDelete({ documentId }),
@@ -444,7 +433,7 @@ export const agentsApi = {
     RagService.setDocumentAgentsApiRagDocumentsDocumentIdAgentsPatch({
       documentId,
       requestBody: { agent_ids: agentIds },
-    }).then(toRagDocument),
+    }),
 
   listGraphragConfigs: (projectId: string): Promise<GraphragConfig[]> =>
     GraphragService.listConfigsApiProjectsProjectIdGraphragConfigsGet({ projectId }),

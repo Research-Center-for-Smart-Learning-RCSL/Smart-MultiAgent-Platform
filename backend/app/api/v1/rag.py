@@ -41,7 +41,9 @@ from contexts.knowledge.application.ingest_service import (
 from contexts.knowledge.domain.errors import DocumentTooLarge
 from contexts.knowledge.domain.models import (
     ChunkStrategy,
+    DocumentStatus,
     RagConfigDraft,
+    ScanStatus,
 )
 from contexts.knowledge.infrastructure.embedders import router_embedder_for
 from contexts.tenancy.interfaces.facade import TenancyFacade
@@ -111,8 +113,8 @@ class RagDocumentOut(BaseModel):
     mime: str
     size_bytes: int
     sha256: str
-    status: str
-    scan_status: str
+    status: DocumentStatus
+    scan_status: ScanStatus
     uploaded_at: str
     agent_ids: list[uuid.UUID]
 
@@ -151,8 +153,8 @@ def _to_document_out(d) -> RagDocumentOut:
         mime=d.mime,
         size_bytes=d.size_bytes,
         sha256=d.sha256,
-        status=d.status.value,
-        scan_status=d.scan_status.value,
+        status=d.status,
+        scan_status=d.scan_status,
         uploaded_at=d.uploaded_at.isoformat(),
         agent_ids=list(d.agent_ids),
     )
