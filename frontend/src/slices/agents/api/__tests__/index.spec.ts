@@ -6,8 +6,8 @@ import { agentsApi } from '..'
 // Request-level characterization of the agents api wire contract, pinned as
 // docs/tasks/2026-07-11-generated-client-wrap-agents converts the ~47 methods from
 // @shared/transport's `http` to the generated services. Covers a representative
-// read/write per capability group, the three response bridges (toRagDocument,
-// toAgentTool, toToolTestResult), the multipart uploads, and the security-relevant
+// read/write per capability group, the response bridges (toAgentTool,
+// toToolTestResult), the multipart uploads, and the security-relevant
 // request bodies (tool auth/clear_auth, egress hostname). Bodies matter here: this
 // surface carries tool credentials and the egress allowlist.
 
@@ -45,7 +45,6 @@ const agentToolOut = {
 }
 // No error → exercises the toToolTestResult default.
 const toolTestOut = { ok: true, tool_names: ['search'], duration_ms: 5, status: null }
-// status/scan_status are plain strings in the contract → exercises toRagDocument.
 const ragDocumentOut = {
   id: 'doc_1',
   rag_config_id: 'rc_1',
@@ -228,7 +227,7 @@ describe('agents api wire contract', () => {
     expect(res.ok).toBe(true)
   })
 
-  // ---- rag (incl. toRagDocument + multipart) ----
+  // ---- rag (incl. multipart) ----
   it('listRagConfigs GETs the project rag-configs', async () => {
     const cap = captureAll()
     await agentsApi.listRagConfigs('proj_1')
@@ -241,7 +240,7 @@ describe('agents api wire contract', () => {
     expect(cap.value).toMatchObject({ method: 'PATCH', path: '/api/rag-configs/rc_1', body: { top_k: 5 } })
   })
 
-  it('listDocuments narrows status/scan_status via toRagDocument', async () => {
+  it('listDocuments resolves the rag documents with their status/scan_status', async () => {
     const cap = captureAll()
     const docs = await agentsApi.listDocuments('rc_1')
     expect(cap.value).toMatchObject({ method: 'GET', path: '/api/rag-configs/rc_1/documents' })

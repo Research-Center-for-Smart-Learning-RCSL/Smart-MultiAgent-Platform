@@ -5191,8 +5191,7 @@
             "type": "string"
           },
           "scan_status": {
-            "title": "Scan Status",
-            "type": "string"
+            "$ref": "#/components/schemas/ScanStatus"
           },
           "sha256": {
             "title": "Sha256",
@@ -5203,8 +5202,7 @@
             "type": "integer"
           },
           "status": {
-            "title": "Status",
-            "type": "string"
+            "$ref": "#/components/schemas/DocumentStatus"
           },
           "uploaded_at": {
             "title": "Uploaded At",
