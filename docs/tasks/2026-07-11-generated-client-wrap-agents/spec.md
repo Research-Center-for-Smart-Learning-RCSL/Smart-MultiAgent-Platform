@@ -1,6 +1,6 @@
 ---
 type: refactor
-status: in-progress
+status: implemented
 created: 2026-07-11
 requirements: [R24.13, R11.09, R11.23, R22.15]
 supersedes:
@@ -191,23 +191,33 @@ This touches MCP/egress/tools/uploads, so per the `check-security` lens:
 
 ## 9. Acceptance Criteria
 
-- [ ] AC-1: every remaining `agentsApi` method calls a `@shared/api-client` service; the 7
+- [x] AC-1: every remaining `agentsApi` method calls a `@shared/api-client` service; the 7
       dead MCP-binding/builtin-tools methods + their exclusive types/schema are deleted; no
       `@shared/transport` `http` import remains in `agents/api/index.ts`; each method resolves
-      the bare body typed as its slice type.
-- [ ] AC-2: every `.data` site (in-slice and cross-slice) is converted; `pnpm typecheck` and
-      `pnpm lint` (changed files) are green.
-- [ ] AC-3: the three multipart uploads post `multipart/form-data` with the file + companion
+      the bare body typed as its slice type. *(47 methods wrap the 7 live services; only two
+      residual `@shared/transport` mentions remain — both comments documenting the untouched
+      tus path, no `http` import/call. Verified by grep.)*
+- [x] AC-2: every `.data` site (in-slice and cross-slice) is converted; `pnpm typecheck` and
+      `pnpm lint` (changed files) are green. *(typecheck clean; lint has 0 introduced warnings —
+      261 pre-existing `vue/html-indent` confirmed identical at HEAD via stash comparison, D-4.)*
+- [x] AC-3: the three multipart uploads post `multipart/form-data` with the file + companion
       fields and resolve the document/file body; any response bridge supplies its defaults —
-      pinned by tests.
-- [ ] AC-4: request bodies are unchanged — the characterization spec asserts verb/path/body
+      pinned by tests. *(3 bridges `toRagDocument`/`toAgentTool`/`toToolTestResult`, D-2; each
+      pinned by a characterization case feeding an `*Out` missing the defaulted field.)*
+- [x] AC-4: request bodies are unchanged — the characterization spec asserts verb/path/body
       for representative reads/writes across each capability group, including a tool `patch`
-      carrying `auth`/`clear_auth` and an egress-allowlist add.
-- [ ] AC-5: `pnpm test` green — updated module-mock tests pass, MSW/smoke tests pass
-      unmodified, the new characterization spec passes; `pnpm build` green.
-- [ ] AC-6: security holds — no response carries a secret; tool `auth`/`clear_auth`, MCP
+      carrying `auth`/`clear_auth` and an egress-allowlist add. *(25-case
+      `api/__tests__/index.spec.ts`; tool add+patch assert `auth`/`clear_auth` bodies, egress
+      add asserts `{ hostname, note }`, egress remove asserts the path-encoded hostname.)*
+- [x] AC-5: `pnpm test` green — updated module-mock tests pass, MSW/smoke tests pass
+      unmodified, the new characterization spec passes; `pnpm build` green. *(504 tests / 118
+      files; the 2 socket module-mocks updated to bare bodies, D-5; build clean.)*
+- [x] AC-6: security holds — no response carries a secret; tool `auth`/`clear_auth`, MCP
       reference, egress hostname, and upload bodies are byte-identical; no masking/logging path
-      changed (§6). `check-security` lens: no findings.
+      changed (§6). `check-security` lens: no findings. *(Independent security audit: surface
+      clean, 0 Critical/Warning; auth passed verbatim to requestBody, uploads binary-appended,
+      egress hostname single-encoded, no logging introduced, 7 deleted methods have zero
+      consumers so removal drops no control.)*
 
 ## 10. SRS Delta
 
@@ -215,10 +225,47 @@ None — behavior-preserving refactor of the api-client layer.
 
 ## 11. Deviation Log
 
-Appended by /build.
+- **D-1 — cross-slice `.data` consumers (as anticipated in §5D, recording the final set).**
+  Beyond the agents slice, three cross-slice files read `.data` off `agentsApi` results and
+  were swept: `agent-groups/views/AgentGroupDetailView.vue`,
+  `workflow/views/AgentOrchestrationView.vue`, `workflow/utils/projectAgents.ts` (`res.map`).
+  No slice-boundary violation — these already imported `agentsApi` via the slice `index.ts`.
+- **D-2 — three response bridges (§5C predicted "mirror keys' one case"; it was three).**
+  `toRagDocument` (narrows `status`/`scan_status` `string`→union — same unchecked assertion
+  the old `http.get<RagDocument[]>` already made, no runtime change), `toAgentTool`
+  (`config_warnings ?? []`), `toToolTestResult` (`error ?? null`). Plus three type-only
+  request-body casts (`as AgentToolCreateIn`/`as GraphRagConfigPatchIn`/`as KnowmapConfigPatchIn`)
+  bridging `exactOptionalPropertyTypes` `undefined`-vs-`null` drift — verified type-only, the
+  runtime payload is the unchanged zod object so `undefined` optionals stay omitted by
+  `JSON.stringify` exactly as before (no undefined→null wire drift).
+- **D-3 — RAG document status left as `string` server-side.** Unlike `KnowmapDocumentOut`
+  (whose `status`/`scan_status` are the generated `DocumentStatus`/`ScanStatus` enums,
+  assignable with no bridge), `RagDocumentOut` still types them as plain `string`, forcing
+  the `toRagDocument` union cast. Behavior-preserving here; enum-typing them server-side would
+  delete the bridge → FU-3.
+- **D-4 — pre-existing vue lint debt not touched.** 261 `vue/html-indent` warnings across the
+  touched `.vue` files are pre-existing (identical count at HEAD, confirmed by stash-compare).
+  This refactor edited only `<script>` blocks, never templates, so it introduced none. Left
+  as-is per Ground Rule 2 (pre-existing, doesn't block); tracked as FU-4.
+- **D-5 — two socket module-mock tests updated (as anticipated in §5E).** `useGraphragSocket.test.ts`
+  and `useKnowmapSocket.test.ts` module-mock `agentsApi` returning the old `{ data }` envelope;
+  updated to bare bodies (`{ state: 'idle' }`, `{ last_build_state: 'idle' }`). Grep confirmed
+  these were the only two agents tests with the `{ data }` shape.
+- **D-6 — egress-remove encoder comment clarified (check-quality/check-security Info).** Both
+  audits noted the generated client path-encodes with `encodeURI`, not the old
+  `encodeURIComponent`; equivalent for DNS-valid hostnames (neither escapes `[a-z0-9.-*]`).
+  Expanded the `removeEgressAllowlistEntry` comment to record the encoder shift; no code change.
 
 ## 12. Follow-ups
 
 - FU-1: if a response bridge is needed, and a later pass tightens the corresponding `*Out`
   field to required in the backend, delete the bridge.
 - FU-2: remaining slice wraps (`tenancy`, `identity`, `workflow`, `admin`, `prompt-studio`).
+- FU-3: enum-type `RagDocumentOut.status`/`scan_status` server-side (as `KnowmapDocumentOut`
+  already is) so `toRagDocument`'s union cast can be deleted (D-3).
+- FU-4: clear the pre-existing `vue/html-indent` lint debt in the agents/agent-groups/workflow
+  views (D-4) — a formatting-only pass, out of scope for this behavior-preserving refactor.
+- FU-5: pin the multipart `agent_ids` on-the-wire serialization (repeated fields, the
+  per-agent retrieval allowlist) in the characterization spec once the `form-data` package's
+  node body is introspectable under vitest — currently those cases assert verb/path/return
+  only (check-quality Info; the core's array handling was verified by reading `getFormData`).
