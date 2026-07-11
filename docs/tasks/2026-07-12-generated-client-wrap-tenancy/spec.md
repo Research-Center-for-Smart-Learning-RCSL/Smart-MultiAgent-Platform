@@ -1,6 +1,6 @@
 ---
 type: refactor
-status: approved
+status: implemented
 created: 2026-07-12
 requirements: [R24.13]
 ---
@@ -168,24 +168,28 @@ dimensions):
 
 ## 9. Acceptance Criteria
 
-- [ ] AC-1: every method in the three tenancy api modules calls an `OrgsService`/
+- [x] AC-1: every method in the three tenancy api modules calls an `OrgsService`/
       `ProjectsService`/`InvitesService` method; no `@shared/transport` `http` import remains
       in `tenancy/api/*`; each method resolves the bare body typed as its slice type (or
-      `void` for `restore`, Q-5).
-- [ ] AC-2: every `.data` site (in-slice and the 6 cross-slice files) is converted; `pnpm
-      typecheck` and `pnpm lint` (changed files) are green with no other consumer edits.
-- [ ] AC-3: the invite endpoints map per Q-4 — the characterization spec asserts
+      `void` for `restore`, Q-5). Verified — the three modules import only the services + the
+      `PaginationParams` type.
+- [x] AC-2: every `.data` site (in-slice and the 6 cross-slice files) is converted; `pnpm
+      typecheck` green (exhaustive — a missed unwrap would be a type error); `pnpm lint` on the
+      changed files is clean. (Repo-wide `pnpm lint` fails on 296 pre-existing warnings in
+      untouched files — identical count with this change stashed; see FU-4.)
+- [x] AC-3: the invite endpoints map per Q-4 — the characterization spec asserts
       `orgsApi.invite`/`projectsApi.invite` post `{ email, role }` to the org/project routes
-      and `invitesApi.list`/`acceptByToken` resolve the `invites`-scoped invite body.
-- [ ] AC-4: request bodies/params/preconditions unchanged — the spec asserts verb/path/body
-      for a representative read/write per module, including both `If-Match` renames, the
-      `initiateTransfer` `{ target_user_id }` body, and the `projectsApi.list` scope/id guard
-      (both-set sends the params, either-unset omits both).
-- [ ] AC-5: `pnpm test` green — `useObservations.test.ts` updated to a bare body, all other
-      tests pass unmodified, the new characterization spec passes; `pnpm build` green.
-- [ ] AC-6: security holds — no response carries a new field or secret; invite/role/transfer
-      bodies and `If-Match` are byte-identical; AuthZ path unchanged (§6). `check-security`
-      lens: no findings.
+      and `invitesApi.list` resolves the `invites`-scoped invite body (created_at + scope_name).
+- [x] AC-4: request bodies/params/preconditions unchanged — the spec asserts verb/path/body
+      for a read/write per module, both `If-Match` renames, the `initiateTransfer`
+      `{ target_user_id }` body, and the `projectsApi.list` scope/id guard (both-set sends the
+      params, either-unset omits both). One benign query-string delta recorded as D-1.
+- [x] AC-5: `pnpm test` green (558 passed) — `useObservations.test.ts` updated to a bare
+      body, all other tests unmodified, the new 42-case characterization spec passes; `pnpm
+      build` green.
+- [x] AC-6: security holds — no response carries a new field or secret; invite/role/transfer
+      bodies and `If-Match` are byte-identical; AuthZ path unchanged (§6). Security audit: no
+      findings.
 
 ## 10. SRS Delta
 
@@ -193,7 +197,16 @@ None — behavior-preserving refactor of the api-client layer.
 
 ## 11. Deviation Log
 
-Appended by /build.
+- D-1: the list methods now emit the generated client's default `limit=100` on the query
+  string when the caller omits pagination (each service destructures `limit = 100`), where the
+  old `http.get` sent no `limit`. The backend applies the identical default, so results are
+  unchanged — only the wire query gains an explicit `limit`. This matches the generated-client
+  convention already shipped by the prior slice wraps (keys/agents/workflow), so it is accepted
+  as behavior-equivalent rather than reworked. The characterization spec therefore asserts the
+  scope/id guard via `query.scope`/`query.id` presence, not on the full query object.
+- D-2: `orgsApi.restore`/`projectsApi.restore` return `Promise<void>` (Q-5). Not a deviation
+  from the approved design — the dossier decided this — recorded here for the diff reader since
+  the old public type was `Promise<AxiosResponse<Org>>`/`<Project>`.
 
 ## 12. Follow-ups
 
@@ -205,3 +218,8 @@ Appended by /build.
 - FU-3: consider adding `owner_name` to the backend `ProjectOut` (and `is_inherited` to
   `ProjectMemberOut`) if any consumer relies on them — today they are optional in the
   hand-rolled type and simply pass through when the backend sends them.
+- FU-4: the repo-wide `pnpm lint` (`eslint . --max-warnings=0`) is red on `main`,
+  independent of this task — 296 pre-existing warnings (verified identical with this change
+  stashed), mostly unused `reload`/`reloadMine` bindings in the `keys` slice views and
+  `vue/html-indent` in an unrelated template. The `--max-warnings=0` CI gate cannot pass until
+  these are cleaned; out of scope here but worth a dedicated sweep.
