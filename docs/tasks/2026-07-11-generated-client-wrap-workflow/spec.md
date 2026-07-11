@@ -1,6 +1,6 @@
 ---
 type: refactor
-status: approved
+status: implemented
 created: 2026-07-11
 requirements: [R24.13, R22.11]
 ---
@@ -176,23 +176,31 @@ envelope to update, unlike the agents socket mocks).
 
 ## 9. Acceptance Criteria
 
-- [ ] AC-1: no externally observable behavior change — every existing workflow test
+- [x] AC-1: no externally observable behavior change — every existing workflow test
       (views, components, composables) passes **unmodified**; `pnpm typecheck` is green with
-      **zero** consumer edits (proves the signature-preserving conversation pattern).
-- [ ] AC-2: the motivating violation from §2 is gone — `workflow/api/index.ts` no longer
+      **zero** consumer edits (proves the signature-preserving conversation pattern). *(10
+      workflow test files / 38 tests pass untouched; full suite 119 files / 526 tests. See
+      D-1 for an inert wire nuance that does not change any response.)*
+- [x] AC-2: the motivating violation from §2 is gone — `workflow/api/index.ts` no longer
       imports `@shared/transport` `http`; all 20 functions call a `@shared/api-client`
-      service; each resolves the bare body typed as its slice type.
-- [ ] AC-3: `If-Match` preserved — `patchWorkflow` and `patchAgentWakeupConfig` send
-      `If-Match: String(version)`, asserted by the characterization spec.
-- [ ] AC-4: the two wakeup-config reshapes are behavior-identical — `getAgentWakeupConfig`
+      service; each resolves the bare body typed as its slice type. *(imports only
+      `@shared/api-client` + `../types`; all 20 matched, no dead code.)*
+- [x] AC-3: `If-Match` preserved — `patchWorkflow` and `patchAgentWakeupConfig` send
+      `If-Match: String(version)`, asserted by the characterization spec. *(spec pins
+      `ifMatch: '7'` and `'2'`; security audit confirmed the optimistic-concurrency
+      precondition is intact.)*
+- [x] AC-4: the two wakeup-config reshapes are behavior-identical — `getAgentWakeupConfig`
       returns `{ wakeupConfig, version }` (defaulting absent `wakeup_config` to `{}`),
       `patchAgentWakeupConfig` posts `{ wakeup_config }` and returns the bumped version;
-      pinned by the spec.
-- [ ] AC-5: request bodies/params unchanged — the spec asserts verb/path/body/params for a
+      pinned by the spec. *(two dedicated cases incl. the absent-config default → `{}`.)*
+- [x] AC-5: request bodies/params unchanged — the spec asserts verb/path/body/params for a
       representative read/write per service group (Workflow CRUD, runs, orchestration,
       wakeup), including `listRuns` query params and `triggerRun` `{ trigger_payload }`.
-- [ ] AC-6: `pnpm test`, `pnpm lint` (changed files), and `pnpm build` are green; no
-      `gen:api` rerun (contract unchanged).
+      *(22-case `api/__tests__/index.spec.ts`; `listRuns` pins both explicit and 50/0/false
+      default query params.)*
+- [x] AC-6: `pnpm test`, `pnpm lint` (changed files), and `pnpm build` are green; no
+      `gen:api` rerun (contract unchanged). *(526 tests; eslint exit 0 on both files; build
+      clean; quality + security audits both 0 findings.)*
 
 ## 10. SRS Delta
 
@@ -200,7 +208,29 @@ None — behavior-preserving refactor of the api-client layer.
 
 ## 11. Deviation Log
 
-Appended by /build.
+- **D-1 — orchestration/list endpoints now emit `?limit=100` (inert; security-audit Info).**
+  The generated methods for `listApprovalsForRun`, `listInstructionsForChain`,
+  `listRunSubagents`, and `listWorkflows` carry a codegen'd `limit` default (100, mirroring
+  the backend's declared `PaginationParams` default) and send it as a query param; the old
+  hand-rolled calls for the three orchestration lists sent **no** query string. This is a
+  wire difference against the §3 "same query params" non-goal, but it is **response-inert**:
+  the backend orchestration route handlers declare `PaginationParams = Depends()` yet the
+  service calls ignore it — `svc.list_for_run(workflow_run_id)`,
+  `svc.list_for_chain(chain_id)`, `facade.list_workflow_run_subagents(workflow_run_id)` take
+  no limit/offset (`backend/app/api/v1/orchestration.py:169,216,242`), and `listWorkflows`'
+  `limit=100` equals the backend default. No result set or authorization changes, so AC-1
+  (no externally observable behavior change) holds. Recorded for wire-honesty. Deleting the
+  redundant `limit` would require passing it explicitly as `undefined`, which
+  `exactOptionalPropertyTypes` rejects and `getQueryString` would drop anyway — not worth it.
+- **D-2 — return casts instead of `to<Type>` bridges (as the spec anticipated in Q-4).**
+  Every divergence resolved to a single `as SliceType` cast at the wrapper return
+  (orchestration `Record<string,any>` → DTO; validate/trigger/cancel `Record<string,string>`
+  → inline shape; `WorkflowOut`/`RunOut|ArchivedRunOut` → `Workflow`/`WorkflowRun[]`), never
+  a default-supplying bridge — because the loose typing is codegen imprecision, not a missing
+  backend field. `getRun`/`listSteps` needed **no** cast (`RunOut`/`StepOut[]` are structurally
+  assignable — strictly stronger than the old unchecked `http.get<T>()` generic). The two
+  wakeup reshapes stayed hand-built. Verified behavior-identical to the prior assertions by
+  the quality audit.
 
 ## 12. Follow-ups
 
