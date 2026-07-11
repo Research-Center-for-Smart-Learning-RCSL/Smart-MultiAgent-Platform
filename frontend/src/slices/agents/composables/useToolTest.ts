@@ -29,28 +29,28 @@ export function useToolTest(agentId: string) {
   const testMutation = useMutation({
     mutationFn: (vars: ToolTestVars) => agentsApi.testTool(agentId, vars.toolId),
     onSuccess: (res, vars) => {
-      if (res.data.ok) {
+      if (res.ok) {
         if (vars.kind === 'function') {
           toast.success(
             t('agents.tools.functions.testOk', {
-              status: res.data.status ?? '',
-              ms: res.data.duration_ms,
+              status: res.status ?? '',
+              ms: res.duration_ms,
             }),
           )
         } else {
           toast.success(
             t('agents.tools.mcp.testOk', {
-              count: res.data.tool_names.length,
-              ms: res.data.duration_ms,
+              count: res.tool_names.length,
+              ms: res.duration_ms,
             }),
           )
         }
       } else if (vars.kind === 'function') {
-        toast.error(res.data.error ?? t('agents.tools.functions.testFailed'))
+        toast.error(res.error ?? t('agents.tools.functions.testFailed'))
       } else {
         failedResult.value = {
-          error: res.data.error ?? t('agents.tools.mcp.testBad'),
-          duration_ms: res.data.duration_ms,
+          error: res.error ?? t('agents.tools.mcp.testBad'),
+          duration_ms: res.duration_ms,
         }
       }
     },

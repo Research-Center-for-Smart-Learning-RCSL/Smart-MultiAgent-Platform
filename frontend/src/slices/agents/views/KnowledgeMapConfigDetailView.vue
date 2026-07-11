@@ -83,12 +83,12 @@ const { liveState, watch: watchBuild, unwatch: unwatchBuild } = useKnowmapSocket
 
 const configQuery = useQuery({
   queryKey: agentKeys.knowmapConfig(configId),
-  queryFn: async () => (await agentsApi.getKnowmapConfig(configId)).data,
+  queryFn: () => agentsApi.getKnowmapConfig(configId),
 })
 
 const docsQuery = useQuery({
   queryKey: agentKeys.knowmapDocuments(configId),
-  queryFn: async () => (await agentsApi.listKnowmapDocuments(configId)).data,
+  queryFn: () => agentsApi.listKnowmapDocuments(configId),
 })
 
 const keyGroupsQuery = useQuery({
@@ -146,7 +146,7 @@ function openGraph(): void {
 // --- Per-agent document scoping (R11.23) ---
 const agentsQuery = useQuery({
   queryKey: agentKeys.agents(projectId),
-  queryFn: async () => (await agentsApi.list(projectId)).data,
+  queryFn: () => agentsApi.list(projectId),
 })
 
 // Only agents bound to THIS config may appear on a document's allowlist.
@@ -246,8 +246,8 @@ const { applyServerErrors } = useServerErrors(setErrors)
 
 // chunk_strategy is immutable post-creation — only the patchable fields are sent.
 const saveMutation = useMutation({
-  mutationFn: async (payload: KnowmapConfigPatchInput) =>
-    (await agentsApi.patchKnowmapConfig(configId, payload)).data,
+  mutationFn: (payload: KnowmapConfigPatchInput) =>
+    agentsApi.patchKnowmapConfig(configId, payload),
   onSuccess: () => {
     qc.invalidateQueries({ queryKey: agentKeys.knowmapConfig(configId) })
     toast.success(t('agents.detail.saved'))

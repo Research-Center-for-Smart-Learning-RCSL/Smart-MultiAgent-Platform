@@ -58,7 +58,7 @@ const { breadcrumbs } = useProjectBreadcrumbs(projectId, [
 
 const query = useQuery({
   queryKey: agentKeys.agents(projectId),
-  queryFn: async () => (await agentsApi.list(projectId)).data,
+  queryFn: () => agentsApi.list(projectId),
 })
 
 const keyGroupsQuery = useQuery({
@@ -68,7 +68,7 @@ const keyGroupsQuery = useQuery({
 
 const ragConfigsQuery = useQuery({
   queryKey: agentKeys.ragConfigs(projectId),
-  queryFn: async () => (await agentsApi.listRagConfigs(projectId)).data,
+  queryFn: () => agentsApi.listRagConfigs(projectId),
 })
 
 const agents = computed<Agent[]>(() => query.data.value ?? [])

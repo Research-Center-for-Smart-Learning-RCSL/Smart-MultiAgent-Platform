@@ -9,7 +9,7 @@ import { agentKeys } from '../queries'
 export function useModelCatalog() {
   return useQuery({
     queryKey: agentKeys.modelCatalog(),
-    queryFn: async () => (await agentsApi.getModelCatalog()).data,
+    queryFn: () => agentsApi.getModelCatalog(),
     staleTime: Infinity,
   })
 }

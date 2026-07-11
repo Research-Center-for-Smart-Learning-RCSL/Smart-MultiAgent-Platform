@@ -77,7 +77,7 @@ const drawerError = ref(false)
 
 const configsQuery = useQuery({
   queryKey: agentKeys.graphragConfigs(projectId),
-  queryFn: async () => (await agentsApi.listGraphragConfigs(projectId)).data,
+  queryFn: () => agentsApi.listGraphragConfigs(projectId),
 })
 
 const keyGroupsQuery = useQuery({
@@ -87,7 +87,7 @@ const keyGroupsQuery = useQuery({
 
 const ownerOptionsQuery = useQuery({
   queryKey: agentKeys.graphragOwnerOptions(projectId),
-  queryFn: async () => (await agentsApi.listConceptMapOwnerOptions(projectId)).data,
+  queryFn: () => agentsApi.listConceptMapOwnerOptions(projectId),
 })
 
 const configs = computed<GraphragConfig[]>(() => configsQuery.data.value ?? [])
@@ -239,8 +239,8 @@ watch(ownerKind, () => {
 const { applyServerErrors } = useServerErrors(setErrors)
 
 const createMutation = useMutation({
-  mutationFn: async (values: GraphragConfigCreateInput) =>
-    (await agentsApi.createGraphragConfig(projectId, values)).data,
+  mutationFn: (values: GraphragConfigCreateInput) =>
+    agentsApi.createGraphragConfig(projectId, values),
   onSuccess: () => {
     qc.invalidateQueries({ queryKey: agentKeys.graphragConfigs(projectId) })
     qc.invalidateQueries({ queryKey: agentKeys.graphragOwnerOptions(projectId) })
@@ -301,7 +301,7 @@ async function openStatusDrawer(cfg: GraphragConfig): Promise<void> {
   drawerLoading.value = true
   drawerError.value = false
   try {
-    const { data } = await agentsApi.getGraphragStatus(cfg.id)
+    const data = await agentsApi.getGraphragStatus(cfg.id)
     drawerStatus.value = data
   } catch {
     drawerError.value = true

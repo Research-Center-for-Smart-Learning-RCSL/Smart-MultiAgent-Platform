@@ -19,7 +19,7 @@ const qc = useQueryClient()
 
 const agentQuery = useQuery({
   queryKey: agentKeys.agent(agentId),
-  queryFn: async () => (await agentsApi.get(agentId)).data,
+  queryFn: () => agentsApi.get(agentId),
 })
 
 const breadcrumbs = computed(() => [

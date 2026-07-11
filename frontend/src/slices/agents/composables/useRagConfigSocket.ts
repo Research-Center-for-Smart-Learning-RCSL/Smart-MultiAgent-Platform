@@ -60,7 +60,7 @@ export function useRagConfigSocket(configId: string, projectId: string) {
 
   async function syncOnReconnect(): Promise<void> {
     try {
-      const { data } = await agentsApi.listRagConfigs(projectId)
+      const data = await agentsApi.listRagConfigs(projectId)
       const current = data.find((c) => c.id === configId)
       if (current) {
         qc.invalidateQueries({ queryKey: agentKeys.ragConfigs(projectId) })

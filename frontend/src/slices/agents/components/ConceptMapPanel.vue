@@ -34,7 +34,7 @@ const { isAuthorized, decided } = useProjectRole(() => props.projectId)
 const configsQuery = useQuery({
   queryKey: computed(() => agentKeys.graphragConfigs(props.projectId)),
   enabled: computed(() => !!props.projectId),
-  queryFn: async () => (await agentsApi.listGraphragConfigs(props.projectId)).data,
+  queryFn: () => agentsApi.listGraphragConfigs(props.projectId),
 })
 
 const map = computed<GraphragConfig | null>(
@@ -163,7 +163,7 @@ const createMutation = useMutation({
         trigger_config: {},
         recency_half_life_days: createRecency.value === '' ? null : Number(createRecency.value),
       })
-    ).data,
+    ),
   onSuccess: () => {
     qc.invalidateQueries({ queryKey: agentKeys.graphragConfigs(props.projectId) })
     qc.invalidateQueries({ queryKey: agentKeys.graphragOwnerOptions(props.projectId) })

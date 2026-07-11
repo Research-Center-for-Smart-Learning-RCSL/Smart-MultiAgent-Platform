@@ -65,7 +65,7 @@ const agentId = route.params.agentId as string
 
 const agentQuery = useQuery({
   queryKey: agentKeys.agent(agentId),
-  queryFn: async () => (await agentsApi.get(agentId)).data,
+  queryFn: () => agentsApi.get(agentId),
 })
 const projectId = computed(() => agentQuery.data.value?.project_id ?? '')
 
@@ -77,7 +77,7 @@ const breadcrumbs = computed(() => [
 // --- Unified tools query ---
 const toolsQuery = useQuery({
   queryKey: agentKeys.tools(agentId),
-  queryFn: async () => (await agentsApi.listTools(agentId)).data,
+  queryFn: () => agentsApi.listTools(agentId),
 })
 
 const allTools = computed<AgentTool[]>(() => toolsQuery.data.value ?? [])
@@ -98,8 +98,8 @@ const { isTesting, runTest, failedResult } = useToolTest(agentId)
 
 // --- Singleton toggle ---
 const toggleMutation = useMutation({
-  mutationFn: async (vars: { toolId: string; enabled: boolean }) =>
-    (await agentsApi.patchTool(agentId, vars.toolId, { enabled: vars.enabled })).data,
+  mutationFn: (vars: { toolId: string; enabled: boolean }) =>
+    agentsApi.patchTool(agentId, vars.toolId, { enabled: vars.enabled }),
   onSuccess: () => {
     qc.invalidateQueries({ queryKey: agentKeys.tools(agentId) })
     toast.success(t('agents.tools.toggleSuccess'))
@@ -161,7 +161,7 @@ const singletonCards = computed(() => [
 // --- Workspace files (Code Interpreter) ---
 const wsFilesQuery = useQuery({
   queryKey: agentKeys.workspaceFiles(agentId),
-  queryFn: async () => (await agentsApi.listWorkspaceFiles(agentId)).data,
+  queryFn: () => agentsApi.listWorkspaceFiles(agentId),
   enabled: computed(
     () => !!codeInterpreter.value?.enabled || !!fileWorkspace.value?.enabled,
   ),
@@ -170,8 +170,8 @@ const wsFiles = computed<WorkspaceFile[]>(() => wsFilesQuery.data.value ?? [])
 const wsFileInput = ref<HTMLInputElement | null>(null)
 
 const uploadWsFile = useMutation({
-  mutationFn: async (file: File) =>
-    (await agentsApi.uploadWorkspaceFile(agentId, file)).data,
+  mutationFn: (file: File) =>
+    agentsApi.uploadWorkspaceFile(agentId, file),
   onSuccess: () => {
     qc.invalidateQueries({ queryKey: agentKeys.workspaceFiles(agentId) })
     toast.success(t('agents.tools.codeInterpreter.files.uploaded'))
@@ -302,8 +302,8 @@ function parseConfig(raw: string): Record<string, unknown> | null {
 const { applyServerErrors } = useServerErrors(setErrors)
 
 const createMutation = useMutation({
-  mutationFn: async (payload: McpToolCreateInput) =>
-    (await agentsApi.addTool(agentId, payload)).data,
+  mutationFn: (payload: McpToolCreateInput) =>
+    agentsApi.addTool(agentId, payload),
   onSuccess: () => {
     qc.invalidateQueries({ queryKey: agentKeys.tools(agentId) })
     showModal.value = false
@@ -315,8 +315,8 @@ const createMutation = useMutation({
 })
 
 const patchMutation = useMutation({
-  mutationFn: async (vars: { toolId: string; payload: AgentToolPatchInput }) =>
-    (await agentsApi.patchTool(agentId, vars.toolId, vars.payload)).data,
+  mutationFn: (vars: { toolId: string; payload: AgentToolPatchInput }) =>
+    agentsApi.patchTool(agentId, vars.toolId, vars.payload),
   onSuccess: () => {
     qc.invalidateQueries({ queryKey: agentKeys.tools(agentId) })
     showModal.value = false
@@ -528,8 +528,8 @@ function openFnEditModal(tool: AgentTool): void {
 const { applyServerErrors: applyFnErrors } = useServerErrors(setFnErrors)
 
 const createFnMutation = useMutation({
-  mutationFn: async (payload: FunctionToolCreateInput) =>
-    (await agentsApi.addTool(agentId, payload as unknown as Parameters<typeof agentsApi.addTool>[1])).data,
+  mutationFn: (payload: FunctionToolCreateInput) =>
+    agentsApi.addTool(agentId, payload as unknown as Parameters<typeof agentsApi.addTool>[1]),
   onSuccess: () => {
     qc.invalidateQueries({ queryKey: agentKeys.tools(agentId) })
     showFnModal.value = false
@@ -541,8 +541,8 @@ const createFnMutation = useMutation({
 })
 
 const patchFnMutation = useMutation({
-  mutationFn: async (vars: { toolId: string; payload: AgentToolPatchInput }) =>
-    (await agentsApi.patchTool(agentId, vars.toolId, vars.payload)).data,
+  mutationFn: (vars: { toolId: string; payload: AgentToolPatchInput }) =>
+    agentsApi.patchTool(agentId, vars.toolId, vars.payload),
   onSuccess: () => {
     qc.invalidateQueries({ queryKey: agentKeys.tools(agentId) })
     showFnModal.value = false

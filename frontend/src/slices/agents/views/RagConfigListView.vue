@@ -61,7 +61,7 @@ const { breadcrumbs } = useProjectBreadcrumbs(projectId, [
 
 const configsQuery = useQuery({
   queryKey: agentKeys.ragConfigs(projectId),
-  queryFn: async () => (await agentsApi.listRagConfigs(projectId)).data,
+  queryFn: () => agentsApi.listRagConfigs(projectId),
 })
 
 const projectKeysQuery = useQuery({
@@ -200,8 +200,8 @@ function openCreateModal(): void {
 const { applyServerErrors } = useServerErrors(setErrors)
 
 const createMutation = useMutation({
-  mutationFn: async (payload: RagConfigCreateInput) =>
-    (await agentsApi.createRagConfig(projectId, payload)).data,
+  mutationFn: (payload: RagConfigCreateInput) =>
+    agentsApi.createRagConfig(projectId, payload),
   onSuccess: () => {
     qc.invalidateQueries({ queryKey: agentKeys.ragConfigs(projectId) })
     showModal.value = false

@@ -13,7 +13,7 @@ import { agentsApi } from '../api'
 export function useKnowmapSocket(projectId: string) {
   return useBuildStateSocket({
     pathPrefix: '/knowmap',
-    fetchStatus: async (configId) => (await agentsApi.getKnowmapConfig(configId)).data.last_build_state,
+    fetchStatus: async (configId) => (await agentsApi.getKnowmapConfig(configId)).last_build_state,
     invalidateKeysOnTerminal: (configId) => [
       agentKeys.knowmapConfigs(projectId),
       agentKeys.knowmapConfig(configId),

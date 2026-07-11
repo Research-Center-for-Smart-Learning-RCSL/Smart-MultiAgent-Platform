@@ -53,7 +53,7 @@ const isOwner = computed(() => {
 
 const allowlistQuery = useQuery({
   queryKey: agentKeys.egressAllowlist(projectId),
-  queryFn: async () => (await agentsApi.listEgressAllowlist(projectId)).data,
+  queryFn: () => agentsApi.listEgressAllowlist(projectId),
 })
 
 const entries = computed<EgressAllowlistEntry[]>(() => allowlistQuery.data.value ?? [])
@@ -94,8 +94,8 @@ const noteDisplay = computed<string | number>({
 const { applyServerErrors } = useServerErrors(setErrors)
 
 const addMutation = useMutation({
-  mutationFn: async (payload: AddInput) =>
-    (await agentsApi.addEgressAllowlistEntry(projectId, payload)).data,
+  mutationFn: (payload: AddInput) =>
+    agentsApi.addEgressAllowlistEntry(projectId, payload),
   onSuccess: () => {
     qc.invalidateQueries({ queryKey: agentKeys.egressAllowlist(projectId) })
     resetForm()

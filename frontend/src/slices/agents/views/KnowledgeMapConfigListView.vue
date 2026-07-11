@@ -60,7 +60,7 @@ const { breadcrumbs } = useProjectBreadcrumbs(projectId, [
 
 const configsQuery = useQuery({
   queryKey: agentKeys.knowmapConfigs(projectId),
-  queryFn: async () => (await agentsApi.listKnowmapConfigs(projectId)).data,
+  queryFn: () => agentsApi.listKnowmapConfigs(projectId),
 })
 
 const keyGroupsQuery = useQuery({
@@ -120,8 +120,8 @@ function openCreateModal(): void {
 const { applyServerErrors } = useServerErrors(setErrors)
 
 const createMutation = useMutation({
-  mutationFn: async (payload: KnowmapConfigCreateInput) =>
-    (await agentsApi.createKnowmapConfig(projectId, payload)).data,
+  mutationFn: (payload: KnowmapConfigCreateInput) =>
+    agentsApi.createKnowmapConfig(projectId, payload),
   onSuccess: () => {
     qc.invalidateQueries({ queryKey: agentKeys.knowmapConfigs(projectId) })
     showModal.value = false

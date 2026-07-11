@@ -12,7 +12,7 @@ import { agentsApi } from '../api'
 export function useGraphragSocket(projectId: string) {
   return useBuildStateSocket({
     pathPrefix: '/graphrag',
-    fetchStatus: async (configId) => (await agentsApi.getGraphragStatus(configId)).data.state,
+    fetchStatus: async (configId) => (await agentsApi.getGraphragStatus(configId)).state,
     invalidateKeysOnTerminal: (configId) => [
       agentKeys.graphragConfigs(projectId),
       agentKeys.graphragConfig(configId),
