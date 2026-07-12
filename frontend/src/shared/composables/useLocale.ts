@@ -4,10 +4,6 @@ import { i18n, ensureLocaleLoaded, type Locale } from '@shared/i18n'
 const STORAGE_KEY = 'smap-locale'
 const SUPPORTED: Locale[] = ['en', 'zh-TW']
 
-function detectBrowserLocale(): Locale {
-  return navigator.language.startsWith('zh') ? 'zh-TW' : 'en'
-}
-
 function readStored(): Locale | null {
   try {
     const v = localStorage.getItem(STORAGE_KEY)

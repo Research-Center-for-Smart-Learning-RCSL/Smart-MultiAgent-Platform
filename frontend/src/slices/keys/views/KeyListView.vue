@@ -33,7 +33,7 @@ const { t } = useI18n()
 const router = useRouter()
 const toast = useToast()
 const { confirm } = useConfirmDialog()
-const { keys, loading, error, reload, upload, retest, remove } = useMyKeys()
+const { keys, loading, error, upload, retest, remove } = useMyKeys()
 const staggerClass = useListStagger(loading)
 
 const showUpload = ref(false)

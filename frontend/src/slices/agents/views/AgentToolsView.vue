@@ -67,8 +67,6 @@ const agentQuery = useQuery({
   queryKey: agentKeys.agent(agentId),
   queryFn: () => agentsApi.get(agentId),
 })
-const projectId = computed(() => agentQuery.data.value?.project_id ?? '')
-
 const breadcrumbs = computed(() => [
   { label: agentQuery.data.value?.name ?? '...', to: { name: 'agents.detail', params: { agentId } } },
   { label: t('agents.tools.tabLabel') },
@@ -236,8 +234,8 @@ const { handleSubmit, errors, defineField, resetForm, setErrors } =
     },
   })
 
-const [mcpSource, mcpSourceAttrs] = defineField('config.source')
-const [mcpReference, mcpReferenceAttrs] = defineField('config.reference')
+const [mcpSource] = defineField('config.source')
+const [mcpReference] = defineField('config.reference')
 
 watch(mcpSource, () => {
   if (!isEditing.value) mcpReference.value = ''
@@ -1013,7 +1011,10 @@ function fnLabel(tool: AgentTool): string {
               <span class="text-sm font-semibold text-[var(--color-fg)]">
                 {{ t('agents.tools.localShell.label') }}
               </span>
-              <SBadge variant="neutral" size="sm">
+              <SBadge
+                variant="neutral"
+                size="sm"
+              >
                 {{ t('agents.tools.localShell.badge') }}
               </SBadge>
             </div>

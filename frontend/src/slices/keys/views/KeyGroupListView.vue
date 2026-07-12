@@ -31,7 +31,7 @@ const router = useRouter()
 const toast = useToast()
 const { confirm } = useConfirmDialog()
 const projectId = computed(() => route.params.projectId as string)
-const { groups, error, reload, create, remove } = useKeyGroups(() => projectId.value)
+const { groups, error, create, remove } = useKeyGroups(() => projectId.value)
 
 const showCreate = ref(false)
 const newName = ref('')
