@@ -2,11 +2,10 @@ import { useQuery } from '@tanstack/vue-query'
 import { computed, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
-import { useToast } from '@shared/composables'
+import { useModelCatalog, useToast } from '@shared/composables'
 import { isProblemWithType } from '@shared/transport'
 import { CAPABILITIES, keysApi, type ApiKey, type ApiKeyProvider } from '@slices/keys'
 
-import { promptStudioApi } from '../api'
 import {
   useConfigQuery,
   useDeleteFileMutation,
@@ -36,11 +35,7 @@ export function useConfigEditor(scope: ConfigScopeRef) {
     queryKey: ['prompt-studio', 'my-keys'],
     queryFn: () => keysApi.list(),
   })
-  const catalogQuery = useQuery({
-    queryKey: ['prompt-studio', 'model-catalog'],
-    queryFn: () => promptStudioApi.getModelCatalog(),
-    staleTime: Infinity,
-  })
+  const catalogQuery = useModelCatalog()
 
   const form = reactive<AssistantConfigPutInput>(blankValue())
   const version = ref<number | null>(null)

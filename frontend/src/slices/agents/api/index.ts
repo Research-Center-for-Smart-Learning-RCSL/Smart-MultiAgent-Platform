@@ -4,7 +4,6 @@ import {
   GraphragService,
   KnowmapService,
   McpService,
-  ModelCatalogService,
   RagService,
 } from '@shared/api-client'
 import { asBinaryFormField } from '@shared/transport'
@@ -85,32 +84,6 @@ export interface RagConfig {
   rerank_model: string | null
   top_k: number
   created_at: string
-}
-
-// Mirrors backend `ModelCatalogOut` (backend/app/api/v1/model_catalog.py).
-// Preset provider/model choices rendered as dropdowns in the agent + RAG forms.
-// `default` is the model used when none is chosen (chat: empty model_id).
-export interface ChatModelProvider {
-  provider: string
-  models: string[]
-  default: string
-  context_limit: number
-}
-
-export interface EmbedModelOption {
-  model: string
-  dimension: number
-}
-
-export interface EmbedModelProvider {
-  provider: string
-  models: EmbedModelOption[]
-  default: string
-}
-
-export interface ModelCatalog {
-  chat: ChatModelProvider[]
-  embedding: EmbedModelProvider[]
 }
 
 // The backend 2PC build state machine (BuildState). A closed set — kept as a
@@ -403,11 +376,6 @@ export const agentsApi = {
 
   patchRagConfig: (configId: string, payload: RagConfigPatchInput): Promise<RagConfig> =>
     RagService.patchRagConfigApiRagConfigsConfigIdPatch({ configId, requestBody: payload }),
-
-  // Provider/model presets for the agent + RAG config forms. Global, static
-  // catalog (not project-scoped) — cached by Vue Query under agentKeys.modelCatalog.
-  getModelCatalog: (): Promise<ModelCatalog> =>
-    ModelCatalogService.getModelCatalogApiModelCatalogGet(),
 
   listDocuments: (configId: string): Promise<RagDocument[]> =>
     RagService.listDocumentsApiRagConfigsConfigIdDocumentsGet({ configId }),

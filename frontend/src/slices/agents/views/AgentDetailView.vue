@@ -49,7 +49,7 @@ import { keyGroupsApi, keysKeys, type KeyGroup } from '@slices/keys'
 import { PromptAssistantPanel, PromptTemplatePicker } from '@slices/prompt-studio'
 import { agentsApi, type AgentTool, type AgentToolType, type ConceptMapOwnerKind } from '../api'
 import { agentKeys } from '../queries'
-import { useModelCatalog } from '../composables/useModelCatalog'
+import { useModelCatalog } from '@shared/composables'
 import { graphragBuildStateVariant, graphragBuildStateLabelKey } from '../lib/graphragBuildState'
 import { agentCreateSchema, type AgentCreateInput } from '../types/schemas'
 

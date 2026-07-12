@@ -1,8 +1,7 @@
 // Prompt-studio API.
 //
-// Wraps the generated PromptStudioService (+ ModelCatalogService for the shared model
-// catalog) over the one instrumented axios singleton. The methods return the bare body, so
-// consumers no longer read `.data`.
+// Wraps the generated PromptStudioService over the one instrumented axios singleton. The
+// methods return the bare body, so consumers no longer read `.data`.
 //
 // Scoped methods dispatch on ConfigScopeRef.kind to the per-scope generated method family
 // (user -> me*, org -> org*, platform -> admin*), replacing the old configBase/templateBase
@@ -11,7 +10,7 @@
 // body is cast back at the boundary — the same unchecked assertion the previous
 // `http.get<T>()` calls made, safe because these are backend-closed enums.
 
-import { ModelCatalogService, PromptStudioService } from '@shared/api-client'
+import { PromptStudioService } from '@shared/api-client'
 import { asBinaryFormField } from '@shared/transport'
 
 import type {
@@ -20,7 +19,6 @@ import type {
   AssistantFile,
   ConfigEnvelope,
   ConfigScopeRef,
-  ModelCatalog,
   PromptTemplate,
   ResolvedAssistant,
   SessionCreated,
@@ -174,8 +172,4 @@ export const promptStudioApi = {
       sessionId,
       requestBody: payload,
     }),
-
-  // Shared read reused by the config form's model picker.
-  getModelCatalog: (): Promise<ModelCatalog> =>
-    ModelCatalogService.getModelCatalogApiModelCatalogGet(),
 }
