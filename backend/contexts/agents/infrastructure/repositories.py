@@ -282,6 +282,19 @@ class AgentRepository:
             raise AgentVersionMismatch(str(agent_id))
         return _row_to_agent(row)
 
+    async def restore(self, agent_id: uuid.UUID) -> bool:
+        result = await self._db.execute(
+            t.agents.update()
+            .where(
+                sa.and_(
+                    t.agents.c.id == agent_id,
+                    t.agents.c.deleted_at.isnot(None),
+                )
+            )
+            .values(deleted_at=None)  # version bumped by smap_bump_version trigger
+        )
+        return result.rowcount > 0
+
 
 def _row_to_tool(row: Any) -> AgentTool:
     return AgentTool(

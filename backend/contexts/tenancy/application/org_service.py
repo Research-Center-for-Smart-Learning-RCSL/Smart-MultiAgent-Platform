@@ -15,6 +15,7 @@ import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.tenancy.domain.errors import (
@@ -41,6 +42,7 @@ from contexts.tenancy.infrastructure.repositories import (
     ProjectRepository,
 )
 from shared_kernel import audit
+from shared_kernel.db.restore import raise_restore_conflict
 
 DEFAULT_PROJECT_NAME = "Default Project"
 
@@ -205,6 +207,37 @@ class OrgService:
                 request_id=request_id,
             ),
         )
+
+    async def admin_restore(
+        self,
+        *,
+        org_id: uuid.UUID,
+        admin_user_id: uuid.UUID,
+        actor_ip: str | None,
+        request_id: uuid.UUID | None = None,
+    ) -> bool:
+        """Admin restore (R8.13): a pure deleted_at clear that emits
+        admin.restore_resource. Distinct from `restore`, the user-facing path
+        that cascades to child projects and emits org.restored. Restoring into a
+        name a live org has since taken raises RestoreConflict (route maps to 409)."""
+        try:
+            restored = await self._orgs.restore(org_id)
+        except IntegrityError as exc:
+            raise_restore_conflict(exc, unique_constraint="uq_orgs_name_active", resource_type="org")
+        if not restored:
+            return False
+        await audit.emit(
+            self._db,
+            audit.AuditEvent(
+                action="admin.restore_resource",
+                actor_user_id=admin_user_id,
+                actor_ip=actor_ip,
+                resource_type="org",
+                resource_id=org_id,
+                request_id=request_id,
+            ),
+        )
+        return True
 
     async def list_members(self, org_id: uuid.UUID) -> Sequence[OrgMember]:
         return await self._members.list(org_id)

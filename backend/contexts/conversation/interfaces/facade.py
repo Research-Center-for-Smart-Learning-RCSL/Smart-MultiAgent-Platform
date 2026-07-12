@@ -51,6 +51,24 @@ class ConversationFacade:
     ) -> Workspace | None:
         return await self._workspaces.get(workspace_id)
 
+    async def restore_chatroom(
+        self,
+        *,
+        resource_id: uuid.UUID,
+        admin_user_id: uuid.UUID,
+        actor_ip: str | None,
+        request_id: uuid.UUID | None = None,
+    ) -> bool:
+        """Admin restore of a soft-deleted chatroom (R8.13)."""
+        from contexts.conversation.application.chatroom_service import ChatroomService
+
+        return await ChatroomService(self._db).admin_restore(
+            chatroom_id=resource_id,
+            admin_user_id=admin_user_id,
+            actor_ip=actor_ip,
+            request_id=request_id,
+        )
+
     async def list_workspaces(
         self,
         project_id: uuid.UUID,

@@ -116,8 +116,14 @@ class OrgRepository:
     async def soft_delete(self, org_id: uuid.UUID) -> None:
         await self._db.execute(t.orgs.update().where(t.orgs.c.id == org_id).values(deleted_at=now()))
 
-    async def restore(self, org_id: uuid.UUID) -> None:
-        await self._db.execute(t.orgs.update().where(t.orgs.c.id == org_id).values(deleted_at=None))
+    async def restore(self, org_id: uuid.UUID) -> bool:
+        result = await self._db.execute(
+            t.orgs.update()
+            .where(t.orgs.c.id == org_id)
+            .where(t.orgs.c.deleted_at.isnot(None))
+            .values(deleted_at=None)
+        )
+        return result.rowcount > 0
 
 
 # ---------- OrgMember ------------------------------------------------------
@@ -377,10 +383,14 @@ class ProjectRepository:
             t.projects.update().where(t.projects.c.id == project_id).values(deleted_at=now())
         )
 
-    async def restore(self, project_id: uuid.UUID) -> None:
-        await self._db.execute(
-            t.projects.update().where(t.projects.c.id == project_id).values(deleted_at=None)
+    async def restore(self, project_id: uuid.UUID) -> bool:
+        result = await self._db.execute(
+            t.projects.update()
+            .where(t.projects.c.id == project_id)
+            .where(t.projects.c.deleted_at.isnot(None))
+            .values(deleted_at=None)
         )
+        return result.rowcount > 0
 
 
 class ProjectMemberRepository:

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Awaitable, Callable
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query
@@ -10,11 +11,18 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.admin_deps import require_admin
-from contexts.identity.application.admin_service import AdminService
+from contexts.agents.interfaces.facade import AgentsFacade
+from contexts.conversation.interfaces.facade import ConversationFacade
+from contexts.identity.interfaces.facade import IdentityFacade
+from contexts.tenancy.interfaces.facade import TenancyFacade
+from contexts.workflow.interfaces.facade import WorkflowFacade
 from shared_kernel.auth.context import RequestContext
 from shared_kernel.auth.dependencies import current_context
 from shared_kernel.auth.permissions import Principal
+from shared_kernel.db.restore import RestoreConflict
 from shared_kernel.db.session import db_session
+
+RestoreType = Literal["user", "org", "project", "agent", "workflow", "chatroom"]
 
 router = APIRouter(tags=["admin"])
 
@@ -85,20 +93,60 @@ async def list_projects(
 
 @router.post("/restore/{resource_type}/{resource_id}")
 async def restore_resource(
-    resource_type: Literal["user", "org", "project"] = Path(...),
+    resource_type: RestoreType = Path(...),
     resource_id: uuid.UUID = Path(...),
     admin: Principal = Depends(require_admin),
     ctx: RequestContext = Depends(current_context),
     db: AsyncSession = Depends(db_session),
 ) -> RestoreOut:
-    service = AdminService(db)
-    restored = await service.restore_resource(
-        resource_type=resource_type,
-        resource_id=resource_id,
-        admin_user_id=admin.user_id,
-        actor_ip=ctx.actor_ip,
-        request_id=ctx.request_id,
-    )
+    # Each type is restored by the facade of the context that owns its data
+    # (R8.13). The lambda defers construction so only the selected facade is built.
+    restorers: dict[RestoreType, Callable[[], Awaitable[bool]]] = {
+        "user": lambda: IdentityFacade(db).restore_user(
+            resource_id=resource_id,
+            admin_user_id=admin.user_id,
+            actor_ip=ctx.actor_ip,
+            request_id=ctx.request_id,
+        ),
+        "org": lambda: TenancyFacade(db).restore_org(
+            resource_id=resource_id,
+            admin_user_id=admin.user_id,
+            actor_ip=ctx.actor_ip,
+            request_id=ctx.request_id,
+        ),
+        "project": lambda: TenancyFacade(db).restore_project(
+            resource_id=resource_id,
+            admin_user_id=admin.user_id,
+            actor_ip=ctx.actor_ip,
+            request_id=ctx.request_id,
+        ),
+        "agent": lambda: AgentsFacade(db).restore_agent(
+            resource_id=resource_id,
+            admin_user_id=admin.user_id,
+            actor_ip=ctx.actor_ip,
+            request_id=ctx.request_id,
+        ),
+        "workflow": lambda: WorkflowFacade(db).restore_workflow(
+            resource_id=resource_id,
+            admin_user_id=admin.user_id,
+            actor_ip=ctx.actor_ip,
+            request_id=ctx.request_id,
+        ),
+        "chatroom": lambda: ConversationFacade(db).restore_chatroom(
+            resource_id=resource_id,
+            admin_user_id=admin.user_id,
+            actor_ip=ctx.actor_ip,
+            request_id=ctx.request_id,
+        ),
+    }
+    try:
+        restored = await restorers[resource_type]()
+    except RestoreConflict as exc:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Cannot restore this {exc.resource_type}: another active "
+            f"{exc.resource_type} already uses its unique name or email.",
+        ) from exc
     if not restored:
         raise HTTPException(status_code=404, detail="Resource not found or not soft-deleted")
     return RestoreOut(restored=True)

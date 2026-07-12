@@ -12,6 +12,7 @@ from datetime import datetime, timedelta
 from typing import Any
 
 import sqlalchemy as sa
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config.settings import get_settings
@@ -28,6 +29,7 @@ from contexts.notification.interfaces.facade import NotificationFacade, Notifica
 from shared_kernel import audit
 from shared_kernel.auth import tokens
 from shared_kernel.auth.clients import now
+from shared_kernel.db.restore import raise_restore_conflict
 from shared_kernel.realtime.pubsub import Publisher
 
 
@@ -361,55 +363,53 @@ class AdminService:
             ),
         )
 
-    async def restore_resource(
+    async def restore_user(
         self,
         *,
-        resource_type: str,
         resource_id: uuid.UUID,
         admin_user_id: uuid.UUID,
         actor_ip: str | None,
         request_id: uuid.UUID | None = None,
     ) -> bool:
-        table_map: dict[str, Any] = {
-            "user": t.users,
-            "org": sa.table("orgs", sa.column("id"), sa.column("deleted_at")),
-            "project": sa.table("projects", sa.column("id"), sa.column("deleted_at")),
-        }
-        tbl = table_map.get(resource_type)
-        if tbl is None:
-            return False
-        result = await self._db.execute(
-            tbl.update()
-            .where(
-                sa.and_(
-                    tbl.c.id == resource_id,
-                    tbl.c.deleted_at.isnot(None),
+        """Admin restore of a soft-deleted user (R8.13). Clears deleted_at and
+        re-activates the account: status back to ACTIVE (or PENDING if the email
+        was never verified) and any ban cleared. Emits admin.restore_resource.
+        Restoring into an email a live account has since taken raises
+        RestoreConflict (route maps to 409)."""
+        try:
+            result = await self._db.execute(
+                t.users.update()
+                .where(
+                    sa.and_(
+                        t.users.c.id == resource_id,
+                        t.users.c.deleted_at.isnot(None),
+                    )
                 )
+                .values(deleted_at=None)
             )
-            .values(deleted_at=None)
-        )
+        except IntegrityError as exc:
+            raise_restore_conflict(exc, unique_constraint="uq_users_email_active", resource_type="user")
         if result.rowcount == 0:
             return False
-        if resource_type == "user":
-            await self._db.execute(
-                t.users.update()
-                .where(t.users.c.id == resource_id)
-                .values(
-                    status=sa.case(
-                        (t.users.c.email_verified == True, UserStatus.ACTIVE.value),  # noqa: E712
-                        else_=UserStatus.PENDING.value,
-                    ),
-                    banned_reason=None,
-                    banned_at=None,
-                )
+        await self._db.execute(
+            t.users.update()
+            .where(t.users.c.id == resource_id)
+            .values(
+                status=sa.case(
+                    (t.users.c.email_verified == True, UserStatus.ACTIVE.value),  # noqa: E712
+                    else_=UserStatus.PENDING.value,
+                ),
+                banned_reason=None,
+                banned_at=None,
             )
+        )
         await audit.emit(
             self._db,
             audit.AuditEvent(
                 action="admin.restore_resource",
                 actor_user_id=admin_user_id,
                 actor_ip=actor_ip,
-                resource_type=resource_type,
+                resource_type="user",
                 resource_id=resource_id,
                 request_id=request_id,
             ),

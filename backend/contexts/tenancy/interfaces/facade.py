@@ -103,5 +103,43 @@ class TenancyFacade:
             reassign_to_user_id=reassign_to_user_id,
         )
 
+    # ----- admin restore (R8.13) ------------------------------------------
+
+    async def restore_org(
+        self,
+        *,
+        resource_id: uuid.UUID,
+        admin_user_id: uuid.UUID,
+        actor_ip: str | None,
+        request_id: uuid.UUID | None = None,
+    ) -> bool:
+        """Admin restore of a soft-deleted org (pure clear, no project cascade)."""
+        from contexts.tenancy.application.org_service import OrgService
+
+        return await OrgService(self._db).admin_restore(
+            org_id=resource_id,
+            admin_user_id=admin_user_id,
+            actor_ip=actor_ip,
+            request_id=request_id,
+        )
+
+    async def restore_project(
+        self,
+        *,
+        resource_id: uuid.UUID,
+        admin_user_id: uuid.UUID,
+        actor_ip: str | None,
+        request_id: uuid.UUID | None = None,
+    ) -> bool:
+        """Admin restore of a soft-deleted project."""
+        from contexts.tenancy.application.project_service import ProjectService
+
+        return await ProjectService(self._db).admin_restore(
+            project_id=resource_id,
+            admin_user_id=admin_user_id,
+            actor_ip=actor_ip,
+            request_id=request_id,
+        )
+
 
 __all__ = ["TenancyFacade"]
