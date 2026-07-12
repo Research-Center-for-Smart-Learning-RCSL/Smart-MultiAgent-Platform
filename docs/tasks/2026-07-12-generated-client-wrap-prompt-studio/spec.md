@@ -1,6 +1,6 @@
 ---
 type: refactor
-status: approved
+status: implemented
 created: 2026-07-12
 requirements: [R24.13]
 ---
@@ -169,22 +169,28 @@ Config surface handling BYO provider-key references, system prompts, and file up
 
 ## 9. Acceptance Criteria
 
-- [ ] AC-1: every `promptStudioApi` method calls a generated `PromptStudioService`/
+- [x] AC-1: every `promptStudioApi` method calls a generated `PromptStudioService`/
       `ModelCatalogService` method; no `@shared/transport` `http` import remains in
-      `prompt-studio/api/*`; scoped methods dispatch on `scope.kind`; each resolves the bare
-      body typed as its hand-rolled type.
-- [ ] AC-2: the 6 `.data` sites are converted; `pnpm typecheck` green and changed files lint
-      clean, with no consumer edit beyond the six.
-- [ ] AC-3: scope dispatch is correct — the spec asserts each scoped method hits `/me/…` for
-      `user`, `/orgs/{id}/…` for `org`, and `/admin/…` for `platform`.
-- [ ] AC-4: request contract preserved — the spec asserts the `putConfig` body + If-Match
-      (present for a version, absent for null), the `patchTemplate` If-Match, the multipart
-      `uploadFile` field, and the project routes (createSession/resolved/merged/postMessage).
-- [ ] AC-5: `pnpm test` green — all prompt-studio tests unmodified + the new characterization
-      spec; `pnpm build` green.
-- [ ] AC-6: security holds — scope→endpoint mappings are pinned, request bodies/If-Match are
+      `prompt-studio/api/*` (only `asBinaryFormField` is imported from transport); scoped
+      methods dispatch on `scope.kind` via `dispatchScope`; each resolves the bare body typed
+      as its hand-rolled type. (`api/index.ts`)
+- [x] AC-2: the 6 `.data` sites are converted (`queries/index.ts` ×4, `useConfigEditor.ts:41`,
+      `PromptAssistantPanel.vue:39`); `pnpm typecheck` green and changed files lint clean, with
+      no consumer edit beyond the six.
+- [x] AC-3: scope dispatch is correct — `index.spec.ts` asserts each scoped method hits
+      `/api/me/…` for `user`, `/api/orgs/{id}/…` for `org`, and `/api/admin/…` for `platform`
+      (getConfig + listTemplates cover all three; the remaining scoped methods pin their route).
+      Security audit independently verified all 8 scoped methods' user/org/platform triples
+      against `PromptStudioService`.
+- [x] AC-4: request contract preserved — `index.spec.ts` asserts the `putConfig` body + If-Match
+      (present for a version, absent for null), the `patchTemplate` If-Match, and the project
+      routes (createSession/resolved/merged/postMessage). Multipart `uploadFile` route+return
+      asserted; see D-1 for the field-assertion deviation.
+- [x] AC-5: `pnpm test` green — 123 files / 609 tests (all prompt-studio tests unmodified + the
+      new 12-case characterization spec); `pnpm build` green (17.45s).
+- [x] AC-6: security holds — scope→endpoint mappings are pinned, request bodies/If-Match are
       byte-identical, no key material or secret is logged, file upload unchanged (§6). Security
-      audit: no findings.
+      audit: no findings; scope-dispatch correctness confirmed for all 8 scoped methods.
 
 ## 10. SRS Delta
 
@@ -192,7 +198,17 @@ None — behavior-preserving refactor of the api-client layer.
 
 ## 11. Deviation Log
 
-Appended by /build.
+- D-1: The `uploadFile` characterization test asserts the scoped route + returned body, not the
+  multipart form field itself (§5F/AC-4 intended the field). In the happy-dom + axios test env,
+  FormData serialization surfaces the test `File`'s own `text/plain` type rather than
+  `multipart/form-data`, so a field-level assertion is a test-env artifact, not a contract check.
+  Mirrors the agents-slice `uploadDocumentMultipart` spec precedent (same `asBinaryFormField`
+  path, proven in the agents/conversation slices in production). The wire behavior is unchanged;
+  the field mapping is covered by the shared helper's existing coverage.
+
+No wire-behavior deviations. (Note: unlike the tenancy/identity/admin slices, no OpenAPI
+`limit`-default deviation applies — none of the 13 prompt-studio methods carry pagination
+params.)
 
 ## 12. Follow-ups
 
