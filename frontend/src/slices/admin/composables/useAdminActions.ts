@@ -1,7 +1,7 @@
 import { useMutation, useQueryClient } from '@tanstack/vue-query'
 import { useI18n } from 'vue-i18n'
 import { useConfirmDialog, useToast } from '@shared/composables'
-import { adminApi } from '../api/admin'
+import { adminApi, type RestoreResourceType } from '../api/admin'
 import { adminKeys } from '../queries'
 
 export function useAdminActions() {
@@ -99,7 +99,7 @@ export function useAdminActions() {
   })
 
   const restoreResource = useMutation({
-    mutationFn: ({ type, id }: { type: string; id: string }) =>
+    mutationFn: ({ type, id }: { type: RestoreResourceType; id: string }) =>
       adminApi.restoreResource(type, id),
     onSuccess: (_data, { type }) => {
       if (type === 'user') {

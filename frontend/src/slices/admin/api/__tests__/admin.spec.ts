@@ -225,8 +225,8 @@ describe('admin api wire contract', () => {
     expect(res.url).toBe('https://x/export.csv')
   })
 
-  // ---- restore (six-type path via the boundary cast) ----
-  it('restoreResource POSTs /admin/restore/{type}/{id}, passing a type beyond the OpenAPI enum', async () => {
+  // ---- restore (six-type path, type-checked against the widened OpenAPI enum) ----
+  it('restoreResource POSTs /admin/restore/{type}/{id} for one of the six supported types', async () => {
     const cap = captureAll()
     const res = await adminApi.restoreResource('agent', 'a_1')
     expect(cap.value).toMatchObject({ method: 'POST', path: '/api/admin/restore/agent/a_1' })

@@ -392,7 +392,7 @@ export class AdminService {
         resourceType,
         resourceId,
     }: {
-        resourceType: 'user' | 'org' | 'project',
+        resourceType: 'user' | 'org' | 'project' | 'agent' | 'workflow' | 'chatroom',
         resourceId: string,
     }): CancelablePromise<RestoreOut> {
         return __request(OpenAPI, {
