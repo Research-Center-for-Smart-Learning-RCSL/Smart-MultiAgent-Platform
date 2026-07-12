@@ -128,6 +128,25 @@ class IdentityFacade:
             )
         )
 
+    async def restore_user(
+        self,
+        *,
+        resource_id: uuid.UUID,
+        admin_user_id: uuid.UUID,
+        actor_ip: str | None,
+        request_id: uuid.UUID | None = None,
+    ) -> bool:
+        """Admin restore of a soft-deleted user (R8.13). Delegates to the identity
+        application service, which owns the user lifecycle + audit."""
+        from contexts.identity.application.admin_service import AdminService
+
+        return await AdminService(self._db).restore_user(
+            resource_id=resource_id,
+            admin_user_id=admin_user_id,
+            actor_ip=actor_ip,
+            request_id=request_id,
+        )
+
     @staticmethod
     def recipient_digest(addr: str) -> str:
         """SHA-256 digest of a normalised recipient (re-exported for audit)."""

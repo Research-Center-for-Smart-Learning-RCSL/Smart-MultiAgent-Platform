@@ -95,6 +95,24 @@ class AgentsFacade:
             actor_ip=actor_ip,
         )
 
+    async def restore_agent(
+        self,
+        *,
+        resource_id: uuid.UUID,
+        admin_user_id: uuid.UUID,
+        actor_ip: str | None,
+        request_id: uuid.UUID | None = None,
+    ) -> bool:
+        """Admin restore of a soft-deleted agent (R8.13)."""
+        from contexts.agents.application.agent_service import AgentService
+
+        return await AgentService(self._db).admin_restore(
+            agent_id=resource_id,
+            admin_user_id=admin_user_id,
+            actor_ip=actor_ip,
+            request_id=request_id,
+        )
+
     async def list_agent_tools(self, agent_id: uuid.UUID) -> list[AgentTool]:
         return list(await self._tools.list(agent_id))
 

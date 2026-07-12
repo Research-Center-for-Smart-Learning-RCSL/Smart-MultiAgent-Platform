@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 import jsonschema
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.workflow.application.linter import validate_definition
@@ -35,6 +36,7 @@ from contexts.workflow.infrastructure.repositories import (
     WorkflowStepRepository,
 )
 from shared_kernel import audit
+from shared_kernel.db.restore import raise_restore_conflict
 
 _SCHEMA_PATH = Path(__file__).resolve().parents[4] / "docs" / "workflow.schema.json"
 _SCHEMA: dict[str, Any] | None = None
@@ -233,6 +235,40 @@ class WorkflowService:
                 actor_user_id=actor_user_id,
             ),
         )
+
+    async def admin_restore(
+        self,
+        workflow_id: uuid.UUID,
+        *,
+        admin_user_id: uuid.UUID,
+        actor_ip: str | None = None,
+        request_id: uuid.UUID | None = None,
+    ) -> bool:
+        """Admin restore of a soft-deleted workflow definition (R8.13): a pure
+        deleted_at clear emitting admin.restore_resource. Clearing deleted_at can
+        violate the uq_workflows_workspace_id_name partial-unique index if a live
+        workflow reused the (workspace, name) while this one was deleted — surfaced
+        as RestoreConflict for the route to map to 409."""
+        try:
+            restored = await self._repo.restore(workflow_id)
+        except IntegrityError as exc:
+            raise_restore_conflict(
+                exc, unique_constraint="uq_workflows_workspace_id_name", resource_type="workflow"
+            )
+        if not restored:
+            return False
+        await audit.emit(
+            self._db,
+            audit.AuditEvent(
+                action="admin.restore_resource",
+                actor_user_id=admin_user_id,
+                actor_ip=actor_ip,
+                resource_type="workflow",
+                resource_id=workflow_id,
+                request_id=request_id,
+            ),
+        )
+        return True
 
     # -- Validation (no persist) --
 

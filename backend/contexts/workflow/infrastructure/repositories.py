@@ -201,6 +201,19 @@ class WorkflowRepository:
         )
         return result.rowcount > 0
 
+    async def restore(self, workflow_id: uuid.UUID) -> bool:
+        result = await self._db.execute(
+            workflows.update()
+            .where(
+                sa.and_(
+                    workflows.c.id == workflow_id,
+                    workflows.c.deleted_at.isnot(None),
+                ),
+            )
+            .values(deleted_at=None),
+        )
+        return result.rowcount > 0
+
 
 # ---------------------------------------------------------------------------
 # WorkflowRunRepository

@@ -202,6 +202,19 @@ class ChatroomRepository:
             t.chatrooms.update().where(t.chatrooms.c.id == chatroom_id).values(deleted_at=now())
         )
 
+    async def restore(self, chatroom_id: uuid.UUID) -> bool:
+        result = await self._db.execute(
+            t.chatrooms.update()
+            .where(
+                sa.and_(
+                    t.chatrooms.c.id == chatroom_id,
+                    t.chatrooms.c.deleted_at.isnot(None),
+                )
+            )
+            .values(deleted_at=None)
+        )
+        return result.rowcount > 0
+
 
 class ChatroomAgentRepository:
     def __init__(self, db: AsyncSession) -> None:

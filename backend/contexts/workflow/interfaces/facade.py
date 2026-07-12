@@ -56,6 +56,24 @@ class WorkflowFacade:
             valid_chatroom_ids=valid_chatroom_ids,
         )
 
+    async def restore_workflow(
+        self,
+        *,
+        resource_id: uuid.UUID,
+        admin_user_id: uuid.UUID,
+        actor_ip: str | None,
+        request_id: uuid.UUID | None = None,
+    ) -> bool:
+        """Admin restore of a soft-deleted workflow definition (R8.13). Raises
+        RestoreConflict if the (workspace, name) was reused by a live workflow
+        while this one was deleted (route maps to 409)."""
+        return await self._svc.admin_restore(
+            resource_id,
+            admin_user_id=admin_user_id,
+            actor_ip=actor_ip,
+            request_id=request_id,
+        )
+
     async def trigger_run(
         self,
         workflow_id: uuid.UUID,

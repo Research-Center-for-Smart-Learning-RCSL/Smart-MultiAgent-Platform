@@ -35,6 +35,7 @@ from typing import Any
 from urllib.parse import urlsplit
 
 import sqlalchemy as sa
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.agents.application.runtime.tool_registry import BUILTIN_TOOL_NAMES
@@ -68,6 +69,7 @@ from contexts.agents.infrastructure.repositories import (
 from contexts.keys.interfaces.facade import KeysFacade
 from contexts.knowledge.interfaces.facade import KnowledgeFacade
 from shared_kernel import audit
+from shared_kernel.db.restore import raise_restore_conflict
 
 _AGENT_CAP_PER_PROJECT = 1000
 
@@ -531,6 +533,38 @@ class AgentService:
                 request_id=request_id,
             ),
         )
+
+    async def admin_restore(
+        self,
+        *,
+        agent_id: uuid.UUID,
+        admin_user_id: uuid.UUID,
+        actor_ip: str | None,
+        request_id: uuid.UUID | None = None,
+    ) -> bool:
+        """Admin restore of a soft-deleted agent (R8.13): pure deleted_at clear,
+        emitting admin.restore_resource. Restoring into a (project_id, name) slot
+        a live agent has since taken raises RestoreConflict (route maps to 409)."""
+        try:
+            restored = await self._agents.restore(agent_id)
+        except IntegrityError as exc:
+            raise_restore_conflict(
+                exc, unique_constraint="uq_agents_project_name_active", resource_type="agent"
+            )
+        if not restored:
+            return False
+        await audit.emit(
+            self._db,
+            audit.AuditEvent(
+                action="admin.restore_resource",
+                actor_user_id=admin_user_id,
+                actor_ip=actor_ip,
+                resource_type="agent",
+                resource_id=agent_id,
+                request_id=request_id,
+            ),
+        )
+        return True
 
     # ------------------------------------------------------------------
     # Unified agent tools surface (Phase A)

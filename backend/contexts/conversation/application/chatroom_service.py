@@ -240,6 +240,33 @@ class ChatroomService:
             return default_room
         return None
 
+    async def admin_restore(
+        self,
+        *,
+        chatroom_id: uuid.UUID,
+        admin_user_id: uuid.UUID,
+        actor_ip: str | None,
+        request_id: uuid.UUID | None = None,
+    ) -> bool:
+        """Admin restore of a soft-deleted chatroom (R8.13): pure deleted_at clear,
+        emitting admin.restore_resource. Any R13.02 default room auto-created when
+        the last room was deleted is left in place (the >= 1 room invariant holds)."""
+        restored = await self._rooms.restore(chatroom_id)
+        if not restored:
+            return False
+        await audit.emit(
+            self._db,
+            audit.AuditEvent(
+                action="admin.restore_resource",
+                actor_user_id=admin_user_id,
+                actor_ip=actor_ip,
+                resource_type="chatroom",
+                resource_id=chatroom_id,
+                request_id=request_id,
+            ),
+        )
+        return True
+
     # ---- compaction -------------------------------------------------------
 
     @staticmethod
