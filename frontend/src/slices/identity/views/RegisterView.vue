@@ -46,8 +46,7 @@ onMounted(async () => {
     emailRef.value?.$el?.querySelector('input')?.focus()
   })
   try {
-    const { data } = await authApi.captchaConfig()
-    captcha.value = data
+    captcha.value = await authApi.captchaConfig()
   } catch {
     // Config unreachable -- fail-open per backend design
   }

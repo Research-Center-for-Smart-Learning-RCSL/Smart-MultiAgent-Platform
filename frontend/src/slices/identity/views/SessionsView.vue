@@ -74,8 +74,7 @@ async function load(): Promise<void> {
   loading.value = true
   loadError.value = false
   try {
-    const { data } = await authApi.listSessions()
-    sessions.value = data
+    sessions.value = await authApi.listSessions()
   } catch {
     loadError.value = true
   } finally {

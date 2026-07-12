@@ -34,10 +34,10 @@ async function submit(): Promise<void> {
   submitting.value = true
   try {
     const trimmed = displayName.value.trim()
-    const { data } = await authApi.updateProfile({ display_name: trimmed || null })
+    const updated = await authApi.updateProfile({ display_name: trimmed || null })
     // Reflect the server-normalised value (control chars stripped, re-trimmed).
-    session.setMe(data)
-    displayName.value = data.display_name ?? ''
+    session.setMe(updated)
+    displayName.value = updated.display_name ?? ''
     saved.value = true
   } catch {
     serverError.value = t('identity.errors.generic')

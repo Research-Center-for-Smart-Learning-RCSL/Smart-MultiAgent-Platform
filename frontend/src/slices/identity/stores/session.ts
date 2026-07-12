@@ -24,14 +24,13 @@ export const useSessionStore = defineStore('identity/session', () => {
   async function login(email: string, password: string): Promise<void> {
     // Login takes no CAPTCHA (R19a.12 is register-only); the backend /auth/login
     // payload has no captcha_token field.
-    const { data } = await authApi.login({ email, password })
-    applyTokens(data)
+    const pair = await authApi.login({ email, password })
+    applyTokens(pair)
     await refreshMe()
   }
 
   async function refreshMe(): Promise<void> {
-    const { data } = await authApi.me()
-    me.value = data
+    me.value = await authApi.me()
   }
 
   // Replace the cached profile with a freshly returned `Me` (e.g. after a
@@ -63,8 +62,8 @@ export const useSessionStore = defineStore('identity/session', () => {
     // smap_refresh cookie set by the server. If there is no valid cookie the
     // server returns 401 and we start unauthenticated.
     try {
-      const { data } = await authApi.refresh()
-      applyTokens(data)
+      const pair = await authApi.refresh()
+      applyTokens(pair)
       await refreshMe()
     } catch {
       clear()
