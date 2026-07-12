@@ -3,7 +3,7 @@ import { reactive, nextTick } from 'vue'
 
 const router = vi.hoisted(() => ({ push: vi.fn().mockResolvedValue(undefined) }))
 const transport = vi.hoisted(() => ({
-  get: vi.fn(),
+  sessionPolicy: vi.fn(),
   refresh: vi.fn().mockResolvedValue('new-token'),
 }))
 const toast = vi.hoisted(() => ({ info: vi.fn() }))
@@ -17,8 +17,10 @@ vi.mock('vue-router', () => ({ useRouter: () => router }))
 vi.mock('@shared/stores/session', () => ({ useSessionStore: () => holder.store }))
 vi.mock('@shared/i18n', () => ({ i18n: { global: { t: (k: string) => k } } }))
 vi.mock('@shared/transport', () => ({
-  http: { get: (...a: unknown[]) => transport.get(...a) },
   refreshAccessToken: () => transport.refresh(),
+}))
+vi.mock('@shared/api-client', () => ({
+  AuthService: { sessionPolicyApiAuthSessionPolicyGet: () => transport.sessionPolicy() },
 }))
 vi.mock('../useToast', () => ({ useToast: () => toast }))
 
@@ -35,7 +37,7 @@ beforeEach(() => {
     isAuthenticated: false,
     logout: vi.fn().mockResolvedValue(undefined),
   })
-  transport.get.mockResolvedValue({ data: POLICY })
+  transport.sessionPolicy.mockResolvedValue(POLICY)
   transport.refresh.mockClear().mockResolvedValue('new-token')
   router.push.mockClear()
   toast.info.mockClear()

@@ -10,7 +10,8 @@
 
 import { ref, watch, type Ref } from 'vue'
 import { useRouter, type Router } from 'vue-router'
-import { http, refreshAccessToken } from '@shared/transport'
+import { refreshAccessToken } from '@shared/transport'
+import { AuthService } from '@shared/api-client'
 import { useSessionStore } from '@shared/stores/session'
 import { i18n } from '@shared/i18n'
 import { useToast } from './useToast'
@@ -61,7 +62,7 @@ let session: ReturnType<typeof useSessionStore> | null = null
 async function loadPolicy(): Promise<void> {
   if (policyLoaded) return
   try {
-    const { data } = await http.get<SessionPolicy>('/auth/session-policy')
+    const data = await AuthService.sessionPolicyApiAuthSessionPolicyGet()
     if (
       data &&
       typeof data.idle_timeout_seconds === 'number' &&
