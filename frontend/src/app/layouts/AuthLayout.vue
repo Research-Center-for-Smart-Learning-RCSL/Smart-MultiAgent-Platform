@@ -7,7 +7,10 @@ import BrandLogo from '@app/components/BrandLogo.vue'
   <div class="auth-layout">
     <div class="auth-layout__wrapper">
       <div class="auth-layout__logo">
-        <RouterLink to="/" class="auth-layout__logo-link">
+        <RouterLink
+          to="/"
+          class="auth-layout__logo-link"
+        >
           <BrandLogo size="lg" />
         </RouterLink>
       </div>
