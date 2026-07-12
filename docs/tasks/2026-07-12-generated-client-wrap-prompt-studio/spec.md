@@ -221,3 +221,16 @@ params.)
 - FU-6 (program close-out): with all `http`-based api layers now wrapped, remove the bare `http`
   singleton export from `@shared/transport` if nothing else uses it, and update the R24.13
   requirement status.
+  - **Resolved** (this session, follows the prompt-studio conversion). The last external consumer
+    of the barrel `http` export was `shared/composables/useIdleLogout.ts` (`loadPolicy` →
+    `GET /auth/session-policy`); converted to `AuthService.sessionPolicyApiAuthSessionPolicyGet()`
+    (`SessionPolicyOut` is identical to the local `SessionPolicy`, so no bridge). The `http`
+    export was then removed from `shared/transport/index.ts`, and transport's own interceptor
+    test repointed to `import { http } from '../axios'`. **Nuance vs the FU's "if nothing else
+    uses it":** the `http` *instance* is NOT dead — `transport/tus.ts` (tus upload protocol) and
+    `transport/axios.ts` (WS-ticket redemption) still import it directly from `./axios`. So the
+    instance stays internal to the transport module; only its cross-app re-export is gone, which
+    is what closes the program (no slice/composable reaches the raw axios singleton anymore).
+    R24.13's requirement text (REQUIREMENTS.md §24.4, traceability.csv, J.2 exit criteria) is
+    descriptive of the now-realized target architecture and needs no textual change; those docs
+    carry no status field.
