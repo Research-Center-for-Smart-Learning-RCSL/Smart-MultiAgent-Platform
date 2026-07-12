@@ -213,6 +213,18 @@ params.)
 ## 12. Follow-ups
 
 - FU-1: (carried) merge the two `useProjectRole` composables (tenancy/workflow).
+  - **Resolved** (this session). The two are not identical: tenancy's is project-keyed and already
+    the canonical cross-slice resolver (agent-groups/conversation/agents consume it via
+    `@slices/tenancy`); workflow's is workspace-keyed and used only by two workflow views. The
+    duplication was the membership -> role core (owner lookup, `isAuthorized`, `decided`).
+    Reworked workflow's composable to keep only its workspace -> project_id lookup and delegate
+    role resolution to tenancy's `useProjectRole(projectId)`; the `{isAdmin, isOwner,
+    isAuthorized, decided}` return shape is unchanged, so the two views need no edit. A focused
+    security pass confirmed the authz semantics are byte-for-byte equivalent across all seven
+    reachable states (admin short-circuit, the workspace-error and no-project_id `decided` edges,
+    owner vs non-owner). Bonus: the members fetch already used `tenancyKeys.projectMembers`, so it
+    now shares that cache, and workflow's direct `projectsApi`/`tenancyKeys` imports are gone —
+    the authorization resolver lives in one audited place instead of two copies that could drift.
 - FU-3: (carried) the pre-existing 296-warning lint debt blocking `--max-warnings=0`.
 - FU-4: (carried) widen the backend `restore` `resource_type` enum to the six UI values.
 - FU-5: dedup the model-catalog fetch — `prompt-studio` and `agents` both fetch `/model-catalog`
