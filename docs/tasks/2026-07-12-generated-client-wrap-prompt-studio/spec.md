@@ -226,6 +226,18 @@ params.)
     now shares that cache, and workflow's direct `projectsApi`/`tenancyKeys` imports are gone —
     the authorization resolver lives in one audited place instead of two copies that could drift.
 - FU-3: (carried) the pre-existing 296-warning lint debt blocking `--max-warnings=0`.
+  - **Resolved** (this session). `pnpm lint` is now clean (0 warnings). The 296 broke down as:
+    259 auto-fixable formatting (255 `vue/html-indent` all in one drifted file,
+    `RagConfigDetailView.vue`, plus a few `max-attributes-per-line`/`attributes-order`) fixed via
+    `eslint --fix` — whitespace/attribute-placement only; 27 `vue/require-default-prop`, all in
+    `shared/ui` atoms on intentionally-optional value props (the rule is now off for
+    `src/shared/ui/**`, mirroring the existing no-bare-strings exemption, and stays on for slices);
+    and 10 `@typescript-eslint/no-unused-vars`, all genuinely dead bindings removed (a dead
+    `detectBrowserLocale`, an unused `projectId`, unbound `defineField` attrs, and unused
+    `reload*` destructures in the keys views). Note: the repo has Prettier (`pnpm fmt`) but no
+    `eslint-config-prettier` and no Prettier CI gate, so ESLint is the authoritative formatter;
+    the drifted file was reconciled to ESLint (matching the other ~200 `.vue` files), not Prettier.
+    The Prettier/ESLint reconciliation is a separate latent tooling question, not this debt.
 - FU-4: (carried) widen the backend `restore` `resource_type` enum to the six UI values.
 - FU-5: dedup the model-catalog fetch — `prompt-studio` and `agents` both fetch `/model-catalog`
   under different query keys with divergent `ModelCatalog` shapes (chat-only vs chat+embedding);
