@@ -1,6 +1,6 @@
 ---
 type: feature
-status: draft
+status: approved
 created: 2026-07-12
 requirements: [R8.13, R8.11, R9.03, R16.03]
 ---
