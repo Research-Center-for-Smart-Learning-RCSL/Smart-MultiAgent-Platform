@@ -243,11 +243,19 @@ export default [
     },
   },
 
-  // Gate #12 override: shared/ui atoms may use bare strings (design-system labels)
+  // shared/ui atom overrides:
+  // - bare strings: design-system labels are allowed (gate #12 exemption).
+  // - require-default-prop: these atoms are TS-typed via withDefaults and already
+  //   supply a real default for every prop that needs one (booleans -> false,
+  //   variant/size -> a concrete value). The props this rule flags are all
+  //   intentionally-optional value props (title?, id?, accept?, sortBy?, ...) whose
+  //   default IS undefined; TS enforces call-site correctness, so the runtime rule
+  //   only adds noise in this layer. It stays on for every slice component.
   {
     files: ['src/shared/ui/**/*.vue'],
     rules: {
       'vue/no-bare-strings-in-template': 'off',
+      'vue/require-default-prop': 'off',
     },
   },
 
