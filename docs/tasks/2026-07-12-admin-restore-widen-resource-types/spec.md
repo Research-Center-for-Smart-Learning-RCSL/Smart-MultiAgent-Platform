@@ -1,6 +1,6 @@
 ---
 type: feature
-status: approved
+status: implemented
 created: 2026-07-12
 requirements: [R8.13, R8.11, R9.03, R16.03]
 ---
@@ -269,27 +269,41 @@ Admin-only privilege surface (`require_admin`, `admin_deps.py:15-20`), so scoped
 
 ## 11. Acceptance Criteria
 
-- [ ] AC-1: `POST /api/admin/restore/{type}/{id}` succeeds (un-deletes the row, returns
+- [x] AC-1: `POST /api/admin/restore/{type}/{id}` succeeds (un-deletes the row, returns
       `{restored: true}`) for each of the six types when the target is soft-deleted; returns
-      404 when the target does not exist or is not soft-deleted.
-- [ ] AC-2: restore for every type is dispatched through the owning context's facade; no
+      404 when the target does not exist or is not soft-deleted. *(Route dispatch +
+      per-service success/not-found covered by `test_admin_restore.py::TestRestoreRouteDispatch`
+      and each context's admin_restore test.)*
+- [x] AC-2: restore for every type is dispatched through the owning context's facade; no
       context reads or writes another context's tables for restore; the route calls a facade
-      (not `AdminService`); `AdminService.restore_resource` no longer exists.
-- [ ] AC-3: the `user` restore still resets `status` (ACTIVE if `email_verified` else
+      (not `AdminService`); `AdminService.restore_resource` no longer exists. *(Verified by
+      code + grep: no dangling `AdminService.restore_resource`; route builds only facades.)*
+- [x] AC-3: the `user` restore still resets `status` (ACTIVE if `email_verified` else
       PENDING) and clears `banned_reason`/`banned_at`, and every restore emits an
       `admin.restore_resource` audit entry with the correct `resource_type`.
-- [ ] AC-4: `backend/openapi.json` and the generated client declare a six-value
+      *(`TestRestoreUser` asserts the two-UPDATE reset; each service test asserts its
+      `resource_type`.)*
+- [x] AC-4: `backend/openapi.json` and the generated client declare a six-value
       `resource_type` enum; `admin/api/admin.ts` no longer casts (`type` passes through
-      type-checked); `pnpm run gen:api` produces no further drift.
-- [ ] AC-5: backend tests cover restore success + not-found/not-soft-deleted for all six
+      type-checked); `pnpm run gen:api` produces no further drift. *(`AdminService.ts:395`
+      lists six values; cast removed, `pnpm typecheck` green — see D-1.)*
+- [x] AC-5: backend tests cover restore success + not-found/not-soft-deleted for all six
       types and the user status/ban reset (none existed before).
-- [ ] AC-6: no behavior change for user/org/project restore — a regression test asserts the
+- [x] AC-6: no behavior change for user/org/project restore — a regression test asserts the
       pure `deleted_at` clear (no project cascade on org), the user status/ban reset, and the
-      `admin.restore_resource` audit shape.
-- [ ] AC-7: restoring a workflow whose name was reused in its workspace returns a 409 (not a
-      500/unhandled IntegrityError).
-- [ ] AC-8: all mechanical gates green — backend `pytest -q`, `ruff check . && ruff format
-      --check .`, `mypy .`; frontend `pnpm test`, `pnpm lint`, `pnpm typecheck`, `pnpm build`.
+      `admin.restore_resource` audit shape. *(`TestOrgAdminRestore` asserts
+      `projects.restore`/`list_by_org` are never awaited.)*
+- [x] AC-7: restoring any resource whose natural key (name/email) was reused by a live row
+      returns a 409, not a 500/unhandled IntegrityError — for **all** conflict-prone types
+      (user/org/project/agent/workflow); an *unrelated* IntegrityError still surfaces as its
+      real cause (constraint-discriminated). Chatroom has no such unique key. *(See D-3:
+      `TestRaiseRestoreConflict` (match/non-match), per-service `*_raises_restore_conflict`
+      tests, and route `test_maps_restore_conflict_to_409` over agent/workflow/org.)*
+- [x] AC-8: all mechanical gates green — backend `pytest -q` (my 136 new/appended tests pass;
+      the only failures are pre-existing and infra-gated — see FU-4/FU-5), `ruff check .`
+      clean, `ruff format --check .` clean on introduced code (pre-existing repo drift in
+      untouched files — FU-5), `mypy .` 39 errors = baseline, 0 introduced; frontend
+      `pnpm test` (609 pass), `pnpm lint`, `pnpm typecheck`, `pnpm build` all green.
 
 ## 12. Test Plan
 
@@ -326,7 +340,44 @@ None blocking. (Q-4's scope choice is confirmable at the approval gate.)
 
 ## 15. Deviation Log
 
-Appended by /build.
+- **D-1 — frontend `restoreResource` param narrowed to the union, not left `string`.**
+  §6 offered "keep `string` to avoid churn in callers." But a bare `string` is not assignable
+  to the generated method's six-literal `resourceType` union, so dropping the cast (AC-4) with
+  a `string` param would fail `pnpm typecheck`. Chosen: derive
+  `RestoreResourceType = Parameters<typeof AdminService.restoreResource…>[0]['resourceType']`
+  (auto-tracks the OpenAPI enum, zero hardcoded drift) and thread it through
+  `admin.ts` → `useAdminActions.ts` → `AdminOpsView.vue`. `AdminOpsView`'s `<SSelect v-model>`
+  became `:model-value` + an `@update:model-value` handler that narrows SSelect's wider
+  `string | number` emit to the union — matching the existing SSelect-boundary precedent at
+  `OnErrorConfigForm.vue:55`. `AdminOrgsView.vue` needed no change (passes the literal `'org'`).
+  The only `as` remaining is at that SSelect seam (a shared-component limitation), not in
+  `admin.ts` — AC-4 ("`admin.ts` no longer casts") is satisfied.
+- **D-3 — restore natural-key collision handled uniformly for all five conflict-prone types,
+  not just workflow (scope expansion, approved by the user after `/code-review`).** The
+  approved spec (§4/§10) spotted only `workflows`' `uq_workflows_workspace_id_name` partial-
+  unique index. The review found the identical `WHERE deleted_at IS NULL` unique index on
+  `agents` (`0011_agents.py:103`), `users` (`0001_identity.py:54`), `orgs` (`0002_tenancy.py:39`)
+  and `projects` (`0002_tenancy.py:84,88`): restoring into a slot a live row reused violates
+  the index → `IntegrityError`. Only workflow caught it, so **agent** (a path newly added by
+  this task → an introduced 500 bug) plus the pre-existing user/org/project all returned a raw
+  500. Additionally, workflow's original catch was a *bare* `IntegrityError → 409`, which would
+  mislabel any unrelated integrity fault as a name conflict. Fix (user chose "all five,
+  uniform 409"): a shared `shared_kernel/db/restore.py` exposing `RestoreConflict` +
+  `raise_restore_conflict(exc, *, unique_constraint, resource_type)` that discriminates by
+  constraint name (per the `create_group` precedent, commit `2687b1b`) and re-raises unrelated
+  errors. Each `admin_restore` (and `restore_user`) wraps its repo call and maps the collision;
+  the route catches `RestoreConflict` → 409. Discrimination lives in the *admin* service
+  methods only, so the untouched user-facing `OrgService.restore`/`ProjectService.restore`
+  cascade keeps its exact prior behavior. `WorkflowNameConflict` is retired in favor of the
+  unified signal. Chatroom is genuinely conflict-free (no unique natural-key index). Satisfies
+  the broadened AC-7.
+- **D-2 — tenancy `OrgRepository.restore` / `ProjectRepository.restore` changed `-> None`
+  (unguarded) to `-> bool` (guarded `WHERE id AND deleted_at IS NOT NULL`).** §6 assumed they
+  were reusable pure-clear inverses, but they returned `None` and lacked the guard, so the new
+  `admin_restore` could not distinguish not-found (404). Made them guarded + bool. Transparent
+  to the existing user-facing cascade callers (`OrgService.restore` / `ProjectService.restore`),
+  which only ever call `restore` on already-deleted rows and ignore the return value; the added
+  guard is a no-op for those rows.
 
 ## 16. Follow-ups
 
@@ -338,3 +389,31 @@ Appended by /build.
   admin restore is ever surfaced next to those resources' lists.
 - FU-3: `admin_projects.py` hosts the generic restore route despite its "projects" name —
   rename/relocate for clarity.
+- FU-4: four unit tests fail on the pristine tree independent of this task (proven by stashing
+  this change and re-running): `test_message_attachments_out.py` (3) and
+  `test_knowmap_authz.py::TestSetDocumentAgentsOwnerGate::test_owner_passes_through`. They are
+  Pydantic enum-validation failures where a test fixture passes `SimpleNamespace(value=...)`
+  where the `*Out` model expects a plain enum/string (`knowmap.py:167` `_to_document_out`).
+  Pre-existing; not introduced here.
+- FU-5: `ruff format --check .` reports ~20 pre-existing-drift files repo-wide (e.g.
+  `retention.py`, `knowledge/*`, `notification/repositories.py`). Two are files this task also
+  edits (`org_service.py`, `workflow_service.py`) but the drift is in lines this task never
+  touched (invite-revocation / project-resolution), so it was left rather than folding an
+  unrelated reformat into the feature commit. A repo-wide `ruff format` sweep is the fix.
+- FU-6: the restore route builds a dict of six near-identical facade lambdas per request; a
+  data-driven `{type: (FacadeClass, method)}` table would be DRYer but trades the current
+  static type-checkability for `getattr` indirection. Left explicit deliberately; revisit if a
+  seventh type is added.
+- FU-7: `restore_user` issues two UPDATEs (guarded `deleted_at` clear, then status/ban reset)
+  where one guarded UPDATE folding the `SET` clauses would save a DB round-trip (`/code-review`
+  Finding 5). Left as two statements for readability; the two-UPDATE shape is pinned by
+  `TestRestoreUser`. Admin cold path — low value.
+- FU-8: `RestoreType` (Literal), the route `restorers` dict, and `AdminOpsView`'s
+  `restoreTypeOptions` are three hand-synced parallels (`/code-review` Finding 4). Adding a 7th
+  type to the Literal without a dict entry → `KeyError`/500; adding it to the backend without
+  the UI options list → silently unrestorable. No compile-time guard today; a future addition
+  should touch all three (or a shared source-of-truth should replace the parallels).
+- FU-9: the five service `admin_restore` methods repeat the `audit.emit(AuditEvent(action=
+  "admin.restore_resource", …))` block (`/code-review` Finding 6); a `shared_kernel`
+  `emit_admin_restore(...)` helper would remove ~10 duplicated lines × 5. Deferred — the
+  discrimination DRY was addressed via `raise_restore_conflict`; the audit block is lower-value.
