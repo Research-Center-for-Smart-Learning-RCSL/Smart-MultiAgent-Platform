@@ -102,7 +102,7 @@ export interface IpBan {
   id: string
   cidr: string
   reason: string
-  created_by_user_id: string
+  created_by_user_id: string | null
   banned_at: string
 }
 

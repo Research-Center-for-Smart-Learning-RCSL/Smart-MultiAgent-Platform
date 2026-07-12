@@ -1,4 +1,13 @@
-import { http } from '@shared/transport'
+// Admin API (admin slice, admin-only privileged surface).
+//
+// Wraps the generated AdminService (+ GraphragAdminService for the one graphrag-reset
+// route) over the one instrumented axios singleton. The methods already returned bare
+// bodies (they unwrapped `.data`), so this conversion is signature-preserving — consumers
+// are untouched. Every generated *Out is assignable to the hand-rolled slice type, so the
+// wrappers annotate the hand-rolled type and return the call directly; the few casts below
+// relocate assertions the previous `http.<verb><T>()` calls already made.
+
+import { AdminService, GraphragAdminService } from '@shared/api-client'
 import type {
   AdminEntry,
   AuditFilter,
@@ -13,81 +22,110 @@ import type {
   UserSummary,
 } from '../types'
 
-export const adminApi = {
-  listUsers: (params?: { q?: string; status?: string; cursor?: string; limit?: number }) =>
-    http.get<UserSummary[]>('/admin/users', { params }).then(r => r.data),
+// AuditFilter is snake_case (it mirrors the backend query names); the generated audit
+// endpoints take camelCase options they re-map to snake_case. Coalesce absent fields to
+// null — the generated query builder drops null (and undefined) values, so only the set
+// filters ship, exactly as the previous `{ params: filters }` did.
+function auditFilterToOptions(f: Partial<AuditFilter>) {
+  return {
+    actorUserId: f.actor_user_id ?? null,
+    resourceType: f.resource_type ?? null,
+    resourceId: f.resource_id ?? null,
+    action: f.action ?? null,
+    from: f.from ?? null,
+    to: f.to ?? null,
+    ipPrefix: f.ip_prefix ?? null,
+    sessionId: f.session_id ?? null,
+    requestId: f.request_id ?? null,
+  }
+}
 
-  getUser: (id: string) =>
-    http.get<UserDetail>(`/admin/users/${id}`).then(r => r.data),
+export const adminApi = {
+  listUsers: (params?: { q?: string; status?: string; cursor?: string; limit?: number }): Promise<UserSummary[]> =>
+    AdminService.listUsersApiAdminUsersGet(params ?? {}),
+
+  getUser: (id: string): Promise<UserDetail> =>
+    AdminService.getUserApiAdminUsersUserIdGet({ userId: id }),
 
   banUser: (id: string, reason: string) =>
-    http.post(`/admin/users/${id}/ban`, { reason }).then(r => r.data),
+    AdminService.banUserApiAdminUsersUserIdBanPost({ userId: id, requestBody: { reason } }),
 
-  unbanUser: (id: string) =>
-    http.post(`/admin/users/${id}/unban`).then(r => r.data),
+  unbanUser: (id: string) => AdminService.unbanUserApiAdminUsersUserIdUnbanPost({ userId: id }),
 
   softDeleteUser: (id: string) =>
-    http.post(`/admin/users/${id}/delete`).then(r => r.data),
+    AdminService.softDeleteUserApiAdminUsersUserIdDeletePost({ userId: id }),
 
   hardDeleteUser: (id: string) =>
-    http.post(`/admin/users/${id}/hard-delete`).then(r => r.data),
+    AdminService.hardDeleteUserApiAdminUsersUserIdHardDeletePost({ userId: id }),
 
-  impersonate: (id: string) =>
-    http.post<ImpersonateResult>(`/admin/users/${id}/impersonate`).then(r => r.data),
+  impersonate: (id: string): Promise<ImpersonateResult> =>
+    AdminService.impersonateApiAdminUsersUserIdImpersonatePost({ userId: id }),
 
   endImpersonate: (id: string) =>
-    http.post(`/admin/users/${id}/end-impersonate`).then(r => r.data),
+    AdminService.endImpersonateApiAdminUsersUserIdEndImpersonatePost({ userId: id }),
 
-  listAdmins: () =>
-    http.get<AdminEntry[]>('/admin/admins').then(r => r.data),
+  listAdmins: (): Promise<AdminEntry[]> => AdminService.listAdminsApiAdminAdminsGet(),
 
-  promoteAdmin: (userId: string) =>
-    http.post<AdminEntry>('/admin/admins', { user_id: userId }).then(r => r.data),
+  promoteAdmin: (userId: string): Promise<AdminEntry> =>
+    AdminService.promoteAdminApiAdminAdminsPost({ requestBody: { user_id: userId } }),
 
   demoteAdmin: (userId: string) =>
-    http.delete(`/admin/admins/${userId}`).then(r => r.data),
+    AdminService.demoteAdminApiAdminAdminsUserIdDelete({ userId }),
 
-  listOrgs: (params?: { cursor?: string; limit?: number }) =>
-    http.get<OrgSummary[]>('/admin/orgs', { params }).then(r => r.data),
+  listOrgs: (params?: { cursor?: string; limit?: number }): Promise<OrgSummary[]> =>
+    AdminService.listOrgsApiAdminOrgsGet(params ?? {}),
 
   forceDeleteOrg: (orgId: string) =>
-    http.post(`/admin/orgs/${orgId}/force-delete`).then(r => r.data),
+    AdminService.forceDeleteOrgApiAdminOrgsOrgIdForceDeletePost({ orgId }),
 
   forceTransferOC: (orgId: string, targetUserId: string) =>
-    http.post(`/admin/orgs/${orgId}/force-transfer-original-creator`, {
-      target_user_id: targetUserId,
-    }).then(r => r.data),
+    AdminService.forceTransferOcApiAdminOrgsOrgIdForceTransferOriginalCreatorPost({
+      orgId,
+      requestBody: { target_user_id: targetUserId },
+    }),
 
-  listProjects: (params?: { cursor?: string; limit?: number }) =>
-    http.get<ProjectSummary[]>('/admin/projects', { params }).then(r => r.data),
+  listProjects: (params?: { cursor?: string; limit?: number }): Promise<ProjectSummary[]> =>
+    AdminService.listProjectsApiAdminProjectsGet(params ?? {}),
 
-  queryAudit: (filters: AuditFilter) =>
-    http.get<AuditPage>('/admin/audit', { params: filters }).then(r => r.data),
+  queryAudit: (filters: AuditFilter): Promise<AuditPage> =>
+    AdminService.queryAuditApiAdminAuditGet({
+      ...auditFilterToOptions(filters),
+      cursor: filters.cursor ?? null,
+      ...(filters.limit !== undefined ? { limit: filters.limit } : {}),
+    }),
 
-  exportAudit: (filters: Partial<AuditFilter>) =>
-    http.post<{ url: string; job_id: string }>('/admin/audit/export', null, { params: filters }).then(r => r.data),
+  exportAudit: (filters: Partial<AuditFilter>): Promise<{ url: string; job_id: string }> =>
+    AdminService.exportAuditApiAdminAuditExportPost(auditFilterToOptions(filters)).then(
+      (r) => r as { url: string; job_id: string },
+    ),
 
-  restoreResource: (type: string, id: string) =>
-    http.post<{ restored: boolean }>(`/admin/restore/${type}/${id}`).then(r => r.data),
+  // The generated resourceType is typed to three values, but the admin UI restores six
+  // (user/org/project/agent/workflow/chatroom); cast so the raw string reaches the path as
+  // before. The narrow OpenAPI enum is a backend defect tracked as FU-4.
+  restoreResource: (type: string, id: string): Promise<{ restored: boolean }> =>
+    AdminService.restoreResourceApiAdminRestoreResourceTypeResourceIdPost({
+      resourceType: type as 'user' | 'org' | 'project',
+      resourceId: id,
+    }),
 
-  getMetrics: () =>
-    http.get<Metrics>('/admin/metrics').then(r => r.data),
+  getMetrics: (): Promise<Metrics> => AdminService.adminMetricsApiAdminMetricsGet(),
 
-  listRateLimits: () =>
-    http.get<RateLimitPolicy[]>('/admin/rate-limits').then(r => r.data),
+  listRateLimits: (): Promise<RateLimitPolicy[]> =>
+    AdminService.listRateLimitsApiAdminRateLimitsGet({}),
 
-  patchRateLimit: (key: string, patch: { window_sec?: number; max_count?: number; scope?: string }) =>
-    http.patch<RateLimitPolicy>(`/admin/rate-limits/${key}`, patch).then(r => r.data),
+  patchRateLimit: (
+    key: string,
+    patch: { window_sec?: number; max_count?: number; scope?: string },
+  ): Promise<RateLimitPolicy> =>
+    AdminService.patchRateLimitApiAdminRateLimitsKeyPatch({ key, requestBody: patch }),
 
   resetGraphrag: (configId: string) =>
-    http.post(`/admin/graphrag/${configId}/reset`).then(r => r.data),
+    GraphragAdminService.adminResetApiAdminGraphragConfigIdResetPost({ configId }),
 
-  listIpBans: () =>
-    http.get<IpBan[]>('/admin/ip-bans').then(r => r.data),
+  listIpBans: (): Promise<IpBan[]> => AdminService.listBansApiAdminIpBansGet(),
 
-  createIpBan: (cidr: string, reason: string) =>
-    http.post<IpBan>('/admin/ip-bans', { cidr, reason }).then(r => r.data),
+  createIpBan: (cidr: string, reason: string): Promise<IpBan> =>
+    AdminService.addBanApiAdminIpBansPost({ requestBody: { cidr, reason } }),
 
-  deleteIpBan: (id: string) =>
-    http.delete(`/admin/ip-bans/${id}`).then(r => r.data),
+  deleteIpBan: (id: string) => AdminService.removeBanApiAdminIpBansBanIdDelete({ banId: id }),
 }
