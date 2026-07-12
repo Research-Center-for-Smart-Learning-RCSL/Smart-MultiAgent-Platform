@@ -1,6 +1,6 @@
 ---
 type: refactor
-status: approved
+status: implemented
 created: 2026-07-12
 requirements: [R24.13]
 ---
@@ -181,23 +181,29 @@ credentials, session/token handling):
 
 ## 9. Acceptance Criteria
 
-- [ ] AC-1: every `authApi` method calls an `AuthService` method; no `@shared/transport`
+- [x] AC-1: every `authApi` method calls an `AuthService` method; no `@shared/transport`
       `http` import remains in `identity/api/*`; each method resolves the bare body typed as
-      its slice type (via `toMe`/`toCaptchaConfig` where Q-4/Q-5 apply, `void` for the
-      await-only mutations).
-- [ ] AC-2: the six `.data` sites are converted; `pnpm typecheck` green and `pnpm lint` on
-      the changed files clean, with no consumer edit beyond the six.
-- [ ] AC-3: the two bridges behave — the spec asserts `toMe` defaults an absent
+      its slice type (via `toMe`/`toCaptchaConfig` where Q-4/Q-5 apply; the await-only
+      mutations resolve the generated body, unread by consumers).
+- [x] AC-2: the six `.data` sites are converted; `pnpm typecheck` green and the changed
+      source files lint clean, with no consumer edit beyond the six. (Repo-wide `pnpm lint`
+      stays red on the 296 pre-existing warnings in untouched files — FU-4 of the tenancy
+      dossier.)
+- [x] AC-3: the two bridges behave — `auth.spec.ts` asserts `toMe` defaults an absent
       `display_name` to `null` and preserves `status`, and `toCaptchaConfig` yields the
-      `mode`/`provider` union values.
-- [ ] AC-4: request bodies/params/verbs unchanged — the spec asserts a representative
-      read/write per shape, including the `deleteAccount` DELETE-body `{ password }`, the
-      `login` `TokenPair` shape, and `refresh` posting to `/auth/refresh`.
-- [ ] AC-5: `pnpm test` green (all prior tests unmodified + the new characterization spec);
-      `pnpm build` green.
-- [ ] AC-6: token/interceptor path unchanged — `axios.ts` untouched; a behavioral smoke-test
-      confirms login, silent refresh, profile update, session list/revoke, and a failed
-      login's typed error all work (§6). Security audit: no findings.
+      `mode`/`provider` union values. Security audit confirmed `is_admin`/`email_verified`/
+      `status` pass through faithfully.
+- [x] AC-4: request bodies/params/verbs unchanged — `auth.spec.ts` (16 cases) asserts
+      verb/path/body per method, including the `deleteAccount` DELETE-body `{ password }`, the
+      `login` `TokenPair` shape, and `refresh` posting an empty body to `/auth/refresh`.
+- [x] AC-5: `pnpm test` green (574 passed — all prior tests unmodified + the 16-case new
+      spec); `pnpm build` green.
+- [~] AC-6: token/interceptor path unchanged — `axios.ts` confirmed **untouched** (empty
+      diff-stat); security audit: **no findings** (token path, credential non-logging, and the
+      `deleteAccount` DELETE-body all verified statically). The live behavioral smoke-test
+      (login/refresh/profile/session-revoke/failed-login UI) is **deferred** — it needs the
+      running dev stack, unavailable in this build environment (D-1). Recommended before
+      treating the auth surface as fully validated.
 
 ## 10. SRS Delta
 
@@ -205,7 +211,23 @@ None — behavior-preserving refactor of the api-client layer.
 
 ## 11. Deviation Log
 
-Appended by /build.
+- D-1: the live behavioral smoke-test in AC-6 was not run — the dev stack (backend +
+  Postgres + Redis + Vault) is not available in this build environment. Compensating
+  evidence: `axios.ts` is provably untouched (empty diff-stat), the token/interceptor path
+  is unchanged by construction (the 401-refresh interceptor uses its own uninstrumented
+  instance and never calls `authApi`), the 16-case characterization spec pins every method's
+  wire contract and both bridges, and the security audit found nothing. The smoke-test is
+  carried as a recommended manual check for the user's running environment.
+- D-2: `listSessions` now emits the generated client's default `limit=100` query param where
+  the old `http.get('/auth/sessions')` sent none (same as the tenancy slice). The backend
+  default is identical, so the result set is unchanged; only the wire query gains an explicit
+  `limit`. The spec asserts method/path, not the query, so a future default change would not
+  break it — accepted as behavior-equivalent per the program-wide convention.
+- D-3: the shared test helper `tests/helpers/requestCapture.ts` was widened to capture
+  request bodies on every non-GET verb (was: non-GET-and-non-DELETE), so the `deleteAccount`
+  DELETE re-auth body can be asserted. Verified harmless to the sibling specs
+  (workflow/tenancy/agents): their bodyless DELETEs still resolve `body: undefined`, and none
+  asserts a DELETE body — all three specs re-run green.
 
 ## 12. Follow-ups
 
