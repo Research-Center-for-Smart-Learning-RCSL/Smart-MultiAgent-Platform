@@ -26,14 +26,14 @@ export const promptStudioKeys = {
 export function useConfigQuery(scope: ConfigScopeRef) {
   return useQuery({
     queryKey: promptStudioKeys.config(scope),
-    queryFn: async () => (await promptStudioApi.getConfig(scope)).data,
+    queryFn: () => promptStudioApi.getConfig(scope),
   })
 }
 
 export function useTemplatesQuery(scope: ConfigScopeRef) {
   return useQuery({
     queryKey: promptStudioKeys.templates(scope),
-    queryFn: async () => (await promptStudioApi.listTemplates(scope)).data,
+    queryFn: () => promptStudioApi.listTemplates(scope),
   })
 }
 
@@ -41,7 +41,7 @@ export function useResolvedAssistantQuery(projectId: MaybeRefOrGetter<string>) {
   return useQuery({
     queryKey: computed(() => promptStudioKeys.resolved(toValue(projectId))),
     enabled: computed(() => !!toValue(projectId)),
-    queryFn: async () => (await promptStudioApi.resolvedForProject(toValue(projectId))).data,
+    queryFn: () => promptStudioApi.resolvedForProject(toValue(projectId)),
   })
 }
 
@@ -49,7 +49,7 @@ export function useProjectTemplatesQuery(projectId: MaybeRefOrGetter<string>) {
   return useQuery({
     queryKey: computed(() => promptStudioKeys.projectTemplates(toValue(projectId))),
     enabled: computed(() => !!toValue(projectId)),
-    queryFn: async () => (await promptStudioApi.mergedTemplates(toValue(projectId))).data,
+    queryFn: () => promptStudioApi.mergedTemplates(toValue(projectId)),
   })
 }
 

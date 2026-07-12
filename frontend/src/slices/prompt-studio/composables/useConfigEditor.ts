@@ -38,7 +38,7 @@ export function useConfigEditor(scope: ConfigScopeRef) {
   })
   const catalogQuery = useQuery({
     queryKey: ['prompt-studio', 'model-catalog'],
-    queryFn: async () => (await promptStudioApi.getModelCatalog()).data,
+    queryFn: () => promptStudioApi.getModelCatalog(),
     staleTime: Infinity,
   })
 

@@ -36,9 +36,9 @@ const listEl = ref<HTMLElement | null>(null)
 async function ensureSession(): Promise<string | null> {
   if (sessionId.value) return sessionId.value
   try {
-    const { data } = await promptStudioApi.createSession(props.projectId)
-    sessionId.value = data.session_id
-    return data.session_id
+    const created = await promptStudioApi.createSession(props.projectId)
+    sessionId.value = created.session_id
+    return created.session_id
   } catch {
     errorCode.value = 'prompt-studio/unavailable'
     return null
