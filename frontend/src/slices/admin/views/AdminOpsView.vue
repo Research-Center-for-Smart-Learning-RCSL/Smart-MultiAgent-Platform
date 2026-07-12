@@ -43,10 +43,11 @@
         @submit.prevent="onRestore"
       >
         <SSelect
-          v-model="restoreType"
+          :model-value="restoreType"
           class="admin-ops__select"
           :options="restoreTypeOptions"
           :aria-label="$t('admin.ops.resourceType')"
+          @update:model-value="onRestoreTypeChange"
         />
         <SInput
           v-model="restoreId"
@@ -79,6 +80,7 @@ import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { SPageHeader, SCard, SInput, SSelect, SButton, SAlert } from '@shared/ui'
 import { useConfirmDialog } from '@shared/composables'
+import type { RestoreResourceType } from '../api/admin'
 import { useAdminActions } from '../composables/useAdminActions'
 
 interface OpResult {
@@ -90,7 +92,7 @@ const { t } = useI18n()
 
 const graphragConfigId = ref('')
 const resetResult = ref<OpResult | null>(null)
-const restoreType = ref('org')
+const restoreType = ref<RestoreResourceType>('org')
 const restoreId = ref('')
 const restoreResult = ref<OpResult | null>(null)
 
@@ -123,6 +125,12 @@ async function onResetGraphrag(): Promise<void> {
   } catch {
     resetResult.value = { text: t('admin.ops.resetFailed'), ok: false }
   }
+}
+
+// SSelect emits the wider `string | number`; every option value is a RestoreResourceType,
+// so narrowing here is safe (same SSelect-boundary pattern as OnErrorConfigForm).
+function onRestoreTypeChange(value: string | number): void {
+  restoreType.value = value as RestoreResourceType
 }
 
 async function onRestore(): Promise<void> {

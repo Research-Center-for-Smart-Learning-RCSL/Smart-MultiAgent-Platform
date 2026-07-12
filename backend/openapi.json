@@ -8926,7 +8926,10 @@
               "enum": [
                 "user",
                 "org",
-                "project"
+                "project",
+                "agent",
+                "workflow",
+                "chatroom"
               ],
               "title": "Resource Type",
               "type": "string"

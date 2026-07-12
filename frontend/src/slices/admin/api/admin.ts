@@ -22,6 +22,12 @@ import type {
   UserSummary,
 } from '../types'
 
+// The six soft-deletable resource types the admin restore endpoint accepts, derived from
+// the generated client so it tracks the OpenAPI enum automatically (no hardcoded drift).
+export type RestoreResourceType = Parameters<
+  typeof AdminService.restoreResourceApiAdminRestoreResourceTypeResourceIdPost
+>[0]['resourceType']
+
 // AuditFilter is snake_case (it mirrors the backend query names); the generated audit
 // endpoints take camelCase options they re-map to snake_case. Coalesce absent fields to
 // null — the generated query builder drops null (and undefined) values, so only the set
@@ -103,12 +109,9 @@ export const adminApi = {
       (r) => r as { url: string; job_id: string },
     ),
 
-  // The generated resourceType is typed to three values, but the admin UI restores six
-  // (user/org/project/agent/workflow/chatroom); cast so the raw string reaches the path as
-  // before. The narrow OpenAPI enum is a backend defect tracked as FU-4.
-  restoreResource: (type: string, id: string): Promise<{ restored: boolean }> =>
+  restoreResource: (type: RestoreResourceType, id: string): Promise<{ restored: boolean }> =>
     AdminService.restoreResourceApiAdminRestoreResourceTypeResourceIdPost({
-      resourceType: type as 'user' | 'org' | 'project',
+      resourceType: type,
       resourceId: id,
     }),
 
