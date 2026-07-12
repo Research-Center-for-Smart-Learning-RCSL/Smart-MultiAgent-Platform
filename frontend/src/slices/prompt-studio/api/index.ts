@@ -1,4 +1,18 @@
-import { http } from '@shared/transport'
+// Prompt-studio API.
+//
+// Wraps the generated PromptStudioService (+ ModelCatalogService for the shared model
+// catalog) over the one instrumented axios singleton. The methods return the bare body, so
+// consumers no longer read `.data`.
+//
+// Scoped methods dispatch on ConfigScopeRef.kind to the per-scope generated method family
+// (user -> me*, org -> org*, platform -> admin*), replacing the old configBase/templateBase
+// URL builders. The generated *Out models type the backend enum fields (scan_status, scope,
+// source_scope) as `string`; the hand-rolled types narrow them to unions, so the resolved
+// body is cast back at the boundary — the same unchecked assertion the previous
+// `http.get<T>()` calls made, safe because these are backend-closed enums.
+
+import { ModelCatalogService, PromptStudioService } from '@shared/api-client'
+import { asBinaryFormField } from '@shared/transport'
 
 import type {
   AssistantConfig,
@@ -14,68 +28,154 @@ import type {
   TemplatePatchInput,
 } from '../types'
 
-function configBase(scope: ConfigScopeRef): string {
-  if (scope.kind === 'user') return '/me/prompt-assistant'
-  if (scope.kind === 'org') return `/orgs/${scope.orgId}/prompt-assistant`
-  return '/admin/prompt-assistant'
+// Route a scoped call to the per-scope generated method. `platform` targets the admin*
+// endpoints (the backend's platform-wide config), matching the old configBase() fallthrough.
+function dispatchScope<T>(
+  scope: ConfigScopeRef,
+  handlers: { user: () => T; org: (orgId: string) => T; platform: () => T },
+): T {
+  if (scope.kind === 'user') return handlers.user()
+  if (scope.kind === 'org') return handlers.org(scope.orgId)
+  return handlers.platform()
 }
-
-function templateBase(scope: ConfigScopeRef): string {
-  if (scope.kind === 'user') return '/me/prompt-templates'
-  if (scope.kind === 'org') return `/orgs/${scope.orgId}/prompt-templates`
-  return '/admin/prompt-templates'
-}
-
-const ifMatch = (version: number | null) =>
-  version === null ? {} : { headers: { 'If-Match': String(version) } }
 
 export const promptStudioApi = {
   // --- config (scoped) ---
-  getConfig: (scope: ConfigScopeRef) => http.get<ConfigEnvelope>(`${configBase(scope)}/config`),
+  getConfig: (scope: ConfigScopeRef): Promise<ConfigEnvelope> =>
+    dispatchScope(scope, {
+      user: () => PromptStudioService.meGetConfigApiMePromptAssistantConfigGet(),
+      org: (orgId) => PromptStudioService.orgGetConfigApiOrgsOrgIdPromptAssistantConfigGet({ orgId }),
+      platform: () => PromptStudioService.adminGetConfigApiAdminPromptAssistantConfigGet(),
+    }).then((r) => r as ConfigEnvelope),
 
-  putConfig: (scope: ConfigScopeRef, version: number | null, payload: AssistantConfigPutInput) =>
-    http.put<AssistantConfig>(`${configBase(scope)}/config`, payload, ifMatch(version)),
+  putConfig: (
+    scope: ConfigScopeRef,
+    version: number | null,
+    payload: AssistantConfigPutInput,
+  ): Promise<AssistantConfig> => {
+    // null version -> no If-Match; the generated request core drops null headers.
+    const ifMatch = version === null ? null : String(version)
+    return dispatchScope(scope, {
+      user: () =>
+        PromptStudioService.mePutConfigApiMePromptAssistantConfigPut({ requestBody: payload, ifMatch }),
+      org: (orgId) =>
+        PromptStudioService.orgPutConfigApiOrgsOrgIdPromptAssistantConfigPut({
+          orgId,
+          requestBody: payload,
+          ifMatch,
+        }),
+      platform: () =>
+        PromptStudioService.adminPutConfigApiAdminPromptAssistantConfigPut({
+          requestBody: payload,
+          ifMatch,
+        }),
+    }).then((r) => r as AssistantConfig)
+  },
 
-  uploadFile: (scope: ConfigScopeRef, file: File) => {
-    const form = new FormData()
-    form.append('file', file)
-    return http.post<AssistantFile>(`${configBase(scope)}/config/files`, form, {
-      headers: { 'Content-Type': 'multipart/form-data' },
-    })
+  uploadFile: (scope: ConfigScopeRef, file: File): Promise<AssistantFile> => {
+    const formData = { file: asBinaryFormField(file) }
+    return dispatchScope(scope, {
+      user: () => PromptStudioService.meUploadFileApiMePromptAssistantConfigFilesPost({ formData }),
+      org: (orgId) =>
+        PromptStudioService.orgUploadFileApiOrgsOrgIdPromptAssistantConfigFilesPost({ orgId, formData }),
+      platform: () =>
+        PromptStudioService.adminUploadFileApiAdminPromptAssistantConfigFilesPost({ formData }),
+    }).then((r) => r as AssistantFile)
   },
 
   deleteFile: (scope: ConfigScopeRef, fileId: string) =>
-    http.delete(`${configBase(scope)}/config/files/${fileId}`),
-
-  // --- templates (scoped CRUD) ---
-  listTemplates: (scope: ConfigScopeRef) => http.get<PromptTemplate[]>(templateBase(scope)),
-
-  createTemplate: (scope: ConfigScopeRef, payload: TemplateCreateInput) =>
-    http.post<PromptTemplate>(templateBase(scope), payload),
-
-  patchTemplate: (scope: ConfigScopeRef, id: string, version: number, payload: TemplatePatchInput) =>
-    http.patch<PromptTemplate>(`${templateBase(scope)}/${id}`, payload, {
-      headers: { 'If-Match': String(version) },
+    dispatchScope(scope, {
+      user: () => PromptStudioService.meDeleteFileApiMePromptAssistantConfigFilesFileIdDelete({ fileId }),
+      org: (orgId) =>
+        PromptStudioService.orgDeleteFileApiOrgsOrgIdPromptAssistantConfigFilesFileIdDelete({
+          orgId,
+          fileId,
+        }),
+      platform: () =>
+        PromptStudioService.adminDeleteFileApiAdminPromptAssistantConfigFilesFileIdDelete({ fileId }),
     }),
 
+  // --- templates (scoped CRUD) ---
+  listTemplates: (scope: ConfigScopeRef): Promise<PromptTemplate[]> =>
+    dispatchScope(scope, {
+      user: () => PromptStudioService.meListTemplatesApiMePromptTemplatesGet(),
+      org: (orgId) => PromptStudioService.orgListTemplatesApiOrgsOrgIdPromptTemplatesGet({ orgId }),
+      platform: () => PromptStudioService.adminListTemplatesApiAdminPromptTemplatesGet(),
+    }).then((r) => r as PromptTemplate[]),
+
+  createTemplate: (scope: ConfigScopeRef, payload: TemplateCreateInput): Promise<PromptTemplate> =>
+    dispatchScope(scope, {
+      user: () => PromptStudioService.meCreateTemplateApiMePromptTemplatesPost({ requestBody: payload }),
+      org: (orgId) =>
+        PromptStudioService.orgCreateTemplateApiOrgsOrgIdPromptTemplatesPost({ orgId, requestBody: payload }),
+      platform: () =>
+        PromptStudioService.adminCreateTemplateApiAdminPromptTemplatesPost({ requestBody: payload }),
+    }).then((r) => r as PromptTemplate),
+
+  patchTemplate: (
+    scope: ConfigScopeRef,
+    id: string,
+    version: number,
+    payload: TemplatePatchInput,
+  ): Promise<PromptTemplate> => {
+    const ifMatch = String(version)
+    return dispatchScope(scope, {
+      user: () =>
+        PromptStudioService.mePatchTemplateApiMePromptTemplatesTemplateIdPatch({
+          templateId: id,
+          ifMatch,
+          requestBody: payload,
+        }),
+      org: (orgId) =>
+        PromptStudioService.orgPatchTemplateApiOrgsOrgIdPromptTemplatesTemplateIdPatch({
+          orgId,
+          templateId: id,
+          ifMatch,
+          requestBody: payload,
+        }),
+      platform: () =>
+        PromptStudioService.adminPatchTemplateApiAdminPromptTemplatesTemplateIdPatch({
+          templateId: id,
+          ifMatch,
+          requestBody: payload,
+        }),
+    }).then((r) => r as PromptTemplate)
+  },
+
   deleteTemplate: (scope: ConfigScopeRef, id: string) =>
-    http.delete(`${templateBase(scope)}/${id}`),
+    dispatchScope(scope, {
+      user: () => PromptStudioService.meDeleteTemplateApiMePromptTemplatesTemplateIdDelete({ templateId: id }),
+      org: (orgId) =>
+        PromptStudioService.orgDeleteTemplateApiOrgsOrgIdPromptTemplatesTemplateIdDelete({
+          orgId,
+          templateId: id,
+        }),
+      platform: () =>
+        PromptStudioService.adminDeleteTemplateApiAdminPromptTemplatesTemplateIdDelete({ templateId: id }),
+    }),
 
   // --- project-scoped resolved reads ---
-  resolvedForProject: (projectId: string) =>
-    http.get<ResolvedAssistant>(`/projects/${projectId}/prompt-assistant`),
+  resolvedForProject: (projectId: string): Promise<ResolvedAssistant> =>
+    PromptStudioService.projectResolvedAssistantApiProjectsProjectIdPromptAssistantGet({
+      projectId,
+    }).then((r) => r as ResolvedAssistant),
 
-  mergedTemplates: (projectId: string) =>
-    http.get<PromptTemplate[]>(`/projects/${projectId}/prompt-templates`),
+  mergedTemplates: (projectId: string): Promise<PromptTemplate[]> =>
+    PromptStudioService.projectMergedTemplatesApiProjectsProjectIdPromptTemplatesGet({
+      projectId,
+    }).then((r) => r as PromptTemplate[]),
 
   // --- streaming session ---
-  createSession: (projectId: string) =>
-    http.post<SessionCreated>(`/projects/${projectId}/prompt-assistant/sessions`),
+  createSession: (projectId: string): Promise<SessionCreated> =>
+    PromptStudioService.createSessionApiProjectsProjectIdPromptAssistantSessionsPost({ projectId }),
 
   postMessage: (sessionId: string, payload: { content: string; editor_draft: string | null }) =>
-    http.post(`/prompt-assistant/sessions/${sessionId}/messages`, payload),
+    PromptStudioService.postMessageApiPromptAssistantSessionsSessionIdMessagesPost({
+      sessionId,
+      requestBody: payload,
+    }),
 
   // Shared read reused by the config form's model picker.
-  getModelCatalog: () => http.get<ModelCatalog>('/model-catalog'),
+  getModelCatalog: (): Promise<ModelCatalog> =>
+    ModelCatalogService.getModelCatalogApiModelCatalogGet(),
 }
-
