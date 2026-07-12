@@ -1,4 +1,18 @@
-import { http } from '@shared/transport'
+// Auth API (identity).
+//
+// Wraps the generated AuthService over the one instrumented axios singleton. The
+// generated client resolves through the bare `axios` default instance, which carries
+// the same interceptor references as `http` (bearer inject, silent 401-refresh, typed
+// errors) — so this conversion changes the transport, not the auth behaviour. The
+// 401-refresh interceptor uses its own uninstrumented instance and never calls authApi,
+// so routing refresh/login here cannot recurse.
+//
+// TokenPairOut and SessionOut are directly assignable to the hand-rolled types; UserOut
+// and CaptchaConfigOut are not (optional display_name / widened unions), so they cross
+// the boundary through the toMe / toCaptchaConfig bridges.
+
+import { AuthService } from '@shared/api-client'
+import type { CaptchaConfigOut, UserOut } from '@shared/api-client'
 
 export interface LoginRequest {
   email: string
@@ -36,52 +50,77 @@ export interface Session {
   expires_at: string
 }
 
+// UserOut types display_name optional; the server always sends it, so `?? null` keeps the
+// hand-rolled required `string | null` truthful without churning consumers.
+function toMe(u: UserOut): Me {
+  return {
+    id: u.id,
+    email: u.email,
+    email_verified: u.email_verified,
+    is_admin: u.is_admin,
+    status: u.status,
+    display_name: u.display_name ?? null,
+  }
+}
+
+// CaptchaConfigOut widens mode/provider to `string`; the RegisterView widget switches on
+// the narrow unions, so cast back (the backend enum guarantees the values — the same
+// unchecked assertion the previous `http.get<CaptchaConfig>` already made).
+function toCaptchaConfig(c: CaptchaConfigOut): CaptchaConfig {
+  return {
+    mode: c.mode as CaptchaConfig['mode'],
+    provider: c.provider as CaptchaConfig['provider'],
+    sitekey: c.sitekey,
+  }
+}
+
 export const authApi = {
   register: (body: { email: string; password: string; captcha_token: string }) =>
-    http.post('/auth/register', body),
+    AuthService.registerApiAuthRegisterPost({ requestBody: body }),
 
-  captchaConfig: () => http.get<CaptchaConfig>('/auth/captcha-config'),
+  captchaConfig: (): Promise<CaptchaConfig> =>
+    AuthService.captchaConfigApiAuthCaptchaConfigGet().then(toCaptchaConfig),
 
   verifyEmail: (token: string) =>
-    http.post('/auth/verify-email', { token }),
+    AuthService.verifyEmailApiAuthVerifyEmailPost({ requestBody: { token } }),
 
-  login: (body: LoginRequest) => http.post<TokenPair>('/auth/login', body),
+  login: (body: LoginRequest): Promise<TokenPair> =>
+    AuthService.loginApiAuthLoginPost({ requestBody: body }),
 
-  refresh: () =>
-    http.post<TokenPair>('/auth/refresh', {}),
+  refresh: (): Promise<TokenPair> => AuthService.refreshApiAuthRefreshPost({ requestBody: {} }),
 
-  // The server extracts the refresh token from the httpOnly `smap_refresh`
-  // cookie (sent automatically by the browser).  The empty body ensures
-  // FastAPI can parse the optional `LogoutIn` schema without a 422.
-  logout: () => http.post('/auth/logout', {}),
+  // The server extracts the refresh token from the httpOnly `smap_refresh` cookie (sent
+  // automatically by the browser). The empty body lets FastAPI parse the optional
+  // LogoutIn schema without a 422.
+  logout: () => AuthService.logoutApiAuthLogoutPost({ requestBody: {} }),
 
   requestPasswordReset: (email: string) =>
-    http.post('/auth/request-password-reset', { email }),
+    AuthService.requestPasswordResetApiAuthRequestPasswordResetPost({ requestBody: { email } }),
 
   resetPassword: (body: { token: string; new_password: string }) =>
-    http.post('/auth/reset-password', body),
+    AuthService.resetPasswordApiAuthResetPasswordPost({ requestBody: body }),
 
   changePassword: (body: { current_password: string; new_password: string }) =>
-    http.post('/auth/change-password', body),
+    AuthService.changePasswordApiAuthChangePasswordPost({ requestBody: body }),
 
   changeEmail: (body: { new_email: string; password: string }) =>
-    http.post('/auth/change-email', body),
+    AuthService.changeEmailApiAuthChangeEmailPost({ requestBody: body }),
 
-  me: () => http.get<Me>('/auth/me'),
+  me: (): Promise<Me> => AuthService.meApiAuthMeGet().then(toMe),
 
-  // Set or clear the optional display name. `null` (or blank) clears it; the
-  // server normalises and echoes back the stored value as the fresh `Me`.
-  updateProfile: (body: { display_name: string | null }) =>
-    http.patch<Me>('/auth/me', body),
+  // Set or clear the optional display name. `null` (or blank) clears it; the server
+  // normalises and echoes back the stored value as the fresh `Me`.
+  updateProfile: (body: { display_name: string | null }): Promise<Me> =>
+    AuthService.updateMeApiAuthMePatch({ requestBody: body }).then(toMe),
 
-  // Self-service account deletion (R6.07). DELETE carries the re-auth password
-  // in the body (`{ data }` — axios puts a DELETE payload there). A 409 means
-  // the caller is the Original Creator of an Org with other members; the
-  // `blocked_org_ids` problem extra lists them.
+  // Self-service account deletion (R6.07). The re-auth password rides the DELETE body as
+  // the generated `requestBody`. A 409 means the caller is the Original Creator of an Org
+  // with other members; the `blocked_org_ids` problem extra lists them.
   deleteAccount: (password: string) =>
-    http.delete('/auth/me', { data: { password } }),
+    AuthService.deleteAccountApiAuthMeDelete({ requestBody: { password } }),
 
-  listSessions: () => http.get<Session[]>('/auth/sessions'),
+  listSessions: (): Promise<Session[]> => AuthService.listSessionsApiAuthSessionsGet({}),
 
-  revokeSession: (id: string) => http.delete(`/auth/sessions/${id}`),
+  revokeSession: (id: string) =>
+    AuthService.revokeSessionApiAuthSessionsSessionIdDelete({ sessionId: id }),
 }

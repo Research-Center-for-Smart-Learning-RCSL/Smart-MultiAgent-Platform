@@ -22,8 +22,10 @@ export function createRequestCapture(): {
   const cap: { value: CapturedRequest | null } = { value: null }
   const record = async (request: Request): Promise<void> => {
     const url = new URL(request.url)
+    // GET carries no body; every other verb might (DELETE /auth/me sends the re-auth
+    // password in its body), so attempt to parse and fall back to undefined when absent.
     let body: unknown = undefined
-    if (request.method !== 'GET' && request.method !== 'DELETE') {
+    if (request.method !== 'GET') {
       body = await request.clone().json().catch(() => undefined)
     }
     cap.value = {
