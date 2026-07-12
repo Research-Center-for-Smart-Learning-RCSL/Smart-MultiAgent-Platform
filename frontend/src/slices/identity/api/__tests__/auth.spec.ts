@@ -74,6 +74,13 @@ describe('auth api wire contract', () => {
     expect(cfg).toEqual({ mode: 'on', provider: 'hcaptcha', sitekey: 'sk_1' })
   })
 
+  it('captchaConfig falls back to off for an unrecognised provider or mode', async () => {
+    const { on } = createRequestCapture()
+    server.use(on('get', '/api/auth/captcha-config', { mode: 'weird', provider: 'recaptcha', sitekey: 'sk_2' }))
+    const cfg = await authApi.captchaConfig()
+    expect(cfg).toEqual({ mode: 'off', provider: 'off', sitekey: 'sk_2' })
+  })
+
   it('verifyEmail POSTs { token }', async () => {
     const cap = captureAll()
     await authApi.verifyEmail('tok_1')

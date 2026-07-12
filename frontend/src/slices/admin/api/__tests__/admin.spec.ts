@@ -204,6 +204,9 @@ describe('admin api wire contract', () => {
     // Unset filters coalesce to null and are dropped from the query string.
     expect(cap.value?.query.resource_type).toBeUndefined()
     expect(cap.value?.query.session_id).toBeUndefined()
+    // The generated client injects its declared default limit when the caller omits it
+    // (accepted deviation D-1). Pinned here so a regen that changes the default is reviewed.
+    expect(cap.value?.query.limit).toBe('50')
     expect(page).toMatchObject({ next_cursor: null })
     expect(page.items[0]).toMatchObject({ id: 1, action: 'login' })
   })

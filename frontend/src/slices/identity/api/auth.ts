@@ -63,13 +63,18 @@ function toMe(u: UserOut): Me {
   }
 }
 
-// CaptchaConfigOut widens mode/provider to `string`; the RegisterView widget switches on
-// the narrow unions, so cast back (the backend enum guarantees the values — the same
-// unchecked assertion the previous `http.get<CaptchaConfig>` already made).
+const CAPTCHA_PROVIDERS: readonly string[] = ['hcaptcha', 'turnstile', 'off']
+
+// CaptchaConfigOut widens mode/provider to `string`; validate rather than blind-cast so an
+// unexpected value can't leak past the narrow unions the RegisterView widget switches on. An
+// unrecognised provider (a backend addition the widget can't render) falls back to 'off',
+// matching the fail-open behaviour used when the captcha config is unreachable.
 function toCaptchaConfig(c: CaptchaConfigOut): CaptchaConfig {
   return {
-    mode: c.mode as CaptchaConfig['mode'],
-    provider: c.provider as CaptchaConfig['provider'],
+    mode: c.mode === 'on' ? 'on' : 'off',
+    provider: CAPTCHA_PROVIDERS.includes(c.provider)
+      ? (c.provider as CaptchaConfig['provider'])
+      : 'off',
     sitekey: c.sitekey,
   }
 }
