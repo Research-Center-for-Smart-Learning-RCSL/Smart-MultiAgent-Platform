@@ -502,287 +502,287 @@ const showProgress = computed(() =>
       <!-- Tab: Settings -->
       <div
         v-show="activeTab === 'settings'"
-        role="tabpanel"
         id="tabpanel-settings"
+        role="tabpanel"
         aria-labelledby="settings"
       >
-          <form
-            class="mt-6 space-y-6"
-            @submit.prevent="onSaveSettings"
-          >
-            <SCard>
-              <h3 class="text-lg font-semibold mb-4">
-                {{ t('agents.ragForm.embedProvider') }}
-              </h3>
-              <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                <SFormField
-                  :label="t('agents.ragForm.embedKey')"
-                  name="embed_key_id"
-                  :error="errors.embed_key_id ?? ''"
-                  required
-                >
-                  <SSelect
-                    v-model="embedKeyId"
-                    :options="embedKeyOptions"
-                    :placeholder="t('agents.ragForm.embedKeyPlaceholder')"
-                    disabled
-                  />
-                </SFormField>
-                <SFormField
-                  :label="t('agents.ragForm.embedModel')"
-                  name="embed_model"
-                  :error="errors.embed_model ?? ''"
-                  required
-                >
-                  <SInput
-                    v-model="embedModel"
-                    :placeholder="t('agents.ragForm.embedModelHint')"
-                    :error="!!errors.embed_model"
-                    disabled
-                  />
-                </SFormField>
-              </div>
-              <p class="text-sm text-[var(--color-muted)] mt-2">
-                {{ t('agents.ragForm.immutableHint') }}
-              </p>
-            </SCard>
-
-            <SCard>
-              <h3 class="text-lg font-semibold mb-4">
-                {{ t('agents.ragForm.chunkStrategy') }}
-              </h3>
+        <form
+          class="mt-6 space-y-6"
+          @submit.prevent="onSaveSettings"
+        >
+          <SCard>
+            <h3 class="text-lg font-semibold mb-4">
+              {{ t('agents.ragForm.embedProvider') }}
+            </h3>
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
               <SFormField
-                :label="t('agents.ragForm.chunkStrategy')"
-                name="chunk_strategy"
+                :label="t('agents.ragForm.embedKey')"
+                name="embed_key_id"
+                :error="errors.embed_key_id ?? ''"
+                required
               >
                 <SSelect
-                  v-model="chunkStrategy"
-                  :options="chunkStrategyOptions"
+                  v-model="embedKeyId"
+                  :options="embedKeyOptions"
+                  :placeholder="t('agents.ragForm.embedKeyPlaceholder')"
                   disabled
                 />
               </SFormField>
-              <template v-if="values.chunk_strategy === 'fixed'">
-                <div class="grid grid-cols-2 gap-4 mt-4">
-                  <SFormField
-                    :label="t('agents.ragForm.chunkSize')"
-                    name="chunk_size_tokens"
-                  >
-                    <SInput
-                      v-model="chunkSizeTokens"
-                      type="number"
-                    />
-                  </SFormField>
-                  <SFormField
-                    :label="t('agents.ragForm.chunkOverlap')"
-                    name="chunk_overlap_tokens"
-                  >
-                    <SInput
-                      v-model="chunkOverlapTokens"
-                      type="number"
-                    />
-                  </SFormField>
-                </div>
-              </template>
               <SFormField
-                v-else
-                :label="t('agents.ragForm.similarityThreshold')"
-                name="similarity_threshold"
-                class="mt-4"
+                :label="t('agents.ragForm.embedModel')"
+                name="embed_model"
+                :error="errors.embed_model ?? ''"
+                required
               >
                 <SInput
-                  v-model="similarityThreshold"
-                  type="number"
+                  v-model="embedModel"
+                  :placeholder="t('agents.ragForm.embedModelHint')"
+                  :error="!!errors.embed_model"
+                  disabled
                 />
               </SFormField>
-            </SCard>
+            </div>
+            <p class="text-sm text-[var(--color-muted)] mt-2">
+              {{ t('agents.ragForm.immutableHint') }}
+            </p>
+          </SCard>
 
-            <SCard>
-              <h3 class="text-lg font-semibold mb-4">
-                {{ t('agents.ragForm.topK') }}
-              </h3>
-              <SFormField
-                :label="t('agents.ragForm.topK')"
-                name="top_k"
-                :error="errors.top_k ?? ''"
-              >
-                <SInput
-                  v-model="topK"
-                  type="number"
-                />
-              </SFormField>
+          <SCard>
+            <h3 class="text-lg font-semibold mb-4">
+              {{ t('agents.ragForm.chunkStrategy') }}
+            </h3>
+            <SFormField
+              :label="t('agents.ragForm.chunkStrategy')"
+              name="chunk_strategy"
+            >
+              <SSelect
+                v-model="chunkStrategy"
+                :options="chunkStrategyOptions"
+                disabled
+              />
+            </SFormField>
+            <template v-if="values.chunk_strategy === 'fixed'">
+              <div class="grid grid-cols-2 gap-4 mt-4">
+                <SFormField
+                  :label="t('agents.ragForm.chunkSize')"
+                  name="chunk_size_tokens"
+                >
+                  <SInput
+                    v-model="chunkSizeTokens"
+                    type="number"
+                  />
+                </SFormField>
+                <SFormField
+                  :label="t('agents.ragForm.chunkOverlap')"
+                  name="chunk_overlap_tokens"
+                >
+                  <SInput
+                    v-model="chunkOverlapTokens"
+                    type="number"
+                  />
+                </SFormField>
+              </div>
+            </template>
+            <SFormField
+              v-else
+              :label="t('agents.ragForm.similarityThreshold')"
+              name="similarity_threshold"
+              class="mt-4"
+            >
+              <SInput
+                v-model="similarityThreshold"
+                type="number"
+              />
+            </SFormField>
+          </SCard>
 
-              <SFormField
-                :label="t('agents.ragForm.rerankEnabled')"
-                name="rerank_enabled"
-                class="mt-4"
-              >
-                <SToggle
-                  v-model="rerankEnabled"
-                  variant="robot"
-                />
-              </SFormField>
+          <SCard>
+            <h3 class="text-lg font-semibold mb-4">
+              {{ t('agents.ragForm.topK') }}
+            </h3>
+            <SFormField
+              :label="t('agents.ragForm.topK')"
+              name="top_k"
+              :error="errors.top_k ?? ''"
+            >
+              <SInput
+                v-model="topK"
+                type="number"
+              />
+            </SFormField>
 
-              <template v-if="rerankEnabled">
-                <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-4">
-                  <SFormField
-                    :label="t('agents.ragForm.rerankKey')"
-                    name="rerank_key_id"
-                    :error="errors.rerank_key_id ?? ''"
-                  >
-                    <SSelect
-                      v-model="rerankKeyId"
-                      :options="rerankKeyOptions"
-                      :placeholder="t('agents.ragForm.rerankKeyPlaceholder')"
-                    />
-                  </SFormField>
-                  <SFormField
-                    :label="t('agents.ragForm.rerankModel')"
-                    name="rerank_model"
-                    :error="errors.rerank_model ?? ''"
-                  >
-                    <SInput v-model="rerankModelDisplay" />
-                  </SFormField>
-                </div>
-              </template>
-            </SCard>
-          </form>
+            <SFormField
+              :label="t('agents.ragForm.rerankEnabled')"
+              name="rerank_enabled"
+              class="mt-4"
+            >
+              <SToggle
+                v-model="rerankEnabled"
+                variant="robot"
+              />
+            </SFormField>
+
+            <template v-if="rerankEnabled">
+              <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-4">
+                <SFormField
+                  :label="t('agents.ragForm.rerankKey')"
+                  name="rerank_key_id"
+                  :error="errors.rerank_key_id ?? ''"
+                >
+                  <SSelect
+                    v-model="rerankKeyId"
+                    :options="rerankKeyOptions"
+                    :placeholder="t('agents.ragForm.rerankKeyPlaceholder')"
+                  />
+                </SFormField>
+                <SFormField
+                  :label="t('agents.ragForm.rerankModel')"
+                  name="rerank_model"
+                  :error="errors.rerank_model ?? ''"
+                >
+                  <SInput v-model="rerankModelDisplay" />
+                </SFormField>
+              </div>
+            </template>
+          </SCard>
+        </form>
       </div>
 
       <!-- Tab: Documents -->
       <div
         v-show="activeTab === 'documents'"
-        role="tabpanel"
         id="tabpanel-documents"
+        role="tabpanel"
         aria-labelledby="documents"
       >
-          <div class="mt-6 space-y-6">
-            <SCard>
-              <h3 class="text-lg font-semibold mb-4">
-                {{ t('agents.rag.upload') }}
-              </h3>
-              <SFileUpload
-                accept=".pdf,.txt,.md,.docx,application/pdf,text/plain,text/markdown,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                :max-size="33554432"
-                multiple
-                :disabled="uploading"
-                @files="onFiles"
+        <div class="mt-6 space-y-6">
+          <SCard>
+            <h3 class="text-lg font-semibold mb-4">
+              {{ t('agents.rag.upload') }}
+            </h3>
+            <SFileUpload
+              accept=".pdf,.txt,.md,.docx,application/pdf,text/plain,text/markdown,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+              :max-size="33554432"
+              multiple
+              :disabled="uploading"
+              @files="onFiles"
+            >
+              <p class="text-sm text-[var(--color-muted)]">
+                {{ t('agents.rag.sizeHint') }}
+              </p>
+            </SFileUpload>
+
+            <!-- Per-agent allowlist applied to uploads in this batch. -->
+            <div class="mt-4">
+              <p class="text-sm font-medium mb-1">
+                {{ t('agents.rag.visibleToAgents') }}
+              </p>
+              <p class="text-sm text-[var(--color-muted)] mb-2">
+                {{ t('agents.rag.visibleToAgentsHint') }}
+              </p>
+              <p
+                v-if="boundAgents.length === 0"
+                class="text-sm text-[var(--color-muted)]"
               >
-                <p class="text-sm text-[var(--color-muted)]">
-                  {{ t('agents.rag.sizeHint') }}
-                </p>
-              </SFileUpload>
-
-              <!-- Per-agent allowlist applied to uploads in this batch. -->
-              <div class="mt-4">
-                <p class="text-sm font-medium mb-1">
-                  {{ t('agents.rag.visibleToAgents') }}
-                </p>
-                <p class="text-sm text-[var(--color-muted)] mb-2">
-                  {{ t('agents.rag.visibleToAgentsHint') }}
-                </p>
-                <p
-                  v-if="boundAgents.length === 0"
-                  class="text-sm text-[var(--color-muted)]"
-                >
-                  {{ t('agents.rag.noBoundAgents') }}
-                </p>
-                <div
-                  v-else
-                  class="flex flex-col gap-1"
-                >
-                  <SCheckbox
-                    v-for="agent in boundAgents"
-                    :key="agent.id"
-                    :model-value="uploadAgentIds.includes(agent.id)"
-                    @update:model-value="toggleUploadAgent(agent.id, $event)"
-                  >
-                    {{ agent.name }}
-                  </SCheckbox>
-                </div>
-              </div>
-            </SCard>
-
-            <SCard>
-              <h3 class="text-lg font-semibold mb-4">
-                {{ t('agents.ragForm.tabs.documents') }}
-              </h3>
-
-              <DocsTable
-                :columns="docColumns"
-                :data="docs"
-                :loading="docsQuery.isLoading.value"
-                row-key="id"
-              >
-                <template #cell-size_bytes="{ row }">
-                  {{ humanSize(row.size_bytes) }}
-                </template>
-
-                <template #cell-status="{ row }">
-                  <SBadge :variant="statusVariant(row.status)">
-                    {{ t(`agents.rag.status.${row.status}`) }}
-                  </SBadge>
-                </template>
-
-                <template #cell-scan_status="{ row }">
-                  <SBadge :variant="scanVariant(row.scan_status)">
-                    {{ t(`agents.rag.scan.${row.scan_status}`) }}
-                  </SBadge>
-                </template>
-
-                <template #cell-agents="{ row }">
-                  <SButton
-                    variant="ghost"
-                    size="sm"
-                    @click="openAgentsEditor(row)"
-                  >
-                    <template #icon-left>
-                      <UserGroupIcon class="w-4 h-4" />
-                    </template>
-                    <span :class="{ 'text-[var(--color-warning)]': row.agent_ids.length === 0 }">
-                      {{
-                        row.agent_ids.length === 0
-                          ? t('agents.rag.agentsNone')
-                          : t('agents.rag.agentsCount', { count: row.agent_ids.length })
-                      }}
-                    </span>
-                  </SButton>
-                </template>
-
-                <template #actions="{ row }">
-                  <SButton
-                    variant="ghost"
-                    icon-only
-                    size="sm"
-                    @click="confirmDeleteDoc(row)"
-                  >
-                    <TrashIcon class="w-4 h-4 text-[var(--color-danger)]" />
-                  </SButton>
-                </template>
-
-                <template #empty>
-                  <SEmptyState
-                    :icon="DocumentIcon"
-                    :title="t('agents.rag.emptyTitle')"
-                    :text="t('agents.rag.emptyDescription')"
-                  />
-                </template>
-              </DocsTable>
-
+                {{ t('agents.rag.noBoundAgents') }}
+              </p>
               <div
-                v-if="showProgress"
-                class="mt-4"
+                v-else
+                class="flex flex-col gap-1"
               >
-                <SProgressBar
-                  :value="progressValue"
-                  :indeterminate="progress.state === 'indexing' || (progress.state === 'ingesting' && progress.documentsTotal === 0)"
-                  variant="info"
-                />
-                <p class="text-sm text-[var(--color-muted)] mt-1">
-                  {{ progressText }}
-                </p>
+                <SCheckbox
+                  v-for="agent in boundAgents"
+                  :key="agent.id"
+                  :model-value="uploadAgentIds.includes(agent.id)"
+                  @update:model-value="toggleUploadAgent(agent.id, $event)"
+                >
+                  {{ agent.name }}
+                </SCheckbox>
               </div>
-            </SCard>
-          </div>
+            </div>
+          </SCard>
+
+          <SCard>
+            <h3 class="text-lg font-semibold mb-4">
+              {{ t('agents.ragForm.tabs.documents') }}
+            </h3>
+
+            <DocsTable
+              :columns="docColumns"
+              :data="docs"
+              :loading="docsQuery.isLoading.value"
+              row-key="id"
+            >
+              <template #cell-size_bytes="{ row }">
+                {{ humanSize(row.size_bytes) }}
+              </template>
+
+              <template #cell-status="{ row }">
+                <SBadge :variant="statusVariant(row.status)">
+                  {{ t(`agents.rag.status.${row.status}`) }}
+                </SBadge>
+              </template>
+
+              <template #cell-scan_status="{ row }">
+                <SBadge :variant="scanVariant(row.scan_status)">
+                  {{ t(`agents.rag.scan.${row.scan_status}`) }}
+                </SBadge>
+              </template>
+
+              <template #cell-agents="{ row }">
+                <SButton
+                  variant="ghost"
+                  size="sm"
+                  @click="openAgentsEditor(row)"
+                >
+                  <template #icon-left>
+                    <UserGroupIcon class="w-4 h-4" />
+                  </template>
+                  <span :class="{ 'text-[var(--color-warning)]': row.agent_ids.length === 0 }">
+                    {{
+                      row.agent_ids.length === 0
+                        ? t('agents.rag.agentsNone')
+                        : t('agents.rag.agentsCount', { count: row.agent_ids.length })
+                    }}
+                  </span>
+                </SButton>
+              </template>
+
+              <template #actions="{ row }">
+                <SButton
+                  variant="ghost"
+                  icon-only
+                  size="sm"
+                  @click="confirmDeleteDoc(row)"
+                >
+                  <TrashIcon class="w-4 h-4 text-[var(--color-danger)]" />
+                </SButton>
+              </template>
+
+              <template #empty>
+                <SEmptyState
+                  :icon="DocumentIcon"
+                  :title="t('agents.rag.emptyTitle')"
+                  :text="t('agents.rag.emptyDescription')"
+                />
+              </template>
+            </DocsTable>
+
+            <div
+              v-if="showProgress"
+              class="mt-4"
+            >
+              <SProgressBar
+                :value="progressValue"
+                :indeterminate="progress.state === 'indexing' || (progress.state === 'ingesting' && progress.documentsTotal === 0)"
+                variant="info"
+              />
+              <p class="text-sm text-[var(--color-muted)] mt-1">
+                {{ progressText }}
+              </p>
+            </div>
+          </SCard>
+        </div>
       </div>
 
       <!-- Edit a document's per-agent allowlist -->
