@@ -2,8 +2,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { http as mswHttp, HttpResponse } from 'msw'
 import bareAxios from 'axios'
 import { server } from '../../../../tests/mocks/server'
+import { http } from '../axios'
 import {
-  http,
   getAccessToken,
   setAccessToken,
   onUnauthorizedRedirect,

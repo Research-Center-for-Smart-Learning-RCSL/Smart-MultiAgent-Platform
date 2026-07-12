@@ -1,5 +1,4 @@
 export {
-  http,
   getAccessToken,
   setAccessToken,
   getRefreshToken,
