@@ -346,7 +346,7 @@ Legend: ✓ allowed, ✗ denied, ∘ allowed only on resources the user owns, `�
   - All Key Groups in the project (Keys themselves remain on owner's Individual registry).
   - All Agents, Workspaces, Chat Rooms, Messages, Attachments, Workflows, Graph RAG data.
   - All RAG documents and vector entries.
-- **[R8.13]** Within the 60-day window, Admin may restore (`POST /api/admin/restore/{type}/{id}`).
+- **[R8.13]** Within the 60-day window, Admin may restore a soft-deleted resource via `POST /api/admin/restore/{type}/{id}`, where `{type}` is one of `user`, `org`, `project`, `agent`, `workflow`, `chatroom`. Restore clears `deleted_at`; it does not cascade to child resources and does not re-check the 60-day age. Each restore emits an `admin.restore_resource` audit event.
 - **[R8.14]** Individual account deletion triggers soft-delete of all **Individual-owned** Projects, and removes the user from all other memberships. For Orgs the user is the Original Creator of, see §8.5 — account deletion is blocked until the role is transferred or the Org is deleted. Same 60-day recovery window applies to soft-deleted resources.
 
 ### 8.5 Original Creator role transfer
@@ -1566,7 +1566,7 @@ All under `/api/admin/*`. Role = Admin required.
 | POST | `/api/admin/orgs/{id}/force-delete` | Bypass Original-Creator requirement. |
 | GET | `/api/admin/projects` | List all Projects. |
 | GET | `/api/admin/audit?filters…` | Search audit logs. |
-| POST | `/api/admin/restore/{type}/{id}` | Restore soft-deleted within 60 d. |
+| POST | `/api/admin/restore/{type}/{id}` | Restore soft-deleted (user/org/project/agent/workflow/chatroom) within 60 d. |
 | GET | `/api/admin/metrics` | System health + usage aggregate. |
 | PATCH | `/api/admin/rate-limits/{key}` | Tune rate limits at runtime. |
 | POST | `/api/admin/graphrag/{id}/reset` | Force `last_build_state = 'idle'` (§11a.02). |
