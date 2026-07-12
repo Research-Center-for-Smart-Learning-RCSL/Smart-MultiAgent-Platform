@@ -297,6 +297,32 @@ class TestChatroomSoftDelete:
         rooms.create.assert_not_awaited()
 
 
+class TestChatroomAdminRestore:
+    @patch("contexts.conversation.application.chatroom_service.audit.emit", new_callable=AsyncMock)
+    async def test_admin_restore_success(self, audit_emit) -> None:
+        rooms = AsyncMock()
+        rooms.restore.return_value = True
+        svc = _make_chatroom_service(rooms=rooms)
+
+        ok = await svc.admin_restore(chatroom_id=_ROOM, admin_user_id=_USER, actor_ip=None)
+
+        assert ok is True
+        rooms.restore.assert_awaited_once_with(_ROOM)
+        audit_emit.assert_awaited_once()
+        assert audit_emit.await_args.args[1].resource_type == "chatroom"
+
+    @patch("contexts.conversation.application.chatroom_service.audit.emit", new_callable=AsyncMock)
+    async def test_admin_restore_not_soft_deleted_returns_false(self, audit_emit) -> None:
+        rooms = AsyncMock()
+        rooms.restore.return_value = False
+        svc = _make_chatroom_service(rooms=rooms)
+
+        ok = await svc.admin_restore(chatroom_id=_ROOM, admin_user_id=_USER, actor_ip=None)
+
+        assert ok is False
+        audit_emit.assert_not_awaited()
+
+
 class TestChatroomAgentRegistry:
     @patch("contexts.conversation.application.chatroom_service.audit.emit", new_callable=AsyncMock)
     async def test_add_agent(self, _audit) -> None:

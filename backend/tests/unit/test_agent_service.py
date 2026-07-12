@@ -12,6 +12,7 @@ from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from sqlalchemy.exc import IntegrityError
 
 from contexts.agents.application.agent_service import (
     _AGENT_CAP_PER_PROJECT,
@@ -36,6 +37,7 @@ from contexts.agents.domain.models import (
     ContextMode,
     PromptStrategy,
 )
+from shared_kernel.db.restore import RestoreConflict
 
 _NOW = datetime(2026, 6, 22, 12, 0, 0)
 _PROJECT_ID = uuid.uuid4()
@@ -566,6 +568,46 @@ class TestSoftDelete:
             agent_id=agent_id,
             expected_version=1,
         )
+
+
+class TestAdminRestore:
+    @patch("contexts.agents.application.agent_service.audit.emit", new_callable=AsyncMock)
+    async def test_admin_restore_success(self, audit_emit) -> None:
+        agents = AsyncMock()
+        agents.restore.return_value = True
+        svc = _make_service(agent_repo=agents)
+        agent_id = uuid.uuid4()
+
+        ok = await svc.admin_restore(agent_id=agent_id, admin_user_id=_USER_ID, actor_ip=None)
+
+        assert ok is True
+        agents.restore.assert_awaited_once_with(agent_id)
+        audit_emit.assert_awaited_once()
+        assert audit_emit.await_args.args[1].resource_type == "agent"
+
+    @patch("contexts.agents.application.agent_service.audit.emit", new_callable=AsyncMock)
+    async def test_admin_restore_not_soft_deleted_returns_false(self, audit_emit) -> None:
+        agents = AsyncMock()
+        agents.restore.return_value = False
+        svc = _make_service(agent_repo=agents)
+
+        ok = await svc.admin_restore(agent_id=uuid.uuid4(), admin_user_id=_USER_ID, actor_ip=None)
+
+        assert ok is False
+        audit_emit.assert_not_awaited()
+
+    @patch("contexts.agents.application.agent_service.audit.emit", new_callable=AsyncMock)
+    async def test_admin_restore_name_reuse_raises_restore_conflict(self, audit_emit) -> None:
+        agents = AsyncMock()
+        agents.restore.side_effect = IntegrityError(
+            "UPDATE ...", {}, Exception('violates unique constraint "uq_agents_project_name_active"')
+        )
+        svc = _make_service(agent_repo=agents)
+
+        with pytest.raises(RestoreConflict) as info:
+            await svc.admin_restore(agent_id=uuid.uuid4(), admin_user_id=_USER_ID, actor_ip=None)
+        assert info.value.resource_type == "agent"
+        audit_emit.assert_not_awaited()
 
 
 # ---------------------------------------------------------------------------

@@ -13,6 +13,7 @@ from datetime import datetime
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from sqlalchemy.exc import IntegrityError
 
 from contexts.tenancy.application.org_service import CreatedOrg, OrgService
 from contexts.tenancy.application.project_service import ProjectService
@@ -32,6 +33,7 @@ from contexts.tenancy.domain.models import (
     ProjectMemberRole,
     ProjectOwnerType,
 )
+from shared_kernel.db.restore import RestoreConflict
 
 _NOW = datetime(2026, 6, 22, 12, 0, 0)
 _USER_ID = uuid.uuid4()
@@ -240,6 +242,88 @@ class TestOrgSoftDeleteRestore:
 
         orgs.restore.assert_awaited_once_with(_ORG_ID)
         projects.list_by_org.assert_awaited_once_with(_ORG_ID, include_deleted=True)
+
+
+class TestOrgAdminRestore:
+    @patch("contexts.tenancy.application.org_service.audit.emit", new_callable=AsyncMock)
+    async def test_admin_restore_success_no_cascade(self, audit_emit) -> None:
+        orgs = AsyncMock()
+        orgs.restore.return_value = True
+        projects = AsyncMock()
+        svc = _make_org_service(org_repo=orgs, project_repo=projects)
+
+        ok = await svc.admin_restore(org_id=_ORG_ID, admin_user_id=_USER_ID, actor_ip=None)
+
+        assert ok is True
+        orgs.restore.assert_awaited_once_with(_ORG_ID)
+        # Admin restore is a pure clear: no project cascade (unlike the user-facing restore).
+        projects.restore.assert_not_awaited()
+        projects.list_by_org.assert_not_awaited()
+        audit_emit.assert_awaited_once()
+        assert audit_emit.await_args.args[1].action == "admin.restore_resource"
+
+    @patch("contexts.tenancy.application.org_service.audit.emit", new_callable=AsyncMock)
+    async def test_admin_restore_not_soft_deleted_returns_false(self, audit_emit) -> None:
+        orgs = AsyncMock()
+        orgs.restore.return_value = False
+        svc = _make_org_service(org_repo=orgs)
+
+        ok = await svc.admin_restore(org_id=_ORG_ID, admin_user_id=_USER_ID, actor_ip=None)
+
+        assert ok is False
+        audit_emit.assert_not_awaited()
+
+    @patch("contexts.tenancy.application.org_service.audit.emit", new_callable=AsyncMock)
+    async def test_admin_restore_name_reuse_raises_restore_conflict(self, audit_emit) -> None:
+        orgs = AsyncMock()
+        orgs.restore.side_effect = IntegrityError(
+            "UPDATE ...", {}, Exception('violates unique constraint "uq_orgs_name_active"')
+        )
+        svc = _make_org_service(org_repo=orgs)
+
+        with pytest.raises(RestoreConflict) as info:
+            await svc.admin_restore(org_id=_ORG_ID, admin_user_id=_USER_ID, actor_ip=None)
+        assert info.value.resource_type == "org"
+        audit_emit.assert_not_awaited()
+
+
+class TestProjectAdminRestore:
+    @patch("contexts.tenancy.application.project_service.audit.emit", new_callable=AsyncMock)
+    async def test_admin_restore_success(self, audit_emit) -> None:
+        projects = AsyncMock()
+        projects.restore.return_value = True
+        svc = _make_project_service(project_repo=projects)
+
+        ok = await svc.admin_restore(project_id=_PROJECT_ID, admin_user_id=_USER_ID, actor_ip=None)
+
+        assert ok is True
+        projects.restore.assert_awaited_once_with(_PROJECT_ID)
+        audit_emit.assert_awaited_once()
+        assert audit_emit.await_args.args[1].resource_type == "project"
+
+    @patch("contexts.tenancy.application.project_service.audit.emit", new_callable=AsyncMock)
+    async def test_admin_restore_not_soft_deleted_returns_false(self, audit_emit) -> None:
+        projects = AsyncMock()
+        projects.restore.return_value = False
+        svc = _make_project_service(project_repo=projects)
+
+        ok = await svc.admin_restore(project_id=_PROJECT_ID, admin_user_id=_USER_ID, actor_ip=None)
+
+        assert ok is False
+        audit_emit.assert_not_awaited()
+
+    @patch("contexts.tenancy.application.project_service.audit.emit", new_callable=AsyncMock)
+    async def test_admin_restore_name_reuse_raises_restore_conflict(self, audit_emit) -> None:
+        projects = AsyncMock()
+        projects.restore.side_effect = IntegrityError(
+            "UPDATE ...", {}, Exception('violates unique constraint "uq_projects_org_name"')
+        )
+        svc = _make_project_service(project_repo=projects)
+
+        with pytest.raises(RestoreConflict) as info:
+            await svc.admin_restore(project_id=_PROJECT_ID, admin_user_id=_USER_ID, actor_ip=None)
+        assert info.value.resource_type == "project"
+        audit_emit.assert_not_awaited()
 
 
 class TestOrgMemberOps:
