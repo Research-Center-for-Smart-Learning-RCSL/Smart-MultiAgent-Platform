@@ -86,19 +86,6 @@ export interface SessionCreated {
   session_id: string
 }
 
-// Mirrors backend ModelCatalogOut (read directly so prompt-studio stays
-// independent of the agents slice).
-export interface ChatModelProvider {
-  provider: string
-  models: string[]
-  default: string
-  context_limit: number
-}
-
-export interface ModelCatalog {
-  chat: ChatModelProvider[]
-}
-
 // Config-owner scope descriptor used by the shared form + api layer to target
 // the right endpoint family without the views duplicating URL logic.
 export type ConfigScopeRef =

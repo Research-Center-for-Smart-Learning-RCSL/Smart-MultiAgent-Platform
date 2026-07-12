@@ -41,7 +41,7 @@ import { agentKeys } from '../queries'
 import { useProjectBreadcrumbs } from '../composables/useProjectBreadcrumbs'
 import { ragConfigCreateSchema, type RagConfigCreateInput } from '../types/schemas'
 import { useRagConfigForm } from '../composables/useRagConfigForm'
-import { useModelCatalog } from '../composables/useModelCatalog'
+import { useModelCatalog } from '@shared/composables'
 import type { Column } from '@shared/ui/STable.vue'
 
 const { t } = useI18n()

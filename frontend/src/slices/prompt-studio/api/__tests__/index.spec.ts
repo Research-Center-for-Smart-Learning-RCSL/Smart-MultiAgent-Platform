@@ -5,8 +5,8 @@ import { createRequestCapture, type CapturedRequest } from '../../../../../tests
 import { promptStudioApi } from '..'
 
 // Request-level characterization of the prompt-studio api wire contract, pinned as
-// docs/tasks/2026-07-12-generated-client-wrap-prompt-studio converts the 13 methods from
-// @shared/transport's `http` to the generated PromptStudioService (+ ModelCatalogService).
+// docs/tasks/2026-07-12-generated-client-wrap-prompt-studio converts the methods from
+// @shared/transport's `http` to the generated PromptStudioService.
 // This is the agent-groups pattern with scope dispatch, so the guard is: each scoped method
 // hits the right per-scope endpoint (user -> /me, org -> /orgs/{id}, platform -> /admin), the
 // putConfig If-Match is present for a version and absent for null, patchTemplate sends its
@@ -60,7 +60,6 @@ function captureAll(): { value: CapturedRequest | null } {
     on('get', '/api/projects/:pid/prompt-templates', [template]),
     on('post', '/api/projects/:pid/prompt-assistant/sessions', { session_id: 'sess_1' }, 201),
     on('post', '/api/prompt-assistant/sessions/:sid/messages', { ok: true }),
-    on('get', '/api/model-catalog', { chat: [] }),
   )
   return cap
 }
@@ -200,12 +199,5 @@ describe('prompt-studio api wire contract', () => {
       path: '/api/prompt-assistant/sessions/sess_1/messages',
       body: { content: 'hi', editor_draft: null },
     })
-  })
-
-  it('getModelCatalog GETs /model-catalog', async () => {
-    const cap = captureAll()
-    const cat = await promptStudioApi.getModelCatalog()
-    expect(cap.value).toMatchObject({ method: 'GET', path: '/api/model-catalog' })
-    expect(cat).toEqual({ chat: [] })
   })
 })

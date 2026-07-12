@@ -132,8 +132,6 @@ function captureAll(): { value: CapturedRequest | null } {
     on('post', '/api/rag-configs/:cid/documents', ragDocumentOut, 201),
     on('delete', '/api/rag-documents/:did', null, 204),
     on('patch', '/api/rag-documents/:did/agents', ragDocumentOut),
-    // model catalog
-    on('get', '/api/model-catalog', { chat: [], embedding: [] }),
     // graphrag
     on('get', '/api/projects/:pid/graphrag-configs', [graphragConfigOut]),
     on('post', '/api/projects/:pid/graphrag-configs', graphragConfigOut, 201),
@@ -263,13 +261,6 @@ describe('agents api wire contract', () => {
       path: '/api/rag-documents/doc_1/agents',
       body: { agent_ids: ['ag_1', 'ag_2'] },
     })
-  })
-
-  // ---- model catalog ----
-  it('getModelCatalog GETs the static catalog', async () => {
-    const cap = captureAll()
-    await agentsApi.getModelCatalog()
-    expect(cap.value).toMatchObject({ method: 'GET', path: '/api/model-catalog' })
   })
 
   // ---- graphrag ----
