@@ -1,6 +1,6 @@
 ---
 type: refactor
-status: approved
+status: implemented
 created: 2026-07-12
 requirements: [R24.13]
 ---
@@ -169,22 +169,29 @@ Admin-only privileged surface (`check-security`: privilege, session/token, PII/a
 
 ## 9. Acceptance Criteria
 
-- [ ] AC-1: every `adminApi` method calls a generated `AdminService`/`GraphragAdminService`
+- [x] AC-1: every `adminApi` method calls a generated `AdminService`/`GraphragAdminService`
       method; no `@shared/transport` `http` import remains in `admin/api/*`; each wrapper keeps
       its name/signature and resolves the bare body typed as its hand-rolled type.
-- [ ] AC-2: `pnpm typecheck` green with **zero consumer edits** outside `admin/api/admin.ts`
-      and the `IpBan` widening in `types/index.ts`; changed files lint clean.
-- [ ] AC-3: the audit query translation works — the spec asserts `queryAudit` with several
-      `AuditFilter` fields set emits the correct snake_case query keys, and omits unset ones;
-      `exportAudit` ships its filters and its `.url` return is typed.
-- [ ] AC-4: request bodies/verbs/paths unchanged — the spec asserts a representative read/write
-      per shape, including `ban {reason}`, `promoteAdmin {user_id}`, `forceTransferOC
-      {target_user_id}`, `createIpBan {cidr,reason}`, the `restore/{type}/{id}` six-type path,
-      and the `resetGraphrag` graphrag-admin route.
-- [ ] AC-5: `pnpm test` green — the `Admin*View` suite unmodified + the new characterization
-      spec; `pnpm build` green.
-- [ ] AC-6: security holds — impersonation token flow, destructive-action bodies, and audit
-      filters are byte-identical; AuthZ unchanged (§6). Security audit: no findings.
+- [x] AC-2: `pnpm typecheck` green with **zero consumer edits** outside `admin/api/admin.ts`
+      and the `IpBan` widening in `types/index.ts`; changed files lint clean. (Repo-wide
+      `pnpm lint` stays red on the 296 pre-existing warnings in untouched files — FU-3.)
+- [x] AC-3: the audit query translation works — `admin.spec.ts` asserts `queryAudit` with
+      `actor_user_id`/`ip_prefix`/`action` set emits those snake_case query keys and omits
+      unset ones (`resource_type`/`session_id` absent), forwards a set `cursor`/`limit`, and
+      `exportAudit` ships its filters with a typed `.url` return.
+- [x] AC-4: request bodies/verbs/paths unchanged — `admin.spec.ts` (22 cases) asserts
+      verb/path/body per shape, including `ban {reason}`, `promoteAdmin {user_id}`,
+      `forceTransferOC {target_user_id}`, `createIpBan {cidr,reason}`, the six-type
+      `restore/agent/{id}` path, and the `resetGraphrag` graphrag-admin route.
+- [x] AC-5: `pnpm test` green (596 passed — the `Admin*View` suite unmodified + the 22-case
+      new spec); `pnpm build` green.
+- [x] AC-6: security holds — the security audit found **no findings**: the impersonation
+      `{ session_id, access_token }` bare-body return still reaches `setAccessToken`
+      (unlogged), destructive-action bodies are byte-identical, the audit filters ship exactly
+      as before, and the `restore` cast is compile-time-only (raw type reaches the path).
+      AuthZ verb/path/body parity was traced for all 25 endpoints. The `Admin*View` test suite
+      passing unmodified against MSW provides the behavioral coverage (signature-preserving —
+      no token-interceptor path here, unlike identity).
 
 ## 10. SRS Delta
 
@@ -192,7 +199,12 @@ None — behavior-preserving refactor of the api-client layer.
 
 ## 11. Deviation Log
 
-Appended by /build.
+- D-1: the generated client materializes OpenAPI-declared default query params the old
+  hand-rolled `http.get` left unset — `listUsers`/`listOrgs`/`listProjects`/`queryAudit` now
+  ship `limit=50` and `listRateLimits` ships `limit=100` when the caller omits pagination.
+  Verified behavior-equivalent: those defaults derive from the backend's own FastAPI
+  signatures, so the effective value is identical — only the wire carries it explicitly. Same
+  benign delta as the tenancy/identity slices; accepted per the program-wide convention.
 
 ## 12. Follow-ups
 
