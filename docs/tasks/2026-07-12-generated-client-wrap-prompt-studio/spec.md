@@ -218,6 +218,20 @@ params.)
 - FU-5: dedup the model-catalog fetch — `prompt-studio` and `agents` both fetch `/model-catalog`
   under different query keys with divergent `ModelCatalog` shapes (chat-only vs chat+embedding);
   a shared catalog query/type belongs in a common place.
+  - **Resolved** (this session). Both slices in fact fetched the *identical* endpoint/body
+    (`ModelCatalogService.getModelCatalogApiModelCatalogGet()` → the full `ModelCatalogOut`),
+    only under different query keys (`['agents','modelCatalog']` vs `['prompt-studio','model-catalog']`)
+    — so the same immutable global catalog was cached twice. Extracted a single
+    `useModelCatalog()` composable into `shared/composables/` (keyed `['model-catalog']`,
+    `staleTime: Infinity`), consumed by the two agents forms and the prompt-studio config editor.
+    Removed both slices' `getModelCatalog` api methods, the agents `modelCatalog` query key + its
+    local composable, and the hand-rolled catalog interfaces. **Type strategy (user decision):**
+    aliased the generated `ModelCatalogOut` (`export type ModelCatalog = ModelCatalogOut`) rather
+    than re-declaring hand-rolled interfaces — sound here because the generated types are
+    field-identical (no enum/optionality divergence to bridge, unlike the rest of the program's
+    Q-2 posture). Coverage moved from the two removed api-characterization cases to a shared
+    composable test that pins the dedup (two consumers → one fetch). Security audit N/A (static
+    read-only global catalog; no auth/keys/tenant/upload surface).
 - FU-6 (program close-out): with all `http`-based api layers now wrapped, remove the bare `http`
   singleton export from `@shared/transport` if nothing else uses it, and update the R24.13
   requirement status.
