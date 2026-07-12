@@ -26,6 +26,10 @@ import type {
 // endpoints take camelCase options they re-map to snake_case. Coalesce absent fields to
 // null — the generated query builder drops null (and undefined) values, so only the set
 // filters ship, exactly as the previous `{ params: filters }` did.
+//
+// Keep this map in sync with AuditFilter: a filterable field added there but not mapped here
+// is silently dropped from the query (the old direct `{ params: filters }` spread included
+// new fields automatically; this explicit camelCase rename does not).
 function auditFilterToOptions(f: Partial<AuditFilter>) {
   return {
     actorUserId: f.actor_user_id ?? null,
