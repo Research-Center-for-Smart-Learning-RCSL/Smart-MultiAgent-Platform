@@ -35,8 +35,8 @@ const route = useRoute()
 const { confirm } = useConfirmDialog()
 const projectId = computed(() => route.params.projectId as string)
 
-const { keys: myKeys, reload: reloadMine } = useMyKeys()
-const { carried, loading, error, reload, carry, withdraw } = useProjectKeys(
+const { keys: myKeys } = useMyKeys()
+const { carried, loading, error, carry, withdraw } = useProjectKeys(
   () => projectId.value,
 )
 

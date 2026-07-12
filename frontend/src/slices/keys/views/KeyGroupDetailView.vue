@@ -43,11 +43,11 @@ const groupId = computed(() => route.params.id as string)
 const { isMobile } = useBreakpoint()
 
 const {
-  detail, error, reload,
+  detail, error,
   rename: renameGroup, remove: removeGroup,
   addMember, removeMember, patchMember, reorder,
 } = useKeyGroupDetail(() => groupId.value)
-const { carried, reload: reloadCarried } = useProjectKeys(() => projectId.value)
+const { carried } = useProjectKeys(() => projectId.value)
 
 const selectedKeyId = ref('')
 const expandedMemberId = ref<string | null>(null)
