@@ -1,15 +1,19 @@
 // Resolve the caller's role for a workspace's project. The synchronous route
 // guard only knows the global admin flag, so per-project authorization (admin
 // OR project owner) is resolved here: workspace -> project -> my membership.
-// Admins skip the fetches entirely. Used to gate the backstage view and its
-// entry links without duplicating the resolution.
+// Used to gate the backstage view and its entry links.
+//
+// The membership -> role resolution (owner lookup, decided/authorized) is
+// delegated to tenancy's project-keyed useProjectRole; this composable only
+// adds the workspace -> project_id lookup in front and folds the workspace
+// edge cases into `decided`.
 
 import { computed } from 'vue'
 import { useQuery } from '@tanstack/vue-query'
 
 import { useSessionStore } from '@slices/identity'
 import { getWorkspace } from '@slices/conversation'
-import { projectsApi, tenancyKeys } from '@slices/tenancy'
+import { useProjectRole as useProjectRoleForProject } from '@slices/tenancy'
 
 export function useProjectRole(workspaceId: string) {
   const session = useSessionStore()
@@ -22,21 +26,7 @@ export function useProjectRole(workspaceId: string) {
   })
 
   const projectId = computed(() => workspaceQuery.data.value?.project_id ?? '')
-
-  const membersQuery = useQuery({
-    queryKey: computed(() => tenancyKeys.projectMembers(projectId.value)),
-    queryFn: () => projectsApi.listMembers(projectId.value),
-    enabled: computed(() => !isAdmin.value && !!projectId.value),
-  })
-
-  const isOwner = computed(() => {
-    const me = session.me
-    const members = membersQuery.data.value
-    if (!me || !members) return false
-    return members.find((m) => m.user_id === me.id)?.role === 'owner'
-  })
-
-  const isAuthorized = computed(() => isAdmin.value || isOwner.value)
+  const role = useProjectRoleForProject(projectId)
 
   // True once we can conclude authorization, so callers don't act mid-load
   // (e.g. redirect a legitimate owner before their membership has resolved).
@@ -46,8 +36,13 @@ export function useProjectRole(workspaceId: string) {
     // Workspace resolved but carried no project_id: members can't be fetched,
     // so conclude (deny) rather than hang forever waiting on a disabled query.
     if (workspaceQuery.isSuccess.value && !projectId.value) return true
-    return membersQuery.isSuccess.value || membersQuery.isError.value
+    return role.decided.value
   })
 
-  return { isAdmin, isOwner, isAuthorized, decided }
+  return {
+    isAdmin,
+    isOwner: role.isOwner,
+    isAuthorized: role.isAuthorized,
+    decided,
+  }
 }
