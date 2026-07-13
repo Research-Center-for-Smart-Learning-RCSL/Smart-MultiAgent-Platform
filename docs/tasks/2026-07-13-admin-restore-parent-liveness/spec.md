@@ -274,12 +274,14 @@ existing ancestor-liveness invariant; it defines no new behavior.
   offer an opt-in cascade-restore-ancestors action instead of only blocking.
 - FU-3: consider extracting the ancestor-liveness walk into a shared helper if a second caller
   (e.g. the FU-1 UI query) needs it, to avoid duplicating the chain definition.
-- FU-4: **pre-existing unit failures unrelated to this task**, present on the current (already-
-  committed) tree in code this change does not touch — `tests/unit/test_message_attachments_out.py`
-  (3: pydantic enum rejects a `SimpleNamespace(value=...)` sender_type fixture in
-  `app/api/v1/messages.py::to_out`/`to_attachment_out`) and
-  `tests/unit/test_knowmap_authz.py::...::test_owner_passes_through` (1). Likely fallout from the
-  concurrent activities work; flagged here, not fixed (out of scope).
+- FU-4: **pre-existing unit failures unrelated to this task** — RESOLVED. Investigated on request:
+  root cause was the enum-response refactor (`9915a1d`, 2026-07-10 review pass, *not* the activities
+  work as first guessed), which made `MessageOut.sender_type`, `AttachmentOut.status/scan_status`,
+  and `KnowmapDocumentOut.status/scan_status` real enums while four unit fixtures still faked enums
+  with `SimpleNamespace(value=...)` — rejected by pydantic at response construction. Production paths
+  pass real domain enums and were correct; only the fixtures were stale. Fixed test-only in a
+  separate `test(backend)` commit (`test_message_attachments_out.py`, `test_knowmap_authz.py`); full
+  `pytest tests/unit` now 1531 passed, 0 failed.
 - FU-5: **pre-existing `ruff format` drift** at `contexts/workflow/application/workflow_service.py:352`
   (an unrelated committed line, not this change's hunk at line 114). Left untouched to avoid
   sweeping unrelated reformatting into this commit; should be formatted by that hunk's owner.
