@@ -78,8 +78,10 @@ class ConversationFacade:
     async def get_chatroom(
         self,
         chatroom_id: uuid.UUID,
+        *,
+        include_deleted: bool = False,
     ) -> Chatroom | None:
-        return await self._rooms.get(chatroom_id)
+        return await self._rooms.get(chatroom_id, include_deleted=include_deleted)
 
     async def list_chatroom_ids_for_project(
         self,

@@ -114,8 +114,8 @@ class WorkflowService:
             offset=offset,
         )
 
-    async def get(self, workflow_id: uuid.UUID) -> Workflow:
-        wf = await self._repo.get(workflow_id)
+    async def get(self, workflow_id: uuid.UUID, *, include_deleted: bool = False) -> Workflow:
+        wf = await self._repo.get(workflow_id, include_deleted=include_deleted)
         if not wf:
             raise WorkflowNotFound(f"Workflow {workflow_id} not found")
         return wf
