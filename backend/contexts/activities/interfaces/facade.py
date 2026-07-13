@@ -150,6 +150,12 @@ class ActivitiesFacade:
     async def get_submission(self, submission_id: uuid.UUID) -> ActivitySubmission | None:
         return await self._submissions.get_submission(submission_id)
 
+    async def build_activity_signal(self, *, submission_id: uuid.UUID) -> dict[str, Any] | None:
+        """Assemble the reactive-rules ``workflow_signal("activity", …)`` payload
+        for a submission (R30.12); returns None if the submission is gone. Callers
+        (route post-commit, validation worker) enqueue the result best-effort."""
+        return await self._submissions.build_activity_signal(submission_id=submission_id)
+
     async def record_validation(
         self, *, submission_id: uuid.UUID, result: ValidationResult, latency_ms: int | None
     ) -> bool:

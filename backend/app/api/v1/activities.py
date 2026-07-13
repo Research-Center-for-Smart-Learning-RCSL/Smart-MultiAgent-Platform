@@ -295,7 +295,7 @@ async def submit_activity(
     # Durable-commit before dispatch (mirrors send_message): the client refetch
     # and the validation worker must see the committed rows.
     await db.commit()
-    await _dispatch_submission(chatroom_id, submission)
+    await _dispatch_submission(db, chatroom_id, submission)
     return _submission_out(submission)
 
 
@@ -326,7 +326,9 @@ async def list_activity_submissions(
     )
 
 
-async def _dispatch_submission(chatroom_id: uuid.UUID, submission: ActivitySubmission) -> None:
+async def _dispatch_submission(
+    db: AsyncSession, chatroom_id: uuid.UUID, submission: ActivitySubmission
+) -> None:
     """Post-commit fan-out — best-effort: the submission is committed, so a Redis
     or pub/sub hiccup must never surface as a failed submission."""
     try:
@@ -345,6 +347,23 @@ async def _dispatch_submission(chatroom_id: uuid.UUID, submission: ActivitySubmi
             await enqueue("validate_activity_submission", str(submission.id))
         except Exception:
             _log.warning("activity validation enqueue failed for %s", submission.id, exc_info=True)
+    # Reactive-rules signal (R30.12): the submit-time emit. For an in_process type
+    # the verdict is already final here (rolling attached); for an async type it
+    # carries validation_status=pending (volume/latency rules only). The
+    # completion emit with error_class comes later from the validation worker.
+    await _dispatch_activity_signal(db, submission.id)
+
+
+async def _dispatch_activity_signal(db: AsyncSession, submission_id: uuid.UUID) -> None:
+    """Best-effort ``workflow_signal("activity", …)`` enqueue (R30.12) — a dropped
+    signal must never fail a committed submission (mirrors the message-signal path
+    in ``messages.py``). Payload assembly stays inside the activities context."""
+    try:
+        payload = await ActivitiesFacade(db).build_activity_signal(submission_id=submission_id)
+        if payload is not None:
+            await enqueue("workflow_signal", "activity", payload)
+    except Exception:
+        _log.warning("activity workflow-signal dispatch failed for %s", submission_id, exc_info=True)
 
 
 __all__ = ["chatroom_router", "project_router"]

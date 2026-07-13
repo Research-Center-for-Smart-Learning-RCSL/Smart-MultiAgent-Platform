@@ -95,6 +95,22 @@ async def _emit_validated(chatroom_id: uuid.UUID, submission_id: uuid.UUID, stat
         logger.bind(submission_id=str(submission_id)).warning("activity.validated emit failed", exc_info=True)
 
 
+async def _emit_activity_signal(payload: dict[str, Any] | None) -> None:
+    """Best-effort completion-emit of ``workflow_signal("activity", …)`` (R30.12) —
+    the emit carrying the final ``error_class`` + rolling aggregate an impasse rule
+    reacts to. A dropped signal never fails the validation job."""
+    if payload is None:
+        return
+    from shared_kernel.queue import enqueue
+
+    try:
+        await enqueue("workflow_signal", "activity", payload)
+    except Exception:
+        logger.bind(submission_id=str(payload.get("session_id"))).warning(
+            "activity workflow-signal dispatch failed", exc_info=True
+        )
+
+
 async def validate_activity_submission(ctx: dict[str, Any], submission_id: str) -> str:
     """Run the async (mcp/webhook) validator for one submission and write back."""
     from contexts.activities.interfaces.facade import ActivitiesFacade
@@ -104,6 +120,7 @@ async def validate_activity_submission(ctx: dict[str, Any], submission_id: str) 
     sid = uuid.UUID(str(submission_id))
     result_status = "skipped"
     chatroom_id: uuid.UUID | None = None
+    signal_payload: dict[str, Any] | None = None
 
     async with async_session() as db:
         facade = ActivitiesFacade(db)
@@ -132,9 +149,15 @@ async def validate_activity_submission(ctx: dict[str, Any], submission_id: str) 
             logger.bind(submission_id=str(sid)).info(f"activity validation unavailable: {exc}")
         await db.commit()
         await flush_tail_events(db)
+        # Build the completion signal only when this delivery actually transitioned
+        # the row (post-commit, so rolling counts the just-written verdict); a
+        # redelivery that no-ops must not re-emit.
+        if result_status in ("validated", "error"):
+            signal_payload = await facade.build_activity_signal(submission_id=sid)
 
     if chatroom_id is not None and result_status in ("validated", "error"):
         await _emit_validated(chatroom_id, sid, result_status)
+    await _emit_activity_signal(signal_payload)
     return result_status
 
 
