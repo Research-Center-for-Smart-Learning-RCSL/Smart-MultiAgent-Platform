@@ -1,6 +1,6 @@
 ---
 type: feature
-status: approved
+status: done
 created: 2026-07-13
 requirements: [R30.01, R30.09, R30.17, R30.21, R30.22]
 depends_on: [2026-07-13-activities-platform-core, 2026-07-13-activities-plugin-sdk]
@@ -212,15 +212,15 @@ hold against any client. Route still gates `ensure_can_send` first.
 
 ## 7. NFR Checklist
 
-- [ ] i18n — all panel/tab strings via `$t()`; new keys in both locale bundles; passes
+- [x] i18n — all panel/tab strings via `$t()`; new keys in both locale bundles; passes
   `vue/no-bare-strings-in-template`.
-- [ ] Audit — `activity.activation_started` / `activity.activation_ended` written in-transaction
+- [x] Audit — `activity.activation_started` / `activity.activation_ended` written in-transaction
   (mirror `submission_service.py:168-185`).
-- [ ] Tenant isolation — activation type must belong to the room's project (service check); all
+- [x] Tenant isolation — activation type must belong to the room's project (service check); all
   routes go through `resolve_room_access`; GET active gated `ensure_can_read`.
-- [ ] Error handling — 409 on `ActivityAlreadyActive` / `ActivityNotActive`; frontend surfaces a
+- [x] Error handling — 409 on `ActivityAlreadyActive` / `ActivityNotActive`; frontend surfaces a
   typed `ApiError`; participant surface reflects `activity.activation.ended`.
-- [ ] Performance — activation seeded once via GET then WS-driven; the store keys by room (no
+- [x] Performance — activation seeded once via GET then WS-driven; the store keys by room (no
   refetch per event); one indexed active row per room.
 
 ## 8. Security Considerations
@@ -276,28 +276,28 @@ Touches WebSocket, room authZ, user-input submission, and a new privileged room 
 
 ## 11. Acceptance Criteria
 
-- [ ] AC-1: A room creator can start an activity for the room from the project's type catalog; a
+- [x] AC-1: A room creator can start an activity for the room from the project's type catalog; a
   non-creator receives 403. At most one active per room — starting a *different* type while one is
   active returns 409; starting the *same* type is idempotent.
-- [ ] AC-2: Starting emits `activity.activation.started`; a connected participant's Activity tab
+- [x] AC-2: Starting emits `activity.activation.started`; a connected participant's Activity tab
   shows the active activity with no refetch; a late-joiner/reconnect hydrates via
   `GET .../activity-activations/active`.
-- [ ] AC-3: A participant explicitly starts (opens their per-subject session), `ActivityHost`
+- [x] AC-3: A participant explicitly starts (opens their per-subject session), `ActivityHost`
   mounts (plugin or schema-form path) and submits, and explicitly finishes (closes their session);
   repeated attempts are allowed within the open session.
-- [ ] AC-4: The facilitator ends the activity → `activity.activation.ended` broadcast → participant
+- [x] AC-4: The facilitator ends the activity → `activity.activation.ended` broadcast → participant
   surfaces clear; a submission attempted after the end is rejected server-side (`ActivityNotActive`,
   409) even if the client bypasses the UI.
-- [ ] AC-5: A submission is accepted only when an `active` activation for that exact type exists in
+- [x] AC-5: A submission is accepted only when an `active` activation for that exact type exists in
   the room; submitting with no active activation, or for a type that is not the active one, is
   rejected server-side.
-- [ ] AC-6: AuthZ verified end-to-end — start/end = `ensure_room_creator`; GET active =
+- [x] AC-6: AuthZ verified end-to-end — start/end = `ensure_room_creator`; GET active =
   `ensure_can_read`; submit = `ensure_can_send` + active-activation check; the activation type must
   belong to the room's project (tenant isolation).
-- [ ] AC-7: `alembic upgrade head` applies and `downgrade` reverses cleanly; the `activation_status`
+- [x] AC-7: `alembic upgrade head` applies and `downgrade` reverses cleanly; the `activation_status`
   enum and the partial-unique one-active-per-room index exist; `tables.py` column types match the
   migration.
-- [ ] AC-8: Gates green — backend `pytest`/`ruff`/`mypy`; frontend `pnpm lint`/`typecheck`/`build`;
+- [x] AC-8: Gates green — backend `pytest`/`ruff`/`mypy`; frontend `pnpm lint`/`typecheck`/`build`;
   `gen:api` rerun; new i18n keys present in `en` and `zh-TW`.
 
 ## 12. Test Plan
@@ -329,7 +329,37 @@ Append to chapter **§30**, continuing the numbering after `[R30.20]`:
 
 ## 15. Deviation Log
 
-Appended by /build.
+- **D-1 (strengthening, §5.3/§10): submit enforcement uses a locking read, not a plain lookup.**
+  Spec called for "a single indexed lookup ... ordered before the `FOR UPDATE` attempt". The build
+  reads the active row with `SELECT ... FOR UPDATE` via `ActivationRepository.get_active_for_update`
+  (`activation_repo.py:53-69`), called in `SubmissionService.submit` before session resolution
+  (`submission_service.py:85-87`). This serializes the facilitator's guarded end-`UPDATE` against an
+  in-flight submit, closing the check-then-insert race the plain lookup left open. Still one indexed
+  access on the partial-unique; ordering unchanged.
+- **D-2 (addition): explicit `end` transition result to gate the WS broadcast.**
+  `ActivationService.end` returns `ActivityActivationEndResult{activation, transitioned}`
+  (`models.py:86-91`, `activation_service.py:75-106`); the route emits `activity.activation.ended`
+  only when `transitioned` is true (`activities.py:300-301`), so an idempotent double-end does not
+  replay the event. Not specified either way; chosen to match the "post-commit best-effort WS" idiom
+  without spurious broadcasts.
+- **D-3 (structure): a `ports.py` Protocol seam between service and repo.**
+  `ActivationService` / `SubmissionService` depend on `ActivityActivationRepository` /
+  `ActivityTypeReader` Protocols (`application/ports.py`), with the concrete `ActivationRepository`
+  injected by the facade (`facade.py:54-61`). Lets submit-path enforcement reuse the same repo
+  instance and keeps the application layer free of an infrastructure import. Spec named the repo
+  directly; behavior identical.
+- **D-4 (no-op vs spec): `db_registry.py` needed no edit.**
+  §5.1 said to "register the table in `app/db_registry.py`". The registry imports each context's
+  `tables` module by side effect (`db_registry.py:15-17`), so adding `activity_activations` to
+  `tables.py` registers it automatically. No registry change made.
+- **D-5 (review fixes): three gate failures the initial build shipped, fixed during review.**
+  `ActivityPanel.vue` prop typed `projectId?: string | undefined` to satisfy
+  `exactOptionalPropertyTypes` when bound to the `string | undefined` `observerProjectId`
+  (typecheck); the active-activity `<p>` split to multiple lines
+  (`vue/singleline-html-element-content-newline`); and `useChatroomSocket.test.ts` switched from an
+  inline `import()` type to a top-level `import type * as ActivitiesSlice`
+  (`@typescript-eslint/consistent-type-imports`). All four frontend gates
+  (typecheck/lint/test/build) green after these.
 
 ## 16. Follow-ups
 
