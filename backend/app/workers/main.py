@@ -30,6 +30,7 @@ from arq.connections import RedisSettings
 import app.db_registry as _db_registry  # noqa: F401 — table imports
 from app.config.settings import get_settings
 from app.workers.agent_fs_gc import run_once as _agent_fs_gc_run_once
+from app.workers.tasks.activities import activities_watchdog, validate_activity_submission
 from app.workers.tasks.advisory import daily_org_advisory_snapshot
 from app.workers.tasks.approvals import drive_approver_turn
 from app.workers.tasks.conversation import (
@@ -264,6 +265,8 @@ class WorkerSettings:
         workflow_resume_instruct,
         workflow_instruct_timeout,
         workflow_watchdog,
+        validate_activity_submission,
+        activities_watchdog,
         retention_sweep,
         daily_org_advisory_snapshot,
         key_usage_threshold_sample,
@@ -306,6 +309,9 @@ class WorkerSettings:
         # Every minute — workflow timeout watchdog (K.4): fail runs past their
         # run_max_seconds / idle_max_seconds budgets.
         cron(workflow_watchdog, minute=set(range(60)), run_at_startup=False),
+        # Every minute — activities validation watchdog (R30.06): sweep stalled
+        # pending mcp/webhook validations (or dropped enqueues) to error.
+        cron(activities_watchdog, minute=set(range(60)), run_at_startup=False),
         # Every 30 seconds — D.8 80% hourly-limit sampler (R7.11).
         cron(key_usage_threshold_sample, second={0, 30}, run_at_startup=False),
         # 05:00 UTC daily — per-agent Docker volume GC (E.10 / R12.03, 60-day retention).
