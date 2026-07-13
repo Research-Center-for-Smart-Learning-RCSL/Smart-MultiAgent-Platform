@@ -22,7 +22,10 @@ export type AgentOut = {
     project_id: string;
     prompt_strategy: PromptStrategy;
     rag_config_id: (string | null);
+    seed: (number | null);
     system_prompt: string;
+    temperature: (number | null);
+    top_p: (number | null);
     version: number;
     wakeup_config: Record<string, any>;
     workflow_capabilities: Record<string, any>;

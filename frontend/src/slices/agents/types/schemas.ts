@@ -35,6 +35,22 @@ export const agentCreateSchema = z.object({
     zeroOrEmptyToNull,
     z.number().int().positive().nullable().default(null),
   ),
+  // Sampling controls for reproducible-enough-to-audit output. null = provider
+  // default (param not sent). temperature=0 is a *meaningful* low-variance value,
+  // so only '' — not 0 — maps to null here (unlike context_token_cap). seed is
+  // OpenAI-only; it is a no-op on Anthropic/Gemini.
+  temperature: z.preprocess(
+    emptyToNull,
+    z.number().min(0).max(2).nullable().default(null),
+  ),
+  top_p: z.preprocess(
+    emptyToNull,
+    z.number().min(0).max(1).nullable().default(null),
+  ),
+  seed: z.preprocess(
+    emptyToNull,
+    z.number().int().nullable().default(null),
+  ),
   a2a_enabled: z.boolean().default(false),
   // Free-form JSON dicts assembled from the orchestration tab's decomposed
   // fields; kept in the schema so create/patch/duplicate share one payload type.

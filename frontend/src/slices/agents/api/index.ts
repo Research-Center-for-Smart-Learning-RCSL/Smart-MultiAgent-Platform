@@ -41,6 +41,9 @@ export interface Agent {
   knowmap_config_id: string | null
   context_mode: string
   context_token_cap: number | null
+  temperature: number | null
+  top_p: number | null
+  seed: number | null
   a2a_enabled: boolean
   wakeup_config: Record<string, unknown>
   workflow_capabilities: Record<string, unknown>
