@@ -50,7 +50,7 @@ function enumVal(name: string): string | number | null {
   const v = values[name]
   return typeof v === 'string' || typeof v === 'number' ? v : null
 }
-function arrHas(name: string, option: string): boolean {
+function arrHas(name: string, option: string | number): boolean {
   const v = values[name]
   return Array.isArray(v) && v.includes(option)
 }
@@ -62,8 +62,8 @@ function errorText(name: string): string {
   return key ? t(key) : ''
 }
 
-function toggleArrayOption(name: string, option: string, checked: boolean): void {
-  const current = Array.isArray(values[name]) ? (values[name] as string[]) : []
+function toggleArrayOption(name: string, option: string | number, checked: boolean): void {
+  const current = Array.isArray(values[name]) ? (values[name] as Array<string | number>) : []
   values[name] = checked ? [...current, option] : current.filter((o) => o !== option)
 }
 
@@ -110,9 +110,12 @@ function mapKeys(raw: Record<string, string>): Record<string, string> {
         :error="!!errors[field.name]"
         @update:model-value="values[field.name] = $event"
       />
+      <!-- Rendered as a text input (not type="number"): SInput coerces an empty
+           numeric input to 0, which would silently submit 0 for a cleared field.
+           A text input keeps "cleared" as '', which assemblePayload omits and
+           parses to a number on submit. -->
       <SInput
         v-else-if="field.kind === 'number'"
-        type="number"
         :model-value="strVal(field.name)"
         :disabled="props.disabled"
         :error="!!errors[field.name]"
@@ -129,7 +132,7 @@ function mapKeys(raw: Record<string, string>): Record<string, string> {
       <SSelect
         v-else-if="field.kind === 'enum'"
         :model-value="enumVal(field.name)"
-        :options="field.options.map((o) => ({ value: o, label: o }))"
+        :options="field.options.map((o) => ({ value: o, label: String(o) }))"
         :placeholder="$t('activities.form.selectPlaceholder')"
         :disabled="props.disabled"
         :error="!!errors[field.name]"

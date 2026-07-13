@@ -24,7 +24,9 @@ const schema: JSONSchema = {
 describe('SchemaForm rendering', () => {
   it('renders a control for every property including a textarea for the unsupported one', async () => {
     const wrapper = await renderView(SchemaForm, { props: { schema } })
-    expect(wrapper.find('input[type="number"]').exists()).toBe(true)
+    // string + number both render as text inputs (number as text avoids SInput's
+    // empty -> 0 coercion).
+    expect(wrapper.findAll('input[type="text"]').length).toBeGreaterThanOrEqual(2)
     expect(wrapper.find('select').exists()).toBe(true)
     expect(wrapper.findAll('input[type="checkbox"]').length).toBeGreaterThanOrEqual(3) // agree + 2 tags
     // The unsupported object property survives as a JSON textarea.

@@ -16,12 +16,20 @@ describe('ActivityOutcomeBadge', () => {
   })
 
   it('shows valid / invalid from is_valid once validated', async () => {
-    expect((await badge('validated', true)).text()).toContain('activities.outcome.valid')
-    expect((await badge('validated', false)).text()).toContain('activities.outcome.invalid')
+    const valid = await badge('validated', true)
+    expect(valid.text()).toContain('activities.outcome.valid')
+    expect(valid.find('.s-badge--success').exists()).toBe(true)
+
+    const invalid = await badge('validated', false)
+    expect(invalid.text()).toContain('activities.outcome.invalid')
+    expect(invalid.find('.s-badge--danger').exists()).toBe(true)
   })
 
-  it('shows a neutral validated state when is_valid is still unknown', async () => {
-    expect((await badge('validated', null)).text()).toContain('activities.outcome.validated')
+  it('shows a neutral (not success) validated state when is_valid is still unknown', async () => {
+    const wrapper = await badge('validated', null)
+    expect(wrapper.text()).toContain('activities.outcome.validated')
+    expect(wrapper.find('.s-badge--neutral').exists()).toBe(true)
+    expect(wrapper.find('.s-badge--success').exists()).toBe(false)
   })
 
   it('shows an error state', async () => {

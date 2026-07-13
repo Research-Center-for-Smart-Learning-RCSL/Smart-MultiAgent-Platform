@@ -1,11 +1,13 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, type FunctionalComponent } from 'vue'
 import {
   CheckCircleIcon,
   ClockIcon,
   ExclamationTriangleIcon,
+  InformationCircleIcon,
   XCircleIcon,
 } from '@heroicons/vue/20/solid'
+import { SBadge } from '@shared/ui'
 import type { ActivityValidationStatus } from '../types'
 
 const props = defineProps<{
@@ -13,78 +15,47 @@ const props = defineProps<{
   isValid: boolean | null
 }>()
 
-type Tone = 'pending' | 'success' | 'danger' | 'warning'
+type Variant = 'info' | 'success' | 'warning' | 'danger' | 'neutral'
 
-// The outcome is derived only from the backend status/is_valid — never from any
-// client-supplied field (AC-5). `validated` splits on is_valid; when is_valid is
-// still unknown (async validation, whose WS event omits it) the neutral
-// "validated" label is shown rather than guessing pass/fail.
-const view = computed<{ tone: Tone; labelKey: string }>(() => {
-  if (props.status === 'pending') return { tone: 'pending', labelKey: 'activities.outcome.pending' }
-  if (props.status === 'error') return { tone: 'warning', labelKey: 'activities.outcome.error' }
-  if (props.isValid === true) return { tone: 'success', labelKey: 'activities.outcome.valid' }
-  if (props.isValid === false) return { tone: 'danger', labelKey: 'activities.outcome.invalid' }
-  return { tone: 'success', labelKey: 'activities.outcome.validated' }
-})
-
-const icon = computed(() => {
-  switch (view.value.tone) {
-    case 'pending':
-      return ClockIcon
-    case 'danger':
-      return XCircleIcon
-    case 'warning':
-      return ExclamationTriangleIcon
-    default:
-      return CheckCircleIcon
+// Derived only from backend status/is_valid — never from a client-supplied field
+// (AC-5). When is_valid is unknown (async validation, whose WS event omits it),
+// the neutral variant is used rather than green success so a possibly-failed
+// attempt is not shown as passed (see FU-2).
+const view = computed<{ variant: Variant; labelKey: string; icon: FunctionalComponent }>(() => {
+  if (props.status === 'pending') {
+    return { variant: 'neutral', labelKey: 'activities.outcome.pending', icon: ClockIcon }
   }
+  if (props.status === 'error') {
+    return { variant: 'warning', labelKey: 'activities.outcome.error', icon: ExclamationTriangleIcon }
+  }
+  if (props.isValid === true) {
+    return { variant: 'success', labelKey: 'activities.outcome.valid', icon: CheckCircleIcon }
+  }
+  if (props.isValid === false) {
+    return { variant: 'danger', labelKey: 'activities.outcome.invalid', icon: XCircleIcon }
+  }
+  return { variant: 'neutral', labelKey: 'activities.outcome.validated', icon: InformationCircleIcon }
 })
 </script>
 
 <template>
-  <span
-    class="outcome-badge"
-    :class="`outcome-badge--${view.tone}`"
+  <SBadge
+    :variant="view.variant"
+    size="sm"
   >
     <component
-      :is="icon"
+      :is="view.icon"
       class="outcome-badge__icon"
       aria-hidden="true"
     />
     {{ $t(view.labelKey) }}
-  </span>
+  </SBadge>
 </template>
 
 <style scoped>
-.outcome-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.25rem;
-  padding: 0.125rem 0.5rem;
-  border-radius: var(--radius-sm);
-  font-size: 0.75rem;
-  font-weight: 500;
-  border: 1px solid transparent;
-}
 .outcome-badge__icon {
   width: 14px;
   height: 14px;
-}
-.outcome-badge--pending {
-  color: var(--color-muted);
-  background: var(--color-surface);
-  border-color: var(--color-border);
-}
-.outcome-badge--success {
-  color: var(--color-success, #15803d);
-  background: color-mix(in srgb, var(--color-success, #15803d) 12%, transparent);
-}
-.outcome-badge--danger {
-  color: var(--color-danger);
-  background: color-mix(in srgb, var(--color-danger) 12%, transparent);
-}
-.outcome-badge--warning {
-  color: var(--color-warning, #b45309);
-  background: color-mix(in srgb, var(--color-warning, #b45309) 12%, transparent);
+  margin-right: 4px;
 }
 </style>
