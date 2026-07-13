@@ -8,6 +8,7 @@ import App from '@app/App.vue'
 import { installErrorHandler } from '@app/errorHandler'
 import { router } from '@app/router'
 import { i18n, registerLocaleLoaders, ensureLocaleLoaded, syncHtmlLang, type Locale } from '@shared/i18n'
+import { installActivitiesSlice } from '@slices/activities'
 import { installAdminSlice } from '@slices/admin'
 import { installAgentGroupsSlice } from '@slices/agent-groups'
 import { installAgentsSlice } from '@slices/agents'
@@ -30,6 +31,7 @@ installTenancySlice()
 installKeysSlice()
 installAgentsSlice()
 installAgentGroupsSlice()
+installActivitiesSlice()
 installConversationSlice()
 installWorkflowSlice()
 installAdminSlice()

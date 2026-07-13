@@ -12,6 +12,7 @@ import { computed, onActivated, onBeforeUnmount, onDeactivated, onMounted, ref }
 
 import { wsManager, type ChannelEvent } from '@shared/transport'
 import { useOrchestrationStore } from '@shared/stores/orchestration'
+import { useActivitiesStore } from '@slices/activities'
 import type { ApprovalWithVotes } from '@shared/types/workflow'
 import { getChatroomPresence, getMessage, listMessages } from '../api'
 import { useConversationStore } from '../stores/conversation'
@@ -26,6 +27,7 @@ export function useChatroomSocket(roomId: string) {
   const qc = useQueryClient()
   const store = useConversationStore()
   const orchStore = useOrchestrationStore()
+  const activitiesStore = useActivitiesStore()
   const connected = ref(false)
   // Pill state (07-conversation / §7.1): 'connecting' before the first open,
   // 'live' while open, 'reconnecting' after a drop, and 'degraded' once the
@@ -267,6 +269,30 @@ export function useChatroomSocket(roomId: string) {
         )
         break
       }
+      // Activity submissions (R30.17). Payload is ids-only + status; the store
+      // keys by submission id so a later activity.validated transitions the
+      // same entry (pending -> validated/error) with no list refetch (AC-4).
+      case 'activity.created': {
+        const submissionId = ev.submission_id as string
+        if (submissionId) {
+          activitiesStore.applyCreated(roomId, {
+            submissionId,
+            activityTypeId: (ev.activity_type_id as string) ?? null,
+            status: ev.validation_status as string,
+          })
+        }
+        break
+      }
+      case 'activity.validated': {
+        const submissionId = ev.submission_id as string
+        if (submissionId) {
+          activitiesStore.applyValidated(roomId, {
+            submissionId,
+            status: ev.validation_status as string,
+          })
+        }
+        break
+      }
       default:
         break
     }
@@ -321,6 +347,7 @@ export function useChatroomSocket(roomId: string) {
     unsubCache()
     wsManager.close(`/chatroom/${roomId}`)
     store.resetRoom(roomId)
+    activitiesStore.resetRoom(roomId)
   })
 
   // FIX-04: seed the cursor from the query cache via a QueryCache subscription
