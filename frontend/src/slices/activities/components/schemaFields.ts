@@ -14,7 +14,9 @@ export interface SchemaField {
   kind: SchemaFieldKind
   label: string
   required: boolean
-  options: string[]
+  /** Original enum values (preserving number/string type), not stringified —
+   *  so the submitted payload carries the type the schema declares. */
+  options: Array<string | number>
   description: string | null
 }
 
@@ -54,7 +56,7 @@ export function fieldsFromSchema(schema: JSONSchema | null | undefined): SchemaF
       kind,
       label: labelFor(name, node),
       required: required.has(name),
-      options: Array.isArray(enumSource) ? enumSource.map((v) => String(v)) : [],
+      options: Array.isArray(enumSource) ? [...enumSource] : [],
       description: typeof node.description === 'string' ? node.description : null,
     }
   })
@@ -114,9 +116,14 @@ export function assemblePayload(
       case 'enum-array':
         payload[f.name] = Array.isArray(v) ? v : []
         break
-      case 'string':
-        payload[f.name] = typeof v === 'string' ? v : ''
+      case 'string': {
+        // Omit an empty optional string so a `minLength`/`pattern`/`format`
+        // constraint on an optional field is not tripped by a blank submission;
+        // a required string is kept (as '') so the min(1) check below flags it.
+        const s = typeof v === 'string' ? v : ''
+        if (f.required || s !== '') payload[f.name] = s
         break
+      }
       case 'json': {
         const text = typeof v === 'string' ? v.trim() : ''
         if (text) {
@@ -145,11 +152,16 @@ function zodForField(f: SchemaField): ZodTypeAny {
     case 'boolean':
       field = z.boolean()
       break
-    case 'enum':
-      field = f.options.length ? z.enum(f.options as [string, ...string[]]) : z.string()
+    case 'enum': {
+      // Membership check that preserves the enum's declared value type
+      // (z.enum is string-only, which would reject a numeric enum's value).
+      const opts = f.options
+      field = z.any().refine((v) => opts.some((o) => o === v))
       break
+    }
     case 'enum-array': {
-      const el = f.options.length ? z.enum(f.options as [string, ...string[]]) : z.string()
+      const opts = f.options
+      const el = z.any().refine((v) => opts.some((o) => o === v))
       field = f.required ? z.array(el).min(1) : z.array(el)
       break
     }
@@ -174,12 +186,20 @@ export function validatePayload(
   schema: JSONSchema | null | undefined,
   payload: Record<string, unknown>,
 ): Record<string, string> {
-  const result = jsonSchemaToZod(schema).safeParse(payload)
-  if (result.success) return {}
   const errors: Record<string, string> = {}
-  for (const issue of result.error.issues) {
-    const key = String(issue.path[0] ?? '')
-    if (key && !errors[key]) errors[key] = 'fieldInvalid'
+  // Required-presence is checked explicitly (not via Zod) so it holds for every
+  // kind — including the JSON fallback, whose `z.unknown()` would otherwise
+  // accept a missing value. assemblePayload omits empty fields, so absence here
+  // means the required field was left blank.
+  for (const f of fieldsFromSchema(schema)) {
+    if (f.required && !(f.name in payload)) errors[f.name] = 'fieldInvalid'
+  }
+  const result = jsonSchemaToZod(schema).safeParse(payload)
+  if (!result.success) {
+    for (const issue of result.error.issues) {
+      const key = String(issue.path[0] ?? '')
+      if (key && !errors[key]) errors[key] = 'fieldInvalid'
+    }
   }
   return errors
 }
