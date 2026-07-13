@@ -73,13 +73,31 @@ class TestSubmissionRepoScoping:
         result.rowcount = 3
         db.execute.return_value = result
 
+        swept_at = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
         n = await ActivitySubmissionRepository(db).sweep_stalled(
-            cutoff=datetime(2026, 1, 1, tzinfo=UTC), error_class="stalled"
+            cutoff=datetime(2026, 1, 1, tzinfo=UTC), error_class="stalled", swept_at=swept_at
         )
 
         assert n == 3
         compiled = _compiled(db.execute.await_args_list[0].args[0])
         assert "validation_status = 'pending'" in compiled
+        # validated_at records the sweep time, not the (earlier) TTL cutoff.
+        assert "2026-01-01 12:00:00" in compiled
+
+    async def test_next_attempt_no_ignores_soft_delete_for_monotonicity(self) -> None:
+        db = AsyncMock()
+        result = MagicMock()
+        result.scalar_one.return_value = 4
+        db.execute.return_value = result
+
+        n = await ActivitySubmissionRepository(db).next_attempt_no(uuid.uuid4())
+
+        # max(attempt_no)=4 -> next is 5, and the query must NOT filter deleted_at
+        # (else a soft-deleted top attempt would let a number be reused).
+        assert n == 5
+        compiled = _compiled(db.execute.await_args_list[0].args[0])
+        assert "max(activity_submissions.attempt_no)" in compiled
+        assert "deleted_at" not in compiled
 
 
 class TestTypeRepoScoping:

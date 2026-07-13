@@ -98,10 +98,18 @@ class ActivitiesFacade:
     # -- Sessions -----------------------------------------------------------
 
     async def open_session(
-        self, *, activity_type_id: uuid.UUID, chatroom_id: uuid.UUID, subject_user_id: uuid.UUID
+        self,
+        *,
+        project_id: uuid.UUID,
+        activity_type_id: uuid.UUID,
+        chatroom_id: uuid.UUID,
+        subject_user_id: uuid.UUID,
     ) -> ActivitySession:
         return await self._sessions.open_session(
-            activity_type_id=activity_type_id, chatroom_id=chatroom_id, subject_user_id=subject_user_id
+            project_id=project_id,
+            activity_type_id=activity_type_id,
+            chatroom_id=chatroom_id,
+            subject_user_id=subject_user_id,
         )
 
     async def close_session(self, *, session_id: uuid.UUID, chatroom_id: uuid.UUID) -> None:

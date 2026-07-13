@@ -128,6 +128,49 @@ class TestTypeServiceValidatorConfig:
                 actor_ip=None,
             )
 
+    async def test_mcp_non_uuid_agent_id_rejected(self) -> None:
+        svc = ActivityTypeService(MagicMock())
+        with pytest.raises(ValidatorConfigInvalid):
+            await svc.register(
+                project_id=uuid.uuid4(),
+                key="k",
+                name="n",
+                payload_schema=_SCHEMA,
+                validator_kind=ValidatorKind.MCP,
+                validator_config={
+                    "agent_id": "not-a-uuid",
+                    "binding_id": str(uuid.uuid4()),
+                    "tool_name": "score",
+                },
+                retention_days=None,
+                actor_user_id=uuid.uuid4(),
+                actor_ip=None,
+            )
+
+    async def test_mcp_valid_uuids_pass_config_validation(self) -> None:
+        svc = ActivityTypeService(MagicMock())
+        svc._repo = MagicMock()
+        type_id = uuid.uuid4()
+        svc._repo.create = AsyncMock(return_value=type_id)
+        svc._repo.get = AsyncMock(return_value=_make_type(id=type_id, validator_kind=ValidatorKind.MCP))
+        with patch("contexts.activities.application.type_service.audit.emit", new=AsyncMock()):
+            await svc.register(
+                project_id=uuid.uuid4(),
+                key="k",
+                name="n",
+                payload_schema=_SCHEMA,
+                validator_kind=ValidatorKind.MCP,
+                validator_config={
+                    "agent_id": str(uuid.uuid4()),
+                    "binding_id": str(uuid.uuid4()),
+                    "tool_name": "score",
+                },
+                retention_days=None,
+                actor_user_id=uuid.uuid4(),
+                actor_ip=None,
+            )
+        svc._repo.create.assert_awaited_once()
+
     async def test_malformed_schema_rejected_before_persist(self) -> None:
         svc = ActivityTypeService(MagicMock())
         svc._repo = MagicMock()
@@ -166,7 +209,7 @@ def _wire_submission_service(
     svc._session_repo.lock_for_update = AsyncMock(return_value=session)
     sub_id = uuid.uuid4()
     svc._sub_repo = MagicMock()
-    svc._sub_repo.count_in_session = AsyncMock(return_value=0)
+    svc._sub_repo.next_attempt_no = AsyncMock(return_value=1)
     svc._sub_repo.insert = AsyncMock(return_value=sub_id)
     svc._sub_repo.get = AsyncMock(
         return_value=ActivitySubmission(
@@ -224,7 +267,7 @@ class TestSubmitInProcess:
         assert kwargs["validation_status"] is ValidationStatus.VALIDATED
         assert kwargs["is_valid"] is True  # from the server scorer, not the client
         assert kwargs["sub_scores"] == {"grade": 100}
-        assert kwargs["attempt_no"] == 1  # server-assigned (count 0 + 1), not client's 99
+        assert kwargs["attempt_no"] == 1  # server-assigned (max 0 + 1), not client's 99
 
     async def test_payload_schema_violation_rejected(self) -> None:
         activity_type = _make_type(project_id=uuid.uuid4())
@@ -243,3 +286,57 @@ class TestSubmitInProcess:
                 actor_ip=None,
             )
         sub_repo.insert.assert_not_awaited()
+
+    async def test_in_process_scorer_exception_recorded_as_error(self) -> None:
+        activity_type = _make_type(project_id=uuid.uuid4())
+
+        def boom(payload: dict[str, Any], at: ActivityType, *, db: Any) -> ValidationResult:
+            raise RuntimeError("scorer bug")
+
+        registry.register_in_process_validator("vid", boom)
+        svc, sub_repo, session = _wire_submission_service(activity_type)
+
+        with (
+            patch.object(ss, "ConversationFacade") as conv,
+            patch.object(ss.audit, "emit", new=AsyncMock()),
+        ):
+            conv.return_value.insert_system_message = AsyncMock()
+            # A scorer bug must NOT surface as a 500 / lost submission.
+            await svc.submit(
+                project_id=activity_type.project_id,
+                activity_type_id=activity_type.id,
+                chatroom_id=session.chatroom_id,
+                producer_user_id=session.subject_user_id,
+                subject_user_id=session.subject_user_id,
+                payload={"answer": "x"},
+                actor_user_id=session.subject_user_id,
+                actor_ip=None,
+            )
+
+        kwargs = sub_repo.insert.await_args.kwargs
+        assert kwargs["validation_status"] is ValidationStatus.ERROR
+        assert kwargs["is_valid"] is None
+        assert kwargs["error_class"] == "validator_error"
+
+
+class TestOpenSessionTenantIsolation:
+    async def test_cross_project_type_rejected(self) -> None:
+        from contexts.activities.application.session_service import ActivitySessionService
+        from contexts.activities.domain.errors import ActivityTypeNotFound
+
+        svc = ActivitySessionService(MagicMock())
+        svc._type_repo = MagicMock()
+        # Type belongs to a different project than the caller's room project.
+        svc._type_repo.get = AsyncMock(return_value=_make_type(project_id=uuid.uuid4()))
+        svc._repo = MagicMock()
+        svc._repo.get_open = AsyncMock()
+
+        with pytest.raises(ActivityTypeNotFound):
+            await svc.open_session(
+                project_id=uuid.uuid4(),  # not the type's project
+                activity_type_id=uuid.uuid4(),
+                chatroom_id=uuid.uuid4(),
+                subject_user_id=uuid.uuid4(),
+            )
+        # Never touched the session table for a foreign type.
+        svc._repo.get_open.assert_not_awaited()

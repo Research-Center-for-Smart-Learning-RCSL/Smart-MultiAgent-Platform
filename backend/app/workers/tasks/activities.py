@@ -45,11 +45,19 @@ async def _run_remote_validator(
     envelope = {"payload": submission.payload, "activity_type_key": activity_type.key}
 
     if activity_type.validator_kind is ValidatorKind.MCP:
+        # A malformed config (validated at registration, but defend the dispatch
+        # boundary too) maps to a clean error verdict instead of crashing the job.
+        try:
+            agent_id = uuid.UUID(str(cfg["agent_id"]))
+            binding_id = uuid.UUID(str(cfg["binding_id"]))
+            tool_name = str(cfg["tool_name"])
+        except (KeyError, ValueError, TypeError) as exc:
+            raise ValidatorUnavailable(f"invalid mcp validator config: {exc}") from exc
         res = await agents.invoke_mcp_tool(
             project_id=activity_type.project_id,
-            agent_id=uuid.UUID(str(cfg["agent_id"])),
-            binding_id=uuid.UUID(str(cfg["binding_id"])),
-            tool_name=str(cfg["tool_name"]),
+            agent_id=agent_id,
+            binding_id=binding_id,
+            tool_name=tool_name,
             arguments=envelope,
         )
         if not res.ok:
@@ -57,10 +65,13 @@ async def _run_remote_validator(
         return result_from_json(res.stdout)
 
     if activity_type.validator_kind is ValidatorKind.WEBHOOK:
+        url = cfg.get("url")
+        if not url:
+            raise ValidatorUnavailable("webhook validator config missing 'url'")
         resp = await agents.egress_request(
             project_id=activity_type.project_id,
             method="POST",
-            url=str(cfg["url"]),
+            url=str(url),
             body=envelope,
         )
         if resp.blocked is not None or resp.status is None or not (200 <= resp.status < 400):
