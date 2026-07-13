@@ -237,7 +237,8 @@
                 "type": "array",
                 "items": { "type": "string", "maxLength": 128 },
                 "minItems": 1
-              }
+              },
+              "validation_status":   { "enum": ["any", "pending", "validated", "error"], "default": "any" }
             },
             "required": ["chatroom_id"]
           } }
@@ -384,7 +385,8 @@
                 "type": "array",
                 "items": { "type": "string", "maxLength": 128 },
                 "minItems": 1
-              }
+              },
+              "validation_status":  { "enum": ["any", "pending", "validated", "error"], "default": "any" }
             },
             "required": ["chatroom_id"]
           } }

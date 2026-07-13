@@ -39,6 +39,9 @@ const SENDER_FILTER_OPTIONS = ['any', 'user', 'agent', 'guest'] as const
 
 const EVENT_TYPE_OPTIONS = ['call', 'reply', 'notify', 'instruct'] as const
 
+// 'any' = fire on any emit (submit + completion); a status fires only on that phase.
+const ACTIVITY_STATUS_OPTIONS = ['any', 'validated', 'pending', 'error'] as const
+
 // Technical placeholders (cron syntax / IANA timezone) — universal, not translated
 const CRON_PLACEHOLDER = '0 9 * * MON-FRI'
 const TIMEZONE_PLACEHOLDER = 'UTC'
@@ -49,6 +52,10 @@ const triggerTypeOptions = computed(() =>
 
 const senderFilterOptions = computed(() =>
   SENDER_FILTER_OPTIONS.map((sf) => ({ value: sf, label: t('workflow.config.senderFilter_' + sf) })),
+)
+
+const activityStatusOptions = computed(() =>
+  ACTIVITY_STATUS_OPTIONS.map((s) => ({ value: s, label: t('workflow.config.activityStatus_' + s) })),
 )
 
 const chatroomOptions = computed(() => [
@@ -265,6 +272,18 @@ function isInArray(field: string, item: string): boolean {
           :model-value="(local.activity_type_key as string) ?? ''"
           :placeholder="t('workflow.config.activityTypeKeyPlaceholder')"
           @update:model-value="update('activity_type_key', $event)"
+        />
+      </SFormField>
+
+      <SFormField
+        :label="t('workflow.config.validationStatus')"
+        name="activity-validation-status"
+      >
+        <SSelect
+          id="activity-validation-status"
+          :model-value="(local.validation_status as string) ?? 'any'"
+          :options="activityStatusOptions"
+          @update:model-value="update('validation_status', $event)"
         />
       </SFormField>
     </div>
