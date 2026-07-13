@@ -14,6 +14,438 @@
         "title": "AcceptByTokenIn",
         "type": "object"
       },
+      "ActivityAggregateOut": {
+        "properties": {
+          "error_class_histogram": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Error Class Histogram",
+            "type": "object"
+          },
+          "error_count": {
+            "title": "Error Count",
+            "type": "integer"
+          },
+          "latency_avg_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latency Avg Ms"
+          },
+          "latency_max_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latency Max Ms"
+          },
+          "latency_min_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latency Min Ms"
+          },
+          "pending_count": {
+            "title": "Pending Count",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          },
+          "valid_count": {
+            "title": "Valid Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "total",
+          "valid_count",
+          "error_count",
+          "pending_count",
+          "error_class_histogram",
+          "latency_avg_ms",
+          "latency_min_ms",
+          "latency_max_ms"
+        ],
+        "title": "ActivityAggregateOut",
+        "type": "object"
+      },
+      "ActivitySessionOpenIn": {
+        "properties": {
+          "activity_type_id": {
+            "format": "uuid",
+            "title": "Activity Type Id",
+            "type": "string"
+          },
+          "subject_user_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subject User Id"
+          }
+        },
+        "required": [
+          "activity_type_id"
+        ],
+        "title": "ActivitySessionOpenIn",
+        "type": "object"
+      },
+      "ActivitySessionOut": {
+        "properties": {
+          "activity_type_id": {
+            "format": "uuid",
+            "title": "Activity Type Id",
+            "type": "string"
+          },
+          "chatroom_id": {
+            "format": "uuid",
+            "title": "Chatroom Id",
+            "type": "string"
+          },
+          "closed_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Closed At"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "subject_user_id": {
+            "format": "uuid",
+            "title": "Subject User Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "activity_type_id",
+          "chatroom_id",
+          "subject_user_id",
+          "status",
+          "created_at",
+          "closed_at"
+        ],
+        "title": "ActivitySessionOut",
+        "type": "object"
+      },
+      "ActivitySubmissionIn": {
+        "properties": {
+          "activity_type_id": {
+            "format": "uuid",
+            "title": "Activity Type Id",
+            "type": "string"
+          },
+          "payload": {
+            "title": "Payload",
+            "type": "object"
+          },
+          "session_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Session Id"
+          },
+          "subject_user_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subject User Id"
+          }
+        },
+        "required": [
+          "activity_type_id",
+          "payload"
+        ],
+        "title": "ActivitySubmissionIn",
+        "type": "object"
+      },
+      "ActivitySubmissionOut": {
+        "properties": {
+          "activity_type_id": {
+            "format": "uuid",
+            "title": "Activity Type Id",
+            "type": "string"
+          },
+          "attempt_no": {
+            "title": "Attempt No",
+            "type": "integer"
+          },
+          "chatroom_id": {
+            "format": "uuid",
+            "title": "Chatroom Id",
+            "type": "string"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "error_class": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Class"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "is_valid": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Is Valid"
+          },
+          "latency_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latency Ms"
+          },
+          "session_id": {
+            "format": "uuid",
+            "title": "Session Id",
+            "type": "string"
+          },
+          "sub_scores": {
+            "title": "Sub Scores",
+            "type": "object"
+          },
+          "validation_status": {
+            "title": "Validation Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "session_id",
+          "activity_type_id",
+          "chatroom_id",
+          "attempt_no",
+          "validation_status",
+          "is_valid",
+          "error_class",
+          "sub_scores",
+          "latency_ms",
+          "created_at"
+        ],
+        "title": "ActivitySubmissionOut",
+        "type": "object"
+      },
+      "ActivitySubmissionsPageOut": {
+        "properties": {
+          "aggregate": {
+            "$ref": "#/components/schemas/ActivityAggregateOut"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ActivitySubmissionOut"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items",
+          "aggregate"
+        ],
+        "title": "ActivitySubmissionsPageOut",
+        "type": "object"
+      },
+      "ActivityTypeIn": {
+        "properties": {
+          "key": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Key",
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "payload_schema": {
+            "title": "Payload Schema",
+            "type": "object"
+          },
+          "retention_days": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Retention Days"
+          },
+          "validator_config": {
+            "title": "Validator Config",
+            "type": "object"
+          },
+          "validator_kind": {
+            "$ref": "#/components/schemas/ValidatorKind"
+          }
+        },
+        "required": [
+          "key",
+          "name",
+          "payload_schema",
+          "validator_kind"
+        ],
+        "title": "ActivityTypeIn",
+        "type": "object"
+      },
+      "ActivityTypeOut": {
+        "properties": {
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "payload_schema": {
+            "title": "Payload Schema",
+            "type": "object"
+          },
+          "project_id": {
+            "format": "uuid",
+            "title": "Project Id",
+            "type": "string"
+          },
+          "retention_days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Retention Days"
+          },
+          "validator_config": {
+            "title": "Validator Config",
+            "type": "object"
+          },
+          "validator_kind": {
+            "$ref": "#/components/schemas/ValidatorKind"
+          }
+        },
+        "required": [
+          "id",
+          "project_id",
+          "key",
+          "name",
+          "payload_schema",
+          "validator_kind",
+          "validator_config",
+          "retention_days",
+          "created_at"
+        ],
+        "title": "ActivityTypeOut",
+        "type": "object"
+      },
       "AddMemberIn": {
         "properties": {
           "key_id": {
@@ -6934,6 +7366,15 @@
         "title": "ValidationError",
         "type": "object"
       },
+      "ValidatorKind": {
+        "enum": [
+          "in_process",
+          "mcp",
+          "webhook"
+        ],
+        "title": "ValidatorKind",
+        "type": "string"
+      },
       "VerifyEmailIn": {
         "properties": {
           "token": {
@@ -11085,6 +11526,267 @@
         "summary": "Patch Chatroom",
         "tags": [
           "chatrooms"
+        ]
+      }
+    },
+    "/api/chatrooms/{chatroom_id}/activity-sessions": {
+      "post": {
+        "operationId": "open_activity_session_api_chatrooms__chatroom_id__activity_sessions_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "chatroom_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Chatroom Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ActivitySessionOpenIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActivitySessionOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Open Activity Session",
+        "tags": [
+          "activities"
+        ]
+      }
+    },
+    "/api/chatrooms/{chatroom_id}/activity-sessions/{session_id}/close": {
+      "patch": {
+        "operationId": "close_activity_session_api_chatrooms__chatroom_id__activity_sessions__session_id__close_patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "chatroom_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Chatroom Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActivitySessionOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Close Activity Session",
+        "tags": [
+          "activities"
+        ]
+      }
+    },
+    "/api/chatrooms/{chatroom_id}/activity-submissions": {
+      "get": {
+        "operationId": "list_activity_submissions_api_chatrooms__chatroom_id__activity_submissions_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "chatroom_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Chatroom Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "session_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Session Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "subject_user_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Subject User Id"
+            }
+          },
+          {
+            "description": "Max items to return",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "description": "Max items to return",
+              "maximum": 500,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Number of items to skip",
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "description": "Number of items to skip",
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActivitySubmissionsPageOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Activity Submissions",
+        "tags": [
+          "activities"
+        ]
+      },
+      "post": {
+        "operationId": "submit_activity_api_chatrooms__chatroom_id__activity_submissions_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "chatroom_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Chatroom Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ActivitySubmissionIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActivitySubmissionOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Submit Activity",
+        "tags": [
+          "activities"
         ]
       }
     },
@@ -16196,6 +16898,104 @@
         "summary": "Rename Project",
         "tags": [
           "projects"
+        ]
+      }
+    },
+    "/api/projects/{project_id}/activity-types": {
+      "get": {
+        "operationId": "list_activity_types_api_projects__project_id__activity_types_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ActivityTypeOut"
+                  },
+                  "title": "Response List Activity Types Api Projects  Project Id  Activity Types Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Activity Types",
+        "tags": [
+          "activities"
+        ]
+      },
+      "post": {
+        "operationId": "register_activity_type_api_projects__project_id__activity_types_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ActivityTypeIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActivityTypeOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Register Activity Type",
+        "tags": [
+          "activities"
         ]
       }
     },
