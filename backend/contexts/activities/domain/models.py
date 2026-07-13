@@ -33,6 +33,11 @@ class SessionStatus(str, enum.Enum):
     CLOSED = "closed"
 
 
+class ActivationStatus(str, enum.Enum):
+    ACTIVE = "active"
+    ENDED = "ended"
+
+
 class ValidationStatus(str, enum.Enum):
     PENDING = "pending"
     VALIDATED = "validated"
@@ -65,6 +70,25 @@ class ActivitySession:
     status: SessionStatus
     created_at: dt.datetime
     closed_at: dt.datetime | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ActivityActivation:
+    id: uuid.UUID
+    chatroom_id: uuid.UUID
+    activity_type_id: uuid.UUID
+    started_by_user_id: uuid.UUID
+    status: ActivationStatus
+    created_at: dt.datetime
+    ended_at: dt.datetime | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ActivityActivationEndResult:
+    """The persisted activation and whether this request ended it."""
+
+    activation: ActivityActivation
+    transitioned: bool
 
 
 @dataclass(frozen=True, slots=True)
@@ -129,9 +153,12 @@ class ActivityAggregate:
 
 __all__ = [
     "ActivityAggregate",
+    "ActivityActivation",
+    "ActivityActivationEndResult",
     "ActivitySession",
     "ActivitySubmission",
     "ActivityType",
+    "ActivationStatus",
     "RecentActivityRow",
     "SessionStatus",
     "ValidationResult",

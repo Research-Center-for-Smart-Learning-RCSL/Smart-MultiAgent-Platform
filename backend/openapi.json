@@ -14,6 +14,81 @@
         "title": "AcceptByTokenIn",
         "type": "object"
       },
+      "ActivityActivationOut": {
+        "properties": {
+          "activity_type_id": {
+            "format": "uuid",
+            "title": "Activity Type Id",
+            "type": "string"
+          },
+          "chatroom_id": {
+            "format": "uuid",
+            "title": "Chatroom Id",
+            "type": "string"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "ended_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ended At"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "started_by_user_id": {
+            "format": "uuid",
+            "title": "Started By User Id",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "chatroom_id",
+          "activity_type_id",
+          "started_by_user_id",
+          "status",
+          "created_at",
+          "ended_at"
+        ],
+        "title": "ActivityActivationOut",
+        "type": "object"
+      },
+      "ActivityActivationStartIn": {
+        "properties": {
+          "activity_type_id": {
+            "format": "uuid",
+            "title": "Activity Type Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "activity_type_id"
+        ],
+        "title": "ActivityActivationStartIn",
+        "type": "object"
+      },
       "ActivityAggregateOut": {
         "properties": {
           "error_class_histogram": {
@@ -11526,6 +11601,163 @@
         "summary": "Patch Chatroom",
         "tags": [
           "chatrooms"
+        ]
+      }
+    },
+    "/api/chatrooms/{chatroom_id}/activity-activations": {
+      "post": {
+        "operationId": "start_activity_activation_api_chatrooms__chatroom_id__activity_activations_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "chatroom_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Chatroom Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ActivityActivationStartIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActivityActivationOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Start Activity Activation",
+        "tags": [
+          "activities"
+        ]
+      }
+    },
+    "/api/chatrooms/{chatroom_id}/activity-activations/active": {
+      "get": {
+        "operationId": "get_active_activity_activation_api_chatrooms__chatroom_id__activity_activations_active_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "chatroom_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Chatroom Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/ActivityActivationOut"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "title": "Response Get Active Activity Activation Api Chatrooms  Chatroom Id  Activity Activations Active Get"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Active Activity Activation",
+        "tags": [
+          "activities"
+        ]
+      }
+    },
+    "/api/chatrooms/{chatroom_id}/activity-activations/{activation_id}/end": {
+      "patch": {
+        "operationId": "end_activity_activation_api_chatrooms__chatroom_id__activity_activations__activation_id__end_patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "chatroom_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Chatroom Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "activation_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Activation Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActivityActivationOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "End Activity Activation",
+        "tags": [
+          "activities"
         ]
       }
     },

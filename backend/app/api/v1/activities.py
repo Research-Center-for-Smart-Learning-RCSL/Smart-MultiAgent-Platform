@@ -20,6 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.v1.deps import PaginationParams, assert_project_membership, assert_project_owner
 from contexts.activities.domain.errors import SessionNotFound
 from contexts.activities.domain.models import (
+    ActivityActivation,
     ActivityAggregate,
     ActivitySession,
     ActivitySubmission,
@@ -27,12 +28,13 @@ from contexts.activities.domain.models import (
     ValidatorKind,
 )
 from contexts.activities.interfaces.facade import ActivitiesFacade
-from contexts.conversation.application.access import (
+from contexts.conversation.interfaces import room_channel
+from contexts.conversation.interfaces.access import (
     ensure_can_read,
     ensure_can_send,
+    ensure_room_creator,
     resolve_room_access,
 )
-from contexts.conversation.interfaces import room_channel
 from shared_kernel.auth.context import RequestContext
 from shared_kernel.auth.dependencies import current_context, current_principal
 from shared_kernel.auth.permissions import Principal
@@ -78,6 +80,20 @@ class ActivityTypeOut(BaseModel):
 class ActivitySessionOpenIn(BaseModel):
     activity_type_id: uuid.UUID
     subject_user_id: uuid.UUID | None = None
+
+
+class ActivityActivationStartIn(BaseModel):
+    activity_type_id: uuid.UUID
+
+
+class ActivityActivationOut(BaseModel):
+    id: uuid.UUID
+    chatroom_id: uuid.UUID
+    activity_type_id: uuid.UUID
+    started_by_user_id: uuid.UUID
+    status: str
+    created_at: str | None
+    ended_at: str | None
 
 
 class ActivitySessionOut(BaseModel):
@@ -150,6 +166,18 @@ def _session_out(s: ActivitySession) -> ActivitySessionOut:
         status=s.status.value,
         created_at=s.created_at.isoformat() if s.created_at else None,
         closed_at=s.closed_at.isoformat() if s.closed_at else None,
+    )
+
+
+def _activation_out(a: ActivityActivation) -> ActivityActivationOut:
+    return ActivityActivationOut(
+        id=a.id,
+        chatroom_id=a.chatroom_id,
+        activity_type_id=a.activity_type_id,
+        started_by_user_id=a.started_by_user_id,
+        status=a.status.value,
+        created_at=a.created_at.isoformat() if a.created_at else None,
+        ended_at=a.ended_at.isoformat() if a.ended_at else None,
     )
 
 
@@ -226,6 +254,64 @@ async def list_activity_types(
 # --------------------------------------------------------------------------- #
 # Sessions (room-scoped)                                                       #
 # --------------------------------------------------------------------------- #
+
+
+@chatroom_router.post("/{chatroom_id}/activity-activations")
+async def start_activity_activation(
+    body: ActivityActivationStartIn,
+    chatroom_id: uuid.UUID = Path(...),
+    ctx: RequestContext = Depends(current_context),
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(db_session),
+) -> ActivityActivationOut:
+    access = await resolve_room_access(db, principal=principal, chatroom_id=chatroom_id)
+    ensure_room_creator(access, principal=principal)
+    activation = await ActivitiesFacade(db).start_activation(
+        project_id=access.project_id,
+        chatroom_id=chatroom_id,
+        activity_type_id=body.activity_type_id,
+        started_by_user_id=principal.user_id,
+        actor_ip=ctx.actor_ip,
+        request_id=ctx.request_id,
+    )
+    await db.commit()
+    await _dispatch_activation_started(activation)
+    return _activation_out(activation)
+
+
+@chatroom_router.patch("/{chatroom_id}/activity-activations/{activation_id}/end")
+async def end_activity_activation(
+    chatroom_id: uuid.UUID = Path(...),
+    activation_id: uuid.UUID = Path(...),
+    ctx: RequestContext = Depends(current_context),
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(db_session),
+) -> ActivityActivationOut:
+    access = await resolve_room_access(db, principal=principal, chatroom_id=chatroom_id)
+    ensure_room_creator(access, principal=principal)
+    result = await ActivitiesFacade(db).end_activation(
+        chatroom_id=chatroom_id,
+        activation_id=activation_id,
+        actor_user_id=principal.user_id,
+        actor_ip=ctx.actor_ip,
+        request_id=ctx.request_id,
+    )
+    await db.commit()
+    if result.transitioned:
+        await _dispatch_activation_ended(chatroom_id, result.activation.id)
+    return _activation_out(result.activation)
+
+
+@chatroom_router.get("/{chatroom_id}/activity-activations/active")
+async def get_active_activity_activation(
+    chatroom_id: uuid.UUID = Path(...),
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(db_session),
+) -> ActivityActivationOut | None:
+    access = await resolve_room_access(db, principal=principal, chatroom_id=chatroom_id)
+    ensure_can_read(access, is_admin=principal.is_admin)
+    activation = await ActivitiesFacade(db).get_active_activation(chatroom_id)
+    return _activation_out(activation) if activation is not None else None
 
 
 @chatroom_router.post("/{chatroom_id}/activity-sessions")
@@ -357,6 +443,29 @@ async def _dispatch_submission(
         await enqueue("workflow_signal", "activity", signal_payload)
     except Exception:
         _log.warning("activity workflow-signal dispatch failed for %s", submission.id, exc_info=True)
+
+
+async def _dispatch_activation_started(activation: ActivityActivation) -> None:
+    try:
+        await Publisher(room_channel(activation.chatroom_id)).emit(
+            "activity.activation.started",
+            {
+                "activation_id": str(activation.id),
+                "activity_type_id": str(activation.activity_type_id),
+                "started_by": str(activation.started_by_user_id),
+            },
+        )
+    except Exception:
+        _log.error("realtime publish failed for activity activation %s", activation.id, exc_info=True)
+
+
+async def _dispatch_activation_ended(chatroom_id: uuid.UUID, activation_id: uuid.UUID) -> None:
+    try:
+        await Publisher(room_channel(chatroom_id)).emit(
+            "activity.activation.ended", {"activation_id": str(activation_id)}
+        )
+    except Exception:
+        _log.error("realtime publish failed for ended activity activation %s", activation_id, exc_info=True)
 
 
 __all__ = ["chatroom_router", "project_router"]

@@ -23,11 +23,14 @@ from contexts.activities.application.validators.schema import (
     validate_schema_wellformed,
 )
 from contexts.activities.domain.errors import (
+    ActivityNotActive,
     PayloadSchemaInvalid,
     SubmissionPayloadInvalid,
     ValidatorConfigInvalid,
 )
 from contexts.activities.domain.models import (
+    ActivationStatus,
+    ActivityActivation,
     ActivitySession,
     ActivitySubmission,
     ActivityType,
@@ -201,12 +204,23 @@ def _wire_submission_service(
         status=SessionStatus.OPEN,
         created_at=_NOW,
     )
-    svc = SubmissionService(MagicMock())
+    activation_repo = MagicMock()
+    svc = SubmissionService(MagicMock(), activation_repo=activation_repo)
     svc._type_repo = MagicMock()
     svc._type_repo.get = AsyncMock(return_value=activity_type)
     svc._session_repo = MagicMock()
     svc._session_repo.get_open = AsyncMock(return_value=session)
     svc._session_repo.lock_for_update = AsyncMock(return_value=session)
+    activation_repo.get_active_for_update = AsyncMock(
+        return_value=ActivityActivation(
+            id=uuid.uuid4(),
+            chatroom_id=session.chatroom_id,
+            activity_type_id=activity_type.id,
+            started_by_user_id=session.subject_user_id,
+            status=ActivationStatus.ACTIVE,
+            created_at=_NOW,
+        )
+    )
     sub_id = uuid.uuid4()
     svc._sub_repo = MagicMock()
     svc._sub_repo.next_attempt_no = AsyncMock(return_value=1)
@@ -288,6 +302,26 @@ class TestSubmitInProcess:
             )
         sub_repo.insert.assert_not_awaited()
 
+    async def test_inactive_or_wrong_type_is_rejected_before_session_resolution(self) -> None:
+        activity_type = _make_type(project_id=uuid.uuid4())
+        svc, sub_repo, session = _wire_submission_service(activity_type)
+        svc._activation_repo.get_active_for_update = AsyncMock(return_value=None)
+
+        with pytest.raises(ActivityNotActive):
+            await svc.submit(
+                project_id=activity_type.project_id,
+                activity_type_id=activity_type.id,
+                chatroom_id=session.chatroom_id,
+                producer_user_id=session.subject_user_id,
+                subject_user_id=session.subject_user_id,
+                payload={"answer": "x"},
+                actor_user_id=session.subject_user_id,
+                actor_ip=None,
+            )
+
+        svc._session_repo.get_open.assert_not_awaited()
+        sub_repo.insert.assert_not_awaited()
+
     async def test_in_process_scorer_exception_recorded_as_error(self) -> None:
         activity_type = _make_type(project_id=uuid.uuid4())
 
@@ -353,7 +387,7 @@ def _wire_signal_service(
         status=SessionStatus.OPEN,
         created_at=_NOW,
     )
-    svc = SubmissionService(MagicMock())
+    svc = SubmissionService(MagicMock(), activation_repo=MagicMock())
     svc._sub_repo = MagicMock()
     svc._sub_repo.get = AsyncMock(return_value=submission)
     svc._sub_repo.count_recent_same_error = AsyncMock(return_value=same_error_count)
@@ -430,7 +464,7 @@ class TestBuildActivitySignal:
         sub_repo.count_recent_same_error.assert_not_awaited()
 
     async def test_missing_submission_returns_none(self) -> None:
-        svc = SubmissionService(MagicMock())
+        svc = SubmissionService(MagicMock(), activation_repo=MagicMock())
         svc._sub_repo = MagicMock()
         svc._sub_repo.get = AsyncMock(return_value=None)
 

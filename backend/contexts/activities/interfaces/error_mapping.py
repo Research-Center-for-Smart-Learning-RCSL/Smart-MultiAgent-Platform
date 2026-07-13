@@ -21,6 +21,21 @@ _MAP: ErrorMap = {
         404,
         "Activity session not found",
     ),
+    errors.ActivityActivationNotFound: (
+        "activities/activation-not-found",
+        404,
+        "Activity activation not found",
+    ),
+    errors.ActivityAlreadyActive: (
+        "activities/already-active",
+        409,
+        "A different activity is already active in this chatroom",
+    ),
+    errors.ActivityNotActive: (
+        "activities/not-active",
+        409,
+        "This activity is not active in this chatroom",
+    ),
     errors.SubmissionNotFound: (
         "activities/submission-not-found",
         404,
