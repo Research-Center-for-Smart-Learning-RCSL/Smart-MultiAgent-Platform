@@ -16,6 +16,7 @@ from shared_kernel.db import metadata
 _validator_kind = pg.ENUM("in_process", "mcp", "webhook", name="validator_kind", create_type=False)
 _validation_status = pg.ENUM("pending", "validated", "error", name="validation_status", create_type=False)
 _session_status = pg.ENUM("open", "closed", name="session_status", create_type=False)
+_activation_status = pg.ENUM("active", "ended", name="activation_status", create_type=False)
 
 activity_types = sa.Table(
     "activity_types",
@@ -65,6 +66,38 @@ activity_sessions = sa.Table(
     sa.Column("closed_at", sa.TIMESTAMP(timezone=True), nullable=True),
 )
 
+activity_activations = sa.Table(
+    "activity_activations",
+    metadata,
+    sa.Column("id", pg.UUID(as_uuid=True), primary_key=True, server_default=sa.text("gen_random_uuid()")),
+    sa.Column(
+        "chatroom_id",
+        pg.UUID(as_uuid=True),
+        sa.ForeignKey("chatrooms.id", ondelete="CASCADE"),
+        nullable=False,
+    ),
+    sa.Column(
+        "activity_type_id",
+        pg.UUID(as_uuid=True),
+        sa.ForeignKey("activity_types.id", ondelete="CASCADE"),
+        nullable=False,
+    ),
+    sa.Column(
+        "started_by_user_id",
+        pg.UUID(as_uuid=True),
+        sa.ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+    ),
+    sa.Column(
+        "status",
+        _activation_status,
+        nullable=False,
+        server_default=sa.text("'active'::activation_status"),
+    ),
+    sa.Column("created_at", sa.TIMESTAMP(timezone=True), nullable=False, server_default=sa.text("now()")),
+    sa.Column("ended_at", sa.TIMESTAMP(timezone=True), nullable=True),
+)
+
 activity_submissions = sa.Table(
     "activity_submissions",
     metadata,
@@ -112,4 +145,4 @@ activity_submissions = sa.Table(
 )
 
 
-__all__ = ["activity_sessions", "activity_submissions", "activity_types"]
+__all__ = ["activity_activations", "activity_sessions", "activity_submissions", "activity_types"]

@@ -19,6 +19,18 @@ class SessionNotFound(ActivitiesError):
     code = "activities/session-not-found"
 
 
+class ActivityActivationNotFound(ActivitiesError):
+    code = "activities/activation-not-found"
+
+
+class ActivityAlreadyActive(ActivitiesError):
+    code = "activities/already-active"
+
+
+class ActivityNotActive(ActivitiesError):
+    code = "activities/not-active"
+
+
 class SubmissionNotFound(ActivitiesError):
     code = "activities/submission-not-found"
 
@@ -50,6 +62,9 @@ class SubmissionPayloadInvalid(ActivitiesError):
 
 __all__ = [
     "ActivitiesError",
+    "ActivityActivationNotFound",
+    "ActivityAlreadyActive",
+    "ActivityNotActive",
     "ActivityTypeKeyConflict",
     "ActivityTypeNotFound",
     "PayloadSchemaInvalid",

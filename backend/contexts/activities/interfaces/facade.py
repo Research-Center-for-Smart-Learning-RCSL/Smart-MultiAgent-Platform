@@ -14,11 +14,14 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from contexts.activities.application.activation_service import ActivationService
 from contexts.activities.application.aggregation_service import AggregationService
 from contexts.activities.application.session_service import ActivitySessionService
 from contexts.activities.application.submission_service import SubmissionService
 from contexts.activities.application.type_service import ActivityTypeService
 from contexts.activities.domain.models import (
+    ActivityActivation,
+    ActivityActivationEndResult,
     ActivityAggregate,
     ActivitySession,
     ActivitySubmission,
@@ -27,10 +30,14 @@ from contexts.activities.domain.models import (
     ValidationResult,
     ValidatorKind,
 )
+from contexts.activities.infrastructure.repositories.activation_repo import ActivationRepository
+from contexts.activities.infrastructure.repositories.type_repo import ActivityTypeRepository
 
 __all__ = [
     "ActivitiesFacade",
     "ActivityAggregate",
+    "ActivityActivation",
+    "ActivityActivationEndResult",
     "ActivitySession",
     "ActivitySubmission",
     "ActivityType",
@@ -44,8 +51,14 @@ class ActivitiesFacade:
     def __init__(self, db: AsyncSession) -> None:
         self._db = db
         self._types = ActivityTypeService(db)
+        activation_repo = ActivationRepository(db)
+        self._activation = ActivationService(
+            db,
+            activation_repo=activation_repo,
+            type_repo=ActivityTypeRepository(db),
+        )
         self._sessions = ActivitySessionService(db)
-        self._submissions = SubmissionService(db)
+        self._submissions = SubmissionService(db, activation_repo=activation_repo)
         self._aggregation = AggregationService(db)
 
     # -- Types --------------------------------------------------------------
@@ -82,6 +95,47 @@ class ActivitiesFacade:
 
     async def get_type(self, type_id: uuid.UUID) -> ActivityType | None:
         return await self._types.get_type(type_id)
+
+    # -- Activations --------------------------------------------------------
+
+    async def start_activation(
+        self,
+        *,
+        project_id: uuid.UUID,
+        chatroom_id: uuid.UUID,
+        activity_type_id: uuid.UUID,
+        started_by_user_id: uuid.UUID,
+        actor_ip: str | None,
+        request_id: uuid.UUID | None = None,
+    ) -> ActivityActivation:
+        return await self._activation.start(
+            project_id=project_id,
+            chatroom_id=chatroom_id,
+            activity_type_id=activity_type_id,
+            started_by_user_id=started_by_user_id,
+            actor_ip=actor_ip,
+            request_id=request_id,
+        )
+
+    async def end_activation(
+        self,
+        *,
+        chatroom_id: uuid.UUID,
+        activation_id: uuid.UUID,
+        actor_user_id: uuid.UUID,
+        actor_ip: str | None,
+        request_id: uuid.UUID | None = None,
+    ) -> ActivityActivationEndResult:
+        return await self._activation.end(
+            chatroom_id=chatroom_id,
+            activation_id=activation_id,
+            actor_user_id=actor_user_id,
+            actor_ip=actor_ip,
+            request_id=request_id,
+        )
+
+    async def get_active_activation(self, chatroom_id: uuid.UUID) -> ActivityActivation | None:
+        return await self._activation.get_active(chatroom_id)
 
     async def soft_delete_type(
         self,

@@ -19,9 +19,11 @@ from typing import Any
 from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from contexts.activities.application.ports import ActivityActivationRepository
 from contexts.activities.application.validators.in_process import InProcessValidator
 from contexts.activities.application.validators.schema import payload_errors
 from contexts.activities.domain.errors import (
+    ActivityNotActive,
     ActivityTypeNotFound,
     SessionNotFound,
     SubmissionNotFound,
@@ -50,9 +52,10 @@ _ROLLING_WINDOW_SECONDS = 60
 
 
 class SubmissionService:
-    def __init__(self, db: AsyncSession) -> None:
+    def __init__(self, db: AsyncSession, *, activation_repo: ActivityActivationRepository) -> None:
         self._db = db
         self._type_repo = ActivityTypeRepository(db)
+        self._activation_repo = activation_repo
         self._session_repo = ActivitySessionRepository(db)
         self._sub_repo = ActivitySubmissionRepository(db)
 
@@ -75,6 +78,13 @@ class SubmissionService:
         # cross-project → NotFound (never leak another tenant's type).
         if activity_type is None or activity_type.project_id != project_id:
             raise ActivityTypeNotFound(str(activity_type_id))
+
+        # Hold the active row through the transaction. The facilitator's guarded
+        # UPDATE must contend on this lock, so it cannot commit an end between
+        # this check and the authoritative submission insert.
+        activation = await self._activation_repo.get_active_for_update(chatroom_id)
+        if activation is None or activation.activity_type_id != activity_type_id:
+            raise ActivityNotActive(str(activity_type_id))
 
         errors = payload_errors(activity_type.payload_schema, dict(payload))
         if errors:
