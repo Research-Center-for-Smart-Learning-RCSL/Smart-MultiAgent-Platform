@@ -33,6 +33,9 @@ const AGENT = {
   rag_config_id: null,
   context_mode: 'general',
   context_token_cap: null,
+  temperature: null,
+  top_p: null,
+  seed: null,
   a2a_enabled: false,
   wakeup_config: {},
   workflow_capabilities: {},
@@ -103,6 +106,32 @@ describe('AgentDetailView', () => {
     expect(wrapper.text()).toContain('My Bot')
     // A delete button is present in edit mode (danger variant).
     expect(wrapper.find('button.s-btn--danger').exists()).toBe(true)
+  })
+
+  it('renders sampling controls and shows a pinned temperature of 0 (AC-1)', async () => {
+    seed()
+    // Later server.use wins: pin the reproducible-scoring config on the agent.
+    server.use(
+      http.get('/api/agents/agent_1', () =>
+        HttpResponse.json({ ...AGENT, temperature: 0, top_p: 0.9, seed: 123 }),
+      ),
+    )
+    const wrapper = await renderView(AgentDetailView, {
+      routes,
+      initialRoute: '/agents/agent_1',
+    })
+    await settle(wrapper)
+    // The sampling section and its OpenAI-only seed note render (i18n keys in test).
+    expect(wrapper.text()).toContain('agents.form.samplingTitle')
+    expect(wrapper.text()).toContain('agents.form.seedHelp')
+    // temperature=0 must display as "0", not blank — 0 is a valid pinned value,
+    // distinct from "unset" (provider default). top_p/seed round-trip too.
+    const values = wrapper
+      .findAll('.s-input__field')
+      .map((i) => (i.element as HTMLInputElement).value)
+    expect(values).toContain('0')
+    expect(values).toContain('0.9')
+    expect(values).toContain('123')
   })
 
   it('shows read-only Concept Map coverage on the Knowledge tab (AC-6)', async () => {
