@@ -273,6 +273,31 @@ None. (The `[R9.18]` number + §9 placement were confirmed and applied at the ap
   `temperature=0`, so it is unaffected. Test updated
   (`test_openai_reasoning_drops_all_sampling_controls`).
 
+- **D-6 — Reconciled with a parallel `task/agent-sampling` implementation (user-directed).** An
+  independent second implementation of R9.18 had been built on branch `task/agent-sampling` (in a
+  worktree). After a full side-by-side comparison, main's implementation was kept as the source of
+  truth (it uniquely carries the D-1/D-4/D-5 provider-constraint fixes and the FU-3 seed int4
+  bound, all of which the branch lacked), and three genuinely-superior aspects from the branch were
+  incorporated onto main:
+  1. **Frontend input handling** — the branch drives the three sampling inputs with `type="text"` +
+     a `nullableNumberFromText` guard instead of `type="number"` + `nullableNumberModel`. main's
+     number path had a real bug: `SInput.onInput` computes `Number(target.value)`, and
+     `Number('') === 0`, so *clearing* a sampling field emitted `0` rather than `''` — making
+     "provider default" (null) unreachable and silently pinning `temperature=0`. Adopted the
+     branch's `AgentDetailView.vue` + its i18n keys (`samplingTitle`, `samplingDefaultPlaceholder`).
+  2. **Bootstrap / wiring `create()` callers** — main's `AgentRepository.create` requires
+     `temperature`/`top_p`/`seed` (no defaults), but `app/bootstrap/seed.py` (the E2E seed) and
+     seven wiring-test fixtures called `create()` without them → `TypeError` on those paths. The
+     original code-review grep was scoped to `contexts/agents` and missed the `app/bootstrap`
+     caller; the parallel branch caught it. All callers fixed (the branch versions were taken
+     verbatim, as their only delta was the missing kwargs). `test_wiring.py` also regained a
+     pre-existing-missing `effort=None`.
+  3. **Test coverage** — ported the branch's API-boundary validation tests
+     (`test_agent_sampling_api.py`), service create/patch/clear tests (added to
+     `test_agent_service.py`), and frontend tests (`AgentDetailView.test.ts`, `schemas.spec.ts`).
+  The branch's competing backend adapters/schema (which lacked the fixes) and its unbounded-`seed`
+  schema were **not** taken. `task/agent-sampling` is retired after this reconciliation.
+
 ## 16. Follow-ups
 
 - **FU-1 — Apply and reverse the migration against a live Postgres.** Run `alembic upgrade head`
