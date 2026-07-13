@@ -156,13 +156,41 @@ class ConversationFacade:
         content_md: str,
         metadata: dict[str, object] | None = None,
     ) -> Message:
-        """Insert a new message row (used by the transcript compaction store)."""
+        """Insert a new message row.
+
+        General SYSTEM/agent/user insert used by the transcript compaction store,
+        the observation-release flow, and structured-activity echoes. The caller
+        owns commit; ``metadata`` is stamped server-side by the caller (clients
+        cannot supply message metadata)."""
         return await self._messages.create(
             chatroom_id=chatroom_id,
             sender_type=sender_type,
             sender_id=sender_id,
             content_md=content_md,
             metadata=metadata,
+        )
+
+    async def insert_system_message(
+        self,
+        *,
+        chatroom_id: uuid.UUID,
+        content_md: str,
+        message_type: str,
+        metadata: dict[str, object] | None = None,
+    ) -> Message:
+        """Insert a service-stamped SYSTEM message (``sender_id=None``).
+
+        A thin ergonomic wrapper over :pymeth:`create_message` for cross-context
+        callers (e.g. the activities echo) that namespaces a service-owned
+        ``metadata["type"]``. The ``type`` is always service-stamped here, never
+        forgeable by a client."""
+        stamped: dict[str, object] = {**(metadata or {}), "type": message_type}
+        return await self._messages.create(
+            chatroom_id=chatroom_id,
+            sender_type=SenderType.SYSTEM,
+            sender_id=None,
+            content_md=content_md,
+            metadata=stamped,
         )
 
     # -- Code-Interpreter staging (read-only) ----------------------------------
