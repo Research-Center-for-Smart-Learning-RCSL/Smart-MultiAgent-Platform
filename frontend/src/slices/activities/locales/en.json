@@ -1,0 +1,22 @@
+{
+  "activities": {
+    "host": {
+      "outcome": "Outcome",
+      "submitFailed": "Could not submit. Please try again."
+    },
+    "outcome": {
+      "pending": "Validating…",
+      "validated": "Validated",
+      "valid": "Valid",
+      "invalid": "Invalid",
+      "error": "Validation error"
+    },
+    "form": {
+      "submit": "Submit",
+      "selectPlaceholder": "Select…",
+      "jsonPlaceholder": "Enter JSON…",
+      "invalidJson": "Enter valid JSON.",
+      "fieldInvalid": "This value is not valid."
+    }
+  }
+}

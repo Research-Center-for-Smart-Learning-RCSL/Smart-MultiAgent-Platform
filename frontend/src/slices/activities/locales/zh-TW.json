@@ -1,0 +1,22 @@
+{
+  "activities": {
+    "host": {
+      "outcome": "結果",
+      "submitFailed": "無法提交，請再試一次。"
+    },
+    "outcome": {
+      "pending": "驗證中…",
+      "validated": "已驗證",
+      "valid": "通過",
+      "invalid": "未通過",
+      "error": "驗證錯誤"
+    },
+    "form": {
+      "submit": "提交",
+      "selectPlaceholder": "請選擇…",
+      "jsonPlaceholder": "輸入 JSON…",
+      "invalidJson": "請輸入有效的 JSON。",
+      "fieldInvalid": "此值無效。"
+    }
+  }
+}
