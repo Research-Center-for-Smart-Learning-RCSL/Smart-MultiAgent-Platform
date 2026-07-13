@@ -168,6 +168,30 @@ class TestCreate:
         )
 
     @patch("contexts.agents.application.agent_service.audit.emit", new_callable=AsyncMock)
+    async def test_create_forwards_sampling(self, _audit) -> None:
+        agent = _make_agent()
+        agents = AsyncMock()
+        agents.count_active.return_value = 0
+        agents.create.return_value = agent
+        keys = AsyncMock()
+        keys.get_key_group.return_value = MagicMock(project_id=_PROJECT_ID)
+        tools = AsyncMock()
+        svc = _make_service(agent_repo=agents, keys_facade=keys, tool_repo=tools)
+
+        # temperature=0.0 must be persisted as a value, not confused with "unset".
+        await svc.create(
+            project_id=_PROJECT_ID,
+            draft=_make_draft(temperature=0.0, top_p=1.0, seed=42),
+            actor_user_id=_USER_ID,
+            actor_ip=None,
+        )
+
+        kwargs = agents.create.call_args.kwargs
+        assert kwargs["temperature"] == 0.0
+        assert kwargs["top_p"] == 1.0
+        assert kwargs["seed"] == 42
+
+    @patch("contexts.agents.application.agent_service.audit.emit", new_callable=AsyncMock)
     async def test_rag_create_enables_file_search_singleton(self, _audit) -> None:
         rag_id = uuid.uuid4()
         agent = _make_agent(rag_config_id=rag_id)
@@ -391,6 +415,51 @@ class TestPatch:
         agents.patch.assert_awaited_once()
         call_values = agents.patch.call_args.kwargs["values"]
         assert call_values["name"] == "Renamed"
+
+    @patch("contexts.agents.application.agent_service.audit.emit", new_callable=AsyncMock)
+    async def test_patch_sets_sampling(self, _audit) -> None:
+        current = _make_agent(version=1)
+        updated = _make_agent(version=2)
+        agents = AsyncMock()
+        agents.get.return_value = current
+        agents.patch.return_value = updated
+        svc = _make_service(agent_repo=agents)
+
+        # temperature=0.0 is a real value (the reproducible-scoring setting), not a clear.
+        await svc.patch(
+            agent_id=current.id,
+            draft=AgentDraft(temperature=0.0, top_p=0.9, seed=7),
+            expected_version=1,
+            actor_user_id=_USER_ID,
+            actor_ip=None,
+        )
+
+        values = agents.patch.call_args.kwargs["values"]
+        assert values["temperature"] == 0.0
+        assert values["top_p"] == 0.9
+        assert values["seed"] == 7
+
+    @patch("contexts.agents.application.agent_service.audit.emit", new_callable=AsyncMock)
+    async def test_patch_clears_sampling(self, _audit) -> None:
+        current = _make_agent(version=1)
+        updated = _make_agent(version=2)
+        agents = AsyncMock()
+        agents.get.return_value = current
+        agents.patch.return_value = updated
+        svc = _make_service(agent_repo=agents)
+
+        await svc.patch(
+            agent_id=current.id,
+            draft=AgentDraft(clear_temperature=True, clear_top_p=True, clear_seed=True),
+            expected_version=1,
+            actor_user_id=_USER_ID,
+            actor_ip=None,
+        )
+
+        values = agents.patch.call_args.kwargs["values"]
+        assert values["temperature"] is None
+        assert values["top_p"] is None
+        assert values["seed"] is None
 
     @patch("contexts.agents.application.agent_service.audit.emit", new_callable=AsyncMock)
     async def test_empty_patch_no_audit(self, mock_audit) -> None:
