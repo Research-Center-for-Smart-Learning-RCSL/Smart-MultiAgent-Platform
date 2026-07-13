@@ -110,6 +110,9 @@ def _chat_body(payload: dict[str, Any]) -> dict[str, Any]:
         gen["maxOutputTokens"] = payload["max_tokens"]
     if payload.get("temperature") is not None:
         gen["temperature"] = payload["temperature"]
+    if payload.get("top_p") is not None:
+        gen["topP"] = payload["top_p"]
+    # Gemini has no seed parameter; a configured seed is a documented no-op here.
     # Cross-provider effort -> Gemini thinking level (Gemini 2.5+/3+; the REST
     # enum is upper-case). An unsupported model rejects it as a normal error.
     if payload.get("effort"):
