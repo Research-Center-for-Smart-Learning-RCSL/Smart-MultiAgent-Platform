@@ -106,6 +106,26 @@ class TestRestoreUser:
         # The clear UPDATE raised before any reset; no audit emitted.
         audit_emit.assert_not_awaited()
 
+    @patch("contexts.identity.application.admin_service.audit.emit", new_callable=AsyncMock)
+    async def test_previously_banned_user_is_restored_to_banned(self, audit_emit) -> None:
+        # Restore reverses a deletion; it must not silently lift a ban. A user
+        # banned before soft-delete (banned_reason preserved through delete) is
+        # routed straight back to BANNED, and its ban metadata is never wiped.
+        db = AsyncMock()
+        db.execute.return_value = SimpleNamespace(rowcount=1)
+        svc = AdminService(db)
+
+        await svc.restore_user(resource_id=uuid.uuid4(), admin_user_id=_ADMIN, actor_ip=None)
+
+        # The status reset is the second UPDATE (after the guarded deleted_at clear).
+        reset_stmt = db.execute.await_args_list[1].args[0]
+        compiled = str(reset_stmt).lower()
+        # A pre-existing ban (banned_reason set) routes back to BANNED, not ACTIVE.
+        assert "banned_reason is not null" in compiled
+        # Ban metadata is left intact — restore never nulls banned_at/banned_reason.
+        assert "banned_at" not in compiled
+        assert "set banned_reason" not in compiled
+
 
 # --------------------------------------------------------------------------- #
 # workflow — WorkflowService.admin_restore
