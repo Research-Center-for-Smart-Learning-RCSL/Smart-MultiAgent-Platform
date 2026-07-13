@@ -2042,4 +2042,22 @@ Added by the 2026-07-05 design session (task dossier: `docs/tasks/2026-07-05-pro
 
 ---
 
+## 30. Structured Activities
+
+Added by the 2026-07-13 design session (task dossier: `docs/tasks/2026-07-13-activities-platform-core/`). A generic platform capability for typed, schema-validated, server-scored participant submissions within a room, on which education/research use cases are built as config + plugins + data. Note: "activity" here is a bounded context (structured participant tasks) and is distinct from the internal workflow DAG-node jargon in [R14.01]. This chapter also extends the bounded-context enumeration in [R3.04] with the `activities` context.
+
+- **[R30.01]** The `activities` bounded context stores typed interaction events alongside free-text chat. An `ActivityType` registers a payload JSON Schema and a validator configuration; an `ActivitySubmission` is the authoritative record of one participant submission; an `ActivitySession` groups a subject's submissions to a type and carries a server-assigned monotonic attempt number.
+- **[R30.02]** `ActivityType` is project-scoped; registration requires Project Owner capability. `(project_id, key)` is unique among non-deleted types. A registered payload schema must be well-formed JSON Schema; an in-process validator reference must name a registered validator.
+- **[R30.03]** Scoring is server-side and authoritative. A submission's `is_valid`, `error_class`, and `sub_scores` are computed by the configured validator on the server; client-supplied score or attempt-number fields are never trusted or persisted.
+- **[R30.04]** Every submission payload is validated against its `ActivityType` payload JSON Schema before persistence or validator dispatch; violations are rejected (422).
+- **[R30.05]** A validator has one of three kinds: `in_process` (synchronous, a registered pure scoring function; the platform ships no domain validators), `mcp`, or `webhook` (both asynchronous via a worker job that writes the result back). The `activities` context never imports the `agents` context; MCP/webhook composition is performed in the worker layer through the agents facade only.
+- **[R30.06]** A submission carries two orthogonal states: `validation_status` (`pending`, `validated`, `error`) describing whether the validator ran, and `is_valid` describing answer correctness (defined only when `validated`). Async validations that never complete are swept to `error` by a watchdog.
+- **[R30.07]** Webhook validators make outbound calls only through the egress proxy (host allowlist, resolved-IP screening, DNS-rebinding pinning, credential stripping) with a per-project rate limit and fail-closed authentication.
+- **[R30.08]** On submission the context echoes a service-stamped SYSTEM message into the room transcript for readability; asynchronous validation results are not re-echoed. The `ActivitySubmission` remains the authoritative record. Clients cannot supply message metadata.
+- **[R30.09]** Every activities endpoint is tenant-isolated: room-scoped endpoints gate through the room-access chain; project-scoped registration gates through project membership/ownership. No cross-context SQL joins.
+- **[R30.10]** The context exposes a generic aggregation read model (per subject/session/room: counts, error-class distribution, latency statistics) for downstream dashboards, observers, and reactive rules.
+- **[R30.11]** Type registration, submission, and validation emit audit events.
+
+---
+
 *End of document.*
