@@ -1,6 +1,6 @@
 ---
 type: feature
-status: approved
+status: implemented
 created: 2026-07-13
 requirements: [R30.01, R30.03, R30.08]
 depends_on: [2026-07-13-activities-platform-core]
@@ -246,25 +246,35 @@ Touches untrusted-content rendering, WebSocket, user auth, and plugin execution 
 
 ## 11. Acceptance Criteria
 
-- [ ] AC-1: For an `ActivityType` with a registered first-party plugin, `ActivityHost` mounts
+- [x] AC-1: For an `ActivityType` with a registered first-party plugin, `ActivityHost` mounts
   the plugin and `ctx.emit(payload)` submits via the api-client; the returned server result
-  (not a client score) renders as the outcome.
-- [ ] AC-2: For an `ActivityType` with **no** plugin, `SchemaForm` renders fields from
+  (not a client score) renders as the outcome. *(ActivityHost.test.ts "plugin path"; the plugin
+  renders into the host-owned node, `emit` routes through `submitActivity`, and the backend
+  `validation_status`/`is_valid` render via `ActivityOutcomeBadge`.)*
+- [x] AC-2: For an `ActivityType` with **no** plugin, `SchemaForm` renders fields from
   `payload_schema`, validates client-side, and submits the object; an unsupported construct
-  falls back to a labelled JSON textarea (no field dropped).
-- [ ] AC-3: The SDK `ctx` surface exposes only `emit`/`t`/`schema`/`session` (verified by a
+  falls back to a labelled JSON textarea (no field dropped). *(schemaForm.test.ts +
+  SchemaForm.render.test.ts + ActivityHost.test.ts "form-renderer path"; an `object` property
+  degrades to a `<textarea>`, every property yields a control.)*
+- [x] AC-3: The SDK `ctx` surface exposes only `emit`/`t`/`schema`/`session` (verified by a
   type-level test + a runtime assertion that `ctx` has no other enumerable members); a
-  well-behaved plugin performs all I/O through `emit`. (Enforced non-reachability for untrusted
-  plugins is the deferred `IframeBridge`, FU-1 — not claimed for v1 in-process.)
-- [ ] AC-4: `activity.created` renders a `pending` outcome; a later `activity.validated`
-  transitions the same submission to its final outcome without a full refetch.
-- [ ] AC-5: A client-supplied score field in a plugin payload is ignored — the rendered outcome
-  reflects only the backend result.
-- [ ] AC-6: The slice passes `pnpm lint` (boundaries + no-bare-strings), `pnpm typecheck`,
+  well-behaved plugin performs all I/O through `emit`. *(sdk.test.ts: `Object.keys(ctx).sort()`
+  === `['emit','schema','session','t']` + a `keyof ActivityRenderCtx` type-level assertion.)*
+- [x] AC-4: `activity.created` renders a `pending` outcome; a later `activity.validated`
+  transitions the same submission to its final outcome without a full refetch. *(activities.store.test.ts
+  pending→validated reducer; `useChatroomSocket.ts` drives it, keyed by submission id, no refetch.)*
+- [x] AC-5: A client-supplied score field in a plugin payload is ignored — the rendered outcome
+  reflects only the backend result. *(ActivityHost.test.ts "server-side scoring authority": a
+  payload of `{score:999,is_valid:true}` is forwarded verbatim yet the badge shows the backend's
+  `invalid`.)*
+- [x] AC-6: The slice passes `pnpm lint` (boundaries + no-bare-strings), `pnpm typecheck`,
   `pnpm build`, and the view-test gate; `conversation → activities` is the only new edge and no
-  cycle exists.
-- [ ] AC-7: The host routes v1 calls through an `InProcessBridge` behind the `HostBridge`
+  cycle exists. *(All four gates green; `activities` deps = `[]`, `conversation` gains
+  `activities`; view-test gate N/A — the slice has no `views/`.)*
+- [x] AC-7: The host routes v1 calls through an `InProcessBridge` behind the `HostBridge`
   interface; an `IframeBridge` stub exists with the postMessage message-kind contract typed.
+  *(sdk.test.ts: IframeBridge.mount throws (deferred), message kinds typed both directions;
+  ActivityHost.test.ts "bridge selection" injects a HostBridge and asserts mount is used.)*
 
 ## 12. Test Plan
 
@@ -292,7 +302,26 @@ Append to chapter **§30** (after the observer entries), continuing the numberin
 
 ## 15. Deviation Log
 
-Appended by /build.
+- D-1: The generic form-renderer's pure helper module is `components/schemaFields.ts`, not
+  `schemaForm.ts` as the design implied. `SchemaForm.vue` + `schemaForm.ts` collide
+  case-insensitively on Windows, which broke module resolution and the composite-project file
+  list (`vue-tsc` TS6307). Renamed to `schemaFields.ts`; behavior identical.
+- D-2: Client-side validation is Zod-direct (`jsonSchemaToZod` + `safeParse` on submit), not
+  vee-validate's `toTypedSchema` that §9's reuse inventory suggested. §5.3 only requires "a Zod
+  schema derived from the JSON schema (for UX only)"; a fully-dynamic vee-validate `useForm` adds
+  complexity with no spec benefit. The derived-Zod requirement is met; the server remains
+  authoritative.
+- D-3 (freshness, no behavior change): §4 cited the `SLICES`/`SLICE_DEPS` registry as 8 slices;
+  the live registry has 10 (adds `agent-groups`, `prompt-studio`) and `conversation` already
+  depended on `agent-groups`. Followed the current registry: added `activities` to `SLICES`,
+  `activities: []` to `SLICE_DEPS`, and prepended `activities` to `conversation`'s deps. The
+  one-way `conversation → activities` edge (Q-3) is unchanged in intent.
+- Note (not a deviation): `ActivityHost` is exported but not embedded into `ChatroomView`.
+  Consistent with §6 (which lists no `ChatroomView` edit) and the non-goals — the in-room
+  activation trigger and session lifecycle are the out-of-scope activation UX (see FU-3). The
+  host is complete and test-verified as a library component; it simply has no in-app mount point
+  yet, so live click-through verification is deferred to FU-3. Behavioral verification for this
+  task is via the component-mount tests (real components, asserted rendered outcomes).
 
 ## 16. Follow-ups
 
@@ -300,3 +329,14 @@ Appended by /build.
   flow — required before any untrusted third-party plugin may render in another user's
   authenticated browser. Deferred deliberately (no threat until uploads exist); the contract in
   this dossier makes it a bridge swap, not a rearchitecture.
+- FU-2 (backend): The WS `activity.validated` event carries only `{submission_id,
+  validation_status}` — no `is_valid`/`sub_scores`. After **async** (mcp/webhook) validation the
+  frontend can therefore show the validated/error *status* but not pass/fail without a refetch,
+  and there is no single-submission GET. Moot for v1 first-party **in-process** validators (the
+  submit HTTP response already carries `is_valid`). When async validators drive first-party UI,
+  enrich the event with `is_valid`/`sub_scores` or add a submission GET; the store already keeps
+  richer local data and would consume it with no reducer change.
+- FU-3: The in-chatroom **activation UX** — where/when an activity becomes active in a room,
+  opening/closing an `ActivitySession`, and mounting `ActivityHost` inside `ChatroomView`. This
+  task delivers the host + SDK as consumable pieces; the trigger and session lifecycle are the
+  next slice of work.
