@@ -124,6 +124,27 @@ class ActivitySubmissionRepository:
         )
         return uuid.UUID(str(row.scalar_one()))
 
+    async def count_recent_same_error(
+        self, *, session_id: uuid.UUID, error_class: str, since: dt.datetime
+    ) -> int:
+        """Rolling aggregate for the reactive-rules signal (R30.12): submissions in
+        this session since ``since`` carrying the same non-null ``error_class``.
+        Bounded by the ``(session_id)`` index; best-effort, numeric-only (SEL
+        compares int/float). Soft-deleted rows are excluded."""
+        count = (
+            await self._db.execute(
+                sa.select(sa.func.count()).where(
+                    sa.and_(
+                        _SUB.c.session_id == session_id,
+                        _SUB.c.error_class == error_class,
+                        _SUB.c.created_at >= since,
+                        _SUB.c.deleted_at.is_(None),
+                    )
+                )
+            )
+        ).scalar_one()
+        return int(count)
+
     async def get(self, submission_id: uuid.UUID) -> ActivitySubmission | None:
         row = (
             await self._db.execute(

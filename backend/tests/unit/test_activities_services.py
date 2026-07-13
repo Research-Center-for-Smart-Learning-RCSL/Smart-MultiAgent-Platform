@@ -319,6 +319,116 @@ class TestSubmitInProcess:
         assert kwargs["error_class"] == "validator_error"
 
 
+def _make_submission(**over: Any) -> ActivitySubmission:
+    base: dict[str, Any] = {
+        "id": uuid.uuid4(),
+        "session_id": uuid.uuid4(),
+        "activity_type_id": uuid.uuid4(),
+        "chatroom_id": uuid.uuid4(),
+        "producer_user_id": uuid.uuid4(),
+        "payload": {},
+        "attempt_no": 2,
+        "validation_status": ValidationStatus.VALIDATED,
+        "is_valid": False,
+        "error_class": "wrong_component",
+        "sub_scores": {},
+        "latency_ms": 42,
+        "retain_until": None,
+        "created_at": _NOW,
+        "validated_at": _NOW,
+    }
+    base.update(over)
+    return ActivitySubmission(**base)
+
+
+def _wire_signal_service(
+    submission: ActivitySubmission, activity_type: ActivityType, *, same_error_count: int = 0
+) -> tuple[SubmissionService, MagicMock]:
+    session = ActivitySession(
+        id=submission.session_id,
+        activity_type_id=submission.activity_type_id,
+        chatroom_id=submission.chatroom_id,
+        subject_user_id=uuid.uuid4(),
+        status=SessionStatus.OPEN,
+        created_at=_NOW,
+    )
+    svc = SubmissionService(MagicMock())
+    svc._sub_repo = MagicMock()
+    svc._sub_repo.get = AsyncMock(return_value=submission)
+    svc._sub_repo.count_recent_same_error = AsyncMock(return_value=same_error_count)
+    svc._type_repo = MagicMock()
+    svc._type_repo.get = AsyncMock(return_value=activity_type)
+    svc._session_repo = MagicMock()
+    svc._session_repo.get = AsyncMock(return_value=session)
+    return svc, svc._sub_repo
+
+
+class TestBuildActivitySignal:
+    """AC-1: the reactive-rules signal payload — numeric rolling on completion,
+    no error_class/rolling while pending, all fields from the authoritative row."""
+
+    async def test_completion_attaches_numeric_rolling(self) -> None:
+        activity_type = _make_type(key="quiz")
+        submission = _make_submission(
+            activity_type_id=activity_type.id, error_class="wrong_component", latency_ms=42
+        )
+        svc, sub_repo = _wire_signal_service(
+            activity_type=activity_type, submission=submission, same_error_count=3
+        )
+
+        payload = await svc.build_activity_signal(submission_id=submission.id)
+
+        assert payload is not None
+        assert payload["activity_type_key"] == "quiz"
+        assert payload["validation_status"] == "validated"
+        assert payload["error_class"] == "wrong_component"
+        rolling = payload["rolling"]
+        assert rolling["same_error_count"] == 3
+        assert isinstance(rolling["same_error_count"], int)
+        assert rolling["window_seconds"] == ss._ROLLING_WINDOW_SECONDS
+        assert rolling["latency_ms"] == 42
+        sub_repo.count_recent_same_error.assert_awaited_once()
+
+    async def test_completion_without_error_class_counts_zero(self) -> None:
+        activity_type = _make_type()
+        submission = _make_submission(activity_type_id=activity_type.id, is_valid=True, error_class=None)
+        svc, sub_repo = _wire_signal_service(activity_type=activity_type, submission=submission)
+
+        payload = await svc.build_activity_signal(submission_id=submission.id)
+
+        assert payload is not None
+        assert payload["rolling"]["same_error_count"] == 0
+        # No error class → the count query is skipped entirely.
+        sub_repo.count_recent_same_error.assert_not_awaited()
+
+    async def test_pending_omits_error_class_and_rolling(self) -> None:
+        activity_type = _make_type()
+        submission = _make_submission(
+            activity_type_id=activity_type.id,
+            validation_status=ValidationStatus.PENDING,
+            is_valid=None,
+            error_class=None,
+            latency_ms=None,
+            validated_at=None,
+        )
+        svc, sub_repo = _wire_signal_service(activity_type=activity_type, submission=submission)
+
+        payload = await svc.build_activity_signal(submission_id=submission.id)
+
+        assert payload is not None
+        assert payload["validation_status"] == "pending"
+        assert payload["error_class"] is None
+        assert "rolling" not in payload
+        sub_repo.count_recent_same_error.assert_not_awaited()
+
+    async def test_missing_submission_returns_none(self) -> None:
+        svc = SubmissionService(MagicMock())
+        svc._sub_repo = MagicMock()
+        svc._sub_repo.get = AsyncMock(return_value=None)
+
+        assert await svc.build_activity_signal(submission_id=uuid.uuid4()) is None
+
+
 class TestOpenSessionTenantIsolation:
     async def test_cross_project_type_rejected(self) -> None:
         from contexts.activities.application.session_service import ActivitySessionService

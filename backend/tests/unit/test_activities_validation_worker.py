@@ -70,6 +70,10 @@ def _type(kind: ValidatorKind, config: dict[str, Any]) -> ActivityType:
 
 
 def _patches(activities_facade: MagicMock, agents_facade: MagicMock, db: MagicMock):
+    # The completion path builds a reactive-rules signal; default it to a no-op so
+    # tests focused on write-back don't have to wire it (a dedicated test asserts it).
+    if not isinstance(getattr(activities_facade, "build_activity_signal", None), AsyncMock):
+        activities_facade.build_activity_signal = AsyncMock(return_value=None)
     return (
         patch("shared_kernel.db.session.async_session", return_value=_FakeSession(db)),
         patch("contexts.activities.interfaces.facade.ActivitiesFacade", return_value=activities_facade),
@@ -177,6 +181,88 @@ class TestValidateActivitySubmission:
         assert result == "not-pending"
         af.record_validation.assert_not_awaited()
         af.record_validation_error.assert_not_awaited()
+
+
+class TestActivitySignalEmit:
+    """AC-1: the completion emit fires the reactive-rules signal; a redelivered
+    (already-terminal) job does not re-emit."""
+
+    async def test_completion_emits_activity_signal(self) -> None:
+        sub = _submission(ValidationStatus.PENDING)
+        payload = {
+            "chatroom_id": str(sub.chatroom_id),
+            "activity_type_key": "quiz",
+            "rolling": {"same_error_count": 3},
+        }
+        af = MagicMock()
+        af.get_submission = AsyncMock(return_value=sub)
+        af.get_type = AsyncMock(
+            return_value=_type(ValidatorKind.WEBHOOK, {"url": "https://validator.example.com/score"})
+        )
+        af.record_validation = AsyncMock(return_value=True)
+        af.build_activity_signal = AsyncMock(return_value=payload)
+        agents = MagicMock()
+        agents.egress_request = AsyncMock(
+            return_value=SimpleNamespace(blocked=None, status=200, body=b'{"is_valid": true}')
+        )
+        db = MagicMock()
+        db.commit = AsyncMock()
+
+        p1, p2, p3, p4, p5 = _patches(af, agents, db)
+        with p1, p2, p3, p4, p5, patch("shared_kernel.queue.enqueue", new=AsyncMock()) as enq:
+            result = await worker.validate_activity_submission({}, str(sub.id))
+
+        assert result == "validated"
+        af.build_activity_signal.assert_awaited_once_with(submission_id=sub.id)
+        enq.assert_awaited_once()
+        assert enq.await_args.args[:2] == ("workflow_signal", "activity")
+        assert enq.await_args.args[2] is payload
+
+    async def test_emit_failure_does_not_fail_the_job(self) -> None:
+        sub = _submission(ValidationStatus.PENDING)
+        af = MagicMock()
+        af.get_submission = AsyncMock(return_value=sub)
+        af.get_type = AsyncMock(
+            return_value=_type(ValidatorKind.WEBHOOK, {"url": "https://validator.example.com/score"})
+        )
+        af.record_validation = AsyncMock(return_value=True)
+        af.build_activity_signal = AsyncMock(return_value={"chatroom_id": "x"})
+        agents = MagicMock()
+        agents.egress_request = AsyncMock(
+            return_value=SimpleNamespace(blocked=None, status=200, body=b'{"is_valid": true}')
+        )
+        db = MagicMock()
+        db.commit = AsyncMock()
+
+        p1, p2, p3, p4, p5 = _patches(af, agents, db)
+        with (
+            p1,
+            p2,
+            p3,
+            p4,
+            p5,
+            patch("shared_kernel.queue.enqueue", new=AsyncMock(side_effect=RuntimeError("redis down"))),
+        ):
+            result = await worker.validate_activity_submission({}, str(sub.id))
+
+        # A dropped signal must not fail a committed validation write-back.
+        assert result == "validated"
+
+    async def test_redelivery_does_not_reemit(self) -> None:
+        sub = _submission(ValidationStatus.VALIDATED)  # already terminal
+        af = MagicMock()
+        af.get_submission = AsyncMock(return_value=sub)
+        af.build_activity_signal = AsyncMock()
+        db = MagicMock()
+        db.commit = AsyncMock()
+
+        p1, p2, p3, p4, p5 = _patches(af, MagicMock(), db)
+        with p1, p2, p3, p4, p5, patch("shared_kernel.queue.enqueue", new=AsyncMock()) as enq:
+            result = await worker.validate_activity_submission({}, str(sub.id))
+
+        assert result == "not-pending"
+        af.build_activity_signal.assert_not_awaited()
+        enq.assert_not_awaited()
 
 
 class TestWatchdog:
