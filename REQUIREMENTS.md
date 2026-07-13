@@ -2057,6 +2057,9 @@ Added by the 2026-07-13 design session (task dossier: `docs/tasks/2026-07-13-act
 - **[R30.09]** Every activities endpoint is tenant-isolated: room-scoped endpoints gate through the room-access chain; project-scoped registration gates through project membership/ownership. No cross-context SQL joins.
 - **[R30.10]** The context exposes a generic aggregation read model (per subject/session/room: counts, error-class distribution, latency statistics) for downstream dashboards, observers, and reactive rules.
 - **[R30.11]** Type registration, submission, and validation emit audit events.
+- **[R30.12]** The activities context emits a best-effort `activity` workflow signal at submission and at validation completion; the completion signal carries the final outcome (`is_valid`/`error_class`) and a server-computed rolling aggregate (numeric counts/latency over a bounded recent window keyed by error class). Emission never blocks or fails the submission or validation, and all signal fields derive from the authoritative record, not the client.
+- **[R30.13]** The workflow engine supports an `activity_event` trigger type and an `activity_in_room` wait kind. Rules that gate on an aggregate threshold must branch via a condition node evaluating an SEL expression over the trigger payload (edge guards are not evaluated at runtime).
+- **[R30.14]** Reactive automation for activities runs through the workflow engine, not the observer. Impasse detection and any pedagogical rule are project-authored SEL expressions and workflows; the platform ships no domain rule.
 
 ---
 
