@@ -24,7 +24,14 @@ if (!local.trigger_type) {
   local.trigger_type = 'manual'
 }
 
-const TRIGGER_TYPES = ['manual', 'cron', 'message_received', 'a2a_event', 'wakeup_signal'] as const
+const TRIGGER_TYPES = [
+  'manual',
+  'cron',
+  'message_received',
+  'a2a_event',
+  'wakeup_signal',
+  'activity_event',
+] as const
 
 const ROLE_OPTIONS = ['Admin', 'OrgOwner', 'OrgMember', 'ProjectOwner', 'ProjectMember'] as const
 
@@ -226,6 +233,38 @@ function isInArray(field: string, item: string): boolean {
           :model-value="(local.agent_id as string) ?? ''"
           :options="agentOptions"
           @update:model-value="update('agent_id', $event)"
+        />
+      </SFormField>
+    </div>
+
+    <!-- Activity Event: chatroom_id, optional activity_type_key -->
+    <div
+      v-if="local.trigger_type === 'activity_event'"
+      class="space-y-3"
+    >
+      <SFormField
+        :label="t('workflow.config.chatroomId')"
+        name="activity-chatroom-id"
+        required
+      >
+        <SSelect
+          id="activity-chatroom-id"
+          :model-value="(local.chatroom_id as string) ?? ''"
+          :options="chatroomOptions"
+          @update:model-value="update('chatroom_id', $event)"
+        />
+      </SFormField>
+
+      <SFormField
+        :label="t('workflow.config.activityTypeKey')"
+        name="activity-type-key"
+      >
+        <SInput
+          id="activity-type-key"
+          type="text"
+          :model-value="(local.activity_type_key as string) ?? ''"
+          :placeholder="t('workflow.config.activityTypeKeyPlaceholder')"
+          @update:model-value="update('activity_type_key', $event)"
         />
       </SFormField>
     </div>

@@ -23,6 +23,7 @@ export type TriggerType =
   | 'message_received'
   | 'a2a_event'
   | 'wakeup_signal'
+  | 'activity_event'
 
 export type RunState = 'running' | 'waiting' | 'succeeded' | 'failed' | 'cancelled'
 
