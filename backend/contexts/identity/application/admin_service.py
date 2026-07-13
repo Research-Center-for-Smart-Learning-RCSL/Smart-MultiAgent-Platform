@@ -373,9 +373,11 @@ class AdminService:
     ) -> bool:
         """Admin restore of a soft-deleted user (R8.13). Clears deleted_at and
         re-activates the account: status back to ACTIVE (or PENDING if the email
-        was never verified) and any ban cleared. Emits admin.restore_resource.
-        Restoring into an email a live account has since taken raises
-        RestoreConflict (route maps to 409)."""
+        was never verified). A user who was banned *before* being soft-deleted is
+        restored back to BANNED with its ban metadata intact — restore reverses a
+        deletion, it does not lift a ban (unban is a separate admin action). Emits
+        admin.restore_resource. Restoring into an email a live account has since
+        taken raises RestoreConflict (route maps to 409)."""
         try:
             result = await self._db.execute(
                 t.users.update()
@@ -395,12 +397,16 @@ class AdminService:
             t.users.update()
             .where(t.users.c.id == resource_id)
             .values(
+                # A ban survives soft-delete (soft_delete preserves banned_reason/
+                # banned_at), so a non-null banned_reason means this account was
+                # banned before deletion — restore it straight back to BANNED rather
+                # than silently reactivating it. Otherwise ACTIVE/PENDING by email
+                # verification. Ban metadata is left untouched (never nulled here).
                 status=sa.case(
+                    (t.users.c.banned_reason.isnot(None), UserStatus.BANNED.value),
                     (t.users.c.email_verified == True, UserStatus.ACTIVE.value),  # noqa: E712
                     else_=UserStatus.PENDING.value,
                 ),
-                banned_reason=None,
-                banned_at=None,
             )
         )
         await audit.emit(
