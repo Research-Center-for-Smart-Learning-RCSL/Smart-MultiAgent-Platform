@@ -180,7 +180,7 @@
       "type": "object",
       "required": ["trigger_type"],
       "properties": {
-        "trigger_type": { "enum": ["manual", "cron", "message_received", "a2a_event", "wakeup_signal"] }
+        "trigger_type": { "enum": ["manual", "cron", "message_received", "a2a_event", "wakeup_signal", "activity_event"] }
       },
       "allOf": [
         { "if": { "properties": { "trigger_type": { "const": "manual" } }, "required": ["trigger_type"] },
@@ -227,6 +227,19 @@
           "then": {
             "properties": { "agent_id": { "type": "string", "format": "uuid" } },
             "required": ["agent_id"]
+          } },
+        { "if": { "properties": { "trigger_type": { "const": "activity_event" } }, "required": ["trigger_type"] },
+          "then": {
+            "properties": {
+              "chatroom_id":         { "type": "string", "format": "uuid" },
+              "activity_type_key":   { "type": "string", "maxLength": 128 },
+              "activity_type_keys":  {
+                "type": "array",
+                "items": { "type": "string", "maxLength": 128 },
+                "minItems": 1
+              }
+            },
+            "required": ["chatroom_id"]
           } }
       ]
     },
@@ -331,7 +344,7 @@
       "type": "object",
       "required": ["event_type", "timeout_seconds"],
       "properties": {
-        "event_type":      { "enum": ["message_in_room", "a2a_message", "timer", "variable_matches"] },
+        "event_type":      { "enum": ["message_in_room", "a2a_message", "timer", "variable_matches", "activity_in_room"] },
         "timeout_seconds": { "type": "integer", "minimum": 1, "maximum": 86400 }
       },
       "allOf": [
@@ -361,6 +374,19 @@
           "then": {
             "properties": { "expression": { "$ref": "#/$defs/expression" } },
             "required": ["expression"]
+          } },
+        { "if": { "properties": { "event_type": { "const": "activity_in_room" } }, "required": ["event_type"] },
+          "then": {
+            "properties": {
+              "chatroom_id":        { "type": "string", "format": "uuid" },
+              "activity_type_key":  { "type": "string", "maxLength": 128 },
+              "activity_type_keys": {
+                "type": "array",
+                "items": { "type": "string", "maxLength": 128 },
+                "minItems": 1
+              }
+            },
+            "required": ["chatroom_id"]
           } }
       ]
     },
