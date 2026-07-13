@@ -217,6 +217,37 @@ class TestPurgeSoftDeletedTenancy:
         assert count == 3 * len(_SOFT_DELETE_TABLES)
         assert session.execute.await_count == len(_SOFT_DELETE_TABLES)
 
+    @patch("app.workers.tasks.retention.audit.emit", new_callable=AsyncMock)
+    @patch("app.workers.tasks.retention.now", return_value=_NOW)
+    async def test_retention_guard_covers_whole_cascade_path(self, _now, _audit) -> None:
+        """D-1: the retain_until guard must defer purging chatrooms AND their
+        ancestors (projects, orgs), since chatrooms cascade from projects and
+        projects from orgs — otherwise a project/org purge deletes retained
+        research early."""
+        from sqlalchemy.dialects import postgresql
+
+        from app.workers.tasks.retention import _purge_soft_deleted_tenancy
+        from contexts.agents.infrastructure.tables import agents as agents_tbl
+        from contexts.conversation.infrastructure.tables import chatrooms as chatrooms_tbl
+        from contexts.tenancy.infrastructure.tables import orgs as orgs_tbl
+        from contexts.tenancy.infrastructure.tables import projects as projects_tbl
+
+        session = AsyncMock()
+        result = MagicMock()
+        result.rowcount = 0
+        session.execute.return_value = result
+
+        await _purge_soft_deleted_tenancy(session)
+
+        compiled = {
+            str(call.args[0].table.name): str(call.args[0].compile(dialect=postgresql.dialect()))
+            for call in session.execute.await_args_list
+        }
+        for guarded in (chatrooms_tbl.name, projects_tbl.name, orgs_tbl.name):
+            assert "retain_until" in compiled[guarded], f"{guarded} purge lacks retention guard"
+        # Tables with no cascade path to a submission carry no guard.
+        assert "retain_until" not in compiled[agents_tbl.name]
+
 
 class TestPurgeAgentInstances:
     @patch("app.workers.tasks.retention.audit.emit", new_callable=AsyncMock)
