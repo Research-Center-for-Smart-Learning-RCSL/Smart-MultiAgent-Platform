@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: approved
+status: implemented
 created: 2026-07-13
 requirements: [R8.13]
 ---
@@ -205,25 +205,32 @@ Test-first. `/build` writes these before touching the fix:
 
 ## 10. Acceptance Criteria
 
-- [ ] AC-1: the §8 route-guard tests fail before the fix and pass after — restoring a
+- [x] AC-1: the §8 route-guard tests fail before the fix and pass after — restoring a
       `project`/`agent`/`workflow`/`chatroom` whose ancestor chain contains a soft-deleted org,
       user, project, or workspace returns **409** (distinct parent-deleted detail) and does not
-      call the child's restore method.
-- [ ] AC-2: the guard walks the **full** chain — a workflow/chatroom under a *live* workspace
-      whose *project* is soft-deleted is still rejected (asserted by a dedicated case).
-- [ ] AC-3: personal (user-owned) projects are covered — restoring a project whose
-      `owner_user_id` is soft-deleted is rejected; org-owned projects check `owner_org_id`
-      (Q-2).
-- [ ] AC-4: happy path preserved — with all ancestors live, each child restore still succeeds
-      (200) and emits its `admin.restore_resource` audit event unchanged; `user`/`org`
-      top-level restores are unaffected.
-- [ ] AC-5: existing 404 (not soft-deleted) and unique-name 409 semantics are unchanged, and
-      the parent-deleted 409 carries a distinct detail message.
-- [ ] AC-6: new facade readers behave — `TenancyFacade.get_org` (deleted-filtered by default;
-      `include_deleted=True` returns the row), and `get_workflow`/`get_chatroom` gain
-      `include_deleted` without masking read errors as not-found.
-- [ ] AC-7: mechanical gates green on touched files — `pytest` (the new + existing restore
-      tests), `ruff check`, and `mypy` on the changed backend modules.
+      call the child's restore method. `TestRestoreRouteAncestorGuard::test_dead_ancestor_blocks_with_409`
+      (8 parametrized cases; verified red before the fix, green after).
+- [x] AC-2: the guard walks the **full** chain — a workflow/chatroom under a *live* workspace
+      whose *project* is soft-deleted is still rejected (the `...-project` cases in the AC-1
+      parametrization stage a live workspace + `get_project` -> None).
+- [x] AC-3: personal (user-owned) projects are covered — restoring a project whose
+      `owner_user_id` is soft-deleted is rejected (`...returns6-user`); org-owned projects check
+      `owner_org_id` (`...returns3-org`, `...returns7-org`) (Q-2).
+- [x] AC-4: happy path preserved — with all ancestors live, each child restore still succeeds
+      (200) and reaches its restore method (`test_all_ancestors_live_restores`); `user`/`org`
+      top-level restores skip the guard entirely (`test_top_level_restore_skips_guard`).
+- [x] AC-5: existing 404 (not soft-deleted / not found) is unchanged — an already-live or
+      missing child falls through to 404, not 409 (`test_already_live_or_missing_child_falls_through_to_404`);
+      unique-name 409 semantics unchanged (`test_maps_restore_conflict_to_409`); the parent-deleted
+      409 carries a distinct detail (`test_parent_deleted_409_detail_is_distinct`).
+- [x] AC-6: new facade readers behave — `TestFacadeReaders`: `TenancyFacade.get_org`
+      (deleted-filtered by default; `include_deleted=True` passes through), `get_workflow`/
+      `get_chatroom` gain `include_deleted`, and `get_workflow` returns `None` on
+      `WorkflowNotFound` while a genuine read error propagates (not masked as not-found).
+- [x] AC-7: mechanical gates on touched files — `test_admin_restore.py` 41 passed; `ruff check`
+      + `ruff format --check` clean on my files; `mypy` on the changed modules introduces no new
+      errors (only pre-existing import-followed debt, none in the new code). Full `pytest tests/unit`:
+      1527 passed, 4 pre-existing failures unrelated to this task (see FU-4).
 
 ## 11. SRS Delta
 
@@ -232,7 +239,30 @@ existing ancestor-liveness invariant; it defines no new behavior.
 
 ## 12. Deviation Log
 
-Appended by /build.
+- D-1: **User-hop liveness needs an explicit `deleted_at` check.** §7 assumed every ancestor
+  `get_*` reader is deleted-filtered so `None` == not live. Verified during build that
+  `IdentityFacade.get_user` -> `UserRepository.get_by_id` does **not** filter soft-deleted
+  (`identity/infrastructure/repositories.py:65-67`), unlike the org/project/workspace/chatroom
+  getters. The guard therefore uses a uniform liveness predicate
+  `_is_live(row) = row is not None and row.deleted_at is None` for the owner checks rather than
+  relying on `None` alone. Design shape and ACs are unchanged (AC-3 still holds); this is a
+  mechanism refinement. All checked domain models expose `deleted_at`.
+- D-2: **`get_org` delegates to `OrgRepository.get`, not `get_by_id`.** §7.1 named `get_by_id`;
+  the actual repository reader is `OrgRepository.get(org_id, *, include_deleted=False)`
+  (`tenancy/infrastructure/repositories.py:72`), which already supports the flag. No behavior
+  difference; the facade method still filters soft-deleted by default.
+- D-3: **`get_workflow` broad-swallow narrowed as §7.2 required.** Confirmed `get_workflow` has
+  no other callers (grep), so narrowing `except Exception` to `except WorkflowNotFound` has zero
+  blast radius; a genuine read error now propagates (AC-6) instead of being masked as `None`.
+
+## 12a. Quality / Security self-audit
+
+- SoC: every ancestor hop resolves through the owning context's facade; no cross-context table
+  reads. Admin-gated (`require_admin`). `resource_id` already validated as `uuid.UUID` at the
+  path boundary; facade readers use parameterized queries (no string SQL). Fail-closed on a dead
+  ancestor, fail-open only to the existing 404 for a missing/already-live child. The 409 detail
+  names only the parent *type* (org/user/project/workspace), not identifiers — acceptable for an
+  admin who already holds full restore powers.
 
 ## 13. Follow-ups
 
@@ -244,3 +274,15 @@ Appended by /build.
   offer an opt-in cascade-restore-ancestors action instead of only blocking.
 - FU-3: consider extracting the ancestor-liveness walk into a shared helper if a second caller
   (e.g. the FU-1 UI query) needs it, to avoid duplicating the chain definition.
+- FU-4: **pre-existing unit failures unrelated to this task**, present on the current (already-
+  committed) tree in code this change does not touch — `tests/unit/test_message_attachments_out.py`
+  (3: pydantic enum rejects a `SimpleNamespace(value=...)` sender_type fixture in
+  `app/api/v1/messages.py::to_out`/`to_attachment_out`) and
+  `tests/unit/test_knowmap_authz.py::...::test_owner_passes_through` (1). Likely fallout from the
+  concurrent activities work; flagged here, not fixed (out of scope).
+- FU-5: **pre-existing `ruff format` drift** at `contexts/workflow/application/workflow_service.py:352`
+  (an unrelated committed line, not this change's hunk at line 114). Left untouched to avoid
+  sweeping unrelated reformatting into this commit; should be formatted by that hunk's owner.
+- FU-6: **behavioral (live) verification deferred.** The new 409 is covered by route-level unit
+  tests with faked facades; a full-stack integration run (compose + admin principal + a seeded
+  soft-deleted hierarchy) was not executed here. Worth an integration test when the FU-1 UI lands.
