@@ -106,7 +106,7 @@ async def _emit_activity_signal(payload: dict[str, Any] | None) -> None:
     try:
         await enqueue("workflow_signal", "activity", payload)
     except Exception:
-        logger.bind(submission_id=str(payload.get("session_id"))).warning(
+        logger.bind(submission_id=str(payload.get("submission_id"))).warning(
             "activity workflow-signal dispatch failed", exc_info=True
         )
 
