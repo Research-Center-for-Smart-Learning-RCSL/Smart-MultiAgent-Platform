@@ -22,6 +22,7 @@ from app.api.v1.knowmap import (
     set_knowmap_document_agents,
     validate_knowmap_agent_allowlist,
 )
+from contexts.knowledge.domain.models import DocumentStatus, ScanStatus
 from shared_kernel.auth.permissions import Decision
 
 _CONFIG_ID = uuid.uuid4()
@@ -109,8 +110,8 @@ class TestSetDocumentAgentsOwnerGate:
             mime="application/pdf",
             size_bytes=1,
             sha256="x",
-            status=SimpleNamespace(value="ready"),
-            scan_status=SimpleNamespace(value="clean"),
+            status=DocumentStatus.READY,
+            scan_status=ScanStatus.CLEAN,
             uploaded_at=datetime(2026, 1, 1),
             agent_ids=[],
         )
