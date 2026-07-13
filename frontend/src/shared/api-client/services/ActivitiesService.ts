@@ -2,6 +2,8 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
+import type { ActivityActivationOut } from '../models/ActivityActivationOut';
+import type { ActivityActivationStartIn } from '../models/ActivityActivationStartIn';
 import type { ActivitySessionOpenIn } from '../models/ActivitySessionOpenIn';
 import type { ActivitySessionOut } from '../models/ActivitySessionOut';
 import type { ActivitySubmissionIn } from '../models/ActivitySubmissionIn';
@@ -13,6 +15,76 @@ import type { CancelablePromise } from '../core/CancelablePromise';
 import { OpenAPI } from '../core/OpenAPI';
 import { request as __request } from '../core/request';
 export class ActivitiesService {
+    /**
+     * Start Activity Activation
+     * @returns ActivityActivationOut Successful Response
+     * @throws ApiError
+     */
+    public static startActivityActivationApiChatroomsChatroomIdActivityActivationsPost({
+        chatroomId,
+        requestBody,
+    }: {
+        chatroomId: string,
+        requestBody: ActivityActivationStartIn,
+    }): CancelablePromise<ActivityActivationOut> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/chatrooms/{chatroom_id}/activity-activations',
+            path: {
+                'chatroom_id': chatroomId,
+            },
+            body: requestBody,
+            mediaType: 'application/json',
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * Get Active Activity Activation
+     * @returns any Successful Response
+     * @throws ApiError
+     */
+    public static getActiveActivityActivationApiChatroomsChatroomIdActivityActivationsActiveGet({
+        chatroomId,
+    }: {
+        chatroomId: string,
+    }): CancelablePromise<(ActivityActivationOut | null)> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/chatrooms/{chatroom_id}/activity-activations/active',
+            path: {
+                'chatroom_id': chatroomId,
+            },
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * End Activity Activation
+     * @returns ActivityActivationOut Successful Response
+     * @throws ApiError
+     */
+    public static endActivityActivationApiChatroomsChatroomIdActivityActivationsActivationIdEndPatch({
+        chatroomId,
+        activationId,
+    }: {
+        chatroomId: string,
+        activationId: string,
+    }): CancelablePromise<ActivityActivationOut> {
+        return __request(OpenAPI, {
+            method: 'PATCH',
+            url: '/api/chatrooms/{chatroom_id}/activity-activations/{activation_id}/end',
+            path: {
+                'chatroom_id': chatroomId,
+                'activation_id': activationId,
+            },
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
     /**
      * Open Activity Session
      * @returns ActivitySessionOut Successful Response

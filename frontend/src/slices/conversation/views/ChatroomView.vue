@@ -138,7 +138,7 @@
       class="chatroom__presence"
     >
       <STabs
-        v-if="showObserverTab"
+        v-if="showRailTabs"
         v-model="railTab"
         :tabs="railTabs"
       >
@@ -159,6 +159,13 @@
             @release="openRelease"
             @delete="onObservationDelete"
             @load-earlier="observations.loadEarlier"
+          />
+        </template>
+        <template #tab-activity>
+          <ActivityPanel
+            :chatroom-id="chatroomId"
+            :project-id="observerProjectId"
+            :is-creator="observations.isCreator.value"
           />
         </template>
       </STabs>
@@ -188,7 +195,7 @@
       @close="peopleDrawerOpen = false"
     >
       <STabs
-        v-if="showObserverTab"
+        v-if="showRailTabs"
         v-model="railTab"
         :tabs="railTabs"
       >
@@ -209,6 +216,13 @@
             @release="openRelease"
             @delete="onObservationDelete"
             @load-earlier="observations.loadEarlier"
+          />
+        </template>
+        <template #tab-activity>
+          <ActivityPanel
+            :chatroom-id="chatroomId"
+            :project-id="observerProjectId"
+            :is-creator="observations.isCreator.value"
           />
         </template>
       </STabs>
@@ -246,12 +260,13 @@ import { useI18n } from 'vue-i18n'
 
 import { useToast, useBreakpoint, useVisualViewport, useConfirmDialog } from '@shared/composables'
 import { SDrawer, SEmptyState, STabs } from '@shared/ui'
-import { ChatBubbleLeftRightIcon, EyeIcon, UsersIcon } from '@heroicons/vue/24/outline'
+import { ChatBubbleLeftRightIcon, EyeIcon, PlayCircleIcon, UsersIcon } from '@heroicons/vue/24/outline'
 import { ApiError, ValidationError } from '@shared/errors'
 import { isProblemWithType } from '@shared/transport'
 import { useSessionStore } from '@shared/stores/session'
 import { useOrchestrationStore } from '@shared/stores/orchestration'
 import { ApprovalCard } from '@slices/workflow'
+import { ActivityPanel, getActiveActivation, useActivitiesStore } from '@slices/activities'
 
 import { useChatroomSocket } from '../composables/useChatroomSocket'
 import { useObservations } from '../composables/useObservations'
@@ -292,6 +307,7 @@ const router = useRouter()
 const store = useConversationStore()
 const session = useSessionStore()
 const orchStore = useOrchestrationStore()
+const activitiesStore = useActivitiesStore()
 const chatroomId = route.params.chatroomId as string
 const projectId = (route.params.projectId as string) || ''
 
@@ -425,20 +441,29 @@ const observations = useObservations(chatroomId, {
 const showObserverTab = computed(
   () => observations.isCreator.value && observations.observerAgents.value.length > 0,
 )
+const showActivityTab = computed(
+  () => observations.isCreator.value || !!activitiesStore.getActivation(chatroomId),
+)
+const showRailTabs = computed(() => showObserverTab.value || showActivityTab.value)
 // Declared here (ahead of its drawer markup) so the W-3 visibility computed
 // below can read it without a temporal-dead-zone hit under the immediate watch.
 const peopleDrawerOpen = ref(false)
-const railTab = ref<'people' | 'observer'>('people')
+const railTab = ref<'people' | 'observer' | 'activity'>('people')
 const railTabs = computed(() => [
   { key: 'people', label: t('conversation.chatroom.people'), icon: UsersIcon },
-  {
-    key: 'observer',
-    label: t('conversation.observers.tab'),
-    icon: EyeIcon,
-    ariaLabel: t('conversation.observers.badgeAria', { n: observations.unreadCount.value }),
-    badgeLive: true,
-    ...(observations.unreadCount.value && { badge: observations.unreadCount.value }),
-  },
+  ...(showObserverTab.value
+    ? [{
+        key: 'observer',
+        label: t('conversation.observers.tab'),
+        icon: EyeIcon,
+        ariaLabel: t('conversation.observers.badgeAria', { n: observations.unreadCount.value }),
+        badgeLive: true,
+        ...(observations.unreadCount.value && { badge: observations.unreadCount.value }),
+      }]
+    : []),
+  ...(showActivityTab.value
+    ? [{ key: 'activity', label: t('activities.panel.tab'), icon: PlayCircleIcon }]
+    : []),
 ])
 // W-3 (B.3/B.8): the panel is only actually visible when the Observer tab is
 // selected AND its container is on screen — the desktop rail is always shown,
@@ -623,11 +648,27 @@ function onKeyDown(e: KeyboardEvent): void {
   }
 }
 
+let isUnmounted = false
+
+async function hydrateActivityActivation(): Promise<void> {
+  try {
+    const activation = await getActiveActivation(chatroomId)
+    if (isUnmounted) return
+    if (activitiesStore.getActivation(chatroomId) !== undefined) return
+    if (activation) activitiesStore.setActivation(chatroomId, activation)
+    else activitiesStore.clearActivation(chatroomId)
+  } catch {
+    if (!isUnmounted) toast.error(t('activities.panel.loadFailed'))
+  }
+}
+
 onMounted(() => {
   document.addEventListener('keydown', onKeyDown)
+  void hydrateActivityActivation()
 })
 
 onBeforeUnmount(() => {
+  isUnmounted = true
   document.removeEventListener('keydown', onKeyDown)
   if (typingTimer !== null) {
     clearTimeout(typingTimer)

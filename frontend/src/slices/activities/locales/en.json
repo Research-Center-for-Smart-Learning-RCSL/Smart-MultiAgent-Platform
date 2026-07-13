@@ -4,6 +4,21 @@
       "outcome": "Outcome",
       "submitFailed": "Could not submit. Please try again."
     },
+    "panel": {
+      "tab": "Activity",
+      "active": "Active activity",
+      "selectType": "Select an activity",
+      "startForRoom": "Start for room",
+      "join": "Start",
+      "finish": "Finish",
+      "end": "End activity",
+      "inactiveTitle": "No activity is active",
+      "inactiveText": "Wait for the facilitator to start an activity.",
+      "loadFailed": "Could not load activities. Please try again.",
+      "startFailed": "Could not start the activity. Please try again.",
+      "endFailed": "Could not end the activity. Please try again.",
+      "finishFailed": "Could not finish the activity. Please try again."
+    },
     "outcome": {
       "pending": "Validating…",
       "validated": "Validated",

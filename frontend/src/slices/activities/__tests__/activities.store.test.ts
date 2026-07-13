@@ -70,4 +70,23 @@ describe('activities store', () => {
     expect(store.getOutcome('c1', 'sub_1')).toBeUndefined()
     expect(store.getOutcome('c2', 'sub_2')).toBeDefined()
   })
+
+  it('hydrates and clears a room activation without touching other rooms', () => {
+    const store = useActivitiesStore()
+    store.setActivation('c1', {
+      id: 'activation_1',
+      activityTypeId: 'at_1',
+      startedByUserId: 'user_1',
+    })
+    store.setActivation('c2', {
+      id: 'activation_2',
+      activityTypeId: 'at_2',
+      startedByUserId: 'user_2',
+    })
+
+    expect(store.getActivation('c1')).toMatchObject({ activityTypeId: 'at_1' })
+    store.clearActivation('c1', 'activation_1')
+    expect(store.getActivation('c1')).toBeNull()
+    expect(store.getActivation('c2')).toMatchObject({ activityTypeId: 'at_2' })
+  })
 })

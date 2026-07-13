@@ -8,11 +8,13 @@ import { defineStore } from 'pinia'
 import { reactive } from 'vue'
 import { registerCleanup } from '@shared/stores/useAppCleanup'
 import { normalizeValidationStatus } from '../types'
-import type { ActivityOutcome, ActivitySubmission } from '../types'
+import type { ActivationView, ActivityActivation, ActivityOutcome, ActivitySubmission } from '../types'
 
 export const useActivitiesStore = defineStore('activities', () => {
   // Map<roomId, Map<submissionId, ActivityOutcome>>
   const outcomes = reactive<Record<string, Record<string, ActivityOutcome>>>({})
+  const activations = reactive<Record<string, ActivationView | null>>({})
+  const activationVersions = reactive<Record<string, number>>({})
 
   function ensureRoom(roomId: string): Record<string, ActivityOutcome> {
     if (!outcomes[roomId]) outcomes[roomId] = {}
@@ -69,12 +71,42 @@ export const useActivitiesStore = defineStore('activities', () => {
     return outcomes[roomId]?.[submissionId]
   }
 
+  function setActivation(roomId: string, activation: ActivityActivation | ActivationView): void {
+    activations[roomId] = 'activity_type_id' in activation
+      ? {
+          id: activation.id,
+          activityTypeId: activation.activity_type_id,
+          startedByUserId: activation.started_by_user_id,
+        }
+      : activation
+    activationVersions[roomId] = (activationVersions[roomId] ?? 0) + 1
+  }
+
+  function clearActivation(roomId: string, activationId?: string): void {
+    if (!activationId || activations[roomId]?.id === activationId) {
+      activations[roomId] = null
+      activationVersions[roomId] = (activationVersions[roomId] ?? 0) + 1
+    }
+  }
+
+  function getActivation(roomId: string): ActivationView | null | undefined {
+    return activations[roomId]
+  }
+
+  function getActivationVersion(roomId: string): number {
+    return activationVersions[roomId] ?? 0
+  }
+
   function resetRoom(roomId: string): void {
     delete outcomes[roomId]
+    delete activations[roomId]
+    delete activationVersions[roomId]
   }
 
   function clearAll(): void {
     Object.keys(outcomes).forEach((k) => delete outcomes[k])
+    Object.keys(activations).forEach((k) => delete activations[k])
+    Object.keys(activationVersions).forEach((k) => delete activationVersions[k])
   }
 
   // Reset on session.clear() without the session store importing this one (H14).
@@ -82,10 +114,15 @@ export const useActivitiesStore = defineStore('activities', () => {
 
   return {
     outcomes,
+    activations,
     upsertFromSubmission,
     applyCreated,
     applyValidated,
     getOutcome,
+    setActivation,
+    clearActivation,
+    getActivation,
+    getActivationVersion,
     resetRoom,
     clearAll,
   }

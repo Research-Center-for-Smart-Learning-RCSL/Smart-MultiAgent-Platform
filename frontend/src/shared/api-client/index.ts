@@ -8,6 +8,8 @@ export { OpenAPI } from './core/OpenAPI';
 export type { OpenAPIConfig } from './core/OpenAPI';
 
 export type { AcceptByTokenIn } from './models/AcceptByTokenIn';
+export type { ActivityActivationOut } from './models/ActivityActivationOut';
+export type { ActivityActivationStartIn } from './models/ActivityActivationStartIn';
 export type { ActivityAggregateOut } from './models/ActivityAggregateOut';
 export type { ActivitySessionOpenIn } from './models/ActivitySessionOpenIn';
 export type { ActivitySessionOut } from './models/ActivitySessionOut';
