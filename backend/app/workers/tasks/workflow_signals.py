@@ -192,9 +192,15 @@ async def workflow_signal(ctx: dict[str, Any], source: str, payload: dict[str, A
     elif source == "activity":
         chatroom_id = str(payload.get("chatroom_id", ""))
         activity_type_key = str(payload.get("activity_type_key", ""))
+        validation_status = str(payload.get("validation_status", ""))
 
         def _activity_pred(match: dict[str, Any]) -> bool:
-            return ed.matches_activity(match, chatroom_id=chatroom_id, activity_type_key=activity_type_key)
+            return ed.matches_activity(
+                match,
+                chatroom_id=chatroom_id,
+                activity_type_key=activity_type_key,
+                validation_status=validation_status,
+            )
 
         for run_id, node_id in await ed.find_matching_waits(redis, "activity_in_room", _activity_pred):
             await _enqueue_resume(run_id, node_id)

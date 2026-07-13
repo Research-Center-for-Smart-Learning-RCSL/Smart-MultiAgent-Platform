@@ -133,7 +133,9 @@ class ActivitiesFacade:
         actor_user_id: uuid.UUID,
         actor_ip: str | None,
         request_id: uuid.UUID | None = None,
-    ) -> ActivitySubmission:
+    ) -> tuple[ActivitySubmission, dict[str, Any]]:
+        """Returns the persisted submission and the pre-built reactive-rules signal
+        payload (R30.12); the route enqueues the payload best-effort post-commit."""
         return await self._submissions.submit(
             project_id=project_id,
             activity_type_id=activity_type_id,

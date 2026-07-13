@@ -211,6 +211,7 @@ def _wire_submission_service(
     svc._sub_repo = MagicMock()
     svc._sub_repo.next_attempt_no = AsyncMock(return_value=1)
     svc._sub_repo.insert = AsyncMock(return_value=sub_id)
+    svc._sub_repo.count_recent_same_error = AsyncMock(return_value=0)
     svc._sub_repo.get = AsyncMock(
         return_value=ActivitySubmission(
             id=sub_id,
@@ -401,7 +402,7 @@ class TestBuildActivitySignal:
         # No error class → the count query is skipped entirely.
         sub_repo.count_recent_same_error.assert_not_awaited()
 
-    async def test_pending_omits_error_class_and_rolling(self) -> None:
+    async def test_pending_carries_zeroed_numeric_rolling(self) -> None:
         activity_type = _make_type()
         submission = _make_submission(
             activity_type_id=activity_type.id,
@@ -416,9 +417,16 @@ class TestBuildActivitySignal:
         payload = await svc.build_activity_signal(submission_id=submission.id)
 
         assert payload is not None
+        assert payload["submission_id"] == str(submission.id)
         assert payload["validation_status"] == "pending"
         assert payload["error_class"] is None
-        assert "rolling" not in payload
+        # rolling is ALWAYS present and numeric so int({{trigger.rolling.*}}) never
+        # dereferences None even on the pending submit emit.
+        rolling = payload["rolling"]
+        assert rolling["same_error_count"] == 0
+        assert rolling["latency_ms"] == 0
+        assert isinstance(rolling["latency_ms"], int)
+        # No error class yet → the count query is skipped.
         sub_repo.count_recent_same_error.assert_not_awaited()
 
     async def test_missing_submission_returns_none(self) -> None:

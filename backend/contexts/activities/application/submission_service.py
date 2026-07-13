@@ -69,7 +69,7 @@ class SubmissionService:
         actor_user_id: uuid.UUID,
         actor_ip: str | None,
         request_id: uuid.UUID | None = None,
-    ) -> ActivitySubmission:
+    ) -> tuple[ActivitySubmission, dict[str, Any]]:
         activity_type = await self._type_repo.get(activity_type_id)
         # Tenant isolation: the type must live in the room's project. Missing or
         # cross-project → NotFound (never leak another tenant's type).
@@ -187,7 +187,18 @@ class SubmissionService:
         submission = await self._sub_repo.get(submission_id)
         if submission is None:  # pragma: no cover — just inserted
             raise SubmissionNotFound(str(submission_id))
-        return submission
+        # Build the reactive-rules signal here from objects already in hand
+        # (type + session were resolved above) so the route does not re-fetch
+        # them post-commit. The rolling count runs in this transaction and sees
+        # the just-inserted row (a session reads its own writes).
+        signal_payload = _assemble_activity_signal(
+            submission=submission,
+            activity_type_key=activity_type.key,
+            subject_user_id=session.subject_user_id,
+            same_error_count=await self._same_error_count(submission, _ROLLING_WINDOW_SECONDS),
+            window_seconds=_ROLLING_WINDOW_SECONDS,
+        )
+        return submission, signal_payload
 
     async def record_validation(
         self,
@@ -247,46 +258,36 @@ class SubmissionService:
         self, *, submission_id: uuid.UUID, window_seconds: int = _ROLLING_WINDOW_SECONDS
     ) -> dict[str, Any] | None:
         """Assemble the ``workflow_signal("activity", …)`` payload for a submission
-        (R30.12). Reads the authoritative submission plus its type (for the
-        matchable ``activity_type_key``) and session (for ``subject_user_id``).
-
-        On a completion status (``validated``/``error``) it attaches a numeric
-        rolling aggregate — ``same_error_count`` over a bounded recent window keyed
-        by the submission's own non-null ``error_class`` — so a stateless SEL rule
-        can gate on ``int(trigger.rolling.same_error_count) >= N``. A still-pending
-        submission (async validator not yet run) carries no ``error_class``/rolling.
-        Returns ``None`` if the submission is gone; the caller enqueues best-effort.
+        (R30.12) by re-reading it — used by the validation worker, whose in-memory
+        row is the stale ``pending`` one. Reads the authoritative submission plus
+        its type (for the matchable ``activity_type_key``) and session (for
+        ``subject_user_id``). Returns ``None`` if the submission is gone; the caller
+        enqueues best-effort. The route path does not use this — it reuses the
+        payload ``submit`` already built from objects in hand.
         """
         submission = await self._sub_repo.get(submission_id)
         if submission is None:
             return None
         activity_type = await self._type_repo.get(submission.activity_type_id)
         session = await self._session_repo.get(submission.session_id)
-        payload: dict[str, Any] = {
-            "chatroom_id": str(submission.chatroom_id),
-            "activity_type_key": activity_type.key if activity_type is not None else "",
-            "session_id": str(submission.session_id),
-            "subject_user_id": str(session.subject_user_id) if session is not None else None,
-            "attempt_no": submission.attempt_no,
-            "validation_status": submission.validation_status.value,
-            "is_valid": submission.is_valid,
-            "error_class": submission.error_class,
-        }
-        if submission.validation_status is not ValidationStatus.PENDING:
-            same_error_count = 0
-            if submission.error_class is not None:
-                since = now() - timedelta(seconds=window_seconds)
-                same_error_count = await self._sub_repo.count_recent_same_error(
-                    session_id=submission.session_id,
-                    error_class=submission.error_class,
-                    since=since,
-                )
-            payload["rolling"] = {
-                "same_error_count": same_error_count,
-                "window_seconds": window_seconds,
-                "latency_ms": submission.latency_ms,
-            }
-        return payload
+        return _assemble_activity_signal(
+            submission=submission,
+            activity_type_key=activity_type.key if activity_type is not None else "",
+            subject_user_id=session.subject_user_id if session is not None else None,
+            same_error_count=await self._same_error_count(submission, window_seconds),
+            window_seconds=window_seconds,
+        )
+
+    async def _same_error_count(self, submission: ActivitySubmission, window_seconds: int) -> int:
+        """Count same-``error_class`` submissions in this session over the recent
+        window; ``0`` (no query) when the submission has no ``error_class`` yet
+        (still pending, or a valid answer)."""
+        if submission.error_class is None:
+            return 0
+        since = now() - timedelta(seconds=window_seconds)
+        return await self._sub_repo.count_recent_same_error(
+            session_id=submission.session_id, error_class=submission.error_class, since=since
+        )
 
     async def _resolve_session(
         self,
@@ -326,6 +327,41 @@ class SubmissionService:
         if winner is None:  # pragma: no cover — a winner must exist post-conflict
             raise SessionNotFound("could not open or resolve a session")
         return winner
+
+
+def _assemble_activity_signal(
+    *,
+    submission: ActivitySubmission,
+    activity_type_key: str,
+    subject_user_id: uuid.UUID | None,
+    same_error_count: int,
+    window_seconds: int,
+) -> dict[str, object]:
+    """Build the reactive-rules ``activity`` signal payload (R30.12).
+
+    ``rolling`` is **always present and numeric** — ``same_error_count`` and
+    ``latency_ms`` default to ``0`` — even on the pending submit emit, so a
+    stateless SEL rule evaluating ``int({{ trigger.rolling.same_error_count }})``
+    never dereferences ``None``. ``error_class``/``is_valid`` stay ``None`` while
+    pending (they are compared, not coerced, so no crash). All fields derive from
+    the authoritative row, never the client.
+    """
+    return {
+        "submission_id": str(submission.id),
+        "chatroom_id": str(submission.chatroom_id),
+        "activity_type_key": activity_type_key,
+        "session_id": str(submission.session_id),
+        "subject_user_id": str(subject_user_id) if subject_user_id is not None else None,
+        "attempt_no": submission.attempt_no,
+        "validation_status": submission.validation_status.value,
+        "is_valid": submission.is_valid,
+        "error_class": submission.error_class,
+        "rolling": {
+            "same_error_count": same_error_count,
+            "window_seconds": window_seconds,
+            "latency_ms": submission.latency_ms if submission.latency_ms is not None else 0,
+        },
+    }
 
 
 def _echo_text(

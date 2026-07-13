@@ -83,23 +83,36 @@ def matches_a2a_trigger(match: dict[str, Any], *, agent_id: str, msg_type: str) 
     return msg_type in event_types
 
 
-def matches_activity(match: dict[str, Any], *, chatroom_id: str, activity_type_key: str) -> bool:
+def matches_activity(
+    match: dict[str, Any], *, chatroom_id: str, activity_type_key: str, validation_status: str
+) -> bool:
     """``activity_in_room`` wait / ``activity_event`` trigger criteria.
 
     Exact ``chatroom_id`` (the tenant-isolation filter — an activity in room A can
-    never trip a workflow scoped to room B) plus an optional activity-type filter:
-    ``activity_type_key`` (single) and/or ``activity_type_keys`` (allowed-list);
-    absent both, any type in the room matches. The count threshold for an
-    "impasse" rule is **not** here — it is an SEL ``condition`` node over
-    ``trigger.rolling.same_error_count`` (edge guards are not evaluated at runtime).
+    never trip a workflow scoped to room B) plus two optional filters:
+    - activity type: ``activity_type_key`` (single) and/or ``activity_type_keys``
+      (allowed-list); absent both, any type in the room matches.
+    - ``validation_status`` (``pending``|``validated``|``error``): when set, the
+      config fires only on that phase. This lets a rule that needs the scored
+      outcome (e.g. an impasse rule) ignore the pending submit emit an async
+      validator produces; absent, it fires on every emit (submit and completion).
+
+    The count threshold for an "impasse" rule is **not** here — it is an SEL
+    ``condition`` node over ``trigger.rolling.same_error_count`` (edge guards are
+    not evaluated at runtime).
     """
     if str(match.get("chatroom_id", "")) != str(chatroom_id):
+        return False
+    want_status = str(match.get("validation_status", "") or "")
+    if want_status and want_status != "any" and want_status != str(validation_status):
         return False
     allowed: list[str] = []
     single = match.get("activity_type_key")
     if single:
         allowed.append(str(single))
-    allowed.extend(str(k) for k in match.get("activity_type_keys", []) or [])
+    keys = match.get("activity_type_keys")
+    if isinstance(keys, list):
+        allowed.extend(str(k) for k in keys)
     return not allowed or activity_type_key in allowed
 
 

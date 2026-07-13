@@ -126,29 +126,49 @@ class TestMatchesA2aTrigger:
 
 
 class TestMatchesActivity:
+    def _m(self, config: dict, *, key: str = "quiz", status: str = "validated") -> bool:
+        return matches_activity(config, chatroom_id=_ROOM, activity_type_key=key, validation_status=status)
+
     def test_room_only_match(self) -> None:
-        config = {"chatroom_id": _ROOM}
-        assert matches_activity(config, chatroom_id=_ROOM, activity_type_key="quiz") is True
+        assert self._m({"chatroom_id": _ROOM}) is True
 
     def test_wrong_room(self) -> None:
-        config = {"chatroom_id": str(uuid.uuid4())}
-        assert matches_activity(config, chatroom_id=_ROOM, activity_type_key="quiz") is False
+        assert self._m({"chatroom_id": str(uuid.uuid4())}) is False
 
     def test_single_key_match(self) -> None:
-        config = {"chatroom_id": _ROOM, "activity_type_key": "quiz"}
-        assert matches_activity(config, chatroom_id=_ROOM, activity_type_key="quiz") is True
+        assert self._m({"chatroom_id": _ROOM, "activity_type_key": "quiz"}) is True
 
     def test_single_key_mismatch(self) -> None:
-        config = {"chatroom_id": _ROOM, "activity_type_key": "poll"}
-        assert matches_activity(config, chatroom_id=_ROOM, activity_type_key="quiz") is False
+        assert self._m({"chatroom_id": _ROOM, "activity_type_key": "poll"}) is False
 
     def test_allowed_list_match(self) -> None:
-        config = {"chatroom_id": _ROOM, "activity_type_keys": ["poll", "quiz"]}
-        assert matches_activity(config, chatroom_id=_ROOM, activity_type_key="quiz") is True
+        assert self._m({"chatroom_id": _ROOM, "activity_type_keys": ["poll", "quiz"]}) is True
 
     def test_allowed_list_mismatch(self) -> None:
-        config = {"chatroom_id": _ROOM, "activity_type_keys": ["poll", "survey"]}
-        assert matches_activity(config, chatroom_id=_ROOM, activity_type_key="quiz") is False
+        assert self._m({"chatroom_id": _ROOM, "activity_type_keys": ["poll", "survey"]}) is False
+
+    def test_malformed_keys_string_is_ignored_not_char_expanded(self) -> None:
+        # A stored config with a string (not a list) must not expand to a
+        # per-character allow-list. With the isinstance guard the malformed field
+        # is ignored (behaves as no filter), so a full-word key matches — whereas
+        # char-expansion would have rejected "quiz" (not in ['q','u','i','z']).
+        assert self._m({"chatroom_id": _ROOM, "activity_type_keys": "quiz"}, key="quiz") is True
+
+    def test_status_filter_match(self) -> None:
+        cfg = {"chatroom_id": _ROOM, "validation_status": "validated"}
+        assert self._m(cfg, status="validated") is True
+
+    def test_status_filter_rejects_other_phase(self) -> None:
+        cfg = {"chatroom_id": _ROOM, "validation_status": "validated"}
+        assert self._m(cfg, status="pending") is False
+
+    def test_status_any_matches_every_phase(self) -> None:
+        cfg = {"chatroom_id": _ROOM, "validation_status": "any"}
+        assert self._m(cfg, status="pending") is True
+        assert self._m(cfg, status="error") is True
+
+    def test_status_absent_matches_every_phase(self) -> None:
+        assert self._m({"chatroom_id": _ROOM}, status="pending") is True
 
 
 class TestActivityRollingSel:
