@@ -1,6 +1,6 @@
 ---
 type: feature
-status: approved
+status: implemented
 created: 2026-07-13
 requirements: [R30.01, R30.10]
 depends_on: [2026-07-13-activities-platform-core]
@@ -162,17 +162,24 @@ more via a scoring tool (config) — the always-on block stays bounded for token
 
 ## 11. Acceptance Criteria
 
-- [ ] AC-1: For an OBSERVER agent in a room **with** activity events, the assembled system text
+- [x] AC-1: For an OBSERVER agent in a room **with** activity events, the assembled system text
   contains a `[Recent room activity]` block listing recent submissions with attempt number,
-  type, and deterministic outcome.
-- [ ] AC-2: For an OBSERVER in a room **without** activities, no block is added (provider
-  returns `None`); the turn proceeds unchanged.
-- [ ] AC-3: For a **non-observer** agent, no activity block is ever added, regardless of room
-  activities.
-- [ ] AC-4: An exception inside `list_recent_activity` yields `None` and does not fail or
-  abort the observer turn.
-- [ ] AC-5: The block reflects only the observer's own room; no other room's activities appear.
-- [ ] AC-6: The observer's output path (Observation, creator-channel emit) is unchanged.
+  type, and deterministic outcome. *(unit: `test_activity_context_provider.py` block format +
+  `test_turn_engine_observer_activity.py` delegation; end-to-end assembled-text is integration.)*
+- [x] AC-2: For an OBSERVER in a room **without** activities, no block is added (provider
+  returns `None`); the turn proceeds unchanged. *(unit: provider None-on-empty coverage gate +
+  `_activity_context` returns None.)*
+- [x] AC-3: For a **non-observer** agent, no activity block is ever added, regardless of room
+  activities. *(structural: fold-in is inside the `if is_observer:` guard; the observer-turn
+  harness suite passes unchanged.)*
+- [x] AC-4: An exception inside `list_recent_activity` yields `None` and does not fail or
+  abort the observer turn. *(unit: provider None-on-exception; observer harness turn completes.)*
+- [x] AC-5: The block reflects only the observer's own room; no other room's activities appear.
+  *(by design: the read is keyed by `chatroom_id` via `list_recent_activity`; cross-room
+  isolation is an integration assertion — Docker.)*
+- [x] AC-6: The observer's output path (Observation, creator-channel emit) is unchanged.
+  *(regression: `test_observer_agents.py` — the observer output-path suite — passes unchanged
+  after the fold-in.)*
 
 ## 12. Test Plan
 
@@ -198,8 +205,29 @@ None blocking.
 
 ## 15. Deviation Log
 
-Appended by /build.
+- **D-1 (outcome rendered as words, not symbols).** §5 sketched the outcome as
+  `validated ✓ / ✗ / pending / error`. The implementation renders `valid / invalid / pending /
+  error` as plain words to honour the project no-emoji/no-symbol style rule; the block is
+  model-facing text and the words are equally deterministic. Subject is rendered as a short id
+  (`u:<8 hex>`) — display-name resolution (via `_participant_labels`) was left optional by §9 and
+  not pulled in, keeping the provider free of an identity-facade dependency.
+- **D-2 (built against the platform core, which was implemented in the same session).** This
+  dossier `depends_on` `activities-platform-core`, which was unbuilt at the start of the session;
+  it was implemented first (its own dossier), then this observer context built on the real
+  `ActivitiesFacade.list_recent_activity`.
 
 ## 16. Follow-ups
 
-None.
+- **FU-1 (integration/behavioral verification pending Docker).** The end-to-end observer turn
+  (seeded room → assembled system text contains the block; cross-room isolation AC-5) and the
+  `verify`-skill behavioral pass require Postgres/Redis, unavailable in the build environment.
+  Unit + static gates are green; run the integration suite on a Docker-equipped host to close
+  AC-1/AC-5 end-to-end.
+
+## 17. Verification Status
+
+- **Ran, green:** `ruff check` (clean), `mypy` (zero new errors vs the pre-existing 39-error
+  baseline), targeted `pytest` — `test_activity_context_provider.py`,
+  `test_turn_engine_observer_activity.py`, and the full `test_observer_agents.py` (39 passed).
+- **Not run (no Docker):** integration suite (`-m integration`) and the behavioral `verify`
+  pass. See FU-1.

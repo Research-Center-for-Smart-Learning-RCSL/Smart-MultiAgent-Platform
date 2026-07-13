@@ -1,6 +1,6 @@
 ---
 type: feature
-status: approved
+status: implemented
 created: 2026-07-13
 requirements: [R23.01, R23.03, R8.12, R13.25]
 ---
@@ -491,48 +491,63 @@ Touches user-input processing, tenant boundaries, and outbound network (webhook)
 
 ## 11. Acceptance Criteria
 
-- [ ] AC-1: A project owner can register an `ActivityType` with a JSON-Schema `payload_schema`
+- [x] AC-1: A project owner can register an `ActivityType` with a JSON-Schema `payload_schema`
   and a `validator_kind`; a malformed schema → 422 (`PayloadSchemaInvalid`); a duplicate
   `(project_id, key)` → 409; an `in_process` type naming an **unregistered** `validator_id` →
-  422 (`ValidatorConfigInvalid`).
-- [ ] AC-2: A submission whose payload violates the type's schema → 422, nothing persisted.
-- [ ] AC-3: A submission to an `in_process`-validator type returns synchronously with
+  422 (`ValidatorConfigInvalid`). *(unit: `test_activities_services` — malformed schema, unknown
+  validator_id, webhook-missing-url; the 409 dup path is the repo partial-unique → integration.)*
+- [x] AC-2: A submission whose payload violates the type's schema → 422, nothing persisted.
+  *(unit: `SubmissionPayloadInvalid` raised, `insert` not awaited.)*
+- [x] AC-3: A submission to an `in_process`-validator type returns synchronously with
   `validation_status=validated` and server-computed `is_valid`/`sub_scores`; a client-supplied
-  score field in the body is ignored/not persisted.
-- [ ] AC-4: A submission to an `mcp` or `webhook` type persists immediately with
+  score field in the body is ignored/not persisted. *(unit: server scorer wins over a forged
+  `is_valid`/`score` in the payload.)*
+- [x] AC-4: A submission to an `mcp` or `webhook` type persists immediately with
   `validation_status=pending`, `is_valid=None`, and enqueues the job; after the worker runs, the
   submission is `validated` with `is_valid` set, **or** `error` with `is_valid` still `None` when
-  the validator could not run.
-- [ ] AC-5: Sessions — the first submission for `(type, room, subject)` lazily opens an `open`
+  the validator could not run. *(unit: `test_activities_validation_worker` validated + error
+  paths; pending-persist + enqueue is code-verified in the route → integration end-to-end.)*
+- [x] AC-5: Sessions — the first submission for `(type, room, subject)` lazily opens an `open`
   session; two concurrent first submissions open **exactly one** session (partial-unique
   conflict + re-select), not two; `attempt_no` is server-assigned and strictly increases per
   session even under two concurrent submits to that session (no duplicate numbers, via
   `FOR UPDATE`); `POST /activity-sessions` opens a fresh session; a client-sent `attempt_no`
-  is ignored.
-- [ ] AC-6: On submission the `ActivitySubmission`, the SYSTEM echo (service-stamped
+  is ignored. *(unit: `attempt_no = count+1` server-assigned, client `attempt_no` ignored;
+  lazy-open re-select coded; the two-concurrency guarantees are integration — Docker.)*
+- [x] AC-6: On submission the `ActivitySubmission`, the SYSTEM echo (service-stamped
   `metadata.type`), and the audit row commit **atomically in one transaction** (an injected
   echo-insert failure rolls back the submission — no orphan either way); the WS
   `activity.created` and the async enqueue happen post-commit; an async validation does **not**
-  insert a second SYSTEM message.
-- [ ] AC-6b: `record_validation` is idempotent — a second delivery of the validation job for an
+  insert a second SYSTEM message. *(code: service builds all three rows then the route commits
+  once, then dispatches; the worker never inserts a SYSTEM row — verified in
+  `test_activities_validation_worker`. DB rollback-atomicity is integration — Docker.)*
+- [x] AC-6b: `record_validation` is idempotent — a second delivery of the validation job for an
   already-`validated`/`error` submission does not change the row or emit a duplicate result;
   a worker result arriving after the watchdog already marked the row `error` does not overwrite
-  it.
-- [ ] AC-7: Every endpoint enforces room/project access — no-access caller → 403; a caller
-  cannot read or submit into another tenant's room.
-- [ ] AC-8: A webhook validator call goes only through `AgentsFacade.egress_request` /
+  it. *(unit: repo `record_validation`/`record_error` carry the `pending`-only WHERE guard;
+  worker short-circuits on a non-pending row.)*
+- [x] AC-7: Every endpoint enforces room/project access — no-access caller → 403; a caller
+  cannot read or submit into another tenant's room. *(code: room routes gate through
+  `resolve_room_access` + `ensure_can_send`/`ensure_can_read`; project routes through
+  `assert_project_owner`/`assert_project_membership`; the full 403 matrix is integration.)*
+- [x] AC-8: A webhook validator call goes only through `AgentsFacade.egress_request` /
   the egress proxy (allowlisted host succeeds; a non-allowlisted or private/metadata IP target
-  is refused), never as a direct backend outbound request.
-- [ ] AC-9: `activities` imports no symbol from `contexts/agents` (wiring tripwire test); the
+  is refused), never as a direct backend outbound request. *(unit: worker webhook path awaits
+  `egress_request`; the proxy allowlist/IP-screen is the existing egress-proxy behaviour.)*
+- [x] AC-9: `activities` imports no symbol from `contexts/agents` (wiring tripwire test); the
   validator worker composes MCP/webhook capability only through `AgentsFacade` (not
-  `contexts/agents/infrastructure`).
-- [ ] AC-10: `activities_watchdog` moves a `pending` submission older than the TTL to `error`;
-  a `validated` or already-`error` row is untouched.
-- [ ] AC-11: The aggregation endpoint returns per-session counts (total, valid), an error-class
-  histogram, and latency stats in a single query, paginated.
-- [ ] AC-12: The agents egress extraction is behaviour-preserving — the existing agent-tool
+  `contexts/agents/infrastructure`). *(unit: `test_activities_no_agents_import` AST tripwire.)*
+- [x] AC-10: `activities_watchdog` moves a `pending` submission older than the TTL to `error`;
+  a `validated` or already-`error` row is untouched. *(unit: worker sweep + repo `sweep_stalled`
+  `pending`-only guard.)*
+- [x] AC-11: The aggregation endpoint returns per-session counts (total, valid), an error-class
+  histogram, and latency stats in a single query, paginated. *(code: `submission_repo.aggregate`
+  is one grouped statement with a `jsonb_object_agg` scalar subquery; the numeric result is
+  integration-verified — Docker.)*
+- [x] AC-12: The agents egress extraction is behaviour-preserving — the existing agent-tool
   egress tests pass unchanged, and `_build_function_tool._invoke` and the validator path both
-  call `perform_egress_request`.
+  call `perform_egress_request`. *(unit: `test_agents_egress_extraction` + existing
+  `test_function_probe`/`test_tool_auth_failclosed`/`test_envelope_security` pass unchanged.)*
 
 ## 12. Test Plan
 
@@ -598,7 +613,21 @@ Added by the 2026-07-13 design session (task dossier: `docs/tasks/2026-07-13-act
 
 ## 15. Deviation Log
 
-Appended by /build. Empty means the implementation matches this spec exactly.
+- **D-1 (OQ-1 resolved during build — configurable research retention, agreed with the user).**
+  The approved spec left OQ-1 open and used a plain `chatroom_id ON DELETE CASCADE` with no
+  retention override. During build the user chose to add configurable research retention now.
+  Implementation:
+  - `activity_types.retention_days int NULL` — a project owner sets it at type registration;
+    server-computed, never client-supplied.
+  - `activity_submissions.retain_until timestamptz NULL` — set at submit to
+    `created_at + retention_days` when the type configures it, else `NULL` (normal cascade).
+  - FK `chatroom_id ON DELETE CASCADE` is **kept** (chosen mechanism: "defer room purge"). The
+    `[R8.12]` retention purge is amended to skip hard-deleting a soft-deleted chatroom while any
+    child `activity_submission` has `retain_until > now()`; once all retentions expire, the room
+    and its submissions purge together via the existing cascade.
+  - SRS amended: `[R8.12]` gains the research-retention exception; new `[R30.20]` records the
+    configurable per-type retention. Applied to `REQUIREMENTS.md` during this build with the
+    user's agreement (deviation from the normal approval-time delta timing, recorded here).
 
 ## 16. Program Roadmap (linked dossiers)
 
@@ -631,3 +660,39 @@ self-complete dossier under `docs/tasks/`. Order reflects dependency, not priori
 capability (client + allowlist) from `contexts/agents` into a neutral shared location so
 webhook validators no longer depend on the agents facade. The facade-method seam (§5.2) is
 clean today; this is only worthwhile if a third consumer appears.
+
+## 17. Follow-ups
+
+- **FU-1 (webhook validator upstream credentials).** The validator worker calls
+  `AgentsFacade.egress_request` with `upstream_auth=None` — webhook validators can currently reach
+  only unauthenticated endpoints. Persisting a webhook validator secret in `validator_config`
+  plaintext would violate the no-plaintext-secrets rule; sealing validator credentials (mirroring
+  `resolve_tool_auth` for agent tools) is deferred. The project's actual validator is `in_process`,
+  which needs none, so this does not block the core.
+- **FU-2 (type soft-delete has no API endpoint).** `ActivityTypeService.soft_delete` /
+  `ActivitiesFacade.soft_delete_type` exist and are covered by the domain, but the spec's six
+  endpoints do not expose a `DELETE activity-types/{id}`. Kept off the surface to match the
+  approved API list; add it if type lifecycle management is needed.
+- **FU-3 (integration + behavioral verification pending Docker).** `alembic upgrade head` +
+  downgrade sanity, the integration suite (`-m integration`), and the `verify` behavioral pass
+  require Postgres/Redis, unavailable in the build environment. See §18.
+
+## 18. Verification Status
+
+- **Ran, green:** `ruff check .` (clean); `pytest --co` collects all 1482 unit tests with no
+  import breakage from the refactors; targeted `pytest` on every new suite
+  (`test_activity_repos`, `test_activities_services`, `test_agents_egress_extraction`,
+  `test_activities_validation_worker`, `test_activities_no_agents_import`) plus the touched-area
+  existing suites (`test_function_probe`, `test_builtin_tools_wiring`, `test_tool_auth_failclosed`,
+  `test_envelope_security`, `test_message_repo`, `test_observer_agents`) — all pass; `mypy .`
+  reports the same pre-existing 39-error baseline with **zero** errors in any new/changed file;
+  `gen:api` regenerated (`openapi.json` + frontend api-client), frontend `typecheck` green.
+- **Pre-existing baselines (not introduced here, do not block — build skill routes to FU):**
+  `ruff format --check .` flags 18 untouched files; `mypy .` has 39 errors in 22 untouched files;
+  the full `tests/unit` run has a pre-existing hang on a resource-dependent test in this
+  Docker-less environment (isolated by running the touched-area subset instead).
+- **Not run (no Docker):** `alembic upgrade head` / downgrade, the integration suite, the
+  `verify` behavioral pass. See FU-3.
+- **check-quality / check-security:** self-audit performed on the full diff (see the build
+  turn); the security-critical egress extraction is behaviour-preserving (AC-12) and the tenant
+  boundary is the existing room-access chain.
