@@ -59,7 +59,11 @@ async function submit(): Promise<void> {
   const passwordValid = validatePassword()
   if (!emailValid || !passwordValid) return
 
-  if (captcha.value.provider !== 'off' && !captchaToken.value) {
+  // Gate on `mode`, not the renderable `provider`: when captcha is enforced
+  // (mode==='on') but the provider is one the widget can't render (coerced to
+  // 'off'), no widget shows -- still require a token so we surface "captcha
+  // required" here instead of posting an empty token the backend will reject.
+  if (captcha.value.mode === 'on' && !captchaToken.value) {
     fieldErrors.value.captcha = t('identity.errors.captchaRequired')
     return
   }
