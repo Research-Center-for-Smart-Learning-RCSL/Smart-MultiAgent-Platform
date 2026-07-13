@@ -82,6 +82,26 @@ CancelCheck = Callable[[], Awaitable[bool]]
 MAX_TOOL_ROUNDS = 8
 _DEFAULT_MAX_TOKENS = 4096
 
+
+def _sampling_payload(agent: Agent) -> dict[str, Any]:
+    """Provider-payload fragment carrying the agent's set sampling controls.
+
+    Only non-None controls are included so unset ones preserve provider
+    defaults; each adapter then applies its own constraint (OpenAI drops
+    temperature for reasoning models, Claude drops it on newer generations,
+    seed is forwarded only where the provider supports it).
+    """
+    return {
+        k: v
+        for k, v in (
+            ("temperature", agent.temperature),
+            ("top_p", agent.top_p),
+            ("seed", agent.seed),
+        )
+        if v is not None
+    }
+
+
 _HISTORY_RESUME_NOTE = "[Conversation resumes; earlier turns were summarized in the system prompt.]"
 
 # R28.05 — how many of the observer's own past observations fold into its
@@ -1590,6 +1610,7 @@ class TurnEngine:
                 payload["tools"] = tool_specs
             if agent.effort:
                 payload["effort"] = agent.effort.value
+            payload.update(_sampling_payload(agent))
             request = ProviderRequest(
                 capability=ProviderCapability.LLM_CHAT,
                 payload=payload,
@@ -1664,6 +1685,7 @@ class TurnEngine:
         }
         if agent.effort:
             final_payload["effort"] = agent.effort.value
+        final_payload.update(_sampling_payload(agent))
         final_request = ProviderRequest(
             capability=ProviderCapability.LLM_CHAT,
             payload=final_payload,

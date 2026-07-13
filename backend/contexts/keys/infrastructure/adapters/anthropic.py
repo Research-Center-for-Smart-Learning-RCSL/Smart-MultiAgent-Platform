@@ -7,6 +7,7 @@ caller-supplied (the agent's configured model), never hardcoded.
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import AsyncGenerator
 from typing import Any
 
@@ -22,6 +23,16 @@ from contexts.keys.infrastructure.adapters import base
 
 _URL = "https://api.anthropic.com/v1/messages"
 _VERSION = "2023-06-01"
+
+# Sampling controls (temperature, top_p) were removed on Claude's newer
+# generations — Opus 4.7+ and every "5"-generation model (Sonnet 5, Fable 5,
+# Mythos 5) — where sending them now 400s. Older models (Opus 4.6/4.5, Sonnet
+# 4.x, Haiku 4.5, Claude 3.x) still accept them. Match the rejecting families
+# so a configured value degrades to the provider default instead of failing the
+# turn — mirroring the OpenAI reasoning-model skip. `claude-opus-4-5` (a 4.x
+# point release that accepts sampling) is deliberately excluded by the `-4-[7-9]`
+# bound. Seed has no Anthropic equivalent on any model and is never forwarded.
+_NO_SAMPLING_RE = re.compile(r"^claude-[a-z]+-5\b|^claude-opus-4-[7-9]\b")
 
 # Anthropic delivers mid-stream failures as HTTP 200 + `{"type": "error", ...}`
 # then closes the stream. Map the documented error types onto the HTTP status
@@ -137,8 +148,9 @@ def _content_blocks(blocks: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 def _body(request: ProviderRequest, *, stream: bool) -> dict[str, Any]:
     payload = request.payload
+    model = base.resolve_model(payload, ApiKeyProvider.CLAUDE)
     body: dict[str, Any] = {
-        "model": base.resolve_model(payload, ApiKeyProvider.CLAUDE),
+        "model": model,
         "max_tokens": int(payload.get("max_tokens", 4096)),
         "messages": _translate_messages(payload["messages"]),
     }
@@ -147,8 +159,11 @@ def _body(request: ProviderRequest, *, stream: bool) -> dict[str, Any]:
     if payload.get("tools"):
         # Neutral schema {name, description, input_schema} == Anthropic's shape.
         body["tools"] = payload["tools"]
-    if payload.get("temperature") is not None:
-        body["temperature"] = payload["temperature"]
+    if not _NO_SAMPLING_RE.search(model):
+        if payload.get("temperature") is not None:
+            body["temperature"] = payload["temperature"]
+        if payload.get("top_p") is not None:
+            body["top_p"] = payload["top_p"]
     # Cross-provider effort -> Claude effort (Opus 4.5+/Sonnet 4.6/Fable 5 only;
     # an unsupported model 400s, surfaced as a normal provider error).
     if payload.get("effort"):
