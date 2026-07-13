@@ -257,6 +257,22 @@ None. (The `[R9.18]` number + §9 placement were confirmed and applied at the ap
   down_revision chain off `0050_activity_activations`, single head) and reviewing the additive,
   reversible upgrade/downgrade by hand. Live application is deferred to FU-1.
 
+- **D-4 — Anthropic adapter clamps `temperature` to 1.0 (post-implementation code review).** The
+  agent field validates `temperature ∈ [0, 2]` (OpenAI/Gemini's range), but Anthropic's ceiling is
+  1.0 — a Claude agent configured at `1 < temperature ≤ 2` passed validation then 400'd at turn
+  time, violating the §8 "degrade rather than 400" guarantee. Fix: the Anthropic adapter now
+  forwards `min(temperature, 1.0)` for accepting models. Consistent with D-1 (the adapter owns each
+  provider's constraint). Covered by `test_anthropic_clamps_temperature_to_provider_ceiling`.
+
+- **D-5 — OpenAI `seed` is now gated behind `not reasoning` (post-implementation code review).**
+  As first written, `seed` was forwarded to OpenAI unconditionally while `temperature`/`top_p` were
+  gated behind `not reasoning`. Reasoning models (o-series/gpt-5) reject sampling controls, so an
+  agent on such a model with a seed set risked a per-turn 400. Fix: `seed` is now dropped for
+  reasoning models like the other two controls — determinism degrades to the default rather than
+  failing the turn. The AA judge (the motivating consumer) uses a non-reasoning model at
+  `temperature=0`, so it is unaffected. Test updated
+  (`test_openai_reasoning_drops_all_sampling_controls`).
+
 ## 16. Follow-ups
 
 - **FU-1 — Apply and reverse the migration against a live Postgres.** Run `alembic upgrade head`
@@ -271,11 +287,12 @@ None. (The `[R9.18]` number + §9 placement were confirmed and applied at the ap
   (params reach the outbound body) is unit-covered; the end-to-end variance measurement needs a
   live key and is out of scope for the offline build.
 
-- **FU-3 — Consider an upper bound on `seed` (hardening, from check-security).** `seed` is
-  currently an unbounded `int | None` (`Field(default=None)`); OpenAI accepts a wide integer range,
-  so there is no current attack path (the value only rides into that provider's body), but a
-  sanity ceiling (e.g. `le=2**63-1`) would prevent a pathologically large integer from being
-  persisted. Defense-in-depth, no active exploit — deferred, not blocking.
+- **FU-3 — RESOLVED (was: bound `seed`).** Code review reclassified this from hardening to a real
+  500 path: the `seed` column is `int4`, so an API value ≥ 2³¹ overflowed it and returned 500
+  (asyncpg `NumericValueOutOfRangeError`) instead of a 422. Fixed in this task, not deferred:
+  `AgentCreateIn`/`AgentPatchIn` now bound `seed` to the int4 range (`_SEED_MIN`/`_SEED_MAX`),
+  and the frontend Zod schema mirrors `.min(-2**31).max(2**31-1)` so the form flags it before the
+  round-trip. int4 (±2.1e9) is ample for a reproducibility seed and keeps the value JS-safe.
 
 - (Per-turn sampling override, if ever wanted, remains a separate small change — not needed for
   the AA judged-scoring use case, which is a stable configured agent.)
