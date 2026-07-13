@@ -1,0 +1,56 @@
+"""Activities domain errors → RFC 7807 registration (Chapter §30).
+
+Dispatch + 500 fallback live in ``shared_kernel.errors.context_handler``.
+"""
+
+from __future__ import annotations
+
+from fastapi import FastAPI
+
+from contexts.activities.domain import errors
+from shared_kernel.errors.context_handler import ErrorMap, register_context_handler
+
+_MAP: ErrorMap = {
+    errors.ActivityTypeNotFound: (
+        "activities/type-not-found",
+        404,
+        "Activity type not found",
+    ),
+    errors.SessionNotFound: (
+        "activities/session-not-found",
+        404,
+        "Activity session not found",
+    ),
+    errors.SubmissionNotFound: (
+        "activities/submission-not-found",
+        404,
+        "Activity submission not found",
+    ),
+    errors.ActivityTypeKeyConflict: (
+        "activities/type-key-conflict",
+        409,
+        "An activity type with this key already exists in the project",
+    ),
+    errors.PayloadSchemaInvalid: (
+        "activities/payload-schema-invalid",
+        422,
+        "The payload schema is not a well-formed JSON Schema",
+    ),
+    errors.ValidatorConfigInvalid: (
+        "activities/validator-config-invalid",
+        422,
+        "The validator configuration is invalid",
+    ),
+    errors.SubmissionPayloadInvalid: (
+        "activities/submission-payload-invalid",
+        422,
+        "The submission payload violates the activity type schema",
+    ),
+}
+
+
+def register(app: FastAPI) -> None:
+    register_context_handler(app, errors.ActivitiesError, _MAP)
+
+
+__all__ = ["register"]
