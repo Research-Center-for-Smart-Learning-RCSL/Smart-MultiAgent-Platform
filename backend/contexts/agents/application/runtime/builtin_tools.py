@@ -325,9 +325,7 @@ def resolve_tool_auth(tool: AgentTool) -> tuple[dict[str, Any] | None, bool]:
     return auth, unsealable
 
 
-async def function_egress_allowed(
-    db: AsyncSession, *, project_id: uuid.UUID, url: str
-) -> tuple[str, bool]:
+async def function_egress_allowed(db: AsyncSession, *, project_id: uuid.UUID, url: str) -> tuple[str, bool]:
     """Return ``(host, allowed)`` for a function URL against the egress allowlist.
 
     Shared by the live function invocation and the reachability probe so the two
@@ -449,38 +447,13 @@ def _build_function_tool(
     fn_params = cfg.get("parameters", {"type": "object", "additionalProperties": True})
 
     async def _invoke(args: dict[str, Any]) -> ToolResult:
+        from contexts.agents.application.egress import (
+            EgressBlocked,
+            perform_egress_request,
+        )
         from contexts.agents.domain.errors import McpEgressDenied
 
         url = str(http_cfg.get("url", ""))
-        host, allowed = await function_egress_allowed(db, project_id=agent.project_id, url=url)
-        if not allowed:
-            return ToolResult(
-                content=f"function blocked: host {host} is not on the project egress allowlist.",
-                is_error=True,
-            )
-
-        # Rate limit (fixed-window, same pattern as web search).
-        try:
-            import time as _time
-
-            from shared_kernel.auth.clients import get_redis
-
-            redis = get_redis()
-            window = int(_time.time()) // 60
-            rl_key = f"function:rl:{agent.project_id}:{window}"
-            pipe = redis.pipeline(transaction=False)
-            pipe.incr(rl_key, 1)
-            pipe.expire(rl_key, 70)
-            rl_results = await pipe.execute()
-            if int(rl_results[0]) > _FUNCTION_RATE_LIMIT_PER_MINUTE:
-                return ToolResult(content="function rate limit exceeded (60/min/project).", is_error=True)
-        except Exception:
-            logger.warning("function rate-limiter unavailable, blocking call", exc_info=True)
-            return ToolResult(
-                content="function call temporarily unavailable (rate-limiter offline).",
-                is_error=True,
-            )
-
         headers = dict(http_cfg.get("headers") or {})
         auth, unsealable = resolve_tool_auth(tool)
         if unsealable:
@@ -493,27 +466,36 @@ def _build_function_tool(
         upstream_auth = _auth_pair(auth)
         method = str(http_cfg.get("method", "GET")).upper()
 
+        # Allowlist + fixed-window rate limit + egress-proxy call now live in the
+        # shared perform_egress_request (SoC seam); this path keeps its own auth
+        # resolution, audit, and message strings.
         try:
-            if method in ("GET", "DELETE"):
-                status, _h, body = await deps.proxy.request(
-                    method=method,
-                    url=url,
-                    project_id=agent.project_id,
-                    headers=headers,
-                    params=dict(args),
-                    upstream_auth=upstream_auth,
-                    timeout_s=30.0,
+            outcome = await perform_egress_request(
+                db,
+                project_id=agent.project_id,
+                method=method,
+                url=url,
+                proxy=deps.proxy,
+                args=dict(args),
+                headers=headers,
+                upstream_auth=upstream_auth,
+                timeout_s=30.0,
+                rate_limit_prefix="function",
+                rate_limit_per_minute=_FUNCTION_RATE_LIMIT_PER_MINUTE,
+            )
+        except EgressBlocked as blocked:
+            if blocked.kind == "allowlist":
+                return ToolResult(
+                    content=f"function blocked: host {blocked.host} is not on the project egress allowlist.",
+                    is_error=True,
                 )
-            else:
-                status, _h, body = await deps.proxy.request(
-                    method=method,
-                    url=url,
-                    project_id=agent.project_id,
-                    headers=headers,
-                    json_body=dict(args),
-                    upstream_auth=upstream_auth,
-                    timeout_s=30.0,
-                )
+            if blocked.kind == "rate_limit":
+                return ToolResult(content="function rate limit exceeded (60/min/project).", is_error=True)
+            logger.warning("function rate-limiter unavailable, blocking call", exc_info=True)
+            return ToolResult(
+                content="function call temporarily unavailable (rate-limiter offline).",
+                is_error=True,
+            )
         except McpEgressDenied:
             await _audit_tool_invoke(db, agent, tool, fn_name, ok=False)
             return ToolResult(content="function blocked by egress policy.", is_error=True)
@@ -521,10 +503,10 @@ def _build_function_tool(
             await _audit_tool_invoke(db, agent, tool, fn_name, ok=False)
             return ToolResult(content=f"function call failed: {exc}", is_error=True)
 
-        ok = 200 <= status < 400
+        ok = outcome.ok
         await _audit_tool_invoke(db, agent, tool, fn_name, ok=ok)
-        text = body.decode("utf-8", "replace")
-        return ToolResult(content=_clip(f"HTTP {status}\n{text}"), is_error=not ok)
+        text = outcome.body.decode("utf-8", "replace")
+        return ToolResult(content=_clip(f"HTTP {outcome.status}\n{text}"), is_error=not ok)
 
     return Tool(name=fn_name, description=fn_desc, input_schema=fn_params, invoke=_invoke)
 
