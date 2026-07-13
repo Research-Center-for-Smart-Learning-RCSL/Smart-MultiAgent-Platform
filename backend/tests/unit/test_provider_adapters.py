@@ -637,6 +637,19 @@ async def test_anthropic_forwards_temperature_and_top_p_on_accepting_models(mode
 
 @pytest.mark.asyncio
 @respx.mock
+async def test_anthropic_clamps_temperature_to_provider_ceiling() -> None:
+    # The agent field allows temperature up to 2.0 (OpenAI/Gemini's range), but
+    # Anthropic caps at 1.0; a cross-provider value must clamp, not 400.
+    route = respx.post("https://api.anthropic.com/v1/messages").respond(
+        200, json={"content": [{"type": "text", "text": "ok"}], "stop_reason": "end", "usage": {}}
+    )
+    await AnthropicAdapter().invoke(secret=_SECRET, request=_chat("claude-sonnet-4-6", temperature=1.5))
+    sent = json.loads(route.calls.last.request.content)
+    assert sent["temperature"] == 1.0
+
+
+@pytest.mark.asyncio
+@respx.mock
 @pytest.mark.parametrize(
     "model", ["claude-opus-4-7", "claude-opus-4-8", "claude-sonnet-5", "claude-fable-5", "claude-mythos-5"]
 )
@@ -668,8 +681,9 @@ async def test_openai_non_reasoning_forwards_top_p_and_seed() -> None:
 
 @pytest.mark.asyncio
 @respx.mock
-async def test_openai_reasoning_drops_top_p_keeps_seed() -> None:
-    # Reasoning models reject nucleus/temperature but still accept seed.
+async def test_openai_reasoning_drops_all_sampling_controls() -> None:
+    # Reasoning models reject sampling controls; temperature, top_p, and seed are
+    # all dropped so a configured value degrades to the default instead of 400ing.
     route = respx.post("https://api.openai.com/v1/chat/completions").respond(
         200, json={"choices": [{"message": {"content": "ok"}, "finish_reason": "stop"}], "usage": {}}
     )
@@ -679,7 +693,7 @@ async def test_openai_reasoning_drops_top_p_keeps_seed() -> None:
     sent = json.loads(route.calls.last.request.content)
     assert "temperature" not in sent
     assert "top_p" not in sent
-    assert sent["seed"] == 42
+    assert "seed" not in sent
 
 
 @pytest.mark.asyncio

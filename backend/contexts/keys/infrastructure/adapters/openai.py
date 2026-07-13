@@ -158,9 +158,10 @@ def _chat_body(request: ProviderRequest, *, stream: bool) -> dict[str, Any]:
     if payload.get("top_p") is not None and not reasoning:
         # Same reasoning-model constraint as temperature: a custom nucleus 400s.
         body["top_p"] = payload["top_p"]
-    if payload.get("seed") is not None:
-        # Seed is OpenAI's determinism lever (accepted across model families);
-        # the other providers have no equivalent, so it lives only here.
+    if payload.get("seed") is not None and not reasoning:
+        # Seed is OpenAI's determinism lever on standard models; reasoning models
+        # reject sampling controls, so drop it there like temperature/top_p rather
+        # than risk a 400. Other providers have no seed equivalent (only here).
         body["seed"] = payload["seed"]
     # Cross-provider effort -> Chat Completions reasoning_effort, but only where
     # the model supports it. A non-reasoning model 400s on the parameter, so we

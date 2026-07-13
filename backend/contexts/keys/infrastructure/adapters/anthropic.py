@@ -161,7 +161,10 @@ def _body(request: ProviderRequest, *, stream: bool) -> dict[str, Any]:
         body["tools"] = payload["tools"]
     if not _NO_SAMPLING_RE.search(model):
         if payload.get("temperature") is not None:
-            body["temperature"] = payload["temperature"]
+            # Anthropic's temperature ceiling is 1.0, but the agent field accepts
+            # up to 2.0 (OpenAI/Gemini's range). Clamp so a cross-provider value
+            # in (1, 2] degrades to the max rather than 400ing the turn.
+            body["temperature"] = min(float(payload["temperature"]), 1.0)
         if payload.get("top_p") is not None:
             body["top_p"] = payload["top_p"]
     # Cross-provider effort -> Claude effort (Opus 4.5+/Sonnet 4.6/Fable 5 only;

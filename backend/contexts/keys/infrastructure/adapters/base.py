@@ -23,8 +23,9 @@ LLM_CHAT::
                                         #   model rejects it (OpenAI reasoning,
                                         #   Claude Opus 4.7+/gen-5)
         "top_p": 1.0,                   # optional; same per-model constraint
-        "seed": 42,                     # optional; forwarded by OpenAI only,
-                                        #   no-op on Anthropic/Gemini
+        "seed": 42,                     # optional; forwarded by OpenAI only
+                                        #   (non-reasoning models), no-op on
+                                        #   Anthropic/Gemini
     }
 
 EMBEDDING::
