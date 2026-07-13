@@ -781,11 +781,48 @@
             ],
             "title": "Rag Config Id"
           },
+          "seed": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Seed"
+          },
           "system_prompt": {
             "default": "",
             "maxLength": 100000,
             "title": "System Prompt",
             "type": "string"
+          },
+          "temperature": {
+            "anyOf": [
+              {
+                "maximum": 2.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Temperature"
+          },
+          "top_p": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Top P"
           },
           "wakeup_config": {
             "title": "Wakeup Config",
@@ -1105,9 +1142,42 @@
             ],
             "title": "Rag Config Id"
           },
+          "seed": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Seed"
+          },
           "system_prompt": {
             "title": "System Prompt",
             "type": "string"
+          },
+          "temperature": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Temperature"
+          },
+          "top_p": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Top P"
           },
           "version": {
             "title": "Version",
@@ -1136,6 +1206,9 @@
           "knowmap_config_id",
           "context_mode",
           "context_token_cap",
+          "temperature",
+          "top_p",
+          "seed",
           "a2a_enabled",
           "wakeup_config",
           "workflow_capabilities",
@@ -1295,6 +1368,17 @@
             ],
             "title": "Rag Config Id"
           },
+          "seed": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Seed"
+          },
           "system_prompt": {
             "anyOf": [
               {
@@ -1306,6 +1390,32 @@
               }
             ],
             "title": "System Prompt"
+          },
+          "temperature": {
+            "anyOf": [
+              {
+                "maximum": 2.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Temperature"
+          },
+          "top_p": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Top P"
           },
           "wakeup_config": {
             "anyOf": [
