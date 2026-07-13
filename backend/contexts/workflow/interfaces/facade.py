@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from contexts.orchestration.infrastructure.tables import workflow_runs as _workflow_runs_table
 from contexts.workflow.application.run_engine import RunEngine
 from contexts.workflow.application.workflow_service import WorkflowService
+from contexts.workflow.domain.errors import WorkflowNotFound
 from contexts.workflow.domain.models import (
     ValidationResult,
     Workflow,
@@ -36,11 +37,10 @@ class WorkflowFacade:
         self._svc = WorkflowService(db)
         self._engine = RunEngine(db)
 
-    async def get_workflow(self, workflow_id: uuid.UUID) -> Workflow | None:
+    async def get_workflow(self, workflow_id: uuid.UUID, *, include_deleted: bool = False) -> Workflow | None:
         try:
-            return await self._svc.get(workflow_id)
-        except Exception:
-            logger.exception("Failed to fetch workflow %s", workflow_id)
+            return await self._svc.get(workflow_id, include_deleted=include_deleted)
+        except WorkflowNotFound:
             return None
 
     def validate_definition(

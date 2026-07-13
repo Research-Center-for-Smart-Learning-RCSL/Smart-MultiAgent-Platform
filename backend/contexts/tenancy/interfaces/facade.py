@@ -56,6 +56,13 @@ class TenancyFacade:
     async def get_project(self, project_id: uuid.UUID, *, include_deleted: bool = False) -> Project | None:
         return await self._projects.get(project_id, include_deleted=include_deleted)
 
+    async def get_org(self, org_id: uuid.UUID, *, include_deleted: bool = False) -> Org | None:
+        """Read an org by id; soft-deleted rows are filtered unless requested.
+
+        The admin-restore ancestor-liveness guard uses the default (filtered)
+        form to check a project's parent-org is still live before restoring."""
+        return await self._orgs.get(org_id, include_deleted=include_deleted)
+
     async def get_projects(self, project_ids: Sequence[uuid.UUID]) -> dict[uuid.UUID, Project]:
         """Batch-resolve projects by id, keyed by id, for N+1-free name lookups."""
         return {p.id: p for p in await self._projects.list_by_ids(project_ids)}
