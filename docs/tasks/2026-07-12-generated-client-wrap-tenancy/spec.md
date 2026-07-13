@@ -185,8 +185,10 @@ dimensions):
       `{ target_user_id }` body, and the `projectsApi.list` scope/id guard (both-set sends the
       params, either-unset omits both). One benign query-string delta recorded as D-1.
 - [x] AC-5: `pnpm test` green (558 passed) — `useObservations.test.ts` updated to a bare
-      body, all other tests unmodified, the new 42-case characterization spec passes; `pnpm
-      build` green.
+      body, all other tests unmodified, the new 32-case characterization spec passes; `pnpm
+      build` green. (The "42" seen during implementation was the combined pass count of the two
+      touched files — 32 new tenancy-api cases + 10 in `useObservations.test.ts` — not the new
+      spec's own case count.)
 - [x] AC-6: security holds — no response carries a new field or secret; invite/role/transfer
       bodies and `If-Match` are byte-identical; AuthZ path unchanged (§6). Security audit: no
       findings.

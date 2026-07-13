@@ -187,7 +187,9 @@ Config surface handling BYO provider-key references, system prompts, and file up
       routes (createSession/resolved/merged/postMessage). Multipart `uploadFile` route+return
       asserted; see D-1 for the field-assertion deviation.
 - [x] AC-5: `pnpm test` green — 123 files / 609 tests (all prompt-studio tests unmodified + the
-      new 12-case characterization spec); `pnpm build` green (17.45s).
+      new 11-case characterization spec — the 12th planned case, `getModelCatalog`, was removed by
+      FU-5, which rehomed the catalog fetch to the shared `useModelCatalog` composable); `pnpm
+      build` green (17.45s).
 - [x] AC-6: security holds — scope→endpoint mappings are pinned, request bodies/If-Match are
       byte-identical, no key material or secret is logged, file upload unchanged (§6). Security
       audit: no findings; scope-dispatch correctness confirmed for all 8 scoped methods.
@@ -266,9 +268,15 @@ params.)
     export was then removed from `shared/transport/index.ts`, and transport's own interceptor
     test repointed to `import { http } from '../axios'`. **Nuance vs the FU's "if nothing else
     uses it":** the `http` *instance* is NOT dead — `transport/tus.ts` (tus upload protocol) and
-    `transport/axios.ts` (WS-ticket redemption) still import it directly from `./axios`. So the
-    instance stays internal to the transport module; only its cross-app re-export is gone, which
-    is what closes the program (no slice/composable reaches the raw axios singleton anymore).
+    `transport/axios.ts` (WS-ticket redemption) still import it directly from `./axios`. One
+    shared composable also legitimately holds it: `shared/composables/useNetworkStatus.ts`
+    deep-imports `http` from `@shared/transport/axios` for the `/healthz` liveness probe — a
+    root-mounted endpoint with **no** OpenAPI (`/api`) method and thus no generated-client
+    equivalent, which deliberately rides the shared interceptors so an answered probe clears the
+    offline state through the success path. This is transport-adjacent infra, not a business API
+    call, so it stays on the raw instance by design. Net: the singleton's cross-app *re-export*
+    is gone (no slice makes a business API call through the raw axios singleton), while three
+    transport-layer/infra consumers (tus, WS-ticket, healthz probe) keep the instance internal.
     R24.13's requirement text (REQUIREMENTS.md §24.4, traceability.csv, J.2 exit criteria) is
     descriptive of the now-realized target architecture and needs no textual change; those docs
     carry no status field.
