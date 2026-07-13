@@ -2060,6 +2060,8 @@ Added by the 2026-07-13 design session (task dossier: `docs/tasks/2026-07-13-act
 - **[R30.12]** The activities context emits a best-effort `activity` workflow signal at submission and at validation completion; the completion signal carries the final outcome (`is_valid`/`error_class`) and a server-computed rolling aggregate (numeric counts/latency over a bounded recent window keyed by error class). Emission never blocks or fails the submission or validation, and all signal fields derive from the authoritative record, not the client.
 - **[R30.13]** The workflow engine supports an `activity_event` trigger type and an `activity_in_room` wait kind. Rules that gate on an aggregate threshold must branch via a condition node evaluating an SEL expression over the trigger payload (edge guards are not evaluated at runtime).
 - **[R30.14]** Reactive automation for activities runs through the workflow engine, not the observer. Impasse detection and any pedagogical rule are project-authored SEL expressions and workflows; the platform ships no domain rule.
+- **[R30.15]** An observer-role agent's turn may include a bounded, read-only context block of the room's recent structured activity events (deterministic outcomes, not inferred), in addition to the full chat history. The block is present only for observers in rooms that have activities; it never appears for non-observer agents.
+- **[R30.16]** The activity context is best-effort: a failure to read activity events degrades to no block and never fails the turn. The observer's diagnostic rubric is defined by its system prompt and tools (project config), not the platform.
 
 ---
 
