@@ -614,3 +614,84 @@ async def test_openai_non_reasoning_model_drops_effort_keeps_classic_params() ->
     assert "max_completion_tokens" not in sent
     assert sent["max_tokens"] == 256
     assert sent["temperature"] == 0.7
+
+
+# --------------------------------------------------------------------------- #
+# Sampling controls — temperature / top_p / seed (R9.18)                        #
+# --------------------------------------------------------------------------- #
+@pytest.mark.asyncio
+@respx.mock
+@pytest.mark.parametrize("model", ["claude-sonnet-4-6", "claude-opus-4-5", "claude-haiku-4-5"])
+async def test_anthropic_forwards_temperature_and_top_p_on_accepting_models(model: str) -> None:
+    # Older Claude generations still accept sampling params; seed has no
+    # Anthropic equivalent and must never be forwarded.
+    route = respx.post("https://api.anthropic.com/v1/messages").respond(
+        200, json={"content": [{"type": "text", "text": "ok"}], "stop_reason": "end", "usage": {}}
+    )
+    await AnthropicAdapter().invoke(secret=_SECRET, request=_chat(model, temperature=0.0, top_p=1.0, seed=7))
+    sent = json.loads(route.calls.last.request.content)
+    assert sent["temperature"] == 0.0
+    assert sent["top_p"] == 1.0
+    assert "seed" not in sent
+
+
+@pytest.mark.asyncio
+@respx.mock
+@pytest.mark.parametrize(
+    "model", ["claude-opus-4-7", "claude-opus-4-8", "claude-sonnet-5", "claude-fable-5", "claude-mythos-5"]
+)
+async def test_anthropic_drops_sampling_on_rejecting_models(model: str) -> None:
+    # Opus 4.7+ and every "5"-generation model 400 on temperature/top_p; the
+    # adapter drops them so a configured value degrades to the provider default.
+    route = respx.post("https://api.anthropic.com/v1/messages").respond(
+        200, json={"content": [{"type": "text", "text": "ok"}], "stop_reason": "end", "usage": {}}
+    )
+    await AnthropicAdapter().invoke(secret=_SECRET, request=_chat(model, temperature=0.0, top_p=1.0, seed=7))
+    sent = json.loads(route.calls.last.request.content)
+    assert "temperature" not in sent
+    assert "top_p" not in sent
+    assert "seed" not in sent
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_openai_non_reasoning_forwards_top_p_and_seed() -> None:
+    route = respx.post("https://api.openai.com/v1/chat/completions").respond(
+        200, json={"choices": [{"message": {"content": "ok"}, "finish_reason": "stop"}], "usage": {}}
+    )
+    await OpenAIAdapter().invoke(secret=_SECRET, request=_chat("gpt-4o", temperature=0.0, top_p=1.0, seed=42))
+    sent = json.loads(route.calls.last.request.content)
+    assert sent["temperature"] == 0.0
+    assert sent["top_p"] == 1.0
+    assert sent["seed"] == 42
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_openai_reasoning_drops_top_p_keeps_seed() -> None:
+    # Reasoning models reject nucleus/temperature but still accept seed.
+    route = respx.post("https://api.openai.com/v1/chat/completions").respond(
+        200, json={"choices": [{"message": {"content": "ok"}, "finish_reason": "stop"}], "usage": {}}
+    )
+    await OpenAIAdapter().invoke(
+        secret=_SECRET, request=_chat("o3-mini", temperature=0.0, top_p=1.0, seed=42)
+    )
+    sent = json.loads(route.calls.last.request.content)
+    assert "temperature" not in sent
+    assert "top_p" not in sent
+    assert sent["seed"] == 42
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_gemini_forwards_top_p_and_ignores_seed() -> None:
+    route = respx.post(
+        "https://generativelanguage.googleapis.com/v1beta/models/gemini-x:generateContent"
+    ).respond(200, json={"candidates": [{"content": {"parts": [{"text": "ok"}]}}]})
+    await GeminiAdapter().invoke(
+        secret=_SECRET, request=_chat("gemini-x", temperature=0.0, top_p=0.9, seed=7)
+    )
+    gen = json.loads(route.calls.last.request.content)["generationConfig"]
+    assert gen["temperature"] == 0.0
+    assert gen["topP"] == 0.9
+    assert "seed" not in gen
