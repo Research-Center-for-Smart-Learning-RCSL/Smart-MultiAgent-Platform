@@ -458,6 +458,7 @@ Custom SMAP protocol (Q35).
   2. Both agents have `a2a_enabled = true`.
   3. The caller is invoking from a context (ChatRoom or Workflow run) that the callee is also attached to, OR the callee is configured with `wakeup_config.call_only.enabled = true` at the project level.
   Cross-project A2A is always denied. A2A to agents in soft-deleted projects is denied. Violations return `a2a_forbidden` and are audit-logged.
+- **[R9.18]** An agent's configuration may set sampling controls — temperature, top_p, and (where the provider supports it) seed — which are threaded into every provider call for that agent. Unset controls preserve provider defaults. These controls make an agent's output low-variance and reproducible enough to audit (e.g. to compute inter-rater agreement for an LLM-judged scoring agent); they do not guarantee bit-identical output, and seed has no effect on providers without a seed parameter (Anthropic, Gemini).
 
 ---
 
