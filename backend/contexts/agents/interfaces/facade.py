@@ -8,6 +8,8 @@ directly. Keeps the import graph acyclic.
 from __future__ import annotations
 
 import uuid
+from dataclasses import dataclass
+from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -33,8 +35,36 @@ __all__ = [
     "AgentVersionMismatch",
     "AgentsFacade",
     "ChatModelCatalogEntry",
+    "EgressResponse",
+    "McpInvokeResult",
     "WorkspaceFile",
 ]
+
+
+@dataclass(frozen=True, slots=True)
+class McpInvokeResult:
+    """Neutral result of a headless MCP tool invocation (no agents-domain type
+    crosses the facade). ``ok`` is False on a non-zero exit, an egress denial, or
+    a timeout — the caller maps that to its own failure state."""
+
+    ok: bool
+    stdout: str
+    stderr: str
+    exit_code: int
+    duration_ms: int
+
+
+@dataclass(frozen=True, slots=True)
+class EgressResponse:
+    """Neutral result of an outbound egress request through the proxy.
+
+    ``blocked`` is ``None`` on a completed round-trip (``status``/``body`` set);
+    otherwise it names why the call was refused (``allowlist`` / ``rate_limit`` /
+    ``rate_limiter_offline`` / ``policy``) and ``status`` is ``None``."""
+
+    status: int | None
+    body: bytes
+    blocked: str | None
 
 
 class AgentsFacade:
@@ -118,3 +148,102 @@ class AgentsFacade:
 
     async def list_workspace_files(self, agent_id: uuid.UUID) -> list[WorkspaceFile]:
         return list(await self._workspace_files.list(agent_id))
+
+    # ------------------------------------------------------------------
+    # Validator composition seam (activities-platform-core §5.2)
+    #
+    # The activities validator worker composes MCP/webhook capability THROUGH
+    # this facade only — it never imports contexts/agents infrastructure. Both
+    # methods source the sandbox runner / egress proxy from the composition-root
+    # deps and return neutral value objects.
+    # ------------------------------------------------------------------
+
+    async def invoke_mcp_tool(
+        self,
+        *,
+        project_id: uuid.UUID,
+        agent_id: uuid.UUID,
+        binding_id: uuid.UUID,
+        tool_name: str,
+        arguments: dict[str, Any],
+        source: str = "",
+        reference: str = "",
+        auth: dict[str, Any] | None = None,
+        timeout_s: float = 60.0,
+    ) -> McpInvokeResult:
+        """Run an MCP tool headlessly in the gVisor sandbox (turn-independent).
+
+        An egress denial (sandbox exit 42) or a timeout is surfaced as
+        ``ok=False`` rather than raised, so a validator worker degrades to
+        ``validation_status=error`` instead of crashing."""
+        from contexts.agents.application.runtime.builtin_tools import default_builtin_deps
+        from contexts.agents.domain.errors import McpEgressDenied, McpTimeout
+
+        runner = default_builtin_deps().runner
+        try:
+            res = await runner.invoke_mcp_tool(
+                agent_id=agent_id,
+                binding_id=binding_id,
+                tool_name=tool_name,
+                arguments=dict(arguments),
+                project_id=project_id,
+                source=source,
+                reference=reference,
+                auth=auth,
+                timeout_s=timeout_s,
+            )
+        except McpEgressDenied:
+            return McpInvokeResult(ok=False, stdout="", stderr="egress denied", exit_code=42, duration_ms=0)
+        except McpTimeout:
+            return McpInvokeResult(ok=False, stdout="", stderr="mcp timeout", exit_code=-1, duration_ms=0)
+        return McpInvokeResult(
+            ok=res.ok,
+            stdout=res.stdout,
+            stderr=res.stderr,
+            exit_code=res.exit_code,
+            duration_ms=res.duration_ms,
+        )
+
+    async def egress_request(
+        self,
+        *,
+        project_id: uuid.UUID,
+        method: str,
+        url: str,
+        body: dict[str, Any] | None = None,
+        headers: dict[str, str] | None = None,
+        upstream_auth: tuple[str, str] | None = None,
+        timeout_s: float = 30.0,
+    ) -> EgressResponse:
+        """Make an outbound request through the SSRF-safe egress proxy, sharing
+        the same allowlist + rate-limit policy as agent function tools.
+
+        A refusal (allowlist / rate-limit / proxy egress policy) returns a
+        ``blocked`` :class:`EgressResponse` rather than raising, so the caller
+        classifies it as a validation ``error``."""
+        from contexts.agents.application.egress import (
+            EgressBlocked,
+            perform_egress_request,
+        )
+        from contexts.agents.application.runtime.builtin_tools import default_builtin_deps
+        from contexts.agents.domain.errors import McpEgressDenied
+
+        proxy = default_builtin_deps().proxy
+        try:
+            outcome = await perform_egress_request(
+                self._db,
+                project_id=project_id,
+                method=method,
+                url=url,
+                proxy=proxy,
+                args=body,
+                headers=headers,
+                upstream_auth=upstream_auth,
+                timeout_s=timeout_s,
+                rate_limit_prefix="validator",
+            )
+        except EgressBlocked as blocked:
+            return EgressResponse(status=None, body=b"", blocked=blocked.kind)
+        except McpEgressDenied:
+            return EgressResponse(status=None, body=b"", blocked="policy")
+        return EgressResponse(status=outcome.status, body=outcome.body, blocked=None)

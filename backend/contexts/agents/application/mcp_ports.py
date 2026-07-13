@@ -99,6 +99,7 @@ class EgressProxyClient(Protocol):
         params: dict[str, Any] | None = None,
         json_body: Any | None = None,
         timeout_s: float = 20.0,
+        upstream_auth: tuple[str, str] | None = None,
     ) -> tuple[int, dict[str, str], bytes]: ...
 
 
