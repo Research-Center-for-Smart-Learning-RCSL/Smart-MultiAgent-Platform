@@ -12,6 +12,9 @@ Desktop.ini
 !.vscode/extensions.json
 !.vscode/settings.shared.json
 
+# ==== documents ====
+_projects_documents/
+
 # ==== AI tooling (skills and shared settings are versioned project assets) ====
 .claude/*
 !.claude/skills/
