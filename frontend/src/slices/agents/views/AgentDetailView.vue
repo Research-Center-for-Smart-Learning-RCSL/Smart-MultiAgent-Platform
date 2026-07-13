@@ -320,6 +320,26 @@ function nullableNumberModel(field: { value: number | null }) {
   })
 }
 
+// Sampling controls (R9.18) use a *text* input, not number: SInput type="number"
+// coerces a cleared field to 0 (Number('') === 0), which would make it impossible
+// to distinguish "provider default" (null) from the valid value temperature=0.
+// A text input emits '' when cleared (-> null) and the numeric string otherwise.
+// Non-numeric keystrokes are ignored so NaN never enters the model.
+function nullableNumberFromText(field: { value: number | null }) {
+  return computed<string | number>({
+    get: () => field.value ?? '',
+    set: (v) => {
+      const s = String(v).trim()
+      if (s === '') {
+        field.value = null
+        return
+      }
+      const n = Number(s)
+      if (Number.isFinite(n)) field.value = n
+    },
+  })
+}
+
 // Workflow capabilities decomposed fields
 const canInstruct = ref(false)
 const canApprove = ref(false)
@@ -435,9 +455,9 @@ const contextTokenCapPlaceholder = computed(() => {
   return t('agents.form.contextTokenCapDefault', { cap: defaultCap.toLocaleString() })
 })
 const contextTokenCapModel = nullableNumberModel(contextTokenCap)
-const temperatureModel = nullableNumberModel(temperature)
-const topPModel = nullableNumberModel(topP)
-const seedModel = nullableNumberModel(seed)
+const temperatureModel = nullableNumberFromText(temperature)
+const topPModel = nullableNumberFromText(topP)
+const seedModel = nullableNumberFromText(seed)
 
 function insertLazyTemplate(): void {
   const existing = (systemPrompt.value ?? '').trimEnd()
@@ -805,51 +825,6 @@ const breadcrumbs = computed(() => [
                 :placeholder="t('agents.form.keyGroupPlaceholder')"
               />
             </SFormField>
-
-            <h4 class="text-sm font-semibold text-muted mb-1 mt-6">
-              {{ t('agents.form.samplingHeading') }}
-            </h4>
-            <p class="text-sm text-muted mb-4">
-              {{ t('agents.form.samplingHelp') }}
-            </p>
-            <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <SFormField
-                :label="t('agents.form.temperature')"
-                name="temperature"
-                :error="errors.temperature ?? ''"
-                :help="t('agents.form.temperatureHelp')"
-              >
-                <SInput
-                  v-model="temperatureModel"
-                  type="number"
-                  :placeholder="t('agents.form.samplingDefault')"
-                />
-              </SFormField>
-              <SFormField
-                :label="t('agents.form.topP')"
-                name="top_p"
-                :error="errors.top_p ?? ''"
-                :help="t('agents.form.topPHelp')"
-              >
-                <SInput
-                  v-model="topPModel"
-                  type="number"
-                  :placeholder="t('agents.form.samplingDefault')"
-                />
-              </SFormField>
-              <SFormField
-                :label="t('agents.form.seed')"
-                name="seed"
-                :error="errors.seed ?? ''"
-                :help="t('agents.form.seedHelp')"
-              >
-                <SInput
-                  v-model="seedModel"
-                  type="number"
-                  :placeholder="t('agents.form.samplingDefault')"
-                />
-              </SFormField>
-            </div>
           </SCard>
 
           <SCard>
@@ -886,6 +861,53 @@ const breadcrumbs = computed(() => [
                 :placeholder="contextTokenCapPlaceholder"
               />
             </SFormField>
+          </SCard>
+
+          <SCard>
+            <h3 class="text-lg font-semibold mb-1">
+              {{ t('agents.form.samplingTitle') }}
+            </h3>
+            <p class="mb-4 text-sm text-[var(--color-muted)]">
+              {{ t('agents.form.samplingHelp') }}
+            </p>
+            <div class="grid grid-cols-1 gap-4 sm:grid-cols-3">
+              <SFormField
+                :label="t('agents.form.temperature')"
+                name="temperature"
+                :error="errors.temperature ?? ''"
+                :help="t('agents.form.temperatureHelp')"
+              >
+                <SInput
+                  v-model="temperatureModel"
+                  type="text"
+                  :placeholder="t('agents.form.samplingDefaultPlaceholder')"
+                />
+              </SFormField>
+              <SFormField
+                :label="t('agents.form.topP')"
+                name="top_p"
+                :error="errors.top_p ?? ''"
+                :help="t('agents.form.topPHelp')"
+              >
+                <SInput
+                  v-model="topPModel"
+                  type="text"
+                  :placeholder="t('agents.form.samplingDefaultPlaceholder')"
+                />
+              </SFormField>
+              <SFormField
+                :label="t('agents.form.seed')"
+                name="seed"
+                :error="errors.seed ?? ''"
+                :help="t('agents.form.seedHelp')"
+              >
+                <SInput
+                  v-model="seedModel"
+                  type="text"
+                  :placeholder="t('agents.form.samplingDefaultPlaceholder')"
+                />
+              </SFormField>
+            </div>
           </SCard>
         </div>
 
