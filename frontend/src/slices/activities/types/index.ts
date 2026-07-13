@@ -5,12 +5,21 @@ import type {
   ActivitySessionOut,
   ActivitySubmissionOut,
   ActivityTypeOut,
+  ActivityActivationOut,
 } from '@shared/api-client'
 import type { ActivityValidationStatus } from '../sdk/types'
 
 export type ActivityType = ActivityTypeOut
 export type ActivitySubmission = ActivitySubmissionOut
 export type ActivitySession = ActivitySessionOut
+export type ActivityActivation = ActivityActivationOut
+
+/** Compact activation state used by HTTP hydration and the ids-only room WS events. */
+export interface ActivationView {
+  id: string
+  activityTypeId: string
+  startedByUserId: string | null
+}
 
 export type { ActivityValidationStatus, ActivitySubmissionResult } from '../sdk/types'
 

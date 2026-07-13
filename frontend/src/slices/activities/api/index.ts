@@ -8,6 +8,8 @@ import { ActivitiesService } from '@shared/api-client'
 import type {
   ActivitySessionOpenIn,
   ActivitySessionOut,
+  ActivityActivationOut,
+  ActivityActivationStartIn,
   ActivitySubmissionIn,
   ActivitySubmissionOut,
   ActivitySubmissionsPageOut,
@@ -16,6 +18,32 @@ import type {
 
 export async function listActivityTypes(projectId: string): Promise<ActivityTypeOut[]> {
   return ActivitiesService.listActivityTypesApiProjectsProjectIdActivityTypesGet({ projectId })
+}
+
+export async function startActivation(
+  chatroomId: string,
+  body: ActivityActivationStartIn,
+): Promise<ActivityActivationOut> {
+  return ActivitiesService.startActivityActivationApiChatroomsChatroomIdActivityActivationsPost({
+    chatroomId,
+    requestBody: body,
+  })
+}
+
+export async function endActivation(
+  chatroomId: string,
+  activationId: string,
+): Promise<ActivityActivationOut> {
+  return ActivitiesService.endActivityActivationApiChatroomsChatroomIdActivityActivationsActivationIdEndPatch({
+    chatroomId,
+    activationId,
+  })
+}
+
+export async function getActiveActivation(chatroomId: string): Promise<ActivityActivationOut | null> {
+  return ActivitiesService.getActiveActivityActivationApiChatroomsChatroomIdActivityActivationsActiveGet({
+    chatroomId,
+  })
 }
 
 export async function openActivitySession(

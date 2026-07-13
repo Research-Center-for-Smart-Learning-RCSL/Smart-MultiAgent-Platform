@@ -12,7 +12,7 @@ import { computed, onActivated, onBeforeUnmount, onDeactivated, onMounted, ref }
 
 import { wsManager, type ChannelEvent } from '@shared/transport'
 import { useOrchestrationStore } from '@shared/stores/orchestration'
-import { useActivitiesStore } from '@slices/activities'
+import { getActiveActivation, useActivitiesStore } from '@slices/activities'
 import type { ApprovalWithVotes } from '@shared/types/workflow'
 import { getChatroomPresence, getMessage, listMessages } from '../api'
 import { useConversationStore } from '../stores/conversation'
@@ -65,6 +65,8 @@ export function useChatroomSocket(roomId: string) {
   // socket flaps and two replays overlap, a slower earlier fetch cannot
   // resolve last and re-apply an older delta over fresher data (R24.23).
   let replayGeneration = 0
+  let activationGeneration = 0
+  let disposed = false
 
   // B2: a message.deleted frame can beat an in-flight create-delta HTTP
   // response back to the client (the delta was fetched from the server
@@ -109,6 +111,24 @@ export function useChatroomSocket(roomId: string) {
       store.clearTyping(roomId)
     } catch {
       // best-effort; deltas keep flowing
+    }
+  }
+
+  async function resyncActivation(): Promise<void> {
+    if (disposed) return
+    const generation = ++activationGeneration
+    const version = activitiesStore.getActivationVersion(roomId)
+    try {
+      const activation = await getActiveActivation(roomId)
+      if (
+        disposed ||
+        generation !== activationGeneration ||
+        version !== activitiesStore.getActivationVersion(roomId)
+      ) return
+      if (activation) activitiesStore.setActivation(roomId, activation)
+      else activitiesStore.clearActivation(roomId)
+    } catch {
+      // Best-effort: a subsequent reconnect or activation event will restore state.
     }
   }
 
@@ -293,6 +313,24 @@ export function useChatroomSocket(roomId: string) {
         }
         break
       }
+      case 'activity.activation.started': {
+        activationGeneration += 1
+        const activationId = ev.activation_id as string
+        const activityTypeId = ev.activity_type_id as string
+        if (activationId && activityTypeId) {
+          activitiesStore.setActivation(roomId, {
+            id: activationId,
+            activityTypeId,
+            startedByUserId: (ev.started_by as string) ?? null,
+          })
+        }
+        break
+      }
+      case 'activity.activation.ended': {
+        activationGeneration += 1
+        activitiesStore.clearActivation(roomId, ev.activation_id as string)
+        break
+      }
       default:
         break
     }
@@ -314,6 +352,7 @@ export function useChatroomSocket(roomId: string) {
       clearThinkingTimeout()
       void replayDelta()
       void resyncPresence()
+      void resyncActivation()
     }
   })
 
@@ -338,6 +377,8 @@ export function useChatroomSocket(roomId: string) {
   })
 
   onBeforeUnmount(() => {
+    disposed = true
+    activationGeneration += 1
     clearThinkingTimeout()
     stopPolling()
     channel.send({ type: 'typing.stop' })

@@ -10,6 +10,8 @@ import { QueryClient, VueQueryPlugin } from '@tanstack/vue-query'
 import { defineComponent } from 'vue'
 
 import type { ChannelEvent } from '@shared/transport'
+import { useActivitiesStore } from '@slices/activities'
+import type * as ActivitiesSlice from '@slices/activities'
 
 const subscribedHandlers: Array<(ev: ChannelEvent) => void> = []
 const statusHandlers: Array<(connected: boolean) => void> = []
@@ -45,8 +47,14 @@ vi.mock('@shared/transport', () => {
 })
 
 const listMessagesMock = vi.hoisted(() => vi.fn(async () => []))
+const getActiveActivationMock = vi.hoisted(() => vi.fn())
 vi.mock('../api', () => ({
   listMessages: listMessagesMock,
+}))
+
+vi.mock('@slices/activities', async (importOriginal) => ({
+  ...(await importOriginal<typeof ActivitiesSlice>()),
+  getActiveActivation: getActiveActivationMock,
 }))
 
 import {
@@ -105,6 +113,8 @@ describe('useChatroomSocket agent streaming', () => {
     statusHandlers.length = 0
     degradedHandlers.length = 0
     listMessagesMock.mockClear()
+    getActiveActivationMock.mockReset()
+    getActiveActivationMock.mockResolvedValue(null)
     vi.useFakeTimers()
   })
 
@@ -242,6 +252,168 @@ describe('useChatroomSocket agent streaming', () => {
     emit({ type: 'agent.token', text: 'in progress', agent_id: AGENT })
     emit({ type: 'message.created', message_id: 'm_user', sender_type: 'user', sender_id: 'u1' })
     expect(mounted.store.agentStreams[ROOM]?.[AGENT]).toBe('in progress')
+  })
+
+  it('syncs room activation state from started and ended events', () => {
+    const mounted = mountSocket()
+    wrapper = mounted.wrapper
+    const activities = useActivitiesStore()
+
+    emit({
+      type: 'activity.activation.started',
+      activation_id: 'activation_1',
+      activity_type_id: 'type_1',
+      started_by: 'user_1',
+    })
+    expect(activities.getActivation(ROOM)).toMatchObject({
+      id: 'activation_1',
+      activityTypeId: 'type_1',
+    })
+
+    emit({ type: 'activity.activation.ended', activation_id: 'activation_1' })
+    expect(activities.getActivation(ROOM)).toBeNull()
+  })
+
+  it('hydrates the current activation after reconnecting', async () => {
+    const mounted = mountSocket()
+    wrapper = mounted.wrapper
+    const activities = useActivitiesStore()
+    getActiveActivationMock.mockResolvedValue({
+      id: 'activation_recovered',
+      chatroom_id: ROOM,
+      activity_type_id: 'type_recovered',
+      started_by_user_id: 'user_1',
+      status: 'active',
+      created_at: '2026-07-13T00:00:00Z',
+      ended_at: null,
+    })
+
+    for (const handler of [...statusHandlers]) handler(true)
+    await flushPromises()
+
+    expect(getActiveActivationMock).toHaveBeenCalledWith(ROOM)
+    expect(activities.getActivation(ROOM)).toMatchObject({
+      id: 'activation_recovered',
+      activityTypeId: 'type_recovered',
+    })
+  })
+
+  it('clears a stale activation when reconnect hydration finds none', async () => {
+    const mounted = mountSocket()
+    wrapper = mounted.wrapper
+    const activities = useActivitiesStore()
+    activities.setActivation(ROOM, {
+      id: 'activation_stale',
+      activityTypeId: 'type_stale',
+      startedByUserId: 'user_1',
+    })
+    getActiveActivationMock.mockResolvedValue(null)
+
+    for (const handler of [...statusHandlers]) handler(true)
+    await flushPromises()
+
+    expect(activities.getActivation(ROOM)).toBeNull()
+  })
+
+  it('does not overwrite a newer activation event with a stale reconnect response', async () => {
+    const mounted = mountSocket()
+    wrapper = mounted.wrapper
+    const activities = useActivitiesStore()
+    let resolveActivation!: (value: null) => void
+    getActiveActivationMock.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveActivation = resolve
+      }),
+    )
+
+    for (const handler of [...statusHandlers]) handler(true)
+    emit({
+      type: 'activity.activation.started',
+      activation_id: 'activation_newer',
+      activity_type_id: 'type_newer',
+      started_by: 'user_1',
+    })
+    resolveActivation(null)
+    await flushPromises()
+
+    expect(activities.getActivation(ROOM)).toMatchObject({
+      id: 'activation_newer',
+      activityTypeId: 'type_newer',
+    })
+  })
+
+  it('does not overwrite a local activation transition with a stale reconnect response', async () => {
+    const mounted = mountSocket()
+    wrapper = mounted.wrapper
+    const activities = useActivitiesStore()
+    activities.setActivation(ROOM, {
+      id: 'activation_old',
+      activityTypeId: 'type_old',
+      startedByUserId: 'user_1',
+    })
+    let resolveActivation!: (value: {
+      id: string
+      chatroom_id: string
+      activity_type_id: string
+      started_by_user_id: string
+      status: string
+      created_at: string
+      ended_at: null
+    }) => void
+    getActiveActivationMock.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveActivation = resolve
+      }),
+    )
+
+    for (const handler of [...statusHandlers]) handler(true)
+    activities.clearActivation(ROOM, 'activation_old')
+    resolveActivation({
+      id: 'activation_old',
+      chatroom_id: ROOM,
+      activity_type_id: 'type_old',
+      started_by_user_id: 'user_1',
+      status: 'active',
+      created_at: '2026-07-13T00:00:00Z',
+      ended_at: null,
+    })
+    await flushPromises()
+
+    expect(activities.getActivation(ROOM)).toBeNull()
+  })
+
+  it('does not restore activation state after socket cleanup', async () => {
+    const mounted = mountSocket()
+    wrapper = mounted.wrapper
+    let resolveActivation!: (value: {
+      id: string
+      chatroom_id: string
+      activity_type_id: string
+      started_by_user_id: string
+      status: string
+      created_at: string
+      ended_at: null
+    }) => void
+    getActiveActivationMock.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveActivation = resolve
+      }),
+    )
+
+    for (const handler of [...statusHandlers]) handler(true)
+    wrapper.unmount()
+    resolveActivation({
+      id: 'activation_late',
+      chatroom_id: ROOM,
+      activity_type_id: 'type_late',
+      started_by_user_id: 'user_1',
+      status: 'active',
+      created_at: '2026-07-13T00:00:00Z',
+      ended_at: null,
+    })
+    await flushPromises()
+
+    expect(useActivitiesStore().getActivation(ROOM)).toBeUndefined()
   })
 
   it('clears agent stream on agent message.created', async () => {

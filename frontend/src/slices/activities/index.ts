@@ -8,6 +8,7 @@ import { registerLocaleLoaders } from '@shared/i18n'
 // Host + presentational components (consumed by the in-chatroom activation UI /
 // first-party plugin surface, which is out of scope for this SDK task).
 export { default as ActivityHost } from './components/ActivityHost.vue'
+export { default as ActivityPanel } from './components/ActivityPanel.vue'
 export { default as ActivityOutcomeBadge } from './components/ActivityOutcomeBadge.vue'
 
 // Realtime state — driven by the conversation WS switch.
@@ -31,7 +32,8 @@ export type {
 } from './sdk/types'
 
 export { activityKeys } from './queries'
-export type { ActivityOutcome, ActivityType, ActivityValidationStatus } from './types'
+export { getActiveActivation } from './api'
+export type { ActivityActivation, ActivityOutcome, ActivityType, ActivityValidationStatus, ActivationView } from './types'
 
 export function installActivitiesSlice(): void {
   registerLocaleLoaders({
