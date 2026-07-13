@@ -809,7 +809,7 @@ const breadcrumbs = computed(() => [
             <h4 class="text-sm font-semibold text-muted mb-1 mt-6">
               {{ t('agents.form.samplingHeading') }}
             </h4>
-            <p class="text-sm text-[var(--color-muted)] mb-4">
+            <p class="text-sm text-muted mb-4">
               {{ t('agents.form.samplingHelp') }}
             </p>
             <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">

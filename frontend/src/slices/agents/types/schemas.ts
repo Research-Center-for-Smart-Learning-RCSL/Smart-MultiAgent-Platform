@@ -47,9 +47,11 @@ export const agentCreateSchema = z.object({
     emptyToNull,
     z.number().min(0).max(1).nullable().default(null),
   ),
+  // Bounded to the backend int4 `seed` column range so an oversized value is
+  // flagged in the form rather than 500ing on the DB write.
   seed: z.preprocess(
     emptyToNull,
-    z.number().int().nullable().default(null),
+    z.number().int().min(-(2 ** 31)).max(2 ** 31 - 1).nullable().default(null),
   ),
   a2a_enabled: z.boolean().default(false),
   // Free-form JSON dicts assembled from the orchestration tab's decomposed
