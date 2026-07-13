@@ -1,6 +1,6 @@
 ---
 type: feature
-status: approved
+status: implemented
 created: 2026-07-13
 requirements: [R14.01, R14.03, R30.01, R30.05, R30.10]
 depends_on: [2026-07-13-activities-platform-core]
@@ -191,19 +191,29 @@ filter; add to `__all__`. The count threshold is **not** in the matcher — it i
 
 ## 11. Acceptance Criteria
 
-- [ ] AC-1: Validation completion emits `workflow_signal("activity", payload)` post-commit with
+- [x] AC-1: Validation completion emits `workflow_signal("activity", payload)` post-commit with
   a numeric `rolling.same_error_count` grouped by `error_class`; the submit-time emit for an
   async type carries `validation_status=pending` and no `error_class`/`rolling`. Emit failure
-  does not fail the submission or the validation write-back.
-- [ ] AC-2: A dormant workflow with an `activity_event` trigger matching the room/`activity_type_key`
-  is enqueued via `run_triggered_workflow`; a non-matching room/key is not.
-- [ ] AC-3: A `condition` node with `int(trigger.rolling.same_error_count) >= 3` routes to the
-  "impasse" port when the count is 3 and to `default` when it is 2 (SEL numeric compare).
-- [ ] AC-4: A parked `wait_for_event` node of kind `activity_in_room` resumes when a matching
-  activity signal arrives; a non-matching one leaves it parked.
-- [ ] AC-5: `activity_event` appears in `workflow.schema.json`, the frontend `TriggerType`
-  union, and passes the linter's one-trigger-per-workflow rule.
-- [ ] AC-6: A signal for tenant A's room never triggers tenant B's workflow.
+  does not fail the submission or the validation write-back. *(unit: `TestBuildActivitySignal`
+  numeric-rolling / pending-omits-rolling; `TestActivitySignalEmit` completion-emits + emit-failure-
+  does-not-fail-the-job; route/worker enqueue is code-verified, end-to-end is integration.)*
+- [x] AC-2: A dormant workflow with an `activity_event` trigger matching the room/`activity_type_key`
+  is enqueued via `run_triggered_workflow`; a non-matching room/key is not. *(unit: `matches_activity`
+  accept/reject + `test_activity_signal_fans_out` asserts `find_triggered_workflows(…, "activity_event")`
+  + `run_triggered_workflow` enqueue; full DB scan is integration.)*
+- [x] AC-3: A `condition` node with `int({{ trigger.rolling.same_error_count }}) >= 3` routes to the
+  "impasse" port when the count is 3 and to `default` when it is 2 (SEL numeric compare). *(unit:
+  `TestActivityRollingSel` truthy at 3 / falsy at 2 / string-count coerced; delimiter form per D-1.)*
+- [x] AC-4: A parked `wait_for_event` node of kind `activity_in_room` resumes when a matching
+  activity signal arrives; a non-matching one leaves it parked. *(unit: `test_activity_signal_fans_out`
+  drives `find_matching_waits(…, "activity_in_room")` → `_enqueue_resume`; non-match via `matches_activity`.)*
+- [x] AC-5: `activity_event` appears in `workflow.schema.json`, the frontend `TriggerType`
+  union, and passes the linter's one-trigger-per-workflow rule. *(code: schema trigger enum + config
+  block; `types/index.ts` union + `TriggerConfigForm` option/block + i18n; linter rule-1 counts trigger
+  nodes regardless of type — only `cron` is special-cased, so no linter change; touched-area suites green.)*
+- [x] AC-6: A signal for tenant A's room never triggers tenant B's workflow. *(unit: `matches_activity`
+  wrong-room rejects; the matcher's exact `chatroom_id` is the tenant filter — same guarantee as the
+  message/a2a signals; full 403/isolation matrix is integration.)*
 
 ## 12. Test Plan
 
@@ -231,9 +241,37 @@ None blocking.
 
 ## 15. Deviation Log
 
-Appended by /build.
+- **D-1 (AC-3 SEL expression delimiters).** The approved AC-3 wrote the impasse gate as
+  `int(trigger.rolling.same_error_count) >= 3`. SEL's surface syntax delimits variable references
+  with `{{ }}` (verified against `test_sel_evaluator.py`: `evaluate("{{ trigger.event }}", …)`); a
+  bare `trigger.x` raises `SELSyntaxError("Bare identifier 'trigger' is not allowed")`. The correct,
+  authorable form is `int({{ trigger.rolling.same_error_count }}) >= 3`. Design unchanged — `int()`
+  coercion + numeric `_safe_cmp` still hold; only the documented literal gained its delimiters. Tests
+  use the corrected form; AC-3 wording updated in place.
+- **D-2 (frontend trigger builder, not just the type union).** §6 scoped the frontend to "extend the
+  `TriggerType` union"; §7 to "add a trigger label". To avoid shipping a union/label with no way to
+  author the trigger, the build also added `activity_event` to `TriggerConfigForm`'s selectable list
+  plus a minimal config block (`chatroom_id` select + optional `activity_type_key`) and the
+  `activityTypeKey`/placeholder i18n keys in both locales. This is additive within the existing
+  workflow builder (the activity *plugin* UI remains the separate plugin-SDK dossier) and makes the
+  trigger genuinely selectable rather than a dead enum entry.
+- **SRS delta already applied.** §13's `[R30.12]`–`[R30.14]` were already present in
+  `REQUIREMENTS.md` (§30, lines 2062-2064) from the program's earlier SRS write; no REQUIREMENTS
+  change was needed this build.
 
 ## 16. Follow-ups
 
-None. (The `EdgeSpec.guard` dead-config cleanup is a pre-existing workflow issue, out of this
-dossier's scope; noted in §9 for awareness, not owned here.)
+- **FU-1 (async-type double trigger-fire is by design; robust rule authoring is project-side).** An
+  `mcp`/`webhook` activity fires the `activity_event` trigger twice — once on the pending submit emit,
+  once on completion — as §5 intends (volume rule vs impasse rule). The trigger wakes the workflow both
+  times; a completion-only rule must gate its `condition` node on `{{ trigger.validation_status }}`
+  before dereferencing `{{ trigger.rolling.same_error_count }}` (which is absent on the pending emit).
+  This is project rule-authoring, explicitly out of platform scope (§2 non-goals), recorded so a rule
+  author knows to guard the SEL.
+- **FU-2 (`activity_in_room` wait kind has no frontend builder block).** The wait kind is wired in the
+  domain, schema, and dispatch, but `WaitForEventConfigForm` was left unchanged (spec §6 scoped the
+  frontend to the trigger union). A parked `activity_in_room` node is authorable via API/JSON; add a
+  builder block if wait-node UX is needed.
+
+The `EdgeSpec.guard` dead-config cleanup is a pre-existing workflow issue, out of this dossier's scope
+(noted in §9 for awareness, not owned here).
