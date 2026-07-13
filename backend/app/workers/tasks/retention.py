@@ -142,28 +142,56 @@ async def _purge_soft_deleted_tenancy(session: AsyncSession) -> int:
     from contexts.activities.infrastructure.tables import (
         activity_submissions as activity_submissions_tbl,
     )
+    from contexts.conversation.infrastructure.tables import workspaces as workspaces_tbl
 
     cutoff = now() - timedelta(days=60)
+    sub = activity_submissions_tbl
+    # D-1 research retention: never purge a soft-deleted row while an
+    # activity_submission reachable through the ON DELETE CASCADE chain is still
+    # retained (retain_until in the future). The room and its submissions purge
+    # together once every retain_until lapses. The cascade path is
+    # org -> project -> workspace -> chatroom -> activity_submission, so deferring
+    # only the *direct* chatroom purge is insufficient: purging a soft-deleted
+    # project or org would cascade-delete the retained submissions early. Guard
+    # every ancestor on the cascade path (workspaces are never purged here, so
+    # they need no guard of their own).
+    retained = sa.and_(sub.c.retain_until.is_not(None), sub.c.retain_until > sa.func.now())
+    chatroom_retained = (
+        sa.select(sa.literal(1))
+        .select_from(sub)
+        .where(sa.and_(retained, sub.c.chatroom_id == chatrooms_tbl.c.id))
+        .exists()
+    )
+    project_retained = (
+        sa.select(sa.literal(1))
+        .select_from(
+            sub.join(chatrooms_tbl, chatrooms_tbl.c.id == sub.c.chatroom_id).join(
+                workspaces_tbl, workspaces_tbl.c.id == chatrooms_tbl.c.workspace_id
+            )
+        )
+        .where(sa.and_(retained, workspaces_tbl.c.project_id == projects_tbl.c.id))
+        .exists()
+    )
+    org_retained = (
+        sa.select(sa.literal(1))
+        .select_from(
+            sub.join(chatrooms_tbl, chatrooms_tbl.c.id == sub.c.chatroom_id)
+            .join(workspaces_tbl, workspaces_tbl.c.id == chatrooms_tbl.c.workspace_id)
+            .join(projects_tbl, projects_tbl.c.id == workspaces_tbl.c.project_id)
+        )
+        .where(sa.and_(retained, projects_tbl.c.owner_org_id == orgs_tbl.c.id))
+        .exists()
+    )
+
     total = 0
     for tbl in _SOFT_DELETE_TABLES:
         conds = [tbl.c.deleted_at.is_not(None), tbl.c.deleted_at < cutoff]
-        # D-1 research retention: defer purging a chatroom (and thus its cascaded
-        # activity_submissions) while any child submission is still retained. The
-        # room and its submissions purge together once every retain_until lapses.
         if tbl is chatrooms_tbl:
-            retained = (
-                sa.select(sa.literal(1))
-                .select_from(activity_submissions_tbl)
-                .where(
-                    sa.and_(
-                        activity_submissions_tbl.c.chatroom_id == tbl.c.id,
-                        activity_submissions_tbl.c.retain_until.is_not(None),
-                        activity_submissions_tbl.c.retain_until > sa.func.now(),
-                    )
-                )
-                .exists()
-            )
-            conds.append(~retained)
+            conds.append(~chatroom_retained)
+        elif tbl is projects_tbl:
+            conds.append(~project_retained)
+        elif tbl is orgs_tbl:
+            conds.append(~org_retained)
         batch = sa.select(tbl.c.id).where(sa.and_(*conds)).limit(200)
         result = await session.execute(sa.delete(tbl).where(sa.and_(*conds, tbl.c.id.in_(batch))))
         total += result.rowcount or 0
