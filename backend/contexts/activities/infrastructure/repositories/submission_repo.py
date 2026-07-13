@@ -72,22 +72,19 @@ class ActivitySubmissionRepository:
     def __init__(self, db: AsyncSession) -> None:
         self._db = db
 
-    async def count_in_session(self, session_id: uuid.UUID) -> int:
-        """Number of live submissions in a session — the basis for the next
-        ``attempt_no`` (called under the session ``FOR UPDATE`` lock)."""
-        count = (
+    async def next_attempt_no(self, session_id: uuid.UUID) -> int:
+        """Next ``attempt_no`` for a session: ``max(attempt_no) + 1`` over **all**
+        rows (soft-deleted included), so a number is never reused after a
+        submission is soft-deleted. Called under the session ``FOR UPDATE`` lock,
+        which serializes concurrent submits to the same session."""
+        highest = (
             await self._db.execute(
-                sa.select(sa.func.count())
-                .select_from(_SUB)
-                .where(
-                    sa.and_(
-                        _SUB.c.session_id == session_id,
-                        _SUB.c.deleted_at.is_(None),
-                    )
+                sa.select(sa.func.coalesce(sa.func.max(_SUB.c.attempt_no), 0)).where(
+                    _SUB.c.session_id == session_id
                 )
             )
         ).scalar_one()
-        return int(count)
+        return int(highest) + 1
 
     async def insert(
         self,
@@ -188,11 +185,14 @@ class ActivitySubmissionRepository:
         )
         return bool(result.rowcount)
 
-    async def sweep_stalled(self, *, cutoff: dt.datetime, error_class: str, limit: int = 500) -> int:
+    async def sweep_stalled(
+        self, *, cutoff: dt.datetime, error_class: str, swept_at: dt.datetime, limit: int = 500
+    ) -> int:
         """Watchdog: move ``pending`` rows older than ``cutoff`` to ``error``.
 
         Bounded per call; the ``pending``-only predicate leaves ``validated`` and
-        already-``error`` rows untouched (R30.06)."""
+        already-``error`` rows untouched (R30.06). ``validated_at`` records when
+        the timeout was actually observed (``swept_at``), not the TTL boundary."""
         batch = (
             sa.select(_SUB.c.id)
             .where(
@@ -214,7 +214,7 @@ class ActivitySubmissionRepository:
             .values(
                 validation_status=ValidationStatus.ERROR.value,
                 error_class=error_class,
-                validated_at=cutoff,
+                validated_at=swept_at,
             )
         )
         return result.rowcount or 0

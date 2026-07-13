@@ -238,6 +238,7 @@ async def open_activity_session(
     access = await resolve_room_access(db, principal=principal, chatroom_id=chatroom_id)
     ensure_can_send(access, is_admin=principal.is_admin)
     session = await ActivitiesFacade(db).open_session(
+        project_id=access.project_id,
         activity_type_id=body.activity_type_id,
         chatroom_id=chatroom_id,
         subject_user_id=body.subject_user_id or principal.user_id,

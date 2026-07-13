@@ -112,14 +112,20 @@ class ActivityTypeService:
             if not str(config.get("url", "")):
                 raise ValidatorConfigInvalid("webhook validator requires a 'url'")
         elif kind is ValidatorKind.MCP:
-            if (
-                not config.get("agent_id")
-                or not config.get("binding_id")
-                or not str(config.get("tool_name", ""))
-            ):
-                raise ValidatorConfigInvalid(
-                    "mcp validator requires 'agent_id', 'binding_id', and 'tool_name'"
-                )
+            if not str(config.get("tool_name", "")):
+                raise ValidatorConfigInvalid("mcp validator requires a 'tool_name'")
+            # agent_id/binding_id are UUID references dispatched by the worker; a
+            # non-UUID value here would crash the async worker (uuid.UUID(...)
+            # ValueError) into a redelivery loop instead of a clean error verdict,
+            # so reject the malformed config at registration.
+            for field in ("agent_id", "binding_id"):
+                raw = config.get(field)
+                if not raw:
+                    raise ValidatorConfigInvalid(f"mcp validator requires '{field}'")
+                try:
+                    uuid.UUID(str(raw))
+                except ValueError:
+                    raise ValidatorConfigInvalid(f"mcp validator '{field}' must be a UUID") from None
 
 
 __all__ = ["ActivityTypeService"]

@@ -15,6 +15,7 @@ import time
 import uuid
 from datetime import timedelta
 
+from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.activities.application.validators.in_process import InProcessValidator
@@ -87,7 +88,7 @@ class SubmissionService:
         locked = await self._session_repo.lock_for_update(session.id)
         if locked is None:  # pragma: no cover — resolved above in the same txn
             raise SessionNotFound(str(session.id))
-        attempt_no = await self._sub_repo.count_in_session(session.id) + 1
+        attempt_no = await self._sub_repo.next_attempt_no(session.id)
 
         created_ts = now()
         retain_until = (
@@ -96,17 +97,38 @@ class SubmissionService:
             else None
         )
 
+        latency_ms: int | None
+        is_valid: bool | None
+        error_class: str | None
         if activity_type.validator_kind is ValidatorKind.IN_PROCESS:
             start = time.monotonic()
-            result = await InProcessValidator(self._db).validate(
-                activity_type=activity_type, payload=dict(payload)
-            )
-            latency_ms: int | None = int((time.monotonic() - start) * 1000)
-            validation_status = ValidationStatus.VALIDATED
-            is_valid: bool | None = result.is_valid
-            error_class = result.error_class
-            sub_scores = result.sub_scores
-            validated_at = created_ts
+            try:
+                result = await InProcessValidator(self._db).validate(
+                    activity_type=activity_type, payload=dict(payload)
+                )
+            except Exception:
+                # A first-party scorer bug must not lose the participant's
+                # submission: record it as ``error`` (mirrors the async path's
+                # ValidatorUnavailable -> error) rather than 500-ing the request.
+                # A DB error inside the scorer poisons the txn and still surfaces
+                # on the insert below, which is the correct outcome for infra
+                # failures.
+                latency_ms = int((time.monotonic() - start) * 1000)
+                logger.bind(activity_type_id=str(activity_type_id)).warning(
+                    "in-process validator raised; recording error verdict", exc_info=True
+                )
+                validation_status = ValidationStatus.ERROR
+                is_valid = None
+                error_class = "validator_error"
+                sub_scores = {}
+                validated_at = created_ts
+            else:
+                latency_ms = int((time.monotonic() - start) * 1000)
+                validation_status = ValidationStatus.VALIDATED
+                is_valid = result.is_valid
+                error_class = result.error_class
+                sub_scores = result.sub_scores
+                validated_at = created_ts
         else:
             latency_ms = None
             validation_status = ValidationStatus.PENDING
@@ -212,8 +234,9 @@ class SubmissionService:
 
     async def sweep_stalled(self, *, ttl_seconds: int, error_class: str = "validation_timeout") -> int:
         """Watchdog: move ``pending`` submissions older than the TTL to ``error``."""
-        cutoff = now() - timedelta(seconds=ttl_seconds)
-        return await self._sub_repo.sweep_stalled(cutoff=cutoff, error_class=error_class)
+        swept_at = now()
+        cutoff = swept_at - timedelta(seconds=ttl_seconds)
+        return await self._sub_repo.sweep_stalled(cutoff=cutoff, error_class=error_class, swept_at=swept_at)
 
     async def get_submission(self, submission_id: uuid.UUID) -> ActivitySubmission | None:
         return await self._sub_repo.get(submission_id)

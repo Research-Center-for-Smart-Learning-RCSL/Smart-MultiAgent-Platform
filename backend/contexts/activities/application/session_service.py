@@ -11,22 +11,36 @@ import uuid
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from contexts.activities.domain.errors import SessionNotFound
+from contexts.activities.domain.errors import ActivityTypeNotFound, SessionNotFound
 from contexts.activities.domain.models import ActivitySession
 from contexts.activities.infrastructure.repositories.session_repo import ActivitySessionRepository
+from contexts.activities.infrastructure.repositories.type_repo import ActivityTypeRepository
 
 
 class ActivitySessionService:
     def __init__(self, db: AsyncSession) -> None:
         self._db = db
         self._repo = ActivitySessionRepository(db)
+        self._type_repo = ActivityTypeRepository(db)
 
     async def open_session(
-        self, *, activity_type_id: uuid.UUID, chatroom_id: uuid.UUID, subject_user_id: uuid.UUID
+        self,
+        *,
+        project_id: uuid.UUID,
+        activity_type_id: uuid.UUID,
+        chatroom_id: uuid.UUID,
+        subject_user_id: uuid.UUID,
     ) -> ActivitySession:
         """Return the open session for (type, room, subject), opening one if none
         exists. At most one open session can exist per the partial-unique, so a
         concurrent open resolves to the same row."""
+        # Tenant isolation (mirrors SubmissionService.submit): the type must live
+        # in the room's project. Missing or cross-project -> NotFound, so a room
+        # member can never open a session against another tenant's type.
+        activity_type = await self._type_repo.get(activity_type_id)
+        if activity_type is None or activity_type.project_id != project_id:
+            raise ActivityTypeNotFound(str(activity_type_id))
+
         existing = await self._repo.get_open(
             activity_type_id=activity_type_id, chatroom_id=chatroom_id, subject_user_id=subject_user_id
         )
