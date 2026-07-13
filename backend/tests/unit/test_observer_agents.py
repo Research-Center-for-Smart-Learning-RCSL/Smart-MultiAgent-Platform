@@ -858,6 +858,7 @@ def _wire_observer_engine(monkeypatch, agent, *, creator_id):
     engine._rag_context = _none  # type: ignore[attr-defined]
     engine._graphrag_context = _none  # type: ignore[attr-defined]
     engine._knowmap_context = _none  # type: ignore[attr-defined]
+    engine._activity_context = _none  # type: ignore[attr-defined]
     engine._pending_context_and_tools = _pending  # type: ignore[attr-defined]
     engine._builtin_tools = _empty_list  # type: ignore[attr-defined]
     engine._resolve_trigger_attachments = _none  # type: ignore[attr-defined]

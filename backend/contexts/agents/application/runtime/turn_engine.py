@@ -26,6 +26,7 @@ from typing import Any, cast
 from prometheus_client import Counter, Histogram
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from contexts.activities.application.activity_context_provider import ActivityContextProvider
 from contexts.agents.application import context as ctxmod
 from contexts.agents.application.prompt_loader import LazyPrompt, SectionCache, assemble
 from contexts.agents.application.runtime import model_attachments as mattach
@@ -297,6 +298,9 @@ class TurnEngine:
             qdrant_url=qdrant_url,
             qdrant_api_key=qdrant_api_key,
         )
+        # §30 (R30.15): recent structured activity events for an OBSERVER turn.
+        # Coverage-gated (only present when the room has activities); built once.
+        self._activity_provider = ActivityContextProvider(db)
         # Rooms whose one-shot POST /compact flag this engine consumed — used
         # to re-arm the flag if the turn that consumed it fails.
         self._compact_forced_rooms: set[uuid.UUID] = set()
@@ -924,6 +928,13 @@ class TurnEngine:
             knowmap_block = await self._knowmap_context(agent, knowledge_queries)
             if knowmap_block:
                 system_parts.append(knowmap_block)
+            if is_observer:
+                # §30 (R30.15): an observer also sees the room's recent structured
+                # activity events (deterministic outcomes) beside the full chat
+                # history. Coverage-gated: None when the room has no activities.
+                activity_block = await self._activity_context(chatroom_id)
+                if activity_block:
+                    system_parts.append(activity_block)
             # Drain queued A2A notifications (R9.16); approval requests also add
             # the cast_approval_vote tool for this turn.
             notify_block, extra_tools, pending_notes = await self._pending_context_and_tools(
@@ -1720,6 +1731,14 @@ class TurnEngine:
             query_texts=queries,
             querying_agent_id=agent.id,
         )
+
+    async def _activity_context(self, chatroom_id: uuid.UUID) -> str | None:
+        """Delegate to the activities :class:`ActivityContextProvider` (R30.15).
+
+        Coverage-gated inside the provider (returns ``None`` when the room has no
+        activity events) and best-effort (``None`` on any failure), so a broken
+        activities read never breaks the observer turn."""
+        return await self._activity_provider.query(chatroom_id=chatroom_id)
 
     async def _audit(
         self,
