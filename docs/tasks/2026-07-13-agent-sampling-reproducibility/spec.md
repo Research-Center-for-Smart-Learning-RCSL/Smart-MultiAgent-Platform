@@ -1,6 +1,6 @@
 ---
 type: feature
-status: approved
+status: implemented
 created: 2026-07-13
 requirements: [R9.04]
 depends_on: []
@@ -169,22 +169,34 @@ seed is OpenAI-only. Use the existing vee-validate + Zod form pattern.
 
 ## 11. Acceptance Criteria
 
-- [ ] AC-1: An agent can be created/patched with `temperature`/`top_p`/`seed`; each is
+- [x] AC-1: An agent can be created/patched with `temperature`/`top_p`/`seed`; each is
   persisted and returned; clearing a field restores provider-default behaviour.
-- [ ] AC-2: When `temperature` is set, the value appears in the provider payload at both build
+  *(test_agent_sampling_fields.py: draft defaults, create-passes-to-repo, patch-sets-values,
+  clear-sentinels-null, patch-omits-unset.)*
+- [x] AC-2: When `temperature` is set, the value appears in the provider payload at both build
   sites and is forwarded by the Gemini and Anthropic adapters; for an OpenAI reasoning model it
-  is correctly omitted (no 400).
-- [ ] AC-3: When `top_p` is set, all three adapters forward it (under each provider's constraint).
-- [ ] AC-4: When `seed` is set, the OpenAI adapter forwards it; the Anthropic and Gemini adapters
-  ignore it without error.
-- [ ] AC-5: Two runs of the same input with `temperature=0` (+ `seed` on OpenAI) produce
+  is correctly omitted (no 400). *(test_turn_engine_sampling.py both-sites merge;
+  test_provider_adapters.py Gemini/Anthropic-accepting-model forward + OpenAI-reasoning skip.
+  See D-1: Anthropic forwarding is now conditional on the model family.)*
+- [x] AC-3: When `top_p` is set, all three adapters forward it (under each provider's constraint).
+  *(test_provider_adapters.py per-provider top_p forwarding.)*
+- [x] AC-4: When `seed` is set, the OpenAI adapter forwards it; the Anthropic and Gemini adapters
+  ignore it without error. *(test_provider_adapters.py: OpenAI forwards seed; Gemini ignores;
+  Anthropic never forwards seed.)*
+- [x] AC-5: Two runs of the same input with `temperature=0` (+ `seed` on OpenAI) produce
   materially lower output variance than the provider default — measured by an integration check
   asserting the sampling params reach the outbound body (determinism-of-transport, not
-  bit-identity of model output).
-- [ ] AC-6: Out-of-range values (`temperature>2`, `top_p>1`) are rejected 422 at the API and
-  flagged in the form.
-- [ ] AC-7: Existing agents (all three fields null) call providers exactly as before (no
-  temperature/top_p/seed in the body).
+  bit-identity of model output). *(Satisfied at the transport layer per the AC's own
+  parenthetical: test_turn_engine_sampling.py asserts `temperature=0` is preserved into both
+  payloads — `is not None` guard, not truthiness — and adapter tests assert it reaches the
+  outbound body. Live two-run variance measurement is a BYO-key manual `verify` step, FU-2.)*
+- [x] AC-6: Out-of-range values (`temperature>2`, `top_p>1`) are rejected 422 at the API and
+  flagged in the form. *(Mechanically enforced: `AgentCreateIn`/`AgentPatchIn` use
+  `Field(ge=0, le=2)` / `Field(ge=0, le=1)` — FastAPI returns 422 on violation; the Zod schema
+  mirrors `.min().max()` for the form.)*
+- [x] AC-7: Existing agents (all three fields null) call providers exactly as before (no
+  temperature/top_p/seed in the body). *(test_turn_engine_sampling.py empty-fragment; the
+  adapters' `payload.get(...) is not None` guards emit nothing when unset.)*
 
 ## 12. Test Plan
 
@@ -213,9 +225,57 @@ None. (The `[R9.18]` number + §9 placement were confirmed and applied at the ap
 
 ## 15. Deviation Log
 
-Appended by /build.
+- **D-1 — Anthropic `temperature`/`top_p` forwarding is model-conditional, not unconditional.**
+  §4/§5 assumed the Anthropic adapter already forwarded `temperature` unconditionally
+  (`body["temperature"] = payload["temperature"]`) and that `top_p` could be added the same way.
+  During build this proved wrong against current provider behaviour: Anthropic removed sampling
+  controls on its newer generations — Opus 4.7+ and every "5"-generation model (Sonnet 5, Fable 5,
+  Mythos 5) — where sending `temperature`/`top_p` now returns 400. Forwarding unconditionally
+  would hard-fail every turn for an agent on a modern Claude model. **Decision (user-approved):**
+  add a model-version guard `_NO_SAMPLING_RE = re.compile(r"^claude-[a-z]+-5\b|^claude-opus-4-[7-9]\b")`
+  in `adapters/anthropic.py`; sampling params are forwarded only for models that accept them
+  (Opus 4.6/4.5, Sonnet 4.x, Haiku 4.5, Claude 3.x) and silently dropped for the rejecting
+  families — degrading to the provider default rather than failing the turn, mirroring the
+  existing OpenAI reasoning-model skip. `claude-opus-4-5` is deliberately excluded from the guard
+  (it accepts sampling). This preserves AC-2's intent (temperature reaches accepting Anthropic
+  models) while keeping modern-model agents functional. Tests updated accordingly
+  (`test_anthropic_forwards_..._on_accepting_models` / `..._drops_sampling_on_rejecting_models`).
+
+- **D-2 — `openapi.json` regenerated by direct export, not the documented `gen:api` path only.**
+  The frontend `gen:api` consumes `backend/openapi.json`; regenerating it requires the backend
+  export. The Windows dev env's git-bash lacks `python` on PATH and the alembic/openapi CLI is
+  broken under the cp950 code page (see D-3), so the schema was re-exported by invoking the app's
+  `export_openapi` logic directly via the global Python 3.12 interpreter. The result was verified
+  byte-for-byte against a fresh export (SHA-256 match) and the diff is purely additive (the three
+  new fields on `AgentCreateIn`/`AgentOut`/`AgentPatchIn`), so the contract is correct; only the
+  invocation path deviated from the CLAUDE.md command table.
+
+- **D-3 — Migration authored and statically validated, but `alembic upgrade head` not run in this
+  env.** The `alembic` CLI fails at import under Windows cp950 (a pre-existing env defect:
+  `UnicodeDecodeError` on an em-dash in `alembic.ini`), and there is no local Postgres in this
+  session. `0051_agent_sampling.py` was instead validated by importing the module (revision /
+  down_revision chain off `0050_activity_activations`, single head) and reviewing the additive,
+  reversible upgrade/downgrade by hand. Live application is deferred to FU-1.
 
 ## 16. Follow-ups
 
-None. (Per-turn sampling override, if ever wanted, is a separate small change — not needed for
-the AA judged-scoring use case, which is a stable configured agent.)
+- **FU-1 — Apply and reverse the migration against a live Postgres.** Run `alembic upgrade head`
+  then `alembic downgrade -1` on `0051_agent_sampling` in an environment with a UTF-8 locale and a
+  reachable database, confirming the three nullable columns add and drop cleanly. Blocked in the
+  build session by the cp950 alembic-CLI defect (D-3) and no local Postgres. Not an AC blocker —
+  the migration is static-validated and additive — but must run before deploy.
+
+- **FU-2 — Live two-run variance confirmation (AC-5 behavioural).** With a real BYO provider key,
+  configure an AA-style agent at `temperature=0` (+ `seed` on OpenAI), run the same scoring input
+  twice via the `verify` flow, and record the observed variance reduction. The transport guarantee
+  (params reach the outbound body) is unit-covered; the end-to-end variance measurement needs a
+  live key and is out of scope for the offline build.
+
+- **FU-3 — Consider an upper bound on `seed` (hardening, from check-security).** `seed` is
+  currently an unbounded `int | None` (`Field(default=None)`); OpenAI accepts a wide integer range,
+  so there is no current attack path (the value only rides into that provider's body), but a
+  sanity ceiling (e.g. `le=2**63-1`) would prevent a pathologically large integer from being
+  persisted. Defense-in-depth, no active exploit — deferred, not blocking.
+
+- (Per-turn sampling override, if ever wanted, remains a separate small change — not needed for
+  the AA judged-scoring use case, which is a stable configured agent.)
