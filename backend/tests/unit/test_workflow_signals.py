@@ -20,6 +20,7 @@ from contexts.workflow.application.event_dispatch import (
     _sender_ok,
     matches_a2a,
     matches_a2a_trigger,
+    matches_activity,
     matches_message,
     matches_variable,
 )
@@ -122,6 +123,54 @@ class TestMatchesA2aTrigger:
     def test_empty_event_types(self) -> None:
         config = {"agent_id": _AGENT, "event_types": []}
         assert matches_a2a_trigger(config, agent_id=_AGENT, msg_type="call") is False
+
+
+class TestMatchesActivity:
+    def test_room_only_match(self) -> None:
+        config = {"chatroom_id": _ROOM}
+        assert matches_activity(config, chatroom_id=_ROOM, activity_type_key="quiz") is True
+
+    def test_wrong_room(self) -> None:
+        config = {"chatroom_id": str(uuid.uuid4())}
+        assert matches_activity(config, chatroom_id=_ROOM, activity_type_key="quiz") is False
+
+    def test_single_key_match(self) -> None:
+        config = {"chatroom_id": _ROOM, "activity_type_key": "quiz"}
+        assert matches_activity(config, chatroom_id=_ROOM, activity_type_key="quiz") is True
+
+    def test_single_key_mismatch(self) -> None:
+        config = {"chatroom_id": _ROOM, "activity_type_key": "poll"}
+        assert matches_activity(config, chatroom_id=_ROOM, activity_type_key="quiz") is False
+
+    def test_allowed_list_match(self) -> None:
+        config = {"chatroom_id": _ROOM, "activity_type_keys": ["poll", "quiz"]}
+        assert matches_activity(config, chatroom_id=_ROOM, activity_type_key="quiz") is True
+
+    def test_allowed_list_mismatch(self) -> None:
+        config = {"chatroom_id": _ROOM, "activity_type_keys": ["poll", "survey"]}
+        assert matches_activity(config, chatroom_id=_ROOM, activity_type_key="quiz") is False
+
+
+class TestActivityRollingSel:
+    """AC-3: an impasse gate is an SEL condition over the rolling aggregate the
+    core precomputes into the signal payload (edge guards are never evaluated)."""
+
+    def _eval(self, count: object) -> bool:
+        from contexts.workflow.sel.evaluator import evaluate
+
+        # SEL surface syntax delimits variable refs with {{ }} (see test_sel_evaluator);
+        # the numeric compare then holds because int() coerces and _safe_cmp needs both sides numeric.
+        scope = {"__trigger__": {"rolling": {"same_error_count": count}}}
+        return bool(evaluate("int({{ trigger.rolling.same_error_count }}) >= 3", scope))
+
+    def test_threshold_met(self) -> None:
+        assert self._eval(3) is True
+
+    def test_below_threshold(self) -> None:
+        assert self._eval(2) is False
+
+    def test_string_count_coerced(self) -> None:
+        assert self._eval("3") is True
 
 
 class TestMatchesVariable:
@@ -424,6 +473,52 @@ class TestWorkflowSignal:
         assert "resumed=1" in result
         assert "triggered=1" in result
         assert pool.enqueue_job.await_count == 2
+
+    @patch("shared_kernel.db.session.async_session")
+    @patch("shared_kernel.auth.clients.get_redis")
+    async def test_activity_signal_fans_out(self, mock_redis_fn, mock_session_cm) -> None:
+        from app.workers.tasks.workflow_signals import workflow_signal
+
+        redis = AsyncMock()
+        mock_redis_fn.return_value = redis
+
+        db = AsyncMock()
+        mock_session_cm.return_value.__aenter__ = AsyncMock(return_value=db)
+        mock_session_cm.return_value.__aexit__ = AsyncMock(return_value=False)
+
+        pool = AsyncMock()
+
+        with (
+            patch(
+                "contexts.workflow.application.event_dispatch.find_matching_waits",
+                new_callable=AsyncMock,
+                return_value=[(_RUN_ID, "n1")],
+            ),
+            patch(
+                "contexts.workflow.application.event_dispatch.find_triggered_workflows",
+                new_callable=AsyncMock,
+                return_value=[uuid.uuid4()],
+            ) as find_trig,
+        ):
+            result = await workflow_signal(
+                {"redis": pool},
+                "activity",
+                {
+                    "chatroom_id": _ROOM,
+                    "activity_type_key": "quiz",
+                    "rolling": {"same_error_count": 3},
+                },
+            )
+
+        assert "resumed=1" in result
+        assert "triggered=1" in result
+        assert pool.enqueue_job.await_count == 2
+        # Triggers are scanned for the activity_event kind specifically.
+        assert find_trig.await_args.args[1] == "activity_event"
+        # The started run carries the trigger payload (rolling aggregate for SEL).
+        trig_call = next(c for c in pool.enqueue_job.await_args_list if c.args[0] == "run_triggered_workflow")
+        assert trig_call.args[2]["trigger_type"] == "activity_event"
+        assert trig_call.args[2]["rolling"] == {"same_error_count": 3}
 
     @patch("shared_kernel.auth.clients.get_redis")
     async def test_a2a_signal(self, mock_redis_fn) -> None:

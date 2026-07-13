@@ -38,6 +38,7 @@ class TriggerType(str, enum.Enum):
     MESSAGE_RECEIVED = "message_received"
     A2A_EVENT = "a2a_event"
     WAKEUP_SIGNAL = "wakeup_signal"
+    ACTIVITY_EVENT = "activity_event"
     DRY_RUN = "dry_run"
 
 
@@ -76,6 +77,7 @@ class WaitEventType(str, enum.Enum):
     A2A_MESSAGE = "a2a_message"
     TIMER = "timer"
     VARIABLE_MATCHES = "variable_matches"
+    ACTIVITY_IN_ROOM = "activity_in_room"
 
 
 # ---------------------------------------------------------------------------
