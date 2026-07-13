@@ -141,6 +141,9 @@ class Agent:
     knowmap_config_id: uuid.UUID | None
     context_mode: ContextMode
     context_token_cap: int | None
+    temperature: float | None
+    top_p: float | None
+    seed: int | None
     a2a_enabled: bool
     wakeup_config: dict[str, Any]
     wakeup_authored_snapshot: dict[str, Any] | None
@@ -229,6 +232,9 @@ class AgentDraft:
     knowmap_config_id: uuid.UUID | None = None
     context_mode: ContextMode | None = None
     context_token_cap: int | None = None
+    temperature: float | None = None
+    top_p: float | None = None
+    seed: int | None = None
     a2a_enabled: bool | None = None
     wakeup_config: dict[str, Any] | None = None
     workflow_capabilities: dict[str, Any] | None = None
@@ -240,6 +246,9 @@ class AgentDraft:
     clear_rag_config: bool = False
     clear_knowmap_config: bool = False
     clear_context_token_cap: bool = False
+    clear_temperature: bool = False
+    clear_top_p: bool = False
+    clear_seed: bool = False
 
 
 __all__ = [

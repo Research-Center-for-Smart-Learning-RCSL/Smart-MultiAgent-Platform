@@ -330,6 +330,9 @@ class AgentService:
             knowmap_config_id=draft.knowmap_config_id,
             context_mode=draft.context_mode or ContextMode.GENERAL,
             context_token_cap=draft.context_token_cap,
+            temperature=draft.temperature,
+            top_p=draft.top_p,
+            seed=draft.seed,
             a2a_enabled=bool(draft.a2a_enabled) if draft.a2a_enabled is not None else False,
             wakeup_config=wakeup,
             # Mirror the config exactly: an explicit empty {} ("inert by choice")
@@ -472,6 +475,18 @@ class AgentService:
             values["context_token_cap"] = None
         elif draft.context_token_cap is not None:
             values["context_token_cap"] = draft.context_token_cap
+        if draft.clear_temperature:
+            values["temperature"] = None
+        elif draft.temperature is not None:
+            values["temperature"] = draft.temperature
+        if draft.clear_top_p:
+            values["top_p"] = None
+        elif draft.top_p is not None:
+            values["top_p"] = draft.top_p
+        if draft.clear_seed:
+            values["seed"] = None
+        elif draft.seed is not None:
+            values["seed"] = draft.seed
         if draft.a2a_enabled is not None:
             values["a2a_enabled"] = draft.a2a_enabled
         if draft.wakeup_config is not None:
