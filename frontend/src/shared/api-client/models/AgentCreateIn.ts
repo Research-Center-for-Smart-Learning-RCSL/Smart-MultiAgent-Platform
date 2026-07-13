@@ -14,7 +14,10 @@ export type AgentCreateIn = {
     name: string;
     prompt_strategy?: 'full' | 'lazy';
     rag_config_id?: (string | null);
+    seed?: (number | null);
     system_prompt?: string;
+    temperature?: (number | null);
+    top_p?: (number | null);
     wakeup_config?: Record<string, any>;
     workflow_capabilities?: Record<string, any>;
 };

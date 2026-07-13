@@ -213,6 +213,9 @@ const { handleSubmit, errors, defineField, resetForm, setErrors, meta } =
       knowmap_config_id: null,
       context_mode: 'general',
       context_token_cap: null,
+      temperature: null,
+      top_p: null,
+      seed: null,
       a2a_enabled: false,
     },
   })
@@ -226,6 +229,9 @@ const [systemPrompt] = defineField('system_prompt')
 const [promptStrategy] = defineField('prompt_strategy')
 const [contextMode] = defineField('context_mode')
 const [contextTokenCap] = defineField('context_token_cap')
+const [temperature] = defineField('temperature')
+const [topP] = defineField('top_p')
+const [seed] = defineField('seed')
 const [ragConfigId] = defineField('rag_config_id')
 const [knowmapConfigId] = defineField('knowmap_config_id')
 const [a2aEnabled] = defineField('a2a_enabled')
@@ -352,6 +358,9 @@ watch(
         prompt_strategy: agent.prompt_strategy as AgentCreateInput['prompt_strategy'],
         context_mode: agent.context_mode as AgentCreateInput['context_mode'],
         context_token_cap: agent.context_token_cap,
+        temperature: agent.temperature,
+        top_p: agent.top_p,
+        seed: agent.seed,
         rag_config_id: agent.rag_config_id,
         knowmap_config_id: agent.knowmap_config_id,
         a2a_enabled: agent.a2a_enabled,
@@ -426,6 +435,9 @@ const contextTokenCapPlaceholder = computed(() => {
   return t('agents.form.contextTokenCapDefault', { cap: defaultCap.toLocaleString() })
 })
 const contextTokenCapModel = nullableNumberModel(contextTokenCap)
+const temperatureModel = nullableNumberModel(temperature)
+const topPModel = nullableNumberModel(topP)
+const seedModel = nullableNumberModel(seed)
 
 function insertLazyTemplate(): void {
   const existing = (systemPrompt.value ?? '').trimEnd()
@@ -500,6 +512,9 @@ const fieldToTab: Record<string, string> = {
   key_group_id: 'general',
   context_mode: 'general',
   context_token_cap: 'general',
+  temperature: 'general',
+  top_p: 'general',
+  seed: 'general',
   system_prompt: 'prompt',
   prompt_strategy: 'prompt',
   rag_config_id: 'knowledge',
@@ -790,6 +805,51 @@ const breadcrumbs = computed(() => [
                 :placeholder="t('agents.form.keyGroupPlaceholder')"
               />
             </SFormField>
+
+            <h4 class="text-sm font-semibold text-muted mb-1 mt-6">
+              {{ t('agents.form.samplingHeading') }}
+            </h4>
+            <p class="text-sm text-[var(--color-muted)] mb-4">
+              {{ t('agents.form.samplingHelp') }}
+            </p>
+            <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <SFormField
+                :label="t('agents.form.temperature')"
+                name="temperature"
+                :error="errors.temperature ?? ''"
+                :help="t('agents.form.temperatureHelp')"
+              >
+                <SInput
+                  v-model="temperatureModel"
+                  type="number"
+                  :placeholder="t('agents.form.samplingDefault')"
+                />
+              </SFormField>
+              <SFormField
+                :label="t('agents.form.topP')"
+                name="top_p"
+                :error="errors.top_p ?? ''"
+                :help="t('agents.form.topPHelp')"
+              >
+                <SInput
+                  v-model="topPModel"
+                  type="number"
+                  :placeholder="t('agents.form.samplingDefault')"
+                />
+              </SFormField>
+              <SFormField
+                :label="t('agents.form.seed')"
+                name="seed"
+                :error="errors.seed ?? ''"
+                :help="t('agents.form.seedHelp')"
+              >
+                <SInput
+                  v-model="seedModel"
+                  type="number"
+                  :placeholder="t('agents.form.samplingDefault')"
+                />
+              </SFormField>
+            </div>
           </SCard>
 
           <SCard>

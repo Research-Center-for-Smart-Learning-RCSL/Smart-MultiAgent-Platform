@@ -14,7 +14,10 @@ export type AgentPatchIn = {
     name?: (string | null);
     prompt_strategy?: ('full' | 'lazy' | null);
     rag_config_id?: (string | null);
+    seed?: (number | null);
     system_prompt?: (string | null);
+    temperature?: (number | null);
+    top_p?: (number | null);
     wakeup_config?: (Record<string, any> | null);
     workflow_capabilities?: (Record<string, any> | null);
 };
