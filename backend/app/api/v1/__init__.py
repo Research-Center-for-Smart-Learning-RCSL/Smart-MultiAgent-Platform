@@ -33,6 +33,9 @@ def _build_registry() -> list[RouterEntry]:
     at module load time and to keep the registry self-contained.
     """
     from app.api.v1 import (
+        activities as activity_routes,
+    )
+    from app.api.v1 import (
         admin as admin_routes,
     )
     from app.api.v1 import (
@@ -189,6 +192,9 @@ def _build_registry() -> list[RouterEntry]:
         RouterEntry(agent_group_routes.project_router),
         RouterEntry(agent_group_routes.group_router),
         RouterEntry(agent_workspace_routes.router),
+        # Structured activities (project-scoped types + room-scoped sessions/submissions)
+        RouterEntry(activity_routes.project_router),
+        RouterEntry(activity_routes.chatroom_router),
         # Model catalog (provider/model presets for the config UI)
         RouterEntry(model_catalog_routes.router),
         # RAG
