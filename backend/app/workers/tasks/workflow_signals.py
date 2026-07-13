@@ -189,6 +189,20 @@ async def workflow_signal(ctx: dict[str, Any], source: str, payload: dict[str, A
             wf_ids = await ed.find_triggered_workflows(db, "wakeup_signal", _wake_pred)
         await _enqueue_triggers(wf_ids, "wakeup_signal")
 
+    elif source == "activity":
+        chatroom_id = str(payload.get("chatroom_id", ""))
+        activity_type_key = str(payload.get("activity_type_key", ""))
+
+        def _activity_pred(match: dict[str, Any]) -> bool:
+            return ed.matches_activity(match, chatroom_id=chatroom_id, activity_type_key=activity_type_key)
+
+        for run_id, node_id in await ed.find_matching_waits(redis, "activity_in_room", _activity_pred):
+            await _enqueue_resume(run_id, node_id)
+
+        async with async_session() as db:
+            wf_ids = await ed.find_triggered_workflows(db, "activity_event", _activity_pred)
+        await _enqueue_triggers(wf_ids, "activity_event")
+
     logger.bind(event="workflow_signal", source=source, resumed=resumed, triggered=triggered).info(
         "workflow signal dispatched"
     )

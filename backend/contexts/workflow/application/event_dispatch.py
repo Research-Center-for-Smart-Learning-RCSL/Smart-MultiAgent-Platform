@@ -83,6 +83,26 @@ def matches_a2a_trigger(match: dict[str, Any], *, agent_id: str, msg_type: str) 
     return msg_type in event_types
 
 
+def matches_activity(match: dict[str, Any], *, chatroom_id: str, activity_type_key: str) -> bool:
+    """``activity_in_room`` wait / ``activity_event`` trigger criteria.
+
+    Exact ``chatroom_id`` (the tenant-isolation filter — an activity in room A can
+    never trip a workflow scoped to room B) plus an optional activity-type filter:
+    ``activity_type_key`` (single) and/or ``activity_type_keys`` (allowed-list);
+    absent both, any type in the room matches. The count threshold for an
+    "impasse" rule is **not** here — it is an SEL ``condition`` node over
+    ``trigger.rolling.same_error_count`` (edge guards are not evaluated at runtime).
+    """
+    if str(match.get("chatroom_id", "")) != str(chatroom_id):
+        return False
+    allowed: list[str] = []
+    single = match.get("activity_type_key")
+    if single:
+        allowed.append(str(single))
+    allowed.extend(str(k) for k in match.get("activity_type_keys", []) or [])
+    return not allowed or activity_type_key in allowed
+
+
 def matches_variable(match: dict[str, Any], variables: dict[str, Any]) -> bool:
     """``variable_matches`` wait criteria — evaluate the stored SEL expression."""
     expression = match.get("expression", "")
@@ -197,6 +217,7 @@ __all__ = [
     "find_triggered_workflows",
     "matches_a2a",
     "matches_a2a_trigger",
+    "matches_activity",
     "matches_message",
     "matches_variable",
 ]
