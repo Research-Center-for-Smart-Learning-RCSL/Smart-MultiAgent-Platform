@@ -47,7 +47,7 @@ flow is preserved.
 - **No `gen:api` rerun** and **no backend change.** In particular the `restore` endpoint's
   OpenAPI `resource_type` enum is narrower (`'user'|'org'|'project'`) than the six values the
   UI sends; widening that enum is a backend follow-up (FU-4), not this task — the wrapper
-  casts to preserve today's behavior.
+  casts to preserve today's behavior. *(Superseded post-merge — FU-4 was later done; see D-2.)*
 - **No composable/view/store re-architecture** and **no barrel change** (`adminApi` is not
   re-exported from the slice barrel and stays that way).
 
@@ -59,7 +59,7 @@ flow is preserved.
 | Q-2 | (settled, carried) Keep hand-rolled types or alias generated? | Keep hand-rolled; annotate-and-return, bridge/widen only where a generated `*Out` is not assignable. | Consumers depend on the hand-rolled field names/unions (e.g. `AdminUserDetailView` reads 13 `UserDetail` fields). |
 | Q-3 | (settled, carried) How to convert safely? | Swap `http.X().then(r=>r.data)` for the generated call, keep return annotations; `pnpm typecheck` + the view tests + a new api characterization spec guard it. | Signature-preserving, so typecheck alone proves the consumer surface is unchanged. |
 | Q-4 | `IpBanOut.created_by_user_id` is `string \| null`; `IpBan.created_by_user_id` is required `string` — not assignable. Bridge (`?? ''`) or widen the type? | Widen `IpBan.created_by_user_id` to `string \| null`. | The field is genuinely nullable in the backend contract (system-created bans); a `?? ''` bridge would fabricate an empty creator. Views cast IP-ban rows through `as unknown as Row[]`, so widening breaks no consumer. |
-| Q-5 | The generated `restore` `resourceType` is `'user'\|'org'\|'project'`, but `AdminOpsView` sends six types (`+agent/workflow/chatroom`). Narrow the wrapper or cast? | Keep the wrapper signature `restoreResource(type: string, id: string)`; cast `resourceType: type as 'user'\|'org'\|'project'` at the boundary. | Behavior-preserving (the raw string flows into the path exactly as the old `http.post('/admin/restore/${type}/${id}')`); narrowing the wrapper would reject three valid UI values. The narrow OpenAPI enum is a backend defect → FU-4. |
+| Q-5 | The generated `restore` `resourceType` is `'user'\|'org'\|'project'`, but `AdminOpsView` sends six types (`+agent/workflow/chatroom`). Narrow the wrapper or cast? | Keep the wrapper signature `restoreResource(type: string, id: string)`; cast `resourceType: type as 'user'\|'org'\|'project'` at the boundary. **(Superseded post-merge — the cast was removed when FU-4 landed; see D-2.)** | Behavior-preserving (the raw string flows into the path exactly as the old `http.post('/admin/restore/${type}/${id}')`); narrowing the wrapper would reject three valid UI values. The narrow OpenAPI enum is a backend defect → FU-4. |
 
 ## 5. Current vs Target Structure
 
@@ -175,6 +175,7 @@ Admin-only privileged surface (`check-security`: privilege, session/token, PII/a
 - [x] AC-2: `pnpm typecheck` green with **zero consumer edits** outside `admin/api/admin.ts`
       and the `IpBan` widening in `types/index.ts`; changed files lint clean. (Repo-wide
       `pnpm lint` stays red on the 296 pre-existing warnings in untouched files — FU-3.)
+      *(True for this dossier's own commit; the later FU-4 work touched two consumers — see D-2.)*
 - [x] AC-3: the audit query translation works — `admin.spec.ts` asserts `queryAudit` with
       `actor_user_id`/`ip_prefix`/`action` set emits those snake_case query keys and omits
       unset ones (`resource_type`/`session_id` absent), forwards a set `cursor`/`limit`, and
@@ -205,6 +206,18 @@ None — behavior-preserving refactor of the api-client layer.
   Verified behavior-equivalent: those defaults derive from the backend's own FastAPI
   signatures, so the effective value is identical — only the wire carries it explicitly. Same
   benign delta as the tenancy/identity slices; accepted per the program-wide convention.
+- D-2 (post-merge, supersedes Q-5 / §3 non-goals / AC-2): the `restore` boundary cast this
+  dossier introduced (Q-5 — `resourceType: type as 'user'|'org'|'project'`) was subsequently
+  removed. The sibling task **`docs/tasks/2026-07-12-admin-restore-widen-resource-types`** closed
+  FU-4: it widened the backend `restore` `resource_type` enum to all six values
+  (`user/org/project/agent/workflow/chatroom`), reran `gen:api` (so `AdminService.restore`'s
+  `resourceType` is now the full six-value union), exported a derived `RestoreResourceType` from
+  `admin.ts`, and dropped the cast. That work also edited two consumers
+  (`useAdminActions.ts`, `AdminOpsView.vue`) to use the exported type — so this dossier's
+  "no `gen:api` rerun / no backend change" non-goal (§3), the Q-5 cast decision, and AC-2's
+  "zero consumer edits" no longer describe the shipped tree. The wrapping delivered by *this*
+  dossier is unchanged and correct; the restore path is now cleaner (no lying cast). See the
+  sibling dossier's D-1/D-2/D-3 for the backend/enum/conflict details.
 
 ## 12. Follow-ups
 
@@ -216,3 +229,8 @@ None — behavior-preserving refactor of the api-client layer.
   the six values the admin UI actually offers (`user/org/project/agent/workflow/chatroom`), so
   the generated `resourceType` type stops needing a boundary cast. Also review whether
   `useAdminActions` should invalidate caches for the other three types on restore.
+  - **Resolved** by `docs/tasks/2026-07-12-admin-restore-widen-resource-types`: the backend enum
+    was widened to all six values, `gen:api` was rerun, the Q-5 boundary cast was dropped in
+    favor of a derived `RestoreResourceType`, and each type now routes through its owning
+    context's facade. The supersession of this dossier's Q-5 / non-goals / AC-2 is recorded as
+    D-2 above.

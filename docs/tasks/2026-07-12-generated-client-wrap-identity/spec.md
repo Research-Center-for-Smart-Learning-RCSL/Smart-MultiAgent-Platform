@@ -196,8 +196,9 @@ credentials, session/token handling):
 - [x] AC-4: request bodies/params/verbs unchanged — `auth.spec.ts` (16 cases) asserts
       verb/path/body per method, including the `deleteAccount` DELETE-body `{ password }`, the
       `login` `TokenPair` shape, and `refresh` posting an empty body to `/auth/refresh`.
-- [x] AC-5: `pnpm test` green (574 passed — all prior tests unmodified + the 16-case new
-      spec); `pnpm build` green.
+- [x] AC-5: `pnpm test` green (574 passed — all prior tests unmodified + the 17-case new
+      spec: one verb/path/body case per the 16 methods, plus a 17th case pinning the
+      `toCaptchaConfig` fallback — see D-4); `pnpm build` green.
 - [~] AC-6: token/interceptor path unchanged — `axios.ts` confirmed **untouched** (empty
       diff-stat); security audit: **no findings** (token path, credential non-logging, and the
       `deleteAccount` DELETE-body all verified statically). The live behavioral smoke-test
@@ -228,6 +229,13 @@ None — behavior-preserving refactor of the api-client layer.
   DELETE re-auth body can be asserted. Verified harmless to the sibling specs
   (workflow/tenancy/agents): their bodyless DELETEs still resolve `body: undefined`, and none
   asserts a DELETE body — all three specs re-run green.
+- D-4: `toCaptchaConfig` was implemented more defensively than §5B/Q-4 prescribed. The dossier
+  called for a blind cast (`c.mode as CaptchaConfig['mode']`, `c.provider as
+  CaptchaConfig['provider']`); the shipped bridge instead *validates* — `mode: c.mode === 'on' ?
+  'on' : 'off'` and a provider-membership check falling back to `'off'` — so an unexpected
+  backend value can never leak past the narrow union. Strictly safer and behavior-compatible for
+  all valid inputs; covered by the 17th characterization case (`auth.spec.ts`). Recorded here for
+  the diff reader since the code diverges from the literal §5B/Q-4 design.
 
 ## 12. Follow-ups
 
