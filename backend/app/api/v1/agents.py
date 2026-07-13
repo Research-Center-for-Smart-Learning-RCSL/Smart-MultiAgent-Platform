@@ -52,6 +52,11 @@ _MAX_SYSTEM_PROMPT = 100_000
 _MAX_REFERENCE = 2_000
 _MAX_ALLOWED_TOOLS = 200
 
+# `agents.seed` is an int4 column; bound the input to its range so an oversized
+# integer is rejected at the API (422) instead of overflowing the column (500).
+_SEED_MIN = -(2**31)
+_SEED_MAX = 2**31 - 1
+
 
 class AgentCreateIn(BaseModel):
     model_config = {"protected_namespaces": ()}
@@ -78,7 +83,7 @@ class AgentCreateIn(BaseModel):
     context_token_cap: int | None = Field(default=None, gt=0)
     temperature: float | None = Field(default=None, ge=0, le=2)
     top_p: float | None = Field(default=None, ge=0, le=1)
-    seed: int | None = None
+    seed: int | None = Field(default=None, ge=_SEED_MIN, le=_SEED_MAX)
     a2a_enabled: bool = False
     wakeup_config: BoundedConfig = Field(default_factory=dict)
     workflow_capabilities: BoundedConfig = Field(default_factory=dict)
@@ -112,7 +117,7 @@ class AgentPatchIn(BaseModel):
     context_token_cap: int | None = Field(default=None, gt=0)
     temperature: float | None = Field(default=None, ge=0, le=2)
     top_p: float | None = Field(default=None, ge=0, le=1)
-    seed: int | None = None
+    seed: int | None = Field(default=None, ge=_SEED_MIN, le=_SEED_MAX)
     a2a_enabled: bool | None = None
     wakeup_config: BoundedConfig | None = None
     workflow_capabilities: BoundedConfig | None = None
