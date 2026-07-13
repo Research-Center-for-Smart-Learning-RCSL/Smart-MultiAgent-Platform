@@ -7,6 +7,7 @@ import {
   SAlert, SSkeleton, SEmptyState,
 } from '@shared/ui'
 import { accessTokenClaims } from '@shared/transport'
+import { ApiError } from '@shared/errors'
 import { useConfirmDialog, useToast } from '@shared/composables'
 import { authApi, type Session } from '../api/auth'
 
@@ -97,8 +98,9 @@ async function revoke(s: Session): Promise<void> {
     sessions.value = sessions.value.filter(x => x.id !== s.id)
     toast.success(t('identity.sessions.revokeSuccess'))
   } catch (e: unknown) {
-    const status = (e as { response?: { status?: number } })?.response?.status
-    if (status === 404) {
+    // The generated client rejects with a normalized @shared/errors ApiError
+    // (flat `.status`), not an axios error with `.response.status`.
+    if (e instanceof ApiError && e.status === 404) {
       sessions.value = sessions.value.filter(x => x.id !== s.id)
       toast.warning(t('identity.sessions.alreadyRevoked'))
     } else {
