@@ -209,7 +209,13 @@ def _install_recording_facades(monkeypatch, *, result: bool = True) -> dict[str,
                 pass
 
             def __getattr__(self, name: str):
-                async def _m(**kwargs):
+                async def _m(*args, **kwargs):
+                    # `get_*` readers feed the ancestor-liveness guard; returning
+                    # None (child not found) makes the guard fall through to the
+                    # restore under test, so these dispatch cases stay focused on
+                    # dispatch. The guard's own logic is covered separately.
+                    if name.startswith("get_"):
+                        return None
                     called[name] = kwargs
                     return result
 
@@ -279,7 +285,12 @@ class TestRestoreRouteDispatch:
                 pass
 
             def __getattr__(self, name: str):
-                async def _m(**kwargs):
+                async def _m(*args, **kwargs):
+                    # `get_*` readers return None so the guard treats the child as
+                    # not found and falls through to the restore, which is where
+                    # the name-collision RestoreConflict is raised.
+                    if name.startswith("get_"):
+                        return
                     raise RestoreConflict(resource_type)
 
                 return _m
@@ -290,3 +301,273 @@ class TestRestoreRouteDispatch:
             await _invoke(resource_type, uuid.uuid4())
         assert exc_info.value.status_code == 409
         assert resource_type in exc_info.value.detail
+
+
+# --------------------------------------------------------------------------- #
+# route — ancestor-liveness guard (parent-liveness bugfix)
+#
+# A soft-deleted child (project/agent/workflow/chatroom) must not be restored
+# while any ancestor (owner org/user, parent project, parent workspace) is still
+# soft-deleted. The guard walks the full chain through the owning facades and
+# raises 409 before the restore write.
+# --------------------------------------------------------------------------- #
+
+# Any non-None value works as a `deleted_at` marker — the guard only tests `is None`.
+_DELETED_AT = "2026-07-13T00:00:00+00:00"
+
+
+def _live(**kw) -> SimpleNamespace:
+    kw.setdefault("deleted_at", None)
+    return SimpleNamespace(**kw)
+
+
+def _dead(**kw) -> SimpleNamespace:
+    kw.setdefault("deleted_at", _DELETED_AT)
+    return SimpleNamespace(**kw)
+
+
+def _install_guard_facades(monkeypatch, returns: dict, *, restore_result: bool = True) -> dict:
+    """Install facades whose `get_*` readers return values from *returns* (keyed
+    by method name) and whose `restore_*` methods record the call. Lets a test
+    stage an exact ancestor chain and observe whether the restore was reached."""
+    state = {"restore_called": False}
+
+    def make():
+        class _Fake:
+            def __init__(self, _db) -> None:
+                pass
+
+            def __getattr__(self, name: str):
+                if name.startswith("restore_"):
+
+                    async def _restore(**kwargs):
+                        state["restore_called"] = True
+                        return restore_result
+
+                    return _restore
+
+                async def _getter(*args, **kwargs):
+                    return returns.get(name)
+
+                return _getter
+
+        return _Fake
+
+    for attr in _FACADE_ATTRS:
+        monkeypatch.setattr(admin_projects, attr, make())
+    return state
+
+
+_PID = uuid.uuid4()
+_WSID = uuid.uuid4()
+_OID = uuid.uuid4()
+_UID = uuid.uuid4()
+_WID = uuid.uuid4()
+_CID = uuid.uuid4()
+
+
+class TestRestoreRouteAncestorGuard:
+    @pytest.mark.parametrize(
+        ("resource_type", "returns", "parent_word"),
+        [
+            # immediate parent soft-deleted
+            ("agent", {"get_agent": _dead(project_id=_PID), "get_project": None}, "project"),
+            ("workflow", {"get_workflow": _dead(workspace_id=_WSID), "get_workspace": None}, "workspace"),
+            ("chatroom", {"get_chatroom": _dead(workspace_id=_WSID), "get_workspace": None}, "workspace"),
+            (
+                "project",
+                {"get_project": _dead(owner_org_id=_OID, owner_user_id=None), "get_org": None},
+                "org",
+            ),
+            # full-chain walk: workspace live but the project above it is dead
+            (
+                "workflow",
+                {
+                    "get_workflow": _dead(workspace_id=_WSID),
+                    "get_workspace": _live(project_id=_PID),
+                    "get_project": None,
+                },
+                "project",
+            ),
+            (
+                "chatroom",
+                {
+                    "get_chatroom": _dead(workspace_id=_WSID),
+                    "get_workspace": _live(project_id=_PID),
+                    "get_project": None,
+                },
+                "project",
+            ),
+            # user-owned project whose owning user is soft-deleted (get_user is
+            # NOT deleted-filtered, so the guard inspects deleted_at directly)
+            (
+                "project",
+                {"get_project": _dead(owner_user_id=_UID, owner_org_id=None), "get_user": _dead()},
+                "user",
+            ),
+            # agent under a live project whose owner org is dead (owner hop via
+            # the ancestor project)
+            (
+                "agent",
+                {
+                    "get_agent": _dead(project_id=_PID),
+                    "get_project": _live(owner_org_id=_OID, owner_user_id=None),
+                    "get_org": None,
+                },
+                "org",
+            ),
+        ],
+    )
+    async def test_dead_ancestor_blocks_with_409(
+        self, monkeypatch, resource_type, returns, parent_word
+    ) -> None:
+        state = _install_guard_facades(monkeypatch, returns)
+
+        with pytest.raises(HTTPException) as exc_info:
+            await _invoke(resource_type, uuid.uuid4())
+
+        assert exc_info.value.status_code == 409
+        assert parent_word in exc_info.value.detail.lower()
+        # The restore write must never run when an ancestor is dead.
+        assert state["restore_called"] is False
+
+    @pytest.mark.parametrize(
+        ("resource_type", "returns"),
+        [
+            (
+                "agent",
+                {
+                    "get_agent": _dead(project_id=_PID),
+                    "get_project": _live(owner_org_id=_OID, owner_user_id=None),
+                    "get_org": _live(),
+                },
+            ),
+            (
+                "workflow",
+                {
+                    "get_workflow": _dead(workspace_id=_WSID),
+                    "get_workspace": _live(project_id=_PID),
+                    "get_project": _live(owner_org_id=_OID, owner_user_id=None),
+                    "get_org": _live(),
+                },
+            ),
+            (
+                "chatroom",
+                {
+                    "get_chatroom": _dead(workspace_id=_WSID),
+                    "get_workspace": _live(project_id=_PID),
+                    "get_project": _live(owner_org_id=_OID, owner_user_id=None),
+                    "get_org": _live(),
+                },
+            ),
+            (
+                "project",
+                {"get_project": _dead(owner_user_id=_UID, owner_org_id=None), "get_user": _live()},
+            ),
+        ],
+    )
+    async def test_all_ancestors_live_restores(self, monkeypatch, resource_type, returns) -> None:
+        state = _install_guard_facades(monkeypatch, returns, restore_result=True)
+
+        out = await _invoke(resource_type, uuid.uuid4())
+
+        assert out.restored is True
+        assert state["restore_called"] is True
+
+    @pytest.mark.parametrize("resource_type", ["user", "org"])
+    async def test_top_level_restore_skips_guard(self, monkeypatch, resource_type) -> None:
+        # Users and orgs have no ancestor; the guard must not run or block them.
+        state = _install_guard_facades(monkeypatch, {}, restore_result=True)
+
+        out = await _invoke(resource_type, uuid.uuid4())
+
+        assert out.restored is True
+        assert state["restore_called"] is True
+
+    @pytest.mark.parametrize(
+        ("resource_type", "returns"),
+        [
+            # already-live child (deleted_at is None) — a no-op restore, still 404
+            ("agent", {"get_agent": _live(project_id=_PID)}),
+            # child not found at all
+            ("agent", {"get_agent": None}),
+        ],
+    )
+    async def test_already_live_or_missing_child_falls_through_to_404(
+        self, monkeypatch, resource_type, returns
+    ) -> None:
+        # The guard must not turn the existing "not soft-deleted" 404 into a 409.
+        _install_guard_facades(monkeypatch, returns, restore_result=False)
+
+        with pytest.raises(HTTPException) as exc_info:
+            await _invoke(resource_type, uuid.uuid4())
+        assert exc_info.value.status_code == 404
+
+    async def test_parent_deleted_409_detail_is_distinct(self, monkeypatch) -> None:
+        # The parent-deleted 409 must be tellable apart from the unique-name 409.
+        _install_guard_facades(monkeypatch, {"get_agent": _dead(project_id=_PID), "get_project": None})
+
+        with pytest.raises(HTTPException) as exc_info:
+            await _invoke("agent", uuid.uuid4())
+        detail = exc_info.value.detail.lower()
+        assert "deleted" in detail
+        assert "restore the" in detail
+        assert "unique name" not in detail
+
+
+# --------------------------------------------------------------------------- #
+# facade readers added for the guard
+# --------------------------------------------------------------------------- #
+
+
+class TestFacadeReaders:
+    async def test_get_org_delegates_and_defaults_to_filtered(self) -> None:
+        from contexts.tenancy.interfaces.facade import TenancyFacade
+
+        tf = TenancyFacade(AsyncMock())
+        tf._orgs = AsyncMock()
+        sentinel = object()
+        tf._orgs.get.return_value = sentinel
+
+        assert await tf.get_org(_OID) is sentinel
+        tf._orgs.get.assert_awaited_once_with(_OID, include_deleted=False)
+
+        tf._orgs.get.reset_mock()
+        await tf.get_org(_OID, include_deleted=True)
+        tf._orgs.get.assert_awaited_once_with(_OID, include_deleted=True)
+
+    async def test_get_workflow_include_deleted_notfound_and_error(self) -> None:
+        from contexts.workflow.domain.errors import WorkflowNotFound
+        from contexts.workflow.interfaces.facade import WorkflowFacade
+
+        wf = WorkflowFacade(AsyncMock())
+        wf._svc = AsyncMock()
+        sentinel = object()
+        wf._svc.get.return_value = sentinel
+
+        assert await wf.get_workflow(_WID, include_deleted=True) is sentinel
+        wf._svc.get.assert_awaited_once_with(_WID, include_deleted=True)
+
+        # A soft-deleted-and-missing lookup returns None...
+        wf._svc.get.side_effect = WorkflowNotFound("gone")
+        assert await wf.get_workflow(_WID) is None
+
+        # ...but a genuine read error must NOT be masked as not-found.
+        wf._svc.get.side_effect = RuntimeError("db down")
+        with pytest.raises(RuntimeError):
+            await wf.get_workflow(_WID)
+
+    async def test_get_chatroom_passes_include_deleted(self) -> None:
+        from contexts.conversation.interfaces.facade import ConversationFacade
+
+        cf = ConversationFacade(AsyncMock())
+        cf._rooms = AsyncMock()
+        sentinel = object()
+        cf._rooms.get.return_value = sentinel
+
+        assert await cf.get_chatroom(_CID, include_deleted=True) is sentinel
+        cf._rooms.get.assert_awaited_once_with(_CID, include_deleted=True)
+
+        cf._rooms.get.reset_mock()
+        await cf.get_chatroom(_CID)
+        cf._rooms.get.assert_awaited_once_with(_CID, include_deleted=False)

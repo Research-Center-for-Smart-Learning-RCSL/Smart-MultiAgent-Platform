@@ -14,6 +14,7 @@ from app.api.v1.admin_deps import require_admin
 from contexts.agents.interfaces.facade import AgentsFacade
 from contexts.conversation.interfaces.facade import ConversationFacade
 from contexts.identity.interfaces.facade import IdentityFacade
+from contexts.tenancy.domain.models import Project
 from contexts.tenancy.interfaces.facade import TenancyFacade
 from contexts.workflow.interfaces.facade import WorkflowFacade
 from shared_kernel.auth.context import RequestContext
@@ -91,6 +92,87 @@ async def list_projects(
 # ---------------------------------------------------------------------------
 
 
+def _is_live(row: object | None) -> bool:
+    """A row is live iff it exists and is not soft-deleted.
+
+    Most `get_*` readers already filter soft-deleted rows (so `None` == gone),
+    but the identity user reader does not — hence the explicit `deleted_at`
+    check, which also covers the project -> owning-user hop."""
+    return row is not None and getattr(row, "deleted_at", None) is None
+
+
+def _parent_deleted(resource_type: str, parent_type: str) -> HTTPException:
+    return HTTPException(
+        status_code=409,
+        detail=f"Cannot restore this {resource_type}: its {parent_type} is deleted. "
+        f"Restore the {parent_type} first.",
+    )
+
+
+async def _assert_project_owner_live(db: AsyncSession, resource_type: str, project: Project) -> None:
+    """A project is owned by an org XOR a user (DB CHECK); its live owner is the
+    top of the chain."""
+    if project.owner_org_id is not None:
+        org = await TenancyFacade(db).get_org(project.owner_org_id)
+        if not _is_live(org):
+            raise _parent_deleted(resource_type, "org")
+    elif project.owner_user_id is not None:
+        user = await IdentityFacade(db).get_user(project.owner_user_id)
+        if not _is_live(user):
+            raise _parent_deleted(resource_type, "user")
+
+
+async def _assert_project_ancestor_live(db: AsyncSession, resource_type: str, project_id: uuid.UUID) -> None:
+    """Verify an ancestor project (soft-deleted project reads as `None`) and its
+    owner are live."""
+    project = await TenancyFacade(db).get_project(project_id)
+    if project is None:
+        raise _parent_deleted(resource_type, "project")
+    await _assert_project_owner_live(db, resource_type, project)
+
+
+async def _assert_workspace_ancestor_live(
+    db: AsyncSession, resource_type: str, workspace_id: uuid.UUID
+) -> None:
+    workspace = await ConversationFacade(db).get_workspace(workspace_id)
+    if workspace is None:
+        raise _parent_deleted(resource_type, "workspace")
+    await _assert_project_ancestor_live(db, resource_type, workspace.project_id)
+
+
+async def _assert_ancestors_live(
+    db: AsyncSession, resource_type: RestoreType, resource_id: uuid.UUID
+) -> None:
+    """Reject restoring a soft-deleted child whose ancestor chain is not fully
+    live (R8.13 parent-liveness guard).
+
+    Route-level orchestration: every hop is resolved through the owning
+    context's facade, so no context reads another's tables. A missing or
+    already-live child falls through to the normal restore (which yields 404 /
+    a no-op), leaving the existing not-found and already-live semantics intact.
+    `user`/`org` have no ancestor and are not handled here."""
+    if resource_type == "project":
+        project = await TenancyFacade(db).get_project(resource_id, include_deleted=True)
+        if project is None or project.deleted_at is None:
+            return
+        await _assert_project_owner_live(db, resource_type, project)
+    elif resource_type == "agent":
+        agent = await AgentsFacade(db).get_agent(resource_id, include_deleted=True)
+        if agent is None or agent.deleted_at is None:
+            return
+        await _assert_project_ancestor_live(db, resource_type, agent.project_id)
+    elif resource_type == "workflow":
+        workflow = await WorkflowFacade(db).get_workflow(resource_id, include_deleted=True)
+        if workflow is None or workflow.deleted_at is None:
+            return
+        await _assert_workspace_ancestor_live(db, resource_type, workflow.workspace_id)
+    elif resource_type == "chatroom":
+        chatroom = await ConversationFacade(db).get_chatroom(resource_id, include_deleted=True)
+        if chatroom is None or chatroom.deleted_at is None:
+            return
+        await _assert_workspace_ancestor_live(db, resource_type, chatroom.workspace_id)
+
+
 @router.post("/restore/{resource_type}/{resource_id}")
 async def restore_resource(
     resource_type: RestoreType = Path(...),
@@ -140,6 +222,7 @@ async def restore_resource(
         ),
     }
     try:
+        await _assert_ancestors_live(db, resource_type, resource_id)
         restored = await restorers[resource_type]()
     except RestoreConflict as exc:
         raise HTTPException(
