@@ -76,6 +76,9 @@ class AgentCreateIn(BaseModel):
     knowmap_config_id: uuid.UUID | None = None
     context_mode: Literal["general", "compact"] = "general"
     context_token_cap: int | None = Field(default=None, gt=0)
+    temperature: float | None = Field(default=None, ge=0, le=2)
+    top_p: float | None = Field(default=None, ge=0, le=1)
+    seed: int | None = None
     a2a_enabled: bool = False
     wakeup_config: BoundedConfig = Field(default_factory=dict)
     workflow_capabilities: BoundedConfig = Field(default_factory=dict)
@@ -107,6 +110,9 @@ class AgentPatchIn(BaseModel):
     knowmap_config_id: uuid.UUID | None = None
     context_mode: Literal["general", "compact"] | None = None
     context_token_cap: int | None = Field(default=None, gt=0)
+    temperature: float | None = Field(default=None, ge=0, le=2)
+    top_p: float | None = Field(default=None, ge=0, le=1)
+    seed: int | None = None
     a2a_enabled: bool | None = None
     wakeup_config: BoundedConfig | None = None
     workflow_capabilities: BoundedConfig | None = None
@@ -128,6 +134,9 @@ class AgentOut(BaseModel):
     knowmap_config_id: uuid.UUID | None
     context_mode: ContextMode
     context_token_cap: int | None
+    temperature: float | None
+    top_p: float | None
+    seed: int | None
     a2a_enabled: bool
     wakeup_config: dict[str, Any]
     workflow_capabilities: dict[str, Any]
@@ -151,6 +160,9 @@ def _to_agent_out(a) -> AgentOut:
         knowmap_config_id=a.knowmap_config_id,
         context_mode=a.context_mode,
         context_token_cap=a.context_token_cap,
+        temperature=a.temperature,
+        top_p=a.top_p,
+        seed=a.seed,
         a2a_enabled=a.a2a_enabled,
         wakeup_config=a.wakeup_config,
         workflow_capabilities=a.workflow_capabilities,
@@ -220,6 +232,9 @@ async def create_agent(
         knowmap_config_id=body.knowmap_config_id,
         context_mode=ContextMode(body.context_mode),
         context_token_cap=body.context_token_cap,
+        temperature=body.temperature,
+        top_p=body.top_p,
+        seed=body.seed,
         a2a_enabled=body.a2a_enabled,
         wakeup_config=body.wakeup_config,
         workflow_capabilities=body.workflow_capabilities,
@@ -315,6 +330,9 @@ async def patch_agent(
         knowmap_config_id=fields.get("knowmap_config_id"),
         context_mode=(ContextMode(fields["context_mode"]) if "context_mode" in fields else None),
         context_token_cap=fields.get("context_token_cap"),
+        temperature=fields.get("temperature"),
+        top_p=fields.get("top_p"),
+        seed=fields.get("seed"),
         a2a_enabled=fields.get("a2a_enabled"),
         wakeup_config=fields.get("wakeup_config"),
         workflow_capabilities=fields.get("workflow_capabilities"),
@@ -324,6 +342,9 @@ async def patch_agent(
         clear_rag_config="rag_config_id" in fields and fields["rag_config_id"] is None,
         clear_knowmap_config="knowmap_config_id" in fields and fields["knowmap_config_id"] is None,
         clear_context_token_cap=("context_token_cap" in fields and fields["context_token_cap"] is None),
+        clear_temperature=("temperature" in fields and fields["temperature"] is None),
+        clear_top_p=("top_p" in fields and fields["top_p"] is None),
+        clear_seed=("seed" in fields and fields["seed"] is None),
     )
     updated = await service.patch(
         agent_id=agent_id,
