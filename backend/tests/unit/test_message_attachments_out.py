@@ -12,13 +12,14 @@ from types import SimpleNamespace
 
 from app.api.v1.attachments import to_attachment_out
 from app.api.v1.messages import _to_out
+from contexts.conversation.domain.models import AttachmentStatus, ScanStatus, SenderType
 
 
 def _msg() -> SimpleNamespace:
     return SimpleNamespace(
         id=uuid.uuid4(),
         chatroom_id=uuid.uuid4(),
-        sender_type=SimpleNamespace(value="user"),
+        sender_type=SenderType.USER,
         sender_id=uuid.uuid4(),
         content_md="hi",
         metadata={},
@@ -30,6 +31,9 @@ def _msg() -> SimpleNamespace:
 
 
 def _att(*, status: str = "active", scan: str = "clean") -> SimpleNamespace:
+    # The out-schema fields are real enums (SenderType/AttachmentStatus/ScanStatus)
+    # since the enum-response refactor; the domain rows the converters consume
+    # carry real enum members, so the fixtures must too.
     return SimpleNamespace(
         id=uuid.uuid4(),
         chatroom_id=uuid.uuid4(),
@@ -37,8 +41,8 @@ def _att(*, status: str = "active", scan: str = "clean") -> SimpleNamespace:
         filename="guide.pdf",
         mime="application/pdf",
         size_bytes=2048,
-        status=SimpleNamespace(value=status),
-        scan_status=SimpleNamespace(value=scan),
+        status=AttachmentStatus(status),
+        scan_status=ScanStatus(scan),
     )
 
 
