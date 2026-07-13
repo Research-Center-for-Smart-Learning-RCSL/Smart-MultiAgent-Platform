@@ -112,8 +112,14 @@ class ActivityTypeService:
             if not str(config.get("url", "")):
                 raise ValidatorConfigInvalid("webhook validator requires a 'url'")
         elif kind is ValidatorKind.MCP:
-            if not config.get("binding_id") or not str(config.get("tool_name", "")):
-                raise ValidatorConfigInvalid("mcp validator requires 'binding_id' and 'tool_name'")
+            if (
+                not config.get("agent_id")
+                or not config.get("binding_id")
+                or not str(config.get("tool_name", ""))
+            ):
+                raise ValidatorConfigInvalid(
+                    "mcp validator requires 'agent_id', 'binding_id', and 'tool_name'"
+                )
 
 
 __all__ = ["ActivityTypeService"]

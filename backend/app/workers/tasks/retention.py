@@ -139,21 +139,33 @@ async def _rollup_key_usage_events(session: AsyncSession) -> int:
 
 
 async def _purge_soft_deleted_tenancy(session: AsyncSession) -> int:
+    from contexts.activities.infrastructure.tables import (
+        activity_submissions as activity_submissions_tbl,
+    )
+
     cutoff = now() - timedelta(days=60)
     total = 0
     for tbl in _SOFT_DELETE_TABLES:
-        batch = (
-            sa.select(tbl.c.id)
-            .where(tbl.c.deleted_at.is_not(None))
-            .where(tbl.c.deleted_at < cutoff)
-            .limit(200)
-        )
-        result = await session.execute(
-            sa.delete(tbl)
-            .where(tbl.c.deleted_at.is_not(None))
-            .where(tbl.c.deleted_at < cutoff)
-            .where(tbl.c.id.in_(batch))
-        )
+        conds = [tbl.c.deleted_at.is_not(None), tbl.c.deleted_at < cutoff]
+        # D-1 research retention: defer purging a chatroom (and thus its cascaded
+        # activity_submissions) while any child submission is still retained. The
+        # room and its submissions purge together once every retain_until lapses.
+        if tbl is chatrooms_tbl:
+            retained = (
+                sa.select(sa.literal(1))
+                .select_from(activity_submissions_tbl)
+                .where(
+                    sa.and_(
+                        activity_submissions_tbl.c.chatroom_id == tbl.c.id,
+                        activity_submissions_tbl.c.retain_until.is_not(None),
+                        activity_submissions_tbl.c.retain_until > sa.func.now(),
+                    )
+                )
+                .exists()
+            )
+            conds.append(~retained)
+        batch = sa.select(tbl.c.id).where(sa.and_(*conds)).limit(200)
+        result = await session.execute(sa.delete(tbl).where(sa.and_(*conds, tbl.c.id.in_(batch))))
         total += result.rowcount or 0
     await _emit_summary(session, "retention.soft_deleted.swept", total)
     return total
@@ -503,6 +515,7 @@ async def retention_sweep(ctx: dict[str, Any]) -> dict[str, int]:
             async with sm() as session, session.begin():
                 count = await func(session)
             from shared_kernel.audit import flush_tail_events
+
             await flush_tail_events(session)
             report[name] = count
             RETENTION_LAST_RUN_TIMESTAMP.labels(worker=name).set(_time.time())
