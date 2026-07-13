@@ -193,10 +193,11 @@ filter; add to `__all__`. The count threshold is **not** in the matcher — it i
 
 - [x] AC-1: Validation completion emits `workflow_signal("activity", payload)` post-commit with
   a numeric `rolling.same_error_count` grouped by `error_class`; the submit-time emit for an
-  async type carries `validation_status=pending` and no `error_class`/`rolling`. Emit failure
+  async type carries `validation_status=pending`, `error_class=null`, and a zeroed-but-numeric
+  `rolling` (D-3 — always present so SEL `int(...)` never dereferences None). Emit failure
   does not fail the submission or the validation write-back. *(unit: `TestBuildActivitySignal`
-  numeric-rolling / pending-omits-rolling; `TestActivitySignalEmit` completion-emits + emit-failure-
-  does-not-fail-the-job; route/worker enqueue is code-verified, end-to-end is integration.)*
+  numeric-rolling / pending-carries-zeroed-rolling; `TestActivitySignalEmit` completion-emits +
+  emit-failure-does-not-fail-the-job; route/worker enqueue is code-verified, end-to-end is integration.)*
 - [x] AC-2: A dormant workflow with an `activity_event` trigger matching the room/`activity_type_key`
   is enqueued via `run_triggered_workflow`; a non-matching room/key is not. *(unit: `matches_activity`
   accept/reject + `test_activity_signal_fans_out` asserts `find_triggered_workflows(…, "activity_event")`
@@ -259,15 +260,34 @@ None blocking.
   `REQUIREMENTS.md` (§30, lines 2062-2064) from the program's earlier SRS write; no REQUIREMENTS
   change was needed this build.
 
+**Post-build code-review fixes (high-effort review of the diff):**
+- **D-3 (`rolling` always present + numeric).** The original build omitted `rolling` on the pending
+  submit emit. Because the matcher does not discriminate emit phase, that pending emit still fires the
+  `activity_event` trigger, so the documented impasse SEL `int({{ trigger.rolling.same_error_count }})`
+  would dereference `None` and raise. Fix: `_assemble_activity_signal` now always emits a numeric
+  `rolling` (`same_error_count`/`latency_ms` default to `0`), so the SEL never crashes on any emit;
+  `error_class`/`is_valid` stay `null` while pending (compared, not coerced). Also fixes the async-error
+  `latency_ms=null` variant.
+- **D-4 (optional `validation_status` matcher filter).** An async validator fires the trigger/wait twice
+  (pending submit + completion); a rule needing the scored outcome would previously fire on both.
+  `matches_activity` now accepts an optional `validation_status` (`any`|`pending`|`validated`|`error`,
+  `any`/absent = wildcard, mirroring `sender_filter`), threaded from the signal payload, exposed in the
+  schema (both blocks) and the trigger builder. A completion-only rule sets `validation_status: validated`.
+- **Efficiency (route no longer re-fetches).** `submit` now returns `(submission, signal_payload)` built
+  from the type/session it already loaded; the route enqueues that payload post-commit instead of
+  re-reading submission+type+session via `build_activity_signal` (which the validation worker still uses,
+  since its in-memory row is the stale `pending` one). `submission_id` was added to the payload (also
+  corrects a mislabeled worker log field).
+- **Hardening.** `matches_activity` ignores a malformed non-list `activity_type_keys` (was char-expanded).
+
 ## 16. Follow-ups
 
-- **FU-1 (async-type double trigger-fire is by design; robust rule authoring is project-side).** An
-  `mcp`/`webhook` activity fires the `activity_event` trigger twice — once on the pending submit emit,
-  once on completion — as §5 intends (volume rule vs impasse rule). The trigger wakes the workflow both
-  times; a completion-only rule must gate its `condition` node on `{{ trigger.validation_status }}`
-  before dereferencing `{{ trigger.rolling.same_error_count }}` (which is absent on the pending emit).
-  This is project rule-authoring, explicitly out of platform scope (§2 non-goals), recorded so a rule
-  author knows to guard the SEL.
+- **FU-1 (async-type double trigger-fire is by design).** An `mcp`/`webhook` activity fires the
+  `activity_event` trigger twice — once on the pending submit emit, once on completion — as §5 intends
+  (volume rule vs impasse rule). Post-review this is now cleanly authorable: a completion-only rule sets
+  `validation_status: validated` on the trigger (D-4) so the pending emit is filtered out at match time,
+  and `rolling` is always numeric (D-3) so even an unfiltered rule's SEL `int(...)` never crashes on the
+  pending emit. No further platform work needed; impasse-rule *content* remains project-authored (§2).
 - **FU-2 (`activity_in_room` wait kind has no frontend builder block).** The wait kind is wired in the
   domain, schema, and dispatch, but `WaitForEventConfigForm` was left unchanged (spec §6 scoped the
   frontend to the trigger union). A parked `activity_in_room` node is authorable via API/JSON; add a
