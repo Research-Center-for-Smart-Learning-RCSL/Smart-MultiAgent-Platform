@@ -31,7 +31,7 @@ from contexts.knowledge.domain.errors import (
     UnsupportedMime,
 )
 from contexts.knowledge.domain.knowmap import KnowmapConfig, KnowmapDocument
-from contexts.knowledge.domain.models import DocumentStatus
+from contexts.knowledge.domain.models import DocumentStatus, ScanStatus
 from contexts.knowledge.infrastructure.chunkers import chunk_document
 from contexts.knowledge.infrastructure.knowmap_repositories import (
     KnowmapChunkRepository,
@@ -113,7 +113,7 @@ class KnowmapIngestService:
             )
             await self._db.commit()
             await enqueue_knowmap_scan(document_id=reindexed.id)
-            await self._enqueue_build(cfg)
+            await self._enqueue_build_if_clean(cfg, reindexed)
             return reindexed
 
         key = knowmap_source_object_key(project_id=cfg.project_id, config_id=cfg.id, sha256=sha)
@@ -164,7 +164,7 @@ class KnowmapIngestService:
         )
         await self._db.commit()
         await enqueue_knowmap_scan(document_id=result.id)
-        await self._enqueue_build(cfg)
+        await self._enqueue_build_if_clean(cfg, result)
         return result
 
     async def process_document(
@@ -255,7 +255,14 @@ class KnowmapIngestService:
         assert refreshed is not None
         return refreshed
 
-    async def _enqueue_build(self, cfg: KnowmapConfig) -> None:
+    async def _enqueue_build_if_clean(self, cfg: KnowmapConfig, doc: KnowmapDocument) -> None:
+        """F-5: enqueue the graph build only once the document has a clean scan
+        verdict. A freshly ingested document is committed ``pending``, so the build
+        is deferred to the scan worker's clean-verdict path (last-writer-wins with
+        the indexing-complete side). A reindex of an already-clean document (same
+        content, same sha) enqueues here at once — its clean verdict still holds."""
+        if doc.scan_status is not ScanStatus.CLEAN:
+            return
         await enqueue_knowmap_build(
             config_id=cfg.id,
             last_build_state=cfg.last_build_state,

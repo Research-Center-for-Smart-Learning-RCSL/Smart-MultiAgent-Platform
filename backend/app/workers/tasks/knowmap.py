@@ -47,6 +47,29 @@ _log = logging.getLogger(__name__)
 KNOWMAP_BUILD_TIMEOUT_S = LOCK_TTL_S * 3
 
 
+async def _enqueue_build_on_clean(sm: Any, doc_id: uuid.UUID) -> None:
+    """F-5: enqueue the graph build for a document whose scan just returned CLEAN,
+    but only once it is READY.
+
+    The mirror of the indexing side's clean-gate: if the document is not yet READY
+    (async tus path, indexing still running), the index worker enqueues the build
+    when it observes the clean verdict — last writer wins, so exactly one build is
+    queued and a document is never left unbuilt (the dedup job id collapses a rare
+    double). Re-reads the document fresh so it observes the indexing side's
+    committed ``READY`` state.
+    """
+    async with sm() as db:
+        doc = await KnowmapDocumentRepository(db).get(doc_id)
+        if doc is None or doc.status is not DocumentStatus.READY:
+            return
+        cfg = await KnowmapConfigRepository(db).get(doc.knowmap_config_id)
+    if cfg is None:
+        return
+    await enqueue_knowmap_build(
+        config_id=cfg.id, last_build_state=cfg.last_build_state, last_build_at=cfg.last_build_at
+    )
+
+
 async def knowmap_ingest_document(ctx: dict[str, Any], *, document_id: str) -> str:
     """Index one registered Knowledge Map document, then enqueue the build.
 
@@ -102,10 +125,16 @@ async def knowmap_ingest_document(ctx: dict[str, Any], *, document_id: str) -> s
             _log.exception("knowmap_ingest_document failed for %s", document_id)
             raise
 
-    # Corpus changed and is committed → enqueue the graph build (dedup job id).
-    await enqueue_knowmap_build(
-        config_id=cfg.id, last_build_state=cfg.last_build_state, last_build_at=cfg.last_build_at
-    )
+    # F-5: the build waits for BOTH readiness and a clean scan verdict. READY is now
+    # committed; re-read the scan verdict (the scan worker commits it on its own
+    # connection) and enqueue only if clean. If the scan is still pending, the scan
+    # worker's clean-verdict path enqueues once it observes READY — last writer wins.
+    async with sm() as db2:
+        fresh = await KnowmapDocumentRepository(db2).get(doc_id)
+    if fresh is not None and fresh.scan_status is ScanStatus.CLEAN:
+        await enqueue_knowmap_build(
+            config_id=cfg.id, last_build_state=cfg.last_build_state, last_build_at=cfg.last_build_at
+        )
     return f"status={result.status.value} document={document_id}"
 
 
@@ -128,6 +157,9 @@ async def knowmap_scan_document(ctx: dict[str, Any], *, document_id: str) -> str
             await KnowmapDocumentRepository(db).mark_scan(
                 document_id=doc_id, scan_status=ScanStatus.CLEAN, scan_at=now()
             )
+        # F-5: scan disabled == an immediate clean verdict; route through the shared
+        # clean-verdict enqueue so the deferred build still fires once READY.
+        await _enqueue_build_on_clean(sm, doc_id)
         return "clean"
 
     from shared_kernel.scanning import ScanError, get_scanner
@@ -205,6 +237,10 @@ async def knowmap_scan_document(ctx: dict[str, Any], *, document_id: str) -> str
         await enqueue_knowmap_build(
             config_id=cfg.id, last_build_state=cfg.last_build_state, last_build_at=cfg.last_build_at
         )
+    elif scan_status is ScanStatus.CLEAN:
+        # F-5: a clean verdict enqueues the deferred build — but only once the
+        # document is READY (re-read fresh; last writer wins with the index worker).
+        await _enqueue_build_on_clean(sm, doc_id)
     return scan_status.value
 
 
