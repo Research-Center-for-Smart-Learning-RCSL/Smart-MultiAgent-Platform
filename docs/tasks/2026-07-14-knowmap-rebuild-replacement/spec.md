@@ -292,3 +292,21 @@ code already claims to implement.
   fails on a cross-file ordering dependency. Confirmed reproducing on the pre-F-6 baseline
   (git-stash bisect), so it is unrelated to this change; it passes in isolation. Worth a
   separate fixture-isolation fix.
+- **FU-6 (reconciler replace-path Qdrant sweep — from check-quality):** the build-scoped
+  Qdrant sweep (`delete_points_not_in_build`) runs only in the builder's happy path
+  (`graphrag_builder.py`). When a `replace=True` build crashes in Phase-2 and the reconciler
+  recovers it, the reconciler runs no build-scoped sweep and does not know the build was a
+  replacement, so orphan vectors for entities the current corpus no longer produces persist
+  until the next successful non-recovered replace build re-sweeps them. Neo4j is already
+  correct (the prune ran in Phase-1). Bounded and self-healing; not a security leak (retrieval
+  is CLEAN-doc-scoped), so deferred. Fix: persist replace intent on the build/config (or
+  discriminate by owner type) and run the sweep on the reconciler's replace-recovery path.
+- **FU-7 (vector store lacks a Protocol port):** unlike `Neo4jDriver`, the Qdrant vector
+  store is a concrete infrastructure class imported directly into the application builder —
+  there is no vector port in `graphrag_ports.py`. `delete_points_not_in_build` was added to
+  the concrete class only, perpetuating the asymmetry. Mirror the Neo4j port pattern so the
+  application depends on an abstraction.
+- **FU-8 (`remove_stale_for_build` node-cleanup cartesian):** the orphan-node cleanup carries
+  one `WITH` row per deleted relation, so the follow-on `MATCH (n:Entity {cid})` is an N×M
+  cartesian (deleted-rels × entities). Deletes are idempotent so correctness holds, but a
+  `WITH DISTINCT`/aggregation collapses it to one pass. Efficiency only.

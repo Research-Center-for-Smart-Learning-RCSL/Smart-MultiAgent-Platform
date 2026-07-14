@@ -248,3 +248,14 @@ None. This restores the documented clean-scan contract; no new requirement.
 - **FU-2 (data audit):** existing graphs may contain documents indexed during a pre-fix race.
   F-6's replacement-rebuild work will purge them on the next build; if F-6 lands later, a
   one-off sweep listing `pending`/non-clean documents present in built graphs may be run.
+- **FU-3 (clean-enqueue helpers — DRY, from check-quality):** the "enqueue a build only when
+  the document is `READY` *and* `CLEAN`" invariant is realized by three helpers, each checking
+  only one half and trusting its call-site for the other: `_enqueue_build_if_clean`
+  (ingest service — checks `CLEAN`, not `READY`), `_enqueue_build_on_clean` (worker — checks
+  `READY`, not scan verdict), and the inline path in `knowmap_ingest_document` (checks `CLEAN`,
+  relies on the `READY` just committed). All three are currently correct, and this is NOT a
+  fail-open: the real gate is the CLEAN-only build/retrieval selector, which re-reads at build
+  time regardless of what enqueued. But the invariant is fragmented and a future call-site
+  change could enqueue under a half-checked gate. Consolidate into one helper that re-reads the
+  document and asserts both `status == READY` and `scan_status == CLEAN`. While there, type the
+  helper `sm` parameters as `async_sessionmaker[AsyncSession]` instead of `Any`.
