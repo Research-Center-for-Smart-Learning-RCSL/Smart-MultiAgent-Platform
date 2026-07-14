@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: draft
+status: in-progress
 created: 2026-07-14
 requirements: [R11.17]
 ---
@@ -169,16 +169,29 @@ Failing-first tests (fail against current code, pass after):
 
 ## 10. Acceptance Criteria
 
-- [ ] AC-1: The four regression tests in §8 fail before the fix and pass after.
-- [ ] AC-2: For `owner_kind="chatroom"` configs, `read_config`, `read_status`, and
-  `read_graph` deny a room-denied project member (403) and permit a room-permitted member.
-- [ ] AC-3: The `/ws/graphrag/{id}` handshake applies the room ACL for chatroom-owned
-  configs (close `4403` on denial) and is unchanged for `agent_group`/`workspace`.
-- [ ] AC-4: RAG (`/ws/rag-configs/{id}`) and Knowledge-Map (`/ws/knowmap/{id}`) channels
-  and all `agent_group`/`workspace` GraphRAG reads behave exactly as before.
-- [ ] AC-5: Admin principals retain full read/subscribe access regardless of room flags.
+- [x] AC-1: The regression tests fail before the fix and pass after. Realized as unit tests
+  on the shared predicate `has_config_read_access` (`test_config_access.py`) plus the WS
+  handshake branch (`test_ws_config_route.py`, `test_ws_graphrag.py`) — see D-2 for the
+  test-form deviation. The predicate did not exist pre-fix, so the tests are
+  red-by-construction.
+- [x] AC-2: For `owner_kind="chatroom"` configs, `read_config`, `read_status`, and
+  `read_graph` deny a room-denied project member (403 via `_assert_config_read` →
+  `_raise_forbidden`) and permit a room-permitted member. (`test_config_access.py`
+  `TestChatroomOwned`; the REST helper is a thin wrapper over the predicate.)
+- [x] AC-3: The `/ws/graphrag/{id}` handshake applies the room ACL for chatroom-owned
+  configs (close `4403` on denial). (`test_ws_config_route.py` 4403 path;
+  `test_config_access.py` room branch.)
+- [~] AC-4: RAG (`/ws/rag-configs/{id}`) and Knowledge-Map (`/ws/knowmap/{id}`) channels
+  behave exactly as before (project-membership branch — `test_config_access.py`
+  `TestNonConceptMapConfigs`, `test_ws_rag_configs.py`, `test_ws_knowmap.py`).
+  **Superseded in part by D-1:** `agent_group`/`workspace` GraphRAG reads are now *also*
+  gated by the owner's `concept_map_enabled` opt-in (approved expansion), so they do **not**
+  behave exactly as before — this is intentional per [R11.17].
+- [x] AC-5: Admin principals retain full read/subscribe access regardless of room flags
+  (predicate admin bypass + handshake admin short-circuit; `test_config_access.py`
+  `TestAdminBypass`).
 - [ ] AC-6: `/check-security` review passes for the private-room ACL / cross-tenant read
-  boundary (audit FU-1).
+  boundary (audit FU-1). Run jointly with F-25 over the combined ACL change.
 
 ## 11. SRS Delta
 
@@ -186,7 +199,35 @@ None — restores the [R11.17] private-room trust boundary for Concept Map read 
 
 ## 12. Deviation Log
 
-Appended by /build.
+- **D-1 (approved scope expansion — `concept_map_enabled` gate):** the spec's §7 predicate
+  branched `chatroom → room ACL`, else *project membership only*. Per [R11.17] and F-25's
+  FU-3, `agent_group`/`workspace` Concept Maps are gated by "project membership **plus**
+  their `concept_map_enabled` opt-in." The user approved expanding F-2 to enforce that gate.
+  `has_config_read_access` now, for `agent_group`/`workspace` owners, additionally checks
+  the owner's `concept_map_enabled` (via `AgentGroupFacade.get_group` /
+  `ConversationFacade.get_workspace`) and denies when the opt-in is off. This closes the
+  handshake+REST under-enforcement F-25 FU-3 raised and means F-25 (which delegates to this
+  predicate) inherits complete [R11.17] enforcement. Consequence: AC-4's "agent_group/
+  workspace behave exactly as before" no longer holds for the disabled-opt-in case — by
+  design.
+- **D-2 (test form — predicate unit tests instead of DB route tests):** §8 frames the
+  regression tests as REST route / WS integration tests. Implemented instead as thorough
+  unit tests on the single shared predicate `has_config_read_access`
+  (`test_config_access.py`: chatroom allow/deny/deleted-room, agent_group enabled/disabled/
+  non-member, workspace enabled/disabled, RAG/knowmap membership, admin bypass) plus the WS
+  handshake branch (`test_ws_config_route.py`). Reason: the predicate is the single source
+  of truth both REST and WS delegate to, so testing it verifies both surfaces at the point
+  the logic lives; full route/DB integration tests require the docker stack, which is
+  unavailable in this environment (see gate notes). The REST/WS wrappers are thin and
+  covered by the handshake tests.
+
+Mechanical-gate notes: `pytest -q` unit suite green (1589 tests; the three per-channel WS
+route tests — `test_ws_{graphrag,knowmap,rag_configs}.py` — were updated to patch the new
+`has_config_read_access` predicate instead of the removed inline `TenancyRoleResolver`).
+Wiring tests (`tests/wiring/test_graphrag_*`) require the docker infra and were not run
+here; they already set `concept_map_enabled=true`, consistent with D-1. `ruff check` /
+`ruff format --check` clean on the diff; `mypy` reports zero errors in the 3 changed source
+files (same ~20 pre-existing baseline errors in untouched files as F-1 FU-3).
 
 ## 13. Follow-ups
 
@@ -194,6 +235,12 @@ Appended by /build.
   mid-socket. Even after this fix, a member removed from the room/project *after* a
   successful handshake keeps streaming until the access token expires. Closing that window
   is F-25 and must reuse the owner-aware predicate introduced here.
-- **FU-2**: confirm whether `read_agent_concept_map_coverage` (`graphrag.py:555`) can
-  reveal a private room's config existence/state to a room-denied member; if so, apply the
-  same owner-aware gate.
+- **FU-2 (CONFIRMED — deferred, needs its own spec):** `read_agent_concept_map_coverage`
+  (`graphrag.py:555`, authz at `:583` = agent's project membership only) **does** reveal a
+  private room's Concept Map existence and active-state to a room-denied project member — it
+  lists every map that could feed the agent, including chatroom-owned maps the caller cannot
+  read. Not fixed in F-2 because the fix is a *per-entry filter* (drop/redact chatroom-owned
+  entries failing `has_config_read_access`), a different shape from the three point-reads,
+  and it carries a genuine product decision: is coverage "transparency about what informs
+  the agent" (show all) or "room-gated data" (filter)? That decision needs its own spec.
+  The leak is metadata-level (existence + active flag + owner name), not graph content.
