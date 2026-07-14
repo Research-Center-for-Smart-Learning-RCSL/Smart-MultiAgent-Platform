@@ -130,12 +130,17 @@ without duplicating logic.
 2. **Refactor the room path to use it.** Replace the inline block in `_run_locked`
    (`turn_engine.py:941-950`) with a call to the helper passing the room's `chatroom_id`. Its
    emitted blocks and order must be byte-for-byte what it produces today (characterization, §8.6).
-3. **Wire headless.** Add `chatroom_id: uuid.UUID | None = None` to `run_input_turn`
-   (`turn_engine.py:404-412`). Between notifications assembly (`:435`) and the `system_parts`
-   join (`:439`), build `queries = self._knowledge_queries([], input_text=input_text)` and extend
-   `system_parts` with `_assemble_agent_knowledge(agent, queries, chatroom_id=chatroom_id)`. When
-   `chatroom_id is None`, the helper skips `_graphrag_context` entirely (no Concept Map
-   resolution, no room lookup).
+3. **Wire headless — matching the room-path block order.** Add
+   `chatroom_id: uuid.UUID | None = None` to `run_input_turn` (`turn_engine.py:404-412`). The
+   room path appends the three knowledge blocks (`:944/947/950`) **before** the notify/pending
+   block (`:978`); the headless path currently computes `notify_block` at `:435` and appends it
+   at `:437-438`. To preserve that order, build
+   `queries = self._knowledge_queries([], input_text=input_text)` and extend `system_parts` with
+   `_assemble_agent_knowledge(agent, queries, chatroom_id=chatroom_id)` **after `base_system` is
+   seeded (`:434`) but before the `if notify_block:` append (`:437`)** — i.e., knowledge blocks
+   precede the notify block, as in the room path. (Headless has no history/summary block, so
+   knowledge follows the base prompt directly.) When `chatroom_id is None`, the helper skips
+   `_graphrag_context` entirely (no Concept Map resolution, no room lookup).
 4. **Callers.** A2A (`a2a_handler.py:182-188`) calls `run_input_turn` with `chatroom_id` left at
    its `None` default. The approval worker (`approvals.py:88`) parses its carried
    `chatroom_id: str | None` (`:35`) to a UUID and passes it through (pass `None` when absent);
@@ -176,8 +181,13 @@ finding notes none exists; inline assembly matches the room path).
 
 ## 8. Regression Test Plan
 
-Failing-first backend unit tests against `TurnEngine` (fake providers / spies on
-`_rag_context`, `_knowmap_context`, `_graphrag_context`):
+Extend the existing `run_input_turn`/A2A tests in
+`backend/tests/unit/test_a2a_turn_dispatch.py` (already has
+`test_run_input_turn_headless_completed`, `:81`) and the approver-turn tests in
+`backend/tests/unit/test_approval_gate_fixes.py` (`drive_approver_turn`, `:102-149`); guard the
+room-path characterization in `backend/tests/unit/test_agent_trigger_wiring.py`. Failing-first
+backend unit tests against `TurnEngine` (fake providers / spies on `_rag_context`,
+`_knowmap_context`, `_graphrag_context`):
 
 1. **Headless queries Knowledge Map (primary red-first)** — `run_input_turn` for an agent with
    `knowmap_config_id` set assembles the Knowledge Map block into `system_text`. Fails today (no
@@ -241,6 +251,10 @@ Appended by /build.
 - **FU-1 (F-16)**: the headless path inherits the no-combined-knowledge-budget behavior; when
   F-16's token-aware allocator lands, apply it to the shared assembly helper so both room and
   headless turns are budgeted uniformly.
-- **FU-2 (workflow turns)**: confirm all workflow-run invocation paths route through
-  `run_input_turn` (and thus now assemble knowledge); if any bypass it, extend them to use the
-  shared helper.
+- **FU-2 (turn-entry coverage — verified)**: a full sweep of `turn_engine.py` confirms
+  `run_input_turn` is the *only* headless provider-streaming entry, and its only callers are the
+  A2A handler and the approval worker (`a2a_handler.py:182`, `approvals.py:88`); workflow-driven
+  turns arrive via the A2A handler, and observer/wakeup turns run through `_run_locked` (which
+  already assembles knowledge). So this one fix covers every knowledge-omitting path — no
+  separate workflow entry is left unpatched. Recorded as a follow-up only to re-verify if a new
+  headless turn entry is added later.
