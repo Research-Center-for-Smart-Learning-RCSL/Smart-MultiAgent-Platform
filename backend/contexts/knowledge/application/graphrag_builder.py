@@ -47,6 +47,7 @@ from contexts.knowledge.domain.graphrag import (
     BuildResult,
     BuildState,
     Triple,
+    deterministic_point_id,
 )
 from contexts.knowledge.infrastructure.graphrag_vector_store import (
     GraphRagVectorStore,
@@ -365,6 +366,7 @@ class GraphRagBuilder:
         try:
             embeddings, resolved_embedder = await self._embed_entities(
                 cfg=cfg,
+                build_id=build_id,
                 triples=triples,
             )
             if embeddings:
@@ -564,6 +566,7 @@ class GraphRagBuilder:
         self,
         *,
         cfg: ConfigLike,
+        build_id: uuid.UUID,
         triples: Sequence[Triple],
     ) -> tuple[list[EntityEmbedding], ResolvedEmbedder | None]:
         """Build a description per unique entity and embed them in a batch.
@@ -588,7 +591,7 @@ class GraphRagBuilder:
             )
         return [
             EntityEmbedding(
-                point_id=uuid.uuid4(),
+                point_id=deterministic_point_id(cfg.id, build_id, entity),
                 entity=entity,
                 description=desc,
                 vector=vec,

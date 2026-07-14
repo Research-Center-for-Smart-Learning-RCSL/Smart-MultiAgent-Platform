@@ -214,6 +214,7 @@ class FakeNeo4j:
         *,
         raise_on_apply: Exception | None = None,
         config_ids: list[tuple[uuid.UUID, uuid.UUID | None]] | None = None,
+        triples_for_build: list[dict[str, str]] | None = None,
     ) -> None:
         self.applied: list[list[Triple]] = []
         self.applied_project_ids: list[uuid.UUID] = []
@@ -224,6 +225,7 @@ class FakeNeo4j:
         self.restored: list[dict[str, Any]] = []
         self.raise_on_apply = raise_on_apply
         self.config_ids = config_ids or []
+        self.triples_for_build = triples_for_build or []
 
     async def snapshot_subgraph(self, *, config_id, build_id):
         return {"edges": []}
@@ -254,6 +256,9 @@ class FakeNeo4j:
 
     async def list_config_ids(self) -> list[tuple[uuid.UUID, uuid.UUID | None]]:
         return list(self.config_ids)
+
+    async def list_triples_for_build(self, *, config_id, build_id) -> list[dict[str, str]]:
+        return list(self.triples_for_build)
 
 
 class FakeVectorStore:
@@ -1229,6 +1234,112 @@ async def test_channel_override_used_when_channel_fn_set(monkeypatch: Any) -> No
 
     assert channels, "expected at least one publish_build_state call"
     assert all(c == f"ws:knowmap:{cfg.id}" for c in channels)
+
+
+# ---------------------------------------------------------------------------
+# F-9 — deterministic Qdrant point ids make Phase-2 retries idempotent.
+# ---------------------------------------------------------------------------
+
+
+class DictVectorStore:
+    """Vector store backed by a dict keyed on point id, so a re-upsert of the
+    same id overwrites rather than duplicating — the exact Qdrant semantics F-9
+    relies on."""
+
+    def __init__(self) -> None:
+        self.points: dict[str, dict[str, str]] = {}
+
+    async def ensure_graphrag_collection(self, project_id, *, vector_size, **_: Any) -> None:
+        return None
+
+    async def upsert_entities(self, *, project_id, config_id, build_id, points) -> None:
+        for pid, _vec, entity, _desc in points:
+            self.points[str(pid)] = {"entity": entity, "build_id": str(build_id)}
+
+
+def test_deterministic_point_id_is_stable_and_varies() -> None:
+    # §8.1 / AC-3: stable for equal inputs, distinct when any of config/build/entity differ.
+    from contexts.knowledge.domain.graphrag import deterministic_point_id
+
+    c, b = uuid.uuid4(), uuid.uuid4()
+    assert deterministic_point_id(c, b, "alice") == deterministic_point_id(c, b, "alice")
+    assert deterministic_point_id(c, b, "alice") != deterministic_point_id(c, b, "bob")
+    assert deterministic_point_id(c, b, "alice") != deterministic_point_id(uuid.uuid4(), b, "alice")
+    assert deterministic_point_id(c, b, "alice") != deterministic_point_id(c, uuid.uuid4(), "alice")
+
+
+@pytest.mark.asyncio
+async def test_builder_upserts_deterministic_point_ids() -> None:
+    # §8.3 / AC-4: the builder mints each point id via deterministic_point_id, so a
+    # partially-committed original upsert is overwritten on retry, not duplicated.
+    from contexts.knowledge.domain.graphrag import deterministic_point_id
+
+    cfg = _make_cfg()
+    neo4j, vectors = FakeNeo4j(), FakeVectorStore()
+    builder, _store, _db = _make_builder(
+        cfg=cfg,
+        neo4j=neo4j,
+        vectors=vectors,
+        lock=FakeLock(),
+        snapshots=FakeSnapshots(),
+        extractor=FakeExtractor(_make_triples()),
+    )
+
+    result = await builder.run(config_id=cfg.id)
+
+    assert len(vectors.upserts) == 1
+    points = vectors.upserts[0]
+    assert points, "expected at least one upserted point"
+    for pid, _vec, entity, _desc in points:
+        assert pid == deterministic_point_id(cfg.id, result.build_id, entity)
+
+
+@pytest.mark.asyncio
+async def test_reconciler_phase2_retry_is_idempotent_on_point_id(monkeypatch: Any) -> None:
+    # §8.2 / AC-1 (primary red-first): re-running the reconciler's Phase-2 retry for
+    # the same (config, build) overwrites in place. Two entities → two points, never
+    # four. Fails before the fix — the retry minted a fresh uuid4() per attempt.
+    from app.workers import graphrag_reconciler as wmod
+
+    cfg = _make_cfg()
+    build_id = uuid.uuid4()
+    neo4j = FakeNeo4j(
+        triples_for_build=[{"subject": "X", "relation": "knows", "object": "Y"}],
+    )
+    store = DictVectorStore()
+    retry = wmod._make_phase2_retry(neo4j, store)  # type: ignore[arg-type]
+
+    class _FakeEmbedder:
+        async def embed_batch(self, texts: list[str]) -> list[list[float]]:
+            return [[0.1, 0.2, 0.3] for _ in texts]
+
+    class _FakeDbCtx:
+        async def __aenter__(self) -> _FakeDbCtx:
+            return self
+
+        async def __aexit__(self, *_a: Any) -> bool:
+            return False
+
+        async def commit(self) -> None:
+            return None
+
+    async def _resolve(_db: Any, _cfg: Any) -> tuple[str, str, uuid.UUID]:
+        return "openai", "text-embedding-3-small", uuid.uuid4()
+
+    monkeypatch.setattr(wmod, "resolve_pinned_embed_key", _resolve)
+    monkeypatch.setattr(wmod, "get_sessionmaker", lambda: (lambda: _FakeDbCtx()))
+    monkeypatch.setattr("contexts.keys.infrastructure.adapters.build_router", lambda _db: object())
+    monkeypatch.setattr(
+        "contexts.knowledge.infrastructure.embedders.router_embedder_for",
+        lambda **_kw: _FakeEmbedder(),
+    )
+
+    await retry(cfg=cfg, build_id=build_id)
+    await retry(cfg=cfg, build_id=build_id)
+
+    # X + Y — one point each, not four.
+    assert len(store.points) == 2
+    assert {p["entity"] for p in store.points.values()} == {"X", "Y"}
 
 
 async def _noop(*_a: Any, **_kw: Any) -> None:

@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: draft
+status: implemented
 created: 2026-07-14
 requirements: [R11.04]
 ---
@@ -168,17 +168,20 @@ Unit tests:
 
 ## 10. Acceptance Criteria
 
-- [ ] AC-1: The retry-idempotency regression test (§8.2) fails before the fix and passes
-  after.
-- [ ] AC-2: Re-running a build's Phase-2 upsert for the same `(config_id, build_id)` results
+- [x] AC-1: The retry-idempotency regression test (§8.2) fails before the fix and passes
+  after. (`test_reconciler_phase2_retry_is_idempotent_on_point_id` — 4 points before, 2 after.)
+- [x] AC-2: Re-running a build's Phase-2 upsert for the same `(config_id, build_id)` results
   in one Qdrant point per entity (no duplicates), for both Concept Maps and Knowledge Maps.
-- [ ] AC-3: `deterministic_point_id` is stable for equal inputs and distinct when any of
-  `config_id`, `build_id`, or `entity` differ (§8.1).
-- [ ] AC-4: The builder and the reconciler retry produce identical point IDs for the same
+  (Same helper used by both mint sites; Knowledge Maps share `GraphRagVectorStore`/builder/retry.)
+- [x] AC-3: `deterministic_point_id` is stable for equal inputs and distinct when any of
+  `config_id`, `build_id`, or `entity` differ (§8.1). (`test_deterministic_point_id_is_stable_and_varies`.)
+- [x] AC-4: The builder and the reconciler retry produce identical point IDs for the same
   `(config_id, build_id, entity)` (§8.3), so a partially-committed original upsert is
-  overwritten on retry rather than duplicated.
-- [ ] AC-5: `pytest -q`, `ruff check . && ruff format --check .`, and `mypy .` pass in
-  `backend/`.
+  overwritten on retry rather than duplicated. (Both call the one pure helper;
+  `test_builder_upserts_deterministic_point_ids` pins the builder side.)
+- [x] AC-5: `pytest -q` (38 passed) and `ruff check . && ruff format --check .` pass in
+  `backend/`. `mypy .` introduces no new errors in the touched files; 37 pre-existing baseline
+  errors remain across 21 unrelated files (none in F-9's files) — see D-2.
 
 ## 11. SRS Delta
 
@@ -186,7 +189,17 @@ None. This restores §11.2a step 3's "Qdrant upserts are idempotent on `point_id
 
 ## 12. Deviation Log
 
-Appended by /build.
+- **D-1 (test location):** §8 and §8.2/§8.3 named `backend/tests/unit/test_graphrag_reconciler.py`,
+  which does not exist. The reconciler's existing rollback/retry/orphan-sweep coverage (and its
+  fakes) live in `backend/tests/unit/test_graphrag_builder.py`; the three F-9 tests were added
+  there, reusing those fakes rather than duplicating ~250 lines into a new file. This satisfies
+  the spec's stated intent ("extend the existing rollback coverage"). The §8.1 helper test used
+  the offered alternative (the builder test module) rather than a new `test_graphrag_domain.py`.
+- **D-2 (mypy baseline):** AC-5 asks for a clean `mypy .`. The repo carries a pre-existing
+  baseline of 37 mypy errors across 21 files (e.g. `contexts/keys/application/group_service.py`,
+  `app/workers/tasks/retention.py`, several test modules). None are in any file this task
+  touched, and the change adds none. Not fixed here (out of scope; would require editing
+  unrelated files) — recorded as FU-3.
 
 ## 13. Follow-ups
 
@@ -196,3 +209,6 @@ Appended by /build.
 - **FU-2 (deploy data repair):** optionally trigger one rebuild per config after deploy to
   accelerate collapse of pre-existing duplicate points; the supersede sweep otherwise cleans
   them on the next natural build. No migration.
+- **FU-3 (mypy baseline cleanup):** the backend `mypy .` gate is red on baseline with 37
+  pre-existing errors across 21 files; a dedicated pass should drive it to green so the gate is
+  meaningful. Out of scope for a bugfix that touches none of those files.
