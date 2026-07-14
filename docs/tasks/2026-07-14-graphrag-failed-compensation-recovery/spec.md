@@ -220,6 +220,10 @@ already claims to honor.
   existing rollback coverage (`test_reconciler_exhausted_rolls_back`), reusing its fakes.
 - **D-4 (mypy baseline):** `mypy .` carries 37 pre-existing errors across 21 unrelated files;
   none are in `graphrag_reconciler.py` and this change adds none. Out of scope (see F-9 FU-3).
+- **D-5 (post-review DRY):** a code-review pass generalized `_finalize_failed` to accept
+  `build_id: uuid.UUID | None` and routed the no-build-id branch of `_reconcile_one` through it,
+  so terminal-FAILED finalization lives in one place (commit `9eca3aa`). Behavior unchanged;
+  still covered by `test_no_snapshot_compensation_audits_unavailable_not_rolled_back`.
 
 ## 13. Follow-ups
 
