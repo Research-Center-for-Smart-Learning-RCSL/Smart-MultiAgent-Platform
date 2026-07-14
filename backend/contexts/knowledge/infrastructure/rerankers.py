@@ -43,10 +43,12 @@ class RouterReranker(Reranker):
         *,
         router: ProviderRouter,
         key_id: uuid.UUID,
+        project_id: uuid.UUID,
         model: str,
     ) -> None:
         self._router = router
         self._key_id = key_id
+        self._project_id = project_id
         self._model = model
 
     async def rerank(
@@ -60,6 +62,7 @@ class RouterReranker(Reranker):
             return []
         result = await self._router.call_single_key(
             key_id=self._key_id,
+            project_id=self._project_id,
             request=ProviderRequest(
                 capability=ProviderCapability.RERANK,
                 payload={

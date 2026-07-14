@@ -21,6 +21,7 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.knowledge.application.context_provider_text import normalise_queries
+from shared_kernel import audit
 
 _log = logging.getLogger(__name__)
 _MAX_SOURCE_LABEL_CHARS = 160
@@ -79,6 +80,7 @@ class RagContextProvider:
         try:
             from qdrant_client import AsyncQdrantClient
 
+            from contexts.keys.interfaces.facade import KeysFacade
             from contexts.knowledge.application.ports import Reranker
             from contexts.knowledge.application.retrieve import RetrievedChunk, RetrieveService
             from contexts.knowledge.infrastructure.embedders import router_embedder_for
@@ -88,32 +90,51 @@ class RagContextProvider:
             cfg = await RagConfigRepository(self._db).get(rag_config_id)
             if cfg is None or cfg.embed_key_id is None:
                 return None
+
+            # F-1 (R7.04): a pinned embed/rerank key may issue a billed provider
+            # call only while it is carried into the config's project. The router
+            # enforces this hard (KeyProjectScopeError); here we degrade
+            # gracefully so one withdrawn key never bricks the turn — an
+            # out-of-scope embed key drops the RAG block, an out-of-scope rerank
+            # key falls back to vector-only. Each degradation is audited.
+            keys_facade = KeysFacade(self._db)
+            if not await keys_facade.is_key_in_project_scope(cfg.embed_key_id, cfg.project_id):
+                await self._emit_scope_degrade(cfg=cfg, key_id=cfg.embed_key_id, capability="embedding")
+                return None
+
             embedder = router_embedder_for(
                 router=self._router,  # type: ignore[arg-type]
                 key_id=cfg.embed_key_id,
+                project_id=cfg.project_id,
                 provider=cfg.embed_provider,
                 model=cfg.embed_model,
             )
             reranker: Reranker | None = None
             if cfg.rerank_enabled and cfg.rerank_key_id is not None:
-                try:
-                    from contexts.knowledge.infrastructure.rerankers import RouterReranker
+                if not await keys_facade.is_key_in_project_scope(cfg.rerank_key_id, cfg.project_id):
+                    await self._emit_scope_degrade(cfg=cfg, key_id=cfg.rerank_key_id, capability="rerank")
+                    # Vector-only: leave reranker=None.
+                else:
+                    try:
+                        from contexts.knowledge.infrastructure.rerankers import RouterReranker
 
-                    # Router-backed constructor (mirrors RouterEmbedder): the
-                    # caller never touches key plaintext — the router unwraps
-                    # the pinned rerank key on demand.  If the reranker module
-                    # still has the legacy ``api_key`` constructor this raises
-                    # TypeError and we retrieve without rerank.
-                    reranker = RouterReranker(
-                        router=self._router,  # type: ignore[arg-type]
-                        key_id=cfg.rerank_key_id,
-                        model=cfg.rerank_model or "rerank-3",
-                    )
-                except TypeError:
-                    _log.warning(
-                        "router-backed reranker unavailable for rag config %s; " "retrieving without rerank",
-                        cfg.id,
-                    )
+                        # Router-backed constructor (mirrors RouterEmbedder): the
+                        # caller never touches key plaintext — the router unwraps
+                        # the pinned rerank key on demand.  If the reranker module
+                        # still has the legacy ``api_key`` constructor this raises
+                        # TypeError and we retrieve without rerank.
+                        reranker = RouterReranker(
+                            router=self._router,  # type: ignore[arg-type]
+                            key_id=cfg.rerank_key_id,
+                            project_id=cfg.project_id,
+                            model=cfg.rerank_model or "rerank-3",
+                        )
+                    except TypeError:
+                        _log.warning(
+                            "router-backed reranker unavailable for rag config %s; "
+                            "retrieving without rerank",
+                            cfg.id,
+                        )
             qclient = AsyncQdrantClient(
                 url=self._qdrant_url,
                 api_key=self._qdrant_api_key or None,
@@ -156,6 +177,38 @@ class RagContextProvider:
                 exc_info=True,
             )
             return None
+
+    async def _emit_scope_degrade(
+        self,
+        *,
+        cfg: Any,
+        key_id: uuid.UUID,
+        capability: str,
+    ) -> None:
+        """Record one audit event for a pinned-key carried-scope degradation.
+
+        Metadata carries only identifiers (config/key/project ids) and the
+        capability — never the key secret, which this layer never holds.
+        """
+        _log.warning(
+            "RAG pinned %s key not carried into project; degrading config=%s",
+            capability,
+            cfg.id,
+        )
+        await audit.emit(
+            self._db,
+            audit.AuditEvent(
+                action="rag.key_scope_degraded",
+                resource_type="rag_config",
+                resource_id=cfg.id,
+                metadata={
+                    "project_id": str(cfg.project_id),
+                    "key_id": str(key_id),
+                    "capability": capability,
+                    "reason": "key_not_carried",
+                },
+            ),
+        )
 
     async def _build_sources(self, chunks: list[Any]) -> list[dict[str, Any]]:
         """Shape retrieved chunks into citable sources for the reply metadata.

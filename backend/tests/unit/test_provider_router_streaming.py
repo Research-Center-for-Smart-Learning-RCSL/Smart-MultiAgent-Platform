@@ -67,6 +67,16 @@ class _KeysRepo:
         return self._k.get(kid)
 
 
+class _ProjectsRepo:
+    """Carried-scope predicate for the pinned-key gate (F-1). Carried by default."""
+
+    def __init__(self, carried: bool = True) -> None:
+        self._carried = carried
+
+    async def is_carried(self, *, key_id: uuid.UUID, project_id: uuid.UUID) -> bool:
+        return self._carried
+
+
 class _StreamAdapter:
     """Yields a scripted event list; an Exception entry is raised in-stream."""
 
@@ -103,6 +113,7 @@ def _make_router(monkeypatch, adapters, members, keys) -> tuple[ProviderRouter, 
     r._adapters = adapters  # type: ignore[attr-defined]
     r._members_repo = _MembersRepo(members)  # type: ignore[attr-defined]
     r._keys_repo = _KeysRepo(keys)  # type: ignore[attr-defined]
+    r._projects_repo = _ProjectsRepo()  # type: ignore[attr-defined]
     r._config = RouterConfig()  # type: ignore[attr-defined]
     r._accountant = UsageAccountant(r._db)  # type: ignore[attr-defined]
 
@@ -376,11 +387,54 @@ async def test_single_key_records_and_returns(monkeypatch) -> None:
     router, recorded = _make_router(
         monkeypatch, {ApiKeyProvider.VOYAGE: adapter}, [], {kid: _Key(kid, ApiKeyProvider.VOYAGE)}
     )
-    res = await router.call_single_key(key_id=kid, request=embed_req)
+    res = await router.call_single_key(key_id=kid, project_id=uuid.uuid4(), request=embed_req)
     assert res.body["embeddings"] == [[0.1]]
     assert len(recorded) == 1
     assert recorded[0]["key_id"] == kid
     assert recorded[0]["error_code"] is None
+
+
+@pytest.mark.asyncio
+async def test_single_key_out_of_scope_key_refused(monkeypatch) -> None:
+    # F-1 RC-b: a pinned key not carried into the supplied project is refused
+    # BEFORE any billable provider call — no usage row is recorded.
+    from contexts.keys.domain.errors import KeyProjectScopeError
+
+    kid, pid = uuid.uuid4(), uuid.uuid4()
+    adapter = _StreamAdapter(
+        ApiKeyProvider.VOYAGE,
+        [StreamComplete(ProviderCallResult(200, {"embeddings": [[0.1]]}, 4))],
+    )
+    router, recorded = _make_router(
+        monkeypatch, {ApiKeyProvider.VOYAGE: adapter}, [], {kid: _Key(kid, ApiKeyProvider.VOYAGE)}
+    )
+    router._projects_repo = _ProjectsRepo(carried=False)  # withdrawn / foreign
+    embed_req = ProviderRequest(
+        capability=ProviderCapability.EMBEDDING, payload={"model": "voyage-3", "input": ["x"]}
+    )
+    with pytest.raises(KeyProjectScopeError):
+        await router.call_single_key(key_id=kid, project_id=pid, request=embed_req)
+    assert recorded == []  # never billed
+
+
+@pytest.mark.asyncio
+async def test_single_key_in_scope_key_proceeds(monkeypatch) -> None:
+    # The carried-key case is unaffected by the scope gate.
+    kid, pid = uuid.uuid4(), uuid.uuid4()
+    adapter = _StreamAdapter(
+        ApiKeyProvider.VOYAGE,
+        [StreamComplete(ProviderCallResult(200, {"embeddings": [[0.2]]}, 4))],
+    )
+    router, recorded = _make_router(
+        monkeypatch, {ApiKeyProvider.VOYAGE: adapter}, [], {kid: _Key(kid, ApiKeyProvider.VOYAGE)}
+    )
+    router._projects_repo = _ProjectsRepo(carried=True)
+    embed_req = ProviderRequest(
+        capability=ProviderCapability.EMBEDDING, payload={"model": "voyage-3", "input": ["x"]}
+    )
+    res = await router.call_single_key(key_id=kid, project_id=pid, request=embed_req)
+    assert res.body["embeddings"] == [[0.2]]
+    assert len(recorded) == 1
 
 
 @pytest.mark.asyncio
@@ -394,7 +448,7 @@ async def test_single_key_capability_mismatch(monkeypatch) -> None:
     )
     # VOYAGE serves EMBEDDING only — an LLM_CHAT request must be refused.
     with pytest.raises(CapabilityMismatch):
-        await router.call_single_key(key_id=kid, request=_CHAT)
+        await router.call_single_key(key_id=kid, project_id=uuid.uuid4(), request=_CHAT)
 
 
 # ---------------------------------------------------------------------------
@@ -530,7 +584,7 @@ async def test_single_key_transport_error_records_provider_metric(monkeypatch) -
     )
     before = _metric("voyage", "transport_error")
     with pytest.raises(httpx.ConnectError):
-        await router.call_single_key(key_id=kid, request=embed_req)
+        await router.call_single_key(key_id=kid, project_id=uuid.uuid4(), request=embed_req)
     assert _metric("voyage", "transport_error") == before + 1
     assert recorded[0]["error_code"] == "transport_error"
 

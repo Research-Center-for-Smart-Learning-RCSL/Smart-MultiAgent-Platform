@@ -240,6 +240,7 @@ class KnowledgeMapContextProvider:
             embedder = router_embedder_for(
                 router=self._router,  # type: ignore[arg-type]
                 key_id=key_id,
+                project_id=cfg.project_id,
                 provider=provider,
                 model=model,
             )
