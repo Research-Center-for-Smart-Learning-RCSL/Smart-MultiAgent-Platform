@@ -30,8 +30,10 @@ is a data-remanence / erasure-failure defect: raw uploaded documents and per-ten
 survive tenant deletion indefinitely. Verification found the identical source-blob leak for
 Knowledge Maps (a separate `knowmap-sources` bucket), so per Q-5 the fix spans both source buckets.
 It does both halves the audit recommends: (a) a proactive, project-scoped teardown (both source
-buckets + the File-RAG per-project Qdrant collection) wired into the retention hard-delete step so
-erasure happens at the deletion moment, and (b) a backstop orphan sweep keyed on the live Postgres
+buckets + the File-RAG per-project Qdrant collection) wired into **both** tenant hard-delete paths —
+the retention worker and the immediate admin GDPR purge `prepare_hard_delete` (a second path
+verification found bypasses retention) — so erasure happens at the deletion moment, and (b) a
+backstop orphan sweep keyed on the live Postgres
 project set, mirroring F-8's multi-store sweep, to reclaim orphans from any path (including
 already-leaked data). Knowledge/Concept Map graph vectors on tenancy cascade remain F-8's domain.
 
@@ -111,9 +113,13 @@ The causal chain:
 1. File RAG infra teardown is coupled to live document rows: `purge_documents_infra` needs `docs`
    to enumerate blob keys and point IDs (`config_service.py:284-370`), so it can only run on the
    request path while the rows still exist (`rag.py:373,612`).
-2. Tenant hard-delete erases those rows via `ON DELETE CASCADE` (`0012_rag.py:59-60,97-98,132-133`)
-   without invoking any File RAG teardown (`retention.py:141-199` sweeps only Postgres +
-   the exports bucket).
+2. Both tenant hard-delete paths erase those rows via `ON DELETE CASCADE`
+   (`0012_rag.py:59-60,97-98,132-133`) without invoking any File RAG teardown: the retention worker
+   (`retention.py:141-199`, sweeps only Postgres + the exports bucket) **and** the immediate admin
+   GDPR purge `AccountDeletionService.prepare_hard_delete`
+   (`backend/contexts/tenancy/application/account_deletion_service.py:156-210`,
+   `projects.delete()`/`orgs.delete()` at `:177-187,:198-205`, called from
+   `AdminService.hard_delete_user`, `backend/contexts/identity/application/admin_service.py:248`).
 3. There is no File RAG orphan sweep (the graph reconciler enumerates via `neo4j.list_config_ids()`,
    `backend/contexts/knowledge/application/graphrag_reconciler.py:211`, covering only Neo4j-keyed
    stores). **The root cause is the absence of any project-scoped (row-independent) File RAG
@@ -131,9 +137,17 @@ The causal chain:
     (`backend/contexts/tenancy/application/org_service.py:142-185`); retention hard-deletes the
     `projects` rows, so per-project teardown at the projects step covers org deletion. Verify child
     projects receive `deleted_at` in the org path during build.
-  - **Account deletion — covered by the same path.** `AccountDeletionService.cascade_account_deletion`
-    (`backend/contexts/tenancy/application/account_deletion_service.py:47-…`) fans out to project/org
-    soft-delete, converging on the same retention hard-delete.
+  - **Immediate admin GDPR hard-delete — confirmed SECOND path, must be hooked too (C1).**
+    Verification refuted the assumption that all org/project hard-deletes flow through retention.
+    `AdminService.hard_delete_user` (`admin_service.py:221-270`, gated on the *user* being
+    soft-deleted ≥60 days) calls `AccountDeletionService.prepare_hard_delete`
+    (`account_deletion_service.py:156-210`), which **immediately** hard-deletes any soft-deleted
+    orgs/projects (`t.projects.delete().where(deleted_at IS NOT NULL)` `:177-187`; `t.orgs.delete()`
+    `:198-205`) — bypassing `_purge_soft_deleted_tenancy`. These two (`account_deletion_service.py`
+    and retention's `sa.delete` over `_SOFT_DELETE_TABLES`) are the only hard-delete sites in the
+    repo. `AccountDeletionService.cascade_account_deletion` (`:47-132`) only *soft*-deletes. So the
+    proactive teardown must be wired into **both** hard-delete paths (§7.2), or "erasure at the
+    deletion moment" (Q-2) does not hold for admin GDPR purges — those would rely on the sweep alone.
   - **Knowledge Map source blobs (`knowmap-sources` bucket) — confirmed, same systemic gap
     (see Q-5).** Knowledge Map documents are uploaded to a **separate** bucket via
     `knowmap_source_object_key` + `self._minio.knowmap_sources_bucket`
@@ -182,7 +196,7 @@ Best-effort and isolated per store (log + continue), returning a summary. Expose
 spans File RAG + Knowledge Map source blobs and the File-RAG collection) so the worker calls a
 facade, not application internals (SoC).
 
-**7.2 Proactive teardown in retention (erasure at hard-delete).** `_purge_soft_deleted_tenancy`
+**7.2 Proactive teardown in both hard-delete paths (erasure at hard-delete).** `_purge_soft_deleted_tenancy`
 (`retention.py:141-199`) does not bulk-delete blindly: it iterates `_SOFT_DELETE_TABLES` and for
 each table materializes a 200-row `SELECT id … LIMIT 200` batch, then
 `DELETE … WHERE id IN (batch)` (`:187-197`). Two facts drive the hook design: (a) it deletes by an
@@ -201,13 +215,24 @@ purge. Perfect batch alignment with the subsequent 200-row deletes is **not** re
 project missed in a pass is still soft-deleted (caught next pass) or reclaimed by the backstop
 sweep (§7.3), which is the completeness guarantee.
 
+**Wire the SAME teardown into the immediate admin GDPR path (C1).** `AccountDeletionService.prepare_hard_delete`
+(`account_deletion_service.py:156-210`) hard-deletes soft-deleted orgs/projects immediately, bypassing
+retention. Before its `projects.delete()`/`orgs.delete()` (`:177-205`), enumerate the same set
+(projects it will delete directly `:177-187` plus projects under the orgs it deletes `:198-205`) and
+call `KnowledgeFacade.purge_project_source_infra(project_id)` for each — so admin GDPR purges also
+erase source infra at the deletion moment, not merely at the next sweep. This is the load-bearing
+path for the "erasure at deletion" guarantee (Q-2), since it is the primary explicit-GDPR route.
+
 **7.3 Backstop source-infra orphan sweep (mirrors F-8).** Add a new retention policy
 `("rag_source_orphans", _purge_rag_source_orphans)` in `_POLICIES` (`retention.py:506-531`) that:
 - builds the live set = **every** `project_id` in `projects` (regardless of `deleted_at`, per Q-4);
-- enumerates candidate MinIO orphans in **both** `rag-sources` and `knowmap-sources`: top-level
-  `{project_id}/` prefixes (each a raw project UUID) whose UUID is absent from the live set. Use
-  `list_objects_sync` with the delimiter/non-recursive listing to get the project-id prefixes
-  rather than every object;
+- enumerates candidate MinIO orphans in **both** `rag-sources` and `knowmap-sources`: the top-level
+  `{project_id}/` prefixes (each a raw project UUID) whose UUID is absent from the live set. Note
+  `MinioClient.list_objects_sync` hardcodes `recursive=True` and exposes no delimiter parameter
+  (`minio_client.py:162-167`), so the sweep must either **(a)** add a `recursive=False`/delimiter
+  option to that helper (small, in-scope change) to list common prefixes directly, or **(b)** list
+  recursively and derive the distinct first path segment (`object_name.split("/", 1)[0]`). Pick one
+  and state it in the build;
 - enumerates candidate Qdrant orphans: `get_collections()` names starting `rag_` that are not in
   `{collection_name(pid) for pid in live_set}` (compare against *expected* names to avoid
   underscore-vs-dash parsing ambiguity in the normalized UUID);
@@ -240,8 +265,12 @@ Backend. Extend `backend/tests/unit/test_retention_deep.py` (`TestPurgeSoftDelet
    store logs and continues, and does not abort the retention cycle.
 5. **`QdrantStore.delete_collection`** (unit, if added here): drops an existing collection and
    no-ops when absent (mirrors the graph-store method).
+6. **Admin GDPR hard-delete erases source infra (C1).** Drive `AccountDeletionService.prepare_hard_delete`
+   for a user whose soft-deleted org/project hold `rag-sources`/`knowmap-sources` blobs and a
+   `rag_{pid}` collection; assert `purge_project_source_infra` runs and all are gone. Fails today —
+   `prepare_hard_delete` deletes the rows immediately with no teardown.
 
-Primary red-first test: (1).
+Primary red-first test: (1); the admin-path regression is (6).
 
 ## 9. Risks and Rollback
 
@@ -257,7 +286,12 @@ Primary red-first test: (1).
   parallel, reconcile to a single definition (Q-3) to avoid a duplicate/conflicting method.
 - **Retention ordering.** Teardown must run before or independently of the Postgres cascade; since
   it is keyed on `project_id` only, it is order-independent, but the call must be inside the same
-  purge pass so it runs for exactly the projects being hard-deleted.
+  purge pass (in **both** the retention loop and `prepare_hard_delete`, §7.2) so it runs for exactly
+  the projects being hard-deleted.
+- **`list_objects_sync` capability gap (C3).** The sweep's prefix enumeration needs a capability the
+  recursive-only helper lacks; the build must either add a delimiter/`recursive=False` option or
+  derive distinct first-segment prefixes from a recursive listing (§7.3). The §7.1 teardown-by-known-
+  prefix is unaffected.
 - **Rollback** — revert the retention wiring, the new policy, and the primitive/facade method;
   code-only, no schema change. The leak returns but no data is destroyed by the rollback.
 
@@ -282,6 +316,9 @@ Primary red-first test: (1).
   without logging blob contents or keys.
 - [ ] AC-8: `pytest -q`, `ruff check . && ruff format --check .`, and `mypy .` pass in `backend/`;
   the `/check-security` review (FU-1) is completed before merge.
+- [ ] AC-9: The immediate admin GDPR path (`AccountDeletionService.prepare_hard_delete`) also runs
+  `purge_project_source_infra` for every org/project it hard-deletes, so admin purges erase source
+  infra at the deletion moment (not only via the sweep) — verified by §8.6.
 
 ## 11. Security Considerations
 
