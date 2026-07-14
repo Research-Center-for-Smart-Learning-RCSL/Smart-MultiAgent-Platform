@@ -441,12 +441,21 @@ async def graphrag_silence_sweep(ctx: dict[str, Any]) -> str:
             configs = await repo.list_silence_trigger_configs(limit=batch, offset=offset)
             if not configs:
                 break
+            # One batched Redis read per page instead of a GET per config. A
+            # transient read failure degrades to "no recorded activity" for this
+            # page (nothing fires) and the next sweep retries — never aborts.
+            try:
+                activity_map = await clock.get_many([cfg.id for cfg in configs])
+            except Exception:
+                _log.warning(
+                    "graphrag silence sweep: batch clock read failed at offset=%d", offset, exc_info=True
+                )
+                activity_map = {}
             for cfg in configs:
                 checked += 1
                 try:
-                    last_activity = await clock.get(cfg.id)
                     trigger = evaluate_graphrag_silence_trigger(
-                        cfg, last_activity_at=last_activity, now=now_dt
+                        cfg, last_activity_at=activity_map.get(cfg.id), now=now_dt
                     )
                     if trigger is not None:
                         await redis.enqueue_job(

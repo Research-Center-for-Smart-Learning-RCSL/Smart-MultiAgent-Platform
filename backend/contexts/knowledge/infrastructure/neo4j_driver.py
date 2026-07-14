@@ -265,7 +265,11 @@ class Neo4jAsyncDriver:
             "(:Entity {graphrag_config_id: $cid}) "
             "WHERE r.build_id IS NULL OR r.build_id <> $bid "
             "DELETE r "
-            "WITH $cid AS cid, $bid AS bid "
+            # DISTINCT collapses the one-row-per-deleted-relation stream to a
+            # single row, so the degree-0 entity cleanup scans the config's
+            # entities once, not once per stale relation (idempotent either way,
+            # but the un-DISTINCT'd form is a stale-rels x entities cartesian).
+            "WITH DISTINCT $cid AS cid "
             "MATCH (n:Entity {graphrag_config_id: cid}) "
             "WHERE COUNT { (n)--() } = 0 DELETE n"
         )

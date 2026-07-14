@@ -36,10 +36,13 @@ def _cfg(minutes: int) -> GraphRagConfig:
 
 
 class _FakeRedis:
-    def __init__(self) -> None:
+    def __init__(self, fail_config_id: uuid.UUID | None = None) -> None:
         self.jobs: list[tuple[str, dict[str, Any]]] = []
+        self._fail_config_id = fail_config_id
 
     async def enqueue_job(self, name: str, **kwargs: Any) -> None:
+        if self._fail_config_id is not None and kwargs.get("config_id") == str(self._fail_config_id):
+            raise RuntimeError("enqueue failed for this config")
         self.jobs.append((name, kwargs))
 
 
@@ -75,21 +78,21 @@ class _FakeRepo:
 
 @pytest.mark.asyncio
 async def test_silence_sweep_enqueues_fired_configs_and_isolates_failures(monkeypatch) -> None:
-    idle = _cfg(minutes=5)  # last activity 6 min ago -> fires
+    idle = _cfg(minutes=5)  # last activity 6 min ago -> fires, enqueues
     fresh = _cfg(minutes=5)  # last activity 1 min ago -> does not fire
-    boom = _cfg(minutes=5)  # clock read raises -> isolated, sweep continues
+    boom = _cfg(minutes=5)  # fires, but its enqueue raises -> isolated, sweep continues
 
     now = datetime.now(UTC)
     activity = {
         idle.id: now - timedelta(minutes=6),
+        boom.id: now - timedelta(minutes=6),
         fresh.id: now - timedelta(minutes=1),
     }
 
     class _Clock:
-        async def get(self, config_id: uuid.UUID):
-            if config_id == boom.id:
-                raise RuntimeError("redis down for this key")
-            return activity.get(config_id)
+        # F-4: the sweep reads a whole page of timestamps in one batched call.
+        async def get_many(self, config_ids):
+            return {cid: activity.get(cid) for cid in config_ids}
 
     _FakeRepo.configs = [boom, idle, fresh]
     db = _FakeDb()
@@ -97,7 +100,8 @@ async def test_silence_sweep_enqueues_fired_configs_and_isolates_failures(monkey
     monkeypatch.setattr(graphrag_task, "GraphRagConfigRepository", _FakeRepo)
     monkeypatch.setattr(trigger_mod, "RedisGraphRagSilenceClock", _Clock)
 
-    redis = _FakeRedis()
+    # boom fires but its enqueue raises: one bad config must not abort the sweep.
+    redis = _FakeRedis(fail_config_id=boom.id)
     result = await graphrag_task.graphrag_silence_sweep({"redis": redis})
 
     # Only the idle config is enqueued, carrying the stable dedup job id.

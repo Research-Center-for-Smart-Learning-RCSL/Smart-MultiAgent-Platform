@@ -65,10 +65,15 @@ class RedisGraphRagMessageCounter:
 
 
 class GraphRagSilenceClock(Protocol):
-    """Per-config last-activity timestamp for the silence-trigger sweep (F-4)."""
+    """Per-config last-activity timestamps for the silence-trigger sweep (F-4).
 
-    async def touch(self, config_id: uuid.UUID) -> None: ...
-    async def get(self, config_id: uuid.UUID) -> datetime | None: ...
+    Batched by design: a message send advances the timer for every covering
+    config in one round-trip, and the sweep reads a whole page at once, so
+    neither the hot send path nor the cron pays one Redis call per config.
+    """
+
+    async def touch_many(self, config_ids: Sequence[uuid.UUID]) -> None: ...
+    async def get_many(self, config_ids: Sequence[uuid.UUID]) -> dict[uuid.UUID, datetime | None]: ...
 
 
 class RedisGraphRagSilenceClock:
@@ -77,15 +82,23 @@ class RedisGraphRagSilenceClock:
     workspace/agent_group map whose coverage spans many rooms is "silent" only
     when its *entire* coverage has gone quiet."""
 
-    async def touch(self, config_id: uuid.UUID) -> None:
-        r = get_redis()
-        await r.set(_silence_ts_key(config_id), datetime.now(UTC).isoformat(), ex=_SILENCE_TS_TTL)
+    async def touch_many(self, config_ids: Sequence[uuid.UUID]) -> None:
+        if not config_ids:
+            return
+        ts = datetime.now(UTC).isoformat()
+        pipe = get_redis().pipeline(transaction=False)
+        for config_id in config_ids:
+            pipe.set(_silence_ts_key(config_id), ts, ex=_SILENCE_TS_TTL)
+        await pipe.execute()
 
-    async def get(self, config_id: uuid.UUID) -> datetime | None:
-        raw = await get_redis().get(_silence_ts_key(config_id))
-        if not raw:
-            return None
-        return datetime.fromisoformat(str(raw))
+    async def get_many(self, config_ids: Sequence[uuid.UUID]) -> dict[uuid.UUID, datetime | None]:
+        if not config_ids:
+            return {}
+        raws = await get_redis().mget([_silence_ts_key(cid) for cid in config_ids])
+        return {
+            cid: (datetime.fromisoformat(str(raw)) if raw else None)
+            for cid, raw in zip(config_ids, raws, strict=True)
+        }
 
 
 async def evaluate_graphrag_message_triggers(
@@ -109,14 +122,18 @@ async def evaluate_graphrag_message_triggers(
     )
     active_counter = counter or RedisGraphRagMessageCounter()
     active_activity = activity or RedisGraphRagSilenceClock()
-    fired: list[GraphRagBuildTrigger] = []
 
+    # F-4: this send is activity across the whole covering set, so advance the
+    # silence timer for every covering config that declares a silence trigger —
+    # in a single pipelined round-trip, not one Redis write per config on the hot
+    # send path. Configs without ``silence_minutes`` are never enumerated by the
+    # sweep, so touching their timer would only be a wasted write.
+    silence_ids = [cfg.id for cfg in configs if _silence_minutes(cfg.trigger_config) is not None]
+    if silence_ids:
+        await active_activity.touch_many(silence_ids)
+
+    fired: list[GraphRagBuildTrigger] = []
     for cfg in configs:
-        # F-4: every config covering this room saw activity on this send —
-        # advance its silence timer so the periodic sweep measures idle time from
-        # the latest message across the config's whole coverage. Reuses the
-        # already-resolved covering set (no extra query).
-        await active_activity.touch(cfg.id)
         every_n = _every_n_messages(cfg.trigger_config)
         if every_n is None or cfg.last_build_state not in _BUILDABLE_STATES:
             continue

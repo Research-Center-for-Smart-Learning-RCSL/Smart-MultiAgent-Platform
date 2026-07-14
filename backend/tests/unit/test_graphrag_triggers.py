@@ -64,11 +64,11 @@ class _Clock:
     def __init__(self) -> None:
         self.touched: list[uuid.UUID] = []
 
-    async def touch(self, config_id: uuid.UUID) -> None:
-        self.touched.append(config_id)
+    async def touch_many(self, config_ids) -> None:
+        self.touched.extend(config_ids)
 
-    async def get(self, config_id: uuid.UUID):
-        return None
+    async def get_many(self, config_ids):
+        return {cid: None for cid in config_ids}
 
 
 @pytest.mark.asyncio
@@ -140,12 +140,14 @@ async def test_manual_only_trigger_does_not_increment_counter(monkeypatch) -> No
 
 @pytest.mark.asyncio
 async def test_message_eval_touches_silence_clock_for_covering_configs(monkeypatch) -> None:
-    # F-4: every covering config's silence timer is advanced on a send (even a
-    # manual/every_n-only config), so the periodic sweep measures idle from the
-    # latest message. Reuses the already-resolved covering set.
+    # F-4: a send advances the silence timer only for covering configs that
+    # declare a silence trigger — an every_n-only config is never enumerated by
+    # the sweep, so touching its timer would be a wasted write. The touch is a
+    # single batched call over that filtered set.
     cfg_a = _cfg(trigger_config={"every_n_messages": 5})
     cfg_b = _cfg(trigger_config={"silence_minutes": 10})
-    _Repo.configs = [cfg_a, cfg_b]
+    cfg_c = _cfg(trigger_config={"every_n_messages": 3, "silence_minutes": 15})
+    _Repo.configs = [cfg_a, cfg_b, cfg_c]
     monkeypatch.setattr(trigger_mod, "GraphRagConfigRepository", _Repo)
     clock = _Clock()
 
@@ -153,11 +155,12 @@ async def test_message_eval_touches_silence_clock_for_covering_configs(monkeypat
         object(),
         chatroom_id=uuid.uuid4(),
         agent_ids=[uuid.uuid4()],
-        counter=_Counter([1]),
+        counter=_Counter([1, 1]),
         activity=clock,
     )
 
-    assert clock.touched == [cfg_a.id, cfg_b.id]
+    # Only the two silence-declaring configs are touched; the every_n-only one is not.
+    assert clock.touched == [cfg_b.id, cfg_c.id]
 
 
 # ---------------------------------------------------------------------------
