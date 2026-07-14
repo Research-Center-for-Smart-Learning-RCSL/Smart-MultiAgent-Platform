@@ -227,3 +227,14 @@ behavior.
   here should be designed to also serve F-3's fix; F-3 remains a separate dossier.
 - **FU-2 (indexing):** no index exists on `graphrag_configs.trigger_config`; a JSONB
   expression index on `silence_minutes` may be warranted if the sweep's scan cost grows.
+- **FU-3 (three UNION layer builders — DRY, from check-quality):** `list_message_trigger_configs_for_room`
+  (F-3), `list_silence_trigger_configs` (F-4), and the pre-existing `list_layers_for_turn`
+  each rebuild the same three-layer chatroom/agent_group/workspace UNION, differing only in
+  per-layer predicates (~40 lines each). Extract a shared layer-builder parameterized by the
+  per-layer predicate so the owner-enable gating the docstrings claim to mirror cannot silently
+  drift. Subsumes D-4's standing "unify the gating core" note.
+- **FU-4 (silence-feed pagination tiebreak):** `list_silence_trigger_configs` orders by
+  `created_at` with `limit`/`offset`; configs sharing a `created_at` across a 500-row batch
+  boundary can be skipped or duplicated. Self-healing (a skipped config is swept the next
+  minute; a duplicate collapses on the stable `_job_id`), so deferred — add `id` as a tiebreak
+  in the `order_by` to make paging exact.
