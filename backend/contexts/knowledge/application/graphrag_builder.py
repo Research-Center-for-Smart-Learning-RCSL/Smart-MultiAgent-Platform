@@ -329,9 +329,14 @@ class GraphRagBuilder:
             )
             if replace:
                 # F-6: differential replacement — drop relations this build did not
-                # touch and any entity left isolated. Runs inside Phase 1 so a
-                # failure here rolls back via the snapshot like any other Phase-1
-                # error, never leaving a half-pruned graph.
+                # touch and any entity left isolated. This is a second Neo4j
+                # transaction after apply_triples, so a failure here can leave the
+                # new triples committed with the stale prune incomplete; the build
+                # is then marked FAILED (Phase-1 failures are not snapshot-restored
+                # here). That partial state is safe because both apply and prune are
+                # build_id-scoped: the next successful replace build re-applies with a
+                # fresh build_id and re-sweeps everything the current build_id did not
+                # touch, so the half-pruned graph self-heals rather than compounding.
                 await self._neo4j.remove_stale_for_build(config_id=cfg.id, build_id=build_id)
         except Exception as exc:
             await self._fail_phase1(cfg.id, build_id, str(exc))
