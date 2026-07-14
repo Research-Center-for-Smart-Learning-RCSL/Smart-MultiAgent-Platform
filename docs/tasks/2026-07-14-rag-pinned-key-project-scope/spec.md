@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: draft
+status: in-progress
 created: 2026-07-14
 requirements: [R7.04, R10.05, R10.08]
 ---
@@ -196,19 +196,26 @@ Failing-first tests (each fails against current code, passes after the fix):
 
 ## 10. Acceptance Criteria
 
-- [ ] AC-1: The three regression tests in §8 fail before the fix and pass after.
-- [ ] AC-2: `_validate_rerank_key` rejects a rerank key not carried into the config's
-  project on both `create` and `update`.
-- [ ] AC-3: `ProviderRouter.call_single_key` refuses (raises `KeyProjectScopeError`) any
-  key whose `key_projects.carried` is false or absent for the supplied project, for both
-  embed and rerank capabilities.
-- [ ] AC-4: At retrieval time a withdrawn/foreign embed key yields no RAG block and a
+- [x] AC-1: The three regression tests in §8 fail before the fix and pass after. RC-a
+  demonstrated red→green (`test_rag_config_key_scope.py`); RC-b tests exercise the new
+  `project_id` param / `_emit_scope_degrade` audit that do not exist pre-fix, so they are
+  red-by-construction (`test_provider_router_streaming.py`, `test_rag_context_provider_scope.py`).
+- [x] AC-2: `_validate_rerank_key` rejects a rerank key not carried into the config's
+  project on both `create` and `update`. (`test_rag_config_key_scope.py`.)
+- [x] AC-3: `ProviderRouter.call_single_key` refuses (raises `KeyProjectScopeError`) any
+  key whose `key_projects.carried` is false or absent for the supplied project. The gate is
+  capability-agnostic (runs after the capability check for embed and rerank alike).
+  (`test_single_key_out_of_scope_key_refused` / `test_single_key_in_scope_key_proceeds`.)
+- [x] AC-4: At retrieval time a withdrawn/foreign embed key yields no RAG block and a
   withdrawn/foreign rerank key yields vector-only results; each degradation emits exactly
   one audit event containing config/key/project ids and **no** key secret.
-- [ ] AC-5: The rotation/multi-key path (`call` / `call_stream`) and the embedding
-  save-path behavior are unchanged (existing keys + knowledge suites still green).
-- [ ] AC-6: `/check-security` review passes for the BYO-key cross-tenant billing boundary
-  (audit FU-1).
+  (`test_rag_context_provider_scope.py`.)
+- [x] AC-5: The rotation/multi-key path (`call` / `call_stream`) and the embedding
+  save-path behavior are unchanged (full unit suite green, incl. `test_provider_router_streaming.py`
+  rotation cases and `test_rag_config_dimension.py`).
+- [x] AC-6: `/check-security` review passes for the BYO-key cross-tenant billing boundary
+  (audit FU-1). 13 dimensions over 16 files, billing boundary traced across 4 paths, zero
+  blocking findings; two pre-existing hardening notes recorded (FU-2, FU-4).
 
 ## 11. SRS Delta
 
@@ -216,10 +223,58 @@ None — this restores the documented [R7.04]/[R10.05]/[R10.08] carried-key scop
 
 ## 12. Deviation Log
 
-Appended by /build.
+- **D-1 (degrade mechanism — pre-flight instead of try/except):** §7 / Q-3 describe the
+  knowledge layer *catching* `KeyProjectScopeError` from the embed/rerank calls to drive
+  the degrade. Implemented instead as a **pre-flight scope check** in `RagContextProvider`
+  via the keys port (`KeysFacade.is_key_in_project_scope`, the exact reuse the spec's
+  inventory names), keeping the router as the authoritative hard gate. Reason: embed and
+  rerank both execute deep inside `RetrieveService.query`, so a catch-based rerank
+  degrade would have to re-run retrieval (re-embedding, double-billing the healthy embed
+  key) or push keys-error handling into the provider-agnostic `RetrieveService` (SoC
+  violation). Pre-flight yields identical AC-4 behavior (embed→absent, rerank→vector-only,
+  one audit each, no double-billing) and calls the keys port rather than duplicating the
+  carry join. The router gate (`call_single_key(project_id=...)` → `KeyProjectScopeError`)
+  remains exactly as specced and is the load-bearing security control; the TOCTOU window
+  between pre-flight and call is covered by it (raises → outer handler returns `None`, no
+  billing).
+- **D-2 (caller fan-out — required param threaded through all 8 pinned-embed callers):**
+  §7 lists threading `project_id` through the two adapters and `RagContextProvider` only.
+  In fact `router_embedder_for` has **8 production callers** (RAG ingest worker + API
+  embed endpoint, GraphRAG build/retrieval/reconciler, Knowledge-Map build/retrieval/config
+  service). Making `call_single_key`'s `project_id` **required** (mandated by §9 to flag
+  missed callers via the type surface) forces every one of them to supply it. Threaded
+  `cfg.project_id` (the config's project — where the builder key group is carried, so the
+  gate is a no-op for healthy configs) through all 8. This is the runtime chokepoint's
+  stated intent ("protecting every current and future pinned-key caller", Q-3) — the
+  "do not fold in F-13/F-14" instruction concerns their *save-time* validation (the RC-a
+  analog for builder keys), not this runtime gate. Approved with the user before landing.
+- **D-3 (F-2 predicate `concept_map_enabled` gate):** N/A to F-1 — recorded here only to
+  note the user-approved expansion belongs to the F-2 dossier.
+
+Mechanical-gate notes: `pytest -q` unit suite green; wiring tests (`tests/wiring`) require
+the docker infra (Postgres/Redis/Qdrant) and could not be executed in this environment —
+the one touched wiring test (`test_usage_event_written_per_provider_call`) was updated to
+carry the key into a real project, mirroring `_seed_agent_and_room`. `ruff check` /
+`ruff format --check` clean on the diff. `mypy` reports zero errors in the 16 changed
+files; ~20 pre-existing baseline errors in untouched files (see FU-3) do not block.
 
 ## 13. Follow-ups
 
 - **FU-1**: optional one-time audit sweep to report existing RAG configs whose pinned
   embed/rerank key is not carried into their project (surface for owner cleanup). The
   runtime guard already neutralizes them, so this is hygiene, not a correctness gap.
+- **FU-2**: the GraphRAG / Knowledge-Map / RAG-ingest builder paths now **fail-closed**
+  (raise `KeyProjectScopeError` → build/ingest marked failed) on a withdrawn/foreign key
+  rather than degrading gracefully like the retrieval turn. This is strictly safer than
+  the prior silent cross-tenant billing and is correct for background jobs, but a
+  graceful-degrade / owner-facing error surface for those paths belongs to F-13/F-14 (the
+  builder-key save-time validation), not F-1.
+- **FU-4** (from `/check-security`): `ProviderRouter.call_single_key_stream` (the §29
+  prompt-assistant pinned-key streaming path) has no carried-scope gate — it is the one
+  pinned-key entry point this fix does not cover. No cross-tenant vector today (its key is
+  resolved from the caller's own config one level up), but adding the same gate would keep
+  "single chokepoint" literally true for every pinned-key path. Pre-existing.
+- **FU-3**: the backend `mypy` baseline is pre-existing-red (~20 errors across
+  `contexts/conversation/infrastructure/presence.py`, `contexts/tenancy/infrastructure/repositories.py`,
+  `contexts/agents/infrastructure/repositories.py`, `contexts/workflow/application/workflow_service.py`,
+  and others). None are introduced by this task; worth a dedicated typing-cleanup pass.
