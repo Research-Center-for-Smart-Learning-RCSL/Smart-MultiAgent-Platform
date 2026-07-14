@@ -46,6 +46,27 @@ _log = logging.getLogger(__name__)
 # the job timeout is only a runaway backstop and must have headroom over the TTL.
 KNOWMAP_BUILD_TIMEOUT_S = LOCK_TTL_S * 3
 
+# F-27: the scan task's arq retry budget. Named so the ClamAV-error SKIPPED path
+# can enqueue a rebuild only once retries are exhausted (a document mid-retry might
+# still come back CLEAN), and so the `.max_tries` assignment stays in sync.
+_SCAN_MAX_TRIES = 3
+
+
+async def _enqueue_rebuild_for_config(sm: Any, knowmap_config_id: uuid.UUID) -> None:
+    """F-27: enqueue a full-corpus rebuild after a SKIPPED verdict, mirroring the
+    QUARANTINED path, so the un-scannable document is removed from the buildable
+    corpus. Under F-6's replacement semantics the rebuild also evicts the skipped
+    document's triples from Neo4j. Reuses the ``knowmap_build_job_id`` dedup, so a
+    SKIPPED enqueue coalesces with a concurrent quarantine/ingest enqueue for the
+    same config+build cycle rather than multiplying builds."""
+    async with sm() as db:
+        cfg = await KnowmapConfigRepository(db).get(knowmap_config_id)
+    if cfg is None:
+        return
+    await enqueue_knowmap_build(
+        config_id=cfg.id, last_build_state=cfg.last_build_state, last_build_at=cfg.last_build_at
+    )
+
 
 async def _enqueue_build_on_clean(sm: Any, doc_id: uuid.UUID) -> None:
     """F-5: enqueue the graph build for a document whose scan just returned CLEAN,
@@ -143,8 +164,8 @@ knowmap_ingest_document.max_tries = 3  # type: ignore[attr-defined]
 
 async def knowmap_scan_document(ctx: dict[str, Any], *, document_id: str) -> str:
     """AV scan for a Knowledge Map document. Mirrors ``rag_scan_document``; a
-    quarantine verdict enqueues a rebuild so the graph drops the tainted document."""
-    _ = ctx
+    quarantine OR skipped verdict enqueues a rebuild so the un-scannable document
+    leaves the buildable corpus (F-27)."""
     from app.config.settings import get_settings
 
     doc_id = uuid.UUID(document_id)
@@ -183,6 +204,9 @@ async def knowmap_scan_document(ctx: dict[str, Any], *, document_id: str) -> str
             await KnowmapDocumentRepository(db2).mark_scan(
                 document_id=doc_id, scan_status=ScanStatus.SKIPPED, scan_at=_now2()
             )
+        # F-27: over-size is immediately terminal (no retry) → rebuild at once,
+        # mirroring the QUARANTINED path, so the corpus excludes the skipped doc.
+        await _enqueue_rebuild_for_config(sm, doc.knowmap_config_id)
         return "skipped:too_large"
 
     bucket, _, key = doc.minio_path.partition("/")
@@ -199,6 +223,15 @@ async def knowmap_scan_document(ctx: dict[str, Any], *, document_id: str) -> str
             await KnowmapDocumentRepository(db2).mark_scan(
                 document_id=doc_id, scan_status=ScanStatus.SKIPPED, scan_at=_now()
             )
+        # F-27 (Q-2): enqueue the rebuild only once the retry budget is exhausted —
+        # on a non-final attempt the document may still come back CLEAN, so a
+        # premature rebuild would exclude a document that turns out fine. The task
+        # re-raises either way so arq retries the scan. If arq does not populate
+        # ``job_try`` (fallback per §7.2), default to the exhausted value so the
+        # rebuild still fires (the dedup job id bounds the churn) rather than
+        # silently never rebuilding.
+        if ctx.get("job_try", _SCAN_MAX_TRIES) >= _SCAN_MAX_TRIES:
+            await _enqueue_rebuild_for_config(sm, doc.knowmap_config_id)
         raise
 
     from shared_kernel import audit
@@ -244,7 +277,7 @@ async def knowmap_scan_document(ctx: dict[str, Any], *, document_id: str) -> str
     return scan_status.value
 
 
-knowmap_scan_document.max_tries = 3  # type: ignore[attr-defined]
+knowmap_scan_document.max_tries = _SCAN_MAX_TRIES  # type: ignore[attr-defined]
 
 
 def _make_knowmap_embedder_factory(db: AsyncSession) -> EmbedderFactory:

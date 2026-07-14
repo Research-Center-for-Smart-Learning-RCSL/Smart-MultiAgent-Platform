@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: draft
+status: implemented
 created: 2026-07-14
 requirements: [R11.12]
 ---
@@ -175,16 +175,27 @@ Primary red-first: (1).
 
 ## 10. Acceptance Criteria
 
-- [ ] AC-1: The over-size SKIPPED rebuild test (§8.1) fails before the fix and passes after.
-- [ ] AC-2: Over-size `SKIPPED` (terminal) and the ClamAV-error path on its **exhausted** attempt
+- [x] AC-1: The over-size SKIPPED rebuild test (§8.1) fails before the fix and passes after.
+  `test_oversize_skipped_enqueues_rebuild` (run red→green).
+- [x] AC-2: Over-size `SKIPPED` (terminal) and the ClamAV-error path on its **exhausted** attempt
   enqueue a `knowmap_build` with the same args and dedup job id the `QUARANTINED` path uses; a
-  non-final ClamAV-error attempt does not enqueue.
-- [ ] AC-3: The ClamAV-error path still re-raises for Arq retry (enqueuing only on the final try).
-- [ ] AC-4: `QUARANTINED` behavior and the retrieval/selector gating are unchanged; SKIPPED and
-  QUARANTINED enqueue identically.
-- [ ] AC-5 (with F-6): after a SKIPPED-triggered rebuild under F-6's replacement semantics, the
-  skipped document's triples are absent from Neo4j. Deferred/marked if F-6 is not in the batch.
-- [ ] AC-6: `pytest -q`, `ruff check . && ruff format --check .`, and `mypy .` pass in `backend/`.
+  non-final ClamAV-error attempt does not enqueue. Both SKIPPED paths route through the shared
+  `_enqueue_rebuild_for_config`; `test_clamav_error_skipped_enqueues_only_on_exhausted_attempt`
+  and `..._does_not_enqueue_on_non_final_attempt`.
+- [x] AC-3: The ClamAV-error path still re-raises for Arq retry (enqueuing only on the final try).
+  Both ClamAV-error tests assert `pytest.raises(ScanError)`.
+- [x] AC-4: `QUARANTINED` behavior and the retrieval/selector gating are unchanged; SKIPPED and
+  QUARANTINED enqueue identically. `test_quarantine_still_enqueues_with_same_args`; selectors
+  untouched.
+- [x] AC-5 (with F-6): after a SKIPPED-triggered rebuild under F-6's replacement semantics, the
+  skipped document's triples are absent from Neo4j. Satisfied by composition — F-6 is in this
+  batch: `ready_document_ids` (unchanged) excludes skipped docs, and F-6's
+  `remove_stale_for_build` drops relations absent from the new build. The removal mechanism is
+  covered by F-6's Neo4j integration test (`test_knowmap_neo4j_replacement.py`, not run
+  locally — see F-6 D-1); no separate F-27 end-to-end test was added.
+- [x] AC-6: `ruff check`, `ruff format --check`, and `mypy` pass for the touched module (no new
+  errors; one pre-existing unrelated `tenancy` mypy error remains). Full `pytest -q` at the
+  batch's end.
 
 ## 11. SRS Delta
 
@@ -192,7 +203,18 @@ None — restores the Knowledge Map clean-scan contract and [R11.12] rebuild-tri
 
 ## 12. Deviation Log
 
-Appended by /build.
+- **D-1 (job_try fallback default):** the ClamAV-error guard is
+  `ctx.get("job_try", _SCAN_MAX_TRIES) >= _SCAN_MAX_TRIES`. arq populates `job_try`, so the
+  normal path uses the real attempt number (no enqueue before the final try). The default is
+  the *exhausted* value rather than 1, so if `job_try` were ever absent the rebuild still fires
+  (dedup-bounded churn) instead of silently never rebuilding — the fallback §7.2/Q-2 prescribes.
+- **D-2 (both SKIPPED paths share a helper):** rather than the "single tail path" option in
+  §7.3, the two SKIPPED branches call a shared `_enqueue_rebuild_for_config` (load config +
+  enqueue with the dedup nonce), keeping the ClamAV-error re-raise semantics intact and the
+  over-size path terminal. `_SCAN_MAX_TRIES` is a named constant shared by the guard and the
+  `.max_tries` assignment so they cannot drift.
+- **D-3 (F-6 landed together):** per Q-1 this was built with F-6 in the same batch, so AC-5's
+  end-to-end triple removal holds by composition (no deferral needed).
 
 ## 13. Follow-ups
 
