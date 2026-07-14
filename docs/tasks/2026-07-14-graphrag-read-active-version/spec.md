@@ -19,11 +19,13 @@ state** — so an Agent turn that lands between Phase 1 and Phase 2, or during
 is the union of many builds' surviving rows (additive `MERGE` for Knowledge Maps, delta
 re-embed for Concept Maps), the per-row `build_id` is "last build that touched this row," not
 a version — so a single active-version filter cannot cheaply serve the last good graph. The
-fix instead **gates reads on build state**: while a config is in a transient/uncommitted
-state (`running`, `neo4j_committed`, `failed_compensating`) retrieval skips its graph block
-for that turn; in steady `idle`/terminal states it reads normally. This never serves
-half-committed or later-reverted knowledge, at the cost of a degraded graph block only during
-the (short) build window.
+fix instead **gates reads on build state** at a single chokepoint: while a config is in a
+transient/uncommitted state (`running`, `neo4j_committed`, `failed_compensating`),
+`GraphRagRetrieveService.query` returns an empty bundle so the caller skips that graph block
+for the turn; in steady `idle`/terminal states it reads normally. Because both Concept Map
+and Knowledge Map retrieval funnel through that one service, the single gate covers both
+products. This never serves half-committed or later-reverted knowledge, at the cost of a
+degraded graph block only during the (short) build window.
 
 ## 2. Observed vs Expected
 
@@ -35,9 +37,12 @@ the (short) build window.
   `_load` (`backend/contexts/knowledge/application/graphrag_retrieve.py:83-87,98`) and
   proceeds directly to vector search and Neo4j `traverse` with **no build-state or
   active-version check** (`:98-133`); the code comment confirms it "deliberately do[es] NOT
-  filter by `build_id`" (`:108-116`). The Knowledge Map read path is the same shape:
-  `KnowmapContextProvider.query` (`backend/contexts/knowledge/application/knowmap_context_provider.py:139-183`)
-  retrieves relations without consulting the config's `last_build_state`.
+  filter by `build_id`" (`:108-116`). The Knowledge Map read path funnels through the *same*
+  service: `KnowmapContextProvider._retrieve_relations` constructs a
+  `GraphRagRetrieveService` (knowmap-prefixed vector store, `KnowmapConfigRepository`) and
+  calls `svc.query(...)` per query
+  (`backend/contexts/knowledge/application/knowmap_context_provider.py:252-266`), so it
+  inherits the same missing state check.
 - **Expected** — [R11.04] / §11.2a: each build is transactional across Neo4j and Qdrant with
   compensation so that "a failure does not leave inconsistent state." A read that surfaces
   edges committed in Phase 1 but not yet durable in Phase 2 — or edges from a build that
@@ -75,9 +80,10 @@ The causal chain:
    (`graphrag_builder.py:337-347`); Neo4j is the live read graph, mutated in place by `MERGE`,
    so between phases and during compensation it holds uncommitted-from-the-2PC's-perspective
    data.
-2. Retrieval performs no build-state check before reading
-   (`graphrag_retrieve.py:98-133`; knowmap twin `knowmap_context_provider.py:139-183`).
-   **This is the root cause** — the earliest link whose correction (skip the graph block while
+2. Retrieval performs no build-state check before reading — `GraphRagRetrieveService.query`
+   (`graphrag_retrieve.py:98-133`), the single service both products call (Knowledge Map via
+   `knowmap_context_provider.py:252-266`). **This is the root cause** — the earliest link
+   whose correction (skip the graph block while
    the config is in an in-flight build state) prevents reads from observing partial or
    later-reverted state, for both products.
 3. The additive/delta storage model (per-row `build_id` ≠ version) is a structural constraint,
@@ -91,11 +97,14 @@ The causal chain:
   knowledge to Agents during any build window; frequency rises with build cadence and
   Phase-2/compensation latency.
 - **Sibling suspects:**
-  - **Knowledge Map read path (`knowmap_context_provider.py:139-183`) — confirmed, same fix.**
-    It is the knowmap twin of Concept Map retrieval and equally unguarded; the state-gate must
-    be applied here too. Unlike `graphrag_retrieve.query`, this method does not currently load
-    the config row — the fix must add a lightweight `last_build_state` lookup (via the knowmap
-    config repository) right after the existing guard at `:154`.
+  - **Knowledge Map read path — covered by the same chokepoint, no separate edit.**
+    `KnowmapContextProvider._retrieve_relations` funnels through the same
+    `GraphRagRetrieveService.query` (`knowmap_context_provider.py:252-266`) with a
+    knowmap-prefixed vector store and `KnowmapConfigRepository` as its `configs` port, so the
+    single gate in `query` (§7.2) gates it automatically. Verified: `KnowmapConfigRepository`
+    satisfies `GraphRagConfigRepositoryPort` (`knowmap_repositories.py:84`) and its `get`
+    returns a config exposing `last_build_state` (`:49-50,127`). No config-provider edit is
+    needed.
   - **F-7 interaction — composes, cross-linked.** The gate treats `failed` as safe on the
     premise that a rollback truly restored the graph; F-7's fix makes `failed` mean a
     *successful* rollback (a false rollback stays `failed_compensating`, which the gate already
@@ -118,20 +127,37 @@ The causal chain:
    states in which the graph is mid-2PC and must not be read. Optionally refactor the
    reconciler's `_STUCK_STATES` (`graphrag_reconciler.py:61-65`) to reference it, noting the
    two are semantically distinct today but coincide (a divergence must be a deliberate edit).
-2. **Gate Concept Map retrieval.** In `graphrag_retrieve.py:query`, right after `_load`
-   (`:98`), if `cfg.last_build_state in IN_FLIGHT_BUILD_STATES` return an empty
-   `GraphRagBundle` (no entities/relations/excerpts) so the caller simply omits the graph block
-   for that turn. Do not raise — an in-flight build is a normal condition, not an error.
-3. **Gate Knowledge Map retrieval.** In `knowmap_context_provider.py:query`, after the guard
-   at `:154`, fetch the config's `last_build_state` (lightweight repo read) and return `None`
-   (its documented "no context" sentinel, `:147-152`) when it is in `IN_FLIGHT_BUILD_STATES`.
-   This matches the method's safe-to-call-unconditionally contract.
-4. **Update the misleading comment.** The retrieval docstring/comment claiming traversal is
-   "tagged with the config's current active build" (`graphrag_retrieve.py:6-8`) is currently
-   false; either make it accurate to the state-gate or remove it.
+2. **Gate both products at the single retrieval chokepoint.** In
+   `GraphRagRetrieveService.query`, right after `_load` (`graphrag_retrieve.py:98`), if
+   `cfg.last_build_state in IN_FLIGHT_BUILD_STATES` return an empty
+   `GraphRagBundle(entities=(), relations=(), evidence_excerpts=())` — the service's declared
+   return type (`:97`). Do not raise — an in-flight build is a normal condition, not an error.
+   One gate covers **both** products because both retrieval paths construct a
+   `GraphRagRetrieveService` and call `query`:
+   - Concept Map — `GraphRagContextProvider._graphrag_query`
+     (`graphrag_context_provider.py:279-298`, `configs=GraphRagConfigRepository`).
+   - Knowledge Map — `KnowmapContextProvider._retrieve_relations`
+     (`knowmap_context_provider.py:252-266`, `configs=KnowmapConfigRepository`,
+     `prefix="knowmap"`).
+   Both config repos satisfy `ConfigLike`, which declares `last_build_state`
+   (`graphrag_ports.py:211`; knowmap row mapping `knowmap_repositories.py:49-50`), so the gate
+   compiles and runs for both.
+3. **Empty-bundle propagation (no further change).** An empty bundle omits the block end to
+   end: Concept Map — `_merge_bundles` yields empty entities/relations and `query`/
+   `query_layers` drop it via `not (bundle.entities or bundle.relations)`
+   (`graphrag_context_provider.py:95-96,154-158`), and the turn engine only appends truthy
+   blocks (`turn_engine.py:945-950`); Knowledge Map — `_retrieve_relations` extends nothing
+   (`knowmap_context_provider.py:263-266`), so `kept` is empty and `query` returns `None`
+   (`:167-169`). **Per-config granularity is preserved:** in a multi-layer Concept Map turn,
+   only the in-flight layer's `query` returns empty while idle layers still contribute
+   (`query_layers` loops per config, `graphrag_context_provider.py:139-156`).
+4. **Update the misleading comment.** The retrieval docstring claiming traversal is "tagged
+   with the config's current active build" (`graphrag_retrieve.py:6-8`) is currently false;
+   make it accurate to the state-gate or remove it.
 
 No schema change, no build-path change. The builder's state transitions
-(`graphrag_builder.py`) already provide the signal; the fix only makes reads honor it.
+(`graphrag_builder.py`) already provide the signal; the fix only makes the shared read
+service honor it.
 
 **Data repair:** none. This is a read-path guard; no persisted data is wrong. Turns that
 already read partial state are historical and cannot be repaired.
@@ -140,16 +166,19 @@ already read partial state are historical and cannot be repaired.
 
 Unit tests:
 
-1. **Concept Map read gated in transient states** (primary red-first test,
+1. **Service gated in transient states** (primary red-first test,
    `backend/tests/unit/test_graphrag_retrieve.py`): with a config stub whose
    `last_build_state` is `neo4j_committed` (and again `running`, `failed_compensating`), assert
-   `query` returns an empty bundle and does **not** call `search_entities`/`traverse`. Fails
-   today — retrieval ignores build state and traverses (`graphrag_retrieve.py:98-133`).
-2. **Concept Map read allowed in committed states** (guard): with `idle` (and `qdrant_committed`,
+   `GraphRagRetrieveService.query` returns an empty bundle and does **not** call
+   `search_entities`/`traverse`. Fails today — retrieval ignores build state and traverses
+   (`graphrag_retrieve.py:98-133`).
+2. **Service allowed in committed states** (guard): with `idle` (and `qdrant_committed`,
    `failed`), assert normal retrieval proceeds and returns results.
-3. **Knowledge Map read gated** (`test_knowmap_context_provider.py` or equivalent): with the
-   config in `neo4j_committed`, assert `KnowmapContextProvider.query` returns `None` without
-   retrieving relations; with `idle`, assert it retrieves normally.
+3. **Knowledge Map coverage via the shared gate** (`test_knowmap_context_provider.py` or
+   equivalent): with the knowmap config in `neo4j_committed`, assert
+   `KnowledgeMapContextProvider.query` returns `None` without seeding Qdrant/Neo4j — proving
+   the single service gate flows through the knowmap provider; with `idle`, assert it retrieves
+   normally.
 
 ## 9. Risks and Rollback
 
@@ -169,11 +198,12 @@ Unit tests:
 
 - [ ] AC-1: The transient-state gate regression test (§8.1) fails before the fix and passes
   after.
-- [ ] AC-2: Concept Map retrieval returns an empty graph block (no Neo4j/Qdrant reads) when the
-  config is `running`, `neo4j_committed`, or `failed_compensating`, and reads normally in
-  `idle`/`qdrant_committed`/`failed`.
-- [ ] AC-3: Knowledge Map retrieval (`KnowmapContextProvider.query`) returns `None` in the same
-  in-flight states and retrieves normally otherwise (§8.3).
+- [ ] AC-2: `GraphRagRetrieveService.query` returns an empty bundle (no Neo4j/Qdrant reads)
+  when the config is `running`, `neo4j_committed`, or `failed_compensating`, and reads normally
+  in `idle`/`qdrant_committed`/`failed` — covering Concept Maps and Knowledge Maps through the
+  one chokepoint.
+- [ ] AC-3: Knowledge Map retrieval (`KnowledgeMapContextProvider.query`) returns `None` in the
+  same in-flight states via the shared service gate and retrieves normally otherwise (§8.3).
 - [ ] AC-4: `IN_FLIGHT_BUILD_STATES` is defined once in the domain layer and used by the read
   gate (and, if refactored, referenced by the reconciler's `_STUCK_STATES`).
 - [ ] AC-5: `pytest -q`, `ruff check . && ruff format --check .`, and `mypy .` pass in
