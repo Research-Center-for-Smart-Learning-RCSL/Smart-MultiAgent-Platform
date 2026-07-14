@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: in-progress
+status: implemented
 created: 2026-07-14
 requirements: [R7.04, R10.05, R10.08]
 ---
@@ -257,6 +257,11 @@ the one touched wiring test (`test_usage_event_written_per_provider_call`) was u
 carry the key into a real project, mirroring `_seed_agent_and_room`. `ruff check` /
 `ruff format --check` clean on the diff. `mypy` reports zero errors in the 16 changed
 files; ~20 pre-existing baseline errors in untouched files (see FU-3) do not block.
+`/check-security`: zero blocking findings (§10 AC-6). `/check-quality`: clean on layer
+boundaries / runtime safety / structure; two Introduced-Warnings fixed —
+(a) `KeysFacade.is_key_in_project_scope` now delegates to `KeyProjectRepository.is_carried`
+(removing the duplicated join), (b) `call_single_key` docstring corrected re
+`call_single_key_stream` (FU-4).
 
 ## 13. Follow-ups
 
