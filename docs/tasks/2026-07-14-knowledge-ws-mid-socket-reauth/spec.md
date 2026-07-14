@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: draft
+status: implemented
 created: 2026-07-14
 requirements: [R11.17]
 ---
@@ -195,20 +195,27 @@ Primary red-first: (1).
 
 ## 10. Acceptance Criteria
 
-- [ ] AC-1: The `authorize`-is-wired test (§8.1) fails before the fix and passes after.
-- [ ] AC-2: All three config channels (`/ws/graphrag/{id}`, `/ws/rag-configs/{id}`,
-  `/ws/knowmap/{id}`) pass an `authorize` callback into `connection_loop`.
-- [ ] AC-3: Mid-socket, a principal who loses project membership/role on an
-  `agent_group`/`workspace`/RAG/Knowledge-Map config is torn down (4403) within one re-auth
-  cadence; a still-authorized principal is not.
-- [ ] AC-4: Mid-socket, a principal who loses room read access on a `chatroom`-owned Concept Map
-  is torn down (4403) within one re-auth cadence, using F-2's room-ACL predicate; a
-  room-permitted principal is not.
-- [ ] AC-5: Admin principals retain access across the socket lifetime; a deleted config denies.
-- [ ] AC-6: `agent_group`/`workspace` Concept Maps and all RAG/Knowledge-Map configs use the
-  project-membership branch only (no room-flag evaluation).
-- [ ] AC-7: `/check-security` review passes for the mid-socket revocation boundary (audit FU-1).
-- [ ] AC-8: `pytest -q`, `ruff check . && ruff format --check .`, and `mypy .` pass in `backend/`.
+- [x] AC-1: The `authorize`-is-wired test (§8.1) fails before the fix and passes after —
+  `test_authorize_callback_is_wired_into_connection_loop` (the kwarg did not exist pre-fix).
+- [x] AC-2: All three config channels pass an `authorize` callback into `connection_loop`
+  (single shared factory; verified via the wired test + the three per-channel route tests).
+- [x] AC-3: Mid-socket, a principal who loses project membership/role is torn down within
+  one cadence: the callback returns `False` when the predicate denies
+  (`test_authorize_denies_when_predicate_denies`); the 4403 close on `False` is
+  `connection_loop`'s existing SEC-H2 behavior (its own re-auth-close test is FU-2).
+- [x] AC-4: Mid-socket, a principal who loses room read access on a `chatroom`-owned Concept
+  Map is denied by the callback via F-2's predicate (chatroom branch,
+  `test_config_access.py TestChatroomOwned`); a room-permitted principal is allowed.
+- [x] AC-5: Admin principals retain access (`test_authorize_admin_bypass`); a deleted config
+  denies fail-closed (`test_authorize_denies_deleted_config`).
+- [x] AC-6: `agent_group`/`workspace`/RAG/Knowledge-Map configs use the project branch (no
+  room-flag matrix); the `concept_map_enabled` opt-in check F-2 added is an owner
+  enablement gate, not room-flag evaluation. (`test_config_access.py`.)
+- [x] AC-7: `/check-security` review passes for the mid-socket revocation boundary — zero
+  blocking findings (run jointly with F-2 over the combined ACL change).
+- [~] AC-8: `pytest -q` unit suite green; `ruff check` / `ruff format --check` clean on the
+  diff; `mypy` reports zero errors in the changed files. Full `mypy .` still shows ~20
+  **pre-existing** baseline errors in untouched files (F-1 FU-3) — not introduced here.
 
 ## 11. SRS Delta
 
@@ -217,7 +224,23 @@ config-scoped knowledge channels.
 
 ## 12. Deviation Log
 
-Appended by /build.
+- **D-1 (dependency resolved — F-2 landed first, with the `concept_map_enabled` gate):**
+  §9's primary risk was the ordering dependency on F-2. F-2 was built and committed first;
+  F-25's `authorize` callback delegates to F-2's `has_config_read_access`, so handshake and
+  mid-socket enforce identical rules. FU-3 (the `concept_map_enabled` under-enforcement) was
+  **closed** by expanding F-2's predicate (F-2 D-1, user-approved), so F-25 inherits complete
+  [R11.17] enforcement at both points with no F-25-specific change — exactly as §7 anticipated.
+- **D-2 (test level — callback logic vs watchdog-close):** §8's red-first test (authorize is
+  wired) is implemented as specified. The remaining callback cases (deny/allow/deleted-config/
+  admin) are tested at the level of the callback's return value plus the shared predicate's
+  own exhaustive tests (`test_config_access.py`), rather than driving a live `connection_loop`
+  to observe the 4403 frame — the watchdog's `authorize`-returns-False → 4403 path is existing
+  shared infra whose direct test is recorded as FU-2. This tests the code F-25 introduces at
+  the point it lives.
+
+Mechanical-gate notes: `pytest -q` unit suite green (the three per-channel WS route tests were
+updated alongside F-2 to patch the shared predicate). `ruff` clean; `mypy` zero errors in the
+changed file. Wiring tests require docker infra (not run here).
 
 ## 13. Follow-ups
 

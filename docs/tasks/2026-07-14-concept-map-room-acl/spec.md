@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: in-progress
+status: implemented
 created: 2026-07-14
 requirements: [R11.17]
 ---
@@ -190,8 +190,10 @@ Failing-first tests (fail against current code, pass after):
 - [x] AC-5: Admin principals retain full read/subscribe access regardless of room flags
   (predicate admin bypass + handshake admin short-circuit; `test_config_access.py`
   `TestAdminBypass`).
-- [ ] AC-6: `/check-security` review passes for the private-room ACL / cross-tenant read
-  boundary (audit FU-1). Run jointly with F-25 over the combined ACL change.
+- [x] AC-6: `/check-security` review passes for the private-room ACL / cross-tenant read
+  boundary (audit FU-1) — run jointly with F-25 over the combined ACL change; zero blocking
+  findings (handshake-time leak closed; FU-2 coverage-endpoint leak documented for a separate
+  spec).
 
 ## 11. SRS Delta
 
