@@ -122,14 +122,24 @@ hard edit failure, not the root cause.
 Perform the Agent unbind explicitly inside each config soft-delete, and backfill existing
 dangling rows.
 
-**A. Cross-context unbind (SoC-correct direction).** Add an unbind method to the agents
-facade — e.g. `AgentsFacade.clear_config_bindings(project_id, *, rag_config_id=None,
-knowmap_config_id=None) -> list[uuid.UUID]` in
+**A. Cross-context unbind + dependent tool reconciliation (SoC-correct direction).** Add an
+unbind method to the agents facade — e.g. `AgentsFacade.clear_config_bindings(project_id, *,
+rag_config_id=None, knowmap_config_id=None) -> list[uuid.UUID]` in
 `backend/contexts/agents/interfaces/facade.py` — that nulls the matching column for every
 Agent in the project bound to that config and returns the affected Agent IDs. This mirrors
 the existing knowledge/keys → agents read direction
 (`AgentsFacade.count_agents_for_key_groups`, `facade.py:94`); the knowledge context must
 not reach into agents tables directly.
+
+Crucially, nulling `rag_config_id` must **reconcile the dependent File Search tool**. The
+agents context enforces the invariant *file_search enabled ⇒ `rag_config_id` present*:
+the tool singleton is provisioned enabled from `agent.rag_config_id is not None`
+(`agent_service.py:344-346`), and enabling `HOSTED_FILE_SEARCH` with no RAG config raises
+`FileSearchNeedsKnowledge` (`agent_service.py:685-692`). So `clear_config_bindings`, when it
+nulls `rag_config_id`, must also disable that Agent's `HOSTED_FILE_SEARCH` singleton in the
+same unit of work — otherwise the fix trades a dangling FK for a worse state: an enabled
+File Search tool with no backing config. `knowmap_config_id` has no dependent tool (there is
+no Knowledge Map tool, per F-15), so it needs no reconciliation.
 
 **B. Wire it into both delete services, same transaction.** Inject an `AgentsFacade(db)`
 into `RagConfigService` and `KnowmapConfigService` (same construction pattern as the
@@ -155,7 +165,10 @@ This is a data-only `UPDATE`; `downgrade` is a no-op (nulled bindings cannot be
 reconstructed and the pre-fix state was invalid). Forward-compatible per the backend
 migration rule. Note the migration `UPDATE` also fires `trg_agents_bump_version`, bumping
 `version` for each repaired Agent — expected and harmless (an old client refetches on the
-next `If-Match` mismatch).
+next `If-Match` mismatch). The migration must apply the **same File Search reconciliation**
+as §7A: for every Agent whose `rag_config_id` it nulls, disable that Agent's
+`HOSTED_FILE_SEARCH` tool so pre-existing rows don't retain the invalid enabled-without-RAG
+state.
 
 Why this corrects the root, not the symptom: the unbind removes the dangling reference at
 its source, so retrieval, the detail form's field value, and the full-form PATCH all become
@@ -171,8 +184,11 @@ Failing tests first, modeled on the sibling
   - RAG: attach an Agent to a config, soft-delete the config, assert
     `agents.rag_config_id` is `NULL` and the affected Agent id appears in the audit
     metadata. Fails today because `RagConfigService.soft_delete` never touches the column.
-  - Knowledge Map: same assertion against `agents.knowmap_config_id` and
-    `KnowmapConfigService.soft_delete`.
+  - RAG + File Search: an Agent with `rag_config_id` set and its `HOSTED_FILE_SEARCH`
+    singleton enabled; after the config soft-delete, assert `rag_config_id` is `NULL` **and**
+    the File Search tool is disabled (invariant `agent_service.py:685-692` preserved).
+  - Knowledge Map: same unbind assertion against `agents.knowmap_config_id` and
+    `KnowmapConfigService.soft_delete` (no tool reconciliation expected).
   - Isolation: an Agent in a *different* project bound to a *different* config is untouched.
 - Migration test (unit, against the repair logic): given an Agent row referencing an
   already-soft-deleted config, the `0052` upgrade nulls the binding; an Agent referencing a
@@ -204,11 +220,15 @@ Failing tests first, modeled on the sibling
       `knowmap.config_deleted` audit metadata.
 - [ ] AC-5: the unbind touches only Agents in the config's project (no cross-tenant
       effect), verified by the isolation test.
-- [ ] AC-6: migration `0052` nulls existing dangling `rag_config_id` / `knowmap_config_id`
-      bindings that reference soft-deleted configs, and leaves live-config bindings intact.
-- [ ] AC-7: after the fix, an unrelated PATCH to an Agent whose config was deleted succeeds
+- [ ] AC-6: unbinding `rag_config_id` disables the Agent's `HOSTED_FILE_SEARCH` tool, so
+      the invariant *file_search enabled ⇒ `rag_config_id` present* holds after deletion;
+      `knowmap_config_id` unbind performs no tool change.
+- [ ] AC-7: migration `0052` nulls existing dangling `rag_config_id` / `knowmap_config_id`
+      bindings that reference soft-deleted configs (and disables the dependent File Search
+      tool for the `rag_config_id` rows it nulls), and leaves live-config bindings intact.
+- [ ] AC-8: after the fix, an unrelated PATCH to an Agent whose config was deleted succeeds
       (no `RagConfigOutOfProject` / `KnowmapConfigOutOfProject`).
-- [ ] AC-8: `pytest -q`, `ruff check .`, `ruff format --check .`, `mypy .`, and
+- [ ] AC-9: `pytest -q`, `ruff check .`, `ruff format --check .`, `mypy .`, and
       `alembic upgrade head` (then `downgrade -1`) succeed in `backend/`.
 
 ## 11. SRS Delta

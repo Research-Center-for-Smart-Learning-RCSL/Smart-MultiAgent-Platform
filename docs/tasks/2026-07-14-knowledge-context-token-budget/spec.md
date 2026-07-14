@@ -155,7 +155,11 @@ request) rather than masking either symptom.
 `context.py`, beside `should_compact`/`default_cap_from_limit`,
 `backend/contexts/agents/application/context.py:88-108`) that returns the token budget
 available for knowledge, given a **request ceiling**, the response reserve, and the
-estimated token cost of base system + tools + history. The ceiling differs by mode:
+estimated token cost of the *fixed* turn context — that is **all non-knowledge
+`system_parts`** (base prompt plus the observer, compact-summary, staged-file, notify, and
+participant-label blocks appended around `turn_engine.py:928-1031`), the tools, and the
+history. Counting only `base_system` would let those other system blocks silently consume
+the knowledge budget and reintroduce overflow. The ceiling differs by mode:
 `context_token_cap` (or its `default_cap_from_limit(provider_limit)` 75% default) in
 `compact` mode; the provider hard limit (`context_limit`, `turn_engine.py:902`) in
 `general` mode — so R11.19's knowledge bound holds in both modes without imposing R9.10's
@@ -171,7 +175,8 @@ only the `compact`-mode branch of `_assemble_history` (`turn_engine.py:1466-1474
 (`:1463-1465`) are untouched. If, after compaction, base + tools + history + reserve
 already meets or exceeds the ceiling, the knowledge budget is zero and the
 higher-precedence blocks are dropped first (see C). Add a final re-estimate of `system_text`
-+ `messages` + tools + reserve immediately before dispatch (`turn_engine.py:1603-1622`); if
++ `messages` + tools + reserve immediately before the initial dispatch (round 1 of the tool loop;
+mid-loop growth is FU-4) (`turn_engine.py:1603-1622`); if
 it still exceeds the provider hard limit, run one additional compaction pass in `compact`
 mode, or (in `general` mode) let the provider's own context-limit error surface to the UI
 per [R9.09] — rather than silently dispatching a guaranteed-overflow request.
@@ -243,9 +248,9 @@ Tests are written first and must fail against current code.
       request (base + knowledge + tools + history + response reserve), not from stored
       history alone. The forced `/compact` half-shed (`turn_engine.py:1463-1465`) is
       unchanged.
-- [ ] AC-6: a final pre-dispatch estimate guards the provider hard limit; a pathological
-      large-prefix compact-mode Agent runs an additional compaction pass rather than
-      dispatching a guaranteed-overflow request.
+- [ ] AC-6: a re-estimate before the initial dispatch guards the provider hard limit; a
+      pathological large-prefix compact-mode Agent runs an additional compaction pass rather
+      than dispatching a guaranteed-overflow request. (Mid-tool-loop growth is FU-4.)
 - [ ] AC-7: `context_mode=general` keeps unbounded history and still surfaces provider
       context-limit errors to the UI ([R9.09] — no history compaction added), but the
       knowledge allocator (AC-3/AC-4) still bounds its three knowledge blocks per [R11.19].
@@ -273,3 +278,10 @@ Appended by /build.
 - FU-3: File RAG `top_k` up to 100 (`rag.py:78,83`) remains a large default fetch even
   with budgeting; revisit whether the API ceiling should drop once aggregate budgeting
   lands.
+- FU-4: this fix budgets the **initial** assembled request (round 1). `_stream_with_tools`
+  then loops up to `MAX_TOOL_ROUNDS`, appending each round's assistant tool-use turn and
+  tool results to `messages` and re-dispatching with the same `system_text`
+  (`turn_engine.py:1600-1648`), so a turn that fit at round 1 can still exceed the provider
+  limit once large tool outputs accumulate. Mid-loop tool-result growth is a distinct
+  overflow vector (out of scope for R9.10/R11.19 as filed); a per-round guard or
+  tool-result trimming should be scoped separately.
