@@ -25,6 +25,7 @@ from contexts.knowledge.application.graphrag_reconciler import (
     GraphConsumer,
     ReconciliationLoop,
 )
+from contexts.knowledge.domain.graphrag import deterministic_point_id
 from contexts.knowledge.infrastructure.channels import graphrag_channel
 from contexts.knowledge.infrastructure.graphrag_repositories import (
     GraphRagConfigRepository,
@@ -47,7 +48,6 @@ def _make_phase2_retry(
     vector_store: GraphRagVectorStore,
 ) -> Any:
     """Return a Phase2Retry that re-embeds Phase-1 entities and upserts Qdrant."""
-    import uuid as _uuid
 
     async def _retry(*, cfg: Any, build_id: Any) -> None:
         from contexts.keys.infrastructure.adapters import build_router
@@ -110,7 +110,8 @@ def _make_phase2_retry(
             config_id=cfg.id,
             build_id=build_id,
             points=[
-                (_uuid.uuid4(), vec, entity, desc) for (entity, desc), vec in zip(pairs, vectors, strict=True)
+                (deterministic_point_id(cfg.id, build_id, entity), vec, entity, desc)
+                for (entity, desc), vec in zip(pairs, vectors, strict=True)
             ],
         )
 

@@ -48,6 +48,22 @@ def recency_weighted_score(
     return conf * math.exp(-math.log(2) * age_seconds / (half_life_days * _SECONDS_PER_DAY))
 
 
+# Qdrant keys a point solely on its id, so a Phase-2 retry that re-mints a random
+# id inserts a *new* point for an entity instead of overwriting the original —
+# duplicates on an ambiguous network failure (F-9). Deriving the id from
+# (config_id, build_id, entity) makes the upsert idempotent on point_id (§11.2a
+# step 3): a retry — or a partially-committed original upsert — reproduces the
+# same id and overwrites in place. build_id is part of the key so a *new* build's
+# points never overwrite the prior build's still-live points before Phase-2
+# succeeds; collapsing cross-build copies stays the supersede sweep's job.
+_POINT_NAMESPACE = uuid.uuid5(uuid.NAMESPACE_URL, "smap:graphrag:entity-point")
+
+
+def deterministic_point_id(config_id: uuid.UUID, build_id: uuid.UUID, entity: str) -> uuid.UUID:
+    """Stable Qdrant point id for one entity within one build (F-9)."""
+    return uuid.uuid5(_POINT_NAMESPACE, f"{config_id}:{build_id}:{entity}")
+
+
 class BuildState(str, enum.Enum):
     IDLE = "idle"
     RUNNING = "running"
@@ -326,6 +342,7 @@ __all__ = [
     "GraphRagConfigDraft",
     "RelationEdge",
     "Triple",
+    "deterministic_point_id",
     "edge_rank",
     "normalize_evidence_refs",
     "recency_weighted_score",
