@@ -132,6 +132,14 @@ reusing F-2's predicate so handshake and mid-socket enforce identical access rul
 - Do not weaken the `agent_group`/`workspace`/RAG/Knowledge-Map project path — only add the
   chatroom room-ACL branch, delegating entirely to F-2's helper (no re-implemented room-flag
   logic; SoC — the room ACL lives in the conversation context and is consumed via its port).
+- **[R11.17] agent_group/workspace gate is broader than project membership.** The requirement
+  gates those owner kinds by "project membership **plus** their `concept_map_enabled` opt-in." The
+  current handshake (`ws_config_route.py:64-71`) and F-2's predicate check only project roles, so
+  both handshake and mid-socket under-enforce `concept_map_enabled`. F-25 delegates to F-2's
+  predicate, so whatever F-2 enforces is what re-runs here — meaning F-2's predicate must
+  incorporate the `concept_map_enabled` gate for the enforcement to be complete at both points
+  (see FU-3, raised against F-2). F-25 introduces no weaker check than the handshake; it must not
+  introduce a stronger one either, or a socket would survive a handshake it should re-deny.
 - The residual window shrinks from the token TTL to one re-auth cadence (~60s); document it as
   the intended bound, not a full close.
 
@@ -218,3 +226,10 @@ Appended by /build.
 - **FU-2 (test infra):** the `connection_loop` SEC-H2 `authorize` re-auth path
   (`connection.py:378-389`) has no direct unit test today (`test_ws_auth_watchdog.py` covers
   only token expiry/denylist). Worth a dedicated re-auth close test independent of this fix.
+- **FU-3 (F-2 predicate completeness — [R11.17] `concept_map_enabled`):** [R11.17] gates
+  agent_group/workspace Concept Maps by "project membership plus their `concept_map_enabled`
+  opt-in", but the current handshake and (per its spec) F-2's predicate check only project roles —
+  so `concept_map_enabled` is unenforced for reads/subscriptions at both the handshake and (via
+  this fix) mid-socket. Raise against F-2 (`2026-07-14-concept-map-room-acl`): its owner-aware
+  predicate should incorporate the `concept_map_enabled` gate so both enforcement points are
+  complete. F-25 inherits whatever F-2 enforces and needs no separate change once F-2 is corrected.

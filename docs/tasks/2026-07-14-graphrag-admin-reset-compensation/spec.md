@@ -40,9 +40,14 @@ falsely claiming health.
 - **Expected** — a forced reset leaves the config's external stores consistent with the `IDLE`
   state it advertises: any in-flight build is discarded (Neo4j rolled back to the pre-build
   snapshot, snapshot deleted, current pointer cleared, lock released), so the config is genuinely
-  idle and rebuildable — and if compensation cannot complete, the config is not falsely marked
-  healthy. Intent: [R11.04] (transactional consistency). R11a.02 documents only the state reset,
-  not the un-cleared external state.
+  idle and rebuildable. When compensation cannot complete, a default reset refuses rather than
+  advertise a false-healthy config; an explicit `force=true` still forces IDLE (the R11a.02
+  escape hatch) but records the true, incomplete outcome instead of a silent success. Intent:
+  [R11.04] (transactional consistency across Neo4j+Qdrant; §11.2a's Redis snapshot at
+  `graphrag:build:{config_id}:{build_id}` and Neo4j rollback), [R11a.01] (single build per config,
+  lock `graphrag:lock:{config_id}`, 10-min TTL), [R11a.02] (admin may force `idle` "in case
+  reconciliation is stuck", always audit-logged — which documents only the state reset, not the
+  un-cleared external state).
 
 ## 3. Clarifications
 
@@ -50,8 +55,9 @@ falsely claiming health.
 |---|---|---|---|
 | Q-1 | How should the compensation run? | **Inline synchronous cleanup** — `admin_reset` runs the discard sequence before forcing IDLE. | Chosen over enqueuing a reconciler pass. An admin resetting a wedged config expects an immediate, fully-consistent result; an async pass leaves the config briefly non-IDLE and eventually-consistent, and (per this finding) `IDLE` is not a swept state, so a naive "set a swept state and wait" would still need extra wiring. Inline reuses the same store operations the reconciler already performs and returns a truthful terminal state in one call. Trade-off: short-lived external-store clients in the reset request path (bounded, admin-only, infrequent) — the exact pattern `cascade_external_stores` already uses on config delete. |
 | Q-2 | Roll the in-flight build **forward** (retry Qdrant) or **discard** it (roll Neo4j back)? | **Discard** — roll Neo4j back to the snapshot and drop the build. | `admin_reset` is a *force reset*, not a heal; the safe, predictable outcome is to abandon the wedged build and return to the last consistent state, mirroring the reconciler's `_rollback` terminal path (`graphrag_reconciler.py:350-397`) rather than its Qdrant-retry recovery path (`_reconcile_one`). |
-| Q-3 | What if compensation's external calls fail (store unreachable)? | Do **not** force IDLE-as-healthy; keep the recovery material and leave the config swept-eligible. | Forcing IDLE (and deleting the snapshot) on failed compensation is exactly F-7's "failure recorded as success, made unrecoverable" defect. On failure `admin_reset` must leave the snapshot/pointer intact and the config in a reconciler-visible state, and report failure so the admin retries. Cross-refs F-7 (§6). |
-| Q-4 | How is the lock released, given the token-checked release? | Add an unconditional admin **force-release** to the lock store (`DEL graphrag:lock:{config_id}`). | `RedisBuildLockStore.release` is token-checked and only the acquiring worker instance holds the token (`backend/contexts/knowledge/infrastructure/redis_lock.py:85-89`); the reset process cannot release it that way. A stale lock otherwise blocks rebuilds for up to `LOCK_TTL_S` (10 min). A privileged force-release is appropriate for an explicit admin reset. |
+| Q-3 | What if compensation's external calls fail (store unreachable — the "reconciliation is stuck" case R11a.02 names)? | Add an explicit **`force`** param. Default (`force=false`): attempt compensation, and on failure return 5xx without forcing IDLE (keep the recovery material, stay reconciler-visible). `force=true`: force IDLE regardless, auditing `outcome=compensation_failed` and setting a non-null `last_build_error` so the incomplete state is honest, not silently healthy. | Reconciles R11a.02 (a reliable escape hatch "in case reconciliation is stuck") with R11.04 (never advertise inconsistent state as healthy). The default protects consistency; `force=true` preserves the admin escape hatch for the stores-down case, but — unlike F-7's silent false-success — records the true outcome and flags the residue. The same flag governs lock contention (Q-5). |
+| Q-4 | How is the lock released, given the token-checked release? | Add an unconditional admin **force-release** to the lock store (`DEL graphrag:lock:{config_id}`), used only as the `force=true` fallback (Q-5). | `RedisBuildLockStore.release` is token-checked and only the acquiring worker instance holds the token (`backend/contexts/knowledge/infrastructure/redis_lock.py:85-89`); the reset process cannot release another instance's lock that way. A stale lock otherwise blocks rebuilds for up to `LOCK_TTL_S` (10 min). A privileged force-release is appropriate only for an explicit `force=true` reset. |
+| Q-5 | How does `admin_reset` serialize against a live builder/reconciler on the same config ([R11a.01]: one build per config at a time)? | **Acquire the build lock first.** If acquired (or the prior lock has expired), proceed and release normally. If held: `force=false` → return 409 (build/heal in progress, retry); `force=true` → force-release, re-acquire under this process's token, proceed. | Blindly force-releasing then compensating could race a concurrent reconciler heal (`run_once` takes the same lock, `graphrag_reconciler.py:154-156`) on the same Neo4j subgraph/snapshot. Acquiring `graphrag:lock:{config_id}` serializes `admin_reset` against both the builder (`graphrag_builder.py:183`) and the once-per-minute reconciler, honoring R11a.01; the `force` override is the deliberate, admin-accepted exception. |
 
 ## 4. Reproduction
 
@@ -102,45 +108,65 @@ reconciler's `_rollback` performs (`get`/`delete_by_build`/`restore_from_snapsho
 
 ## 7. Fix Design
 
-`admin_reset` performs the discard sequence directly against the infrastructure store ports, in
-an order that honors Q-3, then forces `IDLE`. The reconciler is not modified.
+`admin_reset` gains a `force` flag, acquires the build lock to serialize against the
+builder/reconciler, performs the discard sequence directly against the infrastructure store
+ports, and forces `IDLE`. The `force` flag governs both lock contention and compensation failure.
+The reconciler is not modified.
 
-**7.1 Construct the ports (short-lived, closed in `finally`).** Mirror the per-call construction
-`cascade_external_stores` already uses (`graphrag_config_service.py:459-490`): a `Neo4jAsyncDriver`
-from `get_settings()` (closed in `finally`), plus the Redis stores — note **both Redis stores are
+**7.1 Signature, endpoint, and ports.** Add `force: bool = False` to `admin_reset`, threaded from
+the endpoint (`backend/app/api/v1/graphrag.py:608-626`) as a new request param (query or body;
+default `false`) — an OpenAPI change, so `pnpm run gen:api` afterwards. Construct short-lived
+ports mirroring `cascade_external_stores` (`graphrag_config_service.py:459-490`): a
+`Neo4jAsyncDriver` from `get_settings()` (closed in `finally`), plus the Redis stores — **both are
 zero-arg** and build their own client: `RedisSnapshotStore()` and `RedisBuildLockStore()`
-(`backend/app/workers/graphrag_reconciler.py:148,150`;
-`backend/contexts/knowledge/infrastructure/redis_lock.py`). No new long-lived wiring is needed;
-inject them for testability (defaulting to the real constructors) so the unit tests can pass fakes.
+(`backend/app/workers/graphrag_reconciler.py:148,150`). No long-lived wiring is needed. Make the
+stores injectable (optional attrs/params defaulting to the real constructors) so tests can override
+them via the existing attribute-patch pattern (`test_graphrag_reset.py:86` already does
+`service._configs = repo`).
 
-**7.2 Discard sequence.**
+**7.2 Serialize via the build lock (Q-5, [R11a.01]).** Acquire `graphrag:lock:{config_id}` before
+any compensation:
+- Acquired (or the prior lock already expired) → proceed; release **normally** at the end (this
+  process now holds the token, so no force-release is needed on the happy path).
+- Held → `force=false`: return **409** (build/heal in progress; retry). `force=true`:
+  `force_release` (§7.5) then re-acquire under this process's token, and proceed — the deliberate,
+  admin-accepted override.
+
+This prevents racing a concurrent reconciler heal (`run_once` takes the same lock,
+`graphrag_reconciler.py:154-156`) on the same Neo4j subgraph/snapshot.
+
+**7.3 Discard sequence.**
 - Resolve `build_id` via `snapshot_store.get_current(config_id)` (mirror `_resolve_build_id`,
   `graphrag_reconciler.py:405-424`).
 - If a `build_id` and a snapshot exist (`snapshots.get`): `neo4j.delete_by_build(config_id,
   build_id)` then `neo4j.restore_from_snapshot(config_id, snapshot)` (mirror `_rollback:361-370`).
-  If either raises, **stop** — do not delete the snapshot, clear the pointer, or set IDLE (Q-3,
-  §7.3). If a `build_id` is known but no snapshot exists, best-effort `delete_by_build` only
-  (no restore material — matches the reconciler's degraded no-snapshot handling).
-- **Only after** the Neo4j rollback succeeds (or there was nothing to discard):
-  `snapshots.delete(config_id, build_id)`, `snapshots.clear_current(config_id)`,
-  `locks.force_release(config_id)`, then `set_state(IDLE, error=None)`.
-- Audit `admin.graphrag_reset` with `previous_state`, the resolved `build_id`, and a compensation
+  If a `build_id` is known but no snapshot exists, best-effort `delete_by_build` only (no restore
+  material — matches the reconciler's degraded no-snapshot handling).
+- **Only after** the Neo4j rollback succeeds: `snapshots.delete(config_id, build_id)`,
+  `snapshots.clear_current(config_id)`, then `set_state(IDLE, error=None)`; release the lock.
+  Audit `admin.graphrag_reset` with `previous_state`, resolved `build_id`, `forced`, and
   `outcome` (`discarded` / `noop`).
-- **No in-flight build** (no `build_id`/snapshot): defensively `force_release` the lock and
-  `clear_current`, then IDLE — idempotent and safe to call repeatedly.
+- **No in-flight build** (no `build_id`/snapshot): clear any stale pointer, set IDLE, release the
+  lock — idempotent and safe to call repeatedly.
 
-**7.3 Truthful failure (Q-3).** On any external compensation failure, `admin_reset` does **not**
-set IDLE and does **not** delete the snapshot/pointer; it leaves the config in its current
-`_STUCK_STATES` state (reconciler-visible, so the periodic sweep can still heal it) and raises so
-the endpoint returns 5xx, auditing `outcome=compensation_failed`. This is the opposite of
-`_rollback`'s current swallow, and it does not touch the reconciler (F-7 remains separate).
+**7.4 Failure handling by mode (Q-3).** If the Neo4j rollback raises:
+- `force=false` → **stop**: do not delete the snapshot/pointer and do not set IDLE; leave the
+  config in its current `_STUCK_STATES` state (reconciler-visible, so the sweep can still heal it),
+  release the lock, and raise so the endpoint returns 5xx, auditing `outcome=compensation_failed`.
+  This is the opposite of `_rollback`'s current swallow, and it does not touch the reconciler
+  (F-7 remains separate).
+- `force=true` → force IDLE anyway (the R11a.02 escape hatch): set `IDLE` but with a non-null
+  `last_build_error` (e.g. `"admin reset: compensation incomplete"`) and audit
+  `outcome=compensation_failed`, `forced=true`. Unlike F-7, the residue is recorded and visibly
+  flagged, never a silent false-healthy. Recorded FU-5: such a config is IDLE and thus
+  reconciler-invisible, so the residue needs a manual re-run — surfaced by the non-null error.
 
-**7.4 Add lock force-release.** Add `force_release(config_id)` to the `BuildLockStore` port and
+**7.5 Add lock force-release.** Add `force_release(config_id)` to the `BuildLockStore` port and
 `RedisBuildLockStore` — an unconditional `DEL graphrag:lock:{config_id}`
-(`redis_lock.py:44-45,85-89`) — used only by `admin_reset`. Safe here because the reset is an
-explicit force operation; keep it out of the normal build path.
+(`redis_lock.py:44-45,85-89`) — used **only** on the `force=true` contention path (§7.2). Keep it
+off the normal build path.
 
-**7.5 DRY note.** The discard sequence mirrors `ReconciliationLoop._rollback` minus its
+**7.6 DRY note.** The discard sequence mirrors `ReconciliationLoop._rollback` minus its
 FAILED-terminal `set_state` and channel publish. F-26 deliberately implements it via the shared
 **infrastructure ports** rather than extracting the loop's private methods, to avoid coupling the
 admin service to the worker and to leave reconciler behavior (and its tests) untouched. A future
@@ -167,27 +193,36 @@ IDLE and one audit row is written, with fakes that have no lock/snapshot/Neo4j i
 Inject fake snapshot/lock/Neo4j stores into the service:
 
 1. **Reset of a `FAILED_COMPENSATING` config discards it (red-first)** — fakes hold an in-flight
-   build; `admin_reset` calls `delete_by_build` + `restore_from_snapshot`, then deletes the
-   snapshot, clears the current pointer, force-releases the lock, and sets IDLE. Fails today
-   (none are called).
-2. **Idempotent reset of a clean config** — no snapshot/pointer: no compensation errors, still
-   force-releases a stale lock defensively and clears any stale pointer, sets IDLE.
-3. **Compensation failure keeps recovery material and is not advertised healthy** — Neo4j
+   build with the lock free; `admin_reset` (default `force=false`) acquires the lock, calls
+   `delete_by_build` + `restore_from_snapshot`, deletes the snapshot, clears the current pointer,
+   sets IDLE, and releases the lock. Fails today (none are called).
+2. **Idempotent reset of a clean config** — no snapshot/pointer: no compensation errors, clears
+   any stale pointer, sets IDLE, releases the lock.
+3. **`force=false` compensation failure refuses and keeps recovery material** — Neo4j
    `restore_from_snapshot` raises; `admin_reset` does **not** set IDLE, does **not** delete the
-   snapshot or clear the pointer, leaves the config in a `_STUCK_STATES` state, and raises
-   (cross-ref F-7).
-4. **Audit metadata** — the audit record carries `previous_state`, resolved `build_id`, and a
-   compensation `outcome`.
+   snapshot or clear the pointer, leaves the config in a `_STUCK_STATES` state, releases the lock,
+   and raises (cross-ref F-7).
+4. **`force=true` compensation failure forces IDLE with honest flag** — same raise, but with
+   `force=true`: state becomes IDLE, `last_build_error` is non-null, audit `outcome=compensation_failed`
+   and `forced=true`. Not a silent success.
+5. **Lock contention** — a held lock makes `force=false` return/raise a 409-equivalent (no state
+   change); `force=true` force-releases, re-acquires, and proceeds.
+6. **Audit metadata** — the record carries `previous_state`, resolved `build_id`, `forced`, and
+   `outcome`.
 
 Primary red-first: (1).
 
 ## 9. Risks and Rollback
 
 - **External-store calls in the request path.** Bounded (admin-only, rare); a slow/unreachable
-  store surfaces as a 5xx per Q-3 rather than a false success. Clients are short-lived and closed
-  in `finally`, matching `cascade_external_stores`.
-- **Force-release safety.** `force_release` deletes another instance's lock unconditionally; safe
-  only because it runs inside the explicit force-reset. Keep it off the normal build path.
+  store surfaces as a 5xx (`force=false`) rather than a false success. Clients are short-lived and
+  closed in `finally`, matching `cascade_external_stores`.
+- **Force-release safety.** `force_release` deletes another instance's lock unconditionally; it
+  runs only on the `force=true` contention path, where the admin has explicitly accepted
+  interrupting a possibly-live build. Keep it off the normal build path and out of `force=false`.
+- **`force=true` interrupting a genuinely live build.** If an admin forces a reset while a real
+  build holds the lock, the force-release + discard can tear down an in-progress build. This is the
+  documented, admin-accepted meaning of `force`; the default `force=false` returns 409 instead.
 - **F-7 coupling.** F-26 must not modify `_rollback` and must not depend on F-7 landing first;
   its own sequencing already keeps recovery material on failure. Re-verify the failure semantics
   if F-7 later extracts a shared primitive.
@@ -200,23 +235,43 @@ Primary red-first: (1).
 ## 10. Acceptance Criteria
 
 - [ ] AC-1: The compensating-reset test (§8.1) fails before the fix and passes after.
-- [ ] AC-2: `admin_reset` on a config with an in-flight build discards it — Neo4j rolled back to
-  snapshot, snapshot deleted, current pointer cleared, build lock force-released — before setting
-  IDLE.
-- [ ] AC-3: `admin_reset` is idempotent on a clean/idle config and still force-releases any stale
-  lock and clears any stale pointer.
-- [ ] AC-4: When compensation cannot complete, `admin_reset` does not set IDLE, preserves the
-  snapshot/pointer, leaves the config reconciler-visible, and reports failure (no false "healthy").
-- [ ] AC-5: The audit record includes `previous_state`, resolved `build_id`, and compensation
-  `outcome`.
-- [ ] AC-6: The reconciler (`graphrag_reconciler.py`) is not modified; its existing tests in
+- [ ] AC-2: `admin_reset` acquires `graphrag:lock:{config_id}` before compensating and, on a
+  config with an in-flight build, discards it — Neo4j rolled back to snapshot, snapshot deleted,
+  current pointer cleared — before setting IDLE and releasing the lock.
+- [ ] AC-3: `admin_reset` is idempotent on a clean/idle config (clears any stale pointer, sets
+  IDLE, releases the lock).
+- [ ] AC-4: With `force=false`, a held lock returns 409 (no state change) and a compensation
+  failure returns 5xx without forcing IDLE or destroying recovery material (config stays
+  reconciler-visible) — no false "healthy".
+- [ ] AC-5: With `force=true`, a held lock is force-released and re-acquired, and a compensation
+  failure still forces IDLE but sets a non-null `last_build_error` and audits
+  `outcome=compensation_failed`, `forced=true` (honest, not silent).
+- [ ] AC-6: The audit record includes `previous_state`, resolved `build_id`, `forced`, and
+  compensation `outcome`.
+- [ ] AC-7: The reconciler (`graphrag_reconciler.py`) is not modified; its existing tests in
   `test_graphrag_builder.py` remain green.
-- [ ] AC-7: `pytest -q`, `ruff check . && ruff format --check .`, and `mypy .` pass in `backend/`.
+- [ ] AC-8: `pytest -q`, `ruff check . && ruff format --check .`, and `mypy .` pass in `backend/`;
+  `pnpm run gen:api` regenerates the client for the new `force` param.
 
 ## 11. SRS Delta
 
-None — restores [R11.04] transactional consistency for the admin-reset path; R11a.02's
-state-reset description is unchanged, only completed.
+The fix restores [R11.04], but [R11a.02] as written describes only the state flip and omits the
+compensation, lock serialization, and the `force` escape hatch this fix defines. Since analysis
+showed [R11a.02] is incomplete rather than wrong, propose amending it (apply on approval):
+
+> **[R11a.02]** Admin can reset a stuck config via `POST /api/admin/graphrag/{id}/reset`. The
+> reset first acquires the build lock (`graphrag:lock:{config_id}`, R11a.01), then compensates the
+> two-phase state before forcing `idle`: it discards any in-flight build — rolling Neo4j back to
+> the pre-build snapshot, deleting the snapshot, and clearing the current-build pointer — and then
+> sets `last_build_state = 'idle'`. A default reset (`force=false`) returns 409 if a build or heal
+> is in progress and 5xx (no state change, recovery material preserved) if compensation fails, so
+> it never advertises inconsistent state as healthy (R11.04). An explicit `force=true` overrides
+> lock contention and, when compensation cannot complete, still forces `idle` but records the
+> incomplete outcome (non-null `last_build_error`, audit `outcome=compensation_failed`). Every
+> reset is audit-logged.
+
+If you prefer to keep the SRS terse and treat this purely as a bugfix, the alternative is an empty
+delta; flag which you want at approval.
 
 ## 12. Deviation Log
 
@@ -234,3 +289,7 @@ Appended by /build.
 - **FU-4 (facade hop / future knowmap reset):** the endpoint instantiates
   `GraphRagConfigService(db)` directly (`graphrag.py:619`) rather than via `KnowledgeFacade`; if a
   Knowledge Map admin-reset is ever added, it must perform the same discard sequence.
+- **FU-5 (force-true residue):** a `force=true` reset whose compensation failed leaves an IDLE
+  config with a non-null `last_build_error`; because IDLE is reconciler-invisible, the residual
+  Neo4j/snapshot state needs a manual re-run. The flagged error surfaces it, but a follow-up could
+  make such flagged-IDLE configs sweep-eligible.
