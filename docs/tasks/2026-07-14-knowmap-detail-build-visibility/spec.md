@@ -60,7 +60,7 @@ poll/reconnect-resync backstops engage once it is in progress.
 
 | ID | Question | Decision | Rationale |
 |---|---|---|---|
-| Q-1 | Subscribe continuously on mount, or only in the upload/delete success handlers? | **Subscribe continuously on mount** (de-gate the config watch). | The always-open channel receives the `idle → running` transition from *any* auto-build path (upload, delete, or a build triggered elsewhere), and the engine's reconnect-resync + poll then back it up. Subscribe-on-mutation is narrower and racy: `last_build_state` may not have flipped to `running` at `onSuccess`, and it misses builds not started from this page. |
+| Q-1 | Subscribe continuously on mount, or only in the upload/delete success handlers? | **Both** — de-gate the mount subscribe **and** re-subscribe in the mutation handlers. | Second-angle verification (see §7.1) found these are not alternatives: the engine tears down a config's channel on **every** terminal state (`idle` is terminal, `useBuildStateSocket.ts:74-84`), so the mount subscription self-destructs after the first build completes and the mount `watch(config)` does not re-fire (the config ref is structurally shared/unchanged). The mount subscribe makes build #1 visible; a `watchBuild` re-call in each upload/delete `onSuccess` re-opens the channel for every subsequent auto-build. `watch()` is idempotent (early-returns if already watched, `:109`), so doing both is safe. |
 | Q-2 | Fix the identical gating in the sibling `GraphragConfigListView`? | **Yes**, in scope, with a cost note. | `GraphragConfigListView.vue:134-142` has the identical in-progress-gated `watchBuild` pattern and the same defect class. A list opens one channel per subscribed row, so continuous subscription there has a per-row channel cost (§9); the fix must be bounded to rendered rows and is noted as a risk. |
 
 ## 4. Reproduction
@@ -89,7 +89,21 @@ mount-time subscribe is gated on `GRAPHRAG_IN_PROGRESS.has(cfg.last_build_state)
 build that begins after load is unobservable. The earliest correcting link is de-gating the
 subscribe so the channel is open before any auto-build starts; once open, the live `build.state`
 `running` frame drives `liveState`, which engages the poll and terminal-invalidation that already
-exist (`:116-120`).
+exist (`:116-120`). The backend does emit this frame: the build worker publishes `build.state=running`
+at build start to `ws:knowmap:{config_id}` — the exact channel the client subscribes to
+(`backend/contexts/knowledge/application/graphrag_builder.py:216-223`;
+`backend/contexts/knowledge/interfaces/channels.py:16-17`; WS route
+`backend/app/api/ws/knowmap.py:16-19`) — so a client whose channel is open before the worker starts
+receives it.
+
+**A second cause compounds it for repeat builds.** The engine unwatches (tears down) a config's
+channel on **every** terminal state (`applyState` defers `unwatch` when the state is not in-progress,
+`useBuildStateSocket.ts:74-84`; a successful build ends at terminal `idle`,
+`graphrag_builder.py:476-483`). So even a de-gated mount subscription covers only the **first**
+build; after it completes the channel is gone, and the mount `watch(config)` does not re-fire
+(TanStack structural sharing keeps the config ref identical across an `idle→idle` refetch). Without
+an explicit re-subscribe, the second auto-build reproduces the original bug. The fix therefore needs
+both a mount subscribe and a per-mutation re-subscribe (§7).
 
 ## 6. Blast Radius and Sibling Suspects
 
@@ -134,22 +148,32 @@ call `watchBuild(configId, effectiveState.value)` (a **defined** initial state �
 lifetime. `useBuildStateSocket.watch()` early-returns if already watched (`:109`) and unwatches on
 unmount (`:131-135`), so this is idempotent and self-cleaning. Passing a defined `initialState`
 (not `undefined`) matters: the seed guard (`:105-108`) and the poll (`:44-46`) both need a defined
-value for the backstop to engage once the state becomes in-progress.
+value for the backstop to engage once the state becomes in-progress. This mount subscribe covers
+the **first** build after load; because the engine tears the channel down on each terminal state
+(§5, `useBuildStateSocket.ts:74-84`), repeat builds need §7.2.
 
-**7.2 Nudge the config row on mutation success (backstop for a missed live frame).** In the
-upload (`:309-310`) and delete (`:321-324`) success handlers, additionally invalidate
-`agentKeys.knowmapConfig(configId)` alongside the documents query, so `config.last_build_state`
-refetches. Because `effectiveState` falls back to `config.last_build_state` when `liveState` is
-unset (`:103`), this makes the badge reflect a backend state flip even in the rare case the live
-`running` frame is missed before any reconnect. The continuously-open channel (§7.1) remains the
-primary delivery path.
+**7.2 Re-subscribe on mutation success (covers every subsequent auto-build).** In the upload
+(`:309-310`) and delete (`:321-324`) success handlers, call `watchBuild(configId,
+effectiveState.value)` in addition to invalidating the documents query. This is the load-bearing
+part for repeat builds: after the first build's terminal `idle` frame tore the channel down (§5),
+`watchBuild` re-opens it so the worker's next `build.state=running` frame is delivered to a live
+subscriber. `watch()` is idempotent — it early-returns if still watched and re-subscribes if the
+channel was torn down (`:109`) — so it composes safely with the §7.1 mount subscribe. The seed value
+passed is unimportant (the worker has usually not flipped `last_build_state` to `running` at
+`onSuccess`, so a config refetch here would still read `idle` — the reliable path is the re-opened
+live channel, not a refetch). Also invalidate `agentKeys.knowmapConfig(configId)` as a cheap
+secondary so a later refetch converges once the worker has flipped the row.
 
 **7.3 Apply the same de-gate to `GraphragConfigListView` (bounded).** De-gate the per-row
 `watchBuild` (`GraphragConfigListView.vue:134-142`) so each rendered row subscribes regardless of
 its initial state, passing the row's `last_build_state` as the defined `initialState`. Bound the
 subscription to rows actually rendered (do not pre-subscribe an unbounded/paginated set); the
 existing unwatch-on-unmount and the engine's single shared poll interval keep the cost bounded
-(§9).
+(§9). The same terminal-teardown limitation (§5) applies per row: after a row's build ends the row's
+channel is torn down. Re-subscribe when the config-list query refetches with a changed row (the list
+already re-runs its `watch(configs)` on list refetch, which — unlike the detail view's single-config
+ref — does deliver changed row objects); the list's own per-row rebuild button already re-subscribes
+optimistically (`GraphragConfigListView.vue:156-159`).
 
 No backend, API, schema, or data changes. `agentsApi.getKnowmapConfig` (returns
 `last_build_state`) and the `agentKeys` query keys already exist
@@ -167,18 +191,22 @@ tests in `frontend/src/slices/agents/__tests__/` to match `useKnowmapSocket.test
    load (today it is not — the guard at `:109` is false). Then deliver a live `build.state`
    `running` frame and assert `effectiveState`/the badge becomes `running`. Fails today: no
    subscription exists, so the frame is never received.
-2. **Upload success subscribes + invalidates config.** Simulate an upload success; assert the
-   config query is invalidated (`agentKeys.knowmapConfig`) in addition to documents, and that a
-   subscription is active so a subsequent `running` frame is reflected.
+2. **Upload success re-subscribes.** Simulate an upload success; assert `watchBuild(configId, …)`
+   is invoked (the channel is re-opened) and the config query is invalidated, so a subsequent live
+   `running` frame is reflected.
 3. **Delete success mirrors upload.** Same assertion for the document-delete success path.
-4. **Backstop poll engages after subscribe.** With the config subscribed and driven to
-   `running`, assert the engine poll (`useBuildStateSocket`) re-syncs and transitions to the
-   terminal `qdrant_committed` when the config's `last_build_state` completes, then unwatches.
-5. **Sibling list de-gate.** In `GraphragConfigListView.test.ts` (extend the existing test),
+4. **Second consecutive build after a terminal state (regression for the §5 teardown gap).** Drive
+   the config through a full first build to terminal `idle` (channel torn down by the engine), then
+   simulate a second upload success and deliver a `running` frame; assert the badge shows `running`
+   again. Fails a mount-subscribe-only fix — the torn-down channel has no subscriber for build #2.
+5. **Backstop poll engages after subscribe.** With the config subscribed and driven to `running`,
+   assert the engine poll re-syncs and transitions to a terminal state (e.g. `idle`) when the
+   config's `last_build_state` completes, then unwatches.
+6. **Sibling list de-gate.** In `GraphragConfigListView.test.ts` (extend the existing test),
    assert a rendered row with `last_build_state='idle'` subscribes on render (today it does not),
    and reflects a `running` frame.
 
-Primary red-first test: (1).
+Primary red-first test: (1); the teardown-gap regression is (4).
 
 ## 9. Risks and Rollback
 
@@ -189,11 +217,15 @@ Primary red-first test: (1).
   rendered row instead of only in-progress rows. Bounded to rendered rows and torn down on
   unmount; the engine shares a single poll interval. If a list can render many rows, an FU
   (§13) can restrict subscription to the viewport. Flagged as the main cost risk.
-- **Missed live `running` frame without reconnect.** If the sole `idle → running` frame is
-  dropped while the channel stays connected (no reconnect to trigger resync), the poll will not
-  engage (seed is `idle`). Mitigated by §7.2 (config invalidation on mutation success drives the
-  badge via the `effectiveState` fallback) and by the fact the channel is open before the build
-  starts, making live delivery the normal path; any reconnect resyncs authoritative state.
+- **Repeat builds after terminal teardown.** The engine unwatches a config's channel on each
+  terminal state (§5), so a mount-only subscribe would make only the first build visible. Mitigated
+  by §7.2's `watchBuild` re-call in every mutation `onSuccess`, which re-opens the channel before the
+  next worker publishes `running`. The §8.4 regression test guards this specifically.
+- **Missed live `running` frame without reconnect.** If the sole `idle → running` frame is dropped
+  while the channel stays connected (no reconnect to trigger resync), the poll will not engage (seed
+  is `idle`). Low-likelihood: the channel is re-opened right before each build (§7.2), making live
+  delivery the normal path, and any reconnect resyncs authoritative state; the §7.2 config
+  invalidation is a further backstop once the worker has flipped the row.
 - **Rollback** — revert the view (and list) call-site changes; frontend-only, no API/schema
   change.
 
@@ -203,14 +235,17 @@ Primary red-first test: (1).
 - [ ] AC-2: On config load, the detail view subscribes to build state unconditionally with a
   defined initial state (not gated on in-progress), so a build that starts after load is
   reflected in the badge without a manual reload.
-- [ ] AC-3: Upload and document-delete success handlers invalidate the config query in addition
-  to the documents query.
+- [ ] AC-3: Upload and document-delete success handlers re-call `watchBuild(configId, …)` to
+  re-open the channel (and invalidate the config query), so each subsequent auto-build re-subscribes.
 - [ ] AC-4: An automatic rebuild triggered by an upload or delete drives the badge from `idle`
   through `running` to the terminal state on the open detail page, with the backstop poll and
   terminal documents refetch (`:116-120`) engaging.
 - [ ] AC-5: `GraphragConfigListView` rows subscribe regardless of initial state, bounded to
-  rendered rows (§7.3), verified by test (§8.5).
+  rendered rows (§7.3), verified by test (§8.6).
 - [ ] AC-6: `pnpm test`, `pnpm lint`, `pnpm typecheck`, and `pnpm build` pass in `frontend/`.
+- [ ] AC-7: A **second** consecutive auto-build (after a first build reached terminal state and the
+  engine tore the channel down) is reflected live on the open detail page without reload — the §8.4
+  regression fails a mount-subscribe-only fix and passes with the §7.2 re-subscribe.
 
 ## 11. SRS Delta
 

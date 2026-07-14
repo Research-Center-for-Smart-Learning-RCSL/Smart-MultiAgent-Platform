@@ -120,8 +120,13 @@ The causal chain:
     (`ingest_service.py:462`, `knowmap_ingest_service.py:273`). If a prior scan failed/erred and
     its result is retained, the rescan on a genuine retry is suppressed too, so the same attempt
     discriminator must be applied to the scan job ID for the retry to actually re-scan (§7).
-  - **Multipart ingest path — cleared.** Indexes synchronously, enqueues no ingest job
-    (`ingest_service.py:226-236`); no job-ID dedup concern.
+  - **Multipart ingest path — cleared for ingest; scan shares the shape (FU-2).** Multipart indexes
+    synchronously and enqueues **no** ingest job (`ingest_service.py:145-167,226-236`;
+    `knowmap_ingest_service.py:105-117,157-168`), so the ingest defect is absent. But its reupload
+    **scan** enqueue reuses the same document-only `rag-scan:{doc}` / `knowmap-scan:{doc}`
+    (`ingest_service.py:462`, `knowmap_ingest_service.py:273`) — the same latent dedup this spec
+    fixes on the tus path. Multipart re-indexes synchronously regardless (only a rescan is at risk)
+    and owns no tus attempt counter, so it is tracked as FU-2 rather than fixed here.
   - **F-12 build-job dedup — distinct.** Build job IDs key on `(state, epoch)`
     (`knowmap_triggers.py`, `graphrag_triggers.py`); a separate concern with its own spec.
 
@@ -131,11 +136,30 @@ The causal chain:
    (`backend/contexts/knowledge/infrastructure/tables.py:51-91`) and `knowmap_documents`
    (`backend/contexts/knowledge/infrastructure/knowmap_tables.py:64-99`) via a new Alembic
    migration (next revision after current head; see §9 on ordering vs F-12).
-2. **Bump on re-enqueue.** In both finalizers' existing-row reuse branch
-   (`rag_tus_finalizer.py:89-105`; `knowmap_tus_finalizer.py:78-81`), increment the document's
-   `ingest_attempt` in the same transaction that reuses the row, before enqueuing. New documents
+2. **Add an atomic increment-and-return repo method (B2 plumbing).** Neither document repository
+   exposes a generic update/increment today (`RagDocumentRepository`,
+   `backend/contexts/knowledge/infrastructure/repositories.py:185-376`, has only
+   `create/set_agents/set_status/mark_scan/get/find_by_sha/delete`; `KnowmapDocumentRepository`,
+   `backend/contexts/knowledge/infrastructure/knowmap_repositories.py:252-434`, mirrors it), and the
+   frozen `RagDocument`/`KnowmapDocument` domain models + `_row_to_document` mappers do not carry the
+   column. Add a method like `bump_ingest_attempt(document_id) -> int` that runs
+   `UPDATE … SET ingest_attempt = ingest_attempt + 1 WHERE id = :id RETURNING ingest_attempt` and
+   returns the new value, so the finalizer gets the attempt for the suffix **without** adding a field
+   to the frozen model on the read path. The atomic `RETURNING` also resolves the concurrency race
+   in §9.
+3. **Bump only on a TERMINAL non-READY state — never while `INGESTING` (B4 concurrency guard).** The
+   reuse branch fires on *any* non-`READY` status, which includes `INGESTING`
+   (`rag_tus_finalizer.py:85-105`; `knowmap_tus_finalizer.py:76-81`). The original deterministic ID
+   deliberately deduped a "reupload while the first job is still running" so two workers never index
+   one document and collide on `uq_rag_chunk_doc_idx` (`tables.py:109`; knowmap
+   `uq_knowmap_chunk_doc_idx`) — `_index_document` does delete-then-insert chunk_idx 0..N
+   (`ingest_service.py:312,348`), so concurrent runs on one doc collide. Therefore bump
+   `ingest_attempt` and enqueue a fresh ID **only when the existing row is terminal-non-READY
+   (`FAILED`/`QUARANTINED`)**; when it is `INGESTING`, keep the current-attempt ID (or skip the
+   enqueue) so Arq's in-progress-key check still dedups the in-flight run. This preserves both the
+   genuine-retry fix (FAILED → fresh ID) and the concurrency guard (INGESTING → dedup). New documents
    keep `ingest_attempt=0`.
-3. **Include it in both job IDs the reupload branch enqueues.** Change the ingest ID to
+4. **Include it in both job IDs the reupload branch enqueues.** Change the ingest ID to
    `rag-ingest:{document_id}:{ingest_attempt}` / `knowmap-ingest:{document_id}:{ingest_attempt}`
    (`_enqueue_index`, `rag_tus_finalizer.py:149-172`; `knowmap_tus_finalizer.py:123-132`), passing
    `ingest_attempt` into `_enqueue_index` so it composes the suffix. Apply the **same** suffix to
@@ -169,14 +193,20 @@ Backend. Mirror the build-job dedup-ID pattern in `backend/tests/unit/test_knowm
 2. **New document starts at attempt 0.** A first-time finalize enqueues `...:0`.
 3. **Same-attempt concurrent finalize still dedups.** Two enqueues for the same
    `(document_id, ingest_attempt)` produce the same `_job_id` (the intended double-submit guard).
-4. **Arq dedup confirmation (plausibility gate).** A wiring/integration test (or a documented
+4. **Reupload while `INGESTING` does NOT bump (B4 concurrency guard, red-first for the guard).**
+   Finalize a reupload of an existing `INGESTING` document; assert `ingest_attempt` is **not**
+   incremented and the enqueued `_job_id` equals the in-flight attempt's ID (so Arq dedups the
+   second run). A `FAILED`/`QUARANTINED` reupload, by contrast, bumps and enqueues a fresh ID
+   (test 1). Guards against re-introducing the `uq_rag_chunk_doc_idx` collision the deterministic ID
+   prevented.
+5. **Arq dedup confirmation (plausibility gate).** A wiring/integration test (or a documented
    `/verify` step) against the deployed Arq `0.26.*` that enqueues a job with a fixed `_job_id`,
    lets it complete/retain, re-enqueues the same ID, and asserts the second `enqueue_job` returns
    `None` and schedules no run — confirming the suppression the fix removes. Placed with the RAG
    ingestion wiring tests (`backend/tests/wiring/test_rag_ingestion.py`), skipped in the
    host-only unit environment per the audit's environment note.
 
-Primary red-first test: (1).
+Primary red-first tests: (1) for the retry fix, (4) for the concurrency guard.
 
 ## 9. Risks and Rollback
 
@@ -184,10 +214,15 @@ Primary red-first test: (1).
   `ingest_attempt` to `rag_documents`/`knowmap_documents` — different tables, no logical conflict,
   but whichever builds second must rebase onto the new Alembic head (`alembic heads`). Flagged so
   the second build does not fork the revision graph.
-- **Attempt monotonicity under concurrency.** Two simultaneous reuploads of the same failed
-  document could race the `ingest_attempt` bump; both would still enqueue at least one fresh run,
-  which is acceptable (a retry is not lost). If exact-once matters, use an atomic
-  `UPDATE ... SET ingest_attempt = ingest_attempt + 1 RETURNING` rather than read-modify-write.
+- **Concurrent same-document indexing (the guard the fix must not remove).** A per-attempt ID would,
+  if bumped while a prior attempt is still `INGESTING`, let a second worker index the same document
+  and collide on `uq_rag_chunk_doc_idx`. Mitigated by §7 step 3: bump/fresh-ID **only** on a terminal
+  non-READY state; an `INGESTING` reupload keeps the in-flight ID and is deduped. The §8.4 test
+  guards this.
+- **Attempt monotonicity under concurrency.** Two simultaneous reuploads of the same failed document
+  could race the bump; the §7 step 2 method uses an atomic
+  `UPDATE … SET ingest_attempt = ingest_attempt + 1 … RETURNING` so each caller gets a distinct
+  value and neither run is lost.
 - **Job-ID length/format.** The suffixed ID stays well within Arq/Redis key limits; format change
   is backward-compatible (old retained `...:{doc}` IDs simply age out of the 3,600 s window).
 - **Rollback** — revert the finalizers and drop the column (down-migration). Old-format IDs resume;
@@ -198,12 +233,16 @@ Primary red-first test: (1).
 - [ ] AC-1: The distinct-retry-ID test (§8.1) fails before the fix and passes after, for both the
   RAG and Knowledge Map finalizers.
 - [ ] AC-2: `rag_documents` and `knowmap_documents` carry `ingest_attempt INTEGER NOT NULL
-  DEFAULT 0`; the ORM tables and migration match (no `sa.Text`/enum mismatch).
-- [ ] AC-3: A reupload of an existing non-`READY` document increments `ingest_attempt` and enqueues
-  both the ingest and scan jobs with IDs that include the new attempt, so a genuine retry always
-  schedules a fresh index and rescan.
-- [ ] AC-4: A first-time finalize enqueues attempt 0; a same-attempt concurrent finalize dedups.
-- [ ] AC-5: The Arq-dedup confirmation check (§8.4) documents/verifies that Arq `0.26.*` suppresses
+  DEFAULT 0` (ORM tables and migration match, no `sa.Text`/enum mismatch), and both document
+  repositories expose an atomic increment-and-return method (`bump_ingest_attempt`) — the frozen
+  domain models are not modified on the read path.
+- [ ] AC-3: A reupload of a terminal non-`READY` (`FAILED`/`QUARANTINED`) document increments
+  `ingest_attempt` and enqueues both the ingest and scan jobs with IDs that include the new attempt,
+  so a genuine retry always schedules a fresh index and rescan.
+- [ ] AC-4: A first-time finalize enqueues attempt 0; a same-attempt concurrent finalize dedups; and
+  a reupload of an `INGESTING` document does **not** bump — it keeps the in-flight ID so the run is
+  deduped (no second concurrent worker), while a `FAILED`/`QUARANTINED` reupload bumps to a fresh ID.
+- [ ] AC-5: The Arq-dedup confirmation check (§8.5) documents/verifies that Arq `0.26.*` suppresses
   a retained-`_job_id` re-enqueue on the deployed stack.
 - [ ] AC-6: `pytest -q`, `ruff check . && ruff format --check .`, `mypy .`, and `alembic upgrade
   head` pass in `backend/`.
@@ -223,6 +262,8 @@ Appended by /build.
   `shared_kernel/queue.py:enqueue` to return Arq's `enqueue_job` result (`Job | None`) so callers
   can detect and surface a suppressed duplicate. Not required once the attempt discriminator makes
   genuine retries always enqueue.
-- **FU-2 (scan-job attempt discriminator):** `rag-scan:{doc}` / `knowmap-scan:{doc}` share the
-  document-only ID shape; if a scan-retry surface ever emerges, apply the same discriminator. No
-  reported defect today.
+- **FU-2 (multipart reupload scan dedup):** the multipart (<=32 MB) reupload path re-enqueues
+  `rag-scan:{doc}` / `knowmap-scan:{doc}` with the same document-only ID (`ingest_service.py:462`,
+  `knowmap_ingest_service.py:273`), so a retained failed scan result can suppress a rescan there too.
+  Lower impact (multipart re-indexes synchronously; only the rescan is at risk) and it owns no tus
+  attempt counter, so it is deferred; a fix would give multipart its own scan-attempt discriminator.
