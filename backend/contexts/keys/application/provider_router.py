@@ -599,8 +599,10 @@ class ProviderRouter:
         that is soft-deleted or no longer carried (``key_projects.carried=false``)
         raises :class:`KeyProjectScopeError` *before* any billable provider call,
         so a withdrawn BYO key is never billed (R7.04). This is the authoritative
-        carried-scope gate — the sole pinned-key entry point — mirroring the
-        rotation path's ``list_ordered_carried`` guarantee.
+        carried-scope gate for the pinned embed/rerank path, mirroring the
+        rotation path's ``list_ordered_carried`` guarantee. (The prompt-assistant
+        streaming path :meth:`call_single_key_stream` resolves its key one level
+        up and is tracked separately — see the F-1 dossier FU-4.)
         """
         key = await self._keys_repo.get_active(key_id)
         if key is None:

@@ -26,7 +26,7 @@ from contexts.keys.domain.providers import (
     supports,
 )
 from contexts.keys.infrastructure import tables as _t
-from contexts.keys.infrastructure.carry_repository import KeyProjectUsage
+from contexts.keys.infrastructure.carry_repository import KeyProjectRepository, KeyProjectUsage
 from contexts.keys.infrastructure.group_repository import KeyGroupRepository
 from contexts.keys.infrastructure.repositories import ApiKeyRepository
 from shared_kernel.auth.clients import now
@@ -152,31 +152,11 @@ class KeysFacade:
         """True if *key_id* is actively carried into *project_id* and not deleted.
 
         Checks ``key_projects.carried = true`` and ``api_keys.deleted_at IS NULL``
-        so a withdrawn or soft-deleted key is never considered in-scope.
+        so a withdrawn or soft-deleted key is never considered in-scope. Delegates
+        to the single carried-scope predicate in ``KeyProjectRepository`` so the
+        facade port and the router chokepoint cannot drift.
         """
-        row = (
-            await self._db.execute(
-                sa.select(sa.literal(1))
-                .select_from(
-                    _t.key_projects.join(
-                        _t.api_keys,
-                        sa.and_(
-                            _t.api_keys.c.id == _t.key_projects.c.key_id,
-                            _t.api_keys.c.deleted_at.is_(None),
-                        ),
-                    )
-                )
-                .where(
-                    sa.and_(
-                        _t.key_projects.c.key_id == key_id,
-                        _t.key_projects.c.project_id == project_id,
-                        _t.key_projects.c.carried.is_(True),
-                    )
-                )
-                .limit(1)
-            )
-        ).first()
-        return row is not None
+        return await KeyProjectRepository(self._db).is_carried(key_id=key_id, project_id=project_id)
 
     async def has_carried_provider_in_group(
         self,
