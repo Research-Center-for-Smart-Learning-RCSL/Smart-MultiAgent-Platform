@@ -226,7 +226,11 @@ Postgres" — the code currently sweeps only the Neo4j-keyed store.
   record on any per-store purge failure and drain it in the sweep, so a failed store is
   retried promptly rather than waiting for the next full enumeration.
 - **FU-2 (bounded enumeration):** if per-sweep Qdrant scroll cost is significant on large
-  tenants, bound or sample it (e.g. enumerate only when the Neo4j and live-set counts
-  diverge, or on a slower cadence than the heal loop).
+  tenants, bound or sample it. Note the "enumerate only when Neo4j and live-set counts diverge"
+  heuristic is *unsafe* here — a Qdrant-only orphan (Neo4j already deleted) leaves those counts
+  equal yet must still be found — so the correctness-preserving option is a slower cadence than
+  the 60s heal loop (needs cross-tick state). A code-review pass (commit `025c5a2`) removed the
+  redundant per-collection `collection_exists` round-trip (constant-factor win); the algorithmic
+  full-scan-per-tick remains this follow-up.
 - **FU-3 (F-24 File-RAG leak):** File RAG blobs and per-project collections leak on tenancy
   deletion with no sweep at all — separate release-blocker finding (F-24), not covered here.
