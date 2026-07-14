@@ -133,10 +133,15 @@ not reach into agents tables directly.
 
 **B. Wire it into both delete services, same transaction.** Inject an `AgentsFacade(db)`
 into `RagConfigService` and `KnowmapConfigService` (same construction pattern as the
-existing `KeysFacade(db)`, `config_service.py:50`) and call `clear_config_bindings` within
-the soft-delete unit of work, so the unbind and the `deleted_at` write commit atomically.
-The unbind is project-scoped (the FK guarantees only same-project Agents reference the
-config), so it cannot touch another tenant's Agents.
+existing `KeysFacade(db)`, `config_service.py:50`; the facade takes just an `AsyncSession`,
+`backend/contexts/agents/interfaces/facade.py:71-75`) and call `clear_config_bindings`
+within the soft-delete unit of work, so the unbind and the `deleted_at` write commit
+atomically. The unbind is project-scoped (the FK guarantees only same-project Agents
+reference the config), so it cannot touch another tenant's Agents. The `UPDATE agents ...`
+fires the `BEFORE UPDATE` trigger `trg_agents_bump_version`
+(`backend/alembic/versions/0029_version_bump_triggers.py:46-51`), so each unbound Agent's
+`version` auto-increments — desirable: a stale open edit form now fails its next save with
+a clean `AgentVersionMismatch` (409) instead of a config-validation error.
 
 **C. Audit the affected Agents.** Include the returned Agent IDs in the existing
 `rag.config_deleted` / `knowmap.config_deleted` audit metadata
@@ -148,7 +153,9 @@ where it references a config whose `rag_configs.deleted_at IS NOT NULL`, and
 `agents.knowmap_config_id` where the referenced `knowmap_configs.deleted_at IS NOT NULL`.
 This is a data-only `UPDATE`; `downgrade` is a no-op (nulled bindings cannot be
 reconstructed and the pre-fix state was invalid). Forward-compatible per the backend
-migration rule.
+migration rule. Note the migration `UPDATE` also fires `trg_agents_bump_version`, bumping
+`version` for each repaired Agent — expected and harmless (an old client refetches on the
+next `If-Match` mismatch).
 
 Why this corrects the root, not the symptom: the unbind removes the dangling reference at
 its source, so retrieval, the detail form's field value, and the full-form PATCH all become
@@ -217,8 +224,10 @@ Appended by /build.
 
 - FU-1: even after the unbind, the Agent detail form uses a full-form PATCH that resubmits
   every field (`AgentDetailView.vue:418-433,509,551`). A config deleted while the edit form
-  is open still resubmits the stale id and fails validation (a narrow TOCTOU window, no
-  longer a persistent broken state). Harden the form to send `clear_rag_config` /
+  is open still resubmits the stale id; because the unbind bumps the Agent `version` (§7B),
+  that save now fails as a clean `AgentVersionMismatch` (409) prompting a refetch, rather
+  than the old `RagConfigOutOfProject` — so this is a narrow, benign TOCTOU window, not a
+  persistent broken state. Optionally harden the form to send `clear_rag_config` /
   `clear_knowmap_config` when the selected id is absent from the active-config options.
 - FU-2: `agents.key_group_id` has the same soft-delete-vs-`RESTRICT`-FK mismatch
   (`0011_agents.py:66-67` + soft-delete at `group_service.py:113-132`); the column is
