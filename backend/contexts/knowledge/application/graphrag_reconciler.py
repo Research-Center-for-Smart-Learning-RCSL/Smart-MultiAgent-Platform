@@ -58,6 +58,13 @@ LOCK_TTL_S = 10 * 60
 #   the per-config lock, so the lock acquire in run_once skips it; only a dead
 #   RUNNING (lock expired/released) is reclaimed, and it rolls straight back
 #   (Phase-1 never finished, so there is no Phase-2 to retry).
+#
+# This membership coincides with the domain's ``IN_FLIGHT_BUILD_STATES`` (the
+# states the read gate refuses to serve, F-10) — both are the in-flight/
+# uncommitted trio — but the two are semantically distinct (heal-selection here,
+# read-safety there) and kept as separate definitions; an ordered tuple matters
+# here for sweep priority. A divergence between them must be a deliberate edit to
+# each (folding them into one source is FU-2 on the F-10 dossier).
 _STUCK_STATES: tuple[BuildState, ...] = (
     BuildState.FAILED_COMPENSATING,
     BuildState.NEO4J_COMMITTED,

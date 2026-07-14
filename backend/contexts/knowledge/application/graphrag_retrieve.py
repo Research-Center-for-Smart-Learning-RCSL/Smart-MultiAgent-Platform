@@ -4,11 +4,16 @@ Pipeline:
   1. Embed the query text with the same BYO embedder the builder used.
   2. Vector-search the ``graphrag_{project_id}`` Qdrant collection →
      top-N candidate entities.
-  3. Traverse 1–2 hops from those entities in Neo4j tagged with the
-     config's current active build.
+  3. Traverse 1–2 hops from those entities in Neo4j.
   4. Bundle entities + relations + evidence excerpts into a
      :class:`GraphRagBundle` that the conversation context injects as a
      ``{"type":"graphrag"}`` system message, capped at 2 KB.
+
+Reads are gated on build state (F-10): while a config is mid-2PC
+(:data:`IN_FLIGHT_BUILD_STATES`) the query short-circuits to an empty bundle so
+a turn never observes half-committed or later-reverted graph state; steady
+idle/terminal states read normally. Both Concept Maps and Knowledge Maps funnel
+through :meth:`GraphRagRetrieveService.query`, so the one gate covers both.
 """
 
 from __future__ import annotations
@@ -25,6 +30,7 @@ from contexts.knowledge.application.graphrag_ports import (
 )
 from contexts.knowledge.domain.errors import GraphRagConfigNotFound
 from contexts.knowledge.domain.graphrag import (
+    IN_FLIGHT_BUILD_STATES,
     GraphRagBundle,
     RelationEdge,
     edge_rank,
@@ -96,6 +102,15 @@ class GraphRagRetrieveService:
         querying_agent_id: uuid.UUID | None = None,
     ) -> GraphRagBundle:
         cfg = await self._load(config_id)
+
+        # F-10: never read a graph mid-2PC. While the config is in an in-flight build
+        # state (Phase-1 committed but Phase-2 not durable, or compensation owed), the
+        # live Neo4j/Qdrant data may include edges from a build that later rolls back,
+        # so skip the graph block entirely for this turn rather than serve non-atomic
+        # state. An empty bundle propagates as "no graph block" through both products'
+        # context providers; steady idle/qdrant_committed/failed states read normally.
+        if cfg.last_build_state in IN_FLIGHT_BUILD_STATES:
+            return GraphRagBundle(entities=(), relations=(), evidence_excerpts=())
 
         embedder = await self._embedder_factory(cfg)
         vecs = await embedder.embed_batch([text])

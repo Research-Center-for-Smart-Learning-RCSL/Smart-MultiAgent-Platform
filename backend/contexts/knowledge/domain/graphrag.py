@@ -73,6 +73,24 @@ class BuildState(str, enum.Enum):
     FAILED = "failed"
 
 
+# The build states in which the graph is mid-2PC and therefore MUST NOT be read
+# (F-10): Phase-1 is committed to Neo4j but Phase-2 (Qdrant) is not yet durable,
+# or a Phase-2 failure is still owed compensation. A retrieval landing here could
+# surface edges from a build that later rolls back — exactly the non-atomic
+# intermediate state the 2PC exists to hide — so the read path returns an empty
+# bundle for these states and reads normally in steady idle/terminal states.
+# This coincides today with the reconciler's heal set (``_STUCK_STATES``) — both
+# are the in-flight/uncommitted trio — but is a distinct concept (read-safety,
+# not heal-selection); a future divergence must be a deliberate edit to each.
+IN_FLIGHT_BUILD_STATES: frozenset[BuildState] = frozenset(
+    {
+        BuildState.RUNNING,
+        BuildState.NEO4J_COMMITTED,
+        BuildState.FAILED_COMPENSATING,
+    }
+)
+
+
 @dataclass(frozen=True, slots=True)
 class GraphRagConfig:
     id: uuid.UUID
@@ -338,6 +356,7 @@ __all__ = [
     "BuildState",
     "EntityHit",
     "GraphRagBundle",
+    "IN_FLIGHT_BUILD_STATES",
     "GraphRagConfig",
     "GraphRagConfigDraft",
     "RelationEdge",
