@@ -65,6 +65,7 @@ class RedisGraphRagMessageCounter:
 async def evaluate_graphrag_message_triggers(
     db: AsyncSession,
     *,
+    chatroom_id: uuid.UUID,
     agent_ids: Sequence[uuid.UUID],
     counter: GraphRagMessageCounter | None = None,
 ) -> list[GraphRagBuildTrigger]:
@@ -72,7 +73,13 @@ async def evaluate_graphrag_message_triggers(
     if not unique_agent_ids:
         return []
 
-    configs = await GraphRagConfigRepository(db).list_for_agents(unique_agent_ids)
+    # F-3: resolve configs by room coverage (chatroom / enabled agent_group /
+    # enabled workspace), NOT the agent-delete cascade ``list_for_agents`` — that
+    # selector omitted chatroom/workspace owners and multi-member groups, so
+    # message-count builds never fired for them.
+    configs = await GraphRagConfigRepository(db).list_message_trigger_configs_for_room(
+        chatroom_id=chatroom_id, agent_ids=unique_agent_ids
+    )
     active_counter = counter or RedisGraphRagMessageCounter()
     fired: list[GraphRagBuildTrigger] = []
 

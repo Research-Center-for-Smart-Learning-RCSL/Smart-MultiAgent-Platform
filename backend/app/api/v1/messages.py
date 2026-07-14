@@ -310,7 +310,9 @@ async def _dispatch_graphrag_builds(
     if not bound_agent_ids:
         return
     try:
-        fired = await KnowledgeFacade(db).evaluate_graphrag_message_triggers(agent_ids=bound_agent_ids)
+        fired = await KnowledgeFacade(db).evaluate_graphrag_message_triggers(
+            chatroom_id=chatroom_id, agent_ids=bound_agent_ids
+        )
         for trigger in fired:
             # D5: dedup concurrent triggers for the same config+watermark onto
             # one queued build via a stable job id.

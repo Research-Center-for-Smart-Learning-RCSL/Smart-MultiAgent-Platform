@@ -1320,7 +1320,7 @@ class TurnEngine:
                 )
             if bound:
                 triggers = await KnowledgeFacade(self._db).evaluate_graphrag_message_triggers(
-                    agent_ids=[a.agent_id for a in bound]
+                    chatroom_id=chatroom_id, agent_ids=[a.agent_id for a in bound]
                 )
                 for trig in triggers:
                     # D5: dedup concurrent triggers for the same config+watermark
