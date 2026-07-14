@@ -304,26 +304,17 @@ class ReconciliationLoop:
     ) -> None:
         build_id = await self._resolve_build_id(cfg)
         if build_id is None:
-            # No snapshot → nothing to compensate; mark failed outright. Audit a
-            # distinct compensation_unavailable outcome (F-7) so this is never counted
-            # as a clean rollback — it is a terminal failure with partial data left in
-            # place, not a healed graph.
-            await self._repo_factory(db).set_state(
-                config_id=cfg.id,
-                state=BuildState.FAILED,
-                error="no snapshot available for compensation",
-            )
-            await self._clear_current(cfg.id)
-            await audit.emit(
+            # No build id to resolve → nothing to compensate; mark failed outright.
+            # Audit a distinct compensation_unavailable outcome (F-7) so this is never
+            # counted as a clean rollback — it is a terminal failure with partial data
+            # left in place, not a healed graph.
+            await self._finalize_failed(
                 db,
-                audit.AuditEvent(
-                    action=self._action,
-                    resource_type=self._resource_type,
-                    resource_id=cfg.id,
-                    metadata={"build_id": None, "outcome": "compensation_unavailable"},
-                ),
+                cfg=cfg,
+                build_id=None,
+                error="no snapshot available for compensation",
+                outcome="compensation_unavailable",
             )
-            await publish_build_state(cfg.id, BuildState.FAILED.value, channel=self._channel_fn(cfg.id))
             return
 
         if cfg.last_build_state is BuildState.RUNNING:
@@ -479,15 +470,17 @@ class ReconciliationLoop:
         db: AsyncSession,
         *,
         cfg: ConfigLike,
-        build_id: uuid.UUID,
+        build_id: uuid.UUID | None,
         error: str,
         outcome: str,
     ) -> None:
-        """Terminal-FAILED finalization shared by the successful-rollback and the
-        genuinely-uncompensatable (no-snapshot) paths: mark FAILED, publish, drop the
-        snapshot + current pointer, and audit ``outcome``. Only called once
-        compensation has either succeeded or is provably impossible — never while a
-        retryable compensation is still owed (that path retains the recovery material)."""
+        """Terminal-FAILED finalization shared by the three genuinely-terminal paths:
+        a successful rollback, a resolved build whose snapshot is gone, and a stuck
+        config with no build id to resolve at all. Marks FAILED, publishes, drops the
+        current pointer (and the snapshot when there is a ``build_id`` to key it by),
+        and audits ``outcome``. Only called once compensation has either succeeded or
+        is provably impossible — never while a retryable compensation is still owed
+        (that path retains the recovery material)."""
         await self._repo_factory(db).set_state(
             config_id=cfg.id,
             state=BuildState.FAILED,
@@ -496,10 +489,11 @@ class ReconciliationLoop:
         await publish_build_state(
             cfg.id, BuildState.FAILED.value, build_id=build_id, channel=self._channel_fn(cfg.id)
         )
-        await self._snapshots.delete(
-            config_id=cfg.id,
-            build_id=build_id,
-        )
+        if build_id is not None:
+            await self._snapshots.delete(
+                config_id=cfg.id,
+                build_id=build_id,
+            )
         await self._clear_current(cfg.id)
         await audit.emit(
             db,
@@ -508,7 +502,7 @@ class ReconciliationLoop:
                 resource_type=self._resource_type,
                 resource_id=cfg.id,
                 metadata={
-                    "build_id": str(build_id),
+                    "build_id": str(build_id) if build_id is not None else None,
                     "outcome": outcome,
                 },
             ),
