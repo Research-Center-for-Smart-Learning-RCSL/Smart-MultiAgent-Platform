@@ -83,17 +83,11 @@ class GraphRagVectorStore:
             return None
         return _coerce_uuid(name[len(marker) :].replace("_", "-"))
 
-    async def list_config_ids(self, project_id: uuid.UUID) -> set[uuid.UUID]:
-        """Distinct ``config_id``s present in this project's collection (F-8).
+    async def _scroll_config_ids(self, name: str) -> set[uuid.UUID]:
+        """Collect distinct ``config_id`` payloads from a known-existing collection.
 
-        The Qdrant-side discovery index for the reconciler orphan sweep: a config
-        whose Neo4j subgraph was deleted but whose Qdrant points survived a partial
-        teardown is invisible to the Neo4j enumeration, so the sweep also enumerates
-        here. Scrolls payload-only (``config_id`` field, no vectors) and pages to
-        completion. Returns an empty set if the collection does not exist."""
-        name = self._name(project_id)
-        if not await self._client.collection_exists(name):
-            return set()
+        Payload-only (``config_id`` field, no vectors), paged to completion. The
+        caller has already established the collection exists — this does not re-check."""
         out: set[uuid.UUID] = set()
         offset: Any = None
         while True:
@@ -112,20 +106,35 @@ class GraphRagVectorStore:
                 break
         return out
 
+    async def list_config_ids(self, project_id: uuid.UUID) -> set[uuid.UUID]:
+        """Distinct ``config_id``s present in this project's collection (F-8).
+
+        The Qdrant-side discovery index for the reconciler orphan sweep: a config
+        whose Neo4j subgraph was deleted but whose Qdrant points survived a partial
+        teardown is invisible to the Neo4j enumeration, so the sweep also enumerates
+        here. Returns an empty set if the collection does not exist."""
+        name = self._name(project_id)
+        if not await self._client.collection_exists(name):
+            return set()
+        return await self._scroll_config_ids(name)
+
     async def list_all_config_ids(self) -> set[tuple[uuid.UUID, uuid.UUID]]:
         """``(config_id, project_id)`` across every ``{prefix}_*`` collection (F-8).
 
         The cross-project variant the orphan sweep unions with the Neo4j-sourced
         candidates. Enumerates only collections carrying this store's prefix (each
         registered consumer's store covers its own prefix — ``graphrag_*`` /
-        ``knowmap_*``), so the two consumers together cover both products."""
+        ``knowmap_*``), so the two consumers together cover both products. Scrolls each
+        collection by the exact name ``get_collections`` returned — it already proved
+        the collection exists, so no per-collection existence re-check or name
+        round-trip through ``project_id``."""
         out: set[tuple[uuid.UUID, uuid.UUID]] = set()
         collections = await self._client.get_collections()
         for coll in collections.collections:
             project_id = self._project_id_from_name(coll.name)
             if project_id is None:
                 continue
-            for config_id in await self.list_config_ids(project_id):
+            for config_id in await self._scroll_config_ids(coll.name):
                 out.add((config_id, project_id))
         return out
 
