@@ -50,7 +50,7 @@ bundled with F-6 so the removal is verifiable end-to-end.
 | ID | Question | Decision | Rationale |
 |---|---|---|---|
 | Q-1 | Symmetry fix only, or bundle F-6? | **Bundle the F-6 dependency.** F-27 enqueues the rebuild on `SKIPPED`, and the end-to-end "triples leave Neo4j" acceptance is verified with F-6's replacement semantics applied. | Chosen over a symmetry-only fix. Knowledge Map builds are additive `MERGE` with no removal of absent triples (`graphrag_builder.py` apply path, `neo4j_driver.py:94-181`; confirmed F-6), so a rebuild alone does not evict the skipped document's persisted triples — it only recomputes buildable-corpus membership. Bundling F-6 makes the fix demonstrably correct end-to-end in one batch rather than shipping a rebuild that is a no-op for Neo4j removal until F-6 lands. |
-| Q-2 | Enqueue on the transient ClamAV-error `SKIPPED` path too, or only terminal over-size? | Enqueue on **both** skip paths. | The finding names both paths (`:147-154`, `:162-170`) as missing the enqueue. The dedup job id collapses repeated enqueues, so enqueuing on the retriable path is safe; leaving it out risks a document that exhausts retries staying `SKIPPED` with no rebuild — the same bug. |
+| Q-2 | Enqueue on the transient ClamAV-error `SKIPPED` path too, or only terminal over-size? | Enqueue on **both** paths, but the ClamAV-error path only when the retry is **exhausted** (`ctx["job_try"] >= max_tries`, `:211`). | The finding names both paths (`:147-154`, `:162-170`). Over-size is immediately terminal (no retry) → enqueue at once. The ClamAV-error path re-raises for retry (`max_tries=3`): enqueuing on *every* attempt would build a graph that excludes the document while it is still mid-retry and might yet come back `CLEAN` — the rebuild would exclude a document that turns out fine. So enqueue there only on the final failed attempt, when `SKIPPED` is genuinely terminal. Leaving it out entirely would let a retry-exhausted document stay `SKIPPED` with no rebuild — the same bug. Second-angle review caught the every-attempt variant as a premature-exclusion regression. |
 
 ## 4. Reproduction
 
@@ -105,10 +105,13 @@ physical triple removal.
    `:142`; mirror the quarantine fetch at `:184`) and call `enqueue_knowmap_build(config_id=cfg.id,
    last_build_state=cfg.last_build_state, last_build_at=cfg.last_build_at)` — identical args to
    `:205-207` — then return.
-2. **ClamAV-error skip (`knowmap.py:162-170`).** After marking `SKIPPED`, load the config the same
-   way and enqueue the rebuild **before** re-raising for Arq retry (the task retries up to
-   `max_tries=3`, `:211`), so a document that exhausts retries still had a rebuild queued. The
-   `_job_id` dedup collapses the enqueues across retries into one build per config cycle.
+2. **ClamAV-error skip (`knowmap.py:162-170`).** After marking `SKIPPED`, enqueue the rebuild
+   **only on the exhausted attempt** — guard on `ctx.get("job_try", 1) >= knowmap_scan_document.max_tries`
+   (the task's `max_tries=3`, `:211`) — then re-raise. On non-final attempts, mark `SKIPPED` and
+   re-raise without enqueuing, so a document that may still recover to `CLEAN` on retry is not
+   prematurely excluded by a rebuild (Q-2). Confirm arq's `ctx` exposes `job_try` in the deployed
+   version (as F-23 flags for arq behavior); if unavailable, fall back to enqueuing on the error
+   path and accept the dedup-bounded churn. Note `ctx` is currently unused (`_ = ctx`, `:118`).
 3. **Prefer a single tail path if clean.** If it reads better, restructure so a `SKIPPED` verdict
    flows to the same enqueue tail as `QUARANTINED` (e.g. enqueue when `scan_status in
    {QUARANTINED, SKIPPED}`), keeping the ClamAV-error re-raise semantics intact. Either shape is
@@ -139,13 +142,17 @@ enqueue and repositories:
 1. **Over-size `SKIPPED` enqueues a rebuild (red-first)** — a document exceeding
    `clamav_max_scan_bytes` is marked `SKIPPED` and enqueues one `knowmap_build` with the config's
    dedup job id. Fails today (no enqueue on the over-size path).
-2. **ClamAV-error `SKIPPED` enqueues a rebuild before raising** — `ScanError` marks `SKIPPED`,
-   enqueues the rebuild, then re-raises for retry. Fails today.
-3. **Parity with `QUARANTINED`** — a `QUARANTINED` verdict still enqueues exactly as before (no
-   regression), and both verdicts produce the same enqueue args.
-4. **Dedup** — a SKIPPED enqueue and a concurrent quarantine/ingest enqueue for the same
+2. **ClamAV-error `SKIPPED` on the exhausted attempt enqueues a rebuild** — `ScanError` on the
+   final try (`ctx["job_try"] == max_tries`) marks `SKIPPED`, enqueues the rebuild, then re-raises.
+   Fails today (no enqueue).
+3. **ClamAV-error `SKIPPED` on a non-final attempt does NOT enqueue** — `ScanError` with
+   `ctx["job_try"] < max_tries` marks `SKIPPED` and re-raises without enqueuing (premature-exclusion
+   guard, Q-2).
+4. **Parity with `QUARANTINED`** — a `QUARANTINED` verdict still enqueues exactly as before (no
+   regression), and terminal SKIPPED produces the same enqueue args.
+5. **Dedup** — a SKIPPED enqueue and a concurrent quarantine/ingest enqueue for the same
    `(config, last_build_state, last_build_at)` collapse to one queued build.
-5. **End-to-end triple removal (with F-6, may be integration/deferred)** — after a SKIPPED
+6. **End-to-end triple removal (with F-6, may be integration/deferred)** — after a SKIPPED
    rebuild under F-6's replacement semantics, the skipped document's triples are absent from
    Neo4j. Marked as depending on F-6; if F-6 is not yet merged in the build batch, record the
    gap in the deviation log rather than asserting it against additive-only builds.
@@ -157,9 +164,10 @@ Primary red-first: (1).
 - **F-6 not landing together.** If F-27 ships without F-6, the rebuild is a no-op for Neo4j
   removal (retrieval still hides the doc). Bundling per Q-1 mitigates; if decoupled at build
   time, document it as a deviation and keep AC-5 deferred.
-- **Retry noise on the ClamAV-error path.** Enqueuing on every transient error + retry could
-  queue repeatedly; the `_job_id` dedup and Arq's duplicate-drop bound it to one build per
-  `(config, build cycle)`.
+- **Premature exclusion on the ClamAV-error path.** Enqueuing before retries are exhausted would
+  rebuild the graph without a document that may still pass on retry. Mitigated by the
+  `job_try >= max_tries` gate (Q-2, §7.2) and test (3); the `_job_id` dedup additionally bounds any
+  residual churn to one build per `(config, build cycle)`.
 - **Restructuring the tail.** If the enqueue is unified into a shared tail, the ClamAV-error
   re-raise must be preserved so Arq still retries the scan; covered by test (2).
 - **Rollback** — remove the two SKIPPED enqueues; behavior reverts. Code-only, no schema/data
@@ -168,9 +176,10 @@ Primary red-first: (1).
 ## 10. Acceptance Criteria
 
 - [ ] AC-1: The over-size SKIPPED rebuild test (§8.1) fails before the fix and passes after.
-- [ ] AC-2: Both `SKIPPED` paths (over-size and ClamAV error) enqueue a `knowmap_build` with the
-  same args and dedup job id the `QUARANTINED` path uses.
-- [ ] AC-3: The ClamAV-error path still re-raises for Arq retry after enqueuing.
+- [ ] AC-2: Over-size `SKIPPED` (terminal) and the ClamAV-error path on its **exhausted** attempt
+  enqueue a `knowmap_build` with the same args and dedup job id the `QUARANTINED` path uses; a
+  non-final ClamAV-error attempt does not enqueue.
+- [ ] AC-3: The ClamAV-error path still re-raises for Arq retry (enqueuing only on the final try).
 - [ ] AC-4: `QUARANTINED` behavior and the retrieval/selector gating are unchanged; SKIPPED and
   QUARANTINED enqueue identically.
 - [ ] AC-5 (with F-6): after a SKIPPED-triggered rebuild under F-6's replacement semantics, the
@@ -191,3 +200,8 @@ Appended by /build.
   F-6's replacement semantics; F-27's rebuild is otherwise membership-only.
 - **FU-2 (F-5 overlap):** the pending-scan build race that makes this cleanup necessary is F-5;
   narrowing that window reduces how often the SKIPPED cleanup is needed.
+- **FU-3 (CLEAN-after-retry re-inclusion, pre-existing):** the `CLEAN` verdict path does not
+  enqueue a rebuild (it relies on the ingest-time build). A document that was excluded (pending or
+  transiently skipped) and only later verified `CLEAN` is not re-added to the graph until the next
+  corpus mutation. This is broader than F-27 and pre-exists it; worth a separate look at whether
+  `CLEAN` should also trigger a rebuild when the document missed its ingest-time build.
