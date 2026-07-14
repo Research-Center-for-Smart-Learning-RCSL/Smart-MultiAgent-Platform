@@ -137,8 +137,16 @@ provider is `bge`. The domain model already types `rerank_provider` as `str | No
 (`:169-177`), branch on provider:
 - `provider == "cohere"` → existing key + capability validation (`_validate_rerank_key`).
 - `provider == "bge"` → **require no key**; instead require that the bundled service is
-  configured (settings URL non-empty). Reject `rerank_key_id` supplied with `bge` (a keyless
+  configured (URL non-empty). Reject `rerank_key_id` supplied with `bge` (a keyless
   provider must not carry a key). Keep the "enabled requires a provider" invariant.
+
+  **SoC constraint:** the application-layer `RagConfigService` must not import `app.config`
+  directly (application → app is an upward import). Pass the bundled-reranker availability
+  (the resolved URL, or a boolean "configured" flag) in via the facade/constructor —
+  mirroring how the runtime `rag_context_provider` already receives `_qdrant_url` rather than
+  reading settings itself. `RagConfigService.__init__` currently takes only `db`
+  (`config_service.py:47-50`), so this is a constructor/facade-wiring change, not a direct
+  settings import.
 
 **7.3 Settings.** Add a knowledge/reranker settings section mirroring `EgressSection`
 (`settings.py:221-241`) / `SandboxSection` (`:244-272`): `bge_reranker_url: str` read from an

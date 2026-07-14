@@ -126,8 +126,9 @@ forbidden by resource state; `RagConfigNameTaken`-style state conflicts already 
 (`config_service.py:47-50`). Add `RagDocumentRepository(self._db)` (already imported at `:34-37`)
 and a lightweight `count_for_config(config_id) -> int` on the repo (a `SELECT count(*)`; the
 existing `list_for_config` at `repositories.py:303-319` is limit-capped and unsuitable for
-counting). Knowledge Map already has `KnowmapDocumentRepository` available in-service
-(`knowmap_config_service.py:183`); add the mirror count method there.
+counting). Knowledge Map already imports `KnowmapDocumentRepository` (used in `soft_delete` at
+`knowmap_config_service.py:183`, not in `update`); `update` must instantiate its own
+`KnowmapDocumentRepository(self._db)` and call the mirror count method.
 
 **7.3 File RAG update guard.** In `config_service.update` (`:157-213`), before writing: if
 `"chunk_params"` is in the patch **and** the new value differs from `cfg.chunk_params` **and**
