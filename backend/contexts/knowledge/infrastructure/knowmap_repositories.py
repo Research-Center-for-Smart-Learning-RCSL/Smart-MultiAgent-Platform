@@ -374,11 +374,13 @@ class KnowmapDocumentRepository:
     async def ready_document_ids(self, *, config_id: uuid.UUID) -> list[uuid.UUID]:
         """All build-eligible document ids in ``config_id``.
 
-        A document is build-eligible when it is ``ready`` and has a scan verdict that
-        is not ``quarantined`` and not ``skipped``. Excluding ``skipped`` fails closed
-        on an un-scannable document (ClamAV error or over-size): a document that was
-        never cleanly scanned is never built into a Knowledge Map's graph. (This is
-        stricter than file-RAG, which admits ``skipped`` — a deliberate choice for the
+        A document is build-eligible only when it is ``ready`` **and** its scan
+        verdict is ``clean`` (F-5). Requiring ``clean`` — rather than merely
+        excluding ``quarantined``/``skipped`` — fails closed on a ``pending``
+        document too: between commit and scan verdict a document is unindexable, so
+        a never-cleanly-scanned document is never built into a Knowledge Map's
+        graph even if its build races ahead of the scan. (Stricter than file-RAG,
+        which admits ``pending``/``skipped`` — a deliberate choice for the
         per-agent-allowlisted Knowledge Map corpus.)
 
         Used by the DocDeltaLoader to scope the corpus to indexable documents."""
@@ -387,9 +389,7 @@ class KnowmapDocumentRepository:
                 sa.select(t.knowmap_documents.c.id).where(
                     t.knowmap_documents.c.knowmap_config_id == config_id,
                     t.knowmap_documents.c.status == DocumentStatus.READY.value,
-                    t.knowmap_documents.c.scan_status.notin_(
-                        [ScanStatus.QUARANTINED.value, ScanStatus.SKIPPED.value]
-                    ),
+                    t.knowmap_documents.c.scan_status == ScanStatus.CLEAN.value,
                 )
             )
         ).all()
@@ -405,19 +405,17 @@ class KnowmapDocumentRepository:
 
         The querying agent must be on the document's allowlist
         (``agent_ids @> [agent_id]``, GIN-indexed) and the document must be
-        retrievable (``ready`` and neither ``quarantined`` nor ``skipped`` — an
-        un-scannable document is never surfaced, matching :meth:`ready_document_ids`).
-        The retrieval edge filter keeps a relation only if *every* one of its source
-        documents is in this set.
+        retrievable (``ready`` **and** ``clean`` — a document that is not cleanly
+        scanned, including a still-``pending`` one, is never surfaced, matching
+        :meth:`ready_document_ids`, F-5). The retrieval edge filter keeps a relation
+        only if *every* one of its source documents is in this set.
         """
         rows = (
             await self._db.execute(
                 sa.select(t.knowmap_documents.c.id).where(
                     t.knowmap_documents.c.knowmap_config_id == config_id,
                     t.knowmap_documents.c.status == DocumentStatus.READY.value,
-                    t.knowmap_documents.c.scan_status.notin_(
-                        [ScanStatus.QUARANTINED.value, ScanStatus.SKIPPED.value]
-                    ),
+                    t.knowmap_documents.c.scan_status == ScanStatus.CLEAN.value,
                     t.knowmap_documents.c.agent_ids.contains([agent_id]),
                 )
             )

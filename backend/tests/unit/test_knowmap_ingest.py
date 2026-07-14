@@ -52,7 +52,11 @@ def _make_config() -> KnowmapConfig:
 
 
 def _make_document(
-    *, status: DocumentStatus = DocumentStatus.INGESTING, sha: str = "abc123", doc_id: uuid.UUID | None = None
+    *,
+    status: DocumentStatus = DocumentStatus.INGESTING,
+    sha: str = "abc123",
+    doc_id: uuid.UUID | None = None,
+    scan_status: ScanStatus = ScanStatus.PENDING,
 ) -> KnowmapDocument:
     return KnowmapDocument(
         id=doc_id or uuid.uuid4(),
@@ -63,7 +67,7 @@ def _make_document(
         sha256=sha,
         minio_path=f"knowmap-sources/{_PROJECT_ID}/{_CONFIG_ID}/{sha}",
         status=status,
-        scan_status=ScanStatus.PENDING,
+        scan_status=scan_status,
         scan_at=None,
         uploaded_by=_USER_ID,
         uploaded_at=_NOW,
@@ -125,13 +129,16 @@ class TestIngest:
         with pytest.raises(KnowmapConfigNotFound):
             await svc.ingest(ipt=_ipt(), actor_user_id=_USER_ID, actor_ip=None)
 
-    async def test_new_document_chunks_without_qdrant_and_triggers_build(self) -> None:
-        # AC-1/AC-6: parse -> chunk -> persist knowmap_chunks (no Qdrant), flip to
-        # READY, enqueue scan + build.
+    async def test_new_document_chunks_and_scans_without_building_while_pending(self) -> None:
+        # F-5 (AC-3): parse -> chunk -> persist knowmap_chunks (no Qdrant), flip to
+        # READY, enqueue the scan — but NOT the build while the scan verdict is still
+        # pending. A never-cleanly-scanned document must never be built; the scan
+        # worker's clean-verdict path enqueues the build once the verdict is CLEAN.
         cfg = _make_config()
         cfg_repo = AsyncMock()
         cfg_repo.get.return_value = cfg
         doc = _make_document(status=DocumentStatus.INGESTING)
+        # The refreshed document is READY but still scan_status=PENDING (fresh upload).
         ready = _make_document(status=DocumentStatus.READY, doc_id=doc.id)
         doc_repo = AsyncMock()
         doc_repo.find_by_sha.return_value = None
@@ -159,8 +166,38 @@ class TestIngest:
         assert [r["chunk_idx"] for r in rows] == [0, 1]
         assert not hasattr(svc, "_qdrant")
         doc_repo.set_status.assert_awaited_with(document_id=doc.id, status=DocumentStatus.READY)
+        # The scan is always enqueued; the build is deferred until the clean verdict.
         scan.assert_awaited_once()
-        # Build enqueued with the config's dedup nonce (state + last_build_at).
+        build.assert_not_called()
+
+    async def test_reindex_of_clean_document_enqueues_build(self) -> None:
+        # F-5: a reindex of an already-clean document (same content/sha) is safe to
+        # build immediately — the existing clean verdict still holds — so the
+        # indexing-complete site enqueues here rather than waiting for a re-scan.
+        cfg = _make_config()
+        cfg_repo = AsyncMock()
+        cfg_repo.get.return_value = cfg
+        existing = _make_document(status=DocumentStatus.FAILED)
+        clean_ready = _make_document(
+            status=DocumentStatus.READY, doc_id=existing.id, scan_status=ScanStatus.CLEAN
+        )
+        doc_repo = AsyncMock()
+        doc_repo.find_by_sha.return_value = existing
+        doc_repo.get.return_value = clean_ready
+        chunk_repo = AsyncMock()
+        blob = AsyncMock()
+        svc = _make_service(config_repo=cfg_repo, doc_repo=doc_repo, chunk_repo=chunk_repo, blob=blob)
+
+        with (
+            patch.dict(f"{_MOD}.MIME_TO_PARSER", {"text/plain": lambda b: "parsed body"}, clear=False),
+            patch(f"{_MOD}.chunk_document", AsyncMock(return_value=["p0"])),
+            patch(f"{_MOD}.audit.emit", AsyncMock()),
+            patch(f"{_MOD}.enqueue_knowmap_scan", AsyncMock()) as scan,
+            patch(f"{_MOD}.enqueue_knowmap_build", AsyncMock()) as build,
+        ):
+            await svc.ingest(ipt=_ipt(), actor_user_id=_USER_ID, actor_ip=None)
+
+        scan.assert_awaited_once()
         build.assert_awaited_once_with(
             config_id=cfg.id, last_build_state=cfg.last_build_state, last_build_at=cfg.last_build_at
         )
