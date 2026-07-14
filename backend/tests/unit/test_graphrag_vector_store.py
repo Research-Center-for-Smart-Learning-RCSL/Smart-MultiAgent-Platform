@@ -162,6 +162,47 @@ async def test_supersede_missing_collection_is_noop() -> None:
     assert fake.points == {}
 
 
+@pytest.mark.asyncio
+async def test_delete_points_not_in_build_removes_orphans_keeps_current() -> None:
+    # F-6 (§8.3 / AC-4): the build-scoped sweep removes EVERY prior-build point for
+    # the config — including entities the current corpus no longer produces (which
+    # the name-scoped supersede can never reach) — while keeping the current build
+    # and other configs.
+    fake = _FakeQdrant()
+    store = GraphRagVectorStore(fake)  # type: ignore[arg-type]
+    project_id = uuid.uuid4()
+    config_id = uuid.uuid4()
+    other_config = uuid.uuid4()
+    b1, b2, b_other = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+
+    await _seed(
+        store, project_id=project_id, config_id=config_id, build_id=b1, entities=["alice", "bob", "carol"]
+    )
+    await _seed(store, project_id=project_id, config_id=config_id, build_id=b2, entities=["alice", "dave"])
+    await _seed(store, project_id=project_id, config_id=other_config, build_id=b_other, entities=["alice"])
+
+    await store.delete_points_not_in_build(project_id=project_id, config_id=config_id, keep_build_id=b2)
+
+    assert _surviving(fake) == {
+        # Only the current build's config points survive — bob/carol (gone from the
+        # corpus) and alice's stale b1 copy are all removed, no entity list needed.
+        (str(config_id), "alice", str(b2)),
+        (str(config_id), "dave", str(b2)),
+        # The sibling config is config-scoped-untouched.
+        (str(other_config), "alice", str(b_other)),
+    }
+
+
+@pytest.mark.asyncio
+async def test_delete_points_not_in_build_missing_collection_is_noop() -> None:
+    fake = _FakeQdrant()
+    store = GraphRagVectorStore(fake)  # type: ignore[arg-type]
+    await store.delete_points_not_in_build(
+        project_id=uuid.uuid4(), config_id=uuid.uuid4(), keep_build_id=uuid.uuid4()
+    )
+    assert fake.points == {}
+
+
 # ---------------------------------------------------------------------------
 # D7 (AC-10) — idempotent collection create + dimension guard
 # ---------------------------------------------------------------------------

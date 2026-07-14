@@ -114,12 +114,17 @@ class Neo4jDriver(Protocol):
         project_id: uuid.UUID,
         build_id: uuid.UUID,
         triples: list[Triple],
+        replace: bool = False,
     ) -> int:
         """Upsert ``triples`` tagged with ``build_id``; returns count.
 
         ``project_id`` is stamped on every ``:Entity`` node so an orphaned
         subgraph (no surviving Postgres row) stays self-describing for the
         reconciler's Qdrant sweep (R11.04 backstop).
+
+        ``replace`` (F-6) switches evidence/member provenance from cross-build
+        union (Concept Map delta) to current-build reset (full-corpus Knowledge
+        Map replacement); paired with :meth:`remove_stale_for_build`.
         """
 
     async def delete_by_build(
@@ -129,6 +134,17 @@ class Neo4jDriver(Protocol):
         build_id: uuid.UUID,
     ) -> None:
         """Drop all entities/edges tagged with ``build_id``."""
+
+    async def remove_stale_for_build(
+        self,
+        *,
+        config_id: uuid.UUID,
+        build_id: uuid.UUID,
+    ) -> None:
+        """F-6: drop relations the current build did not touch (``build_id`` != the
+        current one) and any config entity left isolated. Paired with a full-corpus
+        ``apply_triples(replace=True)`` to give the graph true replacement
+        semantics."""
 
     async def delete_all(self, *, config_id: uuid.UUID) -> None:
         """Drop the entire subgraph for a config (delete cascade, §22.8)."""

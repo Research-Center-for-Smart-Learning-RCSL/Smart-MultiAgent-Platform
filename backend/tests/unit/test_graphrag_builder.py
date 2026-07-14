@@ -217,6 +217,8 @@ class FakeNeo4j:
     ) -> None:
         self.applied: list[list[Triple]] = []
         self.applied_project_ids: list[uuid.UUID] = []
+        self.applied_replace: list[bool] = []
+        self.remove_stale_calls: list[uuid.UUID] = []
         self.deleted: list[uuid.UUID] = []
         self.deleted_all: list[uuid.UUID] = []
         self.restored: list[dict[str, Any]] = []
@@ -226,12 +228,16 @@ class FakeNeo4j:
     async def snapshot_subgraph(self, *, config_id, build_id):
         return {"edges": []}
 
-    async def apply_triples(self, *, config_id, project_id, build_id, triples):
+    async def apply_triples(self, *, config_id, project_id, build_id, triples, replace=False):
         if self.raise_on_apply is not None:
             raise self.raise_on_apply
         self.applied.append(list(triples))
         self.applied_project_ids.append(project_id)
+        self.applied_replace.append(replace)
         return len(triples)
+
+    async def remove_stale_for_build(self, *, config_id, build_id) -> None:
+        self.remove_stale_calls.append(build_id)
 
     async def delete_by_build(self, *, config_id, build_id) -> None:
         self.deleted.append(build_id)
@@ -255,6 +261,7 @@ class FakeVectorStore:
         self.raise_on_upsert = raise_on_upsert
         self.upserts: list[list[Any]] = []
         self.superseded_calls: list[dict[str, Any]] = []
+        self.points_not_in_build_calls: list[dict[str, Any]] = []
         self.deleted_by_config: list[dict[str, Any]] = []
 
     async def ensure_graphrag_collection(self, project_id, *, vector_size, **_):
@@ -276,6 +283,9 @@ class FakeVectorStore:
 
     async def delete_superseded_entities(self, **kwargs: Any) -> None:
         self.superseded_calls.append(kwargs)
+
+    async def delete_points_not_in_build(self, **kwargs: Any) -> None:
+        self.points_not_in_build_calls.append(kwargs)
 
 
 class FakeExtractor:
@@ -421,6 +431,45 @@ async def test_happy_path_transitions_to_idle() -> None:
     assert len(vectors.superseded_calls) == 1
     sweep = vectors.superseded_calls[0]
     assert sorted(sweep["entities"]) == ["alice", "bob"]
+    assert sweep["keep_build_id"] == result.build_id
+    assert sweep["config_id"] == cfg.id
+    # F-6 guard (§8.4): a delta build does NOT prune the config graph nor use the
+    # build-scoped vector sweep — replacement semantics stay off by default.
+    assert neo4j.applied_replace == [False]
+    assert neo4j.remove_stale_calls == []
+    assert vectors.points_not_in_build_calls == []
+
+
+@pytest.mark.asyncio
+async def test_replace_build_prunes_graph_and_uses_build_scoped_vector_sweep() -> None:
+    # F-6: a full-corpus knowmap replacement build applies replacement semantics —
+    # apply_triples(replace=True), a stale-relation/entity removal pass, and the
+    # build-scoped Qdrant sweep (not the name-scoped supersede).
+    cfg = _make_cfg()
+    neo4j, vectors = FakeNeo4j(), FakeVectorStore()
+    lock, snaps = FakeLock(), FakeSnapshots()
+    extractor = FakeExtractor(_make_triples())
+    builder, _store, _db = _make_builder(
+        cfg=cfg,
+        neo4j=neo4j,
+        vectors=vectors,
+        lock=lock,
+        snapshots=snaps,
+        extractor=extractor,
+    )
+
+    result = await builder.run(config_id=cfg.id, mode="delta", triggered_by="manual", replace=True)
+
+    assert result.state is BuildState.IDLE
+    # apply_triples carried the replacement flag, and the removal pass ran for this
+    # build inside Phase 1.
+    assert neo4j.applied_replace == [True]
+    assert neo4j.remove_stale_calls == [result.build_id]
+    # The build-scoped vector sweep ran (a superset of the name-scoped supersede);
+    # the name-scoped supersede did NOT.
+    assert vectors.superseded_calls == []
+    assert len(vectors.points_not_in_build_calls) == 1
+    sweep = vectors.points_not_in_build_calls[0]
     assert sweep["keep_build_id"] == result.build_id
     assert sweep["config_id"] == cfg.id
 
