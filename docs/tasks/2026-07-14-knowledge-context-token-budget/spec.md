@@ -71,12 +71,17 @@ is about to send.
 | Q-2 | F-16 scope: full allocator or cap File RAG only? | Full token-aware allocator with precedence. | Matches [R11.19] narrow-scope precedence; capping only File RAG leaves the graph blocks unbounded-in-aggregate and gives no precedence guarantee. |
 | Q-3 | When the assembled request still exceeds the cap, what gives? | Compact history first, then trim knowledge via the allocator. | Preserves recent conversation turns and sheds least-specific knowledge last; reuses the existing compaction mechanism. |
 
-Precedence order (narrowest scope wins budget), per Q-2 and [R11.19]: **Concept Map
-(`_graphrag_context`) > Knowledge Map (`_knowmap_context`) > File RAG (`_rag_context`)**.
-Note the finding text swaps the "graph"/"concept" labels relative to the method names; the
-code names are authoritative — `_graphrag_context` is the room-scoped Concept Map
-(`turn_engine.py:1720-1742`) and `_knowmap_context` is the Axis-1 Knowledge Map
-(`turn_engine.py:1744-1755`, [R11.14]).
+Precedence order (narrowest scope wins budget): **Concept Map (`_graphrag_context`) >
+Knowledge Map (`_knowmap_context`) > File RAG (`_rag_context`)**. [R11.19] pins only the
+*principle* (narrow-scope precedence) and the audit establishes File RAG as the least
+specific — "File RAG consumes the space that the documented narrow-scope precedence
+reserves for more specific knowledge" — so File RAG yielding first is SRS-anchored. The
+relative Concept Map vs Knowledge Map order is a design decision recorded here, not an SRS
+mandate; it is low-stakes because each graph block is individually ≤2 KB, so the dominant
+budget lever is capping File RAG. Note the finding text swaps the "graph"/"concept" labels
+relative to the method names; the code names are authoritative — `_graphrag_context` is the
+room-scoped Concept Map (`turn_engine.py:1720-1742`) and `_knowmap_context` is the Axis-1
+Knowledge Map (`turn_engine.py:1744-1755`, [R11.14]).
 
 ## 4. Reproduction
 
@@ -125,10 +130,14 @@ factor: the shared estimator is a coarse heuristic (CJK=1 token, Latin `len//4`;
   there; this fix should make the headless path benefit automatically.
 - **Sibling suspects**:
   - *Forced `/compact` branch* (`turn_engine.py:1463-1465`) caps at `projected // 2` from
-    the same history-only projection — **confirmed** same defect; must consume the
-    whole-payload estimate too.
-  - *`context_mode=general`* ([R9.09]) intentionally has no cap and surfaces provider
-    errors to the UI — **cleared**, out of scope; do not add budgeting there.
+    the history projection — **cleared**. This is a user-initiated "shed half of history
+    now" action (the one-shot flag, G.10), semantically history-based and independent of
+    whether the next request fits; it is not the F-17 defect and stays as-is.
+  - *`context_mode=general`* ([R9.09]) intentionally does **not** compact history and
+    surfaces provider context-limit errors to the UI — that history behavior is unchanged.
+    But R11.19 has no mode qualifier: the **knowledge allocator (F-16) still applies in
+    general mode** to bound the three blocks. **Confirmed** in scope for F-16, out of scope
+    for the F-17 history-compaction change.
   - *The two graph blocks' internal 2 KB byte caps* — **cleared** as correct sub-caps; the
     allocator sits above them and may reduce their budget further, but the byte cap stays
     as a floor guard.
@@ -144,25 +153,32 @@ request) rather than masking either symptom.
 
 **A. Budget model (new, in the agents runtime).** Add a small pure helper (e.g.
 `context.py`, beside `should_compact`/`default_cap_from_limit`,
-`backend/contexts/agents/application/context.py:88-108`) that, given the effective cap
-(`context_token_cap` or `default_cap_from_limit(provider_limit)`), the response reserve,
-and the estimated token cost of base system + tools + history, returns the token budget
-available for knowledge. Estimation uses the existing coarse `estimate_tokens`
+`backend/contexts/agents/application/context.py:88-108`) that returns the token budget
+available for knowledge, given a **request ceiling**, the response reserve, and the
+estimated token cost of base system + tools + history. The ceiling differs by mode:
+`context_token_cap` (or its `default_cap_from_limit(provider_limit)` 75% default) in
+`compact` mode; the provider hard limit (`context_limit`, `turn_engine.py:902`) in
+`general` mode — so R11.19's knowledge bound holds in both modes without imposing R9.10's
+compaction on `general`. Estimation uses the existing coarse `estimate_tokens`
 (`transcript.py:96-113`) with a documented safety margin.
 
-**B. F-17 — compact on the assembled request.** Restructure `_run_locked` so assembly
-order becomes: base system + tools + history estimate → compaction decision → knowledge
-budget → knowledge blocks. Feed the compaction decision the whole-payload estimate
-(base + tools + reserve + history), not history alone. If, after compaction, base + tools
-+ history + reserve already meets or exceeds the cap, the knowledge budget is zero and the
-higher-precedence blocks are dropped first (see C). Add a final assertion/re-estimate of
-`system_text` + `messages` + tools + reserve immediately before dispatch
-(`turn_engine.py:1603-1622`); if it still exceeds the provider hard limit, compact once
-more (fall through to the existing summarization path) rather than dispatching a
-guaranteed-overflow request.
+**B. F-17 — compact on the assembled request (compact mode only).** Restructure
+`_run_locked` so assembly order becomes: base system + tools + history estimate →
+compaction decision → knowledge budget → knowledge blocks. Feed the compaction decision the
+whole-payload estimate (base + tools + reserve + history), not history alone. This changes
+only the `compact`-mode branch of `_assemble_history` (`turn_engine.py:1466-1474`); the
+`general`-mode return-history-unchanged path and the forced `/compact` half-shed
+(`:1463-1465`) are untouched. If, after compaction, base + tools + history + reserve
+already meets or exceeds the ceiling, the knowledge budget is zero and the
+higher-precedence blocks are dropped first (see C). Add a final re-estimate of `system_text`
++ `messages` + tools + reserve immediately before dispatch (`turn_engine.py:1603-1622`); if
+it still exceeds the provider hard limit, run one additional compaction pass in `compact`
+mode, or (in `general` mode) let the provider's own context-limit error surface to the UI
+per [R9.09] — rather than silently dispatching a guaranteed-overflow request.
 
-**C. F-16 — precedence allocator over the knowledge blocks.** The engine distributes the
-knowledge budget from B across the three sources in precedence order Concept Map >
+**C. F-16 — precedence allocator over the knowledge blocks (all modes).** In both context
+modes, the engine distributes the knowledge budget from A across the three sources in
+precedence order Concept Map >
 Knowledge Map > File RAG, and passes a per-source `token_budget` into each provider query
 (`_graphrag_context`/`_knowmap_context`/`_rag_context`,
 `turn_engine.py:1712-1755`). Each provider truncates its **own** rendered block to its
@@ -220,16 +236,19 @@ Tests are written first and must fail against current code.
 - [ ] AC-3: the assembled `system_text` token estimate for a multi-source turn is bounded
       by a knowledge budget derived from `context_token_cap`/provider limit minus base
       system + tools + history + response reserve.
-- [ ] AC-4: knowledge budget is distributed in precedence order Concept Map > Knowledge
-      Map > File RAG; File RAG is truncated before the graph blocks, and a zero-budget
-      source is omitted (not sent empty).
+- [ ] AC-4: the knowledge budget is distributed in precedence order Concept Map > Knowledge
+      Map > File RAG in **both** context modes; File RAG is truncated before the graph
+      blocks, and a zero-budget source is omitted (not sent empty).
 - [ ] AC-5: `context_mode=compact` triggers compaction from the estimated *assembled*
       request (base + knowledge + tools + history + response reserve), not from stored
-      history alone; the forced `/compact` branch uses the same estimate.
+      history alone. The forced `/compact` half-shed (`turn_engine.py:1463-1465`) is
+      unchanged.
 - [ ] AC-6: a final pre-dispatch estimate guards the provider hard limit; a pathological
-      large-prefix Agent compacts rather than dispatching a guaranteed-overflow request.
-- [ ] AC-7: `context_mode=general` behavior is unchanged (no new budgeting; provider
-      errors still surface to the UI per [R9.09]).
+      large-prefix compact-mode Agent runs an additional compaction pass rather than
+      dispatching a guaranteed-overflow request.
+- [ ] AC-7: `context_mode=general` keeps unbounded history and still surfaces provider
+      context-limit errors to the UI ([R9.09] — no history compaction added), but the
+      knowledge allocator (AC-3/AC-4) still bounds its three knowledge blocks per [R11.19].
 - [ ] AC-8: `pytest -q`, `ruff check .`, `ruff format --check .`, and `mypy .` pass in
       `backend/`.
 
