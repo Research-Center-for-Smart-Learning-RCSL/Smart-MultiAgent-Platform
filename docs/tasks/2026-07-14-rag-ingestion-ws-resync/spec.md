@@ -108,12 +108,14 @@ truth the events were only mirroring.
 
 ## 7. Fix Design
 
-Mirror `useBuildStateSocket`'s recovery loop in `useRagConfigSocket.ts`:
+Mirror `useBuildStateSocket`'s recovery loop in `useRagConfigSocket.ts`, and make `progress` a
+consistently **document-level** view owned by a single writer.
 
-**7.1 Authoritative resync.** Replace `syncOnReconnect` (`:61-71`) with a `syncState(configId)`
-that calls `agentsApi.listDocuments(configId)` and rebuilds the whole `progress` ref by
-deriving from per-document `status`, then invalidates `agentKeys.ragDocuments(configId)` (and
-keeps the existing config-list invalidation). Derivation over the document set:
+**7.1 Authoritative resync — the single writer of `progress`.** Replace `syncOnReconnect`
+(`:61-71`) with a `syncState(configId)` that calls `agentsApi.listDocuments(configId)`, rebuilds
+the whole `progress` ref from per-document `status`, then invalidates
+`agentKeys.ragDocuments(configId)` (and keeps the config-list invalidation). Derivation over the
+document set:
 - any document `status === 'ingesting'` → `state = 'ingesting'`;
 - else any `status === 'failed'` → `state = 'failed'` (surface a generic error string);
 - else if there are documents and none ingesting → `state = 'ready'`;
@@ -121,27 +123,38 @@ keeps the existing config-list invalidation). Derivation over the document set:
 - `documentsTotal = documents.length`; `documentsProcessed =` count of non-`ingesting`
   documents (`ready + failed + quarantined`).
 
-This yields a correct bar on both late subscribe (F-28) and post-terminal reconnect (F-21).
-Live events continue to refine `state` afterward (e.g. a live `ingestion.indexing` can move
-`ingesting → indexing`, which document status does not distinguish).
+**7.2 WS events become triggers, not count-writers (fixes a unit bug).** The live `ingestion.*`
+frames are **chunk-granular for one document**, not corpus-document-granular: `ingestion.progress`
+`processed`/`total` are `total_chunks = len(pieces)` for a single document
+(`backend/contexts/knowledge/application/ingest_service.py:321,336,342`), and each
+`ingestion.started` sends `{"total": 1}` per document (`:155,223`;
+`backend/contexts/knowledge/application/rag_tus_finalizer.py:159`). The current handlers write
+these into the document-level `documentsTotal`/`documentsProcessed` (`useRagConfigSocket.ts:37,43,50`),
+which corrupts the counts across a multi-file upload (a 47-chunk file would set the document
+denominator to 47). So `syncState` must be the **only** writer of the count fields, and the WS
+handlers become change-triggers:
+- `ingestion.started` / `ingestion.indexing` / `ingestion.completed` / `ingestion.failed` →
+  call `syncState(configId)` (re-derive document-level truth); for responsiveness, optimistically
+  set `state` (`ingesting`/`indexing`/`ready`/`failed`) immediately, but let `syncState`
+  reconcile the counts.
+- `ingestion.progress` → set `state = 'ingesting'` if currently `'idle'` (instant feedback for a
+  late subscriber, F-28) and call a **debounced** `syncState` (~750 ms, to absorb the per-embed-
+  batch frame storm). It must **not** write `ev.processed`/`ev.total` into the document-level
+  counts.
 
-**7.2 Wire on connect, reconnect, and mount.** Keep `channel.onStatus((connected) => { if
-(connected) void syncState(configId) })` (it already fires on initial connect and every
-reconnect, `:74-77`). Also run `syncState` once on mount/`configId` change so the page seeds
-authoritative state even before the socket connects (mirroring `useBuildStateSocket`'s
-`initialState` seeding at `:100-108`).
+This unifies `progress` on one document-level source, eliminating the pre-existing chunk-vs-
+document unit mix as a side effect. The trade-off — no sub-document chunk-level bar — is
+acceptable (the bar tracks documents; see FU-3).
 
-**7.3 Backstop poll.** Add a bounded poll (reuse `useBuildStateSocket`'s `POLL_FALLBACK_MS` =
+**7.3 Wire on connect, reconnect, and mount.** Keep `channel.onStatus((connected) => { if
+(connected) void syncState(configId) })` (already fires on initial connect and every reconnect,
+`:74-77`). Also run `syncState` once on mount/`configId` change so the page seeds authoritative
+state even before the socket connects (mirroring `useBuildStateSocket`'s `initialState` seeding
+at `:100-108`).
+
+**7.4 Backstop poll.** Add a bounded poll (reuse `useBuildStateSocket`'s `POLL_FALLBACK_MS` =
 15s, `:17,63-70`) that re-runs `syncState` while `state ∈ {ingesting, indexing}`, so a dropped
 terminal frame still self-heals without a reload, and stops polling once terminal/idle.
-
-**7.4 Non-terminal live event hardening.** In the `ingestion.progress` handler (`:42-44`), if
-`state` is currently `'idle'`, set it to `'ingesting'` (progress frames imply active ingestion),
-and adopt `ev.total` into `documentsTotal` when the frame carries it (the wire already sends
-`total` at `ingest_service.py:342` but the handler ignores it today, so a mid-upload growing
-corpus keeps a correct denominator). This is a cheap belt-and-braces for the window between
-subscribe and the first `syncState` resolve; the authoritative `syncState` remains the primary
-fix.
 
 **7.5 No backend change.** The WS route and events are unchanged (Q-2); the authoritative
 `GET .../documents` endpoint already returns everything needed
@@ -152,7 +165,13 @@ No data or schema changes.
 
 ## 8. Regression Test Plan
 
-Frontend (`frontend/src/slices/agents/composables/__tests__/` — Vitest):
+Frontend (Vitest) — these are **net-new**: there is no existing `useRagConfigSocket` or
+`useBuildStateSocket` test to break or rewrite. Mirror the sibling socket-recovery tests
+`frontend/src/slices/agents/__tests__/useGraphragSocket.test.ts` and `useKnowmapSocket.test.ts`
+(which exercise the same `onStatus → fetch → apply` + poll pattern). Note the directory
+inconsistency: those sibling tests live in `agents/__tests__/`, while `composables/__tests__/`
+also exists — place the new test to match the sibling socket tests (`agents/__tests__/`) unless
+following local convention dictates otherwise; Vitest collects both.
 
 1. **Reconnect after missed terminal (F-21)** (new): mount with an in-progress `progress`
    (`state='ingesting'`); the socket reports disconnect then reconnect while `listDocuments`
@@ -168,6 +187,11 @@ Frontend (`frontend/src/slices/agents/composables/__tests__/` — Vitest):
 4. **Backstop poll self-heals** (new): while `state='indexing'` and no live terminal event
    arrives, the poll re-runs `syncState` and transitions to `ready` when documents complete;
    polling stops at terminal/idle.
+5. **Live `ingestion.progress` does not corrupt document counts** (new, unit-bug regression):
+   with two documents (`documentsTotal===2`) and a live `ingestion.progress` frame carrying a
+   chunk `total` of e.g. 47, assert `documentsTotal` stays 2 (the frame does not overwrite it)
+   and that a debounced `syncState` re-derives the counts. Fails against the current handler,
+   which sets `documentsProcessed = ev.processed` (chunk count) directly.
 
 Primary red-first test: (1).
 
@@ -179,8 +203,12 @@ Primary red-first test: (1).
 - **Mid-upload snapshot.** A resync mid multi-file upload derives `documentsTotal` from the
   documents that exist at that instant, which can be below the eventual total (rows are created
   as files arrive). The bar may momentarily read e.g. `2/2` before a later file appears; the
-  next live `ingestion.progress`/`started` frame (which carries `total`, §7.4) and the backstop
-  poll correct it. Acceptable for a recovery snapshot.
+  next live `ingestion.started`/`progress` frame triggers a re-`syncState` (§7.2) and the
+  backstop poll corrects it. Acceptable for a recovery snapshot.
+- **Debounce / refetch load.** Routing `ingestion.progress` through a debounced `syncState`
+  turns a per-embed-batch frame storm into at most ~1 document refetch per debounce window; the
+  immediate `state` set keeps the bar responsive. Without the debounce, a large multi-chunk file
+  would refetch documents on every batch.
 - **Poll load.** A 15s poll per open in-progress config detail page; bounded to in-progress
   states and stopped at terminal, matching the existing `useBuildStateSocket` budget.
 - **Rollback** — revert the composable to the prior `syncOnReconnect`; frontend-only, no API
@@ -198,7 +226,10 @@ Primary red-first test: (1).
   transitions the bar to `ready`/`failed` and refetches documents, with no manual reload
   (F-21).
 - [ ] AC-5: A `failed` document is reflected as `state='failed'` on resync.
-- [ ] AC-6: `pnpm test`, `pnpm lint`, `pnpm typecheck`, and `pnpm build` pass in `frontend/`.
+- [ ] AC-6: `syncState` is the only writer of `documentsTotal`/`documentsProcessed`; a live
+  `ingestion.progress` frame (chunk-granular) never overwrites the document-level counts, and
+  the counts stay consistent across a multi-document upload.
+- [ ] AC-7: `pnpm test`, `pnpm lint`, `pnpm typecheck`, and `pnpm build` pass in `frontend/`.
 
 ## 11. SRS Delta
 
@@ -217,3 +248,7 @@ Appended by /build.
 - **FU-2 (shared resync helper):** the RAG and `useBuildStateSocket` recovery loops now share
   structure (onStatus → fetch authoritative → apply → backstop poll). A future refactor could
   extract a common resync primitive; out of scope for this bugfix.
+- **FU-3 (sub-document chunk progress):** unifying `progress` on document granularity (§7.2)
+  drops the intra-document chunk-level bar the current `ingestion.progress` handler attempts.
+  Document-level feedback is sufficient for this fix; a future enhancement could add a separate
+  per-document chunk sub-progress field without re-mixing it into the document counts.

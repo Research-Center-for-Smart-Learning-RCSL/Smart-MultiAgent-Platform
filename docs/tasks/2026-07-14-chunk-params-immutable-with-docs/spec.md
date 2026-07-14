@@ -60,6 +60,7 @@ pipeline.
 |---|---|---|---|
 | Q-1 | The SRS is silent on chunk-param retroactivity. Which policy? | **Lock once documents exist.** Chunk params are editable only while the config has zero documents; once any document exists, a *changing* patch is rejected (409) and the UI disables the fields. | Smallest correct fix; eliminates mixed semantics entirely; consistent with `chunk_strategy` and embedding immutability already enforced. A versioned reprocess pipeline was rejected as far larger (new worker, re-embedding, provenance, cutover); a warn-only band-aid was rejected as leaving the corpus permanently mixed. |
 | Q-2 | Should an *identical* `chunk_params` patch (no value change) be blocked when docs exist? | No — allow no-op patches. | The full-form detail-view PATCH always includes `chunk_params` (`RagConfigDetailView.vue:257-267` builds it via `assembleChunkParams` every save), so blocking unchanged values would break unrelated edits (name/top_k/rerank). Reject only when the value actually differs. |
+| Q-3 | Which document states count as "documents exist" for the lock? | Count `READY` + `INGESTING`; exclude `FAILED` + `QUARANTINED`. Key on `DocumentStatus`, not `scan_status`. | A failed/quarantined-only config has no committed chunks, so re-tuning creates no mixed corpus — a blanket `count(*)` would over-lock it. Chunks are produced at ingest regardless of scan verdict, so the gate must not use F-5's clean-only `scan_status` filter. |
 
 ## 4. Reproduction
 
@@ -111,6 +112,20 @@ outcome without touching the ingest read path.
     (`frontend/src/slices/agents/composables/useChunkParamsForm.ts:23-26`). The backend guard
     must compare the full effective `chunk_params` dict, not just UI-exposed fields, so a
     programmatic patch changing `max_tokens_per_chunk` is also blocked when docs exist.
+  - **Sibling-dossier coordination (same methods/constructors).** This fix shares surfaces with
+    three drafted siblings; none is a semantic conflict but all need merge coordination:
+    - **F-13 (`embedding-model-swap-guard`) — same `knowmap_config_service.update` method.** F-13
+      adds an embedding-model-swap guard to the same method; both guards must compose with a
+      defined precedence (F-13 already carries an F-14 precedence note — F-20 joins it). **Do NOT
+      share a "has data" helper:** F-20's gate is "has any locking document" (Q-3, `count > 0`),
+      F-13's is "has indexed vectors" (`last_build_at IS NOT NULL`) — distinct lifecycle facts; a
+      chunked-but-never-built config must lock chunk params (F-20) yet may still allow a model
+      swap only if unbuilt (F-13). Keep the two predicates separate.
+    - **F-11 (`embedding-dimension-pin-durability`) and F-18 (`config-delete-agent-unbind`) — same
+      constructors.** F-11 wires `EmbeddingPinRepository`, F-18 wires `AgentsFacade`, and F-20 wires
+      the document-count repo — all into `RagConfigService.__init__` / `KnowmapConfigService.__init__`.
+      Different methods otherwise (F-11 create/soft_delete, F-18 soft_delete, F-20 update), so this
+      is constructor-merge coordination only.
 
 ## 7. Fix Design
 
@@ -122,13 +137,25 @@ forbidden by resource state; `RagConfigNameTaken`-style state conflicts already 
 — note dimension conflicts use 422, but those are validation of a *value*, whereas this is a
 *state* conflict, so 409 is the correct semantic).
 
-**7.2 Document-count access.** `RagConfigService` does not currently wire a document repo
-(`config_service.py:47-50`). Add `RagDocumentRepository(self._db)` (already imported at `:34-37`)
-and a lightweight `count_for_config(config_id) -> int` on the repo (a `SELECT count(*)`; the
-existing `list_for_config` at `repositories.py:303-319` is limit-capped and unsuitable for
-counting). Knowledge Map already imports `KnowmapDocumentRepository` (used in `soft_delete` at
-`knowmap_config_service.py:183`, not in `update`); `update` must instantiate its own
-`KnowmapDocumentRepository(self._db)` and call the mirror count method.
+**7.2 Document-count access and which documents count.** `RagConfigService` does not currently
+wire a document repo (`config_service.py:47-50`). Add `RagDocumentRepository(self._db)` (already
+imported at `:34-37`) and a `count_locking_for_config(config_id) -> int` method. **Neither repo
+has a count method today** — `RagDocumentRepository.list_for_config` (`repositories.py:303-319`)
+and `KnowmapDocumentRepository.list_for_config` (`knowmap_repositories.py:356-372`) are both
+limit-capped and unsuitable — so both must be added. Knowledge Map already imports
+`KnowmapDocumentRepository` (used in `soft_delete` at `knowmap_config_service.py:183`, not in
+`update`); `update` must instantiate its own `KnowmapDocumentRepository(self._db)`.
+
+**Which documents lock the params (Q-3):** count documents whose `DocumentStatus` is a
+chunk-producing state — i.e. exclude `FAILED` and `QUARANTINED`, which have committed no
+retrievable chunks (`DocumentStatus` = `INGESTING/READY/FAILED/QUARANTINED`,
+`backend/contexts/knowledge/domain/models.py:17-21`). A config whose only upload failed or was
+quarantined has no mixed-policy corpus to protect, and its retry re-indexes at then-current
+params (`ingest_service.py:142-167`); a blanket `count(*)` would wrongly lock it. `READY` and
+`INGESTING` both reflect the current chunk policy in effect, so both lock. **This gate keys on
+`DocumentStatus`, NOT on `scan_status`** — do not adopt F-5's `scan_status='clean'` selector
+here: chunks are produced at ingest regardless of the malware verdict, so a `pending`/scanning
+document has already consumed the chunk params and must lock them.
 
 **7.3 File RAG update guard.** In `config_service.update` (`:157-213`), before writing: if
 `"chunk_params"` is in the patch **and** the new value differs from `cfg.chunk_params` **and**
@@ -154,18 +181,22 @@ recorded as FU-1.
 
 ## 8. Regression Test Plan
 
-Backend (`backend/tests/unit/`):
+Backend (`backend/tests/unit/`) — these are **net-new**: no existing test exercises
+`RagConfigService.update` or `knowmap_config_service.update` (the current `RagConfigService`
+unit tests are `test_rag_config_dimension.py`, create/dimension only; knowmap has no
+config-service-update test), so nothing locks in the old success behavior to break:
 
-1. **File RAG: changing chunk params with docs is rejected** (new/updated in
-   `test_config_service` / `test_rag_*`): given a config with ≥1 document, a patch that changes
-   `chunk_params` raises `ChunkParamsImmutable` (→ 409); the DB value is unchanged. Fails today
-   — the patch currently succeeds (`config_service.py:180-194`).
-2. **File RAG: changing chunk params with zero docs is allowed** (new): same patch on a
-   document-less config succeeds.
+1. **File RAG: changing chunk params with a locking document is rejected** (new): given a config
+   with ≥1 `READY`/`INGESTING` document, a patch that changes `chunk_params` raises
+   `ChunkParamsImmutable` (→ 409); the DB value is unchanged. Fails today — the patch currently
+   succeeds (`config_service.py:180-194`).
+2. **File RAG: changing chunk params with zero locking docs is allowed** (new): the same patch
+   succeeds on a document-less config **and** on a config whose only document is `FAILED` or
+   `QUARANTINED` (Q-3 — those do not lock).
 3. **File RAG: identical `chunk_params` patch with docs is allowed** (new, Q-2): a patch echoing
-   the current params (as the full-form save does) succeeds even with documents present, so
-   unrelated field edits are not blocked.
-4. **Knowledge Map: mirror of (1)-(3)** in the knowmap config-service tests.
+   the current params (as the full-form save does) succeeds even with locking documents present,
+   so unrelated field edits are not blocked.
+4. **Knowledge Map: mirror of (1)-(3)** as a new knowmap config-service-update test.
 
 Frontend (view/composable tests):
 
@@ -189,10 +220,12 @@ Primary red-first test: (1).
 ## 10. Acceptance Criteria
 
 - [ ] AC-1: The File RAG rejection test (§8.1) fails before the fix and passes after.
-- [ ] AC-2: `PATCH` on a File RAG config with ≥1 document that *changes* `chunk_params` returns
-  409 (`knowledge/chunk-params-immutable`) and leaves the stored params unchanged.
-- [ ] AC-3: `PATCH` that changes `chunk_params` on a document-less config succeeds; an
-  identical (no-op) `chunk_params` patch succeeds regardless of document count.
+- [ ] AC-2: `PATCH` on a File RAG config with ≥1 `READY`/`INGESTING` document that *changes*
+  `chunk_params` returns 409 (`knowledge/chunk-params-immutable`) and leaves the stored params
+  unchanged.
+- [ ] AC-3: `PATCH` that changes `chunk_params` succeeds on a config with no locking documents —
+  including one whose only document is `FAILED`/`QUARANTINED` (Q-3); an identical (no-op)
+  `chunk_params` patch succeeds regardless of document count.
 - [ ] AC-4: The same rejection/allow semantics hold for Knowledge Map config updates.
 - [ ] AC-5: Both detail UIs disable the chunk-param inputs when the config has documents and
   show an i18n immutability hint; the create form remains fully editable.

@@ -124,6 +124,16 @@ documented requirement, not a single-line defect.
     `{query, candidates, top_k}` and reads `results[].{index, score}`
     (`rerankers.py:95-116`). The deployed service MUST honor exactly this contract, or the
     adapter must be adjusted to the service's contract — see §7.
+  - **F-1 collision (must coordinate — same lines).** The sibling security spec
+    `docs/tasks/2026-07-14-rag-pinned-key-project-scope/spec.md` (F-1, release blocker) rewrites
+    the **same** rerank-validation block (`config_service.py:67-76,114-120,169-177`) to add a
+    `project_id` carried-scope check, and the **same** runtime factory
+    (`rag_context_provider.py:97-111`) to thread `project_id` into `RouterReranker` and catch a
+    scope error. A keyless `bge` reranker has no `key_id` and no carried key, so it MUST be
+    exempt from F-1's project-scope enforcement: F-19's `bge` branch routes **around**
+    `_validate_rerank_key` entirely (§7.2) and around the runtime scope check. Whichever lands
+    second reconciles the shared branch; build them together if possible. Neither spec
+    referenced the other before this note.
 
 ## 7. Fix Design
 
@@ -155,11 +165,32 @@ in-cluster service DNS (e.g. `http://bge-reranker:80`). An empty value means "lo
 not deployed" and MUST make `provider=bge` validation fail with a clear, doc-pointing error
 (mirroring the `supervisor_url` empty-disables gate at `:264-272`).
 
-**7.4 Runtime factory.** In `rag_context_provider.py:97-111`, branch on `cfg.rerank_provider`:
+**7.4 Runtime factory + URL injection (SoC).** In `rag_context_provider.py:97-111`, branch on
+`cfg.rerank_provider`:
 - `cohere` (and a key present) → `RouterReranker` (unchanged).
-- `bge` → `LocalBgeReranker(base_url=<settings.bge_reranker_url>)`, with no key required.
+- `bge` → `LocalBgeReranker(base_url=<injected bge_reranker_url>)`, with no key required.
   The current `cfg.rerank_key_id is not None` guard (`:98`) must be widened so a keyless
   `bge` config still builds a reranker instead of falling through to vector-only.
+
+  **The URL must NOT be read from `app.config` inside `rag_context_provider` (application →
+  app upward import — the same SoC rule §7.2 applies to the service).** `RagContextProvider`
+  already receives `qdrant_url` by constructor injection (`rag_context_provider.py:49-60`),
+  built in `TurnEngine.__init__` (`turn_engine.py:289,294,299`) and passed down to the RAG
+  provider (`rag_context_provider.py:54,59`). Add a `bge_reranker_url: str | None = None` param
+  the same way (default `None`, mirroring `qdrant_url`, so unrelated `TurnEngine` test doubles
+  stay compatible) and resolve it from settings at every composition-root site that already sets
+  `qdrant_url=settings.qdrant.url`: `app/workers/tasks/orchestration.py:123`,
+  `app/workers/tasks/conversation.py:316`, `app/workers/tasks/approvals.py:85`, and
+  `contexts/orchestration/application/a2a_handler.py:173`. `bge`-exercising tests supply the URL
+  via the existing `TurnEngine` fakes (`test_agent_trigger_wiring.py:269`,
+  `test_a2a_turn_dispatch.py:369,394`, `test_approval_gate_fixes.py:80`). The settings value from
+  §7.3 is resolved at those sites, not in the provider.
+
+- **Close the reranker client.** `LocalBgeReranker` owns an `httpx.AsyncClient` and exposes
+  `close()` (`rerankers.py:93,118-120`); `RouterReranker` does not. `RagContextProvider.query`
+  currently closes only the Qdrant client in its `finally` (`rag_context_provider.py:150-151`),
+  so a `bge` config leaks an httpx client every turn. Close the reranker in the same `finally`
+  when it is a `LocalBgeReranker` (guard by type or an optional `close()`).
 
 **7.5 Bundled service (deploy).** Add a reranker service to
 `deploy/compose/docker-compose.yml` serving `bge-reranker-v2-m3` on CPU. The service MUST
@@ -172,12 +203,21 @@ to the deployed service's request/response shape, or (b) placing a thin translat
 front. Record the chosen contract explicitly. Add the service to `.env.example` and the
 deploy docs; keep it off the public network (internal service only).
 
-**7.6 Health handling.** `LocalBgeReranker` has only `raise_for_status()` + `close()`
-(`rerankers.py:108,118-120`). Add a readiness/health path: at minimum surface a clear error
-when the service is unreachable at rerank time; optionally add a startup/health probe
-mirroring the supervisor readiness gate. A rerank-service failure must degrade to vector-only
-retrieval (not a turn failure) with a logged warning, consistent with the existing
-router-reranker fallback (`rag_context_provider.py:108-110`).
+**7.6 Health handling + real degrade path.** `LocalBgeReranker` has only `raise_for_status()`
++ `close()` (`rerankers.py:108,118-120`). Add a readiness/health path: at minimum surface a
+clear error when the service is unreachable at rerank time; optionally add a startup/health
+probe mirroring the supervisor readiness gate.
+
+**Correction (verified):** the "degrade to vector-only" behavior does **not** exist today, and
+the `rag_context_provider.py:108-110` fallback is only a *construction-time* `TypeError` guard,
+not a rerank-execution failure path. `RetrieveService.query` calls the reranker with **no**
+try/except (`backend/contexts/knowledge/application/retrieve.py:159-185`); a `RerankError`/httpx
+failure propagates to `RagContextProvider.query`'s blanket `except Exception` (`:152-158`),
+which returns `None` and drops the **entire** RAG block — not vector-only. To satisfy AC-4 the
+fix must wrap the rerank call at `retrieve.py:159-185` and, on failure, fall back to
+`candidates[:effective_top_k]` (exactly the non-rerank return already at `:187`) with a logged
+warning. This corrects the existing Cohere path too, so scope it as a shared retrieval-degrade
+fix, not `bge`-only.
 
 **7.7 UI provider selector.** Replace the hardcoded provider set:
 - `useRagConfigForm.ts:48-59` — expose a `rerankProvider` selection (`cohere` | `bge`)
@@ -194,21 +234,34 @@ purely additive.
 
 ## 8. Regression Test Plan
 
-Backend (`backend/tests/unit/`):
+Backend (`backend/tests/unit/`) — note the actual files: the `RagConfigService` create/validation
+tests live in `test_rag_config_dimension.py`, and the context-provider tests are the
+`TestRagContextProviderSources` class in `test_rag_services.py` (there is no `test_config_service`
+or `test_rag_context_provider` file — new assertions attach to these or a new file):
 
-1. **API accepts `bge`** (update `test_rag_*` API/schema test): `POST`/`PATCH` with
+1. **API accepts `bge`** (update the RAG API/schema test): `POST`/`PATCH` with
    `rerank_provider="bge"` is accepted; a bad provider is still 422. Fails today —
    `Literal["cohere"]` rejects `"bge"`.
-2. **Keyless `bge` validates without a key** (`test_config_service` or new): a config with
-   `rerank_enabled=true, rerank_provider="bge", rerank_key_id=None` and a configured service
-   URL is accepted; the same with an empty service URL is rejected with the doc-pointing
-   error; supplying a key with `bge` is rejected. Fails today — `config_service.py:114-120`
-   demands a key.
-3. **Runtime builds `LocalBgeReranker` for `bge`** (`test_rag_context_provider` or new):
-   a `bge` config constructs `LocalBgeReranker(base_url=...)`, not `RouterReranker`, and does
-   not fall through to vector-only. Fails today — factory only builds `RouterReranker`.
-4. **Service-down degrades to vector-only** (new): when `LocalBgeReranker.rerank` raises,
-   retrieval returns vector-only results with a warning, not a turn failure.
+2. **Keyless `bge` validates without a key** (`test_rag_config_dimension.py` or new): a config
+   with `rerank_enabled=true, rerank_provider="bge", rerank_key_id=None` and a configured
+   service URL is accepted; the same with an empty service URL is rejected with the
+   doc-pointing error; supplying a key with `bge` is rejected. Fails today —
+   `config_service.py:114-120` demands a key.
+3. **Runtime builds `LocalBgeReranker` for `bge`** (`test_rag_services.py` /
+   `TestRagContextProviderSources`): a `bge` config constructs `LocalBgeReranker(base_url=...)`,
+   not `RouterReranker`, and does not fall through to vector-only. Fails today — factory only
+   builds `RouterReranker`.
+4. **Rerank failure degrades to vector-only** (new, in `test_rag_services.py`): when the
+   reranker's `rerank` raises, `RetrieveService.query` returns `candidates[:effective_top_k]`
+   (vector-only) with a warning, and `RagContextProvider.query` still returns the RAG block —
+   not `None`. Fails today — `retrieve.py:159-185` has no try/except, so the block is dropped.
+
+**Landmine (must stay green — do NOT touch):** the capability goldens
+`frontend/src/slices/keys/__tests__/capabilities.test.ts:8-15` and the backend cohere-rerank-only
+assertion in `backend/tests/unit/test_keys_providers.py` (`test_cohere_rerank_only`) lock the
+RERANK capability to Cohere. `bge` is keyless and is NOT a key provider (§6), so it must be added
+to the *rerank-provider enum* only, never to the capability map. An implementer who adds `bge` to
+`CAPABILITIES` to "make it selectable" will redden both — that is the wrong edit.
 
 Frontend (`frontend/src/slices/agents/**/__tests__` or view tests):
 
@@ -243,8 +296,9 @@ The primary red-first test is (1) (API schema) or (3) (runtime factory).
 - [ ] AC-3: At runtime a `bge` config constructs `LocalBgeReranker` against the configured
   service URL; a Cohere config still constructs `RouterReranker`; neither keyless-`bge` nor
   Cohere silently falls through to vector-only when correctly configured.
-- [ ] AC-4: A reranker-service failure degrades retrieval to vector-only with a logged
-  warning, never failing the Agent turn.
+- [ ] AC-4: A reranker execution failure (`bge` or Cohere) degrades `RetrieveService.query`
+  to vector-only (`candidates[:effective_top_k]`) with a logged warning, and the RAG block is
+  still returned — the turn is never failed and the whole block is never dropped.
 - [ ] AC-5: Both the create and edit UIs expose a provider selector (`cohere` | local BGE);
   selecting local hides the key field and permits submit without a key; all strings via `$t()`.
 - [ ] AC-6: `deploy/compose/docker-compose.yml` includes a bundled reranker service serving
@@ -255,8 +309,10 @@ The primary red-first test is (1) (API schema) or (3) (runtime factory).
 - [ ] AC-8: An E2E smoke test exercises a `bge`-provider rerank end-to-end against the
   bundled service.
 - [ ] AC-9: `pytest -q`, `ruff check . && ruff format --check .`, and `mypy .` pass in
-  `backend/`; `pnpm test`, `pnpm lint`, `pnpm typecheck`, and `pnpm build` pass in `frontend/`;
-  `pnpm run gen:api` re-run if API types changed.
+  `backend/`; `pnpm test`, `pnpm lint`, `pnpm typecheck`, and `pnpm build` pass in `frontend/`.
+  Because `rag.py`'s request/response models change, `pnpm run gen:api` is re-run (regenerating
+  `RagConfigCreateIn.ts`/`RagConfigPatchIn.ts`) **and** the hand-written enum at `schemas.ts:76`
+  is edited separately (both required); `pnpm run check:openapi-drift` passes.
 
 ## 11. SRS Delta
 
