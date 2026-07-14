@@ -168,11 +168,13 @@ class RagContextProvider:
                     # withdrawn from the config's project — or, rarely, a rerank
                     # key withdrawn between its pre-check and use). No billed
                     # call happened; drop the RAG block for this turn and audit.
-                    capability = (
-                        "rerank"
-                        if cfg.rerank_key_id is not None and err.key_id == cfg.rerank_key_id
-                        else "embedding"
-                    )
+                    #
+                    # Attribute to the failing capability by matching the embed key
+                    # FIRST: embedding runs before rerank in retrieval, so when a
+                    # config pins the SAME key for both, the call that raised is the
+                    # embed. Keying on rerank_key_id first would mislabel that
+                    # shared-key embed failure as "rerank".
+                    capability = "embedding" if err.key_id == cfg.embed_key_id else "rerank"
                     await self._emit_scope_degrade(cfg=cfg, key_id=err.key_id, capability=capability)
                     return None
                 effective_top_k = top_k or cfg.top_k or 8
