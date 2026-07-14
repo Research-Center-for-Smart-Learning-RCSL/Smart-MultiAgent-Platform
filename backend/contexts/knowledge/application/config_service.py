@@ -64,10 +64,12 @@ class RagConfigService:
         except KeysCapabilityMismatch as exc:
             raise CapabilityMismatch(str(exc)) from exc
 
-    async def _validate_rerank_key(self, *, key_id: uuid.UUID, provider: str) -> None:
+    async def _validate_rerank_key(self, *, key_id: uuid.UUID, provider: str, project_id: uuid.UUID) -> None:
         key = await self._keys_facade.get_key(key_id)
         if key is None:
             raise CapabilityMismatch(f"rerank_key {key_id} missing or deleted")
+        if not await self._keys_facade.is_key_in_project_scope(key_id, project_id):
+            raise CapabilityMismatch(f"rerank_key {key_id} does not belong to project")
         if key.provider.value != provider:
             raise CapabilityMismatch(f"rerank_key provider {key.provider.value!r} != {provider!r}")
         try:
@@ -117,6 +119,7 @@ class RagConfigService:
             await self._validate_rerank_key(
                 key_id=draft.rerank_key_id,
                 provider=draft.rerank_provider,
+                project_id=project_id,
             )
 
         cfg = await self._configs.create(
@@ -174,7 +177,11 @@ class RagConfigService:
             if rerank_key_id is None or not rerank_provider:
                 raise CapabilityMismatch("rerank_enabled=true requires rerank_key_id + rerank_provider")
             if "rerank_key_id" in patch or "rerank_provider" in patch:
-                await self._validate_rerank_key(key_id=rerank_key_id, provider=rerank_provider)
+                await self._validate_rerank_key(
+                    key_id=rerank_key_id,
+                    provider=rerank_provider,
+                    project_id=cfg.project_id,
+                )
 
         # Only allow mutable fields.
         mutable = {
