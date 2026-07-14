@@ -238,3 +238,6 @@ behavior.
   boundary can be skipped or duplicated. Self-healing (a skipped config is swept the next
   minute; a duplicate collapses on the stable `_job_id`), so deferred — add `id` as a tiebreak
   in the `order_by` to make paging exact.
+  **Resolved (c9816ca):** `order_by(created_at, id)`. The same commit also filters the feed to
+  positive-integer `silence_minutes` (regex on the JSONB text) and batches the sweep's
+  per-config clock reads into one MGET per page.
