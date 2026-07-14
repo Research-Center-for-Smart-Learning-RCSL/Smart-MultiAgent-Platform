@@ -50,17 +50,6 @@ class _FakeCfg:
         self.project_id = project_id
 
 
-class _FakeResolver:
-    def __init__(self, roles: tuple[str, ...]) -> None:
-        self._roles = roles
-
-    def __call__(self, _db):
-        return self
-
-    async def roles_for(self, principal, scope):
-        return self._roles
-
-
 def _auth(*, is_admin: bool = False) -> WsAuth:
     return WsAuth(
         principal=Principal(user_id=uuid.uuid4(), is_admin=is_admin, email_verified=True),
@@ -146,7 +135,11 @@ async def test_non_member_closes_4403(monkeypatch) -> None:
 
     monkeypatch.setattr(ws_mod, "authenticate_subprotocol", _fake_auth)
     monkeypatch.setattr(ws_mod, "get_sessionmaker", _fake_sessionmaker)
-    monkeypatch.setattr(ws_mod, "TenancyRoleResolver", _FakeResolver(roles=()))
+
+    async def _deny(_session, *, principal, cfg):
+        return False
+
+    monkeypatch.setattr(ws_mod, "has_config_read_access", _deny)
 
     async def _get_config(_facade, _cid):
         return _FakeCfg(uuid.uuid4())
@@ -178,7 +171,11 @@ async def test_member_subscribes_to_the_given_channel(monkeypatch) -> None:
 
     monkeypatch.setattr(ws_mod, "authenticate_subprotocol", _fake_auth)
     monkeypatch.setattr(ws_mod, "get_sessionmaker", _fake_sessionmaker)
-    monkeypatch.setattr(ws_mod, "TenancyRoleResolver", _FakeResolver(roles=("member",)))
+
+    async def _allow(_session, *, principal, cfg):
+        return True
+
+    monkeypatch.setattr(ws_mod, "has_config_read_access", _allow)
 
     async def _get_config(_facade, _cid):
         return _FakeCfg(uuid.uuid4())

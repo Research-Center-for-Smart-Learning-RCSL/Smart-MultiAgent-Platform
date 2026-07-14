@@ -16,9 +16,8 @@ from typing import Any
 
 from fastapi import APIRouter, WebSocket
 
+from contexts.knowledge.interfaces.config_access import has_config_read_access
 from contexts.knowledge.interfaces.facade import KnowledgeFacade
-from contexts.tenancy.interfaces.role_resolver import TenancyRoleResolver
-from shared_kernel.auth.permissions import Scope
 from shared_kernel.db.session import get_sessionmaker
 from shared_kernel.realtime import (
     WsAuthError,
@@ -39,8 +38,12 @@ def make_config_scoped_ws_router(
     request-scoped session (e.g. ``lambda f, cid: f.get_rag_config(cid)``);
     the returned object must expose ``project_id``. Flow: subprotocol auth
     (close 4401 on failure) -> unless admin, look up the config (close 4404 if
-    missing) and check project membership (close 4403 if the caller has no
-    role) -> subscribe to ``channel_fn(config_id)`` via ``connection_loop``.
+    missing) and apply the R11.17 owner-aware read ACL via
+    ``has_config_read_access`` (close 4403 on denial: chatroom-owned Concept
+    Maps go through the owning room's ACL, agent_group/workspace maps require
+    project membership + ``concept_map_enabled``, RAG/Knowledge-Map configs
+    require project membership) -> subscribe to ``channel_fn(config_id)`` via
+    ``connection_loop``.
     """
     router = APIRouter(tags=["ws"])
 
@@ -61,12 +64,13 @@ def make_config_scoped_ws_router(
                     if cfg is None:
                         await ws.close(code=4404)
                         return
-                    resolver = TenancyRoleResolver(session)
-                    roles = await resolver.roles_for(
-                        auth.principal,
-                        Scope(project_id=cfg.project_id),
-                    )
-                    if not roles:
+                    # R11.17 owner-aware ACL: chatroom-owned Concept Maps go
+                    # through the room ACL; agent_group/workspace maps require
+                    # project membership + concept_map_enabled; RAG/Knowledge-Map
+                    # configs (no owner_kind) require project membership.
+                    if not await has_config_read_access(
+                        session, principal=auth.principal, cfg=cfg
+                    ):
                         await ws.close(code=4403)
                         return
             except Exception:  # pragma: no cover
