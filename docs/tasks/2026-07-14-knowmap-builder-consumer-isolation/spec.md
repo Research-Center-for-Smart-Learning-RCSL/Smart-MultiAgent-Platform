@@ -141,16 +141,42 @@ reading `KnowledgeFacade.get_knowmap_config` (`agent_service.py:259`).
    `agents.knowmap_config_id` is unindexed (`0048_knowmap.py`); scope by the indexed
    `project_id` — a dedicated index is not required for this low-cardinality config-edit path
    but is recorded as FU-2.
-2. **Wire it into the config update.** In `KnowmapConfigService.update`, inside the
+2. **Serialize builder-change against Agent-attach (concurrency — required).** Neither
+   `KnowmapConfigService.update` nor `AgentService.patch`'s attach branch takes any lock today
+   (verified: the knowledge context has no `pg_advisory`/`FOR UPDATE` at all; the agent create
+   path locks on `project_id` only for the R9.01 cap, `agent_service.py:284-285`, and the
+   *patch* attach branch at `:435-443` takes no lock). So a concurrent "attach Agent A (consumer
+   G) to map M" and "change M's builder to G" can interleave — A's guard reads M's old builder,
+   B's detach reads the not-yet-committed attach — and **both commit, leaving the collision this
+   fix exists to prevent** (the same unlocked read-then-write class the audit flagged in F-11).
+   Take a transaction-scoped advisory lock keyed on the **config id** in *every* path that binds
+   or re-validates an Agent against that map's builder group, mirroring the create-path precedent
+   (`agent_service.py:284-285`) / the orchestration helper
+   (`backend/contexts/orchestration/infrastructure/repositories.py:532-535`): acquire it at the
+   top of `KnowmapConfigService.update` (before reading attached Agents), and in **both**
+   `AgentService.patch` (before `_assert_knowmap_config_compatible`, `agent_service.py:438`) and
+   `AgentService.create` (which also validates a knowmap attach) whenever a knowmap
+   attach/re-key is in play. With the lock held, whichever request commits first is fully
+   observed by the second: an attach/create that loses the race sees the new builder and is
+   rejected by the agent-side guard; a builder-change that loses sees the freshly-attached Agent
+   and detaches it. (The create path's existing project-id lock at `:284-285` is a different key;
+   the config-id lock is additional and must be acquired in a consistent order — see §9.)
+3. **Wire the detach into the config update.** In `KnowmapConfigService.update`, inside the
    `new_group is not None and new_group != cfg.builder_key_group_id` branch
    (`knowmap_config_service.py:132`), after the existing project/pin/dimension validations and
    within the same request transaction (`backend/shared_kernel/db/session.py:95-114` commits at
    request end; the PATCH route does not commit mid-handler), call the new facade method with the
    resolved `new_group` and capture the detached ids. Perform the config `self._configs.update(...)`
    (`:151`) as today; both writes commit or roll back together.
-3. **Surface the outcome (Q-4).** Include the detached Agent ids in the update audit metadata
-   (`audit.emit`, `:154-165`) and add an additive `detached_agent_ids: list[UUID]` field to the
-   knowmap config update **response** schema so the API and frontend can inform the designer.
+4. **Surface the outcome (Q-4).** Include the detached Agent ids in the update audit metadata
+   (`audit.emit`, `:154-165`). To return them to the caller, note `KnowmapConfigOut`
+   (`backend/app/api/v1/knowmap.py:92-106`) is the **shared** GET/create/patch response model —
+   do **not** widen its common shape. Either add an **optional** `detached_agent_ids:
+   list[UUID] | None = None` field (populated only by the patch mapper, omitted elsewhere) or
+   introduce a dedicated `KnowmapConfigPatchOut` for the PATCH route (`:289-310`). Either way the
+   OpenAPI schema changes, so regenerate the checked-in api-client
+   (`frontend/ pnpm run gen:api`) and commit the regenerated `KnowmapConfigOut.ts` /
+   `KnowmapService.ts`; CI's `check:openapi-drift` (`frontend/package.json:15`) fails if skipped.
    Add the frontend i18n string and a toast in `KnowledgeMapConfigDetailView.vue`'s
    `saveMutation` success handler (`frontend/src/slices/agents/views/KnowledgeMapConfigDetailView.vue:248-258`)
    when `detached_agent_ids` is non-empty; mirror the string into `zh-TW.json`.
@@ -168,8 +194,12 @@ attachments and reports them for owner review.
 
 ## 8. Regression Test Plan
 
-Failing-first tests (each fails against current code, passes after the fix). Backend unit tests
-with a fake/in-memory agents facade or a seeded test DB:
+There is no dedicated `test_knowmap_config_service.py` today — the update method's only coverage
+is API-level `backend/tests/unit/test_knowmap_authz.py` plus wiring tests. Create
+`backend/tests/unit/test_knowmap_config_service.py` for the config-side cases; extend
+`backend/tests/unit/test_agent_service.py` for the agent-side guard. Failing-first tests (each
+fails against current code, passes after the fix), with a fake/in-memory agents facade or a
+seeded test DB:
 
 1. **Config-side detach (primary red-first)** — `knowmap_config_service.update` changing
    `builder_key_group_id` to a group equal to an attached Agent's `key_group_id` detaches that
@@ -181,10 +211,18 @@ with a fake/in-memory agents facade or a seeded test DB:
    attached. Fails today (neither is touched).
 3. **No collision, no detach** — a builder-group change to a group no attached Agent consumes
    leaves all attachments intact and `detached_agent_ids` empty.
-4. **Audit metadata** — a detach emits an audit event whose metadata names the detached Agent
-   id(s) and contains no key secret (CLAUDE.md).
+4. **Audit metadata** — a detach emits an `agent.knowmap_detached` audit event whose metadata
+   names the detached Agent id(s) and contains no key secret (CLAUDE.md).
 5. **Agent-side guard unchanged** — the existing `agent_service` attach/re-key rejection
-   (`KnowmapBuilderKeyGroupConflict`) still fires; the config-side fix does not alter it.
+   (`KnowmapBuilderKeyGroupConflict`) still fires; the config-side fix does not alter it
+   (extend `backend/tests/unit/test_agent_service.py`).
+6. **Concurrency invariant (seeded-DB, serialized)** — a race between an Agent-attach and a
+   builder-group-change on the same map must never leave a collision. A pure race is
+   non-deterministic to assert directly, so verify the guarantee's mechanism: (a) assert both
+   `KnowmapConfigService.update` and `AgentService.patch`'s attach branch acquire the config-id
+   advisory lock (spy/interception), and (b) run the two operations serialized in each order
+   against a seeded DB and assert the post-state holds the invariant (loser is either rejected or
+   detached). Fails today (no lock; interleaving leaves a collision).
 
 ## 9. Risks and Rollback
 
@@ -197,6 +235,11 @@ with a fake/in-memory agents facade or a seeded test DB:
   single `db_session()` unit of work that commits only after the handler returns
   (`session.py:95-114`); the route does not commit mid-handler (`knowmap.py:289-310`). Do not
   introduce an intermediate commit.
+- **Concurrency (addressed, not merely noted)** — the advisory lock (§7.2) is load-bearing for
+  the security guarantee; without it the fix has a live race. Define a single lock-acquisition
+  order (the config-id lock is the only advisory lock either path takes, and neither nests it
+  under another, so deadlock risk is low) and confirm the agents create path's separate
+  project-id lock (`agent_service.py:284-285`) does not interleave to form a cycle.
 - **Import cycle** — see §7 patterns; use a local import if the module-level one cycles.
 - **Interaction with F-13** — both mutate the same builder-group-change branch. Define precedence:
   F-13's embedding-model-change rejection (a hard 409) should run **before** this detach logic —
@@ -209,7 +252,7 @@ with a fake/in-memory agents facade or a seeded test DB:
 
 ## 10. Acceptance Criteria
 
-- [ ] AC-1: The five regression tests in §8 fail before the fix and pass after.
+- [ ] AC-1: The six regression tests in §8 fail before the fix and pass after.
 - [ ] AC-2: Changing a Knowledge Map's `builder_key_group_id` to a group equal to any attached
   Agent's consumer `key_group_id` detaches exactly those colliding Agents (their
   `knowmap_config_id` cleared) in the same transaction as the config update; non-colliding
@@ -225,6 +268,12 @@ with a fake/in-memory agents facade or a seeded test DB:
   `backend/`; `pnpm lint` / `pnpm typecheck` pass in `frontend/`.
 - [ ] AC-8: `/check-security` review passes for the enforced builder/consumer key-isolation
   boundary (audit FU-1).
+- [ ] AC-9: `KnowmapConfigService.update` and both agent attach paths (`AgentService.patch` and
+  `AgentService.create`) acquire the config-id advisory lock, so a concurrent attach/create and
+  builder-group-change cannot interleave into a persisted collision (§8.6).
+- [ ] AC-10: The checked-in api-client is regenerated (`pnpm run gen:api`) and committed so
+  `check:openapi-drift` passes; `KnowmapConfigOut`'s shared GET/create shape is not broadened
+  (optional field or dedicated patch model).
 
 ## 11. SRS Delta
 
