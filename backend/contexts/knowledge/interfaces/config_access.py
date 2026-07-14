@@ -24,12 +24,13 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.agent_groups.interfaces.facade import AgentGroupFacade
-from contexts.conversation.domain.errors import (
+from contexts.conversation.interfaces.access import (
     ChatroomNotFound,
     ForbiddenInRoom,
     WorkspaceNotFound,
+    ensure_can_read,
+    resolve_room_access,
 )
-from contexts.conversation.interfaces.access import ensure_can_read, resolve_room_access
 from contexts.conversation.interfaces.facade import ConversationFacade
 from contexts.tenancy.interfaces.role_resolver import TenancyRoleResolver
 from shared_kernel.auth.permissions import Principal, Scope
@@ -44,8 +45,9 @@ async def has_config_read_access(
     """Return whether *principal* may read / subscribe to knowledge config *cfg*.
 
     Fail-closed: a deleted room, a missing owner, or a disabled ``concept_map_enabled``
-    opt-in all yield ``False``. A store error propagates to the caller (the WS
-    watchdog retries the next window rather than dropping a live socket).
+    opt-in all yield ``False``. A store error propagates to the caller, which decides
+    how to handle it: the REST/WS handshake fails closed (403 / 4403), while the
+    mid-socket watchdog retries the next window rather than dropping a live socket.
     """
     if principal.is_admin:
         return True
