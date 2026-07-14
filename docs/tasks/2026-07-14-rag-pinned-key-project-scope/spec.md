@@ -275,10 +275,15 @@ boundaries / runtime safety / structure; two Introduced-Warnings fixed —
   graceful-degrade / owner-facing error surface for those paths belongs to F-13/F-14 (the
   builder-key save-time validation), not F-1.
 - **FU-4** (from `/check-security`): `ProviderRouter.call_single_key_stream` (the §29
-  prompt-assistant pinned-key streaming path) has no carried-scope gate — it is the one
-  pinned-key entry point this fix does not cover. No cross-tenant vector today (its key is
-  resolved from the caller's own config one level up), but adding the same gate would keep
-  "single chokepoint" literally true for every pinned-key path. Pre-existing.
+  prompt-assistant pinned-key streaming path) has no carried-scope gate. A later
+  `/code-review` pass (Finding #1) closed this out as **not applicable**, not a parity
+  gap: that path is owner-scoped, not project-scoped. `AssistantConfig`
+  (`contexts/prompt_studio/domain/models.py`) carries a `PromptScope` (org_id/user_id)
+  with **no** `project_id`, so a carried-into-project gate has nothing to check against.
+  Its key is instead protected save-time by `config_service._assert_key_usable`
+  (`key.owner_user_id != actor_user_id -> PinnedKeyNotOwned`) and at call time by
+  `get_active` (soft-deleted keys filtered). No cross-tenant vector, and the
+  carried-scope gate is structurally inapplicable — closed, no code change.
 - **FU-3**: the backend `mypy` baseline is pre-existing-red (~20 errors across
   `contexts/conversation/infrastructure/presence.py`, `contexts/tenancy/infrastructure/repositories.py`,
   `contexts/agents/infrastructure/repositories.py`, `contexts/workflow/application/workflow_service.py`,
