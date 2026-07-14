@@ -271,13 +271,25 @@ class ReconciliationLoop:
     ) -> None:
         build_id = await self._resolve_build_id(cfg)
         if build_id is None:
-            # No snapshot → nothing to compensate; mark failed outright.
+            # No snapshot → nothing to compensate; mark failed outright. Audit a
+            # distinct compensation_unavailable outcome (F-7) so this is never counted
+            # as a clean rollback — it is a terminal failure with partial data left in
+            # place, not a healed graph.
             await self._repo_factory(db).set_state(
                 config_id=cfg.id,
                 state=BuildState.FAILED,
                 error="no snapshot available for compensation",
             )
             await self._clear_current(cfg.id)
+            await audit.emit(
+                db,
+                audit.AuditEvent(
+                    action=self._action,
+                    resource_type=self._resource_type,
+                    resource_id=cfg.id,
+                    metadata={"build_id": None, "outcome": "compensation_unavailable"},
+                ),
+            )
             await publish_build_state(cfg.id, BuildState.FAILED.value, channel=self._channel_fn(cfg.id))
             return
 
@@ -358,22 +370,95 @@ class ReconciliationLoop:
             config_id=cfg.id,
             build_id=build_id,
         )
-        if snapshot is not None:
-            try:
-                await self._neo4j.delete_by_build(
-                    config_id=cfg.id,
-                    build_id=build_id,
-                )
-                await self._neo4j.restore_from_snapshot(
-                    config_id=cfg.id,
-                    snapshot=snapshot,
-                )
-            except Exception as exc:
-                _log.exception("graphrag rollback failed: %s", exc)
+        if snapshot is None:
+            # A build id resolved but its snapshot is gone (expired past the 24h TTL or
+            # never taken) — compensation is impossible, so fail terminally with an
+            # honest, non-rolled_back outcome (F-7) rather than claiming a rollback that
+            # never ran. Retrying could not succeed: the recovery material is gone.
+            await self._finalize_failed(
+                db,
+                cfg=cfg,
+                build_id=build_id,
+                error="no snapshot available for compensation",
+                outcome="compensation_unavailable",
+            )
+            return
+        try:
+            await self._neo4j.delete_by_build(
+                config_id=cfg.id,
+                build_id=build_id,
+            )
+            await self._neo4j.restore_from_snapshot(
+                config_id=cfg.id,
+                snapshot=snapshot,
+            )
+        except Exception as exc:
+            # F-7: compensation itself failed (transient Neo4j). Do NOT advertise a
+            # clean rollback or destroy the only recovery material — retain the snapshot
+            # + current pointer, audit a distinct compensation_failed outcome, and let
+            # the next sweep retry. Both delete_by_build and restore_from_snapshot are
+            # build-id-scoped and idempotent, so re-running compensation is safe.
+            #
+            # Keep the config in its *current* stuck state rather than forcing
+            # FAILED_COMPENSATING: this path is shared with the crashed-Phase-1 RUNNING
+            # rollback (_reconcile_one), and both RUNNING and FAILED_COMPENSATING are in
+            # _STUCK_STATES, so preserving the state re-enrolls the config under the SAME
+            # handler next sweep. Flipping a RUNNING crash to FAILED_COMPENSATING would
+            # reroute it into the Phase-2 retry loop and *complete* a build the RUNNING
+            # path (audit review #1) deliberately rolls back.
+            _log.exception("graphrag rollback failed: %s", exc)
+            await self._repo_factory(db).set_state(
+                config_id=cfg.id,
+                state=cfg.last_build_state,
+                error="compensation failed; will retry",
+            )
+            await publish_build_state(
+                cfg.id,
+                cfg.last_build_state.value,
+                build_id=build_id,
+                channel=self._channel_fn(cfg.id),
+            )
+            await audit.emit(
+                db,
+                audit.AuditEvent(
+                    action=self._action,
+                    resource_type=self._resource_type,
+                    resource_id=cfg.id,
+                    metadata={
+                        "build_id": str(build_id),
+                        "outcome": "compensation_failed",
+                    },
+                ),
+            )
+            return
+        # Compensation succeeded → terminal FAILED; the previous active build is intact,
+        # so drop the recovery material and record the clean rollback.
+        await self._finalize_failed(
+            db,
+            cfg=cfg,
+            build_id=build_id,
+            error="phase2 retries exhausted; rolled back",
+            outcome="rolled_back",
+        )
+
+    async def _finalize_failed(
+        self,
+        db: AsyncSession,
+        *,
+        cfg: ConfigLike,
+        build_id: uuid.UUID,
+        error: str,
+        outcome: str,
+    ) -> None:
+        """Terminal-FAILED finalization shared by the successful-rollback and the
+        genuinely-uncompensatable (no-snapshot) paths: mark FAILED, publish, drop the
+        snapshot + current pointer, and audit ``outcome``. Only called once
+        compensation has either succeeded or is provably impossible — never while a
+        retryable compensation is still owed (that path retains the recovery material)."""
         await self._repo_factory(db).set_state(
             config_id=cfg.id,
             state=BuildState.FAILED,
-            error="phase2 retries exhausted; rolled back",
+            error=error,
         )
         await publish_build_state(
             cfg.id, BuildState.FAILED.value, build_id=build_id, channel=self._channel_fn(cfg.id)
@@ -391,7 +476,7 @@ class ReconciliationLoop:
                 resource_id=cfg.id,
                 metadata={
                     "build_id": str(build_id),
-                    "outcome": "rolled_back",
+                    "outcome": outcome,
                 },
             ),
         )
