@@ -58,6 +58,7 @@ running multi-service stack.
 
 - **Severity**: critical
 - **Verdict**: confirmed
+- **Security review**: required (`/check-security`) — BYO-key cross-tenant billing boundary.
 - **Evidence**: embedding save validation checks project carry
   (`backend/contexts/knowledge/application/config_service.py:52-65`), but rerank
   validation does not (`:67-76`) and create/update rely on it (`:114-120,169-177`).
@@ -82,6 +83,7 @@ running multi-service stack.
 
 - **Severity**: critical
 - **Verdict**: confirmed
+- **Security review**: required (`/check-security`) — private-room ACL / cross-tenant read boundary.
 - **Evidence**: Concept Map REST status and graph endpoints authorize only project
   membership (`backend/app/api/v1/graphrag.py:331-377`). The GraphRAG WebSocket uses a
   generic config-project role check
@@ -321,6 +323,7 @@ running multi-service stack.
 
 - **Severity**: major
 - **Verdict**: confirmed
+- **Security review**: recommended (`/check-security`) — defeats an enforced BYO-key builder/consumer isolation control.
 - **Evidence**: Agent attachment/key changes enforce builder group != consumer group
   (`backend/contexts/agents/application/agent_service.py:235-270,421-443`). Knowledge Map
   config update checks only project, embedding availability, and dimension, never attached
@@ -521,6 +524,7 @@ code independently of its finder.
 
 - **Severity**: major
 - **Verdict**: confirmed
+- **Security review**: recommended (`/check-security`) — per-tenant data residue after tenant deletion.
 - **Evidence**: File RAG infra teardown lives only in `RagConfigService.purge_documents_infra`
   (`backend/contexts/knowledge/application/config_service.py:285`), invoked from exactly two
   endpoints — RAG config delete (`backend/app/api/v1/rag.py:373`) and document delete
@@ -547,6 +551,7 @@ code independently of its finder.
 
 - **Severity**: major
 - **Verdict**: confirmed
+- **Security review**: required (`/check-security`) — project AuthZ mid-socket revocation window.
 - **Evidence**: the shared factory behind `/ws/graphrag/{id}`, `/ws/rag-configs/{id}`, and
   `/ws/knowmap/{id}` checks the config's project role once at handshake
   (`backend/contexts/knowledge/interfaces/ws_config_route.py:55-71`), then calls
@@ -635,9 +640,12 @@ code independently of its finder.
 
 ## Follow-ups outside the functional findings
 
-- **FU-1 (security)**: F-1, F-2, and F-25 require dedicated `/check-security` remediation
-  review; they cross BYO-key and private-room/project trust boundaries and should block
-  release.
+- **FU-1 (security)**: findings tagged `Security review` must route through `/check-security`
+  before their fixes merge.
+  - **Required** (cross trust boundaries, block release): F-1 (BYO-key cross-tenant billing),
+    F-2 (private-room ACL bypass), F-25 (project AuthZ mid-socket revocation window).
+  - **Recommended** (security-adjacent, review with the fix): F-14 (defeats enforced
+    builder/consumer key isolation), F-24 (per-tenant data residue after tenant deletion).
 - **FU-2 (resource hardening)**: Concept Map layer count and the final accumulated triple/
   embedding batch have no independent resource cap. The current one-apply design is
   approved, so this audit did not relabel it as a functional bug.
