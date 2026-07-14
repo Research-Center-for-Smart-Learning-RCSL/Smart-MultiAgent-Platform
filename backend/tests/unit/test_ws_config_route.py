@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -232,3 +233,83 @@ async def test_admin_skips_config_lookup_and_membership_check(monkeypatch) -> No
     assert ws.closed_with is None
     assert looked_up is False
     assert captured["channels"] == [f"ws:fake:{config_id}"]
+
+
+# --------------------------------------------------------------------------- #
+# F-25 — mid-socket re-authorization callback.                                 #
+# --------------------------------------------------------------------------- #
+
+
+class _FakeConn:
+    def __init__(self, *, is_admin: bool) -> None:
+        self.principal = Principal(user_id=uuid.uuid4(), is_admin=is_admin, email_verified=True)
+
+
+async def _capture_loop_kwargs(monkeypatch, *, get_config=None) -> dict:
+    """Build the router (admin handshake -> reaches connection_loop) and return
+    the kwargs the loop was called with, so the ``authorize`` callback can be
+    exercised directly."""
+    monkeypatch.setattr(ws_mod, "authenticate_subprotocol", AsyncMock(return_value=_auth(is_admin=True)))
+    monkeypatch.setattr(ws_mod, "get_sessionmaker", _fake_sessionmaker)
+    monkeypatch.setattr(ws_mod, "KnowledgeFacade", lambda _s: object())
+
+    captured: dict = {}
+
+    async def _fake_loop(**kw):
+        captured.update(kw)
+
+    monkeypatch.setattr(ws_mod, "connection_loop", _fake_loop)
+
+    if get_config is None:
+
+        async def get_config(_facade, _cid):
+            return _FakeCfg(uuid.uuid4())
+
+    router = ws_mod.make_config_scoped_ws_router(
+        path="/ws/fake/{config_id}", get_config=get_config, channel_fn=lambda cid: f"ws:fake:{cid}"
+    )
+    await _endpoint(router)(_FakeWs(), uuid.uuid4())
+    return captured
+
+
+@pytest.mark.asyncio
+async def test_authorize_callback_is_wired_into_connection_loop(monkeypatch) -> None:
+    # Red-first: before F-25 the factory passed no ``authorize`` kwarg, so the
+    # watchdog never re-checked access for these channels.
+    captured = await _capture_loop_kwargs(monkeypatch)
+    assert callable(captured.get("authorize"))
+
+
+@pytest.mark.asyncio
+async def test_authorize_denies_when_predicate_denies(monkeypatch) -> None:
+    captured = await _capture_loop_kwargs(monkeypatch)
+    monkeypatch.setattr(ws_mod, "has_config_read_access", AsyncMock(return_value=False))
+    assert await captured["authorize"](_FakeConn(is_admin=False)) is False
+
+
+@pytest.mark.asyncio
+async def test_authorize_allows_when_predicate_allows(monkeypatch) -> None:
+    captured = await _capture_loop_kwargs(monkeypatch)
+    monkeypatch.setattr(ws_mod, "has_config_read_access", AsyncMock(return_value=True))
+    assert await captured["authorize"](_FakeConn(is_admin=False)) is True
+
+
+@pytest.mark.asyncio
+async def test_authorize_denies_deleted_config(monkeypatch) -> None:
+    async def _get_none(_facade, _cid):
+        return None
+
+    captured = await _capture_loop_kwargs(monkeypatch, get_config=_get_none)
+    # Predicate must not even be consulted once the config is gone.
+    monkeypatch.setattr(
+        ws_mod, "has_config_read_access", AsyncMock(side_effect=AssertionError("must not run"))
+    )
+    assert await captured["authorize"](_FakeConn(is_admin=False)) is False
+
+
+@pytest.mark.asyncio
+async def test_authorize_admin_bypass(monkeypatch) -> None:
+    # Real predicate: an admin principal short-circuits to True before any
+    # room/role resolution, so the socket survives across its lifetime.
+    captured = await _capture_loop_kwargs(monkeypatch)
+    assert await captured["authorize"](_FakeConn(is_admin=True)) is True

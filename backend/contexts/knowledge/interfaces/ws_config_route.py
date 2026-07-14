@@ -20,6 +20,7 @@ from contexts.knowledge.interfaces.config_access import has_config_read_access
 from contexts.knowledge.interfaces.facade import KnowledgeFacade
 from shared_kernel.db.session import get_sessionmaker
 from shared_kernel.realtime import (
+    ChannelConnection,
     WsAuthError,
     authenticate_subprotocol,
     connection_loop,
@@ -43,7 +44,10 @@ def make_config_scoped_ws_router(
     Maps go through the owning room's ACL, agent_group/workspace maps require
     project membership + ``concept_map_enabled``, RAG/Knowledge-Map configs
     require project membership) -> subscribe to ``channel_fn(config_id)`` via
-    ``connection_loop``.
+    ``connection_loop``. The same owner-aware ACL is re-evaluated mid-socket on
+    the watchdog cadence via the ``authorize`` callback (F-25 / SEC-H2), so a
+    principal who loses access after the handshake is torn down (4403) rather
+    than streaming until token expiry.
     """
     router = APIRouter(tags=["ws"])
 
@@ -68,9 +72,7 @@ def make_config_scoped_ws_router(
                     # through the room ACL; agent_group/workspace maps require
                     # project membership + concept_map_enabled; RAG/Knowledge-Map
                     # configs (no owner_kind) require project membership.
-                    if not await has_config_read_access(
-                        session, principal=auth.principal, cfg=cfg
-                    ):
+                    if not await has_config_read_access(session, principal=auth.principal, cfg=cfg):
                         await ws.close(code=4403)
                         return
             except Exception:  # pragma: no cover
@@ -79,6 +81,22 @@ def make_config_scoped_ws_router(
                 await ws.close(code=4403)
                 return
 
+        async def authorize(conn: ChannelConnection) -> bool:
+            # F-25 / SEC-H2: re-resolve access mid-socket on the watchdog cadence
+            # so a principal who loses project membership, has their role
+            # tightened, or (for a chatroom-owned Concept Map) loses room read
+            # access is torn down (4403) rather than streaming until token
+            # expiry. Reuses the same R11.17 predicate as the handshake, so both
+            # enforce identical rules. Reads the live principal off ``conn``. A
+            # config deleted mid-socket denies (fail-closed); a store error
+            # propagates so ``connection_loop`` retries next window instead of
+            # dropping a legitimate connection.
+            async with get_sessionmaker()() as session, session.begin():
+                cfg = await get_config(KnowledgeFacade(session), config_id)
+                if cfg is None:
+                    return False
+                return await has_config_read_access(session, principal=conn.principal, cfg=cfg)
+
         await connection_loop(
             ws=ws,
             principal=auth.principal,
@@ -86,6 +104,7 @@ def make_config_scoped_ws_router(
             channels=[channel_fn(config_id)],
             token_expires_at=auth.expires_at,
             token_jti=auth.jti,
+            authorize=authorize,
         )
 
     return router
