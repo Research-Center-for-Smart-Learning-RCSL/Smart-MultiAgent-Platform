@@ -312,6 +312,27 @@ async def _assert_edit(
         _raise_forbidden(decision.reason)
 
 
+async def _assert_config_read(
+    *,
+    db: AsyncSession,
+    principal: Principal,
+    cfg: GraphRagConfig,
+) -> None:
+    """R11.17 owner-aware read gate for a Concept Map config.
+
+    Chatroom-owned configs go through the owning room's ACL; agent_group /
+    workspace configs require project membership plus the owner's
+    ``concept_map_enabled`` opt-in. Admin bypasses (inside the predicate).
+    Raises 403 on denial. Replaces the bare project-membership check that let a
+    room-denied project member read a private room's graph/status.
+    """
+    from contexts.knowledge.interfaces.config_access import has_config_read_access
+    from shared_kernel.auth.dependencies import _raise_forbidden
+
+    if not await has_config_read_access(db, principal=principal, cfg=cfg):
+        _raise_forbidden("caller cannot read this concept map")
+
+
 @config_router.get("/{config_id}")
 async def read_config(
     config_id: uuid.UUID = Path(...),
@@ -320,11 +341,7 @@ async def read_config(
 ) -> GraphRagConfigOut:
     service = GraphRagConfigService(db)
     cfg = await service.get(config_id)
-    await assert_project_membership(
-        db=db,
-        principal=principal,
-        project_id=cfg.project_id,
-    )
+    await _assert_config_read(db=db, principal=principal, cfg=cfg)
     return _to_out(cfg)
 
 
@@ -336,11 +353,7 @@ async def read_status(
 ) -> GraphRagStatusOut:
     service = GraphRagConfigService(db)
     cfg = await service.get(config_id)
-    await assert_project_membership(
-        db=db,
-        principal=principal,
-        project_id=cfg.project_id,
-    )
+    await _assert_config_read(db=db, principal=principal, cfg=cfg)
     payload = await service.status(config_id)
     return GraphRagStatusOut(
         id=uuid.UUID(payload["id"]),
@@ -369,11 +382,7 @@ async def read_graph(
         from contexts.knowledge.domain.errors import GraphRagConfigNotFound
 
         raise GraphRagConfigNotFound(str(config_id))
-    await assert_project_membership(
-        db=db,
-        principal=principal,
-        project_id=cfg.project_id,
-    )
+    await _assert_config_read(db=db, principal=principal, cfg=cfg)
     view = await facade.get_graphrag_graph(config_id, limit=limit)
     return GraphOut(
         config_id=view.config_id,

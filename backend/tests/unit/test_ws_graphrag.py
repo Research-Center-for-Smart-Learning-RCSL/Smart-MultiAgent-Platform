@@ -66,11 +66,7 @@ async def test_member_lookup_calls_get_graphrag_config_and_subscribes_its_channe
     project_id = uuid.uuid4()
     facade.get_graphrag_config.return_value = type("Cfg", (), {"project_id": project_id})()
     monkeypatch.setattr(ws_mod, "KnowledgeFacade", lambda _session: facade)
-    monkeypatch.setattr(
-        ws_mod,
-        "TenancyRoleResolver",
-        lambda _session: AsyncMock(roles_for=AsyncMock(return_value=("member",))),
-    )
+    monkeypatch.setattr(ws_mod, "has_config_read_access", AsyncMock(return_value=True))
 
     captured = {}
 
