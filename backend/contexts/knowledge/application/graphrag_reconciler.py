@@ -193,11 +193,15 @@ class ReconciliationLoop:
         safety net for graph data left behind when that cascade could not run or
         did not finish: a config hard-deleted out from under its graph (e.g. a
         retention CASCADE) *or* one soft-deleted whose best-effort inline purge
-        failed. An orphan is any subgraph whose config id is not in the union of
-        every consumer's live (non-deleted) ids — so one consumer's live subgraphs
-        are never swept as another's orphans. The purge is idempotent, so a config
-        whose inline purge already succeeded has no graph data left, is absent from
-        ``list_config_ids``, and is never revisited.
+        failed. Candidate config ids are discovered from **every external store**
+        (F-8): the Neo4j subgraph enumeration *and* each consumer's Qdrant
+        collection, so a config whose Neo4j delete succeeded but whose Qdrant purge
+        failed (a Qdrant-only orphan) is still found. An orphan is any candidate
+        whose config id is not in the union of every consumer's live (non-deleted)
+        ids — so one consumer's live subgraphs are never swept as another's orphans.
+        The purge is idempotent, so a config whose inline purge already succeeded
+        has no graph data left in either store, is absent from both enumerations,
+        and is never revisited.
 
         Each orphan is attributed to the consumer whose table still holds its
         (soft-deleted) row so the audit records the correct ``resource_type``; a
@@ -215,11 +219,33 @@ class ReconciliationLoop:
             live_ids |= await repo.list_all_ids()
             owned.append((consumer, await repo.list_all_ids(include_deleted=True)))
         try:
-            graph_configs = await self._neo4j.list_config_ids()
+            neo4j_configs = await self._neo4j.list_config_ids()
         except Exception:
             _log.exception("graphrag orphan sweep: failed to enumerate graph config ids")
             return
-        for config_id, project_id in graph_configs:
+        # Candidate (config_id -> project_id) set to test against the Postgres live
+        # set. Seed from Neo4j (the historical discovery index), then union in each
+        # consumer's Qdrant-enumerated ids (F-8): a config whose Neo4j subgraph was
+        # deleted but whose Qdrant points survived a partial teardown is invisible to
+        # the Neo4j scan and would otherwise leak forever. Keyed by config id so a
+        # config present in both stores is processed once; a non-None Qdrant project
+        # id fills in a missing/legacy-null one.
+        candidates: dict[uuid.UUID, uuid.UUID | None] = dict(neo4j_configs)
+        for consumer in self._sweep_consumers:
+            try:
+                qdrant_configs = await consumer.vector_store.list_all_config_ids()
+            except Exception:
+                # Non-fatal: a Qdrant enumeration failure degrades this cycle to the
+                # Neo4j-only candidate set rather than aborting all reconciliation.
+                _log.exception(
+                    "graphrag orphan sweep: failed to enumerate qdrant config ids (%s)",
+                    consumer.resource_type,
+                )
+                continue
+            for cid, pid in qdrant_configs:
+                if candidates.get(cid) is None:
+                    candidates[cid] = pid
+        for config_id, project_id in candidates.items():
             if config_id in live_ids:
                 continue
             owner = next((c for c, ids in owned if config_id in ids), None)

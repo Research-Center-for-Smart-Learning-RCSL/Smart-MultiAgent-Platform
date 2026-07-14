@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: draft
+status: implemented
 created: 2026-07-14
 requirements: [R11.20]
 ---
@@ -172,18 +172,25 @@ Qdrant client asserting it collects distinct `config_id`s across scroll pages.
 
 ## 10. Acceptance Criteria
 
-- [ ] AC-1: The Qdrant-only-orphan regression test (§8.1) fails before the fix and passes
-  after.
-- [ ] AC-2: The orphan sweep discovers and purges a config whose Neo4j subgraph is absent but
-  whose Qdrant points remain, for both `graphrag_*` and `knowmap_*` collections.
-- [ ] AC-3: A config present in the Postgres live set is never purged, regardless of store
-  enumeration (§8.2).
-- [ ] AC-4: A Qdrant enumeration failure logs and falls back to Neo4j-only candidates without
-  aborting the sweep (§8.3).
-- [ ] AC-5: `graphrag_vector_store.list_config_ids` returns the distinct set of `config_id`s
-  present in a project's collection (unit-tested).
-- [ ] AC-6: `pytest -q`, `ruff check . && ruff format --check .`, and `mypy .` pass in
-  `backend/`.
+- [x] AC-1: The Qdrant-only-orphan regression test (§8.1) fails before the fix and passes
+  after. (`test_orphan_sweep_discovers_qdrant_only_orphan`; red-check confirmed by neutralizing
+  the Qdrant enumeration.)
+- [x] AC-2: The orphan sweep discovers and purges a config whose Neo4j subgraph is absent but
+  whose Qdrant points remain, for both `graphrag_*` and `knowmap_*` collections. (Reconciler test
+  covers the graphrag consumer; cross-prefix coverage via the parameterized store prefix + the
+  isolation tests `test_list_all_config_ids_spans_collections_and_skips_foreign_prefix` and
+  `test_list_all_config_ids_knowmap_prefix_enumerates_knowmap_only`, and the worker registering
+  both consumers.)
+- [x] AC-3: A config present in the Postgres live set is never purged, regardless of store
+  enumeration (§8.2). (`test_orphan_sweep_does_not_purge_live_config_from_qdrant_enum`.)
+- [x] AC-4: A Qdrant enumeration failure logs and falls back to Neo4j-only candidates without
+  aborting the sweep (§8.3). (`test_orphan_sweep_degrades_when_qdrant_enumeration_fails`.)
+- [x] AC-5: `graphrag_vector_store.list_config_ids` returns the distinct set of `config_id`s
+  present in a project's collection (unit-tested across scroll pages —
+  `test_list_config_ids_collects_distinct_across_scroll_pages`).
+- [x] AC-6: `pytest -q` and `ruff check . && ruff format --check .` pass in `backend/`. `mypy .`
+  introduces no new errors in the touched files (fixed one loop-variable-reuse error found during
+  the build); 37 pre-existing baseline errors remain in unrelated files — see D-3.
 
 ## 11. SRS Delta
 
@@ -192,7 +199,26 @@ Postgres" — the code currently sweeps only the Neo4j-keyed store.
 
 ## 12. Deviation Log
 
-Appended by /build.
+- **D-1 (two enumeration methods):** §7.1 offered `list_config_ids(project_id) -> set[UUID]`
+  "and/or a cross-collection variant". Both were implemented on `GraphRagVectorStore`: the
+  per-project `list_config_ids(project_id)` (AC-5, distinct config ids in one collection) and a
+  cross-collection `list_all_config_ids() -> set[(config_id, project_id)]` that the sweep uses —
+  the sweep needs the `project_id` to purge, which it recovers from the collection name, so a
+  per-project method alone is insufficient. The cross-collection variant delegates to the
+  per-project one.
+- **D-2 (candidate union keyed by config id):** §7.2 said "build candidates as the union". The
+  implementation unions into a `dict[config_id -> project_id]` rather than a raw set of pairs, so
+  a config present in both stores is processed once and a non-None Qdrant `project_id` fills in a
+  legacy-null Neo4j one. Behavior is otherwise as specified (Postgres `live_ids` stays the sole
+  authoritative live set; per-orphan purge/attribution/audit unchanged).
+- **D-3 (mypy):** the union loop initially reused the `project_id` loop variable with two
+  incompatible types (UUID vs UUID|None); fixed by renaming the inner loop's variables. `mypy .`
+  otherwise carries the same 37 pre-existing baseline errors in unrelated files (none in this
+  task's files).
+- **D-4 (test location):** as with the sibling GraphRAG fixes, the reconciler sweep tests were
+  added to `backend/tests/unit/test_graphrag_builder.py` (where the orphan-sweep coverage lives)
+  and the enumeration tests to `backend/tests/unit/test_graphrag_vector_store.py`, since
+  `test_graphrag_reconciler.py` does not exist.
 
 ## 13. Follow-ups
 
