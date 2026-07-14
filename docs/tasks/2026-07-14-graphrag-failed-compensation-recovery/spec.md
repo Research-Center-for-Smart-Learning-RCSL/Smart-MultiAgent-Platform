@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: draft
+status: implemented
 created: 2026-07-14
 requirements: [R11.04]
 ---
@@ -175,19 +175,22 @@ coverage):
 
 ## 10. Acceptance Criteria
 
-- [ ] AC-1: The failed-compensation regression test (§8.1) fails before the fix and passes
-  after.
-- [ ] AC-2: On a compensation whose Neo4j restore throws, the config remains
+- [x] AC-1: The failed-compensation regression test (§8.1) fails before the fix and passes
+  after. (`test_failed_compensation_retains_recovery_material`.)
+- [x] AC-2: On a compensation whose Neo4j restore throws, the config remains
   `failed_compensating`, the snapshot and current-build pointer are retained, and no audit
-  row records `outcome=rolled_back`.
-- [ ] AC-3: On a successful compensation, behavior is unchanged: `failed`, snapshot deleted,
-  pointer cleared, `outcome=rolled_back` (§8.2).
-- [ ] AC-4: A config left in `failed_compensating` by a failed compensation is re-selected by
-  the next reconciler sweep (§8.3).
-- [ ] AC-5: The no-snapshot compensation path (`graphrag_reconciler.py:273-282`) does not
-  emit `outcome=rolled_back`.
-- [ ] AC-6: `pytest -q`, `ruff check . && ruff format --check .`, and `mypy .` pass in
-  `backend/`.
+  row records `outcome=rolled_back`. (Audits `compensation_failed` instead.)
+- [x] AC-3: On a successful compensation, behavior is unchanged: `failed`, snapshot deleted,
+  pointer cleared, `outcome=rolled_back` (§8.2). (`test_successful_compensation_finalizes_and_audits_rolled_back`.)
+- [x] AC-4: A config left in `failed_compensating` by a failed compensation is re-selected by
+  the next reconciler sweep (§8.3). (Test 1 asserts `list_in_state(FAILED_COMPENSATING)` returns it;
+  a crashed-Phase-1 RUNNING config likewise stays RUNNING — see D-1.)
+- [x] AC-5: The no-snapshot compensation path (`_reconcile_one`) does not
+  emit `outcome=rolled_back` — it now emits a distinct `compensation_unavailable`
+  (`test_no_snapshot_compensation_audits_unavailable_not_rolled_back`).
+- [x] AC-6: `pytest -q` (30 passed in the touched file) and `ruff check . && ruff format --check .`
+  pass in `backend/`. `mypy .` introduces no new errors in the touched file; 37 pre-existing
+  baseline errors remain in unrelated files (none in this task's file) — see D-4.
 
 ## 11. SRS Delta
 
@@ -196,7 +199,27 @@ already claims to honor.
 
 ## 12. Deviation Log
 
-Appended by /build.
+- **D-1 (preserve stuck state on compensation failure, not force `FAILED_COMPENSATING`):**
+  §7.2 said "set (or leave) `set_state(FAILED_COMPENSATING, ...)`". Implementation revealed that
+  *forcing* `FAILED_COMPENSATING` is wrong for the crashed-Phase-1 **RUNNING** path that shares
+  `_rollback` (§6): on the next sweep a `FAILED_COMPENSATING` config enters the Phase-2 retry
+  loop, which would *complete* a build the RUNNING path (`_reconcile_one`, audit review #1)
+  deliberately rolls back. The compensation-failed branch now keeps the config in its *current*
+  stuck state (`cfg.last_build_state`) — RUNNING stays RUNNING (re-swept as a rollback),
+  `FAILED_COMPENSATING` stays `FAILED_COMPENSATING` (re-swept as Phase-2-then-rollback). Both are
+  in `_STUCK_STATES`, so re-enrollment and material retention are unchanged; this is the "or
+  leave" reading of §7.2 and honors §6's "inherits the corrected gating with no extra work".
+  Locked in by `test_failed_compensation_of_running_crash_stays_running`.
+- **D-2 (honest audit on both no-snapshot paths):** §7.3 asked the `_reconcile_one` no-snapshot
+  path to stop reading as a clean rollback. That path previously emitted *no* audit at all; it now
+  emits a positive `compensation_unavailable` outcome so monitoring can alert. The same outcome is
+  applied to `_rollback`'s own snapshot-absent branch (a resolved build id whose snapshot expired),
+  which previously fell through to a false `rolled_back`.
+- **D-3 (test location):** as with F-9, `backend/tests/unit/test_graphrag_reconciler.py` does not
+  exist; the F-7 tests were added to `backend/tests/unit/test_graphrag_builder.py` alongside the
+  existing rollback coverage (`test_reconciler_exhausted_rolls_back`), reusing its fakes.
+- **D-4 (mypy baseline):** `mypy .` carries 37 pre-existing errors across 21 unrelated files;
+  none are in `graphrag_reconciler.py` and this change adds none. Out of scope (see F-9 FU-3).
 
 ## 13. Follow-ups
 

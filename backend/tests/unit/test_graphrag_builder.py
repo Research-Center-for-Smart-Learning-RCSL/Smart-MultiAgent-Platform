@@ -213,6 +213,7 @@ class FakeNeo4j:
         self,
         *,
         raise_on_apply: Exception | None = None,
+        raise_on_restore: Exception | None = None,
         config_ids: list[tuple[uuid.UUID, uuid.UUID | None]] | None = None,
         triples_for_build: list[dict[str, str]] | None = None,
     ) -> None:
@@ -224,6 +225,7 @@ class FakeNeo4j:
         self.deleted_all: list[uuid.UUID] = []
         self.restored: list[dict[str, Any]] = []
         self.raise_on_apply = raise_on_apply
+        self.raise_on_restore = raise_on_restore
         self.config_ids = config_ids or []
         self.triples_for_build = triples_for_build or []
 
@@ -249,6 +251,8 @@ class FakeNeo4j:
         self.deleted_all.append(config_id)
 
     async def restore_from_snapshot(self, *, config_id, snapshot) -> None:
+        if self.raise_on_restore is not None:
+            raise self.raise_on_restore
         self.restored.append(snapshot)
 
     async def traverse(self, *, config_id, seed_entities, hops):
@@ -948,6 +952,210 @@ async def test_reconciler_exhausted_rolls_back() -> None:
     assert store.cfg.last_build_state is BuildState.FAILED
     # Rollback was attempted.
     assert neo4j.deleted  # delete_by_build called
+
+
+# ---------------------------------------------------------------------------
+# F-7 — a failed compensation must not be advertised as a clean rollback.
+# ---------------------------------------------------------------------------
+
+
+def _recon_over(
+    *,
+    store: FakeConfigStore,
+    neo4j: FakeNeo4j,
+    vectors: FakeVectorStore,
+    snaps: FakeSnapshots,
+    phase2: Any,
+    lock: FakeLock | None = None,
+) -> ReconciliationLoop:
+    async def fake_sleep(_s: float) -> None:
+        return None
+
+    recon = ReconciliationLoop(
+        session_factory=lambda: store,  # type: ignore[arg-type, return-value]
+        repo_factory=lambda _db: store,  # type: ignore[arg-type, return-value]
+        neo4j=neo4j,
+        vector_store=vectors,  # type: ignore[arg-type]
+        snapshot_store=snaps,
+        phase2_retry=phase2,
+        sleeper=fake_sleep,
+        lock_store=lock,
+        channel_fn=graphrag_channel,
+    )
+    store.commit = _noop  # type: ignore[attr-defined]
+    store.close = _noop  # type: ignore[attr-defined]
+    return recon
+
+
+async def _always_fails_phase2(*, cfg: Any, build_id: Any) -> None:
+    raise RuntimeError("qdrant still down")
+
+
+@pytest.mark.asyncio
+async def test_failed_compensation_retains_recovery_material(monkeypatch: Any) -> None:
+    # F-7 §8.1 / AC-1, AC-2, AC-4 (primary red-first): when the Neo4j restore throws
+    # during compensation, the config must stay FAILED_COMPENSATING, keep its snapshot
+    # and current-build pointer, audit outcome=compensation_failed (never rolled_back),
+    # and be re-selectable by the next sweep. Before the fix _rollback unconditionally
+    # marked FAILED, deleted the snapshot, and audited rolled_back.
+    from contexts.knowledge.application import graphrag_reconciler as recon_mod
+
+    events: list[Any] = []
+
+    async def _cap(_db: Any, event: Any) -> None:
+        events.append(event)
+
+    monkeypatch.setattr(recon_mod.audit, "emit", _cap)
+
+    cfg = _make_cfg()
+    neo4j = FakeNeo4j(raise_on_restore=RuntimeError("neo4j down during compensation"))
+    vectors = FakeVectorStore(raise_on_upsert=RuntimeError("qdrant down"))
+    lock, snaps = FakeLock(), FakeSnapshots()
+    builder, store, _db = _make_builder(
+        cfg=cfg,
+        neo4j=neo4j,
+        vectors=vectors,
+        lock=lock,
+        snapshots=snaps,
+        extractor=FakeExtractor(_make_triples()),
+    )
+    await builder.run(config_id=cfg.id)
+    assert store.cfg.last_build_state is BuildState.FAILED_COMPENSATING
+    assert snaps.store  # snapshot present pre-compensation
+    assert snaps.current  # current pointer present pre-compensation
+
+    recon = _recon_over(store=store, neo4j=neo4j, vectors=vectors, snaps=snaps, phase2=_always_fails_phase2)
+    await recon.run_once()
+
+    # Compensation failed → the config stays mid-compensation (its FAILED_COMPENSATING
+    # state is durably committed so the next sweep re-attempts it), never healed to IDLE.
+    assert store.cfg.last_build_state is BuildState.FAILED_COMPENSATING
+    # Recovery material is retained for the next attempt.
+    assert snaps.store, "snapshot must be retained on failed compensation"
+    assert snaps.current, "current-build pointer must be retained on failed compensation"
+    # The audit records a distinct, alertable outcome — never a false rolled_back.
+    outcomes = [e.metadata.get("outcome") for e in events]
+    assert "compensation_failed" in outcomes
+    assert "rolled_back" not in outcomes
+    # AC-4: still enrolled in the heal loop.
+    assert await store.list_in_state(BuildState.FAILED_COMPENSATING) == [store.cfg]
+
+
+@pytest.mark.asyncio
+async def test_successful_compensation_finalizes_and_audits_rolled_back(monkeypatch: Any) -> None:
+    # F-7 §8.2 / AC-3 (guard): a compensation whose Neo4j restore succeeds keeps the
+    # prior behavior — terminal FAILED, snapshot deleted, pointer cleared, rolled_back.
+    from contexts.knowledge.application import graphrag_reconciler as recon_mod
+
+    events: list[Any] = []
+
+    async def _cap(_db: Any, event: Any) -> None:
+        events.append(event)
+
+    monkeypatch.setattr(recon_mod.audit, "emit", _cap)
+
+    cfg = _make_cfg()
+    neo4j = FakeNeo4j()  # restore succeeds
+    vectors = FakeVectorStore(raise_on_upsert=RuntimeError("qdrant down"))
+    lock, snaps = FakeLock(), FakeSnapshots()
+    builder, store, _db = _make_builder(
+        cfg=cfg,
+        neo4j=neo4j,
+        vectors=vectors,
+        lock=lock,
+        snapshots=snaps,
+        extractor=FakeExtractor(_make_triples()),
+    )
+    await builder.run(config_id=cfg.id)
+    assert store.cfg.last_build_state is BuildState.FAILED_COMPENSATING
+
+    recon = _recon_over(store=store, neo4j=neo4j, vectors=vectors, snaps=snaps, phase2=_always_fails_phase2)
+    await recon.run_once()
+
+    assert store.cfg.last_build_state is BuildState.FAILED
+    assert not snaps.store, "snapshot deleted on successful rollback"
+    assert not snaps.current, "pointer cleared on successful rollback"
+    assert neo4j.restored, "restore_from_snapshot ran"
+    outcomes = [e.metadata.get("outcome") for e in events]
+    assert "rolled_back" in outcomes
+    assert "compensation_failed" not in outcomes
+
+
+@pytest.mark.asyncio
+async def test_no_snapshot_compensation_audits_unavailable_not_rolled_back(monkeypatch: Any) -> None:
+    # F-7 §8 / AC-5: the no-snapshot compensation path marks terminal FAILED but must
+    # emit a distinct compensation_unavailable outcome — never rolled_back, so dashboards
+    # never count it as a clean rollback.
+    from contexts.knowledge.application import graphrag_reconciler as recon_mod
+
+    events: list[Any] = []
+
+    async def _cap(_db: Any, event: Any) -> None:
+        events.append(event)
+
+    monkeypatch.setattr(recon_mod.audit, "emit", _cap)
+
+    import dataclasses
+
+    cfg = dataclasses.replace(_make_cfg(), last_build_state=BuildState.FAILED_COMPENSATING)
+    neo4j = FakeNeo4j()
+    vectors = FakeVectorStore()
+    snaps = FakeSnapshots()  # empty — no snapshot, no current pointer
+    store = FakeConfigStore(cfg)
+
+    recon = _recon_over(store=store, neo4j=neo4j, vectors=vectors, snaps=snaps, phase2=_always_fails_phase2)
+    await recon.run_once()
+
+    assert store.cfg.last_build_state is BuildState.FAILED
+    outcomes = [e.metadata.get("outcome") for e in events]
+    assert "compensation_unavailable" in outcomes
+    assert "rolled_back" not in outcomes
+
+
+@pytest.mark.asyncio
+async def test_failed_compensation_of_running_crash_stays_running(monkeypatch: Any) -> None:
+    # F-7 regression: _rollback is shared with the crashed-Phase-1 RUNNING path. A
+    # failed compensation must keep a RUNNING crash in RUNNING (re-swept as a rollback),
+    # NOT flip it to FAILED_COMPENSATING — which would reroute it into the Phase-2 retry
+    # loop and complete a build the RUNNING path deliberately rolls back.
+    import dataclasses
+
+    from contexts.knowledge.application import graphrag_reconciler as recon_mod
+
+    events: list[Any] = []
+
+    async def _cap(_db: Any, event: Any) -> None:
+        events.append(event)
+
+    monkeypatch.setattr(recon_mod.audit, "emit", _cap)
+
+    cfg = dataclasses.replace(_make_cfg(), last_build_state=BuildState.RUNNING)
+    build_id = uuid.uuid4()
+    neo4j = FakeNeo4j(raise_on_restore=RuntimeError("neo4j down during compensation"))
+    snaps = FakeSnapshots()
+    snaps.store[(cfg.id, build_id)] = {"edges": []}
+    snaps.current[cfg.id] = build_id
+    store = FakeConfigStore(cfg)
+
+    async def phase2_must_not_run(*, cfg: Any, build_id: Any) -> None:  # pragma: no cover
+        raise AssertionError("a RUNNING crash must roll back, never run Phase-2")
+
+    recon = _recon_over(
+        store=store,
+        neo4j=neo4j,
+        vectors=FakeVectorStore(),
+        snaps=snaps,
+        phase2=phase2_must_not_run,
+        lock=FakeLock(),
+    )
+    await recon.run_once()
+
+    # State preserved as RUNNING so the next sweep rolls back again (not Phase-2).
+    assert store.cfg.last_build_state is BuildState.RUNNING
+    assert snaps.store, "snapshot retained for the next rollback attempt"
+    assert snaps.current, "current pointer retained"
+    outcomes = [e.metadata.get("outcome") for e in events]
+    assert outcomes == ["compensation_failed"]
 
 
 # ---------------------------------------------------------------------------
