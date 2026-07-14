@@ -3,7 +3,6 @@ type: bugfix
 status: draft
 created: 2026-07-14
 requirements: [R11.12]
-supersedes:
 ---
 
 # F-27: Knowledge Map `SKIPPED` scan verdict enqueues no rebuild, unlike `QUARANTINED`
@@ -101,13 +100,15 @@ that claim to hold.
 Mirror the quarantine rebuild enqueue on both `SKIPPED` branches, and rely on F-6 for the
 physical triple removal.
 
-1. **Over-size skip (`knowmap.py:147-154`).** After marking `SKIPPED`, load the config (mirror
-   the quarantine fetch at `:184`) and call `enqueue_knowmap_build(config_id=cfg.id,
+1. **Over-size skip (`knowmap.py:147-154`).** After marking `SKIPPED`, load the config via
+   `KnowmapConfigRepository(db2).get(doc.knowmap_config_id)` (the `doc` is already loaded at
+   `:142`; mirror the quarantine fetch at `:184`) and call `enqueue_knowmap_build(config_id=cfg.id,
    last_build_state=cfg.last_build_state, last_build_at=cfg.last_build_at)` — identical args to
    `:205-207` — then return.
-2. **ClamAV-error skip (`knowmap.py:162-170`).** After marking `SKIPPED`, load the config and
-   enqueue the rebuild the same way **before** re-raising for Arq retry, so a document that
-   exhausts retries still had a rebuild queued.
+2. **ClamAV-error skip (`knowmap.py:162-170`).** After marking `SKIPPED`, load the config the same
+   way and enqueue the rebuild **before** re-raising for Arq retry (the task retries up to
+   `max_tries=3`, `:211`), so a document that exhausts retries still had a rebuild queued. The
+   `_job_id` dedup collapses the enqueues across retries into one build per config cycle.
 3. **Prefer a single tail path if clean.** If it reads better, restructure so a `SKIPPED` verdict
    flows to the same enqueue tail as `QUARANTINED` (e.g. enqueue when `scan_status in
    {QUARANTINED, SKIPPED}`), keeping the ClamAV-error re-raise semantics intact. Either shape is
