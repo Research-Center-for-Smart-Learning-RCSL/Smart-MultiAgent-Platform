@@ -29,6 +29,20 @@ from contexts.knowledge.domain.errors import GraphRagCollectionDimensionMismatch
 
 __all__ = ["GraphRagEntityHit", "GraphRagVectorStore", "graphrag_collection_name"]
 
+# Page size for payload-only scroll during orphan enumeration (F-8). Points carry
+# tiny payloads and no vectors here, so a large page keeps the round-trip count low.
+_SCROLL_PAGE = 256
+
+
+def _coerce_uuid(value: object) -> uuid.UUID | None:
+    """Parse a payload/collection value into a UUID, or ``None`` if unparseable."""
+    if value is None:
+        return None
+    try:
+        return uuid.UUID(str(value))
+    except ValueError:
+        return None
+
 
 def graphrag_collection_name(project_id: uuid.UUID, *, prefix: str = "graphrag") -> str:
     """Per-project graph collection name (§21.4).
@@ -56,6 +70,64 @@ class GraphRagVectorStore:
 
     def _name(self, project_id: uuid.UUID) -> str:
         return graphrag_collection_name(project_id, prefix=self._prefix)
+
+    def _project_id_from_name(self, name: str) -> uuid.UUID | None:
+        """Recover the project id from a ``{prefix}_{project_id}`` collection name.
+
+        ``graphrag_collection_name`` writes ``project_id`` with dashes replaced by
+        underscores; reverse that to parse it back. Returns ``None`` for a name that
+        is not one of this store's collections (a different prefix or unparseable
+        tail), so enumeration silently skips foreign collections."""
+        marker = f"{self._prefix}_"
+        if not name.startswith(marker):
+            return None
+        return _coerce_uuid(name[len(marker) :].replace("_", "-"))
+
+    async def list_config_ids(self, project_id: uuid.UUID) -> set[uuid.UUID]:
+        """Distinct ``config_id``s present in this project's collection (F-8).
+
+        The Qdrant-side discovery index for the reconciler orphan sweep: a config
+        whose Neo4j subgraph was deleted but whose Qdrant points survived a partial
+        teardown is invisible to the Neo4j enumeration, so the sweep also enumerates
+        here. Scrolls payload-only (``config_id`` field, no vectors) and pages to
+        completion. Returns an empty set if the collection does not exist."""
+        name = self._name(project_id)
+        if not await self._client.collection_exists(name):
+            return set()
+        out: set[uuid.UUID] = set()
+        offset: Any = None
+        while True:
+            records, offset = await self._client.scroll(
+                collection_name=name,
+                with_payload=["config_id"],
+                with_vectors=False,
+                limit=_SCROLL_PAGE,
+                offset=offset,
+            )
+            for rec in records:
+                cid = _coerce_uuid((rec.payload or {}).get("config_id"))
+                if cid is not None:
+                    out.add(cid)
+            if offset is None:
+                break
+        return out
+
+    async def list_all_config_ids(self) -> set[tuple[uuid.UUID, uuid.UUID]]:
+        """``(config_id, project_id)`` across every ``{prefix}_*`` collection (F-8).
+
+        The cross-project variant the orphan sweep unions with the Neo4j-sourced
+        candidates. Enumerates only collections carrying this store's prefix (each
+        registered consumer's store covers its own prefix — ``graphrag_*`` /
+        ``knowmap_*``), so the two consumers together cover both products."""
+        out: set[tuple[uuid.UUID, uuid.UUID]] = set()
+        collections = await self._client.get_collections()
+        for coll in collections.collections:
+            project_id = self._project_id_from_name(coll.name)
+            if project_id is None:
+                continue
+            for config_id in await self.list_config_ids(project_id):
+                out.add((config_id, project_id))
+        return out
 
     async def ensure_graphrag_collection(
         self,

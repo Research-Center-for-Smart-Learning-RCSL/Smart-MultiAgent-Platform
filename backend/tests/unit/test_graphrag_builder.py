@@ -266,12 +266,22 @@ class FakeNeo4j:
 
 
 class FakeVectorStore:
-    def __init__(self, *, raise_on_upsert: Exception | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        raise_on_upsert: Exception | None = None,
+        all_config_ids: set[tuple[uuid.UUID, uuid.UUID]] | None = None,
+        raise_on_list_config_ids: bool = False,
+    ) -> None:
         self.raise_on_upsert = raise_on_upsert
         self.upserts: list[list[Any]] = []
         self.superseded_calls: list[dict[str, Any]] = []
         self.points_not_in_build_calls: list[dict[str, Any]] = []
         self.deleted_by_config: list[dict[str, Any]] = []
+        # F-8: the Qdrant-side orphan discovery index. Empty by default so tests
+        # that don't exercise the sweep enumeration are unaffected.
+        self._all_config_ids = all_config_ids or set()
+        self.raise_on_list_config_ids = raise_on_list_config_ids
 
     async def ensure_graphrag_collection(self, project_id, *, vector_size, **_):
         return None
@@ -289,6 +299,11 @@ class FakeVectorStore:
 
     async def delete_by_config(self, **kwargs: Any) -> None:
         self.deleted_by_config.append(kwargs)
+
+    async def list_all_config_ids(self) -> set[tuple[uuid.UUID, uuid.UUID]]:
+        if self.raise_on_list_config_ids:
+            raise RuntimeError("qdrant scroll unavailable")
+        return set(self._all_config_ids)
 
     async def delete_superseded_entities(self, **kwargs: Any) -> None:
         self.superseded_calls.append(kwargs)
@@ -1300,6 +1315,95 @@ async def test_orphan_sweep_attributes_to_owning_consumer(monkeypatch: Any) -> N
     # Purged from both collections (owner + no-op) so nothing leaks.
     assert [d["config_id"] for d in km_vectors.deleted_by_config] == [orphan_b]
     assert [d["config_id"] for d in gr_vectors.deleted_by_config] == [orphan_b]
+
+
+# ---------------------------------------------------------------------------
+# F-8 — the orphan sweep discovers candidates from Qdrant too, not just Neo4j.
+# ---------------------------------------------------------------------------
+
+
+def _sweep_recon(*, store: FakeConfigStore, neo4j: FakeNeo4j, vectors: FakeVectorStore) -> ReconciliationLoop:
+    async def never_phase2(*, cfg: Any, build_id: Any) -> None:  # pragma: no cover
+        raise AssertionError("no stuck configs in these sweep tests")
+
+    recon = ReconciliationLoop(
+        session_factory=lambda: store,  # type: ignore[arg-type, return-value]
+        repo_factory=lambda _db: store,  # type: ignore[arg-type, return-value]
+        neo4j=neo4j,
+        vector_store=vectors,  # type: ignore[arg-type]
+        snapshot_store=FakeSnapshots(),
+        phase2_retry=never_phase2,
+        sleeper=_noop,
+        sweep_consumers=[
+            GraphConsumer(
+                repo_factory=lambda _db: store,  # type: ignore[arg-type, return-value]
+                vector_store=vectors,  # type: ignore[arg-type]
+                resource_type="graphrag_config",
+            )
+        ],
+        channel_fn=graphrag_channel,
+    )
+    store.commit = _noop  # type: ignore[attr-defined]
+    store.close = _noop  # type: ignore[attr-defined]
+    return recon
+
+
+@pytest.mark.asyncio
+async def test_orphan_sweep_discovers_qdrant_only_orphan() -> None:
+    # F-8 §8.1 / AC-1, AC-2 (primary red-first): a config whose Neo4j subgraph is
+    # gone but whose Qdrant points survive (a Qdrant-only orphan from a partial
+    # teardown) must be discovered via Qdrant enumeration and purged. Before the fix
+    # the candidate set was Neo4j-only, so nothing was swept.
+    cfg = _make_cfg()  # live config
+    qdrant_orphan, orphan_project = uuid.uuid4(), uuid.uuid4()
+    neo4j = FakeNeo4j(config_ids=[(cfg.id, cfg.project_id)])  # no row for the orphan
+    vectors = FakeVectorStore(all_config_ids={(qdrant_orphan, orphan_project)})
+    store = FakeConfigStore(cfg)
+
+    touched = await _sweep_recon(store=store, neo4j=neo4j, vectors=vectors).run_once()
+
+    assert touched == []
+    # The Qdrant-only orphan is purged from Qdrant (its config-scoped points)...
+    assert [d["config_id"] for d in vectors.deleted_by_config] == [qdrant_orphan]
+    assert vectors.deleted_by_config[0]["project_id"] == orphan_project
+    # ...and its (already-gone) Neo4j subgraph is purged idempotently.
+    assert qdrant_orphan in neo4j.deleted_all
+    # The live config is never touched.
+    assert cfg.id not in neo4j.deleted_all
+
+
+@pytest.mark.asyncio
+async def test_orphan_sweep_does_not_purge_live_config_from_qdrant_enum() -> None:
+    # F-8 §8.2 / AC-3 (guard): a config present in the Qdrant enumeration but still
+    # live in Postgres is never purged — the Postgres live set stays authoritative.
+    cfg = _make_cfg()  # live
+    neo4j = FakeNeo4j(config_ids=[])  # Neo4j enumerates nothing
+    vectors = FakeVectorStore(all_config_ids={(cfg.id, cfg.project_id)})
+    store = FakeConfigStore(cfg)
+
+    await _sweep_recon(store=store, neo4j=neo4j, vectors=vectors).run_once()
+
+    assert vectors.deleted_by_config == []
+    assert neo4j.deleted_all == []
+
+
+@pytest.mark.asyncio
+async def test_orphan_sweep_degrades_when_qdrant_enumeration_fails() -> None:
+    # F-8 §8.3 / AC-4 (guard): a Qdrant enumeration failure logs and falls back to
+    # the Neo4j-sourced candidates without aborting the sweep.
+    cfg = _make_cfg()  # live
+    neo4j_orphan, orphan_project = uuid.uuid4(), uuid.uuid4()
+    neo4j = FakeNeo4j(config_ids=[(cfg.id, cfg.project_id), (neo4j_orphan, orphan_project)])
+    vectors = FakeVectorStore(raise_on_list_config_ids=True)
+    store = FakeConfigStore(cfg)
+
+    # Must not raise despite the Qdrant enumeration failing.
+    await _sweep_recon(store=store, neo4j=neo4j, vectors=vectors).run_once()
+
+    # The Neo4j-sourced orphan is still swept.
+    assert neo4j_orphan in neo4j.deleted_all
+    assert [d["config_id"] for d in vectors.deleted_by_config] == [neo4j_orphan]
+    assert cfg.id not in neo4j.deleted_all
 
 
 @pytest.mark.asyncio

@@ -22,7 +22,9 @@ import pytest
 
 from contexts.knowledge.domain.errors import GraphRagCollectionDimensionMismatch
 from contexts.knowledge.infrastructure.graphrag_vector_store import (
+    _SCROLL_PAGE,
     GraphRagVectorStore,
+    graphrag_collection_name,
 )
 
 
@@ -320,3 +322,104 @@ async def test_collection_prefix_routes_to_distinct_collection() -> None:
         points=[point],
     )
     assert knowmap._collections == {f"knowmap_{pid_slug}"}
+
+
+# ---------------------------------------------------------------------------
+# F-8 — Qdrant-side config-id enumeration for the orphan sweep.
+# ---------------------------------------------------------------------------
+
+
+class _ScrollFake:
+    """Qdrant stand-in for enumeration: named collections of payloads, a paged
+    ``scroll`` that honors the caller's limit/offset, and ``get_collections``."""
+
+    def __init__(self, collections: dict[str, list[dict[str, Any]]]) -> None:
+        self._collections = collections
+        self.scroll_calls = 0
+
+    async def collection_exists(self, name: str) -> bool:
+        return name in self._collections
+
+    async def get_collections(self) -> Any:
+        return SimpleNamespace(collections=[SimpleNamespace(name=n) for n in self._collections])
+
+    async def scroll(
+        self,
+        *,
+        collection_name: str,
+        with_payload: Any,
+        with_vectors: Any,
+        limit: int,
+        offset: Any = None,
+    ) -> tuple[list[Any], Any]:
+        self.scroll_calls += 1
+        payloads = self._collections.get(collection_name, [])
+        start = int(offset or 0)
+        page = payloads[start : start + limit]
+        nxt = start + limit if start + limit < len(payloads) else None
+        records = [SimpleNamespace(id=str(uuid.uuid4()), payload=p) for p in page]
+        return records, nxt
+
+
+@pytest.mark.asyncio
+async def test_list_config_ids_collects_distinct_across_scroll_pages() -> None:
+    # AC-5: distinct config_ids for one project's collection, paged to completion.
+    project_id = uuid.uuid4()
+    name = graphrag_collection_name(project_id)
+    c1, c2 = uuid.uuid4(), uuid.uuid4()
+    # More points than a single scroll page, alternating two configs + a malformed row.
+    payloads: list[dict[str, Any]] = [
+        {"config_id": str(c1 if i % 2 == 0 else c2)} for i in range(_SCROLL_PAGE + 10)
+    ]
+    payloads.append({"config_id": "not-a-uuid"})  # unparseable → skipped, not raised
+    fake = _ScrollFake({name: payloads})
+    store = GraphRagVectorStore(fake)  # type: ignore[arg-type]
+
+    result = await store.list_config_ids(project_id)
+
+    assert result == {c1, c2}
+    assert fake.scroll_calls >= 2  # genuinely paged
+
+
+@pytest.mark.asyncio
+async def test_list_config_ids_missing_collection_is_empty() -> None:
+    store = GraphRagVectorStore(_ScrollFake({}))  # type: ignore[arg-type]
+    assert await store.list_config_ids(uuid.uuid4()) == set()
+
+
+@pytest.mark.asyncio
+async def test_list_all_config_ids_spans_collections_and_skips_foreign_prefix() -> None:
+    # The cross-collection variant the sweep uses: enumerate every graphrag_* collection,
+    # yield (config_id, project_id), and ignore a knowmap_* / unrelated collection.
+    p1, p2 = uuid.uuid4(), uuid.uuid4()
+    c1, c2 = uuid.uuid4(), uuid.uuid4()
+    fake = _ScrollFake(
+        {
+            graphrag_collection_name(p1): [{"config_id": str(c1)}],
+            graphrag_collection_name(p2): [{"config_id": str(c2)}],
+            graphrag_collection_name(uuid.uuid4(), prefix="knowmap"): [{"config_id": str(uuid.uuid4())}],
+            "some_other_collection": [{"config_id": str(uuid.uuid4())}],
+        }
+    )
+    store = GraphRagVectorStore(fake)  # type: ignore[arg-type] # default graphrag prefix
+
+    result = await store.list_all_config_ids()
+
+    assert result == {(c1, p1), (c2, p2)}
+
+
+@pytest.mark.asyncio
+async def test_list_all_config_ids_knowmap_prefix_enumerates_knowmap_only() -> None:
+    # Cross-prefix symmetry: a knowmap-prefixed store enumerates knowmap_* collections
+    # and skips graphrag_*, so the two sweep consumers together cover both products
+    # without either leaking the other's orphans.
+    p, c = uuid.uuid4(), uuid.uuid4()
+    fake = _ScrollFake(
+        {
+            graphrag_collection_name(p, prefix="knowmap"): [{"config_id": str(c)}],
+            graphrag_collection_name(uuid.uuid4()): [{"config_id": str(uuid.uuid4())}],  # graphrag → skipped
+        }
+    )
+    store = GraphRagVectorStore(fake, prefix="knowmap")  # type: ignore[arg-type]
+
+    assert await store.list_all_config_ids() == {(c, p)}
