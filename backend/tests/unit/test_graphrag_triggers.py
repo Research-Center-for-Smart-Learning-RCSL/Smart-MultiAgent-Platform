@@ -16,6 +16,7 @@ def _cfg(
     trigger_config: dict[str, object] | None = None,
     state: BuildState = BuildState.IDLE,
     owner_kind: str = "agent_group",
+    last_build_at: datetime | None = None,
 ) -> GraphRagConfig:
     return GraphRagConfig(
         id=uuid.uuid4(),
@@ -23,7 +24,7 @@ def _cfg(
         agent_id=agent_id or uuid.uuid4(),
         builder_key_group_id=uuid.uuid4(),
         trigger_config=trigger_config or {},
-        last_build_at=None,
+        last_build_at=last_build_at,
         last_build_state=state,
         last_build_error=None,
         created_at=datetime.now(UTC),
@@ -59,6 +60,17 @@ class _Counter:
         return self._counts.pop(0)
 
 
+class _Clock:
+    def __init__(self) -> None:
+        self.touched: list[uuid.UUID] = []
+
+    async def touch(self, config_id: uuid.UUID) -> None:
+        self.touched.append(config_id)
+
+    async def get(self, config_id: uuid.UUID):
+        return None
+
+
 @pytest.mark.asyncio
 async def test_every_n_messages_fires_on_counter_boundary(monkeypatch) -> None:
     agent_id = uuid.uuid4()
@@ -69,10 +81,10 @@ async def test_every_n_messages_fires_on_counter_boundary(monkeypatch) -> None:
     counter = _Counter([1, 2])
 
     first = await trigger_mod.evaluate_graphrag_message_triggers(
-        object(), chatroom_id=chatroom_id, agent_ids=[agent_id, agent_id], counter=counter
+        object(), chatroom_id=chatroom_id, agent_ids=[agent_id, agent_id], counter=counter, activity=_Clock()
     )
     second = await trigger_mod.evaluate_graphrag_message_triggers(
-        object(), chatroom_id=chatroom_id, agent_ids=[agent_id], counter=counter
+        object(), chatroom_id=chatroom_id, agent_ids=[agent_id], counter=counter, activity=_Clock()
     )
 
     assert first == []
@@ -104,7 +116,7 @@ async def test_chatroom_and_workspace_owned_configs_fire(monkeypatch) -> None:
     counter = _Counter([1, 1])
 
     fired = await trigger_mod.evaluate_graphrag_message_triggers(
-        object(), chatroom_id=chatroom_id, agent_ids=[agent_id], counter=counter
+        object(), chatroom_id=chatroom_id, agent_ids=[agent_id], counter=counter, activity=_Clock()
     )
 
     assert {t.config_id for t in fired} == {room_cfg.id, ws_cfg.id}
@@ -119,11 +131,33 @@ async def test_manual_only_trigger_does_not_increment_counter(monkeypatch) -> No
     counter = _Counter([1])
 
     fired = await trigger_mod.evaluate_graphrag_message_triggers(
-        object(), chatroom_id=uuid.uuid4(), agent_ids=[cfg.agent_id], counter=counter
+        object(), chatroom_id=uuid.uuid4(), agent_ids=[cfg.agent_id], counter=counter, activity=_Clock()
     )
 
     assert fired == []
     assert counter.seen == []
+
+
+@pytest.mark.asyncio
+async def test_message_eval_touches_silence_clock_for_covering_configs(monkeypatch) -> None:
+    # F-4: every covering config's silence timer is advanced on a send (even a
+    # manual/every_n-only config), so the periodic sweep measures idle from the
+    # latest message. Reuses the already-resolved covering set.
+    cfg_a = _cfg(trigger_config={"every_n_messages": 5})
+    cfg_b = _cfg(trigger_config={"silence_minutes": 10})
+    _Repo.configs = [cfg_a, cfg_b]
+    monkeypatch.setattr(trigger_mod, "GraphRagConfigRepository", _Repo)
+    clock = _Clock()
+
+    await trigger_mod.evaluate_graphrag_message_triggers(
+        object(),
+        chatroom_id=uuid.uuid4(),
+        agent_ids=[uuid.uuid4()],
+        counter=_Counter([1]),
+        activity=clock,
+    )
+
+    assert clock.touched == [cfg_a.id, cfg_b.id]
 
 
 # ---------------------------------------------------------------------------
@@ -168,8 +202,86 @@ async def test_non_buildable_state_does_not_increment_counter(monkeypatch) -> No
     counter = _Counter([1])
 
     fired = await trigger_mod.evaluate_graphrag_message_triggers(
-        object(), chatroom_id=uuid.uuid4(), agent_ids=[cfg.agent_id], counter=counter
+        object(), chatroom_id=uuid.uuid4(), agent_ids=[cfg.agent_id], counter=counter, activity=_Clock()
     )
 
     assert fired == []
     assert counter.seen == []
+
+
+# ---------------------------------------------------------------------------
+# F-4 — silence_minutes trigger evaluation
+# ---------------------------------------------------------------------------
+
+
+def _now() -> datetime:
+    return datetime(2026, 7, 14, 12, 0, 0, tzinfo=UTC)
+
+
+def test_silence_fires_after_threshold() -> None:
+    from datetime import timedelta
+
+    cfg = _cfg(trigger_config={"silence_minutes": 5})
+    now = _now()
+    trig = trigger_mod.evaluate_graphrag_silence_trigger(
+        cfg, last_activity_at=now - timedelta(minutes=6), now=now
+    )
+    assert trig == trigger_mod.GraphRagBuildTrigger(
+        config_id=cfg.id,
+        triggered_by="silence_minutes",
+        job_id=f"graphrag:build:{cfg.id}:idle:0",
+    )
+
+
+def test_silence_does_not_fire_before_threshold_or_when_ineligible() -> None:
+    from datetime import timedelta
+
+    now = _now()
+    cfg = _cfg(trigger_config={"silence_minutes": 5})
+
+    # Within the threshold window.
+    assert (
+        trigger_mod.evaluate_graphrag_silence_trigger(
+            cfg, last_activity_at=now - timedelta(minutes=4), now=now
+        )
+        is None
+    )
+    # No recorded activity -> never fires.
+    assert trigger_mod.evaluate_graphrag_silence_trigger(cfg, last_activity_at=None, now=now) is None
+    # Non-buildable state.
+    running = _cfg(trigger_config={"silence_minutes": 5}, state=BuildState.RUNNING)
+    assert (
+        trigger_mod.evaluate_graphrag_silence_trigger(
+            running, last_activity_at=now - timedelta(minutes=30), now=now
+        )
+        is None
+    )
+    # No silence_minutes trigger configured.
+    every_n = _cfg(trigger_config={"every_n_messages": 2})
+    assert (
+        trigger_mod.evaluate_graphrag_silence_trigger(
+            every_n, last_activity_at=now - timedelta(minutes=30), now=now
+        )
+        is None
+    )
+
+
+def test_silence_does_not_refire_once_build_captured_activity() -> None:
+    # AC-3 freshness gate: after a build whose watermark is newer than the last
+    # activity, a still-idle room is not rebuilt again; only activity newer than
+    # the last build re-arms the trigger.
+    from datetime import timedelta
+
+    now = _now()
+    last_activity = now - timedelta(minutes=30)
+
+    captured = _cfg(trigger_config={"silence_minutes": 5}, last_build_at=now - timedelta(minutes=10))
+    assert (
+        trigger_mod.evaluate_graphrag_silence_trigger(captured, last_activity_at=last_activity, now=now)
+        is None
+    )
+
+    stale_build = _cfg(trigger_config={"silence_minutes": 5}, last_build_at=now - timedelta(minutes=40))
+    trig = trigger_mod.evaluate_graphrag_silence_trigger(stale_build, last_activity_at=last_activity, now=now)
+    assert trig is not None
+    assert trig.triggered_by == "silence_minutes"

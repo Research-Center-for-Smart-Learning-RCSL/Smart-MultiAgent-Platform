@@ -410,4 +410,62 @@ async def graphrag_reconcile(ctx: dict[str, Any]) -> int:
     return len(healed)
 
 
-__all__ = ["graphrag_build", "graphrag_reconcile"]
+async def graphrag_silence_sweep(ctx: dict[str, Any]) -> str:
+    """arq cron tick (F-4): fire ``silence_minutes`` builds for Concept Maps whose
+    coverage has gone idle for the configured minutes.
+
+    Mirrors the wake-up silence sweep (``orchestration.evaluate_silence``):
+    bounded batches, per-item failure isolation, and enqueue via the arq handle
+    in ``ctx``. Reuses ``graphrag_build_job_id`` so a config already queued for
+    its current idle cycle is not re-enqueued while ``keep_result`` retains the
+    id. arq's cron lock keeps the sweep singleton across worker replicas.
+    """
+    from datetime import UTC, datetime
+
+    from contexts.knowledge.application.graphrag_triggers import (
+        RedisGraphRagSilenceClock,
+        evaluate_graphrag_silence_trigger,
+    )
+
+    redis = ctx["redis"]
+    clock = RedisGraphRagSilenceClock()
+    now_dt = datetime.now(UTC)
+    batch = 500
+    fired = 0
+    checked = 0
+    sm = get_sessionmaker()
+    async with sm() as db:
+        repo = GraphRagConfigRepository(db)
+        offset = 0
+        while True:
+            configs = await repo.list_silence_trigger_configs(limit=batch, offset=offset)
+            if not configs:
+                break
+            for cfg in configs:
+                checked += 1
+                try:
+                    last_activity = await clock.get(cfg.id)
+                    trigger = evaluate_graphrag_silence_trigger(
+                        cfg, last_activity_at=last_activity, now=now_dt
+                    )
+                    if trigger is not None:
+                        await redis.enqueue_job(
+                            "graphrag_build",
+                            config_id=str(cfg.id),
+                            triggered_by=trigger.triggered_by,
+                            _job_id=trigger.job_id,
+                        )
+                        fired += 1
+                except Exception:
+                    # One bad config must not abort the sweep; clear any aborted
+                    # transaction so subsequent reads on this session succeed.
+                    await db.rollback()
+                    _log.warning("graphrag silence sweep: config %s failed", cfg.id, exc_info=True)
+            if len(configs) < batch:
+                break
+            offset += batch
+    _log.info("graphrag silence sweep: fired=%d checked=%d", fired, checked)
+    return f"fired={fired}"
+
+
+__all__ = ["graphrag_build", "graphrag_reconcile", "graphrag_silence_sweep"]
