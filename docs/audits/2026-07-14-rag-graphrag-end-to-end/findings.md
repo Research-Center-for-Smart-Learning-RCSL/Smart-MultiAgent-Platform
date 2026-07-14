@@ -2,7 +2,7 @@
 type: audit
 status: draft
 created: 2026-07-14
-requirements: [R7.04, R9.10, R10.04, R10.08, R10.09, R10.11, R11.01, R11.02, R11.04, R11.08, R11.12, R11.14, R11.17, R11.19, R11.20, R24.23]
+requirements: [R7.04, R9.10, R10.04, R10.05, R10.06, R10.08, R10.09, R10.11, R11.01, R11.02, R11.04, R11.08, R11.11, R11.12, R11.14, R11.17, R11.19, R11.20, R24.23]
 ---
 
 # RAG / GraphRAG End-to-End Functional Bug Audit
@@ -72,7 +72,8 @@ running multi-service stack.
   update because rerank validation has no project check.
 - **Blast radius**: cross-tenant BYO-key spend, quota use, and audit attribution for every
   Agent and document using the affected config.
-- **Intent source**: [R7.04], [R10.05], [R10.08], [R10.11].
+- **Intent source**: [R7.04], [R10.05] (the load-bearing key-scope anchor), [R10.08].
+  [R10.11] scopes documents, not keys, so it is only a weak secondary reference.
 - **Fix direction**: require project scope when saving both pinned keys and again at every
   pinned provider call; pass the expected project into the router or use a project-scoped
   pinned-key port.
@@ -271,7 +272,8 @@ running multi-service stack.
   dimensions.
 - **Blast radius**: accepted but unusable File RAG, Knowledge Map, or Concept Map configs;
   one racing config can break future project configuration.
-- **Intent source**: [R10.05], [R11.19].
+- **Intent source**: [R10.05], [R10.06] (the `rag_{project_id}` fixed-dimension collection,
+  the specific anchor for the File RAG half), [R11.19].
 - **Fix direction**: persist a project/collection pin independently of live configs and
   serialize its initialization/change; validate the actual Qdrant collection at save time.
 
@@ -327,7 +329,10 @@ running multi-service stack.
   changes the map builder to A. The update succeeds and defeats the enforced billing/rate-
   limit split.
 - **Blast radius**: every Agent already attached to the changed Knowledge Map.
-- **Intent source**: [R11.01]; [R11.11] exempts Concept Maps only.
+- **Intent source**: [R11.01]; [R11.11] exempts Concept Maps only. Note the SRS does not
+  unambiguously extend R11.01's distinctness rule to Knowledge Maps (R11.11's many-consumer
+  rationale could read either way); the firmer justification is the code's own
+  builder != consumer invariant (`agent_service`) that the config-update path bypasses.
 - **Fix direction**: validate the new builder group against every attached Agent in the
   same transaction, or define and implement an explicit migration/detach policy.
 
@@ -504,10 +509,135 @@ running multi-service stack.
 
 ---
 
+## Re-audit additions (second-angle verification pass)
+
+The findings above (F-1..F-23) were the original three-lens discovery set. The five below
+were surfaced by a later verification pass that deliberately targeted the audit's blind
+spots: the "verified clean / refuted" clearances (all six held), requirement-citation
+accuracy, and defect classes the first pass did not exercise. Each was traced end-to-end in
+code independently of its finder.
+
+## F-24: File RAG source blobs and the per-project Qdrant collection leak permanently on tenancy deletion
+
+- **Severity**: major
+- **Verdict**: confirmed
+- **Evidence**: File RAG infra teardown lives only in `RagConfigService.purge_documents_infra`
+  (`backend/contexts/knowledge/application/config_service.py:285`), invoked from exactly two
+  endpoints — RAG config delete (`backend/app/api/v1/rag.py:373`) and document delete
+  (`:612`) — and nowhere else. Retention hard-deletes soft-deleted orgs and projects via
+  `sa.delete(tbl)` over `_SOFT_DELETE_TABLES` (`backend/app/workers/tasks/retention.py:51-57,196`),
+  whose only MinIO sweep targets the exports bucket (`:356-408,527`). DB rows cascade via
+  `ON DELETE CASCADE` (`backend/alembic/versions/0012_rag.py`), but the `rag-sources` blobs
+  and the whole `rag_{project_id}` Qdrant collection are never purged. The tenancy context
+  has no RAG teardown, and File RAG has no reconciler orphan sweep — the graph sweep
+  enumerates via `neo4j.list_config_ids()`, covering only Neo4j-keyed stores.
+- **Failure scenario**: an org/project holding RAG configs is soft-deleted, then hard-deleted
+  after the retention window. Every uploaded source blob under `rag-sources/{project_id}/`
+  and the entire per-project Qdrant collection are orphaned with no discovery path.
+- **Blast radius**: unbounded MinIO and Qdrant storage growth, and per-tenant vector data
+  persisting indefinitely after the tenant is gone.
+- **Intent source**: the `purge_documents_infra` delete-cascade docstring; [R10.06] per-project
+  collection. Distinct from F-8, which is the graph store on a config delete whose Qdrant
+  teardown fails; this is File RAG orphaned by a parent cascade with no sweep at all.
+- **Fix direction**: run File RAG teardown (purge `rag-sources` blobs and drop the project
+  collection) as part of tenancy/retention deletion, or add a File RAG orphan sweep keyed on
+  live project/config IDs.
+
+## F-25: Config-scoped knowledge WebSockets never re-authorize project access mid-socket
+
+- **Severity**: major
+- **Verdict**: confirmed
+- **Evidence**: the shared factory behind `/ws/graphrag/{id}`, `/ws/rag-configs/{id}`, and
+  `/ws/knowmap/{id}` checks the config's project role once at handshake
+  (`backend/contexts/knowledge/interfaces/ws_config_route.py:55-71`), then calls
+  `connection_loop` passing only `token_expires_at`/`token_jti` and no `authorize=` callback
+  (`:78-85`). The chatroom WS supplies `authorize=` for periodic re-resolution
+  (`backend/app/api/ws/chatroom.py`). The connection loop enforces the membership ACL only
+  when an `authorize` hook is present (`backend/shared_kernel/realtime/connection.py`, SEC-H2);
+  absent it, only token-expiry and jti-denylist are enforced.
+- **Failure scenario**: a user opens a graphrag/rag/knowmap config channel; an owner then
+  removes them from the project or tightens their role. HTTP endpoints 403 immediately, but
+  the open socket keeps streaming that config's `build.state`/ingestion events until the
+  access token naturally expires.
+- **Blast radius**: a mid-socket revocation window (bounded by the access-token TTL) on all
+  three config-scoped knowledge channels, leaking build progress, `last_build_error` strings,
+  and document counts to a just-removed principal.
+- **Intent source**: [R11.17] trust boundary; the SEC-H2 `authorize`-hook contract. Distinct
+  from F-2, which is the handshake-time room-ACL omission for chatroom-owned Concept Maps.
+- **Fix direction**: pass an `authorize` callback into `connection_loop` that re-runs
+  `get_config` + `roles_for(Scope(project_id=...))` against the live principal (admin bypass
+  mirroring the handshake); should be reviewed with FU-1.
+
+## F-26: `admin_reset` forces IDLE without clearing 2PC external state or compensating
+
+- **Severity**: major
+- **Verdict**: confirmed (behavior); impact plausible
+- **Evidence**: `GraphRagConfigService.admin_reset` sets state to IDLE and audits only
+  (`backend/contexts/knowledge/application/graphrag_config_service.py:395-428`). It never
+  clears the Redis build lock, the per-config snapshot, or the current-build pointer, and
+  never compensates a half-written Neo4j subgraph — unlike the reconciler terminal paths,
+  which delete the snapshot and clear the current pointer. `_STUCK_STATES` is
+  `(FAILED_COMPENSATING, NEO4J_COMMITTED, RUNNING)` and excludes IDLE
+  (`backend/contexts/knowledge/application/graphrag_reconciler.py:61-65`), so a config forced
+  to IDLE is permanently invisible to the reconciler sweep.
+- **Failure scenario**: an admin resets a config wedged in `FAILED_COMPENSATING` (Neo4j holds
+  this build's triples, Qdrant lacks them). After reset the orphan Neo4j triples are never
+  compensated, the snapshot lingers until its TTL, and the current pointer is stale, while
+  the config appears terminally healthy.
+- **Blast radius**: silently inconsistent graph for any Concept or Knowledge Map an admin
+  resets out of a compensating or committed state.
+- **Intent source**: [R11.04] transactional consistency; R11a.02 documents only the state
+  reset, not the un-cleared external state.
+- **Fix direction**: on `admin_reset`, run the reconciler's terminal compensation/cleanup
+  (reconcile Neo4j vs Qdrant, delete the snapshot, clear the pointer, release the lock)
+  rather than only forcing IDLE.
+
+## F-27: Knowledge Map `SKIPPED` scan verdict enqueues no rebuild, unlike `QUARANTINED`
+
+- **Severity**: minor
+- **Verdict**: plausible
+- **Evidence**: `ready_document_ids`/`allowed_document_ids` exclude both `quarantined` and
+  `skipped` (`backend/contexts/knowledge/infrastructure/knowmap_repositories.py:374-425`), but
+  the scan worker enqueues a rebuild only on `QUARANTINED`
+  (`backend/app/workers/tasks/knowmap.py:204-207`); the two `SKIPPED` paths — over-size
+  (`:147-154`) and ClamAV error (`:162-170`) — mark status and return/raise with no rebuild.
+- **Failure scenario**: a document is built into the graph while `scan_status=pending` (the
+  F-5 race), then the async scan marks it `SKIPPED`; its triples stay in Neo4j because no
+  rebuild is triggered, contradicting the never-built-unless-clean intent.
+- **Blast radius**: bounded — retrieval already hides skipped documents via the allowed-doc
+  gate, and per F-6 an additive rebuild would not drop the triples anyway. This is a code
+  asymmetry (quarantine vs skipped) rather than an independent leak.
+- **Intent source**: the Knowledge Map clean-scan contract (same as F-5); overlaps F-5/F-6.
+- **Fix direction**: enqueue a rebuild on `SKIPPED` as well as `QUARANTINED`, paired with
+  F-6's replacement semantics so the triples actually leave the graph.
+
+## F-28: RAG ingestion progress bar stays hidden when the page is opened mid-ingestion
+
+- **Severity**: minor
+- **Verdict**: confirmed
+- **Evidence**: the `ingestion.progress` handler updates only `documentsProcessed` and never
+  sets `state` (`frontend/src/slices/agents/composables/useRagConfigSocket.ts:42-44`);
+  `ingestion.started` (which sets `state='ingesting'`) is not replayed on late subscribe, and
+  `syncOnReconnect` only invalidates the config-list query without rebuilding `progress`
+  (`:61-71`). `RagConfigDetailView`'s `showProgress` requires `state` in
+  `{ingesting, indexing}`.
+- **Failure scenario**: a client opens the detail page after `ingestion.started` but during
+  active ingestion; only `ingestion.progress` frames arrive, so `progress.state` stays `idle`
+  and the live progress bar never appears though ingestion is running.
+- **Blast radius**: designer-facing ingestion feedback for pages opened mid-ingestion; the
+  same missing-resync root as F-21, extended to the non-terminal case.
+- **Intent source**: [R24.23] reconnect/resync and the composable's own recovery contract.
+- **Fix direction**: on subscribe/reconnect, fetch authoritative job/ingestion state and
+  rebuild `progress` (covering non-terminal states) rather than only invalidating the config
+  list; fold into F-21's fix.
+
+---
+
 ## Follow-ups outside the functional findings
 
-- **FU-1 (security)**: F-1 and F-2 require dedicated `/check-security` remediation review;
-  they cross BYO-key and private-room trust boundaries and should block release.
+- **FU-1 (security)**: F-1, F-2, and F-25 require dedicated `/check-security` remediation
+  review; they cross BYO-key and private-room/project trust boundaries and should block
+  release.
 - **FU-2 (resource hardening)**: Concept Map layer count and the final accumulated triple/
   embedding batch have no independent resource cap. The current one-apply design is
   approved, so this audit did not relabel it as a functional bug.
@@ -517,19 +647,25 @@ running multi-service stack.
 - **FU-4 (dossier integrity)**: the Phase 3 Knowledge Map dossier is marked `implemented`
   while AC-3 and AC-7 remain unchecked and its deviation log records missing integration
   coverage. Route that lifecycle inconsistency to process/quality review.
+- **FU-5 (feature completeness)**: [R11.22]'s optional agent_group member-scoped retrieval
+  filter has no wired caller — retrieval carries `source_member_ids` provenance but exposes
+  no member-filter parameter. The security-load-bearing default (shared group map =
+  membership read boundary, removal revokes access) is correctly implemented, so this is a
+  feature-completeness gap for product/spec review, not a correctness defect.
 
 ## Hand-off
 
 Recommended bugfix-spec batches, in order:
 
-1. **Release blockers**: F-1 and F-2 as separate security-sensitive bugfix specs.
-2. **Graph triggers and lifecycle**: F-3 through F-6 and F-12.
-3. **2PC/reconciliation correctness**: F-7 through F-10.
+1. **Release blockers**: F-1, F-2, and F-25 as separate security-sensitive bugfix specs.
+2. **Graph triggers and lifecycle**: F-3 through F-6, F-12, and F-27.
+3. **2PC/reconciliation correctness**: F-7 through F-10 and F-26.
 4. **Embedding invariants**: F-11, F-13, and F-14.
 5. **Agent runtime context**: F-15 through F-17.
 6. **Configuration semantics**: F-18 through F-20.
-7. **Frontend recovery**: F-21 and F-22.
-8. **Upload retry**: F-23 after confirming Arq behavior in the deployed environment.
+7. **Tenancy teardown**: F-24 (File RAG blob/collection leak on org/project deletion).
+8. **Frontend recovery**: F-21, F-22, and F-28.
+9. **Upload retry**: F-23 after confirming Arq behavior in the deployed environment.
 
 Per the audit/spec hand-off contract, selected findings become individual or explicitly
 batched bugfix dossiers under `docs/tasks/`; this audit remains `draft` until triage.
