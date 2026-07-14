@@ -323,7 +323,7 @@ running multi-service stack.
 
 - **Severity**: major
 - **Verdict**: confirmed
-- **Security review**: recommended (`/check-security`) — defeats an enforced BYO-key builder/consumer isolation control.
+- **Security review**: required (`/check-security`) — defeats an enforced BYO-key builder/consumer isolation control.
 - **Evidence**: Agent attachment/key changes enforce builder group != consumer group
   (`backend/contexts/agents/application/agent_service.py:235-270,421-443`). Knowledge Map
   config update checks only project, embedding availability, and dimension, never attached
@@ -524,7 +524,7 @@ code independently of its finder.
 
 - **Severity**: major
 - **Verdict**: confirmed
-- **Security review**: recommended (`/check-security`) — per-tenant data residue after tenant deletion.
+- **Security review**: required (`/check-security`) — per-tenant data residue after tenant deletion.
 - **Evidence**: File RAG infra teardown lives only in `RagConfigService.purge_documents_infra`
   (`backend/contexts/knowledge/application/config_service.py:285`), invoked from exactly two
   endpoints — RAG config delete (`backend/app/api/v1/rag.py:373`) and document delete
@@ -640,12 +640,13 @@ code independently of its finder.
 
 ## Follow-ups outside the functional findings
 
-- **FU-1 (security)**: findings tagged `Security review` must route through `/check-security`
-  before their fixes merge.
-  - **Required** (cross trust boundaries, block release): F-1 (BYO-key cross-tenant billing),
-    F-2 (private-room ACL bypass), F-25 (project AuthZ mid-socket revocation window).
-  - **Recommended** (security-adjacent, review with the fix): F-14 (defeats enforced
-    builder/consumer key isolation), F-24 (per-tenant data residue after tenant deletion).
+- **FU-1 (security)**: findings tagged `Security review` are all **required** to route through
+  `/check-security` before their fixes merge, and block release:
+  - F-1 (BYO-key cross-tenant billing),
+  - F-2 (private-room ACL bypass),
+  - F-14 (defeats enforced builder/consumer key isolation),
+  - F-24 (per-tenant data residue after tenant deletion),
+  - F-25 (project AuthZ mid-socket revocation window).
 - **FU-2 (resource hardening)**: Concept Map layer count and the final accumulated triple/
   embedding batch have no independent resource cap. The current one-apply design is
   approved, so this audit did not relabel it as a functional bug.
@@ -665,13 +666,16 @@ code independently of its finder.
 
 Recommended bugfix-spec batches, in order:
 
-1. **Release blockers**: F-1, F-2, and F-25 as separate security-sensitive bugfix specs.
+1. **Release blockers (security-required, `/check-security`)**: F-1, F-2, F-14, F-24, and
+   F-25 as separate security-sensitive bugfix specs. These five block release regardless of
+   the functional batch they also belong to below.
 2. **Graph triggers and lifecycle**: F-3 through F-6, F-12, and F-27.
 3. **2PC/reconciliation correctness**: F-7 through F-10 and F-26.
-4. **Embedding invariants**: F-11, F-13, and F-14.
+4. **Embedding invariants**: F-11, F-13, and F-14 (F-14 also a release blocker, batch 1).
 5. **Agent runtime context**: F-15 through F-17.
 6. **Configuration semantics**: F-18 through F-20.
-7. **Tenancy teardown**: F-24 (File RAG blob/collection leak on org/project deletion).
+7. **Tenancy teardown**: F-24 (File RAG blob/collection leak on org/project deletion; also a
+   release blocker, batch 1).
 8. **Frontend recovery**: F-21, F-22, and F-28.
 9. **Upload retry**: F-23 after confirming Arq behavior in the deployed environment.
 
