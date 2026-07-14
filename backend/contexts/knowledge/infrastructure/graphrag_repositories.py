@@ -402,7 +402,12 @@ class GraphRagConfigRepository(GraphRagConfigRepositoryPort):
         (the agent-delete cascade) — the same wrong-selector trap as F-3.
         """
         gc = t.graphrag_configs
-        has_silence = gc.c.trigger_config["silence_minutes"].astext.isnot(None)
+        # Enumerate only configs whose ``silence_minutes`` is a positive integer —
+        # the same values the ``_silence_minutes`` evaluator accepts. A regex on the
+        # JSONB text (not a cast) excludes absent/null/0/negative/non-numeric values
+        # without risking a cast error on malformed legacy data, so the sweep never
+        # pages configs that can never fire.
+        has_silence = gc.c.trigger_config["silence_minutes"].astext.regexp_match(r"^[1-9][0-9]*$")
         chatroom_layer = sa.select(gc, _member_agent_id()).where(
             sa.and_(
                 gc.c.owner_kind == "chatroom",
@@ -440,7 +445,9 @@ class GraphRagConfigRepository(GraphRagConfigRepositoryPort):
         )
         union = sa.union_all(chatroom_layer, group_layer, workspace_layer).subquery()
         rows = (
-            await self._db.execute(sa.select(union).order_by(union.c.created_at).limit(limit).offset(offset))
+            await self._db.execute(
+                sa.select(union).order_by(union.c.created_at, union.c.id).limit(limit).offset(offset)
+            )
         ).all()
         return [_row_to_config(r) for r in rows]
 
