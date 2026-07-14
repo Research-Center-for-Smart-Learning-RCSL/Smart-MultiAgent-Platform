@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: draft
+status: implemented
 created: 2026-07-14
 requirements: [R11.04]
 ---
@@ -196,18 +196,23 @@ Unit tests:
 
 ## 10. Acceptance Criteria
 
-- [ ] AC-1: The transient-state gate regression test (§8.1) fails before the fix and passes
-  after.
-- [ ] AC-2: `GraphRagRetrieveService.query` returns an empty bundle (no Neo4j/Qdrant reads)
+- [x] AC-1: The transient-state gate regression test (§8.1) fails before the fix and passes
+  after. (`test_query_gated_in_transient_build_states`; red-check confirmed by temporarily
+  neutralizing the gate — the three transient-state cases plus the knowmap gated case fail.)
+- [x] AC-2: `GraphRagRetrieveService.query` returns an empty bundle (no Neo4j/Qdrant reads)
   when the config is `running`, `neo4j_committed`, or `failed_compensating`, and reads normally
   in `idle`/`qdrant_committed`/`failed` — covering Concept Maps and Knowledge Maps through the
-  one chokepoint.
-- [ ] AC-3: Knowledge Map retrieval (`KnowledgeMapContextProvider.query`) returns `None` in the
+  one chokepoint. (`test_query_gated_in_transient_build_states` + `test_query_allowed_in_committed_states`.)
+- [x] AC-3: Knowledge Map retrieval (`KnowledgeMapContextProvider.query`) returns `None` in the
   same in-flight states via the shared service gate and retrieves normally otherwise (§8.3).
-- [ ] AC-4: `IN_FLIGHT_BUILD_STATES` is defined once in the domain layer and used by the read
-  gate (and, if refactored, referenced by the reconciler's `_STUCK_STATES`).
-- [ ] AC-5: `pytest -q`, `ruff check . && ruff format --check .`, and `mypy .` pass in
-  `backend/`.
+  (`TestSharedReadGate` wires a real `GraphRagRetrieveService` through the knowmap
+  `_retrieve_relations` seam.)
+- [x] AC-4: `IN_FLIGHT_BUILD_STATES` is defined once in the domain layer and used by the read
+  gate; the reconciler's `_STUCK_STATES` carries a reciprocal cross-reference comment noting the
+  coincidence (full consolidation deferred as FU-2 — see D-1).
+- [x] AC-5: `pytest -q` (29 in the touched files) and `ruff check . && ruff format --check .`
+  pass in `backend/`. `mypy .` introduces no new errors in the touched files (domain + retrieve
+  typecheck clean); 37 pre-existing baseline errors remain in unrelated files — see D-2.
 
 ## 11. SRS Delta
 
@@ -217,7 +222,17 @@ mid-build, that is a new requirement (generation epoch, FU-1) to draft separatel
 
 ## 12. Deviation Log
 
-Appended by /build.
+- **D-1 (`_STUCK_STATES` not folded into the shared constant):** §7.1 left the reconciler
+  refactor optional ("if refactored"). `_STUCK_STATES` is kept as a separate ordered tuple
+  (sweep priority depends on order; a frozenset is unordered) with a reciprocal cross-reference
+  comment to `IN_FLIGHT_BUILD_STATES`. Coupling them to one source is real but distinct work
+  (the two are semantically different — heal-selection vs read-safety) and stays FU-2.
+- **D-2 (mypy baseline):** as with F-7/F-9, `mypy .` carries 37 pre-existing errors in unrelated
+  files; none in the domain or retrieve modules this task touched, and the change adds none.
+- **D-3 (test-first ordering for the gate):** the domain constant and the gate were written
+  before the tests for F-10. Red-first was verified retroactively by temporarily neutralizing
+  the gate (`if False and ...`) and confirming the three transient-state cases and the knowmap
+  gated case fail, then restoring the gate. Other tasks (F-7, F-9) followed strict test-first.
 
 ## 13. Follow-ups
 

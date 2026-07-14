@@ -25,8 +25,10 @@ class FakeRepo:
 class FakeVectors:
     def __init__(self, hits: list[Any]) -> None:
         self.hits = hits
+        self.search_calls: list[dict[str, Any]] = []
 
-    async def search_entities(self, **_: Any):
+    async def search_entities(self, **kw: Any):
+        self.search_calls.append(kw)
         return self.hits
 
 
@@ -139,6 +141,74 @@ async def test_hybrid_query_returns_bundle() -> None:
     assert seen_agent_ids == [agent_id]
     assert bundle.evidence_excerpts == ("excerpt-0",)
     assert neo4j.traverse_calls == [(["alice", "bob"], 2)]
+
+
+class _Hit:
+    def __init__(self, entity: str) -> None:
+        self.point_id = uuid.uuid4()
+        self.score = 0.9
+        self.entity = entity
+        self.description = f"desc {entity}"
+        self.build_id = None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "state",
+    [BuildState.RUNNING, BuildState.NEO4J_COMMITTED, BuildState.FAILED_COMPENSATING],
+)
+async def test_query_gated_in_transient_build_states(state: BuildState) -> None:
+    # F-10 §8.1 / AC-1, AC-2 (primary red-first): a config mid-2PC must yield an empty
+    # bundle with NO Qdrant search and NO Neo4j traversal. Before the fix, retrieval
+    # ignored build state and read the half-committed graph.
+    import dataclasses
+
+    cfg = dataclasses.replace(_cfg(), last_build_state=state)
+    vectors = FakeVectors([_Hit("alice"), _Hit("bob")])  # would seed if not gated
+    neo4j = FakeNeo4j(edges=[{"subject": "alice", "relation": "knows", "object": "bob", "confidence": 0.9}])
+    service = GraphRagRetrieveService(
+        None,  # type: ignore[arg-type]
+        neo4j=neo4j,
+        vector_store=vectors,  # type: ignore[arg-type]
+        embedder_factory=_factory,
+        configs=FakeRepo(cfg),  # type: ignore[arg-type]
+    )
+
+    bundle = await service.query(config_id=cfg.id, text="who knows bob?")
+
+    assert bundle.entities == ()
+    assert bundle.relations == ()
+    assert bundle.evidence_excerpts == ()
+    assert vectors.search_calls == []  # no Qdrant read
+    assert neo4j.traverse_calls == []  # no Neo4j traversal
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "state",
+    [BuildState.IDLE, BuildState.QDRANT_COMMITTED, BuildState.FAILED],
+)
+async def test_query_allowed_in_committed_states(state: BuildState) -> None:
+    # F-10 §8.2 / AC-2 (guard): steady/terminal states read normally.
+    import dataclasses
+
+    cfg = dataclasses.replace(_cfg(), last_build_state=state)
+    vectors = FakeVectors([_Hit("alice")])
+    neo4j = FakeNeo4j(edges=[{"subject": "alice", "relation": "knows", "object": "bob", "confidence": 0.9}])
+    service = GraphRagRetrieveService(
+        None,  # type: ignore[arg-type]
+        neo4j=neo4j,
+        vector_store=vectors,  # type: ignore[arg-type]
+        embedder_factory=_factory,
+        configs=FakeRepo(cfg),  # type: ignore[arg-type]
+    )
+
+    bundle = await service.query(config_id=cfg.id, text="who knows bob?")
+
+    assert bundle.entities == ("alice",)
+    assert len(bundle.relations) == 1
+    assert vectors.search_calls, "committed state must vector-search"
+    assert neo4j.traverse_calls == [(["alice"], 2)]
 
 
 def test_recency_weighted_score_recent_beats_stale() -> None:
