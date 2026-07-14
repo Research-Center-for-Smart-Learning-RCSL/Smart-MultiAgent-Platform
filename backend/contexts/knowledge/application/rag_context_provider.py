@@ -80,6 +80,7 @@ class RagContextProvider:
         try:
             from qdrant_client import AsyncQdrantClient
 
+            from contexts.keys.domain.errors import KeyProjectScopeError
             from contexts.keys.interfaces.facade import KeysFacade
             from contexts.knowledge.application.ports import Reranker
             from contexts.knowledge.application.retrieve import RetrievedChunk, RetrieveService
@@ -93,14 +94,14 @@ class RagContextProvider:
 
             # F-1 (R7.04): a pinned embed/rerank key may issue a billed provider
             # call only while it is carried into the config's project. The router
-            # enforces this hard (KeyProjectScopeError); here we degrade
-            # gracefully so one withdrawn key never bricks the turn — an
-            # out-of-scope embed key drops the RAG block, an out-of-scope rerank
-            # key falls back to vector-only. Each degradation is audited.
+            # is the authoritative gate — it raises KeyProjectScopeError before
+            # any billed call. The knowledge layer only *reacts*, degrading so one
+            # withdrawn key never bricks the turn. The embed key's scope is left
+            # to the router and surfaces as KeyProjectScopeError from retrieval
+            # below (embed failure → no RAG block anyway, so no re-run is wasted).
+            # The rerank key is pre-checked here so its degrade is a clean
+            # vector-only fallback without re-embedding. Each degradation is audited.
             keys_facade = KeysFacade(self._db)
-            if not await keys_facade.is_key_in_project_scope(cfg.embed_key_id, cfg.project_id):
-                await self._emit_scope_degrade(cfg=cfg, key_id=cfg.embed_key_id, capability="embedding")
-                return None
 
             embedder = router_embedder_for(
                 router=self._router,  # type: ignore[arg-type]
@@ -147,20 +148,33 @@ class RagContextProvider:
                     reranker=reranker,
                 )
                 by_ref: dict[tuple[uuid.UUID, int], RetrievedChunk] = {}
-                for query in queries:
-                    for chunk in await svc.query(
-                        config_id=rag_config_id,
-                        text=query,
-                        agent_id=agent_id,
-                        top_k=top_k,
-                        # rerank=None defers to cfg.rerank_enabled; without a
-                        # reranker instance force it off so query() stays cheap.
-                        rerank=None if reranker is not None else False,
-                    ):
-                        ref = (chunk.document_id, chunk.chunk_idx)
-                        previous = by_ref.get(ref)
-                        if previous is None or chunk.score > previous.score:
-                            by_ref[ref] = chunk
+                try:
+                    for query in queries:
+                        for chunk in await svc.query(
+                            config_id=rag_config_id,
+                            text=query,
+                            agent_id=agent_id,
+                            top_k=top_k,
+                            # rerank=None defers to cfg.rerank_enabled; without a
+                            # reranker instance force it off so query() stays cheap.
+                            rerank=None if reranker is not None else False,
+                        ):
+                            ref = (chunk.document_id, chunk.chunk_idx)
+                            previous = by_ref.get(ref)
+                            if previous is None or chunk.score > previous.score:
+                                by_ref[ref] = chunk
+                except KeyProjectScopeError as err:
+                    # The router refused a pinned key mid-retrieval (embed key
+                    # withdrawn from the config's project — or, rarely, a rerank
+                    # key withdrawn between its pre-check and use). No billed
+                    # call happened; drop the RAG block for this turn and audit.
+                    capability = (
+                        "rerank"
+                        if cfg.rerank_key_id is not None and err.key_id == cfg.rerank_key_id
+                        else "embedding"
+                    )
+                    await self._emit_scope_degrade(cfg=cfg, key_id=err.key_id, capability=capability)
+                    return None
                 effective_top_k = top_k or cfg.top_k or 8
                 chunks = sorted(by_ref.values(), key=lambda c: c.score, reverse=True)[:effective_top_k]
                 if not chunks:
@@ -189,26 +203,38 @@ class RagContextProvider:
 
         Metadata carries only identifiers (config/key/project ids) and the
         capability — never the key secret, which this layer never holds.
+
+        Best-effort: a failure to write the audit row must not escalate the
+        degradation (e.g. turn a rerank-only degrade into a full RAG drop), so
+        the emit is guarded — the security guarantee (no billed out-of-scope
+        call) is already upheld by the router regardless of this record.
         """
         _log.warning(
             "RAG pinned %s key not carried into project; degrading config=%s",
             capability,
             cfg.id,
         )
-        await audit.emit(
-            self._db,
-            audit.AuditEvent(
-                action="rag.key_scope_degraded",
-                resource_type="rag_config",
-                resource_id=cfg.id,
-                metadata={
-                    "project_id": str(cfg.project_id),
-                    "key_id": str(key_id),
-                    "capability": capability,
-                    "reason": "key_not_carried",
-                },
-            ),
-        )
+        try:
+            await audit.emit(
+                self._db,
+                audit.AuditEvent(
+                    action="rag.key_scope_degraded",
+                    resource_type="rag_config",
+                    resource_id=cfg.id,
+                    metadata={
+                        "project_id": str(cfg.project_id),
+                        "key_id": str(key_id),
+                        "capability": capability,
+                        "reason": "key_not_carried",
+                    },
+                ),
+            )
+        except Exception:
+            _log.warning(
+                "failed to emit rag.key_scope_degraded audit for config=%s",
+                cfg.id,
+                exc_info=True,
+            )
 
     async def _build_sources(self, chunks: list[Any]) -> list[dict[str, Any]]:
         """Shape retrieved chunks into citable sources for the reply metadata.

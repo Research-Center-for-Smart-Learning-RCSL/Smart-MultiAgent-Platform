@@ -47,26 +47,41 @@ def _assert_no_secret(metadata: dict) -> None:
 
 class TestEmbedScopeDegrade:
     async def test_out_of_scope_embed_key_yields_no_block_and_audits(self) -> None:
+        # The embed key's scope is enforced at the router chokepoint: retrieval
+        # raises KeyProjectScopeError before any billed call. The provider drops
+        # the RAG block for the turn and audits the degradation.
+        from contexts.keys.domain.errors import KeyProjectScopeError
+
         cfg = _cfg(rerank=False)
-        facade = _scope_facade({cfg.embed_key_id: False})
         provider = RagContextProvider(AsyncMock(), router=MagicMock(), qdrant_url="http://qdrant")
+
+        def _fake_retrieve_service(_db, *, embedder, qdrant, reranker):
+            svc = MagicMock()
+            svc.query = AsyncMock(
+                side_effect=KeyProjectScopeError(key_id=cfg.embed_key_id, project_id=cfg.project_id)
+            )
+            return svc
 
         with (
             patch(
                 "contexts.knowledge.infrastructure.repositories.RagConfigRepository",
                 lambda _db: SimpleNamespace(get=AsyncMock(return_value=cfg)),
             ),
-            patch("contexts.keys.interfaces.facade.KeysFacade", lambda _db: facade),
             patch(
                 "contexts.knowledge.application.rag_context_provider.audit.emit",
                 new_callable=AsyncMock,
             ) as emit,
-            patch("contexts.knowledge.infrastructure.embedders.router_embedder_for") as embedder_for,
+            patch(
+                "contexts.knowledge.infrastructure.embedders.router_embedder_for",
+                return_value=MagicMock(),
+            ),
+            patch("qdrant_client.AsyncQdrantClient", return_value=AsyncMock()),
+            patch("contexts.knowledge.infrastructure.qdrant_store.QdrantStore", MagicMock()),
+            patch("contexts.knowledge.application.retrieve.RetrieveService", _fake_retrieve_service),
         ):
             result = await provider.query(rag_config_id=cfg.id, query_text="hello", agent_id=uuid.uuid4())
 
         assert result is None  # RAG source absent
-        embedder_for.assert_not_called()  # never reached the billable embed path
         emit.assert_awaited_once()
         event = emit.await_args.args[1]
         assert event.action == "rag.key_scope_degraded"

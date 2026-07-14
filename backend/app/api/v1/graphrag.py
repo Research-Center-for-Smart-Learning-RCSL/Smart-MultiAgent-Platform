@@ -34,9 +34,11 @@ from contexts.knowledge.domain.graphrag import (
     GraphRagConfig,
     GraphRagConfigDraft,
 )
+from contexts.knowledge.interfaces.config_access import has_config_read_access
 from contexts.knowledge.interfaces.facade import KnowledgeFacade
 from shared_kernel.auth.context import RequestContext
 from shared_kernel.auth.dependencies import (
+    _raise_forbidden,
     current_context,
     current_principal,
     require,
@@ -326,9 +328,6 @@ async def _assert_config_read(
     Raises 403 on denial. Replaces the bare project-membership check that let a
     room-denied project member read a private room's graph/status.
     """
-    from contexts.knowledge.interfaces.config_access import has_config_read_access
-    from shared_kernel.auth.dependencies import _raise_forbidden
-
     if not await has_config_read_access(db, principal=principal, cfg=cfg):
         _raise_forbidden("caller cannot read this concept map")
 
