@@ -5,19 +5,21 @@ from __future__ import annotations
 import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any, Final, Protocol
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from contexts.knowledge.domain.graphrag import BuildState
+from contexts.knowledge.domain.graphrag import BuildState, GraphRagConfig
 from contexts.knowledge.infrastructure.graphrag_repositories import (
     GraphRagConfigRepository,
 )
 from shared_kernel.auth.clients import get_redis
 
 _COUNTER_TTL: Final = 86400 * 7
+_SILENCE_TS_TTL: Final = 86400 * 7
 _TRIGGERED_BY_EVERY_N: Final = "every_n_messages"
+_TRIGGERED_BY_SILENCE: Final = "silence_minutes"
 _BUILDABLE_STATES: Final = frozenset({BuildState.IDLE, BuildState.FAILED})
 
 
@@ -62,12 +64,37 @@ class RedisGraphRagMessageCounter:
         return int(count)
 
 
+class GraphRagSilenceClock(Protocol):
+    """Per-config last-activity timestamp for the silence-trigger sweep (F-4)."""
+
+    async def touch(self, config_id: uuid.UUID) -> None: ...
+    async def get(self, config_id: uuid.UUID) -> datetime | None: ...
+
+
+class RedisGraphRagSilenceClock:
+    """Redis-backed ``graphrag:silence_ts:{config_id}`` — the analogue of the
+    wake-up ``wakeup:silence_ts`` timer, keyed per config (not per room) so a
+    workspace/agent_group map whose coverage spans many rooms is "silent" only
+    when its *entire* coverage has gone quiet."""
+
+    async def touch(self, config_id: uuid.UUID) -> None:
+        r = get_redis()
+        await r.set(_silence_ts_key(config_id), datetime.now(UTC).isoformat(), ex=_SILENCE_TS_TTL)
+
+    async def get(self, config_id: uuid.UUID) -> datetime | None:
+        raw = await get_redis().get(_silence_ts_key(config_id))
+        if not raw:
+            return None
+        return datetime.fromisoformat(str(raw))
+
+
 async def evaluate_graphrag_message_triggers(
     db: AsyncSession,
     *,
     chatroom_id: uuid.UUID,
     agent_ids: Sequence[uuid.UUID],
     counter: GraphRagMessageCounter | None = None,
+    activity: GraphRagSilenceClock | None = None,
 ) -> list[GraphRagBuildTrigger]:
     unique_agent_ids = list(dict.fromkeys(agent_ids))
     if not unique_agent_ids:
@@ -81,9 +108,15 @@ async def evaluate_graphrag_message_triggers(
         chatroom_id=chatroom_id, agent_ids=unique_agent_ids
     )
     active_counter = counter or RedisGraphRagMessageCounter()
+    active_activity = activity or RedisGraphRagSilenceClock()
     fired: list[GraphRagBuildTrigger] = []
 
     for cfg in configs:
+        # F-4: every config covering this room saw activity on this send —
+        # advance its silence timer so the periodic sweep measures idle time from
+        # the latest message across the config's whole coverage. Reuses the
+        # already-resolved covering set (no extra query).
+        await active_activity.touch(cfg.id)
         every_n = _every_n_messages(cfg.trigger_config)
         if every_n is None or cfg.last_build_state not in _BUILDABLE_STATES:
             continue
@@ -104,9 +137,67 @@ async def evaluate_graphrag_message_triggers(
     return fired
 
 
+def evaluate_graphrag_silence_trigger(
+    cfg: GraphRagConfig,
+    *,
+    last_activity_at: datetime | None,
+    now: datetime,
+) -> GraphRagBuildTrigger | None:
+    """Return a silence build trigger for one config, or ``None`` (F-4).
+
+    Fires when the config's coverage has been idle for at least
+    ``silence_minutes``: the config declares ``silence_minutes``, is in a
+    buildable state, has a recorded last-activity timestamp, and
+    ``now - last_activity >= silence_minutes``. A config that has never seen
+    activity (no timestamp) never fires.
+
+    Re-fire discipline (AC-3) — a build fires at most once per idle cycle,
+    without any extra Redis state:
+
+    - the buildable-state gate stops re-evaluation while the fired build RUNs;
+    - the freshness gate (``last_activity_at`` must be newer than
+      ``last_build_at``) stops a rebuild once the build completes and its
+      started-at watermark advances past the last activity — so a still-idle room
+      is not rebuilt again until new activity arrives;
+    - the stable ``graphrag_build_job_id`` (keyed on state + ``last_build_at``)
+      collapses any sweep ticks in the window before the build starts onto one
+      queued job.
+    """
+    minutes = _silence_minutes(cfg.trigger_config)
+    if minutes is None or cfg.last_build_state not in _BUILDABLE_STATES:
+        return None
+    if last_activity_at is None:
+        return None
+    # Nothing new since the last build already captured the corpus up to then.
+    if cfg.last_build_at is not None and last_activity_at <= cfg.last_build_at:
+        return None
+    if (now - last_activity_at).total_seconds() < minutes * 60:
+        return None
+    return GraphRagBuildTrigger(
+        config_id=cfg.id,
+        triggered_by=_TRIGGERED_BY_SILENCE,
+        job_id=graphrag_build_job_id(
+            cfg.id,
+            last_build_state=cfg.last_build_state,
+            last_build_at=cfg.last_build_at,
+        ),
+    )
+
+
 def _every_n_messages(trigger_config: dict[str, Any]) -> int | None:
     raw = trigger_config.get(_TRIGGERED_BY_EVERY_N)
-    if isinstance(raw, bool):
+    if raw is None or isinstance(raw, bool):
+        return None
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        return None
+    return value if value >= 1 else None
+
+
+def _silence_minutes(trigger_config: dict[str, Any]) -> int | None:
+    raw = trigger_config.get(_TRIGGERED_BY_SILENCE)
+    if raw is None or isinstance(raw, bool):
         return None
     try:
         value = int(raw)
@@ -119,10 +210,17 @@ def _message_count_key(config_id: uuid.UUID) -> str:
     return f"graphrag:msg_count:{config_id}"
 
 
+def _silence_ts_key(config_id: uuid.UUID) -> str:
+    return f"graphrag:silence_ts:{config_id}"
+
+
 __all__ = [
     "GraphRagBuildTrigger",
     "GraphRagMessageCounter",
+    "GraphRagSilenceClock",
     "RedisGraphRagMessageCounter",
+    "RedisGraphRagSilenceClock",
     "evaluate_graphrag_message_triggers",
+    "evaluate_graphrag_silence_trigger",
     "graphrag_build_job_id",
 ]

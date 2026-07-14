@@ -510,6 +510,87 @@ async def test_message_trigger_single_member_group_still_fires_when_enabled() ->
         assert [c.id for c in covered] == [group_cfg.id]
 
 
+async def test_list_silence_trigger_configs_scopes_by_owner() -> None:
+    # F-4 AC-4 / §8.4: the global silence feed returns configs carrying a
+    # silence_minutes trigger, gated by owner just like retrieval — chatroom
+    # always, agent_group/workspace only when concept_map_enabled — and excludes
+    # a config with no silence_minutes trigger. NOT the list_for_agents set.
+    async with async_session() as db:
+        env = await _seed_project(db)
+        consumer_kg = await KeyGroupRepository(db).create(project_id=env.project.id, name="consumer")
+        builder_kg = await KeyGroupRepository(db).create(project_id=env.project.id, name="builder")
+        agent_id = await _seed_agent(db, env.project.id, consumer_kg.id)
+        room = await ChatroomRepository(db).create(workspace_id=env.workspace.id, name="r")
+        other_room = await ChatroomRepository(db).create(workspace_id=env.workspace.id, name="r2")
+        gid = await _group_with_member(db, project_id=env.project.id, user_id=env.user.id, agent_id=agent_id)
+        await db.commit()
+
+        svc = GraphRagConfigService(db)
+        room_cfg = await svc.create(
+            project_id=env.project.id,
+            draft=GraphRagConfigDraft(
+                owner_kind="chatroom",
+                owner_id=room.id,
+                builder_key_group_id=builder_kg.id,
+                trigger_config={"silence_minutes": 5},
+            ),
+            actor_user_id=env.user.id,
+            actor_ip=None,
+        )
+        group_cfg = await svc.create(
+            project_id=env.project.id,
+            draft=GraphRagConfigDraft(
+                owner_kind="agent_group",
+                owner_id=gid,
+                builder_key_group_id=builder_kg.id,
+                trigger_config={"silence_minutes": 5},
+            ),
+            actor_user_id=env.user.id,
+            actor_ip=None,
+        )
+        ws_cfg = await svc.create(
+            project_id=env.project.id,
+            draft=GraphRagConfigDraft(
+                owner_kind="workspace",
+                owner_id=env.workspace.id,
+                builder_key_group_id=builder_kg.id,
+                trigger_config={"silence_minutes": 5},
+            ),
+            actor_user_id=env.user.id,
+            actor_ip=None,
+        )
+        # A silence-less config must never be enumerated by the sweep feed.
+        await svc.create(
+            project_id=env.project.id,
+            draft=GraphRagConfigDraft(
+                owner_kind="chatroom",
+                owner_id=other_room.id,
+                builder_key_group_id=builder_kg.id,
+                trigger_config={"every_n_messages": 3},
+            ),
+            actor_user_id=env.user.id,
+            actor_ip=None,
+        )
+        await db.commit()
+
+        repo = GraphRagConfigRepository(db)
+
+        # Wide owners disabled -> only the chatroom silence config feeds the sweep.
+        feed = await repo.list_silence_trigger_configs(limit=100, offset=0)
+        assert [c.id for c in feed] == [room_cfg.id]
+
+        await AgentGroupService(db).set_concept_map_enabled(
+            group_id=gid, enabled=True, actor_user_id=env.user.id, actor_ip=None
+        )
+        await WorkspaceService(db).set_concept_map_enabled(
+            workspace_id=env.workspace.id, enabled=True, actor_user_id=env.user.id, actor_ip=None
+        )
+        await db.commit()
+
+        feed = await repo.list_silence_trigger_configs(limit=100, offset=0)
+        assert {c.id for c in feed} == {room_cfg.id, group_cfg.id, ws_cfg.id}
+
+
 async def test_create_rejects_owner_from_another_project() -> None:
     # AC-3: an owner that does not live in the config's project is rejected
     # (RFC 7807 GraphRagOwnerProjectMismatch).

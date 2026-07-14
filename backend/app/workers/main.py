@@ -43,6 +43,7 @@ from app.workers.tasks.graphrag import (
     GRAPHRAG_BUILD_TIMEOUT_S,
     graphrag_build,
     graphrag_reconcile,
+    graphrag_silence_sweep,
 )
 from app.workers.tasks.knowmap import (
     KNOWMAP_BUILD_TIMEOUT_S,
@@ -275,6 +276,7 @@ class WorkerSettings:
         # default worker job_timeout.
         func(graphrag_build, name="graphrag_build", timeout=GRAPHRAG_BUILD_TIMEOUT_S),
         graphrag_reconcile,
+        graphrag_silence_sweep,
         rag_ingest_document,
         rag_scan_document,
         knowmap_ingest_document,
@@ -319,6 +321,10 @@ class WorkerSettings:
         # Every minute — heal GraphRAG 2PC drift (M.5.4 / R11.04): configs stuck
         # in FAILED_COMPENSATING. arq's cron lock keeps it singleton across replicas.
         cron(graphrag_reconcile, minute=set(range(60)), run_at_startup=False),
+        # Every minute — Concept Map silence-trigger sweep (F-4 / R11.02): fire a
+        # graphrag_build for maps whose coverage has been idle for silence_minutes.
+        # arq's cron lock keeps it singleton; keep_result backs the _job_id dedup.
+        cron(graphrag_silence_sweep, minute=set(range(60)), run_at_startup=False),
         # Every 5 minutes — orphan sandbox container cleanup (B2-4).
         cron(
             sandbox_orphan_cleanup,

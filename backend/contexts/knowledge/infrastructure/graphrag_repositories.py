@@ -383,6 +383,67 @@ class GraphRagConfigRepository(GraphRagConfigRepositoryPort):
         configs.sort(key=lambda c: (_LAYER_RANK.get(c.owner_kind, 99), c.created_at))
         return configs
 
+    async def list_silence_trigger_configs(
+        self,
+        *,
+        limit: int,
+        offset: int,
+    ) -> Sequence[GraphRagConfig]:
+        """Live Concept Maps carrying a ``silence_minutes`` trigger whose owner is
+        retrieval-eligible (F-4) — the global feed for the periodic silence sweep.
+
+        Not room-scoped: the sweep is time-based and covers every owner. Enable-
+        gating mirrors :meth:`list_layers_for_turn` so a silence build fires only
+        where a turn could retrieve it — ``chatroom`` owners always; ``agent_group``
+        / ``workspace`` owners only when ``concept_map_enabled``. Filters on the
+        presence of the ``silence_minutes`` JSONB key so configs without the
+        trigger are never enumerated. Paginated (``created_at`` order) so the
+        sweep can page in bounded batches. Deliberately NOT :meth:`list_for_agents`
+        (the agent-delete cascade) — the same wrong-selector trap as F-3.
+        """
+        gc = t.graphrag_configs
+        has_silence = gc.c.trigger_config["silence_minutes"].astext.isnot(None)
+        chatroom_layer = sa.select(gc, _member_agent_id()).where(
+            sa.and_(
+                gc.c.owner_kind == "chatroom",
+                gc.c.deleted_at.is_(None),
+                has_silence,
+            )
+        )
+        group_join = gc.join(ag.agent_groups, ag.agent_groups.c.id == gc.c.owner_agent_group_id)
+        group_layer = (
+            sa.select(gc, _member_agent_id())
+            .select_from(group_join)
+            .where(
+                sa.and_(
+                    gc.c.owner_kind == "agent_group",
+                    ag.agent_groups.c.concept_map_enabled.is_(True),
+                    ag.agent_groups.c.deleted_at.is_(None),
+                    gc.c.deleted_at.is_(None),
+                    has_silence,
+                )
+            )
+        )
+        workspace_join = gc.join(conv.workspaces, conv.workspaces.c.id == gc.c.owner_workspace_id)
+        workspace_layer = (
+            sa.select(gc, _member_agent_id())
+            .select_from(workspace_join)
+            .where(
+                sa.and_(
+                    gc.c.owner_kind == "workspace",
+                    conv.workspaces.c.concept_map_enabled.is_(True),
+                    conv.workspaces.c.deleted_at.is_(None),
+                    gc.c.deleted_at.is_(None),
+                    has_silence,
+                )
+            )
+        )
+        union = sa.union_all(chatroom_layer, group_layer, workspace_layer).subquery()
+        rows = (
+            await self._db.execute(sa.select(union).order_by(union.c.created_at).limit(limit).offset(offset))
+        ).all()
+        return [_row_to_config(r) for r in rows]
+
     async def list_layers_for_turn(
         self,
         *,
