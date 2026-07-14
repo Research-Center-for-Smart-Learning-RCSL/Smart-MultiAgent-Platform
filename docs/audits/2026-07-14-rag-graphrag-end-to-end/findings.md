@@ -86,7 +86,8 @@ running multi-service stack.
   generic config-project role check
   (`backend/contexts/knowledge/interfaces/ws_config_route.py:55-82`) and never branches on
   `owner_kind`. The public room-access facade exists separately at
-  `backend/contexts/conversation/interfaces/access.py:1-14` but is not called.
+  `backend/contexts/conversation/interfaces/access.py:1-14` (used by ~10 conversation
+  routes) but is not called by the GraphRAG/Concept-Map read or subscribe paths.
 - **Failure scenario**: a project member who is denied read access to private chatroom R
   obtains its Concept Map config UUID, reads the graph/entities/relations and status, and
   subscribes to build updates despite being unable to read R itself.
@@ -106,8 +107,8 @@ running multi-service stack.
   method is explicitly for Agent deletion, returns only agent-group owners, and excludes a
   shared group when any other live member remains
   (`backend/contexts/knowledge/infrastructure/graphrag_repositories.py:237-297`). The
-  dispatcher receives `chatroom_id` but does not use it
-  (`backend/app/api/v1/messages.py:300-321`).
+  dispatcher receives `chatroom_id` but does not use it in trigger evaluation, only in a
+  failure log line (`backend/app/api/v1/messages.py:300-321`).
 - **Failure scenario**: a chatroom- or workspace-owned Concept Map configured with
   `every_n_messages=1` never increments or builds. A shared A+B group map is also omitted
   for a room containing A when B is a live member elsewhere.
@@ -220,15 +221,18 @@ running multi-service stack.
   supplied point ID
   (`backend/contexts/knowledge/infrastructure/graphrag_vector_store.py:112-148`). Retrieval
   requests `top_k` before deduplicating entity names
-  (`backend/contexts/knowledge/application/graphrag_retrieve.py:116-127`).
+  (`backend/contexts/knowledge/application/graphrag_retrieve.py:116-128`).
 - **Failure scenario**: Qdrant commits an upsert but the client times out. Each retry adds
   another copy instead of replacing the original; duplicates consume candidate slots
   before entity dedup and reduce recall.
 - **Blast radius**: storage growth and degraded graph retrieval after ambiguous network
   failures.
 - **Intent source**: [R11.04] / section 11.2a's deterministic idempotent point contract.
-- **Fix direction**: derive point IDs deterministically from config/build/entity (matching
-  the initial builder) and run supersede cleanup after a recovered phase 2.
+- **Fix direction**: derive point IDs deterministically from config/build/entity, or run
+  the builder's supersede-by-entity-name cleanup after a recovered phase 2. Note the
+  initial builder is itself non-deterministic (`graphrag_builder.py:556` also mints
+  `uuid4()` point IDs) and relies on that post-finalise supersede step to collapse
+  duplicates — the step the reconciler omits.
 
 ## F-10: Reads can observe Phase-1 graph mutations before atomic build completion
 
@@ -316,7 +320,7 @@ running multi-service stack.
 - **Severity**: major
 - **Verdict**: confirmed
 - **Evidence**: Agent attachment/key changes enforce builder group != consumer group
-  (`backend/contexts/agents/application/agent_service.py:235-269,421-442`). Knowledge Map
+  (`backend/contexts/agents/application/agent_service.py:235-270,421-443`). Knowledge Map
   config update checks only project, embedding availability, and dimension, never attached
   Agents (`backend/contexts/knowledge/application/knowmap_config_service.py:126-151`).
 - **Failure scenario**: Agent uses group A and is attached to a map built by B; a designer
@@ -333,7 +337,7 @@ running multi-service stack.
 - **Verdict**: confirmed
 - **Evidence**: `run_input_turn` builds only base prompt, notifications, and tools before
   streaming (`backend/contexts/agents/application/runtime/turn_engine.py:425-459`). Room
-  turns automatically query all knowledge providers (`:939-950`). A2A and approval paths
+  turns automatically query all knowledge providers (`:942-950`). A2A and approval paths
   call the headless method
   (`backend/contexts/orchestration/application/a2a_handler.py:182-186`;
   `backend/app/workers/tasks/approvals.py:88`).
