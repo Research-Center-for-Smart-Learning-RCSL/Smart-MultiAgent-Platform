@@ -128,13 +128,19 @@ reading `KnowledgeFacade.get_knowmap_config` (`agent_service.py:259`).
    `AgentsFacade.detach_agents_colliding_with_knowmap_builder(*, knowmap_config_id, new_builder_key_group_id, actor_user_id, actor_ip, request_id=None) -> list[uuid.UUID]`
    (`backend/contexts/agents/interfaces/facade.py`, delegating to `AgentService`). It selects
    Agents where `knowmap_config_id == config_id AND key_group_id == new_builder_key_group_id`
-   (project-scoped), clears each such Agent's `knowmap_config_id` **reusing the existing
-   clear-knowmap path** (`agent_service.py:422-428` clear-wins semantics) so any dependent
-   Agent state and audit are handled consistently, and returns the detached Agent ids. Add the
-   backing repository query to `AgentRepository`
-   (`backend/contexts/agents/infrastructure/repositories.py`); note `agents.knowmap_config_id`
-   is unindexed (`0048_knowmap.py`), so scope the query by `project_id` (already indexed) — a
-   dedicated index is not required for this low-cardinality path but is recorded as FU-2.
+   (project-scoped), clears each such Agent's `knowmap_config_id`, and returns the detached
+   Agent ids. Clearing the binding is a single-field write — the same field the Agent update
+   path sets to `NULL` at `agent_service.py:468-469` — and knowmap attachment carries **no**
+   dependent tool/flag state to reconcile (contrast F-18, which concerns config *deletion* and
+   Agent tool state; no Knowledge Map tool exists per F-15). Add the backing repository write to
+   `AgentRepository` (`backend/contexts/agents/infrastructure/repositories.py`) as a targeted
+   `UPDATE agents SET knowmap_config_id=NULL, version=version+1 WHERE knowmap_config_id=:cid AND
+   key_group_id=:kg AND project_id=:pid` (bump `version` so it composes with the optimistic-
+   concurrency `patch` used elsewhere, `agent_service.py:502-506`), and emit one
+   `agent.knowmap_detached` audit event per detached Agent attributed to the acting user. Note
+   `agents.knowmap_config_id` is unindexed (`0048_knowmap.py`); scope by the indexed
+   `project_id` — a dedicated index is not required for this low-cardinality config-edit path
+   but is recorded as FU-2.
 2. **Wire it into the config update.** In `KnowmapConfigService.update`, inside the
    `new_group is not None and new_group != cfg.builder_key_group_id` branch
    (`knowmap_config_service.py:132`), after the existing project/pin/dimension validations and

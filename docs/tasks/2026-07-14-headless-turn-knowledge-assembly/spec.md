@@ -143,12 +143,17 @@ without duplicating logic.
 
 **Security considerations** (this fix touches the agent knowledge/prompt surface and, via Q-2, a
 room trust boundary):
+- Threading the approval room to enable Concept Maps (Q-2) is a **new trust-boundary crossing** —
+  an approver Agent now reads a room's conversation-derived Concept Map that it previously never
+  saw headless. `/build` should run the `check-security` lens on this specific
+  approver -> Concept Map flow even though the audit did not pre-tag F-15 as security-required.
 - The approval room threading must use the **server-side** `chatroom_id` from the parked approval
   payload (`approvals.py:35`), never a user-supplied value, so an approver cannot be steered to a
   foreign room's Concept Maps. Concept Map resolution reuses the existing
   `resolve_graphrag_layers(agent_id, chatroom_id)` (`turn_engine.py:1733-1735`) — the same path a
   normal room turn uses — so this grants the approver no access wider than a normal room turn for
-  that same agent + room would.
+  that same agent + room would, and returns an empty block when the approver's layers resolve to
+  nothing.
 - Concept Map channel ACL hardening (F-2 handshake room-ACL, F-25 mid-socket re-auth) is separate
   and out of scope; this fix must not widen Concept Map access beyond `resolve_graphrag_layers`'s
   current layer rules. If F-2's fix tightens that resolution, this path inherits it for free.
@@ -217,6 +222,8 @@ Failing-first backend unit tests against `TurnEngine` (fake providers / spies on
 - [ ] AC-5: The room-turn path (`_run_locked`) produces identical knowledge blocks (same content,
   same order) after the helper extraction (§8.6).
 - [ ] AC-6: `pytest -q`, `ruff check . && ruff format --check .`, and `mypy .` pass in `backend/`.
+- [ ] AC-7: `/check-security` lens passes for the new approver -> Concept Map flow (server-side
+  room id only; no access wider than a normal room turn for that agent + room).
 
 ## 11. SRS Delta
 
