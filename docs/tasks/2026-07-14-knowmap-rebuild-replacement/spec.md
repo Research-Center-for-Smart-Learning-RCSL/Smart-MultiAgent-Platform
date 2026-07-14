@@ -310,3 +310,6 @@ code already claims to implement.
   one `WITH` row per deleted relation, so the follow-on `MATCH (n:Entity {cid})` is an N×M
   cartesian (deleted-rels × entities). Deletes are idempotent so correctness holds, but a
   `WITH DISTINCT`/aggregation collapses it to one pass. Efficiency only.
+  **Resolved (c9816ca):** the cleanup now projects `WITH DISTINCT $cid AS cid`, so the entity
+  scan runs once instead of once per stale relation. Behavior-preserving (asserted by the
+  integration test's graph-shape checks).
