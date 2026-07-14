@@ -2,7 +2,7 @@
 type: bugfix
 status: draft
 created: 2026-07-14
-requirements: [R24.23]
+requirements: [R24.22, R24.23]
 ---
 
 # F-21 / F-28: RAG ingestion WebSocket cannot recover state on reconnect or late subscribe
@@ -136,9 +136,12 @@ authoritative state even before the socket connects (mirroring `useBuildStateSoc
 terminal frame still self-heals without a reload, and stops polling once terminal/idle.
 
 **7.4 Non-terminal live event hardening.** In the `ingestion.progress` handler (`:42-44`), if
-`state` is currently `'idle'`, set it to `'ingesting'` (progress frames imply active ingestion).
-This is a cheap belt-and-braces for the window between subscribe and the first `syncState`
-resolve; the authoritative `syncState` remains the primary fix.
+`state` is currently `'idle'`, set it to `'ingesting'` (progress frames imply active ingestion),
+and adopt `ev.total` into `documentsTotal` when the frame carries it (the wire already sends
+`total` at `ingest_service.py:342` but the handler ignores it today, so a mid-upload growing
+corpus keeps a correct denominator). This is a cheap belt-and-braces for the window between
+subscribe and the first `syncState` resolve; the authoritative `syncState` remains the primary
+fix.
 
 **7.5 No backend change.** The WS route and events are unchanged (Q-2); the authoritative
 `GET .../documents` endpoint already returns everything needed
@@ -173,6 +176,11 @@ Primary red-first test: (1).
 - **Derivation vs live granularity.** Document `status` has no `indexing` sub-state, so a
   resync during indexing shows `ingesting` until the next live `ingestion.indexing` event or
   completion. Acceptable — it never under-reports progress and self-corrects; documented.
+- **Mid-upload snapshot.** A resync mid multi-file upload derives `documentsTotal` from the
+  documents that exist at that instant, which can be below the eventual total (rows are created
+  as files arrive). The bar may momentarily read e.g. `2/2` before a later file appears; the
+  next live `ingestion.progress`/`started` frame (which carries `total`, §7.4) and the backstop
+  poll correct it. Acceptable for a recovery snapshot.
 - **Poll load.** A 15s poll per open in-progress config detail page; bounded to in-progress
   states and stopped at terminal, matching the existing `useBuildStateSocket` budget.
 - **Rollback** — revert the composable to the prior `syncOnReconnect`; frontend-only, no API
