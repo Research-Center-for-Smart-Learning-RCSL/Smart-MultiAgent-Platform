@@ -34,10 +34,13 @@ duplicate of the same attempt still dedups.
     `_job_id=f"knowmap-ingest:{document_id}"` (`backend/contexts/knowledge/application/knowmap_tus_finalizer.py:131`,
     enqueuing `"knowmap_ingest_document"` at `:129`).
   - On a reupload of a non-`READY` SHA the finalizer **reuses the existing document row** (so the
-    ID is identical): RAG `rag_tus_finalizer.py:89-105` (`_enqueue_index(existing.id)` `:101`,
-    returns `existing` `:105`, emits a reupload audit `:94-100`); knowmap
-    `knowmap_tus_finalizer.py:78-81` (`_enqueue_index(existing.id)` `:79`, returns `existing`
-    `:81`; no reupload audit). `document_id` is stable per `(config_id, sha256)`.
+    ID is identical) and re-enqueues **both** the ingest job and the scan job: RAG
+    `rag_tus_finalizer.py:89-105` (`_enqueue_index(existing.id)` `:101`, `enqueue_rag_scan(
+    existing.id)` `:102-104`, returns `existing` `:105`, emits a reupload audit `:94-100`); knowmap
+    `knowmap_tus_finalizer.py:78-81` (`_enqueue_index(existing.id)` `:79`, `enqueue_knowmap_scan(
+    existing.id)` `:80`, returns `existing` `:81`; no reupload audit). `document_id` is stable per
+    `(config_id, sha256)`, and the scan job ID is document-only too (`rag-scan:{document_id}`,
+    `knowmap-scan:{document_id}`), so both jobs are suppressible within the retention window.
   - The enqueue wrapper discards Arq's return: `backend/shared_kernel/queue.py:21-33` —
     `async def enqueue(...) -> None`, `await pool.enqueue_job(...)` at `:31` with the result not
     captured, so callers cannot tell a real enqueue from a deduped one.
@@ -111,11 +114,12 @@ The causal chain:
   - **Knowmap tus finalizer (`knowmap_tus_finalizer.py:123-132,78-81`) — confirmed, same fix.**
     Identical document-only job ID and row-reuse; gets the same `ingest_attempt` column and
     ID suffix.
-  - **Scan jobs (`rag-scan:{doc}`, `knowmap-scan:{doc}`) — cleared, out of scope.** Also
-    document-only IDs (`ingest_service.py:462`, `knowmap_ingest_service.py:273`), but a scan is
-    enqueued once per successful index on the multipart path and is not the user-driven retry
-    surface this finding concerns. Noted; not changed here (would widen scope without a reported
-    defect).
+  - **Scan jobs (`rag-scan:{doc}`, `knowmap-scan:{doc}`) — confirmed, in scope.** The tus reupload
+    branch re-enqueues the scan alongside the ingest (`rag_tus_finalizer.py:102-104`;
+    `knowmap_tus_finalizer.py:80`) with the same document-only, deterministic ID
+    (`ingest_service.py:462`, `knowmap_ingest_service.py:273`). If a prior scan failed/erred and
+    its result is retained, the rescan on a genuine retry is suppressed too, so the same attempt
+    discriminator must be applied to the scan job ID for the retry to actually re-scan (§7).
   - **Multipart ingest path — cleared.** Indexes synchronously, enqueues no ingest job
     (`ingest_service.py:226-236`); no job-ID dedup concern.
   - **F-12 build-job dedup — distinct.** Build job IDs key on `(state, epoch)`
@@ -131,12 +135,19 @@ The causal chain:
    (`rag_tus_finalizer.py:89-105`; `knowmap_tus_finalizer.py:78-81`), increment the document's
    `ingest_attempt` in the same transaction that reuses the row, before enqueuing. New documents
    keep `ingest_attempt=0`.
-3. **Include it in the job ID.** Change the ID to `rag-ingest:{document_id}:{ingest_attempt}` /
-   `knowmap-ingest:{document_id}:{ingest_attempt}` (`_enqueue_index`,
-   `rag_tus_finalizer.py:149-172`; `knowmap_tus_finalizer.py:123-132`). Pass `ingest_attempt` to
-   `_enqueue_index` so it composes the suffix. A genuine retry (attempt N→N+1) always enqueues; a
-   truly concurrent duplicate finalize of the *same* attempt still dedups (correct — that is the
-   rapid double-submit guard the deterministic ID was meant to provide).
+3. **Include it in both job IDs the reupload branch enqueues.** Change the ingest ID to
+   `rag-ingest:{document_id}:{ingest_attempt}` / `knowmap-ingest:{document_id}:{ingest_attempt}`
+   (`_enqueue_index`, `rag_tus_finalizer.py:149-172`; `knowmap_tus_finalizer.py:123-132`), passing
+   `ingest_attempt` into `_enqueue_index` so it composes the suffix. Apply the **same** suffix to
+   the scan job ID enqueued in the same branch (`rag-scan:{document_id}:{ingest_attempt}` /
+   `knowmap-scan:{document_id}:{ingest_attempt}`), threading `ingest_attempt` through
+   `enqueue_rag_scan` / `enqueue_knowmap_scan` (`rag_tus_finalizer.py:102-104`;
+   `knowmap_tus_finalizer.py:80`; helpers at `ingest_service.py:462`,
+   `knowmap_ingest_service.py:273`), so a genuine retry re-runs both index and scan. A genuine
+   retry (attempt N→N+1) always enqueues; a truly concurrent duplicate finalize of the *same*
+   attempt still dedups (correct — that is the rapid double-submit guard the deterministic ID was
+   meant to provide). Both attempts share one `ingest_attempt` value bumped once per reupload, so
+   the ingest and scan of one retry stay aligned.
 
 The worker signature (`rag_ingest_document(document_id)`) is unchanged — the attempt lives only in
 the job ID, not the worker args. The `queue.py` wrapper is left as-is (FU-1 covers surfacing the
@@ -189,7 +200,8 @@ Primary red-first test: (1).
 - [ ] AC-2: `rag_documents` and `knowmap_documents` carry `ingest_attempt INTEGER NOT NULL
   DEFAULT 0`; the ORM tables and migration match (no `sa.Text`/enum mismatch).
 - [ ] AC-3: A reupload of an existing non-`READY` document increments `ingest_attempt` and enqueues
-  a job whose ID includes the new attempt, so a genuine retry always schedules a worker run.
+  both the ingest and scan jobs with IDs that include the new attempt, so a genuine retry always
+  schedules a fresh index and rescan.
 - [ ] AC-4: A first-time finalize enqueues attempt 0; a same-attempt concurrent finalize dedups.
 - [ ] AC-5: The Arq-dedup confirmation check (§8.4) documents/verifies that Arq `0.26.*` suppresses
   a retained-`_job_id` re-enqueue on the deployed stack.
