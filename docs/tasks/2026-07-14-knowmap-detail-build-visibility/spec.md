@@ -104,11 +104,25 @@ exist (`:116-120`).
   - **`useBuildStateSocket` engine (cleared — this is the exemplar).** It already resyncs on
     connect and polls; the F-21 spec names it the cleared exemplar
     (`docs/tasks/2026-07-14-rag-ingestion-ws-resync/spec.md:94-101,106-107`). No engine change.
+    Its own `watch()` comment confirms the seed rationale: a defined `initialState` is what lets
+    the backstop poll recover a build even when the socket never connects
+    (`frontend/src/slices/agents/composables/useBuildStateSocket.ts:95-108`, "audit C6").
   - **RAG detail page (cleared — separate finding).** RAG uses a different composable
     (`useRagConfigSocket`) fixed under F-21/F-28; not this dossier.
-  - **A Knowledge Map *list* view, if one exists (verify at build).** The audit cited only the
-    detail view and the GraphRAG list; confirm during build whether a `KnowledgeMapConfigListView`
-    exists with the same gating and apply the same bounded fix if so.
+  - **`KnowledgeMapConfigListView` (verified — a *different*, milder gap, FU-3, not the same
+    bug).** The Knowledge Map list view exists but does **not** use `useKnowmapSocket` at all — it
+    renders `row.last_build_state` statically from the config-list query
+    (`frontend/src/slices/agents/views/KnowledgeMapConfigListView.vue:284-288`), with no
+    `watchBuild`. It never triggers document builds (no upload/delete there), so it is not the
+    detail-page auto-build bug; its only gap is that a build running elsewhere is not reflected
+    live until the list refetches. Recorded as FU-3 rather than expanded here, since a socket-less
+    list view is a different fix shape.
+  - **`GraphragConfigListView` (verified — the true identical-gating sibling, in scope per Q-2).**
+    `GraphragConfigListView.vue:134-142` has the exact in-progress-gated per-row `watchBuild`; a
+    Concept Map build started elsewhere (e.g. a message-trigger auto-build) is invisible on the
+    list until reload. Fixed by the same de-gate, bounded to rendered (paginated) rows (§7.3, §9).
+  - **`RagConfigListView` (cleared — different composable).** The RAG list uses the F-21
+    ingestion socket family, not `useBuildStateSocket`; out of scope here.
 
 ## 7. Fix Design
 
@@ -215,3 +229,8 @@ Appended by /build.
 - **FU-2 (shared detail-page subscription helper):** the RAG (F-21), GraphRAG, and Knowledge Map
   detail pages now share a "subscribe the active config continuously + resync/poll" shape; a
   future refactor could extract a common primitive. Out of scope here.
+- **FU-3 (`KnowledgeMapConfigListView` has no live build state):** the Knowledge Map list view
+  never subscribes to `useKnowmapSocket` (`KnowledgeMapConfigListView.vue:284-288`), so a build
+  running elsewhere is stale on the list until it refetches. A different, milder gap than this
+  finding (no build trigger on the list); a follow-up could subscribe rendered rows like the
+  GraphRAG list or refetch the list query on a modest cadence.
