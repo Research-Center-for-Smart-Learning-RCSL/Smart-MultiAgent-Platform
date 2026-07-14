@@ -361,6 +361,155 @@ async def test_list_layers_for_turn_orders_and_gates_layers() -> None:
         assert [c.id for c in layers] == [room_cfg.id, ws_cfg.id]
 
 
+async def test_message_trigger_configs_for_room_cover_all_typed_owners() -> None:
+    # F-3 AC-2/AC-3/AC-4/AC-6: the message-trigger selector resolves room
+    # coverage — chatroom always, agent_group/workspace only when enabled — and
+    # includes a shared multi-member group with other live members (which the
+    # agent-delete cascade list_for_agents excludes). Parity with the retrieval
+    # resolver list_layers_for_turn is asserted at the end.
+    async with async_session() as db:
+        env = await _seed_project(db)
+        consumer_kg = await KeyGroupRepository(db).create(project_id=env.project.id, name="consumer")
+        builder_kg = await KeyGroupRepository(db).create(project_id=env.project.id, name="builder")
+        agent_a = await _seed_agent(db, env.project.id, consumer_kg.id)
+        agent_b = await _seed_agent(db, env.project.id, consumer_kg.id)
+        room = await ChatroomRepository(db).create(workspace_id=env.workspace.id, name="r")
+        # A shared group holding both agents -> deleting A alone leaves B live, so
+        # list_for_agents would exclude this map; the trigger selector must not.
+        gid = await _group_with_member(db, project_id=env.project.id, user_id=env.user.id, agent_id=agent_a)
+        await AgentGroupService(db).add_member(
+            group_id=gid, agent_id=agent_b, actor_user_id=env.user.id, actor_ip=None
+        )
+        await db.commit()
+
+        svc = GraphRagConfigService(db)
+        room_cfg = await svc.create(
+            project_id=env.project.id,
+            draft=GraphRagConfigDraft(
+                owner_kind="chatroom", owner_id=room.id, builder_key_group_id=builder_kg.id
+            ),
+            actor_user_id=env.user.id,
+            actor_ip=None,
+        )
+        group_cfg = await svc.create(
+            project_id=env.project.id,
+            draft=GraphRagConfigDraft(
+                owner_kind="agent_group", owner_id=gid, builder_key_group_id=builder_kg.id
+            ),
+            actor_user_id=env.user.id,
+            actor_ip=None,
+        )
+        ws_cfg = await svc.create(
+            project_id=env.project.id,
+            draft=GraphRagConfigDraft(
+                owner_kind="workspace", owner_id=env.workspace.id, builder_key_group_id=builder_kg.id
+            ),
+            actor_user_id=env.user.id,
+            actor_ip=None,
+        )
+        await db.commit()
+
+        repo = GraphRagConfigRepository(db)
+
+        # Wide layers disabled by default -> only the chatroom map covers the room,
+        # but (unlike list_for_agents) it IS returned for a chatroom owner.
+        covered = await repo.list_message_trigger_configs_for_room(chatroom_id=room.id, agent_ids=[agent_a])
+        assert [c.id for c in covered] == [room_cfg.id]
+        # list_for_agents would return nothing for this shared, disabled setup.
+        assert await repo.list_for_agents([agent_a]) == []
+
+        # Enable both wide layers -> all three owners covered, shared group
+        # included even though agent B remains a live member.
+        await AgentGroupService(db).set_concept_map_enabled(
+            group_id=gid, enabled=True, actor_user_id=env.user.id, actor_ip=None
+        )
+        await WorkspaceService(db).set_concept_map_enabled(
+            workspace_id=env.workspace.id, enabled=True, actor_user_id=env.user.id, actor_ip=None
+        )
+        await db.commit()
+
+        covered = await repo.list_message_trigger_configs_for_room(chatroom_id=room.id, agent_ids=[agent_a])
+        assert [c.id for c in covered] == [room_cfg.id, group_cfg.id, ws_cfg.id]
+
+        # AC-6: the trigger set equals the union of list_layers_for_turn over the
+        # room's bound agents (build coverage == retrieval coverage).
+        retrieval: set[uuid.UUID] = set()
+        for aid in (agent_a, agent_b):
+            retrieval |= {c.id for c in await repo.list_layers_for_turn(agent_id=aid, chatroom_id=room.id)}
+        assert {c.id for c in covered} == retrieval
+
+
+async def test_message_trigger_configs_gate_wide_owners_on_enable() -> None:
+    # F-3 AC-4: an agent_group/workspace map with concept_map_enabled=false does
+    # NOT appear in the trigger set; the chatroom map appears regardless.
+    async with async_session() as db:
+        env = await _seed_project(db)
+        consumer_kg = await KeyGroupRepository(db).create(project_id=env.project.id, name="consumer")
+        builder_kg = await KeyGroupRepository(db).create(project_id=env.project.id, name="builder")
+        agent_id = await _seed_agent(db, env.project.id, consumer_kg.id)
+        room = await ChatroomRepository(db).create(workspace_id=env.workspace.id, name="r")
+        gid = await _group_with_member(db, project_id=env.project.id, user_id=env.user.id, agent_id=agent_id)
+        await db.commit()
+
+        svc = GraphRagConfigService(db)
+        room_cfg = await svc.create(
+            project_id=env.project.id,
+            draft=GraphRagConfigDraft(
+                owner_kind="chatroom", owner_id=room.id, builder_key_group_id=builder_kg.id
+            ),
+            actor_user_id=env.user.id,
+            actor_ip=None,
+        )
+        await svc.create(
+            project_id=env.project.id,
+            draft=GraphRagConfigDraft(
+                owner_kind="agent_group", owner_id=gid, builder_key_group_id=builder_kg.id
+            ),
+            actor_user_id=env.user.id,
+            actor_ip=None,
+        )
+        await db.commit()
+
+        covered = await GraphRagConfigRepository(db).list_message_trigger_configs_for_room(
+            chatroom_id=room.id, agent_ids=[agent_id]
+        )
+        # Disabled group map excluded; chatroom map present regardless of enable.
+        assert [c.id for c in covered] == [room_cfg.id]
+
+
+async def test_message_trigger_single_member_group_still_fires_when_enabled() -> None:
+    # F-3 AC-3 / §8.5 (parity): the previously-working single-member agent_group
+    # case still resolves once the group's concept_map_enabled is set — the same
+    # coverage the retrieval resolver gates on (Q-2 mirrors retrieval, so a
+    # disabled map that no turn reads is intentionally not built).
+    async with async_session() as db:
+        env = await _seed_project(db)
+        consumer_kg = await KeyGroupRepository(db).create(project_id=env.project.id, name="consumer")
+        builder_kg = await KeyGroupRepository(db).create(project_id=env.project.id, name="builder")
+        agent_id = await _seed_agent(db, env.project.id, consumer_kg.id)
+        room = await ChatroomRepository(db).create(workspace_id=env.workspace.id, name="r")
+        gid = await _group_with_member(db, project_id=env.project.id, user_id=env.user.id, agent_id=agent_id)
+        await db.commit()
+
+        group_cfg = await GraphRagConfigService(db).create(
+            project_id=env.project.id,
+            draft=GraphRagConfigDraft(
+                owner_kind="agent_group", owner_id=gid, builder_key_group_id=builder_kg.id
+            ),
+            actor_user_id=env.user.id,
+            actor_ip=None,
+        )
+        await AgentGroupService(db).set_concept_map_enabled(
+            group_id=gid, enabled=True, actor_user_id=env.user.id, actor_ip=None
+        )
+        await db.commit()
+
+        covered = await GraphRagConfigRepository(db).list_message_trigger_configs_for_room(
+            chatroom_id=room.id, agent_ids=[agent_id]
+        )
+        assert [c.id for c in covered] == [group_cfg.id]
+
+
 async def test_create_rejects_owner_from_another_project() -> None:
     # AC-3: an owner that does not live in the config's project is rejected
     # (RFC 7807 GraphRagOwnerProjectMismatch).

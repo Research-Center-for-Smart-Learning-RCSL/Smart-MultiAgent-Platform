@@ -296,6 +296,93 @@ class GraphRagConfigRepository(GraphRagConfigRepositoryPort):
             out.append(_row_to_config(r))
         return out
 
+    async def list_message_trigger_configs_for_room(
+        self,
+        *,
+        chatroom_id: uuid.UUID,
+        agent_ids: Sequence[uuid.UUID],
+    ) -> Sequence[GraphRagConfig]:
+        """Every Concept Map whose typed owner covers ``chatroom_id`` for the
+        room's bound ``agent_ids`` (F-3, R11.02/R11.08).
+
+        The message-count trigger path's owner coverage — deliberately the same
+        set the retrieval resolver :meth:`list_layers_for_turn` produces, but
+        unioned across all the room's bound agents instead of one turn's agent,
+        so "what a message-count build produces" matches "what a turn retrieves":
+
+        - the chatroom-owned config for the room — always (retrieval never
+          enable-gates the chatroom layer, `list_layers_for_turn` :325-331);
+        - each ``agent_group``-owned config whose group has a **live** member in
+          ``agent_ids`` and whose group has ``concept_map_enabled``. Shared
+          groups with *other* surviving members are included — the opposite of
+          :meth:`list_for_agents`, whose ``NOT EXISTS(other_live_member)``
+          deletion predicate silently made every multi-member map inert here;
+        - the workspace-owned config for the room's workspace when the workspace
+          has ``concept_map_enabled``.
+
+        NOT :meth:`list_for_agents`: that selector is the agent-delete cascade
+        (joins only ``owner_agent_group_id``, excluding chatroom/workspace
+        owners, and excludes shared groups with survivors), which left
+        message-count triggers working only for single-member agent groups.
+        Deduped like :meth:`list_layers_for_turn`; ranking is cosmetic here but
+        kept for a stable order.
+        """
+        ids = list(dict.fromkeys(agent_ids))
+        gc = t.graphrag_configs
+        room_workspace = (
+            sa.select(conv.chatrooms.c.workspace_id)
+            .where(conv.chatrooms.c.id == chatroom_id)
+            .scalar_subquery()
+        )
+        chatroom_layer = sa.select(gc, _member_agent_id()).where(
+            sa.and_(
+                gc.c.owner_kind == "chatroom",
+                gc.c.owner_chatroom_id == chatroom_id,
+                gc.c.deleted_at.is_(None),
+            )
+        )
+        group_join = gc.join(ag.agent_groups, ag.agent_groups.c.id == gc.c.owner_agent_group_id).join(
+            ag.agent_group_members,
+            ag.agent_group_members.c.agent_group_id == ag.agent_groups.c.id,
+        )
+        group_layer = (
+            sa.select(gc, _member_agent_id())
+            .select_from(group_join)
+            .where(
+                sa.and_(
+                    gc.c.owner_kind == "agent_group",
+                    ag.agent_group_members.c.agent_id.in_(ids),
+                    ag.agent_groups.c.concept_map_enabled.is_(True),
+                    ag.agent_groups.c.deleted_at.is_(None),
+                    gc.c.deleted_at.is_(None),
+                )
+            )
+        )
+        workspace_join = gc.join(conv.workspaces, conv.workspaces.c.id == gc.c.owner_workspace_id)
+        workspace_layer = (
+            sa.select(gc, _member_agent_id())
+            .select_from(workspace_join)
+            .where(
+                sa.and_(
+                    gc.c.owner_kind == "workspace",
+                    gc.c.owner_workspace_id == room_workspace,
+                    conv.workspaces.c.concept_map_enabled.is_(True),
+                    conv.workspaces.c.deleted_at.is_(None),
+                    gc.c.deleted_at.is_(None),
+                )
+            )
+        )
+        rows = (await self._db.execute(sa.union_all(chatroom_layer, group_layer, workspace_layer))).all()
+        seen: set[uuid.UUID] = set()
+        configs: list[GraphRagConfig] = []
+        for r in rows:
+            if r.id in seen:
+                continue
+            seen.add(r.id)
+            configs.append(_row_to_config(r))
+        configs.sort(key=lambda c: (_LAYER_RANK.get(c.owner_kind, 99), c.created_at))
+        return configs
+
     async def list_layers_for_turn(
         self,
         *,

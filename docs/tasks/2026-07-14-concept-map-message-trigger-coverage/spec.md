@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: draft
+status: implemented
 created: 2026-07-14
 requirements: [R11.02, R11.08]
 ---
@@ -165,16 +165,27 @@ Failing-first tests (fail against current code, pass after):
 
 ## 10. Acceptance Criteria
 
-- [ ] AC-1: The five regression tests in §8 fail before the fix and pass after.
-- [ ] AC-2: `every_n_messages` triggers fire for `chatroom`- and `workspace`-owned Concept
-  Maps covering the room (workspace gated on `concept_map_enabled`).
-- [ ] AC-3: Shared multi-member `agent_group` maps fire when any bound agent is a live
-  member, regardless of other surviving members.
-- [ ] AC-4: `agent_group`/`workspace` maps with `concept_map_enabled=false` do not fire;
-  chatroom-owned maps fire independent of enable flags — matching retrieval coverage.
-- [ ] AC-5: `list_for_agents` remains unchanged and still serves the agent-delete cascade.
-- [ ] AC-6: Trigger-eligible configs match `list_layers_for_turn` coverage for the same
-  room/agents (parity check between build triggering and retrieval).
+- [x] AC-1: The five regression tests in §8 fail before the fix and pass after. Realized as
+  evaluator-level unit tests (`test_graphrag_triggers.py`, run: red→green) plus
+  selector-level wiring tests (`test_graphrag_owner_resolution.py`, written; not run locally
+  — see D-1).
+- [x] AC-2: `every_n_messages` triggers fire for `chatroom`- and `workspace`-owned Concept
+  Maps covering the room (workspace gated on `concept_map_enabled`). Unit:
+  `test_chatroom_and_workspace_owned_configs_fire`; selector:
+  `test_message_trigger_configs_for_room_cover_all_typed_owners`.
+- [x] AC-3: Shared multi-member `agent_group` maps fire when any bound agent is a live
+  member, regardless of other surviving members. Selector drops the
+  `NOT EXISTS(other_live_member)` predicate; wiring
+  `test_message_trigger_configs_for_room_cover_all_typed_owners` asserts inclusion with a
+  live sibling member.
+- [x] AC-4: `agent_group`/`workspace` maps with `concept_map_enabled=false` do not fire;
+  chatroom-owned maps fire independent of enable flags — matching retrieval coverage. Wiring
+  `test_message_trigger_configs_gate_wide_owners_on_enable`.
+- [x] AC-5: `list_for_agents` remains unchanged and still serves the agent-delete cascade.
+  Method untouched; existing wiring tests (`test_list_for_agents_*`) still cover it.
+- [x] AC-6: Trigger-eligible configs match `list_layers_for_turn` coverage for the same
+  room/agents (parity check between build triggering and retrieval). Asserted in the wiring
+  selector test as the union of `list_layers_for_turn` over the room's bound agents.
 
 ## 11. SRS Delta
 
@@ -182,7 +193,18 @@ None — restores [R11.02]/[R11.08] typed-owner message-trigger coverage.
 
 ## 12. Deviation Log
 
-Appended by /build.
+- **D-1 (test execution environment):** the build environment has no
+  Postgres/Redis/Neo4j/Qdrant, so the `wiring`/`integration` tiers cannot run locally. The
+  §8 selector tests were written and reviewed against the proven
+  `test_list_layers_for_turn_orders_and_gates_layers` pattern but executed only in the
+  `backend-wiring` CI job, not on this machine. The evaluator-level unit tests
+  (`test_graphrag_triggers.py`, `test_message_wakeup_dispatch.py`) were run red→green
+  locally. No behavioral deviation from the approved design.
+- **D-2 (single-member group gating):** per Q-2, the new selector enable-gates
+  `agent_group` coverage on `concept_map_enabled`. A single-member group map created with
+  the default `concept_map_enabled=false` therefore no longer fires message-count builds
+  until enabled — a deliberate consequence of mirroring retrieval coverage (the old
+  `list_for_agents` path ignored the flag). Documented, not a defect.
 
 ## 13. Follow-ups
 

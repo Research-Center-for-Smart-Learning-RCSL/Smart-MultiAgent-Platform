@@ -85,6 +85,7 @@ async def test_evaluate_message_wakeups_uses_provided_binding(monkeypatch) -> No
 @pytest.mark.asyncio
 async def test_dispatch_graphrag_builds_enqueues_fired_configs(monkeypatch) -> None:
     agent_id = uuid.uuid4()
+    chatroom_id = uuid.uuid4()
     config_id = uuid.uuid4()
     enqueued: list[tuple[tuple[object, ...], dict[str, object]]] = []
 
@@ -98,7 +99,10 @@ async def test_dispatch_graphrag_builds_enqueues_fired_configs(monkeypatch) -> N
         def __init__(self, db) -> None:
             pass
 
-        async def evaluate_graphrag_message_triggers(self, *, agent_ids):
+        async def evaluate_graphrag_message_triggers(self, *, chatroom_id, agent_ids):
+            # F-3: the dispatcher threads the sending room through so coverage is
+            # resolved by room, not the agent-delete cascade.
+            assert chatroom_id == expected_room
             assert agent_ids == [agent_id]
             return [_Trigger()]
 
@@ -108,7 +112,8 @@ async def test_dispatch_graphrag_builds_enqueues_fired_configs(monkeypatch) -> N
     monkeypatch.setattr(messages_mod, "KnowledgeFacade", _Facade)
     monkeypatch.setattr(messages_mod, "enqueue", _enqueue)
 
-    await messages_mod._dispatch_graphrag_builds(object(), uuid.uuid4(), [agent_id])
+    expected_room = chatroom_id
+    await messages_mod._dispatch_graphrag_builds(object(), chatroom_id, [agent_id])
 
     # D5: the enqueue carries the dedup job id so concurrent triggers for the
     # same config+watermark collapse to a single queued build.
