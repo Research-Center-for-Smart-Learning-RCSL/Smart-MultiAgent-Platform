@@ -59,6 +59,22 @@ class ProviderUnauthorized(KeysError):
         self.detail = detail
 
 
+class KeyProjectScopeError(KeysError):
+    """A pinned-key call named a key not carried into the caller's project (R7.04).
+
+    Distinct from ``KeyNotFound``/``CapabilityMismatch`` so the pinned-key callers
+    (RAG embed/rerank) can recognise a *scope* failure and degrade gracefully
+    rather than failing the whole turn.
+    """
+
+    code = "keys/project-scope"
+
+    def __init__(self, *, key_id: uuid.UUID, project_id: uuid.UUID) -> None:
+        super().__init__(f"key {key_id} is not carried into project {project_id}")
+        self.key_id = key_id
+        self.project_id = project_id
+
+
 class KeyGroupExhausted(KeysError):
     """Router ran through every member and none is usable (R7.08)."""
 
@@ -101,6 +117,7 @@ __all__ = [
     "KeyGroupExhausted",
     "KeyNotFound",
     "KeyNotOwnedByCaller",
+    "KeyProjectScopeError",
     "KeyRevoked",
     "KeysError",
     "ProviderUnauthorized",

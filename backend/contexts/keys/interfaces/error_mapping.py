@@ -22,6 +22,7 @@ _MAP: ErrorMap = {
     ),
     errors.KeyNotFound: ("keys/not-found", 404, "Key not found"),
     errors.KeyNotOwnedByCaller: ("keys/not-owned", 403, "Key not owned by caller"),
+    errors.KeyProjectScopeError: ("keys/project-scope", 403, "Key not carried into project"),
     errors.KeyRevoked: ("keys/revoked", 410, "Key revoked"),
     errors.ProviderUnauthorized: (
         "keys/provider-unauthorized",

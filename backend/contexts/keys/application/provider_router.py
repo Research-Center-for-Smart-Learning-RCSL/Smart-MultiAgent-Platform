@@ -44,10 +44,16 @@ from contexts.keys.application.router_policy import (
     backoff_delay_ms,
     classify_http,
 )
-from contexts.keys.domain.errors import CapabilityMismatch, KeyGroupExhausted, KeyNotFound
+from contexts.keys.domain.errors import (
+    CapabilityMismatch,
+    KeyGroupExhausted,
+    KeyNotFound,
+    KeyProjectScopeError,
+)
 from contexts.keys.domain.groups import KeyGroupMember
 from contexts.keys.domain.models import ApiKey
 from contexts.keys.domain.providers import ApiKeyProvider, ProviderCapability, capabilities_of
+from contexts.keys.infrastructure.carry_repository import KeyProjectRepository
 from contexts.keys.infrastructure.dek_cache import DEK_CACHE
 from contexts.keys.infrastructure.group_repository import KeyGroupMemberRepository
 from contexts.keys.infrastructure.repositories import ApiKeyRepository
@@ -326,6 +332,7 @@ class ProviderRouter:
         self._config = config or RouterConfig()
         self._members_repo = KeyGroupMemberRepository(db)
         self._keys_repo = ApiKeyRepository(db)
+        self._projects_repo = KeyProjectRepository(db)
         self._accountant = UsageAccountant(db)
 
     async def call(self, *, group_id: uuid.UUID, request: ProviderRequest) -> ProviderCallResult:
@@ -576,7 +583,9 @@ class ProviderRouter:
             st.exhausted = True
             return None
 
-    async def call_single_key(self, *, key_id: uuid.UUID, request: ProviderRequest) -> ProviderCallResult:
+    async def call_single_key(
+        self, *, key_id: uuid.UUID, project_id: uuid.UUID, request: ProviderRequest
+    ) -> ProviderCallResult:
         """Pinned-key call — no rotation — for embedding / rerank traffic.
 
         Rotation is wrong for these: RAG pins one ``embed_key_id`` and a
@@ -585,12 +594,21 @@ class ProviderRouter:
         the index. This still routes through the concrete adapter (no
         key-prefix sniffing) and writes a `key_usage_events` row (R7.12), so
         no caller needs ``unwrap_api_key_plaintext`` + raw httpx anymore.
+
+        ``project_id`` is the project the pinned key must be carried into. A key
+        that is soft-deleted or no longer carried (``key_projects.carried=false``)
+        raises :class:`KeyProjectScopeError` *before* any billable provider call,
+        so a withdrawn BYO key is never billed (R7.04). This is the authoritative
+        carried-scope gate — the sole pinned-key entry point — mirroring the
+        rotation path's ``list_ordered_carried`` guarantee.
         """
         key = await self._keys_repo.get_active(key_id)
         if key is None:
             raise KeyNotFound(str(key_id))
         if request.capability not in _CAPS[key.provider]:
             raise CapabilityMismatch(provider=key.provider, required=request.capability)
+        if not await self._projects_repo.is_carried(key_id=key_id, project_id=project_id):
+            raise KeyProjectScopeError(key_id=key_id, project_id=project_id)
         adapter = self._adapters.get(key.provider)
         if adapter is None:
             raise ValueError(f"no adapter for provider {key.provider.value}")

@@ -57,6 +57,7 @@ from contexts.keys.application.provider_router import (
 )
 from contexts.keys.domain.probe_status import ProbeStatus
 from contexts.keys.domain.providers import ApiKeyProvider, ProviderCapability
+from contexts.keys.infrastructure.carry_repository import KeyProjectRepository
 from contexts.keys.infrastructure.group_repository import KeyGroupRepository
 from contexts.keys.infrastructure.repositories import ApiKeyRepository
 from contexts.orchestration.application.a2a_consumer import consume_once
@@ -461,6 +462,13 @@ async def test_usage_event_written_per_provider_call() -> None:
     async with async_session() as db:
         u = uuid.uuid4().hex[:8]
         user = await UserRepository(db).insert(email=f"key-{u}@smap.test", password_hash="x" * 16)
+        org = await OrgRepository(db).create(name=f"org-{u}", creator_user_id=user.id)
+        project = await ProjectRepository(db).create(
+            name=f"proj-{u}",
+            owner_user_id=None,
+            owner_org_id=org.id,
+            created_by_user_id=user.id,
+        )
         key_id = uuid.uuid4()
         await ApiKeyRepository(db).insert(
             key_id=key_id,
@@ -482,6 +490,11 @@ async def test_usage_event_written_per_provider_call() -> None:
             test_error=None,
             last_test_at=None,
         )
+        # The pinned-key scope gate (F-1) requires the key be carried into the
+        # project it is billed against.
+        await KeyProjectRepository(db).upsert_carry(
+            key_id=key_id, project_id=project.id, added_by_user_id=user.id
+        )
         await db.commit()
 
         # Real ProviderRouter + a fake adapter so the router's own accounting path
@@ -495,6 +508,7 @@ async def test_usage_event_written_per_provider_call() -> None:
 
         result = await router.call_single_key(
             key_id=key_id,
+            project_id=project.id,
             request=ProviderRequest(
                 capability=ProviderCapability.LLM_CHAT,
                 payload={"models": {}, "messages": []},

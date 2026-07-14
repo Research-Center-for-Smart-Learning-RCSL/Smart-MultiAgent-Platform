@@ -87,6 +87,7 @@ def _make_phase2_retry(
             embedder = router_embedder_for(
                 router=build_router(db),
                 key_id=key_id,
+                project_id=cfg.project_id,
                 provider=provider,
                 model=model,
             )

@@ -365,7 +365,13 @@ async def build_knowmap_embedder(db: AsyncSession, cfg: KnowmapConfig) -> Any:
     from contexts.knowledge.infrastructure.embedders import router_embedder_for
 
     provider, model, key_id = await resolve_pinned_embed_key(db, cfg)
-    return router_embedder_for(router=build_router(db), key_id=key_id, provider=provider, model=model)
+    return router_embedder_for(
+        router=build_router(db),
+        key_id=key_id,
+        project_id=cfg.project_id,
+        provider=provider,
+        model=model,
+    )
 
 
 __all__ = ["KnowmapConfigService", "build_knowmap_embedder"]

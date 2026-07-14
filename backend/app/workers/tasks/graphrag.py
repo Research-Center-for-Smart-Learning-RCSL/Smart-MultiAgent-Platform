@@ -255,7 +255,13 @@ def _make_embedder_factory(db: AsyncSession) -> EmbedderFactory:
 
     async def _factory(cfg: ConfigLike) -> ResolvedEmbedder:
         provider, model, key_id = await resolve_pinned_embed_key(db, cfg)
-        embedder = router_embedder_for(router=router, key_id=key_id, provider=provider, model=model)
+        embedder = router_embedder_for(
+            router=router,
+            key_id=key_id,
+            project_id=cfg.project_id,
+            provider=provider,
+            model=model,
+        )
         return ResolvedEmbedder(embedder=embedder, provider=provider, model=model)
 
     return _factory

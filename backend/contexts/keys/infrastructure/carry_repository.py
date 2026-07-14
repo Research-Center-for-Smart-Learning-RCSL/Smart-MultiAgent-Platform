@@ -105,6 +105,39 @@ class KeyProjectRepository:
         )
         return result.rowcount or 0
 
+    async def is_carried(self, *, key_id: uuid.UUID, project_id: uuid.UUID) -> bool:
+        """True if *key_id* is actively carried into *project_id* and not deleted.
+
+        Fresh DB read (no cache): a mid-session withdrawal (``carried=false``) or
+        soft-delete takes effect on the next call. This is the authoritative
+        carried-scope predicate for the pinned-key router chokepoint (R7.04),
+        mirroring the ``list_ordered_carried`` fail-closed contract used by the
+        rotation path.
+        """
+        row = (
+            await self._db.execute(
+                sa.select(sa.literal(1))
+                .select_from(
+                    t.key_projects.join(
+                        t.api_keys,
+                        sa.and_(
+                            t.api_keys.c.id == t.key_projects.c.key_id,
+                            t.api_keys.c.deleted_at.is_(None),
+                        ),
+                    )
+                )
+                .where(
+                    sa.and_(
+                        t.key_projects.c.key_id == key_id,
+                        t.key_projects.c.project_id == project_id,
+                        t.key_projects.c.carried.is_(True),
+                    )
+                )
+                .limit(1)
+            )
+        ).first()
+        return row is not None
+
     async def list_active_in_project(self, project_id: uuid.UUID) -> list[ApiKey]:
         """Return the `ApiKey` projection for every key currently carried in."""
         stmt = (

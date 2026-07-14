@@ -484,6 +484,7 @@ async def upload_document(
     embedder = router_embedder_for(
         router=build_router(db),
         key_id=cfg.embed_key_id,
+        project_id=cfg.project_id,
         provider=cfg.embed_provider,
         model=cfg.embed_model,
     )

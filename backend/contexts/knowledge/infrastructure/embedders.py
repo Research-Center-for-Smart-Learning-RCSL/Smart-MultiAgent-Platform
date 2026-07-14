@@ -54,11 +54,13 @@ class RouterEmbedder(Embedder):
         *,
         router: ProviderRouter,
         key_id: uuid.UUID,
+        project_id: uuid.UUID,
         provider: str,
         model: str,
     ) -> None:
         self._router = router
         self._key_id = key_id
+        self._project_id = project_id
         self._model = model
         self.vector_size = _vector_size(provider, model)
 
@@ -67,6 +69,7 @@ class RouterEmbedder(Embedder):
             return []
         result = await self._router.call_single_key(
             key_id=self._key_id,
+            project_id=self._project_id,
             request=ProviderRequest(
                 capability=ProviderCapability.EMBEDDING,
                 payload={"model": self._model, "input": texts},
@@ -81,8 +84,9 @@ def router_embedder_for(
     *,
     router: ProviderRouter,
     key_id: uuid.UUID,
+    project_id: uuid.UUID,
     provider: str,
     model: str,
 ) -> Embedder:
     """Build a pinned-key embedder; validates the (provider, model) dimension."""
-    return RouterEmbedder(router=router, key_id=key_id, provider=provider, model=model)
+    return RouterEmbedder(router=router, key_id=key_id, project_id=project_id, provider=provider, model=model)
