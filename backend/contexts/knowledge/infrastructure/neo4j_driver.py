@@ -98,6 +98,7 @@ class Neo4jAsyncDriver:
         project_id: uuid.UUID,
         build_id: uuid.UUID,
         triples: list[Triple],
+        replace: bool = False,
     ) -> int:
         if not triples:
             return 0
@@ -112,6 +113,45 @@ class Neo4jAsyncDriver:
         # specific type (audit review #4 — the extractor maps low-confidence
         # guesses to 'other', so without this a later 'other' would clobber an
         # earlier 'person'). 'other' only fills a node that has no type yet.
+        #
+        # F-6: for a full-corpus knowmap replacement build (``replace``), evidence
+        # and member provenance must reflect ONLY the current corpus, not accumulate
+        # across builds — otherwise a relation co-evidenced by a deleted and a
+        # surviving document keeps the deleted document's ref, which the retrieval
+        # allowlist then uses to hide a still-valid relation. The reset is scoped to
+        # the current build: the FIRST touch of a relation this build (its
+        # ``r.build_id`` still holds a prior value, or NULL for a freshly-MERGEd
+        # relation) resets to the incoming row's values; a LATER touch within the
+        # SAME build (``r.build_id`` already advanced to ``$bid`` by an earlier row)
+        # unions, so a relation restated across surviving rows keeps all its live
+        # refs. This relies on UNWIND applying earlier rows' writes before later
+        # rows and on the SET right-hand sides reading pre-clause property values —
+        # both hold in Neo4j and are asserted by the F-6 regression tests. Concept
+        # Map delta builds pass ``replace=False`` and keep the cross-build union.
+        if replace:
+            evidence_set = (
+                "    r.evidence_msg_ids = CASE WHEN r.build_id = $bid THEN "
+                "        coalesce(r.evidence_msg_ids, []) + "
+                "        [x IN row.evidence_msg_ids WHERE NOT x IN coalesce(r.evidence_msg_ids, [])] "
+                "      ELSE row.evidence_msg_ids END, "
+                "    r.source_member_ids = CASE WHEN r.build_id = $bid THEN "
+                "        coalesce(r.source_member_ids, []) + "
+                "        [x IN row.source_member_ids WHERE NOT x IN coalesce(r.source_member_ids, [])] "
+                "      ELSE row.source_member_ids END, "
+            )
+        else:
+            evidence_set = (
+                "    r.evidence_msg_ids = coalesce(r.evidence_msg_ids, []) + "
+                "      [x IN row.evidence_msg_ids "
+                "         WHERE NOT x IN coalesce(r.evidence_msg_ids, [])], "
+                # Phase 2b (R11.22): accumulate the contributing member ids as a set
+                # (dedup on union) exactly like evidence — a relation restated by a
+                # second member gains that member without losing the first, so a
+                # member-scoped retrieval filter stays correct across delta builds.
+                "    r.source_member_ids = coalesce(r.source_member_ids, []) + "
+                "      [x IN row.source_member_ids "
+                "         WHERE NOT x IN coalesce(r.source_member_ids, [])], "
+            )
         cypher = (
             "UNWIND $rows AS row "
             "MERGE (s:Entity {graphrag_config_id: $cid, name: row.subject}) "
@@ -134,21 +174,12 @@ class Neo4jAsyncDriver:
             "    r.confidence = CASE WHEN r.confidence IS NULL "
             "                        OR row.confidence > r.confidence "
             "                   THEN row.confidence ELSE r.confidence END, "
-            "    r.evidence_msg_ids = coalesce(r.evidence_msg_ids, []) + "
-            "      [x IN row.evidence_msg_ids "
-            "         WHERE NOT x IN coalesce(r.evidence_msg_ids, [])], "
-            # Phase 2b (R11.22): accumulate the contributing member ids as a set
-            # (dedup on union) exactly like evidence — a relation restated by a
-            # second member gains that member without losing the first, so a
-            # member-scoped retrieval filter stays correct across delta builds.
-            "    r.source_member_ids = coalesce(r.source_member_ids, []) + "
-            "      [x IN row.source_member_ids "
-            "         WHERE NOT x IN coalesce(r.source_member_ids, [])], "
+            + evidence_set
             # Phase 2b WS5 (R11.21): keep first_seen earliest / last_seen latest
             # across delta builds and restatements. A NULL incoming stamp never
             # clobbers a set one; the values are UTC epoch seconds (numeric), so
             # < / > compare directly. Mirrors the confidence-max merge above.
-            "    r.first_seen_at = CASE WHEN r.first_seen_at IS NULL "
+            + "    r.first_seen_at = CASE WHEN r.first_seen_at IS NULL "
             "        OR (row.first_seen_at IS NOT NULL AND row.first_seen_at < r.first_seen_at) "
             "      THEN row.first_seen_at ELSE r.first_seen_at END, "
             "    r.last_seen_at = CASE WHEN r.last_seen_at IS NULL "
@@ -199,6 +230,43 @@ class Neo4jAsyncDriver:
             "DELETE r "
             "WITH $cid AS cid, $bid AS bid "
             "MATCH (n:Entity {graphrag_config_id: cid, build_id: bid}) "
+            "WHERE COUNT { (n)--() } = 0 DELETE n"
+        )
+        async with driver.session() as session:
+            await session.run(cypher, cid=str(config_id), bid=str(build_id))
+
+    async def remove_stale_for_build(
+        self,
+        *,
+        config_id: uuid.UUID,
+        build_id: uuid.UUID,
+    ) -> None:
+        """F-6 differential replacement: after a full-corpus ``apply_triples``,
+        drop everything the current build did not touch.
+
+        ``apply_triples`` sets ``r.build_id = $bid`` on EVERY relation it touches,
+        so after it every current relation carries the current build id and every
+        stale one carries an older id (or NULL for a legacy edge). This deletes the
+        stale relations, then detach-deletes config entities left with degree 0.
+
+        Entity liveness is keyed on degree-0-after-relation-removal, NOT on entity
+        ``build_id``: entity ``build_id`` is set ``ON CREATE`` only, so a re-touched
+        live entity keeps a stale id and a build_id-based delete would remove live
+        entities. ``apply_triples`` only ever creates an entity as a relation
+        endpoint, so an entity with no surviving relation is genuinely absent from
+        the current corpus. Mirrors the inverse of :meth:`delete_by_build`
+        (OPTIONAL MATCH so the node-cleanup leg still runs when no relation is
+        stale, e.g. only isolated nodes remain).
+        """
+        driver = await self._ensure()
+        cypher = (
+            "OPTIONAL MATCH (:Entity {graphrag_config_id: $cid})"
+            "-[r:REL {graphrag_config_id: $cid}]->"
+            "(:Entity {graphrag_config_id: $cid}) "
+            "WHERE r.build_id IS NULL OR r.build_id <> $bid "
+            "DELETE r "
+            "WITH $cid AS cid, $bid AS bid "
+            "MATCH (n:Entity {graphrag_config_id: cid}) "
             "WHERE COUNT { (n)--() } = 0 DELETE n"
         )
         async with driver.session() as session:

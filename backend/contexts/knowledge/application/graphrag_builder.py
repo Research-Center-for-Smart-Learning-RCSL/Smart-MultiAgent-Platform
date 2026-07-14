@@ -170,6 +170,7 @@ class GraphRagBuilder:
         config_id: uuid.UUID,
         mode: Literal["delta", "full"] = "delta",
         triggered_by: str = "manual",
+        replace: bool = False,
     ) -> BuildResult:
         cfg = await self._configs.get(config_id)
         if cfg is None:
@@ -191,6 +192,7 @@ class GraphRagBuilder:
                 mode=mode,
                 triggered_by=triggered_by,
                 build_started_at=build_started_at,
+                replace=replace,
             )
         finally:
             await self._locks.release(config_id)
@@ -203,6 +205,7 @@ class GraphRagBuilder:
         mode: Literal["delta", "full"],
         triggered_by: str,
         build_started_at: datetime,
+        replace: bool = False,
     ) -> BuildResult:
         # idle/failed → running. Anything else is a refusal.
         if cfg.last_build_state not in {
@@ -322,7 +325,14 @@ class GraphRagBuilder:
                 project_id=cfg.project_id,
                 build_id=build_id,
                 triples=triples,
+                replace=replace,
             )
+            if replace:
+                # F-6: differential replacement — drop relations this build did not
+                # touch and any entity left isolated. Runs inside Phase 1 so a
+                # failure here rolls back via the snapshot like any other Phase-1
+                # error, never leaving a half-pruned graph.
+                await self._neo4j.remove_stale_for_build(config_id=cfg.id, build_id=build_id)
         except Exception as exc:
             await self._fail_phase1(cfg.id, build_id, str(exc))
             return BuildResult(
@@ -419,7 +429,27 @@ class GraphRagBuilder:
         # older copy: delete prior-build points for exactly those entity
         # names. Best-effort — the build has already succeeded, so a sweep
         # failure is logged, not fatal.
-        if embeddings:
+        #
+        # F-6: a full-corpus knowmap replacement instead removes EVERY prior-build
+        # point for the config (a strict superset of the name-scoped supersede) so
+        # vectors for entities the current corpus no longer produces are cleaned up.
+        # Runs even when this build embedded nothing (a corpus emptied to zero
+        # entities), so the last surviving vectors are purged.
+        if replace:
+            try:
+                await self._vectors.delete_points_not_in_build(
+                    project_id=cfg.project_id,
+                    config_id=cfg.id,
+                    keep_build_id=build_id,
+                )
+            except Exception as exc:  # best-effort cleanup; never fail the build
+                _log.warning(
+                    "graphrag build-scoped vector sweep failed for config %s build %s: %s",
+                    cfg.id,
+                    build_id,
+                    exc,
+                )
+        elif embeddings:
             try:
                 await self._vectors.delete_superseded_entities(
                     project_id=cfg.project_id,

@@ -316,7 +316,12 @@ async def knowmap_build(ctx: dict[str, Any], *, config_id: str, triggered_by: st
                 channel_fn=knowmap_channel,
             )
             try:
-                result = await builder.run(config_id=cfg_id, triggered_by=triggered_by)
+                # F-6: Knowledge Map builds are full-corpus and use replacement
+                # semantics — the loader re-reads the whole surviving corpus each
+                # build, so relations/entities/vectors absent from the current
+                # corpus are removed and evidence/provenance is recomputed to the
+                # live corpus. Concept Map delta builds pass replace=False.
+                result = await builder.run(config_id=cfg_id, triggered_by=triggered_by, replace=True)
                 await db.commit()
             except Exception:
                 _log.exception("knowmap_build failed config=%s", config_id)

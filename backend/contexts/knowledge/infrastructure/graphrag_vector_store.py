@@ -281,6 +281,46 @@ class GraphRagVectorStore:
             wait=True,
         )
 
+    async def delete_points_not_in_build(
+        self,
+        *,
+        project_id: uuid.UUID,
+        config_id: uuid.UUID,
+        keep_build_id: uuid.UUID,
+    ) -> None:
+        """Delete every config point NOT written by ``keep_build_id`` (F-6).
+
+        The build-scoped superset of :meth:`delete_superseded_entities`, for a
+        full-corpus Knowledge Map replacement build: every entity the current
+        corpus produces is re-embedded under ``keep_build_id``, so any point
+        carrying an older ``build_id`` belongs to an entity the corpus no longer
+        produces and is an orphan. Unlike the name-scoped supersede it needs no
+        entity list — it removes prior-build points regardless of name, cleaning
+        up entities that disappeared entirely (which the name-scoped sweep can
+        never reach). No-ops if the collection does not exist.
+        """
+        name = self._name(project_id)
+        if not await self._client.collection_exists(name):
+            return
+        await self._client.delete(
+            collection_name=name,
+            points_selector=Filter(
+                must=[
+                    FieldCondition(
+                        key="config_id",
+                        match=MatchValue(value=str(config_id)),
+                    )
+                ],
+                must_not=[
+                    FieldCondition(
+                        key="build_id",
+                        match=MatchValue(value=str(keep_build_id)),
+                    )
+                ],
+            ),
+            wait=True,
+        )
+
     async def delete_by_config(
         self,
         *,
