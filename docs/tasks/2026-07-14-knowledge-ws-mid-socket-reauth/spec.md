@@ -3,7 +3,6 @@ type: bugfix
 status: draft
 created: 2026-07-14
 requirements: [R11.17]
-supersedes:
 ---
 
 # F-25: Config-scoped knowledge WebSockets never re-authorize access mid-socket
