@@ -115,6 +115,17 @@ class QdrantStore:
         if await self._client.collection_exists(name):
             await self._client.delete_collection(collection_name=name)
 
+    async def list_collection_names(self) -> list[str]:
+        """Every collection name Qdrant currently holds (F-24 orphan sweep).
+
+        Used by the tenancy-teardown backstop to find ``rag_{project_id}``
+        collections whose project row is gone. Naming/normalisation stays in this
+        wrapper (SoC), so the sweep compares against expected names rather than
+        re-parsing the underscore-normalised UUID.
+        """
+        resp = await self._client.get_collections()
+        return [c.name for c in resp.collections]
+
     async def upsert_chunks(
         self,
         *,

@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: draft
+status: implemented
 created: 2026-07-14
 requirements: [R10.06]
 ---
@@ -297,28 +297,35 @@ Primary red-first test: (1); the admin-path regression is (6).
 
 ## 10. Acceptance Criteria
 
-- [ ] AC-1: The hard-delete-erases-source-infra test (§8.1) fails before the fix and passes after,
-  including the org-cascade variant (project erased via its owning org).
-- [ ] AC-2: After a project (or its owning org) is hard-deleted by retention, no objects remain
+- [x] AC-1: The hard-delete-erases-source-infra test (§8.1) fails before the fix and passes after,
+  including the org-cascade variant (project erased via its owning org). *(Covered by the pair D-5:
+  `test_purge_primitive_*` proves real blob removal + collection drop; `TestRagSourceTeardownWiring.
+  test_tears_down_direct_and_org_cascade_projects` proves the direct + org-cascade doomed projects
+  reach the teardown.)*
+- [x] AC-2: After a project (or its owning org) is hard-deleted by retention, no objects remain
   under `rag-sources/{project_id}/` or `knowmap-sources/{project_id}/`, and the `rag_{project_id}`
-  Qdrant collection is dropped.
-- [ ] AC-3: `KnowledgeFacade.purge_project_source_infra(project_id)` purges both source buckets by
+  Qdrant collection is dropped. *(`test_purge_primitive_removes_both_buckets_and_drops_collection`.)*
+- [x] AC-3: `KnowledgeFacade.purge_project_source_infra(project_id)` purges both source buckets by
   prefix and drops the File-RAG collection, keyed on `project_id` alone (no document rows required),
-  idempotent when the data is already absent.
-- [ ] AC-4: The backstop orphan sweep purges source blobs/collections whose `project_id` has no
+  idempotent when the data is already absent. *(`test_purge_primitive_*`, incl. `_idempotent_when_absent`.)*
+- [x] AC-4: The backstop orphan sweep purges source blobs/collections whose `project_id` has no
   `projects` row, and never purges data for a project still present (including soft-deleted), per
-  Q-4 (§8.3).
-- [ ] AC-5: Enumeration/purge failures are logged and isolated per orphan/store and never abort the
-  retention cycle (§8.4).
-- [ ] AC-6: `QdrantStore.delete_collection` exists (added here or reused from F-11) and drops an
+  Q-4 (§8.3). *(`test_list_orphans_returns_only_projects_with_no_row`, `TestPurgeRagSourceOrphans`.)*
+- [x] AC-5: Enumeration/purge failures are logged and isolated per orphan/store and never abort the
+  retention cycle (§8.4). *(`test_purge_primitive_isolates_*`, `test_list_orphans_skips_failed_store`,
+  `test_orphan_purge_failure_is_isolated`.)*
+- [x] AC-6: `QdrantStore.delete_collection` exists (added here or reused from F-11) and drops an
   existing collection / no-ops when absent, with no duplicate or conflicting definition versus F-11.
-- [ ] AC-7: A `rag.source_orphan_swept` (and a teardown) audit records the affected `project_id`
-  without logging blob contents or keys.
-- [ ] AC-8: `pytest -q`, `ruff check . && ruff format --check .`, and `mypy .` pass in `backend/`;
+  *(D-1: reused F-11's method; added `QdrantStore.list_collection_names` for the sweep.)*
+- [x] AC-7: A `rag.source_orphan_swept` (and a teardown) audit records the affected `project_id`
+  without logging blob contents or keys. *(D-4: `KnowledgeFacade.purge_project_source_infra` emits the
+  audit with only `project_id` + counts; action `rag.source_infra_purged` / `rag.source_orphan_swept`.)*
+- [x] AC-8: `pytest -q`, `ruff check . && ruff format --check .`, and `mypy .` pass in `backend/`;
   the `/check-security` review (FU-1) is completed before merge.
-- [ ] AC-9: The immediate admin GDPR path (`AccountDeletionService.prepare_hard_delete`) also runs
+- [x] AC-9: The immediate admin GDPR path (`AccountDeletionService.prepare_hard_delete`) also runs
   `purge_project_source_infra` for every org/project it hard-deletes, so admin purges erase source
-  infra at the deletion moment (not only via the sweep) — verified by §8.6.
+  infra at the deletion moment (not only via the sweep) — verified by
+  `test_admin_gdpr_hard_delete_purges_source_infra`.
 
 ## 11. Security Considerations
 
@@ -346,7 +353,45 @@ draft it there and route it as an SRS amendment.
 
 ## 13. Deviation Log
 
-Appended by /build.
+- **D-1 (Q-3/AC-6 satisfied by reuse):** `QdrantStore.delete_collection(project_id)` already exists
+  (`qdrant_store.py:107-116`, shipped by F-11), so the teardown reuses it — no method was added, and
+  there is no duplicate/conflict. Separately added `QdrantStore.list_collection_names()` (the sweep
+  needs to enumerate `rag_*` collections; no such method existed).
+- **D-2 (immaterial spec-drift):** the blob key layout is `{project_id}/{document_id}/{filename}`
+  (`rag_source_key`, `minio_client.py:250-252`) and `{project_id}/{config_id}/{sha256}` for knowmap,
+  not the `{project_id}/{config_id}/{sha256}` §2 cited for File RAG. Immaterial: the teardown/sweep
+  key on the `{project_id}/` first segment, which is unchanged in both buckets.
+- **D-3 (C3 resolution — §7.3 option b):** the sweep derives the distinct first path segment from a
+  recursive `list_objects_sync` listing (`object_name.split("/", 1)[0]`) rather than adding a
+  delimiter/`recursive=False` option to the helper. No shared-helper signature change.
+- **D-4 (audit placement, SoC):** the teardown/orphan audit is emitted by
+  `KnowledgeFacade.purge_project_source_infra` (a single method with an `audit_action` param —
+  `rag.source_infra_purged` for hard-delete, `rag.source_orphan_swept` for the sweep) rather than by
+  each caller, keeping the knowledge-domain audit inside the knowledge context. The primitive
+  `RagConfigService.purge_project_source_infra` does the store teardown and returns a summary only.
+- **D-5 (AC-1 test split):** §8.1's "blobs removed + collection dropped" is proven by the primitive
+  test (`test_rag_source_teardown.py`, real fake MinIO/Qdrant), and the retention wiring test
+  (`test_retention_deep.py::TestRagSourceTeardownWiring`) proves the direct + org-cascade doomed
+  projects reach the teardown. Split for a cleaner unit boundary; together they cover AC-1/AC-2.
+- **D-6 (batch-bounded enumeration):** the retention teardown enumerates the doomed set with the same
+  `LIMIT 200` bound the delete loop uses (direct projects) plus projects under the 200-org batch, so
+  a night's teardown is bounded to roughly the rows actually deleted that pass. Any misalignment is
+  reclaimed by the backstop sweep (§7.2 "exact alignment not required").
+- **D-7 (DOM-4 ordering — accepted, from the check-quality gate):** the teardown runs its irreversible
+  MinIO/Qdrant deletes *before* the Postgres commit (per the approved §7.2 "before the delete loop"),
+  inverting the "infra-after-commit" DOM-4 rule the sibling `purge_documents_infra` follows. Accepted
+  because: (a) §7.2 explicitly places teardown before the delete loop / row cascade; (b) teardown only
+  ever runs for soft-deleted-and-past-cutoff projects or children of a doomed org — never a live
+  tenant (independently confirmed by `/check-security`); (c) on a rare mid-pass rollback the already-
+  erased blobs belong to a still-condemned soft-deleted row that is re-erased idempotently next pass —
+  no data remanence and no live-tenant destruction. The only residue is a cosmetic `blobs_removed: 0`
+  on the retry's erasure audit. Restoring DOM-4 audit-durability (commit the row deletes first, then
+  teardown+audit) is **FU-4** — deferred because it would deviate from the approved §7.2 ordering and
+  the risk is bounded.
+- **D-8 (check-quality polish):** applied three non-blocking findings from the gate — reuse one
+  `KnowledgeFacade(session)` across the teardown/sweep loops (was per-iteration); dropped a provably-
+  dead `or pid in live_project_ids` sub-condition in the orphan round-trip guard (the `name not in
+  expected` check already excludes live collections). The whole-bucket in-memory listing is FU-2.
 
 ## 14. Follow-ups
 
@@ -357,3 +402,11 @@ Appended by /build.
   deployments, gate it on a divergence signal or a slower cadence than the tenancy purge.
 - **FU-3 (shared multi-store sweep primitive):** F-8 (graph) and F-24 (File RAG) now both enumerate
   an external store against the Postgres live set; a future refactor could share the sweep skeleton.
+- **FU-4 (post-commit teardown for DOM-4 audit-durability):** move the hard-delete teardown+audit to
+  after the row-delete commit (capture ids in-txn, commit, then teardown in a committed follow-up), so
+  a mid-pass rollback never strands erased blobs against a still-present row or produces a misleading
+  `blobs_removed: 0` retry audit (see D-7). Bounded risk today (backstop sweep + idempotency cover it).
+- **FU-5 (facade hop for the admin router):** the retention worker and admin GDPR path reach the
+  knowledge context through `KnowledgeFacade` (correct SoC). Separately, the check-quality gate noted
+  the pre-existing pattern where `app/api/v1/graphrag.py` instantiates services directly rather than
+  via a facade; pre-existing and out of scope here (tracked on F-26 as its FU-4).

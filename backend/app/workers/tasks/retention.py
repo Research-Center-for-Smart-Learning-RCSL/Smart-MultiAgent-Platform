@@ -183,6 +183,51 @@ async def _purge_soft_deleted_tenancy(session: AsyncSession) -> int:
         .exists()
     )
 
+    # F-24: before the Postgres cascade erases the rag_*/knowmap_* rows that carry
+    # the blob keys, tear down each doomed project's source infra (both source
+    # buckets + the File RAG per-project Qdrant collection), keyed on project_id
+    # alone. Capture the projects erased THIS pass: those deleted directly plus
+    # those cascade-deleted via a doomed org (orgs are purged before projects, so
+    # an org-owned project can vanish before the projects iteration runs). The
+    # teardown is best-effort and idempotent, so exact batch alignment is
+    # unneeded — a miss is soft-deleted still (next pass) or reclaimed by the
+    # backstop sweep (_purge_rag_source_orphans).
+    proj_conds = sa.and_(
+        projects_tbl.c.deleted_at.is_not(None),
+        projects_tbl.c.deleted_at < cutoff,
+        ~project_retained,
+    )
+    org_conds = sa.and_(
+        orgs_tbl.c.deleted_at.is_not(None),
+        orgs_tbl.c.deleted_at < cutoff,
+        ~org_retained,
+    )
+    direct_ids = set(
+        (await session.execute(sa.select(projects_tbl.c.id).where(proj_conds).limit(200))).scalars().all()
+    )
+    org_batch = sa.select(orgs_tbl.c.id).where(org_conds).limit(200)
+    via_org_ids = set(
+        (
+            await session.execute(
+                sa.select(projects_tbl.c.id).where(projects_tbl.c.owner_org_id.in_(org_batch))
+            )
+        )
+        .scalars()
+        .all()
+    )
+    teardown_ids = direct_ids | via_org_ids
+    if teardown_ids:
+        from contexts.knowledge.interfaces.facade import KnowledgeFacade
+
+        knowledge = KnowledgeFacade(session)
+        for pid in teardown_ids:
+            try:
+                await knowledge.purge_project_source_infra(pid)
+            except Exception:
+                logger.bind(event="retention_rag_source_teardown_failed", project_id=str(pid)).opt(
+                    exception=True
+                ).warning("rag source teardown failed for project")
+
     total = 0
     for tbl in _SOFT_DELETE_TABLES:
         conds = [tbl.c.deleted_at.is_not(None), tbl.c.deleted_at < cutoff]
@@ -197,6 +242,36 @@ async def _purge_soft_deleted_tenancy(session: AsyncSession) -> int:
         total += result.rowcount or 0
     await _emit_summary(session, "retention.soft_deleted.swept", total)
     return total
+
+
+async def _purge_rag_source_orphans(session: AsyncSession) -> int:
+    """Backstop sweep for File RAG + Knowledge Map source infra (F-24, mirrors F-8).
+
+    The proactive teardown in ``_purge_soft_deleted_tenancy`` and the admin GDPR
+    purge are primary; this reclaims orphans from any path — a failed teardown, a
+    crash between steps, and data already leaked before this fix. The live set is
+    *every* ``projects`` id (regardless of ``deleted_at``, Q-4), so a soft-deleted
+    but not-yet-hard-deleted project keeps its data until hard-delete. Orphan
+    discovery reads the external stores directly (via the KnowledgeFacade), so
+    each orphan purge and per-store enumeration is isolated — one failure never
+    aborts the cycle.
+    """
+    from contexts.knowledge.interfaces.facade import KnowledgeFacade
+
+    live_ids = set((await session.execute(sa.select(projects_tbl.c.id))).scalars().all())
+    orphans = await KnowledgeFacade.list_rag_source_orphans(live_project_ids=live_ids)
+    knowledge = KnowledgeFacade(session)
+    swept = 0
+    for pid in orphans:
+        try:
+            await knowledge.purge_project_source_infra(pid, audit_action="rag.source_orphan_swept")
+            swept += 1
+        except Exception:
+            logger.bind(event="retention_rag_source_orphan_failed", project_id=str(pid)).opt(
+                exception=True
+            ).warning("rag source orphan purge failed for project")
+    await _emit_summary(session, "retention.rag_source_orphans.swept", swept)
+    return swept
 
 
 async def _expire_invites(session: AsyncSession) -> int:
@@ -514,6 +589,9 @@ _POLICIES = [
     # partition the same night its data is rolled up.
     ("key_usage_partitions", _manage_key_usage_partitions),
     ("soft_deleted", _purge_soft_deleted_tenancy),
+    # Backstop for source infra whose project row is already gone — placed after
+    # the proactive teardown so a same-run teardown miss is reclaimed immediately.
+    ("rag_source_orphans", _purge_rag_source_orphans),
     ("invites", _expire_invites),
     ("oc_transfers", _expire_oc_transfers),
     ("approvals", _expire_approvals),

@@ -210,12 +210,15 @@ class TestPurgeSoftDeletedTenancy:
         session = AsyncMock()
         result = MagicMock()
         result.rowcount = 3
+        # F-24 teardown enumeration returns no doomed projects here.
+        result.scalars.return_value.all.return_value = []
         session.execute.return_value = result
 
         count = await _purge_soft_deleted_tenancy(session)
 
         assert count == 3 * len(_SOFT_DELETE_TABLES)
-        assert session.execute.await_count == len(_SOFT_DELETE_TABLES)
+        # 2 teardown-enumeration SELECTs precede the per-table deletes.
+        assert session.execute.await_count == 2 + len(_SOFT_DELETE_TABLES)
 
     @patch("app.workers.tasks.retention.audit.emit", new_callable=AsyncMock)
     @patch("app.workers.tasks.retention.now", return_value=_NOW)
@@ -224,6 +227,7 @@ class TestPurgeSoftDeletedTenancy:
         ancestors (projects, orgs), since chatrooms cascade from projects and
         projects from orgs — otherwise a project/org purge deletes retained
         research early."""
+        import sqlalchemy as sa
         from sqlalchemy.dialects import postgresql
 
         from app.workers.tasks.retention import _purge_soft_deleted_tenancy
@@ -235,18 +239,124 @@ class TestPurgeSoftDeletedTenancy:
         session = AsyncMock()
         result = MagicMock()
         result.rowcount = 0
+        result.scalars.return_value.all.return_value = []
         session.execute.return_value = result
 
         await _purge_soft_deleted_tenancy(session)
 
+        # The teardown-enumeration SELECTs carry no `.table`; only the deletes do.
         compiled = {
             str(call.args[0].table.name): str(call.args[0].compile(dialect=postgresql.dialect()))
             for call in session.execute.await_args_list
+            if isinstance(call.args[0], sa.Delete)
         }
         for guarded in (chatrooms_tbl.name, projects_tbl.name, orgs_tbl.name):
             assert "retain_until" in compiled[guarded], f"{guarded} purge lacks retention guard"
         # Tables with no cascade path to a submission carry no guard.
         assert "retain_until" not in compiled[agents_tbl.name]
+
+
+class TestRagSourceTeardownWiring:
+    """F-24: retention hard-delete tears down source infra for doomed projects."""
+
+    @patch(
+        "contexts.knowledge.interfaces.facade.KnowledgeFacade.purge_project_source_infra",
+        new_callable=AsyncMock,
+    )
+    @patch("app.workers.tasks.retention.audit.emit", new_callable=AsyncMock)
+    @patch("app.workers.tasks.retention.now", return_value=_NOW)
+    async def test_tears_down_direct_and_org_cascade_projects(self, _now, _audit, purge) -> None:
+        from app.workers.tasks.retention import _purge_soft_deleted_tenancy
+
+        direct_pid = uuid.uuid4()
+        via_org_pid = uuid.uuid4()
+
+        session = AsyncMock()
+
+        def _scalars(ids):
+            r = MagicMock()
+            r.scalars.return_value.all.return_value = ids
+            r.rowcount = 0
+            return r
+
+        # Two enumeration SELECTs (direct, via-org), then the per-table deletes.
+        session.execute.side_effect = [
+            _scalars([direct_pid]),
+            _scalars([via_org_pid]),
+            *[_scalars([]) for _ in range(5)],
+        ]
+
+        await _purge_soft_deleted_tenancy(session)
+
+        purged = {call.args[0] for call in purge.await_args_list}
+        assert purged == {direct_pid, via_org_pid}
+        # Default hard-delete teardown action (not the sweep action).
+        for call in purge.await_args_list:
+            assert "audit_action" not in call.kwargs
+
+
+class TestPurgeRagSourceOrphans:
+    """F-24: the backstop sweep purges only projects with no `projects` row."""
+
+    @patch(
+        "contexts.knowledge.interfaces.facade.KnowledgeFacade.purge_project_source_infra",
+        new_callable=AsyncMock,
+    )
+    @patch(
+        "contexts.knowledge.interfaces.facade.KnowledgeFacade.list_rag_source_orphans",
+        new_callable=AsyncMock,
+    )
+    @patch("app.workers.tasks.retention.audit.emit", new_callable=AsyncMock)
+    async def test_purges_reported_orphans_with_sweep_action(self, _audit, list_orphans, purge) -> None:
+        from app.workers.tasks.retention import _purge_rag_source_orphans
+
+        live_pid = uuid.uuid4()
+        orphan = uuid.uuid4()
+        list_orphans.return_value = {orphan}
+
+        session = AsyncMock()
+        live_result = MagicMock()
+        live_result.scalars.return_value.all.return_value = [live_pid]
+        session.execute.return_value = live_result
+
+        swept = await _purge_rag_source_orphans(session)
+
+        assert swept == 1
+        list_orphans.assert_awaited_once_with(live_project_ids={live_pid})
+        purge.assert_awaited_once_with(orphan, audit_action="rag.source_orphan_swept")
+
+    @patch(
+        "contexts.knowledge.interfaces.facade.KnowledgeFacade.purge_project_source_infra",
+        new_callable=AsyncMock,
+    )
+    @patch(
+        "contexts.knowledge.interfaces.facade.KnowledgeFacade.list_rag_source_orphans",
+        new_callable=AsyncMock,
+    )
+    @patch("app.workers.tasks.retention.audit.emit", new_callable=AsyncMock)
+    async def test_orphan_purge_failure_is_isolated(self, _audit, list_orphans, purge) -> None:
+        from app.workers.tasks.retention import _purge_rag_source_orphans
+
+        good = uuid.uuid4()
+        bad = uuid.uuid4()
+        list_orphans.return_value = {good, bad}
+
+        async def _purge(pid, *, audit_action):
+            if pid == bad:
+                raise RuntimeError("qdrant down")
+
+        purge.side_effect = _purge
+
+        session = AsyncMock()
+        live_result = MagicMock()
+        live_result.scalars.return_value.all.return_value = []
+        session.execute.return_value = live_result
+
+        # One orphan raising must not abort the cycle; the other still sweeps.
+        swept = await _purge_rag_source_orphans(session)
+
+        assert swept == 1
+        assert purge.await_count == 2
 
 
 class TestPurgeAgentInstances:
