@@ -59,6 +59,12 @@ export function useBuildStateSocket(options: BuildStateSocketOptions) {
       teardown()
       watched.delete(configId)
     }
+    // Drop this config's resync generation counter so the map doesn't grow
+    // unbounded across configs that are never re-watched. Safe because syncStatus
+    // also refuses to apply a resync once a config has left `watched` (below) —
+    // so resetting this counter can't let a prior cycle's in-flight resync clobber
+    // a re-watched config on a generation collision.
+    applySeq.delete(configId)
     // Audit M14: stop the backstop poll once nothing is being watched, so an
     // idle list view isn't left ticking an interval over an empty map forever.
     if (watched.size === 0 && pollTimer !== null) {
@@ -96,6 +102,11 @@ export function useBuildStateSocket(options: BuildStateSocketOptions) {
     const seq = applySeq.get(configId) ?? 0
     try {
       const state = await options.fetchStatus(configId)
+      // The config was unwatched (a terminal frame closed its channel) while we
+      // awaited — never re-apply a resync to a config that is no longer live, or
+      // it strands the row as in-progress with an orphaned channel (B1). This also
+      // makes resetting applySeq on unwatch safe against a generation collision.
+      if (!watched.has(configId)) return
       // A newer state (a WS frame or another resync) landed while we awaited —
       // drop this now-stale result rather than clobber it (B1).
       if ((applySeq.get(configId) ?? 0) !== seq) return

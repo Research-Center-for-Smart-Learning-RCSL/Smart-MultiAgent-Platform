@@ -120,6 +120,38 @@ describe('useGraphragSocket', () => {
     expect(api.liveState.value['cfg_1']).toBe('idle')
   })
 
+  it('drops a resync that resolves after unwatch even when the generation collides (B1)', async () => {
+    // Fix #3: unwatch() deletes the config's resync generation counter, so it
+    // resets to zero. If a resync issued before the terminal frame (captured
+    // seq 0) resolves after the deferred unwatch ran, the generation guard alone
+    // (0 === 0) would NOT catch it — only the membership guard (config no longer
+    // in `watched`) prevents it re-stranding the completed row as 'running'.
+    let resolveStatus!: (v: { state: string }) => void
+    getStatusMock.mockImplementation(
+      () => new Promise<{ state: string }>((resolve) => {
+        resolveStatus = resolve
+      }),
+    )
+    const api = mountSocket()
+    api.watch('cfg_1', 'running')
+    // Reconnect issues syncStatus while nothing has been applied yet: it captures
+    // generation 0 (no applyState has run for this config).
+    for (const h of [...statusHandlers]) h(true)
+
+    // Terminal frame lands, then its deferred unwatch runs (draining microtasks),
+    // deleting the generation counter back to zero.
+    emit({ type: 'build.state', state: 'idle' })
+    await flushPromises()
+    expect(api.liveState.value['cfg_1']).toBe('idle')
+
+    // The pre-terminal resync resolves: generation reads 0 again (collision), so
+    // only the not-in-`watched` guard can drop it.
+    resolveStatus({ state: 'running' })
+    await flushPromises()
+
+    expect(api.liveState.value['cfg_1']).toBe('idle')
+  })
+
   it('invalidates conceptMapCoverage (not just the config queries) on a terminal build state', () => {
     // Regression: the agent Knowledge tab's read-only coverage badge
     // (agentKeys.conceptMapCoverage) went stale after a covering map's build
