@@ -314,7 +314,13 @@ None. The fix restores [R11.19] (combined bound with narrow-scope precedence) an
   budget parameter would reduce the per-provider wiring; consider after this fix.
 - FU-3: File RAG `top_k` up to 100 (`rag.py:78,83`) remains a large default fetch even
   with budgeting; revisit whether the API ceiling should drop once aggregate budgeting
-  lands.
+  lands. **Note (code review):** a review candidate flagged this as wasted work under a
+  tight File-RAG budget, but on inspection the full retrieved set feeds citation
+  completeness — `RagContext.sources` is persisted as `reply_meta['rag_sources']` in the
+  budgeted (room) path regardless of how much of the block renders. Reducing the fetch to
+  the rendered subset would regress citations (or require a deliberate "cite only what was
+  read" semantics change). Left intact by design; the open question is whether citations
+  should track the rendered subset, tracked here rather than silently narrowed.
 - FU-4: this fix budgets the **initial** assembled request (round 1). `_stream_with_tools`
   then loops up to `MAX_TOOL_ROUNDS`, appending each round's assistant tool-use turn and
   tool results to `messages` and re-dispatching with the same `system_text`
@@ -336,6 +342,29 @@ None. The fix restores [R11.19] (combined bound with narrow-scope precedence) an
   which `_assemble_agent_knowledge` still appends as a system block. The File-RAG path already drops
   sub-budget blocks (`_format_rag_block` -> `""` -> skipped), so the two sources degrade
   inconsistently. Harmless (no crash/leak/state corruption), just a nonsense block in a rare
-  near-ceiling case. Fix: give `_cap_to_2kb` the same floor as RAG — return no content (provider
-  returns `None`) when the fitted prefix falls below a minimum useful length. Deferred as Info per
-  the build DoD; not blocking.
+  near-ceiling case. **FIXED (code review, commit `10efc7e`):** `_cap_to_2kb` now applies a
+  minimum-useful-content floor (`_MIN_USEFUL_CONTENT_CHARS`) and emits empty content when the
+  fitted prefix is only a header fragment; the Concept/Knowledge Map providers convert empty
+  content to `None`, dropping the block. Regression `test_bundle_drops_block_under_tiny_token_budget`.
+  (Note: the bare `"..."` case specifically needed `token_budget=0`, which the assembler never
+  passes — it only queries a graph source when its remaining budget is `> 0` — but the header-
+  fragment case at a 1-4 token grant was real and is now dropped.)
+
+## 14. Post-implementation code review
+
+A high-effort `/code-review` over the combined F-14/F-15/F-16 diff surfaced four defects in the
+F-16 surface plus one already-fixed F-15 security critical (the headless Concept Map trust
+boundary, F-15 D-3). All four F-16 findings fixed (unit tier green, 1697 passed):
+
+- **Reclaim (commit `c8fb8f0`)**: `allocate_knowledge_budget` reserved a full `graph_source_cap`
+  for absent Concept/Knowledge Maps, starving (and zeroing) File RAG when `total < 2*cap`.
+  Replaced the source-blind pre-split with `KnowledgeBudget(total, graph_source_cap)` and made
+  `_assemble_agent_knowledge` draw the graph blocks first and give File RAG the *measured*
+  remainder. This supersedes the pre-split `KnowledgeBudgets` / `allocate_knowledge_budget` API.
+- **Recompaction double-count (commit `c8fb8f0`)**: the pre-dispatch guard passed `payload_tokens`
+  (which already counts history) as `extra_projected_tokens`, double-counting history and
+  over-shedding; now passes the non-history prefix only.
+- **Sub-budget block fragments (commit `10efc7e`)**: see FU-7 above (#3) and the File-RAG clamp,
+  which now reserves a token for an explicit truncation marker rather than cutting silently.
+- **top_k retrieval (FU-3 above)**: examined and left intact — the fetch feeds citation
+  completeness, so narrowing it would regress `rag_sources`.
