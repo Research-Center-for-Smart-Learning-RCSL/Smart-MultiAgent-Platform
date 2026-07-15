@@ -33,6 +33,7 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from contexts.keys.domain.errors import KeyProjectScopeError
 from contexts.knowledge.application.ports import Embedder, Reranker
 from contexts.knowledge.domain.errors import RagConfigNotFound
 from contexts.knowledge.domain.models import RagConfig
@@ -163,6 +164,12 @@ class RetrieveService:
                     candidates=[c.text for c in candidates],
                     top_k=effective_top_k,
                 )
+            except KeyProjectScopeError:
+                # F-1: a withdrawn/out-of-scope pinned rerank key is NOT a rerank
+                # execution failure — it must propagate so the provider audits
+                # rag.key_scope_degraded and drops the RAG block, rather than being
+                # silently swallowed into a vector-only fallback here.
+                raise
             except Exception:
                 # F-19 (AC-4): a rerank execution failure — the local bge service
                 # down/unreachable, a Cohere HTTP error, or a malformed response —

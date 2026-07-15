@@ -532,6 +532,41 @@ class TestRetrieveQuery:
         assert [c.score for c in result] == [0.9, 0.7]
         reranker.rerank.assert_awaited_once()
 
+    async def test_rerank_scope_error_propagates(self) -> None:
+        # F-1: a withdrawn/out-of-scope pinned rerank key surfaces as
+        # KeyProjectScopeError from the router. It is NOT a rerank execution
+        # failure — it must propagate so the provider audits rag.key_scope_degraded
+        # and drops the block, rather than being swallowed into the vector-only
+        # degrade path (which would silence the security-relevant scope event).
+        from contexts.keys.domain.errors import KeyProjectScopeError
+
+        cfg = _make_config(top_k=2, rerank_enabled=True)
+        configs = AsyncMock()
+        configs.get.return_value = cfg
+        point1 = uuid.uuid4()
+        doc_id = uuid.uuid4()
+        embedder = MagicMock(vector_size=3)
+        embedder.embed_batch = AsyncMock(return_value=[[0.1, 0.2, 0.3]])
+        qdrant = AsyncMock()
+        qdrant.search.return_value = [MagicMock(point_id=point1, score=0.9)]
+        chunks = AsyncMock()
+        chunks.lookup_points.return_value = [
+            MagicMock(qdrant_point_id=point1, chunk_idx=0, document_id=doc_id, text="first"),
+        ]
+        reranker = AsyncMock()
+        reranker.rerank.side_effect = KeyProjectScopeError(key_id=uuid.uuid4(), project_id=cfg.project_id)
+
+        svc = _make_retrieve_service(
+            config_repo=configs,
+            embedder=embedder,
+            qdrant=qdrant,
+            chunk_repo=chunks,
+            reranker=reranker,
+        )
+
+        with pytest.raises(KeyProjectScopeError):
+            await svc.query(config_id=_CONFIG_ID, text="question", allow_unrestricted=True)
+
     async def test_top_k_from_config(self) -> None:
         cfg = _make_config(top_k=1)
         configs = AsyncMock()
