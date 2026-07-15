@@ -6,6 +6,7 @@ import type { Body_upload_knowmap_document_api_knowmap_configs__config_id__docum
 import type { KnowmapConfigCreateIn } from '../models/KnowmapConfigCreateIn';
 import type { KnowmapConfigOut } from '../models/KnowmapConfigOut';
 import type { KnowmapConfigPatchIn } from '../models/KnowmapConfigPatchIn';
+import type { KnowmapConfigPatchOut } from '../models/KnowmapConfigPatchOut';
 import type { KnowmapDocumentAgentsPatchIn } from '../models/KnowmapDocumentAgentsPatchIn';
 import type { KnowmapDocumentOut } from '../models/KnowmapDocumentOut';
 import type { KnowmapGraphOut } from '../models/KnowmapGraphOut';
@@ -63,7 +64,7 @@ export class KnowmapService {
     }
     /**
      * Patch Knowmap Config
-     * @returns KnowmapConfigOut Successful Response
+     * @returns KnowmapConfigPatchOut Successful Response
      * @throws ApiError
      */
     public static patchKnowmapConfigApiKnowmapConfigsConfigIdPatch({
@@ -72,7 +73,7 @@ export class KnowmapService {
     }: {
         configId: string,
         requestBody: KnowmapConfigPatchIn,
-    }): CancelablePromise<KnowmapConfigOut> {
+    }): CancelablePromise<KnowmapConfigPatchOut> {
         return __request(OpenAPI, {
             method: 'PATCH',
             url: '/api/knowmap-configs/{config_id}',
@@ -183,8 +184,10 @@ export class KnowmapService {
     }
     /**
      * Rebuild Knowmap Config
-     * Explicit designer rebuild (Q-3/AC-6). Enqueues a ``knowmap_build`` with the
-     * dedup job id so a redundant click collapses onto an in-flight build.
+     * Explicit designer rebuild (Q-3/AC-6). Advances the corpus revision and
+     * enqueues a ``knowmap_build`` for it, so an operator-requested rebuild always
+     * produces a fresh build generation rather than colliding with a retained
+     * prior-build result (F-12 W2).
      * @returns KnowmapRebuildAck Successful Response
      * @throws ApiError
      */

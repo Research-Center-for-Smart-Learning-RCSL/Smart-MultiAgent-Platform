@@ -303,7 +303,8 @@
       "buildFailed": "Failed to start build.",
       "rebuild": "Rebuild",
       "viewGraph": "View Graph",
-      "embedModelChangeBlocked": "Cannot change the embedding model of a Knowledge Map that already holds indexed data. Clear its documents and recreate the Knowledge Map to switch embedding models."
+      "embedModelChangeBlocked": "Cannot change the embedding model of a Knowledge Map that already holds indexed data. Clear its documents and recreate the Knowledge Map to switch embedding models.",
+      "agentsDetached": "Saved. {count} attached agent(s) were detached because the new builder key group matched their consumer key group. Re-attach them with a different key group to restore the isolation."
     },
     "knowmap": {
       "upload": "Upload document",

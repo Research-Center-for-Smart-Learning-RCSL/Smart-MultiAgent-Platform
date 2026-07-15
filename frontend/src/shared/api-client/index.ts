@@ -131,6 +131,7 @@ export type { KeyUploadIn } from './models/KeyUploadIn';
 export type { KnowmapConfigCreateIn } from './models/KnowmapConfigCreateIn';
 export type { KnowmapConfigOut } from './models/KnowmapConfigOut';
 export type { KnowmapConfigPatchIn } from './models/KnowmapConfigPatchIn';
+export type { KnowmapConfigPatchOut } from './models/KnowmapConfigPatchOut';
 export type { KnowmapDocumentAgentsPatchIn } from './models/KnowmapDocumentAgentsPatchIn';
 export type { KnowmapDocumentOut } from './models/KnowmapDocumentOut';
 export type { KnowmapGraphEdgeOut } from './models/KnowmapGraphEdgeOut';
