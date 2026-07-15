@@ -79,20 +79,24 @@ class EmbeddingPinRepository:
         existing = await self.get(project_id, kind)
         if existing is None:
             try:
-                await self._db.execute(
-                    t.insert().values(
-                        project_id=project_id,
-                        kind=kind.value,
-                        provider=provider,
-                        model=model,
-                        dim=dim,
+                # SAVEPOINT: a unique-violation on a racing insert (e.g. a hashtext
+                # collision routed the peer to a different lock key) rolls back only
+                # this nested block, leaving the outer transaction usable for the
+                # re-read below. Without it, asyncpg aborts the whole transaction on
+                # IntegrityError and the follow-up SELECT would raise
+                # PendingRollbackError instead of yielding the typed conflict.
+                async with self._db.begin_nested():
+                    await self._db.execute(
+                        t.insert().values(
+                            project_id=project_id,
+                            kind=kind.value,
+                            provider=provider,
+                            model=model,
+                            dim=dim,
+                        )
                     )
-                )
                 return
             except IntegrityError:
-                # A racing insert beat us despite the lock (e.g. a hashtext
-                # collision routed the peer to a different lock key). Re-read and
-                # fall through to the dimension comparison.
                 existing = await self.get(project_id, kind)
         if existing is not None and int(existing.dim) != dim:
             raise on_conflict(int(existing.dim), dim)

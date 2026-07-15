@@ -336,16 +336,20 @@ async def delete_knowmap_config(
         actor_ip=ctx.actor_ip,
         request_id=ctx.request_id,
     )
+    # F-11 (W1): if that was the project's last Knowledge Map config, clear the
+    # durable pin in this same transaction so it commits atomically with the
+    # soft-delete — a concurrent create at a different dimension can never observe a
+    # config-deleted-but-pin-present state and be spuriously rejected.
+    pin_cleared = await service.clear_pin_if_last_config(project_id=cfg.project_id)
     await db.commit()
 
     graph_outcome = await KnowmapConfigService.cascade_external_stores(
         config_id=config_id, project_id=cfg.project_id
     )
     blob_outcome = await KnowmapConfigService.purge_document_blobs(docs=docs)
-    # F-11: if that was the project's last Knowledge Map config, drop the now-empty
-    # collection and clear the durable dimension pin (under the advisory lock). The
-    # pin clear commits with the follow-up audit row below.
-    collection_dropped = await service.drop_project_collection_if_empty(project_id=cfg.project_id)
+    # F-11 (W5): drop the now-orphan collection after the commit (DOM-4), re-checked
+    # under the lock so a concurrent re-pin keeps its collection.
+    collection_dropped = pin_cleared and await service.drop_orphan_collection(project_id=cfg.project_id)
     from shared_kernel import audit as _audit
 
     await _audit.emit(
