@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: in-progress
+status: implemented
 created: 2026-07-14
 requirements: [R10.09, R11.14]
 ---
@@ -239,10 +239,14 @@ backend unit tests against `TurnEngine` (fake providers / spies on `_rag_context
   `mypy` introduces no new errors (16 pre-existing baseline errors in untouched modules — FU-3).
   The `tests/wiring/` tier is compose-backed and not runnable without the live stack (env-blocked,
   not a regression).
-- [ ] AC-7: `/check-security` lens for the new approver -> Concept Map flow (server-side room id
-  only; no access wider than a normal room turn for that agent + room). Deferred to the consolidated
-  `/check-security` pass run after F-16 and F-14 land (all three share `turn_engine.py` and the
-  knowledge/key surfaces); a focused self-audit against §7's three security requirements passed.
+- [x] AC-7: `/check-security` lens for the new approver -> Concept Map flow. The consolidated pass
+  (run after F-16 and F-14 landed) found the §7 safety argument ("no access wider than a normal room
+  turn for that agent + room") rested on an unenforced precondition: the approver's room membership.
+  The gate's `chatroom_id` is author-controlled (`approval_gate.py:67`) and the linter checks only
+  project scope (`rule_08_chatroom_scope`), so a non-member approver could read a room's Concept Map.
+  Fixed by D-3: room-scoped Concept Maps on the headless path now require
+  `ConversationFacade.is_agent_in_chatroom`, making the safety argument true. Regression test
+  `test_run_input_turn_non_member_room_skips_concept_maps`.
 
 ## 11. SRS Delta
 
@@ -266,6 +270,22 @@ agent in the current room" applied to the approval's authoritative room.
   citations (`reply_meta['rag_sources']`, `turn_engine.py:1122-1124`, [R10.09]); returning only the
   blocks would silently drop citation persistence. The `RagContext` is surfaced as the second tuple
   element and ignored by the headless caller. Behavior for both paths is otherwise unchanged.
+- **D-3 (security fix, post-implementation audit)**: §7's security note argued the approver -> Concept
+  Map flow grants "no access wider than a normal room turn for that agent + room" because it reuses
+  `resolve_graphrag_layers` with a server-side `chatroom_id`. The consolidated `/check-security` pass
+  found that argument incomplete: a normal room turn only reaches Concept Map resolution *after* the
+  agent's room membership is established (it was triggered by a room message it participates in),
+  whereas the headless approver path had no such check. Because the gate's `chatroom_id` is
+  author-controlled (`approval_gate.py:67`) and the linter validates only project scope
+  (`rule_08_chatroom_scope`), a project member not in room A could author a gate pointing at room A
+  with an approver they control and exfiltrate room A's Concept Map entities/relations via the
+  persisted vote rationale (the raw-excerpt fetcher was already gated; the graph layer was not).
+  Fix: `run_input_turn` now verifies `ConversationFacade.is_agent_in_chatroom` before resolving any
+  room-scoped Concept Map and drops to no-room otherwise, leaving File RAG and the Knowledge Map
+  (per-Agent bindings) unaffected. The room path (`_run_locked`) is untouched — its membership
+  semantics (including observers) already hold. Commit `17ad415`; regression test
+  `test_run_input_turn_non_member_room_skips_concept_maps`. This makes the §7 claim enforced rather
+  than assumed.
 
 ## 13. Follow-ups
 

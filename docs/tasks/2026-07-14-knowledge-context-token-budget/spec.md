@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: in-progress
+status: implemented
 created: 2026-07-14
 requirements: [R9.10, R11.19, R10.09, R11.14]
 ---
@@ -260,10 +260,15 @@ Tests are written first and must fail against current code.
       pass and rebuilds the request (D-3). Mid-tool-loop growth stays FU-4.
 - [x] AC-7: general mode keeps history uncompacted (ceiling = provider limit, guard skipped) yet
       the knowledge allocator still bounds the three blocks per [R11.19].
-- [x] AC-8: unit `pytest` green (1685 passed); `ruff check`/`format --check` clean on the diff;
-      `mypy` introduces no new errors (16 pre-existing baseline errors in untouched modules,
-      recorded on the F-15 dossier FU-3). `tests/wiring/` is compose-backed (env-blocked, not a
-      regression).
+- [x] AC-8: unit `pytest` green (1695 passed after the F-15 review test); `ruff check`/`format
+      --check` clean on the diff; `mypy` introduces no new errors (16 pre-existing baseline errors in
+      untouched modules, recorded on the F-15 dossier FU-3). `tests/wiring/` is compose-backed
+      (env-blocked, not a regression). Consolidated `check-quality`/`check-security` over the combined
+      F-14/F-15/F-16 diff (`63a9bf8..HEAD`): no Introduced-Critical/Warning quality findings; one
+      Info deferred as FU-7. Security surfaced one Introduced-Critical on the shared `turn_engine.py`
+      surface (F-15's headless Concept Map trust boundary) — fixed under F-15 D-3; the F-16 budget
+      math, allocator, and `estimate_tokens` move were audited clean (no secret leak, budget is
+      enforcing not advisory).
 
 ## 11. SRS Delta
 
@@ -325,3 +330,12 @@ None. The fix restores [R11.19] (combined bound with narrow-scope precedence) an
   approval turns) via the now budget-capable `_assemble_agent_knowledge`; needs the same
   fixed-context accounting the room path uses (reorder tool assembly ahead of knowledge). See D-4;
   supersedes F-15 FU-1's expectation that F-16 would cover headless.
+- FU-7 (consolidated `check-quality`, Part C — Info): under a *small but positive* Concept/Knowledge
+  Map `token_budget` (1-4 tokens, reachable only at ~99% of the context ceiling), `_cap_to_2kb`
+  (`graphrag.py`) never drops the block — its binary search floors to `"..."` or a header fragment,
+  which `_assemble_agent_knowledge` still appends as a system block. The File-RAG path already drops
+  sub-budget blocks (`_format_rag_block` -> `""` -> skipped), so the two sources degrade
+  inconsistently. Harmless (no crash/leak/state corruption), just a nonsense block in a rare
+  near-ceiling case. Fix: give `_cap_to_2kb` the same floor as RAG — return no content (provider
+  returns `None`) when the fitted prefix falls below a minimum useful length. Deferred as Info per
+  the build DoD; not blocking.
