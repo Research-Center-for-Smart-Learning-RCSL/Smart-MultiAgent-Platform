@@ -450,8 +450,21 @@ class TurnEngine:
             # Knowledge blocks precede the notify block, matching the room path's
             # order. With no history, retrieval keys off the current input alone.
             knowledge_queries = _knowledge_queries([], input_text=input_text)
+            # A headless turn (e.g. an approval vote, F-15) may be threaded into a
+            # room the agent does not belong to — the gate's chatroom_id can be an
+            # arbitrary in-project room set by the workflow author. Room-scoped
+            # Concept Maps inherit the room read-ACL, so resolve them only when the
+            # agent is actually a member, granting no wider access than a normal
+            # room turn for this agent+room would (R11.09 / F-15 AC-7). File RAG and
+            # the Knowledge Map are the agent's own per-Agent bindings and stay
+            # available regardless of room membership.
+            knowledge_chatroom_id = chatroom_id
+            if knowledge_chatroom_id is not None and not await ConversationFacade(
+                self._db
+            ).is_agent_in_chatroom(chatroom_id=knowledge_chatroom_id, agent_id=agent.id):
+                knowledge_chatroom_id = None
             knowledge_blocks, _rag_ctx = await self._assemble_agent_knowledge(
-                agent, knowledge_queries, chatroom_id=chatroom_id
+                agent, knowledge_queries, chatroom_id=knowledge_chatroom_id
             )
             system_parts.extend(knowledge_blocks)
             notify_block, extra_tools, pending_notes = await self._pending_context_and_tools(agent, None)
