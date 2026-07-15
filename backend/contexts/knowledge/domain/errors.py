@@ -116,6 +116,21 @@ class GraphRagEmbedDimensionConflict(KnowledgeError):
     code = "knowledge/graphrag-embed-dimension-conflict"
 
 
+class GraphRagEmbeddingModelChangeBlocked(KnowledgeError):
+    """F-13 (R11.19) — a Concept Map's builder Key Group cannot be swapped to a
+    different embedding provider/model while the config holds indexed vectors.
+
+    A same-dimension model change produces a semantically incompatible vector
+    space (cosine similarity across two models is meaningless) and defeats the
+    "single embedding model" half of the [R11.19] invariant just as surely as a
+    dimension change. Rejected at update (409) once the config has entered at
+    least one build (``last_build_at IS NOT NULL``, fail-closed); the designer
+    clears/recreates to change the model. A never-built config may change freely
+    (no vectors to invalidate)."""
+
+    code = "knowledge/graphrag-embedding-model-change-blocked"
+
+
 class GraphRagOwnerProjectMismatch(KnowledgeError):
     """Phase 2a D6 — the config's owner entity is not in the config's project.
 
@@ -184,6 +199,20 @@ class KnowmapEmbedDimensionConflict(KnowledgeError):
     code = "knowledge/knowmap-embed-dimension-conflict"
 
 
+class KnowmapEmbeddingModelChangeBlocked(KnowledgeError):
+    """F-13 (R11.19) — a Knowledge Map's builder Key Group cannot be swapped to a
+    different embedding provider/model while the config holds indexed vectors.
+
+    The Knowledge Map analogue of :class:`GraphRagEmbeddingModelChangeBlocked`:
+    old-model vectors persist in ``knowmap_{project_id}`` until an unrelated
+    corpus change triggers a build, so embedding queries with a new model against
+    them silently collapses recall. Rejected at update (409) once the config has
+    entered at least one build (``last_build_at IS NOT NULL``, fail-closed); a
+    never-built config may change freely."""
+
+    code = "knowledge/knowmap-embedding-model-change-blocked"
+
+
 __all__ = [
     "CapabilityMismatch",
     "ChunkParamsInvalid",
@@ -198,6 +227,7 @@ __all__ = [
     "GraphRagCollectionDimensionMismatch",
     "GraphRagConfigNotFound",
     "GraphRagEmbedDimensionConflict",
+    "GraphRagEmbeddingModelChangeBlocked",
     "GraphRagInvalidHalfLife",
     "GraphRagOwnerProjectMismatch",
     "IngestFailed",
@@ -207,6 +237,7 @@ __all__ = [
     "KnowmapConfigNotFound",
     "KnowmapDocumentNotFound",
     "KnowmapEmbedDimensionConflict",
+    "KnowmapEmbeddingModelChangeBlocked",
     "KnowmapNoEmbeddingKey",
     "RagCollectionDimensionMismatch",
     "RagConfigNameTaken",
