@@ -165,6 +165,54 @@ class AccountDeletionService:
         Active rows that still reference the user (edge case if cascade was
         incomplete) are reassigned to *reassign_to_user_id*.
         """
+        # F-24 (C1): this is the immediate admin GDPR hard-delete — it bypasses
+        # the retention worker, so wire the same project-scoped source-infra
+        # teardown here or admin purges would leak File RAG / Knowledge Map source
+        # blobs and the rag_{project_id} collection until the next backstop sweep.
+        # Enumerate the projects this call will erase — those deleted directly
+        # (below) plus those cascade-deleted via the orgs it deletes — BEFORE the
+        # rows (and their blob-key-carrying rag_* rows) cascade away, then erase
+        # each project's source infra keyed on project_id alone.
+        deleted_projects_cond = sa.and_(
+            sa.or_(
+                t.projects.c.owner_user_id == user_id,
+                t.projects.c.created_by_user_id == user_id,
+            ),
+            t.projects.c.deleted_at.isnot(None),
+        )
+        deleted_orgs = sa.select(t.orgs.c.id).where(
+            sa.and_(
+                t.orgs.c.creator_user_id == user_id,
+                t.orgs.c.deleted_at.isnot(None),
+            )
+        )
+        teardown_ids = set(
+            (await self._db.execute(sa.select(t.projects.c.id).where(deleted_projects_cond))).scalars().all()
+        ) | set(
+            (
+                await self._db.execute(
+                    sa.select(t.projects.c.id).where(t.projects.c.owner_org_id.in_(deleted_orgs))
+                )
+            )
+            .scalars()
+            .all()
+        )
+        if teardown_ids:
+            from loguru import logger
+
+            from contexts.knowledge.interfaces.facade import KnowledgeFacade
+
+            facade = KnowledgeFacade(self._db)
+            for pid in teardown_ids:
+                try:
+                    await facade.purge_project_source_infra(pid)
+                except Exception:
+                    # Best-effort (spec §7.2): a teardown failure must never abort
+                    # the GDPR purge — the backstop sweep reclaims the orphan.
+                    logger.bind(event="admin_gdpr_rag_source_teardown_failed", project_id=str(pid)).opt(
+                        exception=True
+                    ).warning("rag source teardown failed for project during admin hard-delete")
+
         await self._db.execute(
             t.original_creator_transfers.delete().where(
                 sa.or_(

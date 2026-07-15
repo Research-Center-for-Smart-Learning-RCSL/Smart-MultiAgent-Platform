@@ -30,6 +30,7 @@ from contexts.knowledge.infrastructure.graphrag_repositories import (
 )
 from contexts.knowledge.infrastructure.knowmap_repositories import KnowmapConfigRepository
 from contexts.knowledge.infrastructure.repositories import RagConfigRepository
+from shared_kernel import audit
 
 if TYPE_CHECKING:
     from contexts.knowledge.application.graphrag_graph_service import GraphView
@@ -305,6 +306,57 @@ class KnowledgeFacade:
             agent_ids=agent_ids or [],
             request_id=request_id,
         )
+
+    async def purge_project_source_infra(
+        self,
+        project_id: uuid.UUID,
+        *,
+        audit_action: str = "rag.source_infra_purged",
+    ) -> dict[str, bool | int | str]:
+        """Erase a project's File RAG + Knowledge Map source infra and audit it (F-24).
+
+        The single cross-context entry point both tenant hard-delete paths (the
+        retention worker and the immediate admin GDPR purge) and the backstop
+        orphan sweep call. Keyed on ``project_id`` alone — no ``rag_documents``
+        rows required — so it runs after the Postgres cascade has erased them.
+        Delegates the store teardown to :meth:`RagConfigService.purge_project_source_infra`
+        (best-effort, isolated per store), then records an audit row carrying the
+        ``project_id`` and the erasure summary — never a blob key or content
+        (§Security). The ``audit_action`` distinguishes a hard-delete teardown
+        (default) from a backstop ``rag.source_orphan_swept`` without a second
+        method.
+        """
+        from contexts.knowledge.application.config_service import RagConfigService
+
+        summary = await RagConfigService.purge_project_source_infra(project_id=project_id)
+        await audit.emit(
+            self._db,
+            audit.AuditEvent(
+                action=audit_action,
+                resource_type="project",
+                resource_id=project_id,
+                metadata={
+                    "project_id": str(project_id),
+                    "blobs_removed": summary["blobs_removed"],
+                    "buckets_failed": summary["buckets_failed"],
+                    "collection_dropped": summary["collection_dropped"],
+                },
+            ),
+        )
+        return summary
+
+    @staticmethod
+    async def list_rag_source_orphans(*, live_project_ids: set[uuid.UUID]) -> set[uuid.UUID]:
+        """Project ids whose source blobs/collection have no ``projects`` row (F-24).
+
+        Thin delegation to :meth:`RagConfigService.list_rag_source_orphans` so the
+        retention backstop reaches the external-store enumeration through the
+        facade, not application internals. ``live_project_ids`` is every
+        ``projects`` id (Q-4); the caller owns that query.
+        """
+        from contexts.knowledge.application.config_service import RagConfigService
+
+        return await RagConfigService.list_rag_source_orphans(live_project_ids=live_project_ids)
 
 
 __all__ = ["KnowledgeFacade"]

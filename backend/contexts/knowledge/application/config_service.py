@@ -47,6 +47,19 @@ _EMBED = CapabilityRequirement(capability=ProviderCapability.EMBEDDING)
 _RERANK = CapabilityRequirement(capability=ProviderCapability.RERANK)
 
 
+def _purge_bucket_prefix(mc: Any, bucket: str, prefix: str) -> int:
+    """Remove every object under ``prefix`` in ``bucket``; return the count (F-24).
+
+    Synchronous (runs in a worker thread via ``asyncio.to_thread``): the MinIO SDK
+    is blocking. ``remove_object_sync`` is idempotent on a missing key.
+    """
+    removed = 0
+    for obj in mc.list_objects_sync(bucket, prefix=prefix):
+        mc.remove_object_sync(bucket, obj.object_name)
+        removed += 1
+    return removed
+
+
 class RagConfigService:
     def __init__(self, db: AsyncSession, *, bge_reranker_url: str | None = None) -> None:
         self._db = db
@@ -522,6 +535,137 @@ class RagConfigService:
                 )
 
         return summary
+
+    @staticmethod
+    async def purge_project_source_infra(*, project_id: uuid.UUID) -> dict[str, Any]:
+        """Row-independent teardown of a project's source infra (F-24).
+
+        Erases, keyed on ``project_id`` alone (never the ``rag_documents`` rows,
+        which have already cascaded away at tenant hard-delete):
+
+        * every File RAG source blob under the ``{project_id}/`` prefix of the
+          ``rag-sources`` bucket, and every Knowledge Map source blob under the
+          same prefix of the ``knowmap-sources`` bucket (Q-5);
+        * the File RAG per-project ``rag_{project_id}`` Qdrant collection.
+
+        Knowledge/Concept Map *graph* vectors (Neo4j + ``graphrag_*`` Qdrant) are
+        NOT touched here — those stay F-8's domain. Best-effort and isolated per
+        store: a failure on one store is logged and reflected in the summary
+        without aborting the others. Idempotent — a re-run when the data is
+        already gone is a no-op. Emits no audit; the caller records erasure.
+        """
+        from app.config.settings import get_settings
+        from shared_kernel.storage import get_minio_client
+
+        settings = get_settings()
+        summary: dict[str, Any] = {
+            "project_id": str(project_id),
+            "blobs_removed": 0,
+            "buckets_failed": 0,
+            "collection_dropped": False,
+        }
+
+        mc = get_minio_client()
+        # Exact ``{project_id}/`` prefix (a bare project-UUID segment) so one
+        # project's prefix can never match another's — UUIDs are fixed-length and
+        # differ before the trailing slash.
+        prefix = f"{project_id}/"
+        for bucket in (mc.rag_sources_bucket, mc.knowmap_sources_bucket):
+            try:
+                summary["blobs_removed"] += await asyncio.to_thread(_purge_bucket_prefix, mc, bucket, prefix)
+            except Exception:
+                summary["buckets_failed"] += 1
+                _log.exception(
+                    "rag source teardown: prefix purge failed for bucket %s, project %s",
+                    bucket,
+                    project_id,
+                )
+
+        from qdrant_client import AsyncQdrantClient
+
+        from contexts.knowledge.infrastructure.qdrant_store import QdrantStore
+
+        try:
+            qclient = AsyncQdrantClient(url=settings.qdrant.url, api_key=settings.qdrant.api_key or None)
+            try:
+                await QdrantStore(qclient).delete_collection(project_id)
+                summary["collection_dropped"] = True
+            finally:
+                await qclient.close()
+        except Exception:
+            _log.exception("rag source teardown: qdrant collection drop failed for project %s", project_id)
+
+        return summary
+
+    @staticmethod
+    async def list_rag_source_orphans(*, live_project_ids: set[uuid.UUID]) -> set[uuid.UUID]:
+        """Project ids whose source infra is orphaned — no ``projects`` row (F-24).
+
+        Enumerates candidates directly from the external stores (so already-leaked
+        data from before this fix is discoverable) and returns those absent from
+        ``live_project_ids``, the set of *every* ``projects`` id regardless of
+        ``deleted_at`` (Q-4): a soft-deleted-but-not-hard-deleted project still has
+        a row and must keep its data until hard-delete.
+
+        Candidates come from both source buckets (the distinct first path segment
+        of each object key, since ``list_objects_sync`` is recursive-only) and from
+        the ``rag_{project_id}`` Qdrant collections (compared against *expected*
+        names to avoid dash/underscore ambiguity). Enumeration of a store that
+        raises is logged and skipped for this cycle — never fatal.
+        """
+        from app.config.settings import get_settings
+        from shared_kernel.storage import get_minio_client
+
+        settings = get_settings()
+        orphans: set[uuid.UUID] = set()
+
+        mc = get_minio_client()
+        for bucket in (mc.rag_sources_bucket, mc.knowmap_sources_bucket):
+            try:
+                objects = await asyncio.to_thread(mc.list_objects_sync, bucket)
+            except Exception:
+                _log.exception("rag orphan sweep: list_objects failed for bucket %s", bucket)
+                continue
+            for obj in objects:
+                segment = (getattr(obj, "object_name", "") or "").split("/", 1)[0]
+                try:
+                    pid = uuid.UUID(segment)
+                except ValueError:
+                    continue
+                if pid not in live_project_ids:
+                    orphans.add(pid)
+
+        from qdrant_client import AsyncQdrantClient
+
+        from contexts.knowledge.infrastructure.qdrant_store import QdrantStore, collection_name
+
+        try:
+            qclient = AsyncQdrantClient(url=settings.qdrant.url, api_key=settings.qdrant.api_key or None)
+            try:
+                names = await QdrantStore(qclient).list_collection_names()
+            finally:
+                await qclient.close()
+        except Exception:
+            _log.exception("rag orphan sweep: qdrant list_collections failed")
+            names = []
+
+        expected = {collection_name(pid) for pid in live_project_ids}
+        for name in names:
+            if not name.startswith("rag_") or name in expected:
+                continue
+            try:
+                pid = uuid.UUID(name[len("rag_") :].replace("_", "-"))
+            except ValueError:
+                continue
+            # Round-trip guard: only act on a name our own normaliser produces, so a
+            # foreign ``rag_*`` collection is never over-deleted. ``name not in
+            # expected`` above already excluded every live project's collection, so a
+            # name that round-trips here is provably not live.
+            if collection_name(pid) != name:
+                continue
+            orphans.add(pid)
+
+        return orphans
 
     @staticmethod
     def build_ingest_service(
