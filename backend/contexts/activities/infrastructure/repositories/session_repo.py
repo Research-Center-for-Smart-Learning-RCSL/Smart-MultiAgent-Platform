@@ -8,8 +8,10 @@ session row serializes ``attempt_no`` assignment.
 from __future__ import annotations
 
 import uuid
+from typing import Any, cast
 
 import sqlalchemy as sa
+from sqlalchemy import CursorResult
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -118,7 +120,7 @@ class ActivitySessionRepository:
             )
             .values(status=SessionStatus.CLOSED.value, closed_at=now())
         )
-        return bool(result.rowcount)
+        return bool(cast("CursorResult[Any]", result).rowcount)
 
 
 __all__ = ["ActivitySessionRepository"]
