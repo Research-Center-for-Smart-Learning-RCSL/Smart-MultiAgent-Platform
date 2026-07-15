@@ -558,9 +558,7 @@ class TestRetrieveQuery:
         embedder.embed_batch = AsyncMock(return_value=[[0.1, 0.2, 0.3]])
         qdrant = AsyncMock()
 
-        svc = _make_retrieve_service(
-            config_repo=configs, docs_repo=docs, embedder=embedder, qdrant=qdrant
-        )
+        svc = _make_retrieve_service(config_repo=configs, docs_repo=docs, embedder=embedder, qdrant=qdrant)
         result = await svc.query(config_id=_CONFIG_ID, text="q", agent_id=uuid.uuid4())
 
         assert result == []
@@ -587,8 +585,7 @@ class TestRetrieveQuery:
         qdrant.search.return_value = [MagicMock(point_id=p, score=0.5) for p in pts]
         chunks = AsyncMock()
         chunks.lookup_points.return_value = [
-            MagicMock(qdrant_point_id=pts[i], chunk_idx=i, document_id=doc_id, text=f"c{i}")
-            for i in range(3)
+            MagicMock(qdrant_point_id=pts[i], chunk_idx=i, document_id=doc_id, text=f"c{i}") for i in range(3)
         ]
         reranker = AsyncMock()
         # Returned deliberately out of score order.
@@ -624,9 +621,7 @@ class TestRagContextProviderSources:
         from contexts.knowledge.application.rag_context_provider import _format_rag_block
 
         doc_id = uuid.uuid4()
-        chunks = [
-            RetrievedChunk(document_id=doc_id, chunk_idx=2, text="alpha policy", score=0.8765)
-        ]
+        chunks = [RetrievedChunk(document_id=doc_id, chunk_idx=2, text="alpha policy", score=0.8765)]
         sources = [
             {
                 "document_id": str(doc_id),
@@ -641,6 +636,46 @@ class TestRagContextProviderSources:
         assert "source=guide.pdf" in block
         assert f"doc={doc_id}" in block
         assert "alpha policy" in block
+
+    def test_format_rag_block_respects_token_budget(self) -> None:
+        # F-16: a tight budget keeps the highest-score chunk (truncated) and drops
+        # the lowest-score chunk; the assembled block estimate stays within budget.
+        from contexts.knowledge.application.rag_context_provider import _format_rag_block
+        from shared_kernel.tokens import estimate_tokens
+
+        doc_id = uuid.uuid4()
+        chunks = [
+            RetrievedChunk(document_id=doc_id, chunk_idx=0, text="alpha " * 200, score=0.9),
+            RetrievedChunk(document_id=doc_id, chunk_idx=1, text="omega " * 200, score=0.1),
+        ]
+        sources = [
+            {"document_id": str(doc_id), "filename": None, "chunk_idx": 0, "score": 0.9},
+            {"document_id": str(doc_id), "filename": None, "chunk_idx": 1, "score": 0.1},
+        ]
+
+        block = _format_rag_block(chunks, sources, token_budget=40)
+
+        assert estimate_tokens(block) <= 40
+        assert "alpha" in block  # highest-score content survives
+        assert "omega" not in block  # lowest-score chunk dropped
+
+    def test_format_rag_block_unbudgeted_keeps_all_chunks(self) -> None:
+        from contexts.knowledge.application.rag_context_provider import _format_rag_block
+
+        doc_id = uuid.uuid4()
+        chunks = [
+            RetrievedChunk(document_id=doc_id, chunk_idx=0, text="alpha", score=0.9),
+            RetrievedChunk(document_id=doc_id, chunk_idx=1, text="omega", score=0.1),
+        ]
+        sources = [
+            {"document_id": str(doc_id), "filename": None, "chunk_idx": 0, "score": 0.9},
+            {"document_id": str(doc_id), "filename": None, "chunk_idx": 1, "score": 0.1},
+        ]
+
+        block = _format_rag_block(chunks, sources)
+
+        assert "alpha" in block
+        assert "omega" in block
 
     async def test_build_sources_resolves_filenames(self, monkeypatch) -> None:
         # The provider shapes retrieved chunks into citable sources (one per
@@ -683,6 +718,4 @@ class TestRagContextProviderSources:
         sources = await provider._build_sources(
             [RetrievedChunk(document_id=doc_id, chunk_idx=0, text="x", score=0.1)]
         )
-        assert sources == [
-            {"document_id": str(doc_id), "filename": None, "chunk_idx": 0, "score": 0.1}
-        ]
+        assert sources == [{"document_id": str(doc_id), "filename": None, "chunk_idx": 0, "score": 0.1}]

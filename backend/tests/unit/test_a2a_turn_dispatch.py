@@ -67,15 +67,15 @@ def _wire_knowledge(engine, *, rag=None, graphrag=None, knowmap=None, graphrag_c
     against so tests can assert room-scoping.
     """
 
-    async def _rag(agent, queries):
+    async def _rag(agent, queries, *, token_budget=None):
         return _RagCtx(rag) if rag is not None else None
 
-    async def _graph(agent, chatroom_id, queries):
+    async def _graph(agent, chatroom_id, queries, *, token_budget=None):
         if graphrag_calls is not None:
             graphrag_calls.append(chatroom_id)
         return graphrag
 
-    async def _km(agent, queries):
+    async def _km(agent, queries, *, token_budget=None):
         return knowmap
 
     engine._rag_context = _rag  # type: ignore[attr-defined]

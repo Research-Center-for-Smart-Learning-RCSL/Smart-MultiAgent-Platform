@@ -672,3 +672,20 @@ def test_bundle_serialises_under_2kb_cap() -> None:
 
     assert len(json.dumps(payload, ensure_ascii=False).encode("utf-8")) <= 2048
     assert payload["metadata"]["type"] == "graphrag"
+
+
+def test_bundle_caps_to_token_budget_below_2kb() -> None:
+    # F-16: when the turn allocator grants less than the 2 KB floor, the rendered
+    # content is trimmed to the token budget.
+    from contexts.knowledge.domain.graphrag import GraphRagBundle, RelationEdge
+    from shared_kernel.tokens import estimate_tokens
+
+    body = "word " * 400  # ~2000 chars, well over a small token budget
+    bundle = GraphRagBundle(
+        entities=("a",),
+        relations=(RelationEdge(subject="a", relation="r", object="b", confidence=1.0, evidence_refs=()),),
+        evidence_excerpts=(body,),
+    )
+    content = str(bundle.as_system_message(token_budget=20)["content"])
+    assert estimate_tokens(content) <= 20
+    assert content.endswith("...")

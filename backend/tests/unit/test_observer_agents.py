@@ -758,6 +758,8 @@ def _observer_agent():
         prompt_strategy=SimpleNamespace(value="full"),
         model_hint=SimpleNamespace(value="claude"),
         model_id=None,
+        context_mode=SimpleNamespace(value="general"),
+        context_token_cap=None,
     )
 
 
@@ -815,7 +817,7 @@ def _wire_observer_engine(monkeypatch, agent, *, creator_id):
 
     monkeypatch.setattr(te, "ObservationService", _ObsService)
     monkeypatch.setattr(te, "assemble", lambda sp, **k: SimpleNamespace(text="SYS"))
-    monkeypatch.setattr(te, "build_registry", lambda *a, **k: SimpleNamespace())
+    monkeypatch.setattr(te, "build_registry", lambda *a, **k: SimpleNamespace(specs=lambda: []))
 
     engine = te.TurnEngine.__new__(te.TurnEngine)
     engine._db = _FakeDB()  # type: ignore[attr-defined]
@@ -827,8 +829,12 @@ def _wire_observer_engine(monkeypatch, agent, *, creator_id):
     async def _true(*a, **k):
         return True
 
-    async def _history(agent_, chatroom_id, context_limit, models):
-        return [SimpleNamespace(role="user", content="hello", sender_id=uuid.uuid4(), id=uuid.uuid4())]
+    async def _history(agent_, chatroom_id, context_limit, models, *, extra_projected_tokens=0):
+        return [
+            SimpleNamespace(
+                role="user", content="hello", sender_id=uuid.uuid4(), id=uuid.uuid4(), token_count=2
+            )
+        ]
 
     async def _labels(agent_, chatroom_id, history):
         return {}, {}
@@ -947,7 +953,7 @@ async def test_observer_turn_no_input_emits_observation_skipped(monkeypatch) -> 
     creator = uuid.uuid4()
     engine, _recorded, _stream_seen = _wire_observer_engine(monkeypatch, agent, creator_id=creator)
 
-    async def _empty_history(agent_, chatroom_id, context_limit, models):
+    async def _empty_history(agent_, chatroom_id, context_limit, models, *, extra_projected_tokens=0):
         return []
 
     engine._assemble_history = _empty_history  # type: ignore[attr-defined]

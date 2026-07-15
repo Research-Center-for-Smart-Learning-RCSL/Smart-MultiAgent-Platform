@@ -81,6 +81,13 @@ CancelCheck = Callable[[], Awaitable[bool]]
 
 MAX_TOOL_ROUNDS = 8
 _DEFAULT_MAX_TOKENS = 4096
+# F-16: token budget the allocator reserves for each of the two small graph
+# blocks (Concept Map, Knowledge Map) before File RAG takes the remainder. Sized
+# to the graph blocks' existing 2 KB byte cap (~700 tokens of Latin text).
+_GRAPH_BLOCK_TOKEN_BUDGET = 700
+# Fraction shaved off the knowledge budget to absorb the coarse estimator's
+# under-count (estimate_tokens is heuristic; a tokenizer-backed estimator is FU).
+_KNOWLEDGE_SAFETY_MARGIN = 0.1
 
 
 def _sampling_payload(agent: Agent) -> dict[str, Any]:
@@ -935,36 +942,11 @@ class TurnEngine:
             # Prompt resolution (R9.04–R9.08).
             base_system, lazy_prompt, section_cache = self._resolve_prompt(agent)
 
-            # History + optional compaction (R9.09–R9.11).
-            history = await self._assemble_history(agent, chatroom_id, context_limit, models)
-
-            # Context blocks fold into the system prompt (providers take system
-            # as a top-level field, not an in-array role).
-            system_parts = [base_system] if base_system else []
-            if is_observer:
-                # R28.01 framing + R28.05 self-memory: the observer's own past
-                # analyses fold in so successive turns are cumulative.
-                system_parts.append(_OBSERVER_SYSTEM_NOTE)
-                memory_block = await self._observer_memory_block(agent, chatroom_id)
-                if memory_block:
-                    system_parts.append(memory_block)
-            for hm in history:
-                if hm.role == "system":  # compact_summary
-                    system_parts.append(f"[Earlier conversation summary]\n{hm.content}")
-            # Retrieval keys off the *current* input when this turn carries one
-            # (run_input_turn); otherwise the latest user message in history.
-            knowledge_queries = _knowledge_queries(history, input_text=input_text)
-            knowledge_blocks, rag_ctx = await self._assemble_agent_knowledge(
-                agent, knowledge_queries, chatroom_id=chatroom_id
-            )
-            system_parts.extend(knowledge_blocks)
-            if is_observer:
-                # §30 (R30.15): an observer also sees the room's recent structured
-                # activity events (deterministic outcomes) beside the full chat
-                # history. Coverage-gated: None when the room has no activities.
-                activity_block = await self._activity_context(chatroom_id)
-                if activity_block:
-                    system_parts.append(activity_block)
+            # Fixed (history-independent) turn context, assembled once. These
+            # blocks and the tools are estimated for the compaction decision
+            # (F-17) and the knowledge budget (F-16) *before* knowledge is fetched,
+            # so knowledge is sized against the space the rest of the turn leaves.
+            memory_block = await self._observer_memory_block(agent, chatroom_id) if is_observer else None
             # Drain queued A2A notifications (R9.16); approval requests also add
             # the cast_approval_vote tool for this turn.
             notify_block, extra_tools, pending_notes = await self._pending_context_and_tools(
@@ -982,80 +964,206 @@ class TurnEngine:
             # Stage the triggering message's uploads into the kernel workspace so
             # code_exec can read them; the returned note tells the model the paths.
             staged_note = await self._stage_workspace_inputs(agent, chatroom_id, trigger_attachments)
-            if staged_note:
-                system_parts.append(staged_note)
-            if notify_block:
-                system_parts.append(notify_block)
-
-            # Label history with sender names so the agent can tell participants
-            # apart (humans by display name, other agents by their configured
-            # name). The running agent's own turns stay unlabelled so the model
-            # is not trained to echo a "Name:" prefix on its reply.
-            agent_names, user_names = await self._participant_labels(agent, chatroom_id, history)
-            # Attachments on the triggering user message become content blocks so
-            # the agent can see the file. When this turn carries fresh `input_text`,
-            # the trigger is that appended message (below); otherwise it's the
-            # message identified by `trigger_message_id` — falling back to the
-            # latest user message already in history only when no id was supplied
-            # (silence_minutes / coalesced re-enqueue with no tracked id).
-            attach_blocks = await self._model_attachment_blocks(chatroom_id, trigger_attachments)
-            history_attach_id = None
-            if attach_blocks and not input_text:
-                if trigger_message_id is not None:
-                    # Only anchor to the exact triggering message. If it already
-                    # fell out of the loaded history (e.g. folded into a compact
-                    # summary between enqueue and this turn running), there is no
-                    # historically-correct row left to attach these blocks to —
-                    # splicing them onto some other message would misattribute
-                    # the file and wrongly suppress that other message's own
-                    # attachment_excerpt (see _provider_message).
-                    user_ids_in_history = {h.id for h in history if h.role == "user"}
-                    if trigger_message_id in user_ids_in_history:
-                        history_attach_id = trigger_message_id
-                else:
-                    # No specific trigger: attach_blocks came from the room's
-                    # current latest attachment, so anchor to the latest user
-                    # row already in history (the same message it resolved from).
-                    history_attach_id = next((h.id for h in reversed(history) if h.role == "user"), None)
-            messages: list[dict[str, Any]] = [
-                self._provider_message(
-                    hm,
-                    agent.id,
-                    agent_names,
-                    user_names,
-                    attachment_blocks=attach_blocks if hm.id == history_attach_id else None,
-                )
-                for hm in history
-                if hm.role in ("user", "agent")
-            ]
-            other_agents_present = any(
-                hm.role == "agent" and hm.sender_id not in (None, agent.id) and hm.sender_id in agent_names
-                for hm in history
+            # §30 (R30.15): an observer also sees the room's recent structured
+            # activity events. Coverage-gated: None when the room has no activities.
+            activity_block = await self._activity_context(chatroom_id) if is_observer else None
+            registry = build_registry(
+                self._db,
+                agent_id=agent.id,
+                lazy_prompt=lazy_prompt,
+                section_cache=section_cache,
+                extra=extra_tools,
             )
-            # Emit the explanatory note whenever ANY turn will carry a "Name:"
-            # prefix. _provider_message prefixes every resolved user/agent label,
-            # so gating the note on >1 user left a single-human room with labelled
-            # turns but no note — the model then treats "Alice:" as literal text.
-            labels_applied = other_agents_present or bool(user_names)
-            if labels_applied:
-                system_parts.append(_PARTICIPANT_LABEL_NOTE)
-            system_text = "\n\n".join(p for p in system_parts if p)
+            tool_specs = registry.specs()
+            tool_tokens = tx.estimate_tokens(json.dumps(tool_specs, ensure_ascii=False)) if tool_specs else 0
+            input_tokens = tx.estimate_tokens(input_text or "")
 
-            if input_text:
-                if attach_blocks:
-                    messages.append(
-                        {
-                            "role": "user",
-                            "content": [{"type": "text", "text": input_text}, *attach_blocks],
-                        }
+            # The non-knowledge system blocks joined as text. The participant-label
+            # note is counted conservatively (its inclusion depends on history).
+            def _fixed_system_text(summaries: list[str]) -> str:
+                parts = [base_system] if base_system else []
+                if is_observer:
+                    # R28.01 framing + R28.05 self-memory.
+                    parts.append(_OBSERVER_SYSTEM_NOTE)
+                    if memory_block:
+                        parts.append(memory_block)
+                parts.extend(summaries)
+                if activity_block:
+                    parts.append(activity_block)
+                if staged_note:
+                    parts.append(staged_note)
+                if notify_block:
+                    parts.append(notify_block)
+                parts.append(_PARTICIPANT_LABEL_NOTE)
+                return "\n\n".join(p for p in parts if p)
+
+            # F-17: compaction is decided against the whole non-knowledge request
+            # (base + dynamic blocks + tools + input + reserve), not history alone.
+            prefix_tokens = (
+                tx.estimate_tokens(_fixed_system_text([])) + tool_tokens + input_tokens + _DEFAULT_MAX_TOKENS
+            )
+            history = await self._assemble_history(
+                agent, chatroom_id, context_limit, models, extra_projected_tokens=prefix_tokens
+            )
+
+            # Request ceiling: the configured cap (or its 75% default) in compact
+            # mode, the provider hard limit in general mode — so R11.19 bounds the
+            # knowledge blocks in both modes without imposing R9.10 on general.
+            if agent.context_mode.value == "compact":
+                ceiling = agent.context_token_cap or ctxmod.default_cap_from_limit(context_limit)
+            else:
+                ceiling = context_limit
+
+            async def _assemble_request(
+                history: list[tx.HistoryMessage],
+            ) -> tuple[str, list[dict[str, Any]], RagContext | None]:
+                summaries = [
+                    f"[Earlier conversation summary]\n{hm.content}"
+                    for hm in history
+                    if hm.role == "system"  # compact_summary
+                ]
+                # F-16: distribute the knowledge budget by narrow-scope precedence
+                # over what remains after the fixed context (system blocks + tools
+                # + message history + response reserve). Counting only user/agent
+                # rows here avoids double-counting the summaries already in the
+                # system-block estimate.
+                fixed_context = (
+                    tx.estimate_tokens(_fixed_system_text(summaries))
+                    + tool_tokens
+                    + input_tokens
+                    + sum(h.token_count for h in history if h.role in ("user", "agent"))
+                )
+                total_budget = ctxmod.knowledge_budget(
+                    ceiling=ceiling,
+                    response_reserve=_DEFAULT_MAX_TOKENS,
+                    fixed_context_tokens=fixed_context,
+                    safety_margin_frac=_KNOWLEDGE_SAFETY_MARGIN,
+                )
+                budgets = ctxmod.allocate_knowledge_budget(
+                    total_budget, graph_source_cap=_GRAPH_BLOCK_TOKEN_BUDGET
+                )
+                # Retrieval keys off the *current* input when this turn carries one
+                # (run_input_turn); otherwise the latest user message in history.
+                knowledge_queries = _knowledge_queries(history, input_text=input_text)
+                knowledge_blocks, rag_ctx = await self._assemble_agent_knowledge(
+                    agent, knowledge_queries, chatroom_id=chatroom_id, budgets=budgets
+                )
+
+                # Context blocks fold into the system prompt (providers take system
+                # as a top-level field, not an in-array role). Order: base, observer
+                # framing, compact summaries, knowledge, activity, staged, notify,
+                # participant-label note.
+                system_parts = [base_system] if base_system else []
+                if is_observer:
+                    system_parts.append(_OBSERVER_SYSTEM_NOTE)
+                    if memory_block:
+                        system_parts.append(memory_block)
+                system_parts.extend(summaries)
+                system_parts.extend(knowledge_blocks)
+                if activity_block:
+                    system_parts.append(activity_block)
+                if staged_note:
+                    system_parts.append(staged_note)
+                if notify_block:
+                    system_parts.append(notify_block)
+
+                # Label history with sender names so the agent can tell participants
+                # apart (humans by display name, other agents by their configured
+                # name). The running agent's own turns stay unlabelled so the model
+                # is not trained to echo a "Name:" prefix on its reply.
+                agent_names, user_names = await self._participant_labels(agent, chatroom_id, history)
+                # Attachments on the triggering user message become content blocks
+                # so the agent can see the file. When this turn carries fresh
+                # `input_text`, the trigger is that appended message (below);
+                # otherwise it's the message identified by `trigger_message_id` —
+                # falling back to the latest user message already in history only
+                # when no id was supplied (silence_minutes / coalesced re-enqueue).
+                attach_blocks = await self._model_attachment_blocks(chatroom_id, trigger_attachments)
+                history_attach_id = None
+                if attach_blocks and not input_text:
+                    if trigger_message_id is not None:
+                        # Only anchor to the exact triggering message. If it fell
+                        # out of the loaded history (folded into a compact summary
+                        # between enqueue and this turn), there is no historically-
+                        # correct row left — splicing onto another message would
+                        # misattribute the file (see _provider_message).
+                        user_ids_in_history = {h.id for h in history if h.role == "user"}
+                        if trigger_message_id in user_ids_in_history:
+                            history_attach_id = trigger_message_id
+                    else:
+                        history_attach_id = next((h.id for h in reversed(history) if h.role == "user"), None)
+                request_messages: list[dict[str, Any]] = [
+                    self._provider_message(
+                        hm,
+                        agent.id,
+                        agent_names,
+                        user_names,
+                        attachment_blocks=attach_blocks if hm.id == history_attach_id else None,
                     )
-                else:
-                    messages.append({"role": "user", "content": input_text})
-            # FIX-02: providers (Anthropic in particular) reject a leading
-            # assistant turn. Compaction can fold the range so the first
-            # survivor is this agent's own reply — anchor with a neutral turn.
-            if messages and messages[0].get("role") == "assistant":
-                messages.insert(0, {"role": "user", "content": _HISTORY_RESUME_NOTE})
+                    for hm in history
+                    if hm.role in ("user", "agent")
+                ]
+                other_agents_present = any(
+                    hm.role == "agent"
+                    and hm.sender_id not in (None, agent.id)
+                    and hm.sender_id in agent_names
+                    for hm in history
+                )
+                # Emit the explanatory note whenever ANY turn will carry a "Name:"
+                # prefix. _provider_message prefixes every resolved user/agent label,
+                # so gating on >1 user left a single-human room labelled but note-less
+                # — the model then treats "Alice:" as literal text.
+                if other_agents_present or bool(user_names):
+                    system_parts.append(_PARTICIPANT_LABEL_NOTE)
+                assembled_system_text = "\n\n".join(p for p in system_parts if p)
+
+                if input_text:
+                    if attach_blocks:
+                        request_messages.append(
+                            {
+                                "role": "user",
+                                "content": [{"type": "text", "text": input_text}, *attach_blocks],
+                            }
+                        )
+                    else:
+                        request_messages.append({"role": "user", "content": input_text})
+                # FIX-02: providers (Anthropic in particular) reject a leading
+                # assistant turn. Compaction can fold the range so the first
+                # survivor is this agent's own reply — anchor with a neutral turn.
+                if request_messages and request_messages[0].get("role") == "assistant":
+                    request_messages.insert(0, {"role": "user", "content": _HISTORY_RESUME_NOTE})
+                return assembled_system_text, request_messages, rag_ctx
+
+            system_text, messages, rag_ctx = await _assemble_request(history)
+
+            # F-16 AC-6: guard the provider hard limit before the initial dispatch.
+            # In compact mode a pathological large prefix runs one more compaction
+            # pass rather than dispatching a guaranteed-overflow request; in general
+            # mode the provider's own context-limit error surfaces to the UI
+            # (R9.09). Mid-tool-loop growth is a separate vector (FU-4).
+            if agent.context_mode.value == "compact":
+                payload_tokens = (
+                    tx.estimate_tokens(system_text)
+                    + _estimate_messages_tokens(messages)
+                    + tool_tokens
+                    + _DEFAULT_MAX_TOKENS
+                )
+                if payload_tokens > context_limit:
+                    _log.warning(
+                        "assembled request ~%d tok exceeds provider limit %d; recompacting agent=%s",
+                        payload_tokens,
+                        context_limit,
+                        agent.id,
+                    )
+                    history = await self._assemble_history(
+                        agent,
+                        chatroom_id,
+                        context_limit,
+                        models,
+                        extra_projected_tokens=payload_tokens,
+                    )
+                    system_text, messages, rag_ctx = await _assemble_request(history)
+
             if not messages:
                 if room is not None:
                     await Publisher(room).emit("agent.finished", {"agent_id": str(agent.id)})
@@ -1072,14 +1180,6 @@ class TurnEngine:
                 # never reach the provider — restore them for the next turn.
                 await self._requeue_notifications(agent, pending_notes)
                 return TurnResult(status="skipped", reason="no_input")
-
-            registry = build_registry(
-                self._db,
-                agent_id=agent.id,
-                lazy_prompt=lazy_prompt,
-                section_cache=section_cache,
-                extra=extra_tools,
-            )
 
             # Commit the pre-stream writes (turn_started audit, compaction
             # summary row) so the DB transaction is not held open across the
@@ -1463,7 +1563,21 @@ class TurnEngine:
         chatroom_id: uuid.UUID,
         context_limit: int,
         models: dict[str, str],
+        *,
+        extra_projected_tokens: int = 0,
     ) -> list[tx.HistoryMessage]:
+        """Load model-facing history, compacting it when the *next request* would
+        cross the cap (R9.10).
+
+        ``extra_projected_tokens`` is the estimated non-knowledge prefix of the
+        assembled request — base + dynamic system blocks + tools + response
+        reserve (F-17). The compact-mode decision is made against
+        ``history + extra_projected_tokens``, not history alone, so a large
+        prompt/tool prefix triggers compaction before the provider limit is hit.
+        The forced ``/compact`` half-shed (G.10) stays history-based — it is the
+        user's explicit "shed half of history now" action, independent of the
+        next request's size.
+        """
         from shared_kernel.realtime.distributed_lock import distributed_lock
 
         history = await tx.load_model_history(self._db, chatroom_id=chatroom_id)
@@ -1473,13 +1587,15 @@ class TurnEngine:
         forced = await self._consume_compact_flag(chatroom_id)
         if forced:
             cap: int | None = max(1, projected // 2)
+            compact_projected = projected
         elif agent.context_mode.value == "compact" and ctxmod.should_compact(
             mode="compact",
-            projected_tokens=projected,
+            projected_tokens=projected + extra_projected_tokens,
             context_token_cap=agent.context_token_cap,
             provider_context_limit=context_limit,
         ):
             cap = agent.context_token_cap
+            compact_projected = projected + extra_projected_tokens
         else:
             return history
         # FIX-11: room-scoped lock prevents duplicate summaries when two agents'
@@ -1494,13 +1610,16 @@ class TurnEngine:
             projected = sum(h.token_count for h in history)
             if forced:
                 cap = max(1, projected // 2)
+                compact_projected = projected
             elif not ctxmod.should_compact(
                 mode="compact",
-                projected_tokens=projected,
+                projected_tokens=projected + extra_projected_tokens,
                 context_token_cap=agent.context_token_cap,
                 provider_context_limit=context_limit,
             ):
                 return history
+            else:
+                compact_projected = projected + extra_projected_tokens
             summariser = RouterSummariser(
                 router=self._router,
                 key_group_id=agent.key_group_id,
@@ -1511,7 +1630,7 @@ class TurnEngine:
             try:
                 did = await ctxmod.run_compact(
                     messages=cast("list[ctxmod.MessageLike]", history),
-                    projected_tokens=projected,
+                    projected_tokens=compact_projected,
                     context_token_cap=cap,
                     provider_context_limit=context_limit,
                     summariser=summariser,
@@ -1719,16 +1838,24 @@ class TurnEngine:
             _log.warning("final no-tools call failed; falling back to last tool-round text")
             return last_text, MAX_TOOL_ROUNDS
 
-    async def _rag_context(self, agent: Agent, queries: Sequence[str]) -> RagContext | None:
+    async def _rag_context(
+        self, agent: Agent, queries: Sequence[str], *, token_budget: int | None = None
+    ) -> RagContext | None:
         """Delegate to the knowledge-context :class:`RagContextProvider`."""
         return await self._rag_provider.query(
             rag_config_id=agent.rag_config_id,
             query_texts=queries,
             agent_id=agent.id,
+            token_budget=token_budget,
         )
 
     async def _graphrag_context(
-        self, agent: Agent, chatroom_id: uuid.UUID, queries: Sequence[str]
+        self,
+        agent: Agent,
+        chatroom_id: uuid.UUID,
+        queries: Sequence[str],
+        *,
+        token_budget: int | None = None,
     ) -> str | None:
         """Delegate to the knowledge-context :class:`GraphRagContextProvider`.
 
@@ -1749,9 +1876,12 @@ class TurnEngine:
             graphrag_config_ids=[cfg.id for cfg in layers],
             query_texts=queries,
             querying_agent_id=agent.id,
+            token_budget=token_budget,
         )
 
-    async def _knowmap_context(self, agent: Agent, queries: Sequence[str]) -> str | None:
+    async def _knowmap_context(
+        self, agent: Agent, queries: Sequence[str], *, token_budget: int | None = None
+    ) -> str | None:
         """Delegate to the knowledge-context :class:`KnowledgeMapContextProvider`.
 
         Keyed on the agent's own ``knowmap_config_id`` (per-Agent binding, R11.14) —
@@ -1762,10 +1892,16 @@ class TurnEngine:
             knowmap_config_id=agent.knowmap_config_id,
             query_texts=queries,
             querying_agent_id=agent.id,
+            token_budget=token_budget,
         )
 
     async def _assemble_agent_knowledge(
-        self, agent: Agent, queries: Sequence[str], *, chatroom_id: uuid.UUID | None
+        self,
+        agent: Agent,
+        queries: Sequence[str],
+        *,
+        chatroom_id: uuid.UUID | None,
+        budgets: ctxmod.KnowledgeBudgets | None = None,
     ) -> tuple[list[str], RagContext | None]:
         """Assemble the per-turn knowledge system blocks in narrow-scope order.
 
@@ -1776,21 +1912,36 @@ class TurnEngine:
         is supplied. Order (File RAG → Concept Map → Knowledge Map) and the
         empty-block handling mirror the room path's former inline assembly.
 
+        When ``budgets`` is supplied (F-16/R11.19), each source's rendered block is
+        capped to its per-source token budget and a source granted zero budget is
+        omitted (never queried, never sent empty). ``budgets=None`` leaves every
+        block uncapped — today's behaviour for callers without a whole-payload
+        budget (the headless path, FU).
+
         Returns the ordered blocks plus the ``RagContext`` so the room path can
         persist RAG citations (``reply_meta['rag_sources']``); headless callers
         ignore the second element.
         """
         blocks: list[str] = []
-        rag_ctx = await self._rag_context(agent, queries)
-        if rag_ctx:
-            blocks.append(rag_ctx.block)
+        rag_budget = None if budgets is None else budgets.file_rag
+        rag_ctx: RagContext | None = None
+        if rag_budget is None or rag_budget > 0:
+            rag_ctx = await self._rag_context(agent, queries, token_budget=rag_budget)
+            if rag_ctx:
+                blocks.append(rag_ctx.block)
         if chatroom_id is not None:
-            graphrag_block = await self._graphrag_context(agent, chatroom_id, queries)
-            if graphrag_block:
-                blocks.append(graphrag_block)
-        knowmap_block = await self._knowmap_context(agent, queries)
-        if knowmap_block:
-            blocks.append(knowmap_block)
+            concept_budget = None if budgets is None else budgets.concept_map
+            if concept_budget is None or concept_budget > 0:
+                graphrag_block = await self._graphrag_context(
+                    agent, chatroom_id, queries, token_budget=concept_budget
+                )
+                if graphrag_block:
+                    blocks.append(graphrag_block)
+        knowmap_budget = None if budgets is None else budgets.knowledge_map
+        if knowmap_budget is None or knowmap_budget > 0:
+            knowmap_block = await self._knowmap_context(agent, queries, token_budget=knowmap_budget)
+            if knowmap_block:
+                blocks.append(knowmap_block)
         return blocks, rag_ctx
 
     async def _activity_context(self, chatroom_id: uuid.UUID) -> str | None:
@@ -1828,6 +1979,23 @@ def _err_kind(exc: Exception) -> str:
     if isinstance(exc, ProviderStreamError):
         return "provider_stream_failed"
     return exc.__class__.__name__
+
+
+def _estimate_messages_tokens(messages: list[dict[str, Any]]) -> int:
+    """Coarse token estimate of a provider ``messages`` list (F-16 pre-dispatch
+    guard). Content is either a plain string or a list of content blocks."""
+    total = 0
+    for m in messages:
+        content = m.get("content")
+        if isinstance(content, str):
+            total += tx.estimate_tokens(content)
+        elif isinstance(content, list):
+            for block in content:
+                if isinstance(block, dict):
+                    text = block.get("text")
+                    if isinstance(text, str):
+                        total += tx.estimate_tokens(text)
+    return total
 
 
 def _knowledge_queries(history: Sequence[tx.HistoryMessage], *, input_text: str | None) -> list[str]:

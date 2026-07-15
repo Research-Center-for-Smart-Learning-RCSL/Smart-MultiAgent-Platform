@@ -33,11 +33,14 @@ from typing import Any, Literal, Protocol
 __all__ = [
     "CompactFailed",
     "CompactPlan",
+    "KnowledgeBudgets",
     "MessageLike",
     "Summariser",
     "TranscriptStore",
+    "allocate_knowledge_budget",
     "choose_range_to_compact",
     "default_cap_from_limit",
+    "knowledge_budget",
     "should_compact",
 ]
 
@@ -106,6 +109,61 @@ def should_compact(
         context_token_cap if context_token_cap is not None else default_cap_from_limit(provider_context_limit)
     )
     return projected_tokens > cap
+
+
+def knowledge_budget(
+    *,
+    ceiling: int,
+    response_reserve: int,
+    fixed_context_tokens: int,
+    safety_margin_frac: float = 0.1,
+) -> int:
+    """Tokens available for the combined knowledge blocks this turn (R11.19).
+
+    ``ceiling`` is the request ceiling — ``context_token_cap`` in ``compact``
+    mode, the provider hard limit in ``general`` mode — so the combined-knowledge
+    bound holds in both modes while compaction (R9.10) stays compact-only. The
+    knowledge blocks may consume only what remains after the response reserve and
+    the fixed (non-knowledge) turn context. ``safety_margin_frac`` shrinks the
+    grant to absorb the coarse estimator's under-count. Never negative.
+    """
+    raw = ceiling - response_reserve - fixed_context_tokens
+    if raw <= 0:
+        return 0
+    return max(0, int(raw * (1.0 - safety_margin_frac)))
+
+
+@dataclass(frozen=True, slots=True)
+class KnowledgeBudgets:
+    """Per-source token budgets for one turn's knowledge blocks (R11.19).
+
+    Field names are the code-authoritative provider labels: ``concept_map`` is
+    the room-scoped Concept Map (``_graphrag_context``), ``knowledge_map`` the
+    Axis-1 Knowledge Map (``_knowmap_context``), ``file_rag`` the document RAG.
+    """
+
+    concept_map: int
+    knowledge_map: int
+    file_rag: int
+
+
+def allocate_knowledge_budget(total: int, *, graph_source_cap: int) -> KnowledgeBudgets:
+    """Distribute the knowledge budget across the three sources in narrow-scope
+    precedence order — Concept Map > Knowledge Map > File RAG (R11.19).
+
+    The two graph sources each take up to ``graph_source_cap`` first (they are
+    individually small and the most specific); File RAG receives the remainder,
+    so it is squeezed — and dropped to zero — before either graph block. When the
+    total is smaller than a single graph cap, Knowledge Map yields before Concept
+    Map. A source granted zero is omitted by the caller, never sent empty.
+    """
+    if total <= 0:
+        return KnowledgeBudgets(concept_map=0, knowledge_map=0, file_rag=0)
+    cap = max(0, graph_source_cap)
+    concept = min(cap, total)
+    knowmap = min(cap, total - concept)
+    file_rag = max(0, total - concept - knowmap)
+    return KnowledgeBudgets(concept_map=concept, knowledge_map=knowmap, file_rag=file_rag)
 
 
 @dataclass(frozen=True, slots=True)

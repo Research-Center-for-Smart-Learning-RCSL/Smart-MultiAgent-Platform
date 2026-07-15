@@ -22,6 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.knowledge.application.context_provider_text import normalise_queries
 from shared_kernel import audit
+from shared_kernel.tokens import estimate_tokens
 
 _log = logging.getLogger(__name__)
 _MAX_SOURCE_LABEL_CHARS = 160
@@ -68,11 +69,17 @@ class RagContextProvider:
         query_texts: Sequence[str] | None = None,
         agent_id: uuid.UUID | None = None,
         top_k: int | None = None,
+        token_budget: int | None = None,
     ) -> RagContext | None:
         """Return the RAG context (prompt block + citable sources), or ``None``.
 
         Safe to call unconditionally — returns ``None`` when the config is
         missing, Qdrant is not configured, or retrieval fails for any reason.
+
+        ``token_budget`` bounds the rendered block (F-16/R11.19): lowest-score
+        chunks are dropped, and the last chunk that fits is truncated, so File
+        RAG yields the space the narrow-scope precedence reserves for the graph
+        blocks. ``sources`` still reflects the full retrieved set for citation.
         """
         queries = normalise_queries(query_text=query_text, query_texts=query_texts)
         if rag_config_id is None or self._qdrant_url is None or not queries:
@@ -182,7 +189,9 @@ class RagContextProvider:
                 if not chunks:
                     return None
                 sources = await self._build_sources(chunks)
-                block = _format_rag_block(chunks, sources)
+                block = _format_rag_block(chunks, sources, token_budget=token_budget)
+                if not block:
+                    return None
                 return RagContext(block=block, sources=sources)
             finally:
                 await qclient.close()
@@ -261,7 +270,9 @@ class RagContextProvider:
         ]
 
 
-def _format_rag_block(chunks: list[Any], sources: list[dict[str, Any]]) -> str:
+def _format_rag_block(
+    chunks: list[Any], sources: list[dict[str, Any]], *, token_budget: int | None = None
+) -> str:
     source_by_ref: dict[tuple[uuid.UUID, int], dict[str, Any]] = {}
     for source in sources:
         try:
@@ -269,7 +280,12 @@ def _format_rag_block(chunks: list[Any], sources: list[dict[str, Any]]) -> str:
         except (KeyError, TypeError, ValueError):
             continue
         source_by_ref[key] = source
-    body_lines: list[str] = ["Retrieved context:"]
+    header = "Retrieved context:"
+    body_lines: list[str] = [header]
+    used = estimate_tokens(header)
+    # Chunks arrive score-sorted (highest first). Under a budget, keep whole
+    # chunks while they fit, then truncate the first chunk that overflows and
+    # stop — lowest-score chunks are dropped, highest-score content preserved.
     for c in chunks:
         source = source_by_ref.get((c.document_id, c.chunk_idx), {})
         label = _source_label(source.get("filename"))
@@ -277,8 +293,44 @@ def _format_rag_block(chunks: list[Any], sources: list[dict[str, Any]]) -> str:
             ref = f"source={label} doc={c.document_id} chunk={c.chunk_idx} score={c.score:.3f}"
         else:
             ref = f"doc={c.document_id} chunk={c.chunk_idx} score={c.score:.3f}"
-        body_lines.append(f"[{ref}]\n{c.text}")
-    return "\n\n".join(body_lines)
+        entry = f"[{ref}]\n{c.text}"
+        if token_budget is None or used + estimate_tokens(entry) <= token_budget:
+            body_lines.append(entry)
+            used += estimate_tokens(entry)
+            continue
+        # Overflow: try to fit a truncated body for this chunk, then stop.
+        prefix = f"[{ref}]\n"
+        remaining = token_budget - used - estimate_tokens(prefix)
+        truncated = _truncate_to_tokens(c.text, remaining) if remaining > 0 else ""
+        if truncated:
+            body_lines.append(f"{prefix}{truncated}...")
+        break
+    if len(body_lines) == 1:
+        # Budget too small for even a truncated first chunk — omit the block.
+        return ""
+    block = "\n\n".join(body_lines)
+    if token_budget is not None and estimate_tokens(block) > token_budget:
+        # Per-entry accounting under-counts (Latin len//4 is summed per entry, not
+        # once over the whole string); clamp the assembled block as a hard backstop
+        # so the allocator's postcondition (estimate <= budget) always holds.
+        block = _truncate_to_tokens(block, token_budget)
+    return block
+
+
+def _truncate_to_tokens(text: str, budget: int) -> str:
+    """Longest prefix of ``text`` whose coarse token estimate is within ``budget``."""
+    if budget <= 0:
+        return ""
+    if estimate_tokens(text) <= budget:
+        return text
+    lo, hi = 0, len(text)
+    while lo < hi:
+        mid = (lo + hi + 1) // 2
+        if estimate_tokens(text[:mid]) <= budget:
+            lo = mid
+        else:
+            hi = mid - 1
+    return text[:lo]
 
 
 def _source_label(value: object) -> str:
