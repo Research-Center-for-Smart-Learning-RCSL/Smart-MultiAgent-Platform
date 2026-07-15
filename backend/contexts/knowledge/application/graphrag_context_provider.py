@@ -96,7 +96,9 @@ class GraphRagContextProvider:
             bundle = _merge_bundles(bundles)
             if bundle is None or not (bundle.entities or bundle.relations):
                 return None
-            return str(bundle.as_system_message(token_budget=token_budget)["content"])
+            # Empty content means the token budget left no room even for a
+            # truncated block (F-16) — drop it rather than emit a marker fragment.
+            return str(bundle.as_system_message(token_budget=token_budget)["content"]) or None
         except Exception:
             _log.warning(
                 "GraphRAG retrieval failed config=%s",
@@ -159,7 +161,9 @@ class GraphRagContextProvider:
             bundle = _merge_layers_tiered(layer_bundles)
             if bundle is None or not (bundle.entities or bundle.relations):
                 return None
-            return str(bundle.as_system_message(token_budget=token_budget)["content"])
+            # Empty content means the token budget left no room even for a
+            # truncated block (F-16) — drop it rather than emit a marker fragment.
+            return str(bundle.as_system_message(token_budget=token_budget)["content"]) or None
         except Exception:
             _log.warning(
                 "GraphRAG layered assembly failed layers=%s",

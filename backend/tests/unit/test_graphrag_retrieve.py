@@ -689,3 +689,17 @@ def test_bundle_caps_to_token_budget_below_2kb() -> None:
     content = str(bundle.as_system_message(token_budget=20)["content"])
     assert estimate_tokens(content) <= 20
     assert content.endswith("...")
+
+
+def test_bundle_drops_block_under_tiny_token_budget() -> None:
+    # F-16 fix: a token budget too small to carry any graph content yields empty
+    # content (the caller drops the block) rather than a useless header fragment.
+    from contexts.knowledge.domain.graphrag import GraphRagBundle, RelationEdge
+
+    body = "word " * 400
+    bundle = GraphRagBundle(
+        entities=("a",),
+        relations=(RelationEdge(subject="a", relation="r", object="b", confidence=1.0, evidence_refs=()),),
+        evidence_excerpts=(body,),
+    )
+    assert bundle.as_system_message(token_budget=3)["content"] == ""

@@ -658,6 +658,9 @@ class TestRagContextProviderSources:
         assert estimate_tokens(block) <= 40
         assert "alpha" in block  # highest-score content survives
         assert "omega" not in block  # lowest-score chunk dropped
+        assert block.endswith("...")  # truncation is marked, not silent
+        # The clamp trims the chunk-body tail, never a source-ref line.
+        assert block.count("[doc=") == 1
 
     def test_format_rag_block_unbudgeted_keeps_all_chunks(self) -> None:
         from contexts.knowledge.application.rag_context_provider import _format_rag_block

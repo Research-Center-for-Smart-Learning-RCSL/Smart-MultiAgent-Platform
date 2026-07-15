@@ -180,7 +180,9 @@ class KnowledgeMapContextProvider:
             )
             if not (bundle.entities or bundle.relations):
                 return None
-            return str(bundle.as_system_message(token_budget=token_budget)["content"])
+            # Empty content means the token budget left no room even for a
+            # truncated block (F-16) — drop it rather than emit a marker fragment.
+            return str(bundle.as_system_message(token_budget=token_budget)["content"]) or None
         except Exception:
             _log.warning("Knowledge Map retrieval failed config=%s", knowmap_config_id, exc_info=True)
             return None
