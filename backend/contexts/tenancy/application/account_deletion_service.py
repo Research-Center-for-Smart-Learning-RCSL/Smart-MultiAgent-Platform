@@ -152,7 +152,6 @@ class AccountDeletionService:
             "transfers_cancelled": transfers_cancelled,
         }
 
-
     async def prepare_hard_delete(
         self,
         *,
@@ -186,9 +185,7 @@ class AccountDeletionService:
             )
         )
         await self._db.execute(
-            t.projects.update()
-            .where(t.projects.c.owner_user_id == user_id)
-            .values(owner_user_id=None)
+            t.projects.update().where(t.projects.c.owner_user_id == user_id).values(owner_user_id=None)
         )
         await self._db.execute(
             t.projects.update()

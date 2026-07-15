@@ -170,9 +170,7 @@ def test_refresh_without_any_token_returns_401(auth_client: TestClient) -> None:
     assert r.status_code == 401
 
 
-def test_refresh_clears_cookie_on_dead_token(
-    auth_client: TestClient, fake_service: _FakeAuthService
-) -> None:
+def test_refresh_clears_cookie_on_dead_token(auth_client: TestClient, fake_service: _FakeAuthService) -> None:
     # A terminally-unusable refresh token (here: idle timeout) must not leave its
     # now-inert cookie lingering in the browser — the route renders the canonical
     # token-expired Problem AND clears the cookie on the same response.

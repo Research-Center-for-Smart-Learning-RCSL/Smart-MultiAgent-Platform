@@ -24,9 +24,7 @@ def _principal(*, is_admin: bool = False) -> Principal:
 
 
 def _chatroom_cfg() -> SimpleNamespace:
-    return SimpleNamespace(
-        owner_kind="chatroom", owner_chatroom_id=uuid.uuid4(), project_id=uuid.uuid4()
-    )
+    return SimpleNamespace(owner_kind="chatroom", owner_chatroom_id=uuid.uuid4(), project_id=uuid.uuid4())
 
 
 def _agent_group_cfg() -> SimpleNamespace:
@@ -36,9 +34,7 @@ def _agent_group_cfg() -> SimpleNamespace:
 
 
 def _workspace_cfg() -> SimpleNamespace:
-    return SimpleNamespace(
-        owner_kind="workspace", owner_workspace_id=uuid.uuid4(), project_id=uuid.uuid4()
-    )
+    return SimpleNamespace(owner_kind="workspace", owner_workspace_id=uuid.uuid4(), project_id=uuid.uuid4())
 
 
 def _rag_cfg() -> SimpleNamespace:
@@ -58,9 +54,7 @@ class TestChatroomOwned:
             patch(f"{_MOD}.resolve_room_access", new=AsyncMock(return_value=MagicMock())),
             patch(f"{_MOD}.ensure_can_read", new=MagicMock(return_value=None)),
         ):
-            assert await has_config_read_access(
-                MagicMock(), principal=_principal(), cfg=_chatroom_cfg()
-            )
+            assert await has_config_read_access(MagicMock(), principal=_principal(), cfg=_chatroom_cfg())
 
     async def test_room_denied_member_refused(self) -> None:
         def _raise(_access, *, is_admin):
@@ -70,9 +64,7 @@ class TestChatroomOwned:
             patch(f"{_MOD}.resolve_room_access", new=AsyncMock(return_value=MagicMock())),
             patch(f"{_MOD}.ensure_can_read", new=MagicMock(side_effect=_raise)),
         ):
-            assert not await has_config_read_access(
-                MagicMock(), principal=_principal(), cfg=_chatroom_cfg()
-            )
+            assert not await has_config_read_access(MagicMock(), principal=_principal(), cfg=_chatroom_cfg())
 
     async def test_deleted_room_refused_no_fallthrough(self) -> None:
         # A missing room must deny, never fall through to a project check.
@@ -80,9 +72,7 @@ class TestChatroomOwned:
             f"{_MOD}.resolve_room_access",
             new=AsyncMock(side_effect=ChatroomNotFound("gone")),
         ):
-            assert not await has_config_read_access(
-                MagicMock(), principal=_principal(), cfg=_chatroom_cfg()
-            )
+            assert not await has_config_read_access(MagicMock(), principal=_principal(), cfg=_chatroom_cfg())
 
 
 class TestAgentGroupOwned:
@@ -92,15 +82,11 @@ class TestAgentGroupOwned:
             patch(f"{_MOD}.TenancyRoleResolver", new=_resolver(has_role=True)),
             patch(f"{_MOD}.AgentGroupFacade", new=MagicMock(return_value=facade)),
         ):
-            assert await has_config_read_access(
-                MagicMock(), principal=_principal(), cfg=_agent_group_cfg()
-            )
+            assert await has_config_read_access(MagicMock(), principal=_principal(), cfg=_agent_group_cfg())
 
     async def test_member_with_disabled_refused(self) -> None:
         # R11.17: without the concept_map_enabled opt-in, a project member is denied.
-        facade = MagicMock(
-            get_group=AsyncMock(return_value=SimpleNamespace(concept_map_enabled=False))
-        )
+        facade = MagicMock(get_group=AsyncMock(return_value=SimpleNamespace(concept_map_enabled=False)))
         with (
             patch(f"{_MOD}.TenancyRoleResolver", new=_resolver(has_role=True)),
             patch(f"{_MOD}.AgentGroupFacade", new=MagicMock(return_value=facade)),
@@ -118,42 +104,30 @@ class TestAgentGroupOwned:
 
 class TestWorkspaceOwned:
     async def test_member_with_enabled_allowed(self) -> None:
-        facade = MagicMock(
-            get_workspace=AsyncMock(return_value=SimpleNamespace(concept_map_enabled=True))
-        )
+        facade = MagicMock(get_workspace=AsyncMock(return_value=SimpleNamespace(concept_map_enabled=True)))
         with (
             patch(f"{_MOD}.TenancyRoleResolver", new=_resolver(has_role=True)),
             patch(f"{_MOD}.ConversationFacade", new=MagicMock(return_value=facade)),
         ):
-            assert await has_config_read_access(
-                MagicMock(), principal=_principal(), cfg=_workspace_cfg()
-            )
+            assert await has_config_read_access(MagicMock(), principal=_principal(), cfg=_workspace_cfg())
 
     async def test_member_with_disabled_refused(self) -> None:
-        facade = MagicMock(
-            get_workspace=AsyncMock(return_value=SimpleNamespace(concept_map_enabled=False))
-        )
+        facade = MagicMock(get_workspace=AsyncMock(return_value=SimpleNamespace(concept_map_enabled=False)))
         with (
             patch(f"{_MOD}.TenancyRoleResolver", new=_resolver(has_role=True)),
             patch(f"{_MOD}.ConversationFacade", new=MagicMock(return_value=facade)),
         ):
-            assert not await has_config_read_access(
-                MagicMock(), principal=_principal(), cfg=_workspace_cfg()
-            )
+            assert not await has_config_read_access(MagicMock(), principal=_principal(), cfg=_workspace_cfg())
 
 
 class TestNonConceptMapConfigs:
     async def test_rag_config_member_allowed(self) -> None:
         with patch(f"{_MOD}.TenancyRoleResolver", new=_resolver(has_role=True)):
-            assert await has_config_read_access(
-                MagicMock(), principal=_principal(), cfg=_rag_cfg()
-            )
+            assert await has_config_read_access(MagicMock(), principal=_principal(), cfg=_rag_cfg())
 
     async def test_rag_config_non_member_refused(self) -> None:
         with patch(f"{_MOD}.TenancyRoleResolver", new=_resolver(has_role=False)):
-            assert not await has_config_read_access(
-                MagicMock(), principal=_principal(), cfg=_rag_cfg()
-            )
+            assert not await has_config_read_access(MagicMock(), principal=_principal(), cfg=_rag_cfg())
 
 
 class TestAdminBypass:

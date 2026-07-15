@@ -69,9 +69,7 @@ class _FakeProxy:
 
 
 def _patch_allowlist(monkeypatch, repo) -> None:
-    monkeypatch.setattr(
-        "contexts.agents.infrastructure.mcp_repositories.EgressAllowlistRepository", repo
-    )
+    monkeypatch.setattr("contexts.agents.infrastructure.mcp_repositories.EgressAllowlistRepository", repo)
 
 
 def _patch_proxy(monkeypatch, status: int) -> None:

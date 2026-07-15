@@ -356,9 +356,7 @@ class WorkflowService:
         if pid is None:
             pid = await self._repo.resolve_project_id(workflow_id)
             if pid is None:
-                raise WorkflowNotFound(
-                    f"Cannot resolve project for workflow {workflow_id}"
-                )
+                raise WorkflowNotFound(f"Cannot resolve project for workflow {workflow_id}")
 
         self._engine = RunEngine(self._db)
         return await self._engine.start_run(

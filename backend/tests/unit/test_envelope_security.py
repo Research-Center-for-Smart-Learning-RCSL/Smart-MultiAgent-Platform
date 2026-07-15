@@ -155,7 +155,12 @@ def test_hmac_rotation_grace_window(monkeypatch: pytest.MonkeyPatch) -> None:
 
     class _HistKv:
         def read_secret_version(
-            self, *, mount_point: str, path: str, version: int | None = None, raise_on_deleted_version: bool = True
+            self,
+            *,
+            mount_point: str,
+            path: str,
+            version: int | None = None,
+            raise_on_deleted_version: bool = True,
         ) -> dict[str, Any]:
             if path != "smap/config/hmac-key":
                 import hvac.exceptions

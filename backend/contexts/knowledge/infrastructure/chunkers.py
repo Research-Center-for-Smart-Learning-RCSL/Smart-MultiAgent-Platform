@@ -204,9 +204,7 @@ async def chunk_semantic(
     if len(vectors) != len(sentences):
         # A short vector list would silently misalign sentences with embeddings
         # and corrupt every downstream boundary decision — fail instead.
-        raise ChunkParamsInvalid(
-            f"embedder returned {len(vectors)} vectors for {len(sentences)} sentences"
-        )
+        raise ChunkParamsInvalid(f"embedder returned {len(vectors)} vectors for {len(sentences)} sentences")
 
     chunks: list[str] = []
     current: list[str] = []

@@ -81,9 +81,7 @@ async def test_mcp_fails_closed_when_unseal_raises(monkeypatch) -> None:
 async def test_mcp_invokes_when_no_auth_configured(monkeypatch) -> None:
     # A tool without stored auth is unaffected by the fail-closed guard.
     runner = AsyncMock()
-    runner.invoke_mcp_tool.return_value = SimpleNamespace(
-        ok=True, stdout="ok", stderr=""
-    )
+    runner.invoke_mcp_tool.return_value = SimpleNamespace(ok=True, stdout="ok", stderr="")
     tool = bt._build_mcp_tool_from_agent_tool(
         AsyncMock(),
         agent=_agent(),

@@ -370,9 +370,7 @@ class RagDocumentRepository:
         ids = list(document_ids)
         if not ids:
             return []
-        rows = (
-            await self._db.execute(t.rag_documents.select().where(t.rag_documents.c.id.in_(ids)))
-        ).all()
+        rows = (await self._db.execute(t.rag_documents.select().where(t.rag_documents.c.id.in_(ids)))).all()
         return [_row_to_document(r) for r in rows]
 
 

@@ -206,9 +206,7 @@ class KnowmapConfigService:
             # import here would cycle.
             from contexts.agents.interfaces.facade import AgentsFacade
 
-            detached_agent_ids = await AgentsFacade(
-                self._db
-            ).detach_agents_colliding_with_knowmap_builder(
+            detached_agent_ids = await AgentsFacade(self._db).detach_agents_colliding_with_knowmap_builder(
                 knowmap_config_id=config_id,
                 new_builder_key_group_id=new_group,
                 project_id=cfg.project_id,

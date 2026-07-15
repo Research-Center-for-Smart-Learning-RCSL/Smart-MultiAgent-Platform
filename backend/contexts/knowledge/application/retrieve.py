@@ -176,7 +176,8 @@ class RetrieveService:
                 else:
                     _log.warning(
                         "reranker returned out-of-bounds index %d (candidates=%d) — dropped",
-                        r.index, len(candidates),
+                        r.index,
+                        len(candidates),
                     )
             # Do not trust the provider's ordering — sort by descending score so
             # the injected context is genuinely ranked even if a reranker ever

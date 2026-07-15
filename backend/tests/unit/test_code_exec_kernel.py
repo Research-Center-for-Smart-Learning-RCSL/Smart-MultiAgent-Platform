@@ -18,9 +18,7 @@ from typing import Any
 
 import pytest
 
-_KERNEL_PY = (
-    pathlib.Path(__file__).parents[3] / "deploy" / "sandbox" / "code-exec" / "kernel" / "kernel.py"
-)
+_KERNEL_PY = pathlib.Path(__file__).parents[3] / "deploy" / "sandbox" / "code-exec" / "kernel" / "kernel.py"
 
 
 @pytest.fixture(autouse=True)
@@ -67,9 +65,7 @@ def test_stdin_is_readable(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPat
     assert res["stdout"].strip() == "HELLO"
 
 
-def test_new_output_files_become_artifacts(
-    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_new_output_files_become_artifacts(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
     kernel = _load_kernel(tmp_path, "room-c", monkeypatch)
     code = (
         "import pathlib\n"
@@ -89,9 +85,7 @@ def test_new_output_files_become_artifacts(
     assert again["artifacts"] == []
 
 
-def test_error_is_captured_not_raised(
-    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_error_is_captured_not_raised(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
     kernel = _load_kernel(tmp_path, "room-d", monkeypatch)
     res = kernel._run("raise ValueError('boom')", "", 5.0)
     assert res["ok"] is False

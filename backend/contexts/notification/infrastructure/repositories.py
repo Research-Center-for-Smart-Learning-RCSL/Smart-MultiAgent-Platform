@@ -179,9 +179,7 @@ class NotificationRepository:
             )
             .limit(batch_size)
         )
-        result = await self._db.execute(
-            sa.delete(t.notifications).where(t.notifications.c.id.in_(batch))
-        )
+        result = await self._db.execute(sa.delete(t.notifications).where(t.notifications.c.id.in_(batch)))
         return result.rowcount or 0
 
 
