@@ -201,6 +201,10 @@ async def _knowmap_loop() -> AsyncIterator[ReconciliationLoop]:
         lock_store=RedisBuildLockStore(),
         channel_fn=knowmap_channel,
         resource_type="knowmap_config",
+        # Finding 2: Knowledge Map builds run with replace=True, so a recovered
+        # phase-2 must run the build-scoped vector sweep the failed original build
+        # never reached — otherwise old-build points leak into retrieval.
+        replace_on_recovery=True,
     )
     try:
         yield loop

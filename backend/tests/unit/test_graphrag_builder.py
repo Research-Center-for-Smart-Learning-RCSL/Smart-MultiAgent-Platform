@@ -816,6 +816,79 @@ async def test_reconciler_retry_succeeds() -> None:
     assert store.cfg.last_build_at is not None  # type: ignore[unreachable]
 
 
+async def _run_recovery_loop(*, replace_on_recovery: bool) -> FakeVectorStore:
+    """Drive a config into FAILED_COMPENSATING then heal it via a reconciler
+    whose phase-2 succeeds first try, returning the vector store so the caller can
+    assert whether the build-scoped replace sweep ran."""
+    cfg = _make_cfg()
+    neo4j = FakeNeo4j()
+    vectors = FakeVectorStore(raise_on_upsert=RuntimeError("qdrant down"))
+    lock, snaps = FakeLock(), FakeSnapshots()
+    builder, store, _db = _make_builder(
+        cfg=cfg,
+        neo4j=neo4j,
+        vectors=vectors,
+        lock=lock,
+        snapshots=snaps,
+        extractor=FakeExtractor(_make_triples()),
+    )
+    await builder.run(config_id=cfg.id)
+    assert store.cfg.last_build_state is BuildState.FAILED_COMPENSATING
+
+    async def phase2(*, cfg, build_id) -> None:
+        return None  # succeeds first try
+
+    async def fake_sleep(_s: float) -> None:
+        return None
+
+    recon = ReconciliationLoop(
+        session_factory=lambda: store,  # type: ignore[arg-type, return-value]
+        repo_factory=lambda _db: store,  # type: ignore[arg-type, return-value]
+        neo4j=neo4j,
+        vector_store=vectors,  # type: ignore[arg-type]
+        snapshot_store=snaps,
+        phase2_retry=phase2,
+        sleeper=fake_sleep,
+        channel_fn=graphrag_channel,
+        replace_on_recovery=replace_on_recovery,
+    )
+    store.commit = _noop  # type: ignore[attr-defined]
+    store.close = _noop  # type: ignore[attr-defined]
+
+    touched = await recon.run_once()
+    assert touched == [cfg.id]
+    assert store.cfg.last_build_state is BuildState.IDLE  # type: ignore[comparison-overlap]
+    return vectors
+
+
+@pytest.mark.asyncio
+async def test_reconciler_recovery_runs_replace_sweep_for_knowmap() -> None:
+    # Finding 2: a Knowledge Map (replace=True) build whose phase-2 failed and is
+    # recovered here must run the build-scoped ``delete_points_not_in_build`` sweep
+    # — the original build's own sweep never ran, so without this the old-build
+    # Qdrant points leak and retrieval surfaces entities the current corpus no
+    # longer produces (they have no backing Neo4j edges after the phase-1 prune).
+    vectors = await _run_recovery_loop(replace_on_recovery=True)
+
+    assert len(vectors.points_not_in_build_calls) == 1
+    call = vectors.points_not_in_build_calls[0]
+    assert call["config_id"] is not None
+    assert call["keep_build_id"] is not None
+    # DOM-8's name-scoped supersede is for delta builds and must NOT run here.
+    assert vectors.superseded_calls == []
+
+
+@pytest.mark.asyncio
+async def test_reconciler_recovery_skips_replace_sweep_for_concept_map() -> None:
+    # The Concept Map (delta) loop must keep the DOM-8 no-sweep behavior: its builds
+    # accumulate across deltas, so a blanket build-scoped delete would wipe live
+    # entities from earlier builds. Default replace_on_recovery=False.
+    vectors = await _run_recovery_loop(replace_on_recovery=False)
+
+    assert vectors.points_not_in_build_calls == []
+    assert vectors.superseded_calls == []
+
+
 @pytest.mark.asyncio
 async def test_reconciler_audits_with_injected_resource_type() -> None:
     # Regression (code review finding): a loop constructed with
