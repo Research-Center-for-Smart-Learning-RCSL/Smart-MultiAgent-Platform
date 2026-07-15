@@ -203,7 +203,7 @@ async def _expire_invites(session: AsyncSession) -> int:
     result = await session.execute(
         sa.text("UPDATE invites SET state = 'expired' " "WHERE state = 'pending' AND expires_at < now()")
     )
-    count = result.rowcount or 0  # type: ignore[attr-defined]
+    count = result.rowcount or 0
     await _emit_summary(session, "retention.invites.expired", count)
     return count
 
@@ -215,7 +215,7 @@ async def _expire_oc_transfers(session: AsyncSession) -> int:
             "WHERE state = 'pending' AND resolved_at IS NULL AND expires_at < now()"
         )
     )
-    count = result.rowcount or 0  # type: ignore[attr-defined]
+    count = result.rowcount or 0
     await _emit_summary(session, "retention.oc_transfers.expired", count)
     return count
 
@@ -228,7 +228,7 @@ async def _expire_approvals(session: AsyncSession) -> int:
             "AND started_at + make_interval(secs => timeout_seconds) < now()"
         )
     )
-    count = result.rowcount or 0  # type: ignore[attr-defined]
+    count = result.rowcount or 0
     await _emit_summary(session, "retention.approvals.expired", count)
     return count
 
@@ -250,7 +250,7 @@ async def _prune_idle_sessions(session: AsyncSession) -> int:
             "AND id IN (SELECT id FROM sessions WHERE last_used_at < :cutoff LIMIT 1000)"
         ).bindparams(cutoff=cutoff)
     )
-    count = result.rowcount or 0  # type: ignore[attr-defined]
+    count = result.rowcount or 0
     await _emit_summary(session, "retention.sessions.pruned", count)
     return count
 
@@ -267,7 +267,7 @@ async def _purge_agent_instances(session: AsyncSession) -> int:
             ")"
         ).bindparams(cutoff=cutoff)
     )
-    count = result.rowcount or 0  # type: ignore[attr-defined]
+    count = result.rowcount or 0
     await _emit_summary(session, "retention.agent_instances.swept", count)
     return count
 
@@ -320,7 +320,7 @@ async def _sweep_orphaned_subagent_roots(session: AsyncSession) -> int:
             sa.bindparam("ids", value=root_ids, expanding=True)
         )
     )
-    count = result.rowcount or 0  # type: ignore[attr-defined]
+    count = result.rowcount or 0
     await _emit_summary(session, "retention.subagent_roots.swept", count)
     return count
 
@@ -427,7 +427,7 @@ async def _sweep_instructions_chains(session: AsyncSession) -> int:
             ")"
         ).bindparams(cutoff=cutoff)
     )
-    count = result.rowcount or 0  # type: ignore[attr-defined]
+    count = result.rowcount or 0
     await _emit_summary(session, "retention.instructions_chains.swept", count)
     return count
 

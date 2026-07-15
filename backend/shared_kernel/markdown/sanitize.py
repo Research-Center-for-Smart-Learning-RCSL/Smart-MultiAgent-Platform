@@ -123,7 +123,7 @@ def sanitize_html(raw_html: str) -> str:
     pass gave false confidence: it never handled unquoted `style` values and
     duplicated a control bleach already enforces unconditionally.
     """
-    cleaned = _cleaner.clean(raw_html)
+    cleaned: str = _cleaner.clean(raw_html)
     # bleach.linkify is intentionally NOT called — we let markdown-it's
     # linkify pass handle that server-side so the output is deterministic
     # across the two entry points (render_safe_html + sanitize_html).

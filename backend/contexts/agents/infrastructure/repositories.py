@@ -7,6 +7,7 @@ and to FKs via row existence (not joins).
 
 from __future__ import annotations
 
+import builtins
 import uuid
 from collections.abc import Sequence
 from typing import Any
@@ -369,7 +370,9 @@ class AgentToolRepository:
         rows = (await self._db.execute(q)).all()
         return [_row_to_tool(r) for r in rows]
 
-    async def list_for_agents(self, agent_ids: Sequence[uuid.UUID]) -> dict[uuid.UUID, list[AgentTool]]:
+    async def list_for_agents(
+        self, agent_ids: Sequence[uuid.UUID]
+    ) -> dict[uuid.UUID, builtins.list[AgentTool]]:
         if not agent_ids:
             return {}
         rows = (

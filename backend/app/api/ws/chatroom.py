@@ -72,7 +72,7 @@ async def ws_chatroom(ws: WebSocket, chatroom_id: uuid.UUID) -> None:
     _last_typing_ts: float = 0.0
     _typing_throttle_s: float = 2.0
 
-    async def on_client_message(conn: ChannelConnection, msg: dict) -> None:  # type: ignore[type-arg]
+    async def on_client_message(conn: ChannelConnection, msg: dict) -> None:
         nonlocal _last_typing_ts
         msg_type = msg.get("type")
         if msg_type in ("typing.start", "typing.stop"):
