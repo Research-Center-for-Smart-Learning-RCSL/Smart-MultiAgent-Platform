@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: approved
+status: implemented
 created: 2026-07-14
 requirements: [R11.19]
 ---
@@ -226,19 +226,28 @@ Unit tests (fake group→embedding resolver; in-memory config store):
 
 ## 10. Acceptance Criteria
 
-- [ ] AC-1: The reject-model-swap regression test (§8.1) fails before the fix and passes after,
-  for Concept Maps.
-- [ ] AC-2: A builder Key Group change that resolves to a different embedding provider or model is
+- [x] AC-1: The reject-model-swap regression test (§8.1) fails before the fix and passes after,
+  for Concept Maps. (`tests/unit/test_embedding_model_swap_guard.py::test_graphrag_rejects_same_dimension_model_swap_on_built_config`.)
+- [x] AC-2: A builder Key Group change that resolves to a different embedding provider or model is
   rejected with a typed 409 error when the config holds indexed vectors — for both the latent
   same-dimension case (§8.1, §8.3) and the observable-today different-dimension single-config case
-  (§8.2), across Concept Maps and Knowledge Maps.
-- [ ] AC-3: The same change is allowed and persists the new pin when the config has never built
-  (§8.4).
-- [ ] AC-4: A group change resolving to the same embedding provider/model succeeds on a built
+  (§8.2), across Concept Maps and Knowledge Maps. (`test_graphrag_rejects_same_dimension_model_swap_on_built_config`,
+  `test_graphrag_rejects_different_dimension_model_swap_on_single_built_config`,
+  `test_knowmap_rejects_model_swap_on_built_config`; mapped 409 in `error_mapping.py`.)
+- [x] AC-3: The same change is allowed and persists the new pin when the config has never built
+  (§8.4). (`test_graphrag_allows_model_change_on_never_built_config`,
+  `test_knowmap_allows_model_change_on_never_built_config` — both assert the config pin is written
+  and the F-11 durable pin is refreshed, D-2.)
+- [x] AC-4: A group change resolving to the same embedding provider/model succeeds on a built
   config (§8.5), and a dimension change still raises the existing dimension-conflict error on a
-  multi-config project (§8.6).
-- [ ] AC-5: `pytest -q`, `ruff check . && ruff format --check .`, and `mypy .` pass in `backend/`;
-  `pnpm lint` / `pnpm typecheck` pass in `frontend/` for the added i18n string.
+  multi-config project (§8.6). (`test_graphrag_allows_same_model_group_change_on_built_config`,
+  `test_graphrag_dimension_conflict_keeps_precedence`, and the knowmap parity pair.)
+- [x] AC-5: `pytest -q`, `ruff check . && ruff format --check .`, and `mypy .` pass in `backend/`;
+  `pnpm lint` / `pnpm typecheck` pass in `frontend/` for the added i18n string. Backend: unit
+  suite green, `ruff check` clean, **zero net new** `mypy` errors (F-13 files clean; the residual
+  baseline is FU-4 from F-11). Frontend: `pnpm lint`, `pnpm typecheck`, `pnpm test` (660), and
+  `pnpm build` all pass. `pnpm run gen:api` N/A — no API contract change (problem+json errors are
+  not typed OpenAPI models).
 
 ## 11. SRS Delta
 
@@ -248,7 +257,28 @@ model change as a rejected embedding conflict, consistent with the requirement's
 
 ## 12. Deviation Log
 
-Appended by /build.
+- **D-1 (test seam):** §8.1 proposes monkeypatching `EMBED_MODEL_DIMENSIONS` with two synthetic
+  same-dimension models. The tests instead mock the pin *resolution* seam
+  (`_enforce_and_resolve_pin` / `_resolve_group_pin`) to return the resolved `(provider, model,
+  dim)` directly — the same-dimension scenario is a resolver returning a same-dim different-model
+  pin. This isolates the new model-change decision (what AC-1/AC-2 assert); the resolver's own
+  dimension logic is already covered by `test_graphrag_embed_pin.py`. Equivalent AC coverage,
+  fewer moving parts.
+- **D-2 (refresh the F-11 durable pin on an allowed change):** F-13 was specced before F-11's
+  `project_embedding_pins` table landed in the same batch. On an *allowed* (never-built) model
+  change the guard now also calls `EmbeddingPinRepository.upsert` so the durable pin stays
+  consistent with the config's newly persisted embedding. Without it, a later sibling create would
+  hit a stale-pin false dimension-conflict. The update-path dimension guard guarantees no live
+  sibling pins a different dimension, so the overwrite is safe. This realizes §6's "F-11 and F-13
+  ... should be built consistently; share the resolved-(provider, model, dim) comparison."
+- **D-3 (frontend surface scoped to Knowledge Map):** §7.5 asks for the i18n string on "the
+  Agent/Map detail views." Only the Knowledge Map detail view edits `builder_key_group_id` in the
+  current UI; the Concept Map builder group is set at create and otherwise only its recency is
+  patched (`ConceptMapPanel`), so the graphrag 409 has no frontend edit surface to wire today. The
+  i18n string + the specific-error toast were added to `KnowledgeMapConfigDetailView`
+  (`agents.knowmapDetail.embedModelChangeBlocked`, en + zh-TW); the backend still returns the
+  typed 409 for API/Concept-Map clients. If a Concept Map builder-group edit UI is later added, it
+  should reuse the same pattern (noted in FU-4).
 
 ## 13. Follow-ups
 
@@ -262,3 +292,8 @@ Appended by /build.
   config's identity and Agent attachments.
 - **FU-3 (coordinate with F-14):** both fixes add validation to the Knowledge Map update path and
   one (F-14) is a required security review; sequence them so the checks compose.
+- **FU-4 (Concept Map builder-group edit UI):** the graphrag 409 (D-3) has no frontend edit
+  surface today because the Concept Map builder group is not editable post-create. If such a UI is
+  added, wire its save error handler to the same `/graphrag-embedding-model-change-blocked` problem
+  type and add an `agents.conceptMaps.*` i18n string mirroring
+  `agents.knowmapDetail.embedModelChangeBlocked`.

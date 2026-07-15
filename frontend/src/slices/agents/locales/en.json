@@ -302,7 +302,8 @@
       "buildStarted": "Build started.",
       "buildFailed": "Failed to start build.",
       "rebuild": "Rebuild",
-      "viewGraph": "View Graph"
+      "viewGraph": "View Graph",
+      "embedModelChangeBlocked": "Cannot change the embedding model of a Knowledge Map that already holds indexed data. Clear its documents and recreate the Knowledge Map to switch embedding models."
     },
     "knowmap": {
       "upload": "Upload document",

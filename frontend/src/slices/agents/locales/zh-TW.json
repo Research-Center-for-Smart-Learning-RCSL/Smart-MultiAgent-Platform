@@ -302,7 +302,8 @@
       "buildStarted": "建置已開始。",
       "buildFailed": "啟動建置失敗。",
       "rebuild": "重新建置",
-      "viewGraph": "檢視圖譜"
+      "viewGraph": "檢視圖譜",
+      "embedModelChangeBlocked": "已建立索引資料的知識圖譜無法變更嵌入模型。請清除其文件並重新建立知識圖譜，才能切換嵌入模型。"
     },
     "knowmap": {
       "upload": "上傳文件",
