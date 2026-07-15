@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import uuid
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, ClassVar
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -49,8 +49,8 @@ def _make_service(cfg, *, resolved=("openai", "m", 1536), pinned_dim=None):
 class _FakeAgentsFacade:
     """Captures the detach call and returns a preset id list."""
 
-    calls: list[dict[str, Any]] = []
-    returns: list[uuid.UUID] = []
+    calls: ClassVar[list[dict[str, Any]]] = []
+    returns: ClassVar[list[uuid.UUID]] = []
 
     def __init__(self, _db: Any) -> None:
         pass
