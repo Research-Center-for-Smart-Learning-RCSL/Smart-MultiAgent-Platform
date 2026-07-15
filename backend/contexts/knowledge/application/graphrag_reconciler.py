@@ -106,6 +106,7 @@ class ReconciliationLoop:
         sweep_consumers: Sequence[GraphConsumer] = (),
         channel_fn: Callable[[uuid.UUID], str],
         resource_type: str = "graphrag_config",
+        replace_on_recovery: bool = False,
     ) -> None:
         self._session_factory = session_factory
         self._repo_factory = repo_factory
@@ -135,6 +136,18 @@ class ReconciliationLoop:
         # loop leaves the single consumer-aware sweep to the primary loop, so two
         # sweeps never race or double the audit rows.
         self._sweep_consumers = list(sweep_consumers)
+        # Whether a phase-2 recovery on this loop must run the full-corpus,
+        # build-scoped vector sweep (F-6 replacement semantics). True only for the
+        # Knowledge Map loop, whose builds run with ``replace=True``: its original
+        # build applies the current corpus and prunes Neo4j of prior-build triples,
+        # then relies on ``delete_points_not_in_build`` to drop the matching stale
+        # Qdrant points. When that phase-2 fails and is recovered here, the sweep
+        # must run or the old-build points leak (retrieval, filtering only by
+        # config_id, would surface entities the current corpus no longer produces).
+        # The Concept Map (delta) loop keeps this False: its builds accumulate
+        # across deltas, so a blanket build-scoped delete would wipe live entities
+        # from earlier builds (see DOM-8 in ``_reconcile_one``).
+        self._replace_on_recovery = replace_on_recovery
 
     async def run_once(self) -> list[uuid.UUID]:
         """Drive one scan-and-heal cycle. Returns ids successfully committed.
@@ -339,11 +352,11 @@ class ReconciliationLoop:
                 continue
             # Success — finalise.
             #
-            # DOM-8: no superseded-entity sweep here. The builder sweeps using
-            # the exact entity names it just embedded; the reconciler only
-            # re-runs Phase-2 and never sees that list, and a blanket
-            # build-scoped delete would wipe live entities from earlier delta
-            # builds. Any duplicates this recovered build leaves behind are
+            # DOM-8: no name-scoped superseded-entity sweep here. The builder
+            # sweeps using the exact entity names it just embedded; the reconciler
+            # only re-runs Phase-2 and never sees that list, and a blanket
+            # name-scoped delete would wipe live entities from earlier delta
+            # builds. Any duplicates a recovered *delta* build leaves behind are
             # cleared by the next normal build that re-embeds those entities.
             repo = self._repo_factory(db)
             await repo.set_state(
@@ -351,6 +364,31 @@ class ReconciliationLoop:
                 state=BuildState.QDRANT_COMMITTED,
                 error=None,
             )
+            # Finding 2: a recovered *replace* (Knowledge Map) build is the
+            # exception. Its original build ran with ``replace=True`` — it applied
+            # the full current corpus and pruned prior-build triples from Neo4j,
+            # then relied on the build-scoped ``delete_points_not_in_build`` sweep
+            # to drop the matching stale Qdrant points. That sweep never ran (the
+            # phase-2 it lived in is exactly what failed), so without running it now
+            # the old-build points leak and retrieval — filtering only by
+            # config_id — surfaces entities the current corpus no longer produces
+            # and that have no backing Neo4j edges. Build-scoped (keep this build's
+            # points), so unlike the name-scoped sweep it is safe without an entity
+            # list; best-effort — the heal has already succeeded.
+            if self._replace_on_recovery:
+                try:
+                    await self._vectors.delete_points_not_in_build(
+                        project_id=cfg.project_id,
+                        config_id=cfg.id,
+                        keep_build_id=build_id,
+                    )
+                except Exception as exc:  # best-effort cleanup; never fail the heal
+                    _log.warning(
+                        "graphrag reconciler replace sweep failed for config %s build %s: %s",
+                        cfg.id,
+                        build_id,
+                        exc,
+                    )
             await repo.set_state(
                 config_id=cfg.id,
                 state=BuildState.IDLE,
