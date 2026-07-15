@@ -27,6 +27,7 @@ def _svc(*, in_scope: bool) -> tuple[RagConfigService, AsyncMock]:
     svc = RagConfigService(db=AsyncMock())
     svc._configs = AsyncMock()
     svc._configs.list_for_project.return_value = []
+    svc._pins = AsyncMock()  # F-11: stub the durable pin ensure added to create()
     keys = AsyncMock()
     keys.get_key.return_value = _cohere_key()
     keys.is_key_in_project_scope.return_value = in_scope
