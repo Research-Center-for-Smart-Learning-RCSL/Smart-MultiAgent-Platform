@@ -84,6 +84,11 @@ const projectKeysQuery = useQuery({
 const config = computed<RagConfig | undefined>(() => configQuery.data.value)
 const docs = computed<RagDocument[]>(() => docsQuery.data.value ?? [])
 const configError = computed(() => configQuery.error.value)
+// F-20 (R10.04): chunk params describe the whole corpus and cannot be re-tuned
+// once documents exist (the backend rejects a changing patch with 409). Disable
+// the inputs as a UX guard once the config has any document — like the already
+// immutable chunk strategy / embedding model.
+const chunkParamsLocked = computed(() => docs.value.length > 0)
 
 // --- Per-agent document scoping ---
 const agentsQuery = useQuery({
@@ -576,6 +581,7 @@ const showProgress = computed(() =>
                   <SInput
                     v-model="chunkSizeTokens"
                     type="number"
+                    :disabled="chunkParamsLocked"
                   />
                 </SFormField>
                 <SFormField
@@ -585,6 +591,7 @@ const showProgress = computed(() =>
                   <SInput
                     v-model="chunkOverlapTokens"
                     type="number"
+                    :disabled="chunkParamsLocked"
                   />
                 </SFormField>
               </div>
@@ -598,8 +605,15 @@ const showProgress = computed(() =>
               <SInput
                 v-model="similarityThreshold"
                 type="number"
+                :disabled="chunkParamsLocked"
               />
             </SFormField>
+            <p
+              v-if="chunkParamsLocked"
+              class="text-sm text-[var(--color-muted)] mt-4"
+            >
+              {{ t('agents.ragForm.chunkParamsImmutableHint') }}
+            </p>
           </SCard>
 
           <SCard>

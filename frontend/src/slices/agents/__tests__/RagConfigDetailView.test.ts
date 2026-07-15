@@ -120,4 +120,36 @@ describe('RagConfigDetailView', () => {
     // The allowlist checkbox picker rendered.
     expect(wrapper.find('input[type="checkbox"]').exists()).toBe(true)
   })
+
+  // F-20 (R10.04): chunk params are fixed once documents exist. The detail view
+  // disables the fixed-strategy chunk-size / overlap inputs and shows the
+  // immutability hint when the documents query is non-empty; the create form
+  // (empty corpus) leaves them editable.
+  it('disables the chunk-param inputs and shows the hint when documents exist', async () => {
+    seedHandlers() // default seed has one ready document
+    const wrapper = await renderView(RagConfigDetailView, {
+      routes,
+      initialRoute: '/projects/proj_1/rag-configs/cfg_1',
+    })
+    await settle(wrapper)
+    // Only the two fixed-strategy chunk-param number inputs are disabled; top_k
+    // stays editable.
+    expect(wrapper.findAll('input[type="number"]:disabled').length).toBe(2)
+    // The test i18n runtime renders raw keys, so assert on the key.
+    expect(wrapper.text()).toContain('agents.ragForm.chunkParamsImmutableHint')
+  })
+
+  it('leaves the chunk-param inputs editable when the config has no documents', async () => {
+    seedHandlers()
+    server.use(
+      http.get('/api/rag-configs/cfg_1/documents', () => HttpResponse.json([])),
+    )
+    const wrapper = await renderView(RagConfigDetailView, {
+      routes,
+      initialRoute: '/projects/proj_1/rag-configs/cfg_1',
+    })
+    await settle(wrapper)
+    expect(wrapper.findAll('input[type="number"]:disabled').length).toBe(0)
+    expect(wrapper.text()).not.toContain('agents.ragForm.chunkParamsImmutableHint')
+  })
 })
