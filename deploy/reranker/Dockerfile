@@ -19,5 +19,12 @@ RUN python -c "from FlagEmbedding import FlagReranker; FlagReranker('BAAI/bge-re
 
 COPY app.py .
 
+# The weights are already baked (above); pin the runtime load fully offline so the
+# lifespan FlagReranker() never reaches out to the HF Hub for a revision check on
+# the internal data_net (no egress there — it would hang/fail first boot). Set
+# AFTER the build-time warm so that download itself still had network.
+ENV HF_HUB_OFFLINE=1 \
+    TRANSFORMERS_OFFLINE=1
+
 EXPOSE 80
 CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "80"]
