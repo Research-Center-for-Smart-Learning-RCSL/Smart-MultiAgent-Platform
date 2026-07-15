@@ -198,9 +198,10 @@ class TestIngest:
             await svc.ingest(ipt=_ipt(), actor_user_id=_USER_ID, actor_ip=None)
 
         scan.assert_awaited_once()
-        build.assert_awaited_once_with(
-            config_id=cfg.id, last_build_state=cfg.last_build_state, last_build_at=cfg.last_build_at
-        )
+        # F-12: the reindex enqueue targets the config's current corpus revision
+        # (re-read fresh after the mutation commit) rather than the old (state,
+        # epoch) nonce.
+        build.assert_awaited_once_with(config_id=cfg.id, target_revision=cfg.corpus_revision)
 
     async def test_index_failure_persists_failed_status_durably(self) -> None:
         # Regression: a sync ingest failure must commit the FAILED status (roll back

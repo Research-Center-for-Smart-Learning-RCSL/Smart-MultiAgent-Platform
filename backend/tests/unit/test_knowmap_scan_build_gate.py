@@ -66,12 +66,13 @@ def _install_repos(monkeypatch, *, doc: object, cfg: object) -> list[dict[str, A
 @pytest.mark.asyncio
 async def test_enqueue_build_on_clean_enqueues_when_ready(monkeypatch) -> None:
     doc = SimpleNamespace(status=DocumentStatus.READY, knowmap_config_id=_CFG_ID)
-    cfg = SimpleNamespace(id=_CFG_ID, last_build_state=BuildState.IDLE, last_build_at=None)
+    cfg = SimpleNamespace(id=_CFG_ID, corpus_revision=4)
     calls = _install_repos(monkeypatch, doc=doc, cfg=cfg)
 
     await km._enqueue_build_on_clean(_sm(object()), uuid.uuid4())
 
-    assert calls == [{"config_id": _CFG_ID, "last_build_state": BuildState.IDLE, "last_build_at": None}]
+    # F-12: the clean-verdict build targets the config's current corpus revision.
+    assert calls == [{"config_id": _CFG_ID, "target_revision": 4}]
 
 
 @pytest.mark.asyncio
