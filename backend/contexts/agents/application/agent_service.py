@@ -69,6 +69,7 @@ from contexts.agents.infrastructure.repositories import (
 from contexts.keys.interfaces.facade import KeysFacade
 from contexts.knowledge.interfaces.facade import KnowledgeFacade
 from shared_kernel import audit
+from shared_kernel.db.advisory_lock import advisory_xact_lock, knowmap_builder_lock_key
 from shared_kernel.db.restore import raise_restore_conflict
 
 _AGENT_CAP_PER_PROJECT = 1000
@@ -269,6 +270,55 @@ class AgentService:
                 f"builder_key_group_id ({key_group_id})"
             )
 
+    async def detach_agents_colliding_with_knowmap_builder(
+        self,
+        *,
+        knowmap_config_id: uuid.UUID,
+        new_builder_key_group_id: uuid.UUID,
+        project_id: uuid.UUID,
+        actor_user_id: uuid.UUID,
+        actor_ip: str | None,
+        request_id: uuid.UUID | None = None,
+    ) -> list[uuid.UUID]:
+        """Detach every agent whose consumer key group equals a map's NEW builder
+        key group, restoring the R11.25 isolation invariant on the config-side
+        mutation path (F-14).
+
+        Owns the agents-context write the knowledge context must not make itself:
+        the knowledge config service calls this through :class:`AgentsFacade`
+        inside the same update transaction, so the detaches and the builder-group
+        write commit or roll back together. Serialised on the config-id advisory
+        lock so a concurrent attach cannot slip a colliding agent past this
+        reconciliation. Each detach is audit-logged (no key secret — the metadata
+        carries only ids). Returns the detached agent ids for the caller to
+        surface to the designer.
+        """
+        await advisory_xact_lock(self._db, knowmap_builder_lock_key(knowmap_config_id))
+        detached = await self._agents.detach_from_knowmap_config(
+            knowmap_config_id=knowmap_config_id,
+            key_group_id=new_builder_key_group_id,
+            project_id=project_id,
+        )
+        for agent_id in detached:
+            await audit.emit(
+                self._db,
+                audit.AuditEvent(
+                    action="agent.knowmap_detached",
+                    actor_user_id=actor_user_id,
+                    actor_ip=actor_ip,
+                    resource_type="agent",
+                    resource_id=agent_id,
+                    metadata={
+                        "project_id": str(project_id),
+                        "knowmap_config_id": str(knowmap_config_id),
+                        "builder_key_group_id": str(new_builder_key_group_id),
+                        "reason": "builder_key_group_collision",
+                    },
+                    request_id=request_id,
+                ),
+            )
+        return detached
+
     async def create(
         self,
         *,
@@ -308,6 +358,13 @@ class AgentService:
                 project_id=project_id,
             )
         if draft.knowmap_config_id is not None:
+            # Serialise this attach against a concurrent builder-group change on
+            # the same map (R11.25 / F-14): whichever commits first is fully
+            # observed by the other, so an attach that loses the race sees the new
+            # builder group and is rejected below. Held until this transaction
+            # ends; ordered after the project-id cap lock above (only the create
+            # path takes both, always in this order — no deadlock cycle).
+            await advisory_xact_lock(self._db, knowmap_builder_lock_key(draft.knowmap_config_id))
             await self._assert_knowmap_config_compatible(
                 knowmap_config_id=draft.knowmap_config_id,
                 project_id=project_id,
@@ -435,6 +492,11 @@ class AgentService:
         if effective_knowmap_id is not None and (
             is_explicit_knowmap_attach or effective_kg != current.key_group_id
         ):
+            # Serialise the attach/re-key against a concurrent builder-group change
+            # on the same map (R11.25 / F-14) — the config-id advisory lock is held
+            # through this transaction's commit, so a losing attach sees the new
+            # builder and is rejected here rather than persisting a collision.
+            await advisory_xact_lock(self._db, knowmap_builder_lock_key(effective_knowmap_id))
             await self._assert_knowmap_config_compatible(
                 knowmap_config_id=effective_knowmap_id,
                 project_id=current.project_id,

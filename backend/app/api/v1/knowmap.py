@@ -109,6 +109,17 @@ class KnowmapConfigOut(BaseModel):
     deleted_at: str | None
 
 
+class KnowmapConfigPatchOut(KnowmapConfigOut):
+    """PATCH response — the config plus any agents auto-detached by a builder
+    key-group change that collided with their consumer group (R11.25 / F-14).
+
+    Dedicated subclass so the shared GET/create ``KnowmapConfigOut`` shape stays
+    unbroadened. ``detached_agent_ids`` is empty on any non-colliding change.
+    """
+
+    detached_agent_ids: list[uuid.UUID] = Field(default_factory=list)
+
+
 class KnowmapDocumentOut(BaseModel):
     id: uuid.UUID
     knowmap_config_id: uuid.UUID
@@ -296,21 +307,22 @@ async def patch_knowmap_config(
     ctx: RequestContext = Depends(current_context),
     principal: Principal = Depends(current_principal),
     db: AsyncSession = Depends(db_session),
-) -> KnowmapConfigOut:
+) -> KnowmapConfigPatchOut:
     service = KnowmapConfigService(db)
     cfg = await service.get(config_id)
     await _assert_edit(db=db, principal=principal, project_id=cfg.project_id)
     patch = body.model_dump(exclude_unset=True)
     if not patch:
-        return _to_config_out(cfg)
-    updated = await service.update(
+        return KnowmapConfigPatchOut(**_to_config_out(cfg).model_dump(), detached_agent_ids=[])
+    updated, detached_agent_ids = await service.update(
         config_id=config_id,
         patch=patch,
         actor_user_id=principal.user_id,
         actor_ip=ctx.actor_ip,
         request_id=ctx.request_id,
     )
-    return _to_config_out(updated)
+    base = _to_config_out(updated)
+    return KnowmapConfigPatchOut(**base.model_dump(), detached_agent_ids=detached_agent_ids)
 
 
 @config_router.delete("/{config_id}", status_code=status.HTTP_204_NO_CONTENT, response_model=None)

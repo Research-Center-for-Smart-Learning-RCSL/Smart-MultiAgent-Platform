@@ -169,8 +169,20 @@ async def _run_knowmap_update(
     svc._configs.project_pinned_dim.return_value = pinned_dim
     svc._configs.update.return_value = cfg
     svc._pins = AsyncMock()
-    with patch("contexts.knowledge.application.knowmap_config_service.audit.emit", new=AsyncMock()):
-        result = await svc.update(
+
+    class _FakeAgentsFacade:
+        def __init__(self, _db: Any) -> None:
+            pass
+
+        async def detach_agents_colliding_with_knowmap_builder(self, **_kw: Any) -> list[Any]:
+            # F-14 detach seam — no collisions in the swap-guard scenarios (F-13).
+            return []
+
+    with (
+        patch("contexts.knowledge.application.knowmap_config_service.audit.emit", new=AsyncMock()),
+        patch("contexts.agents.interfaces.facade.AgentsFacade", _FakeAgentsFacade),
+    ):
+        result, _detached = await svc.update(
             config_id=cfg.id,
             patch={"builder_key_group_id": uuid.uuid4()},  # differs -> swap branch
             actor_user_id=uuid.uuid4(),

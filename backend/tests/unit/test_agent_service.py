@@ -892,3 +892,104 @@ class TestPatchTool:
         assert "auth" not in patched
         # Other config is left intact.
         assert patched["reference"] == "https://mcp.example.com"
+
+
+# ---------------------------------------------------------------------------
+# Knowledge Map builder/consumer reconciliation (F-14 / R11.25)
+# ---------------------------------------------------------------------------
+
+
+class TestKnowmapBuilderReconciliation:
+    @patch("contexts.agents.application.agent_service.audit.emit", new_callable=AsyncMock)
+    async def test_detach_clears_colliding_agents_and_audits_each(self, emit) -> None:
+        config_id = uuid.uuid4()
+        new_group = uuid.uuid4()
+        a1, a2 = uuid.uuid4(), uuid.uuid4()
+        agents = AsyncMock()
+        agents.detach_from_knowmap_config.return_value = [a1, a2]
+        svc = _make_service(agent_repo=agents)
+
+        detached = await svc.detach_agents_colliding_with_knowmap_builder(
+            knowmap_config_id=config_id,
+            new_builder_key_group_id=new_group,
+            project_id=_PROJECT_ID,
+            actor_user_id=_USER_ID,
+            actor_ip=None,
+        )
+
+        assert detached == [a1, a2]
+        # Repo query is project-scoped on (config, new builder group).
+        agents.detach_from_knowmap_config.assert_awaited_once_with(
+            knowmap_config_id=config_id,
+            key_group_id=new_group,
+            project_id=_PROJECT_ID,
+        )
+        # One audit per detached agent; metadata carries ids only (no key secret).
+        assert emit.await_count == 2
+        actions = {c.args[1].action for c in emit.await_args_list}
+        assert actions == {"agent.knowmap_detached"}
+        meta = emit.await_args_list[0].args[1].metadata
+        assert meta["knowmap_config_id"] == str(config_id)
+        assert meta["builder_key_group_id"] == str(new_group)
+
+    async def test_detach_no_collision_emits_nothing(self) -> None:
+        agents = AsyncMock()
+        agents.detach_from_knowmap_config.return_value = []
+        svc = _make_service(agent_repo=agents)
+        with patch(
+            "contexts.agents.application.agent_service.audit.emit", new_callable=AsyncMock
+        ) as emit:
+            detached = await svc.detach_agents_colliding_with_knowmap_builder(
+                knowmap_config_id=uuid.uuid4(),
+                new_builder_key_group_id=uuid.uuid4(),
+                project_id=_PROJECT_ID,
+                actor_user_id=_USER_ID,
+                actor_ip=None,
+            )
+        assert detached == []
+        emit.assert_not_awaited()
+
+    @patch("contexts.agents.application.agent_service.advisory_xact_lock", new_callable=AsyncMock)
+    async def test_detach_acquires_config_lock(self, lock) -> None:
+        config_id = uuid.uuid4()
+        agents = AsyncMock()
+        agents.detach_from_knowmap_config.return_value = []
+        svc = _make_service(agent_repo=agents)
+        with patch("contexts.agents.application.agent_service.audit.emit", new_callable=AsyncMock):
+            await svc.detach_agents_colliding_with_knowmap_builder(
+                knowmap_config_id=config_id,
+                new_builder_key_group_id=uuid.uuid4(),
+                project_id=_PROJECT_ID,
+                actor_user_id=_USER_ID,
+                actor_ip=None,
+            )
+        lock.assert_awaited_once()
+        assert str(config_id) in lock.await_args.args[1]
+
+    @patch("contexts.agents.application.agent_service.advisory_xact_lock", new_callable=AsyncMock)
+    @patch("contexts.agents.application.agent_service.audit.emit", new_callable=AsyncMock)
+    async def test_patch_attach_acquires_config_lock(self, _audit, lock) -> None:
+        # The attach path serialises against a concurrent builder-group change on
+        # the same map before validating the collision (AC-9).
+        knowmap_id = uuid.uuid4()
+        current = _make_agent()
+        updated = _make_agent(version=2)
+        agents = AsyncMock()
+        agents.get.return_value = current
+        agents.patch.return_value = updated
+        knowledge = AsyncMock()
+        # Non-colliding builder group so the attach succeeds past the guard.
+        knowledge.get_knowmap_config.return_value = MagicMock(
+            project_id=_PROJECT_ID, builder_key_group_id=uuid.uuid4()
+        )
+        svc = _make_service(agent_repo=agents, knowledge_facade=knowledge)
+
+        await svc.patch(
+            agent_id=current.id,
+            draft=AgentDraft(knowmap_config_id=knowmap_id),
+            expected_version=1,
+            actor_user_id=_USER_ID,
+            actor_ip=None,
+        )
+
+        assert any(str(knowmap_id) in c.args[1] for c in lock.await_args_list)

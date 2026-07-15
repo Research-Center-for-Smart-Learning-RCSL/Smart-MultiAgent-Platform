@@ -125,6 +125,35 @@ class AgentsFacade:
             actor_ip=actor_ip,
         )
 
+    async def detach_agents_colliding_with_knowmap_builder(
+        self,
+        *,
+        knowmap_config_id: uuid.UUID,
+        new_builder_key_group_id: uuid.UUID,
+        project_id: uuid.UUID,
+        actor_user_id: uuid.UUID,
+        actor_ip: str | None,
+        request_id: uuid.UUID | None = None,
+    ) -> list[uuid.UUID]:
+        """Detach agents whose consumer key group collides with a Knowledge Map's
+        new builder key group (R11.25 / F-14).
+
+        The sanctioned seam for the knowledge config service to reconcile attached
+        agents on a builder-group change without writing ``agents`` itself — the
+        agents context owns the invariant, the table, and the advisory lock.
+        Lazy-imports ``AgentService`` to keep the import graph acyclic.
+        """
+        from contexts.agents.application.agent_service import AgentService
+
+        return await AgentService(self._db).detach_agents_colliding_with_knowmap_builder(
+            knowmap_config_id=knowmap_config_id,
+            new_builder_key_group_id=new_builder_key_group_id,
+            project_id=project_id,
+            actor_user_id=actor_user_id,
+            actor_ip=actor_ip,
+            request_id=request_id,
+        )
+
     async def restore_agent(
         self,
         *,
