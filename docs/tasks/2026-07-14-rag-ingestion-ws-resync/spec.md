@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: approved
+status: implemented
 created: 2026-07-14
 requirements: [R24.22, R24.23]
 ---
@@ -216,20 +216,20 @@ Primary red-first test: (1).
 
 ## 10. Acceptance Criteria
 
-- [ ] AC-1: The reconnect-after-terminal test (§8.1) fails before the fix and passes after.
-- [ ] AC-2: On connect/reconnect/mount, the composable fetches `listDocuments(configId)`,
+- [x] AC-1: The reconnect-after-terminal test (§8.1) fails before the fix and passes after.
+- [x] AC-2: On connect/reconnect/mount, the composable fetches `listDocuments(configId)`,
   rebuilds `progress` (state + total + processed) from per-document `status`, and invalidates
   the documents query.
-- [ ] AC-3: Opening the detail page mid-ingestion shows the progress bar (derived
+- [x] AC-3: Opening the detail page mid-ingestion shows the progress bar (derived
   `state='ingesting'`), without relying on an `ingestion.started` replay (F-28).
-- [ ] AC-4: After a missed terminal event, reconnect (or the backstop poll within ~15s)
+- [x] AC-4: After a missed terminal event, reconnect (or the backstop poll within ~15s)
   transitions the bar to `ready`/`failed` and refetches documents, with no manual reload
   (F-21).
-- [ ] AC-5: A `failed` document is reflected as `state='failed'` on resync.
-- [ ] AC-6: `syncState` is the only writer of `documentsTotal`/`documentsProcessed`; a live
+- [x] AC-5: A `failed` document is reflected as `state='failed'` on resync.
+- [x] AC-6: `syncState` is the only writer of `documentsTotal`/`documentsProcessed`; a live
   `ingestion.progress` frame (chunk-granular) never overwrites the document-level counts, and
   the counts stay consistent across a multi-document upload.
-- [ ] AC-7: `pnpm test`, `pnpm lint`, `pnpm typecheck`, and `pnpm build` pass in `frontend/`.
+- [x] AC-7: `pnpm test`, `pnpm lint`, `pnpm typecheck`, and `pnpm build` pass in `frontend/`.
 
 ## 11. SRS Delta
 
@@ -237,7 +237,26 @@ None. This restores the documented [R24.23] reconnect-resync behavior; no new re
 
 ## 12. Deviation Log
 
-Appended by /build.
+- **D-1 (optimistic state — forward-only, not terminal).** §7.2 prescribed optimistically
+  setting `state` to `ready`/`failed` on `ingestion.completed`/`ingestion.failed` for
+  responsiveness, letting `syncState` reconcile counts. Verification found both terminal frames
+  are **per-document**, not per-corpus (they carry `document_id`:
+  `ingest_service.py:396,414`), so optimistically flipping the whole-corpus bar to `ready`/
+  `failed` on one document's terminal event wrongly reports the corpus done mid-upload, then
+  `syncState` snaps it back — a visible wrong-direction flicker on a multi-file upload. The
+  implementation keeps the spec's architecture (syncState is the sole authority for `state` and
+  counts, derived from document status) but makes optimistic hints **forward-only** —
+  `idle → ingesting` on `started`/`progress`, and `→ indexing` on `indexing` — and lets
+  `syncState` alone decide the terminal/corpus state authoritatively. This never regresses F-28
+  responsiveness (the bar still appears instantly) and removes the flicker. `deriveProgress`
+  additionally **preserves a live `indexing`** over a derived `ingesting` (document status has no
+  `indexing` sub-state), so a resync during indexing does not downgrade the finer live state
+  (strictly better than §9's "shows ingesting until the next event", never a downgrade).
+- **D-2 (view unchanged).** §6/§7.3 noted the detail view's terminal-watch document refetch
+  (`RagConfigDetailView.vue:166-173`) would fire correctly once the composable rebuilds `state`.
+  Confirmed: no view edit was needed — the composable rewrite alone drives that watch, and
+  `syncState` also invalidates `ragDocuments` as an independent backstop. This dossier is
+  composable + test only.
 
 ## 13. Follow-ups
 
