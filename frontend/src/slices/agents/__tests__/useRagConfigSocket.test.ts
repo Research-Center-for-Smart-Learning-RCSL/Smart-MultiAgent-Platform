@@ -162,6 +162,35 @@ describe('useRagConfigSocket', () => {
     expect(listDocumentsMock).toHaveBeenCalledTimes(1)
   })
 
+  it('drops a stale earlier-issued resync that resolves after a newer one (B1)', async () => {
+    // Two overlapping resyncs: the mount resync (issued first) resolves LAST with
+    // a stale in-progress snapshot; the reconnect resync (issued later) resolves
+    // FIRST with the authoritative ready state. The stale response must not
+    // overwrite the newer one.
+    const resolvers: Array<(docs: Doc[]) => void> = []
+    listDocumentsMock.mockImplementation(
+      () => new Promise<Doc[]>((resolve) => {
+        resolvers.push(resolve)
+      }),
+    )
+    const { api } = mountSocket() // onMounted issues resync #1
+    fireStatus(true) // reconnect issues resync #2
+    expect(resolvers).toHaveLength(2)
+
+    // Newer resync (#2) resolves first with the authoritative ready state.
+    resolvers[1]([doc('d1', 'ready'), doc('d2', 'ready')])
+    await flushPromises()
+    expect(api.progress.value.state).toBe('ready')
+
+    // Older resync (#1) resolves last with a stale in-progress snapshot.
+    resolvers[0]([doc('d1', 'ingesting')])
+    await flushPromises()
+
+    // The stale snapshot is dropped: state stays ready with the newer counts.
+    expect(api.progress.value.state).toBe('ready')
+    expect(api.progress.value.documentsTotal).toBe(2)
+  })
+
   it('a live ingestion.progress frame never overwrites the document-level counts (F-28 unit bug)', async () => {
     vi.useFakeTimers()
     listDocumentsMock.mockResolvedValue([doc('d1', 'ingesting'), doc('d2', 'ingesting')])

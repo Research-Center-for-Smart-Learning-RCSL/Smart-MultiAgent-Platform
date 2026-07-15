@@ -49,6 +49,11 @@ export function useRagConfigSocket(configId: string, projectId: string) {
 
   let pollTimer: ReturnType<typeof setInterval> | null = null
   let debounceTimer: ReturnType<typeof setTimeout> | null = null
+  // Monotonic id for each resync. Only the most recently issued syncState is
+  // allowed to apply its result, so a slower earlier-issued listDocuments
+  // response that resolves late can never overwrite the newer authoritative
+  // state (B1: a stale resync stranding the bar on an outdated snapshot).
+  let syncSeq = 0
 
   // Derive corpus-level progress from the authoritative per-document status
   // list. Document status has no `indexing` sub-state, so the finer live
@@ -78,8 +83,12 @@ export function useRagConfigSocket(configId: string, projectId: string) {
   }
 
   async function syncState(): Promise<void> {
+    const seq = ++syncSeq
     try {
       const docs = await agentsApi.listDocuments(configId)
+      // A newer resync was issued while this listDocuments awaited — drop this
+      // now-stale snapshot rather than let it overwrite the fresher state (B1).
+      if (seq !== syncSeq) return
       progress.value = deriveProgress(docs)
       qc.invalidateQueries({ queryKey: agentKeys.ragDocuments(configId) })
       qc.invalidateQueries({ queryKey: agentKeys.ragConfigs(projectId) })
