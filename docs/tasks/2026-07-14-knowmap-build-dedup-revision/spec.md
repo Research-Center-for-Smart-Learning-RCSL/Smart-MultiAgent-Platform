@@ -211,7 +211,11 @@ Unit tests (fake queue honoring Arq retention + `None`-on-duplicate; in-memory c
 - [x] AC-2: A document committed while a build is running is built into the graph without an
   unrelated later trigger — covered by `test_finalize_enqueues_follow_up_when_corpus_advanced`
   (completion re-check enqueues the newer revision) plus the distinct revision-based job ID
-  (§8.1, §8.3). (End-to-end reproduction through a live queue is host-gated — FU-3.)
+  (§8.1, §8.3). The two adjacent silent-drop edges the quality gate uncovered — a document
+  entering `ready∧clean` via a scan verdict, and a manual rebuild after a build — are closed by
+  D-6/D-7 and covered by `test_scan_verdict_rebuild_advances_and_targets_new_revision` and
+  `test_rebuild_endpoint_bumps_and_targets_new_revision`. (End-to-end reproduction through a live
+  queue is host-gated — FU-3.)
 - [x] AC-3: `corpus_revision` increments exactly once per committed add, reprocess, or delete,
   within the mutation's transaction (§8.5). `test_index_document_bumps_corpus_revision_once`
   covers the add/reprocess path; `test_bump_corpus_revision_returns_incremented_value` /
@@ -265,6 +269,36 @@ column is an implementation mechanism, not new documented behavior.
   (`test_knowmap_ingest.py`, `test_knowmap_scan_build_gate.py`,
   `test_knowmap_scan_worker.py`) were updated to the `target_revision=` contract. No
   coverage was weakened — the assertions now encode the new, stricter invariant.
+- **D-6 — extend the bump beyond §7.2's add/reprocess/delete to close two adjacent
+  silent-drop paths (user-approved scope extension).** The `check-quality` gate found that
+  keying the build target on `corpus_revision` while only advancing it on document
+  add/reprocess/delete leaves two events that change *what a build processes* without a
+  fresh target: **(W1)** a scan verdict flipping a document into the buildable
+  `ready∧clean` set — two files uploaded together defer their builds to scan-clean and
+  both target the same post-upload revision, so the second is dropped as a duplicate,
+  reopening the exact race for the scan edge; and the sibling QUARANTINED/SKIPPED removal
+  rebuilds share the root. Fix: a shared worker helper `_bump_and_enqueue_build(sm,
+  config_id)` advances the revision (atomic `UPDATE … RETURNING`, 0 ⇒ config concurrently
+  deleted ⇒ no build) and enqueues the bumped target; `_enqueue_build_on_clean`,
+  `_enqueue_rebuild_for_config`, and the inline QUARANTINED enqueue now route through it.
+  The reindex-of-clean and index-worker-clean paths already target their own
+  index-time-bumped revision, so they were left unchanged. Approved by the user
+  ("Fix both now") rather than deferred.
+- **D-7 — advance the revision on an explicit rebuild (user-approved; fixes W2
+  regression).** `check-quality` found (and I confirmed against `graphrag_reconciler.py`
+  `_STUCK_STATES`) that the rebuild endpoint keyed the job id on the *unchanged*
+  `cfg.corpus_revision`, so within arq's `keep_result` (3600s) it collided with the
+  previous build's retained result — a **regression** vs the pre-F-12 `(state, epoch)`
+  nonce, which advanced after each run. Because the reconciler does not heal a terminal
+  `FAILED`, an operator's manual rebuild (the only recovery path) silently no-op'd for up
+  to an hour. Fix: `rebuild_knowmap_config` now bumps `corpus_revision` in the request
+  transaction and targets the bumped value, so an explicit rebuild always produces a fresh
+  build generation. Trade-off: two rapid rebuild clicks now enqueue two revisions (two
+  builds, serialized by the per-config Redis lock) instead of collapsing — acceptable for
+  a deliberate, rare operator action, and strictly safer than dropping the retry. New
+  regression tests: `test_scan_verdict_rebuild_advances_and_targets_new_revision`,
+  `test_scan_verdict_rebuild_skips_concurrently_deleted_config`,
+  `test_rebuild_endpoint_bumps_and_targets_new_revision`.
 
 ## 13. Follow-ups
 
@@ -283,3 +317,27 @@ column is an implementation mechanism, not new documented behavior.
   task) passed in isolation both at `HEAD` and with this change, but failed once during a full
   `pytest tests/unit/` run — a test-ordering/isolation issue independent of F-12. Flag for a
   separate investigation of `test_sel_evaluator` global-state leakage.
+- **FU-5 (DRY — `drop_project_collection_if_empty` triplicated):** the `check-quality` gate
+  flagged that the acquire-pin-lock → empty-check → clear-pin → build short-lived Qdrant client →
+  `delete_collection` → close/log skeleton is duplicated ~20 lines each across
+  `config_service.py`, `knowmap_config_service.py`, and `graphrag_config_service.py` (an F-11
+  surface). Extract one helper parameterized by `(PinKind, collection-deleter)`. Warning-level,
+  non-blocking; deferred with the user's knowledge.
+- **FU-6 (defensive dead branch in `EmbeddingPinRepository.ensure`, F-11):** the
+  `except IntegrityError` re-read fallback is effectively unreachable (same `(project, kind)`
+  always serializes on the advisory lock) and, if ever reached, would `PendingRollbackError`
+  without a prior `rollback()`. Either drop the branch or wrap the insert in `begin_nested()`.
+  Info-level; deferred.
+
+## 14. Post-implementation audit
+
+- **`check-quality`** (12 dimensions over the combined F-11/F-13/F-12 diff, 23 files): 0
+  Introduced-Critical. Two Introduced-Warning correctness findings (W1 scan-verdict revision gap,
+  W2 rebuild-after-failure suppression) were **fixed** this task per user approval (D-6, D-7); one
+  Warning (DRY) → FU-5 and one Info (dead branch) → FU-6, both pre-existing F-11 surfaces.
+- **`check-security`** (13 dimensions over the same diff, AuthZ traced for 8 endpoints): 0
+  CRITICAL/HIGH/MEDIUM. All pin/collection state and the build job id derive from resolved
+  `cfg.project_id` / DB-sourced integers, never client-supplied; migration `0052` backfill binds
+  all parameters; no key-exfiltration path. Three defense-in-depth notes only (unconditional
+  rebuild enqueue — now moot after D-7; advisory-lock hash over-locking; no per-endpoint rate
+  limit, matching the pre-existing RAG/GraphRAG surface).
