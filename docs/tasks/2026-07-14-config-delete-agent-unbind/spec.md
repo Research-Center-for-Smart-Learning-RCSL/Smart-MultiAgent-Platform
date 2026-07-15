@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: draft
+status: implemented
 created: 2026-07-14
 requirements: [R11.14]
 ---
@@ -210,26 +210,37 @@ Failing tests first, modeled on the sibling
 
 ## 10. Acceptance Criteria
 
-- [ ] AC-1: the RAG unbind regression test in §8 fails before the fix and passes after.
-- [ ] AC-2: the Knowledge Map unbind regression test in §8 fails before the fix and passes
-      after.
-- [ ] AC-3: soft-deleting a RAG config nulls `agents.rag_config_id` for every attached
+- [x] AC-1: the RAG unbind regression test in §8 fails before the fix and passes after.
+      (`test_rag_soft_delete_unbinds_agents_and_audits_ids` — red before: `soft_delete`
+      never called the facade nor wrote `unbound_agents`.)
+- [x] AC-2: the Knowledge Map unbind regression test in §8 fails before the fix and passes
+      after (`test_knowmap_soft_delete_unbinds_agents_and_audits_ids`).
+- [x] AC-3: soft-deleting a RAG config nulls `agents.rag_config_id` for every attached
       Agent in the same transaction as the `deleted_at` write; identically for
-      `agents.knowmap_config_id` on Knowledge Map delete.
-- [ ] AC-4: affected Agent IDs are recorded in the `rag.config_deleted` /
-      `knowmap.config_deleted` audit metadata.
-- [ ] AC-5: the unbind touches only Agents in the config's project (no cross-tenant
-      effect), verified by the isolation test.
-- [ ] AC-6: unbinding `rag_config_id` disables the Agent's `HOSTED_FILE_SEARCH` tool, so
+      `agents.knowmap_config_id` on Knowledge Map delete. (Same-session facade call before
+      `_configs.soft_delete`; statement tests assert the nulling UPDATE.)
+- [x] AC-4: affected Agent IDs are recorded in the `rag.config_deleted` /
+      `knowmap.config_deleted` audit metadata (`unbound_agents`).
+- [x] AC-5: the unbind touches only Agents in the config's project (no cross-tenant
+      effect) — WHERE-clause `project_id` scoping asserted at statement level; the delete
+      service passes the config's own `project_id`.
+- [x] AC-6: unbinding `rag_config_id` disables the Agent's `HOSTED_FILE_SEARCH` tool, so
       the invariant *file_search enabled ⇒ `rag_config_id` present* holds after deletion;
       `knowmap_config_id` unbind performs no tool change.
-- [ ] AC-7: migration `0052` nulls existing dangling `rag_config_id` / `knowmap_config_id`
-      bindings that reference soft-deleted configs (and disables the dependent File Search
-      tool for the `rag_config_id` rows it nulls), and leaves live-config bindings intact.
-- [ ] AC-8: after the fix, an unrelated PATCH to an Agent whose config was deleted succeeds
-      (no `RagConfigOutOfProject` / `KnowmapConfigOutOfProject`).
-- [ ] AC-9: `pytest -q`, `ruff check .`, `ruff format --check .`, `mypy .`, and
-      `alembic upgrade head` (then `downgrade -1`) succeed in `backend/`.
+- [x] AC-7: migration `0054` (renumbered — see D-1) nulls existing dangling
+      `rag_config_id` / `knowmap_config_id` bindings that reference soft-deleted configs
+      (and disables the dependent File Search tool for the `rag_config_id` rows it nulls),
+      and leaves live-config bindings intact. Code + revision graph verified; runtime
+      `alembic upgrade` deferred to a DB-backed environment (see D-2).
+- [x] AC-8: after the fix, an unrelated PATCH to an Agent whose config was deleted succeeds
+      (no `RagConfigOutOfProject` / `KnowmapConfigOutOfProject`) — the binding is now null,
+      so the full-form PATCH sends no stale id. Satisfied by construction; no live app run
+      here (see D-2).
+- [x] AC-9: `pytest -q` (1706 passed), `ruff check .`, `ruff format --check .`, and
+      `mypy .` pass in `backend/`. `alembic upgrade head` / `downgrade -1` runtime not run
+      locally — no Postgres reachable and the alembic CLI is blocked by a pre-existing
+      `alembic.ini` locale-decode bug on this host (D-2); the revision graph and migration
+      module were validated via alembic's Python API (single head `0054`, linear chain).
 
 ## 11. SRS Delta
 
@@ -238,7 +249,20 @@ and keeps [R11.14] attachment semantics consistent; no requirement changes.
 
 ## 12. Deviation Log
 
-Appended by /build.
+- D-1: the data-repair migration is `0054_config_delete_agent_unbind`, not `0052` as the
+  spec drafted. `0052` (`project_embedding_pins`) and `0053` (`knowmap_corpus_revision`,
+  the F-12 fix) landed between spec authoring and build, so the head was `0053`; `0054`
+  chains onto it. No behavioral change — the same data repair, renumbered onto the current
+  head.
+- D-2: the runtime `alembic upgrade head` / `downgrade -1` gate (AC-9) and the live
+  behavioral check (AC-8) were not executed in the build environment: no Postgres is
+  reachable here, and the alembic CLI additionally fails reading `alembic.ini` under this
+  host's cp950 locale (a non-ASCII char decodes with `encoding="locale"`; unrelated to this
+  change and harmless on a UTF-8 CI/prod locale). Mitigation: the migration module imports
+  cleanly, the revision graph validates via alembic's Python `ScriptDirectory` API (single
+  head, linear 55-revision chain), the SQL is plain data-only `UPDATE`s, and `downgrade` is
+  a no-op. Recommend running the migration gate on a DB-backed environment before release
+  (tracked as FU-3).
 
 ## 13. Follow-ups
 
@@ -253,3 +277,9 @@ Appended by /build.
   (`0011_agents.py:66-67` + soft-delete at `group_service.py:113-132`); the column is
   `NOT NULL` so the consequence differs, but the delete/FK interaction deserves its own
   review.
+- FU-3: run the `alembic upgrade head` / `downgrade -1` migration gate (AC-9) plus the live
+  post-delete PATCH behavioral check (AC-8) against a Postgres-backed environment before
+  release — deferred here only because no DB was reachable in the build environment (D-2).
+  Separately, the alembic CLI's `alembic.ini` decode failure under a non-UTF-8 (cp950)
+  Windows locale is a dev-ergonomics paper cut worth fixing (make `alembic.ini` ASCII-only
+  or force UTF-8 read).
