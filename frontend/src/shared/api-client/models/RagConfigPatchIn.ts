@@ -8,7 +8,7 @@ export type RagConfigPatchIn = {
     rerank_enabled?: (boolean | null);
     rerank_key_id?: (string | null);
     rerank_model?: (string | null);
-    rerank_provider?: ('cohere' | null);
+    rerank_provider?: ('cohere' | 'bge' | null);
     top_k?: (number | null);
 };
 

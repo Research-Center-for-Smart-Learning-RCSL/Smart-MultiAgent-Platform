@@ -267,7 +267,8 @@ export interface RagConfigPatchInput {
   chunk_params?: Record<string, unknown>
   rerank_enabled?: boolean
   rerank_key_id?: string | null
-  rerank_provider?: 'cohere' | null
+  // 'cohere' is BYO-key; 'bge' is the keyless bundled local reranker (F-19).
+  rerank_provider?: 'cohere' | 'bge' | null
   rerank_model?: string | null
 }
 

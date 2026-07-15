@@ -190,8 +190,10 @@
       "rerankKey": "重排序金鑰",
       "rerankKeyPlaceholder": "選擇重排序金鑰…",
       "rerankProvider": "重排序提供者",
+      "rerankProviderCohere": "Cohere（自備金鑰）",
+      "rerankProviderBge": "本機 BGE（內建，免金鑰）",
       "rerankModel": "重排序模型",
-      "noRerankKeys": "此專案沒有 Cohere（重排序）金鑰——請到金鑰頁面攜入一把以啟用重排序。",
+      "noRerankKeys": "此專案沒有 Cohere（重排序）金鑰——請到金鑰頁面攜入一把，或改用免金鑰的本機 BGE 重排序器。",
       "immutableHint": "Embedding 提供者、模型與分塊策略在建立時固定，無法變更。",
       "submit": "建立設定"
     },

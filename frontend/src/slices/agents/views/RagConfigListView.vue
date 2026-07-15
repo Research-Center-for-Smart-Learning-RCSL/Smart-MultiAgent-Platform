@@ -184,11 +184,17 @@ watch(
   { immediate: true },
 )
 
-// Rerank needs a Cohere key; if the toggle is on without one the backend rejects
-// with CapabilityMismatch, so disable the toggle when none exist and block submit
-// if it is somehow on without a key.
+// Rerank has two providers (F-19): BYO-key 'cohere' or the keyless bundled
+// 'bge'. Only the Cohere path needs a key, so submit is blocked only when
+// cohere is selected without one; the local BGE path needs no key.
 const hasRerankKeys = computed(() => rerankKeys.value.length > 0)
-const rerankIncomplete = computed(() => rerankEnabled.value && !rerankKeyId.value)
+const rerankIncomplete = computed(
+  () => rerankEnabled.value && rerankProvider.value === 'cohere' && !rerankKeyId.value,
+)
+const rerankProviderOptions = computed(() => [
+  { value: 'cohere', label: t('agents.ragForm.rerankProviderCohere') },
+  { value: 'bge', label: t('agents.ragForm.rerankProviderBge') },
+])
 
 function openCreateModal(): void {
   resetForm()
@@ -546,12 +552,21 @@ const RagConfigTable = typedSTable<RagConfig>()
           <SToggle
             v-model="rerankEnabled"
             variant="robot"
-            :disabled="!hasRerankKeys"
           />
         </SFormField>
 
         <template v-if="rerankEnabled">
           <SFormField
+            :label="t('agents.ragForm.rerankProvider')"
+            name="rerank_provider"
+          >
+            <SSelect
+              v-model="rerankProvider"
+              :options="rerankProviderOptions"
+            />
+          </SFormField>
+          <SFormField
+            v-if="rerankProvider === 'cohere'"
             :label="t('agents.ragForm.rerankKey')"
             name="rerank_key_id"
             :error="errors.rerank_key_id ?? ''"
