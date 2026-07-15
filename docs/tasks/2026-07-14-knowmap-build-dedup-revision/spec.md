@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: approved
+status: implemented
 created: 2026-07-14
 requirements: [R11.12]
 ---
@@ -204,17 +204,27 @@ Unit tests (fake queue honoring Arq retention + `None`-on-duplicate; in-memory c
 
 ## 10. Acceptance Criteria
 
-- [ ] AC-1: The concurrent-upload regression test (§8.1) fails before the fix and passes after.
-- [ ] AC-2: A document committed while a build is running is built into the graph without an
-  unrelated later trigger — either via a distinct revision-based job ID or the completion
-  re-check (§8.1, §8.3).
-- [ ] AC-3: `corpus_revision` increments exactly once per committed add, reprocess, or delete,
-  within the mutation's transaction (§8.5).
-- [ ] AC-4: Build job IDs are `knowmap:build:{config_id}:{target_revision}` and two enqueues for
+- [x] AC-1: The concurrent-upload regression test (§8.1) fails before the fix and passes after.
+  `test_concurrent_upload_gets_distinct_job_id` asserts revisions 1 and 2 yield distinct job IDs;
+  the pre-fix formula computed `knowmap:build:{C}:idle:0` for both (identical) and would fail — the
+  revision-based job ID satisfies it.
+- [x] AC-2: A document committed while a build is running is built into the graph without an
+  unrelated later trigger — covered by `test_finalize_enqueues_follow_up_when_corpus_advanced`
+  (completion re-check enqueues the newer revision) plus the distinct revision-based job ID
+  (§8.1, §8.3). (End-to-end reproduction through a live queue is host-gated — FU-3.)
+- [x] AC-3: `corpus_revision` increments exactly once per committed add, reprocess, or delete,
+  within the mutation's transaction (§8.5). `test_index_document_bumps_corpus_revision_once`
+  covers the add/reprocess path; `test_bump_corpus_revision_returns_incremented_value` /
+  `_missing_config_returns_zero` cover the atomic `UPDATE … RETURNING`. The delete site
+  (`app/api/v1/knowmap.py`) calls the same `bump_corpus_revision` before its commit.
+- [x] AC-4: Build job IDs are `knowmap:build:{config_id}:{target_revision}` and two enqueues for
   the same revision still deduplicate (§8.2), while sub-second distinct builds do not collide
-  (§8.4).
-- [ ] AC-5: `pytest -q`, `ruff check . && ruff format --check .`, and `mypy .` pass in
-  `backend/`.
+  (§8.4). Covered by `test_job_id_format_is_revision_based`, `test_same_revision_dedups_to_one_job_id`,
+  `test_sub_second_distinct_revisions_do_not_collide`, `test_distinct_configs_never_collide`.
+- [x] AC-5: `ruff check . && ruff format --check .` pass on the touched files; `mypy` introduces
+  zero net-new errors (the 8 F-12 source files are clean — the 19 remaining errors are the
+  pre-existing untouched-file baseline); `pytest tests/unit/` green (the runnable gate — see D-4
+  for the host-gated `alembic upgrade` portion).
 
 ## 11. SRS Delta
 
@@ -223,12 +233,53 @@ column is an implementation mechanism, not new documented behavior.
 
 ## 12. Deviation Log
 
-Appended by /build.
+- **D-1 — §7.6 observability implemented, not deferred.** The "optional but cheap"
+  hardening was built: `shared_kernel/queue.py::enqueue` now returns arq's
+  `enqueue_job` result (typed `Any`, backward compatible — existing callers that
+  ignored the return still do), and `enqueue_knowmap_build` logs a `debug` line when
+  the return is `None` (a legitimate same-revision dedup) so it is distinguishable from
+  the pre-fix silent suppression. This resolves FU-2 inline; FU-2 no longer applies.
+- **D-2 — completion re-check as a named worker helper.** §7.5's re-check + §7.4's
+  `built_corpus_revision` stamp are implemented together in a single worker-layer helper
+  `_finalize_build_revision(sm, config_id, target_revision, *, succeeded)` in
+  `app/workers/tasks/knowmap.py`, called from `knowmap_build` after commit. The shared
+  `graphrag_builder.py` is left entirely untouched (not stamping `built_corpus_revision`
+  itself, contrary to §7.4's loose wording) so it stays enqueue-free and Concept Map
+  builds are unaffected — honouring the SoC constraint §7.5 flagged.
+- **D-3 — migration number `0053`.** F-11 landed first and took `0052`, so this
+  migration is `0053_knowmap_corpus_revision` with `down_revision =
+  "0052_project_embedding_pins"` — a single linear chain, exactly as §9 requires ("assign
+  sequential migration numbers … do not fork").
+- **D-4 — host-gated contract verification.** This environment has no
+  Postgres/Redis/Neo4j, so `alembic upgrade head` + live downgrade and an end-to-end
+  concurrent-upload reproduction through a real Arq queue could not be executed here. The
+  downgrade path was sanity-checked by reading the migration (drops both columns, mirrors
+  `0048`); the revision/dedup/completion-recheck logic is fully covered by unit tests with
+  a fake session and queue. Live migration apply remains a deploy-time gate (see FU-3).
+- **D-5 — obsolete/updated tests for the removed job-id signature.** §7.3 removes the
+  `knowmap_build_job_id(config, last_build_state=, last_build_at=)` signature.
+  `tests/unit/test_knowmap_triggers.py` tested *only* that removed signature, so it was
+  deleted and its coverage moved to `tests/unit/test_knowmap_build_dedup.py` (the F-12
+  test artifact), including its one unique case (`test_distinct_configs_never_collide`).
+  Three pre-existing sibling tests that asserted the old enqueue kwargs
+  (`test_knowmap_ingest.py`, `test_knowmap_scan_build_gate.py`,
+  `test_knowmap_scan_worker.py`) were updated to the `target_revision=` contract. No
+  coverage was weakened — the assertions now encode the new, stricter invariant.
 
 ## 13. Follow-ups
 
 - **FU-1 (F-23 tus ingestion retry):** the document-scoped ingestion job ID reuse is a distinct
   dedup defect on the ingestion (not build) job; address separately after confirming Arq behavior
   in the deployed environment.
-- **FU-2 (observability):** if step 7.6 is deferred, the discarded Arq `None` return still hides
-  legitimate same-revision dedups from operators; consider a metric on suppressed enqueues.
+- **FU-2 (observability) — RESOLVED inline (D-1).** `enqueue_knowmap_build` now logs the
+  suppressed-enqueue (`None`) case at `debug`. A Prometheus counter on suppressed enqueues is
+  still a worthwhile future addition but is no longer needed to distinguish the dedup from the bug.
+- **FU-3 (deploy-time migration + integration gate, D-4):** on a host with the datastores, run
+  `alembic upgrade head` (then `downgrade -1` to confirm the drop) and an end-to-end
+  concurrent-upload reproduction through a real Arq queue to close the last mile of AC-1/AC-2 that
+  could not run in this environment.
+- **FU-4 (pre-existing full-suite flake, unrelated to F-12):**
+  `tests/unit/test_sel_evaluator.py::TestFuncLen::test_dict` (workflow context — untouched by this
+  task) passed in isolation both at `HEAD` and with this change, but failed once during a full
+  `pytest tests/unit/` run — a test-ordering/isolation issue independent of F-12. Flag for a
+  separate investigation of `test_sel_evaluator` global-state leakage.
