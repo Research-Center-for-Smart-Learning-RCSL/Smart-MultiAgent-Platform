@@ -107,14 +107,16 @@ _PendingEnqueue = tuple[str, str, str, int, str | None]
 # Everything NOT in this set is mocked. This is intentionally a safe-list: adding
 # a new side-effect node type to NodeType will be mocked by default rather than
 # silently executing with real effects.
-_DRY_RUN_SAFE_TYPES = frozenset({
-    NodeType.TRIGGER,
-    NodeType.CONDITION,
-    NodeType.SET_VARIABLE,
-    NodeType.PARALLEL,
-    NodeType.JOIN,
-    NodeType.END,
-})
+_DRY_RUN_SAFE_TYPES = frozenset(
+    {
+        NodeType.TRIGGER,
+        NodeType.CONDITION,
+        NodeType.SET_VARIABLE,
+        NodeType.PARALLEL,
+        NodeType.JOIN,
+        NodeType.END,
+    }
+)
 
 
 class RunEngine:

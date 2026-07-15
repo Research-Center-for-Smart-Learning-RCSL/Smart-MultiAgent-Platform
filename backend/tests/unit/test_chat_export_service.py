@@ -459,9 +459,7 @@ class TestChatExportBuildAndUpload:
         mock_minio_fn.return_value = minio
 
         # Stub the WeasyPrint render so the test needs no system libraries.
-        with patch.object(
-            ChatExportService, "_html_to_pdf", return_value=b"%PDF-1.4 stub"
-        ) as mock_pdf:
+        with patch.object(ChatExportService, "_html_to_pdf", return_value=b"%PDF-1.4 stub") as mock_pdf:
             _bucket, key = await ChatExportService(AsyncMock()).build_and_upload_export(
                 job_id=_JOB,
                 chatroom_id=_ROOM,
@@ -546,6 +544,4 @@ class TestUploadManifest:
             ),
             pytest.raises(TimeoutError, match="timed out"),
         ):
-            await ChatExportService._upload(
-                _JOB, b'{"test": true}', "manifest.json", "application/json"
-            )
+            await ChatExportService._upload(_JOB, b'{"test": true}', "manifest.json", "application/json")

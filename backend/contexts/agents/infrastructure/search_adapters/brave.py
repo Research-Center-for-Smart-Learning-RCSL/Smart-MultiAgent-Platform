@@ -79,9 +79,7 @@ class BraveAdapter:
             raise RuntimeError(f"brave returned non-JSON: {exc}") from exc
 
         out: list[SearchResult] = []
-        for idx, item in enumerate(
-            parsed.get("web", {}).get("results", []) or []
-        ):
+        for idx, item in enumerate(parsed.get("web", {}).get("results", []) or []):
             if not isinstance(item, dict):
                 continue
             out.append(

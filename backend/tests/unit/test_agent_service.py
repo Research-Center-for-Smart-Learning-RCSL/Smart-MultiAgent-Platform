@@ -936,9 +936,7 @@ class TestKnowmapBuilderReconciliation:
         agents = AsyncMock()
         agents.detach_from_knowmap_config.return_value = []
         svc = _make_service(agent_repo=agents)
-        with patch(
-            "contexts.agents.application.agent_service.audit.emit", new_callable=AsyncMock
-        ) as emit:
+        with patch("contexts.agents.application.agent_service.audit.emit", new_callable=AsyncMock) as emit:
             detached = await svc.detach_agents_colliding_with_knowmap_builder(
                 knowmap_config_id=uuid.uuid4(),
                 new_builder_key_group_id=uuid.uuid4(),

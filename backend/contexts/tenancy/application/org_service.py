@@ -160,10 +160,12 @@ class OrgService:
                 request_id=request_id,
             )
             await invite_repo.revoke_pending_for_scope(
-                scope_type=InviteScope.PROJECT, scope_id=project.id,
+                scope_type=InviteScope.PROJECT,
+                scope_id=project.id,
             )
         invites_revoked = await invite_repo.revoke_pending_for_scope(
-            scope_type=InviteScope.ORG, scope_id=org_id,
+            scope_type=InviteScope.ORG,
+            scope_id=org_id,
         )
         transfers_cancelled = await OCTransferRepository(self._db).cancel_pending_for_org(org_id)
         await self._orgs.soft_delete(org_id)

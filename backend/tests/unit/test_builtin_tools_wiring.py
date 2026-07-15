@@ -214,9 +214,7 @@ def test_local_shell_is_skipped() -> None:
 
 
 def test_function_tool_appears() -> None:
-    tools = bt.build_agent_tools(
-        AsyncMock(), agent=_agent(), tools=[_function("lookup_order")], deps=_deps()
-    )
+    tools = bt.build_agent_tools(AsyncMock(), agent=_agent(), tools=[_function("lookup_order")], deps=_deps())
     assert {t.name for t in tools} == {"lookup_order"}
 
 
@@ -250,7 +248,13 @@ async def test_code_exec_maps_ok_and_error() -> None:
 
 async def test_code_exec_threads_chatroom_and_collects_artifacts() -> None:
     runner = AsyncMock()
-    art = {"filename": "chart.png", "mime": "image/png", "size_bytes": 3, "rel_path": "/w/chart.png", "b64": "AAA"}
+    art = {
+        "filename": "chart.png",
+        "mime": "image/png",
+        "size_bytes": 3,
+        "rel_path": "/w/chart.png",
+        "b64": "AAA",
+    }
     runner.run_code_exec.return_value = ToolCallResult(
         ok=True, stdout="done", stderr="", exit_code=0, duration_ms=1, metadata={"artifacts": [art]}
     )
