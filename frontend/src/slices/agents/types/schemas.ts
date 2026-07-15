@@ -73,7 +73,8 @@ export const ragConfigCreateSchema = z.object({
   embed_model: z.string().trim().min(1),
   rerank_enabled: z.boolean().default(false),
   rerank_key_id: z.string().uuid().nullable().default(null),
-  rerank_provider: z.enum(['cohere']).nullable().default(null),
+  // 'cohere' is BYO-key; 'bge' is the keyless bundled local reranker (F-19).
+  rerank_provider: z.enum(['cohere', 'bge']).nullable().default(null),
   rerank_model: z.string().trim().min(1).nullable().default(null),
   top_k: z.number().int().positive().max(100).default(8),
 })

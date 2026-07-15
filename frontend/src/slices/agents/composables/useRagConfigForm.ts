@@ -45,16 +45,30 @@ export function useRagConfigForm(opts: RagConfigFormOptions) {
     { immediate: true },
   )
 
+  // F-19: two rerank options — BYO-key 'cohere' or the keyless bundled local
+  // 'bge'. On enable, default to cohere when a rerank key exists, else to the
+  // keyless local reranker so the toggle is usable without a Cohere key.
   watch(rerankEnabled, (on) => {
     if (on) {
-      rerankProvider.value = 'cohere'
-      if (!rerankKeyId.value && rerankKeys.value.length) {
-        rerankKeyId.value = rerankKeys.value[0]!.id
-      }
+      rerankProvider.value = rerankKeys.value.length ? 'cohere' : 'bge'
     } else {
       rerankProvider.value = null
       rerankKeyId.value = null
       rerankModel.value = null
+    }
+  })
+
+  // Reconcile the dependent fields when the provider changes: 'bge' is keyless
+  // and pins the bundled model; 'cohere' seeds a default key.
+  watch(rerankProvider, (provider) => {
+    if (provider === 'bge') {
+      rerankKeyId.value = null
+      rerankModel.value = 'bge-reranker-v2-m3'
+    } else if (provider === 'cohere') {
+      if (rerankModel.value === 'bge-reranker-v2-m3') rerankModel.value = null
+      if (!rerankKeyId.value && rerankKeys.value.length) {
+        rerankKeyId.value = rerankKeys.value[0]!.id
+      }
     }
   })
 

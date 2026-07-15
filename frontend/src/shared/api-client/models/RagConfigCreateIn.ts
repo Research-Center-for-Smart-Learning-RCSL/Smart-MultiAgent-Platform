@@ -12,7 +12,7 @@ export type RagConfigCreateIn = {
     rerank_enabled?: boolean;
     rerank_key_id?: (string | null);
     rerank_model?: (string | null);
-    rerank_provider?: ('cohere' | null);
+    rerank_provider?: ('cohere' | 'bge' | null);
     top_k?: number;
 };
 

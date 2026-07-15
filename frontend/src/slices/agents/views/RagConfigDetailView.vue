@@ -194,6 +194,12 @@ const rerankModelDisplay = computed<string | number>({
   },
 })
 
+// F-19: BYO-key 'cohere' or the keyless bundled local 'bge'.
+const rerankProviderOptions = computed(() => [
+  { value: 'cohere', label: t('agents.ragForm.rerankProviderCohere') },
+  { value: 'bge', label: t('agents.ragForm.rerankProviderBge') },
+])
+
 const {
   chunkSizeTokens,
   chunkOverlapTokens,
@@ -227,7 +233,7 @@ watch(
         embed_model: cfg.embed_model,
         rerank_enabled: cfg.rerank_enabled,
         rerank_key_id: cfg.rerank_key_id,
-        rerank_provider: (cfg.rerank_provider as 'cohere' | null) ?? null,
+        rerank_provider: (cfg.rerank_provider as 'cohere' | 'bge' | null) ?? null,
         rerank_model: cfg.rerank_model,
         top_k: cfg.top_k,
       },
@@ -623,8 +629,19 @@ const showProgress = computed(() =>
             </SFormField>
 
             <template v-if="rerankEnabled">
+              <SFormField
+                :label="t('agents.ragForm.rerankProvider')"
+                name="rerank_provider"
+                class="mt-4"
+              >
+                <SSelect
+                  v-model="rerankProvider"
+                  :options="rerankProviderOptions"
+                />
+              </SFormField>
               <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-4">
                 <SFormField
+                  v-if="rerankProvider === 'cohere'"
                   :label="t('agents.ragForm.rerankKey')"
                   name="rerank_key_id"
                   :error="errors.rerank_key_id ?? ''"

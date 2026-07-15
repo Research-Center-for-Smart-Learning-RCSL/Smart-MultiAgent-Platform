@@ -6035,9 +6035,9 @@
           "rerank_provider": {
             "anyOf": [
               {
-                "const": "cohere",
                 "enum": [
-                  "cohere"
+                  "cohere",
+                  "bge"
                 ],
                 "type": "string"
               },
@@ -6251,9 +6251,9 @@
           "rerank_provider": {
             "anyOf": [
               {
-                "const": "cohere",
                 "enum": [
-                  "cohere"
+                  "cohere",
+                  "bge"
                 ],
                 "type": "string"
               },

@@ -190,8 +190,10 @@
       "rerankKey": "Rerank Key",
       "rerankKeyPlaceholder": "Select a rerank key...",
       "rerankProvider": "Rerank Provider",
+      "rerankProviderCohere": "Cohere (bring your own key)",
+      "rerankProviderBge": "Local BGE (bundled, no key)",
       "rerankModel": "Rerank Model",
-      "noRerankKeys": "No Cohere (rerank) key in this project -- carry one in the Keys section to enable reranking.",
+      "noRerankKeys": "No Cohere (rerank) key in this project -- carry one in the Keys section, or use the keyless Local BGE reranker.",
       "immutableHint": "Embedding provider, model, and chunk strategy are fixed at creation and cannot be changed.",
       "submit": "Create Configuration"
     },
