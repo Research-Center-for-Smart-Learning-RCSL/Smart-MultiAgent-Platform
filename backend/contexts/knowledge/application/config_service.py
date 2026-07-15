@@ -306,22 +306,37 @@ class RagConfigService:
         )
         return docs
 
-    async def drop_project_collection_if_empty(self, *, project_id: uuid.UUID) -> bool:
-        """Drop ``rag_{project_id}`` and clear the pin if no live config remains (F-11).
+    async def clear_pin_if_last_config(self, *, project_id: uuid.UUID) -> bool:
+        """Clear the durable File RAG pin iff no live config remains (F-11).
 
-        Runs after the delete's DB commit + point purge, in the request session's
-        post-commit transaction. Under the ``(project, file_rag)`` advisory lock —
-        held across the live-config check and the pin clear so a concurrent create
-        cannot slip a config in between — it verifies no live File RAG config is
-        left for the project; if so it clears the pin (letting the project later
-        adopt a different embedding dimension) and drops the now-orphan collection
-        best-effort. Returns ``True`` when it dropped, ``False`` when a sibling
-        config kept the collection alive.
+        Called in the delete's OWN transaction, before its commit, so the pin clear
+        commits atomically with the soft-delete. Under the ``(project, file_rag)``
+        advisory lock — held from here through that commit — a concurrent create
+        blocks and never observes a config-deleted-but-pin-present state, closing
+        the window where it would read the stale pin and be spuriously rejected at a
+        different dimension (F-11 W1). Returns ``True`` when the pin was cleared,
+        i.e. the project is now configless and ``rag_{project_id}`` is an orphan to
+        drop after the commit.
         """
         await self._pins.acquire_lock(project_id, PinKind.FILE_RAG)
         if list(await self._configs.list_for_project(project_id)):
             return False
         await self._pins.clear(project_id=project_id, kind=PinKind.FILE_RAG)
+        return True
+
+    async def drop_orphan_collection(self, *, project_id: uuid.UUID) -> bool:
+        """Drop ``rag_{project_id}`` after the delete commit, iff still configless (F-11).
+
+        Runs post-commit (DOM-4: irreversible external deletes trail the durable DB
+        commit, so a failed commit never leaves a dropped collection behind a live
+        pin — W5). Re-acquires the ``(project, file_rag)`` lock and re-checks: if a
+        concurrent create re-pinned the project between the two commits, its
+        collection is left intact. Best-effort on the Qdrant side. Returns ``True``
+        when it dropped.
+        """
+        await self._pins.acquire_lock(project_id, PinKind.FILE_RAG)
+        if list(await self._configs.list_for_project(project_id)):
+            return False
 
         from qdrant_client import AsyncQdrantClient
 
