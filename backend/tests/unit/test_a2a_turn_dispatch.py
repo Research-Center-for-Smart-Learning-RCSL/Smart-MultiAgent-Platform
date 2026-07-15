@@ -83,10 +83,10 @@ def _wire_knowledge(engine, *, rag=None, graphrag=None, knowmap=None, graphrag_c
     engine._knowmap_context = _km  # type: ignore[attr-defined]
 
 
-def _headless_engine(monkeypatch, agent):
+def _headless_engine(monkeypatch, agent, *, member=True):
     """Bare engine wired for a headless ``run_input_turn`` that captures the
     kwargs handed to ``_stream_with_tools`` (notably ``system_text``)."""
-    _wire_engine(monkeypatch, agent)
+    _wire_engine(monkeypatch, agent, member=member)
     engine = te.TurnEngine.__new__(te.TurnEngine)
     engine._db = _FakeDB()  # type: ignore[attr-defined]
     engine._router = object()  # type: ignore[attr-defined]
@@ -109,7 +109,7 @@ def _headless_engine(monkeypatch, agent):
 # --------------------------------------------------------------------------- #
 
 
-def _wire_engine(monkeypatch, agent, *, drain=None):
+def _wire_engine(monkeypatch, agent, *, drain=None, member=True):
     class _Facade:
         def __init__(self, db) -> None:
             pass
@@ -118,6 +118,15 @@ def _wire_engine(monkeypatch, agent, *, drain=None):
             return agent
 
     monkeypatch.setattr(te, "AgentsFacade", _Facade)
+
+    class _ConvFacade:
+        def __init__(self, db) -> None:
+            pass
+
+        async def is_agent_in_chatroom(self, *, chatroom_id, agent_id):
+            return member
+
+    monkeypatch.setattr(te, "ConversationFacade", _ConvFacade)
     monkeypatch.setattr(
         te,
         "assemble",
@@ -224,6 +233,36 @@ async def test_run_input_turn_with_room_includes_concept_maps(monkeypatch) -> No
     # Concept Maps resolve against exactly the supplied room.
     assert graphrag_calls == [room]
     assert "CONCEPT_BLOCK" in captured["system_text"]
+
+
+@pytest.mark.asyncio
+async def test_run_input_turn_non_member_room_skips_concept_maps(monkeypatch) -> None:
+    # F-15 AC-7 trust boundary: a headless turn threaded into a room the agent is
+    # NOT a member of must not resolve that room's Concept Map — the gate's
+    # chatroom_id can be an arbitrary in-project room chosen by the workflow
+    # author, so room membership is verified server-side, not trusted.
+    agent = _agent()
+    room = uuid.uuid4()
+    engine, captured = _headless_engine(monkeypatch, agent, member=False)
+    graphrag_calls: list = []
+    _wire_knowledge(
+        engine,
+        rag="RAG_BLOCK",
+        graphrag="CONCEPT_BLOCK",
+        knowmap="KNOWMAP_BLOCK",
+        graphrag_calls=graphrag_calls,
+    )
+    agent.rag_config_id = uuid.uuid4()
+    agent.knowmap_config_id = uuid.uuid4()
+
+    await engine.run_input_turn(agent_id=agent.id, input_text="hi", chatroom_id=room)
+
+    # Room-scoped Concept Map is withheld from the non-member approver...
+    assert graphrag_calls == []
+    assert "CONCEPT_BLOCK" not in captured["system_text"]
+    # ...but the agent's own File RAG and Knowledge Map bindings still assemble.
+    assert "RAG_BLOCK" in captured["system_text"]
+    assert "KNOWMAP_BLOCK" in captured["system_text"]
 
 
 @pytest.mark.asyncio
