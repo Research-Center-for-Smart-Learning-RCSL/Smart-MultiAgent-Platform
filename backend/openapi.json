@@ -4567,6 +4567,136 @@
         "title": "KnowmapConfigPatchIn",
         "type": "object"
       },
+      "KnowmapConfigPatchOut": {
+        "description": "PATCH response \u2014 the config plus any agents auto-detached by a builder\nkey-group change that collided with their consumer group (R11.25 / F-14).\n\nDedicated subclass so the shared GET/create ``KnowmapConfigOut`` shape stays\nunbroadened. ``detached_agent_ids`` is empty on any non-colliding change.",
+        "properties": {
+          "builder_key_group_id": {
+            "format": "uuid",
+            "title": "Builder Key Group Id",
+            "type": "string"
+          },
+          "chunk_params": {
+            "title": "Chunk Params",
+            "type": "object"
+          },
+          "chunk_strategy": {
+            "$ref": "#/components/schemas/ChunkStrategy"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "deleted_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Deleted At"
+          },
+          "detached_agent_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "title": "Detached Agent Ids",
+            "type": "array"
+          },
+          "embed_dim": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Embed Dim"
+          },
+          "embed_model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Embed Model"
+          },
+          "embed_provider": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Embed Provider"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "last_build_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Build At"
+          },
+          "last_build_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Build Error"
+          },
+          "last_build_state": {
+            "$ref": "#/components/schemas/BuildState"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "project_id": {
+            "format": "uuid",
+            "title": "Project Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "project_id",
+          "name",
+          "builder_key_group_id",
+          "chunk_strategy",
+          "chunk_params",
+          "embed_provider",
+          "embed_model",
+          "embed_dim",
+          "last_build_state",
+          "last_build_at",
+          "last_build_error",
+          "created_at",
+          "deleted_at"
+        ],
+        "title": "KnowmapConfigPatchOut",
+        "type": "object"
+      },
       "KnowmapDocumentAgentsPatchIn": {
         "properties": {
           "agent_ids": {
@@ -14351,7 +14481,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/KnowmapConfigOut"
+                  "$ref": "#/components/schemas/KnowmapConfigPatchOut"
                 }
               }
             },
@@ -14557,7 +14687,7 @@
     },
     "/api/knowmap-configs/{config_id}/rebuild": {
       "post": {
-        "description": "Explicit designer rebuild (Q-3/AC-6). Enqueues a ``knowmap_build`` with the\ndedup job id so a redundant click collapses onto an in-flight build.",
+        "description": "Explicit designer rebuild (Q-3/AC-6). Advances the corpus revision and\nenqueues a ``knowmap_build`` for it, so an operator-requested rebuild always\nproduces a fresh build generation rather than colliding with a retained\nprior-build result (F-12 W2).",
         "operationId": "rebuild_knowmap_config_api_knowmap_configs__config_id__rebuild_post",
         "parameters": [
           {

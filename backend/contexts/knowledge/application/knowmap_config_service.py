@@ -42,6 +42,7 @@ from contexts.knowledge.infrastructure.knowmap_repositories import (
     KnowmapDocumentRepository,
 )
 from shared_kernel import audit
+from shared_kernel.db.advisory_lock import advisory_xact_lock, knowmap_builder_lock_key
 
 _log = logging.getLogger(__name__)
 
@@ -142,14 +143,28 @@ class KnowmapConfigService:
         actor_user_id: uuid.UUID,
         actor_ip: str | None,
         request_id: uuid.UUID | None = None,
-    ) -> KnowmapConfig:
+    ) -> tuple[KnowmapConfig, list[uuid.UUID]]:
+        """Update a Knowledge Map config; returns ``(config, detached_agent_ids)``.
+
+        On a builder-key-group change that would collide with attached agents
+        (their consumer key group equals the new builder group), each colliding
+        agent is automatically detached in this transaction to restore the R11.25
+        isolation invariant (F-14); the detached ids are returned so the caller
+        can inform the designer. Empty on any non-colliding change.
+        """
         cfg = await self.get(config_id)
         new_group = patch.get("builder_key_group_id")
         db_values: dict[str, Any] = {}
+        detached_agent_ids: list[uuid.UUID] = []
         for k in ("name", "chunk_params"):
             if k in patch:
                 db_values[k] = patch[k]
         if new_group is not None and new_group != cfg.builder_key_group_id:
+            # Serialise the builder-group change against concurrent agent
+            # attach/re-key on this map (R11.25 / F-14). Held through this
+            # transaction's commit so the detach below and the config write are
+            # observed atomically by any attach that loses the race.
+            await advisory_xact_lock(self._db, knowmap_builder_lock_key(config_id))
             await self._assert_builder_group_in_project(new_group, cfg.project_id)
             pin = await self._resolve_group_pin(new_group)
             if pin is None:
@@ -181,6 +196,26 @@ class KnowmapConfigService:
             db_values["embed_provider"] = provider
             db_values["embed_model"] = model
             db_values["embed_dim"] = dim
+            # F-14 (R11.25): the new builder group may equal the consumer key
+            # group of already-attached agents, silently collapsing the enforced
+            # billing/rate-limit split. Reached only after the F-13 model-swap
+            # guard above — a rejected update never detaches. Detach each colliding
+            # agent (the agents context owns that write) in this same transaction;
+            # report the ids so the designer is informed. Uses a local import: the
+            # agents context imports KnowledgeFacade, so a module-level AgentsFacade
+            # import here would cycle.
+            from contexts.agents.interfaces.facade import AgentsFacade
+
+            detached_agent_ids = await AgentsFacade(
+                self._db
+            ).detach_agents_colliding_with_knowmap_builder(
+                knowmap_config_id=config_id,
+                new_builder_key_group_id=new_group,
+                project_id=cfg.project_id,
+                actor_user_id=actor_user_id,
+                actor_ip=actor_ip,
+                request_id=request_id,
+            )
 
         updated = await self._configs.update(config_id, db_values)
         if updated is None:
@@ -205,11 +240,15 @@ class KnowmapConfigService:
                 actor_ip=actor_ip,
                 resource_type="knowmap_config",
                 resource_id=config_id,
-                metadata={"project_id": str(cfg.project_id), "changed_fields": list(db_values.keys())},
+                metadata={
+                    "project_id": str(cfg.project_id),
+                    "changed_fields": list(db_values.keys()),
+                    "detached_agent_ids": [str(a) for a in detached_agent_ids],
+                },
                 request_id=request_id,
             ),
         )
-        return updated
+        return updated, detached_agent_ids
 
     async def soft_delete(
         self,

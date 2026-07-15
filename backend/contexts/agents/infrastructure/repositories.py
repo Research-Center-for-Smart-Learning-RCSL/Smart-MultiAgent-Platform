@@ -304,6 +304,36 @@ class AgentRepository:
         )
         return result.rowcount > 0
 
+    async def detach_from_knowmap_config(
+        self,
+        *,
+        knowmap_config_id: uuid.UUID,
+        key_group_id: uuid.UUID,
+        project_id: uuid.UUID,
+    ) -> list[uuid.UUID]:
+        """Clear the Knowledge-Map binding of every active agent in the project
+        that is attached to ``knowmap_config_id`` AND consumes ``key_group_id``
+        (F-14 / R11.25). Returns the detached agent ids.
+
+        Scoped by the indexed ``project_id`` (``knowmap_config_id`` is unindexed).
+        ``version`` is bumped by the ``smap_bump_version`` trigger — never by hand.
+        """
+        stmt = (
+            t.agents.update()
+            .where(
+                sa.and_(
+                    t.agents.c.knowmap_config_id == knowmap_config_id,
+                    t.agents.c.key_group_id == key_group_id,
+                    t.agents.c.project_id == project_id,
+                    t.agents.c.deleted_at.is_(None),
+                )
+            )
+            .values(knowmap_config_id=None)
+            .returning(t.agents.c.id)
+        )
+        rows = (await self._db.execute(stmt)).all()
+        return [r.id for r in rows]
+
 
 def _row_to_tool(row: Any) -> AgentTool:
     return AgentTool(
