@@ -160,7 +160,7 @@ class KeyGroupService:
         try:
             await self._members.add(group_id=group_id, key_id=key_id, priority=priority)
         except IntegrityError as exc:
-            if hasattr(exc.orig, "pgcode") and exc.orig.pgcode == "23505":
+            if getattr(exc.orig, "pgcode", None) == "23505":
                 raise GroupMemberConflict(f"key {key_id} already in group {group_id}") from None
             raise
 

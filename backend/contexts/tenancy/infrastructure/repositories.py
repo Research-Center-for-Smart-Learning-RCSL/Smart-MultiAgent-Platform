@@ -6,6 +6,7 @@ not a join. This preserves the §23 no-cross-context-joins rule.
 
 from __future__ import annotations
 
+import builtins
 import hashlib
 import secrets
 import uuid
@@ -494,7 +495,9 @@ class ProjectMemberRepository:
             )
         )
 
-    async def remove_user_from_projects(self, *, user_id: uuid.UUID, project_ids: list[uuid.UUID]) -> int:
+    async def remove_user_from_projects(
+        self, *, user_id: uuid.UUID, project_ids: builtins.list[uuid.UUID]
+    ) -> int:
         if not project_ids:
             return 0
         result = await self._db.execute(

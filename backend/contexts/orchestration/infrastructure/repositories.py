@@ -365,7 +365,7 @@ class InstructionRepository:
         result = await self._db.execute(
             sa.select(sa.func.min(instructions.c.issued_at)).where(instructions.c.chain_id == chain_id),
         )
-        return result.scalar_one()  # type: ignore[no-any-return]
+        return result.scalar_one()
 
 
 def _row_to_instruction(row: Any) -> Instruction:
