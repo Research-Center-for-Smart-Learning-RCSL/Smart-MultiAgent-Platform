@@ -62,6 +62,19 @@ describe('useRagConfigForm rerank provider', () => {
     expect(f.rerankModel.value).toBe('bge-reranker-v2-m3')
   })
 
+  it('keeps a loaded bge provider when a cohere key exists (edit load)', async () => {
+    // Editing a stored 'bge' config: resetForm sets rerank_enabled AND the
+    // persisted provider together. The enable watch must not clobber the loaded
+    // 'bge' back to 'cohere' just because the project also has a Cohere key.
+    const f = setup([COHERE_KEY])
+    f.rerankProvider.value = 'bge'
+    f.rerankEnabled.value = true
+    await flush()
+    expect(f.rerankProvider.value).toBe('bge')
+    expect(f.rerankKeyId.value).toBeNull()
+    expect(f.rerankModel.value).toBe('bge-reranker-v2-m3')
+  })
+
   it('resets provider/key/model when reranking is disabled', async () => {
     const f = setup([COHERE_KEY])
     f.rerankEnabled.value = true
