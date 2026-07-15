@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: draft
+status: implemented
 created: 2026-07-14
 requirements: [R10.08]
 ---
@@ -289,30 +289,44 @@ The primary red-first test is (1) (API schema) or (3) (runtime factory).
 
 ## 10. Acceptance Criteria
 
-- [ ] AC-1: The API-schema regression test (§8.1) fails before the fix and passes after;
-  `rerank_provider="bge"` is accepted by create and patch.
-- [ ] AC-2: A `bge` rerank config validates with **no** key when the bundled service URL is
-  configured; it is rejected when the URL is empty and rejected when a key is supplied.
-- [ ] AC-3: At runtime a `bge` config constructs `LocalBgeReranker` against the configured
-  service URL; a Cohere config still constructs `RouterReranker`; neither keyless-`bge` nor
-  Cohere silently falls through to vector-only when correctly configured.
-- [ ] AC-4: A reranker execution failure (`bge` or Cohere) degrades `RetrieveService.query`
-  to vector-only (`candidates[:effective_top_k]`) with a logged warning, and the RAG block is
-  still returned — the turn is never failed and the whole block is never dropped.
-- [ ] AC-5: Both the create and edit UIs expose a provider selector (`cohere` | local BGE);
-  selecting local hides the key field and permits submit without a key; all strings via `$t()`.
-- [ ] AC-6: `deploy/compose/docker-compose.yml` includes a bundled reranker service serving
-  `bge-reranker-v2-m3`, reachable at the configured URL, honoring the adapter's `/rerank`
-  contract (or the adapter is adjusted to the service's contract, with the choice recorded).
-- [ ] AC-7: A `bge_reranker_url` setting exists with a sensible in-cluster default and an
-  un-prefixed env alias, documented in `.env.example` and deploy docs.
-- [ ] AC-8: An E2E smoke test exercises a `bge`-provider rerank end-to-end against the
-  bundled service.
-- [ ] AC-9: `pytest -q`, `ruff check . && ruff format --check .`, and `mypy .` pass in
-  `backend/`; `pnpm test`, `pnpm lint`, `pnpm typecheck`, and `pnpm build` pass in `frontend/`.
-  Because `rag.py`'s request/response models change, `pnpm run gen:api` is re-run (regenerating
-  `RagConfigCreateIn.ts`/`RagConfigPatchIn.ts`) **and** the hand-written enum at `schemas.ts:76`
-  is edited separately (both required); `pnpm run check:openapi-drift` passes.
+- [x] AC-1: The API-schema regression test (§8.1) fails before the fix and passes after;
+  `rerank_provider="bge"` is accepted by create and patch (`test_bge_reranker.py`
+  `test_create_schema_accepts_bge` / `test_patch_schema_accepts_bge`, and the unknown-provider
+  reject). Red before: the `Literal["cohere"]` rejected `"bge"`.
+- [x] AC-2: A `bge` rerank config validates with **no** key when the bundled service URL is
+  configured; it is rejected when the URL is empty and rejected when a key is supplied
+  (`test_create_bge_validates_without_key` / `_rejected_when_service_unconfigured` /
+  `_rejects_supplied_key`, plus the update variants).
+- [x] AC-3: At runtime a `bge` config constructs `LocalBgeReranker` against the configured
+  service URL (`test_factory_builds_local_bge_reranker`); a Cohere config still constructs
+  `RouterReranker` (existing `test_rag_context_provider_scope`); neither silently falls
+  through to vector-only when correctly configured.
+- [x] AC-4: A reranker execution failure degrades `RetrieveService.query` to vector-only
+  (`candidates[:effective_top_k]`) with a logged warning, block still returned
+  (`test_rerank_failure_degrades_to_vector_only`). Hardens the Cohere path too.
+- [x] AC-5: Both the create (`RagConfigListView`) and edit (`RagConfigDetailView`) UIs expose
+  a provider `SSelect` (Cohere | Local BGE); selecting local hides the key field and permits
+  submit without a key; all strings via `$t()`. Gating logic covered by
+  `useRagConfigForm.spec.ts`; both view tests stay green.
+- [x] AC-6: a bundled reranker service (`deploy/reranker/`, wired in
+  `docker-compose.yml`) serves `bge-reranker-v2-m3` on CPU and honours the adapter's exact
+  `/rerank` contract `{query, candidates, top_k} -> {results:[{index,score}]}`. Chosen
+  contract recorded in D-1 (custom service over off-the-shelf TEI).
+- [x] AC-7: `KnowledgeSection.bge_reranker_url` exists with the in-cluster default
+  `http://bge-reranker:80` and the un-prefixed `RERANK_BGE_URL` alias, documented in
+  `.env.example` (the compose inline comments serve as deploy docs — no separate deploy README
+  exists; see D-2).
+- [~] AC-8: E2E smoke test **deferred** — it requires building the reranker image (downloads
+  torch + model weights) and running the full stack, neither available in the build
+  environment. The factory + degrade + adapter unit tests cover the code path; the live E2E is
+  tracked as FU-3.
+- [x] AC-9: backend `pytest -q` (1706 + new, green), `ruff check`, `ruff format --check`,
+  `mypy .` pass; frontend `pnpm typecheck`, `pnpm lint`, `pnpm build`, and the RAG + composable
+  vitest suites pass. `pnpm run gen:api` re-run (regenerated `RagConfigCreateIn.ts` /
+  `RagConfigPatchIn.ts` + `openapi.json`) **and** the hand-written `schemas.ts` enum edited
+  separately. `check:openapi-drift` (a bash script) not runnable on this Windows host; drift
+  verified equivalently — after the canonical export + gen:api, `git status` showed exactly
+  `openapi.json` + the two RagConfig models, committed together (D-3).
 
 ## 11. SRS Delta
 
@@ -323,13 +337,43 @@ contract. Left out by default to keep the SRS free of implementation detail.
 
 ## 12. Deviation Log
 
-Appended by /build.
+- D-1 (bundled-service contract choice — AC-6): shipped a small **custom** reranker service
+  (`deploy/reranker/`: FastAPI + FlagEmbedding on CPU) that honours the `LocalBgeReranker`
+  adapter's exact contract (`POST /rerank {query, candidates, top_k}` ->
+  `{results:[{index,score}]}`), rather than adopting off-the-shelf HF text-embeddings-inference
+  (whose rerank contract is `{query, texts}` -> `[{index,score}]`). Rationale: the adapter and
+  its unit tests were already built around the custom contract (§7.4/§8.3); a custom service
+  keeps them unchanged and avoids a translating shim. The image bakes the model weights at
+  build so the runtime container needs no network (it sits on the internal `data_net`).
+- D-2 (deploy docs location — AC-7): no dedicated deploy README exists under `deploy/`, so the
+  `RERANK_BGE_URL` documentation lives in `.env.example` and the inline `docker-compose.yml`
+  service comments rather than a separate doc.
+- D-3 (openapi-drift verification — AC-9): `check:openapi-drift` is a bash script and bash is
+  not available on this Windows host. Drift was verified equivalently: the canonical
+  `python -m scripts.export_openapi` regenerated `openapi.json` and `pnpm run gen:api`
+  regenerated the client; `git status` then showed exactly `openapi.json` +
+  `RagConfigCreateIn.ts` + `RagConfigPatchIn.ts`, all committed together — the same invariant
+  the script enforces. (PowerShell's `>` first wrote `openapi.json` as UTF-16, which the Node
+  codegen rejected; re-exported as UTF-8-no-BOM.)
+- D-4 (F-1 test fixture): the F-1 scope-degrade test's fake config (`_cfg` in
+  `test_rag_context_provider_scope.py`) gained a `rerank_provider` attribute. The real
+  `RagConfig` domain model always carries it and the factory now branches on it; this is a
+  fixture-correctness fix, not a weakened assertion.
 
 ## 13. Follow-ups
 
 - **FU-1 (health depth):** a full readiness/health-probe gate for the reranker service
   (mirroring the sandbox `supervisor_url` gate) may be deferred if §7.6's rerank-time error
   handling is deemed sufficient for launch; record which was implemented.
-- **FU-2 (image provenance):** if a third-party rerank image is bundled, pin it by digest
-  and record it in the CI build job, consistent with the sandbox image-pinning discipline
-  (`settings.py:244-263`).
+- **FU-2 (image provenance):** the bundled reranker is built from source
+  (`deploy/reranker/Dockerfile`), not a third-party image, so there is no external digest to
+  pin; the base `python:3.12-slim` and the pinned pip deps (torch 2.5.1, FlagEmbedding 1.3.2)
+  are the provenance surface. If this is later swapped for a pre-built rerank image, pin it by
+  digest per the sandbox discipline (`settings.py`).
+- **FU-3 (live E2E — AC-8):** run the end-to-end smoke test (build the `deploy/reranker` image,
+  bring up the stack, create a `bge`-provider RAG config, and assert a rerank reorders
+  results) on a DB/Docker-backed environment before release. Deferred here only because the
+  build environment cannot build the model image or run the full stack (D-2). The
+  rerank-time error handling (§7.6) was implemented via a `/health` endpoint + Compose
+  healthcheck and the retrieval degrade path, satisfying FU-1's "at minimum surface a clear
+  error / degrade" — the deeper startup readiness gate remains optional.
