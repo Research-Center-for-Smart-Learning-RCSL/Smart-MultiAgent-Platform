@@ -18,16 +18,21 @@ from typing import Any
 __all__ = ["enqueue"]
 
 
-async def enqueue(job_name: str, *args: Any, **kwargs: Any) -> None:
+async def enqueue(job_name: str, *args: Any, **kwargs: Any) -> Any:
     """Enqueue an arq job by name. Raises on Redis failure — callers that must
     not fail their primary operation (e.g. a user message send) should wrap this
-    in a best-effort guard."""
+    in a best-effort guard.
+
+    Returns arq's ``enqueue_job`` result: a ``Job`` handle, or ``None`` when a
+    job with the same ``_job_id`` is already queued or its result is still
+    retained (arq's dedup). Callers that care whether the enqueue was suppressed
+    (e.g. the knowmap build trigger) inspect the return; the rest ignore it."""
     from arq.connections import RedisSettings, create_pool
 
     from app.config.settings import get_settings
 
     pool = await create_pool(RedisSettings.from_dsn(get_settings().redis.dsn))
     try:
-        await pool.enqueue_job(job_name, *args, **kwargs)
+        return await pool.enqueue_job(job_name, *args, **kwargs)
     finally:
         await pool.close(close_connection_pool=True)

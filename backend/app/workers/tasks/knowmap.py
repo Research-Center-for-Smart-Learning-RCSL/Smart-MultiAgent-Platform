@@ -29,6 +29,7 @@ from contexts.knowledge.application.graphrag_ports import ConfigLike
 from contexts.knowledge.application.knowmap_config_service import build_knowmap_embedder
 from contexts.knowledge.application.knowmap_ingest_service import KnowmapIngestService
 from contexts.knowledge.application.knowmap_triggers import enqueue_knowmap_build
+from contexts.knowledge.domain.graphrag import BuildState
 from contexts.knowledge.domain.models import DocumentStatus, ScanStatus
 from contexts.knowledge.infrastructure.blob_store import MinioBlobStore
 from contexts.knowledge.infrastructure.embedders import router_embedder_for
@@ -63,9 +64,7 @@ async def _enqueue_rebuild_for_config(sm: Any, knowmap_config_id: uuid.UUID) -> 
         cfg = await KnowmapConfigRepository(db).get(knowmap_config_id)
     if cfg is None:
         return
-    await enqueue_knowmap_build(
-        config_id=cfg.id, last_build_state=cfg.last_build_state, last_build_at=cfg.last_build_at
-    )
+    await enqueue_knowmap_build(config_id=cfg.id, target_revision=cfg.corpus_revision)
 
 
 async def _enqueue_build_on_clean(sm: Any, doc_id: uuid.UUID) -> None:
@@ -86,9 +85,7 @@ async def _enqueue_build_on_clean(sm: Any, doc_id: uuid.UUID) -> None:
         cfg = await KnowmapConfigRepository(db).get(doc.knowmap_config_id)
     if cfg is None:
         return
-    await enqueue_knowmap_build(
-        config_id=cfg.id, last_build_state=cfg.last_build_state, last_build_at=cfg.last_build_at
-    )
+    await enqueue_knowmap_build(config_id=cfg.id, target_revision=cfg.corpus_revision)
 
 
 async def knowmap_ingest_document(ctx: dict[str, Any], *, document_id: str) -> str:
@@ -152,10 +149,10 @@ async def knowmap_ingest_document(ctx: dict[str, Any], *, document_id: str) -> s
     # worker's clean-verdict path enqueues once it observes READY — last writer wins.
     async with sm() as db2:
         fresh = await KnowmapDocumentRepository(db2).get(doc_id)
-    if fresh is not None and fresh.scan_status is ScanStatus.CLEAN:
-        await enqueue_knowmap_build(
-            config_id=cfg.id, last_build_state=cfg.last_build_state, last_build_at=cfg.last_build_at
-        )
+        fresh_cfg = await KnowmapConfigRepository(db2).get(cfg.id)
+    if fresh is not None and fresh.scan_status is ScanStatus.CLEAN and fresh_cfg is not None:
+        # F-12: target the corpus revision the ingest commit bumped (re-read fresh).
+        await enqueue_knowmap_build(config_id=cfg.id, target_revision=fresh_cfg.corpus_revision)
     return f"status={result.status.value} document={document_id}"
 
 
@@ -267,9 +264,7 @@ async def knowmap_scan_document(ctx: dict[str, Any], *, document_id: str) -> str
     # A quarantine changes the buildable corpus → rebuild so the tainted document's
     # triples leave the graph (retrieval already hides them via the allowed-doc gate).
     if scan_status is ScanStatus.QUARANTINED and cfg is not None:
-        await enqueue_knowmap_build(
-            config_id=cfg.id, last_build_state=cfg.last_build_state, last_build_at=cfg.last_build_at
-        )
+        await enqueue_knowmap_build(config_id=cfg.id, target_revision=cfg.corpus_revision)
     elif scan_status is ScanStatus.CLEAN:
         # F-5: a clean verdict enqueues the deferred build — but only once the
         # document is READY (re-read fresh; last writer wins with the index worker).
@@ -300,7 +295,13 @@ def _make_knowmap_embedder_factory(db: AsyncSession) -> EmbedderFactory:
     return _factory
 
 
-async def knowmap_build(ctx: dict[str, Any], *, config_id: str, triggered_by: str = "manual") -> str:
+async def knowmap_build(
+    ctx: dict[str, Any],
+    *,
+    config_id: str,
+    triggered_by: str = "manual",
+    target_revision: int | None = None,
+) -> str:
     """Run a full Knowledge Map build for one config over the shared 2PC engine.
 
     Reuses the GraphRAG builder / Neo4j driver / snapshot + lock stores unchanged
@@ -308,6 +309,13 @@ async def knowmap_build(ctx: dict[str, Any], *, config_id: str, triggered_by: st
     (:class:`DocDeltaLoader`), and the Qdrant collection prefix (``knowmap``) are
     forked. The Neo4j subgraph is scoped by the opaque config id; entity vectors
     land in ``knowmap_{project_id}``.
+
+    ``target_revision`` (F-12) is the ``corpus_revision`` this build was enqueued
+    for. On success it is recorded as ``built_corpus_revision``; if the corpus
+    advanced past it *during* the build (a mutation committed after the delta
+    snapshot), a single follow-up build is enqueued for the newer revision so no
+    committed change is ever left unbuilt. ``None`` for a legacy in-flight job
+    enqueued before this deploy — those skip the re-check and complete normally.
     """
     _ = ctx
     from qdrant_client import AsyncQdrantClient
@@ -366,13 +374,46 @@ async def knowmap_build(ctx: dict[str, Any], *, config_id: str, triggered_by: st
                 result.triples_written,
                 result.entities_written,
             )
-            return (
-                f"state={result.state.value} "
-                f"triples={result.triples_written} entities={result.entities_written}"
-            )
+        # F-12: record the processed revision and enqueue one follow-up if the
+        # corpus advanced during the build (a mutation committed after the delta
+        # snapshot). Runs in its own session — the shared builder stays
+        # enqueue-free so layer boundaries hold and Concept Maps are unaffected.
+        await _finalize_build_revision(sm, cfg_id, target_revision, succeeded=result.state is BuildState.IDLE)
+        return (
+            f"state={result.state.value} "
+            f"triples={result.triples_written} entities={result.entities_written}"
+        )
     finally:
         await neo4j.close()
         await qclient.close()
+
+
+async def _finalize_build_revision(
+    sm: Any,
+    config_id: uuid.UUID,
+    target_revision: int | None,
+    *,
+    succeeded: bool,
+) -> int | None:
+    """Record the built revision and re-enqueue if the corpus advanced (F-12).
+
+    On a successful build, stamp ``built_corpus_revision = target_revision`` and
+    re-read the current ``corpus_revision``; if it advanced past the target while
+    the build ran, enqueue exactly one follow-up for the newer revision (which
+    itself deduplicates on that revision, so the chain terminates once the built
+    revision catches up). No-op for a failed build or a legacy job with no
+    ``target_revision``. Returns the follow-up revision enqueued, or ``None``."""
+    if not succeeded or target_revision is None:
+        return None
+    async with sm() as db:
+        configs = KnowmapConfigRepository(db)
+        async with db.begin():
+            await configs.set_built_corpus_revision(config_id, target_revision)
+        current = await configs.get(config_id)
+    if current is not None and current.corpus_revision > target_revision:
+        await enqueue_knowmap_build(config_id=config_id, target_revision=current.corpus_revision)
+        return current.corpus_revision
+    return None
 
 
 __all__ = ["knowmap_build", "knowmap_ingest_document", "knowmap_scan_document"]

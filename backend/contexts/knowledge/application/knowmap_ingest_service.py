@@ -224,6 +224,10 @@ class KnowmapIngestService:
                     [{"document_id": doc.id, "chunk_idx": i, "text": piece} for i, piece in enumerate(pieces)]
                 )
             await self._docs.set_status(document_id=doc.id, status=DocumentStatus.READY)
+            # F-12: a document became part of the buildable corpus — bump the
+            # monotonic corpus revision in this same transaction so the build
+            # enqueued for it gets a job id distinct from any prior corpus state's.
+            await self._configs.bump_corpus_revision(doc.knowmap_config_id)
             await audit.emit(
                 self._db,
                 audit.AuditEvent(
@@ -263,11 +267,12 @@ class KnowmapIngestService:
         content, same sha) enqueues here at once — its clean verdict still holds."""
         if doc.scan_status is not ScanStatus.CLEAN:
             return
-        await enqueue_knowmap_build(
-            config_id=cfg.id,
-            last_build_state=cfg.last_build_state,
-            last_build_at=cfg.last_build_at,
-        )
+        # F-12: target the current corpus revision (re-read fresh — the commit above
+        # bumped it), so the build's dedup job id reflects the committed corpus.
+        fresh = await self._configs.get(cfg.id)
+        if fresh is None:
+            return
+        await enqueue_knowmap_build(config_id=cfg.id, target_revision=fresh.corpus_revision)
 
 
 async def enqueue_knowmap_scan(*, document_id: uuid.UUID) -> None:
