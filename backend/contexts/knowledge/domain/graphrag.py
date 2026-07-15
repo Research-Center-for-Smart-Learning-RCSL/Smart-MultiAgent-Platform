@@ -18,6 +18,8 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
+from shared_kernel.tokens import estimate_tokens
+
 _SECONDS_PER_DAY = 86_400.0
 
 
@@ -296,14 +298,19 @@ class GraphRagBundle:
     relations: tuple[RelationEdge, ...]
     evidence_excerpts: tuple[str, ...]
 
-    def as_system_message(self) -> dict[str, Any]:
-        """Render as a ``{"type":"graphrag"}`` system message (§22.8)."""
+    def as_system_message(self, *, token_budget: int | None = None) -> dict[str, Any]:
+        """Render as a ``{"type":"graphrag"}`` system message (§22.8).
+
+        The 2 KB byte cap (R11.06) is always applied as a floor; when the turn's
+        knowledge allocator grants a smaller ``token_budget`` (F-16/R11.19), the
+        content is trimmed to that budget as well.
+        """
         payload = {
             "role": "system",
             "content": _render_bundle_text(self),
             "metadata": {"type": "graphrag"},
         }
-        return _cap_to_2kb(payload)
+        return _cap_to_2kb(payload, token_budget=token_budget)
 
 
 @dataclass(frozen=True, slots=True)
@@ -329,19 +336,29 @@ def _render_bundle_text(bundle: GraphRagBundle) -> str:
     return "\n".join(lines)
 
 
-def _cap_to_2kb(payload: dict[str, Any]) -> dict[str, Any]:
-    """Trim ``content`` so the serialised JSON fits in 2 KB (R11.06)."""
-    raw = json.dumps(payload, ensure_ascii=False)
-    if len(raw.encode("utf-8")) <= 2048:
-        return payload
+def _cap_to_2kb(payload: dict[str, Any], *, token_budget: int | None = None) -> dict[str, Any]:
+    """Trim ``content`` so the serialised JSON fits in 2 KB (R11.06) and, when a
+    ``token_budget`` is given (F-16), so its estimated token count fits too.
+
+    Both constraints are combined in one predicate and satisfied by a single
+    binary search on content length — the largest prefix that clears both wins.
+    """
     content = payload["content"]
-    # Binary search on length — shrink content until total fits.
+
+    def fits(text: str) -> bool:
+        trial = dict(payload)
+        trial["content"] = text
+        if len(json.dumps(trial, ensure_ascii=False).encode("utf-8")) > 2048:
+            return False
+        return token_budget is None or estimate_tokens(text) <= token_budget
+
+    if fits(content):
+        return payload
+    # Binary search on length — largest prefix (plus ellipsis) that fits both caps.
     lo, hi = 0, len(content)
     while lo < hi:
         mid = (lo + hi + 1) // 2
-        trimmed = dict(payload)
-        trimmed["content"] = content[:mid] + "..."
-        if len(json.dumps(trimmed, ensure_ascii=False).encode("utf-8")) <= 2048:
+        if fits(content[:mid] + "..."):
             lo = mid
         else:
             hi = mid - 1

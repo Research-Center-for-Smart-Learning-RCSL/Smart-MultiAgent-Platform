@@ -143,13 +143,16 @@ class KnowledgeMapContextProvider:
         query_text: str | None = None,
         query_texts: Sequence[str] | None = None,
         querying_agent_id: uuid.UUID | None = None,
+        token_budget: int | None = None,
     ) -> str | None:
         """Return a formatted Knowledge Map context string, or ``None``.
 
         Safe to call unconditionally — returns ``None`` when the config is missing,
         infrastructure is not configured, the agent has no readable documents, or
         retrieval fails. ``querying_agent_id`` is required: with no agent principal
-        the allowlist grants nothing (secure-by-default)."""
+        the allowlist grants nothing (secure-by-default). ``token_budget`` caps the
+        rendered block below the 2 KB floor when the turn allocator grants less
+        (F-16)."""
         queries = normalise_queries(query_text=query_text, query_texts=query_texts)
         if knowmap_config_id is None or not queries or querying_agent_id is None:
             return None
@@ -177,7 +180,7 @@ class KnowledgeMapContextProvider:
             )
             if not (bundle.entities or bundle.relations):
                 return None
-            return str(bundle.as_system_message()["content"])
+            return str(bundle.as_system_message(token_budget=token_budget)["content"])
         except Exception:
             _log.warning("Knowledge Map retrieval failed config=%s", knowmap_config_id, exc_info=True)
             return None

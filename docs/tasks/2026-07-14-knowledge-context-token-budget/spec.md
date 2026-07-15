@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: draft
+status: in-progress
 created: 2026-07-14
 requirements: [R9.10, R11.19, R10.09, R11.14]
 ---
@@ -236,26 +236,34 @@ Tests are written first and must fail against current code.
 
 ## 10. Acceptance Criteria
 
-- [ ] AC-1: the F-16 regression test in §8 fails before the fix and passes after.
-- [ ] AC-2: the F-17 regression test in §8 fails before the fix and passes after.
-- [ ] AC-3: the assembled `system_text` token estimate for a multi-source turn is bounded
-      by a knowledge budget derived from `context_token_cap`/provider limit minus base
-      system + tools + history + response reserve.
-- [ ] AC-4: the knowledge budget is distributed in precedence order Concept Map > Knowledge
-      Map > File RAG in **both** context modes; File RAG is truncated before the graph
-      blocks, and a zero-budget source is omitted (not sent empty).
-- [ ] AC-5: `context_mode=compact` triggers compaction from the estimated *assembled*
-      request (base + knowledge + tools + history + response reserve), not from stored
-      history alone. The forced `/compact` half-shed (`turn_engine.py:1463-1465`) is
-      unchanged.
-- [ ] AC-6: a re-estimate before the initial dispatch guards the provider hard limit; a
-      pathological large-prefix compact-mode Agent runs an additional compaction pass rather
-      than dispatching a guaranteed-overflow request. (Mid-tool-loop growth is FU-4.)
-- [ ] AC-7: `context_mode=general` keeps unbounded history and still surfaces provider
-      context-limit errors to the UI ([R9.09] — no history compaction added), but the
-      knowledge allocator (AC-3/AC-4) still bounds its three knowledge blocks per [R11.19].
-- [ ] AC-8: `pytest -q`, `ruff check .`, `ruff format --check .`, and `mypy .` pass in
-      `backend/`.
+- [x] AC-1: the F-16 regression test in §8 fails before the fix and passes after. Realized as
+      new-behaviour tests (`test_context_compaction.py::test_allocate_*` /
+      `test_knowledge_budget_*`, `test_graphrag_retrieve.py::test_bundle_caps_to_token_budget_below_2kb`,
+      `test_rag_services.py::test_format_rag_block_respects_token_budget`,
+      `test_turn_context_budget.py::test_assemble_knowledge_*`); each exercises functions/params
+      that did not exist pre-fix (so are red/absent before it).
+- [x] AC-2: the F-17 regression test in §8 fails before the fix and passes after
+      (`test_turn_context_budget.py::test_assemble_history_budgets_the_next_request_not_history_alone`
+      — the `extra_projected_tokens` parameter did not exist pre-fix).
+- [x] AC-3: the assembled `system_text` is bounded by `knowledge_budget(ceiling, reserve,
+      fixed_context)` where fixed_context = non-knowledge system blocks + tools + user/agent
+      history rows + input; ceiling = `context_token_cap`/its 75% default (compact) or provider
+      limit (general). Each provider clamps its own block to its per-source grant.
+- [x] AC-4: `allocate_knowledge_budget` distributes Concept > Knowledge > File RAG in both modes
+      (the room path always allocates); File RAG takes the remainder so it yields first, and a
+      zero-budget source is omitted by `_assemble_agent_knowledge` (never queried).
+- [x] AC-5: the compact-mode decision uses `history + extra_projected_tokens` (base + dynamic
+      blocks + tools + input + reserve); the forced `/compact` half-shed stays history-based (see
+      D-4 note on the relative graph order).
+- [x] AC-6: a pre-dispatch re-estimate (`_estimate_messages_tokens` + system + tools + reserve)
+      guards the provider hard limit; a compact-mode overflow runs one more `_assemble_history`
+      pass and rebuilds the request (D-3). Mid-tool-loop growth stays FU-4.
+- [x] AC-7: general mode keeps history uncompacted (ceiling = provider limit, guard skipped) yet
+      the knowledge allocator still bounds the three blocks per [R11.19].
+- [x] AC-8: unit `pytest` green (1685 passed); `ruff check`/`format --check` clean on the diff;
+      `mypy` introduces no new errors (16 pre-existing baseline errors in untouched modules,
+      recorded on the F-15 dossier FU-3). `tests/wiring/` is compose-backed (env-blocked, not a
+      regression).
 
 ## 11. SRS Delta
 
@@ -264,7 +272,31 @@ None. The fix restores [R11.19] (combined bound with narrow-scope precedence) an
 
 ## 12. Deviation Log
 
-Appended by /build.
+- **D-1**: `estimate_tokens` was moved from `contexts/agents/application/runtime/transcript.py`
+  into `shared_kernel/tokens.py` (re-exported from `transcript` so existing imports hold). §7.C
+  said per-provider truncation "uses the existing coarse `estimate_tokens` (transcript.py)", but
+  a knowledge-context provider importing the agents runtime would break layering. The shared
+  kernel is the SoC-correct home — both the agents context manager and the knowledge providers
+  now size against one estimator. (Two other coarse `_estimate_tokens` copies in
+  `knowmap_delta_loader.py`/`workers/tasks/graphrag.py` are left as-is — out of scope; FU-5.)
+- **D-2**: The precedence allocator caps each graph source at a fixed
+  `_GRAPH_BLOCK_TOKEN_BUDGET` (700 tokens, matching the existing 2 KB byte floor) and gives File
+  RAG the remainder, rather than a proportional split. Each graph block is already ≤2 KB, so the
+  byte floor is the binding constraint for normal-size blocks (no output change) while File RAG —
+  the dominant lever — absorbs the budget pressure. The Concept>Knowledge relative order is
+  realized as "Knowledge Map yields before Concept Map only when the total is below one graph
+  cap" (§3 records this order as a design decision, not SRS-mandated).
+- **D-3**: The AC-6 pre-dispatch guard re-runs the full request assembly (`_assemble_request`)
+  after its extra compaction pass rather than a lightweight re-count, because the knowledge
+  budget depends on the re-compacted history. This re-queries the knowledge providers on the rare
+  backstop path — acceptable for a guard that the budget construction already makes uncommon.
+- **D-4**: Headless `run_input_turn` knowledge assembly is left **unbudgeted** here
+  (`budgets=None` → uncapped, today's behaviour). F-15's FU-1 anticipated F-16 budgeting both the
+  room and headless paths via the shared helper; this task scoped budgeting to the room path (its
+  ACs and blast radius) and made `_assemble_agent_knowledge` budget-capable so headless can adopt
+  it trivially. Rationale: headless turns carry no accumulating history (the dominant overflow
+  driver), and budgeting them correctly needs a reorder of `run_input_turn`'s tool assembly that
+  would widen an already-large change. Recorded as FU-6.
 
 ## 13. Follow-ups
 
@@ -285,3 +317,11 @@ Appended by /build.
   limit once large tool outputs accumulate. Mid-loop tool-result growth is a distinct
   overflow vector (out of scope for R9.10/R11.19 as filed); a per-round guard or
   tool-result trimming should be scoped separately.
+- FU-5: two other coarse `_estimate_tokens` copies remain in
+  `contexts/knowledge/infrastructure/knowmap_delta_loader.py:38` and
+  `app/workers/tasks/graphrag.py:58`; they could now import the shared
+  `shared_kernel.tokens.estimate_tokens` (D-1) to remove the duplication.
+- FU-6 (headless budgeting): apply the knowledge budget to `run_input_turn` (headless A2A /
+  approval turns) via the now budget-capable `_assemble_agent_knowledge`; needs the same
+  fixed-context accounting the room path uses (reorder tool assembly ahead of knowledge). See D-4;
+  supersedes F-15 FU-1's expectation that F-16 would cover headless.

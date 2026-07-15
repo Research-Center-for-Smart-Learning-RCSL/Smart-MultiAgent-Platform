@@ -33,6 +33,11 @@ from contexts.conversation.interfaces.facade import (
     SenderType,
 )
 
+# Canonical definition now lives in the shared kernel so the knowledge providers
+# can size their blocks against the same estimate the context manager budgets
+# with (F-16). Re-exported so existing ``transcript.estimate_tokens`` imports hold.
+from shared_kernel.tokens import estimate_tokens
+
 # How many recent rows to pull when assembling history. Compaction keeps the
 # live window bounded; this is the safety ceiling on a single turn's scan.
 DEFAULT_HISTORY_WINDOW = 500
@@ -91,26 +96,6 @@ def _attachment_excerpt(attachments: Sequence[MessageAttachment] | None) -> str 
             # has no grounding to even acknowledge it was shared.
             parts.append(f"[Attached file: {a.filename} — content not available on this turn]")
     return "\n\n".join(parts) if parts else None
-
-
-def estimate_tokens(text: str) -> int:
-    """Coarse token estimate; CJK characters count as 1 token each, Latin as
-    len//4 (M10). Messages carry no token column."""
-    cjk = 0
-    latin = 0
-    for ch in text:
-        cp = ord(ch)
-        if (
-            0x4E00 <= cp <= 0x9FFF
-            or 0x3400 <= cp <= 0x4DBF
-            or 0x3040 <= cp <= 0x30FF
-            or 0xAC00 <= cp <= 0xD7AF
-            or 0xFF00 <= cp <= 0xFFEF
-        ):
-            cjk += 1
-        else:
-            latin += 1
-    return max(1, cjk + latin // 4)
 
 
 def _is_summary(metadata: Any) -> bool:

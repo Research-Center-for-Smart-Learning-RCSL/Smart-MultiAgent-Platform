@@ -76,6 +76,7 @@ class GraphRagContextProvider:
         query_text: str | None = None,
         query_texts: Sequence[str] | None = None,
         querying_agent_id: uuid.UUID | None = None,
+        token_budget: int | None = None,
     ) -> str | None:
         """Return a formatted GraphRAG context string, or ``None`` if unavailable.
 
@@ -84,7 +85,8 @@ class GraphRagContextProvider:
 
         ``querying_agent_id`` is the agent whose turn is retrieving; it is
         threaded to the evidence fetcher so excerpts from rooms the agent may
-        not read are dropped (WS3 AC-7).
+        not read are dropped (WS3 AC-7). ``token_budget`` caps the rendered
+        block below the 2 KB floor when the turn allocator grants less (F-16).
         """
         queries = normalise_queries(query_text=query_text, query_texts=query_texts)
         if graphrag_config_id is None or not queries:
@@ -94,7 +96,7 @@ class GraphRagContextProvider:
             bundle = _merge_bundles(bundles)
             if bundle is None or not (bundle.entities or bundle.relations):
                 return None
-            return str(bundle.as_system_message()["content"])
+            return str(bundle.as_system_message(token_budget=token_budget)["content"])
         except Exception:
             _log.warning(
                 "GraphRAG retrieval failed config=%s",
@@ -112,6 +114,7 @@ class GraphRagContextProvider:
         query_text: str | None = None,
         query_texts: Sequence[str] | None = None,
         querying_agent_id: uuid.UUID | None = None,
+        token_budget: int | None = None,
     ) -> str | None:
         """Assemble a layered GraphRAG context, narrowest-first (WS4 R11.09).
 
@@ -156,7 +159,7 @@ class GraphRagContextProvider:
             bundle = _merge_layers_tiered(layer_bundles)
             if bundle is None or not (bundle.entities or bundle.relations):
                 return None
-            return str(bundle.as_system_message()["content"])
+            return str(bundle.as_system_message(token_budget=token_budget)["content"])
         except Exception:
             _log.warning(
                 "GraphRAG layered assembly failed layers=%s",
