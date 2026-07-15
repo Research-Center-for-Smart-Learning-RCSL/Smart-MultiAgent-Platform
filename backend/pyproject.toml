@@ -222,6 +222,14 @@ disable_error_code = [
   "attr-defined",
   "union-attr",
   "no-any-return",
+  # SimpleNamespace/Mock fixtures stand in for real domain objects, so identity
+  # and equality checks against them read as non-overlapping to mypy
+  # (`comparison-overlap`); the same stubs plus state mutated through a fake's
+  # method leave mypy over-narrowing a var it can no longer see change, flagging
+  # the following real assertions as dead (`unreachable`). Both are test-fixture
+  # artefacts, not shipped-code defects.
+  "comparison-overlap",
+  "unreachable",
 ]
 
 # FastAPI middleware signatures pass `call_next` callbacks whose return type
@@ -256,6 +264,9 @@ module = ["shared_kernel.auth.tokens", "shared_kernel.auth.ratelimit",
           "contexts.workflow.application.executors.wait_for_event",
           "contexts.workflow.application.executors.join",
           "contexts.orchestration.application.a2a_consumer",
+          "contexts.orchestration.infrastructure.a2a_streams",
+          "contexts.conversation.infrastructure.presence",
+          "contexts.conversation.infrastructure.tus_store",
           "app.workers.tasks.workflow",
           "app.workers.tasks.workflow_common",
           "app.workers.tasks.workflow_steps",
@@ -316,13 +327,23 @@ module = [
   "shared_kernel.queue",
   "contexts.knowledge.infrastructure.redis_lock",
   "contexts.keys.infrastructure.revocation_listener",
-  "contexts.orchestration.infrastructure.a2a_streams",
   "contexts.orchestration.application.subagent_service",
   "contexts.workflow.application.run_engine",
   "contexts.agents.infrastructure.turn_lock",
-  "contexts.conversation.infrastructure.tus_store",
+  # app.workers.main's redis health probe uses the sync client, whose
+  # `close()` is untyped in the redis-py 5.2 stubs (`no-untyped-call`).
+  "app.workers.main",
 ]
 disable_error_code = ["attr-defined", "type-arg", "union-attr", "no-untyped-call"]
+
+# bleach/html5lib's `Filter` base class is typed `Any` in the stubs, so the
+# reverse-tabnabbing `rel` filter that subclasses it trips `misc` ("Class cannot
+# subclass Filter"). Runtime-correct; the subclass is exercised by the sanitize
+# tests. Scoped to this one module so the rest of the strict shared_kernel zone
+# keeps full `misc` checking.
+[[tool.mypy.overrides]]
+module = ["shared_kernel.markdown.sanitize"]
+disable_error_code = ["misc"]
 
 # ---------- Pytest ----------
 [tool.pytest.ini_options]
