@@ -225,6 +225,31 @@ services:
       timeout: 3s
       retries: 5
 
+  bge-reranker:
+    # R10.08 / F-19: the keyless bundled local reranker (bge-reranker-v2-m3, CPU
+    # inference). Backend/worker reach it at http://bge-reranker:80 (the default
+    # RERANK_BGE_URL); it honours the LocalBgeReranker adapter contract
+    # (POST /rerank {query, candidates, top_k} -> {results:[{index,score}]}).
+    # Internal-only (data_net, no published port) — SMAP never sends a provider
+    # key here. Set RERANK_BGE_URL empty to disable the local rerank option.
+    build:
+      context: ../reranker
+      dockerfile: Dockerfile
+    container_name: smap_bge_reranker
+    networks: [data_net]
+    logging: *log-rotation
+    healthcheck:
+      test:
+        - "CMD"
+        - "python"
+        - "-c"
+        - "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:80/health').status==200 else 1)"
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      # CPU model load can take a while on first boot; don't flap before ready.
+      start_period: 180s
+
   neo4j:
     image: neo4j:5.24-community
     container_name: smap_neo4j
