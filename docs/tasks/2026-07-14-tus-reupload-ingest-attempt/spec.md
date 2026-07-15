@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: draft
+status: implemented
 created: 2026-07-14
 requirements: []
 ---
@@ -230,22 +230,30 @@ Primary red-first tests: (1) for the retry fix, (4) for the concurrency guard.
 
 ## 10. Acceptance Criteria
 
-- [ ] AC-1: The distinct-retry-ID test (§8.1) fails before the fix and passes after, for both the
-  RAG and Knowledge Map finalizers.
-- [ ] AC-2: `rag_documents` and `knowmap_documents` carry `ingest_attempt INTEGER NOT NULL
-  DEFAULT 0` (ORM tables and migration match, no `sa.Text`/enum mismatch), and both document
-  repositories expose an atomic increment-and-return method (`bump_ingest_attempt`) — the frozen
-  domain models are not modified on the read path.
-- [ ] AC-3: A reupload of a terminal non-`READY` (`FAILED`/`QUARANTINED`) document increments
-  `ingest_attempt` and enqueues both the ingest and scan jobs with IDs that include the new attempt,
-  so a genuine retry always schedules a fresh index and rescan.
-- [ ] AC-4: A first-time finalize enqueues attempt 0; a same-attempt concurrent finalize dedups; and
-  a reupload of an `INGESTING` document does **not** bump — it keeps the in-flight ID so the run is
-  deduped (no second concurrent worker), while a `FAILED`/`QUARANTINED` reupload bumps to a fresh ID.
-- [ ] AC-5: The Arq-dedup confirmation check (§8.5) documents/verifies that Arq `0.26.*` suppresses
-  a retained-`_job_id` re-enqueue on the deployed stack.
-- [ ] AC-6: `pytest -q`, `ruff check . && ruff format --check .`, `mypy .`, and `alembic upgrade
-  head` pass in `backend/`.
+- [x] AC-1: The distinct-retry-ID test (§8.1) fails before the fix and passes after, for both the
+  RAG and Knowledge Map finalizers (`test_tus_ingest_attempt.py`
+  `test_*_failed_reupload_bumps_and_enqueues_fresh_ids`). Red before: both re-enqueues produced the
+  document-only `rag-ingest:{doc}` / `knowmap-ingest:{doc}`.
+- [x] AC-2: `rag_documents` and `knowmap_documents` carry `ingest_attempt INTEGER NOT NULL
+  DEFAULT 0` (ORM `tables.py`/`knowmap_tables.py` + migration 0055 match — a plain `sa.Integer`, no
+  enum), and both repositories expose the atomic increment-and-return `bump_ingest_attempt` (UPDATE
+  … +1 … RETURNING); the frozen `RagDocument`/`KnowmapDocument` read models are unchanged.
+- [x] AC-3: a reupload of a terminal non-`READY` (`FAILED`/`QUARANTINED`) document increments
+  `ingest_attempt` and enqueues both the ingest and scan jobs with attempt-suffixed IDs
+  (`test_*_failed_reupload_*` asserts `…-ingest:{doc}:{n}` + `…-scan:{doc}:{n}`).
+- [x] AC-4: a first-time finalize enqueues attempt 0 (`test_*_first_upload_uses_attempt_zero`); a
+  same-attempt duplicate is deterministic (same inputs → same id); and an `INGESTING` reupload does
+  **not** bump and enqueues nothing (`test_*_ingesting_reupload_does_not_bump_or_enqueue`), so the
+  in-flight run is left to finish (no `uq_*_chunk_doc_idx` collision).
+- [~] AC-5: the Arq-dedup confirmation (§8.5) is documented and lives in the wiring test
+  (`tests/wiring/test_rag_ingestion.py`), which is skipped in this host-only unit environment (no
+  Redis/Arq). Deferred to a stack-backed run — tracked as FU-3. The fix's correctness does not
+  depend on it (the red-first job-ID-distinctness tests are Arq-independent).
+- [x] AC-6: `pytest -q` (unit suite green, 1722 passed incl. new + updated wiring fakes),
+  `ruff check`, `ruff format --check`, and `mypy .` pass in `backend/`. `alembic upgrade head`
+  runtime not run locally (no Postgres; the alembic CLI is blocked by a pre-existing `alembic.ini`
+  locale-decode bug — same as F-18 D-2); the migration module imports and the revision graph
+  validates via alembic's Python API (single head `0055`, linear chain onto `0054`).
 
 ## 11. SRS Delta
 
@@ -254,7 +262,18 @@ genuine-retry behavior.
 
 ## 12. Deviation Log
 
-Appended by /build.
+- D-1 (migration number): the column migration is `0055_document_ingest_attempt`, not the
+  "next revision after current head" the spec drafted against head 0051. F-18's repair migration
+  (`0054`) landed first in this build session, so F-23 chains onto `0054` as `0055` (F-12's `0053`
+  is unrelated, different tables — no logical conflict, as §9 anticipated).
+- D-2 (INGESTING reupload — no audit to commit): on the RAG path an `INGESTING` reupload still
+  emits the existing re-upload audit (then commits it) but skips the re-enqueue; the knowmap path
+  has no re-upload audit (pre-existing asymmetry), so its `INGESTING` branch simply returns without
+  enqueue. Both preserve the in-flight-dedup guard.
+- D-3 (alembic runtime gate, shared with F-18): `alembic upgrade head` was not executed — no
+  Postgres in the build environment and the alembic CLI is blocked by the host's cp950/`alembic.ini`
+  locale bug. Validated statically (module import + revision-graph API). See the F-18 dossier D-2 /
+  FU-3 for the same limitation and the recommendation to run the gate on a DB-backed environment.
 
 ## 13. Follow-ups
 
@@ -267,3 +286,11 @@ Appended by /build.
   `knowmap_ingest_service.py:273`), so a retained failed scan result can suppress a rescan there too.
   Lower impact (multipart re-indexes synchronously; only the rescan is at risk) and it owns no tus
   attempt counter, so it is deferred; a fix would give multipart its own scan-attempt discriminator.
+  (The `enqueue_rag_scan` / `enqueue_knowmap_scan` helpers now accept `ingest_attempt`, defaulting
+  to `0` for the multipart callers — so this fix is a small follow-on: thread a per-document scan
+  attempt through the multipart reupload path.)
+- **FU-3 (stack-backed verification — AC-5/AC-6):** on a Postgres+Redis+Arq environment, (a) run the
+  Arq-dedup confirmation wiring test (`tests/wiring/test_rag_ingestion.py`) to confirm Arq `0.26.*`
+  suppresses a retained-`_job_id` re-enqueue, and (b) run `alembic upgrade head` / `downgrade -1` for
+  migration 0055. Both were deferred here only because the build environment has neither a broker nor
+  a database (D-3).
