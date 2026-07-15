@@ -133,14 +133,24 @@ const isBuilding = (cfg: GraphragConfig): boolean => GRAPHRAG_IN_PROGRESS.has(ef
 
 // F-22: subscribe every rendered row regardless of its initial build state, so
 // an auto-build started elsewhere while a row shows idle is reflected live.
-// Bounded to the current page's rows (not the unbounded list) and passing the
-// row's last_build_state as a defined initial state; watch() is idempotent and
-// unwatches on unmount. Re-runs on page change and list refetch.
+// Strictly bounded to the CURRENTLY rendered page: rows that scroll off (page
+// change / filter / refetch) are unwatched so the open-channel count never
+// exceeds PAGE_SIZE, instead of accumulating one channel per row ever visited.
+// A row that returns re-subscribes and resyncs. watch() is idempotent.
+const subscribedRows = new Set<string>()
 watch(
   pagedConfigs,
   (list) => {
+    const rendered = new Set(list.map((c) => c.id))
+    for (const id of subscribedRows) {
+      if (!rendered.has(id)) {
+        unwatchBuild(id)
+        subscribedRows.delete(id)
+      }
+    }
     for (const cfg of list) {
       watchBuild(cfg.id, cfg.last_build_state)
+      subscribedRows.add(cfg.id)
     }
   },
   { immediate: true },

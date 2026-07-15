@@ -761,6 +761,7 @@ const DocsTable = typedSTable<KnowmapDocument>()
                   variant="ghost"
                   icon-only
                   size="sm"
+                  :aria-label="t('agents.knowmap.deleteDocAria')"
                   @click="confirmDeleteDoc(row)"
                 >
                   <TrashIcon class="w-4 h-4 text-[var(--color-danger)]" />

@@ -118,16 +118,16 @@ export function useRagConfigSocket(configId: string, projectId: string) {
   function handleEvent(ev: ChannelEvent): void {
     switch (ev.type) {
       case 'ingestion.started':
-        // Instant "something started" hint; syncState reconciles counts and
-        // the corpus-level state authoritatively.
+        // Instant "something started" hint; the debounced resync reconciles
+        // counts and the corpus-level state authoritatively.
         if (progress.value.state === 'idle') progress.value.state = 'ingesting'
-        void syncState()
+        scheduleSync()
         break
       case 'ingestion.indexing':
         // `indexing` exists only as a live signal (no document sub-state);
-        // syncState preserves it until a terminal derivation.
+        // the resync preserves it until a terminal derivation.
         progress.value.state = 'indexing'
-        void syncState()
+        scheduleSync()
         break
       case 'ingestion.progress':
         // Late-subscriber feedback (F-28): show the bar immediately, but take
@@ -141,10 +141,15 @@ export function useRagConfigSocket(configId: string, projectId: string) {
         // Per-document terminal frames: whether the CORPUS is done is decided
         // by authoritative document state, not this one document's event, so
         // no optimistic terminal flip here (it would wrongly flip the bar
-        // mid-upload). syncState derives ready/failed/still-ingesting.
-        void syncState()
+        // mid-upload). The debounced resync derives ready/failed/still-ingesting.
+        scheduleSync()
         break
     }
+    // All ingestion.* frames are per-document and chunk-granular, and arrive in
+    // bursts across a multi-file upload; routing every frame through the same
+    // debounced syncState coalesces the burst into ~1 authoritative document
+    // refetch per window instead of one fetch + two query invalidations per
+    // frame. Connect/reconnect/mount resyncs stay immediate (below).
   }
 
   const unsubscribeEvent = channel.subscribe('*', handleEvent)
@@ -168,6 +173,10 @@ export function useRagConfigSocket(configId: string, projectId: string) {
   onDeactivated(() => {
     channel.disconnect()
     stopPoll()
+    // Cancel any pending debounced resync too — otherwise a frame that landed
+    // just before deactivation could fire syncState afterwards and restart the
+    // poll on a cached (kept-alive) off-screen view.
+    if (debounceTimer !== null) clearTimeout(debounceTimer)
   })
 
   onBeforeUnmount(() => {

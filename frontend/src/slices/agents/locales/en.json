@@ -322,6 +322,7 @@
       "deleteFailed": "Failed to delete document.",
       "deleteTitle": "Delete Document",
       "deleteConfirm": "Delete \"{name}\"? This removes its indexed chunks and cannot be undone.",
+      "deleteDocAria": "Delete document",
       "emptyTitle": "No documents uploaded",
       "emptyDescription": "Upload documents to build a knowledge graph.",
       "agentsSaved": "Document visibility updated.",
