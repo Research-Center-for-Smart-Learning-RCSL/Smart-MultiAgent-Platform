@@ -8,9 +8,10 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Sequence
-from typing import Any
+from typing import Any, cast
 
 import sqlalchemy as sa
+from sqlalchemy import CursorResult
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -138,7 +139,7 @@ class ActivityTypeRepository:
             )
             .values(deleted_at=now())
         )
-        return bool(result.rowcount)
+        return bool(cast("CursorResult[Any]", result).rowcount)
 
 
 __all__ = ["ActivityTypeRepository"]
