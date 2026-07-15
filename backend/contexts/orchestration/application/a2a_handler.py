@@ -172,6 +172,7 @@ async def _run_turn_with_db(db: Any, to_id: uuid.UUID, envelope: A2AEnvelope) ->
         db,
         qdrant_url=settings.qdrant.url,
         qdrant_api_key=settings.qdrant.api_key,
+        bge_reranker_url=settings.knowledge.bge_reranker_url,
     )
     cancel_check = None
     if envelope.type is A2AMessageType.CALL and envelope.correlation_id:

@@ -157,11 +157,24 @@ class RetrieveService:
             )
 
         if do_rerank and self._reranker is not None and candidates:
-            rr = await self._reranker.rerank(
-                query=text,
-                candidates=[c.text for c in candidates],
-                top_k=effective_top_k,
-            )
+            try:
+                rr = await self._reranker.rerank(
+                    query=text,
+                    candidates=[c.text for c in candidates],
+                    top_k=effective_top_k,
+                )
+            except Exception:
+                # F-19 (AC-4): a rerank execution failure — the local bge service
+                # down/unreachable, a Cohere HTTP error, or a malformed response —
+                # must degrade to vector-only, not fail the turn or drop the whole
+                # RAG block. Fall back to the already-vector-ranked candidates.
+                # (This hardens the Cohere path too, not just bge.)
+                _log.warning(
+                    "rerank failed for config %s; falling back to vector-only order",
+                    config_id,
+                    exc_info=True,
+                )
+                return candidates[:effective_top_k]
             reranked: list[RetrievedChunk] = []
             for r in rr:
                 if 0 <= r.index < len(candidates):

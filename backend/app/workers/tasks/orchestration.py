@@ -122,6 +122,7 @@ async def wakeup_agent(
             db,
             qdrant_url=settings.qdrant.url,
             qdrant_api_key=settings.qdrant.api_key,
+            bge_reranker_url=settings.knowledge.bge_reranker_url,
         )
         mid: uuid.UUID | None = None
         if trigger_message_id:

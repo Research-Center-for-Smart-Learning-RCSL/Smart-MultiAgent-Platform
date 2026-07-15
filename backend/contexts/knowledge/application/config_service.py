@@ -46,11 +46,15 @@ _RERANK = CapabilityRequirement(capability=ProviderCapability.RERANK)
 
 
 class RagConfigService:
-    def __init__(self, db: AsyncSession) -> None:
+    def __init__(self, db: AsyncSession, *, bge_reranker_url: str | None = None) -> None:
         self._db = db
         self._configs = RagConfigRepository(db)
         self._pins = EmbeddingPinRepository(db)
         self._keys_facade = KeysFacade(db)
+        # F-19: whether the bundled local reranker is deployed, injected by the
+        # app layer (application must not read app.config). Empty/None => the
+        # keyless "bge" rerank option is rejected with a doc-pointing error.
+        self._bge_reranker_url = bge_reranker_url
 
     async def _validate_embed_key(self, *, key_id: uuid.UUID, provider: str, project_id: uuid.UUID) -> None:
         key = await self._keys_facade.get_key(key_id)
@@ -66,6 +70,39 @@ class RagConfigService:
             assert_capability(ApiKeyProvider(key.provider.value), _EMBED)
         except KeysCapabilityMismatch as exc:
             raise CapabilityMismatch(str(exc)) from exc
+
+    async def _validate_rerank_selection(
+        self,
+        *,
+        provider: str | None,
+        key_id: uuid.UUID | None,
+        project_id: uuid.UUID,
+    ) -> None:
+        """Validate an enabled rerank selection, branching on provider (F-19).
+
+        - ``"bge"`` — the keyless bundled local reranker: it must NOT carry a key
+          and the bundled service must be configured (``bge_reranker_url`` set).
+          Routes entirely around :meth:`_validate_rerank_key` (and F-1's
+          carried-key project-scope check) — there is no key to scope.
+        - ``"cohere"`` (any BYO-key provider) — requires a key + capability, via
+          :meth:`_validate_rerank_key`.
+        """
+        if not provider:
+            raise CapabilityMismatch("rerank_enabled=true requires a rerank_provider")
+        if provider == "bge":
+            if key_id is not None:
+                raise CapabilityMismatch(
+                    "rerank_provider 'bge' is a keyless local reranker — do not supply rerank_key_id"
+                )
+            if not self._bge_reranker_url:
+                raise CapabilityMismatch(
+                    "local bge reranker selected but no bundled reranker service is configured; "
+                    "deploy the bge-reranker service and set RERANK_BGE_URL (see [R10.08])"
+                )
+            return
+        if key_id is None:
+            raise CapabilityMismatch("rerank_enabled=true requires rerank_key_id + rerank_provider")
+        await self._validate_rerank_key(key_id=key_id, provider=provider, project_id=project_id)
 
     async def _validate_rerank_key(self, *, key_id: uuid.UUID, provider: str, project_id: uuid.UUID) -> None:
         key = await self._keys_facade.get_key(key_id)
@@ -117,11 +154,9 @@ class RagConfigService:
                 project_id=project_id,
             )
         if draft.rerank_enabled:
-            if draft.rerank_key_id is None or not draft.rerank_provider:
-                raise CapabilityMismatch("rerank_enabled=true requires rerank_key_id + rerank_provider")
-            await self._validate_rerank_key(
-                key_id=draft.rerank_key_id,
+            await self._validate_rerank_selection(
                 provider=draft.rerank_provider,
+                key_id=draft.rerank_key_id,
                 project_id=project_id,
             )
 
@@ -189,19 +224,28 @@ class RagConfigService:
         """Apply a partial update to a RAG config (mutable fields only)."""
         cfg = await self.get(config_id)  # 404 if missing
 
-        # Validate rerank key if being changed or enabled.
+        # Validate the rerank selection when being changed or enabled (F-19: the
+        # provider may be the keyless "bge", which legitimately carries no key).
         rerank_enabled = patch.get("rerank_enabled", cfg.rerank_enabled)
         if rerank_enabled:
             rerank_key_id = patch.get("rerank_key_id", cfg.rerank_key_id)
             rerank_provider = patch.get("rerank_provider", cfg.rerank_provider)
-            if rerank_key_id is None or not rerank_provider:
-                raise CapabilityMismatch("rerank_enabled=true requires rerank_key_id + rerank_provider")
             if "rerank_key_id" in patch or "rerank_provider" in patch:
-                await self._validate_rerank_key(
-                    key_id=rerank_key_id,
+                # The selection is being (re)touched — full validation, including
+                # the key capability / project-scope check for a BYO-key provider.
+                await self._validate_rerank_selection(
                     provider=rerank_provider,
+                    key_id=rerank_key_id,
                     project_id=cfg.project_id,
                 )
+            else:
+                # Unrelated edit (e.g. top_k) on an already-enabled config — cheap
+                # shape guard only, tolerating the keyless bge provider; never
+                # re-hit the key DB/scope check for an unchanged selection.
+                if not rerank_provider:
+                    raise CapabilityMismatch("rerank_enabled=true requires a rerank_provider")
+                if rerank_provider != "bge" and rerank_key_id is None:
+                    raise CapabilityMismatch("rerank_enabled=true requires rerank_key_id + rerank_provider")
 
         # Only allow mutable fields.
         mutable = {

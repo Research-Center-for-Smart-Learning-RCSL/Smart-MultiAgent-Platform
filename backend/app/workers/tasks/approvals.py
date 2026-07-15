@@ -85,6 +85,7 @@ async def drive_approver_turn(
             db,
             qdrant_url=settings.qdrant.url,
             qdrant_api_key=settings.qdrant.api_key,
+            bge_reranker_url=settings.knowledge.bge_reranker_url,
         )
         result = await engine.run_input_turn(
             agent_id=aid,

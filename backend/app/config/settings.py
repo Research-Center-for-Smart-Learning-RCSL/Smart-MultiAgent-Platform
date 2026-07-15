@@ -272,6 +272,28 @@ class SandboxSection(BaseSettings):
     )
 
 
+class KnowledgeSection(BaseSettings):
+    """Knowledge-retrieval runtime config (R10.08 / F-19).
+
+    ``bge_reranker_url`` is the base URL of the bundled local reranker service
+    (``bge-reranker-v2-m3``, CPU inference) that backs a RAG config's keyless
+    ``rerank_provider="bge"`` option. The default is the in-cluster Compose
+    service DNS so a self-hosting operator gets a working local reranker out of
+    the box; an operator who does not deploy the service sets ``RERANK_BGE_URL``
+    empty, which makes selecting ``bge`` on a config fail validation with a
+    doc-pointing error (mirrors the sandbox ``supervisor_url`` empty-disables
+    gate). Read from the un-prefixed ``RERANK_BGE_URL`` (matches ``.env.example``)
+    with a section-prefixed fallback.
+    """
+
+    model_config = SettingsConfigDict(env_prefix="SMAP_KNOWLEDGE_", extra="ignore")
+
+    bge_reranker_url: str = Field(
+        default="http://bge-reranker:80",
+        validation_alias=AliasChoices("RERANK_BGE_URL", "SMAP_KNOWLEDGE_BGE_RERANKER_URL"),
+    )
+
+
 class EmailSection(BaseSettings):
     """Outbound SMTP transport config (R6.01 / K.6).
 
@@ -351,6 +373,7 @@ class Settings(BaseSettings):
     limits: LimitsSection = Field(default_factory=LimitsSection)
     egress: EgressSection = Field(default_factory=EgressSection)
     sandbox: SandboxSection = Field(default_factory=SandboxSection)
+    knowledge: KnowledgeSection = Field(default_factory=KnowledgeSection)
     email: EmailSection = Field(default_factory=EmailSection)
 
 
