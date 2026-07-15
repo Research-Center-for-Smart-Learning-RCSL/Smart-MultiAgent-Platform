@@ -299,6 +299,25 @@ column is an implementation mechanism, not new documented behavior.
   regression tests: `test_scan_verdict_rebuild_advances_and_targets_new_revision`,
   `test_scan_verdict_rebuild_skips_concurrently_deleted_config`,
   `test_rebuild_endpoint_bumps_and_targets_new_revision`.
+- **D-8 (code-review W3+W6 — membership-change revision model, user-approved).** A high-recall
+  code review found two consequences of D-6's unconditional scan-verdict bump: **(W3)** a reindex
+  of an already-clean document double-built — the ingest-side immediate clean-enqueue *and* the
+  rescan's `_enqueue_build_on_clean` computed different (bumped) revisions, so arq no longer
+  deduplicated them; and **(W6)** a QUARANTINED/SKIPPED verdict on a document that was never CLEAN
+  triggered a full graph rebuild even though its triples were never in the graph. Both trace to the
+  bump not distinguishing a real membership change from a no-op. Fix: the scan worker now computes
+  `prior_clean` from the document's status before the verdict and advances the revision / rebuilds
+  **only on a real membership change** — a document *entering* `ready∧clean` (`entered = not
+  prior_clean`, passed to `_enqueue_build_on_clean`) or a previously-CLEAN document *leaving* it
+  (quarantine/skip gated on `prior_clean`). A CLEAN→CLEAN reconfirm no longer bumps (dedups with
+  the ingest-side enqueue, closing W3); a never-CLEAN quarantine/skip no longer rebuilds (W6).
+  New/updated tests in `test_knowmap_scan_worker.py` (prior-clean → rebuild vs never-clean → no
+  rebuild) and `test_knowmap_scan_build_gate.py` (`entered` flag, reconfirm skip).
+- **D-9 (code-review W4 — best-effort post-build finalize, user-approved).** `_finalize_build_revision`
+  ran inside `knowmap_build`'s try *after* the build committed its terminal state, so a transient
+  DB error in the revision bookkeeping propagated and made arq re-run the entire successful build.
+  Fix: the finalize call is wrapped in a logged best-effort `try/except`; a missed follow-up is
+  recovered by the next document change or a manual rebuild.
 
 ## 13. Follow-ups
 
@@ -317,17 +336,15 @@ column is an implementation mechanism, not new documented behavior.
   task) passed in isolation both at `HEAD` and with this change, but failed once during a full
   `pytest tests/unit/` run — a test-ordering/isolation issue independent of F-12. Flag for a
   separate investigation of `test_sel_evaluator` global-state leakage.
-- **FU-5 (DRY — `drop_project_collection_if_empty` triplicated):** the `check-quality` gate
-  flagged that the acquire-pin-lock → empty-check → clear-pin → build short-lived Qdrant client →
-  `delete_collection` → close/log skeleton is duplicated ~20 lines each across
-  `config_service.py`, `knowmap_config_service.py`, and `graphrag_config_service.py` (an F-11
-  surface). Extract one helper parameterized by `(PinKind, collection-deleter)`. Warning-level,
-  non-blocking; deferred with the user's knowledge.
-- **FU-6 (defensive dead branch in `EmbeddingPinRepository.ensure`, F-11):** the
-  `except IntegrityError` re-read fallback is effectively unreachable (same `(project, kind)`
-  always serializes on the advisory lock) and, if ever reached, would `PendingRollbackError`
-  without a prior `rollback()`. Either drop the branch or wrap the insert in `begin_nested()`.
-  Info-level; deferred.
+- **FU-5 (DRY — pin-clear/collection-drop duplicated across three services):** the drop-empty
+  skeleton is duplicated across `config_service.py`, `knowmap_config_service.py`, and
+  `graphrag_config_service.py` — now as the `clear_pin_if_last_config` + `drop_orphan_collection`
+  pair per service (F-11 code-review split, D-5 on the F-11 dossier). Extract one helper
+  parameterized by `(PinKind, collection-deleter)`. Warning-level, non-blocking; still deferred.
+- **FU-6 (defensive dead branch in `EmbeddingPinRepository.ensure`, F-11) — RESOLVED.** The
+  `except IntegrityError` re-read is now correct: the race insert is wrapped in `begin_nested()`, so
+  a unique-violation rolls back only the savepoint and the follow-up SELECT no longer risks
+  `PendingRollbackError` (F-11 code-review D-6). This closes the finding rather than deferring it.
 
 ## 14. Post-implementation audit
 

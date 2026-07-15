@@ -318,6 +318,29 @@ implicit single-collection-single-dimension behavior; mark this "None" at approv
 - **D-4 (SRS Delta adopted):** at approval the user elected to apply the optional §11 amendment to
   `[R10.06]`, making the single-fixed-dimension invariant explicit for File RAG. Applied to
   `REQUIREMENTS.md` at approval.
+- **D-5 (code-review W1 — pin clear split to close the stale-pin race, user-approved):** a
+  high-recall code review found that the D-2 design cleared the pin in a transaction *after* the
+  DELETE commit, leaving a window where a concurrent create at a different dimension read the stale
+  pin and was spuriously rejected. Fix: `drop_project_collection_if_empty` is replaced by two
+  methods — `clear_pin_if_last_config` (acquires the lock + clears the pin **in the DELETE's own
+  transaction, before its commit**, so the clear is atomic with the soft-delete and a concurrent
+  create blocks on the lock until then) and `drop_orphan_collection` (post-commit, DOM-4-respecting;
+  re-acquires the lock and re-checks so a concurrent re-pin keeps its collection). All three
+  handlers (`rag.py`, `graphrag.py`, `knowmap.py`) updated. This supersedes D-2's post-commit
+  clear. Residual (documented): an ultra-narrow interleave where a *different-dimension* config is
+  created and ingests between the two commits can leave the orphan collection un-dropped, yielding a
+  recoverable `RagCollectionDimensionMismatch` on that config's first ingest — no worse than the
+  pre-F-11 baseline. Covered by `test_last_config_clears_pin_then_drops_collection`,
+  `test_clear_pin_keeps_pin_when_sibling_remains`, `test_drop_orphan_skips_when_config_reappeared`.
+- **D-6 (code-review W2 — SAVEPOINT around the ensure() race insert, user-approved):** the
+  `EmbeddingPinRepository.ensure` IntegrityError fallback re-read on the same session without a
+  rollback; under asyncpg the aborted transaction would make the follow-up SELECT raise
+  `PendingRollbackError` (a 500) instead of the typed dimension-conflict. Fix: wrap the race insert
+  in `begin_nested()` so a unique-violation rolls back only the savepoint, leaving the transaction
+  usable for the re-read. The transaction-scoped advisory lock is unaffected by the savepoint.
+- **D-7 (code-review W5 — drop-after-commit, user-approved):** folded into D-5 — the collection
+  drop now runs strictly *after* the DELETE commit (`drop_orphan_collection`), so a failed commit
+  can no longer leave a dropped collection behind a still-present pin.
 
 ## 13. Follow-ups
 
