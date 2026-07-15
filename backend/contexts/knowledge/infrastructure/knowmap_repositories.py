@@ -347,6 +347,27 @@ class KnowmapDocumentRepository:
             .values(status=status.value)
         )
 
+    async def bump_ingest_attempt(self, document_id: uuid.UUID) -> int:
+        """Atomically increment and return the document's ingest-attempt (F-23).
+
+        Mirrors :meth:`RagDocumentRepository.bump_ingest_attempt`: a genuine tus
+        retry gets a distinct counter (folded into the ingest/scan job ids) while
+        two concurrent re-uploads each get a distinct value via the atomic
+        ``RETURNING``. The frozen ``KnowmapDocument`` read model does not carry the
+        column — only the returned value is needed.
+        """
+        row = (
+            await self._db.execute(
+                t.knowmap_documents.update()
+                .where(t.knowmap_documents.c.id == document_id)
+                .values(ingest_attempt=t.knowmap_documents.c.ingest_attempt + 1)
+                .returning(t.knowmap_documents.c.ingest_attempt)
+            )
+        ).first()
+        if row is None:
+            raise KnowmapDocumentNotFound(str(document_id))
+        return int(row.ingest_attempt)
+
     async def get(self, document_id: uuid.UUID) -> KnowmapDocument | None:
         row = (
             await self._db.execute(

@@ -261,6 +261,28 @@ class RagDocumentRepository:
             t.rag_documents.update().where(t.rag_documents.c.id == document_id).values(status=status.value)
         )
 
+    async def bump_ingest_attempt(self, document_id: uuid.UUID) -> int:
+        """Atomically increment and return the document's ingest-attempt (F-23).
+
+        ``UPDATE ... SET ingest_attempt = ingest_attempt + 1 ... RETURNING`` so
+        two concurrent re-uploads of the same failed document each get a distinct
+        value and neither run is lost. The new value is folded into the ingest/
+        scan Arq job ids by the tus finalizer so a genuine retry always enqueues a
+        fresh job. The frozen ``RagDocument`` read model deliberately does NOT
+        carry this column — the finalizer only needs the returned counter.
+        """
+        row = (
+            await self._db.execute(
+                t.rag_documents.update()
+                .where(t.rag_documents.c.id == document_id)
+                .values(ingest_attempt=t.rag_documents.c.ingest_attempt + 1)
+                .returning(t.rag_documents.c.ingest_attempt)
+            )
+        ).first()
+        if row is None:
+            raise RagDocumentNotFound(str(document_id))
+        return int(row.ingest_attempt)
+
     async def get(self, document_id: uuid.UUID) -> RagDocument | None:
         row = (
             await self._db.execute(t.rag_documents.select().where(t.rag_documents.c.id == document_id))

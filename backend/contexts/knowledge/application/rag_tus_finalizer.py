@@ -87,10 +87,16 @@ class RagTusFinalizer:
             # cleans up the staging file.
             return existing
         if existing is not None:
-            # A prior attempt left this sha FAILED/stuck; the blob is already in
-            # MinIO. Re-drive the worker rather than dedup onto a dead row so a
-            # re-upload is a genuine retry. Record the re-upload in the audit trail
-            # (the first upload is long past).
+            # A prior attempt left this sha in a non-READY state; the blob is
+            # already in MinIO. Record the re-upload (the first upload is long
+            # past). F-23: only a TERMINAL non-READY row (FAILED/QUARANTINED) is a
+            # genuine retry — bump the per-document ingest_attempt so the ingest +
+            # scan job ids change and Arq actually enqueues a fresh run instead of
+            # silently deduping onto the retained prior result. An INGESTING row
+            # means a worker is still in flight: re-driving it would risk two
+            # workers indexing the same document and colliding on
+            # uq_rag_chunk_doc_idx, so skip the re-enqueue and let the running job
+            # finish (the original deterministic-id dedup behaviour).
             await emit_reupload_audit(
                 self._db,
                 doc=existing,
@@ -98,10 +104,15 @@ class RagTusFinalizer:
                 actor_ip=actor_ip,
                 request_id=request_id,
             )
-            await self._enqueue_index(existing.id, config_id=cfg.id)
-            from contexts.knowledge.application.ingest_service import enqueue_rag_scan
+            if existing.status in (DocumentStatus.FAILED, DocumentStatus.QUARANTINED):
+                attempt = await self._docs.bump_ingest_attempt(existing.id)
+                await self._enqueue_index(existing.id, config_id=cfg.id, ingest_attempt=attempt)
+                from contexts.knowledge.application.ingest_service import enqueue_rag_scan
 
-            await enqueue_rag_scan(document_id=existing.id)
+                await enqueue_rag_scan(document_id=existing.id, ingest_attempt=attempt)
+            else:
+                # INGESTING — commit the reupload audit without re-enqueuing.
+                await self._db.commit()
             return existing
 
         key = rag_source_object_key(project_id=cfg.project_id, config_id=cfg.id, sha256=sha)
@@ -140,13 +151,16 @@ class RagTusFinalizer:
                 request_id=request_id,
             ),
         )
-        await self._enqueue_index(doc.id, config_id=cfg.id)
+        # First-time ingest: the new row carries ingest_attempt=0 (column default).
+        await self._enqueue_index(doc.id, config_id=cfg.id, ingest_attempt=0)
         from contexts.knowledge.application.ingest_service import enqueue_rag_scan
 
-        await enqueue_rag_scan(document_id=doc.id)
+        await enqueue_rag_scan(document_id=doc.id, ingest_attempt=0)
         return doc
 
-    async def _enqueue_index(self, document_id: uuid.UUID, *, config_id: uuid.UUID) -> None:
+    async def _enqueue_index(
+        self, document_id: uuid.UUID, *, config_id: uuid.UUID, ingest_attempt: int
+    ) -> None:
         # Commit the rag_documents row BEFORE enqueuing: the rag_ingest_document
         # worker runs on a separate connection and must see a committed row. The
         # request's db_session dependency only commits AFTER the handler returns,
@@ -158,17 +172,17 @@ class RagTusFinalizer:
         await Publisher(rag_channel(config_id)).emit(
             "ingestion.started", {"document_id": str(document_id), "total": 1}
         )
-        # Deterministic job id: collapses a duplicate/concurrent enqueue for the
-        # same document (e.g. a re-upload while the first job is still running) to
-        # one run, so two workers never index the same doc and collide on
+        # Per-attempt job id (F-23): the ingest_attempt suffix makes a genuine
+        # retry (bumped attempt) a distinct id that always enqueues, while a truly
+        # concurrent duplicate finalize of the *same* attempt still collapses to
+        # one run — so two workers never index the same doc and collide on
         # uq_rag_chunk_doc_idx. Arq's own retry of a *failed* run reuses this id
-        # (it is not a new enqueue), so transient failures still retry; only a
-        # fresh manual re-upload within the result-TTL window is briefly deduped.
+        # (it is not a new enqueue), so transient failures still retry.
         try:
             await enqueue(
                 "rag_ingest_document",
                 document_id=str(document_id),
-                _job_id=f"rag-ingest:{document_id}",
+                _job_id=f"rag-ingest:{document_id}:{ingest_attempt}",
             )
         except Exception:
             # Arq/Redis unavailable: don't leave the committed row stuck

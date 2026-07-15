@@ -455,11 +455,19 @@ async def emit_reupload_audit(
     )
 
 
-async def enqueue_rag_scan(*, document_id: uuid.UUID) -> None:
+async def enqueue_rag_scan(*, document_id: uuid.UUID, ingest_attempt: int = 0) -> None:
+    # F-23: the job id carries the per-document ingest attempt so a genuine tus
+    # retry (attempt N->N+1) enqueues a fresh scan instead of being deduped onto a
+    # retained prior result. Multipart callers keep the default 0 (that reupload
+    # scan-dedup is FU-2, deferred).
     try:
         from shared_kernel.queue import enqueue
 
-        await enqueue("rag_scan_document", document_id=str(document_id), _job_id=f"rag-scan:{document_id}")
+        await enqueue(
+            "rag_scan_document",
+            document_id=str(document_id),
+            _job_id=f"rag-scan:{document_id}:{ingest_attempt}",
+        )
     except Exception:
         _log.warning(
             "scan enqueue failed for rag document %s; file will not be scanned automatically",
