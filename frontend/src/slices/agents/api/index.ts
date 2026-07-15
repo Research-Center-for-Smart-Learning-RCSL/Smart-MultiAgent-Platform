@@ -227,6 +227,13 @@ export interface KnowmapConfig {
   deleted_at: string | null
 }
 
+// Mirrors backend `KnowmapConfigPatchOut` (R11.25 / F-14): the patched config
+// plus any agents auto-detached because the new builder key group collided with
+// their consumer group. Empty on a non-colliding change.
+export interface KnowmapConfigPatchResult extends KnowmapConfig {
+  detached_agent_ids: string[]
+}
+
 // Mirrors backend `KnowmapDocumentOut`. `agent_ids` is the strict per-agent
 // allowlist (R11.23): a relation is visible to an agent only if every one of
 // its source documents is in that agent's allowlist. Empty = no agent may
@@ -456,11 +463,14 @@ export const agentsApi = {
   getKnowmapConfig: (configId: string): Promise<KnowmapConfig> =>
     KnowmapService.readKnowmapConfigApiKnowmapConfigsConfigIdGet({ configId }),
 
-  patchKnowmapConfig: (configId: string, payload: KnowmapConfigPatchInput): Promise<KnowmapConfig> =>
+  patchKnowmapConfig: (
+    configId: string,
+    payload: KnowmapConfigPatchInput,
+  ): Promise<KnowmapConfigPatchResult> =>
     KnowmapService.patchKnowmapConfigApiKnowmapConfigsConfigIdPatch({
       configId,
       requestBody: payload as KnowmapConfigPatchIn,
-    }),
+    }) as Promise<KnowmapConfigPatchResult>,
 
   deleteKnowmapConfig: (configId: string): Promise<void> =>
     KnowmapService.deleteKnowmapConfigApiKnowmapConfigsConfigIdDelete({ configId }),

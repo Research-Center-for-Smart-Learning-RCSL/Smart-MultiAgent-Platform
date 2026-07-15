@@ -248,9 +248,17 @@ const { applyServerErrors } = useServerErrors(setErrors)
 const saveMutation = useMutation({
   mutationFn: (payload: KnowmapConfigPatchInput) =>
     agentsApi.patchKnowmapConfig(configId, payload),
-  onSuccess: () => {
+  onSuccess: (result) => {
     qc.invalidateQueries({ queryKey: agentKeys.knowmapConfig(configId) })
-    toast.success(t('agents.detail.saved'))
+    // F-14 (R11.25): a builder-group change that collided with attached agents'
+    // consumer group auto-detaches them. Tell the designer so they can re-attach
+    // with a compatible group, rather than the change appearing to silently succeed.
+    const detachedCount = result.detached_agent_ids?.length ?? 0
+    if (detachedCount > 0) {
+      toast.warning(t('agents.knowmapDetail.agentsDetached', { count: detachedCount }))
+    } else {
+      toast.success(t('agents.detail.saved'))
+    }
   },
   onError: (err) => {
     // F-13: a builder-group swap to a different embedding model on a config that

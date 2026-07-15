@@ -303,7 +303,8 @@
       "buildFailed": "啟動建置失敗。",
       "rebuild": "重新建置",
       "viewGraph": "檢視圖譜",
-      "embedModelChangeBlocked": "已建立索引資料的知識圖譜無法變更嵌入模型。請清除其文件並重新建立知識圖譜，才能切換嵌入模型。"
+      "embedModelChangeBlocked": "已建立索引資料的知識圖譜無法變更嵌入模型。請清除其文件並重新建立知識圖譜，才能切換嵌入模型。",
+      "agentsDetached": "已儲存。因為新的建置金鑰群組與 {count} 個已附加代理人的取用金鑰群組相同，這些代理人已被卸離。請改用不同的金鑰群組重新附加，以恢復隔離。"
     },
     "knowmap": {
       "upload": "上傳文件",
