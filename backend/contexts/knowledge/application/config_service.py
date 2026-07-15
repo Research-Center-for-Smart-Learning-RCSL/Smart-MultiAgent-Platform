@@ -331,7 +331,7 @@ class RagConfigService:
         trail the durable audit row, never precede it (DOM-4).
         """
         cfg = await self.get(config_id)  # 404 if missing
-        docs_repo = RagDocumentRepository(self._db)
+        docs_repo = self._documents
         # Drain all child documents in batches — an unbounded single fetch
         # would OOM on very large configs, and the previous limit=10_000 cap
         # silently left orphan documents behind.
