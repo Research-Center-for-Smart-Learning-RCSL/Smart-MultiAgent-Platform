@@ -11,54 +11,54 @@ from __future__ import annotations
 
 import logging
 import uuid
-from datetime import datetime
-
-from contexts.knowledge.domain.graphrag import BuildState
 
 _log = logging.getLogger(__name__)
 
 
-def knowmap_build_job_id(
-    config_id: uuid.UUID,
-    *,
-    last_build_state: BuildState,
-    last_build_at: datetime | None,
-) -> str:
-    """Stable per-rebuild-cycle arq job id for build de-duplication.
+def knowmap_build_job_id(config_id: uuid.UUID, *, target_revision: int) -> str:
+    """Stable arq job id keyed on the target corpus revision (F-12).
 
-    Every trigger fired between two builds resolves to the same id, so concurrent
-    document changes collapse to a single queued ``knowmap_build`` (arq returns
-    ``None`` for a duplicate id). The nonce — the config's terminal state plus its
-    ``last_build_at`` epoch — advances once a build completes or the state flips,
-    so a legitimate rebuild is never suppressed by the prior job's retained result.
-    ``0`` stands in for a config that has never built.
+    A corpus revision advances exactly once per committed document mutation and
+    never collides within a second, so two builds for genuinely different corpus
+    states get distinct job ids (arq no longer drops the newer one as a duplicate
+    of the older), while two enqueues for the *same* revision — the legitimate
+    dedup case — still collapse to one queued ``knowmap_build``. This replaces the
+    pre-F-12 ``(state, last_build_at@1s)`` nonce, which did not advance on the
+    committed corpus change it was meant to represent, so a newer corpus state
+    could reuse an older state's retained id and be silently suppressed.
     """
-    epoch = int(last_build_at.timestamp()) if last_build_at is not None else 0
-    return f"knowmap:build:{config_id}:{last_build_state.value}:{epoch}"
+    return f"knowmap:build:{config_id}:{target_revision}"
 
 
-async def enqueue_knowmap_build(
-    *,
-    config_id: uuid.UUID,
-    last_build_state: BuildState,
-    last_build_at: datetime | None,
-) -> None:
-    """Enqueue a ``knowmap_build`` for ``config_id`` with the dedup job id.
+async def enqueue_knowmap_build(*, config_id: uuid.UUID, target_revision: int) -> None:
+    """Enqueue a ``knowmap_build`` for ``config_id`` targeting ``target_revision``.
+
+    ``target_revision`` is the config's current ``corpus_revision`` at enqueue
+    time — passed both as the job-id discriminator and as a build argument so the
+    worker can re-check whether the corpus advanced during the build.
 
     Best-effort: a failed enqueue is logged, not raised — a missed build is
     recoverable via the explicit rebuild endpoint or the next document change,
-    and must never fail the triggering upload/delete request.
+    and must never fail the triggering upload/delete request. A ``None`` return
+    from arq (an already-queued job for the same revision) is a *legitimate*
+    same-revision dedup, logged at debug so it is observable and not confused with
+    the pre-F-12 silent-suppression bug.
     """
     try:
         from shared_kernel.queue import enqueue
 
-        await enqueue(
+        job = await enqueue(
             "knowmap_build",
             config_id=str(config_id),
-            _job_id=knowmap_build_job_id(
-                config_id, last_build_state=last_build_state, last_build_at=last_build_at
-            ),
+            target_revision=target_revision,
+            _job_id=knowmap_build_job_id(config_id, target_revision=target_revision),
         )
+        if job is None:
+            _log.debug(
+                "knowmap build enqueue deduplicated for config %s revision %d (already queued)",
+                config_id,
+                target_revision,
+            )
     except Exception:
         _log.warning("knowmap build enqueue failed for config %s", config_id, exc_info=True)
 

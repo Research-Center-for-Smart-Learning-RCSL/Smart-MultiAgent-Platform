@@ -49,7 +49,10 @@ from contexts.knowledge.domain.errors import DocumentTooLarge, KnowmapConfigNotF
 from contexts.knowledge.domain.graphrag import BuildState
 from contexts.knowledge.domain.knowmap import KnowmapConfigDraft
 from contexts.knowledge.domain.models import ChunkStrategy, DocumentStatus, ScanStatus
-from contexts.knowledge.infrastructure.knowmap_repositories import KnowmapDocumentRepository
+from contexts.knowledge.infrastructure.knowmap_repositories import (
+    KnowmapConfigRepository,
+    KnowmapDocumentRepository,
+)
 from contexts.knowledge.interfaces.facade import KnowledgeFacade
 from contexts.tenancy.interfaces.facade import TenancyFacade
 from shared_kernel.auth.context import RequestContext
@@ -391,11 +394,9 @@ async def rebuild_knowmap_config(
         ),
     )
     await db.commit()
-    await enqueue_knowmap_build(
-        config_id=cfg.id,
-        last_build_state=cfg.last_build_state,
-        last_build_at=cfg.last_build_at,
-    )
+    # F-12: an explicit rebuild is not a corpus mutation — target the config's
+    # current revision so a redundant click collapses onto the in-flight build.
+    await enqueue_knowmap_build(config_id=cfg.id, target_revision=cfg.corpus_revision)
     return KnowmapRebuildAck(status="enqueued", config_id=config_id)
 
 
@@ -540,6 +541,10 @@ async def delete_knowmap_document(
         raise not_found
 
     await docs_repo.delete(document_id)
+    # F-12: a document delete changes the buildable corpus — bump the revision in
+    # the same transaction so the rebuild below gets a job id distinct from any
+    # prior corpus state's and is never dropped as a duplicate.
+    new_revision = await KnowmapConfigRepository(db).bump_corpus_revision(doc.knowmap_config_id)
     await _audit.emit(
         db,
         _audit.AuditEvent(
@@ -578,9 +583,7 @@ async def delete_knowmap_document(
     # A document-set change triggers a rebuild so the graph drops the removed
     # document's triples (its evidence is already hidden at retrieval by the
     # allowed-doc filter, which never returns a deleted document).
-    await enqueue_knowmap_build(
-        config_id=cfg.id, last_build_state=cfg.last_build_state, last_build_at=cfg.last_build_at
-    )
+    await enqueue_knowmap_build(config_id=cfg.id, target_revision=new_revision)
 
 
 @document_router.patch("/{document_id}/agents")
