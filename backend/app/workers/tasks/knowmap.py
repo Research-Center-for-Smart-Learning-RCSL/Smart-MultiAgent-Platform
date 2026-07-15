@@ -245,23 +245,30 @@ async def knowmap_scan_document(ctx: dict[str, Any], *, document_id: str) -> str
         result = await scanner.scan(data)
     except ScanError:
         _log.exception("knowmap_scan_document: ClamAV error for document %s", document_id)
-        from shared_kernel.auth.clients import now as _now
+        # F-27 (Q-2) durability: defer BOTH the terminal SKIPPED verdict and the
+        # eviction rebuild to the retry-exhausted attempt. ``prior_clean`` is re-read
+        # fresh from ``scan_status`` at entry on every retry, so writing SKIPPED on a
+        # non-final attempt would overwrite the row and, by the final attempt, make
+        # ``prior_clean`` read False — the guard could then never observe that the
+        # document was previously CLEAN (built), and its triples would never be
+        # evicted. Leaving the row untouched on a non-final attempt also lets a
+        # document that recovers to CLEAN (or QUARANTINED) on a later retry decide
+        # eviction correctly against its true prior membership. If arq does not
+        # populate ``job_try`` (fallback per §7.2), treat the attempt as final so the
+        # verdict is still recorded (the dedup job id bounds any churn) rather than
+        # silently never terminalising.
+        is_final = ctx.get("job_try", _SCAN_MAX_TRIES) >= _SCAN_MAX_TRIES
+        if is_final:
+            from shared_kernel.auth.clients import now as _now
 
-        async with sm() as db2, db2.begin():
-            await KnowmapDocumentRepository(db2).mark_scan(
-                document_id=doc_id, scan_status=ScanStatus.SKIPPED, scan_at=_now()
-            )
-        # F-27 (Q-2): enqueue the rebuild only once the retry budget is exhausted —
-        # on a non-final attempt the document may still come back CLEAN, so a
-        # premature rebuild would exclude a document that turns out fine. The task
-        # re-raises either way so arq retries the scan. If arq does not populate
-        # ``job_try`` (fallback per §7.2), default to the exhausted value so the
-        # rebuild still fires (the dedup job id bounds the churn) rather than
-        # silently never rebuilding. Rebuild only if the document was already CLEAN
-        # (hence possibly built) — a never-CLEAN document's triples are not in the
-        # graph, so there is nothing to evict (F-12 W6).
-        if prior_clean and ctx.get("job_try", _SCAN_MAX_TRIES) >= _SCAN_MAX_TRIES:
-            await _enqueue_rebuild_for_config(sm, doc.knowmap_config_id)
+            async with sm() as db2, db2.begin():
+                await KnowmapDocumentRepository(db2).mark_scan(
+                    document_id=doc_id, scan_status=ScanStatus.SKIPPED, scan_at=_now()
+                )
+            # Rebuild only if the document was already CLEAN (hence possibly built) —
+            # a never-CLEAN document's triples are not in the graph (F-12 W6).
+            if prior_clean:
+                await _enqueue_rebuild_for_config(sm, doc.knowmap_config_id)
         raise
 
     from shared_kernel import audit
