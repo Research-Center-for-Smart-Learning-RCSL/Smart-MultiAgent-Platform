@@ -245,30 +245,28 @@ async def knowmap_scan_document(ctx: dict[str, Any], *, document_id: str) -> str
         result = await scanner.scan(data)
     except ScanError:
         _log.exception("knowmap_scan_document: ClamAV error for document %s", document_id)
-        # F-27 (Q-2) durability: defer BOTH the terminal SKIPPED verdict and the
-        # eviction rebuild to the retry-exhausted attempt. ``prior_clean`` is re-read
-        # fresh from ``scan_status`` at entry on every retry, so writing SKIPPED on a
-        # non-final attempt would overwrite the row and, by the final attempt, make
-        # ``prior_clean`` read False — the guard could then never observe that the
-        # document was previously CLEAN (built), and its triples would never be
-        # evicted. Leaving the row untouched on a non-final attempt also lets a
-        # document that recovers to CLEAN (or QUARANTINED) on a later retry decide
-        # eviction correctly against its true prior membership. If arq does not
-        # populate ``job_try`` (fallback per §7.2), treat the attempt as final so the
-        # verdict is still recorded (the dedup job id bounds any churn) rather than
-        # silently never terminalising.
-        is_final = ctx.get("job_try", _SCAN_MAX_TRIES) >= _SCAN_MAX_TRIES
-        if is_final:
-            from shared_kernel.auth.clients import now as _now
+        from shared_kernel.auth.clients import now as _now
 
-            async with sm() as db2, db2.begin():
-                await KnowmapDocumentRepository(db2).mark_scan(
-                    document_id=doc_id, scan_status=ScanStatus.SKIPPED, scan_at=_now()
-                )
-            # Rebuild only if the document was already CLEAN (hence possibly built) —
-            # a never-CLEAN document's triples are not in the graph (F-12 W6).
-            if prior_clean:
-                await _enqueue_rebuild_for_config(sm, doc.knowmap_config_id)
+        # Mark SKIPPED immediately on every attempt, so an unscannable document is
+        # excluded from the buildable/retrieval set right away and is never left
+        # non-terminal by a retry that is interrupted before it completes. The task
+        # still re-raises so arq retries the scan; if a later attempt recovers a
+        # CLEAN verdict, the clean-verdict path below re-adds the document.
+        async with sm() as db2, db2.begin():
+            await KnowmapDocumentRepository(db2).mark_scan(
+                document_id=doc_id, scan_status=ScanStatus.SKIPPED, scan_at=_now()
+            )
+        # F-27 (Q-2): evict on the CLEAN->SKIPPED transition, mirroring the
+        # QUARANTINED path. ``prior_clean`` is read fresh from ``scan_status`` at
+        # entry (before this write), so it is True only on the attempt that first
+        # removes a previously-CLEAN (hence possibly built) document from the
+        # buildable set — later retries read SKIPPED and never re-enqueue. A
+        # never-CLEAN document has no triples in the graph to evict (F-12 W6).
+        # (The earlier ``job_try >= _SCAN_MAX_TRIES`` guard could never fire: the
+        # first attempt's SKIPPED write made ``prior_clean`` read False by the
+        # final attempt, so the eviction never ran.)
+        if prior_clean:
+            await _enqueue_rebuild_for_config(sm, doc.knowmap_config_id)
         raise
 
     from shared_kernel import audit
