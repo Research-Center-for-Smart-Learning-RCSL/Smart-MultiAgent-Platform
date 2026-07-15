@@ -31,6 +31,8 @@ from qdrant_client.http.models import (
     VectorParams,
 )
 
+from contexts.knowledge.domain.errors import RagCollectionDimensionMismatch
+
 __all__ = ["QdrantHit", "QdrantStore", "collection_name"]
 
 
@@ -58,14 +60,60 @@ class QdrantStore:
         vector_size: int,
         distance: Distance = Distance.COSINE,
     ) -> None:
+        """Idempotently ensure ``rag_{project_id}`` exists at ``vector_size`` (F-11).
+
+        If the collection already exists its vector dimension MUST match — a
+        project pins one embedding dimension (R10.06), and a wrong-size upsert
+        would otherwise be rejected by Qdrant as an opaque raw error. Raise the
+        typed :class:`RagCollectionDimensionMismatch` on drift instead, mirroring
+        the graph subsystems' build-time ``_assert_dimension`` backstop. Tolerate
+        a concurrent create (another ingest won the race) by re-checking the
+        dimension rather than failing.
+        """
         name = collection_name(project_id)
-        existing = await self._client.collection_exists(name)
-        if existing:
+        if await self._client.collection_exists(name):
+            await self._assert_dimension(name, vector_size)
             return
-        await self._client.create_collection(
-            collection_name=name,
-            vectors_config=VectorParams(size=vector_size, distance=distance),
-        )
+        try:
+            await self._client.create_collection(
+                collection_name=name,
+                vectors_config=VectorParams(size=vector_size, distance=distance),
+            )
+        except Exception:
+            if not await self._client.collection_exists(name):
+                raise
+            await self._assert_dimension(name, vector_size)
+
+    async def _assert_dimension(self, name: str, vector_size: int) -> None:
+        existing = await self._collection_dimension(name)
+        if existing is not None and existing != vector_size:
+            raise RagCollectionDimensionMismatch(
+                f"collection {name} is {existing}-dim but this ingest produced "
+                f"{vector_size}-dim vectors (project embed-dimension drift)"
+            )
+
+    async def _collection_dimension(self, name: str) -> int | None:
+        """The collection's single-vector size, or ``None`` if undeterminable.
+
+        Returns ``None`` for a named-vectors collection (a shape File RAG never
+        creates) so the guard fails open rather than on an unexpected schema.
+        """
+        info = await self._client.get_collection(name)
+        params = getattr(getattr(info, "config", None), "params", None)
+        vectors = getattr(params, "vectors", None)
+        size = getattr(vectors, "size", None)
+        return int(size) if isinstance(size, int) else None
+
+    async def delete_collection(self, project_id: uuid.UUID) -> None:
+        """Drop ``rag_{project_id}`` entirely (F-11 drop-empty teardown).
+
+        Mirrors ``GraphRagVectorStore.delete_collection``. No-ops if the
+        collection does not exist. Used only when the last File RAG config for a
+        project is deleted, so a project can later re-pin a different dimension.
+        """
+        name = collection_name(project_id)
+        if await self._client.collection_exists(name):
+            await self._client.delete_collection(collection_name=name)
 
     async def upsert_chunks(
         self,

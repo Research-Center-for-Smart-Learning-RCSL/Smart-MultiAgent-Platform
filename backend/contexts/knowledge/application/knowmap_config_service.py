@@ -26,6 +26,7 @@ from contexts.knowledge.application.embed_resolution import (
     resolve_embed_key,
     resolve_pinned_embed_key,
 )
+from contexts.knowledge.domain.embedding_pin import PinKind
 from contexts.knowledge.domain.errors import (
     KnowmapBuilderKeyGroupProjectMismatch,
     KnowmapConfigNotFound,
@@ -34,6 +35,7 @@ from contexts.knowledge.domain.errors import (
 )
 from contexts.knowledge.domain.knowmap import KnowmapConfig, KnowmapConfigDraft, KnowmapDocument
 from contexts.knowledge.domain.models import embed_dimension
+from contexts.knowledge.infrastructure.embedding_pin_repository import EmbeddingPinRepository
 from contexts.knowledge.infrastructure.knowmap_repositories import (
     KnowmapConfigRepository,
     KnowmapDocumentRepository,
@@ -47,6 +49,7 @@ class KnowmapConfigService:
     def __init__(self, db: AsyncSession) -> None:
         self._db = db
         self._configs = KnowmapConfigRepository(db)
+        self._pins = EmbeddingPinRepository(db)
 
     async def create(
         self,
@@ -73,6 +76,22 @@ class KnowmapConfigService:
                 f"project {project_id} is pinned to {existing_dim}-dim knowmap embeddings; "
                 f"builder key group {draft.builder_key_group_id} resolves to {embed_dim}-dim"
             )
+
+        # Durable, race-free project dimension pin (F-11). The scan above is a
+        # cheap pre-check; this is authoritative and serializes the read-then-
+        # insert under an advisory lock, and its pin survives deleting the config
+        # that first sized knowmap_{project_id}.
+        await self._pins.ensure(
+            project_id=project_id,
+            kind=PinKind.KNOWMAP,
+            provider=embed_provider,
+            model=embed_model,
+            dim=embed_dim,
+            on_conflict=lambda existing, this_dim: KnowmapEmbedDimensionConflict(
+                f"project {project_id} is pinned to {existing}-dim knowmap embeddings; "
+                f"builder key group {draft.builder_key_group_id} resolves to {this_dim}-dim"
+            ),
+        )
 
         cfg = await self._configs.create(
             project_id=project_id,
@@ -254,6 +273,38 @@ class KnowmapConfigService:
             embedder=embedder,
             bucket=settings.minio.bucket_knowmap_sources,
         )
+
+    async def drop_project_collection_if_empty(self, *, project_id: uuid.UUID) -> bool:
+        """Drop ``knowmap_{project_id}`` + clear the pin if no live config remains (F-11).
+
+        Runs after the delete's DB commit + per-config cascade, in the request
+        session's post-commit transaction. Under the ``(project, knowmap)``
+        advisory lock — held across the live-config check and the pin clear so a
+        concurrent create cannot slip a config in between — it verifies no live
+        Knowledge Map config is left for the project; if so it clears the pin and
+        drops the now-orphan collection best-effort. Returns ``True`` when it
+        dropped.
+        """
+        await self._pins.acquire_lock(project_id, PinKind.KNOWMAP)
+        if list(await self._configs.list_for_project(project_id)):
+            return False
+        await self._pins.clear(project_id=project_id, kind=PinKind.KNOWMAP)
+
+        from qdrant_client import AsyncQdrantClient
+
+        from app.config.settings import get_settings
+        from contexts.knowledge.infrastructure.graphrag_vector_store import GraphRagVectorStore
+
+        settings = get_settings()
+        try:
+            qclient = AsyncQdrantClient(url=settings.qdrant.url, api_key=settings.qdrant.api_key or None)
+            try:
+                await GraphRagVectorStore(qclient, prefix="knowmap").delete_collection(project_id)
+            finally:
+                await qclient.close()
+        except Exception:
+            _log.exception("knowmap drop-empty: qdrant collection drop failed for project %s", project_id)
+        return True
 
     # ---- infrastructure cascade (WS4, R11.20) -----------------------------
 
