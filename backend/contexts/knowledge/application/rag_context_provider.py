@@ -66,6 +66,14 @@ class RagContextProvider:
         # app.config itself). ``None``/empty => a bge-provider config degrades to
         # vector-only at runtime.
         self._bge_reranker_url = bge_reranker_url
+        # The bge reranker owns an httpx.AsyncClient (a connection pool) and is
+        # stateless apart from that fixed URL, so build it once lazily and reuse it
+        # across every turn on this provider — the pool stays warm rather than being
+        # torn down and re-established each query(). The provider is built once per
+        # engine and lives only for that (short) turn-driving span, so the client is
+        # released when the provider is dropped. Typed loosely to avoid importing the
+        # infrastructure Reranker at module import time.
+        self._bge_reranker: Any = None
 
     async def query(
         self,
@@ -127,14 +135,11 @@ class RagContextProvider:
             if cfg.rerank_enabled and cfg.rerank_provider == "bge":
                 # F-19: the keyless local reranker. It carries no pinned key, so it
                 # is exempt from F-1's carried-key project-scope check entirely —
-                # build it directly from the injected bundled-service URL. If the
-                # URL is not configured (service not deployed), degrade to
-                # vector-only rather than fail the turn.
-                if self._bge_reranker_url:
-                    from contexts.knowledge.infrastructure.rerankers import LocalBgeReranker
-
-                    reranker = LocalBgeReranker(base_url=self._bge_reranker_url)
-                else:
+                # build it from the injected bundled-service URL. If the URL is not
+                # configured (service not deployed), degrade to vector-only rather
+                # than fail the turn.
+                reranker = self._get_bge_reranker()
+                if reranker is None:
                     _log.warning(
                         "rag config %s selects bge rerank but no bundled reranker URL is "
                         "configured; retrieving without rerank",
@@ -217,12 +222,9 @@ class RagContextProvider:
                 return RagContext(block=block, sources=sources)
             finally:
                 await qclient.close()
-                # F-19: LocalBgeReranker owns an httpx.AsyncClient; close it so a
-                # bge config does not leak a connection pool every turn.
-                # RouterReranker has no client to close.
-                reranker_close = getattr(reranker, "close", None)
-                if reranker_close is not None:
-                    await reranker_close()
+                # The bge reranker's httpx client is cached on the provider and
+                # reused across turns (closed when the provider is dropped), so it is
+                # NOT torn down here. RouterReranker (cohere) holds no client to close.
         except Exception:
             _log.warning(
                 "RAG retrieval failed config=%s",
@@ -230,6 +232,23 @@ class RagContextProvider:
                 exc_info=True,
             )
             return None
+
+    def _get_bge_reranker(self) -> Any:
+        """Lazily build and cache the bundled local BGE reranker for this provider.
+
+        Returns ``None`` when no bundled-service URL is configured (service not
+        deployed) so the caller degrades to vector-only. Otherwise the reranker
+        depends only on that fixed URL (never on the per-turn config), so one
+        instance — and its warm httpx connection pool — is reused for every turn
+        this provider drives rather than reconstructed per query().
+        """
+        if not self._bge_reranker_url:
+            return None
+        if self._bge_reranker is None:
+            from contexts.knowledge.infrastructure.rerankers import LocalBgeReranker
+
+            self._bge_reranker = LocalBgeReranker(base_url=self._bge_reranker_url)
+        return self._bge_reranker
 
     async def _emit_scope_degrade(
         self,
