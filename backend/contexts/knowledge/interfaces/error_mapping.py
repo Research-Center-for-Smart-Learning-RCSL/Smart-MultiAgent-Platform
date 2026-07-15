@@ -66,6 +66,11 @@ _MAP: ErrorMap = {
         422,
         "Invalid chunk parameters",
     ),
+    errors.ChunkParamsImmutable: (
+        "knowledge/chunk-params-immutable",
+        409,
+        "Chunk parameters are fixed once the config has documents",
+    ),
     errors.GraphRagConfigNotFound: (
         "knowledge/graphrag-config-not-found",
         404,

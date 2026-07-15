@@ -21,6 +21,7 @@ from contexts.keys.interfaces.facade import (
 from contexts.knowledge.domain.embedding_pin import PinKind
 from contexts.knowledge.domain.errors import (
     CapabilityMismatch,
+    ChunkParamsImmutable,
     EmbedDimensionConflict,
     EmbedModelNotWhitelisted,
     RagConfigNotFound,
@@ -31,6 +32,7 @@ from contexts.knowledge.domain.models import (
     RagConfigDraft,
     RagDocument,
     embed_dimension,
+    normalized_chunk_params,
 )
 from contexts.knowledge.infrastructure.embedding_pin_repository import EmbeddingPinRepository
 from contexts.knowledge.infrastructure.repositories import (
@@ -49,6 +51,7 @@ class RagConfigService:
     def __init__(self, db: AsyncSession, *, bge_reranker_url: str | None = None) -> None:
         self._db = db
         self._configs = RagConfigRepository(db)
+        self._documents = RagDocumentRepository(db)
         self._pins = EmbeddingPinRepository(db)
         self._keys_facade = KeysFacade(db)
         # F-19: whether the bundled local reranker is deployed, injected by the
@@ -246,6 +249,23 @@ class RagConfigService:
                     raise CapabilityMismatch("rerank_enabled=true requires a rerank_provider")
                 if rerank_provider != "bge" and rerank_key_id is None:
                     raise CapabilityMismatch("rerank_enabled=true requires rerank_key_id + rerank_provider")
+
+        # F-20 (R10.04): chunk params are fixed once the config has any locking
+        # document. Chunking is a live read at each ingest with no per-document
+        # provenance, so a change after documents exist would split the corpus
+        # between two policies. Reject only a *changing* patch (Q-2: the full-form
+        # save always resends chunk_params, so an identical no-op must pass); the
+        # normalized compare tolerates absent-vs-default keys and key order.
+        if (
+            "chunk_params" in patch
+            and normalized_chunk_params(cfg.chunk_strategy, patch["chunk_params"])
+            != normalized_chunk_params(cfg.chunk_strategy, cfg.chunk_params)
+            and await self._documents.count_locking_for_config(config_id) > 0
+        ):
+            raise ChunkParamsImmutable(
+                f"config {config_id} has documents; chunk parameters are fixed once "
+                f"a corpus exists (delete all documents to re-tune, or recreate the config)"
+            )
 
         # Only allow mutable fields.
         mutable = {

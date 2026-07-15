@@ -28,6 +28,7 @@ from contexts.knowledge.application.embed_resolution import (
 )
 from contexts.knowledge.domain.embedding_pin import PinKind
 from contexts.knowledge.domain.errors import (
+    ChunkParamsImmutable,
     KnowmapBuilderKeyGroupProjectMismatch,
     KnowmapConfigNotFound,
     KnowmapEmbedDimensionConflict,
@@ -35,7 +36,7 @@ from contexts.knowledge.domain.errors import (
     KnowmapNoEmbeddingKey,
 )
 from contexts.knowledge.domain.knowmap import KnowmapConfig, KnowmapConfigDraft, KnowmapDocument
-from contexts.knowledge.domain.models import embed_dimension
+from contexts.knowledge.domain.models import embed_dimension, normalized_chunk_params
 from contexts.knowledge.infrastructure.embedding_pin_repository import EmbeddingPinRepository
 from contexts.knowledge.infrastructure.knowmap_repositories import (
     KnowmapConfigRepository,
@@ -153,6 +154,22 @@ class KnowmapConfigService:
         can inform the designer. Empty on any non-colliding change.
         """
         cfg = await self.get(config_id)
+
+        # F-20 (R10.04): chunk params are fixed once the config has any locking
+        # document — chunking is a live read at each ingest with no per-document
+        # provenance, so a post-corpus change would split the corpus between two
+        # policies. Reject only a *changing* patch (an identical no-op passes); the
+        # normalized compare tolerates absent-vs-default keys and key order.
+        if "chunk_params" in patch and normalized_chunk_params(
+            cfg.chunk_strategy, patch["chunk_params"]
+        ) != normalized_chunk_params(cfg.chunk_strategy, cfg.chunk_params):
+            docs_repo = KnowmapDocumentRepository(self._db)
+            if await docs_repo.count_locking_for_config(config_id) > 0:
+                raise ChunkParamsImmutable(
+                    f"knowmap config {config_id} has documents; chunk parameters are fixed "
+                    f"once a corpus exists (delete all documents to re-tune, or recreate)"
+                )
+
         new_group = patch.get("builder_key_group_id")
         db_values: dict[str, Any] = {}
         detached_agent_ids: list[uuid.UUID] = []

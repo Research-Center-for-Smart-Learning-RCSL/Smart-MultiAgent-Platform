@@ -110,6 +110,24 @@ DEFAULT_SEMANTIC_CHUNK_PARAMS: dict[str, float | int] = {
 }
 
 
+def normalized_chunk_params(strategy: ChunkStrategy, params: dict[str, Any]) -> dict[str, Any]:
+    """Project ``params`` onto the strategy's canonical key set, filling defaults.
+
+    Used by the F-20 immutability guard to compare a chunk-param patch against the
+    stored value semantically, not by raw dict equality. The full-form detail-view
+    PATCH always resends ``chunk_params`` (only the UI-exposed fields), so a stored
+    dict carrying a non-exposed key (e.g. semantic ``max_tokens_per_chunk``) or a
+    different key order must still read as *unchanged* — otherwise an unrelated edit
+    (name/top_k/rerank) would be spuriously rejected. Normalizing both sides to the
+    strategy's default-filled key set makes the comparison depend only on the
+    effective chunking policy.
+    """
+    defaults: dict[str, Any] = (
+        DEFAULT_FIXED_CHUNK_PARAMS if strategy is ChunkStrategy.FIXED else DEFAULT_SEMANTIC_CHUNK_PARAMS
+    )
+    return {key: params.get(key, default) for key, default in defaults.items()}
+
+
 @dataclass(frozen=True, slots=True)
 class RagConfig:
     id: uuid.UUID

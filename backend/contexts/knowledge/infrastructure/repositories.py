@@ -357,6 +357,31 @@ class RagDocumentRepository:
         ).all()
         return [_row_to_document(r) for r in rows]
 
+    async def count_locking_for_config(self, config_id: uuid.UUID) -> int:
+        """Count documents that lock the config's chunk params (F-20, Q-3).
+
+        A "locking" document is one that has already consumed the config's chunk
+        params — i.e. its ``status`` is ``INGESTING`` or ``READY``. ``FAILED`` and
+        ``QUARANTINED`` documents committed no retrievable chunks (their retry
+        re-indexes at then-current params), so they do not lock; a blanket
+        ``count(*)`` would wrongly lock a failed-only config. Keys on
+        ``DocumentStatus``, not ``scan_status`` — chunks are produced at ingest
+        regardless of the malware verdict.
+        """
+        row = (
+            await self._db.execute(
+                sa.select(sa.func.count())
+                .select_from(t.rag_documents)
+                .where(
+                    t.rag_documents.c.rag_config_id == config_id,
+                    t.rag_documents.c.status.in_(
+                        [DocumentStatus.INGESTING.value, DocumentStatus.READY.value]
+                    ),
+                )
+            )
+        ).scalar_one()
+        return int(row)
+
     async def allowed_document_ids(
         self,
         *,
