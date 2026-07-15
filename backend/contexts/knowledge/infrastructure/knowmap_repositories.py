@@ -434,6 +434,28 @@ class KnowmapDocumentRepository:
         ).all()
         return [_row_to_document(r) for r in rows]
 
+    async def count_locking_for_config(self, knowmap_config_id: uuid.UUID) -> int:
+        """Count documents that lock the config's chunk params (F-20, Q-3).
+
+        Mirror of :meth:`RagDocumentRepository.count_locking_for_config`: an
+        ``INGESTING``/``READY`` document has consumed the config's chunk params and
+        locks them; ``FAILED``/``QUARANTINED`` committed no retrievable chunks and
+        do not. Keys on ``DocumentStatus``, not ``scan_status``.
+        """
+        row = (
+            await self._db.execute(
+                sa.select(sa.func.count())
+                .select_from(t.knowmap_documents)
+                .where(
+                    t.knowmap_documents.c.knowmap_config_id == knowmap_config_id,
+                    t.knowmap_documents.c.status.in_(
+                        [DocumentStatus.INGESTING.value, DocumentStatus.READY.value]
+                    ),
+                )
+            )
+        ).scalar_one()
+        return int(row)
+
     async def ready_document_ids(self, *, config_id: uuid.UUID) -> list[uuid.UUID]:
         """All build-eligible document ids in ``config_id``.
 

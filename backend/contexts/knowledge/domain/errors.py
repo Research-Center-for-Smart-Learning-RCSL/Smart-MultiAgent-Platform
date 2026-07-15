@@ -71,6 +71,20 @@ class ChunkParamsInvalid(KnowledgeError):
     code = "knowledge/chunk-params-invalid"
 
 
+class ChunkParamsImmutable(KnowledgeError):
+    """F-20 (R10.04) — chunk parameters are fixed once the config has any document.
+
+    Chunk params (``chunk_size_tokens``/``chunk_overlap_tokens`` for fixed,
+    ``similarity_threshold`` for semantic) describe the whole corpus, but chunking
+    is a live read of the config at each ingest with no per-document provenance, so
+    a change after documents exist would leave the corpus split between two chunking
+    policies. Like ``chunk_strategy`` and the embedding model (already immutable), a
+    *changing* patch is rejected (409) once a locking document (``INGESTING``/
+    ``READY``) exists; while the config is empty the params stay editable."""
+
+    code = "knowledge/chunk-params-immutable"
+
+
 class GraphRagConfigNotFound(KnowledgeError):
     code = "knowledge/graphrag-config-not-found"
 
@@ -215,6 +229,7 @@ class KnowmapEmbeddingModelChangeBlocked(KnowledgeError):
 
 __all__ = [
     "CapabilityMismatch",
+    "ChunkParamsImmutable",
     "ChunkParamsInvalid",
     "DocumentTooLarge",
     "EmbedDimensionConflict",
