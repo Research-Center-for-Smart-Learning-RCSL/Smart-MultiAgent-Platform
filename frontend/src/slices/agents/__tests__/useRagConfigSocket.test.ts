@@ -121,6 +121,17 @@ describe('useRagConfigSocket', () => {
     expect(api.progress.value.error).not.toBeNull()
   })
 
+  it('surfaces a quarantined document as a non-clean corpus, not a silent ready (B3)', async () => {
+    listDocumentsMock.mockResolvedValue([doc('d1', 'quarantined'), doc('d2', 'ready')])
+    const { api } = mountSocket()
+    await flushPromises()
+
+    // A malware-blocked document never entered the retrievable corpus, so the
+    // corpus must not report a clean 'ready' with a null error signal.
+    expect(api.progress.value.state).toBe('failed')
+    expect(api.progress.value.error).not.toBeNull()
+  })
+
   it('backstop poll self-heals a dropped terminal frame and then stops', async () => {
     vi.useFakeTimers()
     listDocumentsMock.mockResolvedValue([doc('d1', 'ingesting')])
