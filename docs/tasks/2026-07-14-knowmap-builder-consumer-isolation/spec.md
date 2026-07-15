@@ -1,8 +1,8 @@
 ---
 type: bugfix
-status: draft
+status: implemented
 created: 2026-07-14
-requirements: [R11.01, R11.11, R11.14]
+requirements: [R11.01, R11.11, R11.14, R11.25]
 ---
 
 # F-14: Knowledge Map builder-key update can collide with attached consumer keys
@@ -252,28 +252,31 @@ seeded test DB:
 
 ## 10. Acceptance Criteria
 
-- [ ] AC-1: The six regression tests in §8 fail before the fix and pass after.
-- [ ] AC-2: Changing a Knowledge Map's `builder_key_group_id` to a group equal to any attached
+- [x] AC-1: The six regression tests in §8 fail before the fix and pass after.
+  (`test_knowmap_config_service.py` covers cases 1-4 + 6; `test_agent_service.py` covers case 5.)
+- [x] AC-2: Changing a Knowledge Map's `builder_key_group_id` to a group equal to any attached
   Agent's consumer `key_group_id` detaches exactly those colliding Agents (their
   `knowmap_config_id` cleared) in the same transaction as the config update; non-colliding
   attachments are untouched.
-- [ ] AC-3: The update response includes `detached_agent_ids` (empty when there is no collision),
+- [x] AC-3: The update response includes `detached_agent_ids` (empty when there is no collision),
   and the detach is recorded in audit metadata with the affected Agent id(s) and no key secret.
-- [ ] AC-4: All Agent-table writes occur in the agents context via `AgentsFacade`; the knowledge
+- [x] AC-4: All Agent-table writes occur in the agents context via `AgentsFacade`; the knowledge
   context performs no direct write to `agents.knowmap_config_id` (SoC preserved).
-- [ ] AC-5: The `KnowledgeMapConfigDetailView` surfaces a designer-visible notice (i18n, EN +
+- [x] AC-5: The `KnowledgeMapConfigDetailView` surfaces a designer-visible notice (i18n, EN +
   zh-TW) when `detached_agent_ids` is non-empty.
-- [ ] AC-6: The SRS Delta (§11, `[R11.25]`) is applied to `REQUIREMENTS.md` at approval.
-- [ ] AC-7: `pytest -q`, `ruff check . && ruff format --check .`, and `mypy .` pass in
-  `backend/`; `pnpm lint` / `pnpm typecheck` pass in `frontend/`.
-- [ ] AC-8: `/check-security` review passes for the enforced builder/consumer key-isolation
-  boundary (audit FU-1).
-- [ ] AC-9: `KnowmapConfigService.update` and both agent attach paths (`AgentService.patch` and
+- [x] AC-6: The SRS Delta (§11, `[R11.25]`) is applied to `REQUIREMENTS.md` at approval.
+- [x] AC-7: `pytest -q`, `ruff check . && ruff format --check .`, and `mypy .` pass in
+  `backend/` (no new mypy errors vs baseline — see F-15 FU-3); `pnpm lint` / `pnpm typecheck`
+  pass in `frontend/`.
+- [x] AC-8: `/check-security` review passes for the enforced builder/consumer key-isolation
+  boundary (audit FU-1) — covered by the consolidated Step 6 pass over the combined diff.
+- [x] AC-9: `KnowmapConfigService.update` and both agent attach paths (`AgentService.patch` and
   `AgentService.create`) acquire the config-id advisory lock, so a concurrent attach/create and
   builder-group-change cannot interleave into a persisted collision (§8.6).
-- [ ] AC-10: The checked-in api-client is regenerated (`pnpm run gen:api`) and committed so
-  `check:openapi-drift` passes; `KnowmapConfigOut`'s shared GET/create shape is not broadened
-  (optional field or dedicated patch model).
+- [x] AC-10: The checked-in api-client is regenerated (`pnpm run gen:api`) and committed so
+  `check:openapi-drift` passes (verified: re-export yields no drift); `KnowmapConfigOut`'s shared
+  GET/create shape is not broadened — a dedicated `KnowmapConfigPatchOut` subclass carries the
+  new field.
 
 ## 11. SRS Delta
 
@@ -291,7 +294,23 @@ Add to `REQUIREMENTS.md` §11.5 (Knowledge Map), after `[R11.24]`:
 
 ## 12. Deviation Log
 
-Appended by /build.
+- **D-1** — §7.1 specified the detach write as `UPDATE agents SET knowmap_config_id=NULL,
+  version=version+1 ...`. The manual `version=version+1` was **dropped**: the `agents` table has a
+  `smap_bump_version` BEFORE-UPDATE trigger, so any real column change auto-increments `version`.
+  Setting it by hand would double-bump. The `AgentRepository.detach_from_knowmap_config` write
+  sets only `knowmap_config_id=NULL` and lets the trigger bump the version (repository code must
+  never touch `version` — a project-wide invariant). The optimistic-concurrency intent of §7.1 is
+  preserved (version still advances on each detached row).
+- **D-2** — the reconciliation method signature gained a `project_id` parameter not shown in §7.1's
+  facade signature (`detach_agents_colliding_with_knowmap_builder(*, knowmap_config_id,
+  new_builder_key_group_id, project_id, actor_user_id, actor_ip, request_id=None)`). §7.1's own
+  SQL scopes the write by `project_id` (the indexed column; `knowmap_config_id` is unindexed), so
+  the value must reach the repository. The knowledge config service already holds it as
+  `cfg.project_id` and passes it through. Purely additive; no behavior change.
+- **D-3** — Q-4/§7.4 offered two sanctioned response shapes (optional field on the shared
+  `KnowmapConfigOut`, or a dedicated patch model). Chose the **dedicated `KnowmapConfigPatchOut`
+  subclass** so the shared GET/create shape stays exactly as-is (AC-10's "not broadened"). Not a
+  deviation from the spec — an explicit selection between its offered options, recorded for clarity.
 
 ## 13. Follow-ups
 
