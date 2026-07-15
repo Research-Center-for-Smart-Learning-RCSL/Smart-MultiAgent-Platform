@@ -26,6 +26,7 @@ from contexts.agent_groups.domain.models import AgentGroup
 from contexts.agent_groups.infrastructure import tables as t
 from contexts.agents.infrastructure import tables as agents_t
 from shared_kernel.auth.clients import now
+from shared_kernel.db.rowcount import rowcount
 
 
 def _row_to_group(row: object) -> AgentGroup:
@@ -148,7 +149,7 @@ class AgentGroupRepository:
             )
         except IntegrityError as exc:
             raise AgentGroupNameConflict(f"group name {name!r} already exists in this project") from exc
-        return bool(result.rowcount)
+        return bool(rowcount(result))
 
     async def set_concept_map_enabled(self, *, group_id: uuid.UUID, enabled: bool) -> bool:
         """Toggle the group's Concept Map privacy opt-in (Phase 2b WS3, R11.10).
@@ -167,7 +168,7 @@ class AgentGroupRepository:
             )
             .values(concept_map_enabled=enabled)
         )
-        return bool(result.rowcount)
+        return bool(rowcount(result))
 
     async def soft_delete(self, *, group_id: uuid.UUID) -> bool:
         """Tombstone a group; returns whether a live row was updated (WS6).
@@ -189,7 +190,7 @@ class AgentGroupRepository:
             )
             .values(deleted_at=now())
         )
-        return bool(result.rowcount)
+        return bool(rowcount(result))
 
     async def add_member(self, *, group_id: uuid.UUID, agent_id: uuid.UUID) -> None:
         """Add an agent to a group; idempotent on the (group, agent) PK.
@@ -213,7 +214,7 @@ class AgentGroupRepository:
                 )
             )
         )
-        return bool(result.rowcount)
+        return bool(rowcount(result))
 
     async def list_member_agent_ids(self, group_id: uuid.UUID) -> Sequence[uuid.UUID]:
         """Live member agent ids for a group, ordered for deterministic feeds.

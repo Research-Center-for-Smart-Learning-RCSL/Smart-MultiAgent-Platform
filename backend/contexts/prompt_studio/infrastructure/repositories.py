@@ -27,6 +27,7 @@ from contexts.prompt_studio.domain.models import (
     ScanStatus,
 )
 from contexts.prompt_studio.infrastructure import tables as t
+from shared_kernel.db.rowcount import rowcount
 
 
 def _row_to_config(row: Any) -> AssistantConfig:
@@ -230,7 +231,7 @@ class AssistantConfigRepository:
         result = await self._db.execute(
             t.prompt_assistant_files.delete().where(sa.and_(c.id == file_id, c.config_id == config_id))
         )
-        return bool(result.rowcount)
+        return bool(rowcount(result))
 
     async def sum_extracted_chars(self, config_id: uuid.UUID, *, only_clean: bool = True) -> int:
         c = t.prompt_assistant_files.c
@@ -302,7 +303,7 @@ class PromptTemplateRepository:
         result = await self._db.execute(
             t.prompt_templates.delete().where(t.prompt_templates.c.id == template_id)
         )
-        return bool(result.rowcount)
+        return bool(rowcount(result))
 
     async def count_for_scope(
         self, scope: PromptScope, *, org_id: uuid.UUID | None = None, user_id: uuid.UUID | None = None

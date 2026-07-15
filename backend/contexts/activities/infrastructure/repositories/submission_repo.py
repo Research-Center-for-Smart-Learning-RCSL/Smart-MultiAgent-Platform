@@ -10,10 +10,9 @@ from __future__ import annotations
 import datetime as dt
 import uuid
 from collections.abc import Sequence
-from typing import Any, cast
+from typing import Any
 
 import sqlalchemy as sa
-from sqlalchemy import CursorResult
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from contexts.activities.domain.models import (
@@ -23,6 +22,7 @@ from contexts.activities.domain.models import (
     ValidationStatus,
 )
 from contexts.activities.infrastructure import tables as t
+from shared_kernel.db.rowcount import rowcount
 
 _SUB = t.activity_submissions
 _SESS = t.activity_sessions
@@ -184,7 +184,7 @@ class ActivitySubmissionRepository:
                 validated_at=validated_at,
             )
         )
-        return bool(cast("CursorResult[Any]", result).rowcount)
+        return bool(rowcount(result))
 
     async def record_error(
         self, *, submission_id: uuid.UUID, error_class: str, validated_at: dt.datetime
@@ -205,7 +205,7 @@ class ActivitySubmissionRepository:
                 validated_at=validated_at,
             )
         )
-        return bool(cast("CursorResult[Any]", result).rowcount)
+        return bool(rowcount(result))
 
     async def sweep_stalled(
         self, *, cutoff: dt.datetime, error_class: str, swept_at: dt.datetime, limit: int = 500
@@ -239,7 +239,7 @@ class ActivitySubmissionRepository:
                 validated_at=swept_at,
             )
         )
-        return cast("CursorResult[Any]", result).rowcount or 0
+        return rowcount(result) or 0
 
     async def list_recent_for_room(
         self, *, chatroom_id: uuid.UUID, limit: int

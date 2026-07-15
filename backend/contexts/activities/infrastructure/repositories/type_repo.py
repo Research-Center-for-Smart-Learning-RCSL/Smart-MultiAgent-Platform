@@ -8,10 +8,9 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Sequence
-from typing import Any, cast
+from typing import Any
 
 import sqlalchemy as sa
-from sqlalchemy import CursorResult
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -19,6 +18,7 @@ from contexts.activities.domain.errors import ActivityTypeKeyConflict
 from contexts.activities.domain.models import ActivityType, ValidatorKind
 from contexts.activities.infrastructure import tables as t
 from shared_kernel.auth.clients import now
+from shared_kernel.db.rowcount import rowcount
 
 _TYPE_COLS = (
     t.activity_types.c.id,
@@ -139,7 +139,7 @@ class ActivityTypeRepository:
             )
             .values(deleted_at=now())
         )
-        return bool(cast("CursorResult[Any]", result).rowcount)
+        return bool(rowcount(result))
 
 
 __all__ = ["ActivityTypeRepository"]
