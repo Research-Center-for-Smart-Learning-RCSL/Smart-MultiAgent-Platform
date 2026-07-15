@@ -76,14 +76,16 @@ class KnowmapTusFinalizer:
         if existing is not None and existing.status is DocumentStatus.READY:
             return existing
         if existing is not None:
-            # F-23: only a TERMINAL non-READY row (FAILED/QUARANTINED) is a genuine
-            # retry — bump ingest_attempt so the ingest + scan job ids change and
-            # Arq enqueues a fresh run instead of deduping onto the retained prior
-            # result. An INGESTING row has a worker in flight; skip the re-enqueue
-            # so two workers never index the same doc and collide on
-            # uq_knowmap_chunk_doc_idx.
-            if existing.status in (DocumentStatus.FAILED, DocumentStatus.QUARANTINED):
-                attempt = await self._docs.bump_ingest_attempt(existing.id)
+            # F-23: claim_for_reingest transitions a TERMINAL row
+            # (FAILED/QUARANTINED) to INGESTING and bumps ingest_attempt in ONE
+            # atomic UPDATE. A returned counter means this call is the genuine retry
+            # — enqueue a fresh ingest + scan whose job ids carry the bumped attempt
+            # so Arq does not dedup onto the retained prior result. None means the
+            # row was not terminal (a worker is still in flight, or a concurrent
+            # re-upload already claimed it): skip the re-enqueue so two workers never
+            # index the same doc and collide on uq_knowmap_chunk_doc_idx.
+            attempt = await self._docs.claim_for_reingest(existing.id)
+            if attempt is not None:
                 await self._enqueue_index(existing.id, ingest_attempt=attempt)
                 await enqueue_knowmap_scan(document_id=existing.id, ingest_attempt=attempt)
             return existing

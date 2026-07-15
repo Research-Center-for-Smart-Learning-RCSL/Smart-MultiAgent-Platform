@@ -347,26 +347,40 @@ class KnowmapDocumentRepository:
             .values(status=status.value)
         )
 
-    async def bump_ingest_attempt(self, document_id: uuid.UUID) -> int:
-        """Atomically increment and return the document's ingest-attempt (F-23).
+    async def claim_for_reingest(self, document_id: uuid.UUID) -> int | None:
+        """Atomically claim a TERMINAL document for re-ingest (F-23).
 
-        Mirrors :meth:`RagDocumentRepository.bump_ingest_attempt`: a genuine tus
-        retry gets a distinct counter (folded into the ingest/scan job ids) while
-        two concurrent re-uploads each get a distinct value via the atomic
-        ``RETURNING``. The frozen ``KnowmapDocument`` read model does not carry the
-        column — only the returned value is needed.
+        Mirrors :meth:`RagDocumentRepository.claim_for_reingest`: one ``UPDATE``
+        transitions ``FAILED``/``QUARANTINED`` -> ``INGESTING`` and bumps
+        ``ingest_attempt`` under a ``WHERE status IN (...)`` guard, ``RETURNING``
+        the new counter. Exactly one concurrent re-upload wins the transition (and
+        gets a counter); the losers match zero rows and get ``None`` so the
+        finalizer skips their re-enqueue — no two workers collide on
+        ``uq_knowmap_chunk_doc_idx``. The frozen ``KnowmapDocument`` read model does
+        not carry the column — only the returned value is needed.
+
+        Returns the new attempt counter when this call claimed the document, or
+        ``None`` when it was not terminal (still ingesting, or already claimed).
         """
         row = (
             await self._db.execute(
                 t.knowmap_documents.update()
-                .where(t.knowmap_documents.c.id == document_id)
-                .values(ingest_attempt=t.knowmap_documents.c.ingest_attempt + 1)
+                .where(
+                    sa.and_(
+                        t.knowmap_documents.c.id == document_id,
+                        t.knowmap_documents.c.status.in_(
+                            [DocumentStatus.FAILED.value, DocumentStatus.QUARANTINED.value]
+                        ),
+                    )
+                )
+                .values(
+                    status=DocumentStatus.INGESTING.value,
+                    ingest_attempt=t.knowmap_documents.c.ingest_attempt + 1,
+                )
                 .returning(t.knowmap_documents.c.ingest_attempt)
             )
         ).first()
-        if row is None:
-            raise KnowmapDocumentNotFound(str(document_id))
-        return int(row.ingest_attempt)
+        return int(row.ingest_attempt) if row is not None else None
 
     async def get(self, document_id: uuid.UUID) -> KnowmapDocument | None:
         row = (

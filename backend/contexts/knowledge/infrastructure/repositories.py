@@ -261,27 +261,44 @@ class RagDocumentRepository:
             t.rag_documents.update().where(t.rag_documents.c.id == document_id).values(status=status.value)
         )
 
-    async def bump_ingest_attempt(self, document_id: uuid.UUID) -> int:
-        """Atomically increment and return the document's ingest-attempt (F-23).
+    async def claim_for_reingest(self, document_id: uuid.UUID) -> int | None:
+        """Atomically claim a TERMINAL document for re-ingest (F-23).
 
-        ``UPDATE ... SET ingest_attempt = ingest_attempt + 1 ... RETURNING`` so
-        two concurrent re-uploads of the same failed document each get a distinct
-        value and neither run is lost. The new value is folded into the ingest/
-        scan Arq job ids by the tus finalizer so a genuine retry always enqueues a
-        fresh job. The frozen ``RagDocument`` read model deliberately does NOT
-        carry this column — the finalizer only needs the returned counter.
+        A single ``UPDATE`` transitions ``FAILED``/``QUARANTINED`` -> ``INGESTING``
+        AND bumps ``ingest_attempt``, guarded by ``WHERE status IN (...)``, then
+        ``RETURNING`` the new counter. Folding the terminal-state check and the
+        bump into one atomic statement is what makes concurrent re-uploads safe:
+        exactly one racer wins the ``FAILED -> INGESTING`` transition and gets a
+        counter back; every other concurrent (or subsequent-while-in-flight)
+        re-upload matches zero rows and gets ``None``, so the finalizer skips its
+        re-enqueue. That guarantees a genuine retry always enqueues a fresh job
+        while two workers never index the same document and collide on
+        ``uq_rag_chunk_doc_idx``. The frozen ``RagDocument`` read model does NOT
+        carry ``ingest_attempt`` — the finalizer only needs the returned counter.
+
+        Returns the new attempt counter when this call claimed the document, or
+        ``None`` when it was not in a terminal state (still ingesting, or already
+        claimed by a concurrent re-upload).
         """
         row = (
             await self._db.execute(
                 t.rag_documents.update()
-                .where(t.rag_documents.c.id == document_id)
-                .values(ingest_attempt=t.rag_documents.c.ingest_attempt + 1)
+                .where(
+                    sa.and_(
+                        t.rag_documents.c.id == document_id,
+                        t.rag_documents.c.status.in_(
+                            [DocumentStatus.FAILED.value, DocumentStatus.QUARANTINED.value]
+                        ),
+                    )
+                )
+                .values(
+                    status=DocumentStatus.INGESTING.value,
+                    ingest_attempt=t.rag_documents.c.ingest_attempt + 1,
+                )
                 .returning(t.rag_documents.c.ingest_attempt)
             )
         ).first()
-        if row is None:
-            raise RagDocumentNotFound(str(document_id))
-        return int(row.ingest_attempt)
+        return int(row.ingest_attempt) if row is not None else None
 
     async def get(self, document_id: uuid.UUID) -> RagDocument | None:
         row = (

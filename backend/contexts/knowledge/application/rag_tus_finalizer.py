@@ -88,15 +88,7 @@ class RagTusFinalizer:
             return existing
         if existing is not None:
             # A prior attempt left this sha in a non-READY state; the blob is
-            # already in MinIO. Record the re-upload (the first upload is long
-            # past). F-23: only a TERMINAL non-READY row (FAILED/QUARANTINED) is a
-            # genuine retry — bump the per-document ingest_attempt so the ingest +
-            # scan job ids change and Arq actually enqueues a fresh run instead of
-            # silently deduping onto the retained prior result. An INGESTING row
-            # means a worker is still in flight: re-driving it would risk two
-            # workers indexing the same document and colliding on
-            # uq_rag_chunk_doc_idx, so skip the re-enqueue and let the running job
-            # finish (the original deterministic-id dedup behaviour).
+            # already in MinIO. Record the re-upload (the first upload is long past).
             await emit_reupload_audit(
                 self._db,
                 doc=existing,
@@ -104,14 +96,22 @@ class RagTusFinalizer:
                 actor_ip=actor_ip,
                 request_id=request_id,
             )
-            if existing.status in (DocumentStatus.FAILED, DocumentStatus.QUARANTINED):
-                attempt = await self._docs.bump_ingest_attempt(existing.id)
+            # F-23: claim_for_reingest transitions a TERMINAL row
+            # (FAILED/QUARANTINED) to INGESTING and bumps ingest_attempt in ONE
+            # atomic UPDATE, so only one racer wins. A returned counter means this
+            # call is the genuine retry — enqueue a fresh ingest + scan whose job
+            # ids carry the bumped attempt, defeating Arq's retained-id dedup. None
+            # means the row was not terminal (a worker is still in flight, or a
+            # concurrent re-upload already claimed it): skip the re-enqueue so two
+            # workers never index the same document and collide on
+            # uq_rag_chunk_doc_idx — commit the reupload audit and let it finish.
+            attempt = await self._docs.claim_for_reingest(existing.id)
+            if attempt is not None:
                 await self._enqueue_index(existing.id, config_id=cfg.id, ingest_attempt=attempt)
                 from contexts.knowledge.application.ingest_service import enqueue_rag_scan
 
                 await enqueue_rag_scan(document_id=existing.id, ingest_attempt=attempt)
             else:
-                # INGESTING — commit the reupload audit without re-enqueuing.
                 await self._db.commit()
             return existing
 
