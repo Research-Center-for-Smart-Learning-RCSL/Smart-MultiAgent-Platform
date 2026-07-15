@@ -195,6 +195,7 @@
       "rerankModel": "重排序模型",
       "noRerankKeys": "此專案沒有 Cohere（重排序）金鑰——請到金鑰頁面攜入一把，或改用免金鑰的本機 BGE 重排序器。",
       "immutableHint": "Embedding 提供者、模型與分塊策略在建立時固定，無法變更。",
+      "chunkParamsImmutableHint": "設定一旦有文件，分塊參數即固定——它們描述整個語料庫。若要重新調整，請刪除所有文件或重新建立設定。",
       "submit": "建立設定"
     },
     "graphragList": {

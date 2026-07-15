@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: approved
+status: implemented
 created: 2026-07-14
 requirements: [R10.04, R11.13]
 ---
@@ -219,17 +219,17 @@ Primary red-first test: (1).
 
 ## 10. Acceptance Criteria
 
-- [ ] AC-1: The File RAG rejection test (§8.1) fails before the fix and passes after.
-- [ ] AC-2: `PATCH` on a File RAG config with ≥1 `READY`/`INGESTING` document that *changes*
+- [x] AC-1: The File RAG rejection test (§8.1) fails before the fix and passes after.
+- [x] AC-2: `PATCH` on a File RAG config with ≥1 `READY`/`INGESTING` document that *changes*
   `chunk_params` returns 409 (`knowledge/chunk-params-immutable`) and leaves the stored params
   unchanged.
-- [ ] AC-3: `PATCH` that changes `chunk_params` succeeds on a config with no locking documents —
+- [x] AC-3: `PATCH` that changes `chunk_params` succeeds on a config with no locking documents —
   including one whose only document is `FAILED`/`QUARANTINED` (Q-3); an identical (no-op)
   `chunk_params` patch succeeds regardless of document count.
-- [ ] AC-4: The same rejection/allow semantics hold for Knowledge Map config updates.
-- [ ] AC-5: Both detail UIs disable the chunk-param inputs when the config has documents and
+- [x] AC-4: The same rejection/allow semantics hold for Knowledge Map config updates.
+- [x] AC-5: Both detail UIs disable the chunk-param inputs when the config has documents and
   show an i18n immutability hint; the create form remains fully editable.
-- [ ] AC-6: `pytest -q`, `ruff check . && ruff format --check .`, and `mypy .` pass in
+- [x] AC-6: `pytest -q`, `ruff check . && ruff format --check .`, and `mypy .` pass in
   `backend/`; `pnpm test`, `pnpm lint`, `pnpm typecheck`, `pnpm build` pass in `frontend/`.
 
 ## 11. SRS Delta
@@ -251,7 +251,17 @@ here.)
 
 ## 12. Deviation Log
 
-Appended by /build.
+- **D-1 (repo — no separate `RagDocumentService`, direct repo wire).** §7.2 said add a
+  `count_locking_for_config` method; implemented as `RagDocumentRepository.count_locking_for_config`
+  and `KnowmapDocumentRepository.count_locking_for_config`, and `RagConfigService` gained
+  `self._documents = RagDocumentRepository(db)` in `__init__` (Knowledge Map instantiates
+  `KnowmapDocumentRepository(self._db)` inside `update`, mirroring its existing `soft_delete`
+  pattern). No behavioral change from the spec; naming/wiring only.
+- **D-2 (compare — shared normalized helper in `domain/models.py`).** §7.3/§9 asked for a
+  normalized dict compare. Implemented as `normalized_chunk_params(strategy, params)` in
+  `domain/models.py` (default-filling both sides on the strategy's canonical key set) so the RAG
+  and Knowledge Map guards share one correct implementation, rather than an ad-hoc per-service
+  compare. Covered by the no-op tests (§8.3, key-order + absent-`max_tokens_per_chunk` cases).
 
 ## 13. Follow-ups
 
@@ -262,4 +272,13 @@ Appended by /build.
   with the code default (0.3, `models.py:107-110`). Reconcile in a separate SRS-accuracy pass.
 - **FU-3 (`chunk_strategy` parity):** confirm `chunk_strategy` is explicitly rejected (not
   silently dropped) on patch when docs exist; if only silently dropped today, align it with the
-  new explicit `ChunkParamsImmutable` behavior.
+  new explicit `ChunkParamsImmutable` behavior. (Observed during this build: `chunk_strategy` is
+  not in either mutable whitelist, so a patch value is *silently dropped* today, not 409'd — the
+  parity gap is real but out of scope here.)
+- **FU-4 (frontend lock granularity vs backend Q-3):** the UI disables the chunk-param inputs on
+  `documents.length > 0` (§7.5, implemented verbatim), whereas the backend locks only on
+  `INGESTING`/`READY` documents (Q-3). A config whose *only* documents are `FAILED`/`QUARANTINED`
+  therefore shows disabled inputs even though the API would accept a change. The direction is
+  safe (UI is stricter than the authoritative API, never looser) and the recovery path is to
+  delete the failed docs, but a future refinement could gate the UI on a locking-doc count to
+  match the backend exactly.

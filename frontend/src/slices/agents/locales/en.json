@@ -195,6 +195,7 @@
       "rerankModel": "Rerank Model",
       "noRerankKeys": "No Cohere (rerank) key in this project -- carry one in the Keys section, or use the keyless Local BGE reranker.",
       "immutableHint": "Embedding provider, model, and chunk strategy are fixed at creation and cannot be changed.",
+      "chunkParamsImmutableHint": "Chunk parameters are fixed once the configuration has documents -- they describe the whole corpus. To re-tune them, delete all documents or recreate the configuration.",
       "submit": "Create Configuration"
     },
     "graphragList": {
