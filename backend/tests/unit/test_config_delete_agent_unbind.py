@@ -224,10 +224,12 @@ async def test_rag_soft_delete_unbinds_agents_and_audits_ids() -> None:
     svc = RagConfigService(AsyncMock())
     svc.get = AsyncMock(return_value=cfg)  # type: ignore[method-assign]
     svc._configs = AsyncMock()
+    # soft_delete cascades via the service's own document repo (self._documents);
+    # this config has no child documents to drain.
+    svc._documents = _NoDocs(None)  # type: ignore[assignment]
     emit = AsyncMock()
     with (
         _patch_facade([unbound]),
-        patch("contexts.knowledge.application.config_service.RagDocumentRepository", _NoDocs),
         patch("contexts.knowledge.application.config_service.audit.emit", new=emit),
     ):
         await svc.soft_delete(config_id=cfg.id, actor_user_id=uuid.uuid4(), actor_ip=None)
