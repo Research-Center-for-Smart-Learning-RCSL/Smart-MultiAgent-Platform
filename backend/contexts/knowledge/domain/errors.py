@@ -46,6 +46,19 @@ class EmbedDimensionConflict(KnowledgeError):
     code = "knowledge/embed-dimension-conflict"
 
 
+class RagCollectionDimensionMismatch(KnowledgeError):
+    """F-11 (Q-3) — File RAG runtime guard: the ``rag_{project_id}`` collection
+    already exists at a different vector dimension than the embedder now produces.
+
+    The File RAG counterpart of :class:`GraphRagCollectionDimensionMismatch`:
+    raised by ``QdrantStore.ensure_collection`` so a wrong-size upsert fails as a
+    clean typed error at the boundary instead of an opaque raw Qdrant rejection.
+    Raised in the ingest path (no direct HTTP surface); mapped defensively as a
+    500."""
+
+    code = "knowledge/rag-collection-dimension-mismatch"
+
+
 class DocumentTooLarge(KnowledgeError):
     code = "knowledge/document-too-large"
 
@@ -195,6 +208,7 @@ __all__ = [
     "KnowmapDocumentNotFound",
     "KnowmapEmbedDimensionConflict",
     "KnowmapNoEmbeddingKey",
+    "RagCollectionDimensionMismatch",
     "RagConfigNameTaken",
     "RagConfigNotFound",
     "RagDocumentNotFound",

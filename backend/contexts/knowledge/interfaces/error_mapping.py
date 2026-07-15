@@ -46,6 +46,11 @@ _MAP: ErrorMap = {
         422,
         "All RAG configs in a project must share one embedding dimension",
     ),
+    errors.RagCollectionDimensionMismatch: (
+        "knowledge/rag-collection-dimension-mismatch",
+        500,
+        "RAG ingest produced vectors of the wrong dimension for the project collection",
+    ),
     errors.DocumentTooLarge: (
         "knowledge/document-too-large",
         413,
