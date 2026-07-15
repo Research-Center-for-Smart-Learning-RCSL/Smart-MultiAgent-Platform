@@ -60,6 +60,36 @@ def _purge_bucket_prefix(mc: Any, bucket: str, prefix: str) -> int:
     return removed
 
 
+def _list_bucket_prefixes(mc: Any, bucket: str) -> list[Any]:
+    """List only the top-level ``{project_id}/`` prefixes of ``bucket`` (F-24).
+
+    Non-recursive so a bucket with millions of objects still yields one entry per
+    project instead of the full object listing. Runs in a worker thread.
+    """
+    return list(mc.list_objects_sync(bucket, recursive=False))
+
+
+def _resolve_qdrant_store(qdrant_store: Any) -> tuple[Any, Any]:
+    """Return ``(store, client_to_close)`` for a File RAG Qdrant teardown (F-24).
+
+    When ``qdrant_store`` is supplied it is reused and its client is left open
+    (the caller owns the lifecycle, so a batch shares one client); when ``None`` a
+    short-lived client is built and returned as the second element for the caller
+    to close in a ``finally``.
+    """
+    if qdrant_store is not None:
+        return qdrant_store, None
+
+    from qdrant_client import AsyncQdrantClient
+
+    from app.config.settings import get_settings
+    from contexts.knowledge.infrastructure.qdrant_store import QdrantStore
+
+    settings = get_settings()
+    qclient = AsyncQdrantClient(url=settings.qdrant.url, api_key=settings.qdrant.api_key or None)
+    return QdrantStore(qclient), qclient
+
+
 class RagConfigService:
     def __init__(self, db: AsyncSession, *, bge_reranker_url: str | None = None) -> None:
         self._db = db
@@ -537,7 +567,11 @@ class RagConfigService:
         return summary
 
     @staticmethod
-    async def purge_project_source_infra(*, project_id: uuid.UUID) -> dict[str, Any]:
+    async def purge_project_source_infra(
+        *,
+        project_id: uuid.UUID,
+        qdrant_store: Any = None,
+    ) -> dict[str, Any]:
         """Row-independent teardown of a project's source infra (F-24).
 
         Erases, keyed on ``project_id`` alone (never the ``rag_documents`` rows,
@@ -553,11 +587,15 @@ class RagConfigService:
         store: a failure on one store is logged and reflected in the summary
         without aborting the others. Idempotent — a re-run when the data is
         already gone is a no-op. Emits no audit; the caller records erasure.
+
+        ``qdrant_store`` may be an already-constructed :class:`QdrantStore` shared
+        across a batch (its client is then owned by the caller and left open);
+        when ``None`` a short-lived client is built and closed here.
+        ``collection_dropped`` reflects whether a collection actually existed, not
+        merely that the drop call succeeded.
         """
-        from app.config.settings import get_settings
         from shared_kernel.storage import get_minio_client
 
-        settings = get_settings()
         summary: dict[str, Any] = {
             "project_id": str(project_id),
             "blobs_removed": 0,
@@ -581,24 +619,23 @@ class RagConfigService:
                     project_id,
                 )
 
-        from qdrant_client import AsyncQdrantClient
-
-        from contexts.knowledge.infrastructure.qdrant_store import QdrantStore
-
+        store, qclient = _resolve_qdrant_store(qdrant_store)
         try:
-            qclient = AsyncQdrantClient(url=settings.qdrant.url, api_key=settings.qdrant.api_key or None)
-            try:
-                await QdrantStore(qclient).delete_collection(project_id)
-                summary["collection_dropped"] = True
-            finally:
-                await qclient.close()
+            summary["collection_dropped"] = await store.delete_collection(project_id)
         except Exception:
             _log.exception("rag source teardown: qdrant collection drop failed for project %s", project_id)
+        finally:
+            if qclient is not None:
+                await qclient.close()
 
         return summary
 
     @staticmethod
-    async def list_rag_source_orphans(*, live_project_ids: set[uuid.UUID]) -> set[uuid.UUID]:
+    async def list_rag_source_orphans(
+        *,
+        live_project_ids: set[uuid.UUID],
+        qdrant_store: Any = None,
+    ) -> set[uuid.UUID]:
         """Project ids whose source infra is orphaned — no ``projects`` row (F-24).
 
         Enumerates candidates directly from the external stores (so already-leaked
@@ -607,22 +644,25 @@ class RagConfigService:
         ``deleted_at`` (Q-4): a soft-deleted-but-not-hard-deleted project still has
         a row and must keep its data until hard-delete.
 
-        Candidates come from both source buckets (the distinct first path segment
-        of each object key, since ``list_objects_sync`` is recursive-only) and from
-        the ``rag_{project_id}`` Qdrant collections (compared against *expected*
-        names to avoid dash/underscore ambiguity). Enumeration of a store that
-        raises is logged and skipped for this cycle — never fatal.
+        Candidates come from both source buckets (the distinct top-level prefix of
+        each key, listed non-recursively so the sweep does not materialise every
+        object) and from the ``rag_{project_id}`` Qdrant collections (compared
+        against *expected* names to avoid dash/underscore ambiguity). Only a
+        canonically-spelled UUID segment/name is accepted (round-trip guard), so a
+        foreign or non-canonical key the teardown could never actually purge is not
+        flagged into a perpetual re-sweep. Enumeration of a store that raises is
+        logged and skipped for this cycle — never fatal. ``qdrant_store`` may be a
+        shared store (see :meth:`purge_project_source_infra`).
         """
-        from app.config.settings import get_settings
         from shared_kernel.storage import get_minio_client
 
-        settings = get_settings()
         orphans: set[uuid.UUID] = set()
 
         mc = get_minio_client()
         for bucket in (mc.rag_sources_bucket, mc.knowmap_sources_bucket):
             try:
-                objects = await asyncio.to_thread(mc.list_objects_sync, bucket)
+                # Non-recursive: one entry per top-level ``{project_id}/`` prefix.
+                objects = await asyncio.to_thread(_list_bucket_prefixes, mc, bucket)
             except Exception:
                 _log.exception("rag orphan sweep: list_objects failed for bucket %s", bucket)
                 continue
@@ -632,22 +672,25 @@ class RagConfigService:
                     pid = uuid.UUID(segment)
                 except ValueError:
                     continue
+                # Round-trip guard: only a canonically-spelled segment maps to a
+                # ``{pid}/`` prefix the teardown can actually purge; a non-canonical
+                # spelling (e.g. dash-less) would otherwise be re-flagged every sweep.
+                if str(pid) != segment:
+                    continue
                 if pid not in live_project_ids:
                     orphans.add(pid)
 
-        from qdrant_client import AsyncQdrantClient
+        from contexts.knowledge.infrastructure.qdrant_store import collection_name
 
-        from contexts.knowledge.infrastructure.qdrant_store import QdrantStore, collection_name
-
+        store, qclient = _resolve_qdrant_store(qdrant_store)
         try:
-            qclient = AsyncQdrantClient(url=settings.qdrant.url, api_key=settings.qdrant.api_key or None)
-            try:
-                names = await QdrantStore(qclient).list_collection_names()
-            finally:
-                await qclient.close()
+            names = await store.list_collection_names()
         except Exception:
             _log.exception("rag orphan sweep: qdrant list_collections failed")
             names = []
+        finally:
+            if qclient is not None:
+                await qclient.close()
 
         expected = {collection_name(pid) for pid in live_project_ids}
         for name in names:

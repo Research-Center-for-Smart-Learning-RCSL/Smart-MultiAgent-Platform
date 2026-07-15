@@ -219,14 +219,15 @@ async def _purge_soft_deleted_tenancy(session: AsyncSession) -> int:
     if teardown_ids:
         from contexts.knowledge.interfaces.facade import KnowledgeFacade
 
-        knowledge = KnowledgeFacade(session)
-        for pid in teardown_ids:
-            try:
-                await knowledge.purge_project_source_infra(pid)
-            except Exception:
-                logger.bind(event="retention_rag_source_teardown_failed", project_id=str(pid)).opt(
-                    exception=True
-                ).warning("rag source teardown failed for project")
+        # The batch isolates per-project failures internally; this guard only
+        # covers a catastrophic failure (e.g. Qdrant client construction) so the
+        # tenancy purge is never aborted.
+        try:
+            await KnowledgeFacade(session).purge_project_source_infra_batch(teardown_ids)
+        except Exception:
+            logger.bind(event="retention_rag_source_teardown_failed").opt(exception=True).warning(
+                "rag source teardown batch failed"
+            )
 
     total = 0
     for tbl in _SOFT_DELETE_TABLES:
@@ -259,17 +260,7 @@ async def _purge_rag_source_orphans(session: AsyncSession) -> int:
     from contexts.knowledge.interfaces.facade import KnowledgeFacade
 
     live_ids = set((await session.execute(sa.select(projects_tbl.c.id))).scalars().all())
-    orphans = await KnowledgeFacade.list_rag_source_orphans(live_project_ids=live_ids)
-    knowledge = KnowledgeFacade(session)
-    swept = 0
-    for pid in orphans:
-        try:
-            await knowledge.purge_project_source_infra(pid, audit_action="rag.source_orphan_swept")
-            swept += 1
-        except Exception:
-            logger.bind(event="retention_rag_source_orphan_failed", project_id=str(pid)).opt(
-                exception=True
-            ).warning("rag source orphan purge failed for project")
+    swept = await KnowledgeFacade(session).sweep_rag_source_orphans(live_ids)
     await _emit_summary(session, "retention.rag_source_orphans.swept", swept)
     return swept
 

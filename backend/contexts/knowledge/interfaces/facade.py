@@ -7,8 +7,9 @@ for permission filtering).
 
 from __future__ import annotations
 
+import logging
 import uuid
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from typing import TYPE_CHECKING
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -36,6 +37,8 @@ if TYPE_CHECKING:
     from contexts.knowledge.application.graphrag_graph_service import GraphView
     from contexts.knowledge.application.graphrag_triggers import GraphRagBuildTrigger
     from contexts.knowledge.application.knowmap_graph_service import KnowmapGraphView
+
+_log = logging.getLogger(__name__)
 
 
 class KnowledgeFacade:
@@ -307,56 +310,109 @@ class KnowledgeFacade:
             request_id=request_id,
         )
 
-    async def purge_project_source_infra(
+    async def purge_project_source_infra_batch(
         self,
-        project_id: uuid.UUID,
+        project_ids: Iterable[uuid.UUID],
         *,
         audit_action: str = "rag.source_infra_purged",
-    ) -> dict[str, bool | int | str]:
-        """Erase a project's File RAG + Knowledge Map source infra and audit it (F-24).
+    ) -> int:
+        """Erase source infra for many projects, sharing one Qdrant client (F-24).
 
-        The single cross-context entry point both tenant hard-delete paths (the
-        retention worker and the immediate admin GDPR purge) and the backstop
-        orphan sweep call. Keyed on ``project_id`` alone — no ``rag_documents``
-        rows required — so it runs after the Postgres cascade has erased them.
-        Delegates the store teardown to :meth:`RagConfigService.purge_project_source_infra`
-        (best-effort, isolated per store), then records an audit row carrying the
-        ``project_id`` and the erasure summary — never a blob key or content
-        (§Security). The ``audit_action`` distinguishes a hard-delete teardown
-        (default) from a backstop ``rag.source_orphan_swept`` without a second
-        method.
+        The cross-context entry point both tenant hard-delete paths (the retention
+        worker and the immediate admin GDPR purge) call. Keyed on ``project_id``
+        alone — no ``rag_documents`` rows required — so it runs after the Postgres
+        cascade has erased them. Builds a single Qdrant client for the whole batch
+        (rather than one per project), then erases each project's blobs + collection
+        and records a per-project audit carrying only ``project_id`` + counts (never
+        a blob key or content, §Security). Per-project failures are isolated — one
+        raising never aborts the batch. Returns the count purged without error.
+        """
+        ids = list(project_ids)
+        if not ids:
+            return 0
+
+        from qdrant_client import AsyncQdrantClient
+
+        from app.config.settings import get_settings
+        from contexts.knowledge.infrastructure.qdrant_store import QdrantStore
+
+        settings = get_settings()
+        qclient = AsyncQdrantClient(url=settings.qdrant.url, api_key=settings.qdrant.api_key or None)
+        try:
+            return await self._purge_source_infra_with_store(
+                ids, store=QdrantStore(qclient), audit_action=audit_action
+            )
+        finally:
+            await qclient.close()
+
+    async def sweep_rag_source_orphans(self, live_project_ids: set[uuid.UUID]) -> int:
+        """Discover and erase orphaned source infra with one shared client (F-24).
+
+        The retention backstop. Enumerates the external stores for source blobs /
+        ``rag_{project_id}`` collections whose ``project_id`` has no ``projects``
+        row (``live_project_ids`` is *every* row, Q-4), then erases each — reusing a
+        single Qdrant client across both the enumeration and the teardown. Audits
+        each orphan as ``rag.source_orphan_swept``. Returns the count swept.
+        """
+        from qdrant_client import AsyncQdrantClient
+
+        from app.config.settings import get_settings
+        from contexts.knowledge.application.config_service import RagConfigService
+        from contexts.knowledge.infrastructure.qdrant_store import QdrantStore
+
+        settings = get_settings()
+        qclient = AsyncQdrantClient(url=settings.qdrant.url, api_key=settings.qdrant.api_key or None)
+        try:
+            store = QdrantStore(qclient)
+            orphans = await RagConfigService.list_rag_source_orphans(
+                live_project_ids=live_project_ids, qdrant_store=store
+            )
+            return await self._purge_source_infra_with_store(
+                orphans, store=store, audit_action="rag.source_orphan_swept"
+            )
+        finally:
+            await qclient.close()
+
+    async def _purge_source_infra_with_store(
+        self,
+        project_ids: Iterable[uuid.UUID],
+        *,
+        store: object,
+        audit_action: str,
+    ) -> int:
+        """Erase + audit source infra for each id, reusing ``store`` (F-24).
+
+        Per-project isolation: a project whose teardown raises is logged and
+        skipped so it never aborts the batch/sweep. Audit metadata carries only
+        ``project_id`` + counts, never a blob key.
         """
         from contexts.knowledge.application.config_service import RagConfigService
 
-        summary = await RagConfigService.purge_project_source_infra(project_id=project_id)
-        await audit.emit(
-            self._db,
-            audit.AuditEvent(
-                action=audit_action,
-                resource_type="project",
-                resource_id=project_id,
-                metadata={
-                    "project_id": str(project_id),
-                    "blobs_removed": summary["blobs_removed"],
-                    "buckets_failed": summary["buckets_failed"],
-                    "collection_dropped": summary["collection_dropped"],
-                },
-            ),
-        )
-        return summary
-
-    @staticmethod
-    async def list_rag_source_orphans(*, live_project_ids: set[uuid.UUID]) -> set[uuid.UUID]:
-        """Project ids whose source blobs/collection have no ``projects`` row (F-24).
-
-        Thin delegation to :meth:`RagConfigService.list_rag_source_orphans` so the
-        retention backstop reaches the external-store enumeration through the
-        facade, not application internals. ``live_project_ids`` is every
-        ``projects`` id (Q-4); the caller owns that query.
-        """
-        from contexts.knowledge.application.config_service import RagConfigService
-
-        return await RagConfigService.list_rag_source_orphans(live_project_ids=live_project_ids)
+        swept = 0
+        for pid in project_ids:
+            try:
+                summary = await RagConfigService.purge_project_source_infra(
+                    project_id=pid, qdrant_store=store
+                )
+            except Exception:
+                _log.exception("rag source teardown failed for project %s", pid)
+                continue
+            await audit.emit(
+                self._db,
+                audit.AuditEvent(
+                    action=audit_action,
+                    resource_type="project",
+                    resource_id=pid,
+                    metadata={
+                        "project_id": str(pid),
+                        "blobs_removed": summary["blobs_removed"],
+                        "buckets_failed": summary["buckets_failed"],
+                        "collection_dropped": summary["collection_dropped"],
+                    },
+                ),
+            )
+            swept += 1
+        return swept
 
 
 __all__ = ["KnowledgeFacade"]

@@ -202,16 +202,15 @@ class AccountDeletionService:
 
             from contexts.knowledge.interfaces.facade import KnowledgeFacade
 
-            facade = KnowledgeFacade(self._db)
-            for pid in teardown_ids:
-                try:
-                    await facade.purge_project_source_infra(pid)
-                except Exception:
-                    # Best-effort (spec §7.2): a teardown failure must never abort
-                    # the GDPR purge — the backstop sweep reclaims the orphan.
-                    logger.bind(event="admin_gdpr_rag_source_teardown_failed", project_id=str(pid)).opt(
-                        exception=True
-                    ).warning("rag source teardown failed for project during admin hard-delete")
+            try:
+                await KnowledgeFacade(self._db).purge_project_source_infra_batch(teardown_ids)
+            except Exception:
+                # Best-effort (spec §7.2): a teardown failure must never abort the
+                # GDPR purge — the batch isolates per-project failures internally, and
+                # the backstop sweep reclaims anything a catastrophic failure misses.
+                logger.bind(event="admin_gdpr_rag_source_teardown_failed").opt(exception=True).warning(
+                    "rag source teardown batch failed during admin hard-delete"
+                )
 
         await self._db.execute(
             t.original_creator_transfers.delete().where(

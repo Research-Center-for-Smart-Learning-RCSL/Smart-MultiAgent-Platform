@@ -260,12 +260,12 @@ class TestRagSourceTeardownWiring:
     """F-24: retention hard-delete tears down source infra for doomed projects."""
 
     @patch(
-        "contexts.knowledge.interfaces.facade.KnowledgeFacade.purge_project_source_infra",
+        "contexts.knowledge.interfaces.facade.KnowledgeFacade.purge_project_source_infra_batch",
         new_callable=AsyncMock,
     )
     @patch("app.workers.tasks.retention.audit.emit", new_callable=AsyncMock)
     @patch("app.workers.tasks.retention.now", return_value=_NOW)
-    async def test_tears_down_direct_and_org_cascade_projects(self, _now, _audit, purge) -> None:
+    async def test_tears_down_direct_and_org_cascade_projects(self, _now, _audit, purge_batch) -> None:
         from app.workers.tasks.retention import _purge_soft_deleted_tenancy
 
         direct_pid = uuid.uuid4()
@@ -288,31 +288,24 @@ class TestRagSourceTeardownWiring:
 
         await _purge_soft_deleted_tenancy(session)
 
-        purged = {call.args[0] for call in purge.await_args_list}
-        assert purged == {direct_pid, via_org_pid}
-        # Default hard-delete teardown action (not the sweep action).
-        for call in purge.await_args_list:
-            assert "audit_action" not in call.kwargs
+        # One batch call carrying both the direct and org-cascade doomed projects.
+        purge_batch.assert_awaited_once()
+        assert set(purge_batch.await_args.args[0]) == {direct_pid, via_org_pid}
 
 
 class TestPurgeRagSourceOrphans:
-    """F-24: the backstop sweep purges only projects with no `projects` row."""
+    """F-24: the backstop sweep delegates to the facade sweep and audits the count."""
 
     @patch(
-        "contexts.knowledge.interfaces.facade.KnowledgeFacade.purge_project_source_infra",
-        new_callable=AsyncMock,
-    )
-    @patch(
-        "contexts.knowledge.interfaces.facade.KnowledgeFacade.list_rag_source_orphans",
+        "contexts.knowledge.interfaces.facade.KnowledgeFacade.sweep_rag_source_orphans",
         new_callable=AsyncMock,
     )
     @patch("app.workers.tasks.retention.audit.emit", new_callable=AsyncMock)
-    async def test_purges_reported_orphans_with_sweep_action(self, _audit, list_orphans, purge) -> None:
+    async def test_delegates_to_facade_sweep_over_live_set(self, _audit, sweep) -> None:
         from app.workers.tasks.retention import _purge_rag_source_orphans
 
         live_pid = uuid.uuid4()
-        orphan = uuid.uuid4()
-        list_orphans.return_value = {orphan}
+        sweep.return_value = 3
 
         session = AsyncMock()
         live_result = MagicMock()
@@ -321,42 +314,10 @@ class TestPurgeRagSourceOrphans:
 
         swept = await _purge_rag_source_orphans(session)
 
-        assert swept == 1
-        list_orphans.assert_awaited_once_with(live_project_ids={live_pid})
-        purge.assert_awaited_once_with(orphan, audit_action="rag.source_orphan_swept")
-
-    @patch(
-        "contexts.knowledge.interfaces.facade.KnowledgeFacade.purge_project_source_infra",
-        new_callable=AsyncMock,
-    )
-    @patch(
-        "contexts.knowledge.interfaces.facade.KnowledgeFacade.list_rag_source_orphans",
-        new_callable=AsyncMock,
-    )
-    @patch("app.workers.tasks.retention.audit.emit", new_callable=AsyncMock)
-    async def test_orphan_purge_failure_is_isolated(self, _audit, list_orphans, purge) -> None:
-        from app.workers.tasks.retention import _purge_rag_source_orphans
-
-        good = uuid.uuid4()
-        bad = uuid.uuid4()
-        list_orphans.return_value = {good, bad}
-
-        async def _purge(pid, *, audit_action):
-            if pid == bad:
-                raise RuntimeError("qdrant down")
-
-        purge.side_effect = _purge
-
-        session = AsyncMock()
-        live_result = MagicMock()
-        live_result.scalars.return_value.all.return_value = []
-        session.execute.return_value = live_result
-
-        # One orphan raising must not abort the cycle; the other still sweeps.
-        swept = await _purge_rag_source_orphans(session)
-
-        assert swept == 1
-        assert purge.await_count == 2
+        assert swept == 3
+        sweep.assert_awaited_once_with({live_pid})
+        # Summary audit records the swept count.
+        _audit.assert_awaited()
 
 
 class TestPurgeAgentInstances:

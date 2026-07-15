@@ -508,9 +508,10 @@ class GraphRagConfigService:
         snapshots: SnapshotStore = self._snapshots or RedisSnapshotStore()
         locks: BuildLockStore = self._locks or RedisBuildLockStore()
         neo4j = self._neo4j
-        owns_neo4j = neo4j is None
-        if owns_neo4j:
-            neo4j = self._build_neo4j_driver()
+        # Build the compensation Neo4j driver lazily (below), only when an in-flight
+        # build must actually be rolled back — so the 409 fast-fail and clean/idle
+        # resets construct nothing. ``owns_neo4j`` stays False for an injected driver.
+        owns_neo4j = False
 
         try:
             # --- serialize against builder / reconciler (Q-5, R11a.01) ---
@@ -535,6 +536,9 @@ class GraphRagConfigService:
                 comp_error: str | None = None
                 if build_id is not None:
                     snapshot = await snapshots.get(config_id=config_id, build_id=build_id)
+                    if neo4j is None:
+                        neo4j = self._build_neo4j_driver()
+                        owns_neo4j = neo4j is not None
                     try:
                         if neo4j is None:
                             # Cannot roll back an in-flight build with no driver —
