@@ -33,11 +33,10 @@ from typing import Any, Literal, Protocol
 __all__ = [
     "CompactFailed",
     "CompactPlan",
-    "KnowledgeBudgets",
+    "KnowledgeBudget",
     "MessageLike",
     "Summariser",
     "TranscriptStore",
-    "allocate_knowledge_budget",
     "choose_range_to_compact",
     "default_cap_from_limit",
     "knowledge_budget",
@@ -134,36 +133,21 @@ def knowledge_budget(
 
 
 @dataclass(frozen=True, slots=True)
-class KnowledgeBudgets:
-    """Per-source token budgets for one turn's knowledge blocks (R11.19).
+class KnowledgeBudget:
+    """The combined knowledge token budget for one turn plus the per-graph-source
+    cap (R11.19).
 
-    Field names are the code-authoritative provider labels: ``concept_map`` is
-    the room-scoped Concept Map (``_graphrag_context``), ``knowledge_map`` the
-    Axis-1 Knowledge Map (``_knowmap_context``), ``file_rag`` the document RAG.
+    Narrow-scope precedence — Concept Map > Knowledge Map > File RAG — is applied
+    by the turn assembler, not pre-split here: it draws the two graph blocks first
+    (each capped at ``graph_source_cap``, individually small and the most
+    specific), then gives File RAG the *measured* remainder of ``total``. Pre-
+    splitting stranded a full ``graph_source_cap`` on an absent Concept/Knowledge
+    Map and starved File RAG; measuring what the graph blocks actually render
+    returns their unused reservation to File RAG.
     """
 
-    concept_map: int
-    knowledge_map: int
-    file_rag: int
-
-
-def allocate_knowledge_budget(total: int, *, graph_source_cap: int) -> KnowledgeBudgets:
-    """Distribute the knowledge budget across the three sources in narrow-scope
-    precedence order — Concept Map > Knowledge Map > File RAG (R11.19).
-
-    The two graph sources each take up to ``graph_source_cap`` first (they are
-    individually small and the most specific); File RAG receives the remainder,
-    so it is squeezed — and dropped to zero — before either graph block. When the
-    total is smaller than a single graph cap, Knowledge Map yields before Concept
-    Map. A source granted zero is omitted by the caller, never sent empty.
-    """
-    if total <= 0:
-        return KnowledgeBudgets(concept_map=0, knowledge_map=0, file_rag=0)
-    cap = max(0, graph_source_cap)
-    concept = min(cap, total)
-    knowmap = min(cap, total - concept)
-    file_rag = max(0, total - concept - knowmap)
-    return KnowledgeBudgets(concept_map=concept, knowledge_map=knowmap, file_rag=file_rag)
+    total: int
+    graph_source_cap: int
 
 
 @dataclass(frozen=True, slots=True)

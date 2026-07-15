@@ -19,7 +19,7 @@ from types import SimpleNamespace
 import pytest
 
 import contexts.agents.application.runtime.turn_engine as te
-from contexts.agents.application.context import KnowledgeBudgets
+from contexts.agents.application.context import KnowledgeBudget
 
 
 def _async_return(value):
@@ -44,66 +44,100 @@ def _agent():
 # --------------------------------------------------------------------------- #
 
 
-@pytest.mark.asyncio
-async def test_assemble_knowledge_passes_per_source_budgets() -> None:
-    engine = te.TurnEngine.__new__(te.TurnEngine)
-    seen: dict = {}
-
+def _wire_providers(engine, *, rag="RAG", concept="CONCEPT", knowmap="KNOWMAP", seen=None):
     async def _rag(agent, queries, *, token_budget=None):
-        seen["rag"] = token_budget
-        return _RagCtx("RAG")
+        if seen is not None:
+            seen["rag"] = token_budget
+        return _RagCtx(rag) if rag is not None else None
 
     async def _graph(agent, chatroom_id, queries, *, token_budget=None):
-        seen["concept"] = token_budget
-        return "CONCEPT"
+        if seen is not None:
+            seen["concept"] = token_budget
+        return concept
 
     async def _km(agent, queries, *, token_budget=None):
-        seen["knowmap"] = token_budget
-        return "KNOWMAP"
+        if seen is not None:
+            seen["knowmap"] = token_budget
+        return knowmap
 
     engine._rag_context = _rag  # type: ignore[attr-defined]
     engine._graphrag_context = _graph  # type: ignore[attr-defined]
     engine._knowmap_context = _km  # type: ignore[attr-defined]
 
-    budgets = KnowledgeBudgets(concept_map=700, knowledge_map=700, file_rag=3600)
+
+@pytest.mark.asyncio
+async def test_assemble_knowledge_graph_sources_capped_file_rag_takes_remainder() -> None:
+    # Graph blocks draw first, each capped at graph_source_cap; File RAG receives
+    # the remainder of total measured from what the graph blocks actually rendered.
+    engine = te.TurnEngine.__new__(te.TurnEngine)
+    seen: dict = {}
+    _wire_providers(engine, concept="CONCEPT", knowmap="KNOWMAP", seen=seen)
+
+    budget = KnowledgeBudget(total=5000, graph_source_cap=700)
     blocks, _rag_ctx = await engine._assemble_agent_knowledge(
-        _agent(), ["q"], chatroom_id=uuid.uuid4(), budgets=budgets
+        _agent(), ["q"], chatroom_id=uuid.uuid4(), budget=budget
     )
 
     assert blocks == ["RAG", "CONCEPT", "KNOWMAP"]
-    # Each provider is capped to its own precedence-allocated budget.
-    assert seen == {"rag": 3600, "concept": 700, "knowmap": 700}
+    assert seen["concept"] == 700  # min(cap, remaining=5000)
+    assert seen["knowmap"] == 700  # min(cap, remaining after concept)
+    # File RAG reclaims all but the graph blocks' *actual* rendered cost.
+    expected_rag = 5000 - te.tx.estimate_tokens("CONCEPT") - te.tx.estimate_tokens("KNOWMAP")
+    assert seen["rag"] == expected_rag
 
 
 @pytest.mark.asyncio
-async def test_assemble_knowledge_omits_zero_budget_source() -> None:
+async def test_assemble_knowledge_reclaims_absent_graph_budget_for_file_rag() -> None:
+    # Fix #1: an absent Concept Map must NOT strand its graph_source_cap — File RAG
+    # reclaims it instead of being capped at total - 2*cap.
     engine = te.TurnEngine.__new__(te.TurnEngine)
-    called: dict = {}
+    seen: dict = {}
+    _wire_providers(engine, concept=None, knowmap="KNOWMAP", seen=seen)
 
-    async def _rag(agent, queries, *, token_budget=None):
-        called["rag"] = True
-        return _RagCtx("RAG")
-
-    async def _graph(agent, chatroom_id, queries, *, token_budget=None):
-        called["concept"] = True
-        return "CONCEPT"
-
-    async def _km(agent, queries, *, token_budget=None):
-        called["knowmap"] = True
-        return "KNOWMAP"
-
-    engine._rag_context = _rag  # type: ignore[attr-defined]
-    engine._graphrag_context = _graph  # type: ignore[attr-defined]
-    engine._knowmap_context = _km  # type: ignore[attr-defined]
-
-    # File RAG granted zero: it is omitted entirely (never queried, never empty).
-    budgets = KnowledgeBudgets(concept_map=700, knowledge_map=300, file_rag=0)
+    budget = KnowledgeBudget(total=5000, graph_source_cap=700)
     blocks, _rag_ctx = await engine._assemble_agent_knowledge(
-        _agent(), ["q"], chatroom_id=uuid.uuid4(), budgets=budgets
+        _agent(), ["q"], chatroom_id=uuid.uuid4(), budget=budget
     )
 
-    assert "rag" not in called  # zero-budget File RAG never queried
-    assert blocks == ["CONCEPT", "KNOWMAP"]
+    assert blocks == ["RAG", "KNOWMAP"]  # no Concept Map block
+    # Concept reservation reclaimed: File RAG gets total - knowmap cost, NOT 3600.
+    expected_rag = 5000 - te.tx.estimate_tokens("KNOWMAP")
+    assert seen["rag"] == expected_rag
+
+
+@pytest.mark.asyncio
+async def test_assemble_knowledge_omits_file_rag_when_graph_blocks_exhaust_budget() -> None:
+    # When the graph blocks' actual rendered cost consumes the whole budget, File
+    # RAG is left zero and omitted entirely (never queried).
+    engine = te.TurnEngine.__new__(te.TurnEngine)
+    seen: dict = {}
+    # Latin len//4: 2800 chars -> 700 tokens, 1600 chars -> 400 tokens.
+    _wire_providers(engine, concept="x" * 2800, knowmap="y" * 1600, seen=seen)
+
+    budget = KnowledgeBudget(total=1000, graph_source_cap=700)
+    blocks, rag_ctx = await engine._assemble_agent_knowledge(
+        _agent(), ["q"], chatroom_id=uuid.uuid4(), budget=budget
+    )
+
+    assert "rag" not in seen  # remaining hit zero -> File RAG never queried
+    assert rag_ctx is None
+    assert blocks == ["x" * 2800, "y" * 1600]
+
+
+@pytest.mark.asyncio
+async def test_assemble_knowledge_zero_total_omits_everything() -> None:
+    engine = te.TurnEngine.__new__(te.TurnEngine)
+    seen: dict = {}
+    _wire_providers(engine, seen=seen)
+
+    budget = KnowledgeBudget(total=0, graph_source_cap=700)
+    blocks, rag_ctx = await engine._assemble_agent_knowledge(
+        _agent(), ["q"], chatroom_id=uuid.uuid4(), budget=budget
+    )
+
+    assert seen == {}  # nothing queried
+    assert rag_ctx is None
+    assert blocks == []
 
 
 # --------------------------------------------------------------------------- #

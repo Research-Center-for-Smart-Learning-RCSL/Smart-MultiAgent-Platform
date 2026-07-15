@@ -1052,14 +1052,14 @@ class TurnEngine:
                     fixed_context_tokens=fixed_context,
                     safety_margin_frac=_KNOWLEDGE_SAFETY_MARGIN,
                 )
-                budgets = ctxmod.allocate_knowledge_budget(
-                    total_budget, graph_source_cap=_GRAPH_BLOCK_TOKEN_BUDGET
+                budget = ctxmod.KnowledgeBudget(
+                    total=total_budget, graph_source_cap=_GRAPH_BLOCK_TOKEN_BUDGET
                 )
                 # Retrieval keys off the *current* input when this turn carries one
                 # (run_input_turn); otherwise the latest user message in history.
                 knowledge_queries = _knowledge_queries(history, input_text=input_text)
                 knowledge_blocks, rag_ctx = await self._assemble_agent_knowledge(
-                    agent, knowledge_queries, chatroom_id=chatroom_id, budgets=budgets
+                    agent, knowledge_queries, chatroom_id=chatroom_id, budget=budget
                 )
 
                 # Context blocks fold into the system prompt (providers take system
@@ -1168,12 +1168,21 @@ class TurnEngine:
                         context_limit,
                         agent.id,
                     )
+                    # Recompact against the NON-history prefix only: _assemble_history
+                    # adds the history token_count itself, so passing payload_tokens
+                    # (which already counts the history via _estimate_messages_tokens)
+                    # would double-count it and over-shed. system_text carries the
+                    # knowledge blocks + summaries; input_tokens covers the appended
+                    # current turn, which is not part of loaded history.
+                    non_history_prefix = (
+                        tx.estimate_tokens(system_text) + tool_tokens + input_tokens + _DEFAULT_MAX_TOKENS
+                    )
                     history = await self._assemble_history(
                         agent,
                         chatroom_id,
                         context_limit,
                         models,
-                        extra_projected_tokens=payload_tokens,
+                        extra_projected_tokens=non_history_prefix,
                     )
                     system_text, messages, rag_ctx = await _assemble_request(history)
 
@@ -1914,7 +1923,7 @@ class TurnEngine:
         queries: Sequence[str],
         *,
         chatroom_id: uuid.UUID | None,
-        budgets: ctxmod.KnowledgeBudgets | None = None,
+        budget: ctxmod.KnowledgeBudget | None = None,
     ) -> tuple[list[str], RagContext | None]:
         """Assemble the per-turn knowledge system blocks in narrow-scope order.
 
@@ -1922,39 +1931,59 @@ class TurnEngine:
         (:meth:`run_input_turn`) so the two cannot drift (R10.09/R11.14). File RAG
         and the attached Knowledge Map are per-Agent bindings needing no room;
         Concept Maps are room-scoped and included only when a real ``chatroom_id``
-        is supplied. Order (File RAG → Concept Map → Knowledge Map) and the
-        empty-block handling mirror the room path's former inline assembly.
+        is supplied. Blocks are placed in narrow-scope order (File RAG → Concept
+        Map → Knowledge Map), mirroring the room path's former inline assembly.
 
-        When ``budgets`` is supplied (F-16/R11.19), each source's rendered block is
-        capped to its per-source token budget and a source granted zero budget is
-        omitted (never queried, never sent empty). ``budgets=None`` leaves every
-        block uncapped — today's behaviour for callers without a whole-payload
-        budget (the headless path, FU).
+        When ``budget`` is supplied (F-16/R11.19) the two graph blocks draw first
+        in precedence order (Concept Map, then Knowledge Map), each capped at
+        ``budget.graph_source_cap``; File RAG then receives the *measured*
+        remainder of ``budget.total`` — so a graph source that resolves to nothing
+        returns its reservation to File RAG rather than stranding it. A source
+        whose remaining budget is zero is omitted (never queried, never sent
+        empty). ``budget=None`` leaves every block uncapped — the headless path,
+        pending FU.
 
-        Returns the ordered blocks plus the ``RagContext`` so the room path can
-        persist RAG citations (``reply_meta['rag_sources']``); headless callers
-        ignore the second element.
+        Returns the blocks in placement order plus the ``RagContext`` so the room
+        path can persist RAG citations (``reply_meta['rag_sources']``); headless
+        callers ignore the second element.
         """
-        blocks: list[str] = []
-        rag_budget = None if budgets is None else budgets.file_rag
+        concept_block: str | None = None
+        knowmap_block: str | None = None
         rag_ctx: RagContext | None = None
-        if rag_budget is None or rag_budget > 0:
-            rag_ctx = await self._rag_context(agent, queries, token_budget=rag_budget)
-            if rag_ctx:
-                blocks.append(rag_ctx.block)
-        if chatroom_id is not None:
-            concept_budget = None if budgets is None else budgets.concept_map
-            if concept_budget is None or concept_budget > 0:
-                graphrag_block = await self._graphrag_context(
-                    agent, chatroom_id, queries, token_budget=concept_budget
+
+        if budget is None:
+            # Uncapped (headless): query every bound source with no trimming.
+            if chatroom_id is not None:
+                concept_block = await self._graphrag_context(agent, chatroom_id, queries)
+            knowmap_block = await self._knowmap_context(agent, queries)
+            rag_ctx = await self._rag_context(agent, queries)
+        else:
+            # Concept Map (highest precedence) then Knowledge Map draw first, each
+            # up to the graph cap; File RAG takes what they leave, measured from
+            # what they actually render, so an absent graph source returns its
+            # reservation instead of stranding it. A source left zero is skipped.
+            remaining = budget.total
+            cap = budget.graph_source_cap
+            if chatroom_id is not None and remaining > 0:
+                concept_block = await self._graphrag_context(
+                    agent, chatroom_id, queries, token_budget=min(cap, remaining)
                 )
-                if graphrag_block:
-                    blocks.append(graphrag_block)
-        knowmap_budget = None if budgets is None else budgets.knowledge_map
-        if knowmap_budget is None or knowmap_budget > 0:
-            knowmap_block = await self._knowmap_context(agent, queries, token_budget=knowmap_budget)
-            if knowmap_block:
-                blocks.append(knowmap_block)
+                if concept_block:
+                    remaining = max(0, remaining - tx.estimate_tokens(concept_block))
+            if remaining > 0:
+                knowmap_block = await self._knowmap_context(agent, queries, token_budget=min(cap, remaining))
+                if knowmap_block:
+                    remaining = max(0, remaining - tx.estimate_tokens(knowmap_block))
+            if remaining > 0:
+                rag_ctx = await self._rag_context(agent, queries, token_budget=remaining)
+
+        blocks: list[str] = []
+        if rag_ctx:
+            blocks.append(rag_ctx.block)
+        if concept_block:
+            blocks.append(concept_block)
+        if knowmap_block:
+            blocks.append(knowmap_block)
         return blocks, rag_ctx
 
     async def _activity_context(self, chatroom_id: uuid.UUID) -> str | None:
