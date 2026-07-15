@@ -24,6 +24,7 @@ from contexts.knowledge.domain.errors import (
     GraphRagBuilderKeyGroupProjectMismatch,
     GraphRagConfigNotFound,
     GraphRagEmbedDimensionConflict,
+    GraphRagEmbeddingModelChangeBlocked,
     GraphRagInvalidHalfLife,
     GraphRagOwnerProjectMismatch,
 )
@@ -371,11 +372,33 @@ class GraphRagConfigService:
                     f"does not belong to project {cfg.project_id}"
                 )
             # Phase 2a D2: a swapped builder group must still resolve to the
-            # project's pinned dimension; re-derive and persist the new pin.
+            # project's pinned dimension; re-derive and persist the new pin. The
+            # dimension conflict (raised inside _enforce_and_resolve_pin) keeps
+            # precedence over the F-13 model-change guard below.
             assert builder_key_group_id is not None
             new_pin = await self._enforce_and_resolve_pin(
                 cfg.project_id, builder_key_group_id, exclude_config_id=config_id
             )
+            # F-13 (R11.19): a swap to a different embedding provider/model
+            # invalidates the config's existing vector space just as a dimension
+            # change does — same dimension, different model is a semantically
+            # incompatible space. Reject it while the config holds indexed vectors
+            # (fail-closed on any prior build); a never-built config may change
+            # freely. Guard on the *resolved* (provider, model), so a group change
+            # that keeps the same embedding (e.g. only the extraction LLM differs)
+            # stays allowed. The graphrag pin is nullable — a group with no
+            # embedding key yields new_pin=None and has no space to invalidate.
+            if (
+                new_pin is not None
+                and (new_pin[0], new_pin[1]) != (cfg.embed_provider, cfg.embed_model)
+                and cfg.last_build_at is not None
+            ):
+                raise GraphRagEmbeddingModelChangeBlocked(
+                    f"config {config_id} has indexed vectors under "
+                    f"{cfg.embed_provider}:{cfg.embed_model}; changing the embedding model to "
+                    f"{new_pin[0]}:{new_pin[1]} would invalidate them — clear and recreate to "
+                    f"change the embedding model"
+                )
 
         await self._configs.update(
             config_id=config_id,
@@ -386,6 +409,17 @@ class GraphRagConfigService:
         if group_changed and new_pin is not None:
             await self._configs.set_embed_pin(
                 config_id=config_id,
+                provider=new_pin[0],
+                model=new_pin[1],
+                dim=new_pin[2],
+            )
+            # Keep the durable F-11 pin consistent with the config's new embedding
+            # (reached only on an allowed change — a blocked model swap raised
+            # above). The update-path dimension guard has ensured no live sibling
+            # pins a different dimension, so overwriting is safe.
+            await self._pins.upsert(
+                project_id=cfg.project_id,
+                kind=PinKind.GRAPHRAG,
                 provider=new_pin[0],
                 model=new_pin[1],
                 dim=new_pin[2],

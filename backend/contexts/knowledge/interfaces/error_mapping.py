@@ -101,6 +101,11 @@ _MAP: ErrorMap = {
         422,
         "All GraphRAG configs in a project must share one embedding dimension",
     ),
+    errors.GraphRagEmbeddingModelChangeBlocked: (
+        "knowledge/graphrag-embedding-model-change-blocked",
+        409,
+        "Cannot change the embedding model of a Concept Map that has indexed data",
+    ),
     errors.GraphRagOwnerProjectMismatch: (
         "knowledge/graphrag-owner-project-mismatch",
         422,
@@ -146,6 +151,11 @@ _MAP: ErrorMap = {
         "knowledge/knowmap-embed-dimension-conflict",
         422,
         "All Knowledge Maps in a project must share one embedding dimension",
+    ),
+    errors.KnowmapEmbeddingModelChangeBlocked: (
+        "knowledge/knowmap-embedding-model-change-blocked",
+        409,
+        "Cannot change the embedding model of a Knowledge Map that has indexed data",
     ),
 }
 

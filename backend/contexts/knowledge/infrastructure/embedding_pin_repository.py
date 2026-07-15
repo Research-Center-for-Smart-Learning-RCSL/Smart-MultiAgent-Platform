@@ -97,6 +97,43 @@ class EmbeddingPinRepository:
         if existing is not None and int(existing.dim) != dim:
             raise on_conflict(int(existing.dim), dim)
 
+    async def upsert(
+        self,
+        *,
+        project_id: uuid.UUID,
+        kind: PinKind,
+        provider: str,
+        model: str,
+        dim: int,
+    ) -> None:
+        """Overwrite (or create) the pin for ``(project, kind)`` (F-13).
+
+        Used only on an *allowed* embedding-model change (a never-built config):
+        the update-path dimension guard has already established that no live
+        sibling pins a different dimension, so an unconditional overwrite is safe
+        and keeps the durable pin consistent with the config's newly persisted
+        embedding. Unlike :meth:`ensure` it does not raise on a dimension
+        change — the caller has decided the change is legitimate.
+        """
+        await self.acquire_lock(project_id, kind)
+        existing = await self.get(project_id, kind)
+        if existing is None:
+            await self._db.execute(
+                t.insert().values(
+                    project_id=project_id,
+                    kind=kind.value,
+                    provider=provider,
+                    model=model,
+                    dim=dim,
+                )
+            )
+        else:
+            await self._db.execute(
+                t.update()
+                .where(sa.and_(t.c.project_id == project_id, t.c.kind == kind.value))
+                .values(provider=provider, model=model, dim=dim)
+            )
+
     async def clear(self, *, project_id: uuid.UUID, kind: PinKind) -> None:
         """Delete the pin row for ``(project_id, kind)``.
 

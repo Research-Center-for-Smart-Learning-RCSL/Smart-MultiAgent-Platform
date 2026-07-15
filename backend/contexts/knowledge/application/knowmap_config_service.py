@@ -31,6 +31,7 @@ from contexts.knowledge.domain.errors import (
     KnowmapBuilderKeyGroupProjectMismatch,
     KnowmapConfigNotFound,
     KnowmapEmbedDimensionConflict,
+    KnowmapEmbeddingModelChangeBlocked,
     KnowmapNoEmbeddingKey,
 )
 from contexts.knowledge.domain.knowmap import KnowmapConfig, KnowmapConfigDraft, KnowmapDocument
@@ -162,6 +163,20 @@ class KnowmapConfigService:
                     f"project {cfg.project_id} is pinned to {existing_dim}-dim knowmap embeddings; "
                     f"builder key group {new_group} resolves to {dim}-dim"
                 )
+            # F-13 (R11.19): reject a swap to a different embedding provider/model
+            # while the config holds indexed vectors (fail-closed on any prior
+            # build) — old-model vectors persist in knowmap_{project_id} and a
+            # query embedded with the new model against them silently collapses
+            # recall. The dimension conflict above keeps precedence. A never-built
+            # config may change freely. Guard on the resolved (provider, model), so
+            # a group change keeping the same embedding stays allowed.
+            if (provider, model) != (cfg.embed_provider, cfg.embed_model) and cfg.last_build_at is not None:
+                raise KnowmapEmbeddingModelChangeBlocked(
+                    f"config {config_id} has indexed vectors under "
+                    f"{cfg.embed_provider}:{cfg.embed_model}; changing the embedding model to "
+                    f"{provider}:{model} would invalidate them — clear and recreate to change "
+                    f"the embedding model"
+                )
             db_values["builder_key_group_id"] = new_group
             db_values["embed_provider"] = provider
             db_values["embed_model"] = model
@@ -170,6 +185,18 @@ class KnowmapConfigService:
         updated = await self._configs.update(config_id, db_values)
         if updated is None:
             raise KnowmapConfigNotFound(str(config_id))
+        if "embed_dim" in db_values:
+            # Keep the durable F-11 pin consistent with the config's new embedding
+            # (reached only on an allowed change — a blocked model swap raised
+            # above). The dimension guard ensured no live sibling pins a different
+            # dimension, so overwriting is safe.
+            await self._pins.upsert(
+                project_id=cfg.project_id,
+                kind=PinKind.KNOWMAP,
+                provider=db_values["embed_provider"],
+                model=db_values["embed_model"],
+                dim=db_values["embed_dim"],
+            )
         await audit.emit(
             self._db,
             audit.AuditEvent(
