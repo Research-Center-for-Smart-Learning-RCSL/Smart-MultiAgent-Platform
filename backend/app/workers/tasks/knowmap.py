@@ -53,18 +53,34 @@ KNOWMAP_BUILD_TIMEOUT_S = LOCK_TTL_S * 3
 _SCAN_MAX_TRIES = 3
 
 
+async def _bump_and_enqueue_build(sm: Any, knowmap_config_id: uuid.UUID) -> None:
+    """Advance the corpus revision for a scan-verdict event that changes the
+    buildable corpus, then enqueue a build for the new revision (F-12 W1).
+
+    A scan verdict flipping a document into ``ready∧clean`` (or a QUARANTINED /
+    SKIPPED verdict that must exclude it) changes what the next build processes,
+    but — unlike an add/reprocess/delete — does not itself go through the
+    document-mutation bump. Without advancing the revision here, two documents
+    uploaded together whose scans clear against the same pre-scan revision compute
+    the same ``knowmap:build:{config}:{revision}`` id, and arq drops the second as
+    a duplicate, silently leaving it unbuilt — the exact race F-12 closes for the
+    add path, reopened for the scan-verdict edge. Bumping gives each such event a
+    distinct target so it is never suppressed. ``bump_corpus_revision`` returns 0
+    only when the config was concurrently deleted — nothing to build."""
+    async with sm() as db, db.begin():
+        new_rev = await KnowmapConfigRepository(db).bump_corpus_revision(knowmap_config_id)
+    if new_rev == 0:
+        return
+    await enqueue_knowmap_build(config_id=knowmap_config_id, target_revision=new_rev)
+
+
 async def _enqueue_rebuild_for_config(sm: Any, knowmap_config_id: uuid.UUID) -> None:
     """F-27: enqueue a full-corpus rebuild after a SKIPPED verdict, mirroring the
     QUARANTINED path, so the un-scannable document is removed from the buildable
     corpus. Under F-6's replacement semantics the rebuild also evicts the skipped
-    document's triples from Neo4j. Reuses the ``knowmap_build_job_id`` dedup, so a
-    SKIPPED enqueue coalesces with a concurrent quarantine/ingest enqueue for the
-    same config+build cycle rather than multiplying builds."""
-    async with sm() as db:
-        cfg = await KnowmapConfigRepository(db).get(knowmap_config_id)
-    if cfg is None:
-        return
-    await enqueue_knowmap_build(config_id=cfg.id, target_revision=cfg.corpus_revision)
+    document's triples from Neo4j. Advances the corpus revision (F-12 W1) so the
+    removal build is never dropped as a duplicate of a retained prior build."""
+    await _bump_and_enqueue_build(sm, knowmap_config_id)
 
 
 async def _enqueue_build_on_clean(sm: Any, doc_id: uuid.UUID) -> None:
@@ -74,18 +90,17 @@ async def _enqueue_build_on_clean(sm: Any, doc_id: uuid.UUID) -> None:
     The mirror of the indexing side's clean-gate: if the document is not yet READY
     (async tus path, indexing still running), the index worker enqueues the build
     when it observes the clean verdict — last writer wins, so exactly one build is
-    queued and a document is never left unbuilt (the dedup job id collapses a rare
-    double). Re-reads the document fresh so it observes the indexing side's
-    committed ``READY`` state.
+    queued and a document is never left unbuilt. Re-reads the document fresh so it
+    observes the indexing side's committed ``READY`` state, then advances the
+    corpus revision (F-12 W1) so this clean-set entry gets a build id distinct from
+    a sibling upload's.
     """
     async with sm() as db:
         doc = await KnowmapDocumentRepository(db).get(doc_id)
         if doc is None or doc.status is not DocumentStatus.READY:
             return
-        cfg = await KnowmapConfigRepository(db).get(doc.knowmap_config_id)
-    if cfg is None:
-        return
-    await enqueue_knowmap_build(config_id=cfg.id, target_revision=cfg.corpus_revision)
+        cfg_id = doc.knowmap_config_id
+    await _bump_and_enqueue_build(sm, cfg_id)
 
 
 async def knowmap_ingest_document(ctx: dict[str, Any], *, document_id: str) -> str:
@@ -263,8 +278,9 @@ async def knowmap_scan_document(ctx: dict[str, Any], *, document_id: str) -> str
                 )
     # A quarantine changes the buildable corpus → rebuild so the tainted document's
     # triples leave the graph (retrieval already hides them via the allowed-doc gate).
+    # Advance the revision (F-12 W1) so the removal build is never dropped.
     if scan_status is ScanStatus.QUARANTINED and cfg is not None:
-        await enqueue_knowmap_build(config_id=cfg.id, target_revision=cfg.corpus_revision)
+        await _bump_and_enqueue_build(sm, cfg.id)
     elif scan_status is ScanStatus.CLEAN:
         # F-5: a clean verdict enqueues the deferred build — but only once the
         # document is READY (re-read fresh; last writer wins with the index worker).
