@@ -272,8 +272,12 @@ class FakeVectorStore:
         raise_on_upsert: Exception | None = None,
         all_config_ids: set[tuple[uuid.UUID, uuid.UUID]] | None = None,
         raise_on_list_config_ids: bool = False,
+        fail_points_not_in_build_times: int = 0,
     ) -> None:
         self.raise_on_upsert = raise_on_upsert
+        # Finding 2: number of leading delete_points_not_in_build calls to fail
+        # before succeeding (drives the folded reconciler replace-sweep retry).
+        self.fail_points_not_in_build_times = fail_points_not_in_build_times
         self.upserts: list[list[Any]] = []
         self.superseded_calls: list[dict[str, Any]] = []
         self.points_not_in_build_calls: list[dict[str, Any]] = []
@@ -310,6 +314,8 @@ class FakeVectorStore:
 
     async def delete_points_not_in_build(self, **kwargs: Any) -> None:
         self.points_not_in_build_calls.append(kwargs)
+        if len(self.points_not_in_build_calls) <= self.fail_points_not_in_build_times:
+            raise RuntimeError("qdrant sweep unavailable")
 
 
 class FakeExtractor:
@@ -887,6 +893,78 @@ async def test_reconciler_recovery_skips_replace_sweep_for_concept_map() -> None
 
     assert vectors.points_not_in_build_calls == []
     assert vectors.superseded_calls == []
+
+
+async def _recover_with_failing_sweep(*, fail_sweep_times: int) -> tuple[FakeVectorStore, Any]:
+    """Drive a config into FAILED_COMPENSATING then heal it via a replace-on-recovery
+    reconciler whose phase-2 always succeeds but whose build-scoped sweep fails its
+    first ``fail_sweep_times`` calls. Returns (vectors, store) so the caller can assert
+    both the retry count and the final build state."""
+    cfg = _make_cfg()
+    neo4j = FakeNeo4j()
+    vectors = FakeVectorStore(
+        raise_on_upsert=RuntimeError("qdrant down"),
+        fail_points_not_in_build_times=fail_sweep_times,
+    )
+    lock, snaps = FakeLock(), FakeSnapshots()
+    builder, store, _db = _make_builder(
+        cfg=cfg,
+        neo4j=neo4j,
+        vectors=vectors,
+        lock=lock,
+        snapshots=snaps,
+        extractor=FakeExtractor(_make_triples()),
+    )
+    await builder.run(config_id=cfg.id)
+    assert store.cfg.last_build_state is BuildState.FAILED_COMPENSATING
+
+    async def phase2(*, cfg, build_id) -> None:
+        return None  # phase-2 itself always succeeds; only the sweep fails
+
+    async def fake_sleep(_s: float) -> None:
+        return None
+
+    recon = ReconciliationLoop(
+        session_factory=lambda: store,  # type: ignore[arg-type, return-value]
+        repo_factory=lambda _db: store,  # type: ignore[arg-type, return-value]
+        neo4j=neo4j,
+        vector_store=vectors,  # type: ignore[arg-type]
+        snapshot_store=snaps,
+        phase2_retry=phase2,
+        sleeper=fake_sleep,
+        channel_fn=graphrag_channel,
+        replace_on_recovery=True,
+    )
+    store.commit = _noop  # type: ignore[attr-defined]
+    store.close = _noop  # type: ignore[attr-defined]
+
+    await recon.run_once()
+    return vectors, store
+
+
+@pytest.mark.asyncio
+async def test_reconciler_recovery_retries_when_replace_sweep_fails_transiently() -> None:
+    # Finding 2 (folded into the phase-2 retry unit): a transient Qdrant failure in
+    # the build-scoped sweep must retry the whole recovery step, not be swallowed.
+    # First sweep call raises, the second (next attempt) succeeds → the build still
+    # reaches IDLE and the sweep is proven to have re-run.
+    vectors, store = await _recover_with_failing_sweep(fail_sweep_times=1)
+
+    assert store.cfg.last_build_state is BuildState.IDLE  # type: ignore[comparison-overlap]
+    assert len(vectors.points_not_in_build_calls) == 2  # type: ignore[unreachable]
+
+
+@pytest.mark.asyncio
+async def test_reconciler_persistent_replace_sweep_failure_rolls_back_not_idle() -> None:
+    # Finding 2: before the fold, a sweep failure was caught best-effort and the build
+    # was finalised IDLE anyway — leaking the old-build points with no recovery path.
+    # Now a sweep that fails on every attempt exhausts the retry loop and rolls back
+    # to FAILED (compensation runs) instead of advertising a clean IDLE over a leak.
+    vectors, store = await _recover_with_failing_sweep(fail_sweep_times=99)
+
+    assert store.cfg.last_build_state is BuildState.FAILED
+    # The sweep was attempted once per retry (never silently skipped or swallowed).
+    assert len(vectors.points_not_in_build_calls) == len(RETRY_BACKOFF_S)
 
 
 @pytest.mark.asyncio

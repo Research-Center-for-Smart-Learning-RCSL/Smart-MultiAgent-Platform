@@ -342,15 +342,32 @@ class ReconciliationLoop:
             await self._sleep(backoff)
             try:
                 await self._phase2(cfg=cfg, build_id=build_id)
+                # Finding 2: a recovered *replace* (Knowledge Map) build must also
+                # run the build-scoped ``delete_points_not_in_build`` sweep that its
+                # failed original phase-2 never reached. Its phase-1 already pruned
+                # prior-build triples from Neo4j, so without this the stale old-build
+                # Qdrant points leak and retrieval — filtering only by config_id —
+                # surfaces entities the current corpus no longer produces and that
+                # have no backing Neo4j edges. Folded into the same retry unit as
+                # phase-2 (both are idempotent), so a transient Qdrant failure here
+                # retries rather than silently leaving the leak while finalising
+                # IDLE with no recovery path. The Concept Map (delta) loop keeps
+                # ``_replace_on_recovery`` False (see DOM-8 below).
+                if self._replace_on_recovery:
+                    await self._vectors.delete_points_not_in_build(
+                        project_id=cfg.project_id,
+                        config_id=cfg.id,
+                        keep_build_id=build_id,
+                    )
             except Exception as exc:
                 _log.warning(
-                    "graphrag phase2 retry %d/%d failed: %s",
+                    "graphrag phase2/replace-sweep retry %d/%d failed: %s",
                     attempt,
                     len(RETRY_BACKOFF_S),
                     exc,
                 )
                 continue
-            # Success — finalise.
+            # Both phase-2 and (for a replace build) the sweep succeeded — finalise.
             #
             # DOM-8: no name-scoped superseded-entity sweep here. The builder
             # sweeps using the exact entity names it just embedded; the reconciler
@@ -364,31 +381,6 @@ class ReconciliationLoop:
                 state=BuildState.QDRANT_COMMITTED,
                 error=None,
             )
-            # Finding 2: a recovered *replace* (Knowledge Map) build is the
-            # exception. Its original build ran with ``replace=True`` — it applied
-            # the full current corpus and pruned prior-build triples from Neo4j,
-            # then relied on the build-scoped ``delete_points_not_in_build`` sweep
-            # to drop the matching stale Qdrant points. That sweep never ran (the
-            # phase-2 it lived in is exactly what failed), so without running it now
-            # the old-build points leak and retrieval — filtering only by
-            # config_id — surfaces entities the current corpus no longer produces
-            # and that have no backing Neo4j edges. Build-scoped (keep this build's
-            # points), so unlike the name-scoped sweep it is safe without an entity
-            # list; best-effort — the heal has already succeeded.
-            if self._replace_on_recovery:
-                try:
-                    await self._vectors.delete_points_not_in_build(
-                        project_id=cfg.project_id,
-                        config_id=cfg.id,
-                        keep_build_id=build_id,
-                    )
-                except Exception as exc:  # best-effort cleanup; never fail the heal
-                    _log.warning(
-                        "graphrag reconciler replace sweep failed for config %s build %s: %s",
-                        cfg.id,
-                        build_id,
-                        exc,
-                    )
             await repo.set_state(
                 config_id=cfg.id,
                 state=BuildState.IDLE,
