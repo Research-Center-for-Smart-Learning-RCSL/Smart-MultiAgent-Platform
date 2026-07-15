@@ -107,11 +107,16 @@ const chunkParamsLocked = computed(() => docs.value.length > 0)
 const effectiveState = computed(() => liveState.value[configId] ?? config.value?.last_build_state ?? 'idle')
 const isBuilding = computed(() => GRAPHRAG_IN_PROGRESS.has(effectiveState.value))
 
+// F-22: subscribe to build state unconditionally once the config loads (not
+// gated on an already-in-progress state), so an automatic rebuild triggered by
+// an upload/delete while the page shows idle still delivers its `running` frame
+// to a live subscriber. A defined initial state seeds the engine so the backstop
+// poll can engage once it becomes in-progress; watch() is idempotent.
 watch(
   config,
   (cfg) => {
-    if (cfg && GRAPHRAG_IN_PROGRESS.has(cfg.last_build_state)) {
-      watchBuild(configId, cfg.last_build_state)
+    if (cfg) {
+      watchBuild(configId, cfg.last_build_state ?? 'idle')
     }
   },
   { immediate: true },
@@ -327,6 +332,12 @@ async function onFiles(files: File[]): Promise<void> {
     }
     toast.success(t('agents.knowmap.uploadStarted'))
     qc.invalidateQueries({ queryKey: agentKeys.knowmapDocuments(configId) })
+    // F-22: an upload enqueues an automatic rebuild. Re-open the build channel
+    // (the engine tore it down at the previous build's terminal state) so the
+    // worker's next `running` frame reaches a live subscriber, and invalidate
+    // the config row as a secondary so a later refetch converges.
+    watchBuild(configId, effectiveState.value)
+    qc.invalidateQueries({ queryKey: agentKeys.knowmapConfig(configId) })
   } catch {
     toast.error(t('agents.knowmap.uploadFailed'))
   } finally {
@@ -340,6 +351,10 @@ const deleteDocMutation = useMutation({
   onSuccess: () => {
     toast.success(t('agents.knowmap.deleted'))
     qc.invalidateQueries({ queryKey: agentKeys.knowmapDocuments(configId) })
+    // F-22: a document delete also enqueues an automatic rebuild — re-open the
+    // build channel (see the upload handler) so its `running` frame is observed.
+    watchBuild(configId, effectiveState.value)
+    qc.invalidateQueries({ queryKey: agentKeys.knowmapConfig(configId) })
   },
   onError: () => toast.error(t('agents.knowmap.deleteFailed')),
 })

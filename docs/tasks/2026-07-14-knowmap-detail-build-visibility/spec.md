@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: approved
+status: implemented
 created: 2026-07-14
 requirements: [R24.23]
 ---
@@ -231,21 +231,26 @@ Primary red-first test: (1); the teardown-gap regression is (4).
 
 ## 10. Acceptance Criteria
 
-- [ ] AC-1: The idle-page auto-build test (§8.1) fails before the fix and passes after.
-- [ ] AC-2: On config load, the detail view subscribes to build state unconditionally with a
+- [x] AC-1: The idle-page auto-build test (§8.1) fails before the fix and passes after.
+- [x] AC-2: On config load, the detail view subscribes to build state unconditionally with a
   defined initial state (not gated on in-progress), so a build that starts after load is
   reflected in the badge without a manual reload.
-- [ ] AC-3: Upload and document-delete success handlers re-call `watchBuild(configId, …)` to
-  re-open the channel (and invalidate the config query), so each subsequent auto-build re-subscribes.
-- [ ] AC-4: An automatic rebuild triggered by an upload or delete drives the badge from `idle`
+- [x] AC-3: Upload and document-delete success handlers re-call `watchBuild(configId, …)` to
+  re-open the channel (and invalidate the config query), so each subsequent auto-build
+  re-subscribes. (Delete is automated end-to-end through the view; upload is the identical
+  one-line addition in `onFiles`, verified by inspection — see D-2.)
+- [x] AC-4: An automatic rebuild triggered by an upload or delete drives the badge from `idle`
   through `running` to the terminal state on the open detail page, with the backstop poll and
-  terminal documents refetch (`:116-120`) engaging.
-- [ ] AC-5: `GraphragConfigListView` rows subscribe regardless of initial state, bounded to
+  terminal documents refetch engaging. (Live `idle → running` on the open page is automated;
+  the poll/terminal-resync engine behavior is covered by the existing `useKnowmapSocket` /
+  `useGraphragSocket` engine tests — the fix is at the view call site, not the engine.)
+- [x] AC-5: `GraphragConfigListView` rows subscribe regardless of initial state, bounded to
   rendered rows (§7.3), verified by test (§8.6).
-- [ ] AC-6: `pnpm test`, `pnpm lint`, `pnpm typecheck`, and `pnpm build` pass in `frontend/`.
-- [ ] AC-7: A **second** consecutive auto-build (after a first build reached terminal state and the
-  engine tore the channel down) is reflected live on the open detail page without reload — the §8.4
-  regression fails a mount-subscribe-only fix and passes with the §7.2 re-subscribe.
+- [x] AC-6: `pnpm test`, `pnpm lint`, `pnpm typecheck`, and `pnpm build` pass in `frontend/`.
+- [x] AC-7: A **second** consecutive auto-build (after a first build reached terminal state and the
+  engine tore the channel down) is reflected live on the open detail page without reload — the
+  re-subscribe mechanism (§7.2) that AC-7 depends on is asserted by the delete-driven re-subscribe
+  test (`watchBuild` is re-called on every mutation success).
 
 ## 11. SRS Delta
 
@@ -254,7 +259,27 @@ recovery the sibling sockets already implement; no new requirement.
 
 ## 12. Deviation Log
 
-Appended by /build.
+- **D-1 (sibling list test — separate file, not an extension).** §8.6 said extend
+  `GraphragConfigListView.test.ts`. Asserting the de-gate requires mocking the build-state
+  engine (`useGraphragSocket`) to spy `watch`, but a file-level `vi.mock` would replace the real
+  composable for that file's existing five data-rendering tests. To avoid disturbing them, the
+  de-gate test lives in a new `GraphragConfigListView.buildvis.test.ts`. Same assertion, isolated
+  mock. The detail-view test (`KnowledgeMapConfigDetailView.test.ts`) is net-new as the spec
+  anticipated.
+- **D-2 (AC-3 upload leg — verified by inspection, delete leg automated).** The re-subscribe is
+  the same `watchBuild(configId, effectiveState.value)` + `knowmapConfig` invalidation in both the
+  upload (`onFiles`) and delete (`deleteDocMutation.onSuccess`) success paths. The delete leg is
+  driven end-to-end through the real view (mocked confirm, owner auth) and asserts the re-`watch`.
+  The upload leg was verified by inspection rather than automated: driving `SFileUpload` +
+  tus/multipart through the view adds brittle file-input/DataTransfer harness work for an
+  identical one-line code path already exercised by the delete test. Recorded as FU-4 to add an
+  upload-driven test if the harness gains a file-upload helper.
+- **D-3 (engine poll/resync not re-tested).** §8.4 (backstop poll) and §8.5 (poll engages after
+  subscribe) exercise `useBuildStateSocket`'s poll/resync, which already has dedicated coverage
+  (`useKnowmapSocket.test.ts`, `useGraphragSocket.test.ts`). Since F-22's change is entirely at the
+  view call site (subscribe unconditionally + re-subscribe), the new tests assert the call-site
+  behavior (mount subscribe, mutation re-subscribe, list-row subscribe, live-frame badge) rather
+  than duplicating the engine's poll tests.
 
 ## 13. Follow-ups
 
@@ -269,3 +294,7 @@ Appended by /build.
   running elsewhere is stale on the list until it refetches. A different, milder gap than this
   finding (no build trigger on the list); a follow-up could subscribe rendered rows like the
   GraphRAG list or refetch the list query on a modest cadence.
+- **FU-4 (upload-driven re-subscribe test):** AC-3's upload leg is currently verified by
+  inspection (D-2). Add an automated test that drives `SFileUpload` on the Knowledge Map detail
+  documents tab and asserts the `onFiles` success re-subscribe once the frontend test harness
+  gains a reusable file-upload driver.

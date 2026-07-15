@@ -131,11 +131,16 @@ const effectiveState = (cfg: GraphragConfig): GraphragConfig['last_build_state']
   liveState.value[cfg.id] ?? cfg.last_build_state
 const isBuilding = (cfg: GraphragConfig): boolean => GRAPHRAG_IN_PROGRESS.has(effectiveState(cfg))
 
+// F-22: subscribe every rendered row regardless of its initial build state, so
+// an auto-build started elsewhere while a row shows idle is reflected live.
+// Bounded to the current page's rows (not the unbounded list) and passing the
+// row's last_build_state as a defined initial state; watch() is idempotent and
+// unwatches on unmount. Re-runs on page change and list refetch.
 watch(
-  configs,
+  pagedConfigs,
   (list) => {
     for (const cfg of list) {
-      if (GRAPHRAG_IN_PROGRESS.has(cfg.last_build_state)) watchBuild(cfg.id, cfg.last_build_state)
+      watchBuild(cfg.id, cfg.last_build_state)
     }
   },
   { immediate: true },
