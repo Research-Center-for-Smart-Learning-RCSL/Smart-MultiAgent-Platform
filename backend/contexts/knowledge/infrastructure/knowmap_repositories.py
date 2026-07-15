@@ -51,6 +51,8 @@ def _row_to_config(row: Any) -> KnowmapConfig:
         last_build_error=row.last_build_error,
         created_at=row.created_at,
         deleted_at=row.deleted_at,
+        corpus_revision=row.corpus_revision,
+        built_corpus_revision=row.built_corpus_revision,
     )
 
 
@@ -227,6 +229,32 @@ class KnowmapConfigRepository(GraphRagConfigRepositoryPort):
     async def soft_delete(self, config_id: uuid.UUID) -> None:
         await self._db.execute(
             t.knowmap_configs.update().where(t.knowmap_configs.c.id == config_id).values(deleted_at=now())
+        )
+
+    async def bump_corpus_revision(self, config_id: uuid.UUID) -> int:
+        """Atomically increment ``corpus_revision`` and return the new value (F-12).
+
+        Called in the same transaction as a committed document mutation (add /
+        reprocess / delete). The atomic SQL increment (not a read-modify-write)
+        serializes concurrent mutations of the same config on the row lock, so the
+        revision advances exactly once per committed change. Returns ``0`` if the
+        config no longer exists (a deleted config that lost its race)."""
+        row = (
+            await self._db.execute(
+                t.knowmap_configs.update()
+                .where(t.knowmap_configs.c.id == config_id)
+                .values(corpus_revision=t.knowmap_configs.c.corpus_revision + 1)
+                .returning(t.knowmap_configs.c.corpus_revision)
+            )
+        ).first()
+        return int(row.corpus_revision) if row is not None else 0
+
+    async def set_built_corpus_revision(self, config_id: uuid.UUID, revision: int) -> None:
+        """Record the corpus revision the last successful build processed (F-12)."""
+        await self._db.execute(
+            t.knowmap_configs.update()
+            .where(t.knowmap_configs.c.id == config_id)
+            .values(built_corpus_revision=revision)
         )
 
     async def project_pinned_dim(

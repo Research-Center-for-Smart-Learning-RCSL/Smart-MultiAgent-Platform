@@ -56,6 +56,11 @@ knowmap_configs = sa.Table(
         server_default=sa.text("'idle'::graphrag_build_state"),
     ),
     sa.Column("last_build_error", sa.Text, nullable=True),
+    # F-12: monotonic corpus revision bumped per committed document mutation; the
+    # build dedup job id keys on it. ``built_corpus_revision`` is the revision the
+    # last successful build processed (for the completion re-check).
+    sa.Column("corpus_revision", sa.Integer, nullable=False, server_default=sa.text("0")),
+    sa.Column("built_corpus_revision", sa.Integer, nullable=True),
     sa.Column("created_at", sa.TIMESTAMP(timezone=True), nullable=False, server_default=sa.text("now()")),
     sa.Column("deleted_at", sa.TIMESTAMP(timezone=True), nullable=True),
 )
