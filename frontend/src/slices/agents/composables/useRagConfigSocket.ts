@@ -56,18 +56,27 @@ export function useRagConfigSocket(configId: string, projectId: string) {
   let syncSeq = 0
 
   // Derive corpus-level progress from the authoritative per-document status
-  // list. Document status has no `indexing` sub-state, so the finer live
-  // `indexing` state is preserved over a derived `ingesting` (never a downgrade
-  // of an in-progress build); a terminal or idle derivation always wins.
-  function deriveProgress(docs: RagDocument[]): RagIngestionProgress {
+  // list. Pure in its inputs (B2): `currentState` is passed in rather than read
+  // from the `progress` ref, so the result is a function of (docs, currentState)
+  // alone and cannot be perturbed by an interleaving write. Document status has
+  // no `indexing` sub-state, so the finer live `indexing` state is preserved
+  // over a derived `ingesting` (never a downgrade of an in-progress build); a
+  // terminal or idle derivation always wins.
+  function deriveProgress(
+    docs: RagDocument[],
+    currentState: RagIngestionProgress['state'],
+  ): RagIngestionProgress {
     const documentsTotal = docs.length
     const anyIngesting = docs.some((d) => d.status === 'ingesting')
-    const anyFailed = docs.some((d) => d.status === 'failed')
+    // A `quarantined` document was blocked by the malware scan and never entered
+    // the retrievable corpus, so — like a `failed` ingest — it must not be folded
+    // into a clean `ready` with a null error signal (B3).
+    const anyBlocked = docs.some((d) => d.status === 'failed' || d.status === 'quarantined')
     const documentsProcessed = docs.filter((d) => d.status !== 'ingesting').length
     let state: RagIngestionProgress['state']
     if (anyIngesting) {
-      state = progress.value.state === 'indexing' ? 'indexing' : 'ingesting'
-    } else if (anyFailed) {
+      state = currentState === 'indexing' ? 'indexing' : 'ingesting'
+    } else if (anyBlocked) {
       state = 'failed'
     } else if (documentsTotal > 0) {
       state = 'ready'
@@ -89,7 +98,7 @@ export function useRagConfigSocket(configId: string, projectId: string) {
       // A newer resync was issued while this listDocuments awaited — drop this
       // now-stale snapshot rather than let it overwrite the fresher state (B1).
       if (seq !== syncSeq) return
-      progress.value = deriveProgress(docs)
+      progress.value = deriveProgress(docs, progress.value.state)
       qc.invalidateQueries({ queryKey: agentKeys.ragDocuments(configId) })
       qc.invalidateQueries({ queryKey: agentKeys.ragConfigs(projectId) })
       if (IN_PROGRESS.has(progress.value.state)) startPoll()
