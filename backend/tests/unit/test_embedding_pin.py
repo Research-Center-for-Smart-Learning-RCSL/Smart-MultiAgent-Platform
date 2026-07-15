@@ -51,6 +51,19 @@ class _FakePinSession:
         self.insert_count = 0
         self.delete_count = 0
 
+    def begin_nested(self) -> Any:
+        session = self
+
+        class _Savepoint:
+            async def __aenter__(self) -> None:
+                return None
+
+            async def __aexit__(self, *exc: object) -> bool:
+                return False
+
+        _ = session
+        return _Savepoint()
+
     async def execute(self, stmt: Any, params: Any = None) -> _FakeResult:
         from sqlalchemy.sql.dml import Delete, Insert
         from sqlalchemy.sql.selectable import Select
@@ -197,33 +210,50 @@ def _patch_qdrant(store: Any) -> Any:
 
 
 @pytest.mark.asyncio
-async def test_drop_empty_last_config_clears_pin_and_drops_collection() -> None:
+async def test_last_config_clears_pin_then_drops_collection() -> None:
     pid = uuid.uuid4()
     pins = _FakePinRepo()
     pins.pins[(pid, PinKind.FILE_RAG.value)] = 1536
     svc = _rag_service(pins, live=[])  # last config already soft-deleted
+    # W1: the pin clear is atomic with the soft-delete (runs pre-commit).
+    cleared = await svc.clear_pin_if_last_config(project_id=pid)
+    assert cleared is True
+    assert (pid, PinKind.FILE_RAG.value) not in pins.pins
+    # W5: the collection drop runs post-commit, re-checked under the lock.
     store = AsyncMock()
     p1, p2, p3 = _patch_qdrant(store)
     with p1, p2, p3:
-        dropped = await svc.drop_project_collection_if_empty(project_id=pid)
+        dropped = await svc.drop_orphan_collection(project_id=pid)
     assert dropped is True
-    assert (pid, PinKind.FILE_RAG.value) not in pins.pins
     store.delete_collection.assert_awaited_once_with(pid)
 
 
 @pytest.mark.asyncio
-async def test_drop_empty_keeps_pin_when_sibling_remains() -> None:
+async def test_clear_pin_keeps_pin_when_sibling_remains() -> None:
     pid = uuid.uuid4()
     pins = _FakePinRepo()
     pins.pins[(pid, PinKind.FILE_RAG.value)] = 1536
     sibling = SimpleNamespace(embed_provider="openai", embed_model="text-embedding-3-small")
     svc = _rag_service(pins, live=[sibling])
+    cleared = await svc.clear_pin_if_last_config(project_id=pid)
+    assert cleared is False
+    assert pins.pins[(pid, PinKind.FILE_RAG.value)] == 1536
+
+
+@pytest.mark.asyncio
+async def test_drop_orphan_skips_when_config_reappeared() -> None:
+    # W5: a concurrent create re-pinned the project between the pre-commit clear
+    # and this post-commit drop — the re-check under the lock sees the live config
+    # and leaves its collection intact rather than dropping it.
+    pid = uuid.uuid4()
+    pins = _FakePinRepo()
+    reappeared = SimpleNamespace(embed_provider="openai", embed_model="text-embedding-3-small")
+    svc = _rag_service(pins, live=[reappeared])
     store = AsyncMock()
     p1, p2, p3 = _patch_qdrant(store)
     with p1, p2, p3:
-        dropped = await svc.drop_project_collection_if_empty(project_id=pid)
+        dropped = await svc.drop_orphan_collection(project_id=pid)
     assert dropped is False
-    assert pins.pins[(pid, PinKind.FILE_RAG.value)] == 1536
     store.delete_collection.assert_not_awaited()
 
 
