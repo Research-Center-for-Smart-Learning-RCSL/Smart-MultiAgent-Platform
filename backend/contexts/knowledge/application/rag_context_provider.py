@@ -312,8 +312,11 @@ def _format_rag_block(
     if token_budget is not None and estimate_tokens(block) > token_budget:
         # Per-entry accounting under-counts (Latin len//4 is summed per entry, not
         # once over the whole string); clamp the assembled block as a hard backstop
-        # so the allocator's postcondition (estimate <= budget) always holds.
-        block = _truncate_to_tokens(block, token_budget)
+        # so the allocator's postcondition (estimate <= budget) always holds. The
+        # clamp only trims the tail of the lowest-score surviving chunk's body (ref
+        # lines sit at entry starts, never at the end), so reserve one token for an
+        # explicit truncation marker rather than cutting the block silently.
+        block = _truncate_to_tokens(block, max(0, token_budget - 1)).rstrip() + "..."
     return block
 
 

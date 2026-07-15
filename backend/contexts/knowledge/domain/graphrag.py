@@ -21,6 +21,10 @@ from typing import Any
 from shared_kernel.tokens import estimate_tokens
 
 _SECONDS_PER_DAY = 86_400.0
+# Below this many characters, a token-budget-trimmed Concept/Knowledge Map block
+# carries only a header fragment, not usable graph content — drop it instead
+# (F-16). Sized to roughly one short "entity — relation — entity" fact.
+_MIN_USEFUL_CONTENT_CHARS = 24
 
 
 def recency_weighted_score(
@@ -363,7 +367,12 @@ def _cap_to_2kb(payload: dict[str, Any], *, token_budget: int | None = None) -> 
         else:
             hi = mid - 1
     trimmed = dict(payload)
-    trimmed["content"] = content[:lo] + "..." if lo > 0 else "..."
+    fitted = content[:lo].strip()
+    # Budget too small to carry any meaningful graph content (e.g. a 1-4 token
+    # grant near the context ceiling leaves only a header fragment): emit empty
+    # content so the caller drops the block, rather than a useless truncated
+    # header — parity with the File-RAG path, which omits a sub-budget block.
+    trimmed["content"] = f"{content[:lo]}..." if len(fitted) >= _MIN_USEFUL_CONTENT_CHARS else ""
     return trimmed
 
 
