@@ -154,6 +154,33 @@ class AgentsFacade:
             request_id=request_id,
         )
 
+    async def clear_config_bindings(
+        self,
+        *,
+        project_id: uuid.UUID,
+        rag_config_id: uuid.UUID | None = None,
+        knowmap_config_id: uuid.UUID | None = None,
+    ) -> list[uuid.UUID]:
+        """Unbind agents from a RAG / Knowledge Map config being soft-deleted (F-18).
+
+        The sanctioned seam for the knowledge delete services to null the
+        per-agent binding the DB ``SET NULL`` FK cannot (a soft-delete is an
+        UPDATE, not a DELETE) and to reconcile the dependent File Search tool —
+        the agents context owns that table and invariant. Mirrors the
+        knowledge → agents write direction of
+        :meth:`detach_agents_colliding_with_knowmap_builder`; the knowledge
+        context never writes ``agents`` itself. Returns the unbound agent ids so
+        the caller can record them in its delete audit. Lazy-imports
+        ``AgentService`` to keep the import graph acyclic.
+        """
+        from contexts.agents.application.agent_service import AgentService
+
+        return await AgentService(self._db).clear_config_bindings(
+            project_id=project_id,
+            rag_config_id=rag_config_id,
+            knowmap_config_id=knowmap_config_id,
+        )
+
     async def restore_agent(
         self,
         *,

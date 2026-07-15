@@ -275,6 +275,18 @@ class KnowmapConfigService:
                 await docs_repo.delete(doc.id)
             if len(batch) < page_size:
                 break
+        # F-18: the DB ``ON DELETE SET NULL`` FK (migration 0048) unbinds attached
+        # agents only on a physical row DELETE — this soft-delete is an UPDATE, so
+        # the binding must be nulled explicitly, through the agents facade in this
+        # same transaction. ``knowmap_config_id`` has no dependent tool (there is
+        # no Knowledge Map tool), so no tool reconciliation is needed. Local import
+        # avoids the agents↔knowledge module-level cycle (see ``update`` above).
+        from contexts.agents.interfaces.facade import AgentsFacade
+
+        unbound_agents = await AgentsFacade(self._db).clear_config_bindings(
+            project_id=cfg.project_id,
+            knowmap_config_id=config_id,
+        )
         await self._configs.soft_delete(config_id)
         await audit.emit(
             self._db,
@@ -284,7 +296,11 @@ class KnowmapConfigService:
                 actor_ip=actor_ip,
                 resource_type="knowmap_config",
                 resource_id=config_id,
-                metadata={"project_id": str(cfg.project_id), "cascaded_documents": len(docs)},
+                metadata={
+                    "project_id": str(cfg.project_id),
+                    "cascaded_documents": len(docs),
+                    "unbound_agents": [str(a) for a in unbound_agents],
+                },
                 request_id=request_id,
             ),
         )

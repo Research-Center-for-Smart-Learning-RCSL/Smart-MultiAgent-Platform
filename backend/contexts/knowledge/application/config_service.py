@@ -288,6 +288,20 @@ class RagConfigService:
                 len(docs),
                 config_id,
             )
+        # F-18: the DB ``ON DELETE SET NULL`` FK (migration 0012) unbinds attached
+        # agents only on a physical row DELETE — this soft-delete is an UPDATE, so
+        # the binding must be nulled explicitly. Cross-context write goes through
+        # the agents facade (knowledge never writes ``agents`` directly), in this
+        # same transaction so the unbind and the soft-delete commit atomically.
+        # Nulling ``rag_config_id`` also disables each agent's File Search tool.
+        # Local import: the agents context imports KnowledgeFacade, so a
+        # module-level AgentsFacade import here would cycle.
+        from contexts.agents.interfaces.facade import AgentsFacade
+
+        unbound_agents = await AgentsFacade(self._db).clear_config_bindings(
+            project_id=cfg.project_id,
+            rag_config_id=config_id,
+        )
         await self._configs.soft_delete(config_id)
         await audit.emit(
             self._db,
@@ -300,6 +314,7 @@ class RagConfigService:
                 metadata={
                     "project_id": str(cfg.project_id),
                     "cascaded_documents": len(docs),
+                    "unbound_agents": [str(a) for a in unbound_agents],
                 },
                 request_id=request_id,
             ),

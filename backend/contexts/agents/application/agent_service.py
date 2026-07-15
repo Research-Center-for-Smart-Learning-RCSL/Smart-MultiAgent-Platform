@@ -319,6 +319,48 @@ class AgentService:
             )
         return detached
 
+    async def clear_config_bindings(
+        self,
+        *,
+        project_id: uuid.UUID,
+        rag_config_id: uuid.UUID | None = None,
+        knowmap_config_id: uuid.UUID | None = None,
+    ) -> list[uuid.UUID]:
+        """Unbind every agent in ``project_id`` from a config being soft-deleted
+        (F-18), returning the affected agent ids.
+
+        The knowledge delete services call this through :class:`AgentsFacade`
+        inside their soft-delete transaction, so the unbind and the
+        ``deleted_at`` write commit or roll back together. The DB
+        ``ON DELETE SET NULL`` FK only fires on a physical row DELETE, never on
+        the soft-delete UPDATE, so the per-agent binding is nulled here
+        explicitly.
+
+        Nulling ``rag_config_id`` also disables each agent's HOSTED_FILE_SEARCH
+        singleton, preserving the invariant *file_search enabled ⇒
+        rag_config_id present* (:meth:`patch_tool` / :meth:`create` enforce it):
+        an enabled File Search tool with no backing config is a worse state than
+        the dangling FK this fix removes. ``knowmap_config_id`` has no dependent
+        tool, so it needs no reconciliation.
+        """
+        unbound: list[uuid.UUID] = []
+        if rag_config_id is not None:
+            rag_ids = await self._agents.clear_rag_config(
+                project_id=project_id,
+                rag_config_id=rag_config_id,
+            )
+            if rag_ids:
+                await self._tools.disable_file_search_for_agents(rag_ids)
+            unbound.extend(rag_ids)
+        if knowmap_config_id is not None:
+            unbound.extend(
+                await self._agents.clear_knowmap_config(
+                    project_id=project_id,
+                    knowmap_config_id=knowmap_config_id,
+                )
+            )
+        return unbound
+
     async def create(
         self,
         *,
