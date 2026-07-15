@@ -32,6 +32,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.deps import PaginationParams
 from app.api.v1.deps import validate_agent_allowlist as _validate_agent_allowlist_generic
+from app.config.settings import get_settings
 from contexts.keys.infrastructure.adapters import build_router
 from contexts.knowledge.application.config_service import RagConfigService
 from contexts.knowledge.application.ingest_service import (
@@ -73,7 +74,8 @@ class RagConfigCreateIn(BaseModel):
     embed_model: str = Field(min_length=1, max_length=200)
     rerank_enabled: bool = False
     rerank_key_id: uuid.UUID | None = None
-    rerank_provider: Literal["cohere"] | None = None
+    # "cohere" is BYO-key; "bge" is the keyless bundled local reranker (F-19).
+    rerank_provider: Literal["cohere", "bge"] | None = None
     rerank_model: str | None = Field(default=None, max_length=200)
     top_k: int = Field(default=8, gt=0, le=100)
 
@@ -84,7 +86,7 @@ class RagConfigPatchIn(BaseModel):
     chunk_params: BoundedConfig | None = None
     rerank_enabled: bool | None = None
     rerank_key_id: uuid.UUID | None = None
-    rerank_provider: Literal["cohere"] | None = None
+    rerank_provider: Literal["cohere", "bge"] | None = None
     rerank_model: str | None = Field(default=None, max_length=200)
 
 
@@ -226,7 +228,10 @@ async def create_rag_config(
     ),
     db: AsyncSession = Depends(db_session),
 ) -> RagConfigOut:
-    service = RagConfigService(db)
+    # F-19: the keyless "bge" rerank branch validates against the bundled local
+    # reranker's configured URL. The app layer resolves it from settings and
+    # injects it — the application-layer service must not read app.config itself.
+    service = RagConfigService(db, bge_reranker_url=get_settings().knowledge.bge_reranker_url)
     draft = RagConfigDraft(
         name=body.name,
         chunk_strategy=ChunkStrategy(body.chunk_strategy),
@@ -299,7 +304,7 @@ async def patch_rag_config(
     principal: Principal = Depends(current_principal),
     db: AsyncSession = Depends(db_session),
 ) -> RagConfigOut:
-    service = RagConfigService(db)
+    service = RagConfigService(db, bge_reranker_url=get_settings().knowledge.bge_reranker_url)
     cfg = await service.get(config_id)
     from shared_kernel.auth.dependencies import _raise_forbidden, get_role_resolver
     from shared_kernel.auth.permissions import Scope, decide

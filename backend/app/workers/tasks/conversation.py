@@ -315,6 +315,7 @@ async def compact_chatroom(ctx: dict[str, Any], chatroom_id: str) -> str:
             db,
             qdrant_url=settings.qdrant.url,
             qdrant_api_key=settings.qdrant.api_key,
+            bge_reranker_url=settings.knowledge.bge_reranker_url,
         )
         for binding in bindings:
             ok = await engine.run_compaction(agent_id=binding.agent_id, chatroom_id=rid)

@@ -295,6 +295,7 @@ class TurnEngine:
         router: ProviderRouter | None = None,
         qdrant_url: str | None = None,
         qdrant_api_key: str | None = None,
+        bge_reranker_url: str | None = None,
     ) -> None:
         self._db = db
         self._router = router or build_router(db)
@@ -305,6 +306,7 @@ class TurnEngine:
             router=self._router,
             qdrant_url=qdrant_url,
             qdrant_api_key=qdrant_api_key,
+            bge_reranker_url=bge_reranker_url,
         )
         _conv_facade = ConversationFacade(db)
         self._graphrag_provider = GraphRagContextProvider(

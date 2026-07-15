@@ -55,11 +55,17 @@ class RagContextProvider:
         router: object,  # ProviderRouter — typed as object to avoid circular import
         qdrant_url: str | None = None,
         qdrant_api_key: str | None = None,
+        bge_reranker_url: str | None = None,
     ) -> None:
         self._db = db
         self._router = router
         self._qdrant_url = qdrant_url
         self._qdrant_api_key = qdrant_api_key
+        # F-19: base URL of the bundled local BGE reranker, injected from settings
+        # at the composition root (mirrors qdrant_url — the provider never reads
+        # app.config itself). ``None``/empty => a bge-provider config degrades to
+        # vector-only at runtime.
+        self._bge_reranker_url = bge_reranker_url
 
     async def query(
         self,
@@ -118,7 +124,23 @@ class RagContextProvider:
                 model=cfg.embed_model,
             )
             reranker: Reranker | None = None
-            if cfg.rerank_enabled and cfg.rerank_key_id is not None:
+            if cfg.rerank_enabled and cfg.rerank_provider == "bge":
+                # F-19: the keyless local reranker. It carries no pinned key, so it
+                # is exempt from F-1's carried-key project-scope check entirely —
+                # build it directly from the injected bundled-service URL. If the
+                # URL is not configured (service not deployed), degrade to
+                # vector-only rather than fail the turn.
+                if self._bge_reranker_url:
+                    from contexts.knowledge.infrastructure.rerankers import LocalBgeReranker
+
+                    reranker = LocalBgeReranker(base_url=self._bge_reranker_url)
+                else:
+                    _log.warning(
+                        "rag config %s selects bge rerank but no bundled reranker URL is "
+                        "configured; retrieving without rerank",
+                        cfg.id,
+                    )
+            elif cfg.rerank_enabled and cfg.rerank_key_id is not None:
                 if not await keys_facade.is_key_in_project_scope(cfg.rerank_key_id, cfg.project_id):
                     await self._emit_scope_degrade(cfg=cfg, key_id=cfg.rerank_key_id, capability="rerank")
                     # Vector-only: leave reranker=None.
@@ -195,6 +217,12 @@ class RagContextProvider:
                 return RagContext(block=block, sources=sources)
             finally:
                 await qclient.close()
+                # F-19: LocalBgeReranker owns an httpx.AsyncClient; close it so a
+                # bge config does not leak a connection pool every turn.
+                # RouterReranker has no client to close.
+                reranker_close = getattr(reranker, "close", None)
+                if reranker_close is not None:
+                    await reranker_close()
         except Exception:
             _log.warning(
                 "RAG retrieval failed config=%s",

@@ -492,6 +492,46 @@ class TestRetrieveQuery:
         assert result[0].score == 0.95
         reranker.rerank.assert_awaited_once()
 
+    async def test_rerank_failure_degrades_to_vector_only(self) -> None:
+        # F-19 (AC-4): when the reranker raises (bge service down, Cohere HTTP
+        # error, malformed response), retrieval must fall back to the vector-
+        # ranked candidates — never fail the turn or return nothing.
+        cfg = _make_config(top_k=2, rerank_enabled=True)
+        configs = AsyncMock()
+        configs.get.return_value = cfg
+        point1 = uuid.uuid4()
+        point2 = uuid.uuid4()
+        doc_id = uuid.uuid4()
+        embedder = MagicMock(vector_size=3)
+        embedder.embed_batch = AsyncMock(return_value=[[0.1, 0.2, 0.3]])
+        qdrant = AsyncMock()
+        qdrant.search.return_value = [
+            MagicMock(point_id=point1, score=0.9),
+            MagicMock(point_id=point2, score=0.7),
+        ]
+        chunks = AsyncMock()
+        chunks.lookup_points.return_value = [
+            MagicMock(qdrant_point_id=point1, chunk_idx=0, document_id=doc_id, text="first"),
+            MagicMock(qdrant_point_id=point2, chunk_idx=1, document_id=doc_id, text="second"),
+        ]
+        reranker = AsyncMock()
+        reranker.rerank.side_effect = RuntimeError("bge service unreachable")
+
+        svc = _make_retrieve_service(
+            config_repo=configs,
+            embedder=embedder,
+            qdrant=qdrant,
+            chunk_repo=chunks,
+            reranker=reranker,
+        )
+
+        result = await svc.query(config_id=_CONFIG_ID, text="question", allow_unrestricted=True)
+
+        # Vector-only order preserved (highest Qdrant score first), block intact.
+        assert [c.text for c in result] == ["first", "second"]
+        assert [c.score for c in result] == [0.9, 0.7]
+        reranker.rerank.assert_awaited_once()
+
     async def test_top_k_from_config(self) -> None:
         cfg = _make_config(top_k=1)
         configs = AsyncMock()

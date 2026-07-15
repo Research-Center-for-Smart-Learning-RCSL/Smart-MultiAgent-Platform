@@ -26,6 +26,9 @@ def _cfg(*, rerank: bool) -> SimpleNamespace:
         embed_model="text-embedding-3-small",
         rerank_enabled=rerank,
         rerank_key_id=uuid.uuid4() if rerank else None,
+        # A rerank-enabled F-1 config is a BYO-key Cohere config (the factory now
+        # branches on rerank_provider; the real RagConfig always carries it).
+        rerank_provider="cohere" if rerank else None,
         rerank_model="rerank-3",
         top_k=5,
     )
