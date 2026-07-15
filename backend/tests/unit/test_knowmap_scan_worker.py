@@ -84,22 +84,32 @@ def _install(monkeypatch, *, doc: object, max_scan_bytes: int, scanner: object) 
     return captured
 
 
-def _doc(*, size: int = 100) -> SimpleNamespace:
+def _doc(*, size: int = 100, scan_status: ScanStatus = ScanStatus.PENDING) -> SimpleNamespace:
     return SimpleNamespace(
         knowmap_config_id=_CFG.id,
         size_bytes=size,
         minio_path="bucket/key",
         status=DocumentStatus.READY,
-        scan_status=ScanStatus.PENDING,
+        scan_status=scan_status,
     )
 
 
+def _clamav_error_scanner() -> object:
+    from shared_kernel.scanning import ScanError
+
+    class _Scanner:
+        async def scan(self, data: object) -> object:
+            raise ScanError("clamav down")
+
+    return _Scanner()
+
+
 @pytest.mark.asyncio
-async def test_oversize_skipped_enqueues_rebuild(monkeypatch) -> None:
-    # Red-first (§8.1): an over-size document is marked SKIPPED and enqueues one
-    # rebuild targeting a freshly bumped corpus revision (F-12 W1) — identical
-    # args to the QUARANTINED path.
-    doc = _doc(size=100)
+async def test_oversize_skipped_rebuilds_when_previously_clean(monkeypatch) -> None:
+    # A previously-CLEAN (hence possibly built) document that is now over-size is
+    # marked SKIPPED and enqueues one rebuild targeting a freshly bumped corpus
+    # revision (F-12 W1) to evict its triples — identical args to the QUARANTINED path.
+    doc = _doc(size=100, scan_status=ScanStatus.CLEAN)
     cap = _install(monkeypatch, doc=doc, max_scan_bytes=10, scanner=SimpleNamespace())
 
     result = await km.knowmap_scan_document({}, document_id=str(uuid.uuid4()))
@@ -110,15 +120,25 @@ async def test_oversize_skipped_enqueues_rebuild(monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
-async def test_clamav_error_skipped_enqueues_only_on_exhausted_attempt(monkeypatch) -> None:
+async def test_oversize_skipped_no_rebuild_when_never_clean(monkeypatch) -> None:
+    # F-12 (W6): a fresh (never-CLEAN) over-size document was never in the buildable
+    # set, so there are no triples to evict — no rebuild is enqueued.
+    doc = _doc(size=100, scan_status=ScanStatus.PENDING)
+    cap = _install(monkeypatch, doc=doc, max_scan_bytes=10, scanner=SimpleNamespace())
+
+    result = await km.knowmap_scan_document({}, document_id=str(uuid.uuid4()))
+
+    assert result == "skipped:too_large"
+    assert cap["scans"] == [ScanStatus.SKIPPED]
+    assert cap["enqueued"] == []
+
+
+@pytest.mark.asyncio
+async def test_clamav_error_skipped_rebuilds_only_on_exhausted_attempt(monkeypatch) -> None:
     from shared_kernel.scanning import ScanError
 
-    class _Scanner:
-        async def scan(self, data: object) -> object:
-            raise ScanError("clamav down")
-
-    doc = _doc(size=5)  # under the limit -> reaches the scan
-    cap = _install(monkeypatch, doc=doc, max_scan_bytes=1000, scanner=_Scanner())
+    doc = _doc(size=5, scan_status=ScanStatus.CLEAN)  # was built -> eviction needed
+    cap = _install(monkeypatch, doc=doc, max_scan_bytes=1000, scanner=_clamav_error_scanner())
     monkeypatch.setattr(
         "shared_kernel.storage.minio_client.get_minio_client",
         lambda: SimpleNamespace(get_object=_afn(b"data")),
@@ -136,12 +156,8 @@ async def test_clamav_error_skipped_enqueues_only_on_exhausted_attempt(monkeypat
 async def test_clamav_error_skipped_does_not_enqueue_on_non_final_attempt(monkeypatch) -> None:
     from shared_kernel.scanning import ScanError
 
-    class _Scanner:
-        async def scan(self, data: object) -> object:
-            raise ScanError("clamav down")
-
-    doc = _doc(size=5)
-    cap = _install(monkeypatch, doc=doc, max_scan_bytes=1000, scanner=_Scanner())
+    doc = _doc(size=5, scan_status=ScanStatus.CLEAN)
+    cap = _install(monkeypatch, doc=doc, max_scan_bytes=1000, scanner=_clamav_error_scanner())
     monkeypatch.setattr(
         "shared_kernel.storage.minio_client.get_minio_client",
         lambda: SimpleNamespace(get_object=_afn(b"data")),
@@ -157,15 +173,39 @@ async def test_clamav_error_skipped_does_not_enqueue_on_non_final_attempt(monkey
 
 
 @pytest.mark.asyncio
-async def test_quarantine_still_enqueues_with_same_args(monkeypatch) -> None:
-    # §8.4 parity: a QUARANTINED verdict still enqueues exactly as before (no
-    # regression), targeting the bumped revision a terminal SKIPPED also produces.
+async def test_clamav_error_skipped_no_rebuild_when_never_clean(monkeypatch) -> None:
+    # F-12 (W6): a fresh (never-CLEAN) document that is unscannable on the final
+    # attempt has no triples in the graph, so no rebuild is enqueued.
+    from shared_kernel.scanning import ScanError
+
+    doc = _doc(size=5, scan_status=ScanStatus.PENDING)
+    cap = _install(monkeypatch, doc=doc, max_scan_bytes=1000, scanner=_clamav_error_scanner())
+    monkeypatch.setattr(
+        "shared_kernel.storage.minio_client.get_minio_client",
+        lambda: SimpleNamespace(get_object=_afn(b"data")),
+    )
+
+    with pytest.raises(ScanError):
+        await km.knowmap_scan_document({"job_try": km._SCAN_MAX_TRIES}, document_id=str(uuid.uuid4()))
+
+    assert cap["scans"] == [ScanStatus.SKIPPED]
+    assert cap["enqueued"] == []
+
+
+def _quarantine_scanner() -> object:
     class _Scanner:
         async def scan(self, data: object) -> object:
             return SimpleNamespace(clean=False, threat_name="eicar")
 
-    doc = _doc(size=5)
-    cap = _install(monkeypatch, doc=doc, max_scan_bytes=1000, scanner=_Scanner())
+    return _Scanner()
+
+
+@pytest.mark.asyncio
+async def test_quarantine_rebuilds_when_previously_clean(monkeypatch) -> None:
+    # A QUARANTINED verdict on a previously-CLEAN (possibly built) document enqueues
+    # a rebuild targeting a freshly bumped revision to evict its triples (F-12 W1).
+    doc = _doc(size=5, scan_status=ScanStatus.CLEAN)
+    cap = _install(monkeypatch, doc=doc, max_scan_bytes=1000, scanner=_quarantine_scanner())
     monkeypatch.setattr(
         "shared_kernel.storage.minio_client.get_minio_client",
         lambda: SimpleNamespace(get_object=_afn(b"data")),
@@ -177,6 +217,25 @@ async def test_quarantine_still_enqueues_with_same_args(monkeypatch) -> None:
     assert result == ScanStatus.QUARANTINED.value
     assert cap["scans"] == [ScanStatus.QUARANTINED]
     assert cap["enqueued"] == [{"config_id": _CFG.id, "target_revision": _BUMPED_REV}]
+
+
+@pytest.mark.asyncio
+async def test_quarantine_no_rebuild_when_never_clean(monkeypatch) -> None:
+    # F-12 (W6): a fresh (never-CLEAN) document caught as malware was never built,
+    # so there are no triples to evict — no rebuild is enqueued.
+    doc = _doc(size=5, scan_status=ScanStatus.PENDING)
+    cap = _install(monkeypatch, doc=doc, max_scan_bytes=1000, scanner=_quarantine_scanner())
+    monkeypatch.setattr(
+        "shared_kernel.storage.minio_client.get_minio_client",
+        lambda: SimpleNamespace(get_object=_afn(b"data")),
+    )
+    monkeypatch.setattr("shared_kernel.audit.emit", _afn(None))
+
+    result = await km.knowmap_scan_document({}, document_id=str(uuid.uuid4()))
+
+    assert result == ScanStatus.QUARANTINED.value
+    assert cap["scans"] == [ScanStatus.QUARANTINED]
+    assert cap["enqueued"] == []
 
 
 def _afn(value: Any):

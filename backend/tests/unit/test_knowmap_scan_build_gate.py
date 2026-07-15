@@ -77,11 +77,25 @@ async def test_enqueue_build_on_clean_enqueues_when_ready(monkeypatch) -> None:
     doc = SimpleNamespace(status=DocumentStatus.READY, knowmap_config_id=_CFG_ID)
     calls = _install_repos(monkeypatch, doc=doc, bumped_rev=5)
 
-    await km._enqueue_build_on_clean(_sm(), uuid.uuid4())
+    await km._enqueue_build_on_clean(_sm(), uuid.uuid4(), entered=True)
 
-    # F-12 (W1): the clean-set entry advances the corpus revision and the build
-    # targets the freshly bumped value, so a sibling upload cannot collide with it.
+    # F-12 (W1): a document newly entering the clean set advances the corpus
+    # revision and the build targets the freshly bumped value, so a sibling upload
+    # cannot collide with it.
     assert calls == [{"config_id": _CFG_ID, "target_revision": 5}]
+
+
+@pytest.mark.asyncio
+async def test_enqueue_build_on_clean_skips_reconfirm(monkeypatch) -> None:
+    # F-12 (W3): a CLEAN->CLEAN reconfirm (entered=False, e.g. a reindex rescan)
+    # does not change membership — no bump, no enqueue here; the ingest side owns
+    # any content-change build, so enqueuing would double it.
+    doc = SimpleNamespace(status=DocumentStatus.READY, knowmap_config_id=_CFG_ID)
+    calls = _install_repos(monkeypatch, doc=doc, bumped_rev=5)
+
+    await km._enqueue_build_on_clean(_sm(), uuid.uuid4(), entered=False)
+
+    assert calls == []
 
 
 @pytest.mark.asyncio
@@ -91,7 +105,7 @@ async def test_enqueue_build_on_clean_skips_when_not_ready(monkeypatch) -> None:
     doc = SimpleNamespace(status=DocumentStatus.INGESTING, knowmap_config_id=_CFG_ID)
     calls = _install_repos(monkeypatch, doc=doc)
 
-    await km._enqueue_build_on_clean(_sm(), uuid.uuid4())
+    await km._enqueue_build_on_clean(_sm(), uuid.uuid4(), entered=True)
 
     assert calls == []
 
@@ -99,5 +113,5 @@ async def test_enqueue_build_on_clean_skips_when_not_ready(monkeypatch) -> None:
 @pytest.mark.asyncio
 async def test_enqueue_build_on_clean_skips_when_document_missing(monkeypatch) -> None:
     calls = _install_repos(monkeypatch, doc=None)
-    await km._enqueue_build_on_clean(_sm(), uuid.uuid4())
+    await km._enqueue_build_on_clean(_sm(), uuid.uuid4(), entered=True)
     assert calls == []
