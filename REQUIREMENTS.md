@@ -476,6 +476,7 @@ Custom SMAP protocol (Q35).
 - **[R10.04]** Chunking strategy (Q37): user picks per RAG config:
   - **Fixed-size**: `chunk_size_tokens` (default 512), `chunk_overlap_tokens` (default 64).
   - **Semantic**: sentence-aware splitter (`semantic-text-splitter`) with target `max_tokens_per_chunk` (default 512) and `similarity_threshold` (default 0.6).
+  - The chunking strategy and its parameters are fixed once the config has any document: they describe the whole corpus, so they may be changed only while the config is empty. After the first document, edits are rejected (no retroactive re-chunking).
 - **[R10.05]** Embedding model: choose per RAG config from `openai:text-embedding-3-small`, `openai:text-embedding-3-large`, `gemini:text-embedding-004`, `voyage-3` (if user supplies Voyage key). Keys come from the owning project's Key Groups.
 - **[R10.06]** Vectors are stored in Qdrant with collection name `rag_{project_id}` and payload `{doc_id, chunk_idx, agent_ids[]}`. The `rag_{project_id}` collection has a single fixed embedding dimension per project, pinned by the first config to index and enforced against every later config; a config whose embedding model would select a different dimension is rejected (the File RAG counterpart of the graph-config invariant in [R11.19]).
 

@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: draft
+status: approved
 created: 2026-07-14
 requirements: [R24.22, R24.23]
 ---
