@@ -28,6 +28,9 @@ from contexts.conversation.infrastructure import (  # noqa: F401
 from contexts.identity.infrastructure import tables as _identity_tables  # noqa: F401
 from contexts.keys.infrastructure import tables as _keys_tables  # noqa: F401
 from contexts.knowledge.infrastructure import (  # noqa: F401
+    embedding_pin_tables as _embedding_pin_tables,
+)
+from contexts.knowledge.infrastructure import (  # noqa: F401
     graphrag_tables as _graphrag_tables,
 )
 from contexts.knowledge.infrastructure import (  # noqa: F401
