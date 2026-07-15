@@ -16,28 +16,37 @@ from typing import Any
 import pytest
 
 import app.workers.tasks.knowmap as km
-from contexts.knowledge.domain.graphrag import BuildState
 from contexts.knowledge.domain.models import DocumentStatus
 
 _CFG_ID = uuid.uuid4()
 
 
-class _Session:
-    def __init__(self, db: object) -> None:
-        self._db = db
-
-    async def __aenter__(self) -> object:
-        return self._db
+class _Begin:
+    async def __aenter__(self) -> None:
+        return None
 
     async def __aexit__(self, *exc: object) -> bool:
         return False
 
 
-def _sm(db: object) -> Any:
-    return lambda: _Session(db)
+class _Db:
+    def begin(self) -> _Begin:
+        return _Begin()
 
 
-def _install_repos(monkeypatch, *, doc: object, cfg: object) -> list[dict[str, Any]]:
+class _Session:
+    async def __aenter__(self) -> _Db:
+        return _Db()
+
+    async def __aexit__(self, *exc: object) -> bool:
+        return False
+
+
+def _sm() -> Any:
+    return lambda: _Session()
+
+
+def _install_repos(monkeypatch, *, doc: object, bumped_rev: int = 5) -> list[dict[str, Any]]:
     calls: list[dict[str, Any]] = []
 
     class _DocRepo:
@@ -51,8 +60,8 @@ def _install_repos(monkeypatch, *, doc: object, cfg: object) -> list[dict[str, A
         def __init__(self, db: object) -> None:
             pass
 
-        async def get(self, cfg_id: uuid.UUID) -> object:
-            return cfg
+        async def bump_corpus_revision(self, cfg_id: uuid.UUID) -> int:
+            return bumped_rev
 
     async def _capture(**kwargs: Any) -> None:
         calls.append(kwargs)
@@ -66,30 +75,29 @@ def _install_repos(monkeypatch, *, doc: object, cfg: object) -> list[dict[str, A
 @pytest.mark.asyncio
 async def test_enqueue_build_on_clean_enqueues_when_ready(monkeypatch) -> None:
     doc = SimpleNamespace(status=DocumentStatus.READY, knowmap_config_id=_CFG_ID)
-    cfg = SimpleNamespace(id=_CFG_ID, corpus_revision=4)
-    calls = _install_repos(monkeypatch, doc=doc, cfg=cfg)
+    calls = _install_repos(monkeypatch, doc=doc, bumped_rev=5)
 
-    await km._enqueue_build_on_clean(_sm(object()), uuid.uuid4())
+    await km._enqueue_build_on_clean(_sm(), uuid.uuid4())
 
-    # F-12: the clean-verdict build targets the config's current corpus revision.
-    assert calls == [{"config_id": _CFG_ID, "target_revision": 4}]
+    # F-12 (W1): the clean-set entry advances the corpus revision and the build
+    # targets the freshly bumped value, so a sibling upload cannot collide with it.
+    assert calls == [{"config_id": _CFG_ID, "target_revision": 5}]
 
 
 @pytest.mark.asyncio
 async def test_enqueue_build_on_clean_skips_when_not_ready(monkeypatch) -> None:
     # Async tus path: clean verdict arrives before indexing sets READY -> defer to
-    # the index worker (which enqueues when it sees the clean verdict).
+    # the index worker (which enqueues when it sees the clean verdict). No bump.
     doc = SimpleNamespace(status=DocumentStatus.INGESTING, knowmap_config_id=_CFG_ID)
-    cfg = SimpleNamespace(id=_CFG_ID, last_build_state=BuildState.IDLE, last_build_at=None)
-    calls = _install_repos(monkeypatch, doc=doc, cfg=cfg)
+    calls = _install_repos(monkeypatch, doc=doc)
 
-    await km._enqueue_build_on_clean(_sm(object()), uuid.uuid4())
+    await km._enqueue_build_on_clean(_sm(), uuid.uuid4())
 
     assert calls == []
 
 
 @pytest.mark.asyncio
 async def test_enqueue_build_on_clean_skips_when_document_missing(monkeypatch) -> None:
-    calls = _install_repos(monkeypatch, doc=None, cfg=None)
-    await km._enqueue_build_on_clean(_sm(object()), uuid.uuid4())
+    calls = _install_repos(monkeypatch, doc=None)
+    await km._enqueue_build_on_clean(_sm(), uuid.uuid4())
     assert calls == []

@@ -238,3 +238,102 @@ async def test_index_document_bumps_corpus_revision_once() -> None:
             doc=doc, cfg=cfg, data=b"x", actor_user_id=None, actor_ip=None, request_id=None
         )
     svc._configs.bump_corpus_revision.assert_awaited_once_with(config_id)
+
+
+# ---------------------------------------------------------------------------
+# W1 — scan-verdict events advance the revision so a sibling upload is not dropped
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_scan_verdict_rebuild_advances_and_targets_new_revision() -> None:
+    # Two documents entering the ready-and-clean corpus via a scan verdict must get
+    # distinct, incrementing target revisions. The pre-W1 code targeted the same
+    # static corpus_revision for both, so arq dropped the second build as a
+    # duplicate and that document was silently left unbuilt.
+    from app.workers.tasks import knowmap as kmod
+
+    counter = {"rev": 7}
+
+    class _Repo:
+        def __init__(self, db: Any) -> None:
+            pass
+
+        async def bump_corpus_revision(self, cfg_id: uuid.UUID) -> int:
+            counter["rev"] += 1
+            return counter["rev"]
+
+    enq = AsyncMock()
+    cfg_id = uuid.uuid4()
+    with (
+        patch.object(kmod, "KnowmapConfigRepository", _Repo),
+        patch.object(kmod, "enqueue_knowmap_build", enq),
+    ):
+        await kmod._bump_and_enqueue_build(_sm(), cfg_id)
+        await kmod._bump_and_enqueue_build(_sm(), cfg_id)
+
+    assert [c.kwargs["target_revision"] for c in enq.await_args_list] == [8, 9]
+    assert all(c.kwargs["config_id"] == cfg_id for c in enq.await_args_list)
+
+
+@pytest.mark.asyncio
+async def test_scan_verdict_rebuild_skips_concurrently_deleted_config() -> None:
+    # bump_corpus_revision returns 0 only when no row matched (the config was
+    # concurrently deleted) — there is nothing to build, so no enqueue.
+    from app.workers.tasks import knowmap as kmod
+
+    class _Repo:
+        def __init__(self, db: Any) -> None:
+            pass
+
+        async def bump_corpus_revision(self, cfg_id: uuid.UUID) -> int:
+            return 0
+
+    enq = AsyncMock()
+    with (
+        patch.object(kmod, "KnowmapConfigRepository", _Repo),
+        patch.object(kmod, "enqueue_knowmap_build", enq),
+    ):
+        await kmod._bump_and_enqueue_build(_sm(), uuid.uuid4())
+
+    enq.assert_not_awaited()
+
+
+# ---------------------------------------------------------------------------
+# W2 — an explicit rebuild advances the revision so a retained result cannot drop it
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_rebuild_endpoint_bumps_and_targets_new_revision() -> None:
+    # An explicit rebuild after a build (success OR terminal FAILED) must enqueue a
+    # build that the retained prior-build result cannot suppress. It therefore bumps
+    # corpus_revision and targets the bumped value (5), not the stale cfg value (4)
+    # the pre-W2 code used, which collided with the retained result for keep_result
+    # seconds while the reconciler does not heal a terminal FAILED.
+    from app.api.v1 import knowmap as api
+
+    config_id = uuid.uuid4()
+    cfg = SimpleNamespace(id=config_id, project_id=uuid.uuid4(), corpus_revision=4)
+
+    svc = AsyncMock()
+    svc.get.return_value = cfg
+    repo = AsyncMock()
+    repo.bump_corpus_revision.return_value = 5
+    enq = AsyncMock()
+    db = AsyncMock()
+    ctx = SimpleNamespace(actor_ip=None, request_id=None)
+    principal = SimpleNamespace(user_id=uuid.uuid4())
+
+    with (
+        patch.object(api, "KnowmapConfigService", return_value=svc),
+        patch.object(api, "KnowmapConfigRepository", return_value=repo),
+        patch.object(api, "_assert_edit", AsyncMock()),
+        patch.object(api, "enqueue_knowmap_build", enq),
+        patch("shared_kernel.audit.emit", new=AsyncMock()),
+    ):
+        ack = await api.rebuild_knowmap_config(config_id=config_id, ctx=ctx, principal=principal, db=db)
+
+    repo.bump_corpus_revision.assert_awaited_once_with(config_id)
+    enq.assert_awaited_once_with(config_id=config_id, target_revision=5)
+    assert ack.status == "enqueued"
