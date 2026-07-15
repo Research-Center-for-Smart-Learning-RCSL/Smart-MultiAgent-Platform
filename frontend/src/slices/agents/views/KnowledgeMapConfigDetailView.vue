@@ -36,7 +36,7 @@ import {
   useToast,
   useBreakpoint,
 } from '@shared/composables'
-import { tusUpload } from '@shared/transport'
+import { tusUpload, isProblemWithType } from '@shared/transport'
 import { keyGroupsApi, keysKeys } from '@slices/keys'
 import { useProjectRole } from '@slices/tenancy'
 import {
@@ -253,6 +253,13 @@ const saveMutation = useMutation({
     toast.success(t('agents.detail.saved'))
   },
   onError: (err) => {
+    // F-13: a builder-group swap to a different embedding model on a config that
+    // already holds indexed vectors is rejected (409) — surface the actionable
+    // clear-and-recreate guidance rather than the generic save-failed toast.
+    if (isProblemWithType(err, '/knowmap-embedding-model-change-blocked')) {
+      toast.error(t('agents.knowmapDetail.embedModelChangeBlocked'))
+      return
+    }
     if (!applyServerErrors(err)) toast.error(t('agents.detail.saveFailed'))
   },
 })
