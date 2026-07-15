@@ -33,6 +33,13 @@ export function useBuildStateSocket(options: BuildStateSocketOptions) {
   const qc = useQueryClient()
   // configId -> latest live build state.
   const liveState = ref<Record<string, GraphragBuildState>>({})
+  // configId -> monotonic counter bumped on every applied state (a WS
+  // build.state frame or a backstop resync). A resync captures it before
+  // awaiting fetchStatus and drops its result if a newer state landed meanwhile,
+  // so a slow REST resync can never overwrite a fresher WS frame — the B1 race
+  // where a stale `running` resync, resolving after a terminal frame closed the
+  // channel, stranded a row as in-progress with no live channel.
+  const applySeq = new Map<string, number>()
   // configId -> teardown for its channel subscription.
   const watched = new Map<string, () => void>()
   let pollTimer: ReturnType<typeof setInterval> | null = null
@@ -70,6 +77,7 @@ export function useBuildStateSocket(options: BuildStateSocketOptions) {
   }
 
   function applyState(configId: string, state: GraphragBuildState): void {
+    applySeq.set(configId, (applySeq.get(configId) ?? 0) + 1)
     liveState.value = { ...liveState.value, [configId]: state }
     if (!GRAPHRAG_IN_PROGRESS.has(state)) {
       // Terminal: refetch the authoritative config row for both the list and
@@ -85,8 +93,13 @@ export function useBuildStateSocket(options: BuildStateSocketOptions) {
   }
 
   async function syncStatus(configId: string): Promise<void> {
+    const seq = applySeq.get(configId) ?? 0
     try {
-      applyState(configId, await options.fetchStatus(configId))
+      const state = await options.fetchStatus(configId)
+      // A newer state (a WS frame or another resync) landed while we awaited —
+      // drop this now-stale result rather than clobber it (B1).
+      if ((applySeq.get(configId) ?? 0) !== seq) return
+      applyState(configId, state)
     } catch {
       // Best-effort recovery — live events still drive subsequent updates.
     }

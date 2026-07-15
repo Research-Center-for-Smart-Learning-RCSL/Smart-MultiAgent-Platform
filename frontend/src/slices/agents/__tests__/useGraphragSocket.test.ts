@@ -2,7 +2,7 @@
 // events are injected via the wildcard handler the composable registers.
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { mount } from '@vue/test-utils'
+import { flushPromises, mount } from '@vue/test-utils'
 import { QueryClient, VueQueryPlugin } from '@tanstack/vue-query'
 import { defineComponent } from 'vue'
 
@@ -90,6 +90,34 @@ describe('useGraphragSocket', () => {
     // No WS event and no successful connect — only the seed.
     api.watch('cfg_1', 'running')
     expect(api.liveState.value['cfg_1']).toBe('running')
+  })
+
+  it('drops a stale resync that resolves after a terminal build.state frame (B1)', async () => {
+    // A reconnect issues a status resync; before it resolves, a terminal 'idle'
+    // frame arrives and closes the channel. The in-flight resync then resolves
+    // with the pre-terminal 'running'. Without a generation guard it would
+    // overwrite the terminal state and strand the row as in-progress with no
+    // live channel; the guard must drop the stale result.
+    let resolveStatus!: (v: { state: string }) => void
+    getStatusMock.mockImplementation(
+      () => new Promise<{ state: string }>((resolve) => {
+        resolveStatus = resolve
+      }),
+    )
+    const api = mountSocket()
+    api.watch('cfg_1', 'running')
+    // Reconnect fires the status handler, issuing syncStatus (fetchStatus pending).
+    for (const h of [...statusHandlers]) h(true)
+
+    // Terminal frame lands while the resync is in flight.
+    emit({ type: 'build.state', state: 'idle' })
+    expect(api.liveState.value['cfg_1']).toBe('idle')
+
+    // The stale resync now resolves with the pre-terminal running state.
+    resolveStatus({ state: 'running' })
+    await flushPromises()
+
+    expect(api.liveState.value['cfg_1']).toBe('idle')
   })
 
   it('invalidates conceptMapCoverage (not just the config queries) on a terminal build state', () => {
