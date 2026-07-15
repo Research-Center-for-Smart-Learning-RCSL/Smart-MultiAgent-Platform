@@ -159,10 +159,19 @@ class MinioClient:
 
         await asyncio.to_thread(_rm)
 
-    def list_objects_sync(self, bucket: str, *, prefix: str | None = None) -> list[Any]:
-        """Return all objects in *bucket* (recursive). Caller runs in a thread."""
+    def list_objects_sync(
+        self, bucket: str, *, prefix: str | None = None, recursive: bool = True
+    ) -> list[Any]:
+        """List objects in *bucket*. Caller runs in a thread.
+
+        ``recursive=True`` (default) walks every object. ``recursive=False`` uses
+        the ``/`` delimiter so only the top-level entries under *prefix* are
+        returned -- common-prefix ("directory") entries carry an ``object_name``
+        ending in ``/`` -- which lets a prefix sweep enumerate distinct segments
+        without materialising every object (F-24).
+        """
         try:
-            return list(self._client.list_objects(bucket, prefix=prefix, recursive=True))
+            return list(self._client.list_objects(bucket, prefix=prefix, recursive=recursive))
         except S3Error as exc:
             raise StorageError(f"list_objects failed: {exc}") from exc
 

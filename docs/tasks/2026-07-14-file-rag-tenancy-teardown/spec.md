@@ -392,6 +392,25 @@ draft it there and route it as an SRS amendment.
   `KnowledgeFacade(session)` across the teardown/sweep loops (was per-iteration); dropped a provably-
   dead `or pid in live_project_ids` sub-condition in the orphan round-trip guard (the `name not in
   expected` check already excludes live collections). The whole-bucket in-memory listing is FU-2.
+- **D-9 (post-`/code-review` refactor — supersedes parts of D-3/D-4):** the high-effort code review
+  surfaced correctness and efficiency findings that reshaped the facade/service seam. Changes applied:
+  (a) the per-project facade method became `purge_project_source_infra_batch(project_ids, *,
+  audit_action=...)` and the sweep became `sweep_rag_source_orphans(live_project_ids)`, each building
+  **one** Qdrant client for the whole batch and threading it through a private
+  `_purge_source_infra_with_store` (was: one short-lived client per project — the batch teardown of N
+  doomed projects opened N clients). This supersedes D-4's single-method description; per-project audit
+  isolation is preserved. (b) The orphan sweep now enumerates first path segments via a **non-recursive**
+  `list_objects_sync(bucket, recursive=False)` listing (new `recursive` param on the helper, defaulting
+  to `True`), so a bucket with millions of objects yields one entry per project instead of the full
+  object set — this supersedes D-3's "recursive listing, no helper signature change" resolution and
+  addresses the per-sweep enumeration-cost concern behind FU-2 (cadence gating is still open). (c) The orphan round-trip guard now rejects any segment whose canonical UUID string form
+  does not round-trip (`if str(pid) != segment: continue`), so a non-canonical or malformed prefix can
+  never be matched against a live collection name. (d) `QdrantStore.delete_collection` now returns
+  `bool` (True iff a collection was actually dropped, False when already absent) so the erasure summary
+  reports `collection_dropped` truthfully instead of assuming success. `RagConfigService.
+  purge_project_source_infra` gained an injectable `qdrant_store` param (defaults to a self-built
+  short-lived client) so the batch/sweep can pass their shared store; `list_rag_source_orphans` gained
+  the same injection point.
 
 ## 14. Follow-ups
 

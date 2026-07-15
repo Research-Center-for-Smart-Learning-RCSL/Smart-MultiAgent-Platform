@@ -34,13 +34,25 @@ class _FakeMinio:
     def add(self, bucket: str, key: str) -> None:
         self._objects.setdefault(bucket, []).append(_FakeObj(key))
 
-    def list_objects_sync(self, bucket: str, *, prefix: str | None = None) -> list[_FakeObj]:
+    def list_objects_sync(
+        self, bucket: str, *, prefix: str | None = None, recursive: bool = True
+    ) -> list[_FakeObj]:
         if bucket in self.raise_list_for:
             raise RuntimeError("minio list down")
         objs = self._objects.get(bucket, [])
-        if prefix is None:
+        if prefix is not None:
+            objs = [o for o in objs if o.object_name.startswith(prefix)]
+        if recursive:
             return list(objs)
-        return [o for o in objs if o.object_name.startswith(prefix)]
+        # Emulate MinIO's delimited listing: one "{seg}/" entry per top-level prefix.
+        out: list[_FakeObj] = []
+        seen: set[str] = set()
+        for o in objs:
+            seg = o.object_name.split("/", 1)[0]
+            if seg not in seen:
+                seen.add(seg)
+                out.append(_FakeObj(f"{seg}/"))
+        return out
 
     def remove_object_sync(self, bucket: str, key: str) -> None:
         self.removed.append((bucket, key))
@@ -136,8 +148,9 @@ async def test_purge_primitive_idempotent_when_absent() -> None:
     assert minio.removed == []
     assert summary["blobs_removed"] == 0
     assert summary["buckets_failed"] == 0
-    # Drop op ran without error even though nothing existed (no-op is success).
-    assert summary["collection_dropped"] is True
+    # collection_dropped reflects that nothing existed (F-24 #4: not an overstated
+    # "dropped" for an absent collection).
+    assert summary["collection_dropped"] is False
     assert qdrant.dropped == []
 
 
@@ -244,6 +257,92 @@ async def test_list_orphans_survives_qdrant_enumeration_failure() -> None:
     assert orphans == {orphan_blob}
 
 
+@pytest.mark.asyncio
+async def test_list_orphans_ignores_non_canonical_segment() -> None:
+    # F-24 #1: a non-canonical (dash-less) UUID key segment parses to a valid UUID,
+    # but the teardown only ever purges the canonical `{pid}/` prefix, so flagging it
+    # would re-sweep it forever. The round-trip guard must reject it.
+    live = uuid.uuid4()
+    stray = uuid.uuid4()
+    minio = _FakeMinio()
+    minio.add("rag-sources", f"{stray.hex}/a.pdf")  # 32 hex, no dashes — non-canonical
+    qdrant = _FakeQdrant(collections=())
+
+    p1, p2, p3 = _patches(minio, qdrant)
+    with p1, p2, p3:
+        orphans = await RagConfigService.list_rag_source_orphans(live_project_ids={live})
+
+    assert orphans == set()
+
+
+# ===========================================================================
+# Facade batch / sweep — shared client + per-project isolation (AC-5, #2/#6)
+# ===========================================================================
+
+
+@pytest.mark.asyncio
+async def test_batch_shares_one_client_isolates_and_audits() -> None:
+    from contexts.knowledge.interfaces.facade import KnowledgeFacade
+
+    good = uuid.uuid4()
+    bad = uuid.uuid4()
+    qdrant = _FakeQdrant(collections=())
+    db = AsyncMock()
+
+    async def _fake_purge(*, project_id, qdrant_store):
+        # The shared store is threaded through to every project.
+        assert qdrant_store is not None
+        if project_id == bad:
+            raise RuntimeError("qdrant down")
+        return {"project_id": str(project_id), "blobs_removed": 1, "buckets_failed": 0, "collection_dropped": True}
+
+    with (
+        patch("app.config.settings.get_settings", return_value=_fake_settings()),
+        patch("qdrant_client.AsyncQdrantClient", return_value=qdrant),
+        patch(
+            "contexts.knowledge.application.config_service.RagConfigService.purge_project_source_infra",
+            new=staticmethod(_fake_purge),
+        ),
+        patch("contexts.knowledge.interfaces.facade.audit.emit", new_callable=AsyncMock) as emit,
+    ):
+        swept = await KnowledgeFacade(db).purge_project_source_infra_batch([good, bad])
+
+    assert swept == 1  # bad isolated, good swept
+    assert qdrant.closed is True  # single shared client closed once
+    # Exactly one audit (for the good project), carrying only project_id + counts.
+    emit.assert_awaited_once()
+    meta = emit.await_args.args[1].metadata
+    assert meta["project_id"] == str(good)
+    assert set(meta) == {"project_id", "blobs_removed", "buckets_failed", "collection_dropped"}
+
+
+@pytest.mark.asyncio
+async def test_sweep_reuses_client_for_enumeration_and_teardown() -> None:
+    from contexts.knowledge.interfaces.facade import KnowledgeFacade
+
+    live = uuid.uuid4()
+    orphan = uuid.uuid4()
+    minio = _FakeMinio()
+    minio.add("rag-sources", f"{orphan}/a.pdf")
+    qdrant = _FakeQdrant(collections=(collection_name(orphan),))
+    db = AsyncMock()
+
+    with (
+        patch("shared_kernel.storage.get_minio_client", return_value=minio),
+        patch("app.config.settings.get_settings", return_value=_fake_settings()),
+        patch("qdrant_client.AsyncQdrantClient", return_value=qdrant),
+        patch("contexts.knowledge.interfaces.facade.audit.emit", new_callable=AsyncMock) as emit,
+    ):
+        swept = await KnowledgeFacade(db).sweep_rag_source_orphans({live})
+
+    assert swept == 1
+    assert qdrant.dropped == [collection_name(orphan)]
+    assert qdrant.closed is True
+    emit.assert_awaited_once()
+    assert emit.await_args.args[1].action == "rag.source_orphan_swept"
+    assert emit.await_args.args[1].metadata["project_id"] == str(orphan)
+
+
 # ===========================================================================
 # Admin GDPR hard-delete wiring (AC-9)
 # ===========================================================================
@@ -281,10 +380,10 @@ async def test_admin_gdpr_hard_delete_purges_source_infra() -> None:
     svc = AccountDeletionService(db)
 
     with patch(
-        "contexts.knowledge.interfaces.facade.KnowledgeFacade.purge_project_source_infra",
+        "contexts.knowledge.interfaces.facade.KnowledgeFacade.purge_project_source_infra_batch",
         new_callable=AsyncMock,
-    ) as purge:
+    ) as purge_batch:
         await svc.prepare_hard_delete(user_id=user_id, reassign_to_user_id=admin_id)
 
-    purged_pids = {call.args[0] for call in purge.await_args_list}
-    assert purged_pids == {doomed_direct, doomed_via_org}
+    purge_batch.assert_awaited_once()
+    assert set(purge_batch.await_args.args[0]) == {doomed_direct, doomed_via_org}

@@ -313,6 +313,14 @@ delta; flag which you want at approval.
   warning when it fails (a concurrent worker re-grabbed the lock in the gap), so the admin-accepted
   "compensate without holding the lock" TOCTOU is recorded rather than silent. Behaviour is unchanged
   (proceed regardless, per the documented `force=true` semantics); only observability improved.
+- **D-8 (post-`/code-review` — lazy Neo4j construction):** the high-effort code review flagged that
+  `admin_reset` built the Neo4j driver unconditionally at the top of the compensation block even when
+  there was no in-flight build to discard (`build_id is None`), opening and closing a driver for
+  nothing on the common no-op reset. The driver is now constructed lazily **only inside** the
+  `if build_id is not None:` branch (`neo4j = self._build_neo4j_driver(); owns_neo4j = neo4j is not
+  None`), with `owns_neo4j` initialised `False` so the `finally` close is a no-op when no driver was
+  built. Behaviour is unchanged for the discard path; the no-build path no longer touches Neo4j.
+  Injected drivers (D-6) are still never closed.
 - **Gate results:** `/check-security` (3 focused agents over the diff) returned no CRITICAL/HIGH/MEDIUM
   findings — AuthZ (admin-gated), lock-safety confinement, consistency-on-failure, and the pre-503
   audit commit all verified. `/check-quality` found no Introduced-Critical; its warnings were applied

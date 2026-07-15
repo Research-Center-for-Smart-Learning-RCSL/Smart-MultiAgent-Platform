@@ -104,16 +104,22 @@ class QdrantStore:
         size = getattr(vectors, "size", None)
         return int(size) if isinstance(size, int) else None
 
-    async def delete_collection(self, project_id: uuid.UUID) -> None:
+    async def delete_collection(self, project_id: uuid.UUID) -> bool:
         """Drop ``rag_{project_id}`` entirely (F-11 drop-empty teardown).
 
         Mirrors ``GraphRagVectorStore.delete_collection``. No-ops if the
-        collection does not exist. Used only when the last File RAG config for a
-        project is deleted, so a project can later re-pin a different dimension.
+        collection does not exist. Used when the last File RAG config for a
+        project is deleted (so a project can later re-pin a different dimension)
+        and by the F-24 tenant-teardown. Returns ``True`` iff a collection was
+        actually dropped, ``False`` when none existed -- so an erasure audit can
+        distinguish "dropped" from "absent" rather than claiming a drop that never
+        happened.
         """
         name = collection_name(project_id)
         if await self._client.collection_exists(name):
             await self._client.delete_collection(collection_name=name)
+            return True
+        return False
 
     async def list_collection_names(self) -> list[str]:
         """Every collection name Qdrant currently holds (F-24 orphan sweep).
