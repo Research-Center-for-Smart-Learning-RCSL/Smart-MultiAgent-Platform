@@ -549,7 +549,7 @@ async def test_run_turn_with_db_passes_parent_agent_id(monkeypatch) -> None:
     captured: dict = {}
 
     class _Engine:
-        def __init__(self, db, *, qdrant_url, qdrant_api_key) -> None:
+        def __init__(self, db, *, qdrant_url, qdrant_api_key, bge_reranker_url=None) -> None:
             pass
 
         async def run_input_turn(self, **kw):
@@ -559,7 +559,10 @@ async def test_run_turn_with_db_passes_parent_agent_id(monkeypatch) -> None:
     monkeypatch.setattr("contexts.agents.application.runtime.turn_engine.TurnEngine", _Engine)
     monkeypatch.setattr(
         "app.config.settings.get_settings",
-        lambda: SimpleNamespace(qdrant=SimpleNamespace(url="http://q", api_key=None)),
+        lambda: SimpleNamespace(
+            qdrant=SimpleNamespace(url="http://q", api_key=None),
+            knowledge=SimpleNamespace(bge_reranker_url="http://bge:80"),
+        ),
     )
 
     env = _env(A2AMessageType.CALL, {"input": "x"})
@@ -576,7 +579,7 @@ async def test_run_turn_with_db_tolerates_non_uuid_sender(monkeypatch) -> None:
     captured: dict = {}
 
     class _Engine:
-        def __init__(self, db, *, qdrant_url, qdrant_api_key) -> None:
+        def __init__(self, db, *, qdrant_url, qdrant_api_key, bge_reranker_url=None) -> None:
             pass
 
         async def run_input_turn(self, **kw):
@@ -586,7 +589,10 @@ async def test_run_turn_with_db_tolerates_non_uuid_sender(monkeypatch) -> None:
     monkeypatch.setattr("contexts.agents.application.runtime.turn_engine.TurnEngine", _Engine)
     monkeypatch.setattr(
         "app.config.settings.get_settings",
-        lambda: SimpleNamespace(qdrant=SimpleNamespace(url="http://q", api_key=None)),
+        lambda: SimpleNamespace(
+            qdrant=SimpleNamespace(url="http://q", api_key=None),
+            knowledge=SimpleNamespace(bge_reranker_url="http://bge:80"),
+        ),
     )
 
     env = A2AEnvelope(
