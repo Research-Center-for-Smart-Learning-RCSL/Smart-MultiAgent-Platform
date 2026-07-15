@@ -470,6 +470,10 @@ async def delete_config(
         config_id=config_id,
         project_id=cfg.project_id,
     )
+    # F-11: if that was the project's last Concept Map config, drop the now-empty
+    # collection and clear the durable dimension pin (under the advisory lock).
+    # The pin clear commits with the follow-up audit row below.
+    collection_dropped = await service.drop_project_collection_if_empty(project_id=cfg.project_id)
 
     # Follow-up audit row recording the infra outcome (DOM-4) — committed by
     # the db_session dependency.
@@ -485,6 +489,7 @@ async def delete_config(
             resource_id=config_id,
             metadata={
                 "project_id": str(cfg.project_id),
+                "collection_dropped": collection_dropped,
                 **outcome,
             },
             request_id=ctx.request_id,

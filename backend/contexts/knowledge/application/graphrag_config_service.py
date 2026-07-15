@@ -19,6 +19,7 @@ from contexts.agent_groups.infrastructure import tables as ag
 from contexts.conversation.infrastructure import tables as conv_t
 from contexts.keys.infrastructure import tables as keys_t
 from contexts.knowledge.application.embed_resolution import resolve_embed_key
+from contexts.knowledge.domain.embedding_pin import PinKind
 from contexts.knowledge.domain.errors import (
     GraphRagBuilderKeyGroupProjectMismatch,
     GraphRagConfigNotFound,
@@ -33,6 +34,7 @@ from contexts.knowledge.domain.graphrag import (
 )
 from contexts.knowledge.domain.models import embed_dimension
 from contexts.knowledge.infrastructure import graphrag_tables as gt
+from contexts.knowledge.infrastructure.embedding_pin_repository import EmbeddingPinRepository
 from contexts.knowledge.infrastructure.graphrag_repositories import (
     GraphRagConfigRepository,
 )
@@ -55,6 +57,7 @@ class GraphRagConfigService:
     def __init__(self, db: AsyncSession) -> None:
         self._db = db
         self._configs = GraphRagConfigRepository(db)
+        self._pins = EmbeddingPinRepository(db)
 
     async def create(
         self,
@@ -96,6 +99,24 @@ class GraphRagConfigService:
         # the config self-pins on its first successful build.
         pin = await self._enforce_and_resolve_pin(project_id, draft.builder_key_group_id)
         embed_provider, embed_model, embed_dim = pin if pin is not None else (None, None, None)
+
+        # Durable, race-free project dimension pin (F-11). A group with no
+        # embedding key resolves to a null pin — nothing to serialize until a
+        # sibling first pins the project. When a dimension resolves, the pin table
+        # is authoritative and its advisory lock closes the concurrent-first-create
+        # race the ``_project_pinned_dim`` scan alone cannot.
+        if pin is not None:
+            await self._pins.ensure(
+                project_id=project_id,
+                kind=PinKind.GRAPHRAG,
+                provider=pin[0],
+                model=pin[1],
+                dim=pin[2],
+                on_conflict=lambda existing_dim, this_dim: GraphRagEmbedDimensionConflict(
+                    f"project {project_id} is pinned to {existing_dim}-dim embeddings; "
+                    f"builder key group {draft.builder_key_group_id} resolves to {this_dim}-dim"
+                ),
+            )
 
         cfg = await self._configs.create(
             project_id=project_id,
@@ -438,6 +459,38 @@ class GraphRagConfigService:
             "last_build_at": (cfg.last_build_at.isoformat() if cfg.last_build_at else None),
             "last_build_error": cfg.last_build_error,
         }
+
+    async def drop_project_collection_if_empty(self, *, project_id: uuid.UUID) -> bool:
+        """Drop ``graphrag_{project_id}`` + clear the pin if no live config remains (F-11).
+
+        Runs after the delete's DB commit + per-config cascade, in the request
+        session's post-commit transaction. Under the ``(project, graphrag)``
+        advisory lock — held across the live-config check and the pin clear so a
+        concurrent create cannot slip a config in between — it verifies no live
+        Concept Map config is left for the project; if so it clears the pin and
+        drops the now-orphan collection best-effort. Returns ``True`` when it
+        dropped.
+        """
+        await self._pins.acquire_lock(project_id, PinKind.GRAPHRAG)
+        if list(await self._configs.list_for_project(project_id)):
+            return False
+        await self._pins.clear(project_id=project_id, kind=PinKind.GRAPHRAG)
+
+        from qdrant_client import AsyncQdrantClient
+
+        from app.config.settings import get_settings
+        from contexts.knowledge.infrastructure.graphrag_vector_store import GraphRagVectorStore
+
+        settings = get_settings()
+        try:
+            qclient = AsyncQdrantClient(url=settings.qdrant.url, api_key=settings.qdrant.api_key or None)
+            try:
+                await GraphRagVectorStore(qclient).delete_collection(project_id)
+            finally:
+                await qclient.close()
+        except Exception:
+            _log.exception("graphrag drop-empty: qdrant collection drop failed for project %s", project_id)
+        return True
 
     # ---- infrastructure cascade -------------------------------------------
 

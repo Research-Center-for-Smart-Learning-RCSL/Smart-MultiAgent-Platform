@@ -18,6 +18,7 @@ from contexts.keys.interfaces.facade import (
     ProviderCapability,
     assert_capability,
 )
+from contexts.knowledge.domain.embedding_pin import PinKind
 from contexts.knowledge.domain.errors import (
     CapabilityMismatch,
     EmbedDimensionConflict,
@@ -31,6 +32,7 @@ from contexts.knowledge.domain.models import (
     RagDocument,
     embed_dimension,
 )
+from contexts.knowledge.infrastructure.embedding_pin_repository import EmbeddingPinRepository
 from contexts.knowledge.infrastructure.repositories import (
     RagConfigRepository,
     RagDocumentRepository,
@@ -47,6 +49,7 @@ class RagConfigService:
     def __init__(self, db: AsyncSession) -> None:
         self._db = db
         self._configs = RagConfigRepository(db)
+        self._pins = EmbeddingPinRepository(db)
         self._keys_facade = KeysFacade(db)
 
     async def _validate_embed_key(self, *, key_id: uuid.UUID, provider: str, project_id: uuid.UUID) -> None:
@@ -121,6 +124,23 @@ class RagConfigService:
                 provider=draft.rerank_provider,
                 project_id=project_id,
             )
+
+        # Durable, race-free project dimension pin (F-11). The live-sibling scan
+        # above is a cheap pre-check; this is authoritative and serializes the
+        # read-then-insert under an advisory lock so two concurrent first-creates
+        # at different dimensions cannot both commit. It also gives File RAG a
+        # stored per-project dimension that survives deleting the pinning config.
+        await self._pins.ensure(
+            project_id=project_id,
+            kind=PinKind.FILE_RAG,
+            provider=draft.embed_provider,
+            model=draft.embed_model,
+            dim=new_dim,
+            on_conflict=lambda existing_dim, this_dim: EmbedDimensionConflict(
+                f"project is pinned to {existing_dim}-dim embeddings; "
+                f"{draft.embed_provider}:{draft.embed_model} is {this_dim}-dim"
+            ),
+        )
 
         cfg = await self._configs.create(
             project_id=project_id,
@@ -285,6 +305,39 @@ class RagConfigService:
             ),
         )
         return docs
+
+    async def drop_project_collection_if_empty(self, *, project_id: uuid.UUID) -> bool:
+        """Drop ``rag_{project_id}`` and clear the pin if no live config remains (F-11).
+
+        Runs after the delete's DB commit + point purge, in the request session's
+        post-commit transaction. Under the ``(project, file_rag)`` advisory lock —
+        held across the live-config check and the pin clear so a concurrent create
+        cannot slip a config in between — it verifies no live File RAG config is
+        left for the project; if so it clears the pin (letting the project later
+        adopt a different embedding dimension) and drops the now-orphan collection
+        best-effort. Returns ``True`` when it dropped, ``False`` when a sibling
+        config kept the collection alive.
+        """
+        await self._pins.acquire_lock(project_id, PinKind.FILE_RAG)
+        if list(await self._configs.list_for_project(project_id)):
+            return False
+        await self._pins.clear(project_id=project_id, kind=PinKind.FILE_RAG)
+
+        from qdrant_client import AsyncQdrantClient
+
+        from app.config.settings import get_settings
+        from contexts.knowledge.infrastructure.qdrant_store import QdrantStore
+
+        settings = get_settings()
+        try:
+            qclient = AsyncQdrantClient(url=settings.qdrant.url, api_key=settings.qdrant.api_key or None)
+            try:
+                await QdrantStore(qclient).delete_collection(project_id)
+            finally:
+                await qclient.close()
+        except Exception:
+            _log.exception("rag drop-empty: qdrant collection drop failed for project %s", project_id)
+        return True
 
     # ---- infrastructure operations ----------------------------------------
 

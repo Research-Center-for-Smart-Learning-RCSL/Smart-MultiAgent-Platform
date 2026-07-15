@@ -374,6 +374,11 @@ async def delete_rag_config(
         project_id=cfg.project_id,
         docs=docs,
     )
+    # F-11: if that was the project's last File RAG config, drop the now-empty
+    # collection and clear the durable dimension pin (under the advisory lock, so
+    # a concurrent create cannot race the drop). The pin clear commits with the
+    # follow-up audit row below.
+    collection_dropped = await service.drop_project_collection_if_empty(project_id=cfg.project_id)
     from shared_kernel import audit as _audit
 
     await _audit.emit(
@@ -384,11 +389,15 @@ async def delete_rag_config(
             actor_ip=ctx.actor_ip,
             resource_type="rag_config",
             resource_id=config_id,
-            metadata={"project_id": str(cfg.project_id), **outcome},
+            metadata={
+                "project_id": str(cfg.project_id),
+                "collection_dropped": collection_dropped,
+                **outcome,
+            },
             request_id=ctx.request_id,
         ),
     )
-    # The follow-up audit row is committed by the db_session dependency.
+    # The follow-up audit row + pin clear are committed by the db_session dependency.
 
 
 @config_router.get("/{config_id}/documents")
