@@ -374,8 +374,10 @@ async def rebuild_knowmap_config(
     principal: Principal = Depends(current_principal),
     db: AsyncSession = Depends(db_session),
 ) -> KnowmapRebuildAck:
-    """Explicit designer rebuild (Q-3/AC-6). Enqueues a ``knowmap_build`` with the
-    dedup job id so a redundant click collapses onto an in-flight build."""
+    """Explicit designer rebuild (Q-3/AC-6). Advances the corpus revision and
+    enqueues a ``knowmap_build`` for it, so an operator-requested rebuild always
+    produces a fresh build generation rather than colliding with a retained
+    prior-build result (F-12 W2)."""
     service = KnowmapConfigService(db)
     cfg = await service.get(config_id)
     await _assert_edit(db=db, principal=principal, project_id=cfg.project_id)
@@ -393,10 +395,15 @@ async def rebuild_knowmap_config(
             request_id=ctx.request_id,
         ),
     )
+    # F-12 (W2): an explicit rebuild requests a fresh build generation. Advance the
+    # corpus revision in this transaction so the build's job id cannot collide with
+    # a retained result of the previous build. Without it, arq drops the re-enqueue
+    # as a duplicate for up to keep_result (3600s) whenever the corpus is unchanged
+    # since the last build — and the reconciler does not heal a terminal FAILED
+    # state, so manual recovery would silently no-op.
+    new_revision = await KnowmapConfigRepository(db).bump_corpus_revision(config_id)
     await db.commit()
-    # F-12: an explicit rebuild is not a corpus mutation — target the config's
-    # current revision so a redundant click collapses onto the in-flight build.
-    await enqueue_knowmap_build(config_id=cfg.id, target_revision=cfg.corpus_revision)
+    await enqueue_knowmap_build(config_id=cfg.id, target_revision=new_revision)
     return KnowmapRebuildAck(status="enqueued", config_id=config_id)
 
 
