@@ -83,9 +83,15 @@ async def _enqueue_rebuild_for_config(sm: Any, knowmap_config_id: uuid.UUID) -> 
     await _bump_and_enqueue_build(sm, knowmap_config_id)
 
 
-async def _enqueue_build_on_clean(sm: Any, doc_id: uuid.UUID) -> None:
+async def _enqueue_build_on_clean(sm: Any, doc_id: uuid.UUID, *, entered: bool) -> None:
     """F-5: enqueue the graph build for a document whose scan just returned CLEAN,
     but only once it is READY.
+
+    ``entered`` is True only when this verdict newly adds the document to the
+    ready∧clean set (its prior scan status was not CLEAN). A CLEAN->CLEAN reconfirm
+    (a reindex rescan) leaves membership unchanged: any content change was already
+    enqueued by the ingest side's immediate clean-build, and advancing the revision
+    here would double it (F-12 W3), so this returns without touching the queue.
 
     The mirror of the indexing side's clean-gate: if the document is not yet READY
     (async tus path, indexing still running), the index worker enqueues the build
@@ -95,6 +101,8 @@ async def _enqueue_build_on_clean(sm: Any, doc_id: uuid.UUID) -> None:
     corpus revision (F-12 W1) so this clean-set entry gets a build id distinct from
     a sibling upload's.
     """
+    if not entered:
+        return
     async with sm() as db:
         doc = await KnowmapDocumentRepository(db).get(doc_id)
         if doc is None or doc.status is not DocumentStatus.READY:
@@ -183,6 +191,18 @@ async def knowmap_scan_document(ctx: dict[str, Any], *, document_id: str) -> str
     doc_id = uuid.UUID(document_id)
     sm = get_sessionmaker()
 
+    async with sm() as db:
+        doc = await KnowmapDocumentRepository(db).get(doc_id)
+    if doc is None:
+        _log.warning("knowmap_scan_document: document %s not found", document_id)
+        return "not_found"
+    # F-12 (W1/W6): the buildable ready∧clean set only *changes* when a verdict
+    # crosses the CLEAN boundary. A reconfirming CLEAN->CLEAN (a reindex rescan)
+    # does not add the document, and a QUARANTINED/SKIPPED verdict on a document
+    # that was never CLEAN removes nothing — so neither advances the revision nor
+    # triggers a rebuild. Only a real membership change does.
+    prior_clean = doc.scan_status is ScanStatus.CLEAN
+
     if not get_settings().security.file_scan_enabled:
         async with sm() as db, db.begin():
             from shared_kernel.auth.clients import now
@@ -192,7 +212,7 @@ async def knowmap_scan_document(ctx: dict[str, Any], *, document_id: str) -> str
             )
         # F-5: scan disabled == an immediate clean verdict; route through the shared
         # clean-verdict enqueue so the deferred build still fires once READY.
-        await _enqueue_build_on_clean(sm, doc_id)
+        await _enqueue_build_on_clean(sm, doc_id, entered=not prior_clean)
         return "clean"
 
     from shared_kernel.scanning import ScanError, get_scanner
@@ -203,12 +223,6 @@ async def knowmap_scan_document(ctx: dict[str, Any], *, document_id: str) -> str
         raise RuntimeError("file_scan_enabled is True but SMAP_SEC_CLAMAV_HOST is not set")
 
     settings = get_settings()
-    async with sm() as db:
-        doc = await KnowmapDocumentRepository(db).get(doc_id)
-        if doc is None:
-            _log.warning("knowmap_scan_document: document %s not found", document_id)
-            return "not_found"
-
     if doc.size_bytes > settings.security.clamav_max_scan_bytes:
         from shared_kernel.auth.clients import now as _now2
 
@@ -216,9 +230,11 @@ async def knowmap_scan_document(ctx: dict[str, Any], *, document_id: str) -> str
             await KnowmapDocumentRepository(db2).mark_scan(
                 document_id=doc_id, scan_status=ScanStatus.SKIPPED, scan_at=_now2()
             )
-        # F-27: over-size is immediately terminal (no retry) → rebuild at once,
-        # mirroring the QUARANTINED path, so the corpus excludes the skipped doc.
-        await _enqueue_rebuild_for_config(sm, doc.knowmap_config_id)
+        # F-27: over-size is immediately terminal (no retry). Rebuild only if the
+        # document was already CLEAN (hence possibly built) — a fresh over-size
+        # document was never in the buildable set, so no rebuild is needed (F-12 W6).
+        if prior_clean:
+            await _enqueue_rebuild_for_config(sm, doc.knowmap_config_id)
         return "skipped:too_large"
 
     bucket, _, key = doc.minio_path.partition("/")
@@ -241,8 +257,10 @@ async def knowmap_scan_document(ctx: dict[str, Any], *, document_id: str) -> str
         # re-raises either way so arq retries the scan. If arq does not populate
         # ``job_try`` (fallback per §7.2), default to the exhausted value so the
         # rebuild still fires (the dedup job id bounds the churn) rather than
-        # silently never rebuilding.
-        if ctx.get("job_try", _SCAN_MAX_TRIES) >= _SCAN_MAX_TRIES:
+        # silently never rebuilding. Rebuild only if the document was already CLEAN
+        # (hence possibly built) — a never-CLEAN document's triples are not in the
+        # graph, so there is nothing to evict (F-12 W6).
+        if prior_clean and ctx.get("job_try", _SCAN_MAX_TRIES) >= _SCAN_MAX_TRIES:
             await _enqueue_rebuild_for_config(sm, doc.knowmap_config_id)
         raise
 
@@ -276,15 +294,19 @@ async def knowmap_scan_document(ctx: dict[str, Any], *, document_id: str) -> str
                         },
                     ),
                 )
-    # A quarantine changes the buildable corpus → rebuild so the tainted document's
-    # triples leave the graph (retrieval already hides them via the allowed-doc gate).
-    # Advance the revision (F-12 W1) so the removal build is never dropped.
-    if scan_status is ScanStatus.QUARANTINED and cfg is not None:
+    # A quarantine of a document that was CLEAN (hence possibly built) changes the
+    # buildable corpus → rebuild so its triples leave the graph (retrieval already
+    # hides them via the allowed-doc gate). Advance the revision (F-12 W1) so the
+    # removal build is never dropped. A never-CLEAN document has no triples in the
+    # graph, so nothing to evict (F-12 W6).
+    if scan_status is ScanStatus.QUARANTINED and cfg is not None and prior_clean:
         await _bump_and_enqueue_build(sm, cfg.id)
     elif scan_status is ScanStatus.CLEAN:
         # F-5: a clean verdict enqueues the deferred build — but only once the
         # document is READY (re-read fresh; last writer wins with the index worker).
-        await _enqueue_build_on_clean(sm, doc_id)
+        # Advance the revision only when the document is newly *entering* the
+        # ready∧clean set; a CLEAN->CLEAN reconfirm is handled by the ingest side.
+        await _enqueue_build_on_clean(sm, doc_id, entered=not prior_clean)
     return scan_status.value
 
 
@@ -394,7 +416,16 @@ async def knowmap_build(
         # corpus advanced during the build (a mutation committed after the delta
         # snapshot). Runs in its own session — the shared builder stays
         # enqueue-free so layer boundaries hold and Concept Maps are unaffected.
-        await _finalize_build_revision(sm, cfg_id, target_revision, succeeded=result.state is BuildState.IDLE)
+        # Best-effort: the build already committed its terminal state above, so a
+        # transient error in this post-build bookkeeping must not fail the job and
+        # trigger arq to re-run the entire (already-successful) build. A missed
+        # follow-up is recovered by the next document change or a manual rebuild.
+        try:
+            await _finalize_build_revision(
+                sm, cfg_id, target_revision, succeeded=result.state is BuildState.IDLE
+            )
+        except Exception:
+            _log.exception("knowmap_build: post-build revision finalize failed config=%s", config_id)
         return (
             f"state={result.state.value} "
             f"triples={result.triples_written} entities={result.entities_written}"
