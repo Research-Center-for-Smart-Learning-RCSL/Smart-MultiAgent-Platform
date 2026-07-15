@@ -37,6 +37,13 @@ class KnowmapConfig:
     # satisfy the shared engine's ``ConfigLike`` port (the temporal fields stay
     # null/unused here, as the spec's non-goals state).
     recency_half_life_days: float | None = None
+    # F-12: monotonic corpus revision, bumped in the same transaction as every
+    # committed document mutation (add / reprocess / delete). The build dedup job
+    # id is keyed on it so distinct corpus states never collide, and
+    # ``built_corpus_revision`` records the revision the last successful build
+    # processed for the completion re-check.
+    corpus_revision: int = 0
+    built_corpus_revision: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
