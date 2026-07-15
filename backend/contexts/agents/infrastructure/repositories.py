@@ -335,6 +335,67 @@ class AgentRepository:
         rows = (await self._db.execute(stmt)).all()
         return [r.id for r in rows]
 
+    async def clear_rag_config(
+        self,
+        *,
+        project_id: uuid.UUID,
+        rag_config_id: uuid.UUID,
+    ) -> list[uuid.UUID]:
+        """Null the RAG binding of every active agent in the project attached to
+        ``rag_config_id`` (F-18). Returns the unbound agent ids.
+
+        The DB FK is ``ON DELETE SET NULL``, but a config *soft*-delete is an
+        UPDATE, so the FK never fires — the knowledge delete service calls this
+        through :class:`~contexts.agents.interfaces.facade.AgentsFacade` to null
+        the binding explicitly. Scoped by the indexed ``project_id``
+        (``rag_config_id`` is unindexed). ``version`` is bumped by the
+        ``smap_bump_version`` trigger — never by hand.
+        """
+        stmt = (
+            t.agents.update()
+            .where(
+                sa.and_(
+                    t.agents.c.rag_config_id == rag_config_id,
+                    t.agents.c.project_id == project_id,
+                    t.agents.c.deleted_at.is_(None),
+                )
+            )
+            .values(rag_config_id=None)
+            .returning(t.agents.c.id)
+        )
+        rows = (await self._db.execute(stmt)).all()
+        return [r.id for r in rows]
+
+    async def clear_knowmap_config(
+        self,
+        *,
+        project_id: uuid.UUID,
+        knowmap_config_id: uuid.UUID,
+    ) -> list[uuid.UUID]:
+        """Null the Knowledge-Map binding of every active agent in the project
+        attached to ``knowmap_config_id`` on config soft-delete (F-18). Returns
+        the unbound agent ids.
+
+        The counterpart to :meth:`detach_from_knowmap_config` (which is
+        key-group-scoped for the builder-collision path); this one unbinds every
+        attached agent because the config itself is gone. Same SET-NULL-on-
+        soft-delete rationale as :meth:`clear_rag_config`.
+        """
+        stmt = (
+            t.agents.update()
+            .where(
+                sa.and_(
+                    t.agents.c.knowmap_config_id == knowmap_config_id,
+                    t.agents.c.project_id == project_id,
+                    t.agents.c.deleted_at.is_(None),
+                )
+            )
+            .values(knowmap_config_id=None)
+            .returning(t.agents.c.id)
+        )
+        rows = (await self._db.execute(stmt)).all()
+        return [r.id for r in rows]
+
 
 def _row_to_tool(row: Any) -> AgentTool:
     return AgentTool(
@@ -511,6 +572,29 @@ class AgentToolRepository:
         )
         if (result.rowcount or 0) == 0:
             raise AgentToolNotFound(str(tool_id))
+
+    async def disable_file_search_for_agents(self, agent_ids: Sequence[uuid.UUID]) -> None:
+        """Disable the HOSTED_FILE_SEARCH singleton for the given agents (F-18).
+
+        Preserves the invariant *file_search enabled ⇒ rag_config_id present*
+        after the agents' RAG binding is nulled on config soft-delete — otherwise
+        the config delete would trade a dangling FK for an enabled File Search
+        tool with no backing config. Idempotent (already-disabled rows are a
+        no-op). Every agent carries a HOSTED_FILE_SEARCH singleton row from
+        :meth:`provision_singletons`.
+        """
+        if not agent_ids:
+            return
+        await self._db.execute(
+            t.agent_tools.update()
+            .where(
+                sa.and_(
+                    t.agent_tools.c.agent_id.in_(list(agent_ids)),
+                    t.agent_tools.c.tool_type == AgentToolType.HOSTED_FILE_SEARCH.value,
+                )
+            )
+            .values(enabled=False)
+        )
 
     async def provision_singletons(
         self,
