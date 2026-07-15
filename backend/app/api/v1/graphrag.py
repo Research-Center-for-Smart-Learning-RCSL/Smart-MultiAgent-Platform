@@ -625,6 +625,13 @@ admin_router = APIRouter(
 @admin_router.post("/{config_id}/reset")
 async def admin_reset(
     config_id: uuid.UUID = Path(...),
+    force: bool = Query(
+        default=False,
+        description=(
+            "Override lock contention and, when 2PC compensation cannot complete, "
+            "still force idle while recording the incomplete outcome (R11a.02)."
+        ),
+    ),
     ctx: RequestContext = Depends(current_context),
     principal: Principal = Depends(current_principal),
     db: AsyncSession = Depends(db_session),
@@ -638,6 +645,7 @@ async def admin_reset(
         config_id=config_id,
         actor_user_id=principal.user_id,
         actor_ip=ctx.actor_ip,
+        force=force,
         request_id=ctx.request_id,
     )
     return _to_out(cfg)

@@ -21,12 +21,14 @@ from contexts.keys.infrastructure import tables as keys_t
 from contexts.knowledge.application.embed_resolution import resolve_embed_key
 from contexts.knowledge.domain.embedding_pin import PinKind
 from contexts.knowledge.domain.errors import (
+    GraphRagBuildBusy,
     GraphRagBuilderKeyGroupProjectMismatch,
     GraphRagConfigNotFound,
     GraphRagEmbedDimensionConflict,
     GraphRagEmbeddingModelChangeBlocked,
     GraphRagInvalidHalfLife,
     GraphRagOwnerProjectMismatch,
+    GraphRagResetCompensationFailed,
 )
 from contexts.knowledge.domain.graphrag import (
     BuildState,
@@ -42,10 +44,19 @@ from contexts.knowledge.infrastructure.graphrag_repositories import (
 from shared_kernel import audit
 
 if TYPE_CHECKING:
-    from contexts.knowledge.application.graphrag_ports import Neo4jDriver
+    from contexts.knowledge.application.graphrag_ports import (
+        BuildLockStore,
+        Neo4jDriver,
+        SnapshotStore,
+    )
     from contexts.knowledge.infrastructure.graphrag_vector_store import GraphRagVectorStore
 
 _log = logging.getLogger(__name__)
+
+# Mirrors R11a.01's 10-minute build-lock TTL. Defined locally rather than imported
+# from the reconciler because the reconciler imports this module — importing back
+# would cycle (F-26).
+_BUILD_LOCK_TTL_S = 10 * 60
 
 
 def _validate_half_life(value: float | None) -> None:
@@ -55,10 +66,24 @@ def _validate_half_life(value: float | None) -> None:
 
 
 class GraphRagConfigService:
-    def __init__(self, db: AsyncSession) -> None:
+    def __init__(
+        self,
+        db: AsyncSession,
+        *,
+        snapshot_store: SnapshotStore | None = None,
+        lock_store: BuildLockStore | None = None,
+        neo4j: Neo4jDriver | None = None,
+    ) -> None:
         self._db = db
         self._configs = GraphRagConfigRepository(db)
         self._pins = EmbeddingPinRepository(db)
+        # F-26: injectable external-store ports for admin_reset compensation. Left
+        # None on the normal request path — admin_reset builds short-lived Redis
+        # stores + a Neo4j driver itself (mirroring cascade_external_stores); only
+        # tests override these via the attribute-patch pattern.
+        self._snapshots = snapshot_store
+        self._locks = lock_store
+        self._neo4j = neo4j
 
     async def create(
         self,
@@ -453,16 +478,170 @@ class GraphRagConfigService:
         config_id: uuid.UUID,
         actor_user_id: uuid.UUID,
         actor_ip: str | None,
+        force: bool = False,
         request_id: uuid.UUID | None = None,
     ) -> GraphRagConfig:
-        """R11a.02 — force state back to `idle`, audit unconditionally."""
+        """R11a.02 — reset a stuck config to ``idle`` after compensating 2PC state (F-26).
+
+        Acquires the build lock (serialising against the builder + reconciler,
+        R11a.01), discards any in-flight build via the same infrastructure store
+        ports the reconciler's rollback uses — Neo4j rolled back to the pre-build
+        snapshot, snapshot deleted, current pointer cleared — then forces ``idle``.
+
+        ``force=false`` (default): a held lock raises ``GraphRagBuildBusy`` (409);
+        a compensation failure raises ``GraphRagResetCompensationFailed`` (503)
+        without forcing idle or destroying recovery material, so the config never
+        advertises inconsistent state as healthy (R11.04). ``force=true``:
+        overrides a held lock (force-release + re-acquire) and, when compensation
+        cannot complete, still forces ``idle`` but records the incomplete outcome
+        (non-null ``last_build_error``, audit ``outcome=compensation_failed``).
+        The reconciler is not touched. Every reset is audit-logged.
+        """
+        from contexts.knowledge.infrastructure.redis_lock import (
+            RedisBuildLockStore,
+            RedisSnapshotStore,
+        )
+
         cfg = await self.get(config_id)
         prev = cfg.last_build_state
-        await self._configs.set_state(
-            config_id=config_id,
-            state=BuildState.IDLE,
-            error=None,
-        )
+
+        snapshots: SnapshotStore = self._snapshots or RedisSnapshotStore()
+        locks: BuildLockStore = self._locks or RedisBuildLockStore()
+        neo4j = self._neo4j
+        owns_neo4j = neo4j is None
+        if owns_neo4j:
+            neo4j = self._build_neo4j_driver()
+
+        try:
+            # --- serialize against builder / reconciler (Q-5, R11a.01) ---
+            if not await locks.acquire(config_id, ttl_s=_BUILD_LOCK_TTL_S):
+                if not force:
+                    raise GraphRagBuildBusy(str(config_id))
+                # Admin-accepted override: break the lock and re-take it under this
+                # process's token so the trailing release is a clean, owned release.
+                await locks.force_release(config_id)
+                if not await locks.acquire(config_id, ttl_s=_BUILD_LOCK_TTL_S):
+                    # A concurrent worker re-grabbed the lock in the force-release
+                    # window. force=true means the admin accepted interrupting a live
+                    # build, so proceed — but record that compensation ran without
+                    # holding the lock (the trailing token-checked release no-ops).
+                    _log.warning(
+                        "admin reset: could not re-acquire lock after force-release for "
+                        "config %s; compensating without the lock (force=true)",
+                        config_id,
+                    )
+            try:
+                build_id = await snapshots.get_current(config_id=config_id)
+                comp_error: str | None = None
+                if build_id is not None:
+                    snapshot = await snapshots.get(config_id=config_id, build_id=build_id)
+                    try:
+                        if neo4j is None:
+                            # Cannot roll back an in-flight build with no driver —
+                            # treat as a compensation failure (the stores-down case).
+                            raise RuntimeError("neo4j unavailable for compensation")
+                        await neo4j.delete_by_build(config_id=config_id, build_id=build_id)
+                        if snapshot is not None:
+                            await neo4j.restore_from_snapshot(config_id=config_id, snapshot=snapshot)
+                    except Exception:
+                        _log.exception("admin reset: neo4j compensation failed for config %s", config_id)
+                        comp_error = "admin reset: compensation incomplete"
+                    if comp_error is None:
+                        # Only after a successful Neo4j rollback drop the recovery
+                        # material — §7.4 ordering (Neo4j first, Redis-delete on
+                        # success) never strands a partially-compensated graph.
+                        await snapshots.delete(config_id=config_id, build_id=build_id)
+                        await snapshots.clear_current(config_id=config_id)
+                else:
+                    # No in-flight build — clear any stale pointer; idempotent.
+                    await snapshots.clear_current(config_id=config_id)
+
+                if comp_error is not None and not force:
+                    # Refuse (R11.04): keep the recovery material, leave the config
+                    # in its reconciler-visible stuck state, do NOT set idle. Persist
+                    # the audit before the 5xx unwinds the request transaction
+                    # (db_session rolls back on exception), so the outcome is durable.
+                    await self._emit_reset_audit(
+                        config_id=config_id,
+                        cfg=cfg,
+                        prev=prev,
+                        build_id=build_id,
+                        forced=False,
+                        outcome="compensation_failed",
+                        actor_user_id=actor_user_id,
+                        actor_ip=actor_ip,
+                        request_id=request_id,
+                    )
+                    await self._db.commit()
+                    raise GraphRagResetCompensationFailed(str(config_id))
+
+                # Clean discard, no-op, or force=true override. ``comp_error`` is
+                # non-null only on a force=true compensation failure — recorded as a
+                # non-null last_build_error so the incomplete state is honest.
+                await self._configs.set_state(
+                    config_id=config_id,
+                    state=BuildState.IDLE,
+                    error=comp_error,
+                )
+                if comp_error is not None:
+                    outcome = "compensation_failed"
+                elif build_id is not None:
+                    outcome = "discarded"
+                else:
+                    outcome = "noop"
+                await self._emit_reset_audit(
+                    config_id=config_id,
+                    cfg=cfg,
+                    prev=prev,
+                    build_id=build_id,
+                    forced=force,
+                    outcome=outcome,
+                    actor_user_id=actor_user_id,
+                    actor_ip=actor_ip,
+                    request_id=request_id,
+                )
+            finally:
+                await locks.release(config_id)
+        finally:
+            # Close only the driver this call constructed (never an injected one).
+            # ``close`` is on the concrete Neo4jAsyncDriver, not the port Protocol.
+            if owns_neo4j and neo4j is not None:
+                closer = getattr(neo4j, "close", None)
+                if closer is not None:
+                    await closer()
+
+        refreshed = await self._configs.get(config_id)
+        assert refreshed is not None
+        return refreshed
+
+    def _build_neo4j_driver(self) -> Neo4jDriver | None:
+        """Short-lived Neo4j driver for admin_reset compensation (F-26).
+
+        Mirrors :meth:`cascade_external_stores`' construction; ``None`` when Neo4j
+        is unconfigured, in which case an in-flight build the reset cannot roll
+        back is treated as a compensation failure.
+        """
+        from app.config.settings import get_settings
+        from contexts.knowledge.infrastructure.neo4j_driver import Neo4jAsyncDriver
+
+        neo4j_conf = getattr(get_settings(), "neo4j", None)
+        if neo4j_conf is None:
+            return None
+        return Neo4jAsyncDriver(uri=neo4j_conf.url, auth=(neo4j_conf.user, neo4j_conf.password))
+
+    async def _emit_reset_audit(
+        self,
+        *,
+        config_id: uuid.UUID,
+        cfg: GraphRagConfig,
+        prev: BuildState,
+        build_id: uuid.UUID | None,
+        forced: bool,
+        outcome: str,
+        actor_user_id: uuid.UUID,
+        actor_ip: str | None,
+        request_id: uuid.UUID | None,
+    ) -> None:
         await audit.emit(
             self._db,
             audit.AuditEvent(
@@ -474,13 +653,13 @@ class GraphRagConfigService:
                 metadata={
                     "previous_state": prev.value,
                     "project_id": str(cfg.project_id),
+                    "build_id": str(build_id) if build_id is not None else None,
+                    "forced": forced,
+                    "outcome": outcome,
                 },
                 request_id=request_id,
             ),
         )
-        refreshed = await self._configs.get(config_id)
-        assert refreshed is not None
-        return refreshed
 
     async def status(
         self,

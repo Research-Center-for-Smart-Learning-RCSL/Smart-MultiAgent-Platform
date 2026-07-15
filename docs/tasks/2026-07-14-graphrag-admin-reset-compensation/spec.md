@@ -1,6 +1,6 @@
 ---
 type: bugfix
-status: draft
+status: implemented
 created: 2026-07-14
 requirements: [R11.04]
 ---
@@ -234,26 +234,35 @@ Primary red-first: (1).
 
 ## 10. Acceptance Criteria
 
-- [ ] AC-1: The compensating-reset test (§8.1) fails before the fix and passes after.
-- [ ] AC-2: `admin_reset` acquires `graphrag:lock:{config_id}` before compensating and, on a
+- [x] AC-1: The compensating-reset test (§8.1) fails before the fix and passes after.
+  *(`test_reset_discards_failed_compensating_build`.)*
+- [x] AC-2: `admin_reset` acquires `graphrag:lock:{config_id}` before compensating and, on a
   config with an in-flight build, discards it — Neo4j rolled back to snapshot, snapshot deleted,
-  current pointer cleared — before setting IDLE and releasing the lock.
-- [ ] AC-3: `admin_reset` is idempotent on a clean/idle config (clears any stale pointer, sets
-  IDLE, releases the lock).
-- [ ] AC-4: With `force=false`, a held lock returns 409 (no state change) and a compensation
+  current pointer cleared — before setting IDLE and releasing the lock. *(Same test.)*
+- [x] AC-3: `admin_reset` is idempotent on a clean/idle config (clears any stale pointer, sets
+  IDLE, releases the lock). *(`test_reset_idempotent_on_clean_config`.)*
+- [x] AC-4: With `force=false`, a held lock returns 409 (no state change) and a compensation
   failure returns 5xx without forcing IDLE or destroying recovery material (config stays
-  reconciler-visible) — no false "healthy".
-- [ ] AC-5: With `force=true`, a held lock is force-released and re-acquired, and a compensation
+  reconciler-visible) — no false "healthy". *(`test_force_false_held_lock_raises_busy` [409 via
+  `GraphRagBuildBusy`], `test_force_false_compensation_failure_refuses_and_keeps_material` [503 via
+  `GraphRagResetCompensationFailed`, D-1].)*
+- [x] AC-5: With `force=true`, a held lock is force-released and re-acquired, and a compensation
   failure still forces IDLE but sets a non-null `last_build_error` and audits
   `outcome=compensation_failed`, `forced=true` (honest, not silent).
-- [ ] AC-6: The audit record includes `previous_state`, resolved `build_id`, `forced`, and
-  compensation `outcome`.
-- [ ] AC-7: The reconciler (`graphrag_reconciler.py`) is not modified; its existing tests in
-  `test_graphrag_builder.py` remain green.
-- [ ] AC-8: `pytest -q`, `ruff check . && ruff format --check .`, and `mypy .` pass in `backend/`;
-  `pnpm run gen:api` regenerates the client for the new `force` param.
+  *(`test_force_true_held_lock_force_releases_and_proceeds`,
+  `test_force_true_compensation_failure_forces_idle_with_error`.)*
+- [x] AC-6: The audit record includes `previous_state`, resolved `build_id`, `forced`, and
+  compensation `outcome`. *(`test_audit_metadata_carries_state_build_forced_outcome`.)*
+- [x] AC-7: The reconciler (`graphrag_reconciler.py`) is not modified; its existing tests in
+  `test_graphrag_builder.py` remain green. *(48 passed across builder/concurrency/purge/reset.)*
+- [x] AC-8: `pytest -q`, `ruff check . && ruff format --check .`, and `mypy .` pass in `backend/`;
+  `pnpm run gen:api` regenerates the client for the new `force` param. *(openapi.json + generated
+  `GraphragAdminService.ts` updated; frontend typecheck + lint green.)*
 
 ## 11. SRS Delta
+
+**APPLIED at approval (2026-07-16):** the user chose to apply the [R11a.02] amendment; the text below
+now replaces the prior [R11a.02] in `REQUIREMENTS.md`.
 
 The fix restores [R11.04], but [R11a.02] as written describes only the state flip and omits the
 compensation, lock serialization, and the `force` escape hatch this fix defines. Since analysis
@@ -275,7 +284,40 @@ delta; flag which you want at approval.
 
 ## 12. Deviation Log
 
-Appended by /build.
+- **D-1 (error reuse + one new error):** lock contention reuses the existing `GraphRagBuildBusy`
+  (already mapped 409) rather than a new error; the compensation-failure 5xx is a new
+  `GraphRagResetCompensationFailed` mapped **503** (transient/retryable — a store is unreachable),
+  registered in `error_mapping.py`.
+- **D-2 (audit durability on the refuse path):** `audit.emit` joins the request transaction, which
+  `db_session` rolls back on exception (`session.py:116-118`). So the `force=false` compensation-
+  failure path emits the `compensation_failed` audit and **commits it explicitly** before raising the
+  503, otherwise the audit would be lost with the rollback. Order: keep recovery material → emit audit
+  → `commit()` → raise. (No other writes are pending at that point, so the commit persists only the
+  audit.)
+- **D-3 (lock-TTL constant local):** `_BUILD_LOCK_TTL_S = 10*60` is defined in
+  `graphrag_config_service` (mirroring R11a.01) rather than imported from the reconciler, because the
+  reconciler imports this module — importing back would cycle.
+- **D-4 (`close` via getattr):** the constructed Neo4j driver is closed via a `getattr(neo4j,
+  "close", None)` guard because `close` lives on the concrete `Neo4jAsyncDriver`, not the
+  `Neo4jDriver` Protocol; widening the Protocol would ripple to existing test fakes. Only the
+  call-constructed driver is closed (never an injected one).
+- **D-5 (`force` as query param):** exposed as a query parameter (default `false`), per §7.1's
+  "query or body" allowance — no request-body model needed.
+- **D-6 (injectable ports):** the three compensation ports are optional keyword args on
+  `GraphRagConfigService.__init__` (`snapshot_store`/`lock_store`/`neo4j`, default `None`), left
+  `None` on the request path where `admin_reset` builds short-lived ports itself. Tests inject fakes
+  via the constructor (the reset tests) while still using the `service._configs = repo` attribute
+  patch for the repo.
+- **D-7 (force re-acquire surfaced — from the check-quality/check-security gates):** on the
+  `force=true` contention path the re-`acquire` after `force_release` now checks its result and logs a
+  warning when it fails (a concurrent worker re-grabbed the lock in the gap), so the admin-accepted
+  "compensate without holding the lock" TOCTOU is recorded rather than silent. Behaviour is unchanged
+  (proceed regardless, per the documented `force=true` semantics); only observability improved.
+- **Gate results:** `/check-security` (3 focused agents over the diff) returned no CRITICAL/HIGH/MEDIUM
+  findings — AuthZ (admin-gated), lock-safety confinement, consistency-on-failure, and the pre-503
+  audit commit all verified. `/check-quality` found no Introduced-Critical; its warnings were applied
+  (D-7 here; D-8/FU-4 on F-24) or are pre-existing (the direct-service-instantiation SoC note is this
+  dossier's FU-4).
 
 ## 13. Follow-ups
 

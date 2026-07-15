@@ -86,6 +86,11 @@ _MAP: ErrorMap = {
         500,
         "GraphRAG build failed",
     ),
+    errors.GraphRagResetCompensationFailed: (
+        "knowledge/graphrag-reset-compensation-failed",
+        503,
+        "Admin reset could not compensate the config's external state; retry or force",
+    ),
     errors.GraphRagConfigAlreadyExists: (
         "knowledge/graphrag-config-already-exists",
         409,

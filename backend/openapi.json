@@ -8863,6 +8863,18 @@
               "title": "Config Id",
               "type": "string"
             }
+          },
+          {
+            "description": "Override lock contention and, when 2PC compensation cannot complete, still force idle while recording the incomplete outcome (R11a.02).",
+            "in": "query",
+            "name": "force",
+            "required": false,
+            "schema": {
+              "default": false,
+              "description": "Override lock contention and, when 2PC compensation cannot complete, still force idle while recording the incomplete outcome (R11a.02).",
+              "title": "Force",
+              "type": "boolean"
+            }
           }
         ],
         "responses": {

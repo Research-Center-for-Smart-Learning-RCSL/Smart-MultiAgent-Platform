@@ -101,6 +101,20 @@ class GraphRagBuildFailed(KnowledgeError):
     code = "knowledge/graphrag-build-failed"
 
 
+class GraphRagResetCompensationFailed(KnowledgeError):
+    """F-26 — an admin reset (``force=false``) could not compensate the in-flight
+    build's external state (Neo4j rollback failed / a store was unreachable — the
+    "reconciliation is stuck" case R11a.02 names).
+
+    The reset refuses rather than advertise an inconsistent config as healthy
+    (R11.04): the config keeps its recovery material (snapshot + current pointer)
+    and stays in its reconciler-visible stuck state, so the sweep can still heal
+    it. Mapped 503 (transient, retryable). An explicit ``force=true`` overrides
+    this and forces ``idle`` with a recorded, non-null ``last_build_error``."""
+
+    code = "knowledge/graphrag-reset-compensation-failed"
+
+
 class GraphRagConfigAlreadyExists(KnowledgeError):
     """R11.05 — a GraphRAG config is 1:1 with its agent; a second create is a 409."""
 
@@ -241,6 +255,7 @@ __all__ = [
     "GraphRagConfigAlreadyExists",
     "GraphRagCollectionDimensionMismatch",
     "GraphRagConfigNotFound",
+    "GraphRagResetCompensationFailed",
     "GraphRagEmbedDimensionConflict",
     "GraphRagEmbeddingModelChangeBlocked",
     "GraphRagInvalidHalfLife",

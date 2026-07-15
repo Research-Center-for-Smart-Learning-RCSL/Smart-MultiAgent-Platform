@@ -34,6 +34,14 @@ class BuildLockStore(Protocol):
     async def release(self, config_id: uuid.UUID) -> None:
         """Best-effort release; no-op if already expired."""
 
+    async def force_release(self, config_id: uuid.UUID) -> None:
+        """Unconditionally drop the lock regardless of holder (F-26, admin only).
+
+        Used solely on the ``force=true`` admin-reset contention path to break a
+        stale/held lock this process does not own. Never call it on the normal
+        build path — it defeats the token-checked release that keeps two builds
+        from writing concurrently (R11a.01)."""
+
     async def refresh(self, config_id: uuid.UUID, *, ttl_s: int) -> bool:
         """Extend the lock's TTL iff this holder still owns it.
 

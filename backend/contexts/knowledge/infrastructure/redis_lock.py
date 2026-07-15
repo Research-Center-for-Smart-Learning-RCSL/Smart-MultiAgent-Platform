@@ -88,6 +88,18 @@ class RedisBuildLockStore:
             return
         await cast("Awaitable[Any]", self._r().eval(_RELEASE_LUA, 1, _lock_key(config_id), token))
 
+    async def force_release(self, config_id: uuid.UUID) -> None:
+        """Unconditional ``DEL`` of the lock key regardless of holder (F-26).
+
+        Unlike :meth:`release` this skips the token check, so it can break a lock
+        held by another instance (or a stale one whose holder is gone). Reserved
+        for the ``force=true`` admin-reset contention path — the admin has
+        explicitly accepted interrupting a possibly-live build. Also drops any
+        token this instance happened to hold so a later :meth:`release` is a
+        clean no-op."""
+        self._tokens.pop(config_id, None)
+        await self._r().delete(_lock_key(config_id))
+
     async def refresh(self, config_id: uuid.UUID, *, ttl_s: int) -> bool:
         token = self._tokens.get(config_id)
         if token is None:
