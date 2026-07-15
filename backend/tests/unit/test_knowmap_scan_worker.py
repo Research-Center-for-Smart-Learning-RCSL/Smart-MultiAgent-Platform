@@ -18,10 +18,9 @@ from typing import Any
 import pytest
 
 import app.workers.tasks.knowmap as km
-from contexts.knowledge.domain.graphrag import BuildState
 from contexts.knowledge.domain.models import DocumentStatus, ScanStatus
 
-_CFG = SimpleNamespace(id=uuid.uuid4(), last_build_state=BuildState.IDLE, last_build_at=None)
+_CFG = SimpleNamespace(id=uuid.uuid4(), corpus_revision=3)
 
 
 class _Begin:
@@ -93,7 +92,8 @@ def _doc(*, size: int = 100) -> SimpleNamespace:
 @pytest.mark.asyncio
 async def test_oversize_skipped_enqueues_rebuild(monkeypatch) -> None:
     # Red-first (§8.1): an over-size document is marked SKIPPED and enqueues one
-    # rebuild with the config's dedup nonce — identical args to the QUARANTINED path.
+    # rebuild targeting the config's current corpus revision (F-12) — identical
+    # args to the QUARANTINED path.
     doc = _doc(size=100)
     cap = _install(monkeypatch, doc=doc, max_scan_bytes=10, scanner=SimpleNamespace())
 
@@ -101,9 +101,7 @@ async def test_oversize_skipped_enqueues_rebuild(monkeypatch) -> None:
 
     assert result == "skipped:too_large"
     assert cap["scans"] == [ScanStatus.SKIPPED]
-    assert cap["enqueued"] == [
-        {"config_id": _CFG.id, "last_build_state": BuildState.IDLE, "last_build_at": None}
-    ]
+    assert cap["enqueued"] == [{"config_id": _CFG.id, "target_revision": _CFG.corpus_revision}]
 
 
 @pytest.mark.asyncio
@@ -126,9 +124,7 @@ async def test_clamav_error_skipped_enqueues_only_on_exhausted_attempt(monkeypat
         await km.knowmap_scan_document({"job_try": km._SCAN_MAX_TRIES}, document_id=str(uuid.uuid4()))
 
     assert cap["scans"] == [ScanStatus.SKIPPED]
-    assert cap["enqueued"] == [
-        {"config_id": _CFG.id, "last_build_state": BuildState.IDLE, "last_build_at": None}
-    ]
+    assert cap["enqueued"] == [{"config_id": _CFG.id, "target_revision": _CFG.corpus_revision}]
 
 
 @pytest.mark.asyncio
@@ -158,7 +154,7 @@ async def test_clamav_error_skipped_does_not_enqueue_on_non_final_attempt(monkey
 @pytest.mark.asyncio
 async def test_quarantine_still_enqueues_with_same_args(monkeypatch) -> None:
     # §8.4 parity: a QUARANTINED verdict still enqueues exactly as before (no
-    # regression), with the same config dedup nonce a terminal SKIPPED produces.
+    # regression), targeting the same corpus revision a terminal SKIPPED produces.
     class _Scanner:
         async def scan(self, data: object) -> object:
             return SimpleNamespace(clean=False, threat_name="eicar")
@@ -175,9 +171,7 @@ async def test_quarantine_still_enqueues_with_same_args(monkeypatch) -> None:
 
     assert result == ScanStatus.QUARANTINED.value
     assert cap["scans"] == [ScanStatus.QUARANTINED]
-    assert cap["enqueued"] == [
-        {"config_id": _CFG.id, "last_build_state": BuildState.IDLE, "last_build_at": None}
-    ]
+    assert cap["enqueued"] == [{"config_id": _CFG.id, "target_revision": _CFG.corpus_revision}]
 
 
 def _afn(value: Any):

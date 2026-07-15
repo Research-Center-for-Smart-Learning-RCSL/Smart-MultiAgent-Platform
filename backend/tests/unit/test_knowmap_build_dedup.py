@@ -1,0 +1,240 @@
+"""F-12 — Knowledge Map build dedup by corpus revision.
+
+The pre-fix build dedup keyed the Arq job id on the config's
+``(last_build_state, last_build_at@1s)`` snapshot read before the slow work and
+used to enqueue after commit, so an upload committing while a build ran computed
+the same id and was silently dropped. These tests cover the revision-based job id
+(distinct corpus states never collide, the same revision still dedups), the
+enqueue's target-revision plumbing + suppressed-enqueue observability, the
+completion re-check that self-heals a corpus that advanced during a build, and
+the transactional corpus-revision bump on a document mutation.
+"""
+
+from __future__ import annotations
+
+import uuid
+from types import SimpleNamespace
+from typing import Any
+from unittest.mock import AsyncMock, patch
+
+import pytest
+
+from contexts.knowledge.application.knowmap_triggers import (
+    enqueue_knowmap_build,
+    knowmap_build_job_id,
+)
+
+# ---------------------------------------------------------------------------
+# Revision-based job id (§8.1, §8.2, §8.4 / AC-4)
+# ---------------------------------------------------------------------------
+
+
+def test_job_id_format_is_revision_based() -> None:
+    cid = uuid.uuid4()
+    assert knowmap_build_job_id(cid, target_revision=5) == f"knowmap:build:{cid}:5"
+
+
+def test_concurrent_upload_gets_distinct_job_id() -> None:
+    # §8.1 primary: build A targets corpus revision 1; upload B commits (revision
+    # -> 2) while A runs. B must not collide with A's retained job id — the pre-fix
+    # bug computed knowmap:build:{C}:idle:0 for both.
+    cid = uuid.uuid4()
+    assert knowmap_build_job_id(cid, target_revision=1) != knowmap_build_job_id(cid, target_revision=2)
+
+
+def test_same_revision_dedups_to_one_job_id() -> None:
+    # §8.2: two enqueues for the same corpus revision collapse to one job.
+    cid = uuid.uuid4()
+    assert knowmap_build_job_id(cid, target_revision=5) == knowmap_build_job_id(cid, target_revision=5)
+
+
+def test_sub_second_distinct_revisions_do_not_collide() -> None:
+    # §8.4: two mutations within one wall-clock second get distinct revisions ->
+    # distinct ids, where the old int-second epoch nonce would have collided.
+    cid = uuid.uuid4()
+    assert knowmap_build_job_id(cid, target_revision=7) != knowmap_build_job_id(cid, target_revision=8)
+
+
+def test_distinct_configs_never_collide() -> None:
+    # Two configs at the same revision must not share a job id — the config id is
+    # part of the discriminator (carried over from the pre-F-12 contract).
+    a, b = uuid.uuid4(), uuid.uuid4()
+    assert knowmap_build_job_id(a, target_revision=1) != knowmap_build_job_id(b, target_revision=1)
+
+
+# ---------------------------------------------------------------------------
+# enqueue_knowmap_build — target-revision plumbing + dedup observability (§7.6)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_enqueue_passes_target_revision_and_job_id() -> None:
+    cid = uuid.uuid4()
+    fake = AsyncMock(return_value=SimpleNamespace())  # arq Job handle
+    with patch("shared_kernel.queue.enqueue", fake):
+        await enqueue_knowmap_build(config_id=cid, target_revision=3)
+    fake.assert_awaited_once()
+    call = fake.await_args
+    assert call.args[0] == "knowmap_build"
+    assert call.kwargs["config_id"] == str(cid)
+    assert call.kwargs["target_revision"] == 3
+    assert call.kwargs["_job_id"] == f"knowmap:build:{cid}:3"
+
+
+@pytest.mark.asyncio
+async def test_enqueue_tolerates_dedup_none_return() -> None:
+    # A None return is a legitimate same-revision dedup — must not raise.
+    with patch("shared_kernel.queue.enqueue", AsyncMock(return_value=None)):
+        await enqueue_knowmap_build(config_id=uuid.uuid4(), target_revision=1)
+
+
+@pytest.mark.asyncio
+async def test_enqueue_is_best_effort_on_error() -> None:
+    with patch("shared_kernel.queue.enqueue", AsyncMock(side_effect=RuntimeError("redis down"))):
+        await enqueue_knowmap_build(config_id=uuid.uuid4(), target_revision=1)  # no raise
+
+
+# ---------------------------------------------------------------------------
+# Completion re-check (§8.3 / AC-2)
+# ---------------------------------------------------------------------------
+
+
+class _FakeSession:
+    async def __aenter__(self) -> _FakeSession:
+        return self
+
+    async def __aexit__(self, *_a: Any) -> None:
+        return None
+
+    def begin(self) -> Any:
+        class _Begin:
+            async def __aenter__(self) -> None:
+                return None
+
+            async def __aexit__(self, *_a: Any) -> None:
+                return None
+
+        return _Begin()
+
+
+def _sm() -> Any:
+    return lambda: _FakeSession()
+
+
+async def _run_finalize(*, succeeded: bool, target: int | None, current_rev: int) -> tuple[Any, Any, Any]:
+    from app.workers.tasks import knowmap as kmod
+
+    cfg_id = uuid.uuid4()
+    repo = AsyncMock()
+    repo.get.return_value = SimpleNamespace(corpus_revision=current_rev)
+    enq = AsyncMock()
+    with (
+        patch.object(kmod, "KnowmapConfigRepository", return_value=repo),
+        patch.object(kmod, "enqueue_knowmap_build", enq),
+    ):
+        out = await kmod._finalize_build_revision(_sm(), cfg_id, target, succeeded=succeeded)
+    return out, repo, enq
+
+
+@pytest.mark.asyncio
+async def test_finalize_enqueues_follow_up_when_corpus_advanced() -> None:
+    # Build for revision 1 finished while corpus_revision is already 2 -> a
+    # follow-up build for revision 2 is enqueued (self-heals the mid-build change).
+    out, repo, enq = await _run_finalize(succeeded=True, target=1, current_rev=2)
+    assert out == 2
+    repo.set_built_corpus_revision.assert_awaited_once()
+    assert repo.set_built_corpus_revision.await_args.args[1] == 1
+    enq.assert_awaited_once()
+    assert enq.await_args.kwargs["target_revision"] == 2
+
+
+@pytest.mark.asyncio
+async def test_finalize_no_follow_up_when_revision_caught_up() -> None:
+    out, _repo, enq = await _run_finalize(succeeded=True, target=2, current_rev=2)
+    assert out is None
+    enq.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_finalize_noop_on_failed_build() -> None:
+    out, repo, enq = await _run_finalize(succeeded=False, target=1, current_rev=5)
+    assert out is None
+    repo.set_built_corpus_revision.assert_not_awaited()
+    enq.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_finalize_noop_without_target_revision() -> None:
+    out, repo, enq = await _run_finalize(succeeded=True, target=None, current_rev=5)
+    assert out is None
+    repo.set_built_corpus_revision.assert_not_awaited()
+    enq.assert_not_awaited()
+
+
+# ---------------------------------------------------------------------------
+# Transactional corpus-revision bump (§8.5 / AC-3)
+# ---------------------------------------------------------------------------
+
+
+class _BumpResult:
+    def __init__(self, rev: int | None) -> None:
+        self._rev = rev
+
+    def first(self) -> Any:
+        return SimpleNamespace(corpus_revision=self._rev) if self._rev is not None else None
+
+
+class _BumpSession:
+    def __init__(self, rev: int | None) -> None:
+        self._rev = rev
+        self.statements: list[Any] = []
+
+    async def execute(self, stmt: Any) -> _BumpResult:
+        self.statements.append(stmt)
+        return _BumpResult(self._rev)
+
+
+@pytest.mark.asyncio
+async def test_bump_corpus_revision_returns_incremented_value() -> None:
+    from contexts.knowledge.infrastructure.knowmap_repositories import KnowmapConfigRepository
+
+    repo = KnowmapConfigRepository(_BumpSession(rev=5))  # type: ignore[arg-type]
+    assert await repo.bump_corpus_revision(uuid.uuid4()) == 5
+
+
+@pytest.mark.asyncio
+async def test_bump_corpus_revision_missing_config_returns_zero() -> None:
+    from contexts.knowledge.infrastructure.knowmap_repositories import KnowmapConfigRepository
+
+    repo = KnowmapConfigRepository(_BumpSession(rev=None))  # type: ignore[arg-type]
+    assert await repo.bump_corpus_revision(uuid.uuid4()) == 0
+
+
+@pytest.mark.asyncio
+async def test_index_document_bumps_corpus_revision_once() -> None:
+    # The mutation path must bump the revision exactly once per committed index.
+    from contexts.knowledge.application import knowmap_ingest_service as kis
+    from contexts.knowledge.application.knowmap_ingest_service import KnowmapIngestService
+    from contexts.knowledge.domain.models import ChunkStrategy
+
+    svc = KnowmapIngestService(AsyncMock(), blob=AsyncMock(), embedder=AsyncMock())
+    svc._chunks = AsyncMock()
+    svc._docs = AsyncMock()
+    svc._configs = AsyncMock()
+    config_id = uuid.uuid4()
+    doc = SimpleNamespace(id=uuid.uuid4(), mime="text/plain", knowmap_config_id=config_id)
+    svc._docs.get.return_value = doc
+    cfg = SimpleNamespace(chunk_strategy=ChunkStrategy.FIXED, chunk_params={})
+
+    async def _fake_chunk(*_a: Any, **_k: Any) -> list[str]:
+        return ["chunk-0"]
+
+    with (
+        patch.dict(kis.MIME_TO_PARSER, {"text/plain": lambda _data: "text"}, clear=False),
+        patch.object(kis, "chunk_document", _fake_chunk),
+        patch.object(kis.audit, "emit", new=AsyncMock()),
+    ):
+        await svc._index_document(
+            doc=doc, cfg=cfg, data=b"x", actor_user_id=None, actor_ip=None, request_id=None
+        )
+    svc._configs.bump_corpus_revision.assert_awaited_once_with(config_id)
