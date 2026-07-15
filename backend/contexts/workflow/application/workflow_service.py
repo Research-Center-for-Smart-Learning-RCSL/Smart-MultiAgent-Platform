@@ -348,9 +348,7 @@ class WorkflowService:
 
         result = self.validate(defn)
         if result.errors:
-            raise WorkflowValidationFailed(
-                f"{len(result.errors)} validation error(s): {result.errors[0].message}"
-            )
+            raise WorkflowValidationFailed([_issue_to_dict(e) for e in result.errors])
 
         pid = project_id
         if pid is None:
